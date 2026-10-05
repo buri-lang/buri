@@ -587,8 +587,21 @@ impl Identity {
 /// it has always been while the spawns overlap: on a toolchain whose `cc` is a
 /// wrapper script the driver's banner costs twice what the linker's does, and
 /// asking them one after the other pays for both.
+///
+/// **Asked once per toolchain, not once per process.** Almost every `buri`
+/// process links once, so the memo in [`PROBED`] saved nothing across a run of
+/// many small builds: the full test suite asked `clang --version` 782 times.
+/// The answer is kept under `~/.buri/linker-identity/`, named by
+/// [`probe_record`], and read back while every program is the same file it was.
 fn probe(programs: &[PathBuf]) -> String {
+    let record = probe_record(programs);
+    if let Some(found) = record.as_ref().and_then(|r| std::fs::read_to_string(r).ok()) {
+        if found.len() == 64 && found.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return found;
+        }
+    }
     let mut identity = String::new();
+    let mut answered = true;
     let mut started = Vec::with_capacity(programs.len());
     for program in programs {
         let owned = program.clone();
@@ -606,9 +619,82 @@ fn probe(programs: &[PathBuf]) -> String {
         let banner = handle
             .and_then(|handle| handle.join().ok())
             .unwrap_or_else(|| version_of(program));
-        identity.push_str(&banner);
+        answered &= banner.is_some();
+        identity.push_str(&banner.unwrap_or_else(|| program.display().to_string()));
     }
-    hash_bytes(identity.as_bytes())
+    let hashed = hash_bytes(identity.as_bytes());
+    // A program that did not answer is asked again by the next process rather
+    // than remembered as silent: the failure may have been this process's.
+    if let Some(record) = record.filter(|_| answered) {
+        remember(&record, &hashed);
+    }
+    hashed
+}
+
+/// Where [`probe`]'s answer for these programs is kept: a name that changes
+/// whenever anything that could change a banner does.
+///
+/// That is each program's path and the file it resolves to, which a new
+/// toolchain moves. Its size, times, device and inode, so that a program
+/// replaced in place moves it too. The environment the replay key reads
+/// ([`shapes_the_link`]), because a driver that is a script finds what it runs
+/// through it. And on macOS the developer directory `xcode-select` chose,
+/// which is where `/usr/bin/cc` finds the clang it runs.
+///
+/// `None` when a program cannot be examined or there is no home to keep the
+/// answer in, and then every process asks, as every process used to.
+fn probe_record(programs: &[PathBuf]) -> Option<PathBuf> {
+    let mut text = String::from("linker identity v1\0");
+    for program in programs {
+        let meta = std::fs::metadata(program).ok()?;
+        let resolved = std::fs::canonicalize(program).ok()?;
+        text.push_str(&format!(
+            "{}\0{}\0{}\0",
+            program.display(),
+            resolved.display(),
+            file_identity(&meta)
+        ));
+    }
+    text.push_str(&shaping_environment());
+    if let Ok(chosen) = std::fs::read_link("/var/db/xcode_select_link") {
+        text.push_str(&format!("xcode-select={}\0", chosen.display()));
+    }
+    Some(runtime_cross::buri_home().ok()?.join("linker-identity").join(hash_bytes(text.as_bytes())))
+}
+
+/// A file's size, times and place on disk, as text.
+#[cfg(unix)]
+fn file_identity(meta: &std::fs::Metadata) -> String {
+    use std::os::unix::fs::MetadataExt;
+    format!(
+        "{} {} {}.{} {}.{} {}",
+        meta.dev(),
+        meta.ino(),
+        meta.mtime(),
+        meta.mtime_nsec(),
+        meta.ctime(),
+        meta.ctime_nsec(),
+        meta.len()
+    )
+}
+
+/// A file's size and modification time, as text.
+#[cfg(not(unix))]
+fn file_identity(meta: &std::fs::Metadata) -> String {
+    let modified = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+    format!("{} {:?}", meta.len(), modified)
+}
+
+/// Writes `text` to `record` through a rename, so a process reading it at the
+/// same moment sees all of it or none. Failing to write is not failing: the
+/// next process asks again.
+fn remember(record: &Path, text: &str) {
+    let Some(dir) = record.parent() else { return };
+    let _ = std::fs::create_dir_all(dir);
+    let partial = dir.join(format!(".partial-{}-{:?}", std::process::id(), std::thread::current().id()));
+    if std::fs::write(&partial, text).is_err() || std::fs::rename(&partial, record).is_err() {
+        let _ = std::fs::remove_file(&partial);
+    }
 }
 
 /// The identity probes this process has already started, by the programs they
@@ -828,14 +914,11 @@ fn choose(platform: Platform) -> Flavour {
 /// The bytes rather than a parsed version number: what has to be true is that
 /// two different linkers produce two different strings, and a version banner
 /// already does that without this having to know the shape of anyone's.
-/// Unreadable — a driver that does not answer `--version` — contributes the
-/// program's own path, so the field is never silently empty.
-fn version_of(program: &Path) -> String {
-    let out = spawn::output(Command::new(program).arg("--version"));
-    match out {
-        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).into_owned(),
-        _ => program.display().to_string(),
-    }
+/// `None` for a driver that does not answer `--version`; [`probe`] puts the
+/// program's own path in its place, so the field is never silently empty.
+fn version_of(program: &Path) -> Option<String> {
+    let out = spawn::output(Command::new(program).arg("--version")).ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 // ---------------------------------------------------------------------------
@@ -2209,6 +2292,16 @@ fn shapes_the_link(name: &str) -> bool {
         )
 }
 
+/// Every variable [`shapes_the_link`] names, with its value, sorted.
+fn shaping_environment() -> String {
+    let mut env: Vec<(String, String)> = std::env::vars_os()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.to_string_lossy().into_owned())))
+        .filter(|(k, _)| shapes_the_link(k))
+        .collect();
+    env.sort();
+    env.iter().map(|(k, v)| format!("{k}={v}\0")).collect()
+}
+
 /// The replays this process has captured or read, `None` where the driver's
 /// line cannot be replayed.
 static REPLAYS: std::sync::Mutex<Vec<(String, Option<Replay>)>> = std::sync::Mutex::new(Vec::new());
@@ -2218,21 +2311,15 @@ impl CDriver {
     /// the driver prints.
     fn replay_key(&self, runtime: RuntimeArchive) -> ActionKey {
         let mut text = format!(
-            "link replay v1\0{}\0{}\0{}\0{}\0{}\0",
+            "link replay v2\0{}\0{}\0{}\0{}\0{}\0{}\0",
+            crate::build::cache::running_exe_identity().unwrap_or_default(),
             self.driver.display(),
             self.version(),
             self.link_identity(),
             runtime.is_linked(),
             self.lld_dir.as_deref().map(Path::display).map(|d| d.to_string()).unwrap_or_default(),
         );
-        let mut env: Vec<(String, String)> = std::env::vars_os()
-            .filter_map(|(k, v)| Some((k.into_string().ok()?, v.to_string_lossy().into_owned())))
-            .filter(|(k, _)| shapes_the_link(k))
-            .collect();
-        env.sort();
-        for (k, v) in env {
-            text.push_str(&format!("{k}={v}\0"));
-        }
+        text.push_str(&shaping_environment());
         ActionKey::of(text.as_bytes())
     }
 
@@ -2252,13 +2339,14 @@ impl CDriver {
         if let Some((_, known)) = table.iter().find(|(k, _)| k == key.as_str()) {
             return known.clone();
         }
-        let stored = self.store.as_ref().and_then(|cache| cache.get(&key));
+        let record = self.replay_record(&key);
+        let stored = record.as_ref().and_then(|r| std::fs::read_to_string(r).ok());
         let found = match stored {
-            Some(bytes) => std::str::from_utf8(&bytes).ok().and_then(Replay::from_text),
+            Some(text) => Replay::from_text(&text),
             None => {
                 let captured = self.capture(args, objects);
-                if let Some(cache) = &self.store {
-                    cache.put(&key, captured.as_ref().map(Replay::to_text).unwrap_or_default().as_bytes());
+                if let Some(record) = &record {
+                    remember(record, &captured.as_ref().map(Replay::to_text).unwrap_or_default());
                 }
                 captured
             }
@@ -2286,9 +2374,24 @@ impl CDriver {
             table.retain(|(k, _)| k != key.as_str());
             table.push((key.as_str().to_string(), None));
         }
-        if let Some(cache) = &self.store {
-            cache.put(&key, b"");
+        if let Some(record) = self.replay_record(&key) {
+            remember(&record, "");
         }
+    }
+
+    /// Where the replay for `key` is kept between processes:
+    /// `~/.buri/link-replay/<key>`, beside the linker's identity.
+    ///
+    /// Per toolchain rather than per repository, because the key already holds
+    /// everything that can change what the driver prints, and the repository is
+    /// not part of it. In the repository's cache, every fresh repository and
+    /// every `buri clean` started the driver again just to print the same line.
+    ///
+    /// `None` for a link with the cache off, which keeps nothing between
+    /// processes, as before.
+    fn replay_record(&self, key: &ActionKey) -> Option<PathBuf> {
+        self.store.as_ref()?;
+        Some(runtime_cross::buri_home().ok()?.join("link-replay").join(key.as_str()))
     }
 }
 
