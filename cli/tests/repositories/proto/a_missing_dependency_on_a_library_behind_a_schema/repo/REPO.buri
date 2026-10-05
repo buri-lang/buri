@@ -1,0 +1,6 @@
+# The fields a REPO.buri may declare:
+# https://buri-lang.vercel.app/reference/repo-schema/
+lint {
+    check_during_build: true
+    fail_on_finding: true
+}

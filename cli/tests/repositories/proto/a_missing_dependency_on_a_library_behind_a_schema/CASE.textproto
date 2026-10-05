@@ -1,0 +1,24 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a binary importing a library it does not depend on, whose own dependency reads a generated schema module, gets missing-dependency at its import, as it would with no generator involved, rather than an error inside a library with nothing wrong with it"
+
+# The schema's generator runs although no `dependencies` list leads to it, so
+# //libs/inner checks and the one mistake left is the binary's.
+run {
+  args: ["build", "//apps/hello"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+edit {
+  file: "apps/hello/BUILD.buri"
+  replace: "binary {\n}"
+  with: "binary {\n    dependencies: [\"//libs/outer\"]\n}"
+}
+
+run {
+  args: ["run", "//apps/hello"]
+  exit: 0
+  golden: "run.txt"
+}
