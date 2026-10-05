@@ -1289,7 +1289,8 @@ swallows its pong, so `onMessage` sees `.Text` and `.Binary` and nothing
 else. A browser can't send a ping, so on `JS` and `WEB` `ping` does nothing. A
 socket costs a worker: its whole life runs on the one that accepted it, so the
 hooks on a socket run in order by construction, and a server holding
-`listener.handlers` sockets has none left to accept with. A socket still open
+`listener.handlers` sockets has none left to accept with. That's 1024 per
+listener on a native `--release` build, and an idle socket holds no thread. A socket still open
 when a shutdown begins closes with `.GoingAway`, and `onClose` still runs.
 
 **A server stops gracefully.** `SIGTERM` and `SIGINT` do not kill a program
@@ -1299,6 +1300,8 @@ is closed. `serve` returns `.Ok(())`, and whatever a program does after `serve`
 still happens. `drain` bounds how long the middle step may take, and a
 second signal is the operating system's own, so `Ctrl-C` twice stops a process
 that will not drain. The platform holds the signals only while it holds a port.
+`listener.close(ctx)` stops a listener from another task, so `run` on it
+returns `.Ok` without a drain.
 
 `core/net/tcp` is the layer under both of those: a connection dialled out,
 bytes each way, and no opinion about what they mean. `connect(ctx, host, port)`
