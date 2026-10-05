@@ -25,7 +25,7 @@ from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator, Ui, Watch };
 from "platform/effect/testing" import {
-    alloc, headless, observer, Recorder, recorder, render, stylesheet,
+    alloc, headless, observer, Recorder, recorder, render, Rendered, stylesheet,
 };
 from "ui/node" import * as ui;
 from "ui/node" import { FieldKind, Node, PickedFile, PointerAt };
@@ -6169,6 +6169,155 @@ test "a pointer press does not reach an element the pointer passes through" {
     let _ = page.pointerDown("Ghost", 0.0, 0.0);
     let _ = page.pointerUp("Ghost", 0.0, 0.0);
     assert.equal(log.recorded(), []);
+}
+
+/// Presses, moves and releases the pointer on the element named `name`.
+fn pressMoveRelease(page: Rendered, name: Str): () {
+    let _ = page.pointerDown(name, 1.0, 1.0);
+    let _ = page.pointerMove(name, 2.0, 2.0);
+    page.pointerUp(name, 3.0, 3.0)
+}
+
+/// The three lines `pressMoveRelease` logs for an element named `name`.
+fn pressMoveReleaseLog(name: Str): [Str] {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    [
+        str.format(ctx, "${name} down 1.0,1.0 1.0,1.0 -"),
+        str.format(ctx, "${name} move 2.0,2.0 2.0,2.0 -"),
+        str.format(ctx, "${name} up 3.0,3.0 3.0,3.0 -"),
+    ]
+}
+
+test "every element runs its own pointer handlers, a control as well as a box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Grab"),
+                    styles: [],
+                    onPointerDown: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Grab", "down", at)
+                    }),
+                    onPointerMove: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Grab", "move", at)
+                    }),
+                    onPointerUp: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Grab", "up", at)
+                    }),
+                }),
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: signal(ctx, ""),
+                    styles: [],
+                    onPointerDown: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Name", "down", at)
+                    }),
+                    onPointerMove: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Name", "move", at)
+                    }),
+                    onPointerUp: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Name", "up", at)
+                    }),
+                }),
+                ui.slider({
+                    label: .Const("Volume"),
+                    value: signal(ctx, 40.0),
+                    min: 0.0,
+                    max: 100.0,
+                    styles: [],
+                    onPointerDown: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Volume", "down", at)
+                    }),
+                    onPointerMove: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Volume", "move", at)
+                    }),
+                    onPointerUp: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Volume", "up", at)
+                    }),
+                }),
+                ui.toggle({
+                    label: .Const("Loud"),
+                    kind: .Checkbox,
+                    isOn: signal(ctx, false),
+                    styles: [],
+                    onPointerDown: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Loud", "down", at)
+                    }),
+                    onPointerMove: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Loud", "move", at)
+                    }),
+                    onPointerUp: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Loud", "up", at)
+                    }),
+                }),
+                ui.picker({
+                    label: .Const("Size"),
+                    options: [("m", ui.text({ content: .Const("Medium") }))],
+                    value: signal(ctx, "m"),
+                    styles: [],
+                    onPointerDown: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Size", "down", at)
+                    }),
+                    onPointerMove: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Size", "move", at)
+                    }),
+                    onPointerUp: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Size", "up", at)
+                    }),
+                }),
+            ],
+        }),
+    );
+    let _ = pressMoveRelease(page, "Grab");
+    let _ = pressMoveRelease(page, "Name");
+    let _ = pressMoveRelease(page, "Volume");
+    let _ = pressMoveRelease(page, "Loud");
+    let _ = pressMoveRelease(page, "Medium");
+    let ctx2 = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        log.recorded(),
+        pressMoveReleaseLog("Grab")
+            .concat(ctx2, pressMoveReleaseLog("Name"))
+            .concat(ctx2, pressMoveReleaseLog("Volume"))
+            .concat(ctx2, pressMoveReleaseLog("Loud"))
+            .concat(ctx2, pressMoveReleaseLog("Size")),
+    );
+}
+
+test "an open dialog runs its own pointer handlers" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.dialog({
+            isOpen: signal(ctx, true),
+            label: .Const("Panel"),
+            children: [ui.text({ content: .Const("Are you sure?") })],
+            styles: [],
+            onPointerDown: .Some(fn(c, at) => sawPointer(c, log, "Panel", "down", at)),
+            onPointerMove: .Some(fn(c, at) => sawPointer(c, log, "Panel", "move", at)),
+            onPointerUp: .Some(fn(c, at) => sawPointer(c, log, "Panel", "up", at)),
+        }),
+    );
+    let _ = pressMoveRelease(page, "Are you sure?");
+    assert.equal(log.recorded(), pressMoveReleaseLog("Panel"));
 }
 
 test "pointer handlers change nothing a reader sees or a picture shows" {

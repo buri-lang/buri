@@ -3363,7 +3363,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let ctx_ty = CtxType {
             bindings: bindings.iter().map(|(t, e)| (*t, self.subst.resolve(&e.ty))).collect(),
         };
-        let id = self.c.tables.add_ctx_type(ctx_ty);
+        let id = self.c.tables.intern_ctx_type(ctx_ty);
         typed::Expr::new(typed::ExprKind::CtxLit { bindings }, Ty::ctx(id), span)
     }
 
@@ -3399,8 +3399,14 @@ impl<'a, 'b> Infer<'a, 'b> {
             self.pop_scope();
             checked.push(typed::Arm { pattern: pat, guard, body, span: t.span_of(arm.span) });
         }
-        // The match must be exhaustive, and no arm may be unreachable.
-        crate::compiler::semantics::exhaustiveness::check(self, &sty, &checked, span);
+        // The match must be exhaustive, and no arm may be unreachable. The
+        // algorithm reads the scrutinee's type all the way down — a tuple
+        // under `.Some` is one constructor only once it is known to be a
+        // tuple — so it gets the type with every variable solved so far, not
+        // just its head: a lambda's answer or a pattern may have settled a
+        // payload after `sty` was read.
+        let whole = self.subst.resolve(&sty);
+        crate::compiler::semantics::exhaustiveness::check(self, &whole, &checked, span);
         typed::Expr::new(
             typed::ExprKind::Match { scrutinee: Box::new(s), arms: checked },
             result,
