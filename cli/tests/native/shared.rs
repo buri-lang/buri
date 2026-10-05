@@ -461,8 +461,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 ///
 /// How many handlers there are is not a parameter, because it is not a knob:
 /// the acceptor answers with `net.rs`'s `MAX_HANDLERS` on `Listener.handlers`
-/// and `run` fans out to it. That constant being a constant — sixty-four, and
-/// not a function of this machine's processor count — is what makes the timing
+/// and `run` fans out to it. That constant being a constant — 1024, and not a
+/// function of this machine's processor count — is what makes the timing
 /// assertion predictable, and `net.rs` says so where it is declared.
 pub fn concurrent_server(requests: usize, sleep_milliseconds: usize) -> String {
     format!(

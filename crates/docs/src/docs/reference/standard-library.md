@@ -1289,7 +1289,8 @@ swallows its pong, so `onMessage` sees `.Text` and `.Binary` and nothing
 else. A browser can't send a ping, so on `JS` and `WEB` `ping` does nothing. A
 socket costs a worker: its whole life runs on the one that accepted it, so the
 hooks on a socket run in order by construction, and a server holding
-`listener.handlers` sockets has none left to accept with. A socket still open
+`listener.handlers` sockets has none left to accept with. That's 1024 per
+listener on a native `--release` build, and an idle socket holds no thread. A socket still open
 when a shutdown begins closes with `.GoingAway`, and `onClose` still runs.
 
 **A server stops gracefully.** `SIGTERM` and `SIGINT` do not kill a program
