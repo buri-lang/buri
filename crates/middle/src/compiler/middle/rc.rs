@@ -1562,8 +1562,15 @@ fn collect_consuming(
     // `let n = r.push(..);`, as `(n, r)`: a name for the result of a growth,
     // and what was grown.
     let mut grown: Vec<(LocalId, &Expr)> = Vec::new();
+    // The locals a functional update is written over.
+    let mut bases: Vec<LocalId> = Vec::new();
     if let Some(g) = pieces {
         typed::walk(body, &mut |e| {
+            if let ExprKind::StructUpdate { base, .. } = &e.kind {
+                if let ExprKind::Local(l) = base.kind {
+                    bases.push(l);
+                }
+            }
             let ExprKind::Block { stmts, .. } = &e.kind else { return };
             for st in stmts {
                 let Stmt::Let { pattern, value, .. } = st else { continue };
@@ -1639,10 +1646,10 @@ fn collect_consuming(
         // b)`, or the same through a `let` — is taken by the first growth. Lent,
         // the first push grew it in place and answered a second count on the
         // block the lender still held, so the second push found it at two and
-        // copied it, once per step of a fold that pushes two elements. A local
-        // only: a field of a dying update is moved into the first growth
-        // instead (`Scan::children`), and taking the record whole for it
-        // kept the update from moving the field at all.
+        // copied it, once per step of a fold that pushes two elements. Not a
+        // field of a record an update is written over: the update moves it
+        // into the first growth instead (`Scan::children`), and taking the
+        // record whole for it kept the update from moving the field at all.
         ExprKind::CallFn { func, args }
             if pieces.is_some_and(|g| grower(g, func.func())) =>
         {
@@ -1655,7 +1662,8 @@ fn collect_consuming(
                 }
                 _ => None,
             };
-            if let Some(r @ Expr { kind: ExprKind::Local(_), .. }) = taken {
+            let updated = taken.and_then(field_root).is_some_and(|r| bases.contains(&r));
+            if let Some(r) = taken.filter(|_| !updated) {
                 consume(r, out, counted);
             }
             let row = func.func().and_then(|f| own.get(f.index()));

@@ -675,9 +675,10 @@ Each `growth/case_NNN.buri` grows a list, a string, or a record holding a
 list, through one mix of the shapes ownership bugs came from: `foldCtx`,
 `foldResultCtx`, a loop, plain recursion and `mapCtx`; a bare, tuple, record,
 nested record or enum-wrapped accumulator; a destructuring `let`, a field read
-or a `match`; helpers small enough to inline or not, that read the value or
-push onto it; literal strings, built strings, or records holding built
-strings as elements; an aliasing `let`; an early stop or a `?`; one loop
+or a `match`; helpers small enough to inline or not, that read the value
+(through a closure too) or push onto it; one push a step, two, or a
+`concat`; literal strings, built strings, or records holding built strings as
+elements; an aliasing `let`; an early stop or a `?`; one loop
 nested in another; and a half kept and read again after the rest is grown
 from it. The header pins what it prints and how many blocks it may
 allocate:
