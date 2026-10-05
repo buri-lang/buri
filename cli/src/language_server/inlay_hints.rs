@@ -472,7 +472,7 @@ mod tests {
 
     #[test]
     fn a_literal_is_worth_naming_and_a_name_that_repeats_the_parameter_is_not() {
-        let literal = argument("250", ExprKind::Int(250, false));
+        let literal = argument("250", ExprKind::Int(typed::Magnitude::new(250), false));
         assert!(worth_naming("250", &parameter("price"), &literal));
 
         let name = argument("each", ExprKind::Local(LocalId(0)));
