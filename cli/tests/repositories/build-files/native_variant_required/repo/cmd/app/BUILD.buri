@@ -1,7 +1,0 @@
-# No `variant`: `native` requires one. The build file is refused before any
-# source is read, so the binary needs no `main.buri` to show it.
-binary {
-    outputs: [
-        { platform: "native" },
-    ]
-}

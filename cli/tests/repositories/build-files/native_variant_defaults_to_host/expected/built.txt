@@ -1,0 +1,1 @@
+.buri/out/native/{{HOST_VARIANT}}/cmd/app/app (N bytes)

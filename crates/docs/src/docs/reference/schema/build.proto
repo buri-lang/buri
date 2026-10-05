@@ -249,12 +249,13 @@ message Output {
   // or a label naming the repository's own, `"//platform/cloudflare_worker"`.
   // Every library in the transitive closure must admit it. An output of a
   // repository platform builds every entry it declares, each to a file named
-  // after the entry, under `.buri/out/platform/<name>/`.
+  // after the entry, under `.buri/out/platform/<name>/`; a bundled one
+  // writes under `.buri/out/<platform>/`.
   string platform = 1;
 
   // One of the variants the platform's entries declare. Required when an entry
   // says `variant_required`. `native`'s are `linux-arm64`, `linux-x86_64`,
-  // `macos-arm64` and `macos-x86_64`.
+  // `macos-arm64` and `macos-x86_64`, and the host's when this is omitted.
   string variant = 6;
 
   // The function filling one of the platform's entries, where it is not the
