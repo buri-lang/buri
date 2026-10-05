@@ -1,0 +1,104 @@
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Stdout };
+from "platform/effect/testing" import { alloc, stdout };
+from "web/storage" import * as storage;
+from "web/storage" import { Storage };
+from "web/storage/testing" import * as testing;
+from "//cmd/page/main.buri" import { visit };
+
+test "set, get and delete one key" {
+    let ctx = context {
+        Allocator: alloc(),
+        Storage: testing.storage(),
+    };
+    assert.equal(storage.get(ctx, "draft"), .Ok(.None));
+    assert.equal(storage.set(ctx, "draft", [104, 105]), .Ok(()));
+    assert.equal(storage.get(ctx, "draft"), .Ok(.Some([104, 105])));
+    assert.equal(storage.set(ctx, "draft", [33]), .Ok(()));
+    assert.equal(storage.get(ctx, "draft"), .Ok(.Some([33])));
+    assert.equal(storage.delete(ctx, "draft"), .Ok(()));
+    assert.equal(storage.get(ctx, "draft"), .Ok(.None));
+    assert.equal(storage.delete(ctx, "draft"), .Ok(()));
+}
+
+test "keys answers the keys under a prefix, in order" {
+    let ctx = context {
+        Allocator: alloc(),
+        Storage: testing.storage(),
+    };
+    assert.equal(storage.set(ctx, "draft/2", [2]), .Ok(()));
+    assert.equal(storage.set(ctx, "sent/1", [1]), .Ok(()));
+    assert.equal(storage.set(ctx, "draft/1", [1]), .Ok(()));
+    assert.equal(storage.keys(ctx, "draft/"), .Ok(["draft/1", "draft/2"]));
+    assert.equal(storage.keys(ctx, ""), .Ok(["draft/1", "draft/2", "sent/1"]));
+    assert.equal(storage.keys(ctx, "outbox/"), .Ok([]));
+}
+
+test "a reloaded page reads what the last one wrote" {
+    let store = testing.storage();
+    let out = stdout();
+    let first = context {
+        Allocator: alloc(),
+        Stdout: out,
+        Storage: store,
+    };
+    assert.equal(visit(first), .Ok(()));
+    assert.equal(visit(first), .Ok(()));
+    let reloaded = context {
+        Allocator: alloc(),
+        Stdout: out,
+        Storage: store.reload(),
+    };
+    assert.equal(visit(reloaded), .Ok(()));
+    assert.equal(
+        out.captured(),
+        "visit 1, keeping visit/1\nvisit 2, keeping visit/1 visit/2\nvisit 3, keeping visit/2 visit/3\n",
+    );
+}
+
+test "a fresh store remembers nothing" {
+    let used = context {
+        Allocator: alloc(),
+        Storage: testing.storage(),
+    };
+    assert.equal(storage.set(used, "draft", [1]), .Ok(()));
+    let fresh = context {
+        Allocator: alloc(),
+        Storage: testing.storage(),
+    };
+    assert.equal(storage.get(fresh, "draft"), .Ok(.None));
+}
+
+test "a full quota refuses the write and keeps what was there" {
+    let ctx = context {
+        Allocator: alloc(),
+        Storage: testing.storage().withQuota(3),
+    };
+    assert.equal(storage.set(ctx, "a", [1, 2]), .Ok(()));
+    assert.equal(storage.set(ctx, "b", [3, 4]), .Err(.QuotaExceeded));
+    assert.equal(storage.set(ctx, "a", [1, 2, 3]), .Ok(()));
+    assert.equal(storage.get(ctx, "a"), .Ok(.Some([1, 2, 3])));
+    assert.equal(storage.keys(ctx, ""), .Ok(["a"]));
+}
+
+test "a page whose storage is full says so" {
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: stdout(),
+        Storage: testing.storage().withQuota(1),
+    };
+    assert.equal(visit(ctx), .Err(.QuotaExceeded));
+}
+
+test "refused storage answers every call with the reason" {
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: stdout(),
+        Storage: testing.refused("private window"),
+    };
+    assert.equal(storage.get(ctx, "a"), .Err(.Refused("private window")));
+    assert.equal(storage.set(ctx, "a", [1]), .Err(.Refused("private window")));
+    assert.equal(storage.delete(ctx, "a"), .Err(.Refused("private window")));
+    assert.equal(storage.keys(ctx, ""), .Err(.Refused("private window")));
+    assert.equal(visit(ctx), .Err(.Refused("private window")));
+}

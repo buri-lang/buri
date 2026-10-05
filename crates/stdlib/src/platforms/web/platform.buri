@@ -2,9 +2,9 @@
 //!
 //! `main` is handed a `WebHost`: the effects a page has. A page has a
 //! document, so it has `ui` and `watch`, which the backend implements, and
-//! `location`, which this platform implements itself in `main.mjs`. It has no
-//! filesystem, no standard input, no environment, no process and no port of
-//! its own.
+//! `location` and `storage`, which this platform implements itself in
+//! `main.mjs`. It has no filesystem, no standard input, no environment, no
+//! process and no port of its own.
 //!
 //! Every output gets `main.mjs`, the page's module, and `index.html`, the
 //! document that loads it, with `main.css` beside them when the page uses
@@ -27,6 +27,7 @@
 //! ```
 
 from "platform/effect" import { Location };
+from "web/storage" import { Storage, StorageError };
 from "platform/host" import {
     HostAllocator, HostClock, HostEntropy, HostNetwork, HostRandom, HostSockets,
     HostStderr, HostStdout, HostTasks, HostUi, HostWatch, HostWebSocketClient,
@@ -47,6 +48,7 @@ export struct WebHost {
     export ui: HostUi,
     export watch: HostWatch,
     export location: HostLocation,
+    export storage: HostStorage,
 }
 
 /// The address bar, over the browser's own `location` and `history`. A page
@@ -64,6 +66,49 @@ impl Location for HostLocation {
     fn push(self, path: Str): ();
 
     fn replace(self, path: Str): ();
+}
+
+/// The page's store, over the browser's IndexedDB: one object store in a
+/// database named `buri`, under the page's origin.
+///
+/// `main.mjs` implements `IndexedDb`, which this wraps. A failure arrives as
+/// the browser's error name, and `QuotaExceededError` is the one that isn't a
+/// refusal.
+export struct HostStorage {}
+
+impl Storage for HostStorage {
+    fn get(self, key: Str): Result<Option<[U8]>, StorageError> {
+        IndexedDb {}.get(key).mapErr(failure)
+    }
+
+    fn set(self, key: Str, value: [U8]): Result<(), StorageError> {
+        IndexedDb {}.put(key, value).mapErr(failure)
+    }
+
+    fn delete(self, key: Str): Result<(), StorageError> {
+        IndexedDb {}.delete(key).mapErr(failure)
+    }
+
+    fn keys(self, prefix: Str): Result<[Str], StorageError> {
+        IndexedDb {}.keys(prefix).mapErr(failure)
+    }
+}
+
+fn failure(reason: Str): StorageError {
+    if (reason == "QuotaExceededError") { .QuotaExceeded } else { .Refused(reason) }
+}
+
+// main.mjs implements every method, each throwing the browser's error.
+struct IndexedDb {}
+
+impl IndexedDb {
+    fn get(self, key: Str): Result<Option<[U8]>, Str>;
+
+    fn put(self, key: Str, value: [U8]): Result<(), Str>;
+
+    fn delete(self, key: Str): Result<(), Str>;
+
+    fn keys(self, prefix: Str): Result<[Str], Str>;
 }
 
 /// The page. It runs once, when the page loads; `.Err(msg)` prints `msg` to

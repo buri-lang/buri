@@ -1,0 +1,65 @@
+//! web/storage — bytes a page keeps across a reload.
+//!
+//! ```buri
+//! from "web/storage" import * as storage;
+//! from "web/storage" import { Storage, StorageError };
+//!
+//! /// Keeps a draft the reader hasn't sent, so a reload doesn't lose it.
+//! fn keep<C: Storage>(ctx: C, id: Str, draft: [U8]): Result<(), StorageError> {
+//!     storage.set(ctx, "draft/${id}", draft)
+//! }
+//! ```
+//!
+//! Only `web` offers `Storage`: `WebHost.storage` keeps each value in the
+//! browser's IndexedDB, under the page's origin. Every call waits on the
+//! browser without blocking the page. A test binds `web/storage/testing`'s
+//! in-memory store instead.
+//!
+//! A browser can refuse to store anything. A full quota is `.QuotaExceeded`,
+//! and anything else the browser won't do, such as storage in a private window
+//! or with site data blocked, is `.Refused` with the browser's reason. Neither
+//! stops the program.
+
+from "platform/effect" import { Allocator };
+
+/// A key-value store of bytes that outlives the page.
+export effect Storage {
+    /// The value under `key`, or `.None` when there is none.
+    fn get(self, key: Str): Result<Option<[U8]>, StorageError>;
+    /// `value` under `key`, replacing what was there.
+    fn set(self, key: Str, value: [U8]): Result<(), StorageError>;
+    /// Nothing under `key`. Deleting a key that isn't there is `.Ok`.
+    fn delete(self, key: Str): Result<(), StorageError>;
+    /// Every key starting with `prefix`, in ascending order.
+    fn keys(self, prefix: Str): Result<[Str], StorageError>;
+}
+
+derive Equal, Show for StorageError;
+/// Why the browser didn't store or read a value.
+export enum StorageError {
+    /// The origin's storage quota is spent.
+    QuotaExceeded,
+    /// The browser won't store anything, with its reason: a private window,
+    /// blocked site data, or no IndexedDB at all.
+    Refused(Str),
+}
+
+/// The value under `key`, or `.None` when there is none.
+export fn get<C: Allocator + Storage>(ctx: C, key: Str): Result<Option<[U8]>, StorageError> {
+    ctx.get(key)
+}
+
+/// Keeps `value` under `key`, replacing what was there.
+export fn set<C: Storage>(ctx: C, key: Str, value: [U8]): Result<(), StorageError> {
+    ctx.set(key, value)
+}
+
+/// Removes `key`. Deleting a key that isn't there is `.Ok`.
+export fn delete<C: Storage>(ctx: C, key: Str): Result<(), StorageError> {
+    ctx.delete(key)
+}
+
+/// Every key starting with `prefix`, in ascending order. `""` lists them all.
+export fn keys<C: Allocator + Storage>(ctx: C, prefix: Str): Result<[Str], StorageError> {
+    ctx.keys(prefix)
+}

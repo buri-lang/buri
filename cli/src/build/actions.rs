@@ -381,15 +381,17 @@ fn needed_structs(
         return Vec::new();
     };
     let structs = js_structs(tables, platform, host).into_iter().filter(|(_, m)| !m.is_empty());
-    let method = |f: &crate::compiler::semantics::types::FnInfo| Method {
+    // A method of no effect, as `web`'s `IndexedDb.get`, is its struct's to declare.
+    let method = |owner: &str, f: &crate::compiler::semantics::types::FnInfo| Method {
         name: f.name.clone(),
         params: f.params.len(),
-        effect: f.impl_of.map(|(t, _)| tables.trait_(t).name.clone()).unwrap_or_default(),
+        effect: f.impl_of.map_or_else(|| owner.to_string(), |(t, _)| tables.trait_(t).name.clone()),
     };
     structs
-        .map(|(con, methods)| Needed {
-            name: tables.tycon(con).name.clone(),
-            methods: methods.into_iter().map(|f| method(tables.fn_info(f))).collect(),
+        .map(|(con, methods)| {
+            let name = tables.tycon(con).name.clone();
+            let methods = methods.into_iter().map(|f| method(&name, tables.fn_info(f))).collect();
+            Needed { name, methods }
         })
         .collect()
 }
