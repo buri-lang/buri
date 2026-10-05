@@ -217,6 +217,7 @@ joining; the template supplies the backticks.
 | `{second_origin}` | The second of the two schemas that declare one proto type. |
 | `{second_tag}` | The second of the two tags that forbid each other. |
 | `{second_trait}` | The second of the two bounds declaring one method name. |
+| `{selector}` | An output as `--output` selects it: `native/linux-x86_64`, `node`. |
 | `{seconds}` | A suite's declared `timeout_seconds`, or `0` when it declares none. Bound as a string; the `s` suffix is in the page. |
 | `{source}` | A source file as the rule, or the directory walk, spells it — relative to its package. |
 | `{subject}` | What takes the type arguments, with its own backticks: `` `Pair` ``, `` the type parameter `T` ``, `this function`. |

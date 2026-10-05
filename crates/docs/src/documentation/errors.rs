@@ -211,6 +211,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("not-tuple", "A numeric field access indexes a tuple"),
     e!("or-pattern-bindings", "Or-pattern alternatives bind the same names"),
     e!("output-missing-platform", "An output is the artifact for one platform", &["build/build-files"]),
+    e!("output-unavailable", "A build that selects no output skips the ones this host cannot build", &["build/tags"]),
     e!("package-missing-rule", "A build file declares a rule", &["build/build-files"]),
     e!("pattern-not-array", "An array pattern matches an array"),
     e!("pattern-not-tuple", "A tuple pattern matches a tuple of its length"),
