@@ -271,10 +271,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 
 /// Two thousand steps that each push two elements onto the list a fold lends
-/// them, once as a chain and once through a `let`. The first push grows the
+/// them, as a chain, through a `let`, and out of a tuple. The first push grows the
 /// list in place, so its answer is a second count on the block the fold still
 /// holds; the step has to take the list for the second push to find it unique.
-/// Found by the growth generator, seed `0x67726f777468`, case 309.
+/// Found by the growth generator, seed `0x67726f777468`, case 309, and
+/// exploring seed 5, case 302.
 #[test]
 fn a_list_a_fold_step_pushes_twice_grows_in_place() {
     let source = r#"
@@ -294,17 +295,22 @@ fn named<C: Allocator>(ctx: C, count: Int): Int {
   }, list.empty<Int>()).length()
 }
 
+fn tupled<C: Allocator>(ctx: C, count: Int): Int {
+  list.range(ctx, 0, count).foldCtx(ctx, fn(c, acc: (Int, [Int]), i) => (acc.0 + 1, acc.1.push(c, i).push(c, i + 1)), (0, list.empty<Int>())).1.length()
+}
+
 export fn main(host: NativeHost): Result<(), Str> {
-  let _ = io.println(host.stdout, "${chained(host.alloc, 2000)} ${named(host.alloc, 2000)}").ignore();
+  let ctx = host.alloc;
+  let _ = io.println(host.stdout, "${chained(ctx, 2000)} ${named(ctx, 2000)} ${tupled(ctx, 2000)}").ignore();
   .Ok(())
 }
 "#;
     for (backend, r) in run_each("fold-step-pushes-twice", source) {
-        assert_eq!(r.stdout, "4000 4000\n", "{backend}: {}", r.stderr);
+        assert_eq!(r.stdout, "4000 4000 4000\n", "{backend}: {}", r.stderr);
         let (blocks, live) = probed(&r.stderr);
         assert!(
-            blocks < 60,
-            "{backend}: eight thousand pushes allocated {blocks} blocks: the step's second push \
+            blocks < 80,
+            "{backend}: twelve thousand pushes allocated {blocks} blocks: the step's second push \
              found the list still lent to it, so every step copied it"
         );
         assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
