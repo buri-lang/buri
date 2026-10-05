@@ -435,7 +435,7 @@ and the flags that select what runs:
   --targets=<list>  js,macos-arm64,macos-x86_64,linux-x86_64,linux-arm64
   --record[=<name>] write the corpus into cli/benches/corpora/ and exit
   --pin[=<name>]    write a digest-pinned manifest into cli/benches/pinned/
-  --rss             peak resident set size per phase, untimed
+  --rss             peak RSS and instructions per phase, untimed
   --calibrate       the speed-of-light ceilings, per corpus (§3.2)
   --alloc           allocations per line, per phase, untimed
 ```
@@ -545,6 +545,10 @@ a process that stopped after `sema` *is* the cost of everything up to and
 including `sema`, and the difference between two of them is what a phase added.
 Sampling the current figure instead would miss whatever a phase allocates and
 frees inside itself, which at these scales is most of the question.
+
+On macOS the same child reports its instructions retired, and `--rss` prints
+them over the `corpus` row. They're cumulative the same way, and they're the
+column to compare two toolchains by (§8).
 
 `--validate` is the one to run in a hurry. It proves the corpus is still valid
 Buri after a language change, and it is fast because it compiles each program
@@ -2367,3 +2371,158 @@ section is enough to read a self-time ranking. It is a poor substitute for
 `samply` — no inverted call tree worth the name, and Rust's mangled symbols come
 out raw — and it is much better than nothing.
 
+
+---
+
+## 8. Measuring on a noisy machine
+
+**Compare instructions retired, not time.** On a shared ten-core M1 Pro, at
+load 25–80 with two other agents compiling, one run gives an instruction count
+within about 1% of any other run. Wall time swings by 77–97% at that load.
+
+```text
+/usr/bin/time -l buri test //...        # "instructions retired", no setup
+BURI_PROFILE=1 buri test //...          # the same count, split by phase
+```
+
+### How steady each figure is
+
+Ten runs of each, 2026-10-05. Range is (max − min) / median.
+
+| Figure | Cold `buri test //...`, a 843-file monorepo | Cold `buri build` of one app |
+|---|---:|---:|
+| wall time | 71 s, range 77%, MAD 20% | 2.1 s, range 97%, MAD 7.7% |
+| CPU time | 19.2 s, range 5.3%, MAD 1.2% | 1.49 s, range 9.7%, MAD 2.2% |
+| cycles | 54 G, range 5.7%, MAD 1.0% | 4.3 G, range 10%, MAD 1.7% |
+| **instructions retired** | **135.5 G, range 0.79%, MAD 0.17%** | **10.0 G, range 0.85%, MAD 0.19%** |
+| allocations | | 8.03 M, range 0.13% |
+
+Per phase, from `BURI_PROFILE` over eight to ten more builds:
+
+| Phase figure | Range |
+|---|---:|
+| instructions, each phase | 1.0–1.8% (link 5.8%) |
+| allocations, single-threaded phases | 0.00% |
+| allocations, parallel phases | ≤ 0.14% |
+| CPU time, each phase | 8–34% |
+| wall time inside a phase | 15–234% |
+
+Instructions aren't exact, for two reasons:
+
+- **Short processes have a one-sided tail.** Ten runs of the bench's `sema`
+  child on `saved:mixed-10k` read 187.4–188.1 M, plus two at 189.9 and
+  192.3 M. Startup and the kernel probably add work and never remove it, so
+  take the **minimum** of two runs for anything under a second.
+- **Parallel runs wobble both ways**, by about ±0.4%, likely from lock
+  spinning, the allocator and how the pool divides work, which all move with
+  scheduling. The median of two runs is the reading there.
+
+Allocations are exact wherever one thread does the work, which makes them the
+sharpest signal for a front-end change.
+
+### `BURI_PROFILE=1`
+
+Set it on any command and the toolchain prints, at exit:
+
+```text
+buri profile           instructions        cpu       busy  child instructions  child cpu
+  lex+parse               5691.6 M    0.499 s    1.228 s               0.0 M    0.000 s
+  check                  13727.6 M    2.068 s    6.192 s               0.0 M    0.000 s
+  monomorphize           11520.6 M    1.542 s    6.623 s               0.0 M    0.000 s
+  middle                 11404.1 M    2.204 s    7.699 s               0.0 M    0.000 s
+  emit                   55468.4 M    6.268 s   22.587 s               0.0 M    0.000 s
+  link                    7163.6 M    1.540 s    9.305 s           15743.9 M    2.214 s
+  run                      280.4 M    0.113 s  542.070 s         1237788.9 M  157.069 s
+  other                  27494.5 M    4.730 s  458.686 s               0.0 M    0.000 s
+  all phases            132750.7 M   18.965 s 1054.389 s         1253532.8 M  159.283 s
+wall 105.049 s
+process: 135.920 G instructions, 19.646 s cpu, 66.326 s runnable but not running, peak 1814 MB
+child processes: 174.066 s cpu
+```
+
+- **instructions** and **cpu** are summed over every thread while it was in
+  the phase. Each thread reads its own counters (`thread_selfcounts` on macOS,
+  no root or entitlement needed) whenever its phase changes, so phases that run
+  side by side still split correctly. Workers start in their spawner's phase.
+- **busy** is wall time summed over threads, so for `link` and `run` it's
+  mostly time spent waiting on a child.
+- **child instructions** and **child cpu** are the linkers, test binaries and
+  generators a phase waited for, read from the exited child before it's reaped.
+  Generators count under `other`.
+- **allocations** appears when the binary is built with
+  `--features alloc-counter`, which costs a thread-local increment per
+  allocation.
+- The **process** line is the kernel's whole-process total. It's above "all
+  phases" because threads that never enter a phase, such as pipe readers,
+  aren't in the table. **runnable but not running** is how long threads waited
+  for a core: the direct measure of how loaded the machine was.
+
+Off, a phase change costs one load of a flag. Ten builds with profiling off
+read 10.03 G instructions against `main`'s 10.02 G, inside the noise. On Linux
+the instruction column reads `-` and the child columns don't appear: there's
+no per-thread counter without `perf_event_open`.
+
+That run says something no timer had: **the toolchain is a tenth of the CPU a
+cold `buri test` costs.** The suites themselves are 157 of the 174 child
+seconds, and the linker is 2.2. A cold `buri build` of one app there is the
+same story smaller: the compile is 1.5 s of CPU, and the generators it runs
+under `bun` are 5.1 s.
+
+### The protocol
+
+```text
+BURI_PROFILE=1 ./a/buri test //... 2> a1.txt
+BURI_PROFILE=1 ./b/buri test //... 2> b1.txt
+BURI_PROFILE=1 ./a/buri test //... 2> a2.txt   # only if the delta is under 3%
+BURI_PROFILE=1 ./b/buri test //... 2> b2.txt
+```
+
+Clean before each run when you're measuring a cold build; `buri clean` is its
+own process and stays out of the figures.
+
+- **One run each** settles any delta of 3% or more, overall or in one phase
+  (6% for `link`, which waits on the file system).
+- **Two alternating runs each** settle 1%: a delta is real when the two ranges
+  don't overlap. Ten builds of `main` against a toolchain with only profiling
+  added gave ranges of 9.98–10.06 G and 9.96–10.05 G, which is what no change
+  looks like.
+- **Under 0.5% is noise** at any count of runs this protocol allows.
+- Below a second of work, compare minimums rather than medians.
+- For synthetic corpora, `cargo bench ... -- --rss` gives the same count per
+  phase from the bench's one-phase children (§4, "Peak memory").
+
+Then confirm the winner's wall time once on a quiet machine, because a change
+can retire fewer instructions and still run slower.
+
+### What counts can't see
+
+- **Waiting.** Lock contention, I/O and a thread idle for want of work don't
+  retire instructions. Compare `cpu` with `busy` per phase: a phase whose busy
+  time far exceeds its CPU time is waiting on something.
+- **Lost parallelism.** Instructions don't drop when a pass goes parallel; wall
+  time does. Read **wall** against **process cpu** and **runnable but not
+  running**: wall near cpu ÷ cores is a parallel run, and runnable time says
+  how much the machine's load, rather than the code, cost.
+- **Launch checks.** `syspolicyd` scans a fresh binary before its first `exec`.
+  It lands in `busy` on `run` with no CPU behind it, mixed in with everything
+  else a test waits for. There's no counter for it: measure it on a quiet
+  machine, first run against second run of the same binary.
+- **Cache and branch behavior.** Cycles see these, and cycles move 6–10% with
+  load. A change that mostly helps memory traffic needs §7's profiler and a
+  quiet machine.
+
+### Dead ends
+
+- **`perf stat` in a Linux container.** This machine has `podman`. Its VM
+  exposes no hardware PMU (only `software`, `tracepoint` and probe event
+  sources), so `perf stat -e instructions` is unsupported even privileged.
+- **Cachegrind in the container works and is exact**: 269,464 instructions
+  for `ls /`, twice. It needs a Linux build of the toolchain and simulates
+  every instruction, so it's far slower, which buys exactness below the 0.5%
+  floor. Nothing here needs that yet; it's the tool to reach for when
+  something does.
+- **kpc and per-thread cycle counters beyond the fixed two** need root.
+  `thread_selfcounts` gives instructions and cycles, which is all this needed.
+- **Process deltas at phase boundaries.** `proc_pid_rusage` is per process, and
+  `buri test` checks one suite while it links another, so a phase boundary
+  isn't a moment in time.
