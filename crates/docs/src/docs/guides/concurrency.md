@@ -151,7 +151,9 @@ export fn main(host: NativeHost): Result<(), Str> {
         Stdout: host.stdout,
         Tasks: host.tasks,
     };
-    let never = tasks.after(ctx, time.milliseconds(5), fn(c) => io.println(c, "never").ignore());
+    let never = tasks.after(ctx, time.milliseconds(5), fn(c) => {
+        io.println(c, "never").ignore()
+    });
     let _ = tasks.cancel(ctx, never);
     let _ = tasks.after(ctx, time.milliseconds(5), fn(c) => tick(c, 1));
     let _ = io.println(ctx, "main returned").ignore();

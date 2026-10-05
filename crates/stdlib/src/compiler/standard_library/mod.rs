@@ -976,7 +976,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(mine.len(), 10, "the two effects declare ten methods between them: {mine:?}");
+        assert_eq!(mine.len(), 11, "the two effects declare eleven methods between them: {mine:?}");
         for (owner, method) in &mine {
             for (other, name) in &theirs {
                 assert!(

@@ -24,10 +24,12 @@ fn tick<C: Stdout + Tasks>(ctx: C, n: Int): () {
 
 fn fired<C: Allocator + Stdout + Tasks>(ctx: C): () {
     let _ = io.println(ctx, "fired after main returned").ignore();
-    let _ = tasks.parallel(ctx, [1], fn(c, _i, _x) => tasks.after(c, time.milliseconds(1), fn(c2) => {
-        let _ = io.println(c2, "scheduled from a callback").ignore();
-        tick(c2, 1)
-    }));
+    let _ = tasks.parallel(ctx, [1], fn(c, _i, _x) => {
+        tasks.after(c, time.milliseconds(1), fn(c2) => {
+            let _ = io.println(c2, "scheduled from a callback").ignore();
+            tick(c2, 1)
+        })
+    });
     ()
 }
 
@@ -38,10 +40,14 @@ export fn main(host: NodeHost): Result<(), Str> {
         Stdout: host.stdout,
         Tasks: host.tasks,
     };
-    let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => io.println(c, "fired during the wait").ignore());
+    let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => {
+        io.println(c, "fired during the wait").ignore()
+    });
     let _ = time.sleep(ctx, time.milliseconds(30));
     let _ = io.println(ctx, "the wait is over").ignore();
-    let doomed = tasks.after(ctx, time.milliseconds(1), fn(c) => io.println(c, "a cancelled timer fired").ignore());
+    let doomed = tasks.after(ctx, time.milliseconds(1), fn(c) => {
+        io.println(c, "a cancelled timer fired").ignore()
+    });
     let _ = tasks.cancel(ctx, doomed);
     let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => fired(c));
     let _ = io.println(ctx, "main returned").ignore();
