@@ -123,7 +123,8 @@
 //! * A [`Site`] says: at node `n`, [`Position::Before`] (before the node's own
 //!   code), [`Position::After`] (after the node's value exists) or
 //!   [`Position::Escape`] (on the early return a `?` leaves the function by,
-//!   where the node's value never exists at all), apply
+//!   where the node's value never exists at all) or [`Position::Rejected`]
+//!   (on the path a false guard sends to the next arm), apply
 //!   [`RcOp`] to the SSA value currently holding [`Site::local`]. Sites at one
 //!   `(node, position)` fire **in list order**, which matters where an arm
 //!   entry increfs three bindings and then decrefs the value they came out of.
@@ -310,6 +311,11 @@ pub enum Position {
     /// — everything this function still owns that the abandoned continuation
     /// would have released.
     Escape,
+    /// On the path a match arm's **guard** takes when it is false, to the next
+    /// arm. Only a guard node has one. A `..rest` binding is allocated before
+    /// the guard runs, and the arm it belongs to is the only one that knows
+    /// about it, so where the guard fails is where it has to be released.
+    Rejected,
 }
 
 impl Position {
@@ -319,6 +325,7 @@ impl Position {
             Position::Before => 0,
             Position::After => 1,
             Position::Escape => 2,
+            Position::Rejected => 3,
         }
     }
 }
@@ -3125,6 +3132,14 @@ impl Scan<'_> {
                 lb = self.expr(g, gid, &guarded, Mode::Borrow);
                 self.flush(gid);
                 self.owned.extend(lent);
+                // A `..rest` binding the guard did not release itself is still
+                // owned when the guard is false, and the arm that drops it at
+                // its entry is not the one the match goes on to.
+                for b in &fresh_bound {
+                    if guarded.contains(b) || !lb.contains(b) {
+                        self.push(gid, Position::Rejected, RcOp::DecRef, Target::Local(*b));
+                    }
+                }
                 for l in &held {
                     if !body_live.contains(l) && !live.contains(l) {
                         self.push(bid, Position::Before, RcOp::DecRef, Target::Local(*l));

@@ -41,6 +41,8 @@ cli/tests/
     stencil.rs            gated on `backend-stencil`: the copy-and-patch
                           backend, its leak parity, and its cross emission
     agreement.rs          gated on either: VALUE-MODEL.md §12, both backends
+    matches.rs            gated on either: the generated matches, on every
+                          backend, and the generator that writes them
     e2e.rs                gated on either: WHOLE PROGRAMS, real processes, real
                           sockets, real signals — the top of the trust ordering
     shared.rs             what more than one backend suite needs and none owns
@@ -90,6 +92,8 @@ cli/tests/
   proto/                vendored schemas, a testee, and the recorded exchanges
   failing/              one directory per failure shape, with its report
   fuzz/                 every finding a search has made, minimised, replayed
+  matches/              generated match programs, each with the output it must
+                        print
   recovery/             every construct crossed with every mutation shape, with
                         the exact message, span and edit each must produce
   message-audit/        run.sh: the diagnostics put to a model, one question
@@ -687,6 +691,42 @@ BURI_FUZZ_RECORD=1 …                                     # write findings down
 ```
 
 Recording is opt-in because nothing else here writes into a checked-in tree.
+
+**The generated matches** are programs a seeded generator wrote, checked in
+with the output each must print:
+
+```
+cli/tests/matches/batch_00/
+  main.buri       sixteen functions, one `match` each, and a `main` calling them
+  expected.out    what the generator's model says each call prints
+```
+
+`native/matches/generate.rs` draws enums with tuple and record payloads,
+structs, tuples, lists, `Option` and `Result`, then draws patterns from the
+values each function gets called with. So several arms land on one variant,
+literals sit beside bound fields, guards pass for one call and fail for the
+next, and `..` and `@` and `|` turn up throughout. Scrutinees come in directly,
+through a generic helper, or built by a lambda whose type is only inferred.
+Strings and lists are built on the heap half the time. The generator works out
+which arm each call takes and drops any arm its own usefulness check calls
+unreachable, so every program should compile and print exactly
+`expected.out`.
+
+`native::matches` runs each program on JavaScript and every native backend,
+under the heap check. Each backend must print `expected.out`, exit 0 and leak
+nothing. A second test regenerates the corpus from the recorded seed and fails
+if the files drifted.
+
+```
+BURI_BLESS=1 cargo test -p buri --test native matches::                # rewrite the corpus
+BURI_MATCHES_SEED=7 BURI_MATCHES_BATCHES=200 \
+  cargo test -p buri --test native matches::generated                   # a sweep, written nowhere
+```
+
+To grow the checked-in set, raise `BATCHES` in `generate.rs` and bless. A
+sweep runs the same checks over programs the corpus doesn't hold. When one
+fails, rerun its batch with the same seed, shrink it by hand, and check it in
+as an ordinary conformance or native test.
 
 **The repository corpus** exists because the two corpora above cannot hold a
 build-system test. A reject case is synthesised as a single-package binary with

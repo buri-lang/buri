@@ -6,7 +6,7 @@ error: `Some` holds 1 value, but the pattern matches 2 values [payload-pattern-c
   |
   = expected: 1
   = actual: 2
-  = fix: match exactly 1 value, or end the pattern with `..`
+  = fix: match exactly 1 value, with `_` for any the arm does not need
 error: a variant-pattern field ends with `,` [missing-comma]
  --> main.buri:5:16
   |

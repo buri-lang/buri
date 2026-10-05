@@ -458,9 +458,26 @@ impl<'a, 'b> Infer<'a, 'b> {
             None => {
                 if declared != 0 {
                     let what = self.fields_owner(of);
+                    // The grammar has `..` in a record payload and not in a
+                    // tuple one, so a tuple payload is spelled out in `_`s.
+                    let record = match of {
+                        Fields::Variant(con, index) => self
+                            .c
+                            .tables
+                            .tycon(con)
+                            .variants()
+                            .get(index)
+                            .is_some_and(|v| v.record),
+                        Fields::Struct(_) => false,
+                    };
+                    let written = if record {
+                        format!("{what} {{ .. }}")
+                    } else {
+                        format!("{what}({})", vec!["_"; declared].join(", "))
+                    };
                     self.templated("missing-payload-pattern", span)
                         .bind("name", what.clone())
-                        .fix(format!("write `.{what}(..)`, or name each field"));
+                        .fix(format!("write `.{written}`, or name each field"));
                 }
                 Vec::new()
             }

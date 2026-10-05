@@ -915,6 +915,42 @@ test "an arm testing one field of a variant still binds the other" {
     assert.equal(f(Shape.Empty), -1);
 }
 
+fn wrappedInSome<T>(value: T): Option<T> {
+    .Some(value)
+}
+
+fn pairedBy(n: Int): Int {
+    let make = fn(k: Int) => Option.Some((k, k + 1));
+    match (make(n)) {
+        .Some((a, b)) => a + b,
+        .None => 0,
+    }
+}
+
+// The scrutinee's type is only known once inference has run: a generic call,
+// a constructor applied to a value, and a lambda whose result type nobody
+// wrote. Every arm below is needed and together they cover it (issue #232).
+test "a match covers a scrutinee whose payload type was inferred" {
+    let viaHelper = fn(c: Colour): Int => {
+        match (wrappedInSome(c)) {
+            .Some(.Red) => 0,
+            .Some(.Green | .Blue) => 1,
+            .None => 2,
+        }
+    };
+    let viaConstructor = fn(c: Colour): Int => {
+        match (Option.Some(c)) {
+            .Some(.Red) => 0,
+            .Some(.Green) | .Some(.Blue) => 1,
+            .None => 2,
+        }
+    };
+    assert.equal(viaHelper(Colour.Red), 0);
+    assert.equal(viaHelper(Colour.Blue), 1);
+    assert.equal(viaConstructor(Colour.Green), 1);
+    assert.equal(pairedBy(3), 7);
+}
+
 test "a guard on an array pattern" {
     let out = match ([1, 2, 3]) {
         [_, ..rest] if rest.length() == 2 => "tail of two",

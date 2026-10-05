@@ -149,8 +149,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// answer: the rows are supposed to exercise the selection a build makes,
 /// not a backend a test reached for.
 #[derive(Clone, Copy)]
-struct Native {
-    name: &'static str,
+pub(crate) struct Native {
+    pub(crate) name: &'static str,
     profile: Profile,
     /// `Some(why)` for a backend whose surface is admittedly narrower than
     /// the rows, in which case a row it cannot compile is **skipped with
@@ -243,7 +243,7 @@ fn backend_unavailable(native: Native) -> Option<String> {
 /// A backend with no host seat is left out *before* it is asked, because its
 /// refusal is a fact about the host rather than about the row — and it is named
 /// rather than dropped, so a column that stopped running says so.
-fn natives(row: &str) -> Vec<Native> {
+pub(crate) fn natives(row: &str) -> Vec<Native> {
     let mut usable = Vec::new();
     for native in NATIVES {
         match backend_unavailable(*native) {
@@ -266,7 +266,7 @@ fn natives(row: &str) -> Vec<Native> {
 /// The last question is per backend: a binary whose every native backend is
 /// unavailable here would compare JavaScript against nothing, which is the
 /// silent pass this file exists to not be.
-fn skip_reason() -> Option<String> {
+pub(crate) fn skip_reason() -> Option<String> {
     if !actions::native_ready(host_target(), Profile::Debug) {
         return Some(String::from("`native_ready` is false on this host"));
     }
@@ -298,10 +298,10 @@ macro_rules! rows_or_skip {
 // -------------------------------------------------------------------
 
 /// What one program printed, and how it ended.
-struct Ran {
-    status: i32,
-    stdout: String,
-    stderr: String,
+pub(crate) struct Ran {
+    pub(crate) status: i32,
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
 }
 
 impl Ran {
@@ -342,7 +342,7 @@ fn workspace(name: &str) -> PathBuf {
 
 /// The front end, once. Both pipelines are handed the same analysis, which
 /// is what makes a difference between them a difference between backends.
-fn analyze(row: &str, source: &str) -> (Checked, Vec<String>) {
+pub(crate) fn analyze(row: &str, source: &str) -> (Checked, Vec<String>) {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, "main", source, Role::Entry);
     assert!(
@@ -381,7 +381,7 @@ fn messages(diagnostics: &Diagnostics) -> String {
 }
 
 /// Compile through the JavaScript backend and run the artifact.
-fn run_js(row: &str, checked: &Checked, paths: &[String]) -> Ran {
+pub(crate) fn run_js(row: &str, checked: &Checked, paths: &[String]) -> Ran {
     let target = Target { platform: Platform::Js, arch: None };
     let program = prepared(row, checked, paths, target);
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
@@ -416,7 +416,7 @@ fn run_js(row: &str, checked: &Checked, paths: &[String]) -> Ran {
 /// (`llvm/mod.rs` says so where the hook is implemented), so a `deriveArray*`
 /// can only be discovered by asking the backend to emit and reading the
 /// diagnostic.
-fn native_refusal(row: &str, native: Native, checked: &Checked, paths: &[String]) -> String {
+pub(crate) fn native_refusal(row: &str, native: Native, checked: &Checked, paths: &[String]) -> String {
     let program = prepared(row, checked, paths, host_target());
     let opts = Options { profile: native.profile, target: host_target(), unit_prefix: "" };
     let mut backend = native.backend();
@@ -436,7 +436,7 @@ fn native_refusal(row: &str, native: Native, checked: &Checked, paths: &[String]
 /// reason is printed and the row is not asked of it. A backend with no
 /// `partial` note refusing is a failure, which is what makes the tolerance
 /// specific rather than general.
-fn run_native(row: &str, native: Native, checked: &Checked, paths: &[String]) -> Option<Ran> {
+pub(crate) fn run_native(row: &str, native: Native, checked: &Checked, paths: &[String]) -> Option<Ran> {
     let target = host_target();
     let program = prepared(row, checked, paths, target);
     let opts = Options { profile: native.profile, target, unit_prefix: "" };
