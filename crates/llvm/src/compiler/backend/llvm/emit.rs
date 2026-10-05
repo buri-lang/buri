@@ -129,6 +129,10 @@ pub struct Unit<'ctx, 'a> {
     /// each unit made the emission quadratic (`design/PERFORMANCE.md` §6.4's
     /// first finding).
     observed: &'a [Observed],
+    /// Whether this program can run Buri code on two threads at once
+    /// (`runtime::shares_counts`), so every count's fork reads
+    /// `buri_rt_shared_mask` — see [`Unit::shared_mask`].
+    shares: bool,
     /// The LLVM function for each `FuncIdx`, declared lazily: a unit declares
     /// only what it calls, so a module is not the whole program's symbol table.
     ///
@@ -185,6 +189,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         name: &str,
         profile: Profile,
         observed: &'a [Observed],
+        shares: bool,
         cycles: std::sync::Arc<layout::Cycles>,
         rc: std::rc::Rc<std::cell::RefCell<rc::Syntactic>>,
     ) -> Unit<'ctx, 'a> {
@@ -197,6 +202,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             reprs: Reprs::new(tables, cycles),
             profile,
             observed,
+            shares,
             funcs: Map::default(),
             runtime: Map::default(),
             literals: Map::default(),
@@ -3392,11 +3398,71 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // program can produce today.
             _ => self.ctx.bool_type().const_zero(),
         };
-        if let Ok(br) = self.builder.build_conditional_branch(is_shared, shared, plain) {
+        // A block without the bit is still shared once the mask is set. Asked
+        // second, so a block marked after sharing began never loads it.
+        let unmarked = if self.shares {
+            self.ctx.append_basic_block(state.value, &format!("{tag}.unmarked"))
+        } else {
+            plain
+        };
+        if let Ok(br) = self.builder.build_conditional_branch(is_shared, shared, unmarked) {
             self.unlikely(br);
+        }
+        if unmarked != plain {
+            self.builder.position_at_end(unmarked);
+            if let Some(mask) = self.shared_mask(tag) {
+                let set = self
+                    .builder
+                    .build_int_compare(IntPredicate::NE, mask, word.const_zero(), &format!("{tag}.late"))
+                    .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+                if let Ok(br) = self.builder.build_conditional_branch(set, shared, plain) {
+                    self.unlikely(br);
+                }
+            }
         }
         self.builder.position_at_end(plain);
         shared
+    }
+
+    /// A load of `buri_rt_shared_mask`, in a program that can fan out
+    /// ([`Unit::shares`]), and `None` in one that can't.
+    ///
+    /// The runtime marks every block from the moment a second thread may run
+    /// Buri code, and a block allocated before that moment carries no bit of
+    /// its own: the mask is how the fork and the `Str` probe see it marked
+    /// anyway. So a program that only *could* fan out keeps plain counts and
+    /// its in-place writes until it does (buri-lang/buri#243). `cli/runtime/memory.rs`'s
+    /// §"The marking latch" has the argument, and its `is_shared` asks the
+    /// same question the same way.
+    ///
+    /// A monotonic load, which is a plain `ldr` or `mov`: the word changes
+    /// once, on the thread running Buri code, before any other thread runs
+    /// any. A program that can't fan out never makes the
+    /// `buri_rt_values_may_cross_tasks` statement, so its mask stays `0` and it
+    /// skips the load.
+    fn shared_mask(&mut self, tag: &str) -> Option<IntValue<'ctx>> {
+        if !self.shares {
+            return None;
+        }
+        let word = self.ctx.i64_type();
+        let global = match self.module.get_global(runtime::SHARED_MASK) {
+            Some(g) => g,
+            None => {
+                let g = self.module.add_global(word, None, runtime::SHARED_MASK);
+                g.set_linkage(Linkage::External);
+                g.set_alignment(8);
+                g
+            }
+        };
+        let mask = match self.builder.build_load(word, global.as_pointer_value(), &format!("{tag}.mask")) {
+            Ok(BasicValueEnum::IntValue(mask)) => mask,
+            _ => return None,
+        };
+        if let Some(instr) = mask.as_instruction() {
+            let _ = instr.set_alignment(8);
+            let _ = instr.set_atomic_ordering(inkwell::AtomicOrdering::Monotonic);
+        }
+        Some(mask)
     }
 
     /// Say that a two-way branch takes its *false* arm.
@@ -6259,19 +6325,23 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // reads at once — see `buri_rt_unique_cap`'s doc.
         //
         // It costs an `and`, a compare and an `and`, on the word the room test
-        // above had already loaded — and it costs them in **every** program,
-        // not only the ones that mark, because the emitter does not know which
-        // kind it is in. That is the right place for the ignorance: whether a
-        // block is marked is a run-time fact about the block, so the probe asks
-        // the block. Three instructions on a probe that already branches twice
-        // and calls `memmove` is not where this operation's time goes.
+        // above had already loaded, in **every** program: whether a block is
+        // marked is a run-time fact, so the probe asks at run time. A program
+        // that can fan out ORs `buri_rt_shared_mask` in first, as the count's
+        // fork does, so a block made before sharing began is refused after it.
+        // A few instructions on a probe that already branches twice and calls
+        // `memmove` is not where this operation's time goes.
+        let marked = match self.shared_mask("cat") {
+            Some(mask) => self.builder.build_or(cap_raw, mask, "cat.marked").unwrap_or(cap_raw),
+            None => cap_raw,
+        };
         let unmarked = self
             .builder
             .build_int_compare(
                 IntPredicate::EQ,
                 self.builder
-                    .build_and(cap_raw, word.const_int(CAP_SHARED_FLAG, false), "cat.mark")
-                    .unwrap_or(cap_raw),
+                    .build_and(marked, word.const_int(CAP_SHARED_FLAG, false), "cat.mark")
+                    .unwrap_or(marked),
                 word.const_zero(),
                 "cat.unmarked",
             )
@@ -7807,18 +7877,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     /// `buri_rt_values_may_cross_tasks()`, in both emitted entry points, and
-    /// **only** for a program `middle::rc::crosses_tasks` says can reach a
-    /// task boundary.
+    /// **only** for a program that can fan out (`runtime::shares_counts`).
     ///
-    /// It goes immediately after `buri_rt_argv_init` and before anything else,
-    /// because the latch it sets decides the header of every block allocated
-    /// *after* it and nothing about the ones before. `argv_init` builds no Buri
-    /// block — it keeps the arguments as Rust strings and mints a `[Str]` only
-    /// when a program asks for one — so "after `argv_init`" and "before the
-    /// first block" are the same position, and `runtime::VALUES_MAY_CROSS_TASKS`
-    /// is where the rest of the contract is written down.
+    /// It says that this program's forks read `buri_rt_shared_mask`
+    /// ([`Unit::shared_mask`]), which is what lets the runtime begin
+    /// sharing at its first fan-out rather than at startup. It goes right after
+    /// `buri_rt_argv_init`, before any Buri code runs, and
+    /// `runtime::VALUES_MAY_CROSS_TASKS` is where the rest of the contract is
+    /// written down.
     fn declare_values_may_cross_tasks(&mut self) {
-        if !self.program.crosses_tasks {
+        if !self.shares {
             return;
         }
         let f = self.declare_rt(runtime::VALUES_MAY_CROSS_TASKS, &[], None);
@@ -8138,6 +8206,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 /// `memory(none)` and LLVM folded two calls into one block that was then
 /// released twice.
 pub fn observe(program: &ir::Program, boxes: &Boxes<'_>, profile: Profile) -> Vec<Observed> {
+    let shares = runtime::shares_counts(program);
     let mut out: Vec<Observed> = program
         .funcs
         .iter()
@@ -8145,7 +8214,17 @@ pub fn observe(program: &ir::Program, boxes: &Boxes<'_>, profile: Profile) -> Ve
             // A function the backend does not define is a runtime import: the
             // world, as far as this compilation can tell.
             ir::Body::Runtime(_) => Observed::opaque(),
-            ir::Body::Code(code) => local(code, boxes, profile),
+            ir::Body::Code(code) => {
+                let mut o = local(code, boxes, profile);
+                // In a program that can fan out, every count's fork also reads
+                // `buri_rt_shared_mask` (`Unit::shared_mask`), which is
+                // neither argument memory nor the allocator's. A count of
+                // anything else already raised `reads_far`.
+                if shares && o.writes_args {
+                    o.reads_far = true;
+                }
+                o
+            }
         })
         .collect();
 

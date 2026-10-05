@@ -52,6 +52,11 @@ impl Backend for Js {
         String::from("runtime+minifier in-tree")
     }
 
+    /// JavaScript has one thread and no count.
+    fn forks_read_shared_mask(&self) -> bool {
+        false
+    }
+
     /// Which intrinsics this backend has no body for, asked of the program
     /// rather than accumulated as a side effect of a failed emission.
     ///

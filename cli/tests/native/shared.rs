@@ -365,24 +365,54 @@ pub fn admitted(binary: &Path) {
 }
 
 #[cfg(target_os = "macos")]
+unsafe extern "C" {
+    /// `<libproc.h>`: fills the `rusage_info_v<flavor>` for `pid`, which is a
+    /// 16-byte UUID and then `u64` counters.
+    fn proc_pid_rusage(pid: i32, flavor: i32, buffer: *mut u64) -> i32;
+    fn waitid(idtype: i32, id: u32, info: *mut u64, options: i32) -> i32;
+}
+
+#[cfg(target_os = "macos")]
 fn has_run(child: &std::process::Child) -> bool {
-    // `struct rusage_info_v0` from `<sys/resource.h>`; only the user time is read.
-    #[repr(C)]
-    #[derive(Default)]
-    struct Usage {
-        uuid: [u8; 16],
-        user_time: u64,
-        rest: [u64; 9],
-    }
-    unsafe extern "C" {
-        fn proc_pid_rusage(pid: i32, flavor: i32, buffer: *mut Usage) -> i32;
-    }
+    // `struct rusage_info_v0` from `<sys/resource.h>`, 96 bytes; only the user
+    // time, right after the UUID, is read.
     let Ok(pid) = i32::try_from(child.id()) else { return true };
-    let mut usage = Usage::default();
-    // SAFETY: flavor 0 is `RUSAGE_INFO_V0`, which fills exactly a `Usage`.
-    let asked = unsafe { proc_pid_rusage(pid, 0, &mut usage) };
+    let mut usage = [0u64; 12];
+    // SAFETY: flavor 0 is `RUSAGE_INFO_V0`, which fills exactly 96 bytes.
+    let asked = unsafe { proc_pid_rusage(pid, 0, usage.as_mut_ptr()) };
     // A failed ask is treated as running, so a broken probe never hangs a test.
-    asked != 0 || usage.user_time > 0
+    asked != 0 || usage[2] > 0
+}
+
+/// Waits for child `pid` to exit without reaping it, then reads the
+/// instructions it retired. The caller reaps it afterwards.
+///
+/// `None` where the kernel won't say, and on every platform but macOS: there
+/// is no per-process instruction counter on Linux without `perf_event_open`.
+#[cfg(target_os = "macos")]
+pub fn exited_instructions(pid: u32) -> Option<u64> {
+    const P_PID: i32 = 1;
+    const WEXITED: i32 = 4;
+    const WNOWAIT: i32 = 32;
+    const RUSAGE_INFO_V4: i32 = 4;
+    let mut info = [0u64; 16];
+    // SAFETY: `info` is larger than the 104-byte `siginfo_t`.
+    if unsafe { waitid(P_PID, pid, info.as_mut_ptr(), WEXITED | WNOWAIT) } != 0 {
+        return None;
+    }
+    let mut usage = [0u64; 37];
+    // SAFETY: `rusage_info_v4` is 37 `u64`s, and the child stays a zombie
+    // until the caller reaps it.
+    if unsafe { proc_pid_rusage(i32::try_from(pid).ok()?, RUSAGE_INFO_V4, usage.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    // `ri_instructions`.
+    usage.get(31).copied()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn exited_instructions(_pid: u32) -> Option<u64> {
+    None
 }
 
 #[cfg(not(target_os = "macos"))]

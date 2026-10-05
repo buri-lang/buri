@@ -56,16 +56,16 @@
 //! an in-place write:
 //!
 //! * `middle::rc::crosses_tasks` asks the whole program whether any of its
-//!   values can come to be reachable from a second thread. Both native
-//!   backends turn a `true` into one call at startup,
-//!   `memory::buri_rt_values_may_cross_tasks`.
-//! * That call makes `memory::finish` stamp `CAP_SHARED_FLAG` into **every
-//!   block the program allocates**, so G2's fork takes its atomic arm
-//!   everywhere and `buri_rt_unique_cap` answers `None` everywhere.
-//! * [`fan_out`] is **gated on the same latch**. Two threads run Buri code
-//!   beside each other only in a program whose blocks are all marked, and
-//!   `memory::values_may_cross_tasks` is the run-time proof of that rather
-//!   than an assumption about who called whom.
+//!   values can come to be reachable from a second thread. The release
+//!   backend turns a `true` into one call at startup,
+//!   `memory::buri_rt_values_may_cross_tasks`, which says its reference
+//!   operations read `buri_rt_shared_mask` as well as the block's own bit.
+//! * [`fan_out`] and a scope's side-by-side tasks are **gated on that
+//!   statement**, and call `memory::begin_sharing` before the first step
+//!   leaves this thread. From then on every block counts as marked, the ones
+//!   allocated before included, so G2's fork takes its atomic arm everywhere
+//!   and `buri_rt_unique_cap` answers `None` everywhere. Before it, one thread
+//!   does every count and nothing pays for the second (buri-lang/buri#243).
 //!
 //! So the exclusion the baton provided is still there; it moved from a lock
 //! held across a whole call into the header word of the blocks the call
@@ -1359,6 +1359,10 @@ pub unsafe extern "C" fn buri_rt_host_tasks_parallel(
     // calls gets `in_order`, which answers the same `[B]`.
     unsafe {
         if n > 1 && crate::frames_are_per_thread() && crate::memory::values_may_cross_tasks() {
+            // Sharing begins here, before the first step leaves this thread,
+            // and not at startup: a program that never fans out keeps plain
+            // counts and its in-place writes (buri-lang/buri#243).
+            crate::memory::begin_sharing();
             fan_out(steps, n);
         } else {
             in_order(steps, n);
@@ -2220,6 +2224,9 @@ pub extern "C" fn buri_rt_tasks_scope_beside(handle: i64) -> u8 {
     }
     let mut table = scopes();
     let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    // The scope's tasks are about to run beside its body: see
+    // `buri_rt_host_tasks_parallel`'s gate.
+    crate::memory::begin_sharing();
     place.beside = Some(Beside {
         busy: 1,
         idle: 0,
@@ -2714,7 +2721,7 @@ mod tests {
         const THREADS: usize = 8;
         const ROUNDS: usize = 1000;
 
-        crate::memory::buri_rt_values_may_cross_tasks();
+        crate::memory::share_now();
         let p = crate::memory::buri_rt_alloc(64);
         // SAFETY: `p` is live and was just allocated under the latch.
         let (rc, marked) = unsafe { crate::memory::count_and_mark(p) };
@@ -2778,7 +2785,7 @@ mod tests {
         // SAFETY: live, just allocated.
         assert!(!unsafe { crate::memory::count_and_mark(plain) }.1);
 
-        crate::memory::buri_rt_values_may_cross_tasks();
+        crate::memory::share_now();
         assert!(crate::memory::values_may_cross_tasks());
         for size in [0u64, 1, 24, 48, 64, 4096] {
             let p = crate::memory::buri_rt_alloc(size);
@@ -2825,7 +2832,7 @@ mod tests {
         // SAFETY: the only reference.
         unsafe { crate::memory::buri_rt_free(plain) };
 
-        crate::memory::buri_rt_values_may_cross_tasks();
+        crate::memory::share_now();
         let marked = crate::memory::buri_rt_alloc(64);
         // SAFETY: live, count of one, marked.
         let (rc, is_marked) = unsafe { crate::memory::count_and_mark(marked) };
@@ -3563,7 +3570,7 @@ mod tests {
             }
         }
 
-        crate::memory::buri_rt_values_may_cross_tasks();
+        crate::memory::share_now();
         let p = crate::memory::buri_rt_alloc(32);
         // SAFETY: live, just allocated under the latch.
         assert_eq!(unsafe { crate::memory::count_and_mark(p) }, (1, true));
@@ -3742,7 +3749,7 @@ mod tests {
             }
         }
 
-        crate::memory::buri_rt_values_may_cross_tasks();
+        crate::memory::share_now();
         // A four-byte `Str` in a block with room to grow, which is what a
         // captured accumulator looks like.
         let base = crate::memory::buri_rt_alloc_zeroed(crate::memory::BURI_RT_GROWTH_FLOOR);
@@ -3881,11 +3888,20 @@ mod tests {
         assert!(!crate::frames_are_per_thread(), "the silent answer is the safe one");
         assert!(!crate::memory::values_may_cross_tasks(), "the silent answer is the safe one");
         assert!(here(&ran_on()), "neither statement made, and a step left the calling thread");
+        // A block made before any fan-out, as a program's values before its
+        // first `Tasks.parallel` are.
+        let early = crate::memory::buri_rt_alloc(32);
+        let marked = || {
+            // SAFETY: `early` is live until the end of this test.
+            unsafe { crate::memory::count_and_mark(early) }.1
+        };
 
         // Marking without frames: the blocks are safe to share and there is
-        // still nowhere for a second thread to put a frame.
+        // still nowhere for a second thread to put a frame. Sharing never
+        // began, so the counts stay plain (buri-lang/buri#243).
         crate::memory::buri_rt_values_may_cross_tasks();
         assert!(here(&ran_on()), "a shared Buri stack ran a step off the calling thread");
+        assert!(!marked(), "sharing began without a fan-out");
 
         // Frames without marking: **the row a bug lands in.** A backend that
         // can fan out, over blocks nothing marked, must not.
@@ -3897,15 +3913,22 @@ mod tests {
             "steps fanned out over unmarked blocks: {unmarked:?}",
         );
 
-        // Both: the steps fan out.
+        assert!(!marked(), "sharing began without a fan-out");
+
+        // Both: the steps fan out, and sharing began before they did, so the
+        // block made before it is counted atomically too.
         crate::memory::buri_rt_values_may_cross_tasks();
         let fanned = ran_on();
+        let early_marked = marked();
         crate::forget_frames_are_per_thread();
         crate::memory::forget_values_may_cross_tasks();
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(early) };
         assert!(
             fanned.iter().any(|id| *id != me),
             "the steps stayed on the calling thread: {fanned:?}"
         );
+        assert!(early_marked, "a block made before the fan-out was still counted plainly");
     }
 
 
