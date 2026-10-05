@@ -76,7 +76,8 @@ The whole file is in [the guide](../../guides/custom-platforms.md#the-platform).
   or `Tcp`, and `NATIVE` no `Ui` or `Watch`. Any `JS` platform may offer
   `HostUi` and `HostWatch`.
 - **The platform's own structs** have bodiless methods, which the entry's `js`
-  file implements. Only `JS` entries have one, so on `NATIVE` such a field is
+  file implements. A struct the host doesn't hold may have them too, for a host
+  field's methods to call. Only `JS` entries have one, so on `NATIVE` such a field is
   `custom-effect-outside-js`, and on a `JS` entry without one it's
   `missing-host-file`.
 - Only `platform.buri` may import `platform/host` or declare a function without
@@ -138,6 +139,12 @@ await main();
 The real file also writes the signal on `popstate`. `WebHost` takes `ui` and
 `watch` from the backend and `location` from `main.mjs`, and `index.html` loads
 `/main.mjs` and `/main.css`.
+
+`storage` is `web`'s own effect, `Storage` from `web/storage`, which no other
+platform offers. `HostStorage` calls an `IndexedDb` struct that `main.mjs`
+implements over the browser's IndexedDB, and turns the error the browser throws
+into a `StorageError`. [Build a website](../../guides/websites.md#keep-data-across-a-reload)
+shows it in use.
 
 ## The crossing table
 

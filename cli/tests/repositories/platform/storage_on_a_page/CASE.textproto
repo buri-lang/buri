@@ -1,0 +1,24 @@
+# `web`'s `Storage`, through `web/storage/testing`'s in-memory store.
+#
+# The suite sets, gets, deletes and lists by prefix, runs the page's `visit`
+# across a reload of the same store, and drives both refusals: a full quota
+# and storage the browser won't give. `build::web_storage` runs the built page
+# against a fake IndexedDB instead. Then a native binary, whose host has no
+# `storage`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a page keeps bytes in Storage across a reload, sees a full quota and a refusal as errors, and a native build has no Storage to bind"
+
+run {
+  args: ["test", "//..."]
+  exit: 0
+  golden: "test.txt"
+}
+
+# `//cmd/native` binds `Storage` from a native host.
+run {
+  args: ["build", "//cmd/native"]
+  exit: 1
+  golden: "native.txt"
+}

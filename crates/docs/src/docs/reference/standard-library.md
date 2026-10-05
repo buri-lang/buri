@@ -1105,6 +1105,8 @@ export fn main(host: NodeHost): Result<(), Str> {
 | [`platform/host`](../../../../stdlib/src/compiler/standard_library/sources/platform_host.buri) | The backends' production implementations, `HostAllocator`, `HostFileSystem` and the rest | A platform's `platform.buri`; anywhere else is `host-import-outside-platform` |
 | [`platform/effect/testing`](../../../../stdlib/src/compiler/standard_library/sources/host_testing.buri) | A test implementation of every effect | A test source |
 | [`native`](../../../../stdlib/src/platforms/native/platform.buri), [`node`](../../../../stdlib/src/platforms/node/platform.buri), [`web`](../../../../stdlib/src/platforms/web/platform.buri) | Each bundled platform's host type, `NativeHost`, `NodeHost` or `WebHost`, and its bodiless `main` | Anyone, for the host type; importing `main` is `entry-declaration-imported` |
+| [`web/storage`](../../../../stdlib/src/compiler/standard_library/sources/web_storage.buri) | `web`'s own `Storage`, a key-value store of bytes over IndexedDB, and its `get`, `set`, `delete` and `keys` | Anyone; only `WebHost` implements it |
+| [`web/storage/testing`](../../../../stdlib/src/compiler/standard_library/sources/web_storage_testing.buri) | `TestStorage`, an in-memory `Storage` that can reload, fill up or refuse | A test source |
 
 [`core/fs`](../../../../stdlib/src/compiler/standard_library/sources/fs.buri) declares the
 filesystem's two effects, and `core/process` declares `Spawn`.

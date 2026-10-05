@@ -57,17 +57,30 @@ pub fn declared_host(tables: &Tables, platform: ModuleId, params: &[ParamInfo]) 
 }
 
 /// The structs of the platform's own that its host holds, each with the
-/// methods it declares without a body, which its `js` file implements.
+/// methods it declares without a body, which its `js` file implements. Then
+/// any other struct of the platform's own with such methods, which a host
+/// field's methods call: `web`'s `IndexedDb` under its `HostStorage`.
 pub fn js_structs(tables: &Tables, platform: ModuleId, host: TyConId) -> Vec<(TyConId, Vec<FnId>)> {
     let fields = tables.tycon(host).fields().iter();
-    fields
+    let mut out: Vec<(TyConId, Vec<FnId>)> = fields
         .filter_map(|field| match field.ty.kind() {
             TyKind::Con(con, _) if tables.tycon(*con).module == platform => {
                 Some((*con, bodiless_methods(tables, *con)))
             }
             _ => None,
         })
-        .collect()
+        .collect();
+    for (i, tycon) in tables.tycons.iter().enumerate() {
+        let con = TyConId(i as u32);
+        if tycon.module != platform || con == host || out.iter().any(|(c, _)| *c == con) {
+            continue;
+        }
+        let methods = bodiless_methods(tables, con);
+        if !methods.is_empty() {
+            out.push((con, methods));
+        }
+    }
+    out
 }
 
 /// The methods a platform's own production struct declares without a body.

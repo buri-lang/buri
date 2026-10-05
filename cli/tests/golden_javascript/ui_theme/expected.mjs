@@ -1,4 +1,4 @@
-const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[]];
+const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
 const $k1=[1200n,'lay-col'];
 const $k2=[6200n,'bg-t_app_bg'];
 const $k3=[6400n,'fg-t_app_fg'];
@@ -36,8 +36,8 @@ function __cmd_x_main_buri$main(){
     $abort('no arm matched');
   }
   const label_11='clicks';
-  const count_12=ui_signal$signal$bcy28z(ctx_1,0n);
-  const $t4=ui_node$stack$hlqm6m([$k7,[ui_node$button$hlqm6m([[0,label_11],[],void 0,c_13=>ui_signal$Signal_update$7ret6r(count_12,c_13,n_14=>n_14+1n),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),__cmd_x_main_buri$badge$hlqm6m([0,label_11],[1,count_12])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  const count_12=ui_signal$signal$hlck94(ctx_1,0n);
+  const $t4=ui_node$stack$b1px4q([$k7,[ui_node$button$b1px4q([[0,label_11],[],void 0,c_13=>ui_signal$Signal_update$5m6v0z(count_12,c_13,n_14=>n_14+1n),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),__cmd_x_main_buri$badge$b1px4q([0,label_11],[1,count_12])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
   const $t3=ui_theme$themed([[__cmd_x_main_buri$Card_color(0),__cmd_x_main_buri$cardTheme(0)],[__cmd_x_main_buri$Card_color(1),__cmd_x_main_buri$cardTheme(1)],[__cmd_x_main_buri$Card_color(2),__cmd_x_main_buri$cardTheme(2)]]);
   const whenTrue_17=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$night);
   const whenFalse_18=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$day);
@@ -119,14 +119,14 @@ function __cmd_x_main_buri$Card_color(self_0){
       break;
   }
 }
-function ui_signal$signal$bcy28z(ctx_0,initial_1){
+function ui_signal$signal$hlck94(ctx_0,initial_1){
   return [$host_HostUi_signal(ctx_0[2],initial_1)];
 }
-function ui_signal$Signal_update$7ret6r(self_0,ctx_1,f_2){
+function ui_signal$Signal_update$5m6v0z(self_0,ctx_1,f_2){
   return $host_HostUi_write(ctx_1[2],self_0[0],f_2($host_HostUi_read(ctx_1[2],self_0[0])));
 }
-function ui_node$button$hlqm6m(config_0){
-  const events_1=ui_node$listen$hlqm6m(config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15]);
+function ui_node$button$b1px4q(config_0){
+  const events_1=ui_node$listen$b1px4q(config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15]);
   const $t1=config_0[4];
   if($t1!==void 0&&$t1===1){
     const $t5=$share(config_0[1]);
@@ -190,8 +190,8 @@ function ui_node$button$hlqm6m(config_0){
     return [[5,config_0[0],$t9,$t6,$t10,$t12,$t14,$t16,events_1]];
   }
 }
-function __cmd_x_main_buri$badge$hlqm6m(title_0,count_1){
-  return ui_node$stack$hlqm6m([$k22,[ui_node$text$hlqm6m([title_0,void 0,void 0]),ui_node$text$hlqm6m([[2,c_2=>{
+function __cmd_x_main_buri$badge$b1px4q(title_0,count_1){
+  return ui_node$stack$b1px4q([$k22,[ui_node$text$b1px4q([title_0,void 0,void 0]),ui_node$text$b1px4q([[2,c_2=>{
     let $t1;
     if(count_1[0]===0){
       $t1=count_1[1];
@@ -205,8 +205,8 @@ function __cmd_x_main_buri$badge$hlqm6m(title_0,count_1){
     return String($t1);
   }],void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
 }
-function ui_node$stack$hlqm6m(config_0){
-  const events_1=ui_node$listen$hlqm6m(config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]);
+function ui_node$stack$b1px4q(config_0){
+  const events_1=ui_node$listen$b1px4q(config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]);
   const $t1=config_0[2];
   if($t1!==void 0){
     return [[4,$t1,$share(config_0[0]),$share(config_0[1]),events_1]];
@@ -216,10 +216,10 @@ function ui_node$stack$hlqm6m(config_0){
     $abort('no arm matched');
   }
 }
-function ui_node$listen$hlqm6m(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
+function ui_node$listen$b1px4q(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
   return [onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7];
 }
-function ui_node$text$hlqm6m(config_0){
+function ui_node$text$b1px4q(config_0){
   const $t1=config_0[1];
   if($t1!==void 0){
     const styles_2=$share(config_0[2]);
@@ -246,10 +246,11 @@ const $buri$program={main:async ()=>{
 const $buri$ui={signal:(v)=>$host_HostUi_signal(null,v),write:(id,v)=>{$host_HostUi_write(null,id,v)}};
 var $buri$host;
 const $buri$platform = await (async () => {
-$buri$host = () => ({ HostLocation: HostLocation });
-// web's entry adapter. It starts the page's `main` when the module loads, and
+$buri$host = () => ({ HostLocation: HostLocation, IndexedDb: IndexedDb });
+// web's entry adapter. It starts the page's `main` when the module loads,
 // implements `HostLocation`, the address bar, over the browser's own
-// `location` and `history`.
+// `location` and `history`, and `IndexedDb`, under `HostStorage`, over
+// `indexedDB`.
 //
 // A JavaScript host that is not a browser has neither, so each is asked for
 // before it is used: the page still runs to its first paint under bun, at `/`,
@@ -292,11 +293,70 @@ const HostLocation = {
   },
 };
 
+// `IndexedDb`, the store behind `HostStorage`: one object store, `values`, in
+// a database named `buri`. Every method answers a promise, which the program
+// awaits, and a failure throws the browser's reason. A full quota throws
+// exactly `QuotaExceededError`, which `platform.buri` tells apart from a refusal.
+let opened;
+
+function database() {
+  opened ??= new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined" || indexedDB === null) {
+      throw new Error("this browser has no IndexedDB");
+    }
+    const request = indexedDB.open("buri", 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("values");
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  return opened;
+}
+
+function reason(e) {
+  if (e && e.name === "QuotaExceededError") return new Error("QuotaExceededError");
+  return new Error((e && (e.message || e.name)) || String(e));
+}
+
+// One request in a transaction of its own, answering its result once the
+// transaction commits: a quota is only enforced at the commit.
+async function transact(mode, act) {
+  try {
+    const db = await database();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction("values", mode);
+      const request = act(tx.objectStore("values"));
+      tx.oncomplete = () => resolve(request.result);
+      tx.onabort = () => reject(request.error ?? tx.error);
+    });
+  } catch (e) {
+    throw reason(e);
+  }
+}
+
+// The keys starting with `prefix`: from `prefix` up to the first string past
+// every one of them, or every key for an empty prefix.
+function startingWith(prefix) {
+  for (let i = prefix.length - 1; i >= 0; i--) {
+    const c = prefix.charCodeAt(i);
+    if (c < 0xffff) {
+      return IDBKeyRange.bound(prefix, prefix.slice(0, i) + String.fromCharCode(c + 1), false, true);
+    }
+  }
+  return undefined;
+}
+
+const IndexedDb = {
+  get: (self, key) => transact("readonly", (store) => store.get(key)),
+  put: (self, key, value) => transact("readwrite", (store) => store.put(value, key)),
+  delete: (self, key) => transact("readwrite", (store) => store.delete(key)),
+  keys: (self, prefix) => transact("readonly", (store) => store.getAllKeys(startingWith(prefix))),
+};
+
 // `.Err(msg)` arrives as a thrown `Error`, and the message goes to the console.
 // Under a host with a process, such as bun, the process exits 1.
 await main().catch((e) => {
   console.error(e && e.message ? e.message : String(e));
   if (typeof process !== "undefined") process.exitCode = 1;
 });
-return { "HostLocation": HostLocation };
+return { "HostLocation": HostLocation, "IndexedDb": IndexedDb };
 })();

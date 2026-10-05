@@ -78,7 +78,7 @@ cli/tests/
                           print's Result
     platform/             …and the host a program is handed on node: the
                           filesystem, the environment and a child process,
-                          through `buri run`
+                          through `buri run`; and a page's `Storage`
     serving/              …and the page `buri run` serves: the build, the two
                           refusals, and the repository `build::serving` starts
                           a real server over
