@@ -554,10 +554,12 @@ test "a tuple two options deep is covered when a generic helper wrapped it" {
 }
 
 test "a tuple two options deep is covered when a local lambda built it" {
-    let make = fn(n: Int) => if (n > 0) {
-        Option.Some(Option.Some((n, "up")))
-    } else {
-        Option.Some(Option.None)
+    let make = fn(n: Int) => {
+        if (n > 0) {
+            Option.Some(Option.Some((n, "up")))
+        } else {
+            Option.Some(Option.None)
+        }
     };
     let describe = fn(n: Int) => {
         match (make(n)) {
