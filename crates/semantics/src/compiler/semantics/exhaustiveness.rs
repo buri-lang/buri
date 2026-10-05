@@ -161,6 +161,70 @@ static UNTYPED: Ty = Ty::ERROR;
 /// built from them.
 type Row<'p> = Vec<&'p Pat>;
 
+/// A matrix's rows, end to end in one list.
+///
+/// Every row of a matrix has the same width, so a row is a slice of `cells`
+/// and building a matrix is one allocation rather than one per row.
+#[derive(Default, Clone)]
+struct Rows<'p> {
+    cells: Vec<&'p Pat>,
+    width: usize,
+    len: usize,
+}
+
+impl<'p> Rows<'p> {
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    fn get(&self, at: usize) -> Option<&[&'p Pat]> {
+        if at >= self.len {
+            return None;
+        }
+        let start = at.checked_mul(self.width)?;
+        self.cells.get(start..start.checked_add(self.width)?)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &[&'p Pat]> {
+        (0..self.len).filter_map(move |at| self.get(at))
+    }
+
+    /// Appends the row `fill` writes onto the end of the cells. The first row
+    /// sets the width.
+    fn push_with(&mut self, fill: impl FnOnce(&mut Vec<&'p Pat>)) {
+        let before = self.cells.len();
+        fill(&mut self.cells);
+        let width = self.cells.len().saturating_sub(before);
+        if self.len == 0 {
+            self.width = width;
+        }
+        debug_assert_eq!(width, self.width, "every row of a matrix is as wide as the first");
+        self.len = self.len.saturating_add(1);
+    }
+
+    fn push(&mut self, row: &[&'p Pat]) {
+        self.push_with(|cells| cells.extend_from_slice(row));
+    }
+
+    fn truncate(&mut self, len: usize) {
+        if len < self.len {
+            self.cells.truncate(len.saturating_mul(self.width));
+            self.len = len;
+        }
+    }
+
+    /// The first `k` rows, as rows of their own.
+    fn prefix(&self, k: usize) -> Rows<'p> {
+        let len = k.min(self.len);
+        let cells = self.cells.get(..len.saturating_mul(self.width)).unwrap_or_default().to_vec();
+        Rows { cells, width: self.width, len }
+    }
+}
+
 fn lower(p: &Pattern) -> Pat {
     match &p.kind {
         PatKind::Wild | PatKind::Error => Pat::Wild,
@@ -333,7 +397,7 @@ const INDEX_THRESHOLD: usize = 16;
 /// unreachable arms are reported in both depend on it.
 #[derive(Default)]
 struct Matrix<'p> {
-    rows: Vec<Row<'p>>,
+    rows: Rows<'p>,
     index: Option<Index>,
 }
 
@@ -394,7 +458,7 @@ impl Iterator for Merge<'_> {
 }
 
 impl<'p> Matrix<'p> {
-    fn new(rows: Vec<Row<'p>>) -> Self {
+    fn new(rows: Rows<'p>) -> Self {
         let mut m = Matrix { rows, index: None };
         if m.rows.len() >= INDEX_THRESHOLD {
             m.build_index();
@@ -409,7 +473,7 @@ impl<'p> Matrix<'p> {
     /// Appends a row, keeping the index in step. The reachability loop grows
     /// one matrix arm by arm, so rebuilding the index per arm would put the
     /// square back.
-    fn push(&mut self, row: Row<'p>) {
+    fn push(&mut self, row: &[&'p Pat]) {
         let at = self.rows.len();
         self.rows.push(row);
         if self.index.is_some() {
@@ -508,7 +572,7 @@ impl<'a> Ctx<'a> {
     /// Rows of the matrix whose first pattern is `ctor`, with that pattern's
     /// sub-patterns spliced in.
     fn specialize<'p>(&self, matrix: &Matrix<'p>, ctor: &Ctor, arity: usize) -> Matrix<'p> {
-        let mut out = Vec::new();
+        let mut out = Rows::default();
         match matrix.index.as_ref() {
             Some(ix) => {
                 for at in ix.rows_for(ctor) {
@@ -518,7 +582,7 @@ impl<'a> Ctx<'a> {
                 }
             }
             None => {
-                for row in &matrix.rows {
+                for row in matrix.rows.iter() {
                     self.specialize_row(row, ctor, arity, &mut out);
                 }
             }
@@ -531,23 +595,20 @@ impl<'a> Ctx<'a> {
         row: &[&'p Pat],
         ctor: &Ctor,
         arity: usize,
-        out: &mut Vec<Row<'p>>,
+        out: &mut Rows<'p>,
     ) {
         let Some((&head, rest)) = row.split_first() else { return };
         match head {
-            Pat::Wild => {
-                let mut next = Vec::with_capacity(arity.saturating_add(rest.len()));
-                next.resize(arity, &WILD);
-                next.extend_from_slice(rest);
-                out.push(next);
-            }
-            Pat::Ctor(c, subs) if c == ctor => {
-                let mut next = Vec::with_capacity(arity.saturating_add(rest.len()));
-                next.extend(subs.iter().take(arity));
-                next.resize(arity, &WILD);
-                next.extend_from_slice(rest);
-                out.push(next);
-            }
+            Pat::Wild => out.push_with(|cells| {
+                cells.resize(cells.len().saturating_add(arity), &WILD);
+                cells.extend_from_slice(rest);
+            }),
+            Pat::Ctor(c, subs) if c == ctor => out.push_with(|cells| {
+                let end = cells.len().saturating_add(arity);
+                cells.extend(subs.iter().take(arity));
+                cells.resize(end, &WILD);
+                cells.extend_from_slice(rest);
+            }),
             // An alternation `expand` left nested, now exposed by peeling
             // its constructor off. Distribute: each alternative is a row of
             // its own, and the coverage of all of them is the row's.
@@ -565,7 +626,7 @@ impl<'a> Ctx<'a> {
 
     /// Rows whose first pattern is a wildcard, with that column dropped.
     fn default_matrix<'p>(&self, matrix: &Matrix<'p>) -> Matrix<'p> {
-        let mut out = Vec::new();
+        let mut out = Rows::default();
         match matrix.index.as_ref() {
             Some(ix) => {
                 for &at in &ix.open {
@@ -575,7 +636,7 @@ impl<'a> Ctx<'a> {
                 }
             }
             None => {
-                for row in &matrix.rows {
+                for row in matrix.rows.iter() {
                     self.default_row(row, &mut out);
                 }
             }
@@ -583,10 +644,10 @@ impl<'a> Ctx<'a> {
         Matrix::new(out)
     }
 
-    fn default_row<'p>(&self, row: &[&'p Pat], out: &mut Vec<Row<'p>>) {
+    fn default_row<'p>(&self, row: &[&'p Pat], out: &mut Rows<'p>) {
         let Some((&head, rest)) = row.split_first() else { return };
         match head {
-            Pat::Wild => out.push(rest.to_vec()),
+            Pat::Wild => out.push(rest),
             // Distribute, for the same reason `specialize` does. An
             // alternative that is a wildcard makes the whole row a default
             // row.
@@ -731,13 +792,13 @@ impl<'a> Ctx<'a> {
     /// only about an alternative it has already found useless.
     fn covered_by(
         &self,
-        rows: &[Row<'_>],
+        rows: &Rows<'_>,
         upto: usize,
-        alt: &[Row<'_>],
+        alt: &Rows<'_>,
         types: &[Ty],
     ) -> Option<usize> {
         let live = |k: usize| {
-            let prefix = Matrix::new(rows.get(..k).unwrap_or_default().to_vec());
+            let prefix = Matrix::new(rows.prefix(k));
             alt.iter().any(|r| self.useful(&prefix, r, types).is_some())
         };
         let (mut lo, mut hi) = (0usize, upto);
@@ -916,7 +977,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
     for (arm, alts) in arms.iter().zip(&alternatives) {
         let base = covering.rows.len();
         let mut alive = false;
-        let mut dead: Vec<(Span, Vec<Row<'_>>, usize)> = Vec::new();
+        let mut dead: Vec<(Span, Rows<'_>, usize)> = Vec::new();
         // A guarded arm covers nothing below it, so its rows come back out at
         // the end — they go in first only because they do cover this arm's own
         // later alternatives. An arm with one alternative has no later one, so
@@ -924,7 +985,10 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         let hold = arm.guard.is_none() || alts.len() > 1;
         for (at, owned) in alts {
             let before = covering.rows.len();
-            let rows: Vec<Row<'_>> = owned.iter().map(|r| r.iter().collect()).collect();
+            let mut rows = Rows::default();
+            for r in owned {
+                rows.push_with(|cells| cells.extend(r.iter()));
+            }
             if rows.iter().any(|r| ctx.useful(&covering, r, &types).is_some()) {
                 alive = true;
             } else {
@@ -933,7 +997,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
             // Even a dead alternative goes in — it adds no coverage, and
             // leaving it out would make the next one's "before" a lie.
             if hold {
-                for r in rows {
+                for r in rows.iter() {
                     covering.push(r);
                     origin.push(*at);
                 }
