@@ -1,12 +1,18 @@
 //! web/storage — bytes a page keeps across a reload.
 //!
 //! ```buri
+//! from "core/str" import * as str;
+//! from "platform/effect" import { Allocator };
 //! from "web/storage" import * as storage;
 //! from "web/storage" import { Storage, StorageError };
 //!
 //! /// Keeps a draft the reader hasn't sent, so a reload doesn't lose it.
-//! fn keep<C: Storage>(ctx: C, id: Str, draft: [U8]): Result<(), StorageError> {
-//!     storage.set(ctx, "draft/${id}", draft)
+//! fn keep<C: Allocator + Storage>(
+//!     ctx: C,
+//!     id: Str,
+//!     draft: [U8],
+//! ): Result<(), StorageError> {
+//!     storage.set(ctx, str.format(ctx, "draft/${id}"), draft)
 //! }
 //! ```
 //!
@@ -45,7 +51,10 @@ export enum StorageError {
 }
 
 /// The value under `key`, or `.None` when there is none.
-export fn get<C: Allocator + Storage>(ctx: C, key: Str): Result<Option<[U8]>, StorageError> {
+export fn get<C: Allocator + Storage>(
+    ctx: C,
+    key: Str,
+): Result<Option<[U8]>, StorageError> {
     ctx.get(key)
 }
 
@@ -60,6 +69,9 @@ export fn delete<C: Storage>(ctx: C, key: Str): Result<(), StorageError> {
 }
 
 /// Every key starting with `prefix`, in ascending order. `""` lists them all.
-export fn keys<C: Allocator + Storage>(ctx: C, prefix: Str): Result<[Str], StorageError> {
+export fn keys<C: Allocator + Storage>(
+    ctx: C,
+    prefix: Str,
+): Result<[Str], StorageError> {
     ctx.keys(prefix)
 }

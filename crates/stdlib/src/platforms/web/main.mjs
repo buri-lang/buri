@@ -1,6 +1,7 @@
-// web's entry adapter. It starts the page's `main` when the module loads, and
+// web's entry adapter. It starts the page's `main` when the module loads,
 // implements `HostLocation`, the address bar, over the browser's own
-// `location` and `history`.
+// `location` and `history`, and `IndexedDb`, under `HostStorage`, over
+// `indexedDB`.
 //
 // A JavaScript host that is not a browser has neither, so each is asked for
 // before it is used: the page still runs to its first paint under bun, at `/`,

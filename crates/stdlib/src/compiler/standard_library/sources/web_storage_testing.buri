@@ -2,16 +2,23 @@
 //!
 //! ```buri role=test
 //! from "core/testing/assert" import * as assert;
+//! from "platform/effect" import { Allocator };
 //! from "platform/effect/testing" import { alloc };
 //! from "web/storage" import * as storage;
+//! from "web/storage" import { Storage };
 //! from "web/storage/testing" import * as testing;
 //!
 //! test "a draft survives a reload" {
 //!     let page = testing.storage();
-//!     let ctx = context { Allocator: alloc(), Storage: page };
-//!     assert.ok(storage.set(ctx, "draft", [104, 105]));
-//!
-//!     let reloaded = context { Allocator: alloc(), Storage: page.reload() };
+//!     let ctx = context {
+//!         Allocator: alloc(),
+//!         Storage: page,
+//!     };
+//!     assert.equal(storage.set(ctx, "draft", [104, 105]), .Ok(()));
+//!     let reloaded = context {
+//!         Allocator: alloc(),
+//!         Storage: page.reload(),
+//!     };
 //!     assert.equal(storage.get(reloaded, "draft"), .Ok(.Some([104, 105])));
 //! }
 //! ```
@@ -47,10 +54,16 @@ impl Storage for TestStorage {
         let quota = self.quota;
         match (self.refusal) {
             .Some(why) => .Err(.Refused(why)),
-            .None => state.update(self.store, fn(c, m) => {
-                let next = m.insert(c, key, value);
-                if (fits(c, next, quota)) { (next, .Ok(())) } else { (m, .Err(.QuotaExceeded)) }
-            }),
+            .None => {
+                state.update(self.store, fn(c, m) => {
+                    let next = m.insert(c, key, value);
+                    if (fits(c, next, quota)) {
+                        (next, .Ok(()))
+                    } else {
+                        (m, .Err(.QuotaExceeded))
+                    }
+                })
+            },
         }
     }
 
@@ -64,10 +77,11 @@ impl Storage for TestStorage {
     fn keys(self, prefix: Str): Result<[Str], StorageError> {
         match (self.refusal) {
             .Some(why) => .Err(.Refused(why)),
-            .None => state.update(
-                self.store,
-                fn(c, m) => (m, .Ok(m.prefix(c, prefix).map(c, fn(entry) => entry.0))),
-            ),
+            .None => {
+                state.update(self.store, fn(c, m) => {
+                    (m, .Ok(m.prefix(c, prefix).map(c, fn(entry) => entry.0)))
+                })
+            },
         }
     }
 }
