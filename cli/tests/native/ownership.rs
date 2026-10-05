@@ -169,3 +169,43 @@ export fn main(host: NativeHost): Result<(), Str> {
         assert_eq!(live, 0, "{backend}: blocks still live at exit");
     }
 }
+
+/// Two arms on one variant, each binding both of its `Int` payloads, the first
+/// guarded by comparing them (buri-lang/buri#239). The guard and the arm it
+/// falls through to must both read the second payload as it was built.
+#[test]
+fn a_guard_comparing_a_variants_two_payloads_reads_both() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+enum Span {
+  Numbers(Int, Int),
+  Name(Str),
+}
+
+fn shown<C: Allocator>(ctx: C, span: Span): Str {
+  match (span) {
+    .Numbers(first, last) if first == last => str.format(ctx, "${first}"),
+    .Numbers(first, last) => str.format(ctx, "${first} to ${last}"),
+    .Name(name) => str.format(ctx, "'${name}'"),
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let name = str.format(ctx, "n-${7}");
+  let line = "${shown(ctx, Span.Numbers(9, 9))}, ${shown(ctx, Span.Numbers(4, 6))}, ${shown(ctx, Span.Name(name))}";
+  let _ = io.println(host.stdout, line).ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("guard-two-payloads", source) {
+        assert_eq!(r.stdout, "9, 4 to 6, 'n-7'\n", "{backend}: {}", r.stderr);
+        assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
+        let (_, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "{backend}: blocks still live at exit");
+    }
+}
