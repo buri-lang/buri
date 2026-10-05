@@ -3021,6 +3021,74 @@ host. One cold monorepo run hung for 21 minutes on its `bun` generators,
 with 2.8 G instructions retired; it was killed and rerun, and the hang didn't
 recur in the runs after it.
 
+### 6.28 Snippets already share the standard library, 2026-10-05
+
+`cli/tests/README.md` said each of `recovery`'s 5,200 analyses type-checks the
+whole standard library, at about 650 CPU-seconds. That was written on 10-02,
+the day before §6.15. Since then a snippet resumes from the process's
+snapshot, and `load_all_std` on a seeded loader finds every module already in
+`by_path`:
+
+```rust
+// driver::analyze_snippet_on
+analyze_on(ws, map, cache, Opening::Library, Scope::All, |loader| { … loader.load_all_std(); … })
+// analyze_on
+let snapshot = snapshot::of(opening, matches!(scope, Scope::All));  // one per process
+```
+
+So the per-snippet cost the lead described is gone. What's left is one
+snapshot per **process**, and nextest starts a process per test. Here's what a
+snapshot costs to build, single-threaded, in the test profile:
+
+| Snapshot | Instructions |
+|---|---:|
+| `Builtin`, no bodies | 30.6 M |
+| `Builtin`, with bodies | 33.5 M |
+| `Library`, no bodies | 150.0 M |
+| `Library`, with bodies, which every snippet uses | 276.5 M |
+| one trivial snippet on top of a built `Library` | 0.43 M |
+
+Every test the binaries below select, each in its own process as nextest runs
+it, four at a time. A throwaway patch logged each snapshot build's thread
+instructions and CPU. The CPU column is `user + sys` of a nextest run of the
+same filter, cargo included:
+
+| Binary | Tests | Instructions | Snapshots built | Snapshot share | CPU |
+|---|---:|---:|---:|---:|---:|
+| `recovery` | 38 | 53.0 G | 5 | 2.9% | 12.0 s |
+| `checking` | 29 | 8.0 G | 3 | 11.4% | 4.5 s |
+| `fuzz` | 41 | 85.8 G | 14 | 3.7% | 28.4 s |
+| `language` | 103 | 79.7 G | 9 | 1.0% | 256.6 s |
+| `buri` unit tests | 371 | 52.5 G | 114 | 63.6% | 44.2 s |
+| `native`, `agreement::` | 71 | 35.9 G | 70 | 58.6% | 35.6 s |
+| `docs` | 56 | 40.9 G | 18 | 9.9% | |
+
+`language`'s instructions leave out the `buri` processes it starts, which is
+where its CPU goes. `recovery::a_syntax_error_does_not_become_a_type_error`
+takes 26.8 G instructions and 3.3 s of CPU for its 7,000 analyses, not 650 s.
+
+**Across the full suite it's 2%.** The same patch, over one full run at the
+default thread count:
+
+| Who builds it | Builds | Instructions | CPU |
+|---|---:|---:|---:|
+| `buri` processes, `Builtin` | 2,316 | 82.5 G | 9.6 s |
+| `buri` processes, `Library` | 104 | 31.5 G | 3.6 s |
+| test processes | 397 | 111.8 G | 13.0 s |
+| **total** | | **225.7 G** | **26.2 s** |
+
+That run took 274 s of wall time and 1,200 s of CPU, at load 35–51. One
+without the patch took 277 s and 1,202 s, at load 26–81. Both had the tests
+built already.
+
+**Nothing changed.** Within a process the snapshot is already shared. Sharing
+it across processes means writing the checked library to disk and reading it
+back, a serializer for every checker table, to save at most 26 s of CPU: about
+2.6 s of wall time on ten cores. The unit tests and `agreement` are the only
+binaries where it's most of the cost, and together they spend 80 s of CPU.
+The suite's time is in the places §6.21 names: the `buri` processes the tests
+start, and the linker tools.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
