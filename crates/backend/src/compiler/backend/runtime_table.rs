@@ -1771,8 +1771,8 @@ mod tests {
             }
         }
         // Two steps, the graph's two deferred bodies and the renderer's
-        // `reactive`, three walks and five kept handlers.
-        assert_eq!(checked, 13);
+        // `reactive`, three walks, five kept handlers and the timer's.
+        assert_eq!(checked, 14);
     }
 
     /// The module a key's first segment names, for the keys whose operations
@@ -1904,7 +1904,7 @@ mod tests {
         }
         // A scan that matched nothing would pass every assertion above.
         assert!(checked > 140, "only {checked} rows were read against a declaration");
-        assert_eq!(contexts, 50);
+        assert_eq!(contexts, 52);
     }
 
     /// The two places a context sits, by example, so that the indices are

@@ -1633,7 +1633,7 @@ mod tests {
                 ("Page21", String::from(STACK_SYMBOL)),
                 ("PageOff12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("buri$main")),
-                ("Branch26", String::from(runtime::FLUSH)),
+                ("Branch26", String::from(runtime::RETURNED)),
             ]
         );
     }

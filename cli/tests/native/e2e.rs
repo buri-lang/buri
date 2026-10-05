@@ -663,6 +663,10 @@ impl<C: Allocator + Stdout> Sockets for Paper<C> {
         ()
     }
 
+    fn socketPing(self, _socket: Int): () {
+        ()
+    }
+
     fn socketClose(self, _socket: Int, _code: Int, _reason: Str): () {
         ()
     }
