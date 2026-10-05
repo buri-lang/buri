@@ -2146,9 +2146,12 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             bindDynamic(builder, fn(scope) => {
                 if (open.get(scope)) {
                     Node(
-                        .Raw("div", scrimWith(scrimStyles), [
-                            Node(.Raw("dialog", styles, children, events)),
-                        ], noEvents()),
+                        .Raw(
+                            "div",
+                            scrimWith(scrimStyles),
+                            [Node(.Raw("dialog", styles, children, events))],
+                            noEvents(),
+                        ),
                     )
                 } else {
                     Node(.Empty)
@@ -3219,7 +3222,9 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // The renderer's own element, nameless here as every box is: `describe`
         // draws no program tree into one, so this arm exists for the match and
         // mirrors a stack's lines.
-        .Raw(_name, styles, children, _events) => container(ctx, state, styles, children, depth),
+        .Raw(_name, styles, children, _events) => {
+            container(ctx, state, styles, children, depth)
+        },
         // A fragment draws its children at the depth it sits, with no box of its
         // own — `describe` never builds one, so this is for the match.
         .Fragment(children) => childLines(ctx, state, children, depth, 0, []),

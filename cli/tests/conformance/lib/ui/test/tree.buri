@@ -6205,18 +6205,30 @@ test "every element runs its own pointer handlers, a control as well as a box" {
                 ui.button({
                     label: .Const("Grab"),
                     styles: [],
-                    onPointerDown: .Some(fn(c, at) => sawPointer(c, log, "Grab", "down", at)),
-                    onPointerMove: .Some(fn(c, at) => sawPointer(c, log, "Grab", "move", at)),
-                    onPointerUp: .Some(fn(c, at) => sawPointer(c, log, "Grab", "up", at)),
+                    onPointerDown: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Grab", "down", at)
+                    }),
+                    onPointerMove: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Grab", "move", at)
+                    }),
+                    onPointerUp: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Grab", "up", at)
+                    }),
                 }),
                 ui.field({
                     label: .Const("Name"),
                     kind: .Text,
                     value: signal(ctx, ""),
                     styles: [],
-                    onPointerDown: .Some(fn(c, at) => sawPointer(c, log, "Name", "down", at)),
-                    onPointerMove: .Some(fn(c, at) => sawPointer(c, log, "Name", "move", at)),
-                    onPointerUp: .Some(fn(c, at) => sawPointer(c, log, "Name", "up", at)),
+                    onPointerDown: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Name", "down", at)
+                    }),
+                    onPointerMove: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Name", "move", at)
+                    }),
+                    onPointerUp: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Name", "up", at)
+                    }),
                 }),
                 ui.slider({
                     label: .Const("Volume"),
@@ -6224,27 +6236,45 @@ test "every element runs its own pointer handlers, a control as well as a box" {
                     min: 0.0,
                     max: 100.0,
                     styles: [],
-                    onPointerDown: .Some(fn(c, at) => sawPointer(c, log, "Volume", "down", at)),
-                    onPointerMove: .Some(fn(c, at) => sawPointer(c, log, "Volume", "move", at)),
-                    onPointerUp: .Some(fn(c, at) => sawPointer(c, log, "Volume", "up", at)),
+                    onPointerDown: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Volume", "down", at)
+                    }),
+                    onPointerMove: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Volume", "move", at)
+                    }),
+                    onPointerUp: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Volume", "up", at)
+                    }),
                 }),
                 ui.toggle({
                     label: .Const("Loud"),
                     kind: .Checkbox,
                     isOn: signal(ctx, false),
                     styles: [],
-                    onPointerDown: .Some(fn(c, at) => sawPointer(c, log, "Loud", "down", at)),
-                    onPointerMove: .Some(fn(c, at) => sawPointer(c, log, "Loud", "move", at)),
-                    onPointerUp: .Some(fn(c, at) => sawPointer(c, log, "Loud", "up", at)),
+                    onPointerDown: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Loud", "down", at)
+                    }),
+                    onPointerMove: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Loud", "move", at)
+                    }),
+                    onPointerUp: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Loud", "up", at)
+                    }),
                 }),
                 ui.picker({
                     label: .Const("Size"),
                     options: [("m", ui.text({ content: .Const("Medium") }))],
                     value: signal(ctx, "m"),
                     styles: [],
-                    onPointerDown: .Some(fn(c, at) => sawPointer(c, log, "Size", "down", at)),
-                    onPointerMove: .Some(fn(c, at) => sawPointer(c, log, "Size", "move", at)),
-                    onPointerUp: .Some(fn(c, at) => sawPointer(c, log, "Size", "up", at)),
+                    onPointerDown: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Size", "down", at)
+                    }),
+                    onPointerMove: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Size", "move", at)
+                    }),
+                    onPointerUp: .Some(fn(c, at) => {
+                        sawPointer(c, log, "Size", "up", at)
+                    }),
                 }),
             ],
         }),
