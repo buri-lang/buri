@@ -910,6 +910,7 @@ impl FnLower<'_> {
                 rc::Position::Before => "before",
                 rc::Position::After => "after",
                 rc::Position::Escape => "escape",
+                rc::Position::Rejected => "rejected",
             }
         );
     }
@@ -1696,11 +1697,23 @@ impl FnLower<'_> {
             if let Some(g) = &arm.guard {
                 let c = self.expr(g);
                 let body_b = self.block(&[]);
+                // What the arm bound for itself and still owns is released on
+                // the way to the next arm (`rc::Position::Rejected`).
+                let rejected = self
+                    .sites
+                    .id_of(g)
+                    .filter(|n| !self.sites.get(*n, rc::Position::Rejected).is_empty());
+                let else_b = if rejected.is_some() { self.block(&[]) } else { next };
                 self.set_term(Term::Branch {
                     cond: c,
                     then: Target::to(body_b),
-                    else_: Target::to(next),
+                    else_: Target::to(else_b),
                 });
+                if let Some(n) = rejected {
+                    self.cur = else_b;
+                    self.rc(n, rc::Position::Rejected);
+                    self.set_term(Term::Jump(Target::to(next)));
+                }
                 self.cur = body_b;
             }
             let v = self.expr(&arm.body);
