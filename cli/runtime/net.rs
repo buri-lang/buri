@@ -3354,6 +3354,15 @@ mod sockets {
                     retire(socket, open, &state);
                     return Ok(received);
                 }
+                // **Not a wait while the queue holds messages the stream has
+                // room for.** The flush after the read can be the one that
+                // finishes a blocked frame, and the messages behind it were
+                // enqueued — and their wakeup spent — while it was blocked.
+                // Waiting here would wait for the far side to say something,
+                // and a client reading the reply says nothing: it stalled
+                // until the client's own read deadline (buri-lang/buri#244's
+                // row, about one run in ten under load).
+                Turn::Waiting if !blocked && !state.out().queue.is_empty() => {}
                 Turn::Waiting => waiting(&state, &open.ready, blocked).await,
             }
         }
