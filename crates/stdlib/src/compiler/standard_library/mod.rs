@@ -197,6 +197,15 @@ pub const MODULES: &[StdModule] = &[
     m("native", include_str!("../../platforms/native/platform.buri")),
     m("node", include_str!("../../platforms/node/platform.buri")),
     m("web", include_str!("../../platforms/web/platform.buri")),
+    // `web`'s own effect: `WebHost.storage` implements it, and no other bundled
+    // host does. Under the platform's name rather than `platform/effect`
+    // because no other platform offers it. Its test implementation is beside
+    // it, in its `testing` surface, as a repository effect package's is.
+    StdModule { platform: true, ..m("web/storage", include_str!("sources/web_storage.buri")) },
+    StdModule {
+        platform: true,
+        ..m("web/storage/testing", include_str!("sources/web_storage_testing.buri"))
+    },
     // Not a platform module, deliberately. It *implements* `Allocator` rather than
     // declaring it, and `Allocator` is the one effect whose implementation carries
     // no authority — a `Region` is a number, so a library that builds its own
@@ -335,7 +344,13 @@ pub const HOST_STRUCTS_MODULE: &str = "platform/host";
 /// repository that reports something else. A bundled platform's bare name is
 /// one of these too.
 pub fn is_std_path(path: &str) -> bool {
-    ROOTS.iter().any(|r| path.starts_with(r)) || is_bundled_platform(path)
+    ROOTS.iter().any(|r| path.starts_with(r)) || is_bundled_platform(path) || platform_own(path)
+}
+
+/// Whether a module path sits under a bundled platform's name, as
+/// `web/storage`: that platform's own effects.
+fn platform_own(path: &str) -> bool {
+    BUNDLED_PLATFORMS.iter().any(|p| path.strip_prefix(p).is_some_and(|rest| rest.starts_with('/')))
 }
 
 /// The type of the field called `field` on a bundled platform's host, read
@@ -348,12 +363,14 @@ pub fn host_field(platform: &str, field: &str) -> Option<&'static str> {
 
 /// The bundled effects a production struct in `platform/host` implements, in
 /// declaration order: `FileSystemRead` and `FileSystemWrite` for
-/// `HostFileSystem`.
+/// `HostFileSystem`. A bundled platform's own struct counts too, as `web`'s
+/// `HostStorage`.
 pub fn effects_of_host_struct(name: &str) -> Vec<&'static str> {
-    let Some(source) = source(HOST_STRUCTS_MODULE) else { return Vec::new() };
     let suffix = format!(" for {name} {{");
-    source
-        .lines()
+    std::iter::once(HOST_STRUCTS_MODULE)
+        .chain(BUNDLED_PLATFORMS)
+        .filter_map(source)
+        .flat_map(|source| source.lines())
         .filter_map(|line| line.strip_prefix("impl ")?.strip_suffix(suffix.as_str()))
         .collect()
 }
@@ -506,10 +523,12 @@ fn range_table(module: &str, name: &str) -> Option<Vec<(u32, u32)>> {
 pub const PLATFORM_STATE_MODULE: &str = "core/platforms/testing/state";
 
 /// Whether a module path is part of an effect's testing surface: under
-/// `platform/effect/` and with a `testing` segment, bundled or `//`.
+/// `platform/effect/` and with a `testing` segment, bundled or `//`, or a
+/// bundled platform's own, as `web/storage/testing`.
 pub fn is_effect_testing_path(path: &str) -> bool {
     let bare = path.trim_start_matches("//");
-    bare.starts_with("platform/effect/") && bare.split('/').any(|seg| seg == "testing")
+    let testing = bare.split('/').any(|seg| seg == "testing");
+    testing && (bare.starts_with("platform/effect/") || platform_own(path))
 }
 
 // ---------------------------------------------------------------------------
@@ -642,6 +661,11 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Location", "path", "ui/web", "web.route(ctx)"),
     w("Location", "push", "ui/web", "web.navigate(ctx, path)"),
     w("Location", "replace", "ui/web", "web.replace(ctx, path)"),
+    // `web`'s own store.
+    w("Storage", "get", "web/storage", "storage.get(ctx, key)"),
+    w("Storage", "set", "web/storage", "storage.set(ctx, key, value)"),
+    w("Storage", "delete", "web/storage", "storage.delete(ctx, key)"),
+    w("Storage", "keys", "web/storage", "storage.keys(ctx, prefix)"),
 ];
 
 /// The door onto one effect method, or `None` for a name this table has never
@@ -737,7 +761,7 @@ mod tests {
     /// it, which is precisely the hole [`WRAPPERS`] exists to close.
     fn declared_effect_methods() -> Vec<(String, String)> {
         let mut out = Vec::new();
-        for path in ["platform/effect", "core/fs", "core/process"] {
+        for path in ["platform/effect", "core/fs", "core/process", "web/storage"] {
             let src = source(path).expect("a platform module");
             let mut effect: Option<String> = None;
             for line in src.lines() {

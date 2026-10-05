@@ -442,6 +442,79 @@ error: `CloudflareHost` has no field `location` [unknown-field]
     |                        ^^^^^^^^
 ```
 
+## Keep data across a reload
+
+A page forgets its signals when the reader reloads. `Storage` keeps bytes under
+string keys that outlive the page, in the browser's IndexedDB:
+
+```buri platform=web
+from "core/bytes" import * as bytes;
+from "platform/effect" import { Allocator };
+from "web" import { WebHost };
+from "web/storage" import * as storage;
+from "web/storage" import { Storage, StorageError };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Storage: host.storage,
+    };
+    match (keepDraft(ctx, "hello")) {
+        .Ok(()) => .Ok(()),
+        .Err(.QuotaExceeded) => .Err("storage is full"),
+        .Err(.Refused(why)) => .Err(why),
+    }
+}
+
+fn keepDraft<C: Allocator + Storage>(ctx: C, text: Str): Result<(), StorageError> {
+    storage.set(ctx, "draft", bytes.toUtf8(ctx, text))
+}
+```
+
+`storage.get`, `set`, `delete` and `keys(ctx, prefix)` each wait on the
+browser without blocking the page. A full quota is `.QuotaExceeded`, and a
+private window, blocked site data or a browser with no IndexedDB is `.Refused`
+with the browser's reason. Neither stops the program.
+
+A test binds `web/storage/testing`'s in-memory store. `reload()` opens the same
+store again, the way a reloaded page does:
+
+```buri role=test
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "web/storage" import * as storage;
+from "web/storage" import { Storage };
+from "web/storage/testing" import * as testing;
+
+test "a draft survives a reload" {
+    let page = testing.storage();
+    let ctx = context {
+        Allocator: alloc(),
+        Storage: page,
+    };
+    assert.equal(storage.set(ctx, "draft", [104, 105]), .Ok(()));
+    let reloaded = context {
+        Allocator: alloc(),
+        Storage: page.reload(),
+    };
+    assert.equal(storage.get(reloaded, "draft"), .Ok(.Some([104, 105])));
+}
+
+test "a full store refuses the write" {
+    let ctx = context {
+        Allocator: alloc(),
+        Storage: testing.storage().withQuota(1),
+    };
+    assert.equal(storage.set(ctx, "draft", [104, 105]), .Err(.QuotaExceeded));
+}
+```
+
+`testing.refused(why)` is a store that answers every call with `.Refused(why)`.
+
+Only `web` offers `Storage`. A native or `node` entry that binds `host.storage`
+is refused, as a worker asking for `location` is above.
+
 ## Look at it locally
 
 `buri run` builds the page and serves it, so there is nothing to write and

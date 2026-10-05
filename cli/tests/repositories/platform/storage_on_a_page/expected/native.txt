@@ -1,0 +1,12 @@
+error: `NativeHost` has no field `storage` [unknown-field]
+ --> cmd/native/main.buri:9:23
+  |
+9 |         Storage: host.storage,
+  |                       ^^^^^^^
+  |
+  = native does not offer `Storage`; web does
+  = fix: build this output for web, or drop `Storage` from the context — a program for two platforms gives each output an entry of its own
+
+    There's no structural typing and no inheritance. A value has exactly the
+    fields its declaration lists.
+

@@ -265,6 +265,9 @@ fn concurrency_and_memory() {
 /// `concurrency_and_memory`'s reason and one more: a conformance block binds a
 /// double, and the whole claim here is about the host that is *not* a double.
 /// `buri run` is the command that hands a program the real one.
+///
+/// `storage_on_a_page` is here too: `web`'s own `Storage` through its double,
+/// and the native host that has none.
 #[test]
 fn the_host_on_node() {
     run_corpus(&tests_dir().join("repositories/platform"), "platform", 1);
