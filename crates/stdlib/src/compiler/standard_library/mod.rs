@@ -610,6 +610,7 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Listen", "listenReceive", "core/net/server", "server.serve(ctx, aServer)"),
     w("Sockets", "socketSendText", "core/net/server", "aSocket.send(ctx, .Text(text))"),
     w("Sockets", "socketSendBytes", "core/net/server", "aSocket.send(ctx, .Binary(bytes))"),
+    w("Sockets", "socketPing", "core/net/server", "aSocket.ping(ctx)"),
     w("Sockets", "socketClose", "core/net/server", "aSocket.close(ctx, aCloseReason)"),
     w("Tcp", "tcpConnect", "core/net/tcp", "tcp.connect(ctx, host, port)"),
     w("Tcp", "tcpRead", "core/net/tcp", "aStream.read(ctx, limit)"),

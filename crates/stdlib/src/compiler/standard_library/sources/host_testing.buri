@@ -1199,6 +1199,12 @@ impl Sockets for TestSockets {
     /// The same, read back as a `.Binary`.
     fn socketSendBytes(self, socket: Int, body: [U8]): ();
 
+    /// Dropped: there is no far side to answer it, and `sent` answers the
+    /// messages a program sent rather than its heartbeats.
+    fn socketPing(self, socket: Int): () {
+        ()
+    }
+
     /// Closes the socket, so that `isOpen` answers `false` and every later send
     /// through it is dropped.
     ///

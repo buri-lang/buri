@@ -291,6 +291,8 @@ impl Sockets for HostSockets {
 
     fn socketSendBytes(self, socket: Int, body: [U8]): ();
 
+    fn socketPing(self, socket: Int): ();
+
     fn socketClose(self, socket: Int, code: Int, reason: Str): ();
 }
 
