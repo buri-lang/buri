@@ -1498,6 +1498,7 @@ fn run_js_member(pulled: std::sync::Arc<JsPulled>, shared: &Shared) -> Done {
 fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
     use std::io::{BufRead as _, Read as _};
     use std::process::Stdio;
+    let _phase = crate::profile::enter(crate::profile::Phase::Run);
     let path = &pulled.suite.run.path;
     let Some(mut cmd) = crate::build::spawn::command(runtime) else {
         return Err(cannot_run(&format!("`{runtime}` is not on PATH")));
@@ -1552,6 +1553,7 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
         }
     }
     drop(input);
+    crate::profile::reaped(child.id());
     let _ = child.wait();
     let stderr = reading_err.join().unwrap_or_default();
     if held.is_some() || !asked {
@@ -3578,6 +3580,7 @@ fn run_pulled(
 ) -> Pulled {
     use std::io::{BufRead as _, Read as _};
     use std::process::Stdio;
+    let _phase = crate::profile::enter(crate::profile::Phase::Run);
     let Some(mut cmd) = crate::build::spawn::command(program) else { return Pulled::Broken };
     cmd.env(RESUME, "0").env(PULL, "1").env(SEED, seeds);
     for (name, value) in snapshots {
@@ -3638,6 +3641,7 @@ fn run_pulled(
         }
     }
     drop(input);
+    crate::profile::reaped(child.id());
     let status = child.wait();
     let stderr = reading_err.join().unwrap_or_default();
     let Ok(status) = status else { return Pulled::Broken };
@@ -4046,6 +4050,7 @@ fn execute(
     env: &[(&str, &str)],
 ) -> std::io::Result<Execution> {
     use std::process::Stdio;
+    let _phase = crate::profile::enter(crate::profile::Phase::Run);
     let Some(mut cmd) = crate::build::spawn::command(program) else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -4073,7 +4078,7 @@ fn execute(
     }
     let mut child = crate::build::spawn::start(cmd.stdout(Stdio::piped()).stderr(Stdio::piped()))?;
     let Some(limit) = limit else {
-        return Ok(Execution::Finished(child.wait_with_output()?));
+        return Ok(Execution::Finished(crate::build::spawn::finish(child)?));
     };
     // `timeout_seconds` comes from a build file, so the deadline is computed
     // from a number this process did not choose. One too large for the clock to

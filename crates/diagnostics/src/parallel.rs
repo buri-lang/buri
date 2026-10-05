@@ -126,6 +126,7 @@ where
         return (0..len).map(|i| f(&mut state, i)).collect();
     }
     let next = AtomicUsize::new(0);
+    let phase = crate::profile::current();
     let mut slots: Vec<Option<R>> = Vec::with_capacity(len);
     slots.resize_with(len, || None);
     std::thread::scope(|scope| {
@@ -138,6 +139,7 @@ where
                 .name("buri-worker".into())
                 .stack_size(STACK)
                 .spawn_scoped(scope, move || {
+                    let _phase = crate::profile::adopt(phase);
                     let mut done: Vec<(usize, R)> = Vec::new();
                     let mut state = start();
                     loop {
@@ -356,6 +358,7 @@ where
         budget,
     };
     let (send, receive) = std::sync::mpsc::channel();
+    let phase = crate::profile::current();
     std::thread::scope(|scope| {
         for _ in 0..width.max(1) {
             let (queue, work, send) = (&queue, &work, send.clone());
@@ -363,6 +366,7 @@ where
                 .name("buri-job".into())
                 .stack_size(STACK)
                 .spawn_scoped(scope, move || {
+                    let _phase = crate::profile::adopt(phase);
                     let tell = Tell { send };
                     while let Some((job, held)) = queue.take() {
                         // A job that panics drops its `Held` as it unwinds.

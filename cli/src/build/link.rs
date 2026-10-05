@@ -1759,6 +1759,7 @@ impl CDriver {
         out: &Path,
         _opts: &LinkOptions<'_>,
     ) -> Result<(), Diagnostics> {
+        let _phase = crate::profile::enter(crate::profile::Phase::Link);
         let mut diagnostics = Diagnostics::new();
         if units.is_empty() {
             diagnostics.push(Diagnostic::error(

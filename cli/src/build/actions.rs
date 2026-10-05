@@ -957,6 +957,7 @@ pub fn emit_test_bundle(
     diagnostics: &mut Diagnostics,
 ) -> Result<String, Diagnostics> {
     prepare(program, Target { platform: crate::build::buildfile::Platform::Js, arch: None });
+    let emitting = crate::profile::enter(crate::profile::Phase::Emit);
     let units = match crate::compiler::backend::js::Js.emit_unminified(
         program,
         tables,
@@ -968,6 +969,7 @@ pub fn emit_test_bundle(
             return Err(std::mem::take(diagnostics));
         }
     };
+    drop(emitting);
     match units.into_iter().next().map(|unit| String::from_utf8(unit.bytes)) {
         Some(Ok(module)) => Ok(module),
         _ => {
@@ -1012,6 +1014,7 @@ pub fn emit_all(
         }
     };
     let opts = BackendOptions { profile, target, unit_prefix: "" };
+    let emitting = crate::profile::enter(crate::profile::Phase::Emit);
     let units = match backend.emit(program, tables, &opts) {
         Ok(units) => units,
         Err(errors) => {
@@ -1019,6 +1022,7 @@ pub fn emit_all(
             return Err(std::mem::take(diagnostics));
         }
     };
+    drop(emitting);
     // Unit zero is the module; anything after it is a `core/lazy` chunk, in
     // `$lazy`'s own numbering. The vector is the shape because a native build
     // emits one object per codegen unit; taking element zero here is the
@@ -1086,6 +1090,7 @@ pub fn prepare(
     // A chunk is a second file beside the artifact, so only a target that
     // writes files can have one. `middle::chunks` takes `core/lazy`'s `load`
     // back out everywhere else, which is the identity the module promises.
+    let _phase = crate::profile::enter(crate::profile::Phase::Middle);
     let opts = middle::Options {
         split_lazy: !target.platform.is_native(),
         ..middle::Options::default()
@@ -1953,6 +1958,7 @@ fn objects_named(
         // scanning a list of every unit once per unit.
         let selection =
             if wanted.len() == keys.len() { Units::All } else { Units::Only(wanted) };
+        let _phase = crate::profile::enter(crate::profile::Phase::Emit);
         backend.emit_units(program, tables, &opts, selection)
     })?;
 
