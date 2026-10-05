@@ -187,20 +187,21 @@ struct Node {
     clippy::arithmetic_side_effects,
     reason = "the counter and the edge cursor are bounded by the node and edge counts of a graph already held in memory"
 )]
-fn strongly_connected(edges: &[Vec<usize>]) -> Vec<Vec<usize>> {
+fn strongly_connected(edges: &[Vec<usize>]) -> Components {
     let n = edges.len();
     let mut nodes = vec![Node { index: usize::MAX, low: 0, on_stack: false }; n];
     let mut stack: Vec<usize> = Vec::new();
     let mut next = 0usize;
-    let mut out: Vec<Vec<usize>> = Vec::new();
+    let mut out = Components { members: Vec::with_capacity(n), ends: Vec::new() };
+    // (node, how many of its edges have been taken)
+    let mut work: Vec<(usize, usize)> = Vec::new();
 
     for root in 0..n {
         match nodes.get(root) {
             Some(r) if r.index == usize::MAX => {}
             _ => continue,
         }
-        // (node, how many of its edges have been taken)
-        let mut work: Vec<(usize, usize)> = vec![(root, 0)];
+        work.push((root, 0));
         while let Some((v, taken)) = work.pop() {
             if taken == 0 {
                 let Some(node) = nodes.get_mut(v) else { continue };
@@ -236,18 +237,20 @@ fn strongly_connected(edges: &[Vec<usize>]) -> Vec<Vec<usize>> {
             }
 
             if low == index {
-                let mut group = Vec::new();
+                let start = out.members.len();
                 while let Some(w) = stack.pop() {
                     if let Some(node) = nodes.get_mut(w) {
                         node.on_stack = false;
                     }
-                    group.push(w);
+                    out.members.push(w);
                     if w == v {
                         break;
                     }
                 }
-                group.sort_unstable();
-                out.push(group);
+                if let Some(group) = out.members.get_mut(start..) {
+                    group.sort_unstable();
+                }
+                out.ends.push(out.members.len());
             }
             if let Some(&(parent, _)) = work.last() {
                 if let Some(node) = nodes.get_mut(parent) {
@@ -259,6 +262,27 @@ fn strongly_connected(edges: &[Vec<usize>]) -> Vec<Vec<usize>> {
     out
 }
 
+/// The strongly connected components of a graph, each sorted, in the order
+/// Tarjan's algorithm finishes them: callees first.
+///
+/// One flat list of members and where each component ends, rather than a
+/// `Vec` per component: most components are a single function.
+pub(crate) struct Components {
+    members: Vec<usize>,
+    ends: Vec<usize>,
+}
+
+impl Components {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &[usize]> {
+        let mut start = 0;
+        self.ends.iter().map(move |&end| {
+            let group = self.members.get(start..end).unwrap_or_default();
+            start = end;
+            group
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::strongly_connected;
@@ -267,7 +291,7 @@ mod tests {
     fn cycles_are_found_and_singletons_are_not_called_recursive() {
         // 0 -> 1 -> 2 -> 1, and 3 alone.
         let edges = vec![vec![1], vec![2], vec![1], vec![]];
-        let mut groups = strongly_connected(&edges);
+        let mut groups: Vec<Vec<usize>> = strongly_connected(&edges).iter().map(<[usize]>::to_vec).collect();
         groups.sort();
         let cycles: Vec<Vec<usize>> = groups.into_iter().filter(|g| g.len() > 1).collect();
         assert_eq!(cycles, vec![vec![1, 2]]);
@@ -277,7 +301,7 @@ mod tests {
     fn finds_self_loops_and_groups() {
         // 0 -> 0 (self), 1 <-> 2 (group), 3 -> 1 (not in a cycle)
         let edges = vec![vec![0], vec![2], vec![1], vec![1]];
-        let sccs = strongly_connected(&edges);
+        let sccs: Vec<Vec<usize>> = strongly_connected(&edges).iter().map(<[usize]>::to_vec).collect();
         // Three components: {0}, {3}, and the pair {1, 2}.
         let mut sizes: Vec<usize> = sccs.iter().map(|s| s.len()).collect();
         sizes.sort();
@@ -298,6 +322,6 @@ mod tests {
     fn an_edge_to_a_node_that_does_not_exist_is_skipped() {
         let edges = vec![vec![7], vec![0]];
         let sccs = strongly_connected(&edges);
-        assert_eq!(sccs.len(), 2);
+        assert_eq!(sccs.iter().count(), 2);
     }
 }
