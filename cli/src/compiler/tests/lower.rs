@@ -127,9 +127,11 @@ fn lowering_is_a_pure_function_of_the_program() {
 /// The reproduction the release-then-retain class was found on, lowered.
 ///
 /// Four lines of Buri: a struct holding a list whose elements are counted,
-/// a field of it projected into a `let` **nothing reads**, and the struct
-/// read afterwards so the projection is not the last thing alive
-/// (`reports/llvm-parallel-listen-fix.md` §1). The list is freshly
+/// a field of it bound by a `let` **nothing reads**, and the struct read
+/// afterwards so the binding is not the last thing alive
+/// (`reports/llvm-parallel-listen-fix.md` §1). The report's `let hs = two.b;`
+/// is a field path, which `middle::forward` replaces by the path, so the
+/// binding here takes the field apart with a pattern instead. The list is freshly
 /// allocated, so its count at the drop is one and a release there is a
 /// free.
 ///
@@ -146,8 +148,8 @@ fn a_counted_field_bound_and_never_read_is_not_released_then_retained() {
         "struct Two { a: Int, b: [Str] }\n\n\
          export fn two(): Int {\n\
          \x20 let two = Two { a: 200, b: [\"h\"] };\n\
-         \x20 let hs = two.b;\n\
-         \x20 two.a\n\
+         \x20 let Two { a: _, b: hs } = two;\n\
+         \x20 two.a + two.b.length()\n\
          }",
         "  let _ = two();",
     ));
