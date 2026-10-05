@@ -1,0 +1,49 @@
+# `buri clean` deletes `.buri/` state and does nothing else. In particular it
+# runs no generator: running one builds its tool into `.buri/out/tools`, so a
+# clean that ran `//lib/wire`'s generator in a fresh repository would report
+# dropping what it had just written, where there was nothing to clean.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "clean runs no generator: in a fresh repository there is nothing to clean, and nothing is left behind"
+
+run {
+  args: ["clean"]
+  exit: 0
+  golden: "nothing_to_clean.txt"
+}
+
+path {
+  path: ".buri"
+  exists: false
+}
+
+run {
+  args: ["clean", "--outputs"]
+  exit: 0
+  golden: "nothing_to_clean.txt"
+}
+
+path {
+  path: ".buri"
+  exists: false
+}
+
+# The negative twin: once a test has run the generator, its tool and the
+# cached answer are there to drop.
+run {
+  args: ["test", "//lib/wire"]
+  exit: 0
+}
+
+path {
+  path: ".buri/out/tools"
+  exists: true
+}
+
+run {
+  args: ["clean"]
+  exit: 0
+  golden: "clean_all.txt"
+}
