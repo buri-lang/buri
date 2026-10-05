@@ -1,0 +1,7 @@
+export effect Greet {
+    fn name(self): Str;
+}
+
+export fn name<C: Greet>(ctx: C): Str {
+    ctx.name()
+}

@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//platform/effect/count", "//platform/effect/greet"]
+    outputs: [
+        { platform: "//platform/two" },
+    ]
+}

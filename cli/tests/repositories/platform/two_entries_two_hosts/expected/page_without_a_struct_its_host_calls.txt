@@ -1,0 +1,30 @@
+.buri/out/platform/two/cmd/app/worker.mjs (N bytes)
+error: `page.mjs` does not export `Names`, which implements `Names` [host-file-missing-method]
+ --> platform/two/page.mjs:1:1
+  |
+1 | import { page } from "buri:program";
+  | ^
+  |
+  = an export named after one of the platform's production structs implements it, written `export const S = { ... }` with one function per method
+  = fix: export the struct as an object with one function per method, `self` first
+
+    Each method a platform's platform.buri declares without a body, on a struct
+    the entry's host reaches, is the entry's js file's to implement, under the
+    struct's name, with the same parameter count:
+
+      struct HostKv {}
+
+      impl Kv for HostKv {
+          fn get(self, namespace: Str, key: Str): Option<Str>;
+
+          fn put(self, namespace: Str, key: Str, value: Str): ();
+      }
+
+      export const HostKv = {
+        get: async (self, namespace, key) => (await bindings[namespace].get(key)) ?? undefined,
+        put: (self, namespace, key, value) => bindings[namespace].put(key, value),
+      };
+
+    The build checks this, so a missing method fails buri build rather than the
+    first request that calls it.
+
