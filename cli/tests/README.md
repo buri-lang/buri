@@ -673,16 +673,18 @@ scaling the corpus is a number and a bless.
 **The growth corpus** catches a value copied where it should grow in place.
 Each `growth/case_NNN.buri` grows a list, a string, or a record holding a
 list, through one mix of the shapes ownership bugs came from: `foldCtx`,
-`foldResultCtx`, a loop, plain recursion and `mapCtx`; a bare, tuple or record
-accumulator; a destructuring `let`, a field read or a `match`; helpers small
-enough to inline or not, that read the value or push onto it; an aliasing
-`let`; an early stop or a `?`; and one loop nested in another. The header
-pins what it prints and how many blocks it may allocate:
+`foldResultCtx`, a loop, plain recursion and `mapCtx`; a bare, tuple, record
+or nested record accumulator; a destructuring `let`, a field read or a
+`match`; helpers small enough to inline or not, that read the value or push
+onto it; literal or built elements; an aliasing `let`; an early stop or a `?`;
+one loop nested in another; and a half kept and read again after the rest is
+grown from it. The header pins what it prints and how many blocks it may
+allocate:
 
 ```buri
-// value=Ints acc=Tuple access=Destructure pusher=Large reader=None alias=false inner=Fold ...
-// expect: 800 800 5 805 44654
-// blocks: 32
+// value=Names acc=Tuple access=Destructure pusher=Large reader=None alias=false inner=FoldLambda ...
+// expect: 2400 2400 7 2407 821404
+// blocks: 2493
 ```
 
 The generator computes both. It runs the same steps over Rust values for the

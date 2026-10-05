@@ -224,6 +224,52 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 
+/// The same, from a step that can fail, with the list named by a `let` first
+/// and the name handed on: the inliner binds the function's parameter to the
+/// name in a block inside, so forwarding the outer name has to reach the inner
+/// `let` too. Found by the growth generator, seed `0x67726f777468`, case 184.
+#[test]
+fn a_list_named_and_then_handed_to_an_inlined_function_grows_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+fn add<C: Allocator>(ctx: C, items: [Int], k: Int): [Int] { items.push(ctx, k) }
+
+fn gate(i: Int): Result<Int, Str> {
+  if (i < 0) { .Err("negative") } else { .Ok(i % 5) }
+}
+
+fn step<C: Allocator>(ctx: C, acc: (Int, [Int]), i: Int): Result<(Int, [Int]), Str> {
+  let q = gate(i)?;
+  let held = acc.1;
+  .Ok((acc.0 + 1, add(ctx, held, i + q)))
+}
+
+fn run<C: Allocator>(ctx: C, acc: (Int, [Int]), count: Int): Result<(Int, [Int]), Str> {
+  if (count == 0) { .Ok(acc) } else { step(ctx, run(ctx, acc, count - 1)?, count - 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let acc = run(host.alloc, (0, list.empty<Int>()), 2000)?;
+  let _ = io.println(host.stdout, "${acc.0} ${acc.1.length()}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("named-inlined-tuple-field", source) {
+        assert_eq!(r.stdout, "2000 2000\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 40,
+            "{backend}: two thousand pushes allocated {blocks} blocks: the inlined function's \
+             parameter took a count of its own on the list, so every push copied it"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
 /// A match arm binds a record holding a heap `Str`, its guard reads the record
 /// and fails, and the match falls through to the wildcard (buri-lang/buri#231).
 /// The value must be released once, by the arm that ran: released by the guard
