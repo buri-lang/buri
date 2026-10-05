@@ -1,0 +1,9 @@
+from "//platform/effect/greet" import { Greet };
+
+export struct TestGreet {}
+
+impl Greet for TestGreet {
+    fn name(self): Str {
+        "test"
+    }
+}

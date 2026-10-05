@@ -1,0 +1,15 @@
+platform {
+    dependencies: ["//platform/effect/count", "//platform/effect/greet"]
+
+    entry {
+        name: "page"
+        backend: JS
+        js: "page.mjs"
+    }
+
+    entry {
+        name: "worker"
+        backend: JS
+        js: "worker.mjs"
+    }
+}

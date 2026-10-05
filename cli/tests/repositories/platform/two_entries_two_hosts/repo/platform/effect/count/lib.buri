@@ -1,0 +1,7 @@
+export effect Count {
+    fn next(self): Int;
+}
+
+export fn next<C: Count>(ctx: C): Int {
+    ctx.next()
+}

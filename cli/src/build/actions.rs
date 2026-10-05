@@ -380,7 +380,8 @@ fn needed_structs(
     let Some(host) = decl.and_then(|d| declared_host(tables, platform, &tables.fn_info(d).params)) else {
         return Vec::new();
     };
-    let structs = js_structs(tables, platform, host).into_iter().filter(|(_, m)| !m.is_empty());
+    let structs = js_structs(tables, &analysis.checked.bodies, platform, host);
+    let structs = structs.into_iter().filter(|(_, m)| !m.is_empty());
     // A method of no effect, as `web`'s `IndexedDb.get`, is its struct's to declare.
     let method = |owner: &str, f: &crate::compiler::semantics::types::FnInfo| Method {
         name: f.name.clone(),
