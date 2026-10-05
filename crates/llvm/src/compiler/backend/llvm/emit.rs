@@ -2647,6 +2647,41 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     let bytes = self.step_state_bytes(ps, None);
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(record, &slots, 8, &pieces);
+                    // The context, where the row drops one (`core/tasks`'s
+                    // timers): into the record beside the closure, as a step's,
+                    // so the handler is handed it when it fires. A row that
+                    // drops none (`ui/node`'s handlers) leaves the slot alone.
+                    let ctx_at = self.step_ctx_offsets(ps, None);
+                    let dropped = (0..args.len()).find(|i| entry.dropped(*i));
+                    let ctx_arg = dropped.and_then(|i| args.get(i).copied());
+                    if let (Some(arg), Some(at)) = (ctx_arg, ctx_at.first().copied()) {
+                        if ps.first().is_some_and(|t| self.rc_counted(t)) {
+                            self.error(
+                                span,
+                                format!("`{key}` was given a handler whose context owns a count"),
+                                "this is a toolchain bug; report it",
+                            );
+                            return None;
+                        }
+                        let cty = code.ty_of(arg);
+                        let cslots = repr::ir_slots(&mut self.reprs, self.program, cty);
+                        if !cslots.is_empty() {
+                            let value = self.get(state, arg);
+                            let cpieces = repr::disassemble(&self.builder, &cslots, value);
+                            let align = match cty {
+                                ir::Type::Agg(id) => self.reprs.of(self.program, id).layout.align,
+                                _ => 8,
+                            };
+                            let into = repr::byte_offset(
+                                self.ctx,
+                                &self.builder,
+                                record,
+                                i64::from(at),
+                                "press.ctx.p",
+                            );
+                            self.store_slots(into, &cslots, align, &cpieces);
+                        }
+                    }
                     // The runtime keeps the handler, so the graph owes its
                     // environment a reference — taken here, given back at exit.
                     if let Some(glue) = body.as_ref().and_then(|ty| self.glue(Op::Retain, ty)) {
@@ -7916,7 +7951,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // The result type is `Result<(), Str>`. Its shape comes from the
         // layout table like every other enum's, so a change to the encoding
         // moves this with it.
+        let returned = self.declare_rt(runtime::RETURNED, &[], None);
         let Some(ir::Type::Agg(id)) = func.sig.rets.first().copied() else {
+            if let Ok(call) = self.builder.build_call(returned, &[], "") {
+                attrs::set_call_convention(call, attrs::C);
+            }
             let _ = self.builder.build_return(Some(&i32t.const_zero()));
             return;
         };
@@ -7991,6 +8030,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let _ = self.builder.build_return(Some(&i32t.const_int(1, false)));
 
         self.builder.position_at_end(ok);
+        if let Ok(call) = self.builder.build_call(returned, &[], "") {
+            attrs::set_call_convention(call, attrs::C);
+        }
         let _ = self.builder.build_return(Some(&i32t.const_zero()));
     }
 

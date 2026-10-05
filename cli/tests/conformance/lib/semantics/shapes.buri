@@ -1330,6 +1330,10 @@ impl Sockets for QuietSockets {
         ()
     }
 
+    fn socketPing(self, socket: Int): () {
+        ()
+    }
+
     fn socketClose(self, socket: Int, code: Int, reason: Str): () {
         ()
     }

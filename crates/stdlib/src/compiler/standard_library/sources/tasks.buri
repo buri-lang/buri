@@ -96,10 +96,8 @@
 //! }
 //! ```
 //!
-//! **A timer is a task that sleeps.** There is no `Timer` type and no
-//! `setTimeout`: `clock.sleepMilliseconds` already waits, and a task is already the
-//! thing that waits without holding up the code around it. So the five-minute
-//! timer above is five lines of ordinary program.
+//! **A task that sleeps is a timer**, for code that holds a scope. Code that
+//! holds only a context — a callback, a handler — uses `after`, below.
 //!
 //! **`Scope` is inert.** It holds no context, so a lambda may capture one (SPEC
 //! 10.6) — which is what lets an interface hand a scope to a handler that will
@@ -109,7 +107,7 @@
 //! it, because a scope is the application's to open. `core/net/server`'s `run`
 //! is already that shape.
 //!
-//! **Stopping is cooperative.** There is no `cancel`. A task ends when its own
+//! **Stopping is cooperative.** A spawned task can't be cancelled. It ends when its own
 //! body ends, so a loop stops by finding its socket closed, or by asking an
 //! actor whether to carry on. An abort in this language is a write to standard
 //! error and an exit (SPEC 6.9), not something a second task can survive.
@@ -135,8 +133,55 @@
 //! what a handler does — runs on the task that spawned it, because the scope's
 //! own drain has already ended. A page is the outer scope and it closes when
 //! the page does (`design/native/DECISIONS.md`).
+//!
+//! ## `after` and `cancel`
+//!
+//! `after(ctx, duration, run)` runs `run` once `duration` has passed and
+//! answers a `Timer` at once; `cancel(ctx, timer)` stops it. Both need only
+//! `Tasks`, so a callback that holds nothing but its context can schedule, on
+//! every platform.
+//!
+//! ```buri
+//! from "core/io" import * as io;
+//! from "core/tasks" import * as tasks;
+//! from "core/time" import * as time;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout, Tasks };
+//!
+//! fn tick<C: Stdout + Tasks>(ctx: C, n: Int): () {
+//!     let _ = io.println(ctx, "tick ${n}").ignore();
+//!     if (n < 3) {
+//!         let _ = tasks.after(ctx, time.milliseconds(10), fn(c) => tick(c, n + 1));
+//!         ()
+//!     } else {
+//!         ()
+//!     }
+//! }
+//!
+//! export fn main(host: NodeHost): Result<(), Str> {
+//!     let ctx = context {
+//!         Allocator: host.alloc,
+//!         Stdout: host.stdout,
+//!         Tasks: host.tasks,
+//!     };
+//!     let _ = tasks.after(ctx, time.milliseconds(10), fn(c) => tick(c, 1));
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! prints `tick 1`, `tick 2` and `tick 3` after `main` has returned: a pending
+//! timer keeps the program running until it fires or is cancelled. A `main`
+//! that answers `.Err`, an abort and `exitWith` end it at once.
+//!
+//! On JavaScript a timer is a `setTimeout`. A native program fires it on
+//! `main`'s thread whenever that thread waits — a sleep, a fetch, a `parallel`
+//! being joined — and after `main` returns, never in the middle of code that
+//! is computing. Under `buri run` a server's workers wait on `main`'s thread,
+//! so a timer started there fires once the server stops; under `--release` it
+//! fires on time (`design/native/DECISIONS.md`).
 
 from "core/alloc" import * as alloc;
+from "core/time" import { Duration };
 from "platform/effect" import { Allocator, Tasks };
 
 /// Runs `step` over every item and answers the results in the items' order.
@@ -209,6 +254,42 @@ export fn spawn<C: Allocator + Tasks>(ctx: C, scope: Scope, step: fn(C) => ()): 
             resting(ctx, scope)
         },
     }
+}
+
+// --- Timers -------------------------------------------------------------------
+
+/// A pending run, returned by `after` and stopped by `cancel`.
+///
+/// Inert data: a number the runtime issued, and no context. A lambda may
+/// capture one (SPEC 10.6), which is what lets a callback hold the timer it
+/// means to cancel. The authority to cancel travels through `ctx`.
+export struct Timer(Int);
+
+/// Runs `run` once `duration` has passed, and answers a `Timer` that names the
+/// pending run. Answers at once: nothing waits here.
+///
+/// `run` is handed a context of its own when it fires, the same one `after`
+/// was called with, because a lambda may not capture one (SPEC 10.6).
+///
+/// It needs no `Scope`, so a callback that holds only a context can schedule:
+/// a heartbeat after each frame, a retry after a failed send. A periodic tick
+/// is a `run` that calls `after` again.
+///
+/// The duration is read in whole milliseconds, and a length of zero or less
+/// fires as soon as the program next waits. A pending timer keeps the program
+/// running after `main` returns, until it has fired or been cancelled.
+///
+/// `core/alloc`'s `copyAcross` copies `run` out of every arena first, because
+/// the runtime keeps it past this call.
+export fn after<C: Tasks>(ctx: C, duration: Duration, run: fn(C) => ()): Timer {
+    let fire: fn(C, Int) => () = alloc.copyAcross(fn(c, _handle) => run(c));
+    Timer(timerStart(ctx, duration.milliseconds(), fire))
+}
+
+/// Stops a pending timer. A timer that has already fired, or already been
+/// cancelled, is a no-op, so a caller never has to ask which state it is in.
+export fn cancel<C: Tasks>(ctx: C, timer: Timer): () {
+    timerStop(ctx, timer.0)
 }
 
 // --- Beside the body ----------------------------------------------------------
@@ -380,7 +461,7 @@ fn carried<T>(value: T): Carried<T> {
 
 // --- The runtime's half -------------------------------------------------------
 //
-// Ten operations. The two that move a task move a **whole block** — a
+// Ten operations for scopes, and two for timers at the end. The two that move a task move a **whole block** — a
 // one-element `[Carried<fn(C) => ()>]` — which is what makes them
 // implementable against a runtime compiled once that knows no Buri type.
 // `middle/monomorphize.rs`'s `GENERIC_INTRINSICS` records the argument, and
@@ -424,3 +505,14 @@ fn scopeSpare<C: Tasks>(ctx: C, handle: Int): Bool;
 
 /// The body, or a claimed task, has finished.
 fn scopeRan<C: Tasks>(ctx: C, handle: Int): Bool;
+
+// The timers' two. Unlike a spawned task, a timer's body is the runtime's to
+// call: it is kept as a handler is, with the context beside it, and the runtime
+// fires it when it is due. The `Int` it is handed is the timer's own handle.
+
+/// Registers `run` to fire once `millis` milliseconds have passed, and answers
+/// its handle.
+fn timerStart<C: Tasks>(ctx: C, millis: Int, run: fn(C, Int) => ()): Int;
+
+/// Stops the timer `handle` names, where it is still pending.
+fn timerStop<C: Tasks>(ctx: C, handle: Int): ();
