@@ -1,12 +1,15 @@
 //! A list grown in a program whose values may cross tasks, natively, on every
 //! native backend this toolchain has built in.
 //!
-//! A program that reaches `core/actor`, `core/tasks` or `Tasks.parallel` marks
-//! every block it allocates, and counts the marked ones atomically (MEMORY.md
-//! §5.1). Issue #222: a marked list was never treated as unique, so every
-//! `push` in such a program copied the whole list, even one no other task
-//! could reach. Building a list was quadratic again, for `[Int]` as well as
-//! `[Str]`, because the program started one actor somewhere.
+//! A program that can fan out marks every block once its first fan-out begins,
+//! the ones allocated before included, and counts the marked ones atomically
+//! (MEMORY.md §5.1). Issue #222: a marked list was never treated as unique, so
+//! every `push` in such a program copied the whole list, even one no other
+//! task could reach. Building a list was quadratic again, for `[Int]` as well
+//! as `[Str]`, because the program started one actor somewhere. Issue #243:
+//! marking from the first block made single-threaded code 1.5× the
+//! instructions in any program that linked `actor.start`, whether or not it
+//! ever started a second thread.
 //!
 //! The work is counted rather than timed, through the allocation probe: a push
 //! that copies allocates a block per push, and one that grows in place
@@ -18,7 +21,7 @@
 //! the tasks run one after another, and the rows reach the same answers with
 //! no contention.
 
-use crate::shared::{probed, ran_checked, Ran};
+use crate::shared::{exited_instructions, probed, ran_checked, Ran};
 
 /// One program on every backend, under the heap check.
 fn run_each(name: &str, source: &str) -> Vec<(&'static str, Ran)> {
@@ -352,5 +355,201 @@ export fn main(host: NativeHost): Result<(), Str> {
             r.stderr
         );
         assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
+    }
+}
+
+/// One string, held by one closure, grown by eight `Tasks.parallel` steps at
+/// once, two hundred times over: [`parallel_steps_growing_one_shared_list_each_see_only_their_own_element`]
+/// for a `Str`, whose concatenation the release backend open-codes.
+///
+/// The first round's string is made before the program's first fan-out, so it
+/// carries no mark of its own: the steps must still see it as shared, because
+/// sharing began before they ran (buri-lang/buri#243). Each answer must be the
+/// string and the step's own letter.
+#[test]
+fn parallel_steps_growing_one_shared_string_each_see_only_their_own_letter() {
+    let source = r#"
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+
+fn grown<C: Allocator>(ctx: C, s: Str, i: Int): Str {
+  if (i == 0) { s } else { grown(ctx, s.concat(ctx, "7"), i - 1) }
+}
+
+fn letter(i: Int): Str {
+  match (i) {
+    0 => "a", 1 => "b", 2 => "c", 3 => "d", 4 => "e", 5 => "f", 6 => "g", _ => "h",
+  }
+}
+
+fn right<C: Allocator>(ctx: C, answers: [Str]): Int {
+  answers.mapIndexedCtx(ctx, fn(c, i, s) => {
+    if (s == grown(c, "", 40).concat(c, letter(i))) { 1 } else { 0 }
+  }).sum()
+}
+
+fn round<C: Allocator + Tasks>(ctx: C, k: Int, total: Int): Int {
+  if (k == 0) {
+    total
+  } else {
+    let s = grown(ctx, "", 40);
+    let steps = [0, 1, 2, 3, 4, 5, 6, 7];
+    let answers = tasks.parallel(ctx, steps, fn(c, i, _s) => s.concat(c, letter(i)));
+    round(ctx, k - 1, total + right(ctx, answers))
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let _ = io.println(ctx, "right ${round(ctx, 200, 0)} of 1600").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("marked-parallel-concat", source) {
+        assert_eq!(r.stdout, "right 1600 of 1600\n", "{backend}: {}", r.stderr);
+        assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
+    }
+}
+
+/// `fill` and `work` from buri-lang/buri#243: string keys inserted into an
+/// ordered map one at a time, which is reference counting and in-place growth
+/// and nothing else.
+const MAP_WORK: &str = r#"
+fn fill<C: Allocator>(ctx: C, map: OrderedMap<Str, Int>, i: Int, n: Int): Int {
+  if (i >= n) {
+    map.size
+  } else {
+    fill(ctx, map.insert(ctx, str.format(ctx, "key-${i}"), i), i + 1, n)
+  }
+}
+
+fn work<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), Str> {
+  let size = fill(ctx, orderedmap.empty(), 0, 100_000);
+  io.println(ctx, "${label} size=${size}").mapErr(fn(_e) => "could not print")
+}
+"#;
+
+/// A run's output, its allocation count, and the instructions it retired where
+/// the kernel says (macOS).
+struct Measured {
+    ran: Ran,
+    blocks: u64,
+    instructions: Option<u64>,
+}
+
+/// Runs `binary` with `args`, without the heap check: this measures the
+/// program the product ships. The instructions are the fewer of two runs,
+/// because a short process's count only ever gains noise
+/// (`design/PERFORMANCE.md` §8).
+fn measured(binary: &std::path::Path, args: &[&str]) -> Measured {
+    let once = || {
+        let child = std::process::Command::new(binary)
+            .args(args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let instructions = exited_instructions(child.id());
+        let out = child.wait_with_output().unwrap();
+        let ran = Ran {
+            status: out.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+        };
+        (ran, instructions)
+    };
+    let (ran, first) = once();
+    let (_, second) = once();
+    let blocks = probed(&ran.stderr).0;
+    Measured { ran, blocks, instructions: first.zip(second).map(|(a, b)| a.min(b)) }
+}
+
+/// **Single-threaded work costs the same whether or not the program can start
+/// an actor** (buri-lang/buri#243). The same map fill runs in a program with
+/// no actor anywhere, and in one that links `actor.start` and starts the actor
+/// only when asked, on both of its paths.
+///
+/// No path here starts a second thread, so every count can stay plain and
+/// every in-place write can fire. A program that marked its blocks from the
+/// start made 1.5× the instructions and copied on its in-place writes. The
+/// allocations are compared everywhere, to within the actor's own few. The instructions are compared
+/// where the kernel counts them, within 3%, which is several times their noise
+/// (`design/PERFORMANCE.md` §8).
+#[test]
+fn single_threaded_work_costs_the_same_in_a_program_that_can_start_an_actor() {
+    let imports = r#"
+from "core/io" import * as io;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/str" import * as str;
+from "native" import { NativeHost };
+"#;
+    let twin = format!(
+        r#"{imports}
+from "platform/effect" import {{ Allocator, Stdout }};
+{MAP_WORK}
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+  work(ctx, "filled")
+}}
+"#
+    );
+    let with_actor = format!(
+        r#"{imports}
+from "core/actor" import * as actor;
+from "core/actor" import {{ Actor, Stepped }};
+from "core/env" import * as env;
+from "platform/effect" import {{ Allocator, Environment, Stdout, Tasks }};
+{MAP_WORK}
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{
+    Allocator: host.alloc,
+    Environment: host.env,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  }};
+  match (env.arguments(ctx).first()) {{
+    .Some("actor") => {{
+      let held = actor.start(ctx, Actor {{
+        state: 0,
+        step: fn(_c, state, message: Int) => Stepped {{ state, answer: message }},
+      }});
+      let _ = work(ctx, "filled")?;
+      held.stop(ctx).mapErr(fn(_e) => "the actor stopped")
+    }},
+    _ => work(ctx, "filled"),
+  }}
+}}
+"#
+    );
+    for (backend, build) in crate::e2e::probed_backends() {
+        let alone = measured(&build("actor-cost-twin", &twin), &[]);
+        let linked = build("actor-cost-linked", &with_actor);
+        for (path, args) in [("never started", &[][..]), ("started", &["actor"][..])] {
+            let m = measured(&linked, args);
+            for r in [&alone.ran, &m.ran] {
+                assert_eq!(r.stdout, "filled size=100000\n", "{backend}, {path}: {}", r.stderr);
+                assert_eq!(r.status, 0, "{backend}, {path}: {}", r.stderr);
+            }
+            // Starting and stopping the actor is a few blocks of its own.
+            assert!(
+                m.blocks <= alone.blocks + 16,
+                "{backend}, actor {path}: the fill allocated {} blocks against {} without \
+                 an actor in the program",
+                m.blocks, alone.blocks
+            );
+            if let (Some(with), Some(without)) = (m.instructions, alone.instructions) {
+                let ratio = with as f64 / without as f64;
+                assert!(
+                    ratio < 1.03,
+                    "{backend}, actor {path}: {with} instructions against {without} without an \
+                     actor in the program, {ratio:.3}x"
+                );
+            }
+        }
     }
 }

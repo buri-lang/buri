@@ -119,6 +119,10 @@ impl<B: Backend> Backend for WithRuntime<B> {
     fn adopt_lowering(&mut self, lowered: crate::compiler::middle::ir::Program) {
         self.0.adopt_lowering(lowered);
     }
+
+    fn forks_read_shared_mask(&self) -> bool {
+        self.0.forks_read_shared_mask()
+    }
 }
 
 /// The intrinsic keys this toolchain cannot answer because its runtime archive

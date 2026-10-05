@@ -37,9 +37,9 @@ Both fan-outs need two statements from the artifact: its frames are per thread
 tasks run one after another on the calling thread, which is what the
 frame-threaded backend and a test binary do.
 
-So the counts cannot assume one thread. A program that reaches a task boundary
-(`middle::rc::crosses_tasks`) marks every block it allocates, and a marked block
-is counted atomically. An append may still write into a marked block, but only
+So the counts cannot assume one thread. Once a program's first fan-out starts a
+second thread, every block counts as marked, and a marked block is counted
+atomically. An append may still write into a marked block, but only
 after it claims the block by moving the count from `1` to `2` in one atomic
 step. A program that cannot reach a task boundary keeps the non-atomic counts
 and the plain `rc == 1` licence. §5.1 has the details.
@@ -230,26 +230,31 @@ arm is out of line. `design/PERFORMANCE.md` carries the measured cost.
 
 #### Who sets the bit
 
-**A program that can reach a task boundary marks every block it allocates. A
-program that cannot marks none.** §5.5's asymmetry is the argument: an
-over-set bit costs a copy, an under-set one is a silent aliasing bug.
+**Every block is marked from the moment a second thread may run Buri code, and
+none before.** §5.5's asymmetry is the argument: an over-set bit costs a copy,
+an under-set one is a silent aliasing bug.
 
-Three pieces, each in the one place that can hold it:
+```
+is_shared(p) = (cap(p) | buri_rt_shared_mask) & bit63
+```
 
-- **`middle::rc::crosses_tasks`** asks the whole post-monomorphization program
-  whether any intrinsic it can reach hands a value to another thread. It
-  matches keys by prefix — `host.HostTasks.`, `actor.` and `tasks.scope` — so
-  a new row on any of those surfaces is covered on the day it lands. The
-  answer rides on `ir::Program::crosses_tasks`.
-- **Both native backends** emit one call in `main` when it is true:
-  `buri_rt_values_may_cross_tasks()`, immediately after `buri_rt_argv_init`
-  and before anything allocates. The frame-threaded backend makes it too, even
-  though it cannot fan out yet, because this is a fact about the *program*,
-  where the other statement an artifact makes about itself
-  (`buri_rt_frames_are_per_thread`) is a fact about the *backend*.
-- **`cli/runtime/memory.rs::finish`** ORs the mark into every `cap` it writes,
-  out of one process-wide word. One relaxed load and one `or` per allocation,
-  on a word written at most once in a program's life.
+- **`backend::runtime_table::shares_counts`** asks whether the program can
+  reach a fan-out: `host.HostTasks.parallel` or `tasks.scopeBeside`. Only those
+  run Buri code on a second thread. `core/actor` steps on whichever thread
+  drives it.
+- **The release backend**, for such a program, ORs `buri_rt_shared_mask` into
+  every fork and `Str` uniqueness probe, and its `main` calls
+  `buri_rt_values_may_cross_tasks()`. That call is permission, not a mark. The
+  development backend never fans out, so it does neither.
+- **`rt.rs`'s two fan-outs** call `memory::begin_sharing` before the first step
+  leaves the thread, if permission was given. That sets the mask, which covers
+  blocks allocated before it, and makes `finish` mark every new block.
+
+Before the first fan-out one thread does every count, so plain counts are exact.
+Marking from the first block instead cost a program that linked `actor.start`
+1.5× the instructions on paths that never started a thread (#243). What's left
+in a program that can fan out but hasn't is a load and a branch per count: 6.5% of
+#243's instructions.
 
 **Why the whole program and not the value.** A per-value mark has to be a
 deep, type-directed walk of everything reachable from the call's arguments — a

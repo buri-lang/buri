@@ -1473,24 +1473,64 @@ pub const RETURNED: &str = "buri_rt_main_returned";
 /// the LLVM backend emits the call.
 pub const FRAMES_PER_THREAD: &str = "buri_rt_frames_are_per_thread";
 /// `buri_rt_values_may_cross_tasks()` — the artifact's other statement about
-/// itself, made once at startup and **before it allocates anything**
-/// (`cli/runtime/lib.rs` §6).
+/// itself, made once at startup (`cli/runtime/lib.rs` §6).
 ///
-/// **Both native backends make it**, and only for a program
-/// `middle::rc::crosses_tasks` says can reach a task boundary. It is not the
-/// same fact as [`FRAMES_PER_THREAD`] and the two are deliberately not one
-/// call: that one is about *where a frame lives*, which is a property of the
-/// backend, and this one is about *whether a block can be reached from two
-/// threads*, which is a property of the program. A backend that cannot fan
-/// out still makes this call, because the day it learns to is not a day
-/// anybody should have to remember a second edit.
+/// It says **this artifact's values may cross a task boundary, and its
+/// reference operations read [`SHARED_MASK`]**. The release backend makes it,
+/// for a program `middle::rc::crosses_tasks` says can reach a task boundary.
+/// It is not the same fact as [`FRAMES_PER_THREAD`]: that one is about *where
+/// a frame lives*, a property of the backend, and this one is about *whether a
+/// block can be reached from two threads*, a property of the program.
 ///
-/// Its effect is that every block the program allocates carries
-/// `middle::layout::CAP_SHARED_FLAG`, so every reference operation takes G2's
-/// atomic arm and no uniquely-owned in-place write fires. Silence is the safe
-/// answer: the runtime's fan-out is gated on the same latch, so an entry point
-/// that lost this call runs its tasks one at a time.
+/// It marks nothing itself. The runtime begins sharing at its first fan-out,
+/// and from then on every block counts as marked, so every reference operation
+/// takes G2's atomic arm and no uniquely-owned in-place write fires. Before
+/// that, a program that only could fan out pays nothing for it
+/// (buri-lang/buri#243). Silence is the safe answer: the runtime's fan-out is
+/// gated on this statement, so an entry point that lost it runs its tasks one
+/// at a time. A backend whose fork reads only the block's bit must not make
+/// it, because a block allocated before sharing began carries no bit.
 pub const VALUES_MAY_CROSS_TASKS: &str = "buri_rt_values_may_cross_tasks";
+/// `uint64_t buri_rt_shared_mask` — `middle::layout::CAP_SHARED_FLAG` once
+/// the runtime has begun sharing, and `0` before. A data symbol, not a
+/// function.
+///
+/// A program that makes the [`VALUES_MAY_CROSS_TASKS`] statement ORs it into
+/// the `cap` its reference-count fork and its `Str` uniqueness probe test, so
+/// a block allocated before sharing began counts as marked after it.
+pub const SHARED_MASK: &str = "buri_rt_shared_mask";
+
+/// The intrinsic keys that can run Buri code on a second thread: the runtime's
+/// two fan-outs, `Tasks.parallel` and a scope running its tasks beside its
+/// body. Every other key in `middle::rc::crosses_tasks` hands a value to a
+/// table, and `core/actor` steps on whichever thread drives it.
+///
+/// An omission here costs speed and not soundness: a fan-out the runtime
+/// reaches in a program that didn't make the [`VALUES_MAY_CROSS_TASKS`]
+/// statement runs its steps in order.
+pub const FANS_OUT: [&str; 2] = ["host.HostTasks.parallel", "tasks.scopeBeside"];
+
+/// Whether `program` can run Buri code on two threads at once, so its counts
+/// must read [`SHARED_MASK`] and its entry point makes the
+/// [`VALUES_MAY_CROSS_TASKS`] statement.
+///
+/// Narrower than `ir::Program::crosses_tasks`. A program that reaches
+/// `core/actor` and no [`FANS_OUT`] key has crossings but never a second
+/// thread, so it keeps the plain fork: a mask read on every count was 6.5% of
+/// the instructions of buri-lang/buri#243's program, which starts no thread.
+pub fn shares_counts(program: &crate::compiler::middle::ir::Program) -> bool {
+    use crate::compiler::middle::ir::{Body, Inst};
+    let fans_out = |key: &str| FANS_OUT.contains(&key);
+    program.crosses_tasks
+        && program.funcs.iter().any(|f| match &f.body {
+            Body::Runtime(key) => fans_out(key),
+            Body::Code(code) => code.blocks.iter().any(|b| {
+                b.insts
+                    .iter()
+                    .any(|i| matches!(i, Inst::CallIntrinsic { key, .. } if fans_out(key)))
+            }),
+        })
+}
 
 /// `void *buri_rt_copy_block(void *p, void (*glue)(void *))` — a fresh block
 /// holding the same bytes, with `rc == 1` and nothing shared with the original.

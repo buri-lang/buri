@@ -287,6 +287,17 @@ pub trait Backend {
     fn adopt_lowering(&mut self, lowered: crate::compiler::middle::ir::Program) {
         let _ = lowered;
     }
+
+    /// Whether every unit's object depends on
+    /// [`runtime_table::shares_counts`]: this backend's reference-count fork
+    /// reads `buri_rt_shared_mask` in a program that can fan out, in every
+    /// unit, not only the one that fans out. The build folds the answer into
+    /// every unit's cache key, so a library unit compiled for a program that
+    /// couldn't fan out is never linked into one that can.
+    ///
+    /// No default, so a wrapper can't answer `false` for a backend that says
+    /// `true`.
+    fn forks_read_shared_mask(&self) -> bool;
 }
 
 /// [`networking_gap`], with the toolchain's answer as a parameter.
