@@ -3551,7 +3551,14 @@ impl Scan<'_> {
         for s in stmts {
             let Stmt::Let { pattern, value, .. } = s else { continue };
             let ExprKind::Local(x) = value.kind else { continue };
-            if !self.is_counted(x) || (self.owned.contains(&x) && !live.contains(&x)) {
+            // JavaScript keeps the first case alone, for a plain `let`: its
+            // marks are a different question (MEMORY.md §5.5).
+            let lent = if self.opts.sharing {
+                matches!(pattern.kind, PatKind::Bind { sub: None, .. }) && live.contains(&x)
+            } else {
+                live.contains(&x) || !self.owned.contains(&x)
+            };
+            if !lent || !self.is_counted(x) {
                 continue;
             }
             let mut bound: Vec<LocalId> = Vec::new();
