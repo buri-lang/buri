@@ -629,6 +629,7 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Listen", "listenReceive", "core/net/server", "server.serve(ctx, aServer)"),
     w("Sockets", "socketSendText", "core/net/server", "aSocket.send(ctx, .Text(text))"),
     w("Sockets", "socketSendBytes", "core/net/server", "aSocket.send(ctx, .Binary(bytes))"),
+    w("Sockets", "socketPing", "core/net/server", "aSocket.ping(ctx)"),
     w("Sockets", "socketClose", "core/net/server", "aSocket.close(ctx, aCloseReason)"),
     w("Tcp", "tcpConnect", "core/net/tcp", "tcp.connect(ctx, host, port)"),
     w("Tcp", "tcpRead", "core/net/tcp", "aStream.read(ctx, limit)"),
@@ -999,7 +1000,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(mine.len(), 10, "the two effects declare ten methods between them: {mine:?}");
+        assert_eq!(mine.len(), 11, "the two effects declare eleven methods between them: {mine:?}");
         for (owner, method) in &mine {
             for (other, name) in &theirs {
                 assert!(

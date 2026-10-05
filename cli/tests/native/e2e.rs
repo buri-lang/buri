@@ -663,6 +663,10 @@ impl<C: Allocator + Stdout> Sockets for Paper<C> {
         ()
     }
 
+    fn socketPing(self, _socket: Int): () {
+        ()
+    }
+
     fn socketClose(self, _socket: Int, _code: Int, _reason: Str): () {
         ()
     }
@@ -5372,4 +5376,217 @@ fn a_native_binary_speaks_https_and_refuses_a_certificate_it_cannot_trust() {
     );
     assert_eq!(untrusted.status, 0, "stderr:\n{}", untrusted.stderr);
     assert_eq!(served.status, 0, "stdout:\n{}\nstderr:\n{}", served.stdout, served.stderr);
+}
+
+// ---------------------------------------------------------------------------
+// `core/tasks`'s timers
+// ---------------------------------------------------------------------------
+
+/// A program that schedules with `tasks.after` five ways: during a wait, after
+/// `main` has returned, cancelled, from a callback, and as a tick that
+/// schedules the next one. Every timer after the first is started by the one
+/// before it or by `main` after its last wait, so the order the lines arrive in
+/// is the program's and not the machine's.
+///
+/// `ending` is what `main` answers, so the same program is the happy path and
+/// its signature failure.
+fn timers(ending: &str) -> String {
+    format!(
+        r#"from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/time" import * as time;
+from "native" import {{ NativeHost }};
+from "platform/effect" import {{ Allocator, Clock, Stdout, Tasks }};
+
+fn tick<C: Stdout + Tasks>(ctx: C, n: Int): () {{
+    let _ = io.println(ctx, "tick ${{n}}").ignore();
+    if (n < 3) {{
+        let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => tick(c, n + 1));
+        ()
+    }} else {{
+        ()
+    }}
+}}
+
+fn fired<C: Allocator + Stdout + Tasks>(ctx: C): () {{
+    let _ = io.println(ctx, "fired after main returned").ignore();
+    let _ = tasks.parallel(ctx, [1], fn(c, _i, _x) => tasks.after(c, time.milliseconds(1), fn(c2) => {{
+        let _ = io.println(c2, "scheduled from a callback").ignore();
+        tick(c2, 1)
+    }}));
+    ()
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{
+        Allocator: host.alloc,
+        Clock: host.clock,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    }};
+    let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => io.println(c, "fired during the wait").ignore());
+    let _ = time.sleep(ctx, time.milliseconds(30));
+    let _ = io.println(ctx, "the wait is over").ignore();
+    let doomed = tasks.after(ctx, time.milliseconds(1), fn(c) => io.println(c, "a cancelled timer fired").ignore());
+    let _ = tasks.cancel(ctx, doomed);
+    let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => fired(c));
+    let _ = io.println(ctx, "main returned").ignore();
+    {ending}
+}}
+"#
+    )
+}
+
+/// Runs a program to its end under the heap check, with a deadline: a timer
+/// that never fires and a timer that keeps the program alive for ever both
+/// look like a process that does not stop.
+fn ran_to_the_end(binary: &std::path::Path) -> crate::shared::Ran {
+    use std::io::Read;
+    let mut child = crate::shared::spawned(binary);
+    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    if let Some(mut out) = child.stdout.take() {
+        let _ = out.read_to_string(&mut stdout);
+    }
+    if let Some(mut err) = child.stderr.take() {
+        let _ = err.read_to_string(&mut stderr);
+    }
+    crate::shared::Ran { status: status.code().unwrap_or(-1), stdout, stderr }
+}
+
+/// **A timer fires where the program waits, and after `main` returns, and
+/// keeps the program running until it has.** A cancelled one never fires, one
+/// scheduled from a callback does, and a tick that schedules the next one runs
+/// three times and lets the program end.
+#[test]
+fn a_timer_fires_while_the_program_waits_and_keeps_it_running_after_main_returns() {
+    unless_ready!();
+    let binary = built("e2e-timers", &timers(".Ok(())"));
+    let out = ran_to_the_end(&binary);
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec![
+            "fired during the wait",
+            "the wait is over",
+            "main returned",
+            "fired after main returned",
+            "scheduled from a callback",
+            "tick 1",
+            "tick 2",
+            "tick 3",
+        ],
+        "stderr:\n{}",
+        out.stderr
+    );
+}
+
+/// **A `main` that fails ends the program at once**, with the timers it left
+/// pending unfired, as an abort does.
+#[test]
+fn a_main_that_fails_ends_the_program_without_its_pending_timers() {
+    unless_ready!();
+    let binary = built("e2e-timers-failed", &timers(r#".Err("gave up")"#));
+    let out = ran_to_the_end(&binary);
+    assert_eq!(out.status, 1, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec!["fired during the wait", "the wait is over", "main returned"],
+        "stderr:\n{}",
+        out.stderr
+    );
+    assert!(out.stderr.contains("gave up"), "stderr:\n{}", out.stderr);
+}
+
+// ---------------------------------------------------------------------------
+// A server's ping
+// ---------------------------------------------------------------------------
+
+/// A socket server that pings when it is asked to, and answers every message
+/// with its own text. `requestLimit: 1` is the upgrade, so the server finishes
+/// once the socket closes.
+fn pinging_socket_server() -> String {
+    String::from(
+        r#"from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/time" import * as time;
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Listen: host.listen,
+        Sockets: host.sockets,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let plan = server.Server {
+        port: 0,
+        onRequest: fn(c, _request) => http.status(404),
+        requestLimit: .Some(1),
+        idleTimeout: .Some(time.milliseconds(20000)),
+        websocket: .Some(server.WebSocket {
+            path: "/socket",
+            onOpen: fn(_c, _socket, _request) => 0,
+            onMessage: fn(c, socket, seen, message) => {
+                match (message) {
+                    .Text(text) => {
+                        let _pinged = if (text == "ping me") { socket.ping(c) } else { () };
+                        let _sent = socket.send(c, .Text(text));
+                        seen + 1
+                    },
+                    .Binary(_data) => seen,
+                }
+            },
+            onClose: fn(_c, _socket, seen, _reason) => seen,
+        }),
+    };
+    match (server.bind(ctx, plan)) {
+        .Err(e) => .Err(server.errorText(e)),
+        .Ok(listener) => {
+            let _announced = io.println(ctx, "port ${listener.port}").ignore();
+            match (server.run(ctx, listener, plan)) {
+                .Err(e) => .Err(server.errorText(e)),
+                .Ok(_ok) => .Ok(()),
+            }
+        },
+    }
+}
+"#,
+    )
+}
+
+/// **A server sends a ping when the program asks for one, and only then.** The
+/// client reads every frame, so a ping frame on the wire is counted before the
+/// text that follows it.
+#[test]
+fn a_socket_pings_its_client_when_the_program_asks() {
+    unless_ready!();
+    let binary = built("e2e-socket-ping", &pinging_socket_server());
+    let running = crate::shared::announced(&binary);
+    let mut client = crate::shared::Talking::to_at(running.2, "/socket");
+    client.say("quiet");
+    let quiet = client.heard_counting_pings();
+    client.say("ping me");
+    let pinged = client.heard_counting_pings();
+    client.hush();
+    let out = crate::shared::finished(running);
+    assert_eq!(
+        quiet,
+        Some((String::from("quiet"), 0)),
+        "a socket the program did not ping was sent one.\nthe server said:\n{}\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert_eq!(
+        pinged,
+        Some((String::from("ping me"), 1)),
+        "the ping the program asked for did not reach the client.\nthe server said:\n{}\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
 }

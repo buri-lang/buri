@@ -806,6 +806,7 @@ pub const ENTRIES: &[Entry] = &[
     // already gone, which is the same answer, so the three are total.
     e("host.HostSockets.socketSendText", &[Dropped, Scalar, Str], Ret::Void),
     e("host.HostSockets.socketSendBytes", &[Dropped, Scalar, List], Ret::Void),
+    e("host.HostSockets.socketPing", &[Dropped, Scalar], Ret::Void),
     e("host.HostSockets.socketClose", &[Dropped, Scalar, Scalar, Str], Ret::Void),
     // -- WebSocketClient, the other way to come by a socket -----------------
     //
@@ -930,6 +931,14 @@ pub const ENTRIES: &[Entry] = &[
     e("tasks.scopeClaim", &[Dropped, Scalar], Ret::Scalar),
     e("tasks.scopeSpare", &[Dropped, Scalar], Ret::Scalar),
     e("tasks.scopeRan", &[Dropped, Scalar], Ret::Scalar),
+    // `core/tasks`'s timers. Unlike a spawned task, a timer's body is the
+    // runtime's to call, so it crosses as a kept handler ([`Extra::Press`]):
+    // `fn(C, Int) => ()`, with the context written into the record beside the
+    // closure and the timer's handle as the element. The runtime fires it
+    // where the program waits and, once `main` has returned, until none is
+    // pending (`cli/runtime/rt.rs`'s timers).
+    e("tasks.timerStart", &[Dropped, Scalar, Press], Ret::Scalar),
+    e("tasks.timerStop", &[Dropped, Scalar], Ret::Void),
     // -- platform/effect/testing's stateful half -----------------------------------
     //
     // `platform/effect/testing`'s names, over one handle table.
@@ -1445,6 +1454,11 @@ pub const DECREF: &str = "buri_rt_decref";
 pub const ARGV_INIT: &str = "buri_rt_argv_init";
 /// `buri_rt_flush()` — required before every return path from `main`.
 pub const FLUSH: &str = "buri_rt_flush";
+/// `buri_rt_main_returned()` — `main` answered `.Ok(())`, or answered nothing:
+/// fire the timers still pending as they come due, then flush. The success
+/// arm's flush, so a program that failed ends at once (`cli/runtime/rt.rs`'s
+/// timers).
+pub const RETURNED: &str = "buri_rt_main_returned";
 /// `buri_rt_frames_are_per_thread()` — the artifact's one statement about
 /// itself, made once at startup (`cli/runtime/lib.rs` §6).
 ///
@@ -1757,8 +1771,8 @@ mod tests {
             }
         }
         // Two steps, the graph's two deferred bodies and the renderer's
-        // `reactive`, three walks and five kept handlers.
-        assert_eq!(checked, 13);
+        // `reactive`, three walks, five kept handlers and the timer's.
+        assert_eq!(checked, 14);
     }
 
     /// The module a key's first segment names, for the keys whose operations
@@ -1890,7 +1904,7 @@ mod tests {
         }
         // A scan that matched nothing would pass every assertion above.
         assert!(checked > 140, "only {checked} rows were read against a declaration");
-        assert_eq!(contexts, 50);
+        assert_eq!(contexts, 52);
     }
 
     /// The two places a context sits, by example, so that the indices are

@@ -2666,6 +2666,10 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "tasks.scopeRound",
     "tasks.scopeSpare",
     "tasks.scopeTaskAt",
+    // The timers' two are generic in the context alone: it crosses inside the
+    // kept handler's record, which the backend builds where `C` is known.
+    "tasks.timerStart",
+    "tasks.timerStop",
     // The test runner's two. Both render values the program never rendered
     // itself, so both are given a descriptor in `build_fn` — the `desc` field
     // on `Func` exists for exactly these.
@@ -3150,7 +3154,7 @@ mod tests {
         str.show str.split str.splitAny str.toJson str.toLower str.toUpper \
         tasks.scopeBeside tasks.scopeClaim tasks.scopeEnter tasks.scopeLeave \
         tasks.scopeOpen tasks.scopePush tasks.scopeRan tasks.scopeRound \
-        tasks.scopeSpare tasks.scopeTaskAt \
+        tasks.scopeSpare tasks.scopeTaskAt tasks.timerStart tasks.timerStop \
         testing_assert.failExpected testing_assert.report \
         ui_node.mount ui_node.rebuildRegion \
         ui_node.reconcile ui_node.registerFollow ui_node.registerOutside \

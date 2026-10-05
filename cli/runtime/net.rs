@@ -3000,6 +3000,9 @@ mod sockets {
     enum Queued {
         Text(String),
         Binary(Vec<u8>),
+        /// A ping with no payload. The far side's pong is the runtime's to
+        /// read and drop, as a ping it sends is the runtime's to answer.
+        Ping,
     }
 
     /// How a socket is going to end, decided by this side.
@@ -3323,6 +3326,7 @@ mod sockets {
                     let message = match queued {
                         Queued::Text(text) => tungstenite::Message::Text(text.into()),
                         Queued::Binary(data) => tungstenite::Message::Binary(data.into()),
+                        Queued::Ping => tungstenite::Message::Ping(Vec::new().into()),
                     };
                     if framing.write(message).is_err() {
                         // The framing has gone. The close below is what the
@@ -3496,6 +3500,10 @@ mod sockets {
 
     pub(super) fn send_bytes(socket: i64, data: &[u8]) {
         send(socket, Queued::Binary(data.to_vec()));
+    }
+
+    pub(super) fn ping(socket: i64) {
+        send(socket, Queued::Ping);
     }
 
     /// `Sockets::socketClose` — the close this side decided on.
@@ -4614,6 +4622,12 @@ pub unsafe extern "C" fn buri_rt_host_sockets_socket_send_bytes(
     enqueue_bytes(socket, body);
 }
 
+/// `Sockets::socketPing(socket)` — a ping frame, enqueued like a message.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_sockets_socket_ping(socket: i64) {
+    enqueue_ping(socket);
+}
+
 /// `Sockets::socketClose(socket, code, reason)`.
 ///
 /// # Safety
@@ -4642,6 +4656,11 @@ fn enqueue_bytes(socket: i64, body: &[u8]) {
 }
 
 #[cfg(feature = "net")]
+fn enqueue_ping(socket: i64) {
+    sockets::ping(socket);
+}
+
+#[cfg(feature = "net")]
 fn finish(socket: i64, code: i64, reason: &str) {
     sockets::close(socket, code, reason);
 }
@@ -4655,6 +4674,9 @@ fn enqueue_text(_socket: i64, _text: &str) {}
 
 #[cfg(not(feature = "net"))]
 fn enqueue_bytes(_socket: i64, _body: &[u8]) {}
+
+#[cfg(not(feature = "net"))]
+fn enqueue_ping(_socket: i64) {}
 
 #[cfg(not(feature = "net"))]
 fn finish(_socket: i64, _code: i64, _reason: &str) {}

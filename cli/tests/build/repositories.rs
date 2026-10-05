@@ -270,7 +270,7 @@ fn concurrency_and_memory() {
 /// and the native host that has none.
 #[test]
 fn the_host_on_node() {
-    run_corpus(&tests_dir().join("repositories/platform"), "platform", 1);
+    run_corpus(&tests_dir().join("repositories/platform"), "platform", 3);
 }
 
 /// build/platforms: a repository's own platforms under `//platform/`, its custom

@@ -475,9 +475,15 @@
 //!     buri_rt_frames_are_per_thread();     /* if, and only if, they are */
 //!     ...                                   /* the program */
 //!     buri_rt_flush();                      /* before every return path */
+//!     buri_rt_main_returned();              /* on success: the pending timers */
 //!     return 0;
 //! }
 //! ```
+//!
+//! [`buri_rt_main_returned`] is the success arm's flush, and it fires the
+//! timers `core/tasks`'s `after` left pending first. An entry point that calls
+//! `buri_rt_flush` there instead drops them, which is what the failure arm
+//! does on purpose.
 //!
 //! [`buri_rt_argv_init`] is what makes `env.arguments(ctx)` exact — `std::env` in
 //! a staticlib depends on a platform-specific startup hook that a linker

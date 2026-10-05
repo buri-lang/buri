@@ -463,6 +463,11 @@ export effect Sockets {
     /// Enqueues a binary frame, on `socketSendText`'s terms. Two operations
     /// rather than one, because they are two framings on the wire.
     fn socketSendBytes(self, socket: Int, body: [U8]): ();
+    /// Enqueues a ping frame, on `socketSendText`'s terms. The far side's pong
+    /// is the platform's and never reaches the program.
+    ///
+    /// **A no-op on `JS` and `WEB`**: a browser's `WebSocket` cannot send one.
+    fn socketPing(self, socket: Int): ();
     /// Closes the socket, with the wire code and reason the far side is told. A
     /// message sent afterwards is dropped rather than refused: the other end may
     /// already be gone, so "did this arrive" was never answerable here.
@@ -484,8 +489,8 @@ export effect Sockets {
 ///
 /// **Two methods, and they are `listenUpgrade` and `listenReceive` from the
 /// other end.** The first mints a socket, the second waits for what arrives on
-/// it, and everything between them — the framing, the masking, the ping and the
-/// pong, the close handshake — is the platform's exactly as it is for a server.
+/// it, and everything between them — the framing, the masking, answering a
+/// ping, the close handshake — is the platform's exactly as it is for a server.
 /// `core/net/websocket` is the module a program calls, and its `Client` carries
 /// the same three hooks `core/net/server`'s `WebSocket` does.
 ///

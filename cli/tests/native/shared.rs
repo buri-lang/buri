@@ -1705,37 +1705,50 @@ impl Talking {
     /// answers pings itself and a client that had to would be testing its own
     /// heartbeat rather than the server's.
     pub fn heard(&mut self) -> Option<String> {
+        self.heard_counting_pings().map(|(text, _)| text)
+    }
+
+    /// [`Talking::heard`], and how many pings the server sent before it.
+    pub fn heard_counting_pings(&mut self) -> Option<(String, usize)> {
+        let mut pings = 0;
         loop {
-            let first = self.exactly(2)?;
-            let opcode = first[0] & 0x0f;
-            // A server never masks (RFC 6455 §5.1), so the length is the low
-            // seven bits and there is no mask to skip.
-            assert_eq!(first[1] & 0x80, 0, "the server masked a frame");
-            let len = match first[1] & 0x7f {
-                126 => {
-                    let two = self.exactly(2)?;
-                    u64::from(u16::from_be_bytes([two[0], two[1]]))
-                }
-                127 => {
-                    let eight = self.exactly(8)?;
-                    u64::from_be_bytes(eight.try_into().expect("eight bytes"))
-                }
-                short => u64::from(short),
-            };
-            let payload = self.exactly(len as usize)?;
+            let (opcode, payload) = self.frame_in()?;
             match opcode {
-                0x1 => return Some(String::from_utf8_lossy(&payload).to_string()),
+                0x1 => return Some((String::from_utf8_lossy(&payload).to_string(), pings)),
                 0x8 => {
                     self.closed = payload
                         .get(..2)
                         .map(|two| u16::from_be_bytes([two[0], two[1]]));
                     return None;
                 }
-                // A continuation, a binary frame, a ping or a pong: not what
-                // these rows send, and not something to fail on.
+                0x9 => pings += 1,
+                // A continuation, a binary frame or a pong: not what these rows
+                // send, and not something to fail on.
                 _ => continue,
             }
         }
+    }
+
+    /// The next frame's opcode and payload, or `None` if the socket ended.
+    fn frame_in(&mut self) -> Option<(u8, Vec<u8>)> {
+        let first = self.exactly(2)?;
+        let opcode = first[0] & 0x0f;
+        // A server never masks (RFC 6455 §5.1), so the length is the low
+        // seven bits and there is no mask to skip.
+        assert_eq!(first[1] & 0x80, 0, "the server masked a frame");
+        let len = match first[1] & 0x7f {
+            126 => {
+                let two = self.exactly(2)?;
+                u64::from(u16::from_be_bytes([two[0], two[1]]))
+            }
+            127 => {
+                let eight = self.exactly(8)?;
+                u64::from_be_bytes(eight.try_into().expect("eight bytes"))
+            }
+            short => u64::from(short),
+        };
+        let payload = self.exactly(len as usize)?;
+        Some((opcode, payload))
     }
 
     /// Exactly `n` bytes, or `None` if the socket ended first.

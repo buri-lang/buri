@@ -1282,8 +1282,11 @@ opened it returned, because `socket.send` and `socket.close` need `C: Sockets`
 and nothing else. `send` never waits. It hands the message to the socket's
 outbound buffer, and a buffer that fills closes the socket with `.Overflow` and
 runs `onClose`. `socketBuffer` sets how deep that buffer is. A close is a
-`CloseReason` and never a wire code, in both directions. Ping and pong belong to
-the platform, so `onMessage` sees `.Text` and `.Binary` and nothing else. A
+`CloseReason` and never a wire code, in both directions. `socket.ping(ctx)` sends
+a ping, which keeps an idle socket open through a proxy that closes quiet
+connections; call it from a timer. The platform answers a client's ping and
+swallows its pong, so `onMessage` sees `.Text` and `.Binary` and nothing
+else. A browser can't send a ping, so on `JS` and `WEB` `ping` does nothing. A
 socket costs a worker: its whole life runs on the one that accepted it, so the
 hooks on a socket run in order by construction, and a server holding
 `listener.handlers` sockets has none left to accept with. A socket still open
@@ -1460,7 +1463,7 @@ fn page<C: Allocator + Clock + Stdout + Tasks>(ctx: C): () {
 }
 ```
 
-A timer is a task that sleeps — there is no `Timer` and no `setTimeout`. A
+A task that sleeps is a timer for code that holds a scope. A
 `Scope` is inert, so a lambda may capture one, which is how an interface hands
 a scope to a handler that spawns later. A library cannot spawn: it exposes a
 `run` and the application puts it in a scope. And stopping is cooperative —
@@ -1477,6 +1480,28 @@ rounds. That is why a task that never ends starves the ones behind it under
 `buri run`: the round they wait for never finishes. And a task spawned *after*
 the body returned runs on the task that spawned it, which is what lets a page's
 handler spawn once `main` has gone.
+
+`after(ctx, duration, run)` is the timer for code that holds only a context.
+It answers a `Timer` at once, `cancel(ctx, timer)` stops it, and `run` is
+handed the same context when it fires. It needs only `Tasks`, so it works on
+every platform. A pending timer keeps the program running after `main`
+returns `.Ok`; a native program fires it whenever `main`'s thread waits.
+
+```buri
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/tasks" import { Timer };
+from "core/time" import * as time;
+from "platform/effect" import { Stdout, Tasks };
+
+fn heartbeat<C: Stdout + Tasks>(ctx: C): Timer {
+    tasks.after(ctx, time.seconds(30), fn(c) => {
+        let _ = io.println(c, "still here").ignore();
+        let _ = heartbeat(c);
+        ()
+    })
+}
+```
 
 `core/actor` is the other half of concurrency: state that outlives one call,
 behind a mailbox. An actor is a *value*, an initial state and a

@@ -3321,6 +3321,42 @@ function $tasks_scopeRan(c, handle) {
   return true;
 }
 
+// `core/tasks`'s timers: a `setTimeout` each, which is what keeps a process
+// alive while one is pending and lets it end once none is. `run` is handed the
+// context `after` was called with, and its own handle. What it printed goes
+// out when it returns, because nothing else flushes once `main` has.
+const $task_timers = new Map();
+let $task_timer_next = 1;
+
+function $tasks_timerStart(c, millis, run) {
+  const handle = $task_timer_next++;
+  const ms = Number(millis);
+  const id = setTimeout(
+    async () => {
+      $task_timers.delete(handle);
+      try {
+        await run(c, BigInt(handle));
+        $host.flush();
+      } catch (e) {
+        $failed(e);
+      }
+    },
+    ms > 0 ? ms : 0,
+  );
+  $task_timers.set(handle, id);
+  return BigInt(handle);
+}
+
+function $tasks_timerStop(c, handle) {
+  const at = Number(handle);
+  const id = $task_timers.get(at);
+  if (id !== undefined) {
+    $task_timers.delete(at);
+    clearTimeout(id);
+  }
+  return 0;
+}
+
 function $host_HostProcess_exitWith(self, code) {
   $exit(Number(code));
   return 0;
@@ -3444,6 +3480,11 @@ function $host_HostSockets_socketSendBytes(self, socket, body) {
   const row = $wsLive.get(Number(socket));
   if (row === undefined) return 0;
   row.ws.send(new Uint8Array(body));
+  return 0;
+}
+
+// A page's `WebSocket` has no way to send a ping, so there is nothing to do.
+function $host_HostSockets_socketPing(self, socket) {
   return 0;
 }
 

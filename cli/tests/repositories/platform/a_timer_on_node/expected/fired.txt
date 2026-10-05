@@ -1,0 +1,8 @@
+fired during the wait
+the wait is over
+main returned
+fired after main returned
+scheduled from a callback
+tick 1
+tick 2
+tick 3

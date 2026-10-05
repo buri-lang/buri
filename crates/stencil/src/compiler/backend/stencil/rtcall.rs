@@ -1108,7 +1108,24 @@ impl Jit<'_> {
         }
         let widths: Vec<u32> =
             params.iter().map(|t| self.layouts_of(*t).size).collect();
-        let (_, bytes) = super::glue::state_shape(&widths, None);
+        let (ctx_at, bytes) = super::glue::state_shape(&widths, None);
+        // The context, where the row drops one (`core/tasks`'s timers): it goes
+        // into the record beside the closure, as a step's does, so the handler
+        // is handed the caller's context when it fires. A row that drops none
+        // (`ui/node`'s handlers) leaves the slot alone.
+        let dropped = (0..args.len()).find(|i| entry.dropped(*i));
+        if let (Some(i), Some(off)) = (dropped, ctx_at.first().copied()) {
+            let w = widths.first().copied().unwrap_or(0);
+            if let Some((from, t)) = args.get(i).copied().filter(|_| w > 0) {
+                if source_ty(prog, t).is_some_and(|ty| self.rc_counted(&ty)) {
+                    return Err(format!(
+                        "{}: a handler whose context owns a reference count",
+                        entry.key
+                    ));
+                }
+                self.mv(st.frame.size + off, from, round8(w));
+            }
+        }
         let state = st.frame.size;
         self.mv(state, fslot, 16);
         // The graph keeps the closure, so the graph owes it a reference — taken
