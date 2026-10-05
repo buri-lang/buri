@@ -1,0 +1,6 @@
+# No `variant`: the output is the host's.
+binary {
+    outputs: [
+        { platform: "native" },
+    ]
+}

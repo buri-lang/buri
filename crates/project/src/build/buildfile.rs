@@ -1624,8 +1624,10 @@ impl Reader {
             PlatformName::Node => OutputTarget::Js,
             PlatformName::Web => OutputTarget::Web,
             PlatformName::Native => {
+                // No variant is the host's, as `buri test` has always built it.
                 let os = match variant.as_ref().map(|v| v.value.as_str()) {
                     Some(v) if v.starts_with("macos-") => NativePlatform::Macos,
+                    None if host_platform() == Some(Platform::Macos) => NativePlatform::Macos,
                     _ => NativePlatform::Linux,
                 };
                 OutputTarget::Native { platform: os, arch }
@@ -2061,7 +2063,8 @@ library {
 
     #[test]
     fn a_native_output_names_one_of_its_variants() {
-        assert_eq!(codes("binary {\n  outputs: [{ platform: \"native\" }]\n}\n"), ["missing-platform-variant"]);
+        // None is the host's.
+        assert!(codes("binary {\n  outputs: [{ platform: \"native\" }]\n}\n").is_empty());
         assert_eq!(
             codes("binary {\n  outputs: [{ platform: \"native\", variant: \"linux-mips\" }]\n}\n"),
             ["unknown-platform-variant"]
@@ -2073,16 +2076,9 @@ library {
         assert_eq!(codes("binary {\n  outputs: [{ platform: \"deno\" }]\n}\n"), ["unknown-platform"]);
     }
 
-    /// A missing variant names every one there is, and the fix writes the
-    /// first.
+    /// An unknown variant names every one there is.
     #[test]
-    fn a_missing_variant_lists_the_variants() {
-        let read = read_build_file("binary {\n  outputs: [{ platform: \"native\" }]\n}\n", FileId(0));
-        let d = &read.errors[0];
-        assert_eq!(d.message, "`native` needs a variant");
-        assert_eq!(d.notes, ["available: linux-arm64, linux-x86_64, macos-arm64, macos-x86_64"]);
-        assert_eq!(d.fix.as_deref(), Some("add `variant: \"linux-arm64\"`"));
-
+    fn an_unknown_variant_lists_the_variants() {
         let read = read_build_file(
             "binary {\n  outputs: [{ platform: \"native\", variant: \"linux-mips\" }]\n}\n",
             FileId(0),
