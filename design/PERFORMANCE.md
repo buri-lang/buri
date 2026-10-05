@@ -3214,6 +3214,56 @@ three at 100 instructions per field per operation, and `native::e2e`'s
 `a_long_template_reads_the_same_and_leaks_nothing` checks a long template's
 text and its blocks.
 
+### 6.31 A large value copied slot by slot is quadratic in `llc`, 2026-10-05
+
+Diagnosis only; the fix isn't in yet. `deep_big`'s `--release` emit phase is
+261.8 G instructions, and `llc -O2 -time-passes` on its main unit is 174 G:
+
+```text
+Machine Instruction Scheduler          72.1 G
+PostRA Machine Instruction Scheduler   53.6 G
+Greedy Register Allocator              20.7 G
+AArch64 Instruction Selection          15.3 G
+```
+
+After `opt -O2`, `main` is 55k instructions: 20k `store`s, 20k GEPs and 7k
+`extractvalue`s. They come from moving `Big` (600 slots, 4,800 bytes) one slot
+at a time: out of the 600-slot return of each `big` call, and into the
+entry-block scratch buffers that runtime calls and glue take a pointer to.
+Calls split scheduling regions, so each move is one region of about 1,200
+memory operations, and both schedulers are quadratic in a region's size.
+`-enable-misched=false -enable-post-misched=false` takes `llc` from 174 G to
+53.6 G.
+
+A synthetic unit has twelve calls returning such a value, each copied into
+three buffers. `llc -O2` on it:
+
+| Fields | First-class aggregate, a store per slot | `sret` into an `alloca`, `memcpy` |
+|---:|---:|---:|
+| 2 | 0.17 G | 0.16 G |
+| 4 | 0.27 G | 0.19 G |
+| 8 | 0.51 G | 0.29 G |
+| 16 | 1.9 G | 0.16 G |
+| 32 | 6.7 G | 0.16 G |
+| 64 | 21.7 G | 0.16 G |
+| 128 | 63.3 G | 0.16 G |
+| 200 | 125.7 G | 0.16 G |
+
+Keeping the value in SSA inside the function doesn't help. Spilling the
+returned value once and `memcpy`ing it on costs the same 125.8 G, and taking
+the return by `sret` and then loading its slots still costs 61.9 G. The value
+has to stay in memory from the call that makes it to the copy that consumes it.
+
+**The fix:** above a size threshold, an SSA value is a pointer to an
+entry-block `alloca` holding its memory form (`repr.rs`'s offsets). Values are
+immutable, so a copy shares the pointer, and a move into a heap block or a
+scratch buffer is one `memcpy`. A field read is a GEP, a definition writes its
+own buffer, and a phi merges SSA aggregates so that a loop can't overwrite a
+buffer a phi still holds. Calls pass such a value by pointer and return it by
+`sret`. The table puts the threshold between 8 and 16 three-word fields, so
+256 bytes; hash the bench's IR before and after, as §6.29 did, to show nothing
+below it moved.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
