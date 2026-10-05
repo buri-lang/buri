@@ -14,7 +14,7 @@ pub mod compiler {
     use buri_semantics::compiler::{semantics, standard_library};
 }
 
-use buri_diagnostics::{diagnostics, ice, parallel};
+use buri_diagnostics::{diagnostics, ice, parallel, profile};
 use buri_hash::hash;
 
 mod build {

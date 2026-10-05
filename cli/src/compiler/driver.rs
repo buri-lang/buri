@@ -161,6 +161,7 @@ fn load_on(
     snapshot: &'static Snapshot,
     load: impl FnOnce(&mut Loader),
 ) -> Loading {
+    let _phase = crate::profile::enter(crate::profile::Phase::Parse);
     let mut diagnostics = Diagnostics::new();
     diagnostics.extend(snapshot.diagnostics.items.iter().cloned());
     let loaded = {
@@ -178,6 +179,7 @@ fn check_on(
     snapshot: &Snapshot,
     bodies: Bodies,
 ) -> Analysis {
+    let _phase = crate::profile::enter(crate::profile::Phase::Check);
     let Loading { loaded, mut diagnostics } = loading;
     let checked =
         Checker::resume(&loaded, ws.map(|w| w as &dyn Packages), &mut diagnostics, &snapshot.base).checking(bodies).run();
