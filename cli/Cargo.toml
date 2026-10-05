@@ -74,7 +74,8 @@ backend-llvm = ["dep:buri-llvm"]
 # allocation in the process, so a timed row taken with it on is not comparable
 # with one taken without it. `benches/compiler.rs --alloc` reads it, and the
 # figure it produces — allocations per line, per phase — is the one number in
-# the whole benchmark with no measurement noise in it.
+# the whole benchmark with no measurement noise in it. The `buri` binary installs
+# one too, for `BURI_PROFILE=1`'s allocation column.
 alloc-counter = []
 
 # The panic-free lint set, in the workspace manifest with the reasoning.

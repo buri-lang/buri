@@ -143,7 +143,7 @@ usage: compiler [flags]
   --calibrate            speed-of-light ceilings, before the table
   --alloc                allocations per line and per token (needs the
                          `alloc-counter` feature; noise-free)
-  --rss                  peak resident set size per phase, untimed
+  --rss                  peak RSS and instructions per phase, untimed
 
   --set=<name>           core | realistic | stress | native | saved | scale |
                          scale-full | full          (default: core)
@@ -1239,7 +1239,11 @@ fn print_alloc(row: &AllocRow) {
 /// them is what a phase added. Sampling the current figure instead would miss
 /// whatever a phase allocates and frees inside itself, which at these scales is
 /// most of the question.
-fn peak_rss_of_child(label: &str, phase: &str) -> Option<u64> {
+///
+/// macOS's `time -l` also prints the child's instructions retired, which come
+/// back beside the peak. They are cumulative the same way, and they barely move
+/// with the machine's load (`design/PERFORMANCE.md` §8).
+fn peak_rss_of_child(label: &str, phase: &str) -> Option<(u64, Option<u64>)> {
     let exe = std::env::current_exe().ok()?;
     let mut argv: Vec<String> = vec![exe.to_string_lossy().into_owned()];
     argv.extend(
@@ -1255,44 +1259,45 @@ fn peak_rss_of_child(label: &str, phase: &str) -> Option<u64> {
         return None;
     }
     let text = String::from_utf8_lossy(&out.stderr);
+    let mut peak = None;
+    let mut instructions = None;
     for line in text.lines() {
         let t = line.trim();
         // BSD `time -l`: "  1289109504  maximum resident set size", in bytes.
         if let Some(n) = t.strip_suffix("maximum resident set size") {
-            if let Ok(bytes) = n.trim().parse::<u64>() {
-                return Some(bytes);
-            }
+            peak = n.trim().parse::<u64>().ok().or(peak);
         }
         // GNU `time -v`, which some Linux distributions install as
         // /usr/bin/time: kibibytes, and after a colon.
         if let Some(n) = t.strip_prefix("Maximum resident set size (kbytes):") {
-            if let Ok(kib) = n.trim().parse::<u64>() {
-                return Some(kib * 1024);
-            }
+            peak = n.trim().parse::<u64>().ok().map(|kib| kib * 1024).or(peak);
+        }
+        if let Some(n) = t.strip_suffix("instructions retired") {
+            instructions = n.trim().parse::<u64>().ok();
         }
     }
-    None
+    peak.map(|bytes| (bytes, instructions))
 }
 
 /// Peak resident set size per phase, for one corpus.
 struct MemoryRow {
     label: String,
     lines: usize,
-    /// `(phase, peak bytes)`, cumulative in the way a compilation is: `corpus`
-    /// is the program held in memory and nothing built, and every later phase
-    /// holds what the ones before it produced.
-    phases: Vec<(String, u64)>,
+    /// `(phase, peak bytes, instructions retired)`, cumulative in the way a
+    /// compilation is: `corpus` is the program held in memory and nothing
+    /// built, and every later phase holds what the ones before it produced.
+    phases: Vec<(String, u64, Option<u64>)>,
 }
 
 /// The phases an `--rss` pass takes a child process for.
 fn memory_row(label: &str, lines: usize, targets: &[(Target, Profile)]) -> MemoryRow {
-    let mut phases: Vec<(String, u64)> = Vec::new();
+    let mut phases: Vec<(String, u64, Option<u64>)> = Vec::new();
     let mut names: Vec<String> =
         vec!["corpus".to_string(), "lex".to_string(), "lex+parse".to_string(), "sema".to_string()];
     names.extend(targets.iter().map(|&(t, p)| phase_name(t, p)));
     for name in names {
-        if let Some(peak) = peak_rss_of_child(label, &name) {
-            phases.push((name, peak));
+        if let Some((peak, instructions)) = peak_rss_of_child(label, &name) {
+            phases.push((name, peak, instructions));
         }
     }
     MemoryRow { label: label.to_string(), lines, phases }
@@ -1375,10 +1380,14 @@ fn print_memory(row: &MemoryRow) {
         );
         return;
     }
-    let base = row.phases.first().map_or(0, |(_, n)| *n);
-    for (phase, peak) in &row.phases {
+    let (base, base_instructions) = row.phases.first().map_or((0, None), |(_, n, i)| (*n, *i));
+    for (phase, peak, instructions) in &row.phases {
+        let over = match (instructions, base_instructions) {
+            (Some(i), Some(b)) => format!("   {:>+10.1} M instructions", (*i as f64 - b as f64) / 1e6),
+            _ => String::new(),
+        };
         println!(
-            "  {:<22} {phase:<20} peak {:>8.1} MB   {:>6.0} B/line   {:>+8.1} MB over the corpus",
+            "  {:<22} {phase:<20} peak {:>8.1} MB   {:>6.0} B/line   {:>+8.1} MB over the corpus{over}",
             row.label,
             mb(*peak),
             *peak as f64 / row.lines.max(1) as f64,
@@ -2585,11 +2594,12 @@ fn print_json(
             "    {{ \"corpus\": \"{}\", \"lines\": {}, \"phases\": [",
             m.label, m.lines
         );
-        for (j, (phase, peak)) in m.phases.iter().enumerate() {
+        for (j, (phase, peak, instructions)) in m.phases.iter().enumerate() {
             let c = if j + 1 == m.phases.len() { "" } else { ", " };
+            let instructions = instructions.map_or("null".to_string(), |n| n.to_string());
             print!(
                 "{{ \"phase\": \"{phase}\", \"peak_rss_bytes\": {peak}, \
-                 \"bytes_per_line\": {:.1} }}{c}",
+                 \"bytes_per_line\": {:.1}, \"instructions\": {instructions} }}{c}",
                 *peak as f64 / m.lines.max(1) as f64
             );
         }

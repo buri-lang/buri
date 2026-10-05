@@ -185,7 +185,33 @@ pub fn start(command: &mut Command) -> std::io::Result<Child> {
 /// `Command::output` through [`start`]: empty stdin, both outputs captured.
 pub fn output(command: &mut Command) -> std::io::Result<Output> {
     command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    start(command)?.wait_with_output()
+    finish(start(command)?)
+}
+
+/// `Child::wait_with_output`, charging the child to the profile's phase.
+pub fn finish(mut child: Child) -> std::io::Result<Output> {
+    if !crate::profile::enabled() {
+        return child.wait_with_output();
+    }
+    // `wait_with_output` drains and reaps in one call. Profiling has to read
+    // the child's counters in between, so it drains here.
+    use std::io::Read as _;
+    drop(child.stdin.take());
+    let errors = child.stderr.take();
+    let reading_err = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = errors {
+            let _ = pipe.read_to_end(&mut bytes);
+        }
+        bytes
+    });
+    let mut stdout = Vec::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_end(&mut stdout)?;
+    }
+    let stderr = reading_err.join().unwrap_or_default();
+    crate::profile::reaped(child.id());
+    Ok(Output { status: child.wait()?, stdout, stderr })
 }
 
 #[cfg(test)]

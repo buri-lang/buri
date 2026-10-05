@@ -8,6 +8,7 @@
 pub mod diagnostics;
 pub mod json;
 pub mod parallel;
+pub mod profile;
 
 use buri_docs::documentation;
 use buri_hash::hash;
