@@ -1030,9 +1030,10 @@ fn check_hygiene(
 ) {
     let own = target.package;
     let unchecked = Unchecked::of(analysis);
+    let held = Held::of(analysis, &modules_of(analysis, own));
     for m in &analysis.loaded.modules {
         if m.pkg == Some(own) && !is_generated(m) {
-            check_unused_imports(session, m, diagnostics);
+            check_unused_imports(session, analysis, m, &held, diagnostics);
             check_duplicate_imports(m, diagnostics);
             check_warning_comments(session, m, diagnostics);
             check_hex_digit_tables(session, m, diagnostics);
@@ -1040,7 +1041,7 @@ fn check_hygiene(
             check_function_shapes(session, m, diagnostics);
         }
     }
-    check_dead_code(session, target, analysis, &unchecked, diagnostics);
+    check_dead_code(session, target, analysis, &unchecked, &held, diagnostics);
     check_unused_declarations(session, target, analysis, &unchecked, diagnostics);
     check_ctx_rebindings(own, analysis, &unchecked, diagnostics);
     check_unused_contexts(session, target, analysis, &unchecked, diagnostics);
@@ -1588,6 +1589,7 @@ fn check_dead_code(
     target: TargetId,
     analysis: &crate::compiler::driver::Analysis,
     unchecked: &Unchecked,
+    held: &Held,
     diagnostics: &mut Diagnostics,
 ) {
     // A binary has no surface — nothing may import its modules — so the rule
@@ -1675,7 +1677,10 @@ fn check_dead_code(
         }
         for item in &m.ast.items {
             let Some((name, span)) = exported_name(&m.ast.tree, item) else { continue };
-            if published.contains(name) || wanted.contains(name) {
+            if published.contains(name)
+                || wanted.contains(name)
+                || held.elsewhere(analysis, m.id, name)
+            {
                 continue;
             }
             let lib = format!("{}/{decides}", session.workspace.package(own).path);
@@ -2130,6 +2135,54 @@ impl Census {
     }
 }
 
+/// The types each of a package's modules builds, matches or holds a value of
+/// in its own bodies, read off the typed tree by [`Census`].
+///
+/// It answers the one question a token scan cannot: a module that matches
+/// `.Circle(r)` on a field it reads uses the field's enum without writing its
+/// name. [`check_dead_code`] counts that as the enum being reached from the
+/// module doing it, and [`check_unused_imports`] counts it as a use of an
+/// import of the enum's name.
+struct Held {
+    by_module: std::collections::BTreeMap<ModuleId, BTreeSet<crate::compiler::semantics::types::TyConId>>,
+}
+
+impl Held {
+    fn of(analysis: &crate::compiler::driver::Analysis, mine: &BTreeSet<ModuleId>) -> Held {
+        let tables = &analysis.checked.tables;
+        let mut by_module: std::collections::BTreeMap<ModuleId, BTreeSet<_>> =
+            std::collections::BTreeMap::new();
+        for (fid, body) in &analysis.checked.bodies {
+            let module = tables.fn_info(fid).module;
+            if !mine.contains(&module) {
+                continue;
+            }
+            let mut census = Census::default();
+            census.walk(&body.expr);
+            by_module.entry(module).or_default().extend(census.built);
+        }
+        Held { by_module }
+    }
+
+    /// Whether a module other than `declared_in` holds a value of the type
+    /// `declared_in` declares under `name`.
+    fn elsewhere(
+        &self,
+        analysis: &crate::compiler::driver::Analysis,
+        declared_in: ModuleId,
+        name: &str,
+    ) -> bool {
+        let tycons = &analysis.checked.tables.tycons;
+        self.by_module.iter().filter(|(m, _)| **m != declared_in).any(|(_, cons)| {
+            cons.iter().any(|con| {
+                tycons
+                    .get(con.0 as usize)
+                    .is_some_and(|c| c.module == declared_in && c.name == name)
+            })
+        })
+    }
+}
+
 /// Every type constructor a type is written in terms of, itself included.
 fn cons_in(
     ty: &crate::compiler::semantics::types::Ty,
@@ -2189,7 +2242,18 @@ fn exported_name<'t>(
 /// can turn off — a shadowed binding or a field with the same spelling silences
 /// the finding rather than producing a wrong one. Reading tokens rather than the
 /// AST is what makes it total: there is no expression form it can forget.
-fn check_unused_imports(session: &Session, m: &ModuleData, diagnostics: &mut Diagnostics) {
+///
+/// The one use a token cannot show is a type this module's bodies build, match
+/// or hold a value of without writing its name — `match (drawing.shape)` with
+/// `.Circle(r)` arms. An import of that type's name counts as used too, which
+/// is [`Held`]'s answer and over-approximates in the same safe direction.
+fn check_unused_imports(
+    session: &Session,
+    analysis: &crate::compiler::driver::Analysis,
+    m: &ModuleData,
+    held: &Held,
+    diagnostics: &mut Diagnostics,
+) {
     // The byte ranges the import statements occupy. An identifier inside one of
     // these is the binding, not a use of it.
     let mut import_ranges: Vec<(u32, u32)> = Vec::new();
@@ -2215,15 +2279,31 @@ fn check_unused_imports(session: &Session, m: &ModuleData, diagnostics: &mut Dia
         }
         used.insert(lexed.tokens.text(i));
     }
+    let tycons = &analysis.checked.tables.tycons;
+    let held_here: BTreeSet<&str> = held
+        .by_module
+        .get(&m.id)
+        .into_iter()
+        .flatten()
+        .filter_map(|con| tycons.get(con.0 as usize).map(|c| c.name.as_str()))
+        .collect();
+    let is_used = |sp: &crate::parsing::tree::ImportSpec| {
+        used.contains(m.ast.tree.name(sp.local())) || held_here.contains(m.ast.tree.name(sp.name))
+    };
 
     for item in &m.ast.items {
         let crate::parsing::tree::Item::Import(i) = item else { continue };
-        let specs: Vec<(&str, Span)> = match &i.clause {
-            crate::parsing::tree::ImportClause::Named(specs) => {
-                m.ast.tree.list(*specs).iter().map(|sp| (m.ast.tree.name(sp.local()), sp.span)).collect()
-            }
+        let specs: Vec<(&str, Span, bool)> = match &i.clause {
+            crate::parsing::tree::ImportClause::Named(specs) => m
+                .ast
+                .tree
+                .list(*specs)
+                .iter()
+                .map(|sp| (m.ast.tree.name(sp.local()), sp.span, is_used(sp)))
+                .collect(),
             crate::parsing::tree::ImportClause::Namespace(n) => {
-                vec![(m.ast.tree.name(*n), n.span)]
+                let name = m.ast.tree.name(*n);
+                vec![(name, n.span, used.contains(name))]
             }
         };
         // One edit per statement, not per name. Two adjacent unused names have
@@ -2233,7 +2313,7 @@ fn check_unused_imports(session: &Session, m: &ModuleData, diagnostics: &mut Dia
         let survivors: Vec<String> = match &i.clause {
             crate::parsing::tree::ImportClause::Named(specs) => m.ast.tree.list(*specs)
                 .iter()
-                .filter(|sp| used.contains(m.ast.tree.name(sp.local())))
+                .filter(|sp| is_used(sp))
                 .map(|sp| match sp.alias {
                     Some(a) => {
                         format!("{} as {}", m.ast.tree.name(sp.name), m.ast.tree.name(a))
@@ -2256,8 +2336,8 @@ fn check_unused_imports(session: &Session, m: &ModuleData, diagnostics: &mut Dia
         };
 
         let mut first = true;
-        for (name, span) in &specs {
-            if used.contains(name) {
+        for (name, span, used) in &specs {
+            if *used {
                 continue;
             }
             let mut d = Diagnostic::templated("unused-import", *span).with_bind("name", *name);

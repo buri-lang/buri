@@ -1,0 +1,27 @@
+error: there is no type `Square` [unknown-type]
+ --> lib/recovery_delete_closer_brace_shape_ed55b9/lib.buri:3:5
+  |
+3 |     Square(Int),
+  |     ^^^^^^
+  |
+  = did you mean `Shape`?
+  = fix: if you meant `Shape`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: a variant payload field ends with `,` [missing-comma]
+ --> lib/recovery_delete_closer_brace_shape_ed55b9/lib.buri:3:11
+  |
+3 |     Square(Int),
+  |           ^
+  |
+  = fix: write `,` here
+error: this variant payload is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_brace_shape_ed55b9/lib.buri:4:1
+  |
+4 | }
+  | ^
+  |
+ --> lib/recovery_delete_closer_brace_shape_ed55b9/lib.buri:2:11
+  |
+2 |     Circle(Int,
+  |           ^ opened here
+  |
+  = fix: write `)` here

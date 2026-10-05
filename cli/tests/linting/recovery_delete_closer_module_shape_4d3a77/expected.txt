@@ -1,0 +1,12 @@
+error: this `struct` body is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_module_shape_4d3a77/lib.buri:9:1
+  |
+9 | 
+  | ^
+  |
+ --> lib/recovery_delete_closer_module_shape_4d3a77/lib.buri:6:23
+  |
+6 | export struct Drawing {
+  |                       ^ opened here
+  |
+  = fix: write `}` here

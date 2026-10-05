@@ -1,0 +1,60 @@
+error: nothing constructs or matches `Shape.Circle` [unused-variant]
+ --> demo/shape.buri:2:5
+  |
+2 |     Circle(Int),
+  |     ^^^^^^^^^^^
+  |
+  = a variant nothing builds is a case the value can never be in, and every `match` on the enum still carries an arm for it
+  = fix: delete the variant, or construct it
+
+    Every reader has to work out what could put a value in an unreachable case.
+
+    - A _ arm keeps no variant alive, since it says you don't care which case
+    occurs.
+
+    - Naming the variant in a pattern does keep it alive, even if nothing constructs
+    it. Whoever wrote that arm thought the case could happen; check who's right
+    before deleting.
+
+    - A derive keeps no variant alive.
+
+    Enums on a surface (lib.buri, or testing/lib.buri for a fixture) are never
+    reported, since an unseen consumer may build any case.
+
+error: nothing constructs or matches `Shape.Square` [unused-variant]
+ --> demo/shape.buri:3:5
+  |
+3 |     Square(Int),
+  |     ^^^^^^^^^^^
+  |
+  = a variant nothing builds is a case the value can never be in, and every `match` on the enum still carries an arm for it
+  = fix: delete the variant, or construct it
+error: nothing reads `Drawing.shape` [unused-field]
+ --> demo/shape.buri:7:5
+  |
+7 |     export shape: Shape,
+  |     ^^^^^^^^^^^^^^^^^^^
+  |
+  = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+  = fix: delete the field, or read it
+
+    Deleting the field means editing every literal, and those are exactly the
+    places computing a value for nobody.
+
+    If callers outside this library read the field, it belongs on the library's
+    surface. The rule never reports exported fields of a type lib.buri
+    re-exports (or testing/lib.buri, under testing/).
+
+    Two things read every field at once, so their types are never reported:
+
+    - a derived Equal, Ordered, Hash or Show;
+    - handing the value to the runtime, or comparing it structurally.
+
+error: Shape is imported but not used [unused-import]
+ --> demo/use.buri:1:44
+  |
+1 | from "//demo/shape.buri" import { Drawing, Shape };
+  |                                            ^^^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import

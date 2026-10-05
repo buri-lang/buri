@@ -1,0 +1,8 @@
+export enum Shape {
+    Circle(Int),
+    Square(Int),
+}
+
+struct export Drawing {
+    export shape: Shape,
+}
