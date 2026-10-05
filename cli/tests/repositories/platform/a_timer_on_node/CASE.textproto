@@ -1,0 +1,32 @@
+# `core/tasks`'s timers on the JavaScript host, driven the way a person drives
+# them: `buri run` on a node binary, which is a `setTimeout` per timer and
+# node's own event loop deciding when the process ends.
+#
+# `native::e2e` runs the same program on whichever native backend the
+# toolchain has, and asserts the same lines in the same order.
+#
+# The last step is the negative twin: a `main` that answers `.Err` ends the
+# process at once, so the timers it left pending never fire.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a timer fires during a wait and after main returns, a cancelled one never does, and a failed main leaves the rest unfired"
+
+run {
+  args: ["run", "//cmd/timers"]
+  exit: 0
+  golden: "fired.txt"
+}
+
+edit {
+  file: "cmd/timers/main.buri"
+  replace: "    let _ = io.println(ctx, \"main returned\").ignore();\n    .Ok(())"
+  with: "    let _ = io.println(ctx, \"main returned\").ignore();\n    .Err(\"gave up\")"
+}
+
+run {
+  args: ["run", "//cmd/timers"]
+  exit: 1
+  golden: "failed.txt"
+}

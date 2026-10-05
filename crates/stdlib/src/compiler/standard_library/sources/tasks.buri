@@ -137,6 +137,7 @@
 //! the page does (`design/native/DECISIONS.md`).
 
 from "core/alloc" import * as alloc;
+from "core/time" import { Duration };
 from "platform/effect" import { Allocator, Tasks };
 
 /// Runs `step` over every item and answers the results in the items' order.
@@ -209,6 +210,42 @@ export fn spawn<C: Allocator + Tasks>(ctx: C, scope: Scope, step: fn(C) => ()): 
             resting(ctx, scope)
         },
     }
+}
+
+// --- Timers -------------------------------------------------------------------
+
+/// A pending run, returned by `after` and stopped by `cancel`.
+///
+/// Inert data: a number the runtime issued, and no context. A lambda may
+/// capture one (SPEC 10.6), which is what lets a callback hold the timer it
+/// means to cancel. The authority to cancel travels through `ctx`.
+export struct Timer(Int);
+
+/// Runs `run` once `duration` has passed, and answers a `Timer` that names the
+/// pending run. Answers at once: nothing waits here.
+///
+/// `run` is handed a context of its own when it fires, the same one `after`
+/// was called with, because a lambda may not capture one (SPEC 10.6).
+///
+/// It needs no `Scope`, so a callback that holds only a context can schedule:
+/// a heartbeat after each frame, a retry after a failed send. A periodic tick
+/// is a `run` that calls `after` again.
+///
+/// The duration is read in whole milliseconds, and a length of zero or less
+/// fires as soon as the program next waits. A pending timer keeps the program
+/// running after `main` returns, until it has fired or been cancelled.
+///
+/// `core/alloc`'s `copyAcross` copies `run` out of every arena first, because
+/// the runtime keeps it past this call.
+export fn after<C: Tasks>(ctx: C, duration: Duration, run: fn(C) => ()): Timer {
+    let fire: fn(C, Int) => () = alloc.copyAcross(fn(c, _handle) => run(c));
+    Timer(timerStart(ctx, duration.milliseconds(), fire))
+}
+
+/// Stops a pending timer. A timer that has already fired, or already been
+/// cancelled, is a no-op, so a caller never has to ask which state it is in.
+export fn cancel<C: Tasks>(ctx: C, timer: Timer): () {
+    timerStop(ctx, timer.0)
 }
 
 // --- Beside the body ----------------------------------------------------------
@@ -424,3 +461,14 @@ fn scopeSpare<C: Tasks>(ctx: C, handle: Int): Bool;
 
 /// The body, or a claimed task, has finished.
 fn scopeRan<C: Tasks>(ctx: C, handle: Int): Bool;
+
+// The timers' two. Unlike a spawned task, a timer's body is the runtime's to
+// call: it is kept as a handler is, with the context beside it, and the runtime
+// fires it when it is due. The `Int` it is handed is the timer's own handle.
+
+/// Registers `run` to fire once `millis` milliseconds have passed, and answers
+/// its handle.
+fn timerStart<C: Tasks>(ctx: C, millis: Int, run: fn(C, Int) => ()): Int;
+
+/// Stops the timer `handle` names, where it is still pending.
+fn timerStop<C: Tasks>(ctx: C, handle: Int): ();

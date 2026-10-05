@@ -176,6 +176,17 @@ pub extern "C" fn buri_rt_flush() {
     }
 }
 
+/// `main` answered `.Ok(())`, or answered nothing: the timers it left pending
+/// fire as they come due, and then what was printed goes out. The entry point
+/// calls this on its success arm in place of [`buri_rt_flush`], so a `main`
+/// that answered `.Err` ends without waiting for them (`rt.rs`'s timers).
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_main_returned() {
+    #[cfg(feature = "net")]
+    crate::rt::settle();
+    buri_rt_flush();
+}
+
 /// Deliver what has been printed, because the caller is about to wait.
 ///
 /// **The rule**: a line a program printed has reached the descriptor before
