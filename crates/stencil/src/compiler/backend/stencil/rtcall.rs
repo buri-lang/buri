@@ -1051,7 +1051,9 @@ impl Jit<'_> {
     /// and the node is the element the thunk reads out of `arg`. There is no
     /// stride and no release: the walk answers `()` and is invoked in place, so
     /// the runtime keeps nothing and its argument is released here at its last
-    /// use, the way a step's is.
+    /// use, the way a step's is. A row that drops a context, `mount`, adds four
+    /// words after the three: where the context is in the record, its width, and
+    /// its retain and release glue ([`Arg::Walk`](super::runtime::Arg::Walk)).
     fn walk_extra(
         &mut self,
         prog: &ir::Program,
@@ -1077,11 +1079,22 @@ impl Jit<'_> {
         let (ctx_at, _bytes) = super::glue::state_shape(&widths, Some(1));
         let state = st.frame.size;
         self.mv(state, fslot, 16);
-        // The context the runtime supplies is this record's, and nothing else
-        // writes it. Zeroed, it is a context holding no count, so a walk whose
-        // context has a heap field is not handed whatever an earlier call left
-        // on the stack (buri-lang/buri#241).
+        // The runtime writes the document's context into the record before it
+        // drives the walk. Until then the slot is zeroed, a context holding no
+        // count, so it is never whatever an earlier call left on the stack
+        // (buri-lang/buri#241).
         self.clear_ctx(state, &ctx_at, &widths);
+        // A row that drops a context (`mount`) hands it to the document, inside
+        // the record: the runtime keeps a copy with a count of its own and
+        // supplies it to every walk and handler the document drives later.
+        let dropped = (0..args.len()).find(|i| entry.dropped(*i));
+        let kept = dropped.and_then(|i| args.get(i).copied()).zip(ctx_at.first().copied());
+        if let Some(((from, _), off)) = kept {
+            let w = widths.first().copied().unwrap_or(0);
+            if w > 0 {
+                self.mv(state + off, from, round8(w));
+            }
+        }
         let thunk = self.helper(super::glue::Helper::Entry {
             params: params.to_vec(),
             ret: *ret,
@@ -1092,6 +1105,18 @@ impl Jit<'_> {
         // This backend's record keeps a frame word, and `E_FRAME` is where the
         // runtime writes the one it acquires before it drives the walk.
         ints.push(Src::Imm(u64::from(super::glue::E_FRAME)));
+        // And where it is, how wide, and the glue that takes and gives back its
+        // count.
+        if let (Some((_, off)), Some(cty)) = (kept, params.first().copied()) {
+            ints.push(Src::Imm(u64::from(off)));
+            ints.push(Src::Imm(u64::from(widths.first().copied().unwrap_or(0))));
+            for glue in [self.element_glue(cty), self.value_release(cty)] {
+                match glue {
+                    Some(name) => ints.push(Src::Sym(name)),
+                    None => ints.push(Src::Imm(0)),
+                }
+            }
+        }
         Ok(())
     }
 
@@ -1130,8 +1155,8 @@ impl Jit<'_> {
         // The context, where the row drops one (`core/tasks`'s timers): it goes
         // into the record beside the closure, as a step's does, so the handler
         // is handed the caller's context when it fires. A row that drops none
-        // (`ui/node`'s handlers) has no context to put there, so the slot is
-        // zeroed, as a walk's is.
+        // (`ui/node`'s handlers) gets its document's context from the runtime
+        // when it fires, so the slot is zeroed until then, as a walk's is.
         let dropped = (0..args.len()).find(|i| entry.dropped(*i));
         if dropped.is_none() {
             self.clear_ctx(st.frame.size, &ctx_at, &widths);

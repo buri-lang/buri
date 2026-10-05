@@ -40,7 +40,7 @@
 //! ones the Buri walk `renderInto` computed and handed here as one string, so a
 //! native `markup()` is byte-for-byte a headerless `describe`.
 
-use crate::list::Release;
+use crate::list::{Release, Retain};
 use crate::ui::ComputeEntry;
 use crate::value::{list_of_bytes, str_of, BuriList, BuriStr, BURI_RT_STR_LEN_MASK};
 use std::sync::Mutex;
@@ -203,6 +203,25 @@ struct Document {
     capture: Option<usize>,
     /// What the pointer handler being fired reads back.
     pointer: Pointer,
+    /// The context `render` was called with, handed to every walk and handler
+    /// this document drives. `None` for one rendered with no context bytes.
+    ctx: Option<Supplied>,
+}
+
+/// The context a document supplies: the bytes of the one it was mounted with,
+/// holding a count of their own until exit, and where in a walk's or a
+/// handler's record they go. JavaScript keeps the same thing as a scene
+/// document's `ctx`.
+struct Supplied {
+    /// The context's bytes, in words so the glue reads aligned pointers.
+    words: Vec<u64>,
+    /// How many of those bytes are the context.
+    bytes: usize,
+    /// The offset of the context in every record this document drives. The
+    /// mount's record says where, and every other record is the same backend's.
+    at: usize,
+    retain: Retain,
+    release: Release,
 }
 
 impl Document {
@@ -223,6 +242,7 @@ impl Document {
             offer: Offer::default(),
             capture: None,
             pointer: Pointer::default(),
+            ctx: None,
         }
     }
 
@@ -348,28 +368,113 @@ fn with_doc<R>(handle: i64, f: impl FnOnce(&mut Document) -> R) -> Option<R> {
 /// reaches: open a document, walk `root` into it with the `renderInto` closure
 /// the caller passed, and answer the handle a `Rendered` carries.
 ///
-/// The context is dropped as a step drops one; `root` crosses by reference, a
-/// pointer to the one `Node` the walk destructures and this side never reads;
-/// and the walk is the closure `render` handed over, invoked once through the
-/// same trampoline [`crate::ui::buri_rt_ui_render_walk`] is. The initial render
-/// runs each leaf watcher and each region watcher once through that walk, so
-/// what comes back is already the resting tree.
+/// The context crosses inside the walk's record, at `ctx_at`, `ctx_bytes` long.
+/// The document keeps a copy of it, retained through `ctx_retain`, and hands it
+/// to every walk and handler it drives ([`supply`]): a region a watcher
+/// rebuilds, a row a reconcile builds and a press each get the context `render`
+/// was called with, as they do in JavaScript. `ctx_release` gives the count back
+/// at exit. `root` crosses by reference, a pointer to the one `Node` the walk
+/// destructures and this side never reads; and the walk is the closure `render`
+/// handed over, invoked once through the same trampoline
+/// [`crate::ui::buri_rt_ui_render_walk`] is. The initial render runs each leaf
+/// watcher and each region watcher once through that walk, so what comes back
+/// is already the resting tree.
 ///
 /// # Safety
 /// `root` points at one whole `Node`; `entry` is the thunk the backend
 /// generated for the walk and `state` the record it was generated against;
-/// `frame_at` is an offset inside the record or negative.
+/// `frame_at` is an offset inside the record or negative; and `ctx_bytes` is
+/// zero, or the `ctx_bytes` bytes at `ctx_at` in the record are one whole
+/// context of the type `ctx_retain` and `ctx_release` were generated for.
 #[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn buri_rt_host_testing_mount(
     root: *const u8,
     entry: crate::ui::ComputeEntry,
     state: *mut u8,
     frame_at: i64,
+    ctx_at: u64,
+    ctx_bytes: u64,
+    ctx_retain: Retain,
+    ctx_release: Release,
 ) -> i64 {
     let handle = open();
+    let at = usize::try_from(ctx_at).unwrap_or(0);
+    let bytes = usize::try_from(ctx_bytes).unwrap_or(0);
+    if bytes > 0 {
+        let mut words = vec![0u64; bytes.div_ceil(8)];
+        // SAFETY: the caller promises `bytes` readable bytes at `at` in the
+        // record, and `words` has at least that many.
+        unsafe {
+            std::ptr::copy_nonoverlapping(state.add(at), words.as_mut_ptr().cast::<u8>(), bytes);
+        }
+        if let Some(f) = ctx_retain {
+            // SAFETY: `words` holds one whole context of the glue's type.
+            unsafe { f(words.as_mut_ptr().cast()) };
+        }
+        give_back_at_exit();
+        with_doc(handle, |doc| {
+            doc.ctx = Some(Supplied { words, bytes, at, retain: ctx_retain, release: ctx_release });
+        });
+    }
+    // SAFETY: `state` is the record the document's context was read out of.
+    unsafe { supply(handle, state) };
     // SAFETY: forwarded to the caller's promise; `handle` is a live document.
     unsafe { crate::ui::buri_rt_ui_render_walk(entry, state, handle, root, frame_at) };
     handle
+}
+
+/// Writes document `handle`'s context into `state`, the record of a walk or a
+/// handler it is about to drive, with a count of its own: the thunk hands the
+/// context to a Buri function that owns it. Nothing for a document with none.
+///
+/// # Safety
+/// `state` is a record the same backend built as the mount's, with room for the
+/// context at the document's offset.
+pub(crate) unsafe fn supply(handle: i64, state: *mut u8) {
+    let Some(Some((words, bytes, at, retain))) = with_doc(handle, |doc| {
+        doc.ctx.as_ref().map(|c| (c.words.clone(), c.bytes, c.at, c.retain))
+    }) else {
+        return;
+    };
+    // SAFETY: the caller promises room for `bytes` bytes at `at`.
+    let to = unsafe { state.add(at) };
+    // SAFETY: `words` has at least `bytes` bytes, and `to` room for them.
+    unsafe { std::ptr::copy_nonoverlapping(words.as_ptr().cast::<u8>(), to, bytes) };
+    if let Some(f) = retain {
+        // SAFETY: `to` now holds one whole context of the glue's type.
+        unsafe { f(to) };
+    }
+}
+
+/// Registers [`give_back`] after the heap audit, once, so it runs first:
+/// `atexit` is last-in-first-out, as `cli/runtime/ui.rs` says.
+fn give_back_at_exit() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        crate::memory::arm_heap_audit();
+        // SAFETY: `give_back` is an `extern "C" fn()` taking no arguments and
+        // returning normally, which is the whole of `atexit`'s contract.
+        unsafe { atexit(give_back) };
+    });
+}
+
+unsafe extern "C" {
+    fn atexit(f: extern "C" fn()) -> i32;
+}
+
+/// Every document's context, given back. `try_lock` for `ui.rs`'s reason: an
+/// abort can exit while this lock is held, and then the audit is quiet anyway.
+extern "C" fn give_back() {
+    let Ok(mut all) = DOCUMENTS.try_lock() else { return };
+    for doc in all.iter_mut() {
+        let Some(mut c) = doc.ctx.take() else { continue };
+        if let Some(f) = c.release {
+            // SAFETY: `words` holds one whole context of the glue's type, and
+            // nothing names it after this.
+            unsafe { f(c.words.as_mut_ptr().cast()) };
+        }
+    }
 }
 
 /// `emitElement(builder, name, body)` — an element record, entered so that
@@ -594,6 +699,8 @@ pub unsafe extern "C" fn buri_rt_ui_node_rebuild_region(
         return;
     };
     with_doc(handle, |doc| doc.begin_region(region));
+    // SAFETY: `state` is the walk's record, built as the mount's was.
+    unsafe { supply(handle, state) };
     // SAFETY: forwarded to the caller's promise; `handle` is a live document,
     // its builder now pointed at the region gap.
     unsafe { crate::ui::buri_rt_ui_render_walk(entry, state, handle, node, frame_at) };
@@ -781,6 +888,9 @@ pub unsafe extern "C" fn buri_rt_ui_node_reconcile(
             let saved = crate::ui::rows::enter_row(row_owner);
             let at = i as i64;
             let at_ptr = std::ptr::addr_of!(at).cast::<u8>();
+            // SAFETY: `build_state` is the row body's record, built as the
+            // mount's was.
+            unsafe { supply(handle, build_state) };
             // SAFETY: `build_*` are the row body's trampoline arguments; the
             // owner is one live word crossing as the scope, and `at_ptr` one
             // readable word crossing as the element.
@@ -1424,7 +1534,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_press(
     })
     .unwrap_or_default();
     for node in outside {
-        crate::ui::fire(node);
+        crate::ui::fire(node, handle);
     }
     let (press, submit, disabled) = with_doc(handle, |doc| {
         let r = &doc.records[button];
@@ -1435,7 +1545,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_press(
         return;
     }
     if press >= 0 {
-        crate::ui::fire(press);
+        crate::ui::fire(press, handle);
     }
     // A submit button has no handler of its own: reaching the form is the
     // browser's default action for the press.
@@ -1444,7 +1554,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_press(
         if let Some(form) = form {
             let node = with_doc(handle, |doc| doc.records[form].press).unwrap_or(-1);
             if node >= 0 {
-                crate::ui::fire(node);
+                crate::ui::fire(node, handle);
             }
         }
     }
@@ -1644,7 +1754,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_deliver_file(
     })
     .unwrap_or((false, -1));
     if open {
-        crate::ui::fire(pick);
+        crate::ui::fire(pick, handle);
     }
 }
 
@@ -1654,7 +1764,7 @@ fn fire_pointer(handle: i64, phase: usize, target: usize, over: usize, x: f64, y
     let path = with_doc(handle, |doc| doc.pointer_path(phase, target, over)).unwrap_or_default();
     for (handler, row) in path {
         with_doc(handle, |doc| doc.pointer = Pointer { x, y, row });
-        crate::ui::fire(handler);
+        crate::ui::fire(handler, handle);
     }
 }
 
@@ -1697,7 +1807,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_pointer_down(
     })
     .unwrap_or_default();
     for node in outside {
-        crate::ui::fire(node);
+        crate::ui::fire(node, handle);
     }
     with_doc(handle, |doc| {
         let mut at = Some(target);
@@ -1797,7 +1907,7 @@ pub extern "C" fn buri_rt_host_testing_rendered_submit(handle: i64, index: i64) 
     })
     .unwrap_or((false, 0, -1));
     if (has_submit || blocking == 1) && node >= 0 {
-        crate::ui::fire(node);
+        crate::ui::fire(node, handle);
     }
 }
 
