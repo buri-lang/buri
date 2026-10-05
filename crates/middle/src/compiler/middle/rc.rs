@@ -1615,7 +1615,7 @@ fn collect_consuming(
         _ => {}
     });
     // The returned value, through whatever tail position leads to it.
-    for t in tails(body) {
+    all_tails(body, &mut |t| {
         // A tail that is a **projection of something counted** keeps a piece of
         // its root, and keeping a piece takes the whole for the `Match` arm's
         // reason one screen up: the piece outlives the call, so the value it
@@ -1638,25 +1638,24 @@ fn collect_consuming(
             }
             None => consume(t, out, counted),
         }
-    }
+        true
+    });
 }
 
-/// Every expression whose value the enclosing one returns unchanged.
-fn tails(e: &Expr) -> Vec<&Expr> {
+/// Hands `f` every expression whose value the enclosing one returns
+/// unchanged, left to right, until `f` answers `false`. Answers whether it
+/// never did.
+fn all_tails<'e>(e: &'e Expr, f: &mut impl FnMut(&'e Expr) -> bool) -> bool {
     match &e.kind {
-        ExprKind::Block { tail: Some(t), .. } => tails(t),
-        ExprKind::If { then, else_, .. } => {
-            let mut out = tails(then);
-            out.extend(tails(else_));
-            out
-        }
-        ExprKind::Match { arms, .. } => arms.iter().flat_map(|a| tails(&a.body)).collect(),
+        ExprKind::Block { tail: Some(t), .. } => all_tails(t, f),
+        ExprKind::If { then, else_, .. } => all_tails(then, f) && all_tails(else_, f),
+        ExprKind::Match { arms, .. } => arms.iter().all(|a| all_tails(&a.body, f)),
         // A loop is a whole function body, so what an entry answers is what
         // the function returns. Without this, a tail-recursive function's base
         // case did not count as returning its accumulator, and the parameter
         // carrying it was inferred borrowed.
-        ExprKind::Loop { entries } => entries.iter().flat_map(|x| tails(x)).collect(),
-        _ => vec![e],
+        ExprKind::Loop { entries } => entries.iter().all(|x| all_tails(x, f)),
+        _ => f(e),
     }
 }
 
@@ -1871,9 +1870,7 @@ pub fn preorder(body: &Expr, f: &mut impl FnMut(NodeId, &Expr)) {
         let id = NodeId(*next);
         *next += 1;
         f(id, e);
-        for k in kids(e) {
-            go(k, next, f);
-        }
+        typed::children(e, &mut |k| go(k, next, f));
     }
     go(body, &mut 0, f);
 }
@@ -1908,9 +1905,7 @@ pub fn subtree_sizes(e: &Expr, out: &mut Vec<u32>) -> u32 {
     let me = out.len();
     out.push(0);
     let mut total = 1u32;
-    for k in kids(e) {
-        total += subtree_sizes(k, out);
-    }
+    typed::children(e, &mut |k| total += subtree_sizes(k, out));
     if let Some(slot) = out.get_mut(me) {
         *slot = total;
     }
@@ -3874,8 +3869,11 @@ fn collect_locals(e: &Expr, out: &mut Vec<LocalId>) {
 /// it exactly where this says so too. [`fresh_leaf`]'s projection case is where
 /// the two once disagreed.
 pub fn fresh(e: &Expr) -> bool {
-    let tails = tails(e);
-    !tails.is_empty() && tails.into_iter().all(fresh_leaf)
+    let mut any = false;
+    all_tails(e, &mut |t| {
+        any = true;
+        fresh_leaf(t)
+    }) && any
 }
 
 fn fresh_leaf(e: &Expr) -> bool {
