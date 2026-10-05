@@ -2653,9 +2653,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // drops none (`ui/node`'s handlers) leaves the slot alone.
                     let ctx_at = self.step_ctx_offsets(ps, None);
                     let dropped = (0..args.len()).find(|i| entry.dropped(*i));
-                    if let (Some(i), Some(at)) = (dropped, ctx_at.first().copied())
-                        && let Some(arg) = args.get(i).copied()
-                    {
+                    let ctx_arg = dropped.and_then(|i| args.get(i).copied());
+                    if let (Some(arg), Some(at)) = (ctx_arg, ctx_at.first().copied()) {
                         if ps.first().is_some_and(|t| self.rc_counted(t)) {
                             self.error(
                                 span,

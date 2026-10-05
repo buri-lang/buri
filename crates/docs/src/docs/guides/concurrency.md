@@ -94,11 +94,8 @@ the timer fired
 the scope is closed
 ```
 
-**A timer is a task that sleeps.** There is no `Timer` type and no
-`setTimeout` — `sleep` already waits, and a task is already the thing that
-waits without holding up the code around it. How long it waits is always a
-`Duration` built by `time.milliseconds`, `time.seconds` or a sibling, never a
-bare count of milliseconds.
+A task that sleeps is a timer, as long as you hold a scope. Code that holds
+only a context — a callback, a handler — schedules with `after` instead, below.
 
 **`Scope` is inert.** It holds no context, so a lambda may capture one, and an
 interface can hand a scope to a handler that spawns into it later. That is what
@@ -108,7 +105,7 @@ socket in the scope the page was built in.
 **A library cannot spawn.** It exposes a `run` and the application spawns it,
 because a scope is the application's to open.
 
-**Stopping is cooperative.** There is no `cancel`. A task ends when its own body
+**Stopping is cooperative.** A spawned task can't be cancelled. It ends when its own body
 ends, so a loop stops by finding its socket closed, or by asking an actor
 whether to carry on. An abort is a write to standard error and an exit
 ([effects](../language/effects.md)), never something a second task survives.
@@ -124,6 +121,65 @@ what a handler does — runs on the task that spawned it.
 So under `buri run` a task that never ends starves the ones behind it. Spawn a
 socket loop and then a timer, and the timer never starts. Build with
 `--release`, or run on JavaScript, and both run.
+
+## A timer needs no scope
+
+`after` runs a function once a `Duration` has passed and answers at once.
+`cancel` stops it. Both need only `Tasks`, so they work on every platform and
+from any code that holds a context.
+
+```buri run
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/time" import * as time;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout, Tasks };
+
+fn tick<C: Stdout + Tasks>(ctx: C, n: Int): () {
+    let _ = io.println(ctx, "tick ${n}").ignore();
+    if (n < 3) {
+        let _ = tasks.after(ctx, time.milliseconds(10), fn(c) => tick(c, n + 1));
+        ()
+    } else {
+        ()
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let never = tasks.after(ctx, time.milliseconds(5), fn(c) => io.println(c, "never").ignore());
+    let _ = tasks.cancel(ctx, never);
+    let _ = tasks.after(ctx, time.milliseconds(5), fn(c) => tick(c, 1));
+    let _ = io.println(ctx, "main returned").ignore();
+    .Ok(())
+}
+```
+
+```stdout
+main returned
+tick 1
+tick 2
+tick 3
+```
+
+`run` gets a context of its own when it fires: the one `after` was called with.
+A periodic tick is a `run` that schedules the next one.
+
+**A pending timer keeps the program running** after `main` returns `.Ok`, until
+it fires or is cancelled — node's event loop rule, on every platform. A `main`
+that answers `.Err`, an abort and `exitWith` end the program at once.
+
+**A timer fires while the program waits.** On JavaScript it's a `setTimeout`.
+A native program fires it on `main`'s thread whenever that thread waits — a
+sleep, a fetch, a `parallel` being joined — and after `main` returns. It never
+interrupts code that is computing. Under `buri run` a server's workers wait on
+`main`'s thread for a connection, so a timer started there fires once the
+server stops. Build with `--release`, where the workers have threads of their
+own, and it fires on time.
 
 ## An actor is a value
 
