@@ -156,17 +156,21 @@ fn check_fn(c: &mut Checker, fid: FnId) {
         && c.entries.get(&info.name) == Some(&fid);
     // The parts the body is checked against, copied once: the checker is
     // borrowed mutably from here on, and the declaration lives in its tables.
-    let (module, self_ty, generics, params, expected) =
-        (info.module, info.self_ty, info.generics.clone(), info.params.clone(), info.ret);
+    // The parameters are read one at a time below instead, so that each name
+    // is copied once, into its local.
+    let (module, self_ty, generics, expected, arity) =
+        (info.module, info.self_ty, info.generics.clone(), info.ret, info.params.len());
 
     let mut inf = Infer::new(c, module, generics, expected);
     inf.self_con = self_ty;
     inf.in_effect_impl = in_effect_impl;
     inf.in_main = in_main;
     inf.push_scope();
-    for p in &params {
-        let local = inf.new_local(&p.name, p.ty, p.span);
-        inf.bind(&p.name, local);
+    inf.params.reserve_exact(arity);
+    for i in 0..arity {
+        let Some(p) = inf.c.tables.fn_info(fid).params.get(i) else { break };
+        let (name, ty, span, role) = (p.name.clone(), p.ty, p.span, p.role);
+        let local = inf.bind_new(name, ty, span);
         inf.params.push(local);
         // The capture rule is scoped to *effect-carrying* values (SPEC 10.6,
         // design/static-rules.md rule 8). `ctx` is one by construction — the
@@ -174,10 +178,10 @@ fn check_fn(c: &mut Checker, fid: FnId) {
         // receiver type is, and an ordinary struct's methods must still be
         // able to write `fn(x) => x > self.n`. So `self` is gated on its type,
         // exactly as a normal parameter is in `check_ctx_rule`.
-        if p.role == ParamRole::Ctx {
+        if role == ParamRole::Ctx {
             inf.effect_locals.insert(local);
         } else {
-            inf.note_capture_risk(local, &p.ty);
+            inf.note_capture_risk(local, &ty);
         }
     }
     let body_span = inf.t.block_span(body);
@@ -691,6 +695,14 @@ impl<'a, 'b> Infer<'a, 'b> {
     pub(crate) fn new_local(&mut self, name: &str, ty: Ty, span: Span) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
         self.locals.push(typed::Local { name: name.to_string(), ty, span });
+        id
+    }
+
+    /// A new local, bound in the innermost scope under the name it takes.
+    pub(crate) fn bind_new(&mut self, name: String, ty: Ty, span: Span) -> LocalId {
+        let id = LocalId(self.locals.len() as u32);
+        self.scopes.push((name_hash(&name), id));
+        self.locals.push(typed::Local { name, ty, span });
         id
     }
 
