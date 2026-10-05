@@ -3210,7 +3210,17 @@ impl<'a> Parser<'a> {
     /// it holds the arm stack.
     fn match_arm(&mut self, astart: Span) -> PResult<ArmData> {
         let pattern = self.pattern()?;
-        let guard = if self.eat_keyword(Keyword::If) { self.expr()?.0 } else { NONE };
+        // A guard comes before this arm's own `=>`, so a `.` in it is never the
+        // next arm's: `if written.isSome() =>` inside an outer arm's body is a
+        // method call, not a missing comma.
+        let guard = if self.eat_keyword(Keyword::If) {
+            let outer = std::mem::replace(&mut self.arm_body, 0);
+            let guard = self.expr();
+            self.arm_body = outer;
+            guard?.0
+        } else {
+            NONE
+        };
         self.expect_arrow()?;
         self.arm_body = self.arm_body.saturating_add(1);
         let body = self.expr();

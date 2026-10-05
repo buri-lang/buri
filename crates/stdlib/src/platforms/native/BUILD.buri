@@ -8,6 +8,5 @@ platform {
             "macos-arm64",
             "macos-x86_64",
         ]
-        variant_required: true
     }
 }

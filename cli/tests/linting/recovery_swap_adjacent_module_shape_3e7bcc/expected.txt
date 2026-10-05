@@ -1,0 +1,16 @@
+error: expected an identifier, found `{` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_shape_3e7bcc/lib.buri:1:13
+  |
+1 | export enum { Shape
+  |             ^
+  |
+  = expected: an identifier
+  = actual: `{`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is no type `Shape` [unknown-type]
+ --> lib/recovery_swap_adjacent_module_shape_3e7bcc/lib.buri:7:19
+  |
+7 |     export shape: Shape,
+  |                   ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling

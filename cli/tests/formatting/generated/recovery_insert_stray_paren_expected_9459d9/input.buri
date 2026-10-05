@@ -1,0 +1,13 @@
+export fn bare(kind: Option<Kind>, written: Option<Int>, d: Deadline, now: Int): Int {
+    match (kind) {
+        .None => 0,
+        .Some(inner) => {
+            let (a, b) = match (inner) {
+                .Ref(_) if written.isSome() => { (1, 2) },
+                .Bool if now >= d.at => (3, , 4),
+                _ => (0, 0),
+            };
+            a + b
+        },
+    }
+}

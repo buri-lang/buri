@@ -107,11 +107,12 @@ run {
   host: MACOS
 }
 
-# With no selector, every declared output is built. On Linux that is one
-# artifact (js) and one refusal (the macOS native output).
+# With no selector, every output this host can build is built. On Linux that
+# is the node module, and the macOS native output is skipped with a warning
+# (buri-lang/buri#194).
 run {
   args: ["build", "//cmd/native"]
-  exit: 1
+  exit: 0
   golden: "native_all.txt"
   host: LINUX
 }

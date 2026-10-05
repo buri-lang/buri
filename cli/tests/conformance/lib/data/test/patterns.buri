@@ -861,6 +861,27 @@ test "a guard on an or-pattern applies to both alternatives" {
     assert.equal(f(Shape.Square(1)), "small");
 }
 
+test "a guard ending in a method call or a field, inside another arm's block" {
+    let f = fn(shape: Option<Shape>, limit: Option<Int>, at: Point): Int => {
+        match (shape) {
+            .None => 0,
+            .Some(inner) => {
+                let (a, b) = match (inner) {
+                    .Circle(_) if limit.isSome() => { (1, 2) },
+                    .Square(n) if n >= at.x => (3, 4),
+                    _ => (0, 0),
+                };
+                a + b
+            },
+        }
+    };
+    assert.equal(f(.Some(Shape.Circle(1)), .Some(2), Point { x: 0, y: 0 }), 3);
+    assert.equal(f(.Some(Shape.Circle(1)), .None, Point { x: 0, y: 0 }), 0);
+    assert.equal(f(.Some(Shape.Square(5)), .None, Point { x: 5, y: 0 }), 7);
+    assert.equal(f(.Some(Shape.Square(4)), .None, Point { x: 5, y: 0 }), 0);
+    assert.equal(f(.None, .None, Point { x: 0, y: 0 }), 0);
+}
+
 // --- qualified and dot-form variants ------------------------------------------
 
 test "a qualified variant pattern matches" {

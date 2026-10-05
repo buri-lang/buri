@@ -110,6 +110,13 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                     let note = if a.cached { ", cached" } else { "" };
                     println!("{} ({} bytes{note})", rel.display(), a.bytes);
                 }
+                Err(diagnostics) if args.flags.output.is_none() && foreign(&output, &diagnostics) => {
+                    reported.push(
+                        crate::diagnostics::Diagnostic::templated("output-unavailable", output.span)
+                            .with_bind("selector", output.dir())
+                            .with_bind("target", session.workspace.label(target)),
+                    );
+                }
                 Err(diagnostics) => reported.extend(diagnostics.items),
             }
         }
@@ -135,6 +142,19 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         println!("nothing to build");
     }
     0
+}
+
+/// Whether an output failed only because this host cannot build it: a native
+/// output for another machine, refused for the host or for a capability its
+/// cross runtime lacks. A build that selects no output skips one of these
+/// rather than failing (buri-lang/buri#194); `--output` naming it still fails.
+fn foreign(output: &crate::build::buildfile::Output, diagnostics: &crate::diagnostics::Diagnostics) -> bool {
+    const HOST_REFUSALS: [&str; 3] =
+        ["native-artifact-unavailable", "networking-unavailable", "cryptography-unavailable"];
+    let mut errors = diagnostics.items.iter().filter(|d| d.is_error()).peekable();
+    errors.peek().is_some()
+        && errors.all(|d| d.code.as_deref().is_some_and(|c| HOST_REFUSALS.contains(&c)))
+        && !crate::build::link::is_host_target(actions::target_of(output))
 }
 
 // ---------------------------------------------------------------------------
