@@ -449,8 +449,8 @@ impl<'a> Jit<'a> {
 
     /// The layout of a source type directly, for the places the IR's `TypeId`
     /// is not the type wanted (a `[T]`'s element, a closure's return).
-    pub(crate) fn layouts_of(&mut self, ty: Ty) -> Layout {
-        self.layouts.of(ty)
+    pub(crate) fn layouts_of(&mut self, ty: Ty) -> std::rc::Rc<Layout> {
+        self.layouts.shared(&ty)
     }
 
     /// The same answer, shared rather than copied — and without the `Ty` clone
@@ -498,15 +498,14 @@ impl<'a> Jit<'a> {
         self.counts.weight(self.tables, &mut self.layouts, ty)
     }
 
-    pub(crate) fn layout_of(&mut self, prog: &ir::Program, id: ir::TypeId) -> Layout {
-        let ty: Ty = prog.type_info(id).ty;
-        self.layouts.of(ty)
+    pub(crate) fn layout_of(&mut self, prog: &ir::Program, id: ir::TypeId) -> std::rc::Rc<Layout> {
+        self.layouts.shared(&prog.type_info(id).ty)
     }
 
     /// The same, for a type reached through another type's arguments rather
     /// than through the program's interner.
-    pub(crate) fn layout_of_type(&mut self, ty: Ty) -> Layout {
-        self.layouts.of(ty)
+    pub(crate) fn layout_of_type(&mut self, ty: Ty) -> std::rc::Rc<Layout> {
+        self.layouts.shared(&ty)
     }
 
     pub(crate) fn width_of(&mut self, prog: &ir::Program, t: ir::Type) -> u32 {
@@ -569,7 +568,7 @@ pub(crate) fn frame_sigs(prog: &ir::Program, tables: &Tables) -> Vec<FrameSig> {
             ir::Type::I64 | ir::Type::F64 | ir::Type::Ptr => 8,
             ir::Type::I128 => 16,
             ir::Type::Unit => 0,
-            ir::Type::Agg(id) => l.of(prog.type_info(id).ty).size,
+            ir::Type::Agg(id) => l.shared(&prog.type_info(id).ty).size,
         }
     };
     let mut out = Vec::with_capacity(prog.funcs.len());
