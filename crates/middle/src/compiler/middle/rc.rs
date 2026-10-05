@@ -1221,9 +1221,10 @@ pub fn release_then_retain<V: Copy + PartialEq>(ops: &[(RcOp, V)]) -> Option<V> 
 /// can see. Native needs none of the six receivers: `cli/runtime/list.rs`'s
 /// `append_dest` asks the count at run time, and a count is the thing
 /// JavaScript does not have. It does need the folds' seed, for the same reason
-/// with a count in place of a mark ([`is_fold`]).
+/// with a count in place of a mark, and `str.show`'s receiver
+/// ([`taken_natively`]).
 ///
-/// Two families:
+/// Three families:
 ///
 ///  * **The six that write into their receiver.** What they answer is that
 ///    list, changed, and the caller has no use for the one it passed.
@@ -1235,6 +1236,11 @@ pub fn release_then_retain<V: Copy + PartialEq>(ops: &[(RcOp, V)]) -> Option<V> 
 ///    inside a walk: `core/buri/ast`'s printer calls `docs` once per
 ///    declaration, and one copy of everything printed so far, per declaration,
 ///    is the shape that made printing a schema quadratic.
+///  * **`str.show`, natively.** A `Str` renders as itself, and both native
+///    backends answer the three words they were handed, with no count of
+///    their own. Lent, the answer was a second reference nobody had counted:
+///    `ui.rebuild` keying a region on a `Str` read from a signal kept that
+///    key, and the read's release freed the block under it.
 const TAKEN_BY: &[(&str, usize)] = &[
     ("list.push", 0),
     ("list.concat", 0),
@@ -1246,6 +1252,7 @@ const TAKEN_BY: &[(&str, usize)] = &[
     ("list.foldCtx", 3),
     ("list.foldResult", 2),
     ("list.foldResultCtx", 3),
+    ("str.show", 0),
 ];
 
 /// Whether an intrinsic key is one of [`TAKEN_BY`]'s four folds, whose seed is
@@ -1270,6 +1277,12 @@ fn grower(growers: &[bool], f: Option<FuncIdx>) -> bool {
 
 fn is_fold(key: &str) -> bool {
     matches!(key, "list.fold" | "list.foldCtx" | "list.foldResult" | "list.foldResultCtx")
+}
+
+/// Whether a [`TAKEN_BY`] parameter is handed over on the native branch too:
+/// a fold's seed, and `str.show`'s receiver.
+fn taken_natively(key: &str) -> bool {
+    is_fold(key) || key == "str.show"
 }
 
 fn infer_ownership(
@@ -1301,15 +1314,15 @@ fn infer_ownership(
     // An intrinsic borrows what it is given (see the module docs), so its row
     // never moves — except for [`TAKEN_BY`], whose parameter is seeded owned
     // before the fixpoint so that callers are promoted against it. Under
-    // `sharing`, all ten. Natively, the four folds' seed alone: both native
-    // backends hand the seed to the first step without a retain of their own,
-    // which is what lets that step find a list in it unique.
+    // `sharing`, all eleven. Natively, the four folds' seed and `str.show`'s
+    // receiver alone: both native backends hand the seed to the first step,
+    // and answer the shown `Str`, without a retain of their own.
     for (i, f) in program.funcs.iter().enumerate() {
         let FuncKind::Intrinsic(key) = &f.kind else { continue };
         let Some((_, at)) = TAKEN_BY.iter().find(|(k, _)| *k == key.as_str()) else {
             continue;
         };
-        if !opts.sharing && !is_fold(key) {
+        if !opts.sharing && !taken_natively(key) {
             continue;
         }
         if let Some(slot) = own.get_mut(i).and_then(|r| r.get_mut(*at)) {

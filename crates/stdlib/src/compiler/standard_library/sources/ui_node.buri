@@ -1802,10 +1802,9 @@ export struct Builder(I64);
 /// The split `design/native` calls for: the *destructuring* of a `Node` stays
 /// here, in Buri, where `describe` already does it and where it is legal, and
 /// the mutable document stays in the runtime. `render` reaches this through the
-/// walk trampoline, handing over its own `ctx` — dropped at the boundary as a
-/// step drops one, and reconstructed here as the zero-sized context it is, so
-/// an `each`'s `rowAt` can be handed it. `C` is unbounded, which is what lets a
-/// handler need any effect.
+/// walk trampoline, and the runtime hands every walk the context the document
+/// was rendered with, so an `each`'s `rowAt` and every handler get that
+/// context. `C` is unbounded, which is what lets a handler need any effect.
 ///
 /// **Static, and only static.** A `Prop` is read once through the untracked
 /// `rootScope`, and `when`/`computed`/`each` are built once; the watcher that
