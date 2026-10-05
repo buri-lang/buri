@@ -1,0 +1,32 @@
+# buri-lang/buri#194 and #228: a build that selects no output builds what this
+# host can and skips the rest, naming each one it skipped. `{{CROSS_VARIANT}}`
+# is the machine this host is not: a mac cross-builds Linux without networking,
+# and a Linux host builds no macOS at all, so this server is one neither host
+# can build for the other.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a build that selects no output builds the host's and skips, with a warning, the output this host cannot build; selecting that output by name still fails"
+
+run {
+  args: ["build"]
+  exit: 0
+  golden: "skipped.txt"
+}
+
+run {
+  args: ["build", "//cmd/server"]
+  exit: 0
+  golden: "skipped_cached.txt"
+}
+
+# Named, it is what was asked for, so it fails and says why. The reason is the
+# host's, so the golden is the mac's: a Linux host's refusal of a macOS output
+# is pinned in `output_selection`.
+run {
+  args: ["build", "//cmd/server", "--output=native/{{CROSS_VARIANT}}"]
+  exit: 1
+  golden: "selected.txt"
+  host: MACOS
+}

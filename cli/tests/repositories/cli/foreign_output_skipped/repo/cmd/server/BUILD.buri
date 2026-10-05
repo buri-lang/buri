@@ -1,0 +1,9 @@
+# A server, for this host and for the other one. A mac cross-builds Linux
+# without networking, and a Linux host builds no macOS at all, so the second
+# output is one this host cannot build either way.
+binary {
+    outputs: [
+        { platform: "native", variant: "{{HOST_VARIANT}}" },
+        { platform: "native", variant: "{{CROSS_VARIANT}}" },
+    ]
+}
