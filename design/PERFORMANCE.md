@@ -2725,6 +2725,105 @@ swung by 100 s, so that's below what these runs can show.
   both build scripts share, or copying 300 lines. A stale key here ships wrong
   machine code, and the win is cold builds only, so it's left for now.
 
+### 6.25 Data structures in the back half, 2026-10-05
+
+Even on one thread, `malloc` and `free` were 30% of the CPU in a native
+`lower` row on `mixed/100k`, and 27% in a JavaScript one. The allocation
+profile was flat: no site above 7%. So the work was a dozen small changes to
+`middle`, `stencil` and `js`, each picked off a profile and each one
+output-identical.
+
+Instructions are a `lower` child minus a `sema` child under `/usr/bin/time
+-l`, best of two alternating runs. Allocations are `mixed/10k`, counted.
+
+| Change | Commit | `mixed/100k` instructions | `mixed/10k` allocations |
+|---|---|---:|---:|
+| `regalloc` keeps per-block uses in one table stamped with the block, not a `HashMap<u32, Vec<usize>>` per block | `a1b560eda` | native −4.8% | native emit −10.7% |
+| `Jit::layout_of` and friends return the `Rc<Layout>` `Layouts::shared` already holds, not a clone | `a4a0fecc0` | native −2.7% | native emit −8.8% |
+| `rc::preorder`, `subtree_sizes` and `fresh` walk children and tails through a closure, not a collected `Vec` | `331601330` | js −3.4%, native −4.3% | native prepare −15%, js −7.3% |
+| `Jit::promote` returns before building its tables when no back edge exists; `assemble_unit` borrows relocation names | `2dd8bf398` | native −3.4% | native emit −10% |
+| Call sites borrow `FrameSig`s; `pin_call_values` uses the stamped table | `d371529d4` | native −2.3% | native emit −5.9% |
+| `clean_body` resolves its map without cloning it; local and intrinsic names are one buffer each; local names are a `Vec` by `LocalId` | `020105b82` | js −5.5% | js −10.4% |
+| A monomorphized symbol is written once; `strongly_connected` returns one flat member list (`Components`) | `1bc5ed863` | js −3.9%, native −3.4% | mono −23%, js prepare −21% |
+
+The table each block used to rebuild is one entry per value, reused across
+blocks:
+
+```rust
+struct BlockUses { block: u32, count: u32, first: usize, last: usize }
+// An entry whose `block` isn't the current one reads as "no use here".
+```
+
+| End to end, before → after | `mixed/10k` | `mixed/100k` |
+|---|---:|---:|
+| `lower+js`, net of `sema` | 415 M → 368 M (−11%) | 3,459 M → 3,054 M (−12%) |
+| `lower+macos-arm64` | 561 M → 445 M (−21%) | 5,130 M → 4,106 M (−20%) |
+| `lower+linux-x86_64` | 590 M → 481 M (−18%) | 5,492 M → 4,485 M (−18%) |
+| peak RSS, `lower+js` | 36 → 37 MB | 219–223 → 224–227 MB |
+| peak RSS, `lower+macos-arm64` | 47 → 46–47 MB | 274 → 273–276 MB |
+
+| `mixed/10k` allocations | before | after |
+|---|---:|---:|
+| monomorphize | 56,412 | 43,434 (−23%) |
+| JavaScript `prepare` | 35,090 | 27,716 (−21%) |
+| JavaScript `prepare` + emit | 327,244 | 262,501 (−20%) |
+| native `prepare` | 128,715 | 99,137 (−23%) |
+| native emit | 477,393 | 304,290 (−36%) |
+
+| Cold `buri test //...` on the monorepo copy, two alternating pairs | before | after |
+|---|---:|---:|
+| instructions, `buri` process | 77.3–77.7 G | 68.5–68.6 G (−12%) |
+| peak memory | 1,420–1,519 MB | 1,382–1,430 MB |
+| wall, at load 13–23 | 14–15 s | 14–15 s |
+
+Peak memory barely moved: the allocations removed were short-lived. Every
+object and JavaScript bundle of `mixed/10k`, `mixed/100k` and four saved
+corpora, on every target, is byte-identical by SHA-256: 1,242 outputs. So
+are the monorepo run's 889 objects.
+
+**Tried and dropped.** The stencil emitter sizes two tables to the whole
+program for every part (`Jit::plan`), and one of them, `dirty`, is written
+and never read. Dropping both left instructions where they were. The CPU
+profile charged it a 6% `memset`, which retires few instructions.
+
+**Type sizes.** `RUSTC_BOOTSTRAP=1 cargo rustc -p buri-middle --lib --
+-Zprint-type-sizes` works with the devShell's stable compiler:
+
+| Type | Size | Largest variant |
+|---|---:|---|
+| `ir::Inst` | 80 B, align 16 | `CallIntrinsic`, 72 B: three `Vec`s and a `String` |
+| `ir::Term` | 72 B | `Branch`, `Switch`, 68 B |
+| `ir::Block` | 120 B | |
+| `layout::Layout` | 72 B | |
+
+Most instructions need 24 bytes or less. `Const`'s `i128` sets the
+alignment, and a call's `dests`, almost always one value, is a `Vec`.
+Shrinking `Inst` touches every match on it in four crates, so it's left as
+the next step rather than done here.
+
+**What's left.** `Scan::children` in `rc` still collects children and modes
+into `Vec`s and clones the live set per node. The JavaScript AST clones an
+`Ident(String)` every time it copies an expression, 7% of that backend's
+allocations. Monomorphization and `inline` copy whole typed bodies, which is
+most of what `prepare` allocates now.
+
+**How the numbers were taken.** The samples came from a throwaway build,
+none of it committed:
+
+- the `alloc-counter` allocator, extended to count the lowering phases and to
+  keep the backtrace of every 101st allocation, or of every 64 KiB, grouped
+  by the innermost frame in this repository. Build it with
+  `--profile validate` and line tables: fat LTO folds inlined frames into
+  the wrong lines;
+- a `BURI_ONE_THREAD` check in `parallel::width`, so `samply` sees one
+  thread and CPU tracks instructions instead of `malloc`'s lock contention;
+- `--rss-child` phases that stop after monomorphization, `prepare` and
+  `lower::run`, to split a row's instructions.
+
+Two traps: a profile of the counting build charges the atomic increments to
+`finish_grow`, and `git diff` here runs difftastic, so save a patch with
+`--no-ext-diff`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

@@ -60,20 +60,29 @@ impl<'a> Gen<'a> {
         // `park::parkability`'s column — the same column that puts the
         // `await` at the call site and prints this wrapper `async` — so the
         // two ends of the call cannot disagree.
-        let name = format!("${}", key.replace('.', "_"));
-        let awaiting = format!("{name}Await");
-        let name = if self.parks(slot) && self.runtime_has(&awaiting) { awaiting } else { name };
+        //
+        // Each suffix is tried in place on one buffer and taken back off when
+        // the runtime has no such twin.
+        let mut name = String::with_capacity(key.len().saturating_add(10));
+        name.push('$');
+        name.extend(key.chars().map(|c| if c == '.' { '_' } else { c }));
+        let plain = name.len();
+        if self.parks(slot) {
+            name.push_str("Await");
+            if !self.runtime_has(&name) {
+                name.truncate(plain);
+            }
+        }
         // An answer `Option<T>` whose `T` is not an `Option` too needs no
         // `$some` around it, and a runtime function that would otherwise check
         // every element has a `Flat` twin that does not.
-        let flat = format!("{name}Flat");
-        let name = if self.runtime_has(&flat)
-            && self.tables.option_payload(&f.ret).is_some_and(|t| !self.tables.is_option_ty(t))
+        let unflat = name.len();
+        name.push_str("Flat");
+        if !(self.runtime_has(&name)
+            && self.tables.option_payload(&f.ret).is_some_and(|t| !self.tables.is_option_ty(t)))
         {
-            flat
-        } else {
-            name
-        };
+            name.truncate(unflat);
+        }
         if self.runtime_has(&name) {
             let mut all = args.to_vec();
             if let Some(d) = f.desc {

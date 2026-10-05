@@ -345,9 +345,9 @@ impl Facts {
                 row.recursive = true;
             }
         }
-        for group in strongly_connected(&edges) {
+        for group in strongly_connected(&edges).iter() {
             if group.len() > 1 {
-                for i in group {
+                for &i in group {
                     if let Some(row) = f.per_func.get_mut(i) {
                         row.recursive = true;
                     }

@@ -2312,16 +2312,17 @@ fn movable_values(map: &HashMap<String, Expr>, facts: &LocalFacts) -> HashSet<St
         .collect()
 }
 
-fn resolve_map(map: &mut HashMap<String, Expr>, facts: &LocalFacts) {
-    let names: Vec<String> = map.keys().cloned().collect();
+/// `map` substituted into itself. Reads `map` only, so trying a resolution
+/// costs no copy of it.
+fn resolve_map(map: &HashMap<String, Expr>, facts: &LocalFacts) -> HashMap<String, Expr> {
     let movable = movable_values(map, facts);
     let mut done: HashMap<String, Expr> = HashMap::default();
     let mut taken: HashSet<String> = HashSet::default();
     let mut visiting: HashSet<String> = HashSet::default();
-    for name in &names {
+    for name in map.keys() {
         resolve_one(name, map, &movable, &mut done, &mut taken, &mut visiting);
     }
-    *map = done;
+    done
 }
 
 /// Leaves `done[name]` holding `name`'s resolved value, unless `name` is
@@ -2604,8 +2605,7 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
     // together until no entry overshoots — each pass withdraws at least one,
     // so it terminates.
     loop {
-        let mut resolved = map.clone();
-        resolve_map(&mut resolved, &facts);
+        let resolved = resolve_map(&map, &facts);
         let overshot: Vec<String> = resolved
             .iter()
             .filter(|(name, value)| {

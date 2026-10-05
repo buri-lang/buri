@@ -46,8 +46,8 @@ pub struct Output {
 /// replaces the whole value, so there is no partially-reset state: a leftover
 /// `names` map would emit another function's variable names.
 struct FnState {
-    /// The current function's local names.
-    names: HashMap<LocalId, String>,
+    /// The current function's local names, indexed by `LocalId`.
+    names: Vec<String>,
     temp: usize,
     /// What a `Continue` in this function's body rebinds.
     loops: LoopSlots,
@@ -86,10 +86,7 @@ fn node_key(e: &typed::Expr) -> usize {
 impl FnState {
     /// The state for a function whose locals are named positionally.
     fn for_locals(locals: &[typed::Local]) -> FnState {
-        let mut names = HashMap::default();
-        for (li, l) in locals.iter().enumerate() {
-            names.insert(LocalId(li as u32), local_name(li, &l.name));
-        }
+        let names = locals.iter().enumerate().map(|(li, l)| local_name(li, &l.name)).collect();
         FnState { names, temp: 0, loops: LoopSlots::default(), marks: Marks::default() }
     }
 }
@@ -213,7 +210,7 @@ impl<'a> Gen<'a> {
             program,
             tables,
             func: FnState {
-                names: HashMap::default(),
+                names: Vec::new(),
                 temp: 0,
                 loops: LoopSlots::default(),
                 marks: Marks::default(),
@@ -1008,17 +1005,19 @@ enum EqKind {
 }
 
 fn local_name(i: usize, original: &str) -> String {
+    use std::fmt::Write as _;
     // Distinct per local even when a name is shadowed, which Buri allows both
-    // in nested scopes and within one block.
-    let clean: String = original
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
-        .collect();
-    if clean.is_empty() || clean.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-        format!("v{i}")
+    // in nested scopes and within one block. Built in one buffer.
+    let mut name = String::with_capacity(original.len().saturating_add(4));
+    name.extend(original.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_'));
+    if name.is_empty() || name.starts_with(|c: char| c.is_ascii_digit()) {
+        name.clear();
+        name.push('v');
     } else {
-        format!("{clean}_{i}")
+        name.push('_');
     }
+    let _ = write!(name, "{i}");
+    name
 }
 
 impl<'a> Gen<'a> {
@@ -1068,7 +1067,7 @@ impl<'a> Gen<'a> {
     fn local_name_of(&self, local: &LocalId) -> String {
         self.func
             .names
-            .get(local)
+            .get(local.0 as usize)
             .or_ice("every local in a body was named from that function's own local list")
             .clone()
     }
@@ -2272,7 +2271,7 @@ impl<'a> Gen<'a> {
             ExprKind::Bool(b) => Expr::Bool(*b),
             ExprKind::Unit => Expr::Num(0.0),
             ExprKind::Local(l) => Expr::ident(
-                self.func.names.get(l).cloned().unwrap_or_else(|| format!("v{}", l.0)),
+                self.func.names.get(l.0 as usize).cloned().unwrap_or_else(|| format!("v{}", l.0)),
             ),
             ExprKind::Const(_) => Expr::Num(0.0),
             // Both of these name a `Program::funcs` slot, which is what
