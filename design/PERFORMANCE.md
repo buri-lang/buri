@@ -2635,6 +2635,23 @@ Running a tool by hand with a regular file as standard input now hangs at the
 end of the input. That's bun: paused `process.stdin` on a file never emits
 `end`. A pipe, which is what the build uses, ends normally.
 
+**A hang, fixed.** A cold `buri test` once sat in its generators for 21
+minutes. macOS has no `pipe2`, so a tool started while another thread made a
+pipe could inherit both ends. A kept tool holding another's input kept it from
+ever reading the end, and `KeptProcess::finish` waited forever. One process
+per request never noticed: it exited after one line. Tools now start through
+`spawn::start_alone`, which holds `FORKS` alone while every other start holds
+it shared:
+
+| Cold runs, before → after | hung | tools started holding another's pipe |
+|---|---:|---:|
+| monorepo copy, `test` and `build //...` | 5 of 150 → 0 of 150 | |
+| 64 rules of one tool, `build //...` | 1 of 5 → 0 of 60 | 14 of 64 in one run → 0 of 3,840 |
+
+Wall time didn't move. Alternating on the monorepo copy at load 22–33, a cold
+`build //...` took 2.21 s before and 2.25 s after (eight runs each). A cold
+`test //...` took 14.2 s and 13.8 s (four each).
+
 ### 6.24 The linker is asked once per toolchain, 2026-10-05
 
 §6.21 found every `buri` process asking `cc --version` and
