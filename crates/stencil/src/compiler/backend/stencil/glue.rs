@@ -48,6 +48,13 @@
 //! through the pointer. That is what lets `Jit::walk_rc` — which addresses
 //! everything as a frame offset — serve both an `Inst::DecRef` and a glue
 //! function with no second implementation of the walk.
+//!
+//! A value too wide for that copy — a struct of two hundred `Str`s is 4800
+//! bytes — is walked **in place** instead: each counted field is copied in on
+//! its own, walked, and for a copy written back, and a field still too wide
+//! goes to its own type's glue through a pointer. So a glue frame holds the
+//! widest field it walks rather than the whole value, and no value is too wide
+//! for one (`Jit::walk_in_place`, `Jit::elems_glue`).
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -61,7 +68,8 @@
 
 use super::asm::{Asm, RAX, RCX, RDI, RDX, RSI, RSP, SP, X86};
 use super::jit::{Fn2, FrameSig, Jit, V};
-use crate::compiler::backend::counts::Op;
+use super::rtcall::Src;
+use crate::compiler::backend::counts::{Field, Op, Site};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{Layouts, CAP_MASK, CLOSURE_ENV};
 use crate::compiler::semantics::types::Ty;
@@ -190,13 +198,20 @@ const SCRATCH_BYTES: u32 = super::jit::SCRATCH_WORDS as u32 * 8;
 /// The widest frame a glue stub can make.
 ///
 /// The stub forms it with `sub sp, sp, #imm`, whose immediate is twelve bits
-/// unshifted. A type whose walk needs more than this is refused with a sentence
-/// rather than given a shifted encoding nothing else in this file would use.
+/// unshifted. No glue asks for more: a value wider than [`WINDOW`] is walked
+/// in place (`Jit::walk_in_place`), so its frame holds one field at a time
+/// rather than the whole value. The stub still refuses a wider frame rather
+/// than emit an immediate that does not fit.
 ///
 /// x86-64's `sub rsp, imm32` has no such limit and is held to the same number
-/// anyway: a refusal that depended on the machine would mean a program compiled
-/// for one target and refused for another with nothing a user could act on.
+/// anyway, so both targets walk the same values the same way. Keeping every
+/// glue frame under a page is also what lets the stub go without a stack
+/// probe: one `sub` this size cannot step over a guard page.
 const MAX_GLUE_FRAME: u32 = 4080;
+
+/// The widest stretch of a value a glue frame copies in at once: what
+/// [`MAX_GLUE_FRAME`] has left past the fixed slots and the scratch words.
+const WINDOW: u32 = (MAX_GLUE_FRAME - G_VALUE - SCRATCH_BYTES) & !15;
 
 fn round8(n: u32) -> u32 {
     (n + 7) & !7
@@ -204,6 +219,11 @@ fn round8(n: u32) -> u32 {
 
 fn round16(n: u32) -> u32 {
     (n + 15) & !15
+}
+
+/// The frame a glue body needs to hold `bytes` of value.
+fn frame_for(bytes: u32) -> u32 {
+    round16(G_VALUE + round8(bytes) + SCRATCH_BYTES)
 }
 
 /// The fixed slots a glue frame opens with: the pointer it was handed, a loop
@@ -400,9 +420,15 @@ impl Jit<'_> {
     /// `fn(*mut u8)` over one value of `ty`: the drop glue, the per-element
     /// retain `cli/runtime/list.rs` takes, or the copy glue. A copy is all
     /// replacement, so the value goes back through the pointer it came in on.
+    ///
+    /// A value wider than [`WINDOW`] is walked in place instead
+    /// ([`Jit::walk_in_place`]).
     fn walk_glue(&mut self, ty: Ty, op: Op) {
         let size = self.layouts_of(ty).size.max(8);
-        let frame = round16(G_VALUE + round8(size) + SCRATCH_BYTES);
+        if size > WINDOW {
+            return self.walk_glue_in_place(ty, op);
+        }
+        let frame = frame_for(size);
         if !self.glue_stub(frame) {
             return;
         }
@@ -421,6 +447,178 @@ impl Jit<'_> {
         self.resolve_helper_blocks(base, &st);
     }
 
+    /// [`Jit::walk_glue`] for a value too wide to copy into a glue frame.
+    ///
+    /// The frame holds the widest stretch [`Jit::walk_in_place`] copies in,
+    /// which is one field, one tag or one niche's pointer.
+    fn walk_glue_in_place(&mut self, ty: Ty, op: Op) {
+        let window = self.in_place_window(&ty);
+        let frame = frame_for(window);
+        if !self.glue_stub(frame) {
+            return;
+        }
+        let mut st = self.glue_frame(frame, G_VALUE + window);
+        self.imm_to(G_INDEX, 0);
+        let base = self.fixups_len();
+        if let Err(why) = self.walk_in_place(&mut st, &ty, op) {
+            self.unsupported(why);
+        }
+        self.emit("ret", &[]);
+        self.resolve_helper_blocks(base, &st);
+    }
+
+    /// The widest stretch [`Jit::walk_in_place`] copies into the frame for a
+    /// value of `ty`, rounded to a word: at least one, for a tag or a niche's
+    /// pointer.
+    fn in_place_window(&mut self, ty: &Ty) -> u32 {
+        let mut widest = 8;
+        for site in self.rc_sites(ty).iter() {
+            let fields: Vec<Field> = match site {
+                Site::Field(f) => vec![f.clone()],
+                Site::Tagged { arms, .. } => {
+                    arms.iter().flat_map(|arm| arm.fields.iter().cloned()).collect()
+                }
+                Site::Guarded { ty, .. } => vec![Field { offset: 0, boxed: false, ty: *ty }],
+                Site::Block { .. } => Vec::new(),
+            };
+            for f in fields {
+                let width = self.field_width(&f);
+                if width <= WINDOW {
+                    widest = widest.max(round8(width));
+                }
+            }
+        }
+        widest
+    }
+
+    /// How many bytes of its owner a counted field occupies: a word when it is
+    /// boxed, and its type's size otherwise.
+    fn field_width(&mut self, f: &Field) -> u32 {
+        if f.boxed {
+            8
+        } else {
+            self.layouts_of(f.ty).size
+        }
+    }
+
+    /// `op` over the value at `G_PTR`, read through the pointer rather than
+    /// out of a copy of the whole value.
+    ///
+    /// Each counted field is copied into the frame on its own, walked there by
+    /// the ordinary `walk_field`, and for a copy written back. A tag or a
+    /// niche's pointer is read the same way and tested in the frame. A field
+    /// still wider than [`WINDOW`] goes to its own type's glue, which walks it
+    /// in place in turn.
+    ///
+    /// Only the value's own sites are read through the pointer, so every
+    /// offset here is relative to `G_PTR`: anything deeper is inside a field
+    /// that was copied in or handed on.
+    fn walk_in_place(&mut self, st: &mut Fn2, ty: &Ty, op: Op) -> Result<(), String> {
+        let sites = self.rc_sites(ty);
+        for site in sites.iter() {
+            match site {
+                Site::Field(f) => self.field_in_place(st, f, op)?,
+                Site::Tagged { tag, arms } => {
+                    self.load_at(G_SPARE, 0, tag.size());
+                    let done = st.label();
+                    for (i, arm) in arms.iter().enumerate() {
+                        let next = st.label();
+                        let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+                        self.emit(
+                            &key,
+                            &[
+                                ("JIT_A", V::I(u64::from(G_SPARE))),
+                                ("JIT_K", V::I(u64::from(arm.variant))),
+                                ("JIT_T", V::Fall),
+                                ("JIT_F", V::Blk(next)),
+                            ],
+                        );
+                        for f in arm.fields.iter() {
+                            self.field_in_place(st, f, op)?;
+                        }
+                        // The last arm's `next` is `done`, so it falls there.
+                        if i + 1 < arms.len() {
+                            self.emit("jump", &[("JIT_T", V::Blk(done))]);
+                        }
+                        let here = self.region.code_addr();
+                        st.place(next, here);
+                    }
+                    let here = self.region.code_addr();
+                    st.place(done, here);
+                }
+                Site::Guarded { null_at, ty } => {
+                    self.load_at(G_SPARE, *null_at, 8);
+                    let skip = st.label();
+                    let key = self.arm_key("brcmp/eq/u64/fi", "JIT_F");
+                    self.emit(
+                        &key,
+                        &[
+                            ("JIT_A", V::I(u64::from(G_SPARE))),
+                            ("JIT_K", V::I(0)),
+                            ("JIT_T", V::Blk(skip)),
+                            ("JIT_F", V::Fall),
+                        ],
+                    );
+                    let payload = Field { offset: 0, boxed: false, ty: *ty };
+                    self.field_in_place(st, &payload, op)?;
+                    let here = self.region.code_addr();
+                    st.place(skip, here);
+                }
+                // A `Str`, a `[T]` and a closure are a few words, so a value
+                // with one of these at its top is never this wide.
+                Site::Block { .. } => {
+                    return Err(String::from("a counted block too wide for a glue frame"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// One counted field of the value at `G_PTR`: copied into the frame and
+    /// walked there when it fits, and handed to its type's glue when it does
+    /// not.
+    fn field_in_place(&mut self, st: &mut Fn2, f: &Field, op: Op) -> Result<(), String> {
+        let width = self.field_width(f);
+        if width > WINDOW {
+            let at = self.address_of(f.offset);
+            let sym = self.helper(Helper::Walk { ty: f.ty, op });
+            return self.c_call_sym(sym, st, &[Src::Word(at)], &[], 0, "v");
+        }
+        self.load_at(G_VALUE, f.offset, width);
+        let here = Field { offset: 0, ..f.clone() };
+        self.walk_field(st, &here, G_VALUE, op, 0)?;
+        if op == Op::Copy {
+            let at = self.address_of(f.offset);
+            self.elem_store(G_VALUE, at, G_INDEX, 8, width);
+        }
+        Ok(())
+    }
+
+    /// The frame word holding `G_PTR + offset`: `G_PTR` itself at zero, and
+    /// otherwise `G_COUNT`, which a walk of one value has no count for.
+    fn address_of(&mut self, offset: u32) -> u32 {
+        if offset == 0 {
+            return G_PTR;
+        }
+        self.emit(
+            "bin/add/u64/fi/f",
+            &[
+                ("JIT_D", V::I(u64::from(G_COUNT))),
+                ("JIT_A", V::I(u64::from(G_PTR))),
+                ("JIT_K", V::I(u64::from(offset))),
+                ("JIT_CONT", V::Fall),
+            ],
+        );
+        G_COUNT
+    }
+
+    /// `frame[dst] = *(G_PTR + offset)`, `bytes` wide. `G_INDEX` holds zero
+    /// throughout an in-place walk.
+    fn load_at(&mut self, dst: u32, offset: u32, bytes: u32) {
+        let at = self.address_of(offset);
+        self.elem_load(dst, at, G_INDEX, 8, bytes);
+    }
+
     /// `fn(*mut u8)` over every element of a `[T]` block.
     ///
     /// The count is `cap / stride`, and `cap` is the second header word
@@ -435,16 +633,22 @@ impl Jit<'_> {
     /// 2^60 elements of a block that holds a handful.
     ///
     /// A copy stores each element back once it is replaced.
+    ///
+    /// An element wider than [`WINDOW`] is tested a window at a time
+    /// ([`Jit::unless_spare_wide`]) and handed to its type's glue through a
+    /// pointer, which walks it in place.
     fn elems_glue(&mut self, ty: Ty, op: Op) {
         let l = self.layouts_of(ty);
         let (size, stride) = (l.size.max(1), l.stride.max(1));
+        let wide = stride > WINDOW;
         // The frame holds a whole *stride*, padding and all, because
         // [`Jit::unless_spare`] reads every byte of the slot.
-        let frame = round16(G_VALUE + round8(stride) + SCRATCH_BYTES);
+        let window = if wide { WINDOW } else { round8(stride) };
+        let frame = frame_for(window);
         if !self.glue_stub(frame) {
             return;
         }
-        let mut st = self.glue_frame(frame, G_VALUE + round8(stride));
+        let mut st = self.glue_frame(frame, G_VALUE + window);
         // `cap` lives eight bytes below the payload pointer, so the header
         // address is formed first and read as an ordinary indexed load.
         self.emit(
@@ -483,12 +687,19 @@ impl Jit<'_> {
         self.glue_loop_test(G_INDEX, G_COUNT, V::Fall, V::Blk(done), "JIT_T");
         let here = self.region.code_addr();
         st.place(body, here);
-        self.unless_spare(stride, next);
-        if let Err(why) = self.walk_rc(&mut st, &ty, G_VALUE, op, 0) {
-            self.unsupported(why);
-        }
-        if op == Op::Copy {
-            self.elem_store(G_VALUE, G_PTR, G_INDEX, stride, size);
+        if wide {
+            self.unless_spare_wide(&mut st, stride, next);
+            if let Err(why) = self.element_through_glue(&st, ty, op, stride) {
+                self.unsupported(why);
+            }
+        } else {
+            self.unless_spare(stride, next);
+            if let Err(why) = self.walk_rc(&mut st, &ty, G_VALUE, op, 0) {
+                self.unsupported(why);
+            }
+            if op == Op::Copy {
+                self.elem_store(G_VALUE, G_PTR, G_INDEX, stride, size);
+            }
         }
         let here = self.region.code_addr();
         st.place(next, here);
@@ -546,6 +757,87 @@ impl Jit<'_> {
                 ("JIT_F", V::Fall),
             ],
         );
+    }
+
+    /// [`Jit::unless_spare`] for an element wider than [`WINDOW`]: the stride
+    /// is loaded and tested a window at a time, and the first window holding a
+    /// non-zero word branches past the rest to the walk that follows.
+    fn unless_spare_wide(&mut self, st: &mut Fn2, stride: u32, skip: u32) {
+        let walk = st.label();
+        let mut at = 0;
+        while at < stride {
+            let bytes = (stride - at).min(WINDOW);
+            let words = round8(bytes) / 8;
+            if !bytes.is_multiple_of(8) {
+                self.imm_to(G_VALUE + (words - 1) * 8, 0);
+            }
+            let from = self.address_of_element_window(at);
+            self.elem_load(G_VALUE, from, G_INDEX, stride, bytes);
+            let any = if words > 1 {
+                self.first_nonzero_word(words);
+                G_SPARE
+            } else {
+                G_VALUE
+            };
+            let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+            self.emit(
+                &key,
+                &[
+                    ("JIT_A", V::I(u64::from(any))),
+                    ("JIT_K", V::I(0)),
+                    ("JIT_T", V::Fall),
+                    ("JIT_F", V::Blk(walk)),
+                ],
+            );
+            at += bytes;
+        }
+        self.emit("jump", &[("JIT_T", V::Blk(skip))]);
+        let here = self.region.code_addr();
+        st.place(walk, here);
+    }
+
+    /// The frame word holding `G_PTR + at`, for a load at `G_INDEX * stride`
+    /// past it: `G_PTR` itself at zero, and otherwise `G_SPARE`, which the
+    /// load consumes before [`Jit::first_nonzero_word`] writes it.
+    fn address_of_element_window(&mut self, at: u32) -> u32 {
+        if at == 0 {
+            return G_PTR;
+        }
+        self.emit(
+            "bin/add/u64/fi/f",
+            &[
+                ("JIT_D", V::I(u64::from(G_SPARE))),
+                ("JIT_A", V::I(u64::from(G_PTR))),
+                ("JIT_K", V::I(u64::from(at))),
+                ("JIT_CONT", V::Fall),
+            ],
+        );
+        G_SPARE
+    }
+
+    /// `op` over element `G_INDEX` of the block, by its type's own glue on the
+    /// element's address.
+    fn element_through_glue(&mut self, st: &Fn2, ty: Ty, op: Op, stride: u32) -> Result<(), String> {
+        self.emit(
+            "bin/mul/u64/fi/f",
+            &[
+                ("JIT_D", V::I(u64::from(G_SPARE))),
+                ("JIT_A", V::I(u64::from(G_INDEX))),
+                ("JIT_K", V::I(u64::from(stride))),
+                ("JIT_CONT", V::Fall),
+            ],
+        );
+        self.emit(
+            "bin/add/u64/ff/f",
+            &[
+                ("JIT_D", V::I(u64::from(G_SPARE))),
+                ("JIT_A", V::I(u64::from(G_SPARE))),
+                ("JIT_B", V::I(u64::from(G_PTR))),
+                ("JIT_CONT", V::Fall),
+            ],
+        );
+        let sym = self.helper(Helper::Walk { ty, op });
+        self.c_call_sym(sym, st, &[Src::Word(G_SPARE)], &[], 0, "v")
     }
 
     /// Writes the first non-zero word of the `words` frame words at `G_VALUE`
