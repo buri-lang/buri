@@ -161,6 +161,55 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 
+/// Two thousand pushes through a record nested in a record, where the
+/// function that steps the inner record is called once and so is inlined. Its
+/// parameter becomes a `let` naming `acc.inner`, and an update is written over
+/// that name; the outer update moves `inner` out of the dying record, so the
+/// inner update's base dies too and the push finds its list unique. Found by
+/// the growth generator, seed `0x67726f777468`, case 90.
+#[test]
+fn a_list_in_a_record_nested_in_a_record_grows_in_place_through_an_inlined_step() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Inner { n: Int, items: [Int], tag: Int }
+
+struct Outer { inner: Inner, k: Int }
+
+fn grow<C: Allocator>(ctx: C, acc: Inner, i: Int): Inner {
+  let seen = acc.items.length();
+  Inner { ..acc, n: acc.n + 1, items: acc.items.push(ctx, i + seen) }
+}
+
+fn step<C: Allocator>(ctx: C, acc: Outer, i: Int): Outer {
+  Outer { ..acc, k: acc.k + 1, inner: grow(ctx, acc.inner, i) }
+}
+
+fn run<C: Allocator>(ctx: C, acc: Outer, count: Int): Outer {
+  list.range(ctx, 0, count).foldCtx(ctx, fn(c, acc, i) => step(c, acc, i), acc)
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let o = run(host.alloc, Outer { inner: Inner { n: 0, items: [], tag: 5 }, k: 0 }, 2000);
+  let _ = io.println(host.stdout, "${o.k} ${o.inner.n} ${o.inner.items.length()} ${o.inner.tag}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("field-push-nested-inlined", source) {
+        assert_eq!(r.stdout, "2000 2000 2000 5\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 40,
+            "{backend}: two thousand pushes allocated {blocks} blocks: the inner update was \
+             written over a field path rather than a dying local, so every push copied"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
 /// The printer's other shape: a record handed on to the call that grows it,
 /// and then read again for a number alone — `started.at` after `started` went
 /// to `emit`. A number is a word of the record's own value, so reading it is no

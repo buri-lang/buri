@@ -29,6 +29,23 @@ pub fn run(program: &mut Program) {
 
 fn forward(e: &mut Expr) {
     typed::children_mut(e, &mut forward);
+    if !matches!(e.kind, ExprKind::Block { .. }) {
+        return;
+    }
+    // A name a functional update is written over stays a name. Over a dying
+    // local the update takes the local's count and moves the fields it
+    // replaces (`rc::update_dying`); over a path there is no local to take,
+    // and `{ ..o.inner, items: o.inner.items.push(..) }` copies the list.
+    // (`fields.rs`'s
+    // `a_list_in_a_record_nested_in_a_record_grows_in_place_through_an_inlined_step`.)
+    let mut bases: Vec<LocalId> = Vec::new();
+    typed::walk(e, &mut |x| {
+        if let ExprKind::StructUpdate { base, .. } = &x.kind {
+            if let ExprKind::Local(l) = base.kind {
+                bases.push(l);
+            }
+        }
+    });
     let ExprKind::Block { stmts, tail } = &mut e.kind else { return };
     // In order, so `let b = a.items;` after `let a = acc.inner;` is a path by
     // the time it is reached.
@@ -42,8 +59,8 @@ fn forward(e: &mut Expr) {
             replace(value, *name, path);
         }
         match path_let(&s) {
-            Some(named) => forwarded.push(named),
-            None => stmts.push(s),
+            Some(named) if !bases.contains(&named.0) => forwarded.push(named),
+            _ => stmts.push(s),
         }
     }
     if let Some(t) = tail {

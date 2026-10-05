@@ -41,17 +41,23 @@ impl Rng {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Value {
     Ints,
+    /// Literal strings, which allocate nothing.
     Strs,
+    /// Strings built per element, `str.fromInt(ctx, code)`, so the list holds
+    /// counted blocks of its own.
+    Names,
     Text,
 }
 
-/// What the loop carries: the value alone, a `(count, value)` tuple, or a
-/// record with the value in a field.
+/// What the loop carries: the value alone, a `(count, value)` tuple, a record
+/// with the value in a field, or that record in a field of another, which a
+/// helper steps.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Acc {
     Bare,
     Tuple,
     Record,
+    Nested,
 }
 
 /// How a step reaches the value inside its accumulator.
@@ -199,8 +205,8 @@ fn draw(rng: &mut Rng) -> Shape {
         }
     });
     Shape {
-        value: rng.pick(&[Value::Ints, Value::Strs, Value::Text]),
-        acc: rng.pick(&[Acc::Bare, Acc::Tuple, Acc::Record]),
+        value: rng.pick(&[Value::Ints, Value::Strs, Value::Names, Value::Text]),
+        acc: rng.pick(&[Acc::Bare, Acc::Tuple, Acc::Record, Acc::Nested]),
         access: rng.pick(&[Access::Destructure, Access::Field, Access::Match]),
         pusher: rng.pick(&[Pusher::Inline, Pusher::Small, Pusher::Large]),
         reader: rng.pick(&[Reader::None, Reader::Inline, Reader::Small, Reader::Large]),
@@ -269,7 +275,7 @@ const POOL: [&str; 3] = ["a", "bb", "ccc"];
 #[derive(Clone)]
 enum Grown {
     Ints(Vec<i64>),
-    Strs(Vec<&'static str>),
+    Strs(Vec<String>),
     Text(String),
 }
 
@@ -277,7 +283,7 @@ impl Grown {
     fn empty(value: Value) -> Grown {
         match value {
             Value::Ints => Grown::Ints(Vec::new()),
-            Value::Strs => Grown::Strs(Vec::new()),
+            Value::Strs | Value::Names => Grown::Strs(Vec::new()),
             Value::Text => Grown::Text(String::new()),
         }
     }
@@ -290,10 +296,11 @@ impl Grown {
         }
     }
 
-    fn push(&mut self, code: i64) {
+    fn push(&mut self, value: Value, code: i64) {
         match self {
             Grown::Ints(v) => v.push(code),
-            Grown::Strs(v) => v.push(POOL[(code % 3) as usize]),
+            Grown::Strs(v) if value == Value::Names => v.push(code.to_string()),
+            Grown::Strs(v) => v.push(String::from(POOL[(code % 3) as usize])),
             Grown::Text(s) => s.push_str(POOL[(code % 3) as usize]),
         }
     }
@@ -347,7 +354,7 @@ fn run(shape: &Shape, state: &mut State, from: usize, to: usize) -> Result<(), (
             code += 1;
         }
         state.n += 1;
-        state.grown.push(code);
+        state.grown.push(shape.value, code);
     }
     Ok(())
 }
@@ -387,6 +394,7 @@ fn shown(shape: &Shape, state: &State) -> String {
         Acc::Bare => {}
         Acc::Tuple => write!(out, "{} ", state.n).unwrap(),
         Acc::Record => write!(out, "{} {} ", state.n, TAG).unwrap(),
+        Acc::Nested => write!(out, "{} {} {} ", state.n, state.n, TAG).unwrap(),
     }
     let len = state.grown.len();
     match &state.grown {
@@ -401,8 +409,8 @@ fn shown(shape: &Shape, state: &State) -> String {
         Grown::Strs(v) => write!(
             out,
             "{len} {} {} {}",
-            v.first().copied().unwrap_or("-"),
-            v.last().copied().unwrap_or("-"),
+            v.first().map_or("-", String::as_str),
+            v.last().map_or("-", String::as_str),
             state.grown.hash()
         )
         .unwrap(),
@@ -436,9 +444,12 @@ pub const MAIN: &str = "export fn main(host: NativeHost): Result<(), Str> {";
 pub const MAIN_START: &str = "export fn main(";
 
 /// Names and types one case's text is written with.
+#[derive(Clone)]
 struct Names {
     p: String,
     value_ty: &'static str,
+    /// The record a `Record` accumulator is, and a `Nested` one holds.
+    rec_ty: String,
     acc_ty: String,
     /// The type a driver returns.
     out_ty: String,
@@ -449,18 +460,24 @@ impl Names {
         let p = format!("g{id:03}");
         let value_ty = match shape.value {
             Value::Ints => "[Int]",
-            Value::Strs => "[Str]",
+            Value::Strs | Value::Names => "[Str]",
             Value::Text => "Str",
         };
+        let rec_ty = format!("G{id:03}Acc");
         let acc_ty = match shape.acc {
             Acc::Bare => String::from(value_ty),
             Acc::Tuple => format!("(Int, {value_ty})"),
-            Acc::Record => format!("G{id:03}Acc"),
+            Acc::Record => rec_ty.clone(),
+            Acc::Nested => format!("G{id:03}Outer"),
         };
-        let out_ty =
-            if shape.fallible() { format!("Result<{acc_ty}, Str>") } else { acc_ty.clone() };
-        Names { p, value_ty, acc_ty, out_ty }
+        let out_ty = result_of(shape, &acc_ty);
+        Names { p, value_ty, rec_ty, acc_ty, out_ty }
     }
+}
+
+/// What a step over `ty` returns: `ty`, or a `Result` of it when it can fail.
+fn result_of(shape: &Shape, ty: &str) -> String {
+    if shape.fallible() { format!("Result<{ty}, Str>") } else { String::from(ty) }
 }
 
 /// The text of one case, header and all.
@@ -475,10 +492,21 @@ pub fn source(id: usize, shape: &Shape, blocks: u64) -> String {
     out.push_str(IMPORTS);
     out.push('\n');
 
-    if shape.acc == Acc::Record {
-        writeln!(out, "struct {} {{ n: Int, items: {}, tag: Int }}\n", n.acc_ty, n.value_ty).unwrap();
+    if matches!(shape.acc, Acc::Record | Acc::Nested) {
+        writeln!(out, "struct {} {{ n: Int, items: {}, tag: Int }}\n", n.rec_ty, n.value_ty).unwrap();
     }
     helpers(&mut out, shape, &n);
+    if shape.acc == Acc::Nested {
+        writeln!(out, "struct {} {{ inner: {}, k: Int }}\n", n.acc_ty, n.rec_ty).unwrap();
+        // The record inside is stepped by a helper, the way a record is
+        // stepped at the top.
+        let inner = Shape { acc: Acc::Record, stop: None, ..shape.clone() };
+        let names = Names { acc_ty: n.rec_ty.clone(), out_ty: result_of(shape, &n.rec_ty), ..n.clone() };
+        writeln!(out, "fn {p}_inner<C: Allocator>(ctx: C, acc: {}, i: Int): {} {{", names.acc_ty, names.out_ty)
+            .unwrap();
+        writeln!(out, "  {}", step_body(&inner, &names)).unwrap();
+        out.push_str("}\n\n");
+    }
     if shape.inner != Driver::FoldLambda {
         writeln!(out, "fn {p}_step<C: Allocator>(ctx: C, acc: {}, i: Int): {} {{", n.acc_ty, n.out_ty)
             .unwrap();
@@ -508,7 +536,7 @@ pub fn source(id: usize, shape: &Shape, blocks: u64) -> String {
 fn empty_value(shape: &Shape) -> &'static str {
     match shape.value {
         Value::Ints => "list.empty<Int>()",
-        Value::Strs => "list.empty<Str>()",
+        Value::Strs | Value::Names => "list.empty<Str>()",
         Value::Text => "\"\"",
     }
 }
@@ -519,16 +547,16 @@ fn empty_acc(shape: &Shape, n: &Names) -> String {
         Acc::Bare => String::from(v),
         Acc::Tuple => format!("(0, {v})"),
         Acc::Record => format!("{} {{ n: 0, items: {v}, tag: {TAG} }}", n.acc_ty),
+        Acc::Nested => {
+            format!("{} {{ inner: {} {{ n: 0, items: {v}, tag: {TAG} }}, k: 0 }}", n.acc_ty, n.rec_ty)
+        }
     }
 }
 
 /// `x` grown by the element coded by `code`.
 fn grow_expr(shape: &Shape, n: &Names, x: &str, code: &str) -> String {
     let p = &n.p;
-    let elem = |code: &str| match shape.value {
-        Value::Ints => String::from(code),
-        _ => format!("{p}_pick({code})"),
-    };
+    let elem = |code: &str| element(shape, p, code);
     let grow = |x: &str, e: String| match shape.value {
         Value::Text => format!("{x}.concat(ctx, {e})"),
         _ => format!("{x}.push(ctx, {e})"),
@@ -539,6 +567,15 @@ fn grow_expr(shape: &Shape, n: &Names, x: &str, code: &str) -> String {
         Pusher::Large => format!(
             "if (i % 2 == 0) {{ {p}_put(ctx, {x}, {code}, 0) }} else {{ {p}_put(ctx, {x}, {code}, 1) }}"
         ),
+    }
+}
+
+/// The element coded by `code`.
+fn element(shape: &Shape, p: &str, code: &str) -> String {
+    match shape.value {
+        Value::Ints => String::from(code),
+        Value::Names => format!("str.fromInt(ctx, {code})"),
+        Value::Strs | Value::Text => format!("{p}_pick({code})"),
     }
 }
 
@@ -555,17 +592,14 @@ fn length_of(x: &str) -> String {
 fn helpers(out: &mut String, shape: &Shape, n: &Names) {
     let p = &n.p;
     let v = n.value_ty;
-    if shape.value != Value::Ints {
+    if matches!(shape.value, Value::Strs | Value::Text) {
         writeln!(
             out,
             "fn {p}_pick(code: Int): Str {{\n  if (code % 3 == 0) {{ \"a\" }} else if (code % 3 == 1) {{ \"bb\" }} else {{ \"ccc\" }}\n}}\n"
         )
         .unwrap();
     }
-    let elem = |code: &str| match shape.value {
-        Value::Ints => String::from(code),
-        _ => format!("{p}_pick({code})"),
-    };
+    let elem = |code: &str| element(shape, p, code);
     let grow = |e: String| match shape.value {
         Value::Text => format!("items.concat(ctx, {e})"),
         _ => format!("items.push(ctx, {e})"),
@@ -611,6 +645,48 @@ fn helpers(out: &mut String, shape: &Shape, n: &Names) {
 /// The step: take the value out of the accumulator, read it, grow it, and put
 /// it back.
 fn step_body(shape: &Shape, n: &Names) -> String {
+    let body = if shape.acc == Acc::Nested { nested_body(shape, n) } else { flat_body(shape, n) };
+    // A fold has nowhere else to stop, so its step hands the accumulator back
+    // untouched; the recursive drivers stop themselves.
+    let stops_here = matches!(shape.inner, Driver::Fold | Driver::FoldLambda);
+    match shape.stop {
+        Some(limit) if stops_here => {
+            let back = if shape.fallible() { ".Ok(acc)" } else { "acc" };
+            format!("if ({} >= {limit}) {{ {back} }} else {{ {body} }}", value_length(shape, "acc"))
+        }
+        _ => body,
+    }
+}
+
+/// A `Nested` step: take the inner record out, hand it to the helper that
+/// steps it, and put what comes back in.
+fn nested_body(shape: &Shape, n: &Names) -> String {
+    let p = &n.p;
+    let o = &n.acc_ty;
+    let q = if shape.fallible() { "?" } else { "" };
+    let wrap = |e: String| if shape.fallible() { format!(".Ok({e})") } else { e };
+    let (mut open, mut x) = match shape.access {
+        Access::Destructure => (format!("let {o} {{ inner, k }} = acc; "), String::from("inner")),
+        Access::Field => (String::new(), String::from("acc.inner")),
+        Access::Match => (String::new(), String::from("inner")),
+    };
+    if shape.alias {
+        open.push_str(&format!("let held = {x}; "));
+        x = String::from("held");
+    }
+    let call = format!("{p}_inner(ctx, {x}, i){q}");
+    match shape.access {
+        Access::Destructure => format!("{open}{}", wrap(format!("{o} {{ inner: {call}, k: k + 1 }}"))),
+        Access::Field => format!("{open}{}", wrap(format!("{o} {{ ..acc, k: acc.k + 1, inner: {call} }}"))),
+        Access::Match => format!(
+            "match (acc) {{ {o} {{ inner, k }} => {{ {open}{} }}, }}",
+            wrap(format!("{o} {{ inner: {call}, k: k + 1 }}"))
+        ),
+    }
+}
+
+/// A step over a bare value, a tuple, or a record.
+fn flat_body(shape: &Shape, n: &Names) -> String {
     let p = &n.p;
     let mut lets = String::new();
     if shape.fallible() {
@@ -662,6 +738,7 @@ fn step_body(shape: &Shape, n: &Names) -> String {
                     Box::new(move |g| format!("{ty} {{ n: n + 1, items: {g}, tag }}")),
                 )
             }
+            (Acc::Nested, _) => panic!("`nested_body` writes a nested step"),
         };
     let mut body = open;
     let mut x = value;
@@ -709,17 +786,7 @@ fn step_body(shape: &Shape, n: &Names) -> String {
         }
         _ => body,
     };
-    let body = format!("{lets}{body}");
-    // A fold has nowhere else to stop, so its step hands the accumulator back
-    // untouched; the recursive drivers stop themselves.
-    let stops_here = matches!(shape.inner, Driver::Fold | Driver::FoldLambda);
-    match shape.stop {
-        Some(limit) if stops_here => {
-            let back = if shape.fallible() { ".Ok(acc)" } else { "acc" };
-            format!("if ({} >= {limit}) {{ {back} }} else {{ {body} }}", value_length(shape, "acc"))
-        }
-        _ => body,
-    }
+    format!("{lets}{body}")
 }
 
 /// The length of the value inside an accumulator named `acc`.
@@ -728,6 +795,7 @@ fn value_length(shape: &Shape, acc: &str) -> String {
         Acc::Bare => length_of(acc),
         Acc::Tuple => length_of(&format!("{acc}.1")),
         Acc::Record => length_of(&format!("{acc}.items")),
+        Acc::Nested => length_of(&format!("{acc}.inner.items")),
     }
 }
 
@@ -802,7 +870,7 @@ fn summary(out: &mut String, shape: &Shape, n: &Names) {
             "fn {p}_hash(items: {v}): Int {{ items.fold(fn(h, x) => (h * 31 + x) % 1000003, 7) }}\n"
         )
         .unwrap(),
-        Value::Strs => writeln!(
+        Value::Strs | Value::Names => writeln!(
             out,
             "fn {p}_hash(items: {v}): Int {{ items.fold(fn(h, x) => (h * 31 + x.length()) % 1000003, 7) }}\n"
         )
@@ -828,6 +896,7 @@ fn entry(out: &mut String, shape: &Shape, n: &Names) {
         Acc::Bare => String::from(acc),
         Acc::Tuple => format!("{acc}.1"),
         Acc::Record => format!("{acc}.items"),
+        Acc::Nested => format!("{acc}.inner.items"),
     };
     writeln!(out, "fn {p}<C: Allocator>(ctx: C): Str {{").unwrap();
     match shape.nest {
@@ -838,12 +907,13 @@ fn entry(out: &mut String, shape: &Shape, n: &Names) {
                 Acc::Bare => "",
                 Acc::Tuple => "${acc.0} ",
                 Acc::Record => "${acc.n} ${acc.tag} ",
+                Acc::Nested => "${acc.k} ${acc.inner.n} ${acc.inner.tag} ",
             };
             let ends = match shape.value {
                 Value::Ints => format!(
                     "let first = match ({items}.first()) {{ .Some(x) => x, .None => -1, }}; let last = match ({items}.last()) {{ .Some(x) => x, .None => -1, }};"
                 ),
-                Value::Strs => format!(
+                Value::Strs | Value::Names => format!(
                     "let first = match ({items}.first()) {{ .Some(x) => x, .None => \"-\", }}; let last = match ({items}.last()) {{ .Some(x) => x, .None => \"-\", }};"
                 ),
                 Value::Text => format!(
@@ -904,5 +974,7 @@ pub fn blocks(shape: &Shape) -> u64 {
     let values = if shape.nest == Nest::Mapped { shape.rounds as u64 } else { 1 };
     let longest = shape.total() as u64 * 3;
     let doublings = 64 - longest.leading_zeros() as u64;
-    8 + 4 * runs + values * (doublings + 4)
+    // A built element is a block of its own.
+    let elements = if shape.value == Value::Names { shape.total() as u64 } else { 0 };
+    8 + 4 * runs + values * (doublings + 4) + elements
 }
