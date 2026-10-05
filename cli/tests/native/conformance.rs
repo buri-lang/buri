@@ -1089,17 +1089,10 @@ fn build(name: &str, source: &str, dir: &Path) -> Built {
         std::fs::write(binary.with_extension("css"), &sheet).unwrap();
     }
     // `build/link.rs`'s driver and its trailing arguments — the product's link
-    // line and not a second idea of it (`shared::product_cc`). On Linux it is
+    // line and not a second idea of it (`shared::link_program`). On Linux it is
     // a static-PIE musl link, which is not something a harness can spell out
     // in three `-l`s.
-    let mut cc = crate::shared::product_cc();
-    cc.arg("-o").arg(&binary);
-    for o in &objects {
-        cc.arg(o);
-    }
-    cc.arg(crate::shared::runtime_archive());
-    cc.args(crate::shared::product_link_args());
-    let built = cc.output().unwrap();
+    let built = crate::shared::link_program(&objects, &binary);
     assert!(
         built.status.success(),
         "{name}: the link failed:\n{}",

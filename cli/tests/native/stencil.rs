@@ -147,6 +147,17 @@ fn lowered(source: &str) -> (monomorphize::Program, buri::compiler::semantics::t
 /// The whole pipeline, for one snippet, with an optional C probe linked
 /// beside it.
 pub fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
+    build_linked_by(name, source, probe, shared::link_program)
+}
+
+/// [`build_with`], linked by `link`: [`shared::driver_link`] for a test about
+/// what the link does.
+fn build_linked_by(
+    name: &str,
+    source: &str,
+    probe: Option<&str>,
+    link: fn(&[PathBuf], &Path) -> std::process::Output,
+) -> PathBuf {
     let (program, tables) = lowered(source);
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
@@ -213,14 +224,7 @@ pub fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     // that is why this is a call rather than a list: the flags are
     // `build/link.rs`'s own, and the driver is too, because the `musl-clang`
     // tier answers the libc question with the program.
-    let mut cc = shared::product_cc();
-    cc.arg("-o").arg(&binary);
-    for o in &objects {
-        cc.arg(o);
-    }
-    cc.arg(crate::shared::runtime_archive());
-    cc.args(shared::product_link_args());
-    let out = cc.output().unwrap();
+    let out = link(&objects, &binary);
     assert!(
         out.status.success(),
         "the link failed:\n{}\n{}",
@@ -2618,14 +2622,7 @@ fn link_and_run(path: &str, units: &[Emitted], sheet: &str) -> Ran {
     // that links more permissively than the product cannot see the product's
     // bugs, and one that links *less* completely than it invents failures the
     // product does not have.
-    let mut cc = shared::product_cc();
-    cc.arg("-o").arg(&binary);
-    for o in &objects {
-        cc.arg(o);
-    }
-    cc.arg(crate::shared::runtime_archive());
-    cc.args(shared::product_link_args());
-    let out = cc.output().unwrap();
+    let out = shared::link_program(&objects, &binary);
     assert!(
         out.status.success(),
         "`{path}`: the link failed:\n{}",
@@ -3645,7 +3642,7 @@ export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }";
     assert!(bytes.windows(needle.len()).any(|w| w == needle), "no unit names {door}");
 
     // And what the link does with it, which is the half that is per-target.
-    let binary = build_with("thread-door-link", source, None);
+    let binary = build_linked_by("thread-door-link", source, None, shared::driver_link);
     let nm = Command::new("nm").arg(&binary).output().unwrap();
     if !nm.status.success() {
         eprintln!("no `nm` on this host: the linked half was not checked");
@@ -3780,14 +3777,7 @@ fn build_tests_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     let binary = dir.join("program");
     // `build/link.rs`'s platform flags and its driver, for `build_with`'s
     // reason.
-    let mut cc = shared::product_cc();
-    cc.arg("-o").arg(&binary);
-    for o in &objects {
-        cc.arg(o);
-    }
-    cc.arg(crate::shared::runtime_archive());
-    cc.args(shared::product_link_args());
-    let out = cc.output().unwrap();
+    let out = shared::link_program(&objects, &binary);
     assert!(out.status.success(), "the link failed:\n{}", String::from_utf8_lossy(&out.stderr));
     crate::sweep::kept::settle(&binary);
     binary
