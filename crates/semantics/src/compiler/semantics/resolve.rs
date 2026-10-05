@@ -1508,11 +1508,10 @@ impl<'a> Checker<'a> {
     /// about what may be an entry: a method is never one, whatever it is
     /// called.
     fn check_entry_point(&mut self, fid: FnId, module: ModuleId, item: u32) {
-        let info = self.tables.fn_info(fid);
-        let (name, exported) = (info.name.clone(), info.exported);
-        if !exported || self.module(module).role != Role::Entry {
+        if !self.tables.fn_info(fid).exported || self.module(module).role != Role::Entry {
             return;
         }
+        let name = self.tables.fn_info(fid).name.clone();
         self.entries.insert(name.clone(), fid);
         if name == "main" {
             self.entry = Some(fid);
@@ -1934,7 +1933,7 @@ impl<'a> Checker<'a> {
         params: &[tree::GenericParam],
     ) -> Vec<GenericInfo> {
         let t = self.tree(module);
-        let mut out: Vec<GenericInfo> = Vec::new();
+        let mut out: Vec<GenericInfo> = Vec::with_capacity(params.len());
         for p in params {
             out.push(GenericInfo {
                 name: t.name(p.name).to_string(),
@@ -1944,7 +1943,7 @@ impl<'a> Checker<'a> {
         }
         // Bounds may mention earlier parameters, so resolve them after the
         // names exist.
-        let mut resolved: Vec<Vec<TraitId>> = Vec::new();
+        let mut resolved: Vec<Vec<TraitId>> = Vec::with_capacity(params.len());
         for p in params {
             let mut bounds = Vec::new();
             for b in t.type_list(p.bounds) {
@@ -2992,42 +2991,40 @@ impl<'a> Checker<'a> {
             //
             // The components are read out of the declaration rather than out
             // of a copy of it: a type deriving four traits is walked four
-            // times, and each walk copied every variant and every field.
-            let components: Vec<(String, Ty)> = match &self.tables.tycon(con).def {
+            // times, and each walk copied every variant and every field. Only
+            // the first that cannot satisfy the trait is named, and its name
+            // is the one string this spells.
+            let fails = |ty: &Ty| !self.component_can_satisfy(ty, tr, con);
+            let failing = match &self.tables.tycon(con).def {
                 TyDef::Struct { fields, .. } => {
-                    fields.iter().map(|f| (f.name.clone(), f.ty)).collect()
+                    fields.iter().find(|f| fails(&f.ty)).map(|f| (f.name.clone(), f.ty))
                 }
-                TyDef::Enum { variants } => variants
-                    .iter()
-                    .flat_map(|v| {
-                        v.fields.iter().map(move |f| (format!("{}.{}", v.name, f.name), f.ty))
-                    })
-                    .collect(),
-                TyDef::Prim(_) => Vec::new(),
+                TyDef::Enum { variants } => variants.iter().find_map(|v| {
+                    let f = v.fields.iter().find(|f| fails(&f.ty))?;
+                    Some((format!("{}.{}", v.name, f.name), f.ty))
+                }),
+                TyDef::Prim(_) => None,
             };
-            for (name, ty) in components {
-                if !self.component_can_satisfy(&ty, tr, con) {
-                    let t = self.tables.trait_(tr).name.clone();
-                    let c = self.tables.tycon(con).name.clone();
-                    let shown = show(&self.tables, None, &self.tables.tycon(con).generics, &ty);
-                    self.templated("underivable-field", span)
-                        .bind("type", c)
-                        .bind("trait", t.clone())
-                        .bind("field", name)
-                        .bind("field_type", shown.clone())
-                    .fix(if crate::compiler::semantics::types::is_derive_only(&t) {
-                        format!(
-                            "make `{shown}` satisfy `{t}` first — `derive {t} for {shown};` in \
-                             its own module — or drop `{t}` from this `derive`"
-                        )
-                    } else {
-                        format!(
-                            "make `{shown}` satisfy `{t}` first — `derive {t} for {shown};` in \
-                             its own module, or an `impl` — or drop `{t}` from this `derive`"
-                        )
-                    });
-                    break;
-                }
+            if let Some((name, ty)) = failing {
+                let t = self.tables.trait_(tr).name.clone();
+                let c = self.tables.tycon(con).name.clone();
+                let shown = show(&self.tables, None, &self.tables.tycon(con).generics, &ty);
+                self.templated("underivable-field", span)
+                    .bind("type", c)
+                    .bind("trait", t.clone())
+                    .bind("field", name)
+                    .bind("field_type", shown.clone())
+                .fix(if crate::compiler::semantics::types::is_derive_only(&t) {
+                    format!(
+                        "make `{shown}` satisfy `{t}` first — `derive {t} for {shown};` in \
+                         its own module — or drop `{t}` from this `derive`"
+                    )
+                } else {
+                    format!(
+                        "make `{shown}` satisfy `{t}` first — `derive {t} for {shown};` in \
+                         its own module, or an `impl` — or drop `{t}` from this `derive`"
+                    )
+                });
             }
         }
     }
