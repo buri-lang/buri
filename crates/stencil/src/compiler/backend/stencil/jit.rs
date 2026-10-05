@@ -263,7 +263,8 @@ fn zero_divisor(name: &str, tag: &str, k: u64) -> bool {
     matches!(name, "div" | "rem") && !matches!(tag, "f32" | "f64") && k == 0
 }
 
-/// The uses of one value within one block, for [`Jit::regalloc`].
+/// The uses of one value within one block, for [`Jit::regalloc`] and
+/// [`Jit::pin_call_values`].
 #[derive(Clone, Copy)]
 struct BlockUses {
     /// The block this entry describes; any other block reads it as unused.
@@ -277,6 +278,19 @@ struct BlockUses {
 impl Default for BlockUses {
     fn default() -> BlockUses {
         BlockUses { block: u32::MAX, count: 0, first: 0, last: 0 }
+    }
+}
+
+/// Records a use of `o` at instruction `at` of block `block`. Uses arrive in
+/// instruction order, so the latest is the last.
+fn note_use(uses: &mut [BlockUses], block: u32, o: &ir::ValueId, at: usize) {
+    if let Some(u) = uses.get_mut(o.index()) {
+        if u.block == block {
+            u.count += 1;
+            u.last = at;
+        } else {
+            *u = BlockUses { block, count: 1, first: at, last: at };
+        }
     }
 }
 
@@ -440,11 +454,14 @@ impl<'a> Jit<'a> {
         (self.reasons.len() - 1) as u64
     }
 
-    /// `f`'s frame layout. `Jit::plan` fills `frames` with one entry per
-    /// function of the program, so the empty signature is what a `FuncIdx` from
-    /// some other program would get and not one from this one.
-    pub(crate) fn frame_sig_of(&self, f: usize) -> FrameSig {
-        self.frames.get(f).cloned().unwrap_or_default()
+    /// `f`'s frame layout, borrowed from the program's table. [`frame_sigs`]
+    /// fills it with one entry per function of the program, so the empty
+    /// signature is what a `FuncIdx` from some other program would get and not
+    /// one from this one.
+    pub(crate) fn frame_sig_of(&self, f: usize) -> &'a FrameSig {
+        static EMPTY: FrameSig =
+            FrameSig { ret: Vec::new(), ret_size: 0, params: Vec::new(), param_end: 0, size: 0 };
+        self.frames.get(f).unwrap_or(&EMPTY)
     }
 
     /// The layout of a source type directly, for the places the IR's `TypeId`
@@ -1965,6 +1982,10 @@ impl<'a> Jit<'a> {
         pin: &mut [Option<u32>],
         frame_size: u32,
     ) {
+        let has_call = |b: &ir::Block| b.insts.iter().any(|i| matches!(i, ir::Inst::Call { .. }));
+        if !code.blocks.iter().any(has_call) {
+            return;
+        }
         let n = code.values();
         let mut members = vec![0u32; n];
         let mut uses = vec![0u32; n];
@@ -1997,21 +2018,25 @@ impl<'a> Jit<'a> {
         let calls_code = |func: &crate::compiler::semantics::types::FuncIdx| {
             matches!(prog.funcs.get(func.index()).map(|f| &f.body), Some(ir::Body::Code(_)))
         };
-        for b in &code.blocks {
-            if !b.insts.iter().any(|i| matches!(i, ir::Inst::Call { .. })) {
+        // Where each value is read in the block at hand — an instruction's
+        // index, or `last` for the terminator — and where it is defined. One
+        // entry per value, stamped with the block it describes.
+        let mut reads = vec![BlockUses::default(); n];
+        let mut defs: Vec<(u32, usize)> = vec![(u32::MAX, 0); n];
+        let mut kept: Vec<usize> = Vec::new();
+        for (bi, b) in code.blocks.iter().enumerate() {
+            if !has_call(b) {
                 continue;
             }
+            let stamp = u32::try_from(bi).unwrap_or(u32::MAX);
             let last = b.insts.len();
-            // Where each value is read in this block: an instruction's index,
-            // or `last` for the terminator. And where each is defined.
-            let mut read_at: HashMap<u32, Vec<usize>> = HashMap::default();
-            let mut def_at: HashMap<u32, usize> = HashMap::default();
             // How many instructions before each index leave the callee's
             // frame alone, so a range is pure in one subtraction.
-            let mut kept = vec![0usize; last + 1];
+            kept.clear();
+            kept.resize(last + 1, 0);
             for (k, i) in b.insts.iter().enumerate() {
                 for d in i.results() {
-                    def_at.insert(d.0, k);
+                    put(&mut defs, d.index(), (stamp, k));
                 }
                 let so_far = ent(&kept, k, 0) + usize::from(keeps_callee_frame(i));
                 put(&mut kept, k + 1, so_far);
@@ -2020,7 +2045,7 @@ impl<'a> Jit<'a> {
                 ops.clear();
                 i.operands(&mut ops);
                 for o in &ops {
-                    read_at.entry(o.0).or_default().push(k);
+                    note_use(&mut reads, stamp, o, k);
                 }
             }
             ops.clear();
@@ -2029,8 +2054,12 @@ impl<'a> Jit<'a> {
                 ops.extend_from_slice(&t.args);
             }
             for o in &ops {
-                read_at.entry(o.0).or_default().push(last);
+                note_use(&mut reads, stamp, o, last);
             }
+            let read_at = |v: ir::ValueId| reads.get(v.index()).copied().filter(|u| u.block == stamp);
+            let def_at = |v: ir::ValueId| {
+                defs.get(v.index()).filter(|(b, _)| *b == stamp).map(|(_, k)| *k)
+            };
             let pure = |from: usize, to: usize| {
                 to <= from || ent(&kept, to, 0) - ent(&kept, from, 0) == to - from
             };
@@ -2042,27 +2071,25 @@ impl<'a> Jit<'a> {
                 }
                 let Some(fs) = self.frames.get(func.index()) else { continue };
                 let (Some(&d), Some(&off)) = (dests.first(), fs.ret.first()) else { continue };
-                let Some(reads) = read_at.get(&d.0) else { continue };
-                let mut end = reads.iter().copied().max().unwrap_or(0);
-                if !alone(d, pin)
-                    || reads.len() != ent(&uses, d.index(), 0) as usize
-                    || reads.iter().any(|r| *r <= j)
-                {
+                let Some(dr) = read_at(d) else { continue };
+                let mut end = dr.last;
+                if !alone(d, pin) || dr.count != ent(&uses, d.index(), 0) || dr.first <= j {
                     continue;
                 }
                 // A `Bool` read only to be counted shares the slot it is
                 // counted from: the conversion is a copy of the same word.
                 let mut alias = None;
-                if let [r] = reads.as_slice() {
+                if dr.count == 1 {
+                    let r = dr.first;
                     if let Some(ir::Inst::Unary { op: ir::UnOp::FromBool, dest: z, .. }) =
-                        b.insts.get(*r)
+                        b.insts.get(r)
                     {
-                        if let Some(zr) = read_at.get(&z.0) {
+                        if let Some(zr) = read_at(*z) {
                             if alone(*z, pin)
-                                && zr.len() == ent(&uses, z.index(), 0) as usize
-                                && zr.iter().all(|x| x > r)
+                                && zr.count == ent(&uses, z.index(), 0)
+                                && zr.first > r
                             {
-                                end = end.max(zr.iter().copied().max().unwrap_or(0));
+                                end = end.max(zr.last);
                                 alias = Some(*z);
                             }
                         }
@@ -2084,7 +2111,7 @@ impl<'a> Jit<'a> {
                 }
                 let Some(fs) = self.frames.get(func.index()) else { continue };
                 for (a, off) in args.iter().zip(fs.params.iter()) {
-                    let Some(&k) = def_at.get(&a.0).filter(|k| **k < j) else { continue };
+                    let Some(k) = def_at(*a).filter(|k| *k < j) else { continue };
                     let defines = matches!(
                         b.insts.get(k),
                         Some(
@@ -2544,16 +2571,6 @@ impl<'a> Jit<'a> {
         for (bi, block) in code.blocks.iter().enumerate() {
             let n = block.insts.len();
             let stamp = u32::try_from(bi).unwrap_or(u32::MAX);
-            let note = |uses: &mut [BlockUses], o: &ir::ValueId, at: usize| {
-                if let Some(u) = uses.get_mut(o.index()) {
-                    if u.block == stamp {
-                        u.count += 1;
-                        u.last = at;
-                    } else {
-                        *u = BlockUses { block: stamp, count: 1, first: at, last: at };
-                    }
-                }
-            };
             // Where the barriers are. A barrier is an instruction whose
             // stencil has the zero-register prototype and therefore clobbers
             // the file.
@@ -2563,7 +2580,7 @@ impl<'a> Jit<'a> {
                 ops.clear();
                 i.operands(&mut ops);
                 for o in &ops {
-                    note(&mut uses, o, k);
+                    note_use(&mut uses, stamp, o, k);
                 }
                 put(&mut barrier, k, is_barrier(i));
             }
@@ -2573,7 +2590,7 @@ impl<'a> Jit<'a> {
                 ops.extend_from_slice(&t.args);
             }
             for o in &ops {
-                note(&mut uses, o, n);
+                note_use(&mut uses, stamp, o, n);
             }
             // The uses of `v` in this block, if it has any.
             let used = |v: u32| uses.get(v as usize).copied().filter(|u| u.block == stamp);
