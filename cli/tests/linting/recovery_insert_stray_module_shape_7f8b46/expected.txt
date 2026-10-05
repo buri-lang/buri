@@ -1,0 +1,9 @@
+error: expected `{`, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_module_shape_7f8b46/lib.buri:6:23
+  |
+6 | export struct Drawing , {
+  |                       ^
+  |
+  = expected: `{`
+  = actual: `,`
+  = fix: write `{` here

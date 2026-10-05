@@ -1,0 +1,9 @@
+error: expected `:`, found `export` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_shape_a98017/lib.buri:7:11
+  |
+7 |     shape export: Shape,
+  |           ^^^^^^
+  |
+  = expected: `:`
+  = actual: `export`
+  = fix: write `:` here

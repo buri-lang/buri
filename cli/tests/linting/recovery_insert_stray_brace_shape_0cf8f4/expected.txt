@@ -1,0 +1,12 @@
+error: this variant payload is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_brace_shape_0cf8f4/lib.buri:3:15
+  |
+3 |     Square(Int@ ),
+  |               ^
+  |
+ --> lib/recovery_insert_stray_brace_shape_0cf8f4/lib.buri:3:11
+  |
+3 |     Square(Int@ ),
+  |           ^ opened here
+  |
+  = fix: write `)` here

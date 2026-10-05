@@ -1,0 +1,8 @@
+from "//demo/shape.buri" import { Drawing };
+
+export fn size(drawing: Drawing): Int {
+    match (drawing.shape) {
+        .Circle(r) => r,
+        .Square(s) => s,
+    }
+}

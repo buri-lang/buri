@@ -1,0 +1,18 @@
+error: expected a declaration, found `Drawing` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_shape_df86ec/lib.buri:6:8
+  |
+6 | export Drawing struct {
+  |        ^^^^^^^
+  |
+  = expected: a declaration
+  = actual: `Drawing`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected an identifier, found `{` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_shape_df86ec/lib.buri:6:23
+  |
+6 | export Drawing struct {
+  |                       ^
+  |
+  = expected: an identifier
+  = actual: `{`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

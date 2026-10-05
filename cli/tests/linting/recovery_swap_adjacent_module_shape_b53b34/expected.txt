@@ -1,0 +1,25 @@
+error: expected a declaration, found `Shape` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_shape_b53b34/lib.buri:1:8
+  |
+1 | export Shape enum {
+  |        ^^^^^
+  |
+  = expected: a declaration
+  = actual: `Shape`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected an identifier, found `{` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_shape_b53b34/lib.buri:1:19
+  |
+1 | export Shape enum {
+  |                   ^
+  |
+  = expected: an identifier
+  = actual: `{`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is no type `Shape` [unknown-type]
+ --> lib/recovery_swap_adjacent_module_shape_b53b34/lib.buri:7:19
+  |
+7 |     export shape: Shape,
+  |                   ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling

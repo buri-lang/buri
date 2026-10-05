@@ -1,0 +1,55 @@
+error: nothing reaches `Shape` [dead-code]
+ --> demo/shape.buri:1:13
+  |
+1 | export enum Shape {
+  |             ^^^^^
+  |
+  = production code is reached from a library's surface or from a binary's `main`, and a declaration nothing reaches is a declaration nothing runs
+  = fix: delete it, or re-export it from demo/lib.buri to put it on the library's surface
+
+    Inside a library, export means "visible to this library", and lib.buri
+    decides what leaves it. An export that lib.buri doesn't re-export and no
+    sibling imports is reached by nothing. The two fixes are opposites, so
+    decide which applies:
+
+    - It's meant to be published. Add it to the lib.buri re-export of its
+    module. The rule never reports a name on the surface.
+
+    - It's dead. Delete it, along with whatever existed only to support it.
+
+    A module under testing/ is measured against testing/lib.buri instead.
+
+    Using it from a test is not a fix, because a test is not a use. Test it
+    through the function the library publishes. If the logic needs its own
+    tests, make it its own published module.
+
+    The rule only looks at module-level declarations. Fields and variants are
+    unused-field's and unused-variant's job, and test sources and test
+    declarations are never reported. It also stays quiet:
+
+    - in a binary, which has no surface;
+    - for a module imported with import * as, which reaches every name it exports;
+    - in a package with a file the parser couldn't read whole, since the missing
+    part might hold the import.
+
+error: nothing reads `Drawing.shape` [unused-field]
+ --> demo/shape.buri:7:5
+  |
+7 |     export shape: Shape,
+  |     ^^^^^^^^^^^^^^^^^^^
+  |
+  = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+  = fix: delete the field, or read it
+
+    Deleting the field means editing every literal, and those are exactly the
+    places computing a value for nobody.
+
+    If callers outside this library read the field, it belongs on the library's
+    surface. The rule never reports exported fields of a type lib.buri
+    re-exports (or testing/lib.buri, under testing/).
+
+    Two things read every field at once, so their types are never reported:
+
+    - a derived Equal, Ordered, Hash or Show;
+    - handing the value to the runtime, or comparing it structurally.
+

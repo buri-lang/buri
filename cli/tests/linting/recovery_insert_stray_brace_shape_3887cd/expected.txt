@@ -1,0 +1,9 @@
+error: expected `:`, found `?` [unexpected-token]
+ --> lib/recovery_insert_stray_brace_shape_3887cd/lib.buri:7:17
+  |
+7 |     export shape? : Shape,
+  |                 ^
+  |
+  = expected: `:`
+  = actual: `?`
+  = fix: write `:` here

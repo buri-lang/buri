@@ -1,0 +1,3 @@
+library {
+    sources: ["shape.buri", "use.buri"]
+}
