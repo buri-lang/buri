@@ -247,13 +247,23 @@ pub(crate) fn put_span(out: &mut Vec<u8>, map: &SourceMap, span: Span) {
 }
 
 pub(crate) fn put_diagnostic(out: &mut Vec<u8>, map: &SourceMap, d: &Diagnostic) {
+    put_diagnostic_with(out, d, &mut |out, span| put_span(out, map, span));
+}
+
+/// [`put_diagnostic`], with each span written by `put_span`. `buri test`'s
+/// build records write theirs relative to the tokens around them.
+pub(crate) fn put_diagnostic_with(
+    out: &mut Vec<u8>,
+    d: &Diagnostic,
+    put_span: &mut dyn FnMut(&mut Vec<u8>, Span),
+) {
     out.push(match d.severity {
         Severity::Error => 0,
         Severity::Warning => 1,
         Severity::Note => 2,
     });
     put_text(out, &d.message);
-    put_span(out, map, d.span);
+    put_span(out, d.span);
     put_optional(out, d.label.as_ref());
     put_optional(out, d.expected.as_ref());
     put_optional(out, d.actual.as_ref());
@@ -264,13 +274,13 @@ pub(crate) fn put_diagnostic(out: &mut Vec<u8>, map: &SourceMap, d: &Diagnostic)
     put_optional(out, d.fix.as_ref());
     put_u32(out, d.secondary_spans.len() as u32);
     for secondary in &d.secondary_spans {
-        put_span(out, map, secondary.span);
+        put_span(out, secondary.span);
         put_text(out, &secondary.label);
     }
     put_optional(out, d.code.as_ref());
     put_u32(out, d.edits.len() as u32);
     for edit in &d.edits {
-        put_span(out, map, edit.at);
+        put_span(out, edit.at);
         put_text(out, &edit.replacement);
     }
 }
@@ -333,7 +343,7 @@ impl<'a> Reader<'a> {
 /// `None` for a name with no file behind it — an embedded standard library
 /// module, or one generated from a schema — which is what makes such a record
 /// unusable rather than silently misplaced.
-fn place(map: &mut SourceMap, root: &Path, name: &str) -> Option<FileId> {
+pub(crate) fn place(map: &mut SourceMap, root: &Path, name: &str) -> Option<FileId> {
     if name.is_empty() {
         return Some(FileId::NONE);
     }
@@ -369,6 +379,14 @@ pub(crate) fn read_diagnostic(
     map: &mut SourceMap,
     root: &Path,
 ) -> Option<Diagnostic> {
+    read_diagnostic_with(reader, &mut |reader| read_span(reader, map, root))
+}
+
+/// The inverse of [`put_diagnostic_with`], with each span read by `read_span`.
+pub(crate) fn read_diagnostic_with(
+    reader: &mut Reader,
+    read_span: &mut dyn FnMut(&mut Reader) -> Option<Span>,
+) -> Option<Diagnostic> {
     let severity = match reader.byte()? {
         0 => Severity::Error,
         1 => Severity::Warning,
@@ -376,7 +394,7 @@ pub(crate) fn read_diagnostic(
         _ => return None,
     };
     let message = reader.text()?;
-    let span = read_span(reader, map, root)?;
+    let span = read_span(reader)?;
     let label = reader.optional()?;
     let expected = reader.optional()?;
     let actual = reader.optional()?;
@@ -387,13 +405,13 @@ pub(crate) fn read_diagnostic(
     let fix = reader.optional()?;
     let mut secondary_spans = Vec::new();
     for _ in 0..reader.u32()? {
-        let span = read_span(reader, map, root)?;
+        let span = read_span(reader)?;
         secondary_spans.push(SecondarySpan { span, label: reader.text()? });
     }
     let code = reader.optional()?;
     let mut edits = Vec::new();
     for _ in 0..reader.u32()? {
-        let at = read_span(reader, map, root)?;
+        let at = read_span(reader)?;
         edits.push(Edit { at, replacement: reader.text()? });
     }
     Some(Diagnostic {

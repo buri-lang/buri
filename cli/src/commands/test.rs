@@ -2052,7 +2052,7 @@ enum Recalled {
 
 /// The shape of a build record, so that a change to the encoding is a miss
 /// rather than a misreading.
-const BUILD_FORMAT: &[u8] = b"buri-test-build-1\n";
+const BUILD_FORMAT: &[u8] = b"buri-test-build-2\n";
 
 /// Writes down what a suite's build left, under `at`.
 ///
@@ -2064,8 +2064,9 @@ fn remember(
     built: &Built,
     answer: &Result<Ran, Diagnostics>,
 ) {
-    use crate::commands::lint_cache::{put_diagnostic, put_text, put_u32};
+    use crate::commands::lint_cache::{put_diagnostic_with, put_text, put_u32};
     let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    let mut anchors = Anchors::default();
     let mut out = BUILD_FORMAT.to_vec();
     match built {
         Built::Refused => {
@@ -2073,7 +2074,7 @@ fn remember(
             out.push(0);
             put_u32(&mut out, count(diagnostics.items.len()));
             for d in &diagnostics.items {
-                put_diagnostic(&mut out, &session.map, d);
+                put_diagnostic_with(&mut out, d, &mut |out, span| anchors.put(out, &session.map, span));
             }
         }
         Built::Nothing { skipped } => {
@@ -2091,26 +2092,31 @@ fn remember(
                 put_u32(&mut out, count(from));
                 put_u32(&mut out, count(to));
             }
-            put_roots(&mut out, &session.map, &l.roots);
+            put_roots(&mut out, &session.map, &mut anchors, &l.roots);
         }
         Built::Bundled(b) => {
             out.push(3);
             put_text(&mut out, b.bundle.as_str());
             put_u32(&mut out, count(b.skipped));
-            put_roots(&mut out, &session.map, &b.roots);
+            put_roots(&mut out, &session.map, &mut anchors, &b.roots);
         }
     }
     crate::build::cache::Cache::open(&session.root).put(at, &out);
 }
 
 /// A suite's tests, in a build record.
-fn put_roots(out: &mut Vec<u8>, map: &crate::diagnostics::SourceMap, roots: &[Root]) {
-    use crate::commands::lint_cache::{put_span, put_text, put_u32};
+fn put_roots(
+    out: &mut Vec<u8>,
+    map: &crate::diagnostics::SourceMap,
+    anchors: &mut Anchors,
+    roots: &[Root],
+) {
+    use crate::commands::lint_cache::{put_text, put_u32};
     put_u32(out, u32::try_from(roots.len()).unwrap_or(u32::MAX));
     for root in roots {
         put_text(out, &root.name);
         put_text(out, &root.module);
-        put_span(out, map, root.span);
+        anchors.put(out, map, root.span);
     }
 }
 
@@ -2118,16 +2124,164 @@ fn put_roots(out: &mut Vec<u8>, map: &crate::diagnostics::SourceMap, roots: &[Ro
 fn read_roots(
     r: &mut crate::commands::lint_cache::Reader,
     map: &mut crate::diagnostics::SourceMap,
+    anchors: &mut Anchors,
     root: &std::path::Path,
 ) -> Option<Vec<Root>> {
     let mut roots = Vec::new();
     for _ in 0..r.u32()? {
         let name = r.text()?;
         let module = r.text()?;
-        let span = crate::commands::lint_cache::read_span(r, map, root)?;
+        let span = anchors.read(r, map, root)?;
         roots.push(Root { name, module, span });
     }
     Some(roots)
+}
+
+/// Where each token of a source file starts and ends.
+type TokenLocations = Vec<(u32, u32)>;
+
+/// A build record's spans, written relative to the tokens around them and read
+/// back against the sources as they are now.
+///
+/// A record is keyed on what the compiler sees ([`actions::test_build_key`]), so
+/// it outlives a comment or whitespace edit that moves every offset it holds.
+/// Each end of a span is written as the token it falls in or after, and how far
+/// past that token's start it is. Read back, it is that far past the same
+/// token's start in the edited file. The key guarantees the tokens are the same
+/// tokens, so an end inside a token lands on the same character it did. An end
+/// in the comments and whitespace between two tokens also carries that text,
+/// and a record whose text there changed is a miss, so the suite is built.
+///
+/// That makes a recalled span the span a cold build would report, because the
+/// front end's offsets are its tokens' offsets: the parser and checker read
+/// them off the lexer, and nothing above the lexer counts lines. A span's line,
+/// column and quoted line are then rendered from the file as it is now, the
+/// way a cold build's are.
+///
+/// A file keyed on its bytes instead, because it isn't a source or doesn't lex,
+/// has its offsets written as they are: its bytes are the same bytes.
+#[derive(Default)]
+struct Anchors {
+    files: std::collections::HashMap<crate::diagnostics::FileId, Option<TokenLocations>>,
+}
+
+impl Anchors {
+    /// The tokens of `file`, or `None` for a file keyed on its bytes. The same
+    /// test as [`actions::read_as`]'s.
+    fn of(
+        &mut self,
+        map: &crate::diagnostics::SourceMap,
+        file: crate::diagnostics::FileId,
+    ) -> Option<&TokenLocations> {
+        self.files
+            .entry(file)
+            .or_insert_with(|| {
+                let source = map.get(file);
+                if !source.name.ends_with(".buri") {
+                    return None;
+                }
+                let lexed = crate::parsing::lexer::lex(&source.text, crate::diagnostics::FileId::NONE);
+                if !lexed.errors.is_empty() {
+                    return None;
+                }
+                let tokens = &lexed.tokens;
+                Some((0..tokens.len()).map(|i| (tokens.loc(i).start, tokens.loc(i).end)).collect())
+            })
+            .as_ref()
+    }
+
+    fn put(&mut self, out: &mut Vec<u8>, map: &crate::diagnostics::SourceMap, span: Span) {
+        use crate::commands::lint_cache::{put_text, put_u32};
+        if span.is_none() {
+            put_text(out, "");
+            out.push(0);
+            put_u32(out, span.start);
+            put_u32(out, span.end);
+            return;
+        }
+        put_text(out, map.name(span.file));
+        let text = &map.get(span.file).text;
+        let Some(tokens) = self.of(map, span.file) else {
+            out.push(0);
+            put_u32(out, span.start);
+            put_u32(out, span.end);
+            return;
+        };
+        out.push(1);
+        for at in [span.start, span.end] {
+            let (token, from, gap) = anchor(text, tokens, at);
+            put_u32(out, token);
+            put_u32(out, at.saturating_sub(from));
+            put_text(out, gap);
+        }
+    }
+
+    /// The inverse of [`Anchors::put`], against this run's map. `None` when
+    /// the file is gone, or an end sat in comments or whitespace that changed.
+    fn read(
+        &mut self,
+        r: &mut crate::commands::lint_cache::Reader,
+        map: &mut crate::diagnostics::SourceMap,
+        root: &std::path::Path,
+    ) -> Option<Span> {
+        let name = r.text()?;
+        let file = crate::commands::lint_cache::place(map, root, &name)?;
+        if r.byte()? == 0 {
+            return Some(Span { file, start: r.u32()?, end: r.u32()? });
+        }
+        let mut ends = [0u32; 2];
+        for end in &mut ends {
+            let (token, past, gap) = (r.u32()?, r.u32()?, r.text()?);
+            let text = &map.get(file).text;
+            let (from, last, between) = locate_anchor(text, self.of(map, file)?, token)?;
+            let at = from.checked_add(past)?;
+            // Equal text between the tokens also keeps `at` inside it.
+            let now = match between.filter(|_| at > last) {
+                Some(g) => text.get(g.start as usize..g.end as usize)?,
+                None if at > last => return None,
+                None => "",
+            };
+            if now != gap {
+                return None;
+            }
+            *end = at;
+        }
+        Some(Span { file, start: ends[0], end: ends[1] })
+    }
+}
+
+/// The token `at` falls in or after, that token's start, and the text between
+/// it and the next one when `at` is in that text rather than in the token. A
+/// point before the first token is written after a token numbered
+/// [`u32::MAX`], which starts at 0 and is empty.
+fn anchor<'a>(text: &'a str, tokens: &TokenLocations, at: u32) -> (u32, u32, &'a str) {
+    let token = match tokens.partition_point(|&(start, _)| start <= at).checked_sub(1) {
+        Some(i) => u32::try_from(i).unwrap_or(u32::MAX),
+        None => u32::MAX,
+    };
+    let Some((from, end, gap)) = locate_anchor(text, tokens, token) else {
+        return (token, 0, "");
+    };
+    let between = gap.filter(|_| at > end).and_then(|g| text.get(g.start as usize..g.end as usize));
+    (token, from, between.unwrap_or(""))
+}
+
+/// Where token `token` starts and ends, and the comments and whitespace after
+/// it up to the next token.
+fn locate_anchor(
+    text: &str,
+    tokens: &TokenLocations,
+    token: u32,
+) -> Option<(u32, u32, Option<std::ops::Range<u32>>)> {
+    let len = u32::try_from(text.len()).ok()?;
+    let (from, end, next) = if token == u32::MAX {
+        (0, 0, tokens.first().map_or(len, |&(start, _)| start))
+    } else {
+        let i = usize::try_from(token).ok()?;
+        let &(start, end) = tokens.get(i)?;
+        (start, end, tokens.get(i.checked_add(1)?).map_or(len, |&(start, _)| start))
+    };
+    Some((from, end, (next > end).then_some(end..next)))
 }
 
 /// What the build recorded under `at` left, with its spans in this run's map.
@@ -2135,16 +2289,19 @@ fn read_roots(
 /// `None` for no record, one this toolchain can't read, or one naming a file
 /// that isn't there. The suite is then built.
 fn recall(session: &mut Session, at: &crate::build::cache::ActionKey) -> Option<Recalled> {
-    use crate::commands::lint_cache::{read_diagnostic, Reader};
+    use crate::commands::lint_cache::{read_diagnostic_with, Reader};
     let bytes = crate::build::cache::Cache::open(&session.root).get(at)?;
     let mut r = Reader::after(BUILD_FORMAT, &bytes)?;
     let root = session.root.clone();
+    let mut anchors = Anchors::default();
     let count = |r: &mut Reader| r.u32().and_then(|n| usize::try_from(n).ok());
     match r.byte()? {
         0 => {
             let mut diagnostics = Diagnostics::new();
+            let map = &mut session.map;
             for _ in 0..r.u32()? {
-                diagnostics.push(read_diagnostic(&mut r, &mut session.map, &root)?);
+                let read = &mut |r: &mut Reader| anchors.read(r, map, &root);
+                diagnostics.push(read_diagnostic_with(&mut r, read)?);
             }
             Some(Recalled::Refused(diagnostics))
         }
@@ -2158,13 +2315,13 @@ fn recall(session: &mut Session, at: &crate::build::cache::ActionKey) -> Option<
             for _ in 0..r.u32()? {
                 ranges.push((count(&mut r)?, count(&mut r)?));
             }
-            let roots = read_roots(&mut r, &mut session.map, &root)?;
+            let roots = read_roots(&mut r, &mut session.map, &mut anchors, &root)?;
             Some(Recalled::Linked(Box::new(Linked { link, sheet, paints, skipped, ranges, roots })))
         }
         3 => {
             let bundle = crate::build::cache::ActionKey::parse(&r.text()?)?;
             let skipped = count(&mut r)?;
-            let roots = read_roots(&mut r, &mut session.map, &root)?;
+            let roots = read_roots(&mut r, &mut session.map, &mut anchors, &root)?;
             Some(Recalled::Bundled(Box::new(Bundled { bundle, skipped, roots })))
         }
         _ => None,
@@ -4204,6 +4361,44 @@ fn report_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A recorded span read back after a comment edit: an end in a token moves
+    /// with it, an end between tokens moves with it while the text there stays
+    /// the same, and is a miss once that text changed.
+    ///
+    /// The whole-run half is `build::monorepo`'s comment edit above a failure.
+    /// The text between tokens is here because which spans end there is a
+    /// detail of the front end, which an end-to-end test doesn't assert.
+    #[test]
+    fn a_recorded_span_follows_its_tokens_and_misses_on_changed_text_between_them() {
+        let dir = std::env::temp_dir().join(format!("buri-anchors-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let before = "fn f(): Int { 1 } // one\n";
+        let mut map = crate::diagnostics::SourceMap::new();
+        let file = map.add("a.buri", dir.join("a.buri"), before.to_string());
+        // `1`, and from the `}` to inside the comment after it.
+        let token = Span::new(file, 14, 15);
+        let between = Span::new(file, 16, 20);
+        let mut out = Vec::new();
+        let mut anchors = Anchors::default();
+        anchors.put(&mut out, &map, token);
+        anchors.put(&mut out, &map, between);
+
+        let read = |after: &str| {
+            let _ = std::fs::write(dir.join("a.buri"), after);
+            let mut map = crate::diagnostics::SourceMap::new();
+            let mut r = crate::commands::lint_cache::Reader::after(b"", &out).expect("a reader");
+            let mut anchors = Anchors::default();
+            let token = anchors.read(&mut r, &mut map, &dir).map(|s| (s.start, s.end));
+            let between = anchors.read(&mut r, &mut map, &dir).map(|s| (s.start, s.end));
+            (token, between)
+        };
+        let moved = "// above\nfn f(): Int {   1 } // one\n";
+        assert_eq!(read(moved), (Some((25, 26)), Some((27, 31))));
+        let reworded = "// above\nfn f(): Int { 1 }   // one\n";
+        assert_eq!(read(reworded), (Some((23, 24)), None));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// Which block a process that said nothing died in, off the `left` lines
     /// the blocks that finished wrote.

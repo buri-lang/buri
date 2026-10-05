@@ -229,7 +229,7 @@ fn a_warm_run_builds_nothing_and_runs_only_the_failures() {
 }
 
 /// A comment and whitespace edit to the library every suite reads re-runs no
-/// passing suite and builds nothing for one, and an edit that changes what it
+/// passing suite and builds nothing at all, and an edit that changes what it
 /// computes re-runs every suite above it.
 ///
 /// The edit adds a comment line, a trailing comment and indentation. A doc
@@ -245,13 +245,7 @@ fn a_comment_edit_to_the_shared_library_re_runs_no_passing_suite() {
     );
     let commented = scratch.run(&["test", "//...", "--explain"]);
     ran_only_the_failures(&first, &commented, "a comment edit");
-    for row in work(&commented) {
-        assert!(
-            !PASSING.iter().any(|name| row.contains(&format!("//libs/{name}"))),
-            "a comment edit built `{row}` for a suite that passed:\n{}",
-            indent(&commented.all())
-        );
-    }
+    assert_eq!(work(&commented), Vec::<String>::new(), "a comment edit built:\n{}", indent(&commented.all()));
 
     // The negative twin: every value moves, so every suite above it runs.
     scratch.write(BASE, "export fn base(): Int {\n  30\n}\n");
@@ -261,6 +255,49 @@ fn a_comment_edit_to_the_shared_library_re_runs_no_passing_suite() {
         assert_eq!(status(&behaviour, "test", name), "run", "{}", indent(&behaviour.all()));
     }
     assert_eq!(status(&behaviour, "test", "wire"), "cached", "{}", indent(&behaviour.all()));
+}
+
+/// A comment edit that moves the lines a failure is reported at builds nothing,
+/// and prints exactly what a cold run over the edited tree prints.
+///
+/// The failing suites' test files and the broken library gain comment lines
+/// above what they report, a trailing comment and some indentation, so every
+/// location and every quoted line moves. The suites still run the binary and
+/// the bundle they built, and the broken suite still repeats its errors without
+/// a check. What moves is where those are reported, and that has to be where a
+/// cold run reports them.
+#[test]
+fn a_comment_edit_above_a_failure_reports_it_where_a_cold_run_does() {
+    let scratch = monorepo("monorepo-moved");
+    let Some(first) = cold(&scratch) else { return };
+    let edit = |scratch: &Scratch| {
+        scratch.write(BASE, "// Where every value starts.\nexport fn base(): Int {\n    20 // twenty\n}\n");
+        for name in FAILING {
+            let file = format!("libs/{name}/test/{name}.buri");
+            let moved = scratch.read(&file).replace(
+                "\ntest \"is what",
+                "\n// The one that fails.\n\n  test \"is what",
+            );
+            scratch.write(&file, &format!("// Three tests.\n// One of them fails.\n\n{moved}"));
+        }
+        scratch.write(
+            &format!("libs/{BROKEN}/lib.buri"),
+            "// Broken on purpose.\n\nexport fn value(): Int {    missing() } // still\n",
+        );
+    };
+    edit(&scratch);
+    let warm = scratch.run(&["test", "//...", "--explain"]);
+    warm.exits(1);
+    assert_eq!(work(&warm), Vec::<String>::new(), "a comment edit built:\n{}", indent(&warm.all()));
+    assert_ne!(report(&warm), report(&first), "the edit moved no failure");
+    assert_ne!(warm.stderr, first.stderr, "the edit moved no error");
+
+    let fresh = monorepo("monorepo-moved-cold");
+    edit(&fresh);
+    let Some(cold) = cold(&fresh) else { return };
+    assert_eq!(report(&warm), report(&cold), "a warm run reported a failure where a cold run does not");
+    assert_eq!(warm.stderr, cold.stderr, "a warm run printed a compile error where a cold run does not");
+    assert_eq!(counts(&warm), counts(&cold), "{}", indent(&warm.all()));
 }
 
 /// An edit to a generator's input re-runs the one suite that reads the module
