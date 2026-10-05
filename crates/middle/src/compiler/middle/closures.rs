@@ -46,6 +46,7 @@
 //! Design: `design/native/ARCHITECTURE.md` §2.2, §2.3, `VALUE-MODEL.md` §7.
 
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
+use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Callee, Expr, ExprKind, PatKind, Pattern, Stmt,
 };
@@ -102,7 +103,7 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
             .iter()
             .filter_map(|c| locals.get(c.index()).map(|l| l.ty))
             );
-    locals.push(typed::Local { name: "env".to_string(), ty: env_ty, span: e.span });
+    locals.push(typed::Local { name: Name::new("env"), ty: env_ty, span: e.span });
 
     // Each capture is bound back to the id it had, out of the environment, so
     // the body below reads what it always read.
@@ -176,6 +177,7 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
 #[cfg(test)]
 mod tests {
     use super::run;
+    use crate::compiler::semantics::name::Name;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::typed::{Expr, ExprKind, Local};
     use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
@@ -183,7 +185,7 @@ mod tests {
     use crate::hash::Map as HashMap;
 
     fn local(name: &str) -> Local {
-        Local { name: name.to_string(), ty: Ty::UNIT, span: Span::default() }
+        Local { name: Name::new(name), ty: Ty::UNIT, span: Span::default() }
     }
 
     fn e(kind: ExprKind) -> Expr {

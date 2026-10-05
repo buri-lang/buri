@@ -6,6 +6,7 @@
 //! already a primitive operation or a trait method; a `match` still has
 //! patterns but every path in one is resolved.
 
+use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::types::{FnId, FuncIdx, LocalId, Prim, TraitId, Ty, TyConId};
 use crate::diagnostics::Span;
 
@@ -35,7 +36,7 @@ impl std::fmt::Debug for Magnitude {
 
 #[derive(Clone, Debug)]
 pub struct Local {
-    pub name: String,
+    pub name: Name,
     pub ty: Ty,
     pub span: Span,
 }

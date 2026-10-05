@@ -1097,7 +1097,7 @@ export fn main(host: NodeHost): Result<(), Str> {
         .iter()
         .filter(|s| s.op == RcOp::IncRef)
         .filter_map(|s| match s.target {
-            Target::Local(l) => func.locals.get(l.index()).map(|x| x.name.clone()),
+            Target::Local(l) => func.locals.get(l.index()).map(|x| x.name.to_string()),
             Target::Node(_) => None,
         })
         .collect();
@@ -1407,7 +1407,7 @@ fn named_sites(program: &Program, i: FuncIdx, fp: &FuncPlan) -> Vec<String> {
                 Target::Local(l) => f
                     .locals
                     .get(l.index())
-                    .map(|x| x.name.clone())
+                    .map(|x| x.name.to_string())
                     .unwrap_or_else(|| format!("l{}", l.0)),
                 Target::Node(n) => format!("n{}", n.0),
             };

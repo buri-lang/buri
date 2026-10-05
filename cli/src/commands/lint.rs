@@ -1461,7 +1461,7 @@ fn check_unused_variables(
                 continue;
             }
             let Some(l) = body.locals.get(local.index()) else { continue };
-            found.push((l.span, l.name.clone()));
+            found.push((l.span, l.name.to_string()));
         }
     }
     // `bodies` is a map, so the order findings are met in is not the order they
