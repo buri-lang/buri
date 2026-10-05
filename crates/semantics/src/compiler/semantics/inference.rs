@@ -197,7 +197,7 @@ fn check_const(c: &mut Checker, cid: ConstId) {
     let Some(tree::Item::Let(decl)) = c.module(module).ast.items.get(index as usize) else {
         return;
     };
-    let mut inf = Infer::new(c, info.module, Vec::new(), info.ty);
+    let mut inf = Infer::new(c, info.module, Default::default(), info.ty);
     inf.push_scope();
     let ty = info.ty;
     let value_span = inf.t.span(decl.value);
@@ -234,7 +234,7 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
     else {
         return;
     };
-    let mut inf = Infer::new(c, info.module, Vec::new(), Ty::UNIT);
+    let mut inf = Infer::new(c, info.module, Default::default(), Ty::UNIT);
     inf.in_main = true;
     inf.push_scope();
     let expr = inf.check_context_body(decl.body, decl.span);
@@ -251,7 +251,7 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
     let ctor = c.tables.add_fn(FnInfo {
         name: info.name.clone(),
         module: info.module,
-        generics: Vec::new(),
+        generics: Default::default(),
         params: Vec::new(),
         ret,
         exported: info.exported,
@@ -282,7 +282,7 @@ fn check_tests(c: &mut Checker) {
             let fid = c.tables.add_fn(FnInfo {
                 name: format!("test#{}", cases.len()),
                 module,
-                generics: Vec::new(),
+                generics: Default::default(),
                 params: Vec::new(),
                 ret: Ty::UNIT,
                 exported: false,
@@ -296,7 +296,7 @@ fn check_tests(c: &mut Checker) {
             // that `Checked::tests` — and the ids everything after it counts
             // from — do not move with the selection. Only the body is scoped.
             if c.wants_file(c.module(module).file) {
-                let mut inf = Infer::new(c, module, Vec::new(), Ty::UNIT);
+                let mut inf = Infer::new(c, module, Default::default(), Ty::UNIT);
                 inf.in_main = true;
                 inf.push_scope();
                 let expr = inf.check_block(t.body, None);
@@ -360,7 +360,7 @@ pub struct Infer<'a, 'b> {
     /// returns `&'a` rather than a `&self` borrow.
     pub(crate) t: &'b flat::Tree,
     pub(crate) module: ModuleId,
-    pub(crate) generics: Vec<GenericInfo>,
+    pub(crate) generics: std::sync::Arc<[GenericInfo]>,
     pub(crate) ret: Ty,
     pub(crate) subst: Subst,
     /// Every local in scope, innermost last: its name's hash and its id. A
@@ -473,7 +473,7 @@ fn name_hash(name: &str) -> u64 {
 }
 
 impl<'a, 'b> Infer<'a, 'b> {
-    fn new(c: &'a mut Checker<'b>, module: ModuleId, generics: Vec<GenericInfo>, ret: Ty) -> Self {
+    fn new(c: &'a mut Checker<'b>, module: ModuleId, generics: std::sync::Arc<[GenericInfo]>, ret: Ty) -> Self {
         let role = c.module(module).role;
         let mark = c.diags.items.len();
         let t = &c.module(module).ast.tree;
