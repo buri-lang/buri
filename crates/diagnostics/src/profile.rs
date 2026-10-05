@@ -116,7 +116,11 @@ fn switch(next: Option<Phase>) {
 /// Call it once the child's output is drained and before reaping it: it waits
 /// for the child to exit, and leaves reaping to the caller.
 pub fn reaped(pid: u32) {
-    let Some(phase) = current() else { return };
+    if !enabled() {
+        return;
+    }
+    // A thread outside any phase, such as one `std::thread::spawn` started.
+    let phase = current().unwrap_or(Phase::Other);
     let Some((instructions, cpu_ns)) = os::exited_child(pid) else { return };
     if let Some([.., child_instructions, child_cpu]) = TOTALS.get(phase as usize) {
         child_instructions.fetch_add(instructions, Relaxed);

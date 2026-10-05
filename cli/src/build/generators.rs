@@ -489,6 +489,7 @@ pub fn run_artifact(artifact: &std::path::Path, request: &str) -> Result<String,
     // its author can run and interrupt, and the suite that drives this has a
     // cap of its own that can tell a stuck process from a busy one
     // (`cli/tests/harness/hang.rs`).
+    crate::profile::reaped(child.id());
     let status = child.wait().map_err(|e| e.to_string())?;
     let _ = feeding.join();
     let stdout = reading_out.join().unwrap_or_default();
