@@ -1,0 +1,15 @@
+from "core/buri/ast" import * as ast;
+from "core/str" import * as str;
+from "core/tool" import { Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
+
+/// A module holding how many characters its one input has.
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    let text = request.inputs.get(0).map(fn(i) => i.value).withDefault("");
+    let source = str.format(ctx, "export let size: Int = ${text.length()};\n");
+    let modules = match (ast.parse(ctx, "", source)) {
+        .Ok(parsed) => [("units", parsed)],
+        .Err(_) => [],
+    };
+    Generated { modules: modules, diagnostics: [], needs: [] }
+}
