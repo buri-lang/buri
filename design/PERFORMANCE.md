@@ -2725,6 +2725,89 @@ swung by 100 s, so that's below what these runs can show.
   both build scripts share, or copying 300 lines. A stale key here ships wrong
   machine code, and the win is cold builds only, so it's left for now.
 
+### 6.26 Harness links replay the product's linker line, 2026-10-05
+
+§6.24 left 423 native harness links per suite run, each going through the
+driver. They actually cost more than it said. The harness never passed
+`-fuse-ld=lld`, so each link started four processes: the cc-wrapper's bash,
+`clang`, cctools' `ld` wrapper (bash again) and Apple's `ld64`. The product
+links with `ld64.lld`.
+
+**Which links are about the link.** Per run, from the `CC` shim's log:
+
+| Call site | Links | Asks about |
+|---|---:|---|
+| `stencil.rs`: `build_with`, `build_tests_with`, corpus `link_and_run` | 211 | the program |
+| `conformance.rs` `linked` | 109 | the program |
+| `agreement.rs` | 70 | the program |
+| `fuzz.rs` native search | 34 | the program |
+| `llvm.rs` `build_at`, `build_tests_as` | 0 by default | the program |
+| `stencil.rs` thread-door test | 1 | what `-dead_strip` kept, through `nm` |
+| `runtime.rs`, `float_parity.rs` C drivers | 2 | the program, but they compile C too |
+
+These tests are about the link and were already on other paths:
+
+- the archive-size ceilings, which go through `link::run`;
+- the cross ELF tests, which call `ld.lld` directly;
+- `link.rs`, which calls `CDriver::link`;
+- everything that runs the `buri` binary.
+
+The 63 `-c` calls are probe and stub compiles. They need the driver.
+
+**What changed.** The 424 "program" links now call one helper:
+
+```rust
+// cli/tests/native/shared.rs
+pub fn link_program(objects: &[PathBuf], binary: &Path) -> Output {
+    buri::build::link::product_link(&staged().0, objects, binary)...
+}
+```
+
+`link::product_link` uses the same `Replay`, under the same key, as
+`CDriver::link` when runtime linking is on. It keeps the command in
+`~/.buri/link-replay/` even though the harness has no cache, because almost
+every test is its own process. It swaps `-o artifact` for the binary's path,
+because one test process links in parallel threads. The harness hard-links the
+runtime archive into its staging directory once, as `libburi_rt.a`, so the
+command line names it exactly the way the product's does. As before, the
+archive is always linked. If there's no line to replay, or replaying it fails,
+the driver runs instead. The thread-door test and the C drivers keep the
+driver (`shared::driver_link`, `product_cc`).
+
+**Same behaviour.** Both sides pass all 2,253 tests. Every corpus and
+conformance program the base run linked, 321 of them, was linked both ways,
+run under the heap check, and compared on status, stdout and stderr. 320
+matched. `server-tls` prints the port the OS gave it, so two runs of the same
+binary don't match either.
+
+**In the whole suite**, with `CC` set to a C shim that logs each call's
+children's CPU, from the archives of both sides, alternating, at
+`--test-threads 3`:
+
+| `cc` call | before | after |
+|---|---:|---:|
+| harness program links | 425 | 1 |
+| `-c` compiles | 63 | 63 |
+| `--version`, `-###`, product links, C drivers | 34–62 | 34–39 |
+| everything | 522–550 | 98–103 |
+| CPU in `cc` and its children | 237–239 s | 22–26 s |
+
+The bash count falls by 848: two per removed link. `ld64.lld` now starts 424
+times where `ld64` used to, so the number of linker processes doesn't change.
+Replaying one corpus program's link takes 71 ms of CPU, against 183 ms through
+the driver, at load 37.
+
+| Run | Load | Wall | User | Sys | User + sys |
+|---|---|---:|---:|---:|---:|
+| before | 15–26 | 457 s | 1,028 s | 387 s | 1,415 s |
+| after | 14–45 | 415 s | 809 s | 339 s | 1,148 s |
+| before | 6–21 | 430 s | 934 s | 390 s | 1,324 s |
+| after | 17–23 | 367 s | 798 s | 330 s | 1,128 s |
+
+That's 195–267 s less CPU per run, or 15–19%, in line with the 213–215 s
+the shim stopped seeing. The run is still over §6.21's five minutes of wall
+time.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
