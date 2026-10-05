@@ -3399,8 +3399,13 @@ impl<'a, 'b> Infer<'a, 'b> {
             self.pop_scope();
             checked.push(typed::Arm { pattern: pat, guard, body, span: t.span_of(arm.span) });
         }
-        // The match must be exhaustive, and no arm may be unreachable.
-        crate::compiler::semantics::exhaustiveness::check(self, &sty, &checked, span);
+        // The match must be exhaustive, and no arm may be unreachable. It is
+        // judged against the whole type, not just its head: `some(v)` is an
+        // `Option<?T>` whose `?T` is only known through the substitution, and
+        // a payload whose type the checker cannot see has no variants to
+        // cover (issue #232).
+        let whole = self.subst.resolve(&s.ty);
+        crate::compiler::semantics::exhaustiveness::check(self, &whole, &checked, span);
         typed::Expr::new(
             typed::ExprKind::Match { scrutinee: Box::new(s), arms: checked },
             result,
