@@ -2475,6 +2475,96 @@ library snapshot (16%), building the stencil key index (7%) and spawning.
 without Developer Tools access. Weighting each sample by its
 `threadCPUDelta` turns the samples into CPU per process.
 
+### 6.24 The linker is asked once per toolchain, 2026-10-05
+
+§6.21 found every `buri` process asking `cc --version` and
+`ld64.lld --version` for the `link` key, and every fresh repository asking
+the driver for its `-###` line. Both answers now live in `BURI_HOME`
+(`~/.buri`), so they outlast the process:
+
+```text
+~/.buri/linker-identity/<key>   the hash of the two banners
+~/.buri/link-replay/<key>       the linker command the driver printed
+```
+
+The identity's key is what could change a banner: each program's path, the
+file it resolves to, its device, inode, size, mtime and ctime, the variables
+`shapes_the_link` names (`PATH`, `NIX_*`, `SDKROOT`, …), and on macOS the
+`xcode-select` link. A program written anew re-probes. A program that didn't
+answer isn't remembered. The replay key gains the running `buri`'s identity,
+since the store now outlives one toolchain build. A link with the cache off
+keeps nothing, as before.
+
+Two end-to-end tests in `build/hermeticity.rs` drive a counting `cc` on
+`PATH`. A second process doesn't ask the version, and rewriting the fake, with
+the same bytes or different ones, asks again. A second repository links
+without starting the driver.
+
+**A small `buri test` in a fresh repository** (`testing/caching`), three
+alternating runs each at load 16–18:
+
+| | before | after |
+|---|---:|---:|
+| CPU, `buri` and every child | 0.24 s | 0.08 s |
+| wall | 0.39 s | 0.24 s |
+| `buri`'s own instructions | 217 M | 195 M |
+
+**In the whole suite**, counted by setting `CC` to a logging shim, one run each:
+
+| `cc` call | before | after |
+|---|---:|---:|
+| `--version`, from `buri` and harnesses | 238 | 30 |
+| `-###` | 23 | 24 |
+| native test harness links (`-o …/program`) | 423 | 423 |
+| everything | 753 | 546 |
+
+`ld64.lld --version` comes from the same probe, so it fell by the same 208.
+The 30 left are most likely fakes with their own paths, homes of their own,
+and processes that started before the first answer was written. This shim
+replaces `CC`; §6.21's sat under the cc-wrapper, in front of
+`clang`, which is why its counts are higher. The `-###` count didn't move:
+the suite's repositories already found their replay in the repository cache.
+The per-user replay store helps a fresh clone or a `buri clean`, not the suite.
+
+**The full suite didn't measurably move.** The archives of both sides,
+alternating, at `--test-threads 3`:
+
+| Run | Load | Wall | User | Sys |
+|---|---|---:|---:|---:|
+| before | 21–46 | 490 s | 1,082 s | 408 s |
+| after | 21–56 | 592 s | 1,079 s | 416 s |
+| before | 56–69 | 591 s | 993 s | 430 s |
+| after | 37–64 | 485 s | 947 s | 413 s |
+
+The small test suggests about 0.15 s of CPU per removed probe, so about 30 s of
+the suite's 1,400 s. Other agents shared the machine and runs of one build
+swung by 100 s, so that's below what these runs can show.
+
+**What's left, and why.**
+
+- **The native harness links**, 423 per run, are 78% of the driver calls
+  left. `tests/native/stencil.rs` links its programs through `product_cc()`,
+  so each pays for the cc-wrapper's bash, `clang` and `ld64.lld`. Routing them
+  through `CDriver::link` would replay. It isn't behaviour-identical, though:
+  the product stages objects in a link directory, names them relatively and
+  links the runtime archive only when an object names one of its symbols,
+  while the harness always passes it. Changing the harness to the product's
+  link is a separate decision.
+- **The cross `--target` probe** (`accepts_target`) still runs once per
+  process that cross-links. Few tests do.
+- **A trimmed `lld`.** About half of `ld64.lld` is libLLVM's static
+  initializers. An `lld` linked against a static LLVM with only the AArch64
+  and x86 targets would start faster on every link. It needs a custom nix
+  derivation and a rebuild of LLVM, so it's a devShell change, not a code one.
+- **A store for `buri-stencil`'s build script**, 12–21 s on a cold build.
+  The runtime archive's store (`cli/build.rs`, `SharedArchive`) works because
+  its stamp hashes the whole environment, minus a list argued to reach nothing,
+  and the input tree. The stencil key would need the same: the generator
+  sources, `buri-hash`, `cc` and its banner, `TARGET`, and every variable the
+  cc-wrapper turns into flags. That means moving the stamp code into something
+  both build scripts share, or copying 300 lines. A stale key here ships wrong
+  machine code, and the win is cold builds only, so it's left for now.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
