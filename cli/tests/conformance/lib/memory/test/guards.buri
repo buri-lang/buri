@@ -135,3 +135,36 @@ test "a guard with a let of its own leaves the list its arm grows alive" {
     };
     assert.equal(grown, ["ab", "cd"]);
 }
+
+struct Stamp {
+    at: Int,
+    node: Str,
+}
+
+fn decoded<C: Allocator>(ctx: C, at: Int): Option<Stamp> {
+    .Some(Stamp { at, node: str.format(ctx, "node-${at}") })
+}
+
+// The arm binds a heap record and its guard is false, so the match falls
+// through to the wildcard, which owes the record its release once (issue #231).
+// Called once, so the inliner pastes it into the fold's step and the record
+// arrives as a `let` the match consumes.
+fn later<C: Allocator>(ctx: C, stamp: Option<Stamp>, limit: Int): [Str] {
+    match (stamp) {
+        .Some(found) if found.at > limit => [],
+        _ => [str.format(ctx, "a-${limit}"), str.format(ctx, "b-${limit}")],
+    }
+}
+
+test "a guard that fails on a bound heap value falls through cleanly" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let total = [1, 2, 3, 4, 5, 6, 7, 8].foldCtx(
+        ctx,
+        fn(c, sum, i) => sum + later(c, decoded(c, i), 100).length(),
+        0,
+    );
+    assert.equal(total, 16);
+    assert.equal(decoded(ctx, 2).map(fn(s) => s.node), .Some("node-2"));
+}

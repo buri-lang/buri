@@ -953,16 +953,17 @@ export fn projected(pair: Pair): Int {
 }
 
 /// The alias shape: `stale` is a second name for `tags`, which is read again
-/// after it.
-export fn aliased(tags: [Str]): Int {
+/// after it. Returning `tags` makes it owned: a borrowed one binds `stale`
+/// with no count at all.
+export fn aliased(tags: [Str]): [Str] {
   let stale = tags;
-  tags.length()
+  tags
 }
 
 export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let p = Pair { n: 1, tags: ["a"] };
-  let _ = io.println(ctx, "${projected(p)} ${aliased(["b"])}").ignore();
+  let _ = io.println(ctx, "${projected(p)} ${aliased(["b"]).length()}").ignore();
   .Ok(())
 }
 "#;
@@ -1975,7 +1976,9 @@ export fn main(host: NodeHost): Result<(), Str> {
             // Before, only the first of the two was there.
             "dec n3 after n2",
             "dec xs after n3",
-            "inc t after n7",
+            // `t` points into `n3`, so `let (v, rest) = t` binds borrowed
+            // names and only `rest`, handed to the jump, takes a count.
+            "inc rest after n10",
             "dec acc after n11",
             "dec n3 after n11",
         ]
