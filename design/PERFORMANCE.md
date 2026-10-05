@@ -3089,6 +3089,59 @@ binaries where it's most of the cost, and together they spend 80 s of CPU.
 The suite's time is in the places §6.21 names: the `buri` processes the tests
 start, and the linker tools.
 
+### 6.29 Wide payloads are words, not one integer, 2026-10-05
+
+A `--release` build of a program with a 200-field struct (`Big`, 4,800 bytes)
+took a minute or two when the struct sat in a `Result` or was matched three
+levels deep. `opt -time-passes` on the module the backend emitted:
+
+```text
+InstCombinePass   56.9 s of 58.0 s   690 G instructions
+```
+
+The trigger is a tagged enum's payload area. `repr.rs` held it as one integer
+of exactly its bytes, so `Result<Option<Big>, Str>`'s payload was an `i38400`,
+built and taken apart like this, once per word:
+
+```llvm
+%pay.w  = zext i64 %f17 to i38400
+%pay.sh = shl i38400 %pay.w, 1088
+%pay    = or i38400 %pay.prev, %pay.sh        ; 600 of these, chained
+...
+%pay.sh2  = lshr i38400 %pay, 1088
+%pay.cut  = trunc i38400 %pay.sh2 to i64     ; and 1,200 of these
+```
+
+Every one of those is a 600-word `APInt` operation, and InstCombine revisits
+the chain for each `lshr`. The struct itself was never the problem: its 600
+slots travel as an ordinary literal struct, and `insertvalue`/`extractvalue`
+on that is cheap.
+
+**The fix:** a payload area wider than 64 bytes is an array of the widest of
+`i64`, `i32`, `i16` and `i8` that divides it (`repr::blob_elements`). A field
+goes in and out a word at a time, with sub-word shifts only where a field
+doesn't fill one, so nothing wider than 64 bits reaches InstCombine. Payloads
+of 64 bytes or less keep the integer form they had.
+
+`buri build --release`, emit phase, `BURI_PROFILE=1`:
+
+| Program | Before | After |
+|---|---:|---:|
+| `Result<Option<Big>, Str>`, built and matched | 721.5 G, 59.8 s CPU | 16.9 G, 1.4 s |
+| `Option<Holder>` matched three levels deep in one pattern | 947.6 G, 75.0 s | 23.6 G, 1.8 s |
+| `e2e.rs`'s `deep_big`, still matching one level at a time | 360.3 G, 32.3 s | 301.3 G, 27.9 s |
+
+`deep_big` now takes the deep pattern and the `Result<Option<Big>, Str>` too.
+Its remaining cost isn't payloads. Its derived `Equal`, `Hash` and
+`Show` on `Big` emit 246k, 122k and 138k lines of IR before optimization.
+
+**Nothing else moved.** Over `--set=native`, every one of the 195 distinct
+units the LLVM rows emit hashed the same before and after: none has a payload
+wider than 64 bytes. So the optimize time and the generated code on the bench
+corpora are unchanged by construction. `native::llvm`'s
+`a_wide_payload_is_held_as_words_rather_than_one_wide_integer` bounds the
+widest integer in such a program's IR at 512 bits.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

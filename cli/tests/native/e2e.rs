@@ -3323,10 +3323,9 @@ fn a_large_struct_three_options_deep_is_built_and_dropped() {
 /// `Big` is 4800 bytes, so every glue that walks a value holding one walks
 /// more than fits a 4096-byte frame.
 ///
-/// Each `match` takes one level at a time, and the `Result` holds a `Holder`
-/// rather than an `Option<Big>`: a pattern three levels into a value this wide,
-/// or a `Result<Option<Big>, Str>`, takes the LLVM backend a minute or more to
-/// optimize.
+/// `depth` matches three levels in with one pattern, and `wrapped` is a
+/// `Result<Option<Big>, Str>`. Each took the LLVM backend a minute or more to
+/// optimize while a payload this wide was one integer (PERFORMANCE.md §6.29).
 fn deep_big() -> String {
     format!(
         r#"
@@ -3364,14 +3363,17 @@ fn held(b: Big): Option<Holder> {{
 
 fn depth(h: Option<Holder>): Int {{
     match (h) {{
-        .Some(holder) => match (holder.mid) {{
-            .Some(mid) => match (mid.big) {{
-                .Some(b) => b.f199.length(),
-                .None => 0 - 1,
-            }},
-            .None => 0 - 1,
-        }},
+        .Some(Holder {{ mid: .Some(Mid {{ big: .Some(b) }}) }}) => b.f199.length(),
+        .Some(_) => 0 - 1,
         .None => 0 - 2,
+    }}
+}}
+
+fn size(r: Result<Option<Big>, Str>): Int {{
+    match (r) {{
+        .Ok(.Some(b)) => b.f0.length(),
+        .Ok(.None) => 0,
+        .Err(e) => e.length(),
     }}
 }}
 
@@ -3397,6 +3399,8 @@ export fn main(host: NativeHost): Result<(), Str> {{
     let more = listed.push(ctx, held(big(ctx, "h", 2)));
     let hashed = big(ctx, "k", 2).hash() == big(ctx, "k", 2).hash();
     let failed: Result<Holder, Str> = .Err("e".repeat(ctx, 3));
+    let wrapped: Result<Option<Big>, Str> = .Ok(.Some(big(ctx, "m", 6)));
+    let unwrapped: Result<Option<Big>, Str> = .Err("u".repeat(ctx, 7));
     let reason = match (failed) {{
         .Ok(_) => 0,
         .Err(text) => text.length(),
@@ -3421,6 +3425,7 @@ export fn main(host: NativeHost): Result<(), Str> {{
     let _ = io.println(ctx, "${{first}} ${{listed.length()}} ${{bigs.length()}} ${{shown}}").ignore();
     let _ = io.println(ctx, "${{depth(copied.current)}} ${{kept(copied)}} ${{kept(state)}}").ignore();
     let _ = io.println(ctx, "${{grown.length()}} ${{more.length()}} ${{reason}}").ignore();
+    let _ = io.println(ctx, "${{size(wrapped)}} ${{size(unwrapped)}}").ignore();
     .Ok(())
 }}
 "#,
@@ -3436,7 +3441,131 @@ fn a_large_struct_held_deep_inside_options_lists_and_records_leaks_nothing() {
     let (stdout, stderr) = heap_checked("e2e-deep-big", &deep_big());
     assert_eq!(
         stdout,
-        vec!["true 3 4", "true false true", "5 4 2 3096", "4 4 4", "4 5 3"],
+        vec!["true 3 4", "true false true", "5 4 2 3096", "4 4 4", "4 5 3", "6 7"],
+        "stderr:\n{stderr}"
+    );
+}
+
+/// Payloads wider than 64 bytes whose fields sit at odd offsets.
+///
+/// `Holds.Odd`'s payload is 96 bytes of words, and the two `Tiny`s in it sit
+/// after five bytes, so the first one's fields cross a word boundary.
+/// `Bag.Bytes`'s payload is 70 bytes with nothing wider than a byte in it, so
+/// it is held in 2-byte pieces, and its `Tiny` crosses those. Every field is
+/// read back after the value has been built in one function and matched in
+/// another.
+fn odd_offsets() -> String {
+    String::from(
+        r#"
+from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+enum Tiny {
+    Three(U8, U8, U8),
+    One(U8),
+}
+
+struct Odd {
+    a: U8,
+    b: U8,
+    c: U8,
+    d: U8,
+    e: U8,
+    t: Tiny,
+    u: Tiny,
+    n: Int,
+    s: Str,
+    s2: Str,
+    s3: Str,
+}
+
+enum Holds {
+    Odd(Odd),
+    Plain(Int),
+}
+
+struct Seventy {
+    b0: U8, b1: U8, b2: U8, b3: U8, b4: U8, b5: U8, b6: U8, b7: U8, b8: U8, b9: U8,
+    b10: U8, b11: U8, b12: U8, b13: U8, b14: U8, b15: U8, b16: U8, b17: U8, b18: U8, b19: U8,
+    b20: U8, b21: U8, b22: U8, b23: U8, b24: U8, b25: U8, b26: U8, b27: U8, b28: U8, b29: U8,
+    b30: U8, b31: U8, b32: U8, b33: U8, b34: U8, b35: U8, b36: U8, b37: U8, b38: U8, b39: U8,
+    b40: U8, b41: U8, b42: U8, b43: U8, b44: U8, b45: U8, b46: U8, b47: U8, b48: U8, b49: U8,
+    b50: U8, b51: U8, b52: U8, b53: U8, b54: U8, b55: U8, b56: U8, b57: U8, b58: U8, b59: U8,
+    b60: U8, b61: U8, b62: U8, b63: U8, b64: U8,
+    t: Tiny,
+    last: U8,
+}
+
+enum Bag {
+    Bytes(Seventy),
+    Empty,
+}
+
+fn tiny<C: Allocator>(ctx: C, t: Tiny): Str {
+    match (t) {
+        .Three(x, y, z) => str.format(ctx, "${x}.${y}.${z}"),
+        .One(x) => str.format(ctx, "${x}"),
+    }
+}
+
+fn holds<C: Allocator>(ctx: C, h: Holds): Str {
+    match (h) {
+        .Odd(o) => str.format(ctx, "${o.a} ${o.e} ${tiny(ctx, o.t)} ${tiny(ctx, o.u)} ${o.n} ${o.s} ${o.s3}"),
+        .Plain(n) => str.format(ctx, "plain ${n}"),
+    }
+}
+
+fn bag<C: Allocator>(ctx: C, b: Bag): Str {
+    match (b) {
+        .Bytes(s) => str.format(ctx, "${s.b0} ${s.b33} ${s.b64} ${tiny(ctx, s.t)} ${s.last}"),
+        .Empty => "empty",
+    }
+}
+
+fn odd(x: U8, s: Str): Holds {
+    .Odd(Odd { a: x, b: 2, c: 3, d: 4, e: 5, t: .Three(6, 7, 8), u: .One(9), n: 123456789, s: s, s2: "two", s3: "three" })
+}
+
+fn seventy(x: U8): Bag {
+    .Bytes(Seventy {
+        b0: x, b1: 1, b2: 2, b3: 3, b4: 4, b5: 5, b6: 6, b7: 7, b8: 8, b9: 9,
+        b10: 10, b11: 11, b12: 12, b13: 13, b14: 14, b15: 15, b16: 16, b17: 17, b18: 18, b19: 19,
+        b20: 20, b21: 21, b22: 22, b23: 23, b24: 24, b25: 25, b26: 26, b27: 27, b28: 28, b29: 29,
+        b30: 30, b31: 31, b32: 32, b33: 33, b34: 34, b35: 35, b36: 36, b37: 37, b38: 38, b39: 39,
+        b40: 40, b41: 41, b42: 42, b43: 43, b44: 44, b45: 45, b46: 46, b47: 47, b48: 48, b49: 49,
+        b50: 50, b51: 51, b52: 52, b53: 53, b54: 54, b55: 55, b56: 56, b57: 57, b58: 58, b59: 59,
+        b60: 60, b61: 61, b62: 62, b63: 63, b64: 64,
+        t: .Three(201, 202, 203),
+        last: 250,
+    })
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, holds(ctx, odd(1, "one".repeat(ctx, 2)))).ignore();
+    let _ = io.println(ctx, holds(ctx, .Plain(7))).ignore();
+    let _ = io.println(ctx, bag(ctx, seventy(99))).ignore();
+    let _ = io.println(ctx, bag(ctx, .Empty)).ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **A wide payload gives back every field at the offset it was put at,**
+/// including fields that cross the pieces the payload is held in.
+#[test]
+fn a_wide_payload_gives_back_fields_at_odd_offsets() {
+    unless_ready!();
+    let (stdout, stderr) = heap_checked("e2e-odd-offsets", &odd_offsets());
+    assert_eq!(
+        stdout,
+        vec!["1 5 6.7.8 9 123456789 oneone three", "plain 7", "99 33 64 201.202.203 250", "empty"],
         "stderr:\n{stderr}"
     );
 }

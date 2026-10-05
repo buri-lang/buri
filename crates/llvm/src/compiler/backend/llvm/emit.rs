@@ -1469,8 +1469,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     other => other.const_zero(),
                 };
                 let bytes = size.saturating_sub(payload);
-                let blob_ty = repr::blob_type(self.ctx, bytes);
-                let mut blob: IntValue<'ctx> = blob_ty.const_zero();
                 // A **boxed** payload field is one pointer in the blob, not its
                 // own words: the block holds the value and the variant holds
                 // the block. `enum Chain { End, Link(Box) }` whose `Box` names
@@ -1490,6 +1488,21 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         _ => owned.push((fs.clone(), pieces.clone())),
                     }
                 }
+                if let BasicTypeEnum::ArrayType(array) = repr::blob_type(self.ctx, bytes) {
+                    let mut blob = array.const_zero();
+                    for (i, (fs, pieces)) in owned.iter().enumerate() {
+                        let Some(at) = offsets.get(i).copied() else { continue };
+                        let within = at.saturating_sub(payload);
+                        for (slot, piece) in fs.iter().zip(pieces) {
+                            let to = within.saturating_add(slot.offset);
+                            blob = repr::put_in_blob(self.ctx, &self.builder, blob, to, *slot, *piece);
+                        }
+                    }
+                    let values = [tag_value, blob.into()];
+                    return Some(repr::assemble(self.ctx, &self.builder, &slots, &values));
+                }
+                let blob_ty = repr::int_type(self.ctx, bytes);
+                let mut blob: IntValue<'ctx> = blob_ty.const_zero();
                 for (i, (fs, pieces)) in owned.iter().enumerate() {
                     let Some(at) = offsets.get(i).copied() else { continue };
                     let within = at.saturating_sub(payload);
@@ -1578,10 +1591,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             EnumRepr::Niche { .. } => whole,
             EnumRepr::Tagged { payload, .. } => {
                 let pieces = repr::disassemble(&self.builder, slots, whole);
+                let within = offsets.get(index).copied().unwrap_or(0).saturating_sub(payload);
+                if let Some(BasicValueEnum::ArrayValue(blob)) = pieces.get(1).copied() {
+                    let taken: Vec<_> = want
+                        .iter()
+                        .map(|slot| {
+                            let from = within.saturating_add(slot.offset);
+                            repr::take_from_blob(self.ctx, &self.builder, blob, from, *slot)
+                        })
+                        .collect();
+                    return repr::assemble(self.ctx, &self.builder, want, &taken);
+                }
                 let Some(BasicValueEnum::IntValue(blob)) = pieces.get(1).copied() else {
                     return repr::assemble(self.ctx, &self.builder, want, &[]);
                 };
-                let within = offsets.get(index).copied().unwrap_or(0).saturating_sub(payload);
                 let mut taken = Vec::with_capacity(want.len());
                 for slot in want {
                     let shift =
@@ -1595,7 +1618,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                             "pay.sh",
                         )
                         .unwrap_or(blob);
-                    let narrow = repr::blob_type(self.ctx, slot.ty.size());
+                    let narrow = repr::int_type(self.ctx, slot.ty.size());
                     let cut = self
                         .builder
                         .build_int_truncate_or_bit_cast(moved, narrow, "pay.cut")
@@ -3253,10 +3276,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     if !matches!(slot.ty, SlotTy::Blob(_)) || at < slot.offset || at >= end {
                         continue;
                     }
+                    let within = at.saturating_sub(slot.offset);
+                    if let Some(BasicValueEnum::ArrayValue(blob)) = pieces.get(i).copied() {
+                        let want = Slot { offset: at, ty: want };
+                        return Some(repr::take_from_blob(self.ctx, &self.builder, blob, within, want));
+                    }
                     let Some(BasicValueEnum::IntValue(blob)) = pieces.get(i).copied() else {
                         continue;
                     };
-                    let shift = u64::from(at.saturating_sub(slot.offset)).saturating_mul(8);
+                    let shift = u64::from(within).saturating_mul(8);
                     let moved = self
                         .builder
                         .build_right_shift(
@@ -3266,7 +3294,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                             "rc.sh",
                         )
                         .ok()?;
-                    let narrow = repr::blob_type(self.ctx, want.size());
+                    let narrow = repr::int_type(self.ctx, want.size());
                     let cut =
                         self.builder.build_int_truncate_or_bit_cast(moved, narrow, "rc.cut").ok()?;
                     return Some(repr::slot_from_bits(
@@ -7292,7 +7320,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ),
             EnumRepr::Tagged { tag, payload: payload_start } => {
                 let bytes = size.saturating_sub(payload_start);
-                let blob_ty = repr::blob_type(self.ctx, bytes);
+                // An `Option` of one integer has a payload area of one integer,
+                // so this is never wider than `repr::WIDEST_INT_BLOB`.
+                let blob_ty = repr::int_type(self.ctx, bytes);
                 let width = payload.get_type().get_bit_width().saturating_div(8);
                 let bits = repr::slot_to_bits(
                     self.ctx,
@@ -8145,7 +8175,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     .builder
                     .build_right_shift(blob, blob.get_type().const_int(shift, false), false, "e.sh")
                     .unwrap_or(blob);
-                let narrow = repr::blob_type(self.ctx, slot.ty.size());
+                let narrow = repr::int_type(self.ctx, slot.ty.size());
                 let cut = self
                     .builder
                     .build_int_truncate_or_bit_cast(moved, narrow, "e.cut")

@@ -5148,3 +5148,78 @@ test "two trees grown alike are two trees" {
         ran.stderr
     );
 }
+
+/// **A wide payload reaches LLVM as words, never as one wide integer.**
+/// PERFORMANCE.md §6.29.
+///
+/// `Big` is 200 strings, 4800 bytes. A `Result` of an `Option` of one, built and
+/// then matched, put every one of its 600 words into a single `i38400` with a
+/// `shl` and an `or` each and took them out with an `lshr` and a `trunc` each,
+/// and InstCombine spent a minute on it. A pattern three levels into an
+/// `Option<Holder>` did the same. Held as an array of words, no integer in the
+/// module is wider than `repr::WIDEST_INT_BLOB`'s 64 bytes, and the same build
+/// optimizes in under a second.
+///
+/// A bound on the IR's shape rather than on time: the width is what made it
+/// slow, and a width does not move with the machine's load.
+#[test]
+fn a_wide_payload_is_held_as_words_rather_than_one_wide_integer() {
+    skip_unless_executable!();
+    let fields: String = (0..200).map(|i| format!("    f{i}: Str,\n")).collect();
+    let built: String = (0..200).map(|i| format!(" f{i}: s,")).collect();
+    let ir = emitted_ir(&program(&format!(
+        r#"
+from "native" import {{ NativeHost }};
+
+struct Big {{
+{fields}}}
+
+struct Mid {{
+    big: Option<Big>,
+}}
+
+struct Holder {{
+    mid: Option<Mid>,
+}}
+
+fn big<C: Allocator>(ctx: C, letter: Str, size: Int): Big {{
+    let s = letter.repeat(ctx, size);
+    Big {{{built} }}
+}}
+
+fn depth(h: Option<Holder>): Int {{
+    match (h) {{
+        .Some(Holder {{ mid: .Some(Mid {{ big: .Some(b) }}) }}) => b.f199.length(),
+        .Some(_) => 0 - 1,
+        .None => 0 - 2,
+    }}
+}}
+
+fn size(r: Result<Option<Big>, Str>): Int {{
+    match (r) {{
+        .Ok(.Some(b)) => b.f199.length(),
+        .Ok(.None) => 0,
+        .Err(e) => e.length(),
+    }}
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+    let held: Option<Holder> = .Some(Holder {{ mid: .Some(Mid {{ big: .Some(big(ctx, "a", 3)) }}) }});
+    let wrapped: Result<Option<Big>, Str> = .Ok(.Some(big(ctx, "b", 4)));
+    let _ = io.println(ctx, "${{depth(held)}} ${{size(wrapped)}}").ignore();
+    .Ok(())
+}}
+"#
+    )));
+    let widest = ir
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter_map(|word| word.strip_prefix('i')?.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0);
+    assert!(
+        widest <= 64 * 8,
+        "an integer of {widest} bits reached LLVM; a payload wider than 64 bytes is an array \
+         of words"
+    );
+}
