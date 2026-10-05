@@ -31,7 +31,7 @@
 //! cargo test -p buri --test build generators::
 //! ```
 
-use crate::harness::{ci, tests_dir, Run, Scratch};
+use crate::harness::{ci, indent, tests_dir, Run, Scratch};
 
 /// The platform a binary here declares.
 ///
@@ -406,4 +406,133 @@ fn toolchain_artifacts(scratch: &Scratch) -> Vec<std::path::PathBuf> {
         .collect();
     out.sort();
     out
+}
+
+// ---------------------------------------------------------------------------
+// How many processes a pass starts
+// ---------------------------------------------------------------------------
+
+/// A generator that writes one module per input: `name value` becomes the
+/// module `name`, exporting `name` as a hundred divided by `value`. A value of
+/// 0 stops the tool with a division by zero.
+const DIVIDING_TOOL: &str = r#"from "core/buri/ast" import * as ast;
+from "core/str" import * as str;
+from "core/tool" import { Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
+
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    let text = request.inputs.get(0).map(fn(i) => i.value).withDefault("").trim();
+    let split = text.splitOnce(" ").withDefault(("none", "1"));
+    let value = split.1.toInt().withDefault(1);
+    let source = str.format(ctx, "export let ${split.0}: Int = ${100 / value};\n");
+    let modules = match (ast.parse(ctx, "", source)) {
+        .Ok(parsed) => [(split.0, parsed)],
+        .Err(_) => [],
+    };
+    Generated { modules: modules, diagnostics: [], needs: [] }
+}
+"#;
+
+const SUMMING_PROGRAM: &str = r#"from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+from "//lib/wire" import { alpha, beta };
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    io
+        .println(ctx, "${alpha + beta}")
+        .mapErr(fn(_e) => "could not write to standard output")
+}
+"#;
+
+/// A repository whose one rule runs one tool twice, once per `generators`
+/// entry, and a program printing what the two modules hold between them.
+fn two_entries(name: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
+    scratch.write("tool/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
+    scratch.write("tool/gen/tool.buri", DIVIDING_TOOL);
+    scratch.write(
+        "lib/wire/BUILD.buri",
+        "library {\n    generators: [\n        { tool: \"//tool/gen\", inputs: [\"alpha.txt\"] },\n        { tool: \"//tool/gen\", inputs: [\"beta.txt\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n",
+    );
+    scratch.write("lib/wire/alpha.txt", "alpha 1\n");
+    scratch.write("lib/wire/beta.txt", "beta 2\n");
+    scratch.write(
+        "lib/wire/lib.buri",
+        "from \"//lib/wire/alpha\" export { alpha };\nfrom \"//lib/wire/beta\" export { beta };\n",
+    );
+    scratch.write(
+        "cmd/app/BUILD.buri",
+        "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n",
+    );
+    scratch.write("cmd/app/main.buri", SUMMING_PROGRAM);
+    scratch
+}
+
+/// A script standing in for the JavaScript runtime that notes each tool it is
+/// started on, one line per start, in `starts.txt`, and answers its path for
+/// `BURI_JS`. It runs with an empty environment, so every path is absolute.
+fn counting_runtime(scratch: &Scratch) -> String {
+    let found = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(format!("command -v {}", crate::harness::js_runtime()))
+        .output()
+        .expect("sh runs");
+    let js = String::from_utf8_lossy(&found.stdout).trim().to_string();
+    let log = scratch.path("starts.txt");
+    let path = scratch.write(
+        "runtime.sh",
+        &format!(
+            "#!/bin/sh\ncase \"$1\" in\n*/.buri/out/tools/*) echo \"$1\" >> '{}' ;;\nesac\nexec '{js}' \"$@\"\n",
+            log.display()
+        ),
+    );
+    std::process::Command::new("/bin/chmod").arg("+x").arg(&path).status().expect("chmod runs");
+    path.display().to_string()
+}
+
+/// How many times a tool process was started.
+fn tool_starts(scratch: &Scratch) -> usize {
+    std::fs::read_to_string(scratch.path("starts.txt")).map(|t| t.lines().count()).unwrap_or(0)
+}
+
+/// **One tool process answers every request a pass makes of it in turn.**
+///
+/// Starting the JavaScript runtime and loading a tool costs more than most
+/// requests do, and a schema's checks and its rule's `generate` are one
+/// request after another to the same program. Both entries here run in the
+/// same pass, one after the other, so the second is asked of the process that
+/// answered the first.
+#[test]
+fn one_tool_process_answers_both_entries_of_a_rule() {
+    let scratch = two_entries("generators-one-process");
+    let runtime = counting_runtime(&scratch);
+    let run = scratch.run_with_env(&["run", "//cmd/app"], &[("BURI_JS", &runtime)]);
+    run.ok();
+    assert_eq!(run.stdout.trim(), "150", "the two generated modules did not hold 100 and 50:\n{}", indent(&run.all()));
+    assert_eq!(tool_starts(&scratch), 1, "two requests of one tool started more than one process");
+}
+
+/// **A request that stops a kept process is reported as if it had a process of
+/// its own.** The second entry divides by zero after the first was answered by
+/// the same process: the note is the tool's exit and what it said on standard
+/// error, and the first entry's module is still there to import.
+#[test]
+fn a_tool_that_stops_partway_through_a_pass_is_reported_in_its_own_words() {
+    let scratch = two_entries("generators-kept-process-stops");
+    let runtime = counting_runtime(&scratch);
+    scratch.write("lib/wire/beta.txt", "beta 0\n");
+    let run = scratch.run_with_env(&["build", "//cmd/app"], &[("BURI_JS", &runtime)]);
+    run.exits(1);
+    let want = "error: `//tool/gen` did not answer [tool-failed]\n --> lib/wire/BUILD.buri:4:9\n  |\n4 |         { tool: \"//tool/gen\", inputs: [\"beta.txt\"] },\n  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  |\n  = the tool exited with 1\n    division by zero\n";
+    assert!(run.stderr.contains(want), "the stopped tool was not reported in its own words:\n{}", indent(&run.all()));
+    assert!(
+        !run.stderr.contains("\"//lib/wire/alpha\" names no file"),
+        "the entry answered before the stop lost its module:\n{}",
+        indent(&run.all())
+    );
 }
