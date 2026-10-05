@@ -1654,6 +1654,9 @@ enum Form {
     LambdaPair,
     /// `make(v)` with `make` a lambda answering `Option.Some(x)`.
     LambdaSome,
+    /// `held.1`, a field of a tuple local, so the payloads the arms bind are
+    /// words of a block the match does not own.
+    Projected,
 }
 
 const FORMS: &[Form] = &[
@@ -1666,13 +1669,14 @@ const FORMS: &[Form] = &[
     Form::LambdaSomePair,
     Form::LambdaPair,
     Form::LambdaSome,
+    Form::Projected,
 ];
 
 impl Form {
     fn ty(self, t: &Ty) -> Ty {
         let t = t.clone();
         match self {
-            Form::Direct | Form::Identity => t,
+            Form::Direct | Form::Identity | Form::Projected => t,
             Form::Some | Form::LambdaSome => Ty::Option(Box::new(t)),
             Form::Okay => Ty::Result(Box::new(t), Box::new(Ty::Int)),
             Form::LambdaSomePair => Ty::Option(Box::new(Ty::Tuple(vec![t, Ty::Int]))),
@@ -1683,7 +1687,7 @@ impl Form {
     fn value(self, v: &Val, limit: i64) -> Val {
         let v = v.clone();
         match self {
-            Form::Direct | Form::Identity => v,
+            Form::Direct | Form::Identity | Form::Projected => v,
             Form::Some | Form::LambdaSome => Val::Some(Box::new(v)),
             Form::Okay => {
                 if limit > 2 {
@@ -1717,6 +1721,7 @@ impl Form {
                 format!("let make = fn(x: {t}) => Option.Some(x);\n"),
                 String::from("make(v)"),
             ),
+            Form::Projected => (String::from("let held = (limit, v);\n"), String::from("held.1")),
         }
     }
 }
@@ -1731,6 +1736,9 @@ enum Use {
     Bound,
     /// The match is a statement whose arms print.
     Statement,
+    /// The match is bound by `let` and `v` is read again after it, so the
+    /// match borrows its scrutinee rather than consuming it.
+    Kept,
 }
 
 const PRELUDE: &str = r#"from "platform/effect" import { Allocator, Stdout };
@@ -1773,7 +1781,8 @@ pub fn batch(seed: u64, index: usize) -> Batch {
         let form = *rng.pick(FORMS);
         let use_ = match rng.below(10) {
             0..=3 => Use::Result,
-            4..=6 => Use::Bound,
+            4..=5 => Use::Bound,
+            6 => Use::Kept,
             _ => Use::Statement,
         };
         // The values it is called with: one, and two or one more that mostly
@@ -1809,6 +1818,15 @@ pub fn batch(seed: u64, index: usize) -> Batch {
                      let answer = {body};\nstr.format(ctx, \"<${{answer}}>\")\n}}\n"
                 );
             }
+            Use::Kept => {
+                let body = m.text(&w, &scrutinee, "", &|s| s);
+                let _ = writeln!(
+                    functions,
+                    "fn m{k}<C: Allocator>(ctx: C, v: {t_text}, limit: Int): Str {{\n{setup}\
+                     let answer = {body};\nlet kept = some(v).isSome();\n\
+                     str.format(ctx, \"<${{answer}}|${{kept}}>\")\n}}\n"
+                );
+            }
             Use::Statement => {
                 let body = m.text(&w, &scrutinee, &format!("s{k} "), &|s| format!("say(ctx, {s})"));
                 let _ = writeln!(
@@ -1835,6 +1853,13 @@ pub fn batch(seed: u64, index: usize) -> Batch {
                         "let _ = say(ctx, str.format(ctx, \"m{k} ${{m{k}(ctx, {arg_text}, {limit})}}\"));"
                     );
                     let _ = writeln!(expected, "m{k} <{answer}>");
+                }
+                Use::Kept => {
+                    let _ = writeln!(
+                        calls,
+                        "let _ = say(ctx, str.format(ctx, \"m{k} ${{m{k}(ctx, {arg_text}, {limit})}}\"));"
+                    );
+                    let _ = writeln!(expected, "m{k} <{answer}|true>");
                 }
                 Use::Statement => {
                     let _ = writeln!(calls, "let _ = s{k}(ctx, {arg_text}, {limit});");
