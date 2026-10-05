@@ -437,7 +437,137 @@ pub fn tool_target(workspace: &Workspace, tool: &str) -> Option<TargetId> {
 ///
 /// What keeps a tool off the clock is its entry points' bound: `ctx` has
 /// `Allocator` and nothing else (`tool-effect-unavailable`).
+///
+/// While a [`Keep`] is held, the process is kept for the tool's next request
+/// ([`ask_kept`]). Anything short of an answer from a kept process asks again
+/// here, of a process of the request's own, so a tool that fails says what it
+/// would have said alone.
 pub fn run_artifact(artifact: &std::path::Path, request: &str) -> Result<String, String> {
+    if let Some(line) = ask_kept(artifact, request) {
+        return Ok(line);
+    }
+    run_once(artifact, request)
+}
+
+/// Tool processes between requests, while anyone holds a [`Keep`].
+struct Kept {
+    holders: usize,
+    idle: Vec<KeptProcess>,
+}
+
+struct KeptProcess {
+    artifact: PathBuf,
+    child: std::process::Child,
+    stdin: std::process::ChildStdin,
+    stdout: std::io::BufReader<std::process::ChildStdout>,
+}
+
+impl KeptProcess {
+    /// Ends the tool the way a one-off run does: its input closes, and it
+    /// exits once it reads the end.
+    fn finish(self) {
+        let KeptProcess { mut child, stdin, .. } = self;
+        drop(stdin);
+        let _ = child.wait();
+    }
+
+    fn kill(mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+static KEPT: Mutex<Kept> = Mutex::new(Kept { holders: 0, idle: Vec::new() });
+
+/// A pass over generators: while one is held, each tool process answers the
+/// requests after its first too. Starting the JavaScript runtime and loading a
+/// tool costs more than most requests do, and a pass asks one tool many
+/// questions — a check per input, a second round for the files a check needs,
+/// then `generate`. The last holder to let go ends every kept process.
+struct Keep(());
+
+fn keep() -> Keep {
+    let mut kept = KEPT.lock().unwrap_or_else(PoisonError::into_inner);
+    kept.holders = kept.holders.saturating_add(1);
+    Keep(())
+}
+
+impl Drop for Keep {
+    fn drop(&mut self) {
+        let idle = {
+            let mut kept = KEPT.lock().unwrap_or_else(PoisonError::into_inner);
+            kept.holders = kept.holders.saturating_sub(1);
+            match kept.holders {
+                0 => std::mem::take(&mut kept.idle),
+                _ => Vec::new(),
+            }
+        };
+        for process in idle {
+            process.finish();
+        }
+    }
+}
+
+/// The answer from a kept process of `artifact`'s, starting one if none is
+/// idle. `None` when nothing is kept, or when the process did not answer: it
+/// is then ended, and [`run_artifact`] asks a process of the request's own.
+///
+/// `serve` answers each request with one line, so the next line is the
+/// answer. Its standard error is not read: a tool that fails is asked again
+/// alone, and that run's is the one reported.
+fn ask_kept(artifact: &std::path::Path, request: &str) -> Option<String> {
+    use std::io::{BufRead as _, Write as _};
+    use std::process::Stdio;
+
+    let found = {
+        let mut kept = KEPT.lock().unwrap_or_else(PoisonError::into_inner);
+        if kept.holders == 0 {
+            return None;
+        }
+        let at = kept.idle.iter().position(|p| p.artifact == artifact);
+        at.map(|i| kept.idle.swap_remove(i))
+    };
+    let mut process = match found {
+        Some(process) => process,
+        None => {
+            let program = crate::commands::test::js_runtime();
+            let mut cmd = crate::build::spawn::command(&program)?;
+            let mut child = crate::build::spawn::start(
+                cmd.arg(artifact).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()),
+            )
+            .ok()?;
+            let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            };
+            KeptProcess { artifact: artifact.to_path_buf(), child, stdin, stdout: std::io::BufReader::new(stdout) }
+        }
+    };
+    let asked = writeln!(process.stdin, "{request}").and_then(|()| process.stdin.flush());
+    let mut line = String::new();
+    let answered = asked.is_ok() && matches!(process.stdout.read_line(&mut line), Ok(n) if n > 0 && line.ends_with('\n'));
+    let line = line.trim_end_matches('\n').trim_end_matches('\r');
+    if !answered || line.trim().is_empty() {
+        process.kill();
+        return None;
+    }
+    let line = line.to_string();
+    let mut kept = KEPT.lock().unwrap_or_else(PoisonError::into_inner);
+    match kept.holders {
+        // The pass ended while this request was out.
+        0 => {
+            drop(kept);
+            process.finish();
+        }
+        _ => kept.idle.push(process),
+    }
+    Some(line)
+}
+
+/// One request, to a process of its own: the request, then the end of the
+/// input.
+fn run_once(artifact: &std::path::Path, request: &str) -> Result<String, String> {
     use std::io::{Read as _, Write as _};
     use std::process::Stdio;
 
@@ -743,6 +873,7 @@ fn generates(workspace: &Workspace, target: TargetId) -> bool {
 /// [`prepare`], over these rules.
 fn prepare_rules(session: &mut Session, flags: &Flags, overlay: &Overlay, targets: Vec<TargetId>) {
     let session: &Session = session;
+    let _keep = keep();
     // In rounds: every rule whose tools' code is generated already runs beside
     // the others, each recording its own answer, once the tools the round runs
     // are built. At most one rule of a package runs in a round, so two rules of
