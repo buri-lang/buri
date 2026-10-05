@@ -747,16 +747,19 @@ pub fn gaps(exports: &Exports, needed: &[Needed]) -> Vec<Gap> {
     let mut out = Vec::new();
     for s in needed {
         let Some(export) = exports.get(&s.name) else {
+            // A method of no effect names its own struct, which implements nothing.
             let effects: Vec<String> = {
-                let mut e: Vec<String> = s.methods.iter().map(|m| format!("`{}`", m.effect)).collect();
+                let mut e: Vec<String> =
+                    s.methods.iter().filter(|m| m.effect != s.name).map(|m| format!("`{}`", m.effect)).collect();
                 e.dedup();
                 e
             };
-            out.push(Gap {
-                at: 0,
-                gap: format!("does not export `{}`, which implements {}", s.name, effects.join(" and ")),
-                note: None,
-            });
+            let gap = if effects.is_empty() {
+                format!("does not export `{}`, whose methods platform.buri declares without a body", s.name)
+            } else {
+                format!("does not export `{}`, which implements {}", s.name, effects.join(" and "))
+            };
+            out.push(Gap { at: 0, gap, note: None });
             continue;
         };
         match &export.shape {

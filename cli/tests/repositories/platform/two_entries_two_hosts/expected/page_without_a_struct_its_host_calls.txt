@@ -1,5 +1,5 @@
 .buri/out/platform/two/cmd/app/worker.mjs (N bytes)
-error: `page.mjs` does not export `Names`, which implements `Names` [host-file-missing-method]
+error: `page.mjs` does not export `Names`, whose methods platform.buri declares without a body [host-file-missing-method]
  --> platform/two/page.mjs:1:1
   |
 1 | import { page } from "buri:program";
