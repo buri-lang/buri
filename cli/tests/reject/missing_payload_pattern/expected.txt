@@ -4,4 +4,4 @@ error: `Circle` has a payload, so the pattern needs one [missing-payload-pattern
 9 |     .Circle => 1,
   |     ^^^^^^^
   |
-  = fix: write `.Circle(..)`, or name each field
+  = fix: write `.Circle(_)`, or name each field
