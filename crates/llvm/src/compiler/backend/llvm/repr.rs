@@ -629,22 +629,33 @@ pub fn disassemble<'ctx>(
     slots: &[Slot],
     value: BasicValueEnum<'ctx>,
 ) -> Vec<BasicValueEnum<'ctx>> {
+    disassemble_range(builder, slots, value, 0..slots.len())
+}
+
+/// The slot values at `range` of a register value, and no others.
+///
+/// A field read wants a few slots of a value that may have hundreds. Taking
+/// the whole value apart for it wrote an `extractvalue` per slot per read: a
+/// derived `Equal` on a 200-field struct read 400 fields of 600 slots each,
+/// 240k instructions of which all but three per read were dead.
+pub fn disassemble_range<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    slots: &[Slot],
+    value: BasicValueEnum<'ctx>,
+    range: std::ops::Range<usize>,
+) -> Vec<BasicValueEnum<'ctx>> {
+    let range = range.start.min(slots.len())..range.end.min(slots.len());
     match slots.len() {
         0 => Vec::new(),
-        1 => vec![value],
-        n => {
-            let mut out = Vec::with_capacity(n);
-            for i in 0..n {
-                let piece = match value {
-                    BasicValueEnum::StructValue(s) => {
-                        builder.build_extract_value(s, i as u32, "slot").unwrap_or(value)
-                    }
-                    other => other,
-                };
-                out.push(piece);
-            }
-            out
-        }
+        1 => range.map(|_| value).collect(),
+        _ => range
+            .map(|i| match value {
+                BasicValueEnum::StructValue(s) => {
+                    builder.build_extract_value(s, i as u32, "slot").unwrap_or(value)
+                }
+                other => other,
+            })
+            .collect(),
     }
 }
 

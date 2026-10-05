@@ -1290,11 +1290,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             (r.slots.clone(), r.field_range(index))
         };
         let whole = self.get(state, agg);
-        let pieces = repr::disassemble(&self.builder, &slots, whole);
         let (start, end) = range;
+        // Only the field's own slots: the rest of a wide struct is not read.
+        let taken = repr::disassemble_range(&self.builder, &slots, whole, start..end);
         let want = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
-        let taken: Vec<BasicValueEnum<'ctx>> =
-            pieces.get(start..end).map(<[_]>::to_vec).unwrap_or_default();
         // A boxed field holds the block's pointer, so the value is the bytes it
         // names — one load per slot, `stencil/emit.rs`'s `unbox_from`.
         if self.boxed_fields(code.ty_of(agg)).get(index).copied().unwrap_or(false) {
@@ -1359,13 +1358,19 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         some_variant: usize,
         whole: BasicValueEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let pieces = repr::disassemble(&self.builder, slots, whole);
         let i32t = self.ctx.i32_type();
         match *enum_repr {
             // The value *is* the tag; widen it to the `i32` the IR says a tag
             // is (`ir::Inst::GetTag`), and the width it is *stored* at stays
             // the layout table's answer.
-            EnumRepr::Bare { .. } | EnumRepr::Tagged { .. } => match pieces.first() {
+            EnumRepr::Bare { .. } | EnumRepr::Tagged { .. } => match repr::disassemble_range(
+                &self.builder,
+                slots,
+                whole,
+                0..1,
+            )
+            .first()
+            {
                 Some(BasicValueEnum::IntValue(v)) => self
                     .builder
                     .build_int_z_extend_or_bit_cast(*v, i32t, "tag")
@@ -1378,7 +1383,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // indices (VALUE-MODEL.md §6).
             EnumRepr::Niche { null_at } => {
                 let at = slots.iter().position(|s| s.offset == null_at && s.ty.is_pointer());
-                match at.and_then(|i| pieces.get(i).copied()) {
+                let piece = at.and_then(|i| {
+                    let one = i..i.saturating_add(1);
+                    repr::disassemble_range(&self.builder, slots, whole, one).first().copied()
+                });
+                match piece {
                     Some(BasicValueEnum::PointerValue(p)) => {
                         let is_null = self
                             .builder

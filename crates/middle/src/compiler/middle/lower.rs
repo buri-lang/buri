@@ -94,6 +94,10 @@ use crate::hash::Map as HashMap;
 
 mod lists;
 
+/// The most parts a template joins by a chain of `str.concat`s. One with more
+/// is joined by the runtime in one call ([`FnLower::template_joined`]).
+pub(crate) const CONCAT_CHAIN_MAX: usize = 16;
+
 /// Whether lowering builds `key`'s body itself, as IR, so that no backend
 /// meets it as a call: `core/list`'s closure operations and the loops the
 /// derives use (`lower/lists.rs`).
@@ -1437,7 +1441,10 @@ impl FnLower<'_> {
     /// `Template` as producing a new reference, so a borrowing parent drops it.
     fn template(&mut self, ty: Type, parts: &[TemplatePart]) -> ValueId {
         let mut rendered: Vec<(ValueId, bool)> = Vec::new();
+        // Which parts are literals, whose block is null and needs no count.
+        let mut literal: Vec<bool> = Vec::new();
         for p in parts {
+            literal.push(matches!(p, TemplatePart::Text(_)));
             match p {
                 TemplatePart::Text(t) => {
                     let v = self.constant(ty, Const::Str(t.as_str().into()));
@@ -1461,6 +1468,9 @@ impl FnLower<'_> {
                     }
                 }
             }
+        }
+        if rendered.len() > CONCAT_CHAIN_MAX {
+            return self.template_joined(ty, &rendered, &literal);
         }
         let mut it = rendered.into_iter();
         let Some((mut acc, mut acc_is_mine)) = it.next() else {
@@ -1496,6 +1506,47 @@ impl FnLower<'_> {
             self.push(Inst::IncRef { value: acc });
         }
         acc
+    }
+
+    /// A template of more than [`CONCAT_CHAIN_MAX`] parts: the parts go into
+    /// a `[Str]` and the runtime joins them in one pass (`list.join` with an
+    /// empty separator).
+    ///
+    /// Both backends open-code each `str.concat`, at about a hundred LLVM
+    /// instructions apiece, so a chain is code linear in the parts with a
+    /// large constant. A derived `Show` on a 200-field struct joins 401 parts,
+    /// and its chain was 42k instructions that took `--release` most of a
+    /// minute to optimise. The list costs a store and a count per part.
+    ///
+    /// The list owns its elements, so a part this template only borrows gets
+    /// a count of its own going in, and dropping the list afterwards gives
+    /// every part back, including the rendered ones this template owned. A
+    /// literal's block is null, so it needs no count either way.
+    fn template_joined(
+        &mut self,
+        ty: Type,
+        rendered: &[(ValueId, bool)],
+        literal: &[bool],
+    ) -> ValueId {
+        let list_t = self.type_of(&Ty::array(self.tables.prim(Prim::Str)));
+        for ((v, mine), literal) in rendered.iter().zip(literal) {
+            if !mine && !literal {
+                self.push(Inst::IncRef { value: *v });
+            }
+        }
+        let elems = rendered.iter().map(|(v, _)| *v).collect();
+        let list = self.emit(list_t, |dest| Inst::MakeArray { dest, elems });
+        // `list.join` takes a context, and the runtime has no use for one
+        // (`runtime_table`'s `Arg::Dropped`), so nothing stands in for it.
+        let ctx = self.constant(Type::Unit, Const::Unit);
+        let separator = self.constant(ty, Const::Str(Box::default()));
+        let joined = self.emit(ty, |dest| Inst::CallIntrinsic {
+            dest,
+            key: "list.join".into(),
+            args: Box::new([list, ctx, separator]),
+        });
+        self.push(Inst::DecRef { value: list, drop: None });
+        joined
     }
 
     /// `Continue`: a back edge, or a tail call into the function a merged
