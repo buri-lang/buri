@@ -2234,6 +2234,14 @@ impl<'a> Jit<'a> {
         if register_count < 2 || nb == 0 {
             return (0, 0);
         }
+        // Only a back edge into a block with parameters can make a candidate
+        // below, and most functions have none: they skip the tables.
+        let back_edge = code.blocks.iter().enumerate().any(|(p, b)| {
+            b.term.targets().any(|t| t.block.index() <= p && !code.get(t.block).params.is_empty())
+        });
+        if !back_edge {
+            return (0, 0);
+        }
         let barrier: Vec<bool> =
             code.blocks.iter().map(|b| b.insts.iter().any(is_barrier)).collect();
         let mut preds: Vec<Vec<usize>> = vec![Vec::new(); nb];
