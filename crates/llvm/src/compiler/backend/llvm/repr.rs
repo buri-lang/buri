@@ -34,8 +34,8 @@
 //! offset 8 and variant 1 an `F64` — so there is no one typed decomposition of
 //! it, and any attempt to find one has to answer "what is the type of the slot
 //! two variants disagree about". [`SlotTy::Blob`] declines the question: the
-//! payload area is one `iN` of exactly its bytes, a variant's fields are shifted
-//! into and out of it, and the only variant whose fields are ever read is the
+//! payload area is one `iN` of exactly its bytes (past [`WIDEST_INT_BLOB`], an
+//! array of narrower integers), a variant's fields are shifted into and out of it, and the only variant whose fields are ever read is the
 //! one a `Switch` on the tag has just established (`ir.rs`, [`ir::Inst::GetPayload`]).
 //!
 //! What that costs is alias information *inside* a tagged enum: a `Str` in a
@@ -49,7 +49,7 @@
 
 use inkwell::context::Context;
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::{BasicValue, BasicValueEnum, IntValue, PointerValue};
+use inkwell::values::{ArrayValue, BasicValue, BasicValueEnum, IntValue, PointerValue};
 
 
 use crate::compiler::backend::counts::{Counted, Counts, Site};
@@ -447,17 +447,47 @@ pub fn slot_type<'ctx>(ctx: &'ctx Context, ty: SlotTy) -> BasicTypeEnum<'ctx> {
         SlotTy::Scalar(Scalar::F32) => ctx.f32_type().into(),
         SlotTy::Scalar(Scalar::F64) => ctx.f64_type().into(),
         SlotTy::Scalar(Scalar::Ptr) => ctx.ptr_type(inkwell::AddressSpace::default()).into(),
-        SlotTy::Blob(bytes) => blob_type(ctx, bytes).into(),
+        SlotTy::Blob(bytes) => blob_type(ctx, bytes),
     }
 }
 
-/// `iN` for a payload area of `bytes` bytes.
+/// The widest payload area held as one integer. A wider one is an array.
+///
+/// InstCombine's cost on an `iN` grows with `N` *and* with the number of
+/// fields shifted into it, so a struct of 200 strings in a `Result` — 600
+/// `shl`/`or`s into an `i38400`, then 600 `lshr`/`trunc`s out of it — took
+/// a minute to optimize (PERFORMANCE.md §6.29). 64 bytes keeps every payload
+/// up to eight words in the integer form a small `Result` or `Option` already
+/// had.
+pub const WIDEST_INT_BLOB: u32 = 64;
+
+/// How a payload area wider than [`WIDEST_INT_BLOB`] is held: an array of
+/// `count` integers of `bytes` each, the widest of 8, 4, 2 and 1 that divides
+/// the area. `None` for an area held as one integer.
+pub fn blob_elements(bytes: u32) -> Option<(u32, u32)> {
+    if bytes <= WIDEST_INT_BLOB {
+        return None;
+    }
+    let each = [8, 4, 2, 1].into_iter().find(|e| bytes.is_multiple_of(*e)).unwrap_or(1);
+    Some((each, bytes.checked_div(each).unwrap_or(bytes)))
+}
+
+/// The register type of a payload area of `bytes` bytes: one `iN`, or past
+/// [`WIDEST_INT_BLOB`] an array of [`blob_elements`].
+pub fn blob_type(ctx: &Context, bytes: u32) -> BasicTypeEnum<'_> {
+    match blob_elements(bytes) {
+        Some((each, count)) => int_type(ctx, each).array_type(count).into(),
+        None => int_type(ctx, bytes).into(),
+    }
+}
+
+/// `iN` for `bytes` bytes.
 ///
 /// `NonZeroU32::new` is checked rather than asserted because the lint set
 /// forbids a panic; a zero-byte blob is not produced (a payload area of no
 /// bytes is the bare-integer niche) and `i8` is the harmless answer if one
 /// ever were.
-pub fn blob_type(ctx: &Context, bytes: u32) -> inkwell::types::IntType<'_> {
+pub fn int_type(ctx: &Context, bytes: u32) -> inkwell::types::IntType<'_> {
     match std::num::NonZeroU32::new(bytes.saturating_mul(8)) {
         Some(bits) => ctx.custom_width_int_type(bits).unwrap_or_else(|_| ctx.i8_type()),
         None => ctx.i8_type(),
@@ -626,7 +656,7 @@ pub fn slot_to_bits<'ctx>(
     value: BasicValueEnum<'ctx>,
 ) -> IntValue<'ctx> {
     let bits = slot.ty.size().saturating_mul(8);
-    let int = blob_type(ctx, slot.ty.size());
+    let int = int_type(ctx, slot.ty.size());
     match value {
         BasicValueEnum::PointerValue(p) => {
             builder.build_ptr_to_int(p, ctx.i64_type(), "p2i").unwrap_or_else(|_| int.const_zero())
@@ -679,4 +709,268 @@ pub fn slot_from_bits<'ctx>(
         }
         other => other.const_zero(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// A payload area wider than `WIDEST_INT_BLOB`
+// ---------------------------------------------------------------------------
+//
+// The area is an array of `e`-byte integers ([`blob_elements`]). A field goes
+// in as pieces of at most `e` bytes each, and a piece lands in one element or
+// straddles two. Every shift here is on an `e`-byte integer, so nothing wider
+// than a word reaches InstCombine however wide the payload.
+
+/// Puts `value`, held as `slot`, at byte `at` of a wide payload area whose
+/// bytes there are still zero.
+pub fn put_in_blob<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    blob: ArrayValue<'ctx>,
+    at: u32,
+    slot: Slot,
+    value: BasicValueEnum<'ctx>,
+) -> ArrayValue<'ctx> {
+    let each = element_bytes(blob);
+    let mut blob = blob;
+    for (offset, piece) in pieces_of(ctx, builder, slot, value, each) {
+        blob = put_piece(ctx, builder, blob, each, at.saturating_add(offset), piece);
+    }
+    blob
+}
+
+/// The value held as `want` at byte `at` of a wide payload area.
+pub fn take_from_blob<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    blob: ArrayValue<'ctx>,
+    at: u32,
+    want: Slot,
+) -> BasicValueEnum<'ctx> {
+    let each = element_bytes(blob);
+    match slot_type(ctx, want.ty) {
+        BasicTypeEnum::ArrayType(array) => {
+            let inner = blob_elements(want.ty.size()).map_or(1, |(e, _)| e);
+            let mut out = array.const_zero();
+            for k in 0..array.len() {
+                let start = at.saturating_add(k.saturating_mul(inner));
+                let element = take_int(ctx, builder, blob, each, start, inner);
+                out = insert(builder, out, element.into(), k);
+            }
+            out.into()
+        }
+        _ => {
+            let bits = take_int(ctx, builder, blob, each, at, want.ty.size());
+            slot_from_bits(ctx, builder, want, bits)
+        }
+    }
+}
+
+/// The width of one element of a wide payload area.
+fn element_bytes(blob: ArrayValue<'_>) -> u32 {
+    match blob.get_type().get_element_type() {
+        BasicTypeEnum::IntType(i) => i.get_bit_width().checked_div(8).unwrap_or(1).max(1),
+        _ => 1,
+    }
+}
+
+/// `value` as integers of at most `each` bytes, with their byte offsets in it.
+fn pieces_of<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    slot: Slot,
+    value: BasicValueEnum<'ctx>,
+    each: u32,
+) -> Vec<(u32, IntValue<'ctx>)> {
+    match value {
+        BasicValueEnum::ArrayValue(array) => {
+            let inner = element_bytes(array);
+            let mut out = Vec::new();
+            for k in 0..array.get_type().len() {
+                let Ok(BasicValueEnum::IntValue(element)) =
+                    builder.build_extract_value(array, k, "blob.e")
+                else {
+                    continue;
+                };
+                let base = k.saturating_mul(inner);
+                for (offset, piece) in split(ctx, builder, element, inner, each) {
+                    out.push((base.saturating_add(offset), piece));
+                }
+            }
+            out
+        }
+        other => {
+            let bits = slot_to_bits(ctx, builder, slot, other);
+            split(ctx, builder, bits, slot.ty.size(), each)
+        }
+    }
+}
+
+/// An integer of `bytes` bytes as pieces of at most `each` bytes.
+fn split<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    bits: IntValue<'ctx>,
+    bytes: u32,
+    each: u32,
+) -> Vec<(u32, IntValue<'ctx>)> {
+    if bytes <= each {
+        return vec![(0, bits)];
+    }
+    (0..bytes)
+        .step_by(each as usize)
+        .map(|offset| {
+            let moved = shift_right(builder, bits, offset);
+            let narrow = int_type(ctx, each.min(bytes.saturating_sub(offset)));
+            let piece = builder
+                .build_int_truncate_or_bit_cast(moved, narrow, "blob.cut")
+                .unwrap_or_else(|_| narrow.const_zero());
+            (offset, piece)
+        })
+        .collect()
+}
+
+/// Ors a piece of at most `each` bytes into the elements it covers at byte
+/// `at`. A piece that fills an element whole replaces it.
+fn put_piece<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    blob: ArrayValue<'ctx>,
+    each: u32,
+    at: u32,
+    piece: IntValue<'ctx>,
+) -> ArrayValue<'ctx> {
+    let index = at.checked_div(each).unwrap_or(0);
+    let within = at.checked_rem(each).unwrap_or(0);
+    let bytes = piece.get_type().get_bit_width().checked_div(8).unwrap_or(0);
+    if within == 0 && bytes == each {
+        return insert(builder, blob, piece.into(), index);
+    }
+    let element = int_type(ctx, each);
+    let wide = builder
+        .build_int_z_extend_or_bit_cast(piece, element, "blob.w")
+        .unwrap_or_else(|_| element.const_zero());
+    let low = shift_left(builder, wide, within);
+    let mut blob = or_into(builder, blob, index, low);
+    if within.saturating_add(bytes) > each {
+        let high = shift_right(builder, wide, each.saturating_sub(within));
+        blob = or_into(builder, blob, index.saturating_add(1), high);
+    }
+    blob
+}
+
+/// The `bytes` bytes at byte `at`, as one integer.
+fn take_int<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    blob: ArrayValue<'ctx>,
+    each: u32,
+    at: u32,
+    bytes: u32,
+) -> IntValue<'ctx> {
+    if bytes <= each {
+        return take_piece(ctx, builder, blob, each, at, bytes);
+    }
+    let whole = int_type(ctx, bytes);
+    let mut acc = whole.const_zero();
+    for offset in (0..bytes).step_by(each as usize) {
+        let piece =
+            take_piece(ctx, builder, blob, each, at.saturating_add(offset), each.min(bytes.saturating_sub(offset)));
+        let wide = builder
+            .build_int_z_extend_or_bit_cast(piece, whole, "blob.w")
+            .unwrap_or_else(|_| whole.const_zero());
+        let placed = shift_left(builder, wide, offset);
+        acc = builder.build_or(acc, placed, "blob.or").unwrap_or(acc);
+    }
+    acc
+}
+
+/// The `bytes` bytes at byte `at`, where `bytes` is at most `each`: from one
+/// element, or from the two it straddles.
+fn take_piece<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    blob: ArrayValue<'ctx>,
+    each: u32,
+    at: u32,
+    bytes: u32,
+) -> IntValue<'ctx> {
+    let index = at.checked_div(each).unwrap_or(0);
+    let within = at.checked_rem(each).unwrap_or(0);
+    let element = int_type(ctx, each);
+    let first = extract(builder, blob, index, element);
+    if within == 0 && bytes == each {
+        return first;
+    }
+    let mut bits = shift_right(builder, first, within);
+    if within.saturating_add(bytes) > each {
+        let next = extract(builder, blob, index.saturating_add(1), element);
+        let high = shift_left(builder, next, each.saturating_sub(within));
+        bits = builder.build_or(bits, high, "blob.or").unwrap_or(bits);
+    }
+    let narrow = int_type(ctx, bytes);
+    builder.build_int_truncate_or_bit_cast(bits, narrow, "blob.cut").unwrap_or(bits)
+}
+
+/// `bits << bytes * 8`, or `bits` itself for no shift.
+fn shift_left<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    bits: IntValue<'ctx>,
+    bytes: u32,
+) -> IntValue<'ctx> {
+    if bytes == 0 {
+        return bits;
+    }
+    let by = bits.get_type().const_int(u64::from(bytes).saturating_mul(8), false);
+    builder.build_left_shift(bits, by, "blob.shl").unwrap_or(bits)
+}
+
+/// `bits >> bytes * 8`, logical, or `bits` itself for no shift.
+fn shift_right<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    bits: IntValue<'ctx>,
+    bytes: u32,
+) -> IntValue<'ctx> {
+    if bytes == 0 {
+        return bits;
+    }
+    let by = bits.get_type().const_int(u64::from(bytes).saturating_mul(8), false);
+    builder.build_right_shift(bits, by, false, "blob.shr").unwrap_or(bits)
+}
+
+/// Element `index` of a wide payload area.
+fn extract<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    blob: ArrayValue<'ctx>,
+    index: u32,
+    element: inkwell::types::IntType<'ctx>,
+) -> IntValue<'ctx> {
+    match builder.build_extract_value(blob, index, "blob.e") {
+        Ok(BasicValueEnum::IntValue(i)) => i,
+        _ => element.const_zero(),
+    }
+}
+
+/// The area with element `index` replaced by `value`.
+fn insert<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    blob: ArrayValue<'ctx>,
+    value: BasicValueEnum<'ctx>,
+    index: u32,
+) -> ArrayValue<'ctx> {
+    builder
+        .build_insert_value(blob, value, index, "blob")
+        .map(|v| v.into_array_value())
+        .unwrap_or(blob)
+}
+
+/// The area with `bits` ored into element `index`.
+fn or_into<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    blob: ArrayValue<'ctx>,
+    index: u32,
+    bits: IntValue<'ctx>,
+) -> ArrayValue<'ctx> {
+    let current = extract(builder, blob, index, bits.get_type());
+    let merged = builder.build_or(current, bits, "blob.or").unwrap_or(bits);
+    insert(builder, blob, merged.into(), index)
 }
