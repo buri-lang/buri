@@ -317,7 +317,9 @@
 //! `onClose` — runs on the one worker that accepted it, so the hooks on one
 //! socket run in order by construction rather than by a lock. The bill: a
 //! server holding `listener.handlers` sockets has no worker left to accept
-//! with.
+//! with. A native `--release` server has 1024 workers per listener, and a
+//! worker waiting on an idle socket holds no thread. The development backend
+//! runs the workers one after another, so it serves one socket at a time.
 //!
 //! A shutdown closes any open socket with `.GoingAway` — the WebSocket half of
 //! the GOAWAY an HTTP/2 connection gets — so a drain does not wait out its
@@ -511,10 +513,10 @@ fn planned<C: Allocator, S>(ctx: C, server: Server<C, S>): [Serve] {
 /// The most workers this module will start, whatever a `Listener` says.
 ///
 /// A `Listener` is inert data and a program may write one for itself, so `run`
-/// believes its `handlers` only inside a range it can host: sixty-four, which is
+/// believes its `handlers` only inside a range it can host: 1024, which is
 /// the runtime's own ceiling too. The clamp is here because this module cannot
 /// check what minted the value.
-let MAX_HANDLERS: Int = 64;
+let MAX_HANDLERS: Int = 1024;
 
 /// `asked`, believed inside the range above. At least one: a server with no
 /// workers is a port nobody is listening on.

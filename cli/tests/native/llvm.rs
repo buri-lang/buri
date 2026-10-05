@@ -4225,7 +4225,7 @@ fn a_secured_server_opens_its_port_and_says_why_when_it_cannot() {
 /// the acceptor says it will host, so the fifty exchanges below overlap. The
 /// assertion is the clock and it is a wide one on purpose: fifty two-hundred
 /// millisecond sleeps one after another is ten seconds, the acceptor's
-/// sixty-four workers running them together is a little over two hundred
+/// workers running them together is a little over two hundred
 /// milliseconds, and four seconds is a line no loaded machine crosses from the
 /// fast side and none stays under from the slow one.
 ///
@@ -4398,6 +4398,124 @@ fn a_broadcast_actor_reaches_a_socket_it_did_not_publish_on() {
         "the server did not run to its own end:\n{}",
         out.stdout
     );
+}
+
+/// An echo server that serves `sockets` WebSockets, one more, and one plain
+/// request, then stops once every socket has closed.
+///
+/// No hook waits on anything, so a socket that stays open is a socket that is
+/// idle between messages.
+fn many_sockets_server(sockets: usize) -> String {
+    format!(
+        r#"from "platform/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/str" import * as str;
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{
+        Allocator: host.alloc,
+        Listen: host.listen,
+        Sockets: host.sockets,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    }};
+    let plan = server.Server {{
+        port: 0,
+        onRequest: fn(c, _request) => http.text(c, "plain"),
+        requestLimit: .Some({limit}),
+        websocket: .Some(server.WebSocket {{
+            path: "/socket",
+            onOpen: fn(_c, _socket, _request) => 0,
+            onMessage: fn(c, socket, seen, message) => {{
+                match (message) {{
+                    .Text(text) => {{
+                        let _sent = socket.send(c, .Text(str.format(c, "echo ${{text}}")));
+                        seen + 1
+                    }},
+                    .Binary(_data) => seen,
+                }}
+            }},
+            onClose: fn(_c, _socket, seen, _reason) => seen,
+        }}),
+    }};
+    match (server.bind(ctx, plan)) {{
+        .Err(e) => .Err(server.errorText(e)),
+        .Ok(listener) => {{
+            let _announced = io.println(ctx, "port ${{listener.port}}").ignore();
+            match (server.run(ctx, listener, plan)) {{
+                .Err(e) => .Err(server.errorText(e)),
+                .Ok(_last) => {{
+                    let _done = io.println(ctx, "served").ignore();
+                    .Ok(())
+                }},
+            }}
+        }},
+    }}
+}}
+"#,
+        limit = sockets + 2,
+    )
+}
+
+/// **Open, idle WebSockets don't stop a server answering.**
+/// buri-lang/buri#224.
+///
+/// Two hundred sockets stay open, which is far more than the sixty-four a
+/// server used to stop at. A further upgrade is still answered, every socket
+/// still echoes, and so does a plain `GET` on the same port.
+///
+/// Two hundred and one sockets, on both ends of loopback, fit under the
+/// smallest descriptor limit a test process starts with (256 on macOS).
+///
+/// LLVM's alone, for [`a_broadcast_actor_reaches_a_socket_it_did_not_publish_on`]'s
+/// reason: the frame-threaded backend answers one socket at a time.
+#[test]
+fn a_server_holding_two_hundred_open_websockets_still_answers() {
+    skip_unless_executable!();
+    const OPEN: usize = 200;
+    let binary = build_at("socket-many", &many_sockets_server(OPEN), None, Profile::Release);
+    let running = crate::shared::announced(&binary);
+    let port = running.2;
+    let mut open: Vec<crate::shared::Talking> =
+        (0..OPEN).map(|_| crate::shared::Talking::to(port)).collect();
+    // The upgrade past all of them, and a message on it.
+    let mut last = crate::shared::Talking::to(port);
+    last.say("last");
+    let heard_last = last.heard();
+    // A plain request on the same port, with every socket still open.
+    let plain = {
+        use std::io::{Read, Write};
+        let mut socket = std::net::TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).unwrap();
+        socket.write_all(b"GET / HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").expect("the request");
+        let mut back = String::new();
+        let _ = socket.read_to_string(&mut back);
+        back
+    };
+    // Every socket that was opened first is still served.
+    let mut echoed = 0;
+    for (i, client) in open.iter_mut().enumerate() {
+        client.say(&i.to_string());
+        if client.heard() == Some(format!("echo {i}")) {
+            echoed += 1;
+        }
+    }
+    last.hush();
+    for client in &mut open {
+        client.hush();
+    }
+    let out = crate::shared::finished(running);
+    assert_eq!(heard_last.as_deref(), Some("echo last"), "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert!(
+        plain.starts_with("HTTP/1.1 200 ") && plain.ends_with("plain"),
+        "the plain request was not answered:\n{plain}"
+    );
+    assert_eq!(echoed, OPEN, "not every open socket echoed");
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert!(out.stdout.ends_with("served\n"), "the server did not run to its end:\n{}", out.stdout);
 }
 
 // ---------------------------------------------------------------------------
