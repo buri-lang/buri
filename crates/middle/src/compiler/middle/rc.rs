@@ -2713,7 +2713,7 @@ impl Scan<'_> {
                                 self.flush(sid);
                                 continue;
                             }
-                            if alias_of(pattern, value).is_some_and(|(y, _)| aliases.contains(&y)) {
+                            if bound.iter().any(|b| aliases.contains(b)) {
                                 for b in &bound {
                                     live_after.remove(b);
                                 }
@@ -3109,8 +3109,26 @@ impl Scan<'_> {
                 for l in &held {
                     guarded.insert(*l);
                 }
+                // The names the pattern binds out of a consumed scrutinee take
+                // their counts at the arm's entry, which is *after* the guard:
+                // while it runs they are words of the scrutinee with no count of
+                // their own, so the guard holds them as borrowed. Owned, the
+                // guard's last read of one released it, on the path that falls
+                // through too — and the arm it fell to released the scrutinee
+                // that still held it, so a heap value the guard read was freed
+                // twice (issue #231).
+                let lent: Vec<LocalId> = if owns {
+                    bound
+                        .iter()
+                        .copied()
+                        .filter(|b| !fresh_bound.contains(b) && self.owned.remove(b))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
                 lb = self.expr(g, gid, &guarded, Mode::Borrow);
                 self.flush(gid);
+                self.owned.extend(lent);
                 for l in &held {
                     if !body_live.contains(l) && !live.contains(l) {
                         self.push(bid, Position::Before, RcOp::DecRef, Target::Local(*l));
@@ -3126,10 +3144,12 @@ impl Scan<'_> {
                 }
             }
             if let Some(t) = token {
+                // What the *body* reads: the guard has run by the entry, and
+                // held what it read as borrowed.
                 let used: Vec<LocalId> = bound
                     .iter()
                     .copied()
-                    .filter(|b| lb.contains(b) && !fresh_bound.contains(b))
+                    .filter(|b| body_live.contains(b) && !fresh_bound.contains(b))
                     .collect();
                 for b in used {
                     if self.is_counted(b) {
@@ -3499,31 +3519,48 @@ impl Scan<'_> {
         after
     }
 
-    /// The `let y = x;` statements of a block that bind a second name for a
-    /// local that outlives the block, so `y` can be held the way a borrowed
-    /// parameter is: no count of its
-    /// own, nothing to release where it dies, and a retain wherever something
-    /// takes it.
+    /// The `let y = x;` and `let (a, b) = x;` statements of a block that bind
+    /// names for `x`, or for pieces of it, while something else holds `x`'s
+    /// count, so each name can be held the way a borrowed parameter is: no
+    /// count of its own, nothing to release where it dies, and a retain
+    /// wherever something takes it.
     ///
     /// `middle::inline` writes this shape for every receiver it pastes in —
     /// `acc.last()` becomes `{ let self = acc; … }` — and taking a count there
     /// made `acc` look shared while the pasted body ran. On JavaScript that
     /// mark is sticky, so the push that followed copied the whole list.
     ///
-    /// Sound for the reason a borrowed parameter is: `x` is live after the
-    /// whole block, so the count it holds is still held at every use of `y`,
-    /// and no use of `x` inside the block can be a last one that gives it
-    /// away. Each one found is taken out of [`Scan::owned`], which is what
-    /// makes every later question about `y` answer as it does for a borrowed
+    /// Sound for the reason a borrowed parameter is, in either of two cases:
+    ///
+    ///  * **`x` is live after the whole block**, so the count it holds is
+    ///    still held at every use of the names, and no use of `x` inside the
+    ///    block can be a last one that gives it away.
+    ///  * **`x` holds no count of its own** — a borrowed parameter, or a name
+    ///    that is itself one of these. Whoever does hold it holds it for the
+    ///    whole of `x`'s scope, and the names live inside that scope. Taking a
+    ///    count here instead put a list a step was lent at two while the step
+    ///    pushed onto it, so a fold whose step handed its list to a function
+    ///    the inliner pasted in, or took its accumulator apart with a `let`,
+    ///    copied the list on every push (buri-lang/buri#236, #237).
+    ///
+    /// Each name found is taken out of [`Scan::owned`], which is what makes
+    /// every later question about it answer as it does for a borrowed
     /// parameter.
     fn aliases(&mut self, stmts: &[Stmt], live: &Live) -> Vec<LocalId> {
         let mut out = Vec::new();
         for s in stmts {
             let Stmt::Let { pattern, value, .. } = s else { continue };
-            let Some((y, x)) = alias_of(pattern, value) else { continue };
-            if self.is_counted(x) && self.is_counted(y) && live.contains(&x) {
-                self.owned.remove(&y);
-                out.push(y);
+            let ExprKind::Local(x) = value.kind else { continue };
+            if !self.is_counted(x) || (self.owned.contains(&x) && !live.contains(&x)) {
+                continue;
+            }
+            let mut bound: Vec<LocalId> = Vec::new();
+            pattern.binds(&mut bound);
+            for y in bound {
+                if self.is_counted(y) {
+                    self.owned.remove(&y);
+                    out.push(y);
+                }
             }
         }
         out
@@ -3755,15 +3792,6 @@ fn field_root(e: &Expr) -> Option<LocalId> {
     match &e.kind {
         ExprKind::Local(l) => Some(*l),
         ExprKind::Field { base, .. } | ExprKind::TupleIndex { base, .. } => field_root(base),
-        _ => None,
-    }
-}
-
-/// `let y = x;`, as `(y, x)`: one name bound to another local, with no
-/// pattern to test. See [`Scan::aliases`].
-fn alias_of(pattern: &typed::Pattern, value: &Expr) -> Option<(LocalId, LocalId)> {
-    match (&pattern.kind, &value.kind) {
-        (PatKind::Bind { local, sub: None }, ExprKind::Local(x)) => Some((*local, *x)),
         _ => None,
     }
 }
