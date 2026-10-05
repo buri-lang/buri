@@ -322,6 +322,13 @@ impl Backend for Stencil {
     /// toolchain whose `linux-arm64` stencils had changed serve a cached
     /// `linux-arm64` object built from the old ones, which is a wrong artifact
     /// rather than a slow build.
+    /// Its fork reads only the block's bit, and it never fans out
+    /// (`asm::FRAMES_PER_THREAD`), so it never makes the statement that would
+    /// let the runtime begin sharing.
+    fn forks_read_shared_mask(&self) -> bool {
+        false
+    }
+
     fn identity(&self) -> String {
         let mut id = String::from("stencil");
         for t in abi::StencilTarget::ALL {

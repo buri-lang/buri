@@ -471,7 +471,7 @@
 //! ```c
 //! int main(int argc, char** argv) {
 //!     buri_rt_argv_init(argc, argv);        /* first statement */
-//!     buri_rt_values_may_cross_tasks();     /* if they may — before any block */
+//!     buri_rt_values_may_cross_tasks();     /* if they may */
 //!     buri_rt_frames_are_per_thread();     /* if, and only if, they are */
 //!     ...                                   /* the program */
 //!     buri_rt_flush();                      /* before every return path */
@@ -501,18 +501,13 @@
 //! which backend says it and why the other cannot yet.
 //!
 //! [`memory::buri_rt_values_may_cross_tasks`] is the artifact's *other*
-//! statement about itself, and it is a different fact rather than the same one
-//! twice: this one says whether a block this program allocates can come to be
-//! reachable from a second thread, which `middle::rc::crosses_tasks` answers
-//! for the whole program, and **both** native backends make it for exactly the
-//! programs it is true of. Its effect is that every block carries
-//! `middle::layout::CAP_SHARED_FLAG`, so every reference operation takes the
-//! atomic arm and no in-place write fires on a borrowed value. Saying nothing
-//! is again the safe answer — `Tasks.parallel` refuses to fan out unless it has
-//! been said — so an entry point that forgets *this* one is also slow and not
-//! wrong. The one thing it must get right is the **order**: it comes before
-//! anything that allocates, which is why it sits next to `argv_init`, and
-//! `argv_init` itself builds no Buri block.
+//! statement about itself: its values may cross to a second thread, and its
+//! reference operations read `buri_rt_shared_mask`. The release backend makes
+//! it for a program that can reach a fan-out. It marks nothing. The runtime
+//! begins sharing at the first fan-out, and from then on every block counts as
+//! marked, so every count is atomic and no in-place write fires on a borrowed
+//! value. Saying nothing is again the safe answer: `Tasks.parallel` refuses to
+//! fan out unless it has been said.
 //!
 //! [`buri_rt_flush`] is required. Standard output and standard error are
 //! **buffered**, exactly as `$host` buffers them on JavaScript
