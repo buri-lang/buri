@@ -1933,6 +1933,10 @@ fn objects_named(
     // a test is added or removed, instead of serving a stale entry that names a
     // `test$N` no longer defined ([`test_entry_signature`], buri-lang/buri#175).
     let entry = test_entry_signature(program, &lowered);
+    // Every unit's forks read `buri_rt_shared_mask` in a program that can fan
+    // out, so the answer is in every unit's key (buri-lang/buri#243).
+    let shares = backend.forks_read_shared_mask()
+        && crate::compiler::backend::runtime_table::shares_counts(&lowered);
     let keys: Vec<(String, ActionKey)> = unit_hashes(&lowered, tables)
         .into_iter()
         .enumerate()
@@ -1943,6 +1947,8 @@ fn objects_named(
                 }
                 _ => ir_hash,
             };
+            let ir_hash =
+                if shares { hash_bytes(format!("{ir_hash}\nshares-counts").as_bytes()) } else { ir_hash };
             let key = codegen_key(output, flags, &name, &identity, prefix, &ir_hash, &layout_hash);
             (unit, key)
         })

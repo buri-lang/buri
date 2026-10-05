@@ -628,7 +628,7 @@ mod tests {
     #[test]
     fn a_unique_push_onto_a_marked_list_grows_in_place() {
         let _latch = crate::memory::latch();
-        crate::memory::buri_rt_values_may_cross_tasks();
+        crate::memory::share_now();
         let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
         let mut allocations = 0u32;
         for i in 0i64..1000 {
@@ -665,7 +665,7 @@ mod tests {
     fn threads_pushing_onto_one_borrowed_marked_list_each_get_their_own_element() {
         const THREADS: usize = 8;
         let _latch = crate::memory::latch();
-        crate::memory::buri_rt_values_may_cross_tasks();
+        crate::memory::share_now();
         for _round in 0..2000 {
             let base = nine();
             let start = std::sync::Barrier::new(THREADS);

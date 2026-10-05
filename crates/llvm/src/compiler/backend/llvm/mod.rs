@@ -206,6 +206,10 @@ impl Backend for Llvm {
         self.emit_units(program, tables, opts, Units::All)
     }
 
+    fn forks_read_shared_mask(&self) -> bool {
+        true
+    }
+
     fn adopt_lowering(&mut self, lowered: ir::Program) {
         self.adopted = Some(lowered);
     }
@@ -340,6 +344,9 @@ struct Shared<'p> {
     by_unit: Vec<Vec<usize>>,
     cycles: std::sync::Arc<layout::Cycles>,
     observed: Vec<attrs::Observed>,
+    /// `runtime_table::shares_counts`: whether every count's fork reads
+    /// `buri_rt_shared_mask`.
+    shares: bool,
 }
 
 /// One object per codegen unit, for a chosen subset of the units, from an
@@ -413,6 +420,7 @@ fn emit_selected(
         by_unit: program.funcs_by_unit(),
         cycles,
         observed,
+        shares: crate::compiler::backend::runtime_table::shares_counts(program),
     };
 
     let mut wanted: Vec<usize> =
@@ -521,6 +529,7 @@ fn emit_unit(
         &module_name,
         opts.profile,
         &shared.observed,
+        shared.shares,
         std::sync::Arc::clone(&shared.cycles),
         Rc::clone(&worker.counted),
     );

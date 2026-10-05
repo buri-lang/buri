@@ -97,9 +97,10 @@ pub const BURI_RT_CAP_FLAGS: u64 = BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA;
 // # The marking latch
 //
 // The escape bit asks *which blocks may be reached from more than one thread*.
-// This runtime answers it **per program**, not per block: an artifact whose
-// values can cross a task boundary marks every block it allocates, from its
-// first one, and an artifact whose values cannot marks none.
+// This runtime answers it **per process, from the moment sharing begins**: once
+// a second thread may run Buri code beside this one, every block counts as
+// marked, the ones allocated before that moment included. Before it, none
+// does.
 //
 // **Why the whole program and not the value.** MEMORY.md §5.5 states the
 // direction to be wrong in — *an over-set bit costs one copy; an under-counted
@@ -107,78 +108,102 @@ pub const BURI_RT_CAP_FLAGS: u64 = BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA;
 // that can be under-set. Marking has to be **transitive**: a `[Str]` handed to
 // a step is a block whose *elements* the step increfs, and a `Str` inside a
 // closure's environment is a block two threads count. So a per-value mark is
-// a type-directed recursive walk — the shape of `Helper::Walk`, which is G5's
-// `Helper::Copy` machinery and does not exist yet — and a *shallow* per-value
-// mark is exactly the under-count the design forbids. `middle::rc::sharing`
-// answers where a second *reference* comes into existence, which is a question
-// about sites; this one is about the transitive closure of a heap, and the
-// program-wide answer is the only sound one this tree can spell today.
+// a type-directed recursive walk, and a *shallow* one is exactly the
+// under-count the design forbids.
 //
-// **What it costs.** One relaxed load and one `or` per allocation — see
-// [`finish`] — on every program, and atomic reference counting throughout a
-// program that fans out. That second number is the one MEMORY.md §5.4 prices
-// at 2–3× the reference operation, and it is the price of the feature rather
-// than of this shape: a program that does not use `core/tasks` pays neither.
+// **Why from the first fan-out and not from the first block.** Until a second
+// thread runs Buri code, one thread does every count, and a plain count is
+// exact. The runtime starts that second thread in two places only, both behind
+// [`begin_sharing`]: `rt.rs`'s `Tasks.parallel` fan-out and a scope that runs
+// its tasks beside its body. `core/actor` starts none. Marking from the first
+// block made a program that only *could* fan out pay atomic counts and lose
+// its in-place writes from its first instruction: 1.5× the instructions of
+// its twin without `actor.start`, on a path that never started the actor
+// (buri-lang/buri#243).
 //
-// **Where the answer comes from.** `middle::rc::crosses_tasks` computes it
-// over the same exact post-monomorphization call graph `can_park` uses, both
-// native backends emit [`buri_rt_values_may_cross_tasks`] into `main` when it
-// is true, and `cli/runtime/lib.rs` §6 lists the call. **Silence is the safe
-// answer**: an entry point that forgets it gets a single-threaded program,
-// because `rt::fan_out` is gated on the same latch and falls back to running
-// the steps in order. That is the same fail-safe shape D4 gave
-// `buri_rt_frames_are_per_thread`, and for the same reason.
+// **How a block made before that moment is covered.** It carries no bit, so
+// the bit alone can't be the test. [`SHARED_MASK`] is exported as
+// `buri_rt_shared_mask`, and every reader of the mark ORs it into the `cap` it
+// tests: [`is_shared`] here, and the release backend's open-coded fork and
+// `Str` concatenation. From the store in [`begin_sharing`] on, every block is
+// marked as far as any reader can tell. The store happens on the one thread
+// running Buri code, before it hands a step to another thread through a
+// synchronising queue, so every thread that runs Buri code beside it reads the
+// mask set.
+//
+// **Where the permission comes from.** The release backend emits
+// [`buri_rt_values_may_cross_tasks`] into `main` for a program that can reach
+// a fan-out (`backend::runtime_table::shares_counts`). The call says *this
+// artifact's counts read `buri_rt_shared_mask`*, so the runtime may begin
+// sharing later; it marks nothing itself. **Silence is the safe answer**: an
+// entry point that doesn't make it gets a single-threaded program, because
+// both places that would begin sharing are gated on it and run their steps in
+// order instead. The development backend doesn't make it, and its fork reads
+// only the bit (`stencil/asm.rs`'s `Marking`).
 
-/// [`BURI_RT_CAP_SHARED`] once the artifact has said its values may cross a
-/// task boundary, and `0` before that — the whole of the marking policy, as
-/// one word.
+/// [`BURI_RT_CAP_SHARED`] once sharing has begun ([`begin_sharing`]), and `0`
+/// before that — the whole of the marking policy, as one word.
 ///
-/// A mask rather than a `bool` so that [`finish`] is an `or` and not a branch.
-static SHARED_MASK: AtomicU64 = AtomicU64::new(0);
+/// A mask rather than a `bool` so that [`finish`] and [`is_shared`] are an
+/// `or` and not a branch. Exported, because the release backend's open-coded
+/// reference operations OR it into the `cap` they test, which is how a block
+/// allocated before sharing began is counted atomically after it.
+#[unsafe(export_name = "buri_rt_shared_mask")]
+pub static SHARED_MASK: AtomicU64 = AtomicU64::new(0);
 
-/// The bit [`finish`] stamps into a fresh block's `cap`.
+/// The bit [`finish`] stamps into a fresh block's `cap`, and the bit
+/// [`is_shared`] adds to every block's.
 #[inline]
 fn shared_mask() -> u64 {
     SHARED_MASK.load(Ordering::Relaxed)
 }
 
-/// **This artifact's values may cross a task boundary**, so every block it
-/// allocates from here on is counted atomically.
+/// Whether the artifact said its counts honour [`SHARED_MASK`]
+/// ([`buri_rt_values_may_cross_tasks`]).
+static MAY_SHARE: AtomicBool = AtomicBool::new(false);
+
+/// **This artifact's values may cross a task boundary, and its reference
+/// operations read `buri_rt_shared_mask`**, so the runtime may begin sharing
+/// at its first fan-out.
 ///
-/// Emitted into `main` by both native backends, immediately after
-/// `buri_rt_argv_init` and before any Buri code runs, and only for a program
-/// `middle::rc::crosses_tasks` says can reach one. `cli/runtime/lib.rs` §6 is
-/// the contract; calling it twice is calling it once.
+/// Emitted into `main` by the release backend, immediately after
+/// `buri_rt_argv_init`, and only for a program that can reach a fan-out.
+/// `cli/runtime/lib.rs` §6 is the contract; calling it twice is calling it
+/// once. It marks no block: [`begin_sharing`] does, when a second thread is
+/// about to run Buri code.
 ///
-/// **The ordering requirement is the whole of the safety argument**: a block
-/// allocated before this call carries no mark and would be counted
-/// non-atomically on a thread. Nothing allocates before it — `argv_init`
-/// stores the arguments as Rust `Vec`s and builds no Buri block — and
-/// `rt::fan_out` refuses to fan out at all unless the latch is set, so a
-/// backend that got the order wrong is a slow program rather than a racing
-/// one. `the_latch_marks_every_block_it_precedes_and_none_before` pins the
-/// first half.
-///
-/// **Relaxed is the right ordering, and it is an argument rather than a
-/// default.** This store publishes nothing but itself — there is no other
-/// write a reader has to see with it — and every thread that reads it was
-/// started by `thread::Builder::spawn`, which is a synchronisation edge, from
-/// a thread that had already made this call. So a thread's first load happens
-/// after this store on every path there is, and an `Acquire` on the allocation
-/// path would buy an ordering nothing needs at the price of an `ldapr` per
-/// block.
+/// **Relaxed is enough.** This store publishes nothing but itself, and it is
+/// read only by the thread that runs `main`'s Buri code, or by one that thread
+/// handed a step to through a synchronising queue.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_values_may_cross_tasks() {
-    SHARED_MASK.store(BURI_RT_CAP_SHARED, Ordering::Relaxed);
+    MAY_SHARE.store(true, Ordering::Relaxed);
 }
 
 /// Whether [`buri_rt_values_may_cross_tasks`] has been called.
 ///
-/// `rt::fan_out`'s gate: a thread may run Buri code beside another one only
-/// where the blocks they both reach are marked.
+/// The gate in front of [`begin_sharing`]: a thread may run Buri code beside
+/// another one only where every reference operation can be told that it does.
 #[must_use]
 pub fn values_may_cross_tasks() -> bool {
-    shared_mask() != 0
+    MAY_SHARE.load(Ordering::Relaxed)
+}
+
+/// **A second thread is about to run Buri code beside this one**, so every
+/// block is marked from here on, whenever it was allocated.
+///
+/// Called by `rt.rs`'s two fan-outs, after [`values_may_cross_tasks`] said yes
+/// and before the first step goes to another thread. Calling it twice is
+/// calling it once, and it is never undone.
+///
+/// Relaxed, for [`buri_rt_values_may_cross_tasks`]'s reason: the thread that
+/// stores it is the one running Buri code, and every other thread that will
+/// run Buri code is handed its step through a queue, which is the
+/// synchronisation edge that makes the store visible there first. Before this
+/// store no other thread runs Buri code, so no count is ever taken plainly on
+/// one thread and atomically on another at the same time.
+pub fn begin_sharing() {
+    SHARED_MASK.store(BURI_RT_CAP_SHARED, Ordering::Relaxed);
 }
 
 /// The count and the mark of a live block, for a test that wants to say what
@@ -203,7 +228,16 @@ pub(crate) unsafe fn count_and_mark(p: *const u8) -> (u64, bool) {
 /// Put the latch back, for a test that has just set it.
 #[cfg(test)]
 pub(crate) fn forget_values_may_cross_tasks() {
+    MAY_SHARE.store(false, Ordering::Relaxed);
     SHARED_MASK.store(0, Ordering::Relaxed);
+}
+
+/// Both statements at once, for a test that wants every block marked now: the
+/// artifact's permission and the fan-out's [`begin_sharing`].
+#[cfg(test)]
+pub(crate) fn share_now() {
+    buri_rt_values_may_cross_tasks();
+    begin_sharing();
 }
 
 /// **The lock every case that touches the marking latch takes**, whichever
@@ -282,20 +316,21 @@ pub(crate) unsafe fn in_arena(p: *mut u8) -> bool {
     unsafe { is_arena(header(p)) }
 }
 
-/// Whether `h`'s block carries [`BURI_RT_CAP_SHARED`] — the G2 fork.
+/// Whether `h`'s block counts as carrying [`BURI_RT_CAP_SHARED`] — the G2
+/// fork.
 ///
-/// True for **every** block of a program whose artifact said its values may
-/// cross a task boundary, and false for every block of one that did not: the
-/// mark is applied in [`finish`], out of [`shared_mask`], so it is a property
-/// of the program rather than of the block. §"The marking latch" is the
-/// argument for that shape.
+/// True for **every** block once sharing has begun, and false for every block
+/// before: the block's own bit ORed with [`shared_mask`], so a block allocated
+/// before [`begin_sharing`] is marked after it too. §"The marking latch" is
+/// the argument for that shape, and the release backend's open-coded fork asks
+/// the same question the same way.
 ///
 /// # Safety
 /// `h` must point at a live block's header.
 #[inline]
 unsafe fn is_shared(h: *const Header) -> bool {
     // SAFETY: the caller promises a live header.
-    unsafe { (*h).cap & BURI_RT_CAP_SHARED != 0 }
+    unsafe { ((*h).cap | shared_mask()) & BURI_RT_CAP_SHARED != 0 }
 }
 
 /// Whether `h`'s block carries [`BURI_RT_CAP_SETTLED`].
@@ -3079,11 +3114,9 @@ pub unsafe extern "C" fn buri_rt_copy_block(
 /// to the runtime's own tables — `copyAcross`'s `arenaEnter(NO_SCOPE)`, which is
 /// an actor crossing inside a scope.
 ///
-/// The other half of §"Settled blocks"'s "only marked copies". A program that
-/// reaches `core/actor` is marked on a backend that can fan out, and the mark
-/// was the whole test; the development backend cannot fan out and does not
-/// mark (`stencil/asm.rs`'s `Marking`), but its crossings want the same
-/// sharing. A process that has made one has crossings to share blocks between,
+/// The other half of §"Settled blocks"'s "only marked copies". Blocks are
+/// marked only once a fan-out begins sharing, and a program with actors and
+/// no fan-out never does, but its crossings want the same sharing. A process that has made one has crossings to share blocks between,
 /// so its copies settle from then on. One that never makes one, such as a
 /// program whose only copy is `scoped`'s answer, still gets writable copies.
 static CROSSED: AtomicBool = AtomicBool::new(false);
@@ -5780,7 +5813,7 @@ mod tests {
             buri_rt_free(cold);
         }
 
-        buri_rt_values_may_cross_tasks();
+        share_now();
         // SAFETY: live.
         unsafe {
             let warm = buri_rt_copy_block(source, None);
@@ -5819,7 +5852,7 @@ mod tests {
             buri_rt_free(cold);
         }
 
-        buri_rt_values_may_cross_tasks();
+        share_now();
         // SAFETY: live.
         unsafe {
             let first = buri_rt_copy_block(source, None);
@@ -5851,7 +5884,7 @@ mod tests {
     #[test]
     fn a_push_onto_a_settled_list_copies_it() {
         let _latch = latch();
-        buri_rt_values_may_cross_tasks();
+        share_now();
         let source = buri_rt_alloc(64);
         // SAFETY: live, just allocated, and nothing else holds `settled`.
         unsafe {
@@ -5878,7 +5911,7 @@ mod tests {
         // Both locks, in `the_arena_bit_and_the_mark_are_independent`'s order.
         let _latch = latch();
         let _alone = arena_alone();
-        buri_rt_values_may_cross_tasks();
+        share_now();
         let source = buri_rt_alloc(64);
         let a = buri_rt_alloc_arena_create();
         let outer = buri_rt_alloc_arena_enter(a);
@@ -5931,7 +5964,7 @@ mod tests {
         }
 
         // Latched: both bits, and the uniqueness test refuses.
-        buri_rt_values_may_cross_tasks();
+        share_now();
         let warm = buri_rt_alloc(72);
         // SAFETY: live, just allocated.
         unsafe {
@@ -6061,12 +6094,15 @@ mod tests {
     /// rather than only in `rt.rs` because it is a property of this file and
     /// `rt.rs` is not compiled without `net`.
     ///
-    /// Three claims: nothing is marked before the call, everything is after
-    /// it, and the capacity a marked block reports is still the byte count it
-    /// was asked for — which is what keeps the release glue's `cap / stride`
-    /// walk and `buri_rt_free`'s layout recovery honest on a marked block.
+    /// Four claims: the artifact's statement alone marks nothing, nothing is
+    /// marked before sharing begins, everything is after it — a block made
+    /// before it included, which is what lets sharing begin at the first
+    /// fan-out rather than at startup (buri-lang/buri#243) — and the capacity
+    /// a marked block reports is still the byte count it was asked for, which
+    /// is what keeps the release glue's `cap / stride` walk and
+    /// `buri_rt_free`'s layout recovery honest on a marked block.
     #[test]
-    fn the_latch_marks_every_block_it_precedes_and_none_before() {
+    fn sharing_marks_every_block_including_the_ones_before_it() {
         let _latch = latch();
         assert!(!values_may_cross_tasks(), "the silent answer is the safe one");
         let before = buri_rt_alloc(96);
@@ -6075,9 +6111,28 @@ mod tests {
 
         buri_rt_values_may_cross_tasks();
         assert!(values_may_cross_tasks());
-        // Idempotent: an artifact makes one statement about itself, and a
-        // second call is the same statement.
-        buri_rt_values_may_cross_tasks();
+        // SAFETY: live.
+        unsafe {
+            assert_eq!(count_and_mark(before), (1, false), "the statement alone marked a block");
+            assert_eq!(buri_rt_unique_cap(before), Some(96));
+        }
+
+        begin_sharing();
+        // Idempotent: sharing begins once, and never ends.
+        share_now();
+        // SAFETY: live.
+        unsafe {
+            assert_eq!(
+                count_and_mark(before),
+                (1, true),
+                "a block made before sharing began was still counted plainly"
+            );
+            assert_eq!(buri_rt_unique_cap(before), None, "a marked block passed the unique test");
+            // Its count is the atomic arm's now, and still exact.
+            buri_rt_incref(before);
+            assert_eq!(count_and_mark(before), (2, true));
+            buri_rt_decref(before, None);
+        }
 
         for payload in [0u64, 1, 8, BURI_RT_GROWTH_FLOOR, 4096] {
             let p = buri_rt_alloc(payload);
@@ -6096,17 +6151,8 @@ mod tests {
             }
         }
 
-        // The block made before the latch is freed into this thread's cache
-        // and comes back through `finish`, so it comes back marked. A recycled
-        // block is a *new* value and the mark is the program's, not its own.
         // SAFETY: the only reference.
         unsafe { buri_rt_free(before) };
-        let again = buri_rt_alloc(96);
-        // SAFETY: live, just allocated.
-        assert_eq!(unsafe { count_and_mark(again) }, (1, true), "a recycled block came back cold");
-        // SAFETY: the only reference.
-        unsafe { buri_rt_free(again) };
-
         forget_values_may_cross_tasks();
         assert!(!values_may_cross_tasks());
     }
@@ -6123,7 +6169,7 @@ mod tests {
         let _latch = latch();
         const THREADS: usize = 8;
         const ROUNDS: usize = 2000;
-        buri_rt_values_may_cross_tasks();
+        share_now();
         let p = buri_rt_alloc(32);
         // SAFETY: live, just allocated under the latch.
         assert_eq!(unsafe { count_and_mark(p) }, (1, true));

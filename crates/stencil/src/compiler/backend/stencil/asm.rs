@@ -819,10 +819,10 @@ const PROT_NONE: u64 = 0;
 /// `Func`: its entry point.
 ///
 /// [`Marking::ValuesMayCrossTasks`] emits a `bl buri_rt_values_may_cross_tasks`
-/// immediately after `buri_rt_argv_init` and before anything that could
-/// allocate. The runtime then stamps `middle::layout::CAP_SHARED_FLAG` into
-/// every block the program makes, so every reference operation takes G2's
-/// atomic arm and no in-place write fires on a borrowed value.
+/// immediately after `buri_rt_argv_init`. That statement lets the runtime
+/// begin sharing at its first fan-out, after which every block counts as
+/// marked, so every reference operation takes G2's atomic arm and no in-place
+/// write fires on a borrowed value.
 ///
 /// **This backend asks for the mark only where it can fan out**, which today
 /// is nowhere: [`FRAMES_PER_THREAD`] is false. Without a frame of its own a
@@ -835,8 +835,12 @@ const PROT_NONE: u64 = 0;
 /// reference operation on the atomic arm, and no in-place growth, came to 7 %
 /// of the CPU of a batch of database tests that reached `core/actor`.
 ///
-/// The day this backend gives each thread a frame, [`FRAMES_PER_THREAD`] is the
-/// one edit, and it brings the mark back with the call it names.
+/// The day this backend gives each thread a frame, [`FRAMES_PER_THREAD`] brings
+/// the statement back, and it is **not** the one edit: a block allocated
+/// before sharing began carries no bit, so this backend's fork and its
+/// `Str` concatenation must then read `buri_rt_shared_mask` the way the
+/// release backend's do (`runtime::SHARED_MASK`, buri-lang/buri#243), and its
+/// `Backend::forks_read_shared_mask` must say so.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Marking {
     /// No statement: the program allocates unmarked blocks and counts them
