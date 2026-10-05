@@ -1897,7 +1897,7 @@ pub fn build(
             byname.insert(st.name.clone(), st.clone());
         }
     }
-    let mut lib = Library { config: config(target), ..Library::default() };
+    let mut lib = Library::new(config(target));
     for sh in shards.iter() {
         for (key, name) in sh.keys.iter().zip(sh.names.iter()) {
             let Some(base) = byname.get(name) else {
@@ -1950,9 +1950,7 @@ pub fn build(
             }
             for (k, mut v) in variants {
                 v.name.clone_from(&k);
-                let id = lib.stencils.len() as u32;
-                lib.stencils.push(v);
-                lib.index.insert(k, id);
+                lib.push(k, v);
             }
         }
     }

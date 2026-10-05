@@ -402,7 +402,7 @@ impl<'a> Jit<'a> {
 
     /// [`Jit::elidable_arm`], of the stencil at `at` in the library.
     pub(crate) fn elidable_at(&self, at: usize) -> Option<&'a str> {
-        let s = self.lib.stencils.get(at)?;
+        let s = self.lib.stencil(at)?;
         let n = s.holes.get(s.tail?)?.name.as_str();
         if let Some(f) = self.lib.fold_twin(at, super::library::FOLD_PLAIN) {
             if f.holes.get(f.tail?).map(|h| h.name.as_str()) != Some(n) {
