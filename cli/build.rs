@@ -1052,8 +1052,9 @@ fn stamp_of(
     // `--locked` (which is `relock`, already a term) and `--offline` (which is
     // not about the bytes, see the header).
     //
-    // `OUT_DIR` is written as a placeholder, here and in the environment, so
-    // that every `OUT_DIR` shares one key ([`SharedArchive`]).
+    // `OUT_DIR` and the target directory are written as placeholders, here and
+    // in the environment, so that every `OUT_DIR` in every target directory
+    // shares one key ([`SharedArchive`]).
     h.field(command.get_program().as_encoded_bytes());
     for arg in command.get_args() {
         h.field(&portable(arg, out_dir));
@@ -1066,24 +1067,40 @@ fn stamp_of(
     Some(h.finish())
 }
 
-/// `value` with every occurrence of `out_dir` replaced by `$OUT_DIR`.
+/// `value` with every occurrence of `out_dir` replaced by `$OUT_DIR`, and of
+/// the target directory holding it by `$TARGET_DIR`.
+///
+/// The second is for `DYLD_FALLBACK_LIBRARY_PATH` (`LD_LIBRARY_PATH` on
+/// Linux), which cargo points at `<target-dir>/<profile>/deps` for every
+/// build script it runs. The nested build has a target directory of its own
+/// and loads nothing from the outer one, and hashing the path gave every
+/// target directory its own key ([`SharedArchive`]).
 fn portable(value: &std::ffi::OsStr, out_dir: &Path) -> Vec<u8> {
-    let (value, out_dir) = (value.as_encoded_bytes(), out_dir.as_os_str().as_encoded_bytes());
+    let target = target_dir_of(out_dir).unwrap_or(Path::new(""));
+    let swaps: [(&[u8], &[u8]); 2] = [
+        (out_dir.as_os_str().as_encoded_bytes(), b"$OUT_DIR"),
+        (target.as_os_str().as_encoded_bytes(), b"$TARGET_DIR"),
+    ];
     let mut portable = Vec::with_capacity(value.len());
-    let mut rest = value;
-    while let Some((&first, tail)) = rest.split_first() {
-        match rest.strip_prefix(out_dir) {
-            Some(after) if !out_dir.is_empty() => {
-                portable.extend_from_slice(b"$OUT_DIR");
+    let mut rest = value.as_encoded_bytes();
+    'scan: while let Some((&first, tail)) = rest.split_first() {
+        for (from, to) in swaps.iter().filter(|(from, _)| !from.is_empty()) {
+            if let Some(after) = rest.strip_prefix(*from) {
+                portable.extend_from_slice(to);
                 rest = after;
-            }
-            _ => {
-                portable.push(first);
-                rest = tail;
+                continue 'scan;
             }
         }
+        portable.push(first);
+        rest = tail;
     }
     portable
+}
+
+/// The target directory `out_dir` is in: the nearest directory above it
+/// holding the `CACHEDIR.TAG` cargo writes when it creates one.
+fn target_dir_of(out_dir: &Path) -> Option<&Path> {
+    out_dir.ancestors().find(|dir| dir.join("CACHEDIR.TAG").is_file())
 }
 
 /// Hashes every file under `dir`, name and bytes, in sorted order.
@@ -1189,14 +1206,20 @@ const SCRATCH: &[&str] = &["TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP"];
 /// * `TERM`, `TERM_SESSION_ID`, `COLUMNS`, `LINES` and `SSH_TTY` describe the
 ///   terminal. They decide whether Cargo colours its own output and nothing
 ///   else; a new window changes them.
+/// * `out` is where `nix develop` would install a `nix build` of this
+///   checkout: `<checkout>/outputs/out`. Only the stdenv's own install phase
+///   reads it, and nothing here runs that phase. Hashing it gave every
+///   checkout its own key, so a new worktree couldn't reuse an archive another
+///   one built ([`SharedArchive`]).
 ///
 /// The list errs towards being too short rather than too long: every variable
 /// not named here is hashed, including ones that are probably irrelevant.
 /// Being wrong about one of these is an archive built with the wrong flags and
 /// a stamp that says it is fine — so a name only belongs here when it can be
 /// argued to reach *nothing*, not merely when it looks harmless.
-const SHELL_BOOKKEEPING: &[&str] =
-    &["_", "SHLVL", "PWD", "OLDPWD", "TERM", "TERM_SESSION_ID", "COLUMNS", "LINES", "SSH_TTY"];
+const SHELL_BOOKKEEPING: &[&str] = &[
+    "_", "SHLVL", "PWD", "OLDPWD", "TERM", "TERM_SESSION_ID", "COLUMNS", "LINES", "SSH_TTY", "out",
+];
 
 /// Where the stamp is written: beside the archive, like its digest and its
 /// feature list, and for the reason those are there — one run of this script
@@ -1606,30 +1629,84 @@ fn runtime_archive(manifest: &Path) {
     }
 }
 
-/// Archives kept by stamp under `<target-dir>/buri-runtime/`, shared by every
-/// `OUT_DIR` in the target directory.
+/// Archives kept by stamp, shared by every `OUT_DIR` in a target directory and
+/// by every target directory on the machine.
 ///
 /// Each profile and feature set gets its own `OUT_DIR`, so without this a
 /// test build, a dev build, a clippy run and a `backend-llvm` build each pay
-/// for a nested build of the same runtime. The stamp is path-independent, so
-/// it serves as the key.
+/// for a nested build of the same runtime. Every fresh target directory paid
+/// once more: a new checkout, a new worktree, a `cargo clean`. That nested
+/// build is the critical path of a cold build, about fifty seconds, because
+/// the toolchain's own crate can't compile until the archive exists.
+///
+/// So there are two stores, asked in order:
+///
+/// * `<target-dir>/buri-runtime/`. The target directory is the nearest one
+///   holding the `CACHEDIR.TAG` cargo writes when it creates the directory.
+///   Not `.rustc_info.json`, which cargo writes when it *exits*, so the first
+///   build in a fresh directory, the one that pays, never found it.
+/// * `~/.buri/toolchain-build/runtime/`, for the next target directory. A
+///   sandboxed build has no writable home and builds as it always did.
+///
+/// The stamp serves as the key in both, because it is path-independent: it
+/// writes `OUT_DIR` and the target directory as placeholders ([`portable`])
+/// and leaves out the variables that only name a checkout
+/// (`SHELL_BOOKKEEPING`). The bytes are path-independent too:
+/// the nested build remaps the runtime's own paths, its dependencies come from
+/// `CARGO_HOME`, and two checkouts of one commit produce one digest.
 struct SharedArchive {
+    stores: Vec<Store>,
+}
+
+impl SharedArchive {
+    /// Opens and locks the entry for `key` in every store it can. `None` when
+    /// it can't open any, which means building.
+    ///
+    /// Always in the same order, target directory first, so two scripts with
+    /// the same key never hold one lock each.
+    fn open(out_dir: &Path, key: &str) -> Option<Self> {
+        let target = target_dir_of(out_dir);
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let roots = [
+            target.map(|dir| dir.join("buri-runtime")),
+            home.map(|dir| dir.join(".buri/toolchain-build/runtime")),
+        ];
+        let stores: Vec<Store> =
+            roots.into_iter().flatten().filter_map(|root| Store::open(&root, key)).collect();
+        (!stores.is_empty()).then_some(SharedArchive { stores })
+    }
+
+    /// The first kept archive whose bytes still match their digest, copied
+    /// into the stores asked before it.
+    fn get(&self) -> Option<(Vec<u8>, String)> {
+        let (at, found) =
+            self.stores.iter().enumerate().find_map(|(at, store)| Some((at, store.get()?)))?;
+        for store in self.stores.iter().take(at) {
+            store.put(&found.0, &found.1);
+        }
+        Some(found)
+    }
+
+    fn put(&self, bytes: &[u8], digest: &str) {
+        for store in &self.stores {
+            store.put(bytes, digest);
+        }
+    }
+}
+
+/// One store's entry for a key, and the lock that makes it this script's.
+struct Store {
     entry: PathBuf,
     _lock: std::fs::File,
 }
 
-impl SharedArchive {
-    /// Opens and locks the entry for `key`. `None` when there is no target
-    /// directory to find or the lock can't be taken, which means building.
-    fn open(out_dir: &Path, key: &str) -> Option<Self> {
-        // Cargo writes `.rustc_info.json` at the root of the target directory.
-        let target = out_dir.ancestors().find(|dir| dir.join(".rustc_info.json").is_file())?;
-        let root = target.join("buri-runtime");
-        std::fs::create_dir_all(&root).ok()?;
-        prune(&root);
+impl Store {
+    fn open(root: &Path, key: &str) -> Option<Self> {
+        std::fs::create_dir_all(root).ok()?;
+        prune(root);
         let lock = std::fs::File::create(root.join(format!("{key}.lock"))).ok()?;
         lock.lock().ok()?;
-        Some(SharedArchive { entry: root.join(key), _lock: lock })
+        Some(Store { entry: root.join(key), _lock: lock })
     }
 
     /// The kept archive and its digest, when its bytes still match it.
