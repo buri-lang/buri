@@ -77,6 +77,7 @@
 //!   second changes length.
 
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
+use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Callee, Expr, ExprKind, PatKind, Pattern, Stmt,
 };
@@ -408,7 +409,7 @@ impl Fuse<'_> {
             locals: params
                 .into_iter()
                 .enumerate()
-                .map(|(i, ty)| typed::Local { name: format!("a{i}"), ty, span })
+                .map(|(i, ty)| typed::Local { name: Name::new(&format!("a{i}")), ty, span })
                 .collect(),
             kind: FuncKind::Intrinsic(combinator.key().to_string()),
             ret,
@@ -555,6 +556,7 @@ fn readonly(e: &Expr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::run;
+    use crate::compiler::semantics::name::Name;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::typed::{Callee, Expr, ExprKind, Local, Stmt};
     use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
@@ -606,7 +608,7 @@ mod tests {
             params: Vec::new(),
             locals: (0..8)
                 .map(|i| Local {
-                    name: format!("l{i}"),
+                    name: Name::new(&format!("l{i}")),
                     ty: Ty::UNIT,
                     span: Span::default(),
                 })

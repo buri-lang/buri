@@ -331,11 +331,11 @@ fn locals_at(analyzed: &Analyzed, path: &Path, cursor: u32) -> Vec<(String, Symb
                 continue;
             }
             let symbol = Symbol::Local {
-                name: local.name.clone(),
+                name: local.name.to_string(),
                 ty: local.ty,
                 span: local.span,
             };
-            out.push((local.name.clone(), symbol));
+            out.push((local.name.to_string(), symbol));
         }
     }
     out

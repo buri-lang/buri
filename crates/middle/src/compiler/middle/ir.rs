@@ -70,6 +70,7 @@
 
 use std::fmt::{self, Write as _};
 
+use crate::compiler::semantics::typed::Magnitude;
 use crate::compiler::semantics::types::{FuncIdx, Prim, Ty};
 use crate::hash::Map as HashMap;
 use crate::diagnostics::{Invariant as _, Span};
@@ -173,11 +174,11 @@ pub struct TypeInfo {
 pub enum Const {
     Unit,
     Bool(bool),
-    Int { bits: u128, negative: bool },
+    Int { bits: Magnitude, negative: bool },
     Float(f64),
     /// UTF-8 bytes. A literal is `IMMORTAL` with a null `base`
     /// (VALUE-MODEL.md §3), so it touches no allocator.
-    Str(String),
+    Str(Box<str>),
     Char(char),
     /// A null pointer: a closure with no environment, a literal `Str`'s base.
     Null,
@@ -375,23 +376,27 @@ pub enum Inst {
     /// A direct call. After monomorphization every call to a known function is
     /// one of these, because there is no dynamic dispatch in the language.
     Call {
-        dests: Vec<ValueId>,
+        dest: ValueId,
         func: FuncIdx,
         args: Vec<ValueId>,
     },
     /// A call through a closure value: load `code` and `env`, then
     /// `call_indirect`.
     CallIndirect {
-        dests: Vec<ValueId>,
+        dest: ValueId,
         callee: ValueId,
         args: Vec<ValueId>,
     },
     /// An operation the runtime supplies, by intrinsic key — `str.concat`,
     /// `host.HostFileSystem.readFile`. One symbol each (VALUE-MODEL.md §10).
+    ///
+    /// The key and the arguments are boxed slices rather than a `String` and
+    /// a `Vec`, which keeps this variant inside the 40 bytes every other
+    /// instruction fits in.
     CallIntrinsic {
-        dests: Vec<ValueId>,
-        key: String,
-        args: Vec<ValueId>,
+        dest: ValueId,
+        key: Box<str>,
+        args: Box<[ValueId]>,
     },
     /// See [`StructuralOp`]: `middle::derives` turns this into a
     /// [`Inst::Call`].
@@ -443,10 +448,10 @@ impl Inst {
             | Inst::ArraySlice { dest, .. }
             | Inst::ArrayAlloc { dest, .. }
             | Inst::ArrayPrefix { dest, .. }
-            | Inst::Structural { dest, .. } => std::slice::from_ref(dest),
-            Inst::Call { dests, .. }
-            | Inst::CallIndirect { dests, .. }
-            | Inst::CallIntrinsic { dests, .. } => dests,
+            | Inst::Structural { dest, .. }
+            | Inst::Call { dest, .. }
+            | Inst::CallIndirect { dest, .. }
+            | Inst::CallIntrinsic { dest, .. } => std::slice::from_ref(dest),
             Inst::IncRef { .. }
             | Inst::DecRef { .. }
             | Inst::Abort { .. }
@@ -484,9 +489,8 @@ impl Inst {
                 out.push(*index);
                 out.push(*value);
             }
-            Inst::Call { args, .. } | Inst::CallIntrinsic { args, .. } => {
-                out.extend_from_slice(args)
-            }
+            Inst::Call { args, .. } => out.extend_from_slice(args),
+            Inst::CallIntrinsic { args, .. } => out.extend_from_slice(args),
             Inst::CallIndirect { callee, args, .. } => {
                 out.push(*callee);
                 out.extend_from_slice(args);
@@ -1057,7 +1061,7 @@ fn verify_func(program: &Program, func: &Func) -> Vec<String> {
     // with the callee's signature.
     for (bi, b) in code.blocks.iter().enumerate() {
         for (ii, inst) in b.insts.iter().enumerate() {
-            if let Inst::Call { dests, func: callee, args } = inst {
+            if let Inst::Call { func: callee, args, .. } = inst {
                 match program.funcs.get(callee.index()) {
                     Some(c) => {
                         if args.len() != c.sig.params.len() {
@@ -1068,10 +1072,9 @@ fn verify_func(program: &Program, func: &Func) -> Vec<String> {
                                 c.sig.params.len()
                             ));
                         }
-                        if dests.len() != c.sig.rets.len() {
+                        if c.sig.rets.len() != 1 {
                             errs.push(format!(
-                                "{name}: b{bi} takes {} results from {}, which returns {}",
-                                dests.len(),
+                                "{name}: b{bi} takes one result from {}, which returns {}",
                                 c.debug_name,
                                 c.sig.rets.len()
                             ));
@@ -1415,13 +1418,6 @@ impl Program {
             value(out, *d);
             out.push_str(" = ");
         };
-        // A call's results, which may be none.
-        let dests = |out: &mut String, ds: &[ValueId]| {
-            if !ds.is_empty() {
-                values(out, ds);
-                out.push_str(" = ");
-            }
-        };
         match inst {
             Inst::Const { dest: d, value: c } => {
                 dest(out, d);
@@ -1523,20 +1519,20 @@ impl Program {
                 out.push_str("prefix ");
                 pair(out, *array, *len);
             }
-            Inst::Call { dests: ds, func, args } => {
-                dests(out, ds);
+            Inst::Call { dest: d, func, args } => {
+                dest(out, d);
                 out.push_str("call fn ");
                 self.sym_into(*func, out);
                 wrapped(out, args);
             }
-            Inst::CallIndirect { dests: ds, callee, args } => {
-                dests(out, ds);
+            Inst::CallIndirect { dest: d, callee, args } => {
+                dest(out, d);
                 out.push_str("call_indirect ");
                 value(out, *callee);
                 wrapped(out, args);
             }
-            Inst::CallIntrinsic { dests: ds, key, args } => {
-                dests(out, ds);
+            Inst::CallIntrinsic { dest: d, key, args } => {
+                dest(out, d);
                 let _ = write!(out, "intrinsic {key:?}");
                 wrapped(out, args);
             }
@@ -1672,7 +1668,8 @@ fn constant_into(c: &Const, out: &mut String) {
             if *negative {
                 out.push('-');
             }
-            match u64::try_from(*bits) {
+            let bits = bits.get();
+            match u64::try_from(bits) {
                 Ok(small) => num(out, small),
                 Err(_) => {
                     let _ = write!(out, "{bits}");
@@ -1807,7 +1804,7 @@ mod tests {
         let v = code.value(Type::I64);
         code.get_mut(b1).insts.push(Inst::Const {
             dest: v,
-            value: Const::Int { bits: 1, negative: false },
+            value: Const::Int { bits: Magnitude::new(1), negative: false },
         });
         code.get_mut(b1).term = Term::Return(vec![v]);
         code.get_mut(b2).term = Term::Return(vec![v]);
@@ -1861,7 +1858,7 @@ mod tests {
         let v = code.value(Type::I64);
         let entry = code.get_mut(BlockId(0));
         entry.insts.insert(0, Inst::Abort { message: "boom".into() });
-        entry.insts.push(Inst::Const { dest: v, value: Const::Int { bits: 0, negative: false } });
+        entry.insts.push(Inst::Const { dest: v, value: Const::Int { bits: Magnitude::new(0), negative: false } });
         let errs = verify(&p);
         assert!(errs.iter().any(|e| e.contains("continues after an abort")), "{errs:?}");
         assert!(errs.iter().any(|e| e.contains("does not end unreachable")), "{errs:?}");

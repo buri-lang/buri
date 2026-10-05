@@ -2065,12 +2065,12 @@ impl<'a> Jit<'a> {
             };
             let mut results: Vec<(usize, usize)> = Vec::new();
             for (j, i) in b.insts.iter().enumerate() {
-                let ir::Inst::Call { dests, func, .. } = i else { continue };
-                if !calls_code(func) {
+                let ir::Inst::Call { dest: d, func, .. } = *i else { continue };
+                if !calls_code(&func) {
                     continue;
                 }
                 let Some(fs) = self.frames.get(func.index()) else { continue };
-                let (Some(&d), Some(&off)) = (dests.first(), fs.ret.first()) else { continue };
+                let Some(&off) = fs.ret.first() else { continue };
                 let Some(dr) = read_at(d) else { continue };
                 let mut end = dr.last;
                 if !alone(d, pin) || dr.count != ent(&uses, d.index(), 0) || dr.first <= j {
@@ -3081,7 +3081,7 @@ fn keeps_callee_frame(i: &ir::Inst) -> bool {
 
 fn is_barrier(i: &ir::Inst) -> bool {
     match i {
-        ir::Inst::CallIntrinsic { key, .. } => key != "testing_assert.report",
+        ir::Inst::CallIntrinsic { key, .. } => &**key != "testing_assert.report",
         // A comparison of two `Str`s is a *call* — `stencil_str_cmp` — and every
         // stencil that calls uses the zero-register prototype, so nothing may
         // be live in the CPS file across one. Missing this is not a slow
@@ -3114,7 +3114,7 @@ fn literal(c: &ir::Const, ty: ir::Type) -> Option<u64> {
         ir::Const::Bool(b) => u64::from(*b),
         ir::Const::Char(ch) => u32::from(*ch) as u64,
         ir::Const::Int { bits, negative } => {
-            let x = *bits as u64;
+            let x = bits.get() as u64;
             if *negative {
                 x.wrapping_neg()
             } else {

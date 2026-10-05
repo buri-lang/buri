@@ -6,12 +6,37 @@
 //! already a primitive operation or a trait method; a `match` still has
 //! patterns but every path in one is resolved.
 
+use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::types::{FnId, FuncIdx, LocalId, Prim, TraitId, Ty, TyConId};
 use crate::diagnostics::Span;
 
+/// An integer literal's magnitude, kept as two 64-bit halves.
+///
+/// A `u128` field makes its whole node 16-byte aligned, and an IR instruction
+/// or an expression holding one rounds up around it. Two halves hold the same
+/// value at 8-byte alignment.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Magnitude([u64; 2]);
+
+impl Magnitude {
+    pub const fn new(value: u128) -> Magnitude {
+        Magnitude([value as u64, (value >> 64) as u64])
+    }
+
+    pub const fn get(self) -> u128 {
+        ((self.0[1] as u128) << 64) | self.0[0] as u128
+    }
+}
+
+impl std::fmt::Debug for Magnitude {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.get().fmt(f)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Local {
-    pub name: String,
+    pub name: Name,
     pub ty: Ty,
     pub span: Span,
 }
@@ -142,7 +167,7 @@ impl Callee {
 #[derive(Clone, Debug)]
 pub enum ExprKind {
     /// The literal's value, already checked to be representable in `ty`.
-    Int(u128, bool),
+    Int(Magnitude, bool),
     Float(f64),
     Str(String),
     Char(char),
@@ -302,7 +327,7 @@ impl ArrayRest {
 pub enum PatKind {
     Wild,
     Bind { local: LocalId, sub: Option<Box<Pattern>> },
-    Int(u128, bool),
+    Int(Magnitude, bool),
     Float(f64),
     Str(String),
     Char(char),

@@ -645,9 +645,9 @@ impl FnLower<'_> {
         self.again(&w, Vec::new());
         self.end(&w);
         let joined = self.emit(ret_t, |dest| Inst::CallIntrinsic {
-            dests: vec![dest],
+            dest,
             key: "show.list".into(),
-            args: vec![strs],
+            args: Box::new([strs]),
         });
         self.push(Inst::DecRef { value: strs, drop: None });
         Some(joined)
@@ -932,11 +932,11 @@ impl FnLower<'_> {
                 let mut all: Vec<ValueId> = env.iter().copied().collect();
                 all.extend(values);
                 let func = *func;
-                self.emit(ret, |dest| Inst::Call { dests: vec![dest], func, args: all })
+                self.emit(ret, |dest| Inst::Call { dest, func, args: all })
             }
             Via::Thunk(f) => {
                 let callee = *f;
-                self.emit(ret, |dest| Inst::CallIndirect { dests: vec![dest], callee, args: values })
+                self.emit(ret, |dest| Inst::CallIndirect { dest, callee, args: values })
             }
         };
         for value in release {

@@ -515,6 +515,10 @@ impl Drop for Keep {
 /// `serve` answers each request with one line, so the next line is the
 /// answer. Its standard error is not read: a tool that fails is asked again
 /// alone, and that run's is the one reported.
+///
+/// Every tool process starts through [`crate::build::spawn::start_alone`].
+/// A tool reads until its input ends, so one that held another's input open
+/// would keep [`KeptProcess::finish`] waiting forever.
 fn ask_kept(artifact: &std::path::Path, request: &str) -> Option<String> {
     use std::io::{BufRead as _, Write as _};
     use std::process::Stdio;
@@ -532,7 +536,7 @@ fn ask_kept(artifact: &std::path::Path, request: &str) -> Option<String> {
         None => {
             let program = crate::commands::test::js_runtime();
             let mut cmd = crate::build::spawn::command(&program)?;
-            let mut child = crate::build::spawn::start(
+            let mut child = crate::build::spawn::start_alone(
                 cmd.arg(artifact).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()),
             )
             .ok()?;
@@ -577,7 +581,7 @@ fn run_once(artifact: &std::path::Path, request: &str) -> Result<String, String>
             "`{program}` is not on PATH; install bun, or point BURI_JS at a JavaScript runtime"
         ));
     };
-    let mut child = crate::build::spawn::start(
+    let mut child = crate::build::spawn::start_alone(
         cmd.arg(artifact).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()),
     )
     .map_err(|e| format!("{program}: {e}"))?;

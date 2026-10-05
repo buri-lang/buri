@@ -156,6 +156,7 @@
 use crate::compiler::middle::monomorphize::{
     self, short_hash, ConShape, Desc, DescVariant, Func, FuncKind, Program,
 };
+use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Arm, Callee, Expr, ExprKind, FieldPat, PatKind, Pattern, PrimOp, TemplatePart,
 };
@@ -383,7 +384,7 @@ fn collect(program: &Program, out: &mut Derives) -> Vec<(Op, usize)> {
 /// The descriptor `structural_call` appended to the argument list.
 fn descriptor_arg(args: &[Expr]) -> Option<usize> {
     match args.last().map(|a| &a.kind) {
-        Some(ExprKind::Int(v, false)) => usize::try_from(*v).ok(),
+        Some(ExprKind::Int(v, false)) => usize::try_from(v.get()).ok(),
         _ => None,
     }
 }
@@ -632,7 +633,7 @@ impl Frame {
 
     fn local(&mut self, name: &str, ty: &Ty) -> LocalId {
         let id = LocalId(u32::try_from(self.locals.len()).unwrap_or(u32::MAX));
-        self.locals.push(typed::Local { name: name.to_string(), ty: *ty, span: Span::NONE });
+        self.locals.push(typed::Local { name: Name::new(name), ty: *ty, span: Span::NONE });
         id
     }
 
@@ -1881,7 +1882,7 @@ impl Generator {
     }
 
     fn hash_int(&self, v: u128) -> Expr {
-        Expr::new(ExprKind::Int(v, false), self.hash_ty(), Span::NONE)
+        Expr::new(ExprKind::Int(typed::Magnitude::new(v), false), self.hash_ty(), Span::NONE)
     }
 
     /// `$mix(h, n)` on a number the shape itself supplies — a field count or a
@@ -2191,7 +2192,7 @@ fn rewrite_expr(
                     if op == Op::Hash {
                         values.insert(
                             0,
-                            Expr::new(ExprKind::Int(HASH_SEED, false), *hash_ty, Span::NONE),
+                            Expr::new(ExprKind::Int(typed::Magnitude::new(HASH_SEED), false), *hash_ty, Span::NONE),
                         );
                     }
                     ExprKind::CallFn { func: Callee::Func(*f), args: values }

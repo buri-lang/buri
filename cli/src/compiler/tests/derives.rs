@@ -90,7 +90,7 @@ fn sexp(p: &Program, e: &Expr) -> String {
     let list = |xs: &[Expr]| xs.iter().map(|x| sexp(p, x)).collect::<Vec<_>>().join(", ");
     match &e.kind {
         ExprKind::Local(l) => format!("l{}", l.0),
-        ExprKind::Int(v, _) => format!("{v}"),
+        ExprKind::Int(v, _) => format!("{}", v.get()),
         ExprKind::Str(s) => format!("{s:?}"),
         ExprKind::Bool(b) => format!("{b}"),
         ExprKind::Unit => "()".into(),

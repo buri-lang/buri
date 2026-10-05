@@ -2635,6 +2635,23 @@ Running a tool by hand with a regular file as standard input now hangs at the
 end of the input. That's bun: paused `process.stdin` on a file never emits
 `end`. A pipe, which is what the build uses, ends normally.
 
+**A hang, fixed.** A cold `buri test` once sat in its generators for 21
+minutes. macOS has no `pipe2`, so a tool started while another thread made a
+pipe could inherit both ends. A kept tool holding another's input kept it from
+ever reading the end, and `KeptProcess::finish` waited forever. One process
+per request never noticed: it exited after one line. Tools now start through
+`spawn::start_alone`, which holds `FORKS` alone while every other start holds
+it shared:
+
+| Cold runs, before → after | hung | tools started holding another's pipe |
+|---|---:|---:|
+| monorepo copy, `test` and `build //...` | 5 of 150 → 0 of 150 | |
+| 64 rules of one tool, `build //...` | 1 of 5 → 0 of 60 | 14 of 64 in one run → 0 of 3,840 |
+
+Wall time didn't move. Alternating on the monorepo copy at load 22–33, a cold
+`build //...` took 2.21 s before and 2.25 s after (eight runs each). A cold
+`test //...` took 14.2 s and 13.8 s (four each).
+
 ### 6.24 The linker is asked once per toolchain, 2026-10-05
 
 §6.21 found every `buri` process asking `cc --version` and
@@ -2906,6 +2923,103 @@ the driver, at load 37.
 That's 195–267 s less CPU per run, or 15–19%, in line with the 213–215 s
 the shim stopped seeing. The run is still over §6.21's five minutes of wall
 time.
+
+### 6.27 Smaller IR and typed-tree nodes, 2026-10-05
+
+Three follow-ups from §6.22 and §6.25: two `u128` fields that 16-byte aligned
+whole nodes, and a `String` per local.
+
+```rust
+pub struct Magnitude([u64; 2]);   // typed.rs: an integer literal, 8-byte aligned
+pub struct Name(&'static str);    // name.rs: interned, Copy
+
+Inst::Call { dest: ValueId, func, args }               // was dests: Vec<ValueId>
+Inst::CallIntrinsic { dest, key: Box<str>, args: Box<[ValueId]> }
+```
+
+| Type | Before | After |
+|---|---:|---:|
+| `ir::Inst` | 80 B, align 16 | 40 B, align 8 |
+| `ir::Const` | 32 B, align 16 | 24 B |
+| `typed::Expr` | 112 B, align 16 | 104 B, align 8 |
+| `typed::Pattern` | 80 B, align 16 | 64 B |
+| `typed::Stmt` | 208 B | 184 B |
+| `typed::Arm` | 320 B | 288 B |
+| `typed::Local` | 48 B | 40 B |
+
+`ir::Term` (72 B) and `ir::Block` (120 B) didn't move: neither holds an
+`Inst` or a `Const` inline.
+
+**`Inst`, `527f5a88`.** `Magnitude` alone left `Inst` at 80 bytes, because
+`CallIntrinsic` held three `Vec`s and a `String`. Every call lowering makes
+`vec![dest]`, so a call's results became one `dest`. That's 56 bytes. Boxing
+the intrinsic's key and arguments, and a string constant's text, gets the
+rest of the way to 40. Each step was measured: 56 bytes took native lowering
+down 0.9%, 40 took it down another 1.0%.
+
+**`Expr`, `49d11d06`.** `ExprKind::Int` and `PatKind::Int` hold a
+`Magnitude`. `matches!(k, ExprKind::Int(2, false))` in tests becomes
+`ExprKind::Int(m, false) if m.get() == 2`.
+
+**`Local::name`, `fae72e66`.** There was no string interner, so `name.rs`
+adds one shaped like the type table: 64 shards, entries leaked, bounded by
+distinct spellings. Monomorphization and inlining copy bodies, and each copy
+used to clone every local's name.
+
+Instructions are a phase child net of the one before it (`sema` minus
+`lex+parse`, lowering minus `sema`), minimum of two or three alternating runs.
+Each row is against the row above.
+
+| `mixed/100k` | `main` + §6.25 | `Inst` | `Expr` | `Name` |
+|---|---:|---:|---:|---:|
+| `sema` | 566.8 M | 563.1 M | 560.5 M | 550.3 M (−1.8%) |
+| `lower+js` | 3,056.8 M | 3,031.8 M | 2,994.3 M (−1.2%) | 2,981.0 M |
+| `lower+macos-arm64` | 4,140.5 M | 4,058.8 M (−2.0%) | 3,983.8 M (−1.8%) | 3,975.7 M |
+| `lower+linux-x86_64` | 4,504.7 M | 4,403.4 M (−2.2%) | 4,350.4 M (−1.2%) | 4,351.5 M |
+| peak RSS, `lower+macos-arm64` | 261.5 MB | 245.9 MB | 246.5 MB | 238.2 MB |
+
+Deltas under 0.7% are left out: `lower+js` doesn't touch `Inst`, and it
+still read −0.7% on the `Inst` row, so that's the floor here.
+
+| Allocations, one counted run | before | after |
+|---|---:|---:|
+| `mixed/100k` `sema` | 524,029 | 486,111 (−7.2%) |
+| `mixed/100k` monomorphize | 405,565 | 367,210 (−9.5%) |
+| `mixed/100k` monomorphize + JavaScript | 2,966,180 | 2,882,560 (−2.8%) |
+| `mixed/100k` monomorphize + native | 4,326,340 | 4,153,637 (−4.0%) |
+
+Only `Name` moved the front end and monomorphization. `Inst` took 23,600
+off native: one `dests` list per call.
+
+| Cold `buri test //...` on the monorepo copy | before | after |
+|---|---:|---:|
+| instructions, `buri` process | 68.7–69.1 G | 67.7 G (−1.5%) |
+| peak memory | 1,483–1,486 MB | 1,317–1,386 MB |
+| allocations | 53.1 M | 51.0 M (−3.8%) |
+| `middle` phase allocations | 7.37 M | 6.37 M (−14%) |
+
+Every JavaScript bundle and object of `mixed/10k`, `mixed/100k` and six saved
+corpora, on `js`, `macos-arm64`, `linux-x86_64` and `linux-arm64`, is
+byte-identical by SHA-256 after each commit: 1,370 outputs. The stencil
+backend has no `macos-x86_64`.
+
+**Not done.** The typed tree's small lists and `resolve_scopes`:
+
+- `vec![l, r]` is already one exact allocation, so a boxed slice saves 8
+  bytes per list and no allocations. `ExprKind` is 80 bytes because
+  `CallTrait` and `Intrinsic` each hold two or three lists, so shrinking it
+  means converting every list, and the middle passes push to them.
+- `SmallVec<[Expr; 2]>` inline would make `ExprKind` over 200 bytes.
+- A layered `resolve_scopes` changes the language server, which iterates
+  `names`.
+
+**How the numbers were taken.** The same throwaway bench patch as §6.25,
+plus two switches: `BURI_DUMP=<dir>` writes a `--rss-child` lowering's
+output for hashing, and `BURI_ALL_TARGETS=1` makes the child emit the
+`--targets=` it was given even above the size where it would only take the
+host. One cold monorepo run hung for 21 minutes on its `bun` generators,
+with 2.8 G instructions retired; it was killed and rerun, and the hang didn't
+recur in the runs after it.
 
 ## 7. Profiling, on this platform
 

@@ -51,7 +51,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     ty: lit,
                     span,
                 });
-                typed::PatKind::Int(value, negative)
+                typed::PatKind::Int(typed::Magnitude::new(value), negative)
             }
             P::LitFloat { value, negative, .. } => {
                 let lit = self.subst.fresh_num(NumClass::Float, span);

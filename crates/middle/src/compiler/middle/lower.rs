@@ -85,8 +85,8 @@ use crate::compiler::middle::ir::{
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{
-    self, Arm, ArrayRest, Expr, ExprKind, FieldPat, OptionOrResult, PatKind, Pattern, PrimOp,
-    Stmt, TemplatePart,
+    self, Arm, ArrayRest, Expr, ExprKind, FieldPat, Magnitude, OptionOrResult, PatKind, Pattern,
+    PrimOp, Stmt, TemplatePart,
 };
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Tables, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
@@ -614,7 +614,7 @@ impl FnLower<'_> {
         if multi {
             let d = match dispatch {
                 Some(d) => d,
-                None => self.constant(Type::I32, Const::Int { bits: 0, negative: false }),
+                None => self.constant(Type::I32, Const::Int { bits: Magnitude::new(0), negative: false }),
             };
             first.push(d);
         }
@@ -722,7 +722,7 @@ impl FnLower<'_> {
     }
 
     fn int(&mut self, ty: Type, n: usize) -> ValueId {
-        self.constant(ty, Const::Int { bits: n as u128, negative: false })
+        self.constant(ty, Const::Int { bits: Magnitude::new(n as u128), negative: false })
     }
 
     /// Ends the current block with an abort and continues in a block nothing
@@ -930,7 +930,7 @@ impl FnLower<'_> {
                 };
                 self.constant(ty, Const::Float(v))
             }
-            ExprKind::Str(s) => self.constant(ty, Const::Str(s.clone())),
+            ExprKind::Str(s) => self.constant(ty, Const::Str(s.as_str().into())),
             ExprKind::Char(c) => self.constant(ty, Const::Char(*c)),
             ExprKind::Bool(b) => self.constant(ty, Const::Bool(*b)),
             ExprKind::Unit => self.constant(ty, Const::Unit),
@@ -960,14 +960,14 @@ impl FnLower<'_> {
                         }
                     }
                     let args = self.exprs(args);
-                    self.emit(ty, |dest| Inst::Call { dests: vec![dest], func: f, args })
+                    self.emit(ty, |dest| Inst::Call { dest, func: f, args })
                 }
                 None => self.abort("this call was not monomorphized"),
             },
             ExprKind::CallValue { callee, args } => {
                 let c = self.expr(callee);
                 let args = self.exprs(args);
-                self.emit(ty, |dest| Inst::CallIndirect { dests: vec![dest], callee: c, args })
+                self.emit(ty, |dest| Inst::CallIndirect { dest, callee: c, args })
             }
             ExprKind::Intrinsic { name, args, .. } if lists::handles(name) => {
                 self.list_call(name, args, &e.ty)
@@ -1377,8 +1377,8 @@ impl FnLower<'_> {
             return self.structural(ty, op, without_desc);
         }
         let key = qualified_key(self.tables, name, args);
-        let args = self.exprs(args);
-        self.emit(ty, |dest| Inst::CallIntrinsic { dests: vec![dest], key, args })
+        let args = self.exprs(args).into_boxed_slice();
+        self.emit(ty, |dest| Inst::CallIntrinsic { dest, key, args })
     }
 
     /// An interpolation: render every hole from its static type and join the
@@ -1413,7 +1413,7 @@ impl FnLower<'_> {
         for p in parts {
             match p {
                 TemplatePart::Text(t) => {
-                    let v = self.constant(ty, Const::Str(t.clone()));
+                    let v = self.constant(ty, Const::Str(t.as_str().into()));
                     rendered.push((v, false));
                 }
                 TemplatePart::Hole(h) => {
@@ -1437,13 +1437,13 @@ impl FnLower<'_> {
         }
         let mut it = rendered.into_iter();
         let Some((mut acc, mut acc_is_mine)) = it.next() else {
-            return self.constant(ty, Const::Str(String::new()));
+            return self.constant(ty, Const::Str(Box::default()));
         };
         for (next, next_is_mine) in it {
             let joined = self.emit(ty, |dest| Inst::CallIntrinsic {
-                dests: vec![dest],
+                dest,
                 key: "str.concat".into(),
-                args: vec![acc, next],
+                args: Box::new([acc, next]),
             });
             // *After* the join, not before. On MEMORY.md §5.3's in-place path
             // the result is `acc`'s own block with one more count on it, so
@@ -1513,7 +1513,7 @@ impl FnLower<'_> {
                 // parameters and the function has the widest member's.
                 call_args.extend(self.pad_to(&vs, f));
                 let v =
-                    self.emit(ty, |dest| Inst::Call { dests: vec![dest], func: f, args: call_args });
+                    self.emit(ty, |dest| Inst::Call { dest, func: f, args: call_args });
                 self.set_term(Term::Return(vec![v]));
                 self.dead(ty)
             }
@@ -1733,7 +1733,7 @@ impl FnLower<'_> {
             }
             PatKind::Str(s) => {
                 let ty = self.type_of(&pat.ty);
-                let c = self.constant(ty, Const::Str(s.clone()));
+                let c = self.constant(ty, Const::Str(s.as_str().into()));
                 self.test_eq(val, c, &pat.ty, fail);
             }
             PatKind::Char(c) => {
@@ -2020,17 +2020,17 @@ fn bounded_key(tables: &Tables, key: &str, ret: &Ty) -> String {
 /// These three keys reach no other backend: `middle::derives` runs only inside
 /// `middle::native`, and the JavaScript backend still sees `structuralShow` and
 /// a descriptor.
-fn qualified_key(tables: &Tables, name: &str, args: &[Expr]) -> String {
+fn qualified_key(tables: &Tables, name: &str, args: &[Expr]) -> Box<str> {
     let operand = match name {
         "derivePrimShow" | "derivePrimJson" => args.first(),
         "derivePrimHash" => args.get(1),
-        _ => return name.to_string(),
+        _ => return name.into(),
     };
     match operand.and_then(|a| tables.as_prim(&a.ty)) {
-        Some(p) => format!("{name}.{}", p.name()),
+        Some(p) => format!("{name}.{}", p.name()).into(),
         // A `derivePrim*` at something that is not a primitive is a bug in
         // `derives.rs` rather than in the program, and the unqualified key is
         // what reports it: no backend implements it, so it is named.
-        None => name.to_string(),
+        None => name.into(),
     }
 }
