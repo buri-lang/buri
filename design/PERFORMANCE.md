@@ -3142,6 +3142,78 @@ corpora are unchanged by construction. `native::llvm`'s
 `a_wide_payload_is_held_as_words_rather_than_one_wide_integer` bounds the
 widest integer in such a program's IR at 512 bits.
 
+### 6.30 Derived functions are linear in the fields, 2026-10-05
+
+§6.29's `Big` (200 `Str` fields, 600 slots) with `derive Equal, Hash, Show`.
+The derive tree was already linear: `a.f0 == b.f0 && …`, one hole per field.
+The blow-up was below it, in two places.
+
+**Every field read took the whole struct apart.** The LLVM backend's
+`get_field` disassembled the aggregate, an `extractvalue` per slot, then used
+the field's three:
+
+```llvm
+%slot    = extractvalue { ptr, ptr, i64, … } %x, 0
+...                                              ; 600 of these per field read
+%slot599 = extractvalue { ptr, ptr, i64, … } %x, 599
+```
+
+`Equal` reads 400 fields, so 241k of its 245k instructions were these. They
+were dead and cheap, though: InstCombine drops them early, and fixing this
+alone moved the release build by 2%.
+
+**`Show` joined 401 parts by a chain of concatenations.** The derive hands
+them to a shared joiner, `derive$join$401`, and `lower` turned that template
+into 400 `str.concat`s, each open-coded at about a hundred instructions. That
+was 42k instructions in one function with 1,203 parameters live across it:
+`ConstraintElimination` and the greedy register allocator spent most of a
+minute's work on it.
+
+**The fixes:**
+
+- `get_field` extracts only the field's slots (`repr::disassemble_range`), and
+  so does a niche tag test.
+- A template of more than 16 parts (`lower::CONCAT_CHAIN_MAX`) puts its parts
+  in a `[Str]` and calls `list.join` with an empty separator, once.
+- A derived `Show` with more than 16 parts writes that template inline. A
+  joiner of that arity cost more than the list: every part a parameter, each
+  given a count going in and dropped by the caller coming out.
+
+LLVM instructions in the derived functions, debug-profile IR:
+
+| Function | Before | After |
+|---|---:|---:|
+| `Equal` | 245,396 | 6,596 |
+| `Hash` | 122,004 | 2,604 |
+| `Show`, with its joiner | 177,822 | 15,652 |
+| per field per operation | 908 | 41 |
+
+`buri build --release`, emit phase, `BURI_PROFILE=1`:
+
+| Program | Before | After |
+|---|---:|---:|
+| `Big`, no derives | 13.6 G | 13.6 G |
+| `derive Equal` | 20.0 G | 18.9 G |
+| `derive Hash` | 16.4 G | 15.8 G |
+| `derive Show` | 74.7 G, 7.9 s | 30.4 G, 2.3 s |
+| `derive Equal, Hash, Show` | 86.7 G, 9.1 s | 40.5 G, 3.2 s |
+
+The stencil backend reads a field as an offset load and was never affected.
+Its emit phase is under 0.1 G either way.
+
+`e2e.rs`'s `deep_big` test process went from 364.7 G and 34.6 s CPU to 308.9 G
+and 25.9 s. Its derived functions are now small. What's left is `main` itself:
+77k instructions of 600-slot aggregates passed through `insertvalue` and
+`extractvalue`, and `llc -O2` spends 170 G on that unit.
+
+**Nothing else moved.** Every `lower` row of `--set=native --rss` is within
+1.6% of its old instruction count, which is the noise of a parallel row (§8).
+`native::llvm`'s
+`a_wide_structs_derived_functions_are_a_few_instructions_per_field` bounds the
+three at 100 instructions per field per operation, and `native::e2e`'s
+`a_long_template_reads_the_same_and_leaks_nothing` checks a long template's
+text and its blocks.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
