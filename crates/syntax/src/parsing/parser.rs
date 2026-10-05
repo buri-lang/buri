@@ -711,19 +711,13 @@ impl<'a> Parser<'a> {
         span
     }
 
-    /// The text a token carries — a string's contents, a template segment's —
-    /// moved out of it when that is safe.
+    /// The cooked text of the string token under the cursor, or nothing when
+    /// the cursor is not on one.
     ///
     /// An identifier is not one of these: its text is the source under its
-    /// span, so it is borrowed rather than owned and there is nothing to move.
+    /// span, so it is borrowed rather than owned and there is nothing to copy.
     /// See [`Parser::expect_name`].
-    ///
-    /// A failed trial rewinds `pos` and the tokens it walked are read again by
-    /// whichever reading wins, so while `trial` is set the payload is copied
-    /// instead. Outside a trial the parser owns the stream outright and no
-    /// consumed token's text is read twice, so the copy the lexer already made
-    /// is the one the tree keeps.
-    fn take_text(&mut self) -> String {
+    fn text_here(&self) -> &str {
         let pos = self.at(self.pos);
         if !matches!(
             self.tokens.kind(pos),
@@ -732,13 +726,23 @@ impl<'a> Parser<'a> {
                 | TokenKind::TemplateSpan
                 | TokenKind::TemplateTail
         ) {
-            return String::new();
+            return "";
         }
-        if self.trial > 0 {
-            self.tokens.str_at(pos).to_string()
-        } else {
-            self.tokens.take_str(pos)
-        }
+        self.tokens.str_at(pos)
+    }
+
+    /// The text under the cursor, copied onto the end of the tree's cooked
+    /// text, and the index the tree keeps it at.
+    fn text_into_tree(&mut self) -> u32 {
+        let pos = self.at(self.pos);
+        let text = match self.tokens.kind(pos) {
+            TokenKind::Str
+            | TokenKind::TemplateHead
+            | TokenKind::TemplateSpan
+            | TokenKind::TemplateTail => self.tokens.str_at(pos),
+            _ => "",
+        };
+        self.tree.push_str(text)
     }
 
     /// Whether the cursor is on a string whose closing `"` was never written.
@@ -1436,17 +1440,12 @@ impl<'a> Parser<'a> {
             return Err(Bail);
         }
         if matches!(self.peek(), TokenKind::Str) {
-            let s = self.take_text();
+            let s = self.text_here().to_string();
             let span = self.bump();
             return Ok((s, span));
         }
         if let Some(i) = self.take_early_at(TokenKind::Str) {
-            let text = if self.trial > 0 {
-                self.tokens.str_at(i).to_string()
-            } else {
-                self.tokens.take_str(i)
-            };
-            return Ok((text, self.tokens.span(i)));
+            return Ok((self.tokens.str_at(i).to_string(), self.tokens.span(i)));
         }
         let found = self.found();
         let span = self.span();
@@ -1460,7 +1459,7 @@ impl<'a> Parser<'a> {
             && !self.tokens.is_unterminated(self.at(self.pos.saturating_add(1)))
         {
             self.bump();
-            let s = self.take_text();
+            let s = self.text_here().to_string();
             let span = self.bump();
             return Ok((s, span));
         }
@@ -3285,9 +3284,8 @@ impl<'a> Parser<'a> {
                 Ok(self.error_expr(span))
             }
             TokenKind::Str => {
-                let value = self.take_text();
+                let ix = self.text_into_tree();
                 let span = self.bump();
-                let ix = self.tree.push_str(value);
                 Ok(self.tree.push(Kind::Str, [ix, 0, 0, 0], span, at))
             }
             TokenKind::Char => {
@@ -3304,7 +3302,7 @@ impl<'a> Parser<'a> {
                 Ok(self.tree.push(Kind::False, [0; 4], span, at))
             }
             TokenKind::TemplateHead => {
-                let head = self.take_text();
+                let head = (!self.text_here().is_empty()).then(|| self.text_into_tree());
                 self.template(head, start)
             }
             TokenKind::Ident => {
@@ -3393,12 +3391,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn template(&mut self, head: String, start: Span) -> PResult<ExprId> {
+    /// `head` is where the tree keeps the text before the first hole, when
+    /// there is any.
+    fn template(&mut self, head: Option<u32>, start: Span) -> PResult<ExprId> {
         let at = self.tree.next_node();
         self.bump();
         let base = self.scratch.parts.len();
-        if !head.is_empty() {
-            let ix = self.tree.push_str(head);
+        if let Some(ix) = head {
             self.scratch.parts.push(PartData { text: ix, hole: NONE });
         }
         loop {
@@ -3406,12 +3405,11 @@ impl<'a> Parser<'a> {
             self.scratch.parts.push(PartData { text: NONE, hole: hole.0 });
             match self.peek() {
                 TokenKind::TemplateSpan => {
-                    let text = self.take_text();
-                    self.bump();
-                    if !text.is_empty() {
-                        let ix = self.tree.push_str(text);
+                    if !self.text_here().is_empty() {
+                        let ix = self.text_into_tree();
                         self.scratch.parts.push(PartData { text: ix, hole: NONE });
                     }
+                    self.bump();
                 }
                 // The quote that would have ended the template is missing, so
                 // its last run of text is the rest of the line. The whole
@@ -3422,12 +3420,11 @@ impl<'a> Parser<'a> {
                     return Ok(self.error_expr(start.to(end)));
                 }
                 TokenKind::TemplateTail => {
-                    let text = self.take_text();
-                    let end = self.bump();
-                    if !text.is_empty() {
-                        let ix = self.tree.push_str(text);
+                    if !self.text_here().is_empty() {
+                        let ix = self.text_into_tree();
                         self.scratch.parts.push(PartData { text: ix, hole: NONE });
                     }
+                    let end = self.bump();
                     let (ps, pl) = self.tree.push_parts(since(&self.scratch.parts, base));
                     self.scratch.parts.truncate(base);
                     return Ok(self.tree.push(
@@ -3804,9 +3801,8 @@ impl<'a> Parser<'a> {
                 Ok(self.tree.ppush(PatternKind::LitFloat, [ix, span.start, span.end, 0], span, at))
             }
             TokenKind::Str => {
-                let value = self.take_text();
+                let ix = self.text_into_tree();
                 let span = self.bump();
-                let ix = self.tree.push_str(value);
                 Ok(self.tree.ppush(PatternKind::LitStr, [ix, 0, 0, 0], span, at))
             }
             TokenKind::Char => {
