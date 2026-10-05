@@ -2948,6 +2948,12 @@ mod sockets {
     /// one-second delay rather than a test suite that hangs.
     const BACKSTOP_MILLIS: i32 = 1_000;
 
+    /// How long one write of a closing socket may wait for the client to
+    /// read. [`super::DRAIN_DEADLINE`]'s number, for its reason: it is how long
+    /// a server that has decided to stop should wait for a client that is not
+    /// going to finish.
+    const CLOSING_DEADLINE: std::time::Duration = super::DRAIN_DEADLINE;
+
     /// The read buffer `tungstenite` allocates per socket, eagerly.
     ///
     /// Eight kilobytes rather than the crate's own 128, because this runtime's
@@ -3316,44 +3322,69 @@ mod sockets {
                 return Err(ServeErr::closed());
             }
             let Some(framing) = held.as_mut() else { return Err(ServeErr::closed()) };
-            // 1. Everything that has been enqueued, and the close if one has
+            // 1. What is already framed goes out before anything new is
+            //    framed. A frame the stream took only part of is still in
+            //    `tungstenite`'s buffer, and this writes the rest.
+            if blocked {
+                blocked = flush(framing, blocked);
+            }
+            // 2. Everything that has been enqueued, and the close if one has
             //    been decided. Both are read under the queue's lock in one
             //    step, so a `send` that overflowed cannot have its message
             //    written and its close missed.
+            //
+            //    **Nothing more is framed while the stream refuses writes.**
+            //    The messages wait in `Outbound`, where `bound` counts them,
+            //    so a client that stops reading fills the queue a program
+            //    sized rather than a buffer nobody sees.
             let ending = {
                 let mut out = state.out();
-                while let Some(queued) = out.queue.pop_front() {
+                while !blocked {
+                    let Some(queued) = out.queue.pop_front() else { break };
                     let message = match queued {
                         Queued::Text(text) => tungstenite::Message::Text(text.into()),
                         Queued::Binary(data) => tungstenite::Message::Binary(data.into()),
                         Queued::Ping => tungstenite::Message::Ping(Vec::new().into()),
                     };
-                    if framing.write(message).is_err() {
-                        // The framing has gone. The close below is what the
-                        // loop is told about it; the rest of the queue goes
-                        // with the socket.
-                        out.queue.clear();
-                        out.ending.get_or_insert(Ending {
-                            code: OVERFLOW_CODE,
-                            reason: String::new(),
-                            told: NO_CLOSE_FRAME,
-                        });
-                        break;
+                    match framing.write(message) {
+                        Ok(()) => {}
+                        // The stream took part of the frame and then refused
+                        // the rest. The frame is whole in `tungstenite`'s
+                        // buffer, and the wait below asks for room to write.
+                        // buri-lang/buri#244 was this arm reading as the end
+                        // of the socket.
+                        Err(tungstenite::Error::Io(e))
+                            if e.kind() == std::io::ErrorKind::WouldBlock =>
+                        {
+                            blocked = true;
+                        }
+                        Err(_) => {
+                            // The framing has gone. The close below is what
+                            // the loop is told about it; the rest of the
+                            // queue goes with the socket.
+                            out.queue.clear();
+                            out.ending.get_or_insert(Ending {
+                                code: OVERFLOW_CODE,
+                                reason: String::new(),
+                                told: NO_CLOSE_FRAME,
+                            });
+                            break;
+                        }
                     }
                 }
                 out.ending.clone()
             };
-            blocked = flush(framing, blocked);
+            if !blocked {
+                blocked = flush(framing, blocked);
+            }
             if let Some(end) = ending {
-                // The close frame is written and flushed on the way out, so a
-                // client that is reading gets a reason rather than a socket
-                // that stopped. `close` queues it and `flush` writes it; a
-                // failure at either end is a client that has already gone.
-                let _closed = framing.close(Some(CloseFrame {
-                    code: CloseCode::from(end.code),
-                    reason: end.reason.into(),
-                }));
-                let _flushed = framing.flush();
+                // The close frame is written behind everything already
+                // framed, so a client that is reading gets every message and
+                // then a reason rather than a socket that stopped.
+                closing(
+                    framing,
+                    Some(CloseFrame { code: CloseCode::from(end.code), reason: end.reason.into() }),
+                );
                 retire(socket, &mut held, &state);
                 return Ok(Received::closed(end.told));
             }
@@ -3403,7 +3434,9 @@ mod sockets {
             // left buffered.
             blocked = flush(framing, blocked);
             if let Some(code) = ended {
-                let _flushed = framing.flush();
+                // The close `tungstenite` queued in answer, behind whatever
+                // was still going out.
+                closing(framing, None);
                 retire(socket, &mut held, &state);
                 return Ok(Received::closed(code));
             }
@@ -3413,6 +3446,29 @@ mod sockets {
             // 3. Nothing to write and nothing to read: wait for either.
             waiting(&state, blocked);
         }
+    }
+
+    /// The last writes on a socket: the close frame, if this side is the one
+    /// closing, behind everything already framed.
+    ///
+    /// **Blocking, with a deadline**, because this is the one write that has
+    /// no later turn of the loop to finish it. A message larger than the
+    /// socket's buffers is still going out when its close is decided, and a
+    /// non-blocking flush would stop partway and drop the rest with the socket
+    /// (buri-lang/buri#244). [`CLOSING_DEADLINE`] bounds each write, so a
+    /// client that has stopped reading costs that long and not a thread for
+    /// ever. A failure is a client that has already gone.
+    fn closing(framing: &mut WebSocket<Wire>, frame: Option<CloseFrame>) {
+        let stream = framing.get_ref().stream();
+        if stream.set_nonblocking(false).is_err()
+            || stream.set_write_timeout(Some(CLOSING_DEADLINE)).is_err()
+        {
+            return;
+        }
+        if let Some(frame) = frame {
+            let _closed = framing.close(Some(frame));
+        }
+        let _flushed = framing.flush();
     }
 
     /// Flush, and answer whether the stream is still refusing writes.
