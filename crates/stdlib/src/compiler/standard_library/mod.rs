@@ -761,7 +761,7 @@ mod tests {
     /// it, which is precisely the hole [`WRAPPERS`] exists to close.
     fn declared_effect_methods() -> Vec<(String, String)> {
         let mut out = Vec::new();
-        for path in ["platform/effect", "core/fs", "core/process"] {
+        for path in ["platform/effect", "core/fs", "core/process", "web/storage"] {
             let src = source(path).expect("a platform module");
             let mut effect: Option<String> = None;
             for line in src.lines() {

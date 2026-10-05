@@ -27,11 +27,11 @@
 //! ```
 
 from "platform/effect" import { Location };
-from "web/storage" import { Storage, StorageError };
 from "platform/host" import {
     HostAllocator, HostClock, HostEntropy, HostNetwork, HostRandom, HostSockets,
     HostStderr, HostStdout, HostTasks, HostUi, HostWatch, HostWebSocketClient,
 };
+from "web/storage" import { Storage, StorageError };
 
 /// What a `web` entry is handed.
 export struct WebHost {
@@ -78,19 +78,19 @@ export struct HostStorage {}
 
 impl Storage for HostStorage {
     fn get(self, key: Str): Result<Option<[U8]>, StorageError> {
-        IndexedDb {}.get(key).mapErr(failure)
+        IndexedDb { }.get(key).mapErr(failure)
     }
 
     fn set(self, key: Str, value: [U8]): Result<(), StorageError> {
-        IndexedDb {}.put(key, value).mapErr(failure)
+        IndexedDb { }.put(key, value).mapErr(failure)
     }
 
     fn delete(self, key: Str): Result<(), StorageError> {
-        IndexedDb {}.delete(key).mapErr(failure)
+        IndexedDb { }.delete(key).mapErr(failure)
     }
 
     fn keys(self, prefix: Str): Result<[Str], StorageError> {
-        IndexedDb {}.keys(prefix).mapErr(failure)
+        IndexedDb { }.keys(prefix).mapErr(failure)
     }
 }
 

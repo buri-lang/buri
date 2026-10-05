@@ -35,7 +35,11 @@ export fn visit<C: Allocator + Stdout + Storage>(ctx: C): Result<(), StorageErro
     };
     let next = count + 1;
     let _ = storage.set(ctx, "count", bytes.toUtf8(ctx, str.format(ctx, "${next}")))?;
-    let _ = storage.set(ctx, str.format(ctx, "visit/${next}"), bytes.toUtf8(ctx, "seen"))?;
+    let _ = storage.set(
+        ctx,
+        str.format(ctx, "visit/${next}"),
+        bytes.toUtf8(ctx, "seen"),
+    )?;
     let _ = storage.delete(ctx, str.format(ctx, "visit/${count - 1}"))?;
     let kept = storage.keys(ctx, "visit/")?.join(ctx, " ");
     let _ = io.println(ctx, "visit ${next}, keeping ${kept}").ignore();
