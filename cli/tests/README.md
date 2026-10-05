@@ -674,7 +674,8 @@ scaling the corpus is a number and a bless.
 Each `growth/case_NNN.buri` grows a list, a string, or a record holding a
 list, through one mix of the shapes ownership bugs came from: `foldCtx`,
 `foldResultCtx`, a loop, plain recursion and `mapCtx`; a bare, tuple, record,
-nested record or enum-wrapped accumulator; a destructuring `let`, a field read
+nested record or enum-wrapped accumulator, or a record growing a second list
+beside it; a destructuring `let`, a field read
 or a `match`; helpers small enough to inline or not, that read the value
 (through a closure too) or push onto it; one push a step, two, or a
 `concat`; literal strings, built strings, or records holding built strings as

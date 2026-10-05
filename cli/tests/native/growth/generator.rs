@@ -63,6 +63,8 @@ pub enum Acc {
     /// An enum variant holding a count and the value, taken apart by a
     /// `match` whatever the access.
     Wrapped,
+    /// A record growing a second list beside the value in the same update.
+    Pair,
 }
 
 /// How a step reaches the value inside its accumulator.
@@ -222,7 +224,7 @@ fn draw(rng: &mut Rng) -> Shape {
     });
     Shape {
         value: rng.pick(&[Value::Ints, Value::Strs, Value::Names, Value::Rows, Value::Text]),
-        acc: rng.pick(&[Acc::Bare, Acc::Tuple, Acc::Record, Acc::Nested, Acc::Wrapped]),
+        acc: rng.pick(&[Acc::Bare, Acc::Tuple, Acc::Record, Acc::Nested, Acc::Wrapped, Acc::Pair]),
         access: rng.pick(&[Access::Destructure, Access::Field, Access::Match]),
         pusher: rng.pick(&[
             Pusher::Inline,
@@ -433,6 +435,7 @@ fn shown(shape: &Shape, state: &State) -> String {
     match shape.acc {
         Acc::Bare => {}
         Acc::Tuple | Acc::Wrapped => write!(out, "{} ", state.n).unwrap(),
+        Acc::Pair => write!(out, "{} {} ", state.n, state.n).unwrap(),
         Acc::Record => write!(out, "{} {} ", state.n, TAG).unwrap(),
         Acc::Nested => write!(out, "{} {} {} ", state.n, state.n, TAG).unwrap(),
     }
@@ -511,6 +514,7 @@ impl Names {
             Acc::Record => rec_ty.clone(),
             Acc::Nested => format!("G{id:03}Outer"),
             Acc::Wrapped => format!("G{id:03}Box"),
+            Acc::Pair => format!("G{id:03}Pair"),
         };
         let out_ty = result_of(shape, &acc_ty);
         Names { p, value_ty, rec_ty, acc_ty, out_ty }
@@ -547,6 +551,9 @@ pub fn source(id: usize, shape: &Shape, blocks: u64) -> String {
             empty_value(shape)
         )
         .unwrap();
+    }
+    if shape.acc == Acc::Pair {
+        writeln!(out, "struct {} {{ items: {}, also: [Int], n: Int }}\n", n.acc_ty, n.value_ty).unwrap();
     }
     if matches!(shape.acc, Acc::Record | Acc::Nested) {
         writeln!(out, "struct {} {{ n: Int, items: {}, tag: Int }}\n", n.rec_ty, n.value_ty).unwrap();
@@ -608,6 +615,7 @@ fn empty_acc(shape: &Shape, n: &Names) -> String {
             format!("{} {{ inner: {} {{ n: 0, items: {v}, tag: {TAG} }}, k: 0 }}", n.acc_ty, n.rec_ty)
         }
         Acc::Wrapped => format!("{}.Full(0, {v})", n.acc_ty),
+        Acc::Pair => format!("{} {{ items: {v}, also: [], n: 0 }}", n.acc_ty),
     }
 }
 
@@ -823,6 +831,32 @@ fn flat_body(shape: &Shape, n: &Names) -> String {
                     Box::new(move |g| format!("{ty} {{ n: n + 1, items: {g}, tag }}")),
                 )
             }
+            (Acc::Pair, Access::Field) => {
+                let ty = n.acc_ty.clone();
+                (
+                    String::new(),
+                    String::from("acc.items"),
+                    Box::new(move |g| {
+                        format!("{ty} {{ ..acc, n: acc.n + 1, items: {g}, also: acc.also.push(ctx, i) }}")
+                    }),
+                )
+            }
+            (Acc::Pair, Access::Destructure) => {
+                let ty = n.acc_ty.clone();
+                (
+                    format!("let {ty} {{ items, also, n }} = acc; "),
+                    String::from("items"),
+                    Box::new(move |g| format!("{ty} {{ items: {g}, also: also.push(ctx, i), n: n + 1 }}")),
+                )
+            }
+            (Acc::Pair, Access::Match) => {
+                let ty = n.acc_ty.clone();
+                (
+                    String::new(),
+                    String::from("items"),
+                    Box::new(move |g| format!("{ty} {{ items: {g}, also: also.push(ctx, i), n: n + 1 }}")),
+                )
+            }
             (Acc::Nested | Acc::Wrapped, _) => panic!("`step_body` writes these"),
         };
     let mut body = open;
@@ -873,6 +907,9 @@ fn flat_body(shape: &Shape, n: &Names) -> String {
         (Acc::Record, Access::Match) => {
             format!("match (acc) {{ {} {{ n, items, tag }} => {{ {body} }}, }}", n.acc_ty)
         }
+        (Acc::Pair, Access::Match) => {
+            format!("match (acc) {{ {} {{ items, also, n }} => {{ {body} }}, }}", n.acc_ty)
+        }
         _ => body,
     };
     format!("{lets}{body}")
@@ -886,6 +923,7 @@ fn value_length(shape: &Shape, acc: &str) -> String {
         Acc::Record => length_of(&format!("{acc}.items")),
         Acc::Nested => length_of(&format!("{acc}.inner.items")),
         Acc::Wrapped => length_of(&format!("{acc}.items()")),
+        Acc::Pair => length_of(&format!("{acc}.items")),
     }
 }
 
@@ -993,6 +1031,7 @@ fn entry(out: &mut String, shape: &Shape, n: &Names) {
         Acc::Record => format!("{acc}.items"),
         Acc::Nested => format!("{acc}.inner.items"),
         Acc::Wrapped => format!("{acc}.items()"),
+        Acc::Pair => format!("{acc}.items"),
     };
     writeln!(out, "fn {p}<C: Allocator>(ctx: C): Str {{").unwrap();
     match shape.nest {
@@ -1005,6 +1044,7 @@ fn entry(out: &mut String, shape: &Shape, n: &Names) {
                 Acc::Record => "${acc.n} ${acc.tag} ",
                 Acc::Nested => "${acc.k} ${acc.inner.n} ${acc.inner.tag} ",
                 Acc::Wrapped => "${acc.count()} ",
+                Acc::Pair => "${acc.n} ${acc.also.length()} ",
             };
             let ends = match shape.value {
                 Value::Ints => format!(
@@ -1086,6 +1126,8 @@ pub const BATCH_BLOCKS: u64 = 8;
 pub fn blocks(shape: &Shape) -> u64 {
     let runs = shape.rounds as u64 + 1;
     let values = if shape.nest == Nest::Mapped { shape.rounds as u64 } else { 1 };
+    // A pair grows a second list beside the value.
+    let values = if shape.acc == Acc::Pair { 2 * values } else { values };
     let longest = shape.total() as u64 * 3;
     let doublings = 64 - longest.leading_zeros() as u64;
     // A built element is a block of its own.
