@@ -90,6 +90,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("const-declaration", "A module-level binding is written with `let`", &["language/lexical"]),
     e!("context-binding-not-effect", "A context binding names an effect"),
     e!("context-export", "A `context` is exported only from a test-only module"),
+    e!("context-mismatch", "Two contexts are one type when their bindings match"),
     e!("context-not-called", "A context is built by calling it"),
     e!("context-parameters", "A context declaration takes no parameters"),
     e!("context-spread-operand", "A context spread takes another context"),

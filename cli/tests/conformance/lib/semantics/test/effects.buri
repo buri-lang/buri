@@ -257,6 +257,42 @@ test "an inline context expression may start from another inline one" {
 }
 
 // -----------------------------------------------------------------------------
+// Two contexts with the same bindings are one type (SPEC 11.3)
+// -----------------------------------------------------------------------------
+
+// A value whose type mentions a context — here a reader generic over it — is
+// usable with any context that binds the same effects, in the same order, to
+// the same implementing types. That is how a test swaps in a fresh double
+// partway through without rebuilding what it made under the first one (#238).
+
+struct ClockReader<C> {
+    read: fn(C) => Int,
+}
+
+fn clockReader<C: Clock>(ctx: C): ClockReader<C> {
+    ClockReader { read: fn(c) => time.now(c).0 }
+}
+
+fn readClockWith<C: Clock>(ctx: C, reader: ClockReader<C>): Int {
+    (reader.read)(ctx)
+}
+
+test "a value made under one context is used under another with the same bindings" {
+    let first = context { Clock: clock().at(1) };
+    let second = context { Clock: clock().at(2) };
+    let reader = clockReader(first);
+    assert.equal(readClockWith(first, reader), 1);
+    assert.equal(readClockWith(second, reader), 2);
+}
+
+test "a spread that rebinds an effect to the same type is the same context type" {
+    let first = context { Allocator: alloc(), Clock: clock().at(1) };
+    let second = context { ..first, Clock: clock().at(2) };
+    let reader = clockReader(first);
+    assert.equal(readClockWith(second, reader), 2);
+}
+
+// -----------------------------------------------------------------------------
 // An effect INHERITED through a spread (SPEC 11.3)
 //
 // A spread carries the *implementing type* its base recorded, so an effect that

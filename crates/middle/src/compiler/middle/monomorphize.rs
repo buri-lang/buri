@@ -2787,10 +2787,10 @@ pub fn runtime_module_key(module: &str) -> String {
 /// Each context type's canonical id: the first one minted with the same
 /// bindings, compared in order with their bound types.
 ///
-/// Every `context { ... }` expression mints its own `CtxTypeId`, so a suite of
-/// a hundred tests that each build the same context has a hundred context
-/// types. The checker keeps them apart: two contexts are one type in the
-/// language only when they are one expression. But two contexts with equal
+/// The checker merges contexts whose bindings were settled when it built them
+/// (`Tables::intern_ctx_type`). One whose bindings still held an inference
+/// variable kept its own `CtxTypeId`, and is merged here once they are
+/// resolved. Two contexts with equal
 /// bindings have the same layout and resolve every effect call to the same
 /// method, so an instance at one is the same code as an instance at the other.
 /// [`Monomorphizer::sub`] rewrites every context type to its canonical one, and

@@ -758,6 +758,13 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     pub(crate) fn unify_at(&mut self, span: Span, actual: &Ty, expected: &Ty, what: &str) {
         if let Err((a, b)) = self.subst.unify(&self.c.tables, actual, expected) {
+            if let (TyKind::Ctx(found), TyKind::Ctx(wanted)) =
+                (self.resolve(&a).kind(), self.resolve(&b).kind())
+            {
+                let (found, wanted) = (*found, *wanted);
+                self.report_context_mismatch(span, found, wanted, what);
+                return;
+            }
             let a = show_in_diagnostic(&self.c.tables, &self.subst, &self.generics, &a);
             let b = show_in_diagnostic(&self.c.tables, &self.subst, &self.generics, &b);
             let (found, wanted) = (a.quoted(), b.quoted());
@@ -782,6 +789,60 @@ impl<'a, 'b> Infer<'a, 'b> {
                 d = d.with_note(note);
             }
             self.c.diags.push(d);
+        }
+    }
+
+    /// Two different context types where one was expected.
+    ///
+    /// Every context type prints as "a context" elsewhere, so a type mismatch
+    /// between two of them read "expected `a context`, found `a context`".
+    /// This spells each one by its bindings and says what tells them apart.
+    fn report_context_mismatch(&mut self, span: Span, found: CtxTypeId, wanted: CtxTypeId, what: &str) {
+        let found_shown = self.show_context(found);
+        let wanted_shown = self.show_context(wanted);
+        let found_bindings = &self.c.tables.ctx_type(found).bindings;
+        let wanted_bindings = &self.c.tables.ctx_type(wanted).bindings;
+        let reordered = found_bindings.len() == wanted_bindings.len()
+            && found_bindings.iter().all(|b| wanted_bindings.contains(b));
+        let note = if found_shown == wanted_shown {
+            "the two contexts were built separately, and a binding's type was not \
+             settled where one of them was built, so they cannot be shown to be the same"
+        } else if reordered {
+            "a context's bindings are laid out in the order they are written, so the \
+             same bindings in another order are another type"
+        } else {
+            "two contexts are the same type only when they bind the same effects, in the \
+             same order, to the same types"
+        };
+        let mut d = Diagnostic::templated("context-mismatch", span)
+            .with_bind("expected", wanted_shown.clone())
+            .with_bind("found", found_shown.clone())
+            .with_mismatch(wanted_shown.clone(), found_shown)
+            .with_note(note);
+        if !what.is_empty() {
+            d = d.with_label(format!("{what} is {wanted_shown}"));
+        }
+        self.c.diags.push(d);
+    }
+
+    /// A context type spelled by its bindings, quoted:
+    /// `` `context { Clock: TestClock }` ``.
+    fn show_context(&self, id: CtxTypeId) -> String {
+        let parts: Vec<String> = self
+            .c
+            .tables
+            .ctx_type(id)
+            .bindings
+            .iter()
+            .map(|(t, ty)| {
+                let effect = &self.c.tables.trait_(*t).name;
+                format!("{effect}: {}", show(&self.c.tables, Some(&self.subst), &self.generics, ty))
+            })
+            .collect();
+        if parts.is_empty() {
+            "`context {}`".to_string()
+        } else {
+            format!("`context {{ {} }}`", parts.join(", "))
         }
     }
 

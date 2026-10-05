@@ -3363,7 +3363,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let ctx_ty = CtxType {
             bindings: bindings.iter().map(|(t, e)| (*t, self.subst.resolve(&e.ty))).collect(),
         };
-        let id = self.c.tables.add_ctx_type(ctx_ty);
+        let id = self.c.tables.intern_ctx_type(ctx_ty);
         typed::Expr::new(typed::ExprKind::CtxLit { bindings }, Ty::ctx(id), span)
     }
 
