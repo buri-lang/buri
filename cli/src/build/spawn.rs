@@ -141,8 +141,10 @@ pub fn resolve(program: &str) -> Option<PathBuf> {
 /// once the child has exec'd. Writes take it shared, so they never wait for
 /// each other. Go guards its forks the same way.
 ///
-/// Skipped on macOS: it has no such rule, and its `exec` of a fresh binary
-/// waits for a signature check, which would hold up every other start.
+/// macOS has no such rule, and its `exec` of a fresh binary waits for a
+/// signature check, which would hold up every other start. So there, [`start`]
+/// holds the lock shared and writes don't take it. Only [`start_alone`] holds
+/// it alone, for the reason it gives.
 static FORKS: RwLock<()> = RwLock::new(());
 
 const GUARDS_FORKS: bool = !cfg!(target_os = "macos");
@@ -164,11 +166,33 @@ const BUSY_RETRIES: u32 = 9;
 
 /// Starts `command` under [`FORKS`], retrying `ETXTBSY` [`BUSY_RETRIES`] times.
 pub fn start(command: &mut Command) -> std::io::Result<Child> {
+    start_holding(command, GUARDS_FORKS)
+}
+
+/// [`start`], with no other process starting at the same time on any
+/// platform. For a process that must not hold another's pipes.
+///
+/// macOS has no `pipe2`. The standard library makes a pipe, then marks both
+/// ends close-on-exec in a second call. A process that another thread starts
+/// between the two inherits both ends. A tool process answers requests until
+/// its input ends. So a tool that inherited the write end of another tool's
+/// input kept that tool from ever reaching the end, and the build waited for
+/// both forever. Pipes are made inside `Command::spawn`, and every other start
+/// holds [`FORKS`] at least shared. So while this one holds it alone, no pipe
+/// is half made, and the process it starts inherits only its own streams.
+/// Its own pipes are made under the lock too, so no other process inherits
+/// them.
+pub fn start_alone(command: &mut Command) -> std::io::Result<Child> {
+    start_holding(command, true)
+}
+
+fn start_holding(command: &mut Command, alone: bool) -> std::io::Result<Child> {
     let mut wait = Duration::from_millis(1);
     let mut retries = BUSY_RETRIES;
     loop {
         let started = {
-            let _alone = GUARDS_FORKS.then(|| FORKS.write().unwrap_or_else(PoisonError::into_inner));
+            let _alone = alone.then(|| FORKS.write().unwrap_or_else(PoisonError::into_inner));
+            let _beside = (!alone).then(|| FORKS.read().unwrap_or_else(PoisonError::into_inner));
             command.spawn()
         };
         match started {
