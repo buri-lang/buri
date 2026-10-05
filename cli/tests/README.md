@@ -672,27 +672,33 @@ scaling the corpus is a number and a bless.
 
 **The growth corpus** catches a value copied where it should grow in place.
 Each `growth/case_NNN.buri` grows a list, a string, or a record holding a
-list, through one mix of the shapes ownership bugs came from: `foldCtx`,
-`foldResultCtx`, a loop, plain recursion and `mapCtx`; a bare, tuple, record,
-nested record or enum-wrapped accumulator, or a record growing a second list
-beside it; a destructuring `let`, a field read
-or a `match`; helpers small enough to inline or not, that read the value
-(through a closure too) or push onto it; one push a step, two, or a
-`concat`; literal strings, built strings, or records holding built strings as
-elements; an aliasing `let`; an early stop or a `?`; one loop
-nested in another; and a half kept and read again after the rest is grown
-from it. The header pins what it prints and how many blocks it may
-allocate:
+list through one mix of the shapes ownership bugs came from:
+
+- `foldCtx`, `foldResultCtx`, a loop, plain recursion, or `mapCtx`, alone or
+  one nested in another;
+- a bare, tuple, record, nested record or enum-wrapped accumulator, or a
+  record growing a second list beside the value;
+- a destructuring `let`, a field read, or a `match`, with or without an
+  aliasing `let`;
+- helpers small enough to inline or not, that read the value, directly or
+  through a closure, or push onto it;
+- one push a step, two, or a `concat`, of numbers, literal strings, built
+  strings, or records holding built strings;
+- an early stop or a `?`;
+- a half kept and read again after the rest is grown from it.
+
+The header pins what it prints and how many blocks it may allocate:
 
 ```buri
-// value=Names acc=Tuple access=Destructure pusher=Large reader=None alias=false inner=FoldLambda ...
-// expect: 2400 2400 7 2407 821404
-// blocks: 2493
+// value=Text acc=Pair access=Match pusher=Twice reader=None alias=true inner=Fold ...
+// expect: 400 400 1601 bbcccccc abbbbccc 327483
+// blocks: 60
 ```
 
 The generator computes both. It runs the same steps over Rust values for the
-line, and allows a few blocks per doubling of each value for the bound. A push
-that copies costs a block per push, which puts a case hundreds over.
+line. The bound allows a few blocks per doubling of each value, plus one for
+every element or closure a step builds. A push that copies costs a block per
+push, which puts a case hundreds over.
 `native::growth` runs the cases twenty to a program, on JavaScript for the
 output and on each native backend for the output, the bound and the heap
 check. A program over its bound rebuilds each case alone and names the ones
