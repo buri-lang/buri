@@ -104,8 +104,13 @@ export struct Entries<C> {
     export generate: Option<fn(C, GenerateRequest<Str>) => Generated>,
 }
 
-/// Reads one request from `Stdin`, calls the entry point it names, and writes
-/// the answer as one line of JSON on `Stdout`.
+/// Reads requests from `Stdin`, one line each, calls the entry point each
+/// names, and writes each answer as one line of JSON on `Stdout`, until the
+/// input ends.
+///
+/// One request and then the end of the input is one answer, so a caller that
+/// asks once and closes the stream is served as it always was, and one that
+/// keeps the process asks its next question without starting another.
 ///
 /// The whole of the `main` the toolchain writes for a tool.
 export fn serve<C: Allocator + Stdin + Stdout>(
@@ -113,6 +118,28 @@ export fn serve<C: Allocator + Stdin + Stdout>(
     entries: Entries<C>,
 ): Result<(), Str> {
     let line = io.readLine(ctx).okOr("tool: standard input held no request")?;
+    let _ = answerOne(ctx, entries, line)?;
+    serveRest(ctx, entries)
+}
+
+fn serveRest<C: Allocator + Stdin + Stdout>(
+    ctx: C,
+    entries: Entries<C>,
+): Result<(), Str> {
+    match (io.readLine(ctx)) {
+        .None => .Ok(()),
+        .Some(line) => {
+            let _ = answerOne(ctx, entries, line)?;
+            serveRest(ctx, entries)
+        },
+    }
+}
+
+fn answerOne<C: Allocator + Stdin + Stdout>(
+    ctx: C,
+    entries: Entries<C>,
+    line: Str,
+): Result<(), Str> {
     let request = json
         .parse(ctx, line)
         .mapErr(fn(_e) => "tool: the request is not JSON")?;
