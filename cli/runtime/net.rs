@@ -599,7 +599,7 @@ const IN_FLIGHT: usize = 2 * MAX_HANDLERS as usize;
 /// The number `hyper` tells the client in the settings frame, and therefore the
 /// bound on how many [`CONNECTIONS`] entries one socket can hold. It is
 /// `MAX_HANDLERS` because that is how many can be *answered* at once: a client
-/// allowed to open a thousand streams against sixty-four workers would be
+/// allowed to open more streams than there are workers would be
 /// buying itself a queue rather than any concurrency.
 #[cfg(feature = "net")]
 const MAX_STREAMS: u32 = MAX_HANDLERS as u32;
@@ -793,34 +793,26 @@ impl ServePlan {
 /// How many handlers one listener hosts at once — the number `bind` answers on
 /// `Listener.handlers`, and the number `core/net/server`'s `run` fans out to.
 ///
-/// **A worker waiting for a connection holds a thread.** The accept below is a
-/// blocking call, and `rt.rs`'s `park_on` can only give a thread back to a
-/// future that answers `Pending` — so a worker between requests costs an OS
-/// thread rather than a mapping. `rt::MAX_THREADS` is 256 and is what a whole
-/// *program* may have blocked at once, so a server may not be allowed to spend
-/// all of it: sixty-four leaves a program its own `parallel` and leaves the pool
-/// room to run the work the handlers themselves hand on.
+/// **A worker that waits holds no thread.** [`accept`] and a socket's
+/// `receive` park their task, so a worker between requests, or holding an
+/// idle WebSocket, costs its task's stacks and not an OS thread. The bound was
+/// sixty-four while those waits blocked, because `rt::MAX_THREADS` is 256 and
+/// a server could not be allowed to spend it all; a server holding sixty-four
+/// sockets then stopped answering (buri-lang/buri#224).
+///
+/// **1024, because that is `rt.rs`'s `IN_FLIGHT`**: the most tasks one
+/// `parallel` runs at once. More workers than that would wait for a place in
+/// the fan-out rather than for a request. An open WebSocket keeps its worker
+/// for its whole life, so this is also the most sockets a listener holds while
+/// it still accepts.
 ///
 /// **A constant and not a function of the processor count**, which is a
 /// deliberate choice about a number a program cannot ask for. A handler waits far
 /// more than it computes, so the useful number was never the core count; and a
-/// number nobody can pin should at least be one everybody can predict, including
-/// a test asserting that fifty requests overlap. The day `listenBind`'s
-/// ten-integer budget grows, a program says what it wants and this becomes the
-/// ceiling rather than the answer.
-///
-/// F3 forecast that F4 would move it, on the reasoning that an asynchronous
-/// acceptor lets a waiting worker park instead of block. **It did not move, and
-/// the forecast was half right.** What became asynchronous is the *accepting* —
-/// the socket, the handshake and the framing all left the workers — but a worker
-/// still waits on a condition variable for the next ready request, and a
-/// condition variable is not something `park_on` can hand a thread back
-/// through. What changed is what the sixty-four are spent on: they were the
-/// bound on how many connections could be *in progress* and they are now the
-/// bound on how many can be *answered at once*, with [`IN_FLIGHT`] carrying the
-/// first question. Raising it is a benchmark rather than an edit, which is why
-/// it is not in this slice.
-const MAX_HANDLERS: i64 = 64;
+/// number nobody can pin should at least be one everybody can predict. The day
+/// `listenBind`'s ten-integer budget grows, a program says what it wants and
+/// this becomes the ceiling rather than the answer.
+const MAX_HANDLERS: i64 = 1024;
 
 /// How long [`Listening::wake`] will wait for its own dial.
 ///
@@ -891,6 +883,11 @@ struct Listening {
     /// A connection was answered, so there is room under [`IN_FLIGHT`] for
     /// another. What the acceptor thread sleeps on when the server is full.
     room: Condvar,
+    /// [`Listening::arrived`] for a worker that parks: what [`accept`]
+    /// waits on when the runtime has a reactor, so a worker between requests
+    /// is a parked task and not a thread.
+    #[cfg(feature = "net")]
+    workers: tokio::sync::Notify,
     /// Where [`Listening::wake`] dials to interrupt the acceptor thread's
     /// blocking accept: the bound address, with an unspecified host replaced by
     /// loopback, because `0.0.0.0` is an address to accept on and not one to
@@ -924,8 +921,26 @@ impl Listening {
     /// for [`Gate`]'s reason.
     fn finish(&self) {
         self.gate().finished = true;
-        self.arrived.notify_all();
+        self.tell_every_worker();
         self.room.notify_all();
+    }
+
+    /// Wake every worker waiting for a request: the listener has finished.
+    fn tell_every_worker(&self) {
+        self.arrived.notify_all();
+        #[cfg(feature = "net")]
+        self.workers.notify_waiters();
+    }
+
+    /// Wake one worker: one request joined the queue.
+    ///
+    /// **One and not all.** A listener may host a thousand workers, and waking
+    /// all of them for every request is a thousand tasks that look at the
+    /// queue and find it empty.
+    fn tell_a_worker(&self) {
+        self.arrived.notify_one();
+        #[cfg(feature = "net")]
+        self.workers.notify_one();
     }
 
     /// Stop taking connections, and tell everything that is waiting.
@@ -945,7 +960,7 @@ impl Listening {
         // than inside the accept, and a drain that only dialled would leave it
         // there until a response it is no longer going to see.
         self.room.notify_all();
-        self.arrived.notify_all();
+        self.tell_every_worker();
         #[cfg(feature = "net")]
         self.stopping.notify_waiters();
         // And if it *is* inside the accept, this is what brings it out.
@@ -1029,14 +1044,19 @@ impl Listening {
             // that does not spend the limit must not reopen it.
             gate.finished = true;
         }
+        let finished = gate.finished;
         let connection = NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed);
         connections(|table| table.insert(connection, pending));
         gate.ready.push_back(connection);
         drop(gate);
-        // All of them and not one: the request goes to whichever asks first,
-        // and the workers that find `finished` behind it are the ones this
-        // wakes to tell.
-        self.arrived.notify_all();
+        // All of them when this spent the limit: the request goes to whichever
+        // asks first, and the workers that find `finished` behind it are the
+        // ones this wakes to tell.
+        if finished {
+            self.tell_every_worker();
+        } else {
+            self.tell_a_worker();
+        }
         self.room.notify_all();
         Ok(connection)
     }
@@ -1059,6 +1079,23 @@ impl Listening {
         }
         gate.outstanding = gate.outstanding.saturating_add(1);
         true
+    }
+
+    /// What a worker asking for a request gets without waiting: a request, the
+    /// acceptor's failure, or `.Closed` — or `None`, which is "wait".
+    ///
+    /// The queue first: a request that was framed before a failure or a finish
+    /// is still a request somebody should answer.
+    #[cfg(feature = "net")]
+    fn taken(&self) -> Option<Result<i64, ServeErr>> {
+        let mut gate = self.gate();
+        if let Some(connection) = gate.ready.pop_front() {
+            return Some(Ok(connection));
+        }
+        if let Some(e) = gate.failure.take() {
+            return Some(Err(e));
+        }
+        gate.finished.then(|| Err(ServeErr::closed()))
     }
 
     /// One fewer, and the acceptor thread may take another.
@@ -1401,6 +1438,8 @@ pub fn bind(
         }),
         arrived: Condvar::new(),
         room: Condvar::new(),
+        #[cfg(feature = "net")]
+        workers: tokio::sync::Notify::new(),
         wake_at: dial_address(local),
         #[cfg(feature = "net")]
         tls: secure,
@@ -1447,7 +1486,7 @@ fn accepting_on(listening: &Arc<Listening>, handle: i64) {
                 gate.finished = true;
                 gate.failure.get_or_insert_with(|| ServeErr::io(&e, "accepting"));
                 drop(gate);
-                listening.arrived.notify_all();
+                listening.tell_every_worker();
                 return;
             }
         };
@@ -1596,6 +1635,42 @@ fn serve_connection(listening: &Arc<Listening>, handle: i64, stream: TcpStream) 
 /// request invisible from here: [`serve_connection`] answers it and never joins
 /// the queue, so a handler is never handed a message the acceptor could not
 /// make sense of.
+#[cfg(feature = "net")]
+pub fn accept(handle: i64) -> Result<i64, ServeErr> {
+    crate::rt::park_on(accepting(handle))
+}
+
+/// [`accept`] as a future, which is what lets a worker between requests park
+/// rather than hold a thread (buri-lang/buri#224).
+///
+/// **The wakeup is registered before the queue is read**, so a request queued
+/// between the look and the wait wakes this worker rather than passing it by.
+#[cfg(feature = "net")]
+async fn accepting(handle: i64) -> Result<i64, ServeErr> {
+    let listening = listening(handle)?;
+    let waiting_until = listening.plan.idle.map(|idle| (Instant::now() + idle, idle));
+    loop {
+        let mut arrived = std::pin::pin!(listening.workers.notified());
+        arrived.as_mut().enable();
+        if let Some(answer) = listening.taken() {
+            return answer;
+        }
+        let Some((deadline, idle)) = waiting_until else {
+            arrived.await;
+            continue;
+        };
+        if tokio::time::timeout_at(deadline.into(), arrived).await.is_err() {
+            return listening.taken().unwrap_or_else(|| {
+                Err(ServeErr::new(
+                    ServeFail::Timeout,
+                    format!("no connection arrived within {} ms", idle.as_millis()),
+                ))
+            });
+        }
+    }
+}
+
+#[cfg(not(feature = "net"))]
 pub fn accept(handle: i64) -> Result<i64, ServeErr> {
     let listening = listening(handle)?;
     let waiting_until = listening.plan.idle.map(|idle| (Instant::now() + idle, idle));
@@ -2745,24 +2820,21 @@ fn answered(reply: Reply) -> hyper::Response<Once> {
 //   a promise, not to arbitrate between two workers that should not exist.
 // * **A socket occupies a worker.** `MAX_HANDLERS` sockets is as many as a
 //   server can hold while still accepting, which is F3's bound arriving in a
-//   second place for F3's reason: `effect Tasks` has no detached spawn, so the
-//   loop that reads a socket is a loop somebody is inside. It moves on the day
-//   a task can outlive the call that started it, and nothing about this file's
-//   surface moves with it.
+//   second place for F3's reason: the loop that reads a socket is a loop
+//   somebody is inside. What keeps it from being sixty-four is that a worker
+//   waiting on an idle socket is a parked task and holds no thread.
 //
 // ## The one wait that is two waits
 //
 // A socket's loop waits for either of two things: bytes from the far side, or a
-// message another task enqueued for it. The first is a file descriptor and the
-// second is a lock, and there is no portable way to wait on both — which is why
-// this is the one place in this file that reaches for `poll(2)` and a
-// self-pipe. `Listening::wake` dials a port for the same reason one screen up;
-// `shutdown` writes a byte into a pipe for the same reason one screen down.
+// message another task enqueued for it. The first is the descriptor's readiness
+// in the reactor and the second is a `tokio::sync::Notify`, and the loop polls
+// both from one future, so the wait parks the socket's task.
 //
 // What that buys is that **`socketSendText` never waits and never spins**: it
-// takes a lock, pushes onto a queue, writes one byte, and returns. The socket's
-// own worker is out of `poll` before the caller's next instruction, and an idle
-// socket costs nothing at all until somebody has something to say to it.
+// takes a lock, pushes onto a queue, notifies, and returns. An idle socket
+// costs a parked task and nothing else until somebody has something to say to
+// it.
 //
 // ## And the same wire from the other end
 //
@@ -2921,12 +2993,15 @@ const NO_CLOSE_CODE: i64 = 1005;
 #[cfg(feature = "net")]
 mod sockets {
     use std::collections::{HashMap, VecDeque};
-    use std::io::{Read, Write};
+    use std::future::Future;
+    use std::io::Write;
     use std::os::unix::io::{AsRawFd, RawFd};
-    use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
     use std::sync::{Arc, Mutex, MutexGuard};
+    use std::task::Poll;
 
+    use tokio::io::unix::AsyncFd;
+    use tokio::sync::Notify;
     use tungstenite::protocol::frame::coding::CloseCode;
     use tungstenite::protocol::{CloseFrame, Role, WebSocket, WebSocketConfig};
 
@@ -2935,18 +3010,11 @@ mod sockets {
         OVERFLOW_CODE, Received, ServeErr, ServeFail, Wire, connections, listening,
     };
 
-    /// How long [`waiting`] sleeps before it looks again with nothing having
-    /// woken it.
-    ///
-    /// **A backstop and not a poll**, and the difference is the number: every
-    /// state change on a socket writes the wake byte under the same lock that
-    /// made the change, so a socket that is doing nothing is woken by nothing
-    /// and this is what happens when that reasoning is wrong. One second costs
-    /// one wakeup per open socket per second — three orders of magnitude below
-    /// the ten-millisecond poll F3 measured as a server that took twenty
-    /// seconds to notice a client — and what it buys is that a lost wakeup is a
-    /// one-second delay rather than a test suite that hangs.
-    const BACKSTOP_MILLIS: i32 = 1_000;
+    /// How long one write of a closing socket may wait for the client to
+    /// read. [`super::DRAIN_DEADLINE`]'s number, for its reason: it is how long
+    /// a server that has decided to stop should wait for a client that is not
+    /// going to finish.
+    const CLOSING_DEADLINE: std::time::Duration = super::DRAIN_DEADLINE;
 
     /// The read buffer `tungstenite` allocates per socket, eagerly.
     ///
@@ -2957,44 +3025,6 @@ mod sockets {
     /// a byte. A server that moves enough traffic for this to matter is a
     /// server that wants a knob, and the knob would be a `Serve` variant.
     const READ_BUFFER: usize = 8 * 1024;
-
-    /// `POLLIN` — there is something to read, or the far side has gone. The
-    /// same one on both platforms this runtime is built for.
-    const POLLIN: i16 = 0x0001;
-    /// `POLLOUT` — there is room to write. Asked for only when a flush has
-    /// already answered `WouldBlock`.
-    const POLLOUT: i16 = 0x0004;
-
-    /// The two descriptors this waits on, as the width `poll` takes them in.
-    const TWO: NFds = 2;
-
-    /// `struct pollfd`, which is three fields in this order on both platforms.
-    #[repr(C)]
-    struct PollFd {
-        fd: i32,
-        events: i16,
-        revents: i16,
-    }
-
-    /// `nfds_t` is an `unsigned int` on macOS and an `unsigned long` on Linux.
-    /// Two lines rather than one, because a mismatched integer width in a C
-    /// declaration is the kind of thing that works until it does not.
-    #[cfg(target_os = "macos")]
-    type NFds = u32;
-    #[cfg(not(target_os = "macos"))]
-    type NFds = u64;
-
-    // The one call this module makes into the C library, declared rather than
-    // depended on — `memory.rs`'s `mmap` block and `shutdown`'s `signal` block
-    // are the precedents and carry the argument.
-    //
-    // `poll` rather than `select` because `select` cannot describe a descriptor
-    // above `FD_SETSIZE` and a server holding a thousand connections has them;
-    // `poll` rather than `kqueue`/`epoll` because those are two implementations
-    // of one idea and this waits on exactly two descriptors.
-    unsafe extern "C" {
-        fn poll(fds: *mut PollFd, nfds: NFds, timeout: i32) -> i32;
-    }
 
     /// One message on its way out, before it is framed.
     enum Queued {
@@ -3030,11 +3060,11 @@ mod sockets {
     /// One open socket: everything the tasks touching it share.
     ///
     /// **The framing and the queue are two locks and not one**, deliberately.
-    /// The framing is held for as long as a `receive` is inside `poll`, which
-    /// is most of a socket's life; a `send` that had to take that lock would be
-    /// a `send` that waited for the far side to say something, which is exactly
-    /// what `socketSendText` promises not to do. So a send touches the queue
-    /// and the pipe, and neither is ever held across a wait.
+    /// A `receive` holds the framing for as long as it waits, which is most of
+    /// a socket's life; a `send` that had to take it would be a `send` that
+    /// waited for the far side to say something, which is exactly what
+    /// `socketSendText` promises not to do. So a send touches the queue and
+    /// [`Socketed::woken`], and neither is ever held across a wait.
     struct Socketed {
         /// Which listener accepted it, so a listener closing takes its sockets
         /// with it and so the place in flight goes back to the right gate.
@@ -3042,18 +3072,17 @@ mod sockets {
         /// How many messages the queue holds before the socket is closed.
         bound: usize,
         out: Mutex<Outbound>,
-        /// The framing. `None` once the socket has been retired, which is what
-        /// makes a second `receive` `.Err` rather than a second close.
-        framing: Mutex<Option<WebSocket<Wire>>>,
-        /// The descriptor [`waiting`] watches for bytes.
-        fd: RawFd,
-        /// The write end of the self-pipe. One byte here brings the socket's
-        /// own worker out of `poll`.
-        wake: UnixStream,
-        /// The read end, watched beside [`Socketed::fd`].
-        woken: UnixStream,
-        /// The listener took its sockets back while this one's worker was
-        /// inside `poll`. Read on the way round.
+        /// The framing. A `receive` takes it out for as long as it runs, and
+        /// it is `None` for good once the socket has been retired — either
+        /// way a second `receive` is `.Err` rather than a second close.
+        framing: Mutex<Option<Open>>,
+        /// Something changed that the socket's own task has to act on: a
+        /// message queued, a close decided, the listener gone. A `Notify`
+        /// keeps one wakeup for a task that is not waiting yet, so none is
+        /// lost between a look at the queue and the wait.
+        woken: Notify,
+        /// The listener took its sockets back while this one's task was
+        /// waiting. Read on the way round.
         retired: AtomicBool,
         /// This socket's place in [`super::Gate::outstanding`] has been given
         /// back. Swapped rather than checked, so it happens exactly once
@@ -3061,7 +3090,39 @@ mod sockets {
         landed: AtomicBool,
     }
 
+    /// The framing, and the reactor's view of its descriptor.
+    ///
+    /// **`ready` is declared first so it is dropped first**: the descriptor
+    /// leaves the reactor before the framing closes it, so a number the kernel
+    /// hands out again is never deregistered on somebody else's behalf.
+    struct Open {
+        ready: AsyncFd<RawFd>,
+        framing: WebSocket<Wire>,
+    }
+
+    impl Open {
+        /// A framing over a non-blocking socket, registered with the reactor
+        /// so a wait on it parks the task rather than holding a thread.
+        fn new(framing: WebSocket<Wire>) -> std::io::Result<Open> {
+            let fd = framing.get_ref().stream().as_raw_fd();
+            let _reactor = crate::rt::handle().enter();
+            Ok(Open { ready: AsyncFd::new(fd)?, framing })
+        }
+    }
+
     impl Socketed {
+        fn new(listener: i64, bound: usize, open: Open) -> Socketed {
+            Socketed {
+                listener,
+                bound,
+                out: Mutex::new(Outbound { queue: VecDeque::new(), ending: None }),
+                framing: Mutex::new(Some(open)),
+                woken: Notify::new(),
+                retired: AtomicBool::new(false),
+                landed: AtomicBool::new(false),
+            }
+        }
+
         fn out(&self) -> MutexGuard<'_, Outbound> {
             match self.out.lock() {
                 Ok(g) => g,
@@ -3069,17 +3130,15 @@ mod sockets {
             }
         }
 
-        fn framing(&self) -> MutexGuard<'_, Option<WebSocket<Wire>>> {
+        fn framing(&self) -> MutexGuard<'_, Option<Open>> {
             match self.framing.lock() {
                 Ok(g) => g,
                 Err(poisoned) => poisoned.into_inner(),
             }
         }
 
-        /// One byte into the self-pipe. A failure is a pipe whose reader has
-        /// gone, which is a socket already being retired.
         fn wake(&self) {
-            let _woken = (&self.wake).write(&[1u8]);
+            self.woken.notify_one();
         }
     }
 
@@ -3123,12 +3182,8 @@ mod sockets {
 
     /// Take a socket out of the table and let go of its framing, which is what
     /// closes the descriptor.
-    fn retire(
-        socket: i64,
-        held: &mut Option<WebSocket<Wire>>,
-        state: &Arc<Socketed>,
-    ) {
-        *held = None;
+    fn retire(socket: i64, open: Open, state: &Arc<Socketed>) {
+        drop(open);
         table(|open| open.remove(&socket));
         land(state);
     }
@@ -3181,24 +3236,12 @@ mod sockets {
         if let Err(e) = wire.write_all(head.as_bytes()).and_then(|()| wire.flush()) {
             return refused(format!("writing the upgrade response: {e}"));
         }
-        // **Non-blocking from here on**, which is what makes the wait below a
-        // wait on two descriptors rather than a read that blocks: a framing
-        // that answers `WouldBlock` is a framing that has told us everything it
-        // has, and `poll` is what says when there is more.
-        let stream = wire.stream();
-        let fd = stream.as_raw_fd();
-        if let Err(e) = stream.set_nonblocking(true) {
+        // **Non-blocking from here on**, which is what lets a wait on the
+        // socket park its task rather than hold a thread: a framing that
+        // answers `WouldBlock` is a framing that has told us everything it
+        // has, and the reactor is what says when there is more.
+        if let Err(e) = wire.stream().set_nonblocking(true) {
             return refused(format!("making the socket non-blocking: {e}"));
-        }
-        let Ok((woken, wake)) = UnixStream::pair() else {
-            return refused(String::from("opening the socket's wakeup pipe"));
-        };
-        // Both ends, because the reader drains without blocking and the writer
-        // must not block when nobody has drained yet — a full pipe means the
-        // worker has already been woken and has not looked yet, which is a
-        // wakeup that has done its job.
-        if woken.set_nonblocking(true).is_err() || wake.set_nonblocking(true).is_err() {
-            return refused(String::from("making the socket's wakeup pipe non-blocking"));
         }
         // Field by field rather than a struct literal: `WebSocketConfig` is
         // `#[non_exhaustive]`, which is the crate reserving the right to add a
@@ -3212,18 +3255,13 @@ mod sockets {
         config.write_buffer_size = 0;
         config.max_message_size = (limit > 0).then_some(limit);
         let framing = WebSocket::from_raw_socket(wire, Role::Server, Some(config));
+        let framed = match Open::new(framing) {
+            Ok(framed) => framed,
+            Err(e) => return refused(format!("watching the socket: {e}")),
+        };
+        let bound = open.as_ref().map_or(super::SOCKET_BUFFER, |l| l.plan.socket_buffer);
         let socket = NEXT_SOCKET.fetch_add(1, Ordering::Relaxed);
-        let state = Arc::new(Socketed {
-            listener,
-            bound: open.as_ref().map_or(super::SOCKET_BUFFER, |l| l.plan.socket_buffer),
-            out: Mutex::new(Outbound { queue: VecDeque::new(), ending: None }),
-            framing: Mutex::new(Some(framing)),
-            fd,
-            wake,
-            woken,
-            retired: AtomicBool::new(false),
-            landed: AtomicBool::new(false),
-        });
+        let state = Arc::new(Socketed::new(listener, bound, framed));
         table(|open| open.insert(socket, state));
         Ok(socket)
     }
@@ -3252,18 +3290,10 @@ mod sockets {
     pub(super) fn adopt(wire: Wire, part: Vec<u8>) -> Result<i64, ServeErr> {
         let refused = |detail: String| Err(ServeErr::new(ServeFail::Transport, detail));
         // **Non-blocking from here on**, for [`upgrade`]'s reason one screen
-        // up: the wait below is a wait on two descriptors, and a framing that
-        // answers `WouldBlock` is one that has told us everything it has.
-        let stream = wire.stream();
-        let fd = stream.as_raw_fd();
-        if let Err(e) = stream.set_nonblocking(true) {
+        // up: a wait on the socket parks its task, and a framing that answers
+        // `WouldBlock` is one that has told us everything it has.
+        if let Err(e) = wire.stream().set_nonblocking(true) {
             return refused(format!("making the socket non-blocking: {e}"));
-        }
-        let Ok((woken, wake)) = UnixStream::pair() else {
-            return refused(String::from("opening the socket's wakeup pipe"));
-        };
-        if woken.set_nonblocking(true).is_err() || wake.set_nonblocking(true).is_err() {
-            return refused(String::from("making the socket's wakeup pipe non-blocking"));
         }
         // The same three knobs the accepted half sets, field by field for the
         // same reason: `WebSocketConfig` is `#[non_exhaustive]`.
@@ -3277,18 +3307,12 @@ mod sockets {
         // spends.
         config.max_message_size = Some(super::BODY_LIMIT);
         let framing = WebSocket::from_partially_read(wire, part, Role::Client, Some(config));
+        let framed = match Open::new(framing) {
+            Ok(framed) => framed,
+            Err(e) => return refused(format!("watching the socket: {e}")),
+        };
         let socket = NEXT_SOCKET.fetch_add(1, Ordering::Relaxed);
-        let state = Arc::new(Socketed {
-            listener: 0,
-            bound: super::SOCKET_BUFFER,
-            out: Mutex::new(Outbound { queue: VecDeque::new(), ending: None }),
-            framing: Mutex::new(Some(framing)),
-            fd,
-            wake,
-            woken,
-            retired: AtomicBool::new(false),
-            landed: AtomicBool::new(false),
-        });
+        let state = Arc::new(Socketed::new(0, super::SOCKET_BUFFER, framed));
         table(|open| open.insert(socket, state));
         Ok(socket)
     }
@@ -3300,38 +3324,93 @@ mod sockets {
     /// waited first would be a socket whose outbound queue is delivered one
     /// message late, which for a broadcast is every subscriber waiting for the
     /// next thing anybody says.
+    ///
+    /// **The wait parks the task and holds no thread**, so an idle socket
+    /// costs its task's stacks and nothing a server runs out of
+    /// (buri-lang/buri#224).
     pub(super) fn receive(socket: i64) -> Result<Received, ServeErr> {
+        crate::rt::park_on(receiving(socket))
+    }
+
+    async fn receiving(socket: i64) -> Result<Received, ServeErr> {
         let Some(state) = socketed(socket) else { return Err(ServeErr::closed()) };
-        let mut held = state.framing();
-        if held.is_none() {
-            return Err(ServeErr::closed());
-        }
-        // Set when a flush has answered `WouldBlock`, so the wait asks about
-        // room to write as well as bytes to read. Cleared as soon as one
-        // succeeds.
+        // Taken out rather than locked, so no lock is held across the wait.
+        let Some(mut open) = state.framing().take() else { return Err(ServeErr::closed()) };
+        // Set when a write has answered `WouldBlock`, so the wait asks about
+        // room to write as well as bytes to read. Cleared as soon as a flush
+        // goes through.
         let mut blocked = false;
         loop {
             if state.retired.load(Ordering::SeqCst) {
-                retire(socket, &mut held, &state);
+                retire(socket, open, &state);
                 return Err(ServeErr::closed());
             }
-            let Some(framing) = held.as_mut() else { return Err(ServeErr::closed()) };
-            // 1. Everything that has been enqueued, and the close if one has
-            //    been decided. Both are read under the queue's lock in one
-            //    step, so a `send` that overflowed cannot have its message
-            //    written and its close missed.
-            let ending = {
-                let mut out = state.out();
-                while let Some(queued) = out.queue.pop_front() {
-                    let message = match queued {
-                        Queued::Text(text) => tungstenite::Message::Text(text.into()),
-                        Queued::Binary(data) => tungstenite::Message::Binary(data.into()),
-                        Queued::Ping => tungstenite::Message::Ping(Vec::new().into()),
-                    };
-                    if framing.write(message).is_err() {
-                        // The framing has gone. The close below is what the
-                        // loop is told about it; the rest of the queue goes
-                        // with the socket.
+            match turn(&state, &mut open.framing, &mut blocked) {
+                Turn::Arrived(received) => {
+                    *state.framing() = Some(open);
+                    return Ok(received);
+                }
+                Turn::Ended(received) => {
+                    retire(socket, open, &state);
+                    return Ok(received);
+                }
+                Turn::Waiting => waiting(&state, &open.ready, blocked).await,
+            }
+        }
+    }
+
+    /// What one turn of [`receiving`] found.
+    enum Turn {
+        /// A message, for the loop above to hand to its hook.
+        Arrived(Received),
+        /// The socket is over, and this is the close the loop is told.
+        Ended(Received),
+        /// Nothing yet.
+        Waiting,
+    }
+
+    /// Write what is queued and read what has arrived, without waiting.
+    fn turn(state: &Socketed, framing: &mut WebSocket<Wire>, blocked: &mut bool) -> Turn {
+        // 1. What is already framed goes out before anything new is
+        //    framed. A frame the stream took only part of is still in
+        //    `tungstenite`'s buffer, and this writes the rest.
+        if *blocked {
+            *blocked = flush(framing, *blocked);
+        }
+        // 2. Everything that has been enqueued, and the close if one has
+        //    been decided. Both are read under the queue's lock in one
+        //    step, so a `send` that overflowed cannot have its message
+        //    written and its close missed.
+        //
+        //    **Nothing more is framed while the stream refuses writes.**
+        //    The messages wait in `Outbound`, where `bound` counts them,
+        //    so a client that stops reading fills the queue a program
+        //    sized rather than a buffer nobody sees.
+        let ending = {
+            let mut out = state.out();
+            while !*blocked {
+                let Some(queued) = out.queue.pop_front() else { break };
+                let message = match queued {
+                    Queued::Text(text) => tungstenite::Message::Text(text.into()),
+                    Queued::Binary(data) => tungstenite::Message::Binary(data.into()),
+                    Queued::Ping => tungstenite::Message::Ping(Vec::new().into()),
+                };
+                match framing.write(message) {
+                    Ok(()) => {}
+                    // The stream took part of the frame and then refused
+                    // the rest. The frame is whole in `tungstenite`'s
+                    // buffer, and the wait below asks for room to write.
+                    // buri-lang/buri#244 was this arm reading as the end
+                    // of the socket.
+                    Err(tungstenite::Error::Io(e))
+                        if e.kind() == std::io::ErrorKind::WouldBlock =>
+                    {
+                        *blocked = true;
+                    }
+                    Err(_) => {
+                        // The framing has gone. The close below is what
+                        // the loop is told about it; the rest of the
+                        // queue goes with the socket.
                         out.queue.clear();
                         out.ending.get_or_insert(Ending {
                             code: OVERFLOW_CODE,
@@ -3341,78 +3420,100 @@ mod sockets {
                         break;
                     }
                 }
-                out.ending.clone()
-            };
-            blocked = flush(framing, blocked);
-            if let Some(end) = ending {
-                // The close frame is written and flushed on the way out, so a
-                // client that is reading gets a reason rather than a socket
-                // that stopped. `close` queues it and `flush` writes it; a
-                // failure at either end is a client that has already gone.
-                let _closed = framing.close(Some(CloseFrame {
-                    code: CloseCode::from(end.code),
-                    reason: end.reason.into(),
-                }));
-                let _flushed = framing.flush();
-                retire(socket, &mut held, &state);
-                return Ok(Received::closed(end.told));
             }
-            // 2. Everything that has arrived. The loop is over `read` and not
-            //    over `poll`, because `tungstenite` buffers: a second whole
-            //    message may already be in its reader when the descriptor has
-            //    nothing left to say.
-            let mut arrived: Option<Received> = None;
-            let mut ended: Option<i64> = None;
-            loop {
-                match framing.read() {
-                    Ok(tungstenite::Message::Text(text)) => {
-                        arrived = Some(Received::text(text.as_str()));
-                        break;
-                    }
-                    Ok(tungstenite::Message::Binary(data)) => {
-                        arrived = Some(Received::binary(&data));
-                        break;
-                    }
-                    Ok(tungstenite::Message::Close(frame)) => {
-                        ended = Some(
-                            frame.map_or(NO_CLOSE_CODE, |f| i64::from(u16::from(f.code))),
-                        );
-                        break;
-                    }
-                    // **Ping and pong are the runtime's**, which is what this
-                    // arm is: `tungstenite` has already queued the pong, the
-                    // flush below writes it, and nothing above this line ever
-                    // learns that a heartbeat happened.
-                    Ok(_) => continue,
-                    Err(tungstenite::Error::Io(e))
-                        if e.kind() == std::io::ErrorKind::WouldBlock =>
-                    {
-                        break;
-                    }
-                    // Every other way a read ends is this socket ending: the
-                    // far side went without a close frame, or sent something
-                    // that is not RFC 6455. Both are 1006 to the loop, which
-                    // is `.Abnormal`.
-                    Err(_) => {
-                        ended = Some(NO_CLOSE_FRAME);
-                        break;
-                    }
+            out.ending.clone()
+        };
+        if !*blocked {
+            *blocked = flush(framing, *blocked);
+        }
+        if let Some(end) = ending {
+            // The close frame is written behind everything already
+            // framed, so a client that is reading gets every message and
+            // then a reason rather than a socket that stopped.
+            closing(
+                framing,
+                Some(CloseFrame { code: CloseCode::from(end.code), reason: end.reason.into() }),
+            );
+            return Turn::Ended(Received::closed(end.told));
+        }
+        // 3. Everything that has arrived. The loop is over `read` and not
+        //    over readiness, because `tungstenite` buffers: a second whole
+        //    message may already be in its reader when the descriptor has
+        //    nothing left to say.
+        let mut arrived: Option<Received> = None;
+        let mut ended: Option<i64> = None;
+        loop {
+            match framing.read() {
+                Ok(tungstenite::Message::Text(text)) => {
+                    arrived = Some(Received::text(text.as_str()));
+                    break;
+                }
+                Ok(tungstenite::Message::Binary(data)) => {
+                    arrived = Some(Received::binary(&data));
+                    break;
+                }
+                Ok(tungstenite::Message::Close(frame)) => {
+                    ended = Some(
+                        frame.map_or(NO_CLOSE_CODE, |f| i64::from(u16::from(f.code))),
+                    );
+                    break;
+                }
+                // **Ping and pong are the runtime's**, which is what this
+                // arm is: `tungstenite` has already queued the pong, the
+                // flush below writes it, and nothing above this line ever
+                // learns that a heartbeat happened.
+                Ok(_) => continue,
+                Err(tungstenite::Error::Io(e))
+                    if e.kind() == std::io::ErrorKind::WouldBlock =>
+                {
+                    break;
+                }
+                // Every other way a read ends is this socket ending: the
+                // far side went without a close frame, or sent something
+                // that is not RFC 6455. Both are 1006 to the loop, which
+                // is `.Abnormal`.
+                Err(_) => {
+                    ended = Some(NO_CLOSE_FRAME);
+                    break;
                 }
             }
-            // The pong the read may have queued, and anything a `write` above
-            // left buffered.
-            blocked = flush(framing, blocked);
-            if let Some(code) = ended {
-                let _flushed = framing.flush();
-                retire(socket, &mut held, &state);
-                return Ok(Received::closed(code));
-            }
-            if let Some(received) = arrived {
-                return Ok(received);
-            }
-            // 3. Nothing to write and nothing to read: wait for either.
-            waiting(&state, blocked);
         }
+        // The pong the read may have queued, and anything a `write` above
+        // left buffered.
+        *blocked = flush(framing, *blocked);
+        if let Some(code) = ended {
+            // The close `tungstenite` queued in answer, behind whatever
+            // was still going out.
+            closing(framing, None);
+            return Turn::Ended(Received::closed(code));
+        }
+        match arrived {
+            Some(received) => Turn::Arrived(received),
+            None => Turn::Waiting,
+        }
+    }
+
+    /// The last writes on a socket: the close frame, if this side is the one
+    /// closing, behind everything already framed.
+    ///
+    /// **Blocking, with a deadline**, because this is the one write that has
+    /// no later turn of the loop to finish it. A message larger than the
+    /// socket's buffers is still going out when its close is decided, and a
+    /// non-blocking flush would stop partway and drop the rest with the socket
+    /// (buri-lang/buri#244). [`CLOSING_DEADLINE`] bounds each write, so a
+    /// client that has stopped reading costs that long and not a thread for
+    /// ever. A failure is a client that has already gone.
+    fn closing(framing: &mut WebSocket<Wire>, frame: Option<CloseFrame>) {
+        let stream = framing.get_ref().stream();
+        if stream.set_nonblocking(false).is_err()
+            || stream.set_write_timeout(Some(CLOSING_DEADLINE)).is_err()
+        {
+            return;
+        }
+        if let Some(frame) = frame {
+            let _closed = framing.close(Some(frame));
+        }
+        let _flushed = framing.flush();
     }
 
     /// Flush, and answer whether the stream is still refusing writes.
@@ -3431,35 +3532,37 @@ mod sockets {
         }
     }
 
-    /// Wait for bytes on the socket, for room to write on it, or for a byte on
-    /// the self-pipe — whichever happens first.
+    /// Wait for bytes on the socket, for room to write on it, or for
+    /// [`Socketed::woken`] — whichever happens first — with the task parked.
     ///
-    /// The pipe is drained here rather than counted: one byte and a hundred
-    /// mean the same thing, which is "look again".
-    fn waiting(state: &Socketed, blocked: bool) {
-        let events = if blocked { POLLIN | POLLOUT } else { POLLIN };
-        let mut fds = [
-            PollFd { fd: state.fd, events, revents: 0 },
-            PollFd { fd: state.woken.as_raw_fd(), events: POLLIN, revents: 0 },
-        ];
-        // SAFETY: two descriptors this process owns, in an array of two, with
-        // a timeout in milliseconds. `poll` reads `nfds` entries and writes
-        // `revents` into each, which is what a `&mut [PollFd; 2]` allows.
-        let _ready = unsafe { poll(fds.as_mut_ptr(), TWO, BACKSTOP_MILLIS) };
-        // The pipe is drained rather than counted: one byte and a hundred mean
-        // the same thing, which is "look again".
-        if fds.get(1).is_some_and(|pipe| pipe.revents & POLLIN != 0) {
-            let mut sink = [0u8; 64];
-            while let Ok(n) = (&state.woken).read(&mut sink) {
-                if n == 0 {
-                    break;
-                }
+    /// A readiness the reactor reported is cleared here, before the next turn
+    /// reads, so bytes that arrive after this are a new readiness and never a
+    /// lost one.
+    async fn waiting(state: &Socketed, ready: &AsyncFd<RawFd>, blocked: bool) {
+        let mut woken = std::pin::pin!(state.woken.notified());
+        std::future::poll_fn(|cx| {
+            if woken.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(());
             }
-        }
+            if let Poll::Ready(guard) = ready.poll_read_ready(cx) {
+                if let Ok(mut guard) = guard {
+                    guard.clear_ready();
+                }
+                return Poll::Ready(());
+            }
+            if blocked && let Poll::Ready(guard) = ready.poll_write_ready(cx) {
+                if let Ok(mut guard) = guard {
+                    guard.clear_ready();
+                }
+                return Poll::Ready(());
+            }
+            Poll::Pending
+        })
+        .await;
     }
 
-    /// `Sockets::socketSendText` — a message onto the queue, and a byte into
-    /// the pipe.
+    /// `Sockets::socketSendText` — a message onto the queue, and a wakeup for
+    /// the socket's own task.
     ///
     /// **Never waits, and a handle that names nothing is a message dropped**,
     /// which are the same sentence from two directions: this side cannot tell a
@@ -4377,8 +4480,8 @@ pub unsafe extern "C" fn buri_rt_host_listen_accept(
     err: *mut BuriServeError,
 ) -> i32 {
     // **A suspension point**, and the one that waits longest: this is where a
-    // worker sits between requests.
-    match park(|| accept(handle)) {
+    // worker sits between requests. `accept` parks on its own.
+    match accept(handle) {
         Ok(connection) => {
             // SAFETY: the caller promises a writable destination.
             unsafe { out.write(connection) };
@@ -4546,7 +4649,8 @@ pub unsafe extern "C" fn buri_rt_host_listen_receive(
     out: *mut BuriReceived,
     err: *mut BuriServeError,
 ) -> i32 {
-    match park(|| received(socket)) {
+    // `receive` parks on its own.
+    match received(socket) {
         Ok(event) => {
             let value = BuriReceived {
                 frame: event.frame,
@@ -4781,7 +4885,8 @@ pub unsafe extern "C" fn buri_rt_host_web_socket_client_connect_receive(
     out: *mut BuriReceived,
     err: *mut BuriServeError,
 ) -> i32 {
-    match park(|| dialled_received(socket)) {
+    // `receive` parks on its own.
+    match dialled_received(socket) {
         Ok(event) => {
             let value = BuriReceived {
                 frame: event.frame,
@@ -4823,32 +4928,15 @@ fn dialled_received(_socket: i64) -> Result<Received, ServeErr> {
 /// Run one blocking step inside the reactor's context where there is one, and
 /// inline where there is not.
 ///
-/// The five `Listen` entries that reach a blocking call all want the same two
-/// lines, so they say them once here.
-///
 /// **It does not park, and the name is older than the mechanism.** `work` is a
 /// synchronous call wrapped in an `async` block, so the first poll runs it to
-/// completion and answers `Ready` — and `rt::park_on` only gives a thread back
-/// to a future that answers `Pending`. The thread is therefore held for the
-/// whole of the blocking `accept(2)` or `Condvar::wait` underneath. That is not
-/// an oversight and [`MAX_HANDLERS`] is the number that prices it: sixty-four
-/// threads may be in exactly this state at once, which is the reason that
-/// ceiling is a constant a program can predict rather than a function of the
-/// machine, and it is stated there in as many words.
-///
-/// **What routing through `park_on` buys is the reactor and the seam.** The
-/// work runs under `Handle::enter` on a thread and under `Handle::block_on`
-/// off one, so a body that reaches for a tokio resource without naming a handle
-/// finds a runtime; and this is the one function — five callers, two lines —
-/// where a real suspension goes on the day these entries stop being blocking
-/// calls, with no caller moving. Neither is load-bearing today: everything
-/// below names [`crate::rt::handle`] explicitly, so what this is at present is
-/// the seam and an honest name for where the waiting happens.
-///
-/// The doc this replaces said `park_on` kept the thread from "holding the
-/// baton while a server waits for a client". There is no baton — G3 deleted it
-/// (`rt.rs` §1) — and on the mechanism that replaced it the sentence was the
-/// opposite of what these two lines do.
+/// completion and answers `Ready`, and the thread is held for the whole of it.
+/// Its callers are the bounded steps: a bind, a response written with a
+/// deadline, an upgrade, a dial. The two waits that can last for ever —
+/// [`accept`] and a socket's `receive` — are futures that park, and call
+/// `rt::park_on` themselves rather than through here, because a `park_on`
+/// inside another one's poll would resume on a thread whose reactor it never
+/// entered.
 fn park<T: Send>(work: impl FnOnce() -> T + Send) -> T {
     #[cfg(feature = "net")]
     {

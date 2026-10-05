@@ -1328,6 +1328,238 @@ fn the_same_handler_answers_the_same_way_with_and_without_a_socket() {
     assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
 }
 
+/// A server whose answers are larger than a socket's kernel buffers.
+///
+/// A text message `k` is answered with one message of 2^k characters and then
+/// `sent k`. The text `many` is answered with eight messages of 64 KiB each
+/// and then `sent many`. Both shapes leave more queued for one reader than
+/// loopback holds, so the server's writes stop partway and have to go on
+/// once the client has read some of it. buri-lang/buri#244 is what happened
+/// when they did not.
+fn large_message_server() -> String {
+    String::from(
+        r#"from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/net/server" import { Socket };
+from "core/str" import * as str;
+from "core/time" import * as time;
+
+/// `text` doubled `times` times: 2^times copies of it.
+fn doubled<C: Allocator>(ctx: C, text: Str, times: Int): Str {
+    if (times <= 0) { text } else { doubled(ctx, str.format(ctx, "${text}${text}"), times - 1) }
+}
+
+/// `left` messages of `body`, back to back.
+fn repeated<C: Sockets>(ctx: C, socket: Socket, body: Str, left: Int): () {
+    if (left <= 0) {
+        ()
+    } else {
+        let _sent = socket.send(ctx, .Text(body));
+        repeated(ctx, socket, body, left - 1)
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Listen: host.listen,
+        Sockets: host.sockets,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let plan = server.Server {
+        port: 0,
+        onRequest: fn(_c, _request) => http.status(404),
+        requestLimit: .Some(1),
+        idleTimeout: .Some(time.milliseconds(20000)),
+        websocket: .Some(server.WebSocket {
+            path: "/socket",
+            onOpen: fn(_c, _socket, _request) => 0,
+            onMessage: fn(c, socket, seen, message) => {
+                let said = match (message) {
+                    .Text("many") => {
+                        let _sent = repeated(c, socket, doubled(c, "y", 16), 8);
+                        "many"
+                    },
+                    .Text(k) => {
+                        let _sent = socket.send(c, .Text(doubled(c, "x", k.toInt().withDefault(0))));
+                        k
+                    },
+                    .Binary(_data) => "bytes",
+                };
+                let _done = socket.send(c, .Text(str.format(c, "sent ${said}")));
+                seen + 1
+            },
+            onClose: fn(c, _socket, seen, reason) => {
+                let _said = io.println(c, "closed ${reason.show(c)} after ${seen}").ignore();
+                seen
+            },
+        }),
+    };
+    match (server.bind(ctx, plan)) {
+        .Err(e) => .Err(server.errorText(e)),
+        .Ok(listener) => {
+            let _announced = io.println(ctx, "port ${listener.port}").ignore();
+            match (server.run(ctx, listener, plan)) {
+                .Err(e) => .Err(server.errorText(e)),
+                .Ok(_ok) => {
+                    let _done = io.println(ctx, "served").ignore();
+                    .Ok(())
+                },
+            }
+        },
+    }
+}
+"#,
+    )
+}
+
+/// **A message larger than the socket's buffers arrives whole, and the socket
+/// still closes normally.** buri-lang/buri#244.
+///
+/// 512 KiB and 4 MiB in one message, then eight 64 KiB messages back to back.
+/// None of them fits in what loopback buffers for one reader, so each one is
+/// written in parts as the client reads. The client reads every byte, then
+/// closes, and is answered with a close frame of its own code.
+#[test]
+fn a_websocket_message_larger_than_the_socket_buffer_arrives_whole() {
+    unless_ready!();
+    let binary = built("e2e-socket-large", &large_message_server());
+    let running = crate::shared::announced(&binary);
+    let mut client = crate::shared::Talking::to(running.2);
+    // Each message as a short description, so a failure prints what arrived
+    // rather than four mebibytes of it.
+    let mut heard: Vec<String> = Vec::new();
+    let mut hear = |client: &mut crate::shared::Talking| {
+        heard.push(match client.heard() {
+            None => String::from("nothing: the socket ended"),
+            Some(text) if text.len() > 64 => {
+                let first = text.chars().next().unwrap_or(' ');
+                let same = text.chars().all(|c| c == first);
+                format!("{} of {first}{}", text.len(), if same { "" } else { " and others" })
+            }
+            Some(text) => text,
+        });
+    };
+    for k in [19, 22] {
+        client.say(&k.to_string());
+        hear(&mut client);
+        hear(&mut client);
+    }
+    client.say("many");
+    for _ in 0..9 {
+        hear(&mut client);
+    }
+    client.hush();
+    let code = client.closed_with();
+    let out = crate::shared::finished(running);
+    let mut expected = vec![
+        format!("{} of x", 1 << 19),
+        String::from("sent 19"),
+        format!("{} of x", 1 << 22),
+        String::from("sent 22"),
+    ];
+    expected.extend(std::iter::repeat_n(format!("{} of y", 1 << 16), 8));
+    expected.push(String::from("sent many"));
+    assert_eq!(
+        heard, expected,
+        "a large message did not arrive whole.\nthe server said:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    assert_eq!(code, Some(1000), "the socket did not close normally:\n{}", out.stdout);
+    assert!(
+        out.stdout.contains("closed .Normal after 3"),
+        "`onClose` was not told `.Normal` after the three messages:\n{}",
+        out.stdout
+    );
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+}
+
+/// Two listeners side by side, where whichever ends first closes the other.
+///
+/// The first answers one request and is done (`requestLimit: .Some(1)`); the
+/// second has no limit and would answer for ever. buri-lang/buri#240 is that a
+/// program had no way to close the second, so it never exited.
+fn two_listeners_server() -> String {
+    String::from(
+        r#"from "platform/effect" import { Allocator, Listen, ServeError, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/tasks" import * as tasks;
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Listen: host.listen,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let first = server.Server {
+        port: 0,
+        requestLimit: .Some(1),
+        onRequest: fn(c, _request) => http.text(c, "first"),
+    };
+    let second = server.Server {
+        port: 0,
+        onRequest: fn(c, _request) => http.text(c, "second"),
+    };
+    let a = server.bind(ctx, first).mapErr(server.errorText)?;
+    let b = server.bind(ctx, second).mapErr(server.errorText)?;
+    let _announced = io.println(ctx, "port ${a.port}").ignore();
+    let ran: [Result<(), ServeError>] = tasks.parallel(ctx, [0, 1], fn(c, _i, which) => {
+        if (which == 0) {
+            let answered = server.run(c, a, first);
+            let _said = io.println(c, "first ended").ignore();
+            let _closed = b.close(c);
+            answered.map(fn(_last) => ())
+        } else {
+            let answered = server.run(c, b, second);
+            let _said = io.println(c, "second ended").ignore();
+            let _closed = a.close(c);
+            answered.map(fn(_last) => ())
+        }
+    });
+    let _said = io.println(ctx, "both ended").ignore();
+    match (ran.find(fn(one) => one.isErr())) {
+        .Some(.Err(error)) => .Err(server.errorText(error)),
+        _ => .Ok(()),
+    }
+}
+"#,
+    )
+}
+
+/// **A program can close a listener it bound, and `run` on it ends.**
+/// buri-lang/buri#240.
+///
+/// The first listener answers its one request and its `run` returns; the
+/// program then closes the second, whose `run` has nothing to end it but
+/// that. Both `run`s answer `.Ok`, and the program exits on its own.
+#[test]
+fn closing_a_listener_ends_run_on_it() {
+    unless_ready!();
+    let binary = built("e2e-close-listener", &two_listeners_server());
+    let running = crate::shared::announced(&binary);
+    let back = dialled(running.2, b"GET / HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n", Until::Closed);
+    let reply = String::from_utf8_lossy(&back).to_string();
+    let out = crate::shared::finished(running);
+    assert_eq!(body_of(&reply), Some("first"), "the first listener's reply:\n{reply}");
+    for line in ["first ended", "second ended", "both ended"] {
+        assert!(
+            out.stdout.lines().any(|said| said == line),
+            "the program never said `{line}`.\nstdout:\n{}\nstderr:\n{}",
+            out.stdout,
+            out.stderr
+        );
+    }
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+}
+
 // ---------------------------------------------------------------------------
 // C3's refusal, over real source
 // ---------------------------------------------------------------------------

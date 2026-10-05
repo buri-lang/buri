@@ -624,7 +624,7 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Listen", "listenAccept", "core/net/server", "server.serve(ctx, aServer)"),
     w("Listen", "listenRequest", "core/net/server", "server.serve(ctx, aServer)"),
     w("Listen", "listenRespond", "core/net/server", "server.serve(ctx, aServer)"),
-    w("Listen", "listenClose", "core/net/server", "server.run(ctx, listener, aServer)"),
+    w("Listen", "listenClose", "core/net/server", "aListener.close(ctx)"),
     w("Listen", "listenUpgrade", "core/net/server", "server.serve(ctx, aServer)"),
     w("Listen", "listenReceive", "core/net/server", "server.serve(ctx, aServer)"),
     w("Sockets", "socketSendText", "core/net/server", "aSocket.send(ctx, .Text(text))"),
@@ -858,15 +858,15 @@ mod tests {
     ///
     /// **The handles are named here rather than pattern-matched**, because
     /// "starts with a lowercase `a`" would admit `aliased.` and the point of
-    /// the second arm is that a reader already holds the value. Two types are
-    /// on it and both are the same arrangement — an effect that speaks in
-    /// integer handles, and a module one level up that wraps one in a value
-    /// with methods: `ui/signal`'s `Signal<T>` over `Ui`'s signal ids,
-    /// `core/net/server`'s `Socket` over `Sockets`' socket ids, and
-    /// `core/net/tcp`'s `Stream` over `Tcp`'s stream handles.
+    /// the second arm is that a reader already holds the value. Every type on
+    /// it is the same arrangement — an effect that speaks in integer handles,
+    /// and a value with methods that wraps one: `ui/signal`'s `Signal<T>` over
+    /// `Ui`'s signal ids, `core/net/server`'s `Socket` over `Sockets`' socket
+    /// ids, `Listener` over `Listen`'s listener handles, and `core/net/tcp`'s
+    /// `Stream` over `Tcp`'s stream handles.
     #[test]
     fn every_wrapper_call_leads_with_its_module_or_a_handle() {
-        const HANDLES: &[&str] = &["aSignal.", "aSocket.", "aStream."];
+        const HANDLES: &[&str] = &["aListener.", "aSignal.", "aSocket.", "aStream."];
         for row in WRAPPERS {
             let alias = row.module.rsplit('/').next().expect("a path has a segment");
             let leads = row.call.starts_with(&format!("{alias}."));
