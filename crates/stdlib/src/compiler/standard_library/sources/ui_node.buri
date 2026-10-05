@@ -323,13 +323,14 @@ enum NodeKind<C> {
     // Three closures rather than the list itself, since the row type cannot be
     // `Node<C>`'s one type parameter. The runtime asks by index. See `each`.
     Each(fn(Scope) => Int, fn(Scope, Int) => Str, fn(C, Scope, Int) => Node<C>),
-    // An element of an arbitrary name with its own styles and children, the
-    // renderer's own — never a program's, so no `ui.*` builds one. It is how a
-    // reactive widget whose presence or structure changes (a dialog, a
-    // disclosure) rebuilds through `bindDynamic`: the build answers the open
-    // state as a plain element tree the reconciler walks and mints afresh.
+    // An element of an arbitrary name with its own styles, children and
+    // events, the renderer's own — never a program's, so no `ui.*` builds one.
+    // It is how a reactive widget whose presence or structure changes (a
+    // dialog, a disclosure) rebuilds through `bindDynamic`: the build answers
+    // the open state as a plain element tree the reconciler walks and mints
+    // afresh, and the widget's events ride on the element that stands for it.
     // Appended last, because the variant order is load-bearing and append-only.
-    Raw(Str, [Style], [Node<C>]),
+    Raw(Str, [Style], [Node<C>], Events<C>),
     // A list of children with no element of their own — the renderer's own, for
     // a reactive region that shows several children directly under their parent
     // (a disclosure's body). Appended last, the variant order being load-bearing
@@ -1904,6 +1905,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     children,
                     onPress,
                     disabled,
+                    events,
                     state,
                 )
             } else {
@@ -1996,7 +1998,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // watcher re-reads the three — subscribing — and re-emits. The control's
         // own element is ctx-free, so the watcher emits it inline between the
         // region's markers rather than walking a node.
-        .Field(label, kind, hint, styles, around, value, selection, invalid, disabled, _events) => {
+        .Field(label, kind, hint, styles, around, value, selection, invalid, disabled, events) => {
             let region = enterDynamic(builder);
             let _ = invalid;
             reactive(fn(scope) => {
@@ -2012,6 +2014,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     value,
                     selection,
                     disabled,
+                    events,
                     state,
                 );
                 endRegion(builder)
@@ -2020,7 +2023,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // A slider's value and `disabled` change its scene, so a write rebuilds
         // it in place, the way a field does. The control is ctx-free, so the
         // watcher emits it inline between the region's markers.
-        .Slider(label, value, min, max, step, styles, around, disabled, _events) => {
+        .Slider(label, value, min, max, step, styles, around, disabled, events) => {
             let region = enterDynamic(builder);
             let _ = step;
             reactive(fn(scope) => {
@@ -2035,6 +2038,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     styles,
                     around,
                     disabled,
+                    events,
                     state,
                 );
                 endRegion(builder)
@@ -2044,7 +2048,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // change its scene, so a flip rebuilds it in place. Its element and its
         // mark are ctx-free, so the watcher emits them inline between the
         // region's markers.
-        .Toggle(label, kind, styles, around, value, invalid, disabled, _events) => {
+        .Toggle(label, kind, styles, around, value, invalid, disabled, events) => {
             let region = enterDynamic(builder);
             let _ = invalid;
             reactive(fn(scope) => {
@@ -2058,6 +2062,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     around,
                     value,
                     disabled,
+                    events,
                     state,
                 );
                 endRegion(builder)
@@ -2068,9 +2073,9 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // selection in a reactive region of their own, so picking one re-checks
         // and re-dots without rebuilding the content beside it. `style` picks
         // the shape and does not change the scene the painter reads.
-        .Picker(label, options, styles, value, _style, _disabled, _events) => {
+        .Picker(label, options, styles, value, _style, _disabled, events) => {
             let _ = label;
-            emitPicker(ctx, builder, options, styles, value, state)
+            emitPicker(ctx, builder, options, styles, value, events, state)
         },
         .Form(onSubmit, styles, children, events) => {
             let _ = emitElement(
@@ -2137,13 +2142,13 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // over the default) holding a `dialog` element, as `.Raw` trees the
         // reconciler walks and mints — or nothing. Closing it unlinks the panel,
         // so the page behind is reachable again.
-        .Dialog(open, _label, styles, children, scrimStyles, _events) => {
+        .Dialog(open, _label, styles, children, scrimStyles, events) => {
             bindDynamic(builder, fn(scope) => {
                 if (open.get(scope)) {
                     Node(
                         .Raw("div", scrimWith(scrimStyles), [
-                            Node(.Raw("dialog", styles, children)),
-                        ]),
+                            Node(.Raw("dialog", styles, children, events)),
+                        ], noEvents()),
                     )
                 } else {
                     Node(.Empty)
@@ -2182,17 +2187,8 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         .Progress(_label, _value, styles, children, events) => {
             emitBox(ctx, builder, "div", plain(state), styles, children, state, events)
         },
-        .Raw(name, styles, children) => {
-            emitBox(
-                ctx,
-                builder,
-                name,
-                plain(state),
-                styles,
-                children,
-                state,
-                noEvents(),
-            )
+        .Raw(name, styles, children, events) => {
+            emitBox(ctx, builder, name, plain(state), styles, children, state, events)
         },
         .Fragment(children) => { emitChildren(ctx, builder, children, state, 0) },
         // A file picker's scene is its button: the label drawn in the caller's
@@ -2262,8 +2258,8 @@ fn constProp<T>(prop: Prop<T>): Bool {
     }
 }
 
-/// A button's static emit: its element, the kept press, and its label or its
-/// children. `disabled` is read untracked because the watcher that re-reads it
+/// A button's static emit: its element, the kept press, its events, and its
+/// label or its children. `disabled` is read untracked because the watcher that re-reads it
 /// is the `bindDynamic` the reactive arm wraps this in — here every prop is
 /// already a constant.
 fn emitButton<C>(
@@ -2274,6 +2270,7 @@ fn emitButton<C>(
     children: [Node<C>],
     onPress: fn(C, Event) => (),
     disabled: Prop<Bool>,
+    events: Events<C>,
     state: State,
 ): () {
     let mem = alloc.generalPurpose();
@@ -2293,6 +2290,7 @@ fn emitButton<C>(
     };
     let _ = registerPress(builder, onPress);
     let _ = registerLabel(builder, label.read(rootScope()));
+    let _ = registerEvents(builder, events);
     let _ = if (children.isEmpty()) {
         emitReactiveText(builder, label)
     } else {
@@ -2304,7 +2302,7 @@ fn emitButton<C>(
 /// A toggle's static emit, reading its signal and `disabled` under `scope` so
 /// the watcher that drives it subscribes to both. No node crosses, so it needs
 /// no context: a toggle holds a control and a caption and no program children.
-fn emitToggle(
+fn emitToggle<C>(
     ctx: Scope,
     builder: Builder,
     label: Prop<Str>,
@@ -2313,6 +2311,7 @@ fn emitToggle(
     around: [Style],
     value: Signal<Bool>,
     disabled: Prop<Bool>,
+    events: Events<C>,
     state: State,
 ): () {
     let mem = alloc.generalPurpose();
@@ -2327,6 +2326,7 @@ fn emitToggle(
         "label",
         widgetBody(mem, plain(state), [], wrapper(around)),
     );
+    let _ = registerEvents(builder, events);
     let _ = emitElement(
         builder,
         "input",
@@ -2342,7 +2342,7 @@ fn emitToggle(
 /// A field's static emit, reading its signal, hint and `disabled` under `scope`
 /// so the watcher subscribes to each. It holds no program children, so no
 /// context crosses.
-fn emitField(
+fn emitField<C>(
     ctx: Scope,
     builder: Builder,
     label: Prop<Str>,
@@ -2353,6 +2353,7 @@ fn emitField(
     value: Signal<Str>,
     selection: Option<Signal<(Int, Int)>>,
     disabled: Prop<Bool>,
+    events: Events<C>,
     state: State,
 ): () {
     let mem = alloc.generalPurpose();
@@ -2361,6 +2362,7 @@ fn emitField(
         "label",
         widgetBody(mem, plain(state), [], wrapper(around)),
     );
+    let _ = registerEvents(builder, events);
     let _ = emitReactiveText(builder, label);
     let _ = emitFieldControl(
         builder,
@@ -2384,10 +2386,12 @@ fn emitPicker<C>(
     options: [(Str, Node<C>)],
     styles: [Style],
     value: Signal<Str>,
+    events: Events<C>,
     state: State,
 ): () {
     let mem = alloc.generalPurpose();
     let _ = emitElement(builder, "div", widgetBody(mem, plain(state), [], styles));
+    let _ = registerEvents(builder, events);
     let _ = emitPickerOptions(ctx, builder, options, value, state, 0);
     exitElement(builder)
 }
@@ -2444,7 +2448,7 @@ fn emitPickerOptions<C>(
 /// A slider's static emit, reading its value and `disabled` under `scope` so the
 /// watcher subscribes to both. It holds no program children, so no context
 /// crosses.
-fn emitSlider(
+fn emitSlider<C>(
     ctx: Scope,
     builder: Builder,
     label: Prop<Str>,
@@ -2454,6 +2458,7 @@ fn emitSlider(
     styles: [Style],
     around: [Style],
     disabled: Prop<Bool>,
+    events: Events<C>,
     state: State,
 ): () {
     let mem = alloc.generalPurpose();
@@ -2462,6 +2467,7 @@ fn emitSlider(
         "label",
         widgetBody(mem, plain(state), [], wrapper(around)),
     );
+    let _ = registerEvents(builder, events);
     let _ = emitReactiveText(builder, label);
     let _ = emitSliderControl(
         builder,
@@ -3213,7 +3219,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // The renderer's own element, nameless here as every box is: `describe`
         // draws no program tree into one, so this arm exists for the match and
         // mirrors a stack's lines.
-        .Raw(_name, styles, children) => container(ctx, state, styles, children, depth),
+        .Raw(_name, styles, children, _events) => container(ctx, state, styles, children, depth),
         // A fragment draws its children at the depth it sits, with no box of its
         // own — `describe` never builds one, so this is for the match.
         .Fragment(children) => childLines(ctx, state, children, depth, 0, []),
