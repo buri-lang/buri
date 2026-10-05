@@ -236,7 +236,7 @@ impl Balance<'_> {
         for s in ops {
             let by = if s.op == RcOp::IncRef { 1 } else { -1 };
             match s.target {
-                Target::Local(l) => st.bump(l, by),
+                Target::Local(l) | Target::LocalExcept(l, _) => st.bump(l, by),
                 Target::Node(n) => st.bump_temp(n, by),
             }
         }
@@ -810,7 +810,7 @@ fn a_loop_drops_what_it_does_not_carry_before_the_back_edge() {
         .sites
         .iter()
         .filter_map(|s| match s.target {
-            Target::Local(l) => func.locals.get(l.index()).map(|x| {
+            Target::Local(l) | Target::LocalExcept(l, _) => func.locals.get(l.index()).map(|x| {
                 format!("{} {}", if s.op == RcOp::IncRef { "inc" } else { "dec" }, x.name)
             }),
             Target::Node(_) => None,
@@ -1097,7 +1097,7 @@ export fn main(host: NodeHost): Result<(), Str> {
         .iter()
         .filter(|s| s.op == RcOp::IncRef)
         .filter_map(|s| match s.target {
-            Target::Local(l) => func.locals.get(l.index()).map(|x| x.name.to_string()),
+            Target::Local(l) | Target::LocalExcept(l, _) => func.locals.get(l.index()).map(|x| x.name.to_string()),
             Target::Node(_) => None,
         })
         .collect();
@@ -1275,7 +1275,7 @@ export fn main(host: NodeHost): Result<(), Str> {
         .iter()
         .filter(|s| s.op == RcOp::IncRef)
         .filter_map(|s| match s.target {
-            Target::Local(l) => func.locals.get(l.index()).map(|x| x.name.as_str()),
+            Target::Local(l) | Target::LocalExcept(l, _) => func.locals.get(l.index()).map(|x| x.name.as_str()),
             Target::Node(_) => None,
         })
         .collect();
@@ -1404,7 +1404,7 @@ fn named_sites(program: &Program, i: FuncIdx, fp: &FuncPlan) -> Vec<String> {
         .iter()
         .map(|s| {
             let what = match s.target {
-                Target::Local(l) => f
+                Target::Local(l) | Target::LocalExcept(l, _) => f
                     .locals
                     .get(l.index())
                     .map(|x| x.name.to_string())

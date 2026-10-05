@@ -843,6 +843,10 @@ impl FnLower<'_> {
             let value = match site.target {
                 rc::Target::Local(l) => self.env.get(l.index()).copied().flatten(),
                 rc::Target::Node(n) => self.node_values.get(&n).copied(),
+                rc::Target::LocalExcept(l, moved) => {
+                    self.release_except(l, moved);
+                    continue;
+                }
             };
             let Some(value) = value else { continue };
             #[cfg(debug_assertions)]
@@ -854,6 +858,23 @@ impl FnLower<'_> {
         }
         #[cfg(debug_assertions)]
         self.check_plan_order(node, at, &emitted);
+    }
+
+    /// Releases each field of the struct in local `l` except the ones `moved`
+    /// names ([`rc::Target::LocalExcept`]), the way a functional update
+    /// releases the fields it replaces.
+    fn release_except(&mut self, l: LocalId, moved: u64) {
+        let Some(agg) = self.env.get(l.index()).copied().flatten() else { return };
+        let ty = self.locals.get(l.index()).map(|x| x.ty).unwrap_or(Ty::UNIT);
+        let arity = ty.head().map_or(0, |c| self.tables.tycon(c).fields().len());
+        for i in 0..arity {
+            if i < 64 && moved & (1u64 << i) != 0 {
+                continue;
+            }
+            let f = self.field_type(&ty, i);
+            let value = self.emit(f, |dest| Inst::GetField { dest, agg, index: i as u32 });
+            self.push(Inst::DecRef { value, drop: None });
+        }
     }
 
     /// The plan-order invariant: **no value is released at a key and retained

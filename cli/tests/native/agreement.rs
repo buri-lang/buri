@@ -522,6 +522,19 @@ fn both(row: &str, source: &str) -> (Ran, Vec<(&'static str, Ran)>) {
     (js, natives)
 }
 
+/// One program through the JavaScript pipeline alone, for a suite that pins
+/// what it prints: `(status, stdout, stderr)`, or `None` with the reason
+/// reported where this host cannot run the rows.
+pub(crate) fn javascript(row: &str, source: &str) -> Option<(i32, String, String)> {
+    if let Some(why) = skip_reason() {
+        crate::ci::skipped("backend agreement", &why);
+        return None;
+    }
+    let (checked, paths) = analyze(row, source);
+    let ran = run_js(row, &checked, &paths);
+    Some((ran.status, ran.stdout, ran.stderr))
+}
+
 /// A **must agree** row: every backend prints `expected`, exits zero, says
 /// nothing on standard error, and gives back every block it took.
 ///

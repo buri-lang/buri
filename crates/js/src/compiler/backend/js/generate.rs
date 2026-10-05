@@ -297,6 +297,8 @@ impl<'a> Gen<'a> {
                     marks.value.entry(key).or_insert(None);
                 }
                 rc::Target::Local(l) => marks.locals.entry(key).or_default().push(l),
+                // A release, never an increment.
+                rc::Target::LocalExcept(..) => {}
             }
         }
         marks
@@ -1646,7 +1648,14 @@ impl<'a> Gen<'a> {
                     // halves of one pair came from two different calls
                     // (buri-lang/buri#30). A name is bound to it first, unless
                     // the subject is something a second read cannot observe.
-                    let v = if Self::subject_uses(pattern) > 1 && !v.is_duplicable() {
+                    //
+                    // A pattern that takes the subject apart names pieces of
+                    // it, and a piece of a shared value is shared: each name
+                    // is marked if the subject is, as a field read out of a
+                    // dying parent is (`$fromShared`). Unmarked, a push onto a
+                    // piece of a kept tuple wrote through it.
+                    let apart = !matches!(pattern.kind, PatKind::Bind { sub: None, .. });
+                    let v = if (apart || Self::subject_uses(pattern) > 1) && !v.is_duplicable() {
                         let t = self.fresh();
                         out.push(Stmt::Var {
                             kind: VarKind::Const,
@@ -1658,6 +1667,21 @@ impl<'a> Gen<'a> {
                         v
                     };
                     self.bind(pattern, &v, out);
+                    if apart {
+                        let mut pieces = Vec::new();
+                        Self::typed_binds(pattern, &mut pieces);
+                        for (l, ty) in pieces {
+                            // A number or a string holds nothing a push writes.
+                            if self.tables.as_prim(&ty).is_some() {
+                                continue;
+                            }
+                            let name = self.local_name_of(&l);
+                            out.push(Stmt::Expr(Expr::call(
+                                Expr::ident("$fromShared"),
+                                vec![v.clone(), Expr::ident(name)],
+                            )));
+                        }
+                    }
                 }
             }
             typed::Stmt::Expr(e) => {
@@ -1666,6 +1690,23 @@ impl<'a> Gen<'a> {
                     out.push(Stmt::Expr(v));
                 }
             }
+        }
+    }
+
+    /// Every name an irrefutable pattern binds, with its type.
+    fn typed_binds(p: &typed::Pattern, out: &mut Vec<(LocalId, Ty)>) {
+        match &p.kind {
+            PatKind::Bind { local, sub } => {
+                out.push((*local, p.ty));
+                if let Some(s) = sub {
+                    Self::typed_binds(s, out);
+                }
+            }
+            PatKind::Tuple(ps) => ps.iter().for_each(|k| Self::typed_binds(k, out)),
+            PatKind::Struct { fields, .. } => {
+                fields.iter().for_each(|k| Self::typed_binds(&k.pattern, out))
+            }
+            _ => {}
         }
     }
 

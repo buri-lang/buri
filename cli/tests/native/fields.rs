@@ -102,6 +102,229 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 
+/// Two more ways to write the update that grows a record's list, each two
+/// thousand pushes. The list is named by a `let` before the update and grown
+/// through the name, and it is handed to a function too large to inline from
+/// both arms of an `if` inside the update. Either way the record dies in the
+/// update, so each push finds its list unique. Found by the growth generator,
+/// seed `0x67726f777468`, cases 138 and 61.
+#[test]
+fn a_list_named_by_a_let_or_handed_on_from_both_arms_of_an_update_grows_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Acc { n: Int, items: [Int], tag: Int }
+
+fn put<C: Allocator>(ctx: C, items: [Int], k: Int): [Int] {
+  if (k < 0) { items } else { items.push(ctx, k) }
+}
+
+fn named<C: Allocator>(ctx: C, acc: Acc, i: Int): Acc {
+  let held = acc.items;
+  Acc { ..acc, n: acc.n + 1, items: held.push(ctx, held.length() + i) }
+}
+
+fn branched<C: Allocator>(ctx: C, acc: Acc, i: Int): Acc {
+  Acc { ..acc, n: acc.n + 1, items: if (i % 2 == 0) { put(ctx, acc.items, i) } else { put(ctx, acc.items, i + 1) } }
+}
+
+fn byName<C: Allocator>(ctx: C, count: Int): Acc {
+  list.range(ctx, 0, count).foldCtx(ctx, fn(c, acc, i) => named(c, acc, i), Acc { n: 0, items: [], tag: 7 })
+}
+
+fn byBranch<C: Allocator>(ctx: C, acc: Acc, left: Int): Acc {
+  if (left == 0) { acc } else { byBranch(ctx, branched(ctx, acc, left), left - 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let a = byName(host.alloc, 2000);
+  let b = byBranch(host.alloc, Acc { n: 0, items: [], tag: 8 }, 2000);
+  let _ = io.println(
+    host.stdout,
+    "${a.n} ${a.items.length()} ${a.tag} ${b.n} ${b.items.length()} ${b.tag}",
+  ).ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("field-push-named-branched", source) {
+        assert_eq!(r.stdout, "2000 2000 7 2000 2000 8\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 60,
+            "{backend}: four thousand pushes through record fields allocated {blocks} blocks: \
+             the field kept a second count while it grew, so every push copied it"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
+/// Two thousand pushes through a record nested in a record, where the
+/// function that steps the inner record is called once and so is inlined. Its
+/// parameter becomes a `let` naming `acc.inner`, and an update is written over
+/// that name; the outer update moves `inner` out of the dying record, so the
+/// inner update's base dies too and the push finds its list unique. Found by
+/// the growth generator, seed `0x67726f777468`, case 90.
+#[test]
+fn a_list_in_a_record_nested_in_a_record_grows_in_place_through_an_inlined_step() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Inner { n: Int, items: [Int], tag: Int }
+
+struct Outer { inner: Inner, k: Int }
+
+fn grow<C: Allocator>(ctx: C, acc: Inner, i: Int): Inner {
+  let seen = acc.items.length();
+  Inner { ..acc, n: acc.n + 1, items: acc.items.push(ctx, i + seen) }
+}
+
+fn step<C: Allocator>(ctx: C, acc: Outer, i: Int): Outer {
+  Outer { ..acc, k: acc.k + 1, inner: grow(ctx, acc.inner, i) }
+}
+
+fn run<C: Allocator>(ctx: C, acc: Outer, count: Int): Outer {
+  list.range(ctx, 0, count).foldCtx(ctx, fn(c, acc, i) => step(c, acc, i), acc)
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let o = run(host.alloc, Outer { inner: Inner { n: 0, items: [], tag: 5 }, k: 0 }, 2000);
+  let _ = io.println(host.stdout, "${o.k} ${o.inner.n} ${o.inner.items.length()} ${o.inner.tag}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("field-push-nested-inlined", source) {
+        assert_eq!(r.stdout, "2000 2000 2000 5\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 40,
+            "{backend}: two thousand pushes allocated {blocks} blocks: the inner update was \
+             written over a field path rather than a dying local, so every push copied"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
+/// Two thousand pushes through a record nested in a record, stepped by a
+/// helper that can fail: `Outer { ..acc, inner: grow(ctx, acc.inner, i)? }`.
+/// The `?` leaves the function holding the dying record, so on that path the
+/// record is released, without the field the helper was handed. On the other
+/// the helper got the field's own count and pushes in place. Both paths run:
+/// the first thousand steps succeed, and step 1000 fails. Found by the growth
+/// generator exploring seed 2, case 271.
+#[test]
+fn a_field_handed_to_a_failing_helper_inside_an_update_grows_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+struct Inner { n: Int, items: [Str], tag: Str }
+
+struct Outer { inner: Inner, k: Int, name: Str }
+
+fn grow<C: Allocator>(ctx: C, acc: Inner, i: Int): Result<Inner, Str> {
+  if (i == 1000) {
+    .Err(str.format(ctx, "stopped at ${i}"))
+  } else if (i < 0) {
+    .Ok(acc)
+  } else {
+    .Ok(Inner { ..acc, n: acc.n + 1, items: acc.items.push(ctx, "x") })
+  }
+}
+
+fn step<C: Allocator>(ctx: C, acc: Outer, i: Int): Result<Outer, Str> {
+  .Ok(Outer { ..acc, k: acc.k + 1, inner: grow(ctx, acc.inner, i)? })
+}
+
+fn run<C: Allocator>(ctx: C, acc: Outer, count: Int): Result<Outer, Str> {
+  list.range(ctx, 0, count).foldResultCtx(ctx, fn(c, acc, i) => step(c, acc, i), acc)
+}
+
+fn seed<C: Allocator>(ctx: C): Outer {
+  Outer {
+    inner: Inner { n: 0, items: [], tag: str.format(ctx, "t-${1}") },
+    k: 0,
+    name: str.format(ctx, "o-${2}"),
+  }
+}
+
+fn shown<C: Allocator>(ctx: C, got: Result<Outer, Str>): Str {
+  match (got) {
+    .Ok(o) => str.format(ctx, "${o.k} ${o.inner.items.length()} ${o.inner.tag} ${o.name}"),
+    .Err(e) => e,
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let done = shown(ctx, run(ctx, seed(ctx), 1000));
+  let failed = shown(ctx, run(ctx, seed(ctx), 2000));
+  let _ = io.println(host.stdout, "${done}, ${failed}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("field-push-failing-helper", source) {
+        assert_eq!(r.stdout, "1000 1000 t-1 o-2, stopped at 1000\n", "{backend}: {}", r.stderr);
+        assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 60,
+            "{backend}: two thousand pushes allocated {blocks} blocks: the `?` in the update kept \
+             the field counted twice, so every push copied it"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
+/// Two thousand updates that each push two elements onto a dying record's
+/// list, as a chain. The first push grows the field in place, and the record
+/// held its old value until the update was built, so the second push found
+/// the list at two and copied it. Found by the growth generator, seed
+/// `0x67726f777468`, case 110.
+#[test]
+fn a_field_pushed_twice_in_one_update_grows_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Acc { n: Int, items: [Int], tag: Int }
+
+fn step<C: Allocator>(ctx: C, acc: Acc, i: Int): Acc {
+  Acc { ..acc, n: acc.n + 1, items: acc.items.push(ctx, i).push(ctx, i + 1) }
+}
+
+fn run<C: Allocator>(ctx: C, acc: Acc, left: Int): Acc {
+  if (left == 0) { acc } else { run(ctx, step(ctx, acc, left), left - 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let a = run(host.alloc, Acc { n: 0, items: [], tag: 3 }, 2000);
+  let _ = io.println(host.stdout, "${a.n} ${a.items.length()} ${a.tag}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("field-push-twice", source) {
+        assert_eq!(r.stdout, "2000 4000 3\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 40,
+            "{backend}: four thousand pushes allocated {blocks} blocks: the record still held \
+             the field its first push grew, so the second copied it"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
 /// The printer's other shape: a record handed on to the call that grows it,
 /// and then read again for a number alone — `started.at` after `started` went
 /// to `emit`. A number is a word of the record's own value, so reading it is no
