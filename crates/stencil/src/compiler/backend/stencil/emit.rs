@@ -244,17 +244,18 @@ impl<'a> Jit<'a> {
                     Const::Bool(b) => self.imm_to(off, u64::from(*b)),
                     Const::Char(c) => self.imm_to(off, u32::from(*c) as u64),
                     Const::Int { bits, negative } => {
+                        let bits = bits.get();
                         let w = self.width_of(prog, ty);
                         // A literal wider than a word is two stores: truncating
                         // it to one would silently drop the top half of every
                         // `I128` constant in the program.
                         if w > 8 {
-                            let x = if *negative { bits.wrapping_neg() } else { *bits };
+                            let x = if *negative { bits.wrapping_neg() } else { bits };
                             self.imm_to(off, x as u64);
                             self.imm_to(off + 8, (x >> 64) as u64);
                             return;
                         }
-                        let x = *bits as u64;
+                        let x = bits as u64;
                         let x = if *negative { x.wrapping_neg() } else { x };
                         let x = if w >= 8 { x } else { x & ((1u64 << (w * 8)) - 1) };
                         self.imm_to(off, x);
@@ -287,12 +288,14 @@ impl<'a> Jit<'a> {
             Inst::Binary { dest, op, prim, lhs, rhs } => {
                 self.binary(st, *dest, *op, *prim, *lhs, *rhs)
             }
-            Inst::Call { dests, func, args } => self.call(prog, code, st, dests, func.0, args),
-            Inst::CallIndirect { dests, callee, args } => {
-                self.call_indirect(prog, code, st, dests, *callee, args)
+            Inst::Call { dest, func, args } => {
+                self.call(prog, code, st, std::slice::from_ref(dest), func.0, args)
             }
-            Inst::CallIntrinsic { dests, key, args } => {
-                self.intrinsic(prog, code, st, dests, key, args)
+            Inst::CallIndirect { dest, callee, args } => {
+                self.call_indirect(prog, code, st, std::slice::from_ref(dest), *callee, args)
+            }
+            Inst::CallIntrinsic { dest, key, args } => {
+                self.intrinsic(prog, code, st, std::slice::from_ref(dest), key, args)
             }
             Inst::MakeStruct { dest, fields } => {
                 let d = st.at(*dest);
