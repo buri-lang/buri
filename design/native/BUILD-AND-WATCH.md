@@ -719,6 +719,27 @@ and run on `--jobs` workers, and the report is printed in suite order. Only a cl
 deliberately — "a failure is what you are trying to fix, and re-running it
 should re-run it" (`test.rs`) — which is exactly what a watch loop wants.
 
+A failing suite's *build* is cached, under `test_build_key`, and that key reads
+the program text too. So a comment edit re-runs a failing suite's binary or
+bundle, or repeats a broken suite's errors, without compiling anything. The
+catch is that the record holds spans, and a comment edit moves them. Keying on
+bytes avoided that and rebuilt every failing suite on every comment edit.
+Instead the record writes each span end as a token index plus an offset into
+that token, and reads it back against the edited file:
+
+- An end inside a token lands on the same character, because the key
+  guarantees the same tokens.
+- An end in the comments and whitespace between two tokens also stores that
+  text. If the text changed, the record misses and the suite is built.
+
+That reproduces a cold build exactly, because the front end's offsets are its
+tokens' offsets: nothing above the lexer counts lines. Line, column and quoted
+line are then rendered from the file as it is now, just like a cold build's.
+The binary the record names came from the old bytes, and differs from a new
+build only in debug locations, which no test prints.
+`build::monorepo::a_comment_edit_above_a_failure_reports_it_where_a_cold_run_does`
+holds the warm report to a cold run's, byte for byte.
+
 So **watch mode is a loop around `cmd_test`, and the incrementality is the
 cache's rather than the loop's**. There is no "affected target" computation to
 write: a target whose inputs did not move gets a cache hit and costs a hash of

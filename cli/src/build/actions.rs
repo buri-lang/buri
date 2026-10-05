@@ -799,12 +799,18 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
 ///
 /// Known before the front end runs, so a warm run of a failing suite starts its
 /// binary or bundle again without checking, monomorphizing, emitting or
-/// linking anything. It is
-/// [`test_key`]'s closure with three differences, each one a difference between
-/// what a binary depends on and what a verdict does:
+/// linking anything. It is [`test_key`]'s closure, read as the program text
+/// too, so a comment or whitespace edit finds the record and builds nothing.
+/// Such an edit can move the lines a recorded error or a failing test is
+/// reported at, so the record writes its spans relative to the tokens around
+/// them and reads them back against the edited files (`commands/test.rs`'s
+/// `Anchors`). The binary or bundle it names is the one the old bytes built:
+/// it differs from what the new bytes would build only in debug locations,
+/// which no test prints.
 ///
-/// - **Every byte, not the program text.** A recorded error and a failing
-///   test's location are a line and a column, and a comment edit moves both.
+/// It differs from [`test_key`] in two ways, each a difference between what a
+/// binary depends on and what a verdict does:
+///
 /// - **No goldens and no `--update`.** They decide what the run does, and a
 ///   failing suite is run every time. The binary is the same either way.
 /// - **The build graph, the `--filter` and the linker.** The graph is every
@@ -818,7 +824,7 @@ pub fn test_build_key(
     flags: &Flags,
     graph: &ActionKey,
 ) -> ActionKey {
-    let mut k = suite_key(session, target, output, flags, Action::Build, Content::Bytes);
+    let mut k = suite_key(session, target, output, flags, Action::Build, Content::Program);
     k.dependency(graph);
     if let Some(filter) = &flags.filter {
         k.input("filter", filter.as_bytes());
