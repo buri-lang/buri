@@ -263,6 +263,23 @@ fn zero_divisor(name: &str, tag: &str, k: u64) -> bool {
     matches!(name, "div" | "rem") && !matches!(tag, "f32" | "f64") && k == 0
 }
 
+/// The uses of one value within one block, for [`Jit::regalloc`].
+#[derive(Clone, Copy)]
+struct BlockUses {
+    /// The block this entry describes; any other block reads it as unused.
+    block: u32,
+    count: u32,
+    /// Instruction indices, the terminator being one past the last.
+    first: usize,
+    last: usize,
+}
+
+impl Default for BlockUses {
+    fn default() -> BlockUses {
+        BlockUses { block: u32::MAX, count: 0, first: 0, last: 0 }
+    }
+}
+
 /// The representative of `v`'s slot class.
 ///
 /// `uf` starts as the identity and [`Jit::coalesce`] only ever points an entry
@@ -2506,23 +2523,40 @@ impl<'a> Jit<'a> {
                 bump(&mut total, o.index());
             }
         }
-        for block in &code.blocks {
+        // Where each value is used in the block being allocated: how often,
+        // first and last. One entry per value of the function, stamped with
+        // the block it describes, so moving to the next block resets nothing.
+        let mut uses = vec![BlockUses::default(); code.values()];
+        let mut barrier: Vec<bool> = Vec::new();
+        let mut ops = Vec::new();
+        // The registers cross-block promotion took are not the local
+        // allocator's to hand out.
+        let register_count = super::abi::CPS_REGISTER_COUNT;
+        let mut busy: Vec<Option<u32>> = vec![None; register_count];
+        let mut busyf: Vec<Option<u32>> = vec![None; register_count];
+        for (bi, block) in code.blocks.iter().enumerate() {
             let n = block.insts.len();
-            // Where each value defined in this block is used, and where the
-            // barriers are. A barrier is an instruction whose stencil has the
-            // zero-register prototype and therefore clobbers the file.
-            let mut def_at: HashMap<u32, usize> = HashMap::default();
-            let mut use_at: HashMap<u32, Vec<usize>> = HashMap::default();
-            let mut barrier = vec![false; n + 1];
-            let mut ops = Vec::new();
+            let stamp = u32::try_from(bi).unwrap_or(u32::MAX);
+            let note = |uses: &mut [BlockUses], o: &ir::ValueId, at: usize| {
+                if let Some(u) = uses.get_mut(o.index()) {
+                    if u.block == stamp {
+                        u.count += 1;
+                        u.last = at;
+                    } else {
+                        *u = BlockUses { block: stamp, count: 1, first: at, last: at };
+                    }
+                }
+            };
+            // Where the barriers are. A barrier is an instruction whose
+            // stencil has the zero-register prototype and therefore clobbers
+            // the file.
+            barrier.clear();
+            barrier.resize(n + 1, false);
             for (k, i) in block.insts.iter().enumerate() {
                 ops.clear();
                 i.operands(&mut ops);
                 for o in &ops {
-                    use_at.entry(o.0).or_default().push(k);
-                }
-                for d in i.results() {
-                    def_at.insert(d.0, k);
+                    note(&mut uses, o, k);
                 }
                 put(&mut barrier, k, is_barrier(i));
             }
@@ -2532,16 +2566,17 @@ impl<'a> Jit<'a> {
                 ops.extend_from_slice(&t.args);
             }
             for o in &ops {
-                use_at.entry(o.0).or_default().push(n);
+                note(&mut uses, o, n);
             }
+            // The uses of `v` in this block, if it has any.
+            let used = |v: u32| uses.get(v as usize).copied().filter(|u| u.block == stamp);
 
-            // The registers cross-block promotion took are not the local
-            // allocator's to hand out.
-            let register_count = super::abi::CPS_REGISTER_COUNT;
-            let mut busy: Vec<Option<u32>> =
-                (0..register_count).map(|k| (k < taken.0).then_some(u32::MAX)).collect();
-            let mut busyf: Vec<Option<u32>> =
-                (0..register_count).map(|k| (k < taken.1).then_some(u32::MAX)).collect();
+            for (r, b) in busy.iter_mut().enumerate() {
+                *b = (r < taken.0).then_some(u32::MAX);
+            }
+            for (r, b) in busyf.iter_mut().enumerate() {
+                *b = (r < taken.1).then_some(u32::MAX);
+            }
             let (base, basef) = (taken.0, taken.1);
             for (k, i) in block.insts.iter().enumerate() {
                 // Free every register whose value was last used here.
@@ -2551,12 +2586,9 @@ impl<'a> Jit<'a> {
                         if v == u32::MAX {
                             continue; // a promoted register, not this pass's
                         }
-                        // Every entry of `use_at` was created by pushing to
-                        // it, so none of them is empty and "no last use" here
-                        // means the value is not used in this block at all.
-                        let live = use_at
-                            .get(&v)
-                            .is_some_and(|u| u.last().is_some_and(|last| *last > k));
+                        // No entry means the value is not used in this block
+                        // at all.
+                        let live = used(v).is_some_and(|u| u.last > k);
                         if !live {
                             *b = None;
                         }
@@ -2602,11 +2634,11 @@ impl<'a> Jit<'a> {
                 if ent(out, dest.index(), None).is_some() {
                     continue; // already promoted across the loop
                 }
-                let Some(u) = use_at.get(&dest.0) else { continue };
-                if u.len() != 1 || ent(&total, dest.index(), 0) != 1 {
+                let Some(u) = used(dest.0) else { continue };
+                if u.count != 1 || ent(&total, dest.index(), 0) != 1 {
                     continue;
                 }
-                let Some(at) = u.first().copied() else { continue };
+                let at = u.first;
                 // `barrier` runs from the block's first instruction to one
                 // past its last, so a use ahead of `k` always names a span
                 // inside it. A use behind `k` names an empty range instead,
