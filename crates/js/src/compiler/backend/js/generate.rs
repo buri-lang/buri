@@ -297,6 +297,8 @@ impl<'a> Gen<'a> {
                     marks.value.entry(key).or_insert(None);
                 }
                 rc::Target::Local(l) => marks.locals.entry(key).or_default().push(l),
+                // A release, never an increment.
+                rc::Target::LocalExcept(..) => {}
             }
         }
         marks

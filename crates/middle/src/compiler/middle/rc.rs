@@ -340,6 +340,11 @@ pub enum RcOp {
 pub enum Target {
     Local(LocalId),
     Node(NodeId),
+    /// A struct local released **field by field, except the fields the mask
+    /// names**: a dying update's base on the path a `?` leaves by, after the
+    /// update moved those fields out of it ([`moved_fields`]). Only ever a
+    /// [`RcOp::DecRef`] at [`Position::Escape`].
+    LocalExcept(LocalId, u64),
 }
 
 /// One reference operation, and where it goes.
@@ -355,7 +360,7 @@ impl Site {
     /// The local this operates on, where it operates on one.
     pub fn local(&self) -> Option<LocalId> {
         match self.target {
-            Target::Local(l) => Some(l),
+            Target::Local(l) | Target::LocalExcept(l, _) => Some(l),
             Target::Node(_) => None,
         }
     }
@@ -1044,6 +1049,7 @@ fn scan_func(
                 inherits: Vec::new(),
                 handed_on: Vec::new(),
                 moving: Vec::new(),
+                escape_except: Vec::new(),
                 moved: Vec::new(),
                 plain: f.params.iter().copied().collect(),
                 tries: Vec::new(),
@@ -1988,6 +1994,9 @@ struct Scan<'a> {
     /// move out of it ([`moved_fields`]), with the update's node. Innermost
     /// last. Native only.
     moving: Vec<(LocalId, NodeId, Vec<usize>)>,
+    /// Dying update bases whose `?` escapes release them without the fields
+    /// the update moved out, as a mask ([`Target::LocalExcept`]).
+    escape_except: Vec<(LocalId, u64)>,
     /// [`FuncPlan::moved`], as it is found.
     moved: Vec<(NodeId, usize)>,
     /// The function's parameters and every local a `let` binds: the locals
@@ -2441,12 +2450,32 @@ impl Scan<'_> {
         let Some(root) = self.dying_base(base, live) else { return live.clone() };
         let mut after = live.clone();
         after.insert(root);
-        self.moving.push((root, id, moved_fields(root, updates)));
+        let moved = moved_fields(root, updates);
+        let mask = moved.iter().fold(0u64, |m, f| m | (1u64 << f));
+        self.moving.push((root, id, moved));
+        self.escape_except.push((root, mask));
+        let first = self.sites.len();
         for (k, (_, value)) in updates.iter().enumerate().rev() {
             let kid = self.child(id, k + 1);
             after = self.expr(value, kid, &after, Mode::Own);
         }
+        self.escape_except.pop();
         self.moving.pop();
+        // A field the update could move is moved only by an owning read, and
+        // which reads own is known once they are scanned — after the `?`s
+        // that follow them, since the scan runs backwards. So the escapes
+        // keep back exactly what was moved.
+        let taken = self
+            .moved
+            .iter()
+            .filter(|(u, _)| *u == id)
+            .fold(0u64, |m, (_, f)| m | (1u64 << f));
+        for site in self.sites.iter_mut().skip(first) {
+            if site.target == Target::LocalExcept(root, mask) {
+                site.target =
+                    if taken == 0 { Target::Local(root) } else { Target::LocalExcept(root, taken) };
+            }
+        }
         after.remove(&root);
         let bid = self.child(id, 0);
         let before = self.expr(base, bid, &after, Mode::Own);
@@ -2595,7 +2624,12 @@ impl Scan<'_> {
         held.sort_by_key(|l| l.0);
         for l in held {
             if self.owned.contains(&l) {
-                self.push_escape(node, Target::Local(l));
+                let except = self.escape_except.iter().rev().find(|(r, _)| *r == l);
+                let target = match except {
+                    Some((_, mask)) if *mask != 0 => Target::LocalExcept(l, *mask),
+                    _ => Target::Local(l),
+                };
+                self.push_escape(node, target);
             }
         }
     }
@@ -3758,9 +3792,10 @@ fn handed_on_fields(root: LocalId, updates: &[(usize, Expr)]) -> Option<Vec<usiz
 ///    arm that does not read it, a guard or a short circuit's right side that
 ///    does, or a read twice on one path is not a move: on the path that skips
 ///    the read nobody would release the old value; and
-///  * **no `?` in any replacement**, because the escape releases the whole
-///    base ([`Scan::update_dying`]), and a field already moved out would be
-///    released a second time.
+///  * **taken before every `?` in the replacements**, on every path. The
+///    escape releases the base ([`Scan::update_dying`]) without the moved
+///    fields, which whoever took them now holds, so a `?` that could run
+///    before a field was taken would leave that field unreleased.
 fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
     /// How many times `e` reads `root.f` on every path through it, or `None`
     /// where two paths read it a different number of times.
@@ -3800,16 +3835,68 @@ fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
             _ => sum(&kids(e)),
         }
     }
-    fn tries(e: &Expr) -> bool {
-        matches!(e.kind, ExprKind::Try { .. }) || kids(e).into_iter().any(tries)
+    /// Walks `e` in evaluation order with `seen`, the fields read on every
+    /// path so far, and narrows `before` to the fields seen at each `?`.
+    fn taken(root: LocalId, e: &Expr, seen: &mut Vec<usize>, before: &mut Option<Vec<usize>>) {
+        match &e.kind {
+            ExprKind::Field { base, index }
+                if matches!(base.kind, ExprKind::Local(l) if l == root) =>
+            {
+                seen.push(*index);
+            }
+            ExprKind::If { cond, then, else_ } => {
+                taken(root, cond, seen, before);
+                let mut other = seen.clone();
+                taken(root, then, seen, before);
+                taken(root, else_, &mut other, before);
+                seen.retain(|f| other.contains(f));
+            }
+            ExprKind::Match { scrutinee, arms } => {
+                taken(root, scrutinee, seen, before);
+                let start = seen.clone();
+                let mut all: Option<Vec<usize>> = None;
+                for arm in arms {
+                    let mut path = start.clone();
+                    if let Some(g) = &arm.guard {
+                        taken(root, g, &mut path, before);
+                    }
+                    taken(root, &arm.body, &mut path, before);
+                    all = Some(match all {
+                        Some(a) => a.into_iter().filter(|f| path.contains(f)).collect(),
+                        None => path,
+                    });
+                }
+                *seen = all.unwrap_or(start);
+            }
+            ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
+                taken(root, lhs, seen, before);
+                taken(root, rhs, &mut seen.clone(), before);
+            }
+            ExprKind::Try { base, .. } => {
+                taken(root, base, seen, before);
+                let now = before.take().map_or_else(|| seen.clone(), |b| {
+                    b.into_iter().filter(|f| seen.contains(f)).collect()
+                });
+                *before = Some(now);
+            }
+            _ => kids(e).into_iter().for_each(|k| taken(root, k, seen, before)),
+        }
     }
-    if handed_on_fields(root, updates).is_none() || updates.iter().any(|(_, v)| tries(v)) {
+    if handed_on_fields(root, updates).is_none() {
         return Vec::new();
+    }
+    let mut ordered: Vec<&(usize, Expr)> = updates.iter().collect();
+    ordered.sort_by_key(|(f, _)| *f);
+    let mut seen = Vec::new();
+    let mut before = None;
+    for (_, v) in &ordered {
+        taken(root, v, &mut seen, &mut before);
     }
     let values: Vec<&Expr> = updates.iter().map(|(_, v)| v).collect();
     updates
         .iter()
         .map(|(f, _)| *f)
+        .filter(|f| *f < 64 && before.as_ref().is_none_or(|b| b.contains(f)))
         .filter(|f| {
             values.iter().try_fold(0, |n, v| on_every_path(root, *f, v).map(|m| n + m)) == Some(1)
         })

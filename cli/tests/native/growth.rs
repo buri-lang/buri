@@ -102,6 +102,10 @@ fn read_case(id: usize) -> Case {
     let name = file_name(id);
     let text = std::fs::read_to_string(corpus().join(&name))
         .unwrap_or_else(|e| panic!("{name}: {e}; regenerate with BURI_BLESS=1"));
+    parse_case(id, name, &text)
+}
+
+fn parse_case(id: usize, name: String, text: &str) -> Case {
     let header = |key: &str| {
         text.lines()
             .find_map(|l| l.strip_prefix(key))
