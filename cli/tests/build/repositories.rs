@@ -788,12 +788,16 @@ const LANGUAGE_SERVER_BUDGET: std::time::Duration = std::time::Duration::from_mi
 /// `BURI_PERF_BUDGET_SCALE` on a machine slower than the one the number was
 /// taken on. A developer's machine sets nothing; CI sets what it measured.
 fn language_server_budget() -> std::time::Duration {
-    let scale = std::env::var("BURI_PERF_BUDGET_SCALE")
+    LANGUAGE_SERVER_BUDGET.mul_f64(budget_scale())
+}
+
+/// `BURI_PERF_BUDGET_SCALE`, between 1 and 100, and 1 where it is unset.
+fn budget_scale() -> f64 {
+    std::env::var("BURI_PERF_BUDGET_SCALE")
         .ok()
         .and_then(|value| value.parse::<f64>().ok())
         .filter(|scale| (1.0..=100.0).contains(scale))
-        .unwrap_or(1.0);
-    LANGUAGE_SERVER_BUDGET.mul_f64(scale)
+        .unwrap_or(1.0)
 }
 
 /// One session's timings, measured again while any of them is over the bar,
@@ -822,7 +826,7 @@ fn language_server_budget() -> std::time::Duration {
 /// samples, where the fastest of them is reported beside the median for
 /// exactly that reason.
 fn best_of(
-    budget: std::time::Duration,
+    budget: impl Fn(&str) -> std::time::Duration,
     mut session: impl FnMut() -> Vec<(String, std::time::Duration)>,
 ) -> Vec<(String, std::time::Duration)> {
     /// How many sessions one run may spend. Three: the first, and two more for
@@ -832,7 +836,7 @@ fn best_of(
 
     let mut best = session();
     for attempt in 2..=ATTEMPTS {
-        let over = best.iter().filter(|(_, took)| *took > budget).count();
+        let over = best.iter().filter(|(what, took)| *took > budget(what)).count();
         if over == 0 {
             break;
         }
@@ -840,8 +844,7 @@ fn best_of(
         // session is a run whose runner was busy, and that is worth seeing
         // beside a pass.
         eprintln!(
-            "language server: {over} request(s) over the {}ms bar, so the session is measured again (attempt {attempt} of {ATTEMPTS})",
-            budget.as_millis()
+            "{over} measurement(s) over the bar, so the session is measured again (attempt {attempt} of {ATTEMPTS})"
         );
         let again = session();
         assert_eq!(
@@ -897,7 +900,7 @@ fn language_server_speed() {
         return;
     }
     let budget = language_server_budget();
-    let mut timings = best_of(budget, || {
+    let mut timings = best_of(|_| budget, || {
         let scratch = Scratch::copy_of("lsp-speed", &example_repo());
         let mut editor = Editor::warmed(&scratch);
 
@@ -984,7 +987,7 @@ fn language_server_open_cost() {
         return;
     }
     let budget = language_server_budget();
-    let timings = best_of(budget, || {
+    let timings = best_of(|_| budget, || {
         let scratch = generated_repository("lsp-open-scale", 24, 4, 86);
         let mut editor = Editor::warmed(&scratch);
         let mut timings = Vec::new();
@@ -1027,6 +1030,162 @@ fn language_server_open_cost() {
         first.as_millis(),
         five
     );
+}
+
+/// What a cold `buri test //...` of [`monorepo_shaped`] may take.
+///
+/// The three bars are about three and a half times what a ten-core M-series
+/// mac took at a load average of 50 to 70: 1.3–1.6 s cold, 130–145 ms after
+/// the comment edit and 115–140 ms warm, on 2026-10-04. That is wide enough to
+/// have no opinion about the machine's other tenants, and narrow enough to see
+/// the causes nothing but a clock can see, which change how long the same work
+/// takes rather than which work is done. On the cold run those are the
+/// standard library checked once per suite rather than once per process, front
+/// ends run one after another, generator rules and their checks run one at a
+/// time, and any phase of the compiler getting slower per line.
+const MONOREPO_COLD_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// What the run after a comment edit to the library every suite reads may
+/// take. Everything is cached but the failing suite, so this is what a
+/// session costs to open: reading the tree, keying it, and naming the
+/// toolchain.
+const MONOREPO_EDIT_BUDGET: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// What a warm run may take, which runs the failing suite and nothing else.
+const MONOREPO_WARM_BUDGET: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// A cold, a comment-edit and a warm `buri test //...` of a repository shaped
+/// like one whose cold run once took 494 s and whose comment edit took 374 s.
+///
+/// `build::monorepo` holds what each run may and may not *do*, which is the
+/// same on every machine. This holds what it costs. The suites are JavaScript,
+/// so the job that runs this needs a JavaScript engine and no C toolchain.
+///
+/// Off unless `BURI_PERF` is set, and meaningless without `--release`. Like
+/// the language server's budget, a run with a phase over its bar measures the
+/// whole sequence again in a fresh repository, up to three times, and holds
+/// each phase to its fastest reading.
+///
+/// ```text
+/// BURI_PERF=1 cargo test --release -p buri --test build repositories::monorepo_test_budget
+/// ```
+#[test]
+fn monorepo_test_budget() {
+    if std::env::var("BURI_PERF").is_err() {
+        crate::harness::ci::deferred_to(
+            "build budget",
+            "language server budget (arm64)",
+            "BURI_PERF is unset, and a second in a debug profile is a fact about the profile",
+        );
+        return;
+    }
+    let scale = budget_scale();
+    let budget = |phase: &str| {
+        match phase {
+            "cold" => MONOREPO_COLD_BUDGET,
+            "comment edit" => MONOREPO_EDIT_BUDGET,
+            _ => MONOREPO_WARM_BUDGET,
+        }
+        .mul_f64(scale)
+    };
+    let timings = best_of(budget, || {
+        let scratch = monorepo_shaped("monorepo-budget", 24, 150, 20);
+        let mut timings = Vec::new();
+        let mut timed = |phase: &str| {
+            let started = std::time::Instant::now();
+            let run = scratch.run(&["test", "//..."]);
+            timings.push((phase.to_string(), started.elapsed()));
+            // One suite fails on purpose, as the measured repository's did.
+            run.exits(1);
+            // Every generated test, the failing suite's passing one, and the
+            // generated module's.
+            assert_eq!(run.tests_passed(), 24 * 20 + 2, "{}", indent(&run.all()));
+        };
+        timed("cold");
+        scratch.write("libs/base/lib.buri", &format!("// Where every value starts.\n{BASE_SOURCE}"));
+        timed("comment edit");
+        timed("warm");
+        timings
+    });
+    eprintln!("buri test //...:\n{}", listed(&timings));
+    let over: Vec<_> = timings.iter().filter(|(what, took)| *took > budget(what)).cloned().collect();
+    assert!(
+        over.is_empty(),
+        "these runs took longer than their bars ({}s cold, {}ms after a comment edit, {}ms warm):\n{}",
+        budget("cold").as_secs_f64(),
+        budget("comment edit").as_millis(),
+        budget("warm").as_millis(),
+        listed(&over),
+    );
+}
+
+/// The shared library every package of [`monorepo_shaped`] reads.
+const BASE_SOURCE: &str = "export fn base(n: Int): Int {\n  n * 2\n}\n";
+
+/// `packages` libraries over one shared library, each with `functions`
+/// functions and a JavaScript suite of `tests` tests, plus a suite with one
+/// failing test and a package whose module a tool of the repository generates.
+fn monorepo_shaped(name: &str, packages: usize, functions: usize, tests: usize) -> Scratch {
+    let scratch = Scratch::repo(name);
+    scratch.write("libs/base/BUILD.buri", "library {\n  visibility: [\"//...\"]\n}\n");
+    scratch.write("libs/base/lib.buri", BASE_SOURCE);
+    let suite = |dir: &str, extra: &str| {
+        format!(
+            "library {{\n  dependencies: [\"//libs/base\"]\n{extra}  test {{\n    sources: [\"test/{dir}.buri\"]\n    backends: [JS]\n  }}\n}}\n"
+        )
+    };
+    for p in 0..packages {
+        let dir = format!("p{p}");
+        scratch.write(&format!("libs/{dir}/BUILD.buri"), &suite(&dir, ""));
+        let mut lib = String::from("from \"//libs/base\" import { base };\n");
+        let mut test = format!(
+            "from \"//libs/{dir}\" import * as {dir};\nfrom \"core/testing/assert\" import * as assert;\n"
+        );
+        for f in 0..functions {
+            lib.push_str(&format!(
+                "\n/// Twice `n`, plus {f}.\nexport fn f{f}(n: Int): Int {{\n  let doubled = base(n);\n  doubled + {f}\n}}\n"
+            ));
+        }
+        for t in 0..tests {
+            test.push_str(&format!(
+                "\ntest \"f{t} doubles and adds\" {{\n  assert.equal({dir}.f{t}(3), {});\n}}\n",
+                6 + t
+            ));
+        }
+        scratch.write(&format!("libs/{dir}/lib.buri"), &lib);
+        scratch.write(&format!("libs/{dir}/test/{dir}.buri"), &test);
+    }
+    scratch.write("libs/failing/BUILD.buri", &suite("failing", ""));
+    scratch.write(
+        "libs/failing/lib.buri",
+        "from \"//libs/base\" import { base };\n\nexport fn four(): Int { base(2) }\n",
+    );
+    scratch.write(
+        "libs/failing/test/failing.buri",
+        "from \"//libs/failing\" import { four };\nfrom \"core/testing/assert\" import * as assert;\n\
+         \ntest \"four\" {\n  assert.equal(four(), 4);\n}\n\
+         \ntest \"five\" {\n  assert.equal(four(), 5);\n}\n",
+    );
+    scratch.write(
+        "libs/wire/BUILD.buri",
+        &suite("wire", "  generators: [\n    { tool: \"//tool/gen\", inputs: [\"size.txt\"] },\n  ]\n"),
+    );
+    scratch.write("libs/wire/lib.buri", "from \"//libs/wire/units\" export { size };\n");
+    scratch.write("libs/wire/size.txt", "four");
+    scratch.write(
+        "libs/wire/test/wire.buri",
+        "from \"//libs/wire\" import { size };\nfrom \"core/testing/assert\" import * as assert;\n\
+         \ntest \"the generated size\" {\n  assert.equal(size, 4);\n}\n",
+    );
+    scratch.write("tool/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
+    scratch.write(
+        "tool/gen/tool.buri",
+        &std::fs::read_to_string(
+            tests_dir().join("repositories/generators/only_the_generators_a_command_reads/repo/tool/gen/tool.buri"),
+        )
+        .unwrap(),
+    );
+    scratch
 }
 
 /// The middle time of a run, which is what a ratio between two halves of a

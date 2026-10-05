@@ -15,8 +15,8 @@
 //!   laptop and is exactly the vacuous green a runner must not report. Delete
 //!   the `env:` line and every native test on a runner with a broken toolchain
 //!   passes again, and nothing anywhere says so.
-//! * **The deferrals.** Two tests in `build/repositories.rs` assert
-//!   milliseconds, are meaningless in a debug profile, and are run by the
+//! * **The deferrals.** Three tests in `build/repositories.rs` assert
+//!   time, are meaningless in a debug profile, and are run by the
 //!   `language-server-budget` job instead of by the `test` matrix.
 //!   `ci::deferred_to` names that job in a string. A string naming a job that
 //!   has been renamed is a skip wearing a deferral's clothes.

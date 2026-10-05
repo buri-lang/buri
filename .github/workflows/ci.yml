@@ -362,11 +362,12 @@ jobs:
           echo "LLVM_SYS_211_PREFIX=$(llvm-config-21 --prefix)" >> "$GITHUB_ENV"
       - run: cargo test -p buri -p buri-llvm --features buri/backend-llvm --no-fail-fast
 
-  # The language server's 50 ms bar. `cli/tests/build/repositories.rs`'s two
-  # `BURI_PERF` tests are the only opt-in tests in the suite: they assert
-  # milliseconds, so a debug build fails them on the profile rather than on the
-  # change. arm64, because the bar was calibrated on an M-series mac. No `CC` and
-  # no apt: this job drives `buri lsp` over a pipe and links nothing.
+  # The language server's 50 ms bar, and the bars on a whole-repository
+  # `buri test //...`. `cli/tests/build/repositories.rs`'s three `BURI_PERF`
+  # tests are the only opt-in tests in the suite: they assert time, so a debug
+  # build fails them on the profile rather than on the change. arm64, because
+  # the bars were calibrated on an M-series mac. No `CC` and no apt: this job
+  # drives `buri lsp` over a pipe and tests JavaScript suites, and links nothing.
   language-server-budget:
     name: language server budget (arm64)
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
@@ -379,12 +380,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu-2404-arm-release
-      # One thread: two language servers on one runner would be timing each
-      # other's contention. `--nocapture` because both tests print their slowest
-      # requests on a pass, and this log is where the next recalibration reads them.
+      # The repository budget's suites run on JavaScript.
+      - uses: oven-sh/setup-bun@v2
+      # One thread: two measured sessions on one runner would be timing each
+      # other's contention. `--nocapture` because every test prints its timings
+      # on a pass, and this log is where the next recalibration reads them.
       - run: |
-          cargo test --release -p buri --test build repositories::language_server_ \
-            -- --nocapture --test-threads=1
+          cargo test --release -p buri --test build -- \
+            repositories::language_server_ repositories::monorepo_test_budget \
+            --nocapture --test-threads=1
 
   # `cargo install buri` on a machine with nothing installed on it.
   # `--no-default-features` is the dependency-free build `cli/Cargo.toml`'s bar is

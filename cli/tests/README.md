@@ -28,6 +28,7 @@ cli/tests/
     incrementality.rs     what the cache may and may not do
     hermeticity.rs        spawn determinism, concurrency, reproducibility
     watch.rs              the input set, and what an edit re-runs
+    monorepo.rs           a large repository's `buri test //...`, scaled down
     serving.rs            `buri run` on a page: a real process, a real socket,
                           the shell for every route, and a rebuild served
   native/    main.rs    THE NATIVE BACKENDS, and the runtime they link
@@ -464,19 +465,22 @@ bytes before the suite starts. So `BURI_CI=1` — set in the workflow's `env:`
 block, and therefore in every job — makes `harness/ci.rs::skipped` PANIC instead
 of returning. Set it locally to see what a runner sees.
 
-**Deferrals.** `repositories::language_server_speed` and
-`repositories::language_server_open_cost` assert milliseconds rather than work,
-so they return early unless `BURI_PERF` is set, and they mean nothing outside
+**Deferrals.** `repositories::language_server_speed`,
+`repositories::language_server_open_cost` and
+`repositories::monorepo_test_budget` assert time rather than work, so they
+return early unless `BURI_PERF` is set, and they mean nothing outside
 `--release`:
 
 ```
-BURI_PERF=1 cargo test --release -p buri --test build repositories::language_server_
+BURI_PERF=1 cargo test --release -p buri --test build -- repositories::language_server_ repositories::monorepo_test_budget
 ```
 
-Both hold every editor request to 50 ms, and neither fails on a single reading:
-a run over the bar measures its whole session again, up to three times, and
-holds each request to the fastest time it was seen in (`best_of`). The
-measurement repeats, not the assertion. CI runs them on its arm64 runner
+The first two hold every editor request to 50 ms. The third holds a cold, a
+comment-edit and a warm `buri test //...` of a generated repository to bars of
+their own. None fails on a single reading: a run over the bar measures its
+whole session again, up to three times, and holds each measurement to the
+fastest time it was seen in (`best_of`). The measurement repeats, not the
+assertion. CI runs them on its arm64 runner
 (`.github/workflows/ci.yml`, `language-server-budget`), where
 `BURI_PERF_BUDGET_SCALE` widens the bar for a slower machine. They name that job
 through `ci::deferred_to`, and
@@ -767,6 +771,30 @@ hosts, even when only the other host's run compares it.
 per action with its key and whether the cache served it. It compares keys
 between two states of one tree and never records them, because a key includes
 the toolchain version and a recorded one would move on every release.
+
+**The monorepo scenarios** pin each reason one user repository's
+`buri test //...` once took 494 s cold and 374 s after a comment edit. It had
+142k lines, 82 suites and 2,224 tests. Each row is a test that fails if its
+cause comes back:
+
+| What was slow | Test |
+|---|---|
+| A comment edit changed every key, so every suite re-ran | `scheduling::only_an_edit_that_can_change_behaviour_re_runs_a_suite`, `monorepo::a_comment_edit_to_the_shared_library_re_runs_no_passing_suite` |
+| A warm run rebuilt the failing suites | `monorepo::a_warm_run_builds_nothing_and_runs_only_the_failures` |
+| A failing native suite was relinked to run again | `incrementality::a_failing_suite_runs_again_without_being_built_again`, `…failing_suites_that_shared_a_binary_run_in_it_again` |
+| A failing JavaScript suite was emitted again | `incrementality::a_failing_javascript_suite_runs_again_without_being_built_again` |
+| A suite that did not compile was checked again | `incrementality::a_suite_that_does_not_compile_says_so_again_without_being_checked` |
+| Every generator ran, whatever the targets | `repositories/generators/only_the_generators_a_command_reads`, `monorepo::an_edit_to_a_generators_input_re_runs_only_the_suite_that_reads_it` |
+| Suites built and ran one at a time | `scheduling::two_suites_run_side_by_side`, `…suites_linked_and_run_side_by_side_all_start` |
+| One broken or painting suite split the batch | `scheduling::a_broken_suite_leaves_the_others_batched`, `incrementality::a_suite_that_paints_shares_a_binary_with_those_that_do_not` |
+| A batched binary re-ran per failing block | `repositories/testing/a_batched_suite_that_fails_and_dies` |
+| A long JavaScript suite ran in one process | `repositories/testing/a_long_javascript_suite` |
+| Every link started the C driver | `monorepo::links_after_the_first_do_not_start_the_c_driver` |
+| Every link copied the runtime archive | `incrementality::a_link_directory_costs_no_more_disk_than_the_cache` |
+| The toolchain was named by hashing its executable | `hermeticity::the_toolchain_is_named_by_its_linker_id` |
+| Equal contexts got their own copies of the code | `instances::equal_contexts_share_one_copy_of_the_code_they_reach` |
+| Every unit emitted its own drop glue | `native::stencil::shared_glue_is_kept_once_per_program_on_elf` |
+| The standard library was checked per suite, front ends ran in turn, generator rules ran in turn, and the compiler was slower per line | `repositories::monorepo_test_budget` (`BURI_PERF`) |
 
 **The golden transcript** catches a backend that produces a *different* answer
 rather than no answer, on the one path no assertion inside a program can reach:
