@@ -252,8 +252,35 @@ fn staged() -> &'static (PathBuf, Vec<String>) {
             .join(format!("native-link-flags-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let args = buri::build::link::product_link_args(&dir);
+        crate::sweep::kept::stage_runtime_archive(&dir);
         (dir, args)
     })
+}
+
+/// Links `objects` and the runtime archive into `binary` with the product's
+/// own command line, for a test that needs a program to run and isn't asking
+/// about the link.
+///
+/// It's `build/link.rs::product_link`, so the linker runs directly with the
+/// line the driver printed once, without starting the `cc` wrapper and `clang`
+/// for every program. A test about what the link itself does uses
+/// [`driver_link`].
+pub fn link_program(objects: &[PathBuf], binary: &Path) -> std::process::Output {
+    buri::build::link::product_link(&staged().0, objects, binary)
+        .unwrap_or_else(|e| panic!("cannot link {}: {e}", binary.display()))
+}
+
+/// [`link_program`] through the driver, as `cc -o <binary> <objects>
+/// <archive> <product_link_args>`, for a test about what the link does.
+pub fn driver_link(objects: &[PathBuf], binary: &Path) -> std::process::Output {
+    let mut cc = product_cc();
+    cc.arg("-o").arg(binary);
+    for o in objects {
+        cc.arg(o);
+    }
+    cc.arg(runtime_archive());
+    cc.args(product_link_args());
+    cc.output().unwrap()
 }
 
 /// The runtime archive, written once and shared by every run.

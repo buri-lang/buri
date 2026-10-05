@@ -182,11 +182,11 @@ fn cc() -> String {
 
 /// Compile, link, run, and answer `(stdout, stderr, exit status)`.
 ///
-/// The link is `build/link.rs`'s own driver over the emitted objects and the
-/// runtime archive, with `build/link.rs`'s own trailing arguments — which on
-/// Linux is a static-PIE musl link against the sysroot this toolchain carries.
-/// It used to be that command line spelled out again here; `shared::product_cc`
-/// says why it is a call now.
+/// The link is `build/link.rs`'s own command line over the emitted objects and
+/// the runtime archive — which on Linux is a static-PIE musl link against the
+/// sysroot this toolchain carries. It used to be that command line spelled out
+/// again here; `shared::product_cc` says why it is a call now, and
+/// `shared::link_program` is the call.
 fn build_and_run(name: &str, source: &str) -> (String, String, Option<i32>) {
     build_and_run_with(name, source, None)
 }
@@ -295,14 +295,7 @@ pub fn build_at(name: &str, source: &str, probe: Option<&str>, profile: Profile)
     // static-PIE musl one, which is a whole sysroot and a `--target=` rather
     // than a list. A harness that links more permissively than the product is
     // a harness that cannot see the product's bugs.
-    let mut link = crate::shared::product_cc();
-    link.arg("-o").arg(&binary);
-    for object in &objects {
-        link.arg(object);
-    }
-    link.arg(crate::shared::runtime_archive());
-    link.args(crate::shared::product_link_args());
-    let linked = link.output().unwrap();
+    let linked = crate::shared::link_program(&objects, &binary);
     assert!(
         linked.status.success(),
         "linking failed:\n{}",
@@ -362,14 +355,7 @@ fn build_tests_as(name: &str, file: &str, source: &str) -> PathBuf {
         objects.push(path);
     }
     let binary = dir.join("program");
-    let mut link = crate::shared::product_cc();
-    link.arg("-o").arg(&binary);
-    for object in &objects {
-        link.arg(object);
-    }
-    link.arg(crate::shared::runtime_archive());
-    link.args(crate::shared::product_link_args());
-    let linked = link.output().unwrap();
+    let linked = crate::shared::link_program(&objects, &binary);
     assert!(
         linked.status.success(),
         "linking failed:\n{}",

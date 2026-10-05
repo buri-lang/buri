@@ -1464,6 +1464,76 @@ pub fn product_compile_args() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Links a test harness's objects with [`CDriver::link`]'s command line, for a
+/// test that needs a program to run and isn't asking about the link.
+///
+/// The linker runs directly with the line the driver printed once
+/// ([`Replay`]), as in the product. The driver runs only where there's no line
+/// to replay or replaying it failed. A harness that started the driver for
+/// every link paid for the `cc` wrapper's bash and `clang` on each one.
+///
+/// `dir` is the directory [`product_link_args`] staged, and it must also hold
+/// the runtime archive as [`runtime_native::ARCHIVE_NAME`]. The archive is
+/// linked whether the objects name it or not. The objects and `out` are
+/// absolute paths. The command is kept between processes even though a
+/// harness has no cache, because nearly every test is a process of its own.
+pub fn product_link(
+    dir: &Path,
+    objects: &[PathBuf],
+    out: &Path,
+) -> std::io::Result<std::process::Output> {
+    let platform = host_platform()
+        .ok_or_else(|| std::io::Error::other("this machine has no native platform to link for"))?;
+    let cc = select(Target { platform, arch: host_arch() })
+        .map_err(|refusal| std::io::Error::other(refusal.message))?
+        .in_dir(dir.to_path_buf());
+    let runtime = RuntimeArchive::Linked;
+    let names: Vec<String> = objects.iter().map(|o| o.to_string_lossy().into_owned()).collect();
+    let args = cc.driver_args(&names, runtime);
+    let replay = cc.replay(&args, &names, runtime, true);
+    if let Some(replay) = &replay {
+        if let Some(argv) = writing_to(replay.argv(&names), out) {
+            let mut direct = Command::new(&replay.program);
+            cc.pin(&mut direct);
+            if let Ok(done) = spawn::output(direct.args(argv)) {
+                if done.status.success() {
+                    return Ok(done);
+                }
+            }
+        }
+    }
+    let argv = writing_to(args, out)
+        .ok_or_else(|| std::io::Error::other("the driver's arguments name no `-o artifact`"))?;
+    let mut command = Command::new(&cc.driver);
+    cc.pin(&mut command);
+    let done = spawn::output(command.args(argv))?;
+    if done.status.success() && replay.is_some() {
+        // The replay failed where the driver did not, so it is stale.
+        cc.forget_replay(runtime, true);
+    }
+    Ok(done)
+}
+
+/// `argv` writing `out` rather than `artifact`. `None` unless `-o artifact`
+/// appears exactly once.
+fn writing_to<T: Into<std::ffi::OsString>>(
+    argv: Vec<T>,
+    out: &Path,
+) -> Option<Vec<std::ffi::OsString>> {
+    let mut argv: Vec<std::ffi::OsString> = argv.into_iter().map(Into::into).collect();
+    let at: Vec<usize> = argv
+        .iter()
+        .enumerate()
+        .skip(1)
+        .zip(&argv)
+        .filter(|((_, arg), flag)| *flag == "-o" && *arg == "artifact")
+        .map(|((i, _), _)| i)
+        .collect();
+    let [at] = at.as_slice() else { return None };
+    *argv.get_mut(*at)? = out.into();
+    Some(argv)
+}
+
 // ---------------------------------------------------------------------------
 // The link
 // ---------------------------------------------------------------------------
@@ -2025,7 +2095,8 @@ impl CDriver {
         // The linker itself, with the command the driver would have run (see
         // `Replay`). A failure falls through to the driver, which either links
         // or reports the error in its own words.
-        let replay = self.replay(&args, &names, runtime);
+        let keep = self.store.is_some();
+        let replay = self.replay(&args, &names, runtime, keep);
         if let Some(replay) = &replay {
             let mut direct = Command::new(&replay.program);
             self.pin(&mut direct);
@@ -2043,7 +2114,7 @@ impl CDriver {
             Ok(status) if status.status.success() => {
                 if replay.is_some() {
                     // The replay failed where the driver did not, so it is stale.
-                    self.forget_replay(runtime);
+                    self.forget_replay(runtime, keep);
                 }
                 self.claim(out)
             }
@@ -2328,19 +2399,21 @@ impl CDriver {
     /// time this toolchain links and read back every time after.
     ///
     /// Held under one lock, so that parallel first links wait for one capture
-    /// rather than each running their own.
+    /// rather than each running their own. `keep` is whether the command is
+    /// kept between processes ([`replay_record`]).
     fn replay(
         &self,
         args: &[std::ffi::OsString],
         objects: &[String],
         runtime: RuntimeArchive,
+        keep: bool,
     ) -> Option<Replay> {
         let key = self.replay_key(runtime);
         let mut table = REPLAYS.lock().ok()?;
         if let Some((_, known)) = table.iter().find(|(k, _)| k == key.as_str()) {
             return known.clone();
         }
-        let record = self.replay_record(&key);
+        let record = replay_record(&key).filter(|_| keep);
         let stored = record.as_ref().and_then(|r| std::fs::read_to_string(r).ok());
         let found = match stored {
             Some(text) => Replay::from_text(&text),
@@ -2368,32 +2441,32 @@ impl CDriver {
             .filter(|replay| replay.stands_alone(&self.dir))
     }
 
-    /// Stops replaying this link's command, in this process and in the cache.
-    fn forget_replay(&self, runtime: RuntimeArchive) {
+    /// Stops replaying this link's command, in this process and, where `keep`
+    /// says it was kept, between processes.
+    fn forget_replay(&self, runtime: RuntimeArchive, keep: bool) {
         let key = self.replay_key(runtime);
         if let Ok(mut table) = REPLAYS.lock() {
             table.retain(|(k, _)| k != key.as_str());
             table.push((key.as_str().to_string(), None));
         }
-        if let Some(record) = self.replay_record(&key) {
+        if let Some(record) = replay_record(&key).filter(|_| keep) {
             remember(&record, "");
         }
     }
+}
 
-    /// Where the replay for `key` is kept between processes:
-    /// `~/.buri/link-replay/<key>`, beside the linker's identity.
-    ///
-    /// Per toolchain rather than per repository, because the key already holds
-    /// everything that can change what the driver prints, and the repository is
-    /// not part of it. In the repository's cache, every fresh repository and
-    /// every `buri clean` started the driver again just to print the same line.
-    ///
-    /// `None` for a link with the cache off, which keeps nothing between
-    /// processes, as before.
-    fn replay_record(&self, key: &ActionKey) -> Option<PathBuf> {
-        self.store.as_ref()?;
-        Some(runtime_cross::buri_home().ok()?.join("link-replay").join(key.as_str()))
-    }
+/// Where the replay for `key` is kept between processes:
+/// `~/.buri/link-replay/<key>`, beside the linker's identity.
+///
+/// Per toolchain rather than per repository, because the key already holds
+/// everything that can change what the driver prints, and the repository is
+/// not part of it. In the repository's cache, every fresh repository and
+/// every `buri clean` started the driver again just to print the same line.
+///
+/// A link with the cache off keeps nothing between processes, as before, so
+/// [`CDriver::link`] asks for this only when it has a cache.
+fn replay_record(key: &ActionKey) -> Option<PathBuf> {
+    Some(runtime_cross::buri_home().ok()?.join("link-replay").join(key.as_str()))
 }
 
 /// Whether the file already holds exactly these bytes.
@@ -3104,7 +3177,7 @@ mod tests {
         assert!(cc.link(std::slice::from_ref(&unit), &[], &out, &opts).is_ok(), "the replayed link");
         let runtime = runtime_archive_for(std::slice::from_ref(&unit));
         let names = strings(&["main.o"]);
-        let replayed = cc.replay(&cc.driver_args(&names, runtime), &names, runtime);
+        let replayed = cc.replay(&cc.driver_args(&names, runtime), &names, runtime, true);
         if host == Platform::Macos && cc.flavour == Flavour::Lld {
             assert!(replayed.is_some(), "ld64.lld was not called directly");
         }

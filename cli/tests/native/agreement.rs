@@ -486,16 +486,9 @@ fn run_native(row: &str, native: Native, checked: &Checked, paths: &[String]) ->
     let binary = dir.join("program");
     // `build/link.rs`'s driver and its trailing arguments, rather than a list
     // spelled out again: on Linux those are now a whole static-PIE musl link
-    // (`shared::product_cc`), and a harness that linked the old three `-l`s
+    // (`shared::link_program`), and a harness that linked the old three `-l`s
     // would be asking the driver for a `libpthread.a` musl does not ship.
-    let mut link = crate::shared::product_cc();
-    link.arg("-o").arg(&binary);
-    for object in &objects {
-        link.arg(object);
-    }
-    link.arg(crate::shared::runtime_archive());
-    link.args(crate::shared::product_link_args());
-    let linked = link.output().unwrap();
+    let linked = crate::shared::link_program(&objects, &binary);
     assert!(
         linked.status.success(),
         "{row}: the `{}` link failed:\n{}",
