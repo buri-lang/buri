@@ -263,6 +263,37 @@ fn zero_divisor(name: &str, tag: &str, k: u64) -> bool {
     matches!(name, "div" | "rem") && !matches!(tag, "f32" | "f64") && k == 0
 }
 
+/// The uses of one value within one block, for [`Jit::regalloc`] and
+/// [`Jit::pin_call_values`].
+#[derive(Clone, Copy)]
+struct BlockUses {
+    /// The block this entry describes; any other block reads it as unused.
+    block: u32,
+    count: u32,
+    /// Instruction indices, the terminator being one past the last.
+    first: usize,
+    last: usize,
+}
+
+impl Default for BlockUses {
+    fn default() -> BlockUses {
+        BlockUses { block: u32::MAX, count: 0, first: 0, last: 0 }
+    }
+}
+
+/// Records a use of `o` at instruction `at` of block `block`. Uses arrive in
+/// instruction order, so the latest is the last.
+fn note_use(uses: &mut [BlockUses], block: u32, o: &ir::ValueId, at: usize) {
+    if let Some(u) = uses.get_mut(o.index()) {
+        if u.block == block {
+            u.count += 1;
+            u.last = at;
+        } else {
+            *u = BlockUses { block, count: 1, first: at, last: at };
+        }
+    }
+}
+
 /// The representative of `v`'s slot class.
 ///
 /// `uf` starts as the identity and [`Jit::coalesce`] only ever points an entry
@@ -423,17 +454,20 @@ impl<'a> Jit<'a> {
         (self.reasons.len() - 1) as u64
     }
 
-    /// `f`'s frame layout. `Jit::plan` fills `frames` with one entry per
-    /// function of the program, so the empty signature is what a `FuncIdx` from
-    /// some other program would get and not one from this one.
-    pub(crate) fn frame_sig_of(&self, f: usize) -> FrameSig {
-        self.frames.get(f).cloned().unwrap_or_default()
+    /// `f`'s frame layout, borrowed from the program's table. [`frame_sigs`]
+    /// fills it with one entry per function of the program, so the empty
+    /// signature is what a `FuncIdx` from some other program would get and not
+    /// one from this one.
+    pub(crate) fn frame_sig_of(&self, f: usize) -> &'a FrameSig {
+        static EMPTY: FrameSig =
+            FrameSig { ret: Vec::new(), ret_size: 0, params: Vec::new(), param_end: 0, size: 0 };
+        self.frames.get(f).unwrap_or(&EMPTY)
     }
 
     /// The layout of a source type directly, for the places the IR's `TypeId`
     /// is not the type wanted (a `[T]`'s element, a closure's return).
-    pub(crate) fn layouts_of(&mut self, ty: Ty) -> Layout {
-        self.layouts.of(ty)
+    pub(crate) fn layouts_of(&mut self, ty: Ty) -> std::rc::Rc<Layout> {
+        self.layouts.shared(&ty)
     }
 
     /// The same answer, shared rather than copied — and without the `Ty` clone
@@ -481,15 +515,14 @@ impl<'a> Jit<'a> {
         self.counts.weight(self.tables, &mut self.layouts, ty)
     }
 
-    pub(crate) fn layout_of(&mut self, prog: &ir::Program, id: ir::TypeId) -> Layout {
-        let ty: Ty = prog.type_info(id).ty;
-        self.layouts.of(ty)
+    pub(crate) fn layout_of(&mut self, prog: &ir::Program, id: ir::TypeId) -> std::rc::Rc<Layout> {
+        self.layouts.shared(&prog.type_info(id).ty)
     }
 
     /// The same, for a type reached through another type's arguments rather
     /// than through the program's interner.
-    pub(crate) fn layout_of_type(&mut self, ty: Ty) -> Layout {
-        self.layouts.of(ty)
+    pub(crate) fn layout_of_type(&mut self, ty: Ty) -> std::rc::Rc<Layout> {
+        self.layouts.shared(&ty)
     }
 
     pub(crate) fn width_of(&mut self, prog: &ir::Program, t: ir::Type) -> u32 {
@@ -552,7 +585,7 @@ pub(crate) fn frame_sigs(prog: &ir::Program, tables: &Tables) -> Vec<FrameSig> {
             ir::Type::I64 | ir::Type::F64 | ir::Type::Ptr => 8,
             ir::Type::I128 => 16,
             ir::Type::Unit => 0,
-            ir::Type::Agg(id) => l.of(prog.type_info(id).ty).size,
+            ir::Type::Agg(id) => l.shared(&prog.type_info(id).ty).size,
         }
     };
     let mut out = Vec::with_capacity(prog.funcs.len());
@@ -1949,6 +1982,10 @@ impl<'a> Jit<'a> {
         pin: &mut [Option<u32>],
         frame_size: u32,
     ) {
+        let has_call = |b: &ir::Block| b.insts.iter().any(|i| matches!(i, ir::Inst::Call { .. }));
+        if !code.blocks.iter().any(has_call) {
+            return;
+        }
         let n = code.values();
         let mut members = vec![0u32; n];
         let mut uses = vec![0u32; n];
@@ -1981,21 +2018,25 @@ impl<'a> Jit<'a> {
         let calls_code = |func: &crate::compiler::semantics::types::FuncIdx| {
             matches!(prog.funcs.get(func.index()).map(|f| &f.body), Some(ir::Body::Code(_)))
         };
-        for b in &code.blocks {
-            if !b.insts.iter().any(|i| matches!(i, ir::Inst::Call { .. })) {
+        // Where each value is read in the block at hand — an instruction's
+        // index, or `last` for the terminator — and where it is defined. One
+        // entry per value, stamped with the block it describes.
+        let mut reads = vec![BlockUses::default(); n];
+        let mut defs: Vec<(u32, usize)> = vec![(u32::MAX, 0); n];
+        let mut kept: Vec<usize> = Vec::new();
+        for (bi, b) in code.blocks.iter().enumerate() {
+            if !has_call(b) {
                 continue;
             }
+            let stamp = u32::try_from(bi).unwrap_or(u32::MAX);
             let last = b.insts.len();
-            // Where each value is read in this block: an instruction's index,
-            // or `last` for the terminator. And where each is defined.
-            let mut read_at: HashMap<u32, Vec<usize>> = HashMap::default();
-            let mut def_at: HashMap<u32, usize> = HashMap::default();
             // How many instructions before each index leave the callee's
             // frame alone, so a range is pure in one subtraction.
-            let mut kept = vec![0usize; last + 1];
+            kept.clear();
+            kept.resize(last + 1, 0);
             for (k, i) in b.insts.iter().enumerate() {
                 for d in i.results() {
-                    def_at.insert(d.0, k);
+                    put(&mut defs, d.index(), (stamp, k));
                 }
                 let so_far = ent(&kept, k, 0) + usize::from(keeps_callee_frame(i));
                 put(&mut kept, k + 1, so_far);
@@ -2004,7 +2045,7 @@ impl<'a> Jit<'a> {
                 ops.clear();
                 i.operands(&mut ops);
                 for o in &ops {
-                    read_at.entry(o.0).or_default().push(k);
+                    note_use(&mut reads, stamp, o, k);
                 }
             }
             ops.clear();
@@ -2013,8 +2054,12 @@ impl<'a> Jit<'a> {
                 ops.extend_from_slice(&t.args);
             }
             for o in &ops {
-                read_at.entry(o.0).or_default().push(last);
+                note_use(&mut reads, stamp, o, last);
             }
+            let read_at = |v: ir::ValueId| reads.get(v.index()).copied().filter(|u| u.block == stamp);
+            let def_at = |v: ir::ValueId| {
+                defs.get(v.index()).filter(|(b, _)| *b == stamp).map(|(_, k)| *k)
+            };
             let pure = |from: usize, to: usize| {
                 to <= from || ent(&kept, to, 0) - ent(&kept, from, 0) == to - from
             };
@@ -2026,27 +2071,25 @@ impl<'a> Jit<'a> {
                 }
                 let Some(fs) = self.frames.get(func.index()) else { continue };
                 let (Some(&d), Some(&off)) = (dests.first(), fs.ret.first()) else { continue };
-                let Some(reads) = read_at.get(&d.0) else { continue };
-                let mut end = reads.iter().copied().max().unwrap_or(0);
-                if !alone(d, pin)
-                    || reads.len() != ent(&uses, d.index(), 0) as usize
-                    || reads.iter().any(|r| *r <= j)
-                {
+                let Some(dr) = read_at(d) else { continue };
+                let mut end = dr.last;
+                if !alone(d, pin) || dr.count != ent(&uses, d.index(), 0) || dr.first <= j {
                     continue;
                 }
                 // A `Bool` read only to be counted shares the slot it is
                 // counted from: the conversion is a copy of the same word.
                 let mut alias = None;
-                if let [r] = reads.as_slice() {
+                if dr.count == 1 {
+                    let r = dr.first;
                     if let Some(ir::Inst::Unary { op: ir::UnOp::FromBool, dest: z, .. }) =
-                        b.insts.get(*r)
+                        b.insts.get(r)
                     {
-                        if let Some(zr) = read_at.get(&z.0) {
+                        if let Some(zr) = read_at(*z) {
                             if alone(*z, pin)
-                                && zr.len() == ent(&uses, z.index(), 0) as usize
-                                && zr.iter().all(|x| x > r)
+                                && zr.count == ent(&uses, z.index(), 0)
+                                && zr.first > r
                             {
-                                end = end.max(zr.iter().copied().max().unwrap_or(0));
+                                end = end.max(zr.last);
                                 alias = Some(*z);
                             }
                         }
@@ -2068,7 +2111,7 @@ impl<'a> Jit<'a> {
                 }
                 let Some(fs) = self.frames.get(func.index()) else { continue };
                 for (a, off) in args.iter().zip(fs.params.iter()) {
-                    let Some(&k) = def_at.get(&a.0).filter(|k| **k < j) else { continue };
+                    let Some(k) = def_at(*a).filter(|k| *k < j) else { continue };
                     let defines = matches!(
                         b.insts.get(k),
                         Some(
@@ -2216,6 +2259,14 @@ impl<'a> Jit<'a> {
         let nb = code.blocks.len();
         let register_count = super::abi::CPS_REGISTER_COUNT;
         if register_count < 2 || nb == 0 {
+            return (0, 0);
+        }
+        // Only a back edge into a block with parameters can make a candidate
+        // below, and most functions have none: they skip the tables.
+        let back_edge = code.blocks.iter().enumerate().any(|(p, b)| {
+            b.term.targets().any(|t| t.block.index() <= p && !code.get(t.block).params.is_empty())
+        });
+        if !back_edge {
             return (0, 0);
         }
         let barrier: Vec<bool> =
@@ -2506,23 +2557,30 @@ impl<'a> Jit<'a> {
                 bump(&mut total, o.index());
             }
         }
-        for block in &code.blocks {
+        // Where each value is used in the block being allocated: how often,
+        // first and last. One entry per value of the function, stamped with
+        // the block it describes, so moving to the next block resets nothing.
+        let mut uses = vec![BlockUses::default(); code.values()];
+        let mut barrier: Vec<bool> = Vec::new();
+        let mut ops = Vec::new();
+        // The registers cross-block promotion took are not the local
+        // allocator's to hand out.
+        let register_count = super::abi::CPS_REGISTER_COUNT;
+        let mut busy: Vec<Option<u32>> = vec![None; register_count];
+        let mut busyf: Vec<Option<u32>> = vec![None; register_count];
+        for (bi, block) in code.blocks.iter().enumerate() {
             let n = block.insts.len();
-            // Where each value defined in this block is used, and where the
-            // barriers are. A barrier is an instruction whose stencil has the
-            // zero-register prototype and therefore clobbers the file.
-            let mut def_at: HashMap<u32, usize> = HashMap::default();
-            let mut use_at: HashMap<u32, Vec<usize>> = HashMap::default();
-            let mut barrier = vec![false; n + 1];
-            let mut ops = Vec::new();
+            let stamp = u32::try_from(bi).unwrap_or(u32::MAX);
+            // Where the barriers are. A barrier is an instruction whose
+            // stencil has the zero-register prototype and therefore clobbers
+            // the file.
+            barrier.clear();
+            barrier.resize(n + 1, false);
             for (k, i) in block.insts.iter().enumerate() {
                 ops.clear();
                 i.operands(&mut ops);
                 for o in &ops {
-                    use_at.entry(o.0).or_default().push(k);
-                }
-                for d in i.results() {
-                    def_at.insert(d.0, k);
+                    note_use(&mut uses, stamp, o, k);
                 }
                 put(&mut barrier, k, is_barrier(i));
             }
@@ -2532,16 +2590,17 @@ impl<'a> Jit<'a> {
                 ops.extend_from_slice(&t.args);
             }
             for o in &ops {
-                use_at.entry(o.0).or_default().push(n);
+                note_use(&mut uses, stamp, o, n);
             }
+            // The uses of `v` in this block, if it has any.
+            let used = |v: u32| uses.get(v as usize).copied().filter(|u| u.block == stamp);
 
-            // The registers cross-block promotion took are not the local
-            // allocator's to hand out.
-            let register_count = super::abi::CPS_REGISTER_COUNT;
-            let mut busy: Vec<Option<u32>> =
-                (0..register_count).map(|k| (k < taken.0).then_some(u32::MAX)).collect();
-            let mut busyf: Vec<Option<u32>> =
-                (0..register_count).map(|k| (k < taken.1).then_some(u32::MAX)).collect();
+            for (r, b) in busy.iter_mut().enumerate() {
+                *b = (r < taken.0).then_some(u32::MAX);
+            }
+            for (r, b) in busyf.iter_mut().enumerate() {
+                *b = (r < taken.1).then_some(u32::MAX);
+            }
             let (base, basef) = (taken.0, taken.1);
             for (k, i) in block.insts.iter().enumerate() {
                 // Free every register whose value was last used here.
@@ -2551,12 +2610,9 @@ impl<'a> Jit<'a> {
                         if v == u32::MAX {
                             continue; // a promoted register, not this pass's
                         }
-                        // Every entry of `use_at` was created by pushing to
-                        // it, so none of them is empty and "no last use" here
-                        // means the value is not used in this block at all.
-                        let live = use_at
-                            .get(&v)
-                            .is_some_and(|u| u.last().is_some_and(|last| *last > k));
+                        // No entry means the value is not used in this block
+                        // at all.
+                        let live = used(v).is_some_and(|u| u.last > k);
                         if !live {
                             *b = None;
                         }
@@ -2602,11 +2658,11 @@ impl<'a> Jit<'a> {
                 if ent(out, dest.index(), None).is_some() {
                     continue; // already promoted across the loop
                 }
-                let Some(u) = use_at.get(&dest.0) else { continue };
-                if u.len() != 1 || ent(&total, dest.index(), 0) != 1 {
+                let Some(u) = used(dest.0) else { continue };
+                if u.count != 1 || ent(&total, dest.index(), 0) != 1 {
                     continue;
                 }
-                let Some(at) = u.first().copied() else { continue };
+                let at = u.first;
                 // `barrier` runs from the block's first instruction to one
                 // past its last, so a use ahead of `k` always names a span
                 // inside it. A use behind `k` names an empty range instead,

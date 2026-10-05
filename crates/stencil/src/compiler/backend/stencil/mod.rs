@@ -923,24 +923,28 @@ fn assemble_unit(
     }
 
     let mut out: Vec<object::Reloc> = Vec::new();
-    let name_of = |target: &region::Target| -> String {
+    // Borrowed, because a name is only copied the first time `want` meets it.
+    fn name_of<'n>(program: &'n ir::Program, target: &'n region::Target) -> std::borrow::Cow<'n, str> {
         match target {
-            region::Target::Func(f) => jit::symbol_of(program, *f),
-            region::Target::Symbol(s) => s.clone(),
+            region::Target::Func(f) => match program.funcs.get(*f as usize) {
+                Some(func) => std::borrow::Cow::Borrowed(func.symbol.as_str()),
+                None => std::borrow::Cow::Owned(jit::symbol_of(program, *f)),
+            },
+            region::Target::Symbol(s) => std::borrow::Cow::Borrowed(s.as_str()),
             // The pool's own base, under a local name no Buri symbol can
             // collide with: Mach-O has no "this section" relocation that is
             // not scattered, so an offset into the pool is a symbol plus an
             // addend.
-            region::Target::Here(_) | region::Target::Pool => String::from(POOL_ANCHOR),
+            region::Target::Here(_) | region::Target::Pool => std::borrow::Cow::Borrowed(POOL_ANCHOR),
         }
-    };
+    }
     for (section, r) in emitted
         .code_relocs
         .iter()
         .map(|r| (CODE, r))
         .chain(emitted.pool_relocs.iter().map(|r| (POOL, r)))
     {
-        let sym = want(&mut symbols, &mut index, &name_of(&r.target));
+        let sym = want(&mut symbols, &mut index, &name_of(program, &r.target));
         out.push(object::Reloc {
             section,
             offset: r.at,
@@ -1016,7 +1020,7 @@ fn assemble_unit(
                 s.defined = Some(object::Definition { section: 0, offset: at });
             }
             for (off, kind, target, addend) in shim.relocs {
-                let sym = want(&mut symbols, &mut index, &name_of(&target));
+                let sym = want(&mut symbols, &mut index, &name_of(program, &target));
                 out.push(object::Reloc {
                     section: CODE,
                     offset: at.saturating_add(off),

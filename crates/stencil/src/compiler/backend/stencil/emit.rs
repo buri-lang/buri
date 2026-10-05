@@ -2427,7 +2427,7 @@ impl<'a> Jit<'a> {
                 }
             }
         }
-        if self.runtime_intrinsic(prog, fi, &key, &fs, st) {
+        if self.runtime_intrinsic(prog, fi, &key, fs, st) {
             self.emit("ret", &[]);
             return;
         }

@@ -861,16 +861,18 @@ impl<'a> Monomorphizer<'a> {
         match key {
             Key::Fn(f, targs) => {
                 let info = self.tables().fn_info(*f);
-                let module = self
-                    .module_paths
-                    .get(info.module.index())
-                    .cloned()
-                    .unwrap_or_else(|| "core".into());
-                let owner = info
-                    .self_ty
-                    .map(|c| format!("{}.", self.tables().tycon(c).name))
-                    .unwrap_or_default();
-                let debug = format!("{module}:{owner}{}", info.name);
+                let module = self.module_paths.get(info.module.index()).map_or("core", String::as_str);
+                let owner = info.self_ty.map(|c| self.tables().tycon(c).name.as_str());
+                let mut debug = String::with_capacity(
+                    module.len().saturating_add(info.name.len()).saturating_add(32),
+                );
+                debug.push_str(module);
+                debug.push(':');
+                if let Some(o) = owner {
+                    debug.push_str(o);
+                    debug.push('.');
+                }
+                debug.push_str(&info.name);
                 // The whole path, file name and all. It is the module's
                 // canonical path, which is the file — a repository module has
                 // two spellings and only one identity — and taking `lib.buri`
@@ -878,11 +880,18 @@ impl<'a> Monomorphizer<'a> {
                 // are two modules that may both exist (see the
                 // `a_module_beside_a_package_of_its_name` case), and two
                 // functions on one symbol is a miscompile.
-                let mut symbol = sanitize(&format!(
-                    "{}${owner}{}",
-                    module.replace(['/', '.'], "_").replace("//", ""),
-                    info.name
-                ));
+                //
+                // `module$Owner_name`, every character [`sanitize`] would
+                // replace replaced as it is written, so the path's `/` and `.`
+                // and the owner's `.` all come out as `_`.
+                let mut symbol = String::with_capacity(debug.len());
+                symbol.extend(module.chars().map(symbol_char));
+                symbol.push('$');
+                if let Some(o) = owner {
+                    symbol.extend(o.chars().map(symbol_char));
+                    symbol.push('_');
+                }
+                symbol.extend(info.name.chars().map(symbol_char));
                 let span = info.span;
                 if !targs.is_empty() {
                     let mangled: Vec<Mangled> =
@@ -2873,7 +2882,12 @@ impl<'a> std::fmt::Debug for Mangled<'a> {
 }
 
 fn sanitize(s: &str) -> String {
-    s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '$' { c } else { '_' }).collect()
+    s.chars().map(symbol_char).collect()
+}
+
+/// A character of a symbol: itself if a symbol may hold it, `_` otherwise.
+fn symbol_char(c: char) -> char {
+    if c.is_ascii_alphanumeric() || c == '_' || c == '$' { c } else { '_' }
 }
 
 /// A short, deterministic tag distinguishing two instantiations of one

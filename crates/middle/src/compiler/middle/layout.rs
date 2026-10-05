@@ -409,7 +409,7 @@ impl Cycles {
         }
         let mut groups = vec![0usize; tables.tycons.len()];
         let mut recursive = Vec::new();
-        for (id, group) in super::strongly_connected(&edges).into_iter().enumerate() {
+        for (id, group) in super::strongly_connected(&edges).iter().enumerate() {
             // One constructor that mentions itself is a cycle; one that does
             // not is a group of one and nothing more.
             let cycle = group.len() > 1
@@ -417,7 +417,7 @@ impl Cycles {
                     .first()
                     .is_some_and(|n| edges.get(*n).is_some_and(|out| out.contains(n)));
             recursive.push(cycle);
-            for node in group {
+            for &node in group {
                 if let Some(slot) = groups.get_mut(node) {
                     *slot = id;
                 }
