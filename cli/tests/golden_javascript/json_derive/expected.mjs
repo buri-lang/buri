@@ -130,7 +130,11 @@ function core_json$stringify$fm64au(ctx_0,value_1){
       {
         const entries_9=value_1[1];
         $share(entries_9);
-        const parts_14=$list_mapCtx(entries_9,ctx_0,(c_10,e_11)=>$str_format(c_10,core_json$quote$fm64au(c_10,e_11[0])+':'+core_json$stringify$fm64au(c_10,e_11[1])));
+        const parts_14=$list_mapCtx(entries_9,ctx_0,(c_10,e_11)=>{
+          const item_13=e_11[1];
+          $fromShared(e_11,item_13);
+          return $str_format(c_10,core_json$quote$fm64au(c_10,e_11[0])+':'+core_json$stringify$fm64au(c_10,item_13));
+        });
         return $str_format(ctx_0,'{'+$list_join(parts_14,ctx_0,',')+'}');
       }
     default:

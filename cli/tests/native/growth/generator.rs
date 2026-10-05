@@ -148,6 +148,10 @@ pub struct Shape {
     /// The element pushed at index `i` is chosen from `i * scale + offset`.
     pub scale: usize,
     pub offset: usize,
+    /// Keep the accumulator from half way, grow on from it, and read it again
+    /// at the end: the push after the half must copy, and what was kept must
+    /// read as it did. Only unnested and infallible.
+    pub snapshot: bool,
 }
 
 impl Shape {
@@ -164,6 +168,7 @@ impl Shape {
             format!("inner={:?}", self.inner),
             format!("outer={:?}", if self.nest == Nest::Seeded { Some(self.outer) } else { None }),
             format!("nest={:?}", self.nest),
+            format!("snapshot={}", self.snapshot),
             format!("stop={}", self.stop.is_some()),
             format!(
                 "fail={}",
@@ -220,6 +225,7 @@ fn draw(rng: &mut Rng) -> Shape {
         steps,
         scale: rng.pick(&[1, 3, 7]),
         offset: rng.below(10),
+        snapshot: nest == Nest::None && fail.is_none() && rng.below(3) == 0,
     }
 }
 
@@ -363,6 +369,14 @@ fn run(shape: &Shape, state: &mut State, from: usize, to: usize) -> Result<(), (
 pub fn expected(shape: &Shape) -> String {
     let fresh = || State { n: 0, grown: Grown::empty(shape.value) };
     match shape.nest {
+        Nest::None if shape.snapshot => {
+            let mut state = fresh();
+            let half = shape.steps / 2;
+            let _ = run(shape, &mut state, 0, half);
+            let kept = format!("{} {}", state.grown.len(), state.grown.hash());
+            let _ = run(shape, &mut state, half, shape.total());
+            format!("{} | {kept}", shown(shape, &state))
+        }
         Nest::None | Nest::Seeded => {
             let mut state = fresh();
             match run(shape, &mut state, 0, shape.total()) {
@@ -924,7 +938,21 @@ fn entry(out: &mut String, shape: &Shape, n: &Names) {
                 "{ends} let hash = {p}_hash({items}); str.format(ctx, \"{prefix}${{{}}} ${{first}} ${{last}} ${{hash}}\")",
                 length_of(&items)
             );
-            if shape.fallible() {
+            if shape.snapshot {
+                let half = shape.steps / 2;
+                let mid = value("mid");
+                let show = show.replace(
+                    "${hash}\")",
+                    &format!("${{hash}} | ${{{}}} ${{kept}}\")", length_of(&mid)),
+                );
+                writeln!(
+                    out,
+                    "  let mid = {p}_run(ctx, {}, 0, {half});\n  let acc = {p}_run(ctx, mid, {half}, {});\n  let kept = {p}_hash({mid});\n  {show}",
+                    empty_acc(shape, n),
+                    shape.steps - half
+                )
+                .unwrap();
+            } else if shape.fallible() {
                 writeln!(
                     out,
                     "  match ({got}) {{\n    .Ok(acc) => {{ {show} }},\n    .Err(e) => str.format(ctx, \"stopped ${{e}}\"),\n  }}"
@@ -976,5 +1004,7 @@ pub fn blocks(shape: &Shape) -> u64 {
     let doublings = 64 - longest.leading_zeros() as u64;
     // A built element is a block of its own.
     let elements = if shape.value == Value::Names { shape.total() as u64 } else { 0 };
-    8 + 4 * runs + values * (doublings + 4) + elements
+    // The kept half is copied once, and the copy grows on.
+    let copies = if shape.snapshot { doublings + 6 } else { 0 };
+    8 + 4 * runs + values * (doublings + 4) + elements + copies
 }

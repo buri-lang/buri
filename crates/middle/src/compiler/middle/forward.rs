@@ -27,11 +27,17 @@ pub fn run(program: &mut Program) {
     }
 }
 
+/// Outside in: a block's own names are forwarded before the blocks inside it
+/// are visited, so the `let items = held;` the inliner writes inside becomes
+/// `let items = acc.1;` and is forwarded in turn.
 fn forward(e: &mut Expr) {
-    typed::children_mut(e, &mut forward);
-    if !matches!(e.kind, ExprKind::Block { .. }) {
-        return;
+    if matches!(e.kind, ExprKind::Block { .. }) {
+        forward_block(e);
     }
+    typed::children_mut(e, &mut forward);
+}
+
+fn forward_block(e: &mut Expr) {
     // A name a functional update is written over stays a name. Over a dying
     // local the update takes the local's count and moves the fields it
     // replaces (`rc::update_dying`); over a path there is no local to take,
