@@ -347,6 +347,11 @@ pub enum RcOp {
 pub enum Target {
     Local(LocalId),
     Node(NodeId),
+    /// A struct local released **field by field, except the fields the mask
+    /// names**: a dying update's base on the path a `?` leaves by, after the
+    /// update moved those fields out of it ([`moved_fields`]). Only ever a
+    /// [`RcOp::DecRef`] at [`Position::Escape`].
+    LocalExcept(LocalId, u64),
 }
 
 /// One reference operation, and where it goes.
@@ -362,7 +367,7 @@ impl Site {
     /// The local this operates on, where it operates on one.
     pub fn local(&self) -> Option<LocalId> {
         match self.target {
-            Target::Local(l) => Some(l),
+            Target::Local(l) | Target::LocalExcept(l, _) => Some(l),
             Target::Node(_) => None,
         }
     }
@@ -1051,6 +1056,7 @@ fn scan_func(
                 inherits: Vec::new(),
                 handed_on: Vec::new(),
                 moving: Vec::new(),
+                escape_except: Vec::new(),
                 moved: Vec::new(),
                 plain: f.params.iter().copied().collect(),
                 tries: Vec::new(),
@@ -1252,6 +1258,16 @@ const TAKEN_BY: &[(&str, usize)] = &[
 /// push into it copied the whole list, once per fold. `core/buri/ast`'s
 /// printer folds over every block, pattern and annotation it prints, with
 /// everything printed so far as the seed.
+/// The intrinsics that answer their receiver grown, in place when it is unique.
+fn grows(key: &str) -> bool {
+    matches!(key, "list.push" | "list.concat" | "str.concat")
+}
+
+/// Whether `f` is one of [`grows`]'s, by [`infer_ownership`]'s table.
+fn grower(growers: &[bool], f: Option<FuncIdx>) -> bool {
+    f.and_then(|f| growers.get(f.index())).copied().unwrap_or(false)
+}
+
 fn is_fold(key: &str) -> bool {
     matches!(key, "list.fold" | "list.foldCtx" | "list.foldResult" | "list.foldResultCtx")
 }
@@ -1312,7 +1328,14 @@ fn infer_ownership(
     // — and a function that calls nothing recursive is one component that
     // settles in a single pass. `super::strongly_connected` yields the
     // components callees-first, which is the order this needs.
-    let pieces = !opts.sharing;
+    // Natively, which functions grow their receiver in place; under
+    // `sharing`, nothing, which is also what turns the native rules off.
+    let growers: Vec<bool> = program
+        .funcs
+        .iter()
+        .map(|f| matches!(&f.kind, FuncKind::Intrinsic(k) if grows(k)))
+        .collect();
+    let pieces = (!opts.sharing).then_some(growers.as_slice());
     for scc in order.iter() {
         // A non-recursive singleton reads only rows that are already final, so
         // one evaluation is its fixed point: a second pass would read the same
@@ -1386,7 +1409,7 @@ fn promote_consuming(
     counted: &mut dyn Counted,
     i: usize,
     own: &mut [Vec<ir::Ownership>],
-    pieces: bool,
+    pieces: Option<&[bool]>,
 ) -> bool {
     let Some(f) = program.funcs.get(i) else { return false };
     let Some(body) = f.body() else { return false };
@@ -1423,7 +1446,7 @@ fn converge_scc(
     counted: &mut dyn Counted,
     scc: &[usize],
     own: &mut [Vec<ir::Ownership>],
-    pieces: bool,
+    pieces: Option<&[bool]>,
 ) {
     loop {
         let mut changed = false;
@@ -1496,7 +1519,7 @@ fn consuming_uses(
     counted: &mut dyn Counted,
     self_index: usize,
     out: &mut HashSet<LocalId>,
-    pieces: bool,
+    pieces: Option<&[bool]>,
 ) {
     // Repeated to a fixpoint: whether a `match` consumes its scrutinee depends
     // on whether the payloads it binds are consumed, and those are found by
@@ -1517,7 +1540,7 @@ fn collect_consuming(
     counted: &mut dyn Counted,
     self_index: usize,
     out: &mut HashSet<LocalId>,
-    pieces: bool,
+    pieces: Option<&[bool]>,
 ) {
     // The tail of a function is returned, and a `let` transfers into a local
     // whose own last use decides the rest, so both count as consuming.
@@ -1534,7 +1557,7 @@ fn collect_consuming(
         ExprKind::Local(l) => {
             out.insert(*l);
         }
-        ExprKind::Field { .. } | ExprKind::TupleIndex { .. } if pieces => {
+        ExprKind::Field { .. } | ExprKind::TupleIndex { .. } if pieces.is_some() => {
             if let Some(root) = field_root(e) {
                 if counted.counted(&e.ty) == Answer::Yes {
                     out.insert(root);
@@ -1543,6 +1566,30 @@ fn collect_consuming(
         }
         _ => {}
     };
+    // `let n = r.push(..);`, as `(n, r)`: a name for the result of a growth,
+    // and what was grown.
+    let mut grown: Vec<(LocalId, &Expr)> = Vec::new();
+    // The locals a functional update is written over.
+    let mut bases: Vec<LocalId> = Vec::new();
+    if let Some(g) = pieces {
+        typed::walk(body, &mut |e| {
+            if let ExprKind::StructUpdate { base, .. } = &e.kind {
+                if let ExprKind::Local(l) = base.kind {
+                    bases.push(l);
+                }
+            }
+            let ExprKind::Block { stmts, .. } = &e.kind else { return };
+            for st in stmts {
+                let Stmt::Let { pattern, value, .. } = st else { continue };
+                let typed::PatKind::Bind { local, sub: None } = &pattern.kind else { continue };
+                if let ExprKind::CallFn { func, args } = &value.kind {
+                    if let (true, Some(r)) = (grower(g, func.func()), args.first()) {
+                        grown.push((*local, r));
+                    }
+                }
+            }
+        });
+    }
     typed::walk(body, &mut |e| match &e.kind {
         ExprKind::StructLit { fields: args, .. }
         | ExprKind::EnumLit { args, .. }
@@ -1572,14 +1619,18 @@ fn collect_consuming(
         // quadratic (`language::sharing::growing_a_list_beside_another_field_is_linear`
         // is the same claim one shape smaller).
         //
-        // Only the plain binding, because only a plain binding is a second
-        // name. `let .Some(x) = v` binds a piece of `v`, and what taking a
-        // piece does to the whole is the `Match` rule below.
+        // A `let` that takes the value apart — `let (n, items) = acc;` — binds
+        // pieces of it, and keeping a piece takes the whole, for the `Match`
+        // rule's reason below. Borrowed instead, a step that handed `items` to
+        // a function owning it gave that function a second count while the
+        // caller's held the list, so its push copied (`ownership.rs`'s
+        // `a_list_a_let_took_apart_and_handed_to_an_owning_function_grows_in_place`).
         ExprKind::Block { stmts, .. } => {
             for st in stmts {
                 let Stmt::Let { pattern, value, .. } = st else { continue };
-                let typed::PatKind::Bind { local, sub: None } = &pattern.kind else { continue };
-                if out.contains(local) {
+                let mut kept = false;
+                pattern.each_bind(&mut |l| kept |= out.contains(&l));
+                if kept {
                     consume(value, out, counted);
                 }
             }
@@ -1596,6 +1647,38 @@ fn collect_consuming(
             });
             if kept {
                 consume(scrutinee, out, counted);
+            }
+        }
+        // Natively, a value grown twice in a row — `items.push(ctx, a).push(ctx,
+        // b)`, or the same through a `let` — is taken by the first growth. Lent,
+        // the first push grew it in place and answered a second count on the
+        // block the lender still held, so the second push found it at two and
+        // copied it, once per step of a fold that pushes two elements. Not a
+        // field of a record an update is written over: the update moves it
+        // into the first growth instead (`Scan::children`), and taking the
+        // record whole for it kept the update from moving the field at all.
+        ExprKind::CallFn { func, args }
+            if pieces.is_some_and(|g| grower(g, func.func())) =>
+        {
+            let taken = match args.first().map(|r| &r.kind) {
+                Some(ExprKind::Local(n)) => grown.iter().find(|(m, _)| m == n).map(|(_, r)| *r),
+                Some(ExprKind::CallFn { func, args })
+                    if pieces.is_some_and(|g| grower(g, func.func())) =>
+                {
+                    args.first()
+                }
+                _ => None,
+            };
+            let updated = taken.and_then(field_root).is_some_and(|r| bases.contains(&r));
+            if let Some(r) = taken.filter(|_| !updated) {
+                consume(r, out, counted);
+            }
+            let row = func.func().and_then(|f| own.get(f.index()));
+            for (k, a) in args.iter().enumerate() {
+                let owns = row.and_then(|r| r.get(k)).copied().unwrap_or(ir::Ownership::Own);
+                if owns == ir::Ownership::Own {
+                    consume(a, out, counted);
+                }
             }
         }
         ExprKind::CallFn { func, args } => {
@@ -1991,6 +2074,9 @@ struct Scan<'a> {
     /// move out of it ([`moved_fields`]), with the update's node. Innermost
     /// last. Native only.
     moving: Vec<(LocalId, NodeId, Vec<usize>)>,
+    /// Dying update bases whose `?` escapes release them without the fields
+    /// the update moved out, as a mask ([`Target::LocalExcept`]).
+    escape_except: Vec<(LocalId, u64)>,
     /// [`FuncPlan::moved`], as it is found.
     moved: Vec<(NodeId, usize)>,
     /// The function's parameters and every local a `let` binds: the locals
@@ -2357,21 +2443,23 @@ impl Scan<'_> {
     /// releases it now. A function the field is handed to, and a push inside
     /// it, then finds the list at `rc == 1`.
     fn moves_out(&mut self, e: &Expr, base: &Expr) -> bool {
+        let Some((update, index)) = self.movable(e, base) else { return false };
+        self.moved.push((update, index));
+        true
+    }
+
+    /// The update and field index [`Scan::moves_out`] would record for `e`.
+    fn movable(&mut self, e: &Expr, base: &Expr) -> Option<(NodeId, usize)> {
         let (ExprKind::Field { index, .. }, ExprKind::Local(l)) = (&e.kind, &base.kind) else {
-            return false;
+            return None;
         };
         let update = self
             .moving
             .iter()
             .rev()
             .find(|(r, _, _)| r == l)
-            .and_then(|(_, update, fields)| fields.contains(index).then_some(*update));
-        let Some(update) = update else { return false };
-        if !self.counted_ty(&e.ty.clone()) {
-            return false;
-        }
-        self.moved.push((update, *index));
-        true
+            .and_then(|(_, update, fields)| fields.contains(index).then_some(*update))?;
+        self.counted_ty(&e.ty.clone()).then_some((update, *index))
     }
 
     /// The base of a functional update that this update is the last use of: a
@@ -2444,12 +2532,32 @@ impl Scan<'_> {
         let Some(root) = self.dying_base(base, live) else { return live.clone() };
         let mut after = live.clone();
         after.insert(root);
-        self.moving.push((root, id, moved_fields(root, updates)));
+        let moved = moved_fields(root, updates);
+        let mask = moved.iter().fold(0u64, |m, f| m | (1u64 << f));
+        self.moving.push((root, id, moved));
+        self.escape_except.push((root, mask));
+        let first = self.sites.len();
         for (k, (_, value)) in updates.iter().enumerate().rev() {
             let kid = self.child(id, k + 1);
             after = self.expr(value, kid, &after, Mode::Own);
         }
+        self.escape_except.pop();
         self.moving.pop();
+        // A field the update could move is moved only by an owning read, and
+        // which reads own is known once they are scanned — after the `?`s
+        // that follow them, since the scan runs backwards. So the escapes
+        // keep back exactly what was moved.
+        let taken = self
+            .moved
+            .iter()
+            .filter(|(u, _)| *u == id)
+            .fold(0u64, |m, (_, f)| m | (1u64 << f));
+        for site in self.sites.iter_mut().skip(first) {
+            if site.target == Target::LocalExcept(root, mask) {
+                site.target =
+                    if taken == 0 { Target::Local(root) } else { Target::LocalExcept(root, taken) };
+            }
+        }
         after.remove(&root);
         let bid = self.child(id, 0);
         let before = self.expr(base, bid, &after, Mode::Own);
@@ -2598,7 +2706,12 @@ impl Scan<'_> {
         held.sort_by_key(|l| l.0);
         for l in held {
             if self.owned.contains(&l) {
-                self.push_escape(node, Target::Local(l));
+                let except = self.escape_except.iter().rev().find(|(r, _)| *r == l);
+                let target = match except {
+                    Some((_, mask)) if *mask != 0 => Target::LocalExcept(l, *mask),
+                    _ => Target::Local(l),
+                };
+                self.push_escape(node, target);
             }
         }
     }
@@ -3518,9 +3631,43 @@ impl Scan<'_> {
                 self.push(id, Position::After, RcOp::DecRef, Target::Node(kid_id));
                 continue;
             }
+            // A field a dying update moves out of its base, lent to this
+            // construct: it takes the base's count for the field and gives it
+            // back once the construct is done, rather than leaving the base
+            // holding it until the update is built. Held there, the field
+            // stood at two for `acc.items.push(ctx, a).push(ctx, b)`, whose
+            // first push grew it in place, so the second copied it.
+            if m == Mode::Borrow {
+                if let ExprKind::Field { base, .. } = &kid.kind {
+                    if self.movable(kid, base).is_some() {
+                        after = self.expr(kid, kid_id, &after, Mode::Own);
+                        self.push(id, Position::After, RcOp::DecRef, Target::Node(kid_id));
+                        continue;
+                    }
+                }
+            }
             after = self.expr(kid, kid_id, &after, m);
             if m == Mode::Borrow {
                 self.drop_temporary(kid, kid_id, id);
+            }
+            // A value this construct will take, held while the children to
+            // its right run: a `?` among them leaves before the construct
+            // takes it, so the value is released on that path. In
+            // `kept(ctx, make(ctx), positive(x)?)` the list `make` built
+            // leaked whenever `positive` failed.
+            let holds = m == Mode::Own
+                && k + 1 < kids.len()
+                && !matches!(kid.kind, ExprKind::Local(_))
+                && self.counted_ty(&kid.ty.clone());
+            if holds {
+                let start = self.child(id, k + 1).0;
+                let size = self.sizes.get(id.0 as usize).copied().unwrap_or(1);
+                let end = id.0.saturating_add(size);
+                for t in self.tries.clone() {
+                    if t.0 >= start && t.0 < end {
+                        self.push_escape(t, Target::Node(kid_id));
+                    }
+                }
             }
         }
         for l in kept {
@@ -3753,10 +3900,9 @@ fn handed_on_fields(root: LocalId, updates: &[(usize, Expr)]) -> Option<Vec<usiz
 }
 
 /// The fields of a dying `root` a native functional update may **move** out of
-/// it rather than count again: [`handed_on_fields`]' fields — replaced, read
-/// exactly once as `root.f`, and `root` never read whole or captured — narrowed
-/// to the reads that run exactly once on every path to the struct the update
-/// builds.
+/// it rather than count again: fields the update replaces, with `root` never
+/// read whole or captured ([`handed_on_fields`] answers `None` then), each read
+/// as `root.f` exactly once on every path to the struct the update builds.
 ///
 /// That is what makes skipping both halves of the pair sound. `lower` releases
 /// a replaced field's old value after the struct is built; a move hands that
@@ -3764,40 +3910,137 @@ fn handed_on_fields(root: LocalId, updates: &[(usize, Expr)]) -> Option<Vec<usiz
 /// path that reaches the release, and no path that skips the release may have
 /// happened after it. So:
 ///
-///  * **not under a branch** — an `if`'s arms, a `match`, either side of a
-///    short circuit — because on the path that skips the read nobody would
-///    release the old value; and
-///  * **no `?` in any replacement**, because the escape releases the whole
-///    base ([`Scan::update_dying`]), and a field already moved out would be
-///    released a second time.
+///  * **once on every path**, not once in the text. Both arms of an `if` or a
+///    `match` may read the field, `items: if (c) { put(ctx, acc.items, a) }
+///    else { put(ctx, acc.items, b) }`, because exactly one of them runs. An
+///    arm that does not read it, a guard or a short circuit's right side that
+///    does, or a read twice on one path is not a move: on the path that skips
+///    the read nobody would release the old value; and
+///  * **taken before every `?` in the replacements**, on every path. The
+///    escape releases the base ([`Scan::update_dying`]) without the moved
+///    fields, which whoever took them now holds, so a `?` that could run
+///    before a field was taken would leave that field unreleased.
 fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
-    fn straight(root: LocalId, e: &Expr, out: &mut Vec<usize>) {
+    /// How many times `e` reads `root.f` on every path through it, or `None`
+    /// where two paths read it a different number of times.
+    fn on_every_path(root: LocalId, f: usize, e: &Expr) -> Option<usize> {
+        let sum = |es: &[&Expr]| {
+            es.iter().try_fold(0, |n, k| on_every_path(root, f, k).map(|m| n + m))
+        };
         match &e.kind {
             ExprKind::Field { base, index }
                 if matches!(base.kind, ExprKind::Local(l) if l == root) =>
             {
-                out.push(*index);
+                Some(usize::from(*index == f))
             }
-            ExprKind::If { .. }
-            | ExprKind::Match { .. }
-            | ExprKind::And { .. }
-            | ExprKind::Or { .. }
-            | ExprKind::Lambda { .. } => {}
-            _ => kids(e).into_iter().for_each(|k| straight(root, k, out)),
+            ExprKind::If { cond, then, else_ } => {
+                let both = on_every_path(root, f, then)?;
+                (on_every_path(root, f, else_)? == both)
+                    .then_some(on_every_path(root, f, cond)? + both)
+            }
+            ExprKind::Match { scrutinee, arms } => {
+                let mut each = None;
+                for arm in arms {
+                    if arm.guard.as_ref().is_some_and(|g| on_every_path(root, f, g) != Some(0)) {
+                        return None;
+                    }
+                    let n = on_every_path(root, f, &arm.body)?;
+                    if each.is_some_and(|m| m != n) {
+                        return None;
+                    }
+                    each = Some(n);
+                }
+                Some(on_every_path(root, f, scrutinee)? + each.unwrap_or(0))
+            }
+            ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
+                (on_every_path(root, f, rhs)? == 0).then_some(on_every_path(root, f, lhs)?)
+            }
+            ExprKind::Lambda { .. } => (sum(&kids(e))? == 0).then_some(0),
+            _ => sum(&kids(e)),
         }
     }
-    fn tries(e: &Expr) -> bool {
-        matches!(e.kind, ExprKind::Try { .. }) || kids(e).into_iter().any(tries)
+    /// Walks `e` in evaluation order with `seen`, the fields read on every
+    /// path so far, and narrows `before` to the fields seen at each `?`.
+    fn taken(root: LocalId, e: &Expr, seen: &mut Vec<usize>, before: &mut Option<Vec<usize>>) {
+        match &e.kind {
+            ExprKind::Field { base, index }
+                if matches!(base.kind, ExprKind::Local(l) if l == root) =>
+            {
+                seen.push(*index);
+            }
+            ExprKind::If { cond, then, else_ } => {
+                taken(root, cond, seen, before);
+                let mut other = seen.clone();
+                taken(root, then, seen, before);
+                taken(root, else_, &mut other, before);
+                seen.retain(|f| other.contains(f));
+            }
+            ExprKind::Match { scrutinee, arms } => {
+                taken(root, scrutinee, seen, before);
+                let start = seen.clone();
+                let mut all: Option<Vec<usize>> = None;
+                for arm in arms {
+                    let mut path = start.clone();
+                    if let Some(g) = &arm.guard {
+                        taken(root, g, &mut path, before);
+                    }
+                    taken(root, &arm.body, &mut path, before);
+                    all = Some(match all {
+                        Some(a) => a.into_iter().filter(|f| path.contains(f)).collect(),
+                        None => path,
+                    });
+                }
+                *seen = all.unwrap_or(start);
+            }
+            ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
+                taken(root, lhs, seen, before);
+                taken(root, rhs, &mut seen.clone(), before);
+            }
+            ExprKind::Try { base, .. } => {
+                taken(root, base, seen, before);
+                let now = before.take().map_or_else(|| seen.clone(), |b| {
+                    b.into_iter().filter(|f| seen.contains(f)).collect()
+                });
+                *before = Some(now);
+            }
+            // A field is taken by what reads it, once that has run: in
+            // `put(ctx, acc.items, gate(i)?)` the `?` can leave before `put`
+            // has the field, and the field would be released by nobody.
+            _ => {
+                let mut held = Vec::new();
+                for k in kids(e) {
+                    match &k.kind {
+                        ExprKind::Field { base, index }
+                            if matches!(base.kind, ExprKind::Local(l) if l == root) =>
+                        {
+                            held.push(*index);
+                        }
+                        _ => taken(root, k, seen, before),
+                    }
+                }
+                seen.extend(held);
+            }
+        }
     }
-    let Some(once) = handed_on_fields(root, updates) else { return Vec::new() };
-    if updates.iter().any(|(_, v)| tries(v)) {
+    if handed_on_fields(root, updates).is_none() {
         return Vec::new();
     }
-    let mut read = Vec::new();
-    for (_, value) in updates {
-        straight(root, value, &mut read);
+    let mut ordered: Vec<&(usize, Expr)> = updates.iter().collect();
+    ordered.sort_by_key(|(f, _)| *f);
+    let mut seen = Vec::new();
+    let mut before = None;
+    for (_, v) in &ordered {
+        taken(root, v, &mut seen, &mut before);
     }
-    once.into_iter().filter(|f| read.contains(f)).collect()
+    let values: Vec<&Expr> = updates.iter().map(|(_, v)| v).collect();
+    updates
+        .iter()
+        .map(|(f, _)| *f)
+        .filter(|f| *f < 64 && before.as_ref().is_none_or(|b| b.contains(f)))
+        .filter(|f| {
+            values.iter().try_fold(0, |n, v| on_every_path(root, *f, v).map(|m| n + m)) == Some(1)
+        })
+        .collect()
 }
 
 /// The local a **field path** starts at: `s`, `s.a`, `s.a.1`, and nothing that
