@@ -146,8 +146,8 @@ fn analyze(program: &Program) -> Plan {
 
     let sccs = strongly_connected(&edges);
     let mut plan = Plan { strategy: vec![Strategy::Plain; n], groups: Vec::new() };
-    for scc in sccs {
-        if let [f] = *scc.as_slice() {
+    for scc in sccs.iter() {
+        if let [f] = *scc {
             if edges.get(f).is_some_and(|es| es.contains(&f)) {
                 if let Some(slot) = plan.strategy.get_mut(f) {
                     *slot = Strategy::SelfLoop;
@@ -162,7 +162,7 @@ fn analyze(program: &Program) -> Plan {
                 *slot = Strategy::Member { group, index: i };
             }
         }
-        plan.groups.push(scc);
+        plan.groups.push(scc.to_vec());
     }
     plan
 }

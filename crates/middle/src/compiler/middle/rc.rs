@@ -1253,7 +1253,7 @@ fn infer_ownership(
     counted: &mut dyn Counted,
     opts: &Options,
     deps: &[Vec<usize>],
-    order: &[Vec<usize>],
+    order: &super::Components,
 ) -> Vec<Vec<ir::Ownership>> {
     let mut own: Vec<Vec<ir::Ownership>> = program
         .funcs
@@ -1305,7 +1305,7 @@ fn infer_ownership(
     // settles in a single pass. `super::strongly_connected` yields the
     // components callees-first, which is the order this needs.
     let pieces = !opts.sharing;
-    for scc in order {
+    for scc in order.iter() {
         // A non-recursive singleton reads only rows that are already final, so
         // one evaluation is its fixed point: a second pass would read the same
         // inputs and change nothing.
@@ -1748,7 +1748,7 @@ fn worse(a: ir::Purity, b: ir::Purity) -> ir::Purity {
 fn infer_effects(
     program: &Program,
     deps: &[Vec<usize>],
-    order: &[Vec<usize>],
+    order: &super::Components,
 ) -> (Vec<ir::Purity>, Vec<bool>) {
     let mut purity: Vec<ir::Purity> = program
         .funcs
@@ -1766,7 +1766,7 @@ fn infer_effects(
         .iter()
         .map(|f| matches!(f.kind, FuncKind::Unbuilt | FuncKind::Intrinsic(_)))
         .collect();
-    for scc in order {
+    for scc in order.iter() {
         if let Some(only) = settles_once(deps, scc) {
             effects_once(program, only, &mut purity, &mut aborts);
             continue;
