@@ -23,6 +23,7 @@
 //! because two bodies under one symbol is a miscompile on every backend and
 //! nothing the author of the program could have done about it.
 
+use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::resolve::Checked;
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind};
 use crate::compiler::semantics::types::*;
@@ -755,7 +756,7 @@ impl<'a> Monomorphizer<'a> {
             .params
             .iter()
             .skip(1)
-            .map(|p| typed::Local { name: p.name.clone(), ty: p.ty, span: p.span })
+            .map(|p| typed::Local { name: Name::new(&p.name), ty: p.ty, span: p.span })
             .collect();
         let forwarded: Vec<typed::Expr> = rest
             .iter()
@@ -1192,7 +1193,7 @@ impl Monomorphizer<'_> {
                 .params
                 .iter()
                 .map(|p| typed::Local {
-                    name: p.name.clone(),
+                    name: Name::new(&p.name),
                     ty: self.sub(&p.ty, &targs),
                     span: p.span,
                 })
@@ -1351,7 +1352,7 @@ impl Monomorphizer<'_> {
     /// afterwards, so an entry added here reaches the emitted function.
     fn new_local(&mut self, name: &str, ty: Ty, span: Span) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
-        self.locals.push(typed::Local { name: String::from(name), ty, span });
+        self.locals.push(typed::Local { name: Name::new(name), ty, span });
         id
     }
 

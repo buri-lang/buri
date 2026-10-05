@@ -156,6 +156,7 @@
 use crate::compiler::middle::monomorphize::{
     self, short_hash, ConShape, Desc, DescVariant, Func, FuncKind, Program,
 };
+use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Arm, Callee, Expr, ExprKind, FieldPat, PatKind, Pattern, PrimOp, TemplatePart,
 };
@@ -632,7 +633,7 @@ impl Frame {
 
     fn local(&mut self, name: &str, ty: &Ty) -> LocalId {
         let id = LocalId(u32::try_from(self.locals.len()).unwrap_or(u32::MAX));
-        self.locals.push(typed::Local { name: name.to_string(), ty: *ty, span: Span::NONE });
+        self.locals.push(typed::Local { name: Name::new(name), ty: *ty, span: Span::NONE });
         id
     }
 

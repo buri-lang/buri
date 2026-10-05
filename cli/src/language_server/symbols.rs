@@ -1180,7 +1180,7 @@ fn in_one_body(
     if let Some((_, local)) = bound {
         return Some(Found {
             symbol: Symbol::Local {
-                name: local.name.clone(),
+                name: local.name.to_string(),
                 ty: local.ty,
                 span: local.span,
             },
@@ -1355,8 +1355,8 @@ fn expression_symbols(
         ExprKind::Local(id) => {
             if let Some(l) = locals.get(id.index()) {
                 out(
-                    l.name.clone(),
-                    Symbol::Local { name: l.name.clone(), ty: l.ty, span: l.span },
+                    l.name.to_string(),
+                    Symbol::Local { name: l.name.to_string(), ty: l.ty, span: l.span },
                 );
             }
         }

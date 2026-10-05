@@ -590,6 +590,7 @@ fn mentioned(e: &Expr, out: &mut std::collections::HashSet<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compiler::semantics::name::Name;
     use crate::diagnostics::{FileId, Span};
     use crate::compiler::semantics::types::Ty;
     use std::collections::HashSet;
@@ -613,7 +614,7 @@ mod tests {
             params: params.iter().map(|i| LocalId(*i)).collect(),
             locals: (0..local_count)
                 .map(|i| typed::Local {
-                    name: format!("l{i}"),
+                    name: Name::new(&format!("l{i}")),
                     ty: Ty::ERROR,
                     span: span(),
                 })

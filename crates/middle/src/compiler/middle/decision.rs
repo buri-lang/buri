@@ -66,6 +66,7 @@
 //! Design: `design/native/ARCHITECTURE.md` §1, §2.2.
 
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
+use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern,
 };
@@ -344,7 +345,7 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
     let bound = &arms.first()?.pattern;
     let (bound_ty, bound_span) = (bound.ty, bound.span);
     let held = LocalId(locals.len() as u32);
-    locals.push(typed::Local { name: "col".to_string(), ty: bound_ty, span: bound_span });
+    locals.push(typed::Local { name: Name::new("col"), ty: bound_ty, span: bound_span });
 
     let mut body = Expr::new(
         ExprKind::Match {
@@ -384,6 +385,7 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
 #[cfg(test)]
 mod tests {
     use super::run;
+    use crate::compiler::semantics::name::Name;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::typed::{
         Arm, Expr, ExprKind, FieldPat, Local, Magnitude, PatKind, Pattern,
@@ -427,7 +429,7 @@ mod tests {
                 debug_name: "f".to_string(),
                 params: vec![LocalId(0)],
                 locals: vec![Local {
-                    name: "s".to_string(),
+                    name: Name::new("s"),
                     ty: Ty::UNIT,
                     span: Span::default(),
                 }],
