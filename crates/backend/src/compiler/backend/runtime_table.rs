@@ -806,6 +806,7 @@ pub const ENTRIES: &[Entry] = &[
     // already gone, which is the same answer, so the three are total.
     e("host.HostSockets.socketSendText", &[Dropped, Scalar, Str], Ret::Void),
     e("host.HostSockets.socketSendBytes", &[Dropped, Scalar, List], Ret::Void),
+    e("host.HostSockets.socketPing", &[Dropped, Scalar], Ret::Void),
     e("host.HostSockets.socketClose", &[Dropped, Scalar, Scalar, Str], Ret::Void),
     // -- WebSocketClient, the other way to come by a socket -----------------
     //

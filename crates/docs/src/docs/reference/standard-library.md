@@ -1280,8 +1280,11 @@ opened it returned, because `socket.send` and `socket.close` need `C: Sockets`
 and nothing else. `send` never waits. It hands the message to the socket's
 outbound buffer, and a buffer that fills closes the socket with `.Overflow` and
 runs `onClose`. `socketBuffer` sets how deep that buffer is. A close is a
-`CloseReason` and never a wire code, in both directions. Ping and pong belong to
-the platform, so `onMessage` sees `.Text` and `.Binary` and nothing else. A
+`CloseReason` and never a wire code, in both directions. `socket.ping(ctx)` sends
+a ping, which keeps an idle socket open through a proxy that closes quiet
+connections; call it from a timer. The platform answers a client's ping and
+swallows its pong, so `onMessage` sees `.Text` and `.Binary` and nothing
+else. A browser can't send a ping, so on `JS` and `WEB` `ping` does nothing. A
 socket costs a worker: its whole life runs on the one that accepted it, so the
 hooks on a socket run in order by construction, and a server holding
 `listener.handlers` sockets has none left to accept with. A socket still open

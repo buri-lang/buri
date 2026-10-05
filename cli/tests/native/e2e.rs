@@ -5494,3 +5494,95 @@ fn a_main_that_fails_ends_the_program_without_its_pending_timers() {
     );
     assert!(out.stderr.contains("gave up"), "stderr:\n{}", out.stderr);
 }
+
+// ---------------------------------------------------------------------------
+// A server's ping
+// ---------------------------------------------------------------------------
+
+/// A socket server that pings when it is asked to, and answers every message
+/// with its own text. `requestLimit: 1` is the upgrade, so the server finishes
+/// once the socket closes.
+fn pinging_socket_server() -> String {
+    String::from(
+        r#"from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/time" import * as time;
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Listen: host.listen,
+        Sockets: host.sockets,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let plan = server.Server {
+        port: 0,
+        onRequest: fn(c, _request) => http.status(404),
+        requestLimit: .Some(1),
+        idleTimeout: .Some(time.milliseconds(20000)),
+        websocket: .Some(server.WebSocket {
+            path: "/socket",
+            onOpen: fn(_c, _socket, _request) => 0,
+            onMessage: fn(c, socket, seen, message) => {
+                match (message) {
+                    .Text(text) => {
+                        let _pinged = if (text == "ping me") { socket.ping(c) } else { () };
+                        let _sent = socket.send(c, .Text(text));
+                        seen + 1
+                    },
+                    .Binary(_data) => seen,
+                }
+            },
+            onClose: fn(_c, _socket, seen, _reason) => seen,
+        }),
+    };
+    match (server.bind(ctx, plan)) {
+        .Err(e) => .Err(server.errorText(e)),
+        .Ok(listener) => {
+            let _announced = io.println(ctx, "port ${listener.port}").ignore();
+            match (server.run(ctx, listener, plan)) {
+                .Err(e) => .Err(server.errorText(e)),
+                .Ok(_ok) => .Ok(()),
+            }
+        },
+    }
+}
+"#,
+    )
+}
+
+/// **A server sends a ping when the program asks for one, and only then.** The
+/// client reads every frame, so a ping frame on the wire is counted before the
+/// text that follows it.
+#[test]
+fn a_socket_pings_its_client_when_the_program_asks() {
+    unless_ready!();
+    let binary = built("e2e-socket-ping", &pinging_socket_server());
+    let running = crate::shared::announced(&binary);
+    let mut client = crate::shared::Talking::to_at(running.2, "/socket");
+    client.say("quiet");
+    let quiet = client.heard_counting_pings();
+    client.say("ping me");
+    let pinged = client.heard_counting_pings();
+    client.hush();
+    let out = crate::shared::finished(running);
+    assert_eq!(
+        quiet,
+        Some((String::from("quiet"), 0)),
+        "a socket the program did not ping was sent one.\nthe server said:\n{}\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert_eq!(
+        pinged,
+        Some((String::from("ping me"), 1)),
+        "the ping the program asked for did not reach the client.\nthe server said:\n{}\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+}

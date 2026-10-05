@@ -3483,6 +3483,11 @@ function $host_HostSockets_socketSendBytes(self, socket, body) {
   return 0;
 }
 
+// A page's `WebSocket` has no way to send a ping, so there is nothing to do.
+function $host_HostSockets_socketPing(self, socket) {
+  return 0;
+}
+
 function $host_HostSockets_socketClose(self, socket, code, reason) {
   const row = $wsLive.get(Number(socket));
   if (row === undefined) return 0;

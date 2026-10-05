@@ -260,8 +260,11 @@
 //!   `onClose`. The platform drops a message to a socket that has already
 //!   closed.
 //! * **A close is a `CloseReason` and never a wire code**, in both directions.
-//! * **Ping and pong are the platform's.** `onMessage` sees `.Text` and
-//!   `.Binary` and nothing else.
+//! * **Pings are the program's to send, pongs the platform's.**
+//!   `socket.ping(ctx)` sends one, which keeps an idle socket open through a
+//!   proxy that closes quiet connections. The platform answers a client's
+//!   ping and swallows its pong, so `onMessage` sees `.Text` and `.Binary` and
+//!   nothing else.
 //!
 //! **A socket costs a worker.** Its whole life — `onOpen`, every `onMessage`,
 //! `onClose` — runs on the one worker that accepted it, so the hooks on one
@@ -905,6 +908,31 @@ impl Socket {
             .Text(text) => ctx.socketSendText(self.0, text),
             .Binary(data) => ctx.socketSendBytes(self.0, data),
         }
+    }
+
+    /// Enqueues a ping frame, on `send`'s terms. **Never waits.**
+    ///
+    /// The far side's pong is the platform's and never reaches `onMessage`.
+    /// Ping from a timer to keep an idle socket open through a proxy:
+    ///
+    /// ```buri
+    /// from "core/net/server" import { Socket };
+    /// from "core/tasks" import * as tasks;
+    /// from "core/time" import * as time;
+    /// from "platform/effect" import { Sockets, Tasks };
+    ///
+    /// fn heartbeat<C: Sockets + Tasks>(ctx: C, socket: Socket): () {
+    ///     let _ = tasks.after(ctx, time.seconds(30), fn(c) => {
+    ///         let _ = socket.ping(c);
+    ///         heartbeat(c, socket)
+    ///     });
+    ///     ()
+    /// }
+    /// ```
+    ///
+    /// A no-op on `JS` and `WEB`, where a browser's `WebSocket` cannot send one.
+    export fn ping<C: Sockets>(self, ctx: C): () {
+        ctx.socketPing(self.0)
     }
 
     /// Closes the socket, telling the far side why.

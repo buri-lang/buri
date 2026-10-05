@@ -733,6 +733,10 @@ impl<C: Sockets> Sockets for Scoped<C> {
         self.0.socketSendBytes(socket, body)
     }
 
+    fn socketPing(self, socket: Int): () {
+        self.0.socketPing(socket)
+    }
+
     fn socketClose(self, socket: Int, code: Int, reason: Str): () {
         self.0.socketClose(socket, code, reason)
     }
