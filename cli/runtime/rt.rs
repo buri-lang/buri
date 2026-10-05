@@ -2503,6 +2503,18 @@ fn firing_while<T>(future: impl Future<Output = T>) -> T {
 /// `buri_rt_main_returned`, on its success arm only, so a `main` that answered
 /// `.Err` ends at once, as an abort and an `exitWith` do.
 pub(crate) fn settle() {
+    if let Some(settle) = SETTLE.get() {
+        settle();
+    }
+}
+
+/// [`wait_for_timers`], installed by the first [`buri_rt_tasks_timer_start`].
+/// The entry point's success arm reaches the timers only through this, so a
+/// program that never starts one does not link them: a hello world stays
+/// dead-stripped down to what it uses.
+static SETTLE: OnceLock<fn()> = OnceLock::new();
+
+fn wait_for_timers() {
     while let Some(at) = earliest() {
         let now = std::time::Instant::now();
         if at > now {
@@ -2563,6 +2575,7 @@ pub unsafe extern "C" fn buri_rt_tasks_timer_start(
     body: crate::list::Release,
 ) -> i64 {
     give_back_at_exit();
+    let _ = SETTLE.set(wait_for_timers);
     let copy = if state.is_null() || bytes == 0 {
         std::ptr::null_mut()
     } else {
