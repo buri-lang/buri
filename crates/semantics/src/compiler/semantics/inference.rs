@@ -436,11 +436,14 @@ pub struct Infer<'a, 'b> {
 /// The buffers inference fills and empties within one body, kept on the
 /// checker between bodies so each body reuses the allocations of the last.
 #[derive(Default)]
-pub(crate) struct Scratch {
+pub(crate) struct Scratch<'b> {
     subst: Subst,
     scopes: Vec<(u64, LocalId)>,
     scope_starts: Vec<usize>,
     ty_lists: Vec<Vec<Ty>>,
+    obligations: Vec<(Ty, TraitId, Span)>,
+    lit_checks: Vec<LitCheck<'b>>,
+    pattern_names: Vec<&'b str>,
 }
 
 impl Drop for Infer<'_, '_> {
@@ -452,7 +455,14 @@ impl Drop for Infer<'_, '_> {
         let mut scope_starts = std::mem::take(&mut self.scope_starts);
         scope_starts.clear();
         let ty_lists = std::mem::take(&mut self.ty_lists);
-        self.c.scratch = Scratch { subst, scopes, scope_starts, ty_lists };
+        let mut obligations = std::mem::take(&mut self.obligations);
+        obligations.clear();
+        let mut lit_checks = std::mem::take(&mut self.lit_checks);
+        lit_checks.clear();
+        let mut pattern_names = std::mem::take(&mut self.pattern_names);
+        pattern_names.clear();
+        self.c.scratch =
+            Scratch { subst, scopes, scope_starts, ty_lists, obligations, lit_checks, pattern_names };
     }
 }
 
@@ -467,7 +477,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         let role = c.module(module).role;
         let mark = c.diags.items.len();
         let t = &c.module(module).ast.tree;
-        let Scratch { subst, scopes, scope_starts, ty_lists } = std::mem::take(&mut c.scratch);
+        let Scratch { subst, scopes, scope_starts, ty_lists, obligations, lit_checks, pattern_names } =
+            std::mem::take(&mut c.scratch);
         Infer {
             c,
             t,
@@ -484,15 +495,15 @@ impl<'a, 'b> Infer<'a, 'b> {
             effect_locals: std::collections::HashSet::default(),
             poly_locals: std::collections::HashSet::default(),
             lambda_depth: 0,
-            obligations: Vec::new(),
-            lit_checks: Vec::new(),
+            obligations,
+            lit_checks,
             hole_checks: Vec::new(),
             erased_calls: Vec::new(),
             role,
             in_effect_impl: false,
             in_main: false,
             or_scope: None,
-            pattern_names: Vec::new(),
+            pattern_names,
             broken: Vec::new(),
             mark,
         }
@@ -844,8 +855,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     // -- obligations --------------------------------------------------------
 
     fn discharge_obligations(&mut self) {
-        let obligations = std::mem::take(&mut self.obligations);
-        for (ty, tr, span) in obligations {
+        let mut obligations = std::mem::take(&mut self.obligations);
+        for (ty, tr, span) in obligations.drain(..) {
             let ty = self.subst.resolve(&ty);
             if self.satisfies(&ty, tr) {
                 continue;
@@ -959,6 +970,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             if let Some(n) = note {
                 d.notes.push(n);
             }
+        }
+        // Kept for the next body, unless discharging one added another.
+        if self.obligations.is_empty() {
+            self.obligations = obligations;
         }
     }
 
@@ -1130,8 +1145,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// Because a literal's type is known before it is checked, a literal that
     /// does not fit its type is a compile error, not a runtime surprise.
     fn check_literal_ranges(&mut self) {
-        let checks = std::mem::take(&mut self.lit_checks);
-        for lit in checks {
+        let mut checks = std::mem::take(&mut self.lit_checks);
+        for lit in checks.drain(..) {
             let Some(p) = self.c.tables.as_prim(&self.subst.shallow(&lit.ty)) else { continue };
             let Some((lo, hi)) = p.int_range() else { continue };
             let fits = if lit.negative {
@@ -1161,6 +1176,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 self.c.diags.push(d);
             }
+        }
+        if self.lit_checks.is_empty() {
+            self.lit_checks = checks;
         }
     }
 }

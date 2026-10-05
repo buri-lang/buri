@@ -277,7 +277,7 @@ pub struct Checker<'a> {
     /// already settled, when this analysis starts from it. See [`Base`].
     base: Option<&'a Base>,
     /// Inference's per-body buffers, between bodies.
-    pub(crate) scratch: crate::compiler::semantics::inference::Scratch,
+    pub(crate) scratch: crate::compiler::semantics::inference::Scratch<'a>,
 }
 
 /// What checking the standard library modules a compilation opens with left

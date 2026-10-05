@@ -239,19 +239,13 @@ impl<'a, 'b> Infer<'a, 'b> {
             self.templated("refutable-pattern", pspan);
         }
         if is_ctx {
-            let mut locals = Vec::new();
-            pat.binds(&mut locals);
-            for l in locals {
+            pat.each_bind(&mut |l| {
                 self.effect_locals.insert(l);
-            }
+            });
         } else {
             // A binding of an effect-carrying value is itself effect-carrying,
             // so the capture rule follows it.
-            let mut locals = Vec::new();
-            pat.binds(&mut locals);
-            for l in locals {
-                self.note_capture_risk(l, &ty);
-            }
+            pat.each_bind(&mut |l| self.note_capture_risk(l, &ty));
         }
         typed::Stmt::Let { pattern: pat, value: value_hir, span }
     }
