@@ -210,6 +210,80 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 
+/// Two thousand pushes through a record nested in a record, stepped by a
+/// helper that can fail: `Outer { ..acc, inner: grow(ctx, acc.inner, i)? }`.
+/// The `?` leaves the function holding the dying record, so on that path the
+/// record is released, without the field the helper was handed. On the other
+/// the helper got the field's own count and pushes in place. Both paths run:
+/// the first thousand steps succeed, and step 1000 fails. Found by the growth
+/// generator exploring seed 2, case 271.
+#[test]
+fn a_field_handed_to_a_failing_helper_inside_an_update_grows_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+struct Inner { n: Int, items: [Str], tag: Str }
+
+struct Outer { inner: Inner, k: Int, name: Str }
+
+fn grow<C: Allocator>(ctx: C, acc: Inner, i: Int): Result<Inner, Str> {
+  if (i == 1000) {
+    .Err(str.format(ctx, "stopped at ${i}"))
+  } else if (i < 0) {
+    .Ok(acc)
+  } else {
+    .Ok(Inner { ..acc, n: acc.n + 1, items: acc.items.push(ctx, "x") })
+  }
+}
+
+fn step<C: Allocator>(ctx: C, acc: Outer, i: Int): Result<Outer, Str> {
+  .Ok(Outer { ..acc, k: acc.k + 1, inner: grow(ctx, acc.inner, i)? })
+}
+
+fn run<C: Allocator>(ctx: C, acc: Outer, count: Int): Result<Outer, Str> {
+  list.range(ctx, 0, count).foldResultCtx(ctx, fn(c, acc, i) => step(c, acc, i), acc)
+}
+
+fn seed<C: Allocator>(ctx: C): Outer {
+  Outer {
+    inner: Inner { n: 0, items: [], tag: str.format(ctx, "t-${1}") },
+    k: 0,
+    name: str.format(ctx, "o-${2}"),
+  }
+}
+
+fn shown<C: Allocator>(ctx: C, got: Result<Outer, Str>): Str {
+  match (got) {
+    .Ok(o) => str.format(ctx, "${o.k} ${o.inner.items.length()} ${o.inner.tag} ${o.name}"),
+    .Err(e) => e,
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let done = shown(ctx, run(ctx, seed(ctx), 1000));
+  let failed = shown(ctx, run(ctx, seed(ctx), 2000));
+  let _ = io.println(host.stdout, "${done}, ${failed}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("field-push-failing-helper", source) {
+        assert_eq!(r.stdout, "1000 1000 t-1 o-2, stopped at 1000\n", "{backend}: {}", r.stderr);
+        assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 60,
+            "{backend}: two thousand pushes allocated {blocks} blocks: the `?` in the update kept \
+             the field counted twice, so every push copied it"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
 /// The printer's other shape: a record handed on to the call that grows it,
 /// and then read again for a number alone — `started.at` after `started` went
 /// to `emit`. A number is a word of the record's own value, so reading it is no
