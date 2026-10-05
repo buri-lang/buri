@@ -258,6 +258,11 @@ const GENERATED_NOT_BLESSED: &[(&str, &str)] = &[(
      `BURI_BLESS=1 cargo bench -p buri --bench compiler -- --record=<name>`. If \
      `benches/generate.rs` moved, `GENERATOR_REVISION` and the forty pinned manifests \
      move with it (`design/PERFORMANCE.md` §6)",
+), (
+    "cli/tests/matches",
+    "generated match programs, written by `cli/tests/native/matches/generate.rs` through \
+     `formatting::source` and held to it byte for byte, so they are re-generated rather \
+     than laid out: `BURI_BLESS=1 cargo test -p buri --test native matches::`",
 )];
 
 /// Whether a path is generated output, and the row saying how to regenerate it.

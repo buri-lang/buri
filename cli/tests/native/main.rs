@@ -210,6 +210,8 @@ mod fields;
 // checked, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod ownership;
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod matches;
 // A context the runtime supplies to a walk it drives: a test context holding a
 // heap value through `buri test`, under the heap check, on every backend built
 // in.
