@@ -31,7 +31,6 @@
 //! `unreachable-arm`: the finer code is for the case the coarser one cannot
 //! see, and the two never fire on the same arm.
 
-use std::borrow::Cow;
 
 use crate::compiler::semantics::inference::Infer;
 use crate::compiler::semantics::typed::{self, PatKind, Pattern};
@@ -98,40 +97,39 @@ impl Ctor {
         }
     }
 
-    fn field_types(&self, tables: &crate::compiler::semantics::types::Tables, ty: &Ty) -> Vec<Ty> {
+    /// The types of this constructor's fields at `ty`, appended to `out`.
+    fn field_types_into(
+        &self,
+        tables: &crate::compiler::semantics::types::Tables,
+        ty: &Ty,
+        out: &mut Vec<Ty>,
+    ) {
+        use crate::compiler::semantics::types::substitute;
         match self {
             Ctor::Variant(con, v) => {
                 let args: &[Ty] = match ty.kind() {
                     TyKind::Con(_, a) => a,
                     _ => &[],
                 };
-                let Some(variant) = tables.tycon(*con).variants().get(*v) else {
-                    return Vec::new();
-                };
-                variant
-                    .fields
-                    .iter()
-                    .map(|f| crate::compiler::semantics::types::substitute(&f.ty, args, None))
-                    .collect()
+                if let Some(variant) = tables.tycon(*con).variants().get(*v) {
+                    out.extend(variant.fields.iter().map(|f| substitute(&f.ty, args, None)));
+                }
             }
             Ctor::Single => match ty.kind() {
-                TyKind::Tuple(ts) => ts.to_vec(),
-                TyKind::Con(con, args) => tables
-                    .tycon(*con)
-                    .fields()
-                    .iter()
-                    .map(|f| crate::compiler::semantics::types::substitute(&f.ty, args, None))
-                    .collect(),
-                _ => Vec::new(),
+                TyKind::Tuple(ts) => out.extend_from_slice(ts),
+                TyKind::Con(con, args) => out.extend(
+                    tables.tycon(*con).fields().iter().map(|f| substitute(&f.ty, args, None)),
+                ),
+                _ => {}
             },
             Ctor::Array(n) | Ctor::ArrayRest(n) => {
                 let elem = match ty.kind() {
                     TyKind::Array(e) => *e,
                     _ => Ty::ERROR,
                 };
-                vec![elem; *n]
+                out.resize(out.len().saturating_add(*n), elem);
             }
-            _ => Vec::new(),
+            _ => {}
         }
     }
 }
@@ -605,14 +603,11 @@ impl<'a> Ctx<'a> {
     /// it does, so a diagnostic can name the missing case — when `witnesses`
     /// is on; otherwise the answer is only whether there is one.
     ///
-    /// The column types are borrowed where they can be: a column the step
-    /// below does not touch keeps the type its caller had, and only the
-    /// columns a constructor's fields open are new.
     fn useful<'p>(
         &self,
         matrix: &Matrix<'p>,
         v: &[&'p Pat],
-        types: &[Cow<'_, Ty>],
+        types: &[Ty],
     ) -> Option<Vec<Witness>> {
         let Some((&head, tail)) = v.split_first() else {
             return matrix.is_empty().then(Vec::new);
@@ -620,7 +615,7 @@ impl<'a> Ctx<'a> {
         // A row and its type list are built together, but the type list is the
         // one the caller supplied, so a shorter one leaves the columns past it
         // untyped rather than out of bounds.
-        let (head_ty, rest_types): (&Ty, &[Cow<'_, Ty>]) = match types.split_first() {
+        let (head_ty, rest_types): (&Ty, &[Ty]) = match types.split_first() {
             Some((t, rest)) => (t, rest),
             None => (&UNTYPED, &[]),
         };
@@ -701,16 +696,11 @@ impl<'a> Ctx<'a> {
 
     /// The column types after `c` is peeled off a column of type `head_ty`:
     /// its fields' types, then the rest of the columns' as they were.
-    fn column_types<'t>(
-        &self,
-        c: &Ctor,
-        head_ty: &Ty,
-        rest_types: &'t [Cow<'_, Ty>],
-    ) -> Vec<Cow<'t, Ty>> {
-        let fields = c.field_types(self.tables, head_ty);
-        let mut out = Vec::with_capacity(fields.len().saturating_add(rest_types.len()));
-        out.extend(fields.into_iter().map(Cow::Owned));
-        out.extend(rest_types.iter().map(|t| Cow::Borrowed(&**t)));
+    fn column_types(&self, c: &Ctor, head_ty: &Ty, rest_types: &[Ty]) -> Vec<Ty> {
+        let arity = c.arity(self.tables, head_ty);
+        let mut out = Vec::with_capacity(arity.saturating_add(rest_types.len()));
+        c.field_types_into(self.tables, head_ty, &mut out);
+        out.extend_from_slice(rest_types);
         out
     }
 
@@ -744,7 +734,7 @@ impl<'a> Ctx<'a> {
         rows: &[Row<'_>],
         upto: usize,
         alt: &[Row<'_>],
-        types: &[Cow<'_, Ty>],
+        types: &[Ty],
     ) -> Option<usize> {
         let live = |k: usize| {
             let prefix = Matrix::new(rows.get(..k).unwrap_or_default().to_vec());
@@ -910,7 +900,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         })
         .collect();
     let ctx = Ctx { tables: &inf.c.tables, limit, witnesses: false };
-    let types = [Cow::Borrowed(scrutinee)];
+    let types = [*scrutinee];
     let recovered = arms.iter().any(|a| has_error(&a.pattern));
 
     // Arms are tried in order and the first matching arm wins, so an arm is
