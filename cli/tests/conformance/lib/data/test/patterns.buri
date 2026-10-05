@@ -838,6 +838,51 @@ test "a guard may use several bindings from its pattern" {
     assert.equal(classify(Point { x: 1, y: 2 }), "above");
 }
 
+// Two arms on one variant, each binding both of its fields: the guard and the
+// arm it falls through to both read the second field (issue #239).
+test "a guard comparing two fields of one variant reads both" {
+    let f = fn(s: Shape): (Int, Int) => {
+        match (s) {
+            .Rect { width, height } if width == height => (0, height),
+            .Rect { width, height } => (width, height),
+            .Circle(r) => (r, r),
+            _ => (-1, -1),
+        }
+    };
+    assert.equal(f(Shape.Rect { width: 9, height: 9 }), (0, 9));
+    assert.equal(f(Shape.Rect { width: 4, height: 6 }), (4, 6));
+    assert.equal(f(Shape.Circle(1)), (1, 1));
+    assert.equal(f(Shape.Empty), (-1, -1));
+}
+
+test "a guard comparing a tuple variant's two payloads reads both" {
+    let f = fn(t: Tree): (Bool, Bool) => {
+        match (t) {
+            .Node(left, right) if left == right => (true, true),
+            .Node(left, right) => (left == Shape.Empty, right == Shape.Empty),
+            .Leaf(_) => (false, false),
+        }
+    };
+    assert.equal(f(Tree.Node(Shape.Circle(2), Shape.Circle(2))), (true, true));
+    assert.equal(f(Tree.Node(Shape.Circle(2), Shape.Empty)), (false, true));
+    assert.equal(f(Tree.Leaf(3)), (false, false));
+}
+
+test "an arm testing one field of a variant still binds the other" {
+    let f = fn(s: Shape): Int => {
+        match (s) {
+            .Rect { width: 0, height } => height,
+            .Rect { width, height } => width * height,
+            .Square(side) => side,
+            _ => -1,
+        }
+    };
+    assert.equal(f(Shape.Rect { width: 0, height: 7 }), 7);
+    assert.equal(f(Shape.Rect { width: 3, height: 5 }), 15);
+    assert.equal(f(Shape.Square(2)), 2);
+    assert.equal(f(Shape.Empty), -1);
+}
+
 test "a guard on an array pattern" {
     let out = match ([1, 2, 3]) {
         [_, ..rest] if rest.length() == 2 => "tail of two",

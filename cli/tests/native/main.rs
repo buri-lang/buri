@@ -210,6 +210,11 @@ mod fields;
 // checked, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod ownership;
+// A context the runtime supplies to a walk it drives: a test context holding a
+// heap value through `buri test`, under the heap check, on every backend built
+// in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod supplied_context;
 // A list grown in a program that starts an actor or fans out tasks: the pushes
 // counted rather than timed, and a list grown on several tasks at once left
 // with each task's own answer, on every backend built in.
