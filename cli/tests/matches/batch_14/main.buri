@@ -24,6 +24,14 @@ fn okay<T>(value: T, limit: Int): Result<T, Int> {
     if (limit > 2) { .Err(limit) } else { .Ok(value) }
 }
 
+fn sized(text: Str): Int {
+    text.length()
+}
+
+fn count<T>(items: [T]): Int {
+    items.length()
+}
+
 enum Shape {
     Echo(Option<Int>),
     Papa,

@@ -1188,6 +1188,9 @@ enum IntE {
     Limit,
     /// `name.length()`, of a string or a list.
     Len(String),
+    /// The same length through a helper that takes the value by value:
+    /// `sized(name)` for a string, `count(name)` for a list.
+    Call(&'static str, String),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1252,7 +1255,7 @@ fn int_of(e: &IntE, env: &[(String, Val)], limit: i64) -> i64 {
             Val::Int(k) => *k,
             other => panic!("`{n}` is {other:?}, not an Int"),
         },
-        IntE::Len(n) => match lookup(env, n) {
+        IntE::Len(n) | IntE::Call(_, n) => match lookup(env, n) {
             Val::Str(s) => s.len() as i64,
             Val::List(xs) => xs.len() as i64,
             other => panic!("`{n}` has no length: {other:?}"),
@@ -1290,6 +1293,7 @@ impl Guard {
             IntE::Lit(k) => k.to_string(),
             IntE::Limit => String::from("limit"),
             IntE::Len(n) => format!("{n}.length()"),
+            IntE::Call(f, n) => format!("{f}({n})"),
         };
         match self {
             Guard::Cmp(a, op, b) => format!("{} {} {}", int(a), op.text(), int(b)),
@@ -1357,7 +1361,8 @@ fn atom(
                 }
                 1 => {
                     let k = s.len() as i64;
-                    Guard::Cmp(IntE::Len(name), *rng.pick(OPS), IntE::Lit(near(rng, k)))
+                    let len = if rng.percent(40) { IntE::Call("sized", name) } else { IntE::Len(name) };
+                    Guard::Cmp(len, *rng.pick(OPS), IntE::Lit(near(rng, k)))
                 }
                 _ => Guard::StartsWith(name, rng.pick(&["a", "b", "c", "ab"]).to_string()),
             }
@@ -1369,7 +1374,8 @@ fn atom(
             } else {
                 let Val::List(xs) = lookup(env, &name) else { panic!() };
                 let k = xs.len() as i64;
-                Guard::Cmp(IntE::Len(name), *rng.pick(OPS), IntE::Lit(near(rng, k)))
+                let len = if rng.percent(40) { IntE::Call("count", name) } else { IntE::Len(name) };
+                Guard::Cmp(len, *rng.pick(OPS), IntE::Lit(near(rng, k)))
             }
         }
         Ty::Option(_) => Guard::Probe(name, "isSome", rng.percent(40)),
@@ -1755,6 +1761,10 @@ fn some<T>(value: T): Option<T> { .Some(value) }
 fn okay<T>(value: T, limit: Int): Result<T, Int> {
     if (limit > 2) { .Err(limit) } else { .Ok(value) }
 }
+
+fn sized(text: Str): Int { text.length() }
+
+fn count<T>(items: [T]): Int { items.length() }
 "#;
 
 /// The program [`SEED`] and `index` name, and what it prints.

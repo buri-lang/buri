@@ -24,6 +24,14 @@ fn okay<T>(value: T, limit: Int): Result<T, Int> {
     if (limit > 2) { .Err(limit) } else { .Ok(value) }
 }
 
+fn sized(text: Str): Int {
+    text.length()
+}
+
+fn count<T>(items: [T]): Int {
+    items.length()
+}
+
 enum Shape {
     Alpha(Int),
     Oscar { tags: [Str], size: Int },
@@ -228,29 +236,32 @@ fn s12<C: Allocator + Stdout>(ctx: C, v: Option<[Int]>, limit: Int): () {
 fn s13<C: Allocator + Stdout>(ctx: C, v: Signal, limit: Int): () {
     let _ = match (v) {
         .Lima(b1 @ [_, ..b0]) => say(ctx, str.format(ctx, "s13 a0 ${b1.length()}")),
-        .Kilo => say(ctx, "s13 a1"),
-        .Lima(b5) => say(ctx, str.format(ctx, "s13 a2 ${b5.length()}")),
-        .Papa(_, _) => say(ctx, "s13 a3"),
+        .Papa(.Err(_) | .Ok([_, _, _] | [_, _, _, ..]), _) => say(ctx, "s13 a1"),
+        .Lima(b4) => say(ctx, "s13 a2"),
+        .Kilo => say(ctx, "s13 a3"),
+        .Papa(_, _) => say(ctx, "s13 a4"),
     };
     ()
 }
 
-fn m14<C: Allocator>(ctx: C, v: Result<Result<Str, Int>, Token>, limit: Int): Str {
-    let make = fn(x: Result<Result<Str, Int>, Token>, n: Int) => Option.Some((x, n));
-    match (make(v, limit)) {
-        .Some((b1 @ .Ok(b0), 0)) => "a0",
-        .Some((_, 3)) => "a1",
-        .Some((_, 3 | 1)) => "a2",
-        _ => "a3",
+fn m14<C: Allocator>(ctx: C, v: Shape, limit: Int): Str {
+    match (v) {
+        .Delta(.Some("b2" | "") | .Some("b2"), ["e5", ..], "") | .Delta(.Some("ab3"), [] | ["" | "b2", _, "a1" | "b2"], "a1" | "b2") => {
+            "a0"
+        },
+        .Delta(.None, _, _) => "a1",
+        .Alpha(_) => "a2",
+        .Oscar { tags: _, size: b0 } => "a3",
+        .Echo(b1, _) => "a4",
+        .Delta(_, b2, _) => str.format(ctx, "a5 ${b2.length()}"),
     }
 }
 
-fn m15<C: Allocator>(ctx: C, v: Token, limit: Int): Str {
-    let held = (limit, v);
-    match (held.1) {
-        .Bravo { tags: _, .. } => "a0",
-        .Sierra => "a1",
-        .Uniform(b1, _) => str.format(ctx, "a2 ${b1.length()}"),
+fn m15<C: Allocator>(ctx: C, v: Option<Token>, limit: Int): Str {
+    let make = fn(x: Option<Token>, n: Int) => Option.Some((x, n));
+    match (make(v, limit)) {
+        .Some(b0) => "a0",
+        .None => "a1",
     }
 }
 
@@ -516,41 +527,71 @@ export fn main(host: NativeHost): Result<(), Str> {
     let _ = s12(ctx, Option.Some(list.empty<Int>()), 4);
     let _ = s12(ctx, Option.Some([3, 1, 1]), 2);
     let _ = s12(ctx, Option.Some([2, 13, 5]), 3);
-    let _ = s13(ctx, Signal.Lima([13]), 4);
+    let _ = s13(ctx, Signal.Lima(list.empty<Int>().push(ctx, 13)), 4);
     let _ = s13(ctx, Signal.Lima(list.empty<Int>().push(ctx, 1)), 4);
     let _ = s13(ctx, Signal.Lima([3]), 3);
     let _ = say(
         ctx,
-        str.format(ctx, "m14 ${m14(ctx, Result.Ok(Result.Ok("cd4")), 3)}"),
-    );
-    let _ = say(
-        ctx,
         str.format(
             ctx,
-            "m14 ${m14(ctx, Result.Ok(Result.Ok(str.format(ctx, "ab${3}"))), 0)}",
+            "m14 ${m14(
+                ctx,
+                Shape.Delta(Option.None, [str.format(ctx, "e${5}"), "cd4", "ab3"], ""),
+                3,
+            )}",
         ),
     );
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m14 ${m14(ctx, Result.Ok(Result.Ok(str.format(ctx, "cd${4}"))), 1)}",
+            "m14 ${m14(
+                ctx,
+                Shape.Delta(
+                    Option.Some("cd4"),
+                    [str.format(ctx, "e${5}"), "cd4", "ab3"],
+                    "",
+                ),
+                2,
+            )}",
         ),
     );
-    let _ = say(ctx, str.format(ctx, "m15 ${m15(ctx, Token.Sierra, 2)}"));
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m15 ${m15(ctx, Token.Bravo { body: (13, 5), tags: [13] }, 4)}",
+            "m14 ${m14(
+                ctx,
+                Shape.Delta(
+                    Option.None,
+                    list
+                        .empty<Str>()
+                        .push(ctx, str.format(ctx, "e${5}"))
+                        .push(ctx, str.format(ctx, "cd${4}"))
+                        .push(ctx, ""),
+                    "",
+                ),
+                1,
+            )}",
         ),
     );
+    let _ = say(ctx, str.format(ctx, "m15 ${m15(ctx, Option.Some(Token.Sierra), 0)}"));
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m15 ${m15(ctx, Token.Uniform(list.empty<Int>(), Option.Some(false)), 2)}",
+            "m15 ${m15(
+                ctx,
+                Option.Some(
+                    Token.Uniform(
+                        list.empty<Int>().push(ctx, 8).push(ctx, 2),
+                        Option.None,
+                    ),
+                ),
+                4,
+            )}",
         ),
     );
+    let _ = say(ctx, str.format(ctx, "m15 ${m15(ctx, Option.Some(Token.Sierra), 2)}"));
     .Ok(())
 }

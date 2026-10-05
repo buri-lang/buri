@@ -21,17 +21,17 @@ m8 a1
 m8 a2 i3
 m9 a0 i1
 m9 a0 i0
+m10 a1
 m10 a0
-m10 a1 ab3
 m10 a3
-s11 a1
-s11 a1
-s12 a0
-s12 a0
-m13 a2
-m13 a1
-s14 a0
-s14 a1
-m15 <a0>
-m15 <a3>
-m15 <a3>
+m11 a2
+m11 a2
+m12 a2
+m12 a0 i0 8
+m13 <a0>
+m13 <a0>
+m14 <a0|true>
+m14 <a1|true>
+m15 a0
+m15 a0
+m15 a0
