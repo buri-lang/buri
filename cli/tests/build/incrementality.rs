@@ -1509,8 +1509,8 @@ fn report(run: &Run) -> String {
 /// same binary again: `--explain` says the build was cached, and nothing was
 /// generated or linked.
 ///
-/// A comment edit above the test is an edit to the build, because it moves the
-/// line the failure is reported at.
+/// A comment edit above the test builds nothing either, and the failure is
+/// reported at the line the test moved to.
 #[test]
 fn a_failing_suite_runs_again_without_being_built_again() {
     let scratch = Scratch::repo("rerun-failing");
@@ -1545,7 +1545,12 @@ fn a_failing_suite_runs_again_without_being_built_again() {
     scratch.write("lib/a/test/a.buri", &format!("// The one test.\n{source}"));
     let commented = scratch.run(&["test", "//lib/a", "--explain"]);
     commented.exits(1);
-    assert_eq!(status(&commented, "build //lib/a"), "run", "{}", indent(&commented.all()));
+    assert_eq!(status(&commented, "build //lib/a"), "cached", "{}", indent(&commented.all()));
+    assert!(
+        rows(&commented, "link").is_empty() && rows(&commented, "codegen").is_empty(),
+        "a comment edit built the failing suite again:\n{}",
+        indent(&commented.all())
+    );
     assert!(
         report(&commented).contains("--> lib/a/test/a.buri:5:"),
         "the failure is not reported at the line the test moved to:\n{}",
