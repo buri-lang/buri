@@ -256,12 +256,11 @@ pub fn unavailable_reason() -> Option<String> {
 
 /// The decoded library for one target, once per process.
 ///
-/// Decoding twenty-three thousand stencils is tens of milliseconds and the
-/// whole claim of this backend is compile time, so it is paid once for a build
-/// rather than once per codegen unit — a `buri build` at a hundred thousand
-/// lines emits several hundred units in one process. It is also paid **per
-/// target reached**, and a build reaches one, so a three-target toolchain
-/// decodes no more than a one-target toolchain did.
+/// Paid once for a build rather than once per codegen unit — a `buri build` at
+/// a hundred thousand lines emits several hundred units in one process — and
+/// **per target reached**, and a build reaches one, so a three-target
+/// toolchain decodes no more than a one-target toolchain did. The decode reads
+/// the keys and leaves each stencil until it is asked for (`library::Decoded`).
 fn load(t: abi::StencilTarget) -> Result<&'static library::Library, String> {
     static LIBS: [OnceLock<Result<library::Library, String>>; abi::StencilTarget::ALL.len()] =
         [OnceLock::new(), OnceLock::new(), OnceLock::new()];
@@ -1221,7 +1220,7 @@ mod tests {
             }
             let lib = load(t).expect("a library this toolchain baked decodes");
             let mut twins = 0usize;
-            for (i, st) in lib.stencils.iter().enumerate() {
+            for (i, st) in lib.iter().enumerate() {
                 for (k, suffix) in library::FOLD_SUFFIXES.iter().enumerate() {
                     let by_name = lib.get(&format!("{}{suffix}", st.name)).map(|f| &f.name);
                     let by_index = lib.fold_twin(i, k).map(|f| &f.name);
@@ -1255,7 +1254,7 @@ mod tests {
     fn no_shipped_hole_names_a_function_the_compiler_invented() {
         for t in abi::StencilTarget::ALL {
             let Ok(lib) = load(t) else { continue };
-            for s in &lib.stencils {
+            for s in lib.iter() {
                 for h in &s.holes {
                     assert_eq!(
                         library::outlining_artifact(&h.name),
@@ -1354,7 +1353,7 @@ mod tests {
     /// twin's fields the operands fit.
     #[cfg(test)]
     fn base_keys(lib: &library::Library) -> std::collections::BTreeSet<String> {
-        lib.index.keys().map(|k| k.split('+').next().unwrap_or(k).to_string()).collect()
+        lib.keys().map(|k| k.split('+').next().unwrap_or(k).to_string()).collect()
     }
 
     /// **The two arm64 libraries must cover exactly the same operations.**
@@ -1426,9 +1425,9 @@ mod tests {
         let Ok(x) = load(abi::StencilTarget::LinuxX86_64) else { return };
         let s = x.get("cvt/u2f").unwrap_or_else(|| panic!("no cvt/u2f"));
         assert!(!s.const_refs.is_empty(), "cvt/u2f reads no spilled constant");
-        let carriers = x.stencils.iter().filter(|s| !s.const_refs.is_empty()).count();
+        let carriers = x.iter().filter(|s| !s.const_refs.is_empty()).count();
         assert!(carriers >= 4, "only {carriers} stencils carry spilled constants");
-        for s in &x.stencils {
+        for s in x.iter() {
             assert_eq!(s.consts.is_empty(), s.const_refs.is_empty(), "{}", s.name);
             assert!(s.consts_align <= 16, "{} asks for {} alignment", s.name, s.consts_align);
             for c in &s.const_refs {
@@ -1441,7 +1440,7 @@ mod tests {
         // No AArch64 stencil has any: `extract.rs` refuses an object that
         // spilled anything at all.
         let Ok(m) = load(abi::StencilTarget::MacosArm64) else { return };
-        assert!(m.stencils.iter().all(|s| s.const_refs.is_empty() && s.consts.is_empty()));
+        assert!(m.iter().all(|s| s.const_refs.is_empty() && s.consts.is_empty()));
     }
 
     /// Every key in the x86-64 library has exactly one entry — no fold twins —
@@ -1452,9 +1451,9 @@ mod tests {
     fn the_x86_64_library_has_no_folded_twins() {
         let Ok(x) = load(abi::StencilTarget::LinuxX86_64) else { return };
         assert!(
-            !x.index.keys().any(|k| k.contains('+')),
+            !x.keys().any(|k| k.contains('+')),
             "the x86-64 library has fold twins, which nothing produces"
         );
-        assert_eq!(x.index.len(), base_keys(x).len());
+        assert_eq!(x.len(), base_keys(x).len());
     }
 }
