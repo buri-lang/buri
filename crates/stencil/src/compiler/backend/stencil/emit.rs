@@ -998,7 +998,7 @@ impl<'a> Jit<'a> {
     /// emitted body holds at most [`RC_INLINE`] levels plus one call per deeper
     /// field. A `Str`, a `[T]` and a closure never go out of line: the call
     /// would cost more than the instruction it replaced.
-    fn walk_field(
+    pub(crate) fn walk_field(
         &mut self,
         st: &mut Fn2,
         f: &Field,
