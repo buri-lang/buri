@@ -3446,6 +3446,55 @@ fn a_large_struct_held_deep_inside_options_lists_and_records_leaks_nothing() {
     );
 }
 
+/// **A template of more than sixteen parts reads the same as a short one and
+/// gives every block back.** A derived `Show` on a struct of nine fields is one
+/// such template, and the hand-written one below mixes literals, held strings,
+/// fresh strings and numbers.
+#[test]
+fn a_long_template_reads_the_same_and_leaks_nothing() {
+    unless_ready!();
+    let source = r#"
+from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+struct Wide {
+    a: Int,
+    b: Str,
+    c: Bool,
+    d: Option<Int>,
+    e: Str,
+    f: I32,
+    g: Char,
+    h: [Int],
+    i: Str,
+}
+
+derive Show for Wide;
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+    let held = "ab".repeat(ctx, 2);
+    let w = Wide { a: 1, b: held, c: true, d: .Some(4), e: "say \"hi\"", f: 6, g: 'g', h: [8, 9], i: held };
+    let _ = io.println(ctx, w.show(ctx)).ignore();
+    let n = 7;
+    let line = str.format(ctx, "${n}-${held}-${n + 1}-${"x".repeat(ctx, 3)}-${n}-${held}-${n}-${held}-${n}-${held}!");
+    let _ = io.println(ctx, line).ignore();
+    .Ok(())
+}
+"#;
+    let (stdout, stderr) = heap_checked("e2e-long-template", source);
+    assert_eq!(
+        stdout,
+        vec![
+            r#"Wide { a: 1, b: "abab", c: true, d: .Some(4), e: "say \"hi\"", f: 6, g: 'g', h: [8, 9], i: "abab" }"#,
+            "7-abab-8-xxx-7-abab-7-abab-7-abab!",
+        ],
+        "stderr:\n{stderr}"
+    );
+}
+
 /// Payloads wider than 64 bytes whose fields sit at odd offsets.
 ///
 /// `Holds.Odd`'s payload is 96 bytes of words, and the two `Tiny`s in it sit

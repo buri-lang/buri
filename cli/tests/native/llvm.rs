@@ -5223,3 +5223,73 @@ export fn main(host: NativeHost): Result<(), Str> {{
          of words"
     );
 }
+
+/// A derived `Equal`, `Hash` and `Show` on a struct of 200 fields are code
+/// linear in the fields, with a small constant per field.
+///
+/// Each field read took the whole struct apart, an `extractvalue` for every
+/// one of its 600 slots, and `Show` joined its 401 parts by a chain of
+/// open-coded concatenations in a joiner of 401 parameters. The three came to
+/// 503k instructions, about 840 per field per operation, and `--release` spent
+/// most of a minute on them.
+#[test]
+fn a_wide_structs_derived_functions_are_a_few_instructions_per_field() {
+    skip_unless_executable!();
+    let fields: String = (0..200).map(|i| format!("    f{i}: Str,\n")).collect();
+    let built: String = (0..200).map(|i| format!(" f{i}: s,")).collect();
+    let lowered = lower(&program(&format!(
+        r#"
+from "native" import {{ NativeHost }};
+
+struct Big {{
+{fields}}}
+
+derive Equal, Hash, Show for Big;
+
+fn big<C: Allocator>(ctx: C, letter: Str, size: Int): Big {{
+    let s = letter.repeat(ctx, size);
+    Big {{{built} }}
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+    let a = big(ctx, "a", 3);
+    let b = big(ctx, "a", 3);
+    let shown = a.show(ctx).length();
+    let _ = io.println(ctx, "${{a == b}} ${{a.hash() == b.hash()}} ${{shown}}").ignore();
+    .Ok(())
+}}
+"#
+    )));
+    // Every unit holding a derived function or a shared joiner.
+    let mut units: Vec<u32> = lowered
+        .ir
+        .funcs
+        .iter()
+        .filter(|f| f.symbol.contains("derive$"))
+        .map(|f| f.unit)
+        .collect();
+    units.sort_unstable();
+    units.dedup();
+    let (mut backend, program, tables) = lowered.adopted();
+    let mut instructions = 0usize;
+    for unit in units {
+        let ir = expect(backend.emit_ir_text(&program, &tables, &options(Profile::Debug), unit));
+        let mut inside = false;
+        for line in ir.lines() {
+            if line.starts_with("define ") {
+                inside = line.contains("derive$");
+            } else if line.starts_with('}') {
+                inside = false;
+            } else if inside && line.starts_with("  ") {
+                instructions += 1;
+            }
+        }
+    }
+    let per_field = instructions / (3 * 200);
+    assert!(
+        per_field <= 100,
+        "the derived functions of a 200-field struct are {instructions} LLVM instructions, \
+         {per_field} per field per operation"
+    );
+}

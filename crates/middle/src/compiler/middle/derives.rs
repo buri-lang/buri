@@ -153,6 +153,7 @@
               subtraction is a `saturating_sub` on a path depth."
 )]
 
+use crate::compiler::middle::lower;
 use crate::compiler::middle::monomorphize::{
     self, short_hash, ConShape, Desc, DescVariant, Func, FuncKind, Program,
 };
@@ -1636,6 +1637,14 @@ impl Generator {
         // Two parts are already one join; a call for them would be one more
         // instruction, not one fewer.
         if merged.len() < 3 {
+            return self.template_of(merged);
+        }
+        // Past the chain, `middle::lower` joins a template with one runtime
+        // call over a list it builds in place, so at the site it costs what a
+        // joiner call would. A joiner of that arity would cost far more: every
+        // part a parameter, each given a count to go into the list, and each
+        // dropped again by the caller once the call returns.
+        if merged.len() > lower::CONCAT_CHAIN_MAX {
             return self.template_of(merged);
         }
         let Some(f) = self.joiner(merged.len()) else { return self.template_of(merged) };
