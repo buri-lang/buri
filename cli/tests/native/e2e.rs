@@ -3258,6 +3258,189 @@ fn a_wide_state_record_folded_through_a_match_leaks_nothing() {
     assert_eq!(stdout, vec!["100 209 1 0", "3 109 1 11", "2"], "stderr:\n{stderr}");
 }
 
+/// A struct of `fields` strings, `Big`, with a constructor that puts one string
+/// built at run time in every field.
+fn big_struct(fields: usize) -> String {
+    let declared: String = (0..fields).map(|i| format!("    f{i}: Str,\n")).collect();
+    let built: String = (0..fields).map(|i| format!(" f{i}: s,")).collect();
+    format!(
+        "struct Big {{\n{declared}}}\n\nderive Equal, Hash, Show for Big;\n\n\
+         fn big<C: Allocator>(ctx: C, letter: Str, size: Int): Big {{\n    \
+         let s = letter.repeat(ctx, size);\n    Big {{{built} }}\n}}\n"
+    )
+}
+
+/// buri-lang/buri#246: a struct of two hundred strings held three options deep,
+/// built and dropped.
+fn three_options_deep() -> String {
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator, Stdout }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+
+{big}
+struct Mid {{
+    big: Option<Big>,
+}}
+
+struct Holder {{
+    mid: Option<Mid>,
+}}
+
+fn held(b: Big): Option<Holder> {{
+    .Some(Holder {{ mid: .Some(Mid {{ big: .Some(b) }}) }})
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    }};
+    let h = held(big(ctx, "x", 2));
+    let _ = io.println(ctx, "${{h.isSome()}}").ignore();
+    .Ok(())
+}}
+"#,
+        big = big_struct(200)
+    )
+}
+
+/// **A large struct three options deep builds, runs and gives every block
+/// back.**
+#[test]
+fn a_large_struct_three_options_deep_is_built_and_dropped() {
+    unless_ready!();
+    let (stdout, stderr) = heap_checked("e2e-three-options-deep", &three_options_deep());
+    assert_eq!(stdout, vec!["true"], "stderr:\n{stderr}");
+}
+
+/// The same struct in the shapes around buri-lang/buri#246's: a `Result` of
+/// one, lists of them that grow, a record holding them, and a record holding an
+/// optional earlier copy of itself. Each is retained, released, copied,
+/// compared, hashed and shown.
+///
+/// `Big` is 4800 bytes, so every glue that walks a value holding one walks
+/// more than fits a 4096-byte frame.
+///
+/// Each `match` takes one level at a time, and the `Result` holds a `Holder`
+/// rather than an `Option<Big>`: a pattern three levels into a value this wide,
+/// or a `Result<Option<Big>, Str>`, takes the LLVM backend a minute or more to
+/// optimize.
+fn deep_big() -> String {
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator, Stdout }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/alloc" import * as alloc;
+
+{big}
+struct Mid {{
+    big: Option<Big>,
+}}
+
+struct Holder {{
+    mid: Option<Mid>,
+}}
+
+derive Equal for Mid;
+derive Equal for Holder;
+
+struct Snapshot {{
+    state: Result<Holder, Str>,
+    kept: [Option<Holder>],
+}}
+
+struct State {{
+    label: Str,
+    current: Option<Holder>,
+    prior: Option<Snapshot>,
+}}
+
+fn held(b: Big): Option<Holder> {{
+    .Some(Holder {{ mid: .Some(Mid {{ big: .Some(b) }}) }})
+}}
+
+fn depth(h: Option<Holder>): Int {{
+    match (h) {{
+        .Some(holder) => match (holder.mid) {{
+            .Some(mid) => match (mid.big) {{
+                .Some(b) => b.f199.length(),
+                .None => 0 - 1,
+            }},
+            .None => 0 - 1,
+        }},
+        .None => 0 - 2,
+    }}
+}}
+
+fn kept(state: State): Int {{
+    match (state.prior) {{
+        .Some(snapshot) => snapshot.kept.length(),
+        .None => 0,
+    }}
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    }};
+    let one = held(big(ctx, "a", 3));
+    let again = held(big(ctx, "a", 3));
+    let other = held(big(ctx, "b", 4));
+    let result: Result<Holder, Str> = .Ok(Holder {{ mid: .Some(Mid {{ big: .Some(big(ctx, "c", 5)) }}) }});
+    let listed: [Option<Holder>] = [one, other, .None, again];
+    let bigs: [Big] = [big(ctx, "d", 6), big(ctx, "e", 7)];
+    let grown = bigs.push(ctx, big(ctx, "f", 8)).push(ctx, big(ctx, "g", 9));
+    let more = listed.push(ctx, held(big(ctx, "h", 2)));
+    let hashed = big(ctx, "k", 2).hash() == big(ctx, "k", 2).hash();
+    let failed: Result<Holder, Str> = .Err("e".repeat(ctx, 3));
+    let reason = match (failed) {{
+        .Ok(_) => 0,
+        .Err(text) => text.length(),
+    }};
+    let state = State {{
+        label: "s".repeat(ctx, 2),
+        current: one,
+        prior: .Some(Snapshot {{ state: .Ok(Holder {{ mid: .None }}), kept: listed }}),
+    }};
+    let rolled = State {{ ..state, current: other }};
+    let copied = alloc.copyOut(rolled);
+    let first = match (result) {{
+        .Ok(holder) => depth(.Some(holder)),
+        .Err(_) => 0,
+    }};
+    let shown = match (bigs.first()) {{
+        .Some(b) => b.show(ctx).length(),
+        .None => 0,
+    }};
+    let _ = io.println(ctx, "${{one.isSome()}} ${{depth(one)}} ${{depth(other)}}").ignore();
+    let _ = io.println(ctx, "${{one == again}} ${{one == other}} ${{hashed}}").ignore();
+    let _ = io.println(ctx, "${{first}} ${{listed.length()}} ${{bigs.length()}} ${{shown}}").ignore();
+    let _ = io.println(ctx, "${{depth(copied.current)}} ${{kept(copied)}} ${{kept(state)}}").ignore();
+    let _ = io.println(ctx, "${{grown.length()}} ${{more.length()}} ${{reason}}").ignore();
+    .Ok(())
+}}
+"#,
+        big = big_struct(200)
+    )
+}
+
+/// **A large struct held deep inside options, results, lists and records
+/// builds, runs and gives every block back.**
+#[test]
+fn a_large_struct_held_deep_inside_options_lists_and_records_leaks_nothing() {
+    unless_ready!();
+    let (stdout, stderr) = heap_checked("e2e-deep-big", &deep_big());
+    assert_eq!(
+        stdout,
+        vec!["true 3 4", "true false true", "5 4 2 3096", "4 4 4", "4 5 3"],
+        "stderr:\n{stderr}"
+    );
+}
+
 /// A `?` whose operand fails while the function still owns something.
 ///
 /// `step` owns its parameter — the tail hands it on into the answer — and reads
