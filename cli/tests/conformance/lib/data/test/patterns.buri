@@ -491,6 +491,86 @@ test "a tuple under .Some is covered when andThen's lambda answered it" {
     assert.equal(describe(.None), 0);
 }
 
+// The same holds a variant deeper: `.None`, `.Some(.Some(_))` and
+// `.Some(.None)` exhaust `Option<Option<Int>>` when a lambda returned the
+// inner option rather than an annotation naming it (issue #247).
+
+fn underTen(n: Int): Option<Int> {
+    if (n < 10) { .Some(n) } else { .None }
+}
+
+fn small(value: Option<Int>): Int {
+    match (value.map(fn(n) => underTen(n))) {
+        .None => 0,
+        .Some(.Some(n)) => n,
+        .Some(.None) => -1,
+    }
+}
+
+test "a nested option under .Some is covered when a lambda returned it" {
+    assert.equal(small(.None), 0);
+    assert.equal(small(.Some(3)), 3);
+    assert.equal(small(.Some(30)), -1);
+}
+
+test "a nested option is covered when the lambda built it from constructors" {
+    let describe = fn(value: Option<Int>) => {
+        match (value.map(fn(n) => if (n > 0) { Option.Some(n) } else { Option.None })) {
+            .Some(.Some(n)) => n,
+            .Some(.None) => 0,
+            .None => -1,
+        }
+    };
+    assert.equal(describe(.Some(5)), 5);
+    assert.equal(describe(.Some(-5)), 0);
+    assert.equal(describe(.None), -1);
+}
+
+test "an option inside a result is covered when a lambda returned it" {
+    let describe = fn(value: Result<Int, Str>) => {
+        match (value.map(fn(n) => if (n > 0) { Option.Some(n) } else { Option.None })) {
+            .Ok(.Some(n)) => n,
+            .Ok(.None) => 0,
+            .Err(_) => -1,
+        }
+    };
+    assert.equal(describe(.Ok(5)), 5);
+    assert.equal(describe(.Ok(-5)), 0);
+    assert.equal(describe(.Err("no")), -1);
+}
+
+test "a tuple two options deep is covered when a generic helper wrapped it" {
+    let describe = fn(value: Option<Int>) => {
+        match (wrappedInSome(value.map(fn(n) => (n, n > 0)))) {
+            .Some(.Some((n, true))) => n,
+            .Some(.Some((_, false))) => 0,
+            .Some(.None) => -1,
+            .None => -2,
+        }
+    };
+    assert.equal(describe(.Some(5)), 5);
+    assert.equal(describe(.Some(-5)), 0);
+    assert.equal(describe(.None), -1);
+}
+
+test "a tuple two options deep is covered when a local lambda built it" {
+    let make = fn(n: Int) => if (n > 0) {
+        Option.Some(Option.Some((n, "up")))
+    } else {
+        Option.Some(Option.None)
+    };
+    let describe = fn(n: Int) => {
+        match (make(n)) {
+            .Some(.Some((k, text))) => if (k > 1) { text } else { "one" },
+            .Some(.None) => "none inside",
+            .None => "none",
+        }
+    };
+    assert.equal(describe(2), "up");
+    assert.equal(describe(1), "one");
+    assert.equal(describe(0), "none inside");
+}
+
 test "an or-pattern two constructors deep covers its sub-type" {
     let describe = fn(x: Option<Option<Bool>>) => {
         match (x) {
