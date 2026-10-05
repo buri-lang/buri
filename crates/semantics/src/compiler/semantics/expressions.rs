@@ -1026,14 +1026,13 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
         }
         let self_ty = receiver.as_ref().map(|r| self.resolve(&r.ty));
-        let (params, ret) = {
+        // The parameter types live only as long as this call is checked, so
+        // the list is borrowed from the body's spares and given back below.
+        let mut params = self.ty_lists.pop().unwrap_or_default();
+        let ret = {
             let info = self.c.tables.fn_info(f);
-            let params: Vec<Ty> = info
-                .params
-                .iter()
-                .map(|p| substitute(&p.ty, &targs, self_ty.as_ref()))
-                .collect();
-            (params, substitute(&info.ret, &targs, self_ty.as_ref()))
+            params.extend(info.params.iter().map(|p| substitute(&p.ty, &targs, self_ty.as_ref())));
+            substitute(&info.ret, &targs, self_ty.as_ref())
         };
 
         // Type information flows outside-in: unifying the return type with
@@ -1081,6 +1080,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             self.report_wrong_argument_count(span, &name, &signature, &call);
             hir_args.extend(checked);
         }
+        params.clear();
+        self.ty_lists.push(params);
         self.check_lazy_load(f, &hir_args, args, span);
         typed::Expr::new(
             typed::ExprKind::CallFn {

@@ -374,6 +374,10 @@ pub struct Infer<'a, 'b> {
     pub(crate) scopes: Vec<(u64, LocalId)>,
     /// Where each open scope starts in `scopes`.
     pub(crate) scope_starts: Vec<usize>,
+    /// Emptied type lists, for a call being checked to borrow and give back.
+    /// A call's arguments are calls too, so this holds one per level of
+    /// nesting.
+    pub(crate) ty_lists: Vec<Vec<Ty>>,
     pub(crate) locals: Vec<typed::Local>,
     pub(crate) params: Vec<LocalId>,
     pub(crate) self_con: Option<TyConId>,
@@ -436,6 +440,7 @@ pub(crate) struct Scratch {
     subst: Subst,
     scopes: Vec<(u64, LocalId)>,
     scope_starts: Vec<usize>,
+    ty_lists: Vec<Vec<Ty>>,
 }
 
 impl Drop for Infer<'_, '_> {
@@ -446,7 +451,8 @@ impl Drop for Infer<'_, '_> {
         scopes.clear();
         let mut scope_starts = std::mem::take(&mut self.scope_starts);
         scope_starts.clear();
-        self.c.scratch = Scratch { subst, scopes, scope_starts };
+        let ty_lists = std::mem::take(&mut self.ty_lists);
+        self.c.scratch = Scratch { subst, scopes, scope_starts, ty_lists };
     }
 }
 
@@ -461,7 +467,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let role = c.module(module).role;
         let mark = c.diags.items.len();
         let t = &c.module(module).ast.tree;
-        let Scratch { subst, scopes, scope_starts } = std::mem::take(&mut c.scratch);
+        let Scratch { subst, scopes, scope_starts, ty_lists } = std::mem::take(&mut c.scratch);
         Infer {
             c,
             t,
@@ -471,6 +477,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             subst,
             scopes,
             scope_starts,
+            ty_lists,
             locals: Vec::new(),
             params: Vec::new(),
             self_con: None,
