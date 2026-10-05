@@ -62,64 +62,66 @@ enum Signal {
 }
 
 fn s0<C: Allocator + Stdout>(ctx: C, v: Shape, limit: Int): () {
-    let _ = match (id(v)) {
-        .Tango("cd4" | "ab3", _) => say(ctx, "s0 a0"),
-        .Tango("b2", .Some(0 | 5)) | .Tango("b2", .Some(0 | -2)) => say(ctx, "s0 a1"),
-        .Tango(_, .Some(b0)) if b0 == limit => say(ctx, "s0 a2"),
-        .Oscar => say(ctx, "s0 a3"),
-        .Tango("b2", .None | .Some(1 | 2)) => say(ctx, "s0 a4"),
-        _ => say(ctx, "s0 a5"),
+    let make = fn(x: Shape, n: Int) => Option.Some((x, n));
+    let _ = match (make(v, limit)) {
+        .Some((_, 3) | (.Oscar | .Oscar, -2)) => say(ctx, "s0 a0"),
+        .Some(b0) => {
+            let b0n = match (b0) {
+                (.Tango("b2" | "ab3", .Some(b1)), _) if b1 < 7 => "i0",
+                (.Tango("b2", .None | .Some(_)) | .Oscar, _) => "i1",
+                (_, b2) => "i2",
+            };
+            say(ctx, str.format(ctx, "s0 a1 ${b0n}"))
+        },
+        b5 => say(ctx, "s0 a2"),
     };
     ()
 }
 
-fn s1<C: Allocator + Stdout>(ctx: C, v: Signal, limit: Int): () {
-    let _ = match (v) {
-        .Juliet { .. } => say(ctx, "s1 a0"),
-        .Papa(.Err("ab3"), .None | .Some("b2"), .Oscar) => say(ctx, "s1 a1"),
-        .Papa(_, _, _) => say(ctx, "s1 a2"),
-    };
-    ()
-}
-
-fn m2<C: Allocator>(ctx: C, v: Shape, limit: Int): Str {
-    let held = (limit, v);
-    match (held.1) {
-        .Oscar => "a0",
-        _ => "a1",
+fn m1<C: Allocator>(ctx: C, v: Int, limit: Int): Str {
+    match (id(v)) {
+        1 => "a0",
+        8 => "a1",
+        3 => "a2",
+        _ => "a3",
     }
 }
 
-fn m3<C: Allocator>(ctx: C, v: Point, limit: Int): Str {
-    match (okay(v, limit)) {
-        .Ok(Point { name: _, items: [_, ..], items2: [] | [_, ..] } | Point { items: [_, _, ..], .. }) | .Ok(Point { name: "cd4" | "", items2: [_, _, _], .. }) => {
-            "a0"
+fn m2<C: Allocator>(ctx: C, v: Point, limit: Int): Str {
+    match (v) {
+        Point { name: "a1" | "cd4", items: b0 @ ["cd4", "cd4", ""], items2: _ } => {
+            str.format(ctx, "a0 ${b0.length()}")
         },
-        _ => "a1",
+        Point { name: "ab3", items: ["cd4" | "cd4", "cd4" | "", ""] | [_, "b2" | "", "b2", ..], items2: b1 } => {
+            let b1n = match (b1) {
+                [1, ..] => "i0",
+                [_] => "i1",
+                [3, ..b3] => "i2",
+                [] => "i3",
+                [_, ..] => "i4",
+            };
+            str.format(ctx, "a1 ${b1n}")
+        },
+        Point { items: b4, items2: [3], .. } if count(b4) <= 0 => {
+            str.format(ctx, "a2 ${b4.length()}")
+        },
+        Point { name: _, items2: [3, ..], .. } => "a3",
+        b5 => {
+            let b5n = match (b5) {
+                Point { name: _, items: b6, items2: [3] } => {
+                    str.format(ctx, "i0 ${b6.length()}")
+                },
+                Point { name: "ab3", items: [b7, _, b8], items2: b9 } => {
+                    str.format(ctx, "i1 ${b7} ${b9.length()}")
+                },
+                Point { name: b10, .. } => "i2",
+            };
+            str.format(ctx, "a4 ${b5n}")
+        },
     }
 }
 
-fn m4<C: Allocator>(ctx: C, v: Point, limit: Int): Str {
-    let answer = match (v) {
-        Point { items: [], .. } => "a0",
-        Point { name: b1, .. } if b1.startsWith("b") || b1.startsWith("b") => {
-            str.format(ctx, "a1 ${b1}")
-        },
-        _ => "a2",
-    };
-    let kept = some(v).isSome();
-    str.format(ctx, "<${answer}|${kept}>")
-}
-
-fn s5<C: Allocator + Stdout>(ctx: C, v: Signal, limit: Int): () {
-    let _ = match (some(v)) {
-        .Some(b0) => say(ctx, "s5 a0"),
-        .None => say(ctx, "s5 a1"),
-    };
-    ()
-}
-
-fn m6<C: Allocator>(ctx: C, v: Int, limit: Int): Str {
+fn m3<C: Allocator>(ctx: C, v: Int, limit: Int): Str {
     let held = (limit, v);
     let answer = match (held.1) {
         1 => "a0",
@@ -128,7 +130,7 @@ fn m6<C: Allocator>(ctx: C, v: Int, limit: Int): Str {
     str.format(ctx, "<${answer}>")
 }
 
-fn m7<C: Allocator>(ctx: C, v: Token, limit: Int): Str {
+fn m4<C: Allocator>(ctx: C, v: Token, limit: Int): Str {
     match (v) {
         .Mike { label: "e5" } => "a0",
         .Mike { label: b0, .. } if b0.startsWith("ab") && sized(b0) <= 2 => {
@@ -141,141 +143,170 @@ fn m7<C: Allocator>(ctx: C, v: Token, limit: Int): Str {
     }
 }
 
-fn m8<C: Allocator>(ctx: C, v: ((Str, Bool), Point), limit: Int): Str {
-    let make = fn(x: ((Str, Bool), Point), n: Int) => Option.Some((x, n));
-    match (make(v, limit)) {
-        .Some(((b0, b1), _)) => "a0",
-        .None => "a1",
+fn m5<C: Allocator>(ctx: C, v: ((Str, Bool), Point), limit: Int): Str {
+    match (some(v)) {
+        .Some(((b0, b1), _)) => str.format(ctx, "a0 ${b0} ${b1}"),
+        _ => "a1",
     }
 }
 
-fn m9<C: Allocator>(ctx: C, v: (Point, Result<Bool, Str>, Shape), limit: Int): Str {
-    match (id(v)) {
-        (Point { name: b0, items: [b1, ..], items2: _ }, b2, .Oscar | .Tango("" | "cd4", _)) => {
-            str.format(ctx, "a0 ${b0} ${b1}")
-        },
-        (b5 @ Point { name: "cd4", items: [_, ..b3], items2: b4, .. }, b6, b7 @ .Tango(_, .None)) if b6.isOk() => {
-            let b4n = match (b4) {
-                [b8, 1 | -2] if b8 < 3 => str.format(ctx, "i0 ${b8}"),
-                [3, ..] => "i1",
-                [13, 1, ..] => "i2",
-                [-2 | 8, 1, ..] => "i3",
-                _ => "i4",
+fn m6<C: Allocator>(ctx: C, v: (Shape, Bool), limit: Int): Str {
+    let answer = match (okay(v, limit)) {
+        .Err(3) => "a0",
+        .Err(3 | 0) => "a1",
+        .Err(b0) => str.format(ctx, "a2 ${b0}"),
+        b2 => {
+            let b2n = match (b2) {
+                .Err(b3) => str.format(ctx, "i0 ${b3}"),
+                b4 if !b4.isOk() && b4.isOk() => "i1",
+                _ => "i2",
             };
-            str.format(ctx, "a1 ${b4n} ${b3.length()}")
+            str.format(ctx, "a3 ${b2n}")
         },
-        (Point { items: _, .. }, .Err("b2"), .Tango(b9, .None)) => {
-            str.format(ctx, "a2 ${b9}")
-        },
-        (_, _, .Tango(_, .None)) => "a3",
-        (Point { name: _, items: [b10, ..b11], items2: b14 @ [b12, b13, ..] }, .Err("cd4"), _) => {
-            str.format(ctx, "a4 ${b10} ${b12} ${b13} ${b14.length()}")
-        },
-        (Point { name: _, .. }, b15, b16) => {
-            let b16n = match (b16) {
-                .Tango(_, .Some(8 | 2)) => "i0",
-                .Tango("ab3", .None) => "i1",
-                .Tango("a1", b17) => "i2",
-                _ => "i3",
-            };
-            str.format(ctx, "a5 ${b16n}")
-        },
-    }
-}
-
-fn s10<C: Allocator + Stdout>(ctx: C, v: [Int], limit: Int): () {
-    let make = fn(x: [Int], n: Int) => (n, x);
-    let _ = match (make(v, limit)) {
-        (8, [13, ..]) => say(ctx, "s10 a0"),
-        (3, [13 | 8, ..] | [1]) | (3, []) => say(ctx, "s10 a1"),
-        (3, [b0]) => say(ctx, str.format(ctx, "s10 a2 ${b0}")),
-        (_, _) => say(ctx, "s10 a3"),
-    };
-    ()
-}
-
-fn m11<C: Allocator>(ctx: C, v: Entry, limit: Int): Str {
-    let make = fn(x: Entry, n: Int) => (n, x);
-    let answer = match (make(v, limit)) {
-        (_, _) => "a0",
     };
     let kept = some(v).isSome();
     str.format(ctx, "<${answer}|${kept}>")
 }
 
-fn s12<C: Allocator + Stdout>(ctx: C, v: Point, limit: Int): () {
-    let held = (limit, v);
-    let _ = match (held.1) {
-        Point { name: b0, items: ["cd4", "e5", ..], items2: [-2, -2] } if b0.length()
-            <= 2 => { say(ctx, str.format(ctx, "s12 a0 ${b0}")) },
-        Point { name: _, items: ["cd4", "e5", b1, ..b2], items2: b3 } if b3.isEmpty() => {
-            say(ctx, str.format(ctx, "s12 a1 ${b3.length()}"))
-        },
-        Point { name: "a1" | "e5", items: ["cd4" | "e5", ..b4], items2: [-2, -2, ..] } if b4.length()
-            != 3
-            || b4.length() != 2 => { say(ctx, "s12 a2") },
-        Point { items: b5, .. } => {
-            let b5n = match (b5) {
-                [_, "e5", "cd4" | "b2"] => "i0",
-                [b6, ..] if b6.startsWith("ab") => str.format(ctx, "i1 ${b6}"),
-                [b7, "b2" | ""] if b7 == "e5" => str.format(ctx, "i2 ${b7}"),
-                b8 if b8.length() >= 3 => str.format(ctx, "i3 ${b8.length()}"),
-                _ => "i4",
+fn s7<C: Allocator + Stdout>(ctx: C, v: Point, limit: Int): () {
+    let _ = match (v) {
+        Point { name: "", items: _, items2: b0 } => say(ctx, "s7 a0"),
+        Point { items2: [], .. } => say(ctx, "s7 a1"),
+        Point { items2: [_, ..b2], .. } => {
+            let b2n = match (b2) {
+                [2, -2 | 8] => "i0",
+                [b3, 0 | 8] => str.format(ctx, "i1 ${b3}"),
+                [_, -2, ..] => "i2",
+                b4 => str.format(ctx, "i3 ${b4.length()}"),
             };
-            say(ctx, str.format(ctx, "s12 a3 ${b5n} ${b5.length()}"))
+            say(ctx, str.format(ctx, "s7 a2 ${b2n} ${b2.length()}"))
         },
     };
     ()
 }
 
-fn s13<C: Allocator + Stdout>(ctx: C, v: [Str], limit: Int): () {
-    let _ = match (id(v)) {
-        [_, ..b0] => {
-            let b0n = match (b0) {
-                ["b2", ..] => "i0",
-                [] => "i1",
-                [b2, ..] => str.format(ctx, "i2 ${b2}"),
-            };
-            say(ctx, str.format(ctx, "s13 a0 ${b0n} ${b0.length()}"))
+fn s8<C: Allocator + Stdout>(ctx: C, v: Entry, limit: Int): () {
+    let make = fn(x: Entry, n: Int) => (n, x);
+    let _ = match (make(v, limit)) {
+        (0, Entry { rank: b0, held: _, parts: [] }) if b0 < limit => say(ctx, "s8 a0"),
+        (0, Entry { rank: 5, held: _, parts: [] }) => say(ctx, "s8 a1"),
+        (0, Entry { held: _, .. }) => say(ctx, "s8 a2"),
+        (0 | -2, Entry { rank: b1, parts: [], .. }) => {
+            say(ctx, str.format(ctx, "s8 a3 ${b1}"))
         },
-        _ => say(ctx, "s13 a1"),
+        (2, Entry { rank: 5, held: _, parts: _ } | Entry { rank: 2 | 1, held: .Ok(_), parts: [_, ..] | [_, ..] }) => {
+            say(ctx, "s8 a4")
+        },
+        (_, _) => say(ctx, "s8 a5"),
     };
     ()
 }
 
-fn m14<C: Allocator>(ctx: C, v: Point, limit: Int): Str {
-    let make = fn(x: Point) => Option.Some(x);
-    let answer = match (make(v)) {
-        .Some(Point { name: "b2", items: _, items2: b0 }) => {
-            let b0n = match (b0) {
-                [1, 3, b1] => "i0",
-                [1, 3, ..] => "i1",
-                b3 => str.format(ctx, "i2 ${b3.length()}"),
-            };
-            str.format(ctx, "a0 ${b0n} ${b0.length()}")
-        },
-        .Some(Point { items: [b4, ..b5], .. }) if b4.startsWith("a")
-            || b4.startsWith("b") => {
-            let b5n = match (b5) {
-                ["ab3", "e5", b6, ..b7] => str.format(ctx, "i0 ${b6}"),
-                [] => "i1",
-                b8 if b8.length() == -1 => str.format(ctx, "i2 ${b8.length()}"),
-                _ => "i3",
-            };
-            str.format(ctx, "a1 ${b5n} ${b4}")
-        },
-        b9 => "a2",
+fn m9<C: Allocator>(ctx: C, v: Entry, limit: Int): Str {
+    let make = fn(x: Entry, n: Int) => {
+        if (n > 2) { Option.Some(Option.None) } else { Option.Some(Option.Some(x)) }
     };
-    str.format(ctx, "<${answer}>")
-}
-
-fn m15<C: Allocator>(ctx: C, v: Token, limit: Int): Str {
-    let answer = match (some(v)) {
-        .Some(.Mike { label: "ab3" }) => "a0",
-        .Some(_) => "a1",
+    match (make(v, limit)) {
+        .Some(.None) => "a0",
+        .Some(.Some(b3 @ Entry { rank: b0, held: b1, parts: b2 })) => {
+            str.format(ctx, "a1 ${b0} ${b2.length()}")
+        },
         .None => "a2",
+    }
+}
+
+fn s10<C: Allocator + Stdout>(ctx: C, v: Point, limit: Int): () {
+    let _ = match (id(v)) {
+        Point { name: "a1" | "b2", items: ["a1"], items2: [2, _, 0] } => {
+            say(ctx, "s10 a0")
+        },
+        Point { name: "a1", .. } => say(ctx, "s10 a1"),
+        _ => say(ctx, "s10 a2"),
     };
-    str.format(ctx, "<${answer}>")
+    ()
+}
+
+fn m11<C: Allocator>(ctx: C, v: Shape, limit: Int): Str {
+    let make = fn(x: Shape, n: Int) => (n, x);
+    match (make(v, limit)) {
+        (3, .Oscar) => "a0",
+        (3, b0) => "a1",
+        b1 => {
+            let b1n = match (b1) {
+                (3 | 13, .Oscar) | (_, .Oscar | .Tango("" | "", .Some(_))) => "i0",
+                (3 | 3, _) => "i1",
+                _ => "i2",
+            };
+            str.format(ctx, "a2 ${b1n}")
+        },
+    }
+}
+
+fn m12<C: Allocator>(ctx: C, v: (Int, Shape, Int), limit: Int): Str {
+    let answer = match (id(v)) {
+        (-2, .Oscar, _) => "a0",
+        (-2, b0, 1 | -2) => {
+            let b0n = match (b0) {
+                .Oscar => "i0",
+                .Tango(_, b1) => "i1",
+            };
+            str.format(ctx, "a1 ${b0n}")
+        },
+        (-2, _, 5) => "a2",
+        (0, .Oscar, 0 | 0) => "a3",
+        (b2, .Oscar, b3) => "a4",
+        _ => "a5",
+    };
+    let kept = some(v).isSome();
+    str.format(ctx, "<${answer}|${kept}>")
+}
+
+fn m13<C: Allocator>(ctx: C, v: Point, limit: Int): Str {
+    let make = fn(x: Point, n: Int) => (n, x);
+    match (make(v, limit)) {
+        (2 | 13, Point { name: "b2", items: [b0, b1, ..b2], items2: [] }) => {
+            str.format(ctx, "a0 ${b0} ${b1} ${b2.length()}")
+        },
+        (1, Point { name: b3, items: [b4, b5], items2: [] | [] }) => {
+            str.format(ctx, "a1 ${b5}")
+        },
+        _ => "a2",
+    }
+}
+
+fn m14<C: Allocator>(ctx: C, v: Str, limit: Int): Str {
+    let answer = match (v) {
+        "ab3" => "a0",
+        "b2" | "cd4" => "a1",
+        _ => "a2",
+    };
+    let kept = some(v).isSome();
+    str.format(ctx, "<${answer}|${kept}>")
+}
+
+fn m15<C: Allocator>(ctx: C, v: (Str, Shape), limit: Int): Str {
+    let make = fn(x: (Str, Shape), n: Int) => Option.Some((x, n));
+    match (make(v, limit)) {
+        .Some((_, 4)) => "a0",
+        .Some(((b0, b1), 1)) => {
+            let b1n = match (b1) {
+                .Tango("b2", _) => "i0",
+                .Tango(b2, .Some(5)) => str.format(ctx, "i1 ${b2}"),
+                .Oscar => "i2",
+                .Tango(_, _) => "i3",
+            };
+            str.format(ctx, "a1 ${b1n} ${b0}")
+        },
+        .Some(b3) => {
+            let b3n = match (b3) {
+                (("a1" | "ab3", .Tango(b4, b5)), _) => str.format(ctx, "i0 ${b4}"),
+                ((b6, .Tango(b7, b8)), 4 | 0) => str.format(ctx, "i1 ${b6} ${b7}"),
+                _ => "i2",
+            };
+            str.format(ctx, "a2 ${b3n}")
+        },
+        .None => "a3",
+    }
 }
 
 export fn main(host: NativeHost): Result<(), Str> {
@@ -283,19 +314,18 @@ export fn main(host: NativeHost): Result<(), Str> {
         Allocator: host.alloc,
         Stdout: host.stdout,
     };
-    let _ = s0(ctx, Shape.Tango("cd4", Option.Some(0)), 4);
+    let _ = s0(ctx, Shape.Tango(str.format(ctx, "cd${4}"), Option.Some(0)), 4);
     let _ = s0(ctx, Shape.Tango(str.format(ctx, "b${2}"), Option.Some(0)), 1);
-    let _ = s1(ctx, Signal.Juliet { code: 3 }, 2);
-    let _ = s1(ctx, Signal.Juliet { code: 5 }, 2);
-    let _ = say(ctx, str.format(ctx, "m2 ${m2(ctx, Shape.Oscar, 1)}"));
-    let _ = say(ctx, str.format(ctx, "m2 ${m2(ctx, Shape.Oscar, 3)}"));
+    let _ = say(ctx, str.format(ctx, "m1 ${m1(ctx, 1, 2)}"));
+    let _ = say(ctx, str.format(ctx, "m1 ${m1(ctx, 0, 2)}"));
+    let _ = say(ctx, str.format(ctx, "m1 ${m1(ctx, 3, 3)}"));
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m3 ${m3(
+            "m2 ${m2(
                 ctx,
-                Point { name: "", items: ["e5"], items2: list.empty<Int>() },
+                Point { name: "ab3", items: ["cd4", "cd4", ""], items2: [3] },
                 2,
             )}",
         ),
@@ -304,65 +334,48 @@ export fn main(host: NativeHost): Result<(), Str> {
         ctx,
         str.format(
             ctx,
-            "m3 ${m3(
+            "m2 ${m2(
                 ctx,
                 Point {
-                    name: "cd4",
-                    items: list.empty<Str>().push(ctx, ""),
-                    items2: [13, 8],
+                    name: str.format(ctx, "ab${3}"),
+                    items: [str.format(ctx, "ab${3}")],
+                    items2: list.empty<Int>().push(ctx, 3),
                 },
+                4,
+            )}",
+        ),
+    );
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m2 ${m2(
+                ctx,
+                Point { name: "b2", items: ["cd4", "cd4", ""], items2: [3] },
                 1,
             )}",
         ),
     );
+    let _ = say(ctx, str.format(ctx, "m3 ${m3(ctx, 5, 0)}"));
+    let _ = say(ctx, str.format(ctx, "m3 ${m3(ctx, 1, 1)}"));
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m4 ${m4(
-                ctx,
-                Point {
-                    name: str.format(ctx, "ab${3}"),
-                    items: list.empty<Str>(),
-                    items2: [13, -2],
-                },
-                2,
-            )}",
+            "m4 ${m4(ctx, Token.Mike { label: str.format(ctx, "e${5}") }, 0)}",
         ),
     );
+    let _ = say(ctx, str.format(ctx, "m4 ${m4(ctx, Token.Mike { label: "" }, 0)}"));
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m4 ${m4(
-                ctx,
-                Point { name: "ab3", items: list.empty<Str>(), items2: [2, -2] },
-                2,
-            )}",
-        ),
-    );
-    let _ = s5(ctx, Signal.Juliet { code: 3 }, 2);
-    let _ = s5(ctx, Signal.Juliet { code: 13 }, 3);
-    let _ = say(ctx, str.format(ctx, "m6 ${m6(ctx, 5, 0)}"));
-    let _ = say(ctx, str.format(ctx, "m6 ${m6(ctx, 1, 1)}"));
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m7 ${m7(ctx, Token.Mike { label: str.format(ctx, "e${5}") }, 0)}",
-        ),
-    );
-    let _ = say(ctx, str.format(ctx, "m7 ${m7(ctx, Token.Mike { label: "" }, 0)}"));
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m8 ${m8(
+            "m5 ${m5(
                 ctx,
                 (
                     (str.format(ctx, "cd${4}"), false),
                     Point {
-                        name: str.format(ctx, "b${2}"),
+                        name: "b2",
                         items: list.empty<Str>(),
                         items2: list.empty<Int>(),
                     },
@@ -375,16 +388,13 @@ export fn main(host: NativeHost): Result<(), Str> {
         ctx,
         str.format(
             ctx,
-            "m8 ${m8(
+            "m5 ${m5(
                 ctx,
                 (
-                    (str.format(ctx, "cd${4}"), false),
+                    ("cd4", false),
                     Point {
                         name: "",
-                        items: list
-                            .empty<Str>()
-                            .push(ctx, "a1")
-                            .push(ctx, str.format(ctx, "cd${4}")),
+                        items: ["a1", str.format(ctx, "cd${4}")],
                         items2: [-2, 1, 1],
                     },
                 ),
@@ -394,19 +404,62 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
     let _ = say(
         ctx,
+        str.format(ctx, "m6 ${m6(ctx, (Shape.Tango("a1", Option.None), false), 3)}"),
+    );
+    let _ = say(
+        ctx,
+        str.format(ctx, "m6 ${m6(ctx, (Shape.Tango("a1", Option.Some(0)), true), 2)}"),
+    );
+    let _ = say(ctx, str.format(ctx, "m6 ${m6(ctx, (Shape.Oscar, false), 4)}"));
+    let _ = s7(
+        ctx,
+        Point {
+            name: "",
+            items: list.empty<Str>().push(ctx, "a1"),
+            items2: list.empty<Int>().push(ctx, 13).push(ctx, -2).push(ctx, 0),
+        },
+        2,
+    );
+    let _ = s7(
+        ctx,
+        Point {
+            name: str.format(ctx, "a${1}"),
+            items: list.empty<Str>().push(ctx, "a1"),
+            items2: list.empty<Int>().push(ctx, 13).push(ctx, -2).push(ctx, 0),
+        },
+        2,
+    );
+    let _ = s7(
+        ctx,
+        Point {
+            name: "",
+            items: [str.format(ctx, "b${2}"), str.format(ctx, "a${1}")],
+            items2: [13, -2, 0],
+        },
+        0,
+    );
+    let _ = s8(
+        ctx,
+        Entry { rank: 5, held: Result.Err(1), parts: list.empty<Str>() },
+        0,
+    );
+    let _ = s8(
+        ctx,
+        Entry { rank: 5, held: Result.Err(1), parts: list.empty<Str>() },
+        0,
+    );
+    let _ = s8(ctx, Entry { rank: 5, held: Result.Ok(0), parts: list.empty<Str>() }, 3);
+    let _ = say(
+        ctx,
         str.format(
             ctx,
             "m9 ${m9(
                 ctx,
-                (
-                    Point {
-                        name: str.format(ctx, "cd${4}"),
-                        items: ["cd4"],
-                        items2: [3, 1],
-                    },
-                    Result.Err("b2"),
-                    Shape.Tango("ab3", Option.None),
-                ),
+                Entry {
+                    rank: 2,
+                    held: Result.Ok(8),
+                    parts: [str.format(ctx, "a${1}")],
+                },
                 4,
             )}",
         ),
@@ -417,33 +470,12 @@ export fn main(host: NativeHost): Result<(), Str> {
             ctx,
             "m9 ${m9(
                 ctx,
-                (
-                    Point {
-                        name: str.format(ctx, "ab${3}"),
-                        items: [str.format(ctx, "a${1}"), str.format(ctx, "a${1}")],
-                        items2: list.empty<Int>().push(ctx, 3),
-                    },
-                    Result.Ok(true),
-                    Shape.Tango("a1", Option.Some(0)),
-                ),
-                2,
-            )}",
-        ),
-    );
-    let _ = s10(ctx, [13], 3);
-    let _ = s10(ctx, list.empty<Int>().push(ctx, 0), 4);
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m11 ${m11(
-                ctx,
                 Entry {
                     rank: 2,
-                    held: Result.Err(3),
-                    parts: ["", "b2", str.format(ctx, "cd${4}")],
+                    held: Result.Ok(8),
+                    parts: [str.format(ctx, "ab${3}"), "", ""],
                 },
-                2,
+                0,
             )}",
         ),
     );
@@ -451,75 +483,61 @@ export fn main(host: NativeHost): Result<(), Str> {
         ctx,
         str.format(
             ctx,
-            "m11 ${m11(
+            "m9 ${m9(
                 ctx,
-                Entry {
-                    rank: -2,
-                    held: Result.Err(3),
-                    parts: list
-                        .empty<Str>()
-                        .push(ctx, "")
-                        .push(ctx, "b2")
-                        .push(ctx, "cd4"),
-                },
+                Entry { rank: 2, held: Result.Ok(8), parts: list.empty<Str>() },
                 2,
             )}",
         ),
     );
+    let _ = s10(ctx, Point { name: "a1", items: ["a1"], items2: [2, 13, 0] }, 2);
+    let _ = s10(
+        ctx,
+        Point { name: "a1", items: [str.format(ctx, "a${1}")], items2: [5] },
+        3,
+    );
+    let _ = s10(
+        ctx,
+        Point { name: str.format(ctx, "a${1}"), items: ["a1"], items2: [1, 13] },
+        2,
+    );
+    let _ = say(ctx, str.format(ctx, "m11 ${m11(ctx, Shape.Oscar, 3)}"));
+    let _ = say(
+        ctx,
+        str.format(ctx, "m11 ${m11(ctx, Shape.Tango("ab3", Option.Some(1)), 4)}"),
+    );
+    let _ = say(ctx, str.format(ctx, "m11 ${m11(ctx, Shape.Oscar, 0)}"));
+    let _ = say(ctx, str.format(ctx, "m12 ${m12(ctx, (-2, Shape.Oscar, 1), 4)}"));
+    let _ = say(ctx, str.format(ctx, "m12 ${m12(ctx, (-2, Shape.Oscar, 1), 0)}"));
+    let _ = say(ctx, str.format(ctx, "m12 ${m12(ctx, (-2, Shape.Oscar, 1), 3)}"));
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m11 ${m11(
-                ctx,
-                Entry {
-                    rank: 2,
-                    held: Result.Err(1),
-                    parts: ["", str.format(ctx, "b${2}"), str.format(ctx, "cd${4}")],
-                },
-                2,
-            )}",
-        ),
-    );
-    let _ = s12(
-        ctx,
-        Point {
-            name: str.format(ctx, "e${5}"),
-            items: ["cd4", str.format(ctx, "e${5}"), str.format(ctx, "cd${4}")],
-            items2: list.empty<Int>().push(ctx, -2).push(ctx, -2),
-        },
-        0,
-    );
-    let _ = s12(
-        ctx,
-        Point {
-            name: str.format(ctx, "e${5}"),
-            items: list
-                .empty<Str>()
-                .push(ctx, str.format(ctx, "cd${4}"))
-                .push(ctx, str.format(ctx, "e${5}"))
-                .push(ctx, str.format(ctx, "cd${4}")),
-            items2: list.empty<Int>().push(ctx, -2).push(ctx, -2),
-        },
-        0,
-    );
-    let _ = s13(ctx, ["e5"], 1);
-    let _ = s13(ctx, list.empty<Str>().push(ctx, str.format(ctx, "cd${4}")), 4);
-    let _ = s13(
-        ctx,
-        list.empty<Str>().push(ctx, str.format(ctx, "b${2}")).push(ctx, "a1"),
-        1,
-    );
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m14 ${m14(
+            "m13 ${m13(
                 ctx,
                 Point {
-                    name: "b2",
-                    items: list.empty<Str>().push(ctx, str.format(ctx, "a${1}")),
-                    items2: list.empty<Int>().push(ctx, 1).push(ctx, 3).push(ctx, 0),
+                    name: "a1",
+                    items: [str.format(ctx, "ab${3}"), str.format(ctx, "a${1}")],
+                    items2: list.empty<Int>(),
+                },
+                2,
+            )}",
+        ),
+    );
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m13 ${m13(
+                ctx,
+                Point {
+                    name: str.format(ctx, "a${1}"),
+                    items: list
+                        .empty<Str>()
+                        .push(ctx, "")
+                        .push(ctx, str.format(ctx, "a${1}")),
+                    items2: list.empty<Int>(),
                 },
                 1,
             )}",
@@ -529,13 +547,26 @@ export fn main(host: NativeHost): Result<(), Str> {
         ctx,
         str.format(
             ctx,
-            "m14 ${m14(
+            "m13 ${m13(
                 ctx,
                 Point {
-                    name: str.format(ctx, "e${5}"),
-                    items: list.empty<Str>().push(ctx, "a1"),
-                    items2: [1, 3, 0],
+                    name: str.format(ctx, "a${1}"),
+                    items: ["ab3", "a1"],
+                    items2: [1],
                 },
+                3,
+            )}",
+        ),
+    );
+    let _ = say(ctx, str.format(ctx, "m14 ${m14(ctx, str.format(ctx, "ab${3}"), 0)}"));
+    let _ = say(ctx, str.format(ctx, "m14 ${m14(ctx, str.format(ctx, "ab${3}"), 2)}"));
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m15 ${m15(
+                ctx,
+                (str.format(ctx, "a${1}"), Shape.Tango("b2", Option.Some(5))),
                 4,
             )}",
         ),
@@ -544,12 +575,12 @@ export fn main(host: NativeHost): Result<(), Str> {
         ctx,
         str.format(
             ctx,
-            "m15 ${m15(ctx, Token.Mike { label: str.format(ctx, "ab${3}") }, 3)}",
+            "m15 ${m15(
+                ctx,
+                (str.format(ctx, "ab${3}"), Shape.Tango("b2", Option.Some(5))),
+                1,
+            )}",
         ),
-    );
-    let _ = say(
-        ctx,
-        str.format(ctx, "m15 ${m15(ctx, Token.Mike { label: "cd4" }, 3)}"),
     );
     .Ok(())
 }

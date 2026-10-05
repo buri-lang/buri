@@ -24,7 +24,8 @@
 //!   static string where it bound none, or a nested `match` on a compound
 //!   binding inside a block.
 //! * **Scrutinees** passed in directly, through a generic helper, or built by a
-//!   lambda whose result type is only inferred.
+//!   lambda whose result type is only inferred, an option inside an option
+//!   among them.
 //! * **Uses**: a match as a function's result, bound by `let` and read after,
 //!   or used as a statement whose arms print.
 //! * **Heap values.** Strings are built by `str.format` and lists by `push` as
@@ -1656,6 +1657,10 @@ enum Form {
     LambdaPair,
     /// `make(v)` with `make` a lambda answering `Option.Some(x)`.
     LambdaSome,
+    /// `make(v, limit)` with `make` a lambda answering `Option.Some(Option.None)`
+    /// or `Option.Some(Option.Some(x))`, so the inner option is settled only
+    /// by the branches.
+    LambdaNested,
     /// `held.1`, a field of a tuple local, so the payloads the arms bind are
     /// words of a block the match does not own.
     Projected,
@@ -1671,6 +1676,7 @@ const FORMS: &[Form] = &[
     Form::LambdaSomePair,
     Form::LambdaPair,
     Form::LambdaSome,
+    Form::LambdaNested,
     Form::Projected,
 ];
 
@@ -1683,6 +1689,7 @@ impl Form {
             Form::Okay => Ty::Result(Box::new(t), Box::new(Ty::Int)),
             Form::LambdaSomePair => Ty::Option(Box::new(Ty::Tuple(vec![t, Ty::Int]))),
             Form::LambdaPair => Ty::Tuple(vec![Ty::Int, t]),
+            Form::LambdaNested => Ty::Option(Box::new(Ty::Option(Box::new(t)))),
         }
     }
 
@@ -1700,6 +1707,13 @@ impl Form {
             }
             Form::LambdaSomePair => Val::Some(Box::new(Val::Tuple(vec![v, Val::Int(limit)]))),
             Form::LambdaPair => Val::Tuple(vec![Val::Int(limit), v]),
+            Form::LambdaNested => {
+                if limit > 2 {
+                    Val::Some(Box::new(Val::None))
+                } else {
+                    Val::Some(Box::new(Val::Some(Box::new(v))))
+                }
+            }
         }
     }
 
@@ -1722,6 +1736,12 @@ impl Form {
             Form::LambdaSome => (
                 format!("let make = fn(x: {t}) => Option.Some(x);\n"),
                 String::from("make(v)"),
+            ),
+            Form::LambdaNested => (
+                format!(
+                    "let make = fn(x: {t}, n: Int) => if (n > 2) {{ Option.Some(Option.None) }} else {{ Option.Some(Option.Some(x)) }};\n"
+                ),
+                String::from("make(v, limit)"),
             ),
             Form::Projected => (String::from("let held = (limit, v);\n"), String::from("held.1")),
         }

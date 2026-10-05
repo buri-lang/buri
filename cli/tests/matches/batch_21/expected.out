@@ -1,42 +1,39 @@
-m0 <a1>
-m0 <a4>
+m0 <a4 2>
+m0 <a1 3>
 m0 <a0>
-m1 a0 i0 4
-m1 a0 i2 0
-m1 a0 i2 0
-m2 a0
-m2 a0
-m3 <a0>
-m3 <a2>
-m3 <a3>
-m4 <a0 i0|true>
-m4 <a2|true>
-m4 <a0 i0|true>
-s5 a0
-s5 a0
-s5 a0
-m6 <a0>
-m6 <a3>
+m1 <a1|true>
+m1 <a1|true>
+s2 a0
+s2 a0
+m3 a1
+m3 a1
+m3 a3
+s4 a2
+s4 a0 i0
+s4 a0 i0
+m5 a0
+m5 a1 true 5 1 0
+m5 a0
+m6 a0
+m6 a0
 m7 <a0|true>
-m7 <a3|true>
-m8 <a0>
-m8 <a0>
-m9 a0
-m9 a0
-m9 a2
-m10 a0 3
-m10 a0 0
-m10 a0 0
-s11 a0
-s11 a0
-s11 a0
-s12 a1
-s12 a1
-s12 a0
-m13 <a0 true>
-m13 <a0 true>
-s14 a0
-s14 a2
-m15 a0 8 0
-m15 a3 8
-m15 a1
+m7 <a0|true>
+m8 <a2>
+m8 <a2>
+m8 <a2>
+m9 <a0|true>
+m9 <a1|true>
+m9 <a3|true>
+m10 <a0>
+m10 <a2>
+m10 <a2>
+m11 a0
+m11 a0
+s12 a0 i1
+s12 a0 i6 1
+s13 a2
+s13 a2
+s14 a1 0
+s14 a6
+s15 a0
+s15 a1

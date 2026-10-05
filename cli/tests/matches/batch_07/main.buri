@@ -59,157 +59,231 @@ enum Signal {
 }
 
 fn s0<C: Allocator + Stdout>(ctx: C, v: Str, limit: Int): () {
-    let _ = match (okay(v, limit)) {
-        .Err(b0) => say(ctx, "s0 a0"),
-        .Ok("b2") => say(ctx, "s0 a1"),
-        .Ok(b1) => say(ctx, str.format(ctx, "s0 a2 ${b1}")),
-    };
-    ()
-}
-
-fn s1<C: Allocator + Stdout>(ctx: C, v: Shape, limit: Int): () {
     let _ = match (some(v)) {
-        .None => say(ctx, "s1 a0"),
-        .Some(.Juliet { inner: _, inner2: .Some(_) } | .India) => say(ctx, "s1 a1"),
-        .Some(_) => say(ctx, "s1 a2"),
+        .Some("ab3") => say(ctx, "s0 a0"),
+        .Some("a1") => say(ctx, "s0 a1"),
+        .Some("e5") => say(ctx, "s0 a2"),
+        .Some("b2" | "b2") => say(ctx, "s0 a3"),
+        .Some(b0) => say(ctx, "s0 a4"),
+        .None => say(ctx, "s0 a5"),
     };
     ()
 }
 
-fn m2<C: Allocator>(ctx: C, v: (Shape, [Int]), limit: Int): Str {
+fn m1<C: Allocator>(ctx: C, v: Signal, limit: Int): Str {
     let held = (limit, v);
-    match (held.1) {
-        (.India | .India, b0) => str.format(ctx, "a0 ${b0.length()}"),
-        (.Juliet { inner: b2, inner2: _ }, b3) => str.format(ctx, "a1 ${b3.length()}"),
-    }
-}
-
-fn s3<C: Allocator + Stdout>(ctx: C, v: Shape, limit: Int): () {
-    let make = fn(x: Shape, n: Int) => Option.Some((x, n));
-    let _ = match (make(v, limit)) {
-        .Some((.Juliet { .. }, 1)) => say(ctx, "s3 a0"),
-        .Some((.Juliet { inner: _, inner2: _ }, 1 | 0)) => say(ctx, "s3 a1"),
-        _ => say(ctx, "s3 a2"),
-    };
-    ()
-}
-
-fn m4<C: Allocator>(ctx: C, v: Point, limit: Int): Str {
-    match (v) {
-        Point { label: "e5" | "" } => "a0",
-        Point { label: b0 } if b0.length() <= 2 => str.format(ctx, "a1 ${b0}"),
-        Point { label: b1, .. } => str.format(ctx, "a2 ${b1}"),
-    }
-}
-
-fn s5<C: Allocator + Stdout>(ctx: C, v: Int, limit: Int): () {
-    let make = fn(x: Int, n: Int) => (n, x);
-    let _ = match (make(v, limit)) {
-        (13, 3) => say(ctx, "s5 a0"),
-        (b0, 3) if b0 != 3 => say(ctx, str.format(ctx, "s5 a1 ${b0}")),
-        (2, 3 | 5) => say(ctx, "s5 a2"),
-        (b2, b1) => say(ctx, str.format(ctx, "s5 a3 ${b2} ${b1}")),
-    };
-    ()
-}
-
-fn m6<C: Allocator>(ctx: C, v: Token, limit: Int): Str {
-    let answer = match (v) {
-        .Echo => "a0",
-        .Sierra(["a1", b0, _], b1, Point { label: "e5", .. }) => {
-            str.format(ctx, "a1 ${b0}")
-        },
-        .Sierra(["a1", ..], .Some(false) | .None, b2) => "a2",
+    let answer = match (held.1) {
+        .November(_) => "a0",
+        .Quebec => "a1",
+        .Romeo { head: .Ok(1) | .Err(-2), inner: _ } => "a2",
         _ => "a3",
     };
     str.format(ctx, "<${answer}>")
 }
 
-fn s7<C: Allocator + Stdout>(ctx: C, v: Shape, limit: Int): () {
-    let _ = match (id(v)) {
-        .Juliet { inner: (b0, b1), inner2: .Some(3), .. } => {
-            say(ctx, str.format(ctx, "s7 a0 ${b0} ${b1}"))
+fn s2<C: Allocator + Stdout>(ctx: C, v: (Shape, Int), limit: Int): () {
+    let held = (limit, v);
+    let _ = match (held.1) {
+        (.Juliet { inner: (b0, _), inner2: .Some(b1) }, 2) => {
+            say(ctx, str.format(ctx, "s2 a0 ${b0}"))
         },
-        .India => say(ctx, "s7 a1"),
-        .Juliet { inner: (0, false) | (3 | 5, false), inner2: .Some(0 | 8) | .Some(5) } => {
-            say(ctx, "s7 a2")
+        (.Juliet { inner: (b2, b3), inner2: .None }, 8) => {
+            say(ctx, str.format(ctx, "s2 a1 ${b2} ${b3}"))
         },
-        _ => say(ctx, "s7 a3"),
+        (b4, 2) => say(ctx, "s2 a2"),
+        (.Juliet { inner: _, inner2: b5 }, _) => say(ctx, "s2 a3"),
+        b6 => say(ctx, "s2 a4"),
     };
     ()
 }
 
-fn m8<C: Allocator>(ctx: C, v: [Str], limit: Int): Str {
+fn m3<C: Allocator>(ctx: C, v: Str, limit: Int): Str {
+    let make = fn(x: Str, n: Int) => Option.Some((x, n));
+    match (make(v, limit)) {
+        .Some((b0, _)) => "a0",
+        _ => "a1",
+    }
+}
+
+fn m4<C: Allocator>(ctx: C, v: Entry, limit: Int): Str {
     match (v) {
-        [b0, "cd4"] if b0.startsWith("ab") => str.format(ctx, "a0 ${b0}"),
-        ["e5", "cd4"] => "a1",
-        ["e5", "cd4" | "a1"] => "a2",
-        ["e5", ..b1] if b1.length() != 2 => str.format(ctx, "a3 ${b1.length()}"),
-        _ => "a4",
-    }
-}
-
-fn m9<C: Allocator>(ctx: C, v: Token, limit: Int): Str {
-    match (some(v)) {
-        .Some(b0) => "a0",
-        .None => "a1",
-    }
-}
-
-fn m10<C: Allocator>(ctx: C, v: Token, limit: Int): Str {
-    let make = fn(x: Token) => Option.Some(x);
-    let answer = match (make(v)) {
-        .Some(.Sierra(_, .Some(_), _) | .Echo) => "a0",
-        .Some(.Echo | .Sierra([_, _] | [_], .Some(_) | .None, Point { label: _, .. } | Point { label: _ })) => {
+        Entry { tags: [], held: (b0, b1, b2), .. } => {
+            str.format(ctx, "a0 ${b1.length()} ${b2}")
+        },
+        Entry { tags: [-2 | 0, ..], held: ("b2" | "e5", _, _) } | Entry { tags: _, .. } => {
             "a1"
         },
-        .Some(b0) => "a2",
-        .None => "a3",
-    };
-    str.format(ctx, "<${answer}>")
+    }
 }
 
-fn m11<C: Allocator>(ctx: C, v: Result<Int, Result<[Int], Str>>, limit: Int): Str {
-    let answer = match (v) {
-        .Ok(-2) => "a0",
-        .Ok(5) | .Ok(5 | 3) => "a1",
-        .Ok(b0) => "a2",
+fn s5<C: Allocator + Stdout>(ctx: C, v: Token, limit: Int): () {
+    let _ = match (id(v)) {
+        .Sierra(["cd4", b0, b1], .Some(false | true) | .Some(false | false), _) => {
+            say(ctx, str.format(ctx, "s5 a0 ${b0}"))
+        },
+        .Sierra([_, ..] | ["cd4", ..], .Some(b2), _) => say(ctx, "s5 a1"),
+        .Echo => say(ctx, "s5 a2"),
+        .Sierra(["cd4" | "ab3", b3, "e5"], _, Point { .. }) => say(ctx, "s5 a3"),
+        .Sierra(["e5", ..], b4, b5) => say(ctx, "s5 a4"),
+        .Sierra(["e5", "b2" | "b2", ..] | ["a1"], b6, Point { label: "b2", .. }) => {
+            say(ctx, "s5 a5")
+        },
+        _ => say(ctx, "s5 a6"),
+    };
+    ()
+}
+
+fn s6<C: Allocator + Stdout>(ctx: C, v: Signal, limit: Int): () {
+    let _ = match (v) {
+        .Romeo { head: .Err(13 | 3), inner: b0 } => say(ctx, "s6 a0"),
+        .Romeo { head: b1, inner: .Sierra([], b2, Point { label: b3 }) } if b3.length()
+            == 3 => { say(ctx, "s6 a1") },
+        .November(b4 @ .Some("b2")) => say(ctx, "s6 a2"),
+        .Romeo { head: .Err(13 | 8), inner: .Echo } => say(ctx, "s6 a3"),
+        b5 => say(ctx, "s6 a4"),
+    };
+    ()
+}
+
+fn s7<C: Allocator + Stdout>(ctx: C, v: Point, limit: Int): () {
+    let _ = match (id(v)) {
+        Point { .. } => say(ctx, "s7 a0"),
+    };
+    ()
+}
+
+fn m8<C: Allocator>(ctx: C, v: Shape, limit: Int): Str {
+    let make = fn(x: Shape, n: Int) => (n, x);
+    match (make(v, limit)) {
+        (b0, .Juliet { inner: (_, _), inner2: .Some(_) } | .Juliet { inner: _, inner2: .Some(_) }) => {
+            str.format(ctx, "a0 ${b0}")
+        },
+        (3 | 1, .Juliet { inner: (b3, b4), inner2: .None }) => {
+            str.format(ctx, "a1 ${b3} ${b4}")
+        },
+        _ => "a2",
+    }
+}
+
+fn m9<C: Allocator>(ctx: C, v: Int, limit: Int): Str {
+    let answer = match (okay(v, limit)) {
+        .Err(3) => "a0",
+        .Ok(13) => "a1",
+        .Ok(_) => "a2",
         .Err(_) => "a3",
     };
     str.format(ctx, "<${answer}>")
 }
 
-fn m12<C: Allocator>(ctx: C, v: Point, limit: Int): Str {
+fn m10<C: Allocator>(ctx: C, v: Point, limit: Int): Str {
     match (v) {
-        Point { label: "a1", .. } => "a0",
-        Point { label: b0 } if sized(b0) > 2 => "a1",
-        Point { label: "ab3" } | Point { .. } => "a2",
+        Point { .. } => "a0",
     }
 }
 
-fn m13<C: Allocator>(ctx: C, v: Shape, limit: Int): Str {
-    match (v) {
-        .India => "a0",
-        .Juliet { inner: b0, inner2: b1 } => "a1",
-    }
+fn s11<C: Allocator + Stdout>(ctx: C, v: Shape, limit: Int): () {
+    let make = fn(x: Shape, n: Int) => (n, x);
+    let _ = match (make(v, limit)) {
+        (b0, _) if b0 < -1 || b0 < 1 => say(ctx, str.format(ctx, "s11 a0 ${b0}")),
+        (0 | 0, _) => say(ctx, "s11 a1"),
+        (1, _) => say(ctx, "s11 a2"),
+        (-2 | 2, .India) => say(ctx, "s11 a3"),
+        (3 | 1, .Juliet { inner: (_, _) | (_, _), inner2: .Some(_) }) => {
+            say(ctx, "s11 a4")
+        },
+        (_, b1) => {
+            let b1n = match (b1) {
+                .Juliet { inner: b2, inner2: .None } => "i0",
+                .Juliet { inner2: .Some(b3), .. } if b3 >= limit => "i1",
+                _ => "i2",
+            };
+            say(ctx, str.format(ctx, "s11 a5 ${b1n}"))
+        },
+    };
+    ()
 }
 
-fn m14<C: Allocator>(ctx: C, v: Shape, limit: Int): Str {
-    let answer = match (some(v)) {
-        .Some(_) => "a0",
-        .None => "a1",
+fn m12<C: Allocator>(ctx: C, v: Bool, limit: Int): Str {
+    let answer = match (v) {
+        false => "a0",
+        true => "a1",
     };
     str.format(ctx, "<${answer}>")
 }
 
-fn m15<C: Allocator>(ctx: C, v: Entry, limit: Int): Str {
-    match (v) {
-        Entry { tags: b0, held: ("b2", b1, false) } => {
-            str.format(ctx, "a0 ${b1.length()}")
+fn s13<C: Allocator + Stdout>(ctx: C, v: Shape, limit: Int): () {
+    let make = fn(x: Shape, n: Int) => Option.Some((x, n));
+    let _ = match (make(v, limit)) {
+        .Some((.Juliet { inner: b0, inner2: b1 }, b2)) if b2 == 4 => {
+            let b1n = match (b1) {
+                .None => "i0",
+                .Some(1) => "i1",
+                .Some(b3) => "i2",
+            };
+            say(ctx, str.format(ctx, "s13 a0 ${b1n} ${b2}"))
         },
-        Entry { tags: [3, _], held: b2 } => "a1",
-        _ => "a2",
-    }
+        .Some((.Juliet { inner: b4, inner2: b5 }, 3)) => {
+            let b4n = match (b4) {
+                (1 | 0, false) => "i0",
+                (1 | 5, b6) => "i1",
+                (b7, false) if b7 != 0 => str.format(ctx, "i2 ${b7}"),
+                b8 => "i3",
+            };
+            say(ctx, str.format(ctx, "s13 a1 ${b4n}"))
+        },
+        .Some((.Juliet { inner: b9, inner2: _ }, 8)) => say(ctx, "s13 a2"),
+        .Some(b10) => {
+            let b10n = match (b10) {
+                (b13 @ .Juliet { inner: (b11, b12), inner2: _ }, 3 | -2) if b12 => {
+                    str.format(ctx, "i0 ${b11} ${b12}")
+                },
+                (.Juliet { inner: b14, inner2: b15 }, 0) if b15.isSome() => "i1",
+                (.Juliet { inner: (b16, _), .. }, 0) if b16 == 1 => {
+                    str.format(ctx, "i2 ${b16}")
+                },
+                (.Juliet { inner: (_, _), inner2: .Some(_) | .Some(_) } | .Juliet { inner: (_, _) | (_, _), inner2: .Some(_) }, 13) => {
+                    "i3"
+                },
+                (.India, _) => "i4",
+                (.Juliet { inner: _, inner2: _ }, b17) if b17 != limit => {
+                    str.format(ctx, "i5 ${b17}")
+                },
+                _ => "i6",
+            };
+            say(ctx, str.format(ctx, "s13 a3 ${b10n}"))
+        },
+        b20 if b20.isSome() && b20.isSome() => say(ctx, "s13 a4"),
+        _ => say(ctx, "s13 a5"),
+    };
+    ()
+}
+
+fn m14<C: Allocator>(ctx: C, v: Point, limit: Int): Str {
+    let make = fn(x: Point) => Option.Some(x);
+    let answer = match (make(v)) {
+        .Some(Point { .. }) => "a0",
+        _ => "a1",
+    };
+    str.format(ctx, "<${answer}>")
+}
+
+fn s15<C: Allocator + Stdout>(ctx: C, v: [Int], limit: Int): () {
+    let _ = match (v) {
+        [13, 1, _] => say(ctx, "s15 a0"),
+        [b0, 1, 8] => say(ctx, str.format(ctx, "s15 a1 ${b0}")),
+        [1, 1, b1] => say(ctx, str.format(ctx, "s15 a2 ${b1}")),
+        [3, 1, 8, ..b2] => {
+            let b2n = match (b2) {
+                [] => "i0",
+                [b3, 8, b4] => str.format(ctx, "i1 ${b3} ${b4}"),
+                _ => "i2",
+            };
+            say(ctx, str.format(ctx, "s15 a3 ${b2n} ${b2.length()}"))
+        },
+        [13 | 2, 1, ..] => say(ctx, "s15 a4"),
+        _ => say(ctx, "s15 a5"),
+    };
+    ()
 }
 
 export fn main(host: NativeHost): Result<(), Str> {
@@ -217,89 +291,42 @@ export fn main(host: NativeHost): Result<(), Str> {
         Allocator: host.alloc,
         Stdout: host.stdout,
     };
-    let _ = s0(ctx, str.format(ctx, "b${2}"), 3);
-    let _ = s0(ctx, "b2", 0);
+    let _ = s0(ctx, "b2", 3);
+    let _ = s0(ctx, str.format(ctx, "b${2}"), 0);
     let _ = s0(ctx, "", 4);
-    let _ = s1(ctx, Shape.Juliet { inner: (13, true), inner2: Option.Some(1) }, 2);
-    let _ = s1(ctx, Shape.Juliet { inner: (13, true), inner2: Option.Some(0) }, 2);
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m2 ${m2(
-                ctx,
-                (Shape.India, list.empty<Int>().push(ctx, 1).push(ctx, 13)),
-                0,
-            )}",
+            "m1 ${m1(ctx, Signal.November(Option.Some(str.format(ctx, "cd${4}"))), 4)}",
         ),
     );
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m2 ${m2(
-                ctx,
-                (Shape.India, list.empty<Int>().push(ctx, 1).push(ctx, 13)),
-                3,
-            )}",
+            "m1 ${m1(ctx, Signal.November(Option.Some(str.format(ctx, "b${2}"))), 2)}",
         ),
     );
     let _ = say(
         ctx,
-        str.format(
-            ctx,
-            "m2 ${m2(
-                ctx,
-                (Shape.India, list.empty<Int>().push(ctx, 1).push(ctx, 13)),
-                0,
-            )}",
-        ),
+        str.format(ctx, "m1 ${m1(ctx, Signal.November(Option.Some("")), 0)}"),
     );
-    let _ = s3(ctx, Shape.Juliet { inner: (1, false), inner2: Option.Some(-2) }, 1);
-    let _ = s3(ctx, Shape.Juliet { inner: (3, true), inner2: Option.Some(-2) }, 4);
-    let _ = s3(ctx, Shape.India, 0);
-    let _ = say(ctx, str.format(ctx, "m4 ${m4(ctx, Point { label: "b2" }, 1)}"));
-    let _ = say(ctx, str.format(ctx, "m4 ${m4(ctx, Point { label: "b2" }, 2)}"));
-    let _ = s5(ctx, 3, 2);
-    let _ = s5(ctx, 1, 3);
-    let _ = say(ctx, str.format(ctx, "m6 ${m6(ctx, Token.Echo, 1)}"));
+    let _ = s2(ctx, (Shape.Juliet { inner: (8, true), inner2: Option.Some(3) }, 2), 0);
+    let _ = s2(ctx, (Shape.Juliet { inner: (8, true), inner2: Option.Some(3) }, 13), 1);
+    let _ = say(ctx, str.format(ctx, "m3 ${m3(ctx, "e5", 4)}"));
+    let _ = say(ctx, str.format(ctx, "m3 ${m3(ctx, "", 4)}"));
+    let _ = say(ctx, str.format(ctx, "m3 ${m3(ctx, str.format(ctx, "cd${4}"), 1)}"));
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m6 ${m6(
+            "m4 ${m4(
                 ctx,
-                Token.Sierra(
-                    [str.format(ctx, "a${1}"), "cd4", ""],
-                    Option.Some(false),
-                    Point { label: str.format(ctx, "e${5}") },
-                ),
-                3,
-            )}",
-        ),
-    );
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m6 ${m6(
-                ctx,
-                Token.Sierra(list.empty<Str>(), Option.Some(false), Point {
-                    label: "a1",
-                }),
-                3,
-            )}",
-        ),
-    );
-    let _ = s7(ctx, Shape.Juliet { inner: (0, false), inner2: Option.Some(3) }, 4);
-    let _ = s7(ctx, Shape.Juliet { inner: (0, true), inner2: Option.Some(3) }, 3);
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m8 ${m8(
-                ctx,
-                list.empty<Str>().push(ctx, str.format(ctx, "e${5}")).push(ctx, "cd4"),
+                Entry {
+                    tags: list.empty<Int>(),
+                    held: ("e5", list.empty<Int>().push(ctx, 3).push(ctx, 8), true),
+                },
                 2,
             )}",
         ),
@@ -308,68 +335,120 @@ export fn main(host: NativeHost): Result<(), Str> {
         ctx,
         str.format(
             ctx,
-            "m8 ${m8(ctx, list.empty<Str>().push(ctx, "").push(ctx, "cd4"), 3)}",
+            "m4 ${m4(
+                ctx,
+                Entry {
+                    tags: [-2, 0, -2],
+                    held: (str.format(ctx, "b${2}"), [0], false),
+                },
+                1,
+            )}",
         ),
     );
-    let _ = say(
+    let _ = s5(
         ctx,
-        str.format(ctx, "m8 ${m8(ctx, [str.format(ctx, "e${5}"), "a1"], 4)}"),
+        Token.Sierra(
+            list
+                .empty<Str>()
+                .push(ctx, "cd4")
+                .push(ctx, "")
+                .push(ctx, str.format(ctx, "e${5}")),
+            Option.Some(true),
+            Point { label: str.format(ctx, "b${2}") },
+        ),
+        1,
     );
-    let _ = say(ctx, str.format(ctx, "m9 ${m9(ctx, Token.Echo, 3)}"));
-    let _ = say(ctx, str.format(ctx, "m9 ${m9(ctx, Token.Echo, 3)}"));
-    let _ = say(ctx, str.format(ctx, "m9 ${m9(ctx, Token.Echo, 0)}"));
-    let _ = say(ctx, str.format(ctx, "m10 ${m10(ctx, Token.Echo, 4)}"));
-    let _ = say(ctx, str.format(ctx, "m10 ${m10(ctx, Token.Echo, 0)}"));
-    let _ = say(ctx, str.format(ctx, "m11 ${m11(ctx, Result.Ok(5), 4)}"));
-    let _ = say(ctx, str.format(ctx, "m11 ${m11(ctx, Result.Ok(2), 2)}"));
-    let _ = say(ctx, str.format(ctx, "m11 ${m11(ctx, Result.Ok(-2), 0)}"));
-    let _ = say(ctx, str.format(ctx, "m12 ${m12(ctx, Point { label: "a1" }, 4)}"));
-    let _ = say(ctx, str.format(ctx, "m12 ${m12(ctx, Point { label: "ab3" }, 1)}"));
-    let _ = say(ctx, str.format(ctx, "m13 ${m13(ctx, Shape.India, 0)}"));
-    let _ = say(ctx, str.format(ctx, "m13 ${m13(ctx, Shape.India, 0)}"));
-    let _ = say(ctx, str.format(ctx, "m14 ${m14(ctx, Shape.India, 4)}"));
-    let _ = say(ctx, str.format(ctx, "m14 ${m14(ctx, Shape.India, 0)}"));
+    let _ = s5(
+        ctx,
+        Token.Sierra(
+            list
+                .empty<Str>()
+                .push(ctx, str.format(ctx, "e${5}"))
+                .push(ctx, str.format(ctx, "b${2}")),
+            Option.Some(true),
+            Point { label: str.format(ctx, "b${2}") },
+        ),
+        4,
+    );
+    let _ = s5(
+        ctx,
+        Token.Sierra([str.format(ctx, "cd${4}"), "", "e5"], Option.Some(true), Point {
+            label: "",
+        }),
+        2,
+    );
+    let _ = s6(ctx, Signal.Romeo { head: Result.Err(13), inner: Token.Echo }, 4);
+    let _ = s6(ctx, Signal.Romeo { head: Result.Err(13), inner: Token.Echo }, 0);
+    let _ = s6(
+        ctx,
+        Signal.Romeo {
+            head: Result.Err(13),
+            inner: Token.Sierra(list.empty<Str>(), Option.Some(false), Point {
+                label: str.format(ctx, "cd${4}"),
+            }),
+        },
+        1,
+    );
+    let _ = s7(ctx, Point { label: "a1" }, 1);
+    let _ = s7(ctx, Point { label: str.format(ctx, "e${5}") }, 2);
+    let _ = s7(ctx, Point { label: "a1" }, 0);
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m15 ${m15(
+            "m8 ${m8(
                 ctx,
-                Entry {
-                    tags: [5, 8],
-                    held: (str.format(ctx, "b${2}"), list.empty<Int>(), false),
-                },
+                Shape.Juliet { inner: (1, true), inner2: Option.Some(0) },
+                1,
+            )}",
+        ),
+    );
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m8 ${m8(
+                ctx,
+                Shape.Juliet { inner: (1, true), inner2: Option.Some(3) },
                 3,
             )}",
         ),
     );
+    let _ = say(ctx, str.format(ctx, "m9 ${m9(ctx, 5, 3)}"));
+    let _ = say(ctx, str.format(ctx, "m9 ${m9(ctx, 3, 2)}"));
+    let _ = say(ctx, str.format(ctx, "m9 ${m9(ctx, 3, 0)}"));
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m15 ${m15(
-                ctx,
-                Entry {
-                    tags: list.empty<Int>().push(ctx, 5).push(ctx, 8),
-                    held: (str.format(ctx, "a${1}"), list.empty<Int>(), false),
-                },
-                0,
-            )}",
+            "m10 ${m10(ctx, Point { label: str.format(ctx, "a${1}") }, 2)}",
+        ),
+    );
+    let _ = say(ctx, str.format(ctx, "m10 ${m10(ctx, Point { label: "a1" }, 3)}"));
+    let _ = say(ctx, str.format(ctx, "m10 ${m10(ctx, Point { label: "a1" }, 1)}"));
+    let _ = s11(ctx, Shape.Juliet { inner: (2, true), inner2: Option.Some(1) }, 0);
+    let _ = s11(ctx, Shape.Juliet { inner: (2, true), inner2: Option.Some(13) }, 0);
+    let _ = s11(ctx, Shape.Juliet { inner: (2, true), inner2: Option.Some(5) }, 3);
+    let _ = say(ctx, str.format(ctx, "m12 ${m12(ctx, true, 3)}"));
+    let _ = say(ctx, str.format(ctx, "m12 ${m12(ctx, false, 3)}"));
+    let _ = s13(ctx, Shape.Juliet { inner: (1, true), inner2: Option.None }, 0);
+    let _ = s13(ctx, Shape.Juliet { inner: (1, false), inner2: Option.None }, 3);
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m14 ${m14(ctx, Point { label: str.format(ctx, "b${2}") }, 4)}",
         ),
     );
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m15 ${m15(
-                ctx,
-                Entry {
-                    tags: list.empty<Int>().push(ctx, 3).push(ctx, 8),
-                    held: (str.format(ctx, "b${2}"), list.empty<Int>(), false),
-                },
-                4,
-            )}",
+            "m14 ${m14(ctx, Point { label: str.format(ctx, "a${1}") }, 4)}",
         ),
     );
+    let _ = s15(ctx, [13, 1, 8], 1);
+    let _ = s15(ctx, [3, 1, 8], 4);
+    let _ = s15(ctx, [3, 0, 2], 3);
     .Ok(())
 }

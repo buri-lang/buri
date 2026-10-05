@@ -58,190 +58,212 @@ enum Signal {
 }
 
 fn m0<C: Allocator>(ctx: C, v: Signal, limit: Int): Str {
-    let answer = match (v) {
-        .Papa(b0, Point { text: "cd4" }) => "a0",
-        .Papa(b1, b2) => str.format(ctx, "a1 ${b1}"),
-        .Uniform(b3, b4) => "a2",
+    let answer = match (some(v)) {
+        .Some(b0) => {
+            let b0n = match (b0) {
+                .Papa("", Point { text: _ }) => "i0",
+                .Papa("ab3" | "e5", Point { .. }) => "i1",
+                .Papa(b1, Point { text: _ }) => "i2",
+                _ => "i3",
+            };
+            str.format(ctx, "a0 ${b0n}")
+        },
+        _ => "a1",
     };
     let kept = some(v).isSome();
     str.format(ctx, "<${answer}|${kept}>")
 }
 
-fn m1<C: Allocator>(ctx: C, v: Shape, limit: Int): Str {
-    let make = fn(x: Shape) => Option.Some(x);
-    let answer = match (make(v)) {
-        .Some(b0) => "a0",
-        _ => "a1",
-    };
-    str.format(ctx, "<${answer}>")
-}
-
-fn m2<C: Allocator>(ctx: C, v: (Shape, Int), limit: Int): Str {
-    let held = (limit, v);
-    let answer = match (held.1) {
-        (.Tango((b0, b1, b2), (b3, b4), _), _) => {
-            str.format(ctx, "a0 ${b1} ${b3} ${b4}")
-        },
-        (.Delta, b14) => str.format(ctx, "a1 ${b14}"),
-    };
-    str.format(ctx, "<${answer}>")
-}
-
-fn s3<C: Allocator + Stdout>(ctx: C, v: [Int], limit: Int): () {
-    let _ = match (v) {
-        [_, 0] => say(ctx, "s3 a0"),
-        [3, _] => say(ctx, "s3 a1"),
-        [_, 5, ..b0] => {
-            let b0n = match (b0) {
-                [] => "i0",
-                _ => "i1",
-            };
-            say(ctx, str.format(ctx, "s3 a2 ${b0n} ${b0.length()}"))
-        },
-        b1 if b1.isEmpty() && b1.length() == 1 => {
-            say(ctx, str.format(ctx, "s3 a3 ${b1.length()}"))
-        },
-        _ => say(ctx, "s3 a4"),
-    };
-    ()
-}
-
-fn s4<C: Allocator + Stdout>(ctx: C, v: Result<Shape, Shape>, limit: Int): () {
-    let _ = match (id(v)) {
-        .Ok(b2 @ .Tango(_, (b0, b1), 1)) if b1.startsWith("c") => {
-            say(ctx, str.format(ctx, "s4 a0 ${b0}"))
-        },
-        .Ok(b9 @ .Tango((b3, b4, b5), b8 @ (b6, b7), _)) => {
-            let b8n = match (b8) {
-                (b10, _) if b10 != 1 || b10 >= 1 => str.format(ctx, "i0 ${b10}"),
-                (0, "") => "i1",
-                _ => "i2",
-            };
-            say(ctx, str.format(ctx, "s4 a1 ${b8n} ${b3} ${b4} ${b5} ${b6} ${b7}"))
-        },
-        .Ok(b11) => say(ctx, "s4 a2"),
-        .Err(_) => say(ctx, "s4 a3"),
-    };
-    ()
-}
-
-fn m5<C: Allocator>(ctx: C, v: Shape, limit: Int): Str {
+fn m1<C: Allocator>(ctx: C, v: Entry, limit: Int): Str {
     match (v) {
-        .Delta => "a0",
-        .Tango((true, 1, b0), b1 @ (-2 | 3, "b2"), _) => str.format(ctx, "a1 ${b0}"),
-        _ => "a2",
+        Entry { body: .Err([b0]), head: _, inner: _ } => "a0",
+        Entry { inner: .Tango((b1, b2, b3), (b4, b5), b6), .. } if b6 > 2
+            && b5.startsWith("b") => {
+            str.format(ctx, "a1 ${b1} ${b2} ${b3} ${b4} ${b5} ${b6}")
+        },
+        Entry { body: b7 @ .Ok(-2), head: b8, inner: _ } if b7.isOk() => "a2",
+        Entry { body: .Err([b9, ..]), head: b10, inner: b14 @ .Tango(b11, (b12, b13), 1) } if b12
+            >= limit => { str.format(ctx, "a3 ${b9} ${b12}") },
+        Entry { body: b15, head: .Delta, inner: .Delta } => "a4",
+        Entry { body: .Ok(-2), head: _, inner: .Tango(b18 @ (b16, _, b17), b19, 13), .. } => {
+            "a5"
+        },
+        Entry { head: .Delta, .. } => "a6",
+        Entry { head: .Tango(b20, _, _), .. } => "a7",
+    }
+}
+
+fn m2<C: Allocator>(ctx: C, v: Point, limit: Int): Str {
+    match (v) {
+        Point { text: "b2" } => "a0",
+        Point { text: "ab3" | "b2" } => "a1",
+        Point { text: _ } => "a2",
+    }
+}
+
+fn m3<C: Allocator>(ctx: C, v: Entry, limit: Int): Str {
+    let make = fn(x: Entry, n: Int) => Option.Some((x, n));
+    let answer = match (make(v, limit)) {
+        .Some((Entry { body: b0, head: b1, inner: b2 }, 0)) if b0.isOk() => "a0",
+        .Some((Entry { body: b3, head: _, inner: b4 }, 0)) => "a1",
+        .Some((Entry { body: b5, head: b6, inner: _ }, 3)) if !b5.isOk() => {
+            let b5n = match (b5) {
+                .Ok(b7) if b7 == limit => str.format(ctx, "i0 ${b7}"),
+                .Ok(_) => "i1",
+                b8 => "i2",
+            };
+            str.format(ctx, "a2 ${b5n}")
+        },
+        .Some((Entry { body: _, head: _, inner: _, .. } | Entry { body: _, head: _, inner: _ }, b9)) if b9
+            <= 0
+            || b9 <= -1 => { "a3" },
+        .Some(b10) => "a4",
+        .None => "a5",
+    };
+    str.format(ctx, "<${answer}>")
+}
+
+fn m4<C: Allocator>(ctx: C, v: Bool, limit: Int): Str {
+    let make = fn(x: Bool, n: Int) => Option.Some((x, n));
+    match (make(v, limit)) {
+        .Some((_, b0)) => "a0",
+        _ => "a1",
+    }
+}
+
+fn m5<C: Allocator>(ctx: C, v: Point, limit: Int): Str {
+    match (some(v)) {
+        .Some(Point { text: b0 }) if b0 == "a1" => str.format(ctx, "a0 ${b0}"),
+        .None => "a1",
+        .Some(Point { text: "" | "" }) => "a2",
+        .Some(Point { text: "a1" }) | .Some(_) => "a3",
     }
 }
 
 fn m6<C: Allocator>(ctx: C, v: Entry, limit: Int): Str {
     let answer = match (v) {
-        Entry { inner: _, .. } => "a0",
+        Entry { body: .Ok(1), head: .Tango((b0, b1, _), (_, b2), 5), inner: b3 } => {
+            let b3n = match (b3) {
+                .Delta => "i0",
+                .Tango(_, _, b4) => "i1",
+            };
+            str.format(ctx, "a0 ${b3n} ${b0} ${b1}")
+        },
+        Entry { body: .Ok(8) | .Err(_), head: _, inner: .Delta } => "a1",
+        Entry { body: .Ok(_), head: .Tango(_, (_, b5), 5), inner: .Tango(b6, (b7, _), 3) } => {
+            str.format(ctx, "a2 ${b5}")
+        },
+        _ => "a3",
     };
     str.format(ctx, "<${answer}>")
 }
 
-fn m7<C: Allocator>(ctx: C, v: Token, limit: Int): Str {
-    match (v) {
-        .Juliet { head: .Tango((_, _, _) | (_, _, _), b1 @ (b0, _), 5) } if b0 > 7
-            && b0 == limit => {
-            let b1n = match (b1) {
-                (8 | 3, "cd4" | "a1") | (1, "e5") => "i0",
-                (b2, "ab3" | "ab3") => "i1",
-                (8, "cd4" | "") => "i2",
-                (_, _) => "i3",
-            };
-            str.format(ctx, "a0 ${b1n} ${b0}")
-        },
-        .Hotel | .Juliet { .. } => "a1",
+fn m7<C: Allocator>(ctx: C, v: Option<Str>, limit: Int): Str {
+    match (okay(v, limit)) {
+        .Ok(b0) if b0.isSome() && !b0.isSome() => "a0",
+        .Ok(.Some("cd4" | "")) | .Ok(.Some(_)) => "a1",
+        .Err(0 | 0) => "a2",
+        .Ok(b1 @ .None) => "a3",
+        .Err(b3) => str.format(ctx, "a4 ${b3}"),
     }
 }
 
-fn s8<C: Allocator + Stdout>(ctx: C, v: Signal, limit: Int): () {
-    let make = fn(x: Signal) => Option.Some(x);
-    let _ = match (make(v)) {
-        .Some(_) => say(ctx, "s8 a0"),
-        .None => say(ctx, "s8 a1"),
+fn s8<C: Allocator + Stdout>(ctx: C, v: Token, limit: Int): () {
+    let _ = match (id(v)) {
+        .Juliet { .. } => say(ctx, "s8 a0"),
+        b1 => say(ctx, "s8 a1"),
     };
     ()
 }
 
-fn m9<C: Allocator>(ctx: C, v: Result<Bool, Result<[Str], Str>>, limit: Int): Str {
-    match (id(v)) {
-        .Ok(b0) => str.format(ctx, "a0 ${b0}"),
-        .Err(_) => "a1",
+fn m9<C: Allocator>(ctx: C, v: Shape, limit: Int): Str {
+    match (v) {
+        .Delta => "a0",
+        .Tango((false, 3, "ab3"), (1, "b2" | ""), -2) => "a1",
+        .Tango(b0, b1, b2) => str.format(ctx, "a2 ${b2}"),
     }
 }
 
-fn m10<C: Allocator>(ctx: C, v: Shape, limit: Int): Str {
-    match (v) {
-        .Tango((_, _, "ab3" | "cd4"), (1, _), 3 | 0) | .Tango((false | false, _, "a1") | (false, 0, "b2"), (-2, "ab3" | "ab3"), 2) => {
+fn s10<C: Allocator + Stdout>(ctx: C, v: Shape, limit: Int): () {
+    let held = (limit, v);
+    let _ = match (held.1) {
+        .Tango((false, 5, _), (3 | 0, "e5" | "ab3"), b0) => say(ctx, "s10 a0"),
+        .Delta => say(ctx, "s10 a1"),
+        .Tango(_, _, _) => say(ctx, "s10 a2"),
+    };
+    ()
+}
+
+fn s11<C: Allocator + Stdout>(ctx: C, v: [Str], limit: Int): () {
+    let _ = match (v) {
+        [] => say(ctx, "s11 a0"),
+        _ => say(ctx, "s11 a1"),
+    };
+    ()
+}
+
+fn m12<C: Allocator>(ctx: C, v: Int, limit: Int): Str {
+    match (some(v)) {
+        .Some(1) => "a0",
+        .Some(2) => "a1",
+        _ => "a2",
+    }
+}
+
+fn s13<C: Allocator + Stdout>(ctx: C, v: [Str], limit: Int): () {
+    let _ = match (id(v)) {
+        [b0, ..b1] if b1.isEmpty() => {
+            say(ctx, str.format(ctx, "s13 a0 ${b0} ${b1.length()}"))
+        },
+        ["", b2] => say(ctx, str.format(ctx, "s13 a1 ${b2}")),
+        ["a1"] => say(ctx, "s13 a2"),
+        [_, ..] => say(ctx, "s13 a3"),
+        b4 if !b4.isEmpty() || b4.isEmpty() => {
+            let b4n = match (b4) {
+                [b5, ..b6] if b6.length() <= 0 => str.format(ctx, "i0 ${b6.length()}"),
+                ["a1"] => "i1",
+                ["ab3" | "e5", ..b7] => str.format(ctx, "i2 ${b7.length()}"),
+                b8 => "i3",
+            };
+            say(ctx, str.format(ctx, "s13 a4 ${b4n} ${b4.length()}"))
+        },
+        _ => say(ctx, "s13 a5"),
+    };
+    ()
+}
+
+fn m14<C: Allocator>(ctx: C, v: Signal, limit: Int): Str {
+    let make = fn(x: Signal, n: Int) => (n, x);
+    match (make(v, limit)) {
+        (2, .Uniform(.Some(_), Point { text: _ } | Point { text: _ }) | .Uniform(.None, Point { text: _ } | Point { text: _, .. })) => {
             "a0"
         },
-        .Delta => "a1",
-        _ => "a2",
+        (2 | 2, _) => "a1",
+        (b1, .Uniform(b0, _)) if !b0.isSome() => str.format(ctx, "a2 ${b1}"),
+        (b2, .Papa(_, _)) => str.format(ctx, "a3 ${b2}"),
+        _ => "a4",
     }
 }
 
-fn m11<C: Allocator>(ctx: C, v: Bool, limit: Int): Str {
-    let make = fn(x: Bool) => Option.Some(x);
-    match (make(v)) {
-        .Some(true | false) => "a0",
-        b1 if b1.isSome() => "a1",
-        _ => "a2",
-    }
-}
-
-fn m12<C: Allocator>(ctx: C, v: Result<Int, Shape>, limit: Int): Str {
-    match (okay(v, limit)) {
-        .Err(b0) if b0 == 4 => str.format(ctx, "a0 ${b0}"),
-        .Err(b1) => str.format(ctx, "a1 ${b1}"),
-        .Ok(_) => "a2",
-    }
-}
-
-fn s13<C: Allocator + Stdout>(ctx: C, v: Shape, limit: Int): () {
-    let make = fn(x: Shape) => Option.Some(x);
-    let _ = match (make(v)) {
-        .Some(.Tango(b0, (b1, _), 1)) if b1 >= 2 => {
-            say(ctx, str.format(ctx, "s13 a0 ${b1}"))
-        },
-        .Some(.Delta) => say(ctx, "s13 a1"),
-        .Some(b2) => say(ctx, "s13 a2"),
-        b8 if b8.isSome() => say(ctx, "s13 a3"),
-        _ => say(ctx, "s13 a4"),
-    };
-    ()
-}
-
-fn m14<C: Allocator>(ctx: C, v: Entry, limit: Int): Str {
-    match (v) {
-        Entry { body: .Ok(_), head: .Tango((b0, b1, b2), b3, b4), inner: .Delta } if b1
-            <= 5 => { str.format(ctx, "a0 ${b0} ${b1} ${b2} ${b4}") },
-        Entry { head: b5, inner: .Delta, .. } => {
-            let b5n = match (b5) {
-                .Tango((true, 5, _), (b6, "ab3"), 1) => "i0",
-                .Tango(_, (_, _), 1 | 3) => "i1",
-                .Delta => "i2",
-                .Tango(b7, _, _) => "i3",
+fn m15<C: Allocator>(ctx: C, v: (Option<Int>, ([Int], Bool, Int)), limit: Int): Str {
+    let answer = match (v) {
+        (.Some(5), ([_], _, _) | ([_], true, -2)) => "a0",
+        (.Some(13) | .Some(8), b0) => "a1",
+        (b1, (b2, true, 3)) => {
+            let b1n = match (b1) {
+                .Some(13 | 3) => "i0",
+                .Some(1 | 1) => "i1",
+                .Some(b3) => str.format(ctx, "i2 ${b3}"),
+                .None => "i3",
             };
-            str.format(ctx, "a1 ${b5n}")
+            str.format(ctx, "a2 ${b1n} ${b2.length()}")
         },
-        Entry { body: .Ok(0), head: .Tango(b8, _, 1), inner: .Tango(b9, b10, b11) } => {
-            str.format(ctx, "a2 ${b11}")
+        (_, (b7 @ [b4, b5, b6], false, 3)) => {
+            str.format(ctx, "a3 ${b5} ${b7.length()}")
         },
-        _ => "a3",
-    }
-}
-
-fn m15<C: Allocator>(ctx: C, v: [Int], limit: Int): Str {
-    match (v) {
-        [8, _, 1] => "a0",
-        [0, ..b0] => str.format(ctx, "a1 ${b0.length()}"),
-        [_, 0, ..] | [] => "a2",
-        [3 | 1, b1, ..b2] => str.format(ctx, "a3 ${b1} ${b2.length()}"),
-        [8, 5, ..b3] => str.format(ctx, "a4 ${b3.length()}"),
-        [_, ..] => "a5",
-    }
+        b8 => "a4",
+    };
+    str.format(ctx, "<${answer}>")
 }
 
 export fn main(host: NativeHost): Result<(), Str> {
@@ -251,14 +273,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     };
     let _ = say(
         ctx,
-        str.format(
-            ctx,
-            "m0 ${m0(
-                ctx,
-                Signal.Papa("", Point { text: str.format(ctx, "cd${4}") }),
-                2,
-            )}",
-        ),
+        str.format(ctx, "m0 ${m0(ctx, Signal.Papa("", Point { text: "cd4" }), 2)}"),
     );
     let _ = say(
         ctx,
@@ -266,7 +281,9 @@ export fn main(host: NativeHost): Result<(), Str> {
             ctx,
             "m0 ${m0(
                 ctx,
-                Signal.Papa("ab3", Point { text: str.format(ctx, "cd${4}") }),
+                Signal.Papa(str.format(ctx, "ab${3}"), Point {
+                    text: str.format(ctx, "cd${4}"),
+                }),
                 1,
             )}",
         ),
@@ -282,19 +299,18 @@ export fn main(host: NativeHost): Result<(), Str> {
             )}",
         ),
     );
-    let _ = say(ctx, str.format(ctx, "m1 ${m1(ctx, Shape.Delta, 3)}"));
     let _ = say(
         ctx,
         str.format(
             ctx,
             "m1 ${m1(
                 ctx,
-                Shape.Tango(
-                    (true, 3, str.format(ctx, "a${1}")),
-                    (-2, str.format(ctx, "ab${3}")),
-                    1,
-                ),
-                4,
+                Entry {
+                    body: Result.Ok(-2),
+                    head: Shape.Delta,
+                    inner: Shape.Tango((true, 2, str.format(ctx, "b${2}")), (2, ""), 1),
+                },
+                3,
             )}",
         ),
     );
@@ -302,174 +318,228 @@ export fn main(host: NativeHost): Result<(), Str> {
         ctx,
         str.format(
             ctx,
-            "m2 ${m2(ctx, (Shape.Tango((false, -2, "a1"), (1, "ab3"), 2), 13), 4)}",
+            "m1 ${m1(
+                ctx,
+                Entry {
+                    body: Result.Err([3]),
+                    head: Shape.Tango(
+                        (true, 1, str.format(ctx, "ab${3}")),
+                        (8, str.format(ctx, "ab${3}")),
+                        1,
+                    ),
+                    inner: Shape.Tango((true, 1, "b2"), (13, "ab3"), 1),
+                },
+                3,
+            )}",
         ),
+    );
+    let _ = say(
+        ctx,
+        str.format(ctx, "m2 ${m2(ctx, Point { text: str.format(ctx, "b${2}") }, 0)}"),
+    );
+    let _ = say(ctx, str.format(ctx, "m2 ${m2(ctx, Point { text: "a1" }, 0)}"));
+    let _ = say(
+        ctx,
+        str.format(ctx, "m2 ${m2(ctx, Point { text: str.format(ctx, "ab${3}") }, 4)}"),
     );
     let _ = say(
         ctx,
         str.format(
             ctx,
-            "m2 ${m2(
+            "m3 ${m3(
                 ctx,
-                (
-                    Shape.Tango(
+                Entry {
+                    body: Result.Ok(1),
+                    head: Shape.Tango(
                         (false, -2, str.format(ctx, "a${1}")),
-                        (1, str.format(ctx, "cd${4}")),
-                        2,
+                        (2, "cd4"),
+                        0,
                     ),
-                    13,
-                ),
-                3,
-            )}",
-        ),
-    );
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m2 ${m2(ctx, (Shape.Tango((false, 8, "ab3"), (1, ""), -2), 1), 4)}",
-        ),
-    );
-    let _ = s3(ctx, [3, 5], 0);
-    let _ = s3(ctx, list.empty<Int>().push(ctx, 3).push(ctx, 0), 0);
-    let _ = s4(
-        ctx,
-        Result.Ok(Shape.Tango((false, 13, str.format(ctx, "ab${3}")), (0, ""), 1)),
-        0,
-    );
-    let _ = s4(
-        ctx,
-        Result.Ok(Shape.Tango((false, 13, str.format(ctx, "b${2}")), (0, ""), 1)),
-        4,
-    );
-    let _ = say(ctx, str.format(ctx, "m5 ${m5(ctx, Shape.Delta, 0)}"));
-    let _ = say(ctx, str.format(ctx, "m5 ${m5(ctx, Shape.Delta, 2)}"));
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m6 ${m6(
-                ctx,
-                Entry { body: Result.Ok(2), head: Shape.Delta, inner: Shape.Delta },
-                3,
-            )}",
-        ),
-    );
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m6 ${m6(
-                ctx,
-                Entry {
-                    body: Result.Err([0, -2]),
-                    head: Shape.Delta,
-                    inner: Shape.Delta,
-                },
-                4,
-            )}",
-        ),
-    );
-    let _ = say(ctx, str.format(ctx, "m7 ${m7(ctx, Token.Hotel, 3)}"));
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m7 ${m7(
-                ctx,
-                Token.Juliet { head: Shape.Tango((false, -2, "b2"), (8, "cd4"), 5) },
-                3,
-            )}",
-        ),
-    );
-    let _ = s8(ctx, Signal.Uniform(Option.None, Point { text: "" }), 2);
-    let _ = s8(
-        ctx,
-        Signal.Uniform(Option.None, Point { text: str.format(ctx, "b${2}") }),
-        2,
-    );
-    let _ = say(ctx, str.format(ctx, "m9 ${m9(ctx, Result.Ok(true), 2)}"));
-    let _ = say(ctx, str.format(ctx, "m9 ${m9(ctx, Result.Ok(false), 2)}"));
-    let _ = say(ctx, str.format(ctx, "m9 ${m9(ctx, Result.Ok(false), 4)}"));
-    let _ = say(ctx, str.format(ctx, "m10 ${m10(ctx, Shape.Delta, 4)}"));
-    let _ = say(ctx, str.format(ctx, "m10 ${m10(ctx, Shape.Delta, 2)}"));
-    let _ = say(ctx, str.format(ctx, "m11 ${m11(ctx, true, 0)}"));
-    let _ = say(ctx, str.format(ctx, "m11 ${m11(ctx, false, 0)}"));
-    let _ = say(ctx, str.format(ctx, "m11 ${m11(ctx, false, 0)}"));
-    let _ = say(ctx, str.format(ctx, "m12 ${m12(ctx, Result.Ok(-2), 3)}"));
-    let _ = say(ctx, str.format(ctx, "m12 ${m12(ctx, Result.Ok(13), 1)}"));
-    let _ = say(ctx, str.format(ctx, "m12 ${m12(ctx, Result.Ok(3), 3)}"));
-    let _ = s13(ctx, Shape.Delta, 2);
-    let _ = s13(
-        ctx,
-        Shape.Tango((false, 5, str.format(ctx, "ab${3}")), (3, "e5"), 1),
-        3,
-    );
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m14 ${m14(
-                ctx,
-                Entry {
-                    body: Result.Ok(0),
-                    head: Shape.Tango(
-                        (true, 5, str.format(ctx, "ab${3}")),
-                        (0, str.format(ctx, "ab${3}")),
-                        1,
-                    ),
-                    inner: Shape.Delta,
-                },
-                4,
-            )}",
-        ),
-    );
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m14 ${m14(
-                ctx,
-                Entry {
-                    body: Result.Err(
-                        list.empty<Int>().push(ctx, 2).push(ctx, 8).push(ctx, 1),
-                    ),
-                    head: Shape.Delta,
-                    inner: Shape.Tango(
-                        (true, -2, "a1"),
-                        (0, str.format(ctx, "ab${3}")),
-                        13,
-                    ),
-                },
-                3,
-            )}",
-        ),
-    );
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m14 ${m14(
-                ctx,
-                Entry {
-                    body: Result.Ok(0),
-                    head: Shape.Tango(
-                        (true, 5, str.format(ctx, "ab${3}")),
-                        (0, str.format(ctx, "ab${3}")),
-                        1,
-                    ),
-                    inner: Shape.Tango(
-                        (false, 2, str.format(ctx, "b${2}")),
-                        (3, str.format(ctx, "cd${4}")),
-                        3,
-                    ),
+                    inner: Shape.Tango((false, 5, "b2"), (13, "ab3"), 0),
                 },
                 0,
             )}",
         ),
     );
-    let _ = say(ctx, str.format(ctx, "m15 ${m15(ctx, [8, 0, 1], 4)}"));
-    let _ = say(ctx, str.format(ctx, "m15 ${m15(ctx, [0, 1], 1)}"));
-    let _ = say(ctx, str.format(ctx, "m15 ${m15(ctx, [8, 0, -2], 2)}"));
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m3 ${m3(
+                ctx,
+                Entry {
+                    body: Result.Ok(1),
+                    head: Shape.Tango(
+                        (false, -2, str.format(ctx, "a${1}")),
+                        (2, str.format(ctx, "cd${4}")),
+                        0,
+                    ),
+                    inner: Shape.Tango((false, 5, "b2"), (13, "ab3"), 2),
+                },
+                1,
+            )}",
+        ),
+    );
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m3 ${m3(
+                ctx,
+                Entry {
+                    body: Result.Ok(1),
+                    head: Shape.Tango(
+                        (false, -2, str.format(ctx, "a${1}")),
+                        (2, str.format(ctx, "cd${4}")),
+                        0,
+                    ),
+                    inner: Shape.Tango(
+                        (false, 5, str.format(ctx, "b${2}")),
+                        (3, "ab3"),
+                        0,
+                    ),
+                },
+                3,
+            )}",
+        ),
+    );
+    let _ = say(ctx, str.format(ctx, "m4 ${m4(ctx, false, 4)}"));
+    let _ = say(ctx, str.format(ctx, "m4 ${m4(ctx, true, 1)}"));
+    let _ = say(ctx, str.format(ctx, "m5 ${m5(ctx, Point { text: "a1" }, 1)}"));
+    let _ = say(ctx, str.format(ctx, "m5 ${m5(ctx, Point { text: "" }, 2)}"));
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m6 ${m6(
+                ctx,
+                Entry {
+                    body: Result.Ok(1),
+                    head: Shape.Tango((true, 0, "ab3"), (8, "a1"), 5),
+                    inner: Shape.Delta,
+                },
+                0,
+            )}",
+        ),
+    );
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m6 ${m6(
+                ctx,
+                Entry {
+                    body: Result.Ok(8),
+                    head: Shape.Tango(
+                        (true, 0, "ab3"),
+                        (8, str.format(ctx, "a${1}")),
+                        5,
+                    ),
+                    inner: Shape.Delta,
+                },
+                1,
+            )}",
+        ),
+    );
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m6 ${m6(
+                ctx,
+                Entry {
+                    body: Result.Err([5, -2]),
+                    head: Shape.Tango(
+                        (true, 0, str.format(ctx, "ab${3}")),
+                        (8, "a1"),
+                        5,
+                    ),
+                    inner: Shape.Delta,
+                },
+                2,
+            )}",
+        ),
+    );
+    let _ = say(ctx, str.format(ctx, "m7 ${m7(ctx, Option.Some("cd4"), 1)}"));
+    let _ = say(ctx, str.format(ctx, "m7 ${m7(ctx, Option.Some("cd4"), 0)}"));
+    let _ = say(ctx, str.format(ctx, "m7 ${m7(ctx, Option.Some("ab3"), 2)}"));
+    let _ = s8(
+        ctx,
+        Token.Juliet {
+            head: Shape.Tango((false, 3, str.format(ctx, "b${2}")), (-2, "ab3"), 8),
+        },
+        3,
+    );
+    let _ = s8(ctx, Token.Juliet { head: Shape.Delta }, 2);
+    let _ = s8(
+        ctx,
+        Token.Juliet {
+            head: Shape.Tango((false, 3, str.format(ctx, "b${2}")), (2, "ab3"), 8),
+        },
+        2,
+    );
+    let _ = say(ctx, str.format(ctx, "m9 ${m9(ctx, Shape.Delta, 4)}"));
+    let _ = say(ctx, str.format(ctx, "m9 ${m9(ctx, Shape.Delta, 0)}"));
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m9 ${m9(ctx, Shape.Tango((true, 13, "a1"), (3, "e5"), 1), 4)}",
+        ),
+    );
+    let _ = s10(ctx, Shape.Delta, 2);
+    let _ = s10(ctx, Shape.Tango((false, 5, "ab3"), (3, "e5"), 1), 3);
+    let _ = s11(ctx, list.empty<Str>(), 4);
+    let _ = s11(ctx, list.empty<Str>().push(ctx, str.format(ctx, "ab${3}")), 2);
+    let _ = say(ctx, str.format(ctx, "m12 ${m12(ctx, 1, 1)}"));
+    let _ = say(ctx, str.format(ctx, "m12 ${m12(ctx, 3, 1)}"));
+    let _ = s13(ctx, ["a1"], 0);
+    let _ = s13(ctx, list.empty<Str>().push(ctx, "a1"), 4);
+    let _ = s13(ctx, list.empty<Str>().push(ctx, "cd4").push(ctx, ""), 3);
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m14 ${m14(ctx, Signal.Uniform(Option.None, Point { text: "ab3" }), 2)}",
+        ),
+    );
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m14 ${m14(
+                ctx,
+                Signal.Uniform(Option.Some(list.empty<Int>().push(ctx, 2)), Point {
+                    text: str.format(ctx, "ab${3}"),
+                }),
+                2,
+            )}",
+        ),
+    );
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m14 ${m14(ctx, Signal.Uniform(Option.None, Point { text: "" }), 3)}",
+        ),
+    );
+    let _ = say(
+        ctx,
+        str.format(
+            ctx,
+            "m15 ${m15(
+                ctx,
+                (
+                    Option.Some(13),
+                    (list.empty<Int>().push(ctx, 5).push(ctx, 3).push(ctx, 5), true, 3),
+                ),
+                0,
+            )}",
+        ),
+    );
+    let _ = say(
+        ctx,
+        str.format(ctx, "m15 ${m15(ctx, (Option.Some(5), ([1], false, 13)), 4)}"),
+    );
     .Ok(())
 }
