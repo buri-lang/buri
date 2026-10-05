@@ -267,20 +267,24 @@ impl DocSource for Cli {
 /// declaration as written, its comments and its signature, and none of that
 /// needs a type the checker infers.
 pub struct Std {
+    loaded: std::cell::OnceCell<crate::compiler::modules::Loaded>,
     modules: std::cell::OnceCell<Vec<reference::ApiModule>>,
 }
 
 impl Std {
     pub fn load() -> Std {
-        Std { modules: std::cell::OnceCell::new() }
+        Std { loaded: std::cell::OnceCell::new(), modules: std::cell::OnceCell::new() }
+    }
+
+    fn loaded(&self) -> &crate::compiler::modules::Loaded {
+        self.loaded.get_or_init(|| {
+            let mut map = crate::diagnostics::SourceMap::new();
+            crate::compiler::driver::load_stdlib(&mut map)
+        })
     }
 
     fn modules(&self) -> &[reference::ApiModule] {
-        self.modules.get_or_init(|| {
-            let mut map = crate::diagnostics::SourceMap::new();
-            let loaded = crate::compiler::driver::load_stdlib(&mut map);
-            reference::from_loaded(&loaded, &reference::std_filter)
-        })
+        self.modules.get_or_init(|| reference::from_loaded(self.loaded(), &reference::std_filter))
     }
 }
 
@@ -289,8 +293,36 @@ impl DocSource for Std {
         "api"
     }
 
+    /// One page needs one module's reference, so only that one is rendered.
+    /// An id that can't name a library module — `error/…`, `lint/…` — loads
+    /// nothing, and most of what `buri docs` serves is one of those or a
+    /// topic.
     fn resolve(&self, id: &str) -> Option<Page> {
-        module_page(self.modules(), id, "standard library")
+        use crate::compiler::standard_library::is_std_path;
+        let module = id.rsplit_once('.').map(|(module, _)| module);
+        if !is_std_path(id) && !module.is_some_and(is_std_path) {
+            return None;
+        }
+        if let Some(all) = self.modules.get() {
+            return module_page(all, id, "standard library");
+        }
+        // The prelude and the module the id names, with what it imports:
+        // everything its page reads. A re-export names a module the
+        // re-exporter imports, and a derive names a trait the prelude
+        // declares.
+        let mut map = crate::diagnostics::SourceMap::new();
+        let mut diagnostics = crate::diagnostics::Diagnostics::new();
+        let mut cache = crate::parsing::parser::Cache::new();
+        let mut loader = crate::compiler::modules::Loader::new(None, &mut map, &mut diagnostics, &mut cache);
+        loader.load_builtin_modules();
+        for path in std::iter::once(id).chain(module).filter(|path| is_std_path(path)) {
+            loader.load_std_module(path);
+        }
+        let loaded = loader.finish();
+        let named = |m: &crate::compiler::modules::ModuleData| {
+            reference::std_filter(m) && (m.path == id || Some(m.path.as_str()) == module)
+        };
+        module_page(&reference::from_loaded(&loaded, &named), id, "standard library")
     }
 
     fn entries(&self) -> Vec<Entry> {
