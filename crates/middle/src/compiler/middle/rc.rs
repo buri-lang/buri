@@ -1251,6 +1251,16 @@ const TAKEN_BY: &[(&str, usize)] = &[
 /// push into it copied the whole list, once per fold. `core/buri/ast`'s
 /// printer folds over every block, pattern and annotation it prints, with
 /// everything printed so far as the seed.
+/// The intrinsics that answer their receiver grown, in place when it is unique.
+fn grows(key: &str) -> bool {
+    matches!(key, "list.push" | "list.concat" | "str.concat")
+}
+
+/// Whether `f` is one of [`grows`]'s, by [`infer_ownership`]'s table.
+fn grower(growers: &[bool], f: Option<FuncIdx>) -> bool {
+    f.and_then(|f| growers.get(f.index())).copied().unwrap_or(false)
+}
+
 fn is_fold(key: &str) -> bool {
     matches!(key, "list.fold" | "list.foldCtx" | "list.foldResult" | "list.foldResultCtx")
 }
@@ -1311,7 +1321,14 @@ fn infer_ownership(
     // — and a function that calls nothing recursive is one component that
     // settles in a single pass. `super::strongly_connected` yields the
     // components callees-first, which is the order this needs.
-    let pieces = !opts.sharing;
+    // Natively, which functions grow their receiver in place; under
+    // `sharing`, nothing, which is also what turns the native rules off.
+    let growers: Vec<bool> = program
+        .funcs
+        .iter()
+        .map(|f| matches!(&f.kind, FuncKind::Intrinsic(k) if grows(k)))
+        .collect();
+    let pieces = (!opts.sharing).then_some(growers.as_slice());
     for scc in order.iter() {
         // A non-recursive singleton reads only rows that are already final, so
         // one evaluation is its fixed point: a second pass would read the same
@@ -1385,7 +1402,7 @@ fn promote_consuming(
     counted: &mut dyn Counted,
     i: usize,
     own: &mut [Vec<ir::Ownership>],
-    pieces: bool,
+    pieces: Option<&[bool]>,
 ) -> bool {
     let Some(f) = program.funcs.get(i) else { return false };
     let Some(body) = f.body() else { return false };
@@ -1422,7 +1439,7 @@ fn converge_scc(
     counted: &mut dyn Counted,
     scc: &[usize],
     own: &mut [Vec<ir::Ownership>],
-    pieces: bool,
+    pieces: Option<&[bool]>,
 ) {
     loop {
         let mut changed = false;
@@ -1495,7 +1512,7 @@ fn consuming_uses(
     counted: &mut dyn Counted,
     self_index: usize,
     out: &mut HashSet<LocalId>,
-    pieces: bool,
+    pieces: Option<&[bool]>,
 ) {
     // Repeated to a fixpoint: whether a `match` consumes its scrutinee depends
     // on whether the payloads it binds are consumed, and those are found by
@@ -1516,7 +1533,7 @@ fn collect_consuming(
     counted: &mut dyn Counted,
     self_index: usize,
     out: &mut HashSet<LocalId>,
-    pieces: bool,
+    pieces: Option<&[bool]>,
 ) {
     // The tail of a function is returned, and a `let` transfers into a local
     // whose own last use decides the rest, so both count as consuming.
@@ -1533,7 +1550,7 @@ fn collect_consuming(
         ExprKind::Local(l) => {
             out.insert(*l);
         }
-        ExprKind::Field { .. } | ExprKind::TupleIndex { .. } if pieces => {
+        ExprKind::Field { .. } | ExprKind::TupleIndex { .. } if pieces.is_some() => {
             if let Some(root) = field_root(e) {
                 if counted.counted(&e.ty) == Answer::Yes {
                     out.insert(root);
@@ -1542,6 +1559,23 @@ fn collect_consuming(
         }
         _ => {}
     };
+    // `let n = r.push(..);`, as `(n, r)`: a name for the result of a growth,
+    // and what was grown.
+    let mut grown: Vec<(LocalId, &Expr)> = Vec::new();
+    if let Some(g) = pieces {
+        typed::walk(body, &mut |e| {
+            let ExprKind::Block { stmts, .. } = &e.kind else { return };
+            for st in stmts {
+                let Stmt::Let { pattern, value, .. } = st else { continue };
+                let typed::PatKind::Bind { local, sub: None } = &pattern.kind else { continue };
+                if let ExprKind::CallFn { func, args } = &value.kind {
+                    if let (true, Some(r)) = (grower(g, func.func()), args.first()) {
+                        grown.push((*local, r));
+                    }
+                }
+            }
+        });
+    }
     typed::walk(body, &mut |e| match &e.kind {
         ExprKind::StructLit { fields: args, .. }
         | ExprKind::EnumLit { args, .. }
@@ -1599,6 +1633,37 @@ fn collect_consuming(
             });
             if kept {
                 consume(scrutinee, out, counted);
+            }
+        }
+        // Natively, a value grown twice in a row — `items.push(ctx, a).push(ctx,
+        // b)`, or the same through a `let` — is taken by the first growth. Lent,
+        // the first push grew it in place and answered a second count on the
+        // block the lender still held, so the second push found it at two and
+        // copied it, once per step of a fold that pushes two elements. A local
+        // only: a field of a dying update is moved into the first growth
+        // instead (`Scan::children`), and taking the record whole for it
+        // kept the update from moving the field at all.
+        ExprKind::CallFn { func, args }
+            if pieces.is_some_and(|g| grower(g, func.func())) =>
+        {
+            let taken = match args.first().map(|r| &r.kind) {
+                Some(ExprKind::Local(n)) => grown.iter().find(|(m, _)| m == n).map(|(_, r)| *r),
+                Some(ExprKind::CallFn { func, args })
+                    if pieces.is_some_and(|g| grower(g, func.func())) =>
+                {
+                    args.first()
+                }
+                _ => None,
+            };
+            if let Some(r @ Expr { kind: ExprKind::Local(_), .. }) = taken {
+                consume(r, out, counted);
+            }
+            let row = func.func().and_then(|f| own.get(f.index()));
+            for (k, a) in args.iter().enumerate() {
+                let owns = row.and_then(|r| r.get(k)).copied().unwrap_or(ir::Ownership::Own);
+                if owns == ir::Ownership::Own {
+                    consume(a, out, counted);
+                }
             }
         }
         ExprKind::CallFn { func, args } => {
@@ -2363,21 +2428,23 @@ impl Scan<'_> {
     /// releases it now. A function the field is handed to, and a push inside
     /// it, then finds the list at `rc == 1`.
     fn moves_out(&mut self, e: &Expr, base: &Expr) -> bool {
+        let Some((update, index)) = self.movable(e, base) else { return false };
+        self.moved.push((update, index));
+        true
+    }
+
+    /// The update and field index [`Scan::moves_out`] would record for `e`.
+    fn movable(&mut self, e: &Expr, base: &Expr) -> Option<(NodeId, usize)> {
         let (ExprKind::Field { index, .. }, ExprKind::Local(l)) = (&e.kind, &base.kind) else {
-            return false;
+            return None;
         };
         let update = self
             .moving
             .iter()
             .rev()
             .find(|(r, _, _)| r == l)
-            .and_then(|(_, update, fields)| fields.contains(index).then_some(*update));
-        let Some(update) = update else { return false };
-        if !self.counted_ty(&e.ty.clone()) {
-            return false;
-        }
-        self.moved.push((update, *index));
-        true
+            .and_then(|(_, update, fields)| fields.contains(index).then_some(*update))?;
+        self.counted_ty(&e.ty.clone()).then_some((update, *index))
     }
 
     /// The base of a functional update that this update is the last use of: a
@@ -3541,9 +3608,43 @@ impl Scan<'_> {
                 self.push(id, Position::After, RcOp::DecRef, Target::Node(kid_id));
                 continue;
             }
+            // A field a dying update moves out of its base, lent to this
+            // construct: it takes the base's count for the field and gives it
+            // back once the construct is done, rather than leaving the base
+            // holding it until the update is built. Held there, the field
+            // stood at two for `acc.items.push(ctx, a).push(ctx, b)`, whose
+            // first push grew it in place, so the second copied it.
+            if m == Mode::Borrow {
+                if let ExprKind::Field { base, .. } = &kid.kind {
+                    if self.movable(kid, base).is_some() {
+                        after = self.expr(kid, kid_id, &after, Mode::Own);
+                        self.push(id, Position::After, RcOp::DecRef, Target::Node(kid_id));
+                        continue;
+                    }
+                }
+            }
             after = self.expr(kid, kid_id, &after, m);
             if m == Mode::Borrow {
                 self.drop_temporary(kid, kid_id, id);
+            }
+            // A value this construct will take, held while the children to
+            // its right run: a `?` among them leaves before the construct
+            // takes it, so the value is released on that path. In
+            // `kept(ctx, make(ctx), positive(x)?)` the list `make` built
+            // leaked whenever `positive` failed.
+            let holds = m == Mode::Own
+                && k + 1 < kids.len()
+                && !matches!(kid.kind, ExprKind::Local(_))
+                && self.counted_ty(&kid.ty.clone());
+            if holds {
+                let start = self.child(id, k + 1).0;
+                let size = self.sizes.get(id.0 as usize).copied().unwrap_or(1);
+                let end = id.0.saturating_add(size);
+                for t in self.tries.clone() {
+                    if t.0 >= start && t.0 < end {
+                        self.push_escape(t, Target::Node(kid_id));
+                    }
+                }
             }
         }
         for l in kept {
@@ -3879,7 +3980,23 @@ fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
                 });
                 *before = Some(now);
             }
-            _ => kids(e).into_iter().for_each(|k| taken(root, k, seen, before)),
+            // A field is taken by what reads it, once that has run: in
+            // `put(ctx, acc.items, gate(i)?)` the `?` can leave before `put`
+            // has the field, and the field would be released by nobody.
+            _ => {
+                let mut held = Vec::new();
+                for k in kids(e) {
+                    match &k.kind {
+                        ExprKind::Field { base, index }
+                            if matches!(base.kind, ExprKind::Local(l) if l == root) =>
+                        {
+                            held.push(*index);
+                        }
+                        _ => taken(root, k, seen, before),
+                    }
+                }
+                seen.extend(held);
+            }
         }
     }
     if handed_on_fields(root, updates).is_none() {
