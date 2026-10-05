@@ -752,6 +752,19 @@ export struct Listener {
     export handlers: Int,
 }
 
+impl Listener {
+    /// Closes the listener, so `run` on it ends with `.Ok`. Call it from
+    /// another task to stop a server; `core/net/server`'s "Stopping" has an
+    /// example.
+    ///
+    /// A handler that is already running still answers. A connection waiting
+    /// for a handler is dropped, and an open WebSocket ends with `.Abnormal`.
+    /// Closing twice does nothing.
+    export fn close<C: Listen>(self, ctx: C): () {
+        ctx.listenClose(self.handle)
+    }
+}
+
 derive Equal, Show for Frame;
 /// Which of the three things `listenReceive` answered with.
 ///
