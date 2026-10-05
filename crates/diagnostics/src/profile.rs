@@ -20,9 +20,8 @@
               figure is a wrong profile line, never a wrong build"
 )]
 
-use std::cell::Cell;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::Instant;
 
 /// What a thread is doing. `Other` is everything outside a named phase:
@@ -87,15 +86,30 @@ struct Reading {
 static TOTALS: [[AtomicU64; 6]; PHASES] = [const { [const { AtomicU64::new(0) }; 6] }; PHASES];
 
 thread_local! {
-    static CURRENT: Cell<Option<(Phase, Reading)>> = const { Cell::new(None) };
-    static ALLOCATIONS: Cell<u64> = const { Cell::new(0) };
+    static CURRENT: Mutex<Option<(Phase, Reading)>> = const { Mutex::new(None) };
+    static ALLOCATIONS: AtomicU64 = const { AtomicU64::new(0) };
+}
+
+/// This thread's phase and the reading taken when it started.
+fn now_in() -> Option<(Phase, Reading)> {
+    CURRENT.try_with(|c| *c.lock().unwrap_or_else(PoisonError::into_inner)).ok().flatten()
+}
+
+/// Counts one allocation on this thread, which is the only writer.
+fn count_allocation() {
+    let _ = ALLOCATIONS.try_with(|n| n.store(n.load(Relaxed).wrapping_add(1), Relaxed));
 }
 
 /// Adds what this thread did since its last change to the phase it was in, and
 /// puts it in `next`.
 fn switch(next: Option<Phase>) {
     let now = read();
-    let before = CURRENT.with(|c| c.replace(next.map(|p| (p, now))));
+    let before = CURRENT
+        .try_with(|c| {
+            std::mem::replace(&mut *c.lock().unwrap_or_else(PoisonError::into_inner), next.map(|p| (p, now)))
+        })
+        .ok()
+        .flatten();
     if let Some((phase, then)) = before {
         if let Some(row) = TOTALS.get(phase as usize) {
             let moved = [
@@ -133,7 +147,7 @@ pub fn current() -> Option<Phase> {
     if !enabled() {
         return None;
     }
-    CURRENT.with(|c| c.get().map(|(p, _)| p))
+    now_in().map(|(p, _)| p)
 }
 
 /// Puts this thread in `phase` until the guard drops, then back in the phase
@@ -143,7 +157,7 @@ pub fn enter(phase: Phase) -> Guard {
     if !enabled() {
         return Guard { active: false, previous: None };
     }
-    let previous = CURRENT.with(|c| c.get().map(|(p, _)| p));
+    let previous = now_in().map(|(p, _)| p);
     switch(Some(phase));
     Guard { active: true, previous }
 }
@@ -171,20 +185,20 @@ impl Drop for Guard {
 pub struct Counting;
 
 // SAFETY: every call is forwarded unchanged to the system allocator. Bumping a
-// thread-local `Cell<u64>` allocates nothing and registers no destructor.
+// thread-local `AtomicU64` allocates nothing and registers no destructor.
 unsafe impl std::alloc::GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
-        let _ = ALLOCATIONS.try_with(|n| n.set(n.get().wrapping_add(1)));
+        count_allocation();
         // SAFETY: the caller's contract, passed through.
         unsafe { std::alloc::System.alloc(layout) }
     }
     unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
-        let _ = ALLOCATIONS.try_with(|n| n.set(n.get().wrapping_add(1)));
+        count_allocation();
         // SAFETY: the caller's contract, passed through.
         unsafe { std::alloc::System.alloc_zeroed(layout) }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, size: usize) -> *mut u8 {
-        let _ = ALLOCATIONS.try_with(|n| n.set(n.get().wrapping_add(1)));
+        count_allocation();
         // SAFETY: the caller's contract, passed through.
         unsafe { std::alloc::System.realloc(ptr, layout, size) }
     }
@@ -199,7 +213,7 @@ fn read() -> Reading {
         instructions: os::thread_instructions(),
         cpu_ns: os::thread_cpu_ns(),
         at: Instant::now(),
-        allocations: ALLOCATIONS.try_with(Cell::get).unwrap_or(0),
+        allocations: ALLOCATIONS.try_with(|n| n.load(Relaxed)).unwrap_or(0),
     }
 }
 
