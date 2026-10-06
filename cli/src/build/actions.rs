@@ -163,7 +163,12 @@ fn build_artifact(
     // and then cannot find half of itself.
     if !flags.force {
         if let Some(parts) = cache.get(&key).and_then(|b| decode_parts(&b)) {
-            if let [module, stylesheet, chunks @ ..] = parts.as_slice() {
+            // A module no rule lists that has changed since makes it a miss.
+            let held = match parts.as_slice() {
+                [reads, rest @ ..] if reads_hold(&session.root, reads) => rest,
+                _ => &[],
+            };
+            if let [module, stylesheet, chunks @ ..] = held {
                 if let Some(parent) = path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
@@ -180,7 +185,8 @@ fn build_artifact(
     explain_link(crate::build::cache::Status::Run);
 
     let compiled = compile_artifact(session, target, output, flags, &mut diagnostics)?;
-    let parts = [&compiled.module, &compiled.stylesheet].into_iter().chain(&compiled.chunks);
+    let reads = encode_reads(session, &compiled.unkeyed);
+    let parts = [&reads, &compiled.module, &compiled.stylesheet].into_iter().chain(&compiled.chunks);
     cache.put(&key, &encode_parts(parts.map(String::as_str)));
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -220,6 +226,9 @@ pub struct Compiled {
     ///
     /// Empty for nearly every program, and always empty for a native output.
     pub chunks: Vec<String>,
+    /// The files the compilation read that its key does not hash
+    /// ([`unkeyed_reads`]).
+    pub unkeyed: Vec<PathBuf>,
 }
 
 /// The `link` action itself: sources in, artifact bytes out, and nothing on
@@ -330,6 +339,7 @@ pub fn compile_artifact(
 ) -> Result<Compiled, Diagnostics> {
     let platform = output.platform();
     let (analysis, mut program) = monomorphized_entry(session, target, output, diagnostics)?;
+    let unkeyed = unkeyed_reads(session, target, &analysis);
     // An entry with a `js` file hands itself to the file, which is read and
     // checked here and bundled with the program below.
     let host_file = host_file(session, output, &analysis, diagnostics)?;
@@ -352,7 +362,7 @@ pub fn compile_artifact(
         Some(file) => crate::build::hosted::bundle(&module, &file.text, &file.exports, &file.structs),
         None => module,
     };
-    Ok(Compiled { module, stylesheet, chunks })
+    Ok(Compiled { module, stylesheet, chunks, unkeyed })
 }
 
 /// An entry's `js` file, read and held to the production structs it
@@ -558,6 +568,65 @@ fn action_key_as(
         contribute_platform(session, &label, &closure, &mut k);
     }
     k.finish()
+}
+
+/// The files an analysis read that [`action_key`] does not hash, which is a
+/// module of a closure member's package that no rule lists: the loader reads
+/// one, and the key, built before anything is loaded, can't know to.
+///
+/// An entry under that key records these with their digests, and a hit holds
+/// only while each still has them ([`reads_hold`]). Nearly always empty.
+pub fn unkeyed_reads(
+    session: &Session,
+    target: TargetId,
+    analysis: &crate::compiler::driver::Analysis,
+) -> Vec<PathBuf> {
+    let workspace = &session.workspace;
+    let closure = workspace.closure(target);
+    let mut keyed: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
+    let mut add_member = |member: TargetId, keyed: &mut std::collections::BTreeSet<PathBuf>| {
+        let dir = &workspace.package(member.package).dir;
+        keyed.extend(rule_files(workspace, member).iter().map(|rel| dir.join(rel)));
+    };
+    for member in &closure {
+        add_member(*member, &mut keyed);
+    }
+    for label in workspace.custom_platforms(target) {
+        if let Some((pid, files, members)) = platform_inputs(workspace, &label) {
+            let dir = &workspace.package(pid).dir;
+            keyed.extend(files.iter().map(|rel| dir.join(rel)));
+            for member in members {
+                add_member(member, &mut keyed);
+            }
+        }
+    }
+    crate::build::sources::closure_of(workspace, analysis)
+        .into_iter()
+        .filter(|path| !keyed.contains(path))
+        .collect()
+}
+
+/// [`unkeyed_reads`] as an entry records them: each file's repository-relative
+/// path and the digest of its bytes, one per line.
+pub fn encode_reads(session: &Session, files: &[PathBuf]) -> String {
+    let mut out = String::new();
+    for path in files {
+        let digest = std::fs::read(path).map_or_else(|_| "absent".to_string(), |b| hash_bytes(&b));
+        out.push_str(&session.workspace.rel_of(path));
+        out.push('\t');
+        out.push_str(&digest);
+        out.push('\n');
+    }
+    out
+}
+
+/// Whether every file [`encode_reads`] recorded still holds the bytes it did.
+pub fn reads_hold(root: &Path, record: &str) -> bool {
+    record.lines().all(|line| {
+        let Some((rel, digest)) = line.split_once('\t') else { return false };
+        let now = std::fs::read(root.join(rel)).map_or_else(|_| "absent".to_string(), |b| hash_bytes(&b));
+        now == digest
+    })
 }
 
 /// One repository platform's contribution to a key. See [`action_key`].
