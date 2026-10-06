@@ -662,6 +662,8 @@ pub(crate) struct Fn2 {
     /// Values whose every use is an immediate operand: the `Const` that
     /// defines them is never materialised into a frame slot at all.
     pub folded: Vec<bool>,
+    /// How many times each value is read, anywhere in the function.
+    pub uses: Vec<u32>,
 }
 
 impl Fn2 {
@@ -777,7 +779,7 @@ impl<'a> Jit<'a> {
                 let mut promoted = Vec::new();
                 let taken = self.promote(code, &mut reg, &mut wt, &mut cross, &mut promoted);
                 self.regalloc(code, &mut reg, taken);
-                let (constants, folded) = self.constants(code);
+                let (constants, folded, uses) = self.constants(code);
                 let mut st = Fn2 {
                     slot,
                     blk: vec![0; code.blocks.len()],
@@ -790,6 +792,7 @@ impl<'a> Jit<'a> {
                     cur: 0,
                     constants,
                     folded,
+                    uses,
                 };
                 let base = self.fixups.len();
                 let order = self.layout(code);
@@ -837,6 +840,7 @@ impl<'a> Jit<'a> {
                     cur: 0,
                     constants: Vec::new(),
                     folded: Vec::new(),
+                    uses: Vec::new(),
                 };
                 let base = self.fixups.len();
                 self.runtime_body(prog, fi, key.clone(), &mut st);
@@ -2705,7 +2709,8 @@ impl<'a> Jit<'a> {
     ///
     /// [`zero_divisor`] is the one use that is *not* eligible however good the
     /// stencil is.
-    fn constants(&mut self, code: &ir::Code) -> (Vec<Option<u64>>, Vec<bool>) {
+    /// Also answers how many times each value is read.
+    fn constants(&mut self, code: &ir::Code) -> (Vec<Option<u64>>, Vec<bool>, Vec<u32>) {
         let mut constants: Vec<Option<u64>> = vec![None; code.values()];
         let mut folded = vec![false; code.values()];
         for block in &code.blocks {
@@ -2752,7 +2757,7 @@ impl<'a> Jit<'a> {
             let seen = ent(&total, v, 0);
             *f = ent(&constants, v, None).is_some() && seen > 0 && seen == ent(&imm, v, 0);
         }
-        (constants, folded)
+        (constants, folded, total)
     }
 
     /// Fusions the terminator can absorb.
@@ -2779,7 +2784,7 @@ impl<'a> Jit<'a> {
                 // fusion is simply declined rather than guessed at.
                 if let Some(ir::Inst::Binary { op, prim, lhs, rhs, .. }) = block.insts.get(k) {
                     if op.is_comparison()
-                        && uses_after(code, block, *cond, k) == 1
+                        && uses(st, *cond) == 1
                         && !ent(&p.skip, k, true)
                     {
                         let a = st.loc(*lhs).tag();
@@ -2813,7 +2818,7 @@ impl<'a> Jit<'a> {
             if let ir::Term::Switch { on, .. } = &block.term {
                 if let Some(k) = block.insts.iter().rposition(|i| i.results().contains(on)) {
                     if let Some(ir::Inst::GetTag { agg, .. }) = block.insts.get(k) {
-                        if uses_after(code, block, *on, k) == 1 && !ent(&p.skip, k, true) {
+                        if uses(st, *on) == 1 && !ent(&p.skip, k, true) {
                             put(&mut p.skip, k, true);
                             p.tagsw = Some(*agg);
                         }
@@ -2861,7 +2866,7 @@ impl Jit<'_> {
             || ent(&st.folded, rhs.index(), false)
             || !frame(*from)
             || !frame(*rhs)
-            || uses_after(code, block, *sum, m) != 1
+            || uses(st, *sum) != 1
             || header.params.iter().zip(t.args.iter()).any(|(p, a)| {
                 !frame(*p) || !frame(*a) || st.at(*p) != st.at(*a)
             })
@@ -3018,38 +3023,11 @@ impl Dominance {
     }
 }
 
-fn uses_after(code: &ir::Code, block: &ir::Block, v: ir::ValueId, from: usize) -> usize {
-    let mut n = 0;
-    let mut ops = Vec::new();
-    for i in block.insts.iter().skip(from + 1) {
-        ops.clear();
-        i.operands(&mut ops);
-        n += ops.iter().filter(|o| **o == v).count();
-    }
-    ops.clear();
-    block.term.operands(&mut ops);
-    for t in block.term.targets() {
-        ops.extend_from_slice(&t.args);
-    }
-    n += ops.iter().filter(|o| **o == v).count();
-    // A value used in another block is not a candidate for fusion at all.
-    for b in &code.blocks {
-        if std::ptr::eq(b, block) {
-            continue;
-        }
-        for i in &b.insts {
-            ops.clear();
-            i.operands(&mut ops);
-            n += ops.iter().filter(|o| **o == v).count();
-        }
-        ops.clear();
-        b.term.operands(&mut ops);
-        for t in b.term.targets() {
-            ops.extend_from_slice(&t.args);
-        }
-        n += ops.iter().filter(|o| **o == v).count();
-    }
-    n
+/// How many times `v` is read in the function `st` was built for. A value is
+/// read only after the instruction that defines it, so this is every read of it
+/// past that instruction.
+fn uses(st: &Fn2, v: ir::ValueId) -> usize {
+    ent(&st.uses, v.index(), 0) as usize
 }
 
 /// Whether an instruction leaves the area past the frame alone — the callee's

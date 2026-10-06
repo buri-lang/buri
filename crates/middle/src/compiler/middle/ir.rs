@@ -1107,7 +1107,7 @@ fn verify_func(program: &Program, func: &Func) -> Vec<String> {
             let ok = if db == at.0 {
                 dp < at.1
             } else {
-                dom.get(at.0).is_some_and(|d| d.get(db).copied().unwrap_or(false))
+                dom.dominates(db, at.0)
             };
             if !ok {
                 errs.push(format!(
@@ -1202,67 +1202,133 @@ pub fn verify(program: &Program) -> Vec<String> {
     program.funcs.iter().flat_map(|f| verify_func(program, f)).collect()
 }
 
-/// The dominator sets, as one row of flags per block.
+/// Which blocks dominate which: the dominator tree, numbered in preorder and
+/// postorder so that one question is two comparisons.
 ///
-/// The textbook fixpoint rather than Lengauer-Tarjan: this runs over one
-/// function's blocks, of which there are tens, and it is called from a
-/// verifier rather than from a hot pass. A block the entry does not reach
-/// dominates nothing and is dominated by nothing, which is the right answer
-/// for a verifier that must not accuse dead code of anything.
-fn dominators(code: &Code) -> Vec<Vec<bool>> {
+/// Cooper, Harvey and Kennedy's iteration over reverse postorder. A bitset per
+/// block was `n²` in the blocks, and a long `match` is thousands of them.
+struct Dominance {
+    reachable: Vec<bool>,
+    pre: Vec<usize>,
+    post: Vec<usize>,
+}
+
+impl Dominance {
+    /// Whether `a` dominates `b`. An unreachable block dominates nothing and
+    /// is dominated by nothing.
+    fn dominates(&self, a: usize, b: usize) -> bool {
+        let reached = |i: usize| self.reachable.get(i).copied().unwrap_or(false);
+        let at = |v: &Vec<usize>, i: usize| v.get(i).copied().unwrap_or(0);
+        reached(a)
+            && reached(b)
+            && at(&self.pre, a) <= at(&self.pre, b)
+            && at(&self.post, b) <= at(&self.post, a)
+    }
+}
+
+fn dominators(code: &Code) -> Dominance {
     let n = code.blocks.len();
     let reachable = code.reachable();
     let preds = code.preds();
-    let mut dom: Vec<Vec<bool>> = (0..n)
-        .map(|i| {
-            if i == 0 {
-                let mut row = vec![false; n];
-                if let Some(s) = row.get_mut(0) {
-                    *s = true;
+    // Postorder of the reachable blocks, by an explicit stack.
+    let mut order: Vec<usize> = Vec::with_capacity(n);
+    let mut number = vec![usize::MAX; n];
+    if n > 0 {
+        let mut seen = vec![false; n];
+        let mut stack: Vec<(usize, usize)> = vec![(0, 0)];
+        if let Some(s) = seen.get_mut(0) {
+            *s = true;
+        }
+        while let Some((b, next)) = stack.last_mut().map(|(b, k)| (*b, k)) {
+            if let Some(t) = code.blocks.get(b).and_then(|blk| blk.term.targets().nth(*next)) {
+                *next += 1;
+                let t = t.block.index();
+                if let Some(s) = seen.get_mut(t) {
+                    if !*s {
+                        *s = true;
+                        stack.push((t, 0));
+                    }
                 }
-                row
-            } else if reachable.get(i).copied().unwrap_or(false) {
-                vec![true; n]
             } else {
-                vec![false; n]
-            }
-        })
-        .collect();
-
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for b in 1..n {
-            if !reachable.get(b).copied().unwrap_or(false) {
-                continue;
-            }
-            let mut next = vec![true; n];
-            let mut any = false;
-            for p in preds.get(b).map(Vec::as_slice).unwrap_or_default() {
-                if !reachable.get(p.index()).copied().unwrap_or(false) {
-                    continue;
+                stack.pop();
+                if let Some(k) = number.get_mut(b) {
+                    *k = order.len();
                 }
-                let Some(row) = dom.get(p.index()) else { continue };
-                any = true;
-                for (slot, d) in next.iter_mut().zip(row.iter()) {
-                    *slot = *slot && *d;
-                }
-            }
-            if !any {
-                next = vec![false; n];
-            }
-            if let Some(slot) = next.get_mut(b) {
-                *slot = true;
-            }
-            if dom.get(b) != Some(&next) {
-                if let Some(row) = dom.get_mut(b) {
-                    *row = next;
-                }
-                changed = true;
+                order.push(b);
             }
         }
     }
-    dom
+    let po = |b: usize| number.get(b).copied().unwrap_or(usize::MAX);
+    let mut idom = vec![usize::MAX; n];
+    if let Some(root) = idom.get_mut(0) {
+        *root = 0;
+    }
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for &b in order.iter().rev().skip(1) {
+            let mut new = usize::MAX;
+            for p in preds.get(b).map(Vec::as_slice).unwrap_or_default() {
+                let p = p.index();
+                if idom.get(p).copied().unwrap_or(usize::MAX) == usize::MAX {
+                    continue;
+                }
+                new = if new == usize::MAX {
+                    p
+                } else {
+                    let (mut x, mut y) = (p, new);
+                    while x != y {
+                        while po(x) < po(y) {
+                            x = idom.get(x).copied().unwrap_or(0);
+                        }
+                        while po(y) < po(x) {
+                            y = idom.get(y).copied().unwrap_or(0);
+                        }
+                    }
+                    x
+                };
+            }
+            if let Some(slot) = idom.get_mut(b) {
+                if *slot != new {
+                    *slot = new;
+                    changed = true;
+                }
+            }
+        }
+    }
+    // Number the tree in preorder and postorder.
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for &b in order.iter().rev().skip(1) {
+        if let Some(c) = idom.get(b).and_then(|&d| children.get_mut(d)) {
+            c.push(b);
+        }
+    }
+    let (mut pre, mut post) = (vec![0; n], vec![0; n]);
+    let (mut next_pre, mut next_post) = (0, 0);
+    if n > 0 {
+        let mut stack: Vec<(usize, usize)> = vec![(0, 0)];
+        if let Some(p) = pre.get_mut(0) {
+            *p = next_pre;
+        }
+        next_pre += 1;
+        while let Some((b, k)) = stack.last_mut().map(|(b, k)| (*b, k)) {
+            if let Some(&c) = children.get(b).and_then(|cs| cs.get(*k)) {
+                *k += 1;
+                if let Some(p) = pre.get_mut(c) {
+                    *p = next_pre;
+                }
+                next_pre += 1;
+                stack.push((c, 0));
+            } else {
+                stack.pop();
+                if let Some(p) = post.get_mut(b) {
+                    *p = next_post;
+                }
+                next_post += 1;
+            }
+        }
+    }
+    Dominance { reachable, pre, post }
 }
 
 // ---------------------------------------------------------------------------
