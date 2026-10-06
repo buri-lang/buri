@@ -511,6 +511,11 @@ pub struct Monomorphizer<'a> {
     locals: Vec<typed::Local>,
     /// See [`Hosted::js_implemented`].
     js_implemented: std::collections::BTreeSet<String>,
+    /// Each declaration's symbol before its instantiation tag, and its debug
+    /// name, which every instantiation of it shares.
+    names: HashMap<FnId, (String, String)>,
+    /// Each type argument's [`Mangled`] spelling, which a tag hashes.
+    mangled: HashMap<Ty, String>,
 }
 
 pub fn run(
@@ -535,6 +540,8 @@ pub fn run(
         taken: HashMap::default(),
         locals: Vec::new(),
         js_implemented: std::collections::BTreeSet::new(),
+        names: HashMap::default(),
+        mangled: HashMap::default(),
     };
 
     let program_roots = match roots {
@@ -862,43 +869,16 @@ impl<'a> Monomorphizer<'a> {
         match key {
             Key::Fn(f, targs) => {
                 let info = self.tables().fn_info(*f);
-                let module = self.module_paths.get(info.module.index()).map_or("core", String::as_str);
-                let owner = info.self_ty.map(|c| self.tables().tycon(c).name.as_str());
-                let mut debug = String::with_capacity(
-                    module.len().saturating_add(info.name.len()).saturating_add(32),
-                );
-                debug.push_str(module);
-                debug.push(':');
-                if let Some(o) = owner {
-                    debug.push_str(o);
-                    debug.push('.');
-                }
-                debug.push_str(&info.name);
-                // The whole path, file name and all. It is the module's
-                // canonical path, which is the file — a repository module has
-                // two spellings and only one identity — and taking `lib.buri`
-                // off it would collide: `//lib/a.buri` and `//lib/a/lib.buri`
-                // are two modules that may both exist (see the
-                // `a_module_beside_a_package_of_its_name` case), and two
-                // functions on one symbol is a miscompile.
-                //
-                // `module$Owner_name`, every character [`sanitize`] would
-                // replace replaced as it is written, so the path's `/` and `.`
-                // and the owner's `.` all come out as `_`.
-                let mut symbol = String::with_capacity(debug.len());
-                symbol.extend(module.chars().map(symbol_char));
-                symbol.push('$');
-                if let Some(o) = owner {
-                    symbol.extend(o.chars().map(symbol_char));
-                    symbol.push('_');
-                }
-                symbol.extend(info.name.chars().map(symbol_char));
                 let span = info.span;
-                if !targs.is_empty() {
-                    let mangled: Vec<Mangled> =
-                        targs.iter().map(|t| Mangled(t, self.tables())).collect();
-                    symbol = self.instantiation(&symbol, &format!("{mangled:?}"));
-                }
+                let (base, debug) = match self.names.get(f) {
+                    Some(named) => named.clone(),
+                    None => {
+                        let named = self.base_name(*f);
+                        self.names.insert(*f, named.clone());
+                        named
+                    }
+                };
+                let symbol = if targs.is_empty() { base } else { self.instantiation(&base, targs) };
                 (symbol, debug, span)
             }
             Key::CtxCtor(c) => {
@@ -968,6 +948,43 @@ impl<'a> Monomorphizer<'a> {
         }
     }
 
+    /// A declaration's symbol with no instantiation tag, and its debug name.
+    fn base_name(&self, f: FnId) -> (String, String) {
+        let info = self.tables().fn_info(f);
+        let module = self.module_paths.get(info.module.index()).map_or("core", String::as_str);
+        let owner = info.self_ty.map(|c| self.tables().tycon(c).name.as_str());
+        let mut debug = String::with_capacity(
+            module.len().saturating_add(info.name.len()).saturating_add(32),
+        );
+        debug.push_str(module);
+        debug.push(':');
+        if let Some(o) = owner {
+            debug.push_str(o);
+            debug.push('.');
+        }
+        debug.push_str(&info.name);
+        // The whole path, file name and all. It is the module's
+        // canonical path, which is the file — a repository module has
+        // two spellings and only one identity — and taking `lib.buri`
+        // off it would collide: `//lib/a.buri` and `//lib/a/lib.buri`
+        // are two modules that may both exist (see the
+        // `a_module_beside_a_package_of_its_name` case), and two
+        // functions on one symbol is a miscompile.
+        //
+        // `module$Owner_name`, every character [`sanitize`] would
+        // replace replaced as it is written, so the path's `/` and `.`
+        // and the owner's `.` all come out as `_`.
+        let mut symbol = String::with_capacity(debug.len());
+        symbol.extend(module.chars().map(symbol_char));
+        symbol.push('$');
+        if let Some(o) = owner {
+            symbol.extend(o.chars().map(symbol_char));
+            symbol.push('_');
+        }
+        symbol.extend(info.name.chars().map(symbol_char));
+        (symbol, debug)
+    }
+
     /// The symbol for one instantiation of `base`, tagged by the type
     /// arguments it was instantiated at.
     ///
@@ -1005,8 +1022,24 @@ impl<'a> Monomorphizer<'a> {
     /// A residual 62-bit collision is not handled here and is not silent:
     /// [`one_symbol_per_function`] is the check that no two bodies left this
     /// pass wearing one name, whatever the reason.
-    fn instantiation(&mut self, base: &str, targs: &str) -> String {
-        instantiation_symbol(&mut self.taken, base, targs)
+    ///
+    /// The tag hashes the type arguments' `Debug` form, `[a, b]`, with each
+    /// argument's spelling rendered once per program.
+    fn instantiation(&mut self, base: &str, targs: &[Ty]) -> String {
+        let mut hash = Fnv1a::new();
+        hash.write(b"[");
+        for (k, t) in targs.iter().enumerate() {
+            if k > 0 {
+                hash.write(b", ");
+            }
+            if !self.mangled.contains_key(t) {
+                let spelled = format!("{:?}", Mangled(t, &self.checked.tables));
+                self.mangled.insert(*t, spelled);
+            }
+            hash.write(self.mangled.get(t).map_or("", String::as_str).as_bytes());
+        }
+        hash.write(b"]");
+        instantiation_symbol_hashed(&mut self.taken, base, hash.0)
     }
 }
 
@@ -1024,8 +1057,13 @@ impl<'a> Monomorphizer<'a> {
 /// for. Two renderings equal in all 64 bits and different in fact would be
 /// read here as one instantiation asked for twice; that is 2^-64, and
 /// [`one_symbol_per_function`] is what happens if it ever comes up.
+#[cfg(test)]
 fn instantiation_symbol(taken: &mut HashMap<String, u64>, base: &str, targs: &str) -> String {
-    let hash = fnv1a(targs);
+    instantiation_symbol_hashed(taken, base, fnv1a(targs))
+}
+
+/// [`instantiation_symbol`], given the type arguments' hash.
+fn instantiation_symbol_hashed(taken: &mut HashMap<String, u64>, base: &str, hash: u64) -> String {
     let mut symbol = format!("{base}${}", base36(hash, TAG_DIGITS));
     match taken.get(&symbol) {
         // One name, one tag and the *same* type arguments is not a hash
@@ -2949,12 +2987,25 @@ fn base36_hash(s: &str, digits: usize) -> String {
 }
 
 fn fnv1a(s: &str) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in s.bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x100000001b3);
+    let mut h = Fnv1a::new();
+    h.write(s.as_bytes());
+    h.0
+}
+
+/// FNV-1a over bytes written in pieces, which is the hash of them joined.
+struct Fnv1a(u64);
+
+impl Fnv1a {
+    fn new() -> Fnv1a {
+        Fnv1a(0xcbf29ce484222325)
     }
-    h
+
+    fn write(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.0 ^= u64::from(*b);
+            self.0 = self.0.wrapping_mul(0x100000001b3);
+        }
+    }
 }
 
 /// The low `digits` base-36 digits of `h`, least significant first.
