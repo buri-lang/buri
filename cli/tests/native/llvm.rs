@@ -5149,6 +5149,45 @@ test "two trees grown alike are two trees" {
     );
 }
 
+/// **`--release --coverage` counts what the native and JavaScript runs count.**
+///
+/// The probes go in before the middle end, so LLVM gets them like any call into
+/// the runtime. The ground truth is the coverage corpus's own lcov golden, read
+/// by `build::repositories::test_coverage` against the other two backends.
+#[test]
+fn coverage_under_release_counts_the_lines_the_other_backends_count() {
+    skip_unless_executable!();
+    fn copy(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let dest = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy(&entry.path(), &dest);
+            } else {
+                std::fs::copy(entry.path(), dest).unwrap();
+            }
+        }
+    }
+    let case = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/repositories/coverage/partly_covered");
+    let repo = workspace().join("coverage-under-release");
+    let _ = std::fs::remove_dir_all(&repo);
+    copy(&case.join("repo"), &repo);
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
+    cmd.current_dir(&repo).args(["test", "--release", "--coverage", "//lib/shapes"]);
+    let ran = crate::shared::ran_command(&mut cmd);
+    assert!(
+        ran.status == 0 && ran.stdout.contains("3 passed, 0 failed"),
+        "--release --coverage:\n{}\n{}",
+        ran.stdout,
+        ran.stderr
+    );
+    let lcov = std::fs::read_to_string(repo.join(".buri/coverage/lcov.info")).unwrap();
+    let expected = std::fs::read_to_string(case.join("expected/lcov.info")).unwrap();
+    assert_eq!(lcov, expected);
+}
+
 /// **A wide payload reaches LLVM as words, never as one wide integer.**
 /// PERFORMANCE.md §6.29.
 ///
