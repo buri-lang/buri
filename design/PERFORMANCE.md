@@ -4709,6 +4709,50 @@ emptying paths.
 - **Building `rc::Syntactic` once per native build** instead of three times:
   about 0.8% of the middle end on `mixed-100k`.
 
+### 6.52 An arena for the typed tree, measured and left, 2026-10-06
+
+The proposal: each `typed::Body` holds its nodes in a `Vec<Expr>`, `Box<Expr>`
+becomes an `ExprId` and `Vec<Expr>` an `ExprList`, so a body allocates a few
+vectors and frees them in one go. It would touch about 1,100 `ExprKind`
+references across `semantics`, `middle`, `js` and `cli/src`, so the prize was
+measured first.
+
+On `mixed-100k` the measuring harness swapped the global allocator three ways:
+the system's; the research prototype, a size-class front end with per-thread
+free lists (`fast`); and a bump allocator that never frees (`bump`), which
+bounds what allocating and freeing cost at all. Instructions retired, best of
+two or three:
+
+| | system | fast | bump |
+|---|---:|---:|---:|
+| check (`Checker::run`) | 368 M | 287 M | 307 M |
+| dropping the `Checked` | 64 M | 15 M | 9 M |
+| middle end, every pass | 1,518 M | 1,199 M | 1,024 M |
+| … dropping the typed tree | 59 M | 12 M | 8 M |
+| … `monomorphize` | 171 M | 108 M | 123 M |
+| … `inline` | 196 M | 135 M | 152 M |
+| … `rc::analyze` | 418 M | 265 M | 303 M |
+| … `lower` | 394 M | 530 M | 290 M |
+
+- **On the system allocator the arena would pay.** Allocating and freeing the
+  typed tree is about 220 M of the middle end and 117 M of check plus the
+  drop, around 18% of the two together.
+- **After a fast allocator it wouldn't.** What an arena still saves is the
+  cheaper drops and per-node allocations that now cost little, an estimated
+  3–4%, under the 5% it had to clear.
+- **The allocator is the larger and cheaper change.** It took a fifth off check
+  and the middle end, IR and `rc` included, which an arena never touches.
+- **Except `lower`, 35% slower on the prototype.** `lower` runs across the
+  cores, and its results are freed on other threads, which the prototype hands
+  to the freeing thread's lists. That cross-thread traffic is the likely cause.
+
+**Check wall time before building the allocator.** The research agent found
+mimalloc cut instructions by 28–36%, but wall time barely moved: about 8% on
+sema and flat on parallel lowering. The in-tree prototype made parallel
+lowering two to three times slower in wall time. Counts can't see contention
+or cache behaviour (§8, "What counts can't see"), so the allocator needs a
+wall-time comparison on a quiet machine first.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
