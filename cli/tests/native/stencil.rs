@@ -4810,3 +4810,68 @@ fn a_many_variant_enums_derived_functions_are_linear_in_its_variants() {
     );
 }
 
+
+/// [`many_variants`]' enum with no derives, matched in full by one function
+/// whose arms each read the payload, so each arm releases a counted value.
+fn many_arms(n: usize) -> String {
+    let mut variants = String::new();
+    let mut arms = String::new();
+    for i in 0..n {
+        let (variant, arm) = match i % 4 {
+            0 => (format!("V{i}(Int)"), format!(".V{i}(x) => x + {i}")),
+            1 => (format!("V{i}(Str)"), format!(".V{i}(t) => t.length() + {i}")),
+            2 => (format!("V{i}(Int, Str)"), format!(".V{i}(x, t) => x + t.length()")),
+            _ => (
+                format!("V{i} {{ a: Int, b: Option<Str> }}"),
+                format!(".V{i} {{ a, b: .Some(t) }} => a + t.length(),\n        .V{i} {{ a, b: .None }} => a"),
+            ),
+        };
+        variants.push_str(&format!("    {variant},\n"));
+        arms.push_str(&format!("        {arm},\n"));
+    }
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator, Stdout }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+enum E {{
+{variants}}}
+
+fn code(e: E): Int {{
+    match (e) {{
+{arms}    }}
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+    let es: [E] = list.range(ctx, 0, 3).map(ctx, fn(i) => .V1("s"));
+    let _ = io.println(ctx, "${{es.fold(fn(acc, e) => acc + code(e), 0)}}").ignore();
+    .Ok(())
+}}
+"#
+    )
+}
+
+/// The bytes the backend emits for the program's own unit.
+fn main_unit_bytes(source: &str) -> usize {
+    emitted("large-shape", source)
+        .into_iter()
+        .filter(|(name, _)| name.starts_with("main"))
+        .map(|(_, bytes)| bytes.len())
+        .sum()
+}
+
+/// **A match over an enum of many counted variants is code linear in its
+/// arms.** Every arm releases the value it matched, and a release was the
+/// enum's whole walk written out in place, a test per variant, so `n` arms
+/// were `n²` tests. At a hundred variants one function passed the ±1 MB a
+/// conditional branch reaches, and the build panicked.
+#[test]
+fn a_match_over_many_counted_variants_is_linear_in_its_arms() {
+    if !supported() {
+        return;
+    }
+    grows_linearly("a match over an enum's variants", |n| main_unit_bytes(&many_arms(n)), 64);
+}
