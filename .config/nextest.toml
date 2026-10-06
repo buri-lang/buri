@@ -9,6 +9,10 @@ nextest-version = { required = "0.9.145" }
 [profile.default]
 fail-fast = false
 retries = 0
+# Three times a 12-core mac's cores. Most tests spend most of their time waiting
+# for macOS to check each new executable, one file at a time machine-wide, so
+# more of them waiting at once keeps the cores busy (design/PERFORMANCE.md §6.51).
+test-threads = 36
 
 # First, tests that are short alone and long when started late:
 #
