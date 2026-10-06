@@ -52,6 +52,10 @@ pub fn command_clean(args: &arguments::Args) -> i32 {
             let _ = std::fs::remove_dir_all(&links);
             removed.push(".buri/link");
         }
+        // What a toolchain change set aside and a killed process never got to
+        // remove (`build::cache::reconcile_toolchain`). Not named: it was
+        // already on its way out.
+        let _ = std::fs::remove_dir_all(root.join(".buri/trash"));
     }
     let _ = std::fs::remove_file(root.join("out"));
     if removed.is_empty() {
