@@ -852,14 +852,17 @@ impl<'a> Jit<'a> {
 
         match &f.body {
             ir::Body::Code(code) => {
-                let (slot, scratch) = self.slots(prog, code, &frame);
+                // How often each value is read, which five of the analyses
+                // below ask and used to count for themselves.
+                let uses = count_uses(code);
+                let (slot, scratch) = self.slots(prog, code, &frame, &uses);
                 let mut reg = vec![None; code.values()];
                 let mut wt = vec![true; code.values()];
                 let mut cross = vec![false; code.values()];
                 let mut promoted = Vec::new();
                 let taken = self.promote(code, &mut reg, &mut wt, &mut cross, &mut promoted);
-                self.regalloc(code, &mut reg, taken);
-                let (constants, folded, uses) = self.constants(code);
+                self.regalloc(code, &mut reg, taken, &uses);
+                let (constants, folded) = self.constants(code, &uses);
                 let mut st = Fn2 {
                     slot,
                     blk: vec![0; code.blocks.len()],
@@ -1595,6 +1598,7 @@ impl<'a> Jit<'a> {
         prog: &ir::Program,
         code: &ir::Code,
         frame: &FrameSig,
+        uses: &[u32],
     ) -> (Vec<u32>, u32) {
         let n = code.values();
         let entry: Vec<ir::ValueId> = code.get(ir::BlockId(0)).params.clone();
@@ -1606,9 +1610,9 @@ impl<'a> Jit<'a> {
             (0..n).map(|v| self.slot_bytes(prog, code.ty_of(ir::ValueId(v as u32)))).collect();
         let mut uf: Vec<u32> = (0..n as u32).collect();
         {
-            self.coalesce(code, &mut uf, &mut pin, &width);
+            self.coalesce(code, &mut uf, &mut pin, &width, uses);
         }
-        self.pin_call_values(prog, code, &uf, &mut pin, frame.size);
+        self.pin_call_values(prog, code, &uf, &mut pin, frame.size, uses);
         // One slot per class: the pinned offset when the class holds a
         // parameter or a return value, a fresh one otherwise.
         let mut at = frame.param_end;
@@ -1649,7 +1653,7 @@ impl<'a> Jit<'a> {
             };
             *s = off;
         }
-        self.alias_parts(prog, code, &uf, &pin, &mut slot);
+        self.alias_parts(prog, code, &uf, &pin, &mut slot, uses);
         (slot, at)
     }
 
@@ -1675,6 +1679,7 @@ impl<'a> Jit<'a> {
         uf: &[u32],
         pin: &[Option<u32>],
         slot: &mut [u32],
+        uses: &[u32],
     ) {
         let part = |i: &ir::Inst| {
             matches!(i, ir::Inst::ArrayLen { .. } | ir::Inst::MakeStruct { .. } | ir::Inst::MakeEnum { .. })
@@ -1684,32 +1689,14 @@ impl<'a> Jit<'a> {
         }
         let n = code.values();
         let mut members = vec![0u32; n];
-        let mut uses = vec![0u32; n];
         let mut param = vec![false; n];
         let mut ops = Vec::new();
         for v in 0..n {
             bump(&mut members, find(uf, v as u32) as usize);
         }
-        for (bi, b) in code.blocks.iter().enumerate() {
-            if bi != 0 {
-                for p in &b.params {
-                    put(&mut param, p.index(), true);
-                }
-            }
-            for i in &b.insts {
-                ops.clear();
-                i.operands(&mut ops);
-                for o in &ops {
-                    bump(&mut uses, o.index());
-                }
-            }
-            ops.clear();
-            b.term.operands(&mut ops);
-            for t in b.term.targets() {
-                ops.extend_from_slice(&t.args);
-            }
-            for o in &ops {
-                bump(&mut uses, o.index());
+        for b in code.blocks.iter().skip(1) {
+            for p in &b.params {
+                put(&mut param, p.index(), true);
             }
         }
         let alone = |v: ir::ValueId| {
@@ -1797,7 +1784,7 @@ impl<'a> Jit<'a> {
                         || ftys.get(fi).is_some_and(|t| self.boxes(&owner, t))
                         || !alone(*f)
                         || ent(&aliased, f.index(), true)
-                        || ent(&uses, f.index(), 0) != 1
+                        || ent(uses, f.index(), 0) != 1
                     {
                         continue;
                     }
@@ -1838,36 +1825,22 @@ impl<'a> Jit<'a> {
         uf: &mut [u32],
         pin: &mut [Option<u32>],
         width: &[u32],
+        uses: &[u32],
     ) {
         let n = code.values();
-        let mut uses = vec![0u32; n];
         let mut is_param = vec![false; n];
         let mut def_block = vec![u32::MAX; n];
         let mut def_idx = vec![u32::MAX; n];
-        let mut ops = Vec::new();
         for (bi, b) in code.blocks.iter().enumerate() {
             for p in &b.params {
                 put(&mut is_param, p.index(), true);
                 put(&mut def_block, p.index(), bi as u32);
             }
             for (k, i) in b.insts.iter().enumerate() {
-                ops.clear();
-                i.operands(&mut ops);
-                for o in &ops {
-                    bump(&mut uses, o.index());
-                }
                 for d in i.results() {
                     put(&mut def_block, d.index(), bi as u32);
                     put(&mut def_idx, d.index(), k as u32);
                 }
-            }
-            ops.clear();
-            b.term.operands(&mut ops);
-            for t in b.term.targets() {
-                ops.extend_from_slice(&t.args);
-            }
-            for o in &ops {
-                bump(&mut uses, o.index());
             }
         }
         let mut used_here: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
@@ -1913,7 +1886,7 @@ impl<'a> Jit<'a> {
                 if !entry_ok && (ent(&is_param, ai, true) || def_a != bi as u32) {
                     continue;
                 }
-                if ent(&uses, ai, 0) != 1 || find(uf, ai as u32) != ai as u32 {
+                if ent(uses, ai, 0) != 1 || find(uf, ai as u32) != ai as u32 {
                     continue;
                 }
                 let root = find(uf, pi as u32);
@@ -1938,7 +1911,7 @@ impl<'a> Jit<'a> {
                 if ent(width, vi, 0) != 8
                     || ent(&is_param, vi, true)
                     || ent(&def_block, vi, u32::MAX) != bi as u32
-                    || ent(&uses, vi, 0) != 1
+                    || ent(uses, vi, 0) != 1
                     || find(uf, vi as u32) != vi as u32
                     || ent(pin, vi, None).is_some()
                 {
@@ -1951,7 +1924,7 @@ impl<'a> Jit<'a> {
                 put(pin, vi, Some(off));
             }
         }
-        self.coalesce_latches(code, uf, pin, width, &uses, &def_block, &def_idx);
+        self.coalesce_latches(code, uf, pin, width, uses, &def_block, &def_idx);
     }
 
     /// (i.d) A **latch**: a block whose parameter is only passed on to the
@@ -2081,6 +2054,7 @@ impl<'a> Jit<'a> {
         uf: &[u32],
         pin: &mut [Option<u32>],
         frame_size: u32,
+        uses: &[u32],
     ) {
         let has_call = |b: &ir::Block| b.insts.iter().any(|i| matches!(i, ir::Inst::Call { .. }));
         if !code.blocks.iter().any(has_call) {
@@ -2088,27 +2062,9 @@ impl<'a> Jit<'a> {
         }
         let n = code.values();
         let mut members = vec![0u32; n];
-        let mut uses = vec![0u32; n];
         let mut ops = Vec::new();
         for v in 0..n {
             bump(&mut members, find(uf, v as u32) as usize);
-        }
-        for b in &code.blocks {
-            for i in &b.insts {
-                ops.clear();
-                i.operands(&mut ops);
-                for o in &ops {
-                    bump(&mut uses, o.index());
-                }
-            }
-            ops.clear();
-            b.term.operands(&mut ops);
-            for t in b.term.targets() {
-                ops.extend_from_slice(&t.args);
-            }
-            for o in &ops {
-                bump(&mut uses, o.index());
-            }
         }
         let alone = |v: ir::ValueId, pin: &[Option<u32>]| {
             find(uf, v.0) == v.0
@@ -2173,7 +2129,7 @@ impl<'a> Jit<'a> {
                 let Some(&off) = fs.ret.first() else { continue };
                 let Some(dr) = read_at(d) else { continue };
                 let mut end = dr.last;
-                if !alone(d, pin) || dr.count != ent(&uses, d.index(), 0) || dr.first <= j {
+                if !alone(d, pin) || dr.count != ent(uses, d.index(), 0) || dr.first <= j {
                     continue;
                 }
                 // A `Bool` read only to be counted shares the slot it is
@@ -2186,7 +2142,7 @@ impl<'a> Jit<'a> {
                     {
                         if let Some(zr) = read_at(*z) {
                             if alone(*z, pin)
-                                && zr.count == ent(&uses, z.index(), 0)
+                                && zr.count == ent(uses, z.index(), 0)
                                 && zr.first > r
                             {
                                 end = end.max(zr.last);
@@ -2226,7 +2182,7 @@ impl<'a> Jit<'a> {
                     ) && b.insts.get(k).is_some_and(keeps_callee_frame);
                     if !defines
                         || !alone(*a, pin)
-                        || ent(&uses, a.index(), 0) != 1
+                        || ent(uses, a.index(), 0) != 1
                         || !pure(k + 1, j)
                         || results.iter().any(|(rj, re)| *rj < k && k <= *re)
                     {
@@ -2631,32 +2587,19 @@ impl<'a> Jit<'a> {
     /// compile speed, and the paper says the same thing: "we only use registers
     /// to store temporary values while evaluating expression trees". A value
     /// that crosses a call or a block boundary stays in the frame.
-    fn regalloc(&mut self, code: &ir::Code, out: &mut [Option<Loc>], taken: (usize, usize)) {
+    fn regalloc(
+        &mut self,
+        code: &ir::Code,
+        out: &mut [Option<Loc>],
+        taken: (usize, usize),
+        total: &[u32],
+    ) {
         // Uses over the **whole function**, not just the defining block. A
         // value defined in one block is visible to every block it dominates,
         // and a register only survives to the end of its own block — so a value
         // with any out-of-block use has to stay in the frame. Counting uses
         // per block instead was a miscompile: the consumer read a frame slot
         // the producer had never written.
-        let mut total = vec![0u32; code.values()];
-        let mut tmp = Vec::new();
-        for b in &code.blocks {
-            for i in &b.insts {
-                tmp.clear();
-                i.operands(&mut tmp);
-                for o in &tmp {
-                    bump(&mut total, o.index());
-                }
-            }
-            tmp.clear();
-            b.term.operands(&mut tmp);
-            for t in b.term.targets() {
-                tmp.extend_from_slice(&t.args);
-            }
-            for o in &tmp {
-                bump(&mut total, o.index());
-            }
-        }
         // Where each value is used in the block being allocated: how often,
         // first and last. One entry per value of the function, stamped with
         // the block it describes, so moving to the next block resets nothing.
@@ -2759,7 +2702,7 @@ impl<'a> Jit<'a> {
                     continue; // already promoted across the loop
                 }
                 let Some(u) = used(dest.0) else { continue };
-                if u.count != 1 || ent(&total, dest.index(), 0) != 1 {
+                if u.count != 1 || ent(total, dest.index(), 0) != 1 {
                     continue;
                 }
                 let at = u.first;
@@ -2805,8 +2748,7 @@ impl<'a> Jit<'a> {
     ///
     /// [`zero_divisor`] is the one use that is *not* eligible however good the
     /// stencil is.
-    /// Also answers how many times each value is read.
-    fn constants(&mut self, code: &ir::Code) -> (Vec<Option<u64>>, Vec<bool>, Vec<u32>) {
+    fn constants(&mut self, code: &ir::Code, total: &[u32]) -> (Vec<Option<u64>>, Vec<bool>) {
         let mut constants: Vec<Option<u64>> = vec![None; code.values()];
         let mut folded = vec![false; code.values()];
         for block in &code.blocks {
@@ -2818,16 +2760,9 @@ impl<'a> Jit<'a> {
         }
         // A use is immediate-eligible only as the right operand of a binary
         // operation whose immediate variant this level has.
-        let mut total = vec![0u32; code.values()];
         let mut imm = vec![0u32; code.values()];
-        let mut ops = Vec::new();
         for block in &code.blocks {
             for i in &block.insts {
-                ops.clear();
-                i.operands(&mut ops);
-                for o in &ops {
-                    bump(&mut total, o.index());
-                }
                 if let ir::Inst::Binary { op, prim, rhs, .. } = i {
                     if let Some(k) = ent(&constants, rhs.index(), None) {
                         if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
@@ -2840,20 +2775,12 @@ impl<'a> Jit<'a> {
                     }
                 }
             }
-            ops.clear();
-            block.term.operands(&mut ops);
-            for t in block.term.targets() {
-                ops.extend_from_slice(&t.args);
-            }
-            for o in &ops {
-                bump(&mut total, o.index());
-            }
         }
         for (v, f) in folded.iter_mut().enumerate() {
-            let seen = ent(&total, v, 0);
+            let seen = ent(total, v, 0);
             *f = ent(&constants, v, None).is_some() && seen > 0 && seen == ent(&imm, v, 0);
         }
-        (constants, folded, total)
+        (constants, folded)
     }
 
     /// Fusions the terminator can absorb.
@@ -3117,6 +3044,31 @@ impl Dominance {
             (Some((lo, hi)), Some((at, _))) => lo <= at && at < hi,
         }
     }
+}
+
+/// How many times each value of `code` is read: as an instruction's operand, as
+/// a terminator's, and as an edge's argument.
+fn count_uses(code: &ir::Code) -> Vec<u32> {
+    let mut uses = vec![0u32; code.values()];
+    let mut ops = Vec::new();
+    for b in &code.blocks {
+        for i in &b.insts {
+            ops.clear();
+            i.operands(&mut ops);
+            for o in &ops {
+                bump(&mut uses, o.index());
+            }
+        }
+        ops.clear();
+        b.term.operands(&mut ops);
+        for t in b.term.targets() {
+            ops.extend_from_slice(&t.args);
+        }
+        for o in &ops {
+            bump(&mut uses, o.index());
+        }
+    }
+    uses
 }
 
 /// How many times `v` is read in the function `st` was built for. A value is
