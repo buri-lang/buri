@@ -171,7 +171,7 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
     }
     out("");
     if rows.is_empty() {
-        out("coverage: the suites reached no source of this repository's own");
+        out("coverage: no suite loaded any of this repository's own source");
         return;
     }
     let (hit, total) = rows.iter().fold((0usize, 0usize), |(h, t), r| (h.saturating_add(r.1), t.saturating_add(r.2)));
