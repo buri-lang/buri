@@ -68,37 +68,150 @@ use crate::value::{str_of, BuriStr, BURI_RT_STR_LEN_MASK};
 // ECMA-262 §6.1.6.1.20 — Number::toString(x, 10)
 // ---------------------------------------------------------------------------
 
+/// A rendering on the stack. Every float, integer and character this file
+/// renders fits in [`Buf::CAP`] bytes, and building one here rather than in a
+/// `String` saves a `malloc` and a `free` per value, which the platform
+/// allocator zeroes on the way out.
+pub(crate) struct Buf {
+    bytes: [u8; Buf::CAP],
+    len: usize,
+}
+
+impl Buf {
+    const CAP: usize = 64;
+
+    pub(crate) const fn new() -> Buf {
+        Buf { bytes: [0; Buf::CAP], len: 0 }
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        self.bytes.get(..self.len).unwrap_or(&[])
+    }
+
+    fn as_str(&self) -> &str {
+        std::str::from_utf8(self.as_bytes()).unwrap_or("")
+    }
+
+    pub(crate) fn push_bytes(&mut self, b: &[u8]) {
+        let end = self.len.saturating_add(b.len()).min(Buf::CAP);
+        let n = end - self.len;
+        if let (Some(dst), Some(src)) = (self.bytes.get_mut(self.len..end), b.get(..n)) {
+            dst.copy_from_slice(src);
+        }
+        self.len = end;
+    }
+
+    fn push(&mut self, b: u8) {
+        self.push_bytes(&[b]);
+    }
+
+    fn push_zeros(&mut self, n: usize) {
+        for _ in 0..n {
+            self.push(b'0');
+        }
+    }
+
+    /// `v` in decimal.
+    pub(crate) fn push_u64(&mut self, v: u64) {
+        let mut digits = [0u8; 20];
+        let n = decimal(v, &mut digits);
+        self.push_bytes(digits.get(20 - n..).unwrap_or(&[]));
+    }
+
+    /// `v` in decimal, with a `-` if it is negative.
+    pub(crate) fn push_i64(&mut self, v: i64) {
+        if v < 0 {
+            self.push(b'-');
+        }
+        self.push_u64(v.unsigned_abs());
+    }
+}
+
+impl std::fmt::Write for Buf {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        if self.len.saturating_add(s.len()) > Buf::CAP {
+            return Err(std::fmt::Error);
+        }
+        self.push_bytes(s.as_bytes());
+        Ok(())
+    }
+}
+
+/// Two digits at a time, `"00"` through `"99"`.
+const PAIRS: &[u8; 200] = b"\
+0001020304050607080910111213141516171819\
+2021222324252627282930313233343536373839\
+4041424344454647484950515253545556575859\
+6061626364656667686970717273747576777879\
+8081828384858687888990919293949596979899";
+
+/// Write `v`'s decimal digits at the end of `out` and answer how many there
+/// are.
+pub(crate) fn decimal(mut v: u64, out: &mut [u8; 20]) -> usize {
+    let mut at = 20;
+    while v >= 100 {
+        let pair = (v % 100) as usize * 2;
+        v /= 100;
+        at -= 2;
+        out[at] = PAIRS[pair];
+        out[at + 1] = PAIRS[pair + 1];
+    }
+    if v >= 10 {
+        let pair = v as usize * 2;
+        at -= 2;
+        out[at] = PAIRS[pair];
+        out[at + 1] = PAIRS[pair + 1];
+    } else {
+        at -= 1;
+        out[at] = b'0' + v as u8;
+    }
+    20 - at
+}
+
 /// The shortest digit string of `x` and its decimal exponent, as ECMA-262's
 /// `(s, n)`: `x == s * 10^(n - k)`, where `k` is `s.len()`.
 ///
 /// `x` must be finite, non-zero and positive — the three cases the caller has
 /// already peeled off.
-fn shortest_digits(x: f64) -> (String, i32) {
+fn shortest_digits(x: f64) -> (Buf, i32) {
+    use std::fmt::Write as _;
     // Step 1: the *length*. Rust's shortest formatter answers `d.ddde<exp>`,
     // and the count is of the **mantissa's** digits: the exponent has digits
     // too, and counting those made `1.0 / 3.0` seventeen significant figures
     // instead of sixteen — which is a wrong answer, not a rounding one.
-    let short = format!("{x:e}");
-    let mantissa = short.split('e').next().unwrap_or(&short);
+    let mut short = Buf::new();
+    let _ = write!(short, "{x:e}");
+    let short = short.as_str();
+    let mantissa = short.split('e').next().unwrap_or(short);
     let k = mantissa.bytes().filter(u8::is_ascii_digit).count();
     // Step 2: the *digits*, correctly rounded at that length. `k >= 1` always,
     // because a finite non-zero float has at least one significant digit.
-    let exact = format!("{:.*e}", k.saturating_sub(1), x);
-    let Some((mantissa, exponent)) = exact.split_once('e') else {
+    let mut exact = Buf::new();
+    let _ = write!(exact, "{:.*e}", k.saturating_sub(1), x);
+    let mut digits = Buf::new();
+    let Some((mantissa, exponent)) = exact.as_str().split_once('e') else {
         // `{:e}` always emits an `e`. Answering `0` here rather than reaching
         // for a panic keeps the promise that no input panics the runtime.
-        return (String::from("0"), 0);
+        digits.push(b'0');
+        return (digits, 0);
     };
     let exponent: i32 = exponent.parse().unwrap_or(0);
-    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+    for b in mantissa.bytes().filter(u8::is_ascii_digit) {
+        digits.push(b);
+    }
     // Re-rounding can turn `9.99` into `10.0`; the trailing zero is not a
     // significant digit and `k` shrinks by one, which the presentation rule
     // below reads off `digits.len()` rather than from step 1.
-    let trimmed = digits.trim_end_matches('0');
-    let trimmed = if trimmed.is_empty() { "0" } else { trimmed };
+    while digits.len > 1 && digits.as_bytes().last() == Some(&b'0') {
+        digits.len -= 1;
+    }
+    if digits.as_bytes() == b"0" {
+        digits.len = 0;
+        digits.push(b'0');
+    }
     // `{:e}` writes `d.ddd`, so the value is `mantissa * 10^exponent` and
     // ECMA's `n` — the position of the decimal point — is one further right.
-    (String::from(trimmed), exponent.saturating_add(1))
+    (digits, exponent.saturating_add(1))
 }
 
 /// `Number::toString(x, 10)` — what JavaScript's `String(x)` produces.
@@ -107,59 +220,72 @@ fn shortest_digits(x: f64) -> (String, i32) {
 /// what ECMA-262 says; `$f64` never asks for them, because it renders the three
 /// non-finite cases itself and this runtime follows it (see [`show_f64`]).
 pub fn ecma_number(x: f64) -> String {
+    let mut out = Buf::new();
+    ecma_number_into(x, &mut out);
+    String::from(out.as_str())
+}
+
+/// [`ecma_number`], onto the end of `out`.
+fn ecma_number_into(x: f64, out: &mut Buf) {
     if x.is_nan() {
-        return String::from("NaN");
+        return out.push_bytes(b"NaN");
     }
     // `-0` prints as `0`: ECMA-262 step 2 tests `x is either +0 or -0`.
     if x == 0.0 {
-        return String::from("0");
+        return out.push(b'0');
     }
     if x < 0.0 {
-        return format!("-{}", ecma_number(-x));
+        out.push(b'-');
+        return ecma_number_into(-x, out);
     }
     if x.is_infinite() {
-        return String::from("Infinity");
+        return out.push_bytes(b"Infinity");
+    }
+    // An integer below 2^53 is its own shortest rendering: doubles there are
+    // at most 1 apart, so no decimal with fewer significant digits reads back
+    // as it, and `n <= 16` puts it in the first arm below.
+    if x < EXACT_INTEGERS && x.fract() == 0.0 {
+        return out.push_u64(x as u64);
     }
     let (digits, n) = shortest_digits(x);
+    let digits = digits.as_bytes();
     let k = i32::try_from(digits.len()).unwrap_or(i32::MAX);
-    let mut out = String::with_capacity(digits.len().saturating_add(8));
     if k <= n && n <= 21 {
         // `123` with `n == 5` is `12300`: the digits, then `n - k` zeros.
-        out.push_str(&digits);
-        for _ in 0..n.saturating_sub(k) {
-            out.push('0');
-        }
+        out.push_bytes(digits);
+        out.push_zeros(n.saturating_sub(k) as usize);
     } else if 0 < n && n <= 21 {
         // A point inside the digits: `1.5`.
         let at = n.clamp(0, k) as usize;
         let (head, tail) = digits.split_at(at.min(digits.len()));
-        out.push_str(head);
-        out.push('.');
-        out.push_str(tail);
+        out.push_bytes(head);
+        out.push(b'.');
+        out.push_bytes(tail);
     } else if -6 < n && n <= 0 {
         // `0.` then `-n` zeros then the digits: `0.001`. The cut at `-6` is
         // ECMA's, and it is why `1e-7` is exponential while `1e-6` is not.
-        out.push_str("0.");
-        for _ in 0..-n {
-            out.push('0');
-        }
-        out.push_str(&digits);
+        out.push_bytes(b"0.");
+        out.push_zeros(n.unsigned_abs() as usize);
+        out.push_bytes(digits);
     } else {
         // Exponential. The exponent written is `n - 1`, and it always carries a
         // sign — `1e+21`, `1e-7`.
         let e = n.saturating_sub(1);
         let (head, tail) = digits.split_at(1.min(digits.len()));
-        out.push_str(head);
+        out.push_bytes(head);
         if !tail.is_empty() {
-            out.push('.');
-            out.push_str(tail);
+            out.push(b'.');
+            out.push_bytes(tail);
         }
-        out.push('e');
-        out.push(if e < 0 { '-' } else { '+' });
-        out.push_str(&e.unsigned_abs().to_string());
+        out.push(b'e');
+        out.push(if e < 0 { b'-' } else { b'+' });
+        out.push_u64(u64::from(e.unsigned_abs()));
     }
-    out
 }
+
+/// 2^53: every integer below it is a double, and the doubles there are
+/// integers at most 1 apart.
+const EXACT_INTEGERS: f64 = 9_007_199_254_740_992.0;
 
 /// `$f64` — how a `Float` renders in a template hole and in a derived `Show`.
 ///
@@ -176,19 +302,29 @@ pub fn ecma_number(x: f64) -> String {
 /// to exponential notation, so above it a `.0` would be appended to something
 /// that already has an `e` in it.
 pub fn show_f64(x: f64) -> String {
+    let mut out = Buf::new();
+    show_f64_into(x, &mut out);
+    String::from(out.as_str())
+}
+
+/// [`show_f64`], into `out`.
+pub(crate) fn show_f64_into(x: f64, out: &mut Buf) {
     if x.is_nan() {
-        return String::from("NaN");
+        return out.push_bytes(b"NaN");
     }
     if x.is_infinite() {
-        return String::from(if x > 0.0 { "inf" } else { "-inf" });
+        return out.push_bytes(if x > 0.0 { b"inf" } else { b"-inf" });
     }
     if x.fract() == 0.0 && x.abs() < 1e21 {
         // `-0.0` is integral and `ecma_number` renders it `0`, so the sign is
         // put back by hand — `Object.is(n, -0)` on the JavaScript side.
-        let sign = if x == 0.0 && x.is_sign_negative() { "-" } else { "" };
-        return format!("{sign}{}.0", ecma_number(x));
+        if x == 0.0 && x.is_sign_negative() {
+            out.push(b'-');
+        }
+        ecma_number_into(x, out);
+        return out.push_bytes(b".0");
     }
-    ecma_number(x)
+    ecma_number_into(x, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -201,8 +337,10 @@ pub fn show_f64(x: f64) -> String {
 /// `out` must be writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_show_f64(x: f64, out: *mut BuriStr) {
+    let mut text = Buf::new();
+    show_f64_into(x, &mut text);
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(str_of(&show_f64(x))) }
+    unsafe { out.write(BuriStr::copy_from(text.as_bytes())) }
 }
 
 /// `show` of an `F32`.
@@ -234,8 +372,10 @@ pub unsafe extern "C" fn buri_rt_show_f32(x: f32, out: *mut BuriStr) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_show_i128(lo: u64, hi: u64, out: *mut BuriStr) {
     let v = (u128::from(lo) | (u128::from(hi) << 64)) as i128;
+    let mut text = Buf::new();
+    let _ = std::fmt::Write::write_fmt(&mut text, format_args!("{v}"));
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(str_of(&v.to_string())) }
+    unsafe { out.write(BuriStr::copy_from(text.as_bytes())) }
 }
 
 /// `show` of an unsigned 128-bit integer.
@@ -245,8 +385,10 @@ pub unsafe extern "C" fn buri_rt_show_i128(lo: u64, hi: u64, out: *mut BuriStr) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_show_u128(lo: u64, hi: u64, out: *mut BuriStr) {
     let v = u128::from(lo) | (u128::from(hi) << 64);
+    let mut text = Buf::new();
+    let _ = std::fmt::Write::write_fmt(&mut text, format_args!("{v}"));
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(str_of(&v.to_string())) }
+    unsafe { out.write(BuriStr::copy_from(text.as_bytes())) }
 }
 
 /// A `Char` as a one-scalar `Str` — a template hole at `Char`, and
@@ -441,6 +583,111 @@ mod tests {
             let text = ecma_number(x);
             let back: f64 = text.parse().unwrap_or(f64::NAN);
             assert_eq!(back.to_bits(), x.to_bits(), "{text} did not read back as {x:?}");
+        }
+    }
+
+    /// The rendering this file had before it moved onto the stack and took the
+    /// integer shortcut, kept as the reference the new one must match.
+    fn show_f64_by_strings(x: f64) -> String {
+        fn digits(x: f64) -> (String, i32) {
+            let short = format!("{x:e}");
+            let mantissa = short.split('e').next().unwrap_or(&short);
+            let k = mantissa.bytes().filter(u8::is_ascii_digit).count();
+            let exact = format!("{:.*e}", k.saturating_sub(1), x);
+            let (mantissa, exponent) = exact.split_once('e').unwrap();
+            let exponent: i32 = exponent.parse().unwrap();
+            let all: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+            let trimmed = all.trim_end_matches('0');
+            let trimmed = if trimmed.is_empty() { "0" } else { trimmed };
+            (String::from(trimmed), exponent + 1)
+        }
+        fn ecma(x: f64) -> String {
+            if x.is_nan() {
+                return String::from("NaN");
+            }
+            if x == 0.0 {
+                return String::from("0");
+            }
+            if x < 0.0 {
+                return format!("-{}", ecma(-x));
+            }
+            if x.is_infinite() {
+                return String::from("Infinity");
+            }
+            let (digits, n) = digits(x);
+            let k = digits.len() as i32;
+            if k <= n && n <= 21 {
+                format!("{digits}{}", "0".repeat((n - k) as usize))
+            } else if 0 < n && n <= 21 {
+                let (head, tail) = digits.split_at(n as usize);
+                format!("{head}.{tail}")
+            } else if -6 < n && n <= 0 {
+                format!("0.{}{digits}", "0".repeat((-n) as usize))
+            } else {
+                let e = n - 1;
+                let (head, tail) = digits.split_at(1);
+                let point = if tail.is_empty() { String::new() } else { format!(".{tail}") };
+                format!("{head}{point}e{}{}", if e < 0 { '-' } else { '+' }, e.unsigned_abs())
+            }
+        }
+        if x.is_nan() {
+            return String::from("NaN");
+        }
+        if x.is_infinite() {
+            return String::from(if x > 0.0 { "inf" } else { "-inf" });
+        }
+        if x.fract() == 0.0 && x.abs() < 1e21 {
+            let sign = if x == 0.0 && x.is_sign_negative() { "-" } else { "" };
+            return format!("{sign}{}.0", ecma(x));
+        }
+        ecma(x)
+    }
+
+    /// **The stack rendering is byte for byte the one it replaced**, over
+    /// random bit patterns, every integer shape near 2^53, and powers of ten.
+    #[test]
+    fn the_stack_rendering_matches_the_string_one() {
+        let mut inputs: Vec<f64> = Vec::new();
+        let mut s: u64 = 0x9E37_79B9_7F4A_7C15;
+        for _ in 0..300_000 {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            inputs.push(f64::from_bits(s));
+            inputs.push((s >> 11) as f64);
+            inputs.push((s % 1_000_000) as f64 / 8.0);
+        }
+        for shift in 0..64 {
+            let p = 2f64.powi(shift);
+            inputs.extend([p - 2.0, p - 1.0, p, p + 1.0, p + 2.0, -p, p * 1.5]);
+        }
+        for e in -324..=308 {
+            let p: f64 = format!("1e{e}").parse().unwrap();
+            inputs.extend([p, -p, p * 3.0, p.next_up(), p.next_down()]);
+        }
+        inputs.extend([0.0, -0.0, f64::MAX, f64::MIN, f64::MIN_POSITIVE, f64::NAN, f64::INFINITY]);
+        for x in inputs {
+            assert_eq!(show_f64(x), show_f64_by_strings(x), "show({x:?}), bits {:#x}", x.to_bits());
+        }
+    }
+
+    #[test]
+    fn integers_render_as_to_string_does() {
+        let mut s: u64 = 0x2545_F491_4F6C_DD1D;
+        let check = |v: i64| {
+            let mut b = Buf::new();
+            b.push_i64(v);
+            assert_eq!(b.as_bytes(), v.to_string().as_bytes());
+        };
+        for v in [0, 1, -1, 9, 10, 99, 100, 101, i64::MAX, i64::MIN, i64::MIN + 1] {
+            check(v);
+        }
+        for _ in 0..200_000 {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            check(s as i64);
+            check((s >> (s % 64)) as i64);
         }
     }
 

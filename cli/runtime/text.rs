@@ -1031,8 +1031,10 @@ pub unsafe extern "C" fn buri_rt_str_from_chars(
 /// `out` is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_str_from_int(n: i64, out: *mut BuriStr) {
+    let mut text = crate::fmt::Buf::new();
+    text.push_i64(n);
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(str_of(&n.to_string())) }
+    unsafe { out.write(BuriStr::copy_from(text.as_bytes())) }
 }
 
 /// `str.padStart(self, ctx, width, fill) -> Str`.
@@ -1180,8 +1182,10 @@ pub unsafe extern "C" fn buri_rt_str_hash(base: *mut u8, ptr: *const u8, len: u6
 /// `out` is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_str_from_float(x: f64, out: *mut BuriStr) {
+    let mut text = crate::fmt::Buf::new();
+    crate::fmt::show_f64_into(x, &mut text);
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(str_of(&crate::fmt::show_f64(x))) }
+    unsafe { out.write(BuriStr::copy_from(text.as_bytes())) }
 }
 
 #[cfg(test)]
