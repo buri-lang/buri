@@ -151,6 +151,52 @@ fn a_native_import_no_rule_lists_cannot_serve_a_stale_answer() {
     assert_eq!(answer(), "answer=2\n", "the cache served a stale artifact");
 }
 
+/// A suite's verdict and its recorded build are keyed before anything loads,
+/// so a module no rule lists that the suite reaches has to be checked too.
+/// Each step's answer comes from a different record: a cached pass, a fresh
+/// failure, a recorded build run again, and a cached pass again.
+#[test]
+fn a_suite_reaching_a_module_no_rule_lists_cannot_serve_a_stale_verdict() {
+    let scratch = Scratch::repo("suite-unlisted");
+    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write("lib/a/lib.buri", "from \"//lib/a/helper.buri\" import { one };\nexport fn get(): Int { one() }\n");
+    scratch.write(
+        "lib/a/test/a.buri",
+        "from \"//lib/a\" import { get };\nfrom \"core/testing/assert\" import * as assert;\n\n\
+         test \"get\" {\n  assert.equal(get(), 1);\n}\n",
+    );
+    let helper = |n: i32| scratch.write("lib/a/helper.buri", &format!("export fn one(): Int {{ {n} }}\n"));
+    helper(2);
+    let run = scratch.run(&["test", "//lib/a"]);
+    if run.stderr.contains("native-run-not-available") {
+        return;
+    }
+    run.exits(1);
+    helper(1);
+    scratch.run(&["test", "//lib/a"]).ok();
+    scratch.run(&["test", "//lib/a"]).ok().says("cached");
+    helper(2);
+    scratch.run(&["test", "//lib/a"]).exits(1);
+}
+
+/// A tool's program is keyed on its rule's sources, and a module in its
+/// package that no rule lists is part of the program too.
+#[test]
+fn a_tool_reaching_a_module_no_rule_lists_is_built_again() {
+    let scratch = generated_repository("tool-unlisted");
+    scratch.edit(
+        "tools/gen/tool.buri",
+        "from \"//lib/factor\" import { factor };",
+        "from \"//lib/factor\" import { factor };\nfrom \"//tools/gen/extra.buri\" import { extra };",
+    );
+    scratch.edit("tools/gen/tool.buri", "* factor()", "* factor() + extra()");
+    scratch.write("tools/gen/extra.buri", "export fn extra(): Int { 0 }\n");
+    scratch.run(&["run", "//cmd/app"]).ok().says("width=6");
+    scratch.write("tools/gen/extra.buri", "export fn extra(): Int { 1 }\n");
+    scratch.run(&["run", "//cmd/app"]).ok().says("width=7");
+    scratch.run(&["run", "//cmd/app"]).ok().says("width=7");
+}
+
 /// `buri build` of a library checks it, and a check that passed may be
 /// remembered. An edit to its sources, to a dependency's, or to a module no
 /// rule lists must still be checked.

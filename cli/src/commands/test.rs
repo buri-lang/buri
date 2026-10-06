@@ -561,7 +561,7 @@ fn plan(
             // `--force` builds again, as it links again. So does `--coverage`:
             // a recorded build may put its probes on lines an edit has moved.
             let recalled =
-                if args.flags.force || args.flags.coverage { None } else { recall(session, &at) };
+                if args.flags.force || args.flags.coverage { None } else { recall(session, &at, &key) };
             let status = match recalled {
                 Some(_) => crate::build::cache::Status::Cached,
                 None => crate::build::cache::Status::Run,
@@ -704,8 +704,10 @@ fn drive(
         };
         match answer {
             Done::Answer { slot, answer, explain, notes, built } => {
-                if let (Some(built), Some(at)) = (built, slots.get(slot).and_then(|s| s.build.as_ref())) {
-                    remember(session, at, &built, &answer);
+                if let (Some(built), Some(s)) = (built, slots.get(slot)) {
+                    if let Some(at) = &s.build {
+                        remember(session, at, &s.key, &built, &answer);
+                    }
                 }
                 let answer = answer.map(|ran| located(session, ran));
                 if let Some(s) = slots.get_mut(slot) {
@@ -993,6 +995,7 @@ fn solo(
         &mut session.parsed,
         std::slice::from_ref(&unit),
     );
+    note_reads(session, target, &key, &loading);
     let bytes = build_bytes(loading.source_bytes(&session.map));
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
     let limit = suite(session, target).and_then(|x| x.timeout_seconds);
@@ -1631,7 +1634,7 @@ fn did_not_run(stderr: &str) -> Diagnostics {
 fn cases_of(stdout: &str, key: &crate::build::cache::ActionKey, shared: &Shared) -> Vec<Case> {
     let cases = parse_results(stdout);
     if may_cache(&cases, &shared.flags) {
-        crate::build::cache::Cache::open(&shared.root).put(key, stdout.as_bytes());
+        store_verdict(&shared.root, key, stdout.as_bytes());
     }
     cases
 }
@@ -1948,6 +1951,41 @@ impl Prepass {
     }
 }
 
+/// What each suite's load read that its keys don't hash
+/// ([`actions::suite_unkeyed_reads`]), by verdict key. Noted on the thread that
+/// loads, or from a recorded build that still holds, and written into the
+/// verdict and the build record so a hit can check them ([`actions::held_record`]).
+static READS: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> = std::sync::Mutex::new(None);
+
+fn note(key: &crate::build::cache::ActionKey, reads: String) {
+    let mut noted = READS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    noted.get_or_insert_with(Default::default).insert(key.as_str().to_string(), reads);
+}
+
+fn noted_reads(key: &crate::build::cache::ActionKey) -> Option<String> {
+    let noted = READS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    noted.as_ref()?.get(key.as_str()).cloned()
+}
+
+/// [`note`]s what a suite's load read.
+fn note_reads(
+    session: &Session,
+    target: TargetId,
+    key: &crate::build::cache::ActionKey,
+    loading: &crate::compiler::driver::Loading,
+) {
+    let files = actions::suite_unkeyed_reads(session, target, loading.loaded(), &mut actions::RulePaths::new());
+    note(key, actions::encode_reads(session, &files));
+}
+
+/// Stores a verdict with its reads. One whose reads were never noted isn't
+/// stored.
+fn store_verdict(root: &std::path::Path, key: &crate::build::cache::ActionKey, record: &[u8]) {
+    if let Some(reads) = noted_reads(key) {
+        crate::build::cache::Cache::open(root).put(key, &actions::with_reads(&reads, record));
+    }
+}
+
 /// The verdicts the cache holds for this key, where it may serve them.
 ///
 /// A suite whose inputs are unchanged is not re-run and reports as cached;
@@ -1968,7 +2006,8 @@ fn served(
         return None;
     }
     let bytes = crate::build::cache::Cache::open(&session.root).get(key)?;
-    let text = String::from_utf8_lossy(&bytes).to_string();
+    let (_, body) = actions::held_record(&session.root, &bytes)?;
+    let text = String::from_utf8_lossy(body).to_string();
     let mut cases = parse_results(&text);
     if cases.is_empty() {
         return None;
@@ -2078,6 +2117,7 @@ const BUILD_FORMAT: &[u8] = b"buri-test-build-2\n";
 fn remember(
     session: &Session,
     at: &crate::build::cache::ActionKey,
+    key: &crate::build::cache::ActionKey,
     built: &Built,
     answer: &Result<Ran, Diagnostics>,
 ) {
@@ -2118,7 +2158,9 @@ fn remember(
             put_roots(&mut out, &session.map, &mut anchors, &b.roots);
         }
     }
-    crate::build::cache::Cache::open(&session.root).put(at, &out);
+    // A build whose reads this run never noted is not recorded.
+    let Some(reads) = noted_reads(key) else { return };
+    crate::build::cache::Cache::open(&session.root).put(at, &actions::with_reads(&reads, &out));
 }
 
 /// A suite's tests, in a build record.
@@ -2305,10 +2347,16 @@ fn locate_anchor(
 ///
 /// `None` for no record, one this toolchain can't read, or one naming a file
 /// that isn't there. The suite is then built.
-fn recall(session: &mut Session, at: &crate::build::cache::ActionKey) -> Option<Recalled> {
+fn recall(
+    session: &mut Session,
+    at: &crate::build::cache::ActionKey,
+    key: &crate::build::cache::ActionKey,
+) -> Option<Recalled> {
     use crate::commands::lint_cache::{read_diagnostic_with, Reader};
     let bytes = crate::build::cache::Cache::open(&session.root).get(at)?;
-    let mut r = Reader::after(BUILD_FORMAT, &bytes)?;
+    let (reads, body) = actions::held_record(&session.root, &bytes)?;
+    note(key, reads);
+    let mut r = Reader::after(BUILD_FORMAT, body)?;
     let root = session.root.clone();
     let mut anchors = Anchors::default();
     let count = |r: &mut Reader| r.u32().and_then(|n| usize::try_from(n).ok());
@@ -2835,7 +2883,7 @@ fn recorded<'b>(
     let record = Value::Array(records.collect()).to_string();
     let cases = parse_results(&record);
     if may_cache(&cases, &shared.flags) {
-        crate::build::cache::Cache::open(&shared.root).put(key, record.as_bytes());
+        store_verdict(&shared.root, key, record.as_bytes());
     }
     cases
 }
@@ -3119,6 +3167,11 @@ fn queue_batch(
         &mut session.parsed,
         &units,
     );
+    for (&target, &i) in members.iter().zip(member_slots) {
+        if let Some(slot) = slots.get(i) {
+            note_reads(session, target, &slot.key, &loading);
+        }
+    }
     let platform = crate::compiler::driver::host_native_platform();
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
     let key_of = |i: usize| slots.get(i).map(|s| s.key.clone());
