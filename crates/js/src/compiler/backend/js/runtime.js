@@ -1344,8 +1344,11 @@ const $math_isFinite = Number.isFinite;
 function $shiftCount(n, bits) {
   const k = Number(n);
   if (k < 0 || k >= bits) $abort("shift out of range");
-  return BigInt(k);
+  return $counts[k];
 }
+
+// `0n` to `64n`, so a shift count or a bit count is read rather than made.
+const $counts = Array.from({ length: 65 }, (_, i) => BigInt(i));
 
 function $big(x) {
   return BigInt(Math.trunc(x));
@@ -1399,19 +1402,20 @@ function $ctz32(n) {
 
 function $bits_popCount(x) {
   const v = BigInt.asUintN(64, x);
-  return BigInt($pop32(Number(v & 0xffffffffn)) + $pop32(Number(v >> 32n)));
+  if (v <= 0xffffffffn) return $counts[$pop32(Number(v))];
+  return $counts[$pop32(Number(v & 0xffffffffn)) + $pop32(Number(v >> 32n))];
 }
 
 function $bits_leadingZeros(x) {
   const v = BigInt.asUintN(64, x);
   const hi = Number(v >> 32n);
-  return BigInt(hi !== 0 ? Math.clz32(hi) : 32 + Math.clz32(Number(v & 0xffffffffn)));
+  return $counts[hi !== 0 ? Math.clz32(hi) : 32 + Math.clz32(Number(v & 0xffffffffn))];
 }
 
 function $bits_trailingZeros(x) {
   const v = BigInt.asUintN(64, x);
   const lo = Number(v & 0xffffffffn);
-  return BigInt(lo !== 0 ? $ctz32(lo) : 32 + $ctz32(Number(v >> 32n)));
+  return $counts[lo !== 0 ? $ctz32(lo) : 32 + $ctz32(Number(v >> 32n))];
 }
 
 function $bits_rotateLeft(x, n) {
@@ -1454,7 +1458,7 @@ function $bits_shiftRightU64(x, n) {
 function $rotate(x, n, bits, left) {
   const k = $shiftCount(n, bits);
   const v = BigInt.asUintN(bits, $toBig(x));
-  const w = BigInt(bits);
+  const w = $counts[bits];
   const spun = left ? (v << k) | (v >> (w - k)) : (v >> k) | (v << (w - k));
   return BigInt.asUintN(bits, spun);
 }
@@ -1497,16 +1501,16 @@ function $bits_byteSwapU64(x) {
   return $swapBytes(x, 8);
 }
 
-// The three counts at `U64`, which is the same sixty-four bits `popCount`,
-// `leadingZeros` and `trailingZeros` read as signed.
+// The three counts at `U64`. The signed counts read the word unsigned anyway,
+// so they take a `U64` as it is.
 function $bits_popCountU64(x) {
-  return $bits_popCount(BigInt.asIntN(64, $toBig(x)));
+  return $bits_popCount($toBig(x));
 }
 function $bits_leadingZerosU64(x) {
-  return $bits_leadingZeros(BigInt.asIntN(64, $toBig(x)));
+  return $bits_leadingZeros($toBig(x));
 }
 function $bits_trailingZerosU64(x) {
-  return $bits_trailingZeros(BigInt.asIntN(64, $toBig(x)));
+  return $bits_trailingZeros($toBig(x));
 }
 
 // --- Conversions ---------------------------------------------------------------------
