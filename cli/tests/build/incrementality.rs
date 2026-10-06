@@ -179,6 +179,34 @@ fn a_suite_reaching_a_module_no_rule_lists_cannot_serve_a_stale_verdict() {
     scratch.run(&["test", "//lib/a"]).exits(1);
 }
 
+/// A suite that imports a library it doesn't declare compiles, since
+/// `missing-dependency` is a lint, and its key doesn't hold that library's
+/// sources. Editing them must still reach its verdict and its recorded build.
+#[test]
+fn a_suite_reaching_a_library_it_does_not_declare_cannot_serve_a_stale_verdict() {
+    let scratch = Scratch::repo("suite-undeclared");
+    scratch.write("lib/b/BUILD.buri", "library {\n  visibility: [\"//visibility:public\"]\n}\n");
+    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write("lib/a/lib.buri", "export fn unused(): Int { 0 }\n");
+    scratch.write(
+        "lib/a/test/a.buri",
+        "from \"//lib/b\" import { one };\nfrom \"core/testing/assert\" import * as assert;\n\n\
+         test \"one\" {\n  assert.equal(one(), 1);\n}\n",
+    );
+    let library = |n: i32| scratch.write("lib/b/lib.buri", &format!("export fn one(): Int {{ {n} }}\n"));
+    library(2);
+    let run = scratch.run(&["test", "//lib/a"]);
+    if run.stderr.contains("native-run-not-available") {
+        return;
+    }
+    run.exits(1);
+    library(1);
+    scratch.run(&["test", "//lib/a"]).ok();
+    scratch.run(&["test", "//lib/a"]).ok().says("cached");
+    library(2);
+    scratch.run(&["test", "//lib/a"]).exits(1);
+}
+
 /// A tool's program is keyed on its rule's sources, and a module in its
 /// package that no rule lists is part of the program too.
 #[test]

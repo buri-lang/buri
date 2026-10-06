@@ -4153,13 +4153,14 @@ match. The native record and the library check record do the same.
 it.
 
 `buri test` and tools had the same gap. A suite's verdict and recorded build
-now carry what its load read that the key didn't hash. A batch member counts
-only files of packages in its own closure, so one suite's edit doesn't reach
-another's record. A tool's program key adds the digests of what its last
-compile read that way, kept in the cache, and compiles to learn them when they
-no longer hold. With none, every key is what it was. A suite importing a
-library it doesn't declare (a `missing-dependency` lint, not an error) is
-still keyed without that library's sources.
+now carry what its load read that the key didn't hash: an unlisted module, or
+a library it imports without declaring (`missing-dependency` is a lint). A
+batch member counts only the modules its own package reaches by import, so one
+suite's edit doesn't reach another's record. That walk is indexed once per
+load: a cold `buri test //...` of the monorepo pays +0.4%. A tool's program key
+adds the digests of what its last compile read that way, kept in the cache,
+and compiles to learn them when they no longer hold. With none, every key is
+what it was.
 
 Instructions retired, `base` is `origin/main` at `1c674296f`, alternating:
 
