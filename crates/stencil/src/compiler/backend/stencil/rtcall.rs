@@ -634,7 +634,7 @@ impl Jit<'_> {
         }
         let base = st.scratch + CARG_WORD * 8;
         let fbase = base + MAX_INT as u32 * 8;
-        let callee = super::abi::rt_callee(ints.len(), floats.len(), kind);
+        let callee = key!("{}", super::abi::rt_callee(ints.len(), floats.len(), kind));
 
         // Where each argument will be **read from**. An operand that is already
         // a whole frame word is read where it lies; everything else — a literal,
@@ -644,10 +644,18 @@ impl Jit<'_> {
             Src::Word(from) => *from,
             _ => at + i as u32 * 8,
         };
-        let iat: Vec<u32> =
-            ints.iter().enumerate().map(|(i, s)| place(i, base, s)).collect();
-        let fat: Vec<u32> =
-            floats.iter().enumerate().map(|(i, s)| place(i, fbase, s)).collect();
+        // On the stack: one runtime call is at most `MAX_INT` and `MAX_FLOAT`
+        // arguments, checked above.
+        let mut iat = [0u32; MAX_INT];
+        for ((i, s), at) in ints.iter().enumerate().zip(iat.iter_mut()) {
+            *at = place(i, base, s);
+        }
+        let iat = iat.get(..ints.len()).unwrap_or_default();
+        let mut fat = [0u32; MAX_FLOAT];
+        for ((i, s), at) in floats.iter().enumerate().zip(fat.iter_mut()) {
+            *at = place(i, fbase, s);
+        }
+        let fat = fat.get(..floats.len()).unwrap_or_default();
 
         // The slots family is the fast one and the array family is the fallback,
         // and the question that decides is whether every offset fits the field
@@ -657,25 +665,34 @@ impl Jit<'_> {
         // form it replaced. Asking here instead makes that case the array one.
         let fits = |o: &u32| o.is_multiple_of(8) && u64::from(*o) / 8 < 4096;
         let dfits = kind == "v" || fits(&dslot);
-        if self.slots_crt_available() && dfits && iat.iter().chain(&fat).all(fits) {
-            for (src, at) in ints.iter().zip(&iat).chain(floats.iter().zip(&fat)) {
+        if self.slots_crt_available() && dfits && iat.iter().chain(fat).all(fits) {
+            for (src, at) in ints.iter().zip(iat).chain(floats.iter().zip(fat)) {
                 if !matches!(src, Src::Word(_)) {
                     self.marshal(*at, src);
                 }
             }
-            let mut binds: Vec<(String, V)> = Vec::new();
-            for (i, at) in iat.iter().enumerate() {
-                binds.push((super::abi::rt_slot(i), V::I(u64::from(*at))));
+            // One hole per argument, then three, on the stack. An unused
+            // entry names no hole, so `emit` never reads it.
+            let names = (0..ints.len())
+                .map(super::abi::rt_slot)
+                .chain((0..floats.len()).map(super::abi::rt_float_slot));
+            let mut held: [std::borrow::Cow<'static, str>; MAX_INT + MAX_FLOAT] =
+                std::array::from_fn(|_| std::borrow::Cow::Borrowed(""));
+            for (h, n) in held.iter_mut().zip(names) {
+                *h = n;
             }
-            for (i, at) in fat.iter().enumerate() {
-                binds.push((super::abi::rt_float_slot(i), V::I(u64::from(*at))));
+            let mut binds: [(&str, V); MAX_INT + MAX_FLOAT + 3] =
+                std::array::from_fn(|_| ("", V::Fall));
+            let args = ints.len() + floats.len();
+            for ((b, n), at) in binds.iter_mut().zip(&held).zip(iat.iter().chain(fat)) {
+                *b = (n, V::I(u64::from(*at)));
             }
-            binds.push((String::from("JIT_D"), V::I(u64::from(dslot))));
-            binds.push((callee.clone(), callee_v));
-            binds.push((String::from("JIT_CONT0"), V::Fall));
-            let refs: Vec<(&str, V)> =
-                binds.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
-            self.emit(&key!("crts/{}/{}/{kind}", ints.len(), floats.len()), &refs);
+            let tail = [("JIT_D", V::I(u64::from(dslot))), (&*callee, callee_v), ("JIT_CONT0", V::Fall)];
+            for (b, t) in binds.iter_mut().skip(args).zip(tail) {
+                *b = t;
+            }
+            let binds = binds.get(..args + 3).unwrap_or_default();
+            self.emit(&key!("crts/{}/{}/{kind}", ints.len(), floats.len()), binds);
             return Ok(());
         }
 
