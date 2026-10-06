@@ -593,14 +593,17 @@ type Frame<'a> = (usize, Mode, Cmd<'a>);
 /// *will* be taken is a failure rather than the end of the measurement. It is
 /// what asks "does all of this fit on one line", as against "does the first
 /// line of this fit".
-fn fits(
-    rest: &[Frame<'_>],
-    seed: Vec<Frame<'_>>,
+fn fits<'a>(
+    rest: &[Frame<'a>],
+    seed: &[Frame<'a>],
+    local: &mut Vec<Frame<'a>>,
     width: usize,
     must_be_flat: bool,
 ) -> bool {
     let mut w = width as isize;
-    let mut local = seed;
+    // `local` is the caller's spare list, so measuring allocates nothing.
+    local.clear();
+    local.extend_from_slice(seed);
     // The printer's stack is walked from its top, which is the end of the
     // slice: what it pops next is what comes next on the line.
     let mut behind = rest.iter().rev();
@@ -747,10 +750,11 @@ fn render(doc: &Doc) -> String {
     let mut out = String::new();
     let mut pos = 0usize;
     let mut stack: Vec<Frame> = vec![(0, Mode::Break, Cmd::One(doc))];
+    let mut local: Vec<Frame> = Vec::new();
     while let Some((ind, mode, cmd)) = stack.pop() {
         let d = match cmd {
             Cmd::Fill(parts) => {
-                fill_step(&mut stack, ind, mode, parts, WIDTH.saturating_sub(pos));
+                fill_step(&mut stack, &mut local, ind, mode, parts, WIDTH.saturating_sub(pos));
                 continue;
             }
             Cmd::One(d) => d,
@@ -798,7 +802,8 @@ fn render(doc: &Doc) -> String {
                     Mode::Flat
                 } else if fits(
                     &stack,
-                    vec![(ind, Mode::Flat, Cmd::One(g.doc()))],
+                    &[(ind, Mode::Flat, Cmd::One(g.doc()))],
+                    &mut local,
                     WIDTH.saturating_sub(pos),
                     false,
                 ) {
@@ -818,14 +823,12 @@ fn render(doc: &Doc) -> String {
                 // `next` are two by construction, so peeling the last off
                 // `rest` — or, when `rest` is empty, taking `next` as the
                 // fallback — always leaves at least one to try.
-                let (tried, fallback): (Vec<&Doc>, &Doc) = match rest.split_last() {
-                    Some((last, middle)) => {
-                        let mut t: Vec<&Doc> = vec![&**flat, &**next];
-                        t.extend(middle);
-                        (t, last)
-                    }
-                    None => (vec![&**flat], &**next),
+                let (middle, fallback): (&[Doc], &Doc) = match rest.split_last() {
+                    Some((last, middle)) => (middle, last),
+                    None => (&[], &**next),
                 };
+                let second = (!rest.is_empty()).then_some(&**next);
+                let tried = std::iter::once(&**flat).chain(second).chain(middle);
                 // The first candidate is "all of it on one line", so it is
                 // measured strictly: a forced break anywhere inside it rules it
                 // out. Every later candidate has already chosen where it
@@ -833,21 +836,22 @@ fn render(doc: &Doc) -> String {
                 // fits. Whichever wins is then laid out normally, so the groups
                 // inside it still answer for themselves.
                 let mut chosen = None;
-                for (i, s) in tried.iter().enumerate() {
+                for (i, s) in tried.enumerate() {
                     if fits(
                         &stack,
-                        vec![(ind, Mode::Flat, Cmd::One(s))],
+                        &[(ind, Mode::Flat, Cmd::One(s))],
+                        &mut local,
                         WIDTH.saturating_sub(pos),
                         i == 0,
                     ) {
-                        chosen = Some(*s);
+                        chosen = Some(s);
                         break;
                     }
                 }
                 stack.push((ind, Mode::Break, Cmd::One(chosen.unwrap_or(fallback))));
             }
             Doc::Fill(parts) => {
-                fill_step(&mut stack, ind, mode, parts, WIDTH.saturating_sub(pos))
+                fill_step(&mut stack, &mut local, ind, mode, parts, WIDTH.saturating_sub(pos))
             }
         }
     }
@@ -858,13 +862,14 @@ fn render(doc: &Doc) -> String {
 /// it by whether the item *after* that would still fit.
 fn fill_step<'a>(
     stack: &mut Vec<Frame<'a>>,
+    local: &mut Vec<Frame<'a>>,
     ind: usize,
     mode: Mode,
     parts: &'a [Doc],
     rem: usize,
 ) {
     let Some((content, after_content)) = parts.split_first() else { return };
-    let content_fits = fits(&[], vec![(ind, Mode::Flat, Cmd::One(content))], rem, false);
+    let content_fits = fits(&[], &[(ind, Mode::Flat, Cmd::One(content))], local, rem, false);
     let Some((ws, tail)) = after_content.split_first() else {
         stack.push((ind, if content_fits { Mode::Flat } else { Mode::Break }, Cmd::One(content)));
         return;
@@ -877,11 +882,12 @@ fn fill_step<'a>(
     };
     let pair = fits(
         &[],
-        vec![
+        &[
             (ind, Mode::Flat, Cmd::One(next)),
             (ind, Mode::Flat, Cmd::One(ws)),
             (ind, Mode::Flat, Cmd::One(content)),
         ],
+        local,
         rem,
         false,
     );
