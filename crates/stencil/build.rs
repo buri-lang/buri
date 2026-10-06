@@ -152,25 +152,47 @@ fn stencil_library(manifest: &Path) {
     }
     let scratch = out_dir.join("stencils");
     let jobs: usize = std::env::var("NUM_JOBS").ok().and_then(|v| v.parse().ok()).unwrap_or(4);
-    for t in abi::StencilTarget::ALL {
-        let out = blob(t);
-        // The host library is only buildable on the host: `cc` without
-        // `-target` compiles for the machine it is on, and `sources.rs` does
-        // not pass one for `MacosArm64`.
-        let host_ok = t != abi::StencilTarget::MacosArm64
-            || (target.contains("-apple-darwin") && target.starts_with("aarch64"));
-        if !host_ok || !sources::can_build(&cc, &scratch, t) {
+    // Which targets this `cc` can build, asked of all three at once: each probe
+    // is a compile.
+    let buildable: Vec<bool> = std::thread::scope(|scope| {
+        let probes: Vec<_> = abi::StencilTarget::ALL
+            .iter()
+            .map(|t| {
+                let (cc, scratch, target) = (&cc, &scratch, &target);
+                scope.spawn(move || {
+                    // The host library is only buildable on the host: `cc`
+                    // without `-target` compiles for the machine it is on, and
+                    // `sources.rs` does not pass one for `MacosArm64`.
+                    let host_ok = *t != abi::StencilTarget::MacosArm64
+                        || (target.contains("-apple-darwin") && target.starts_with("aarch64"));
+                    host_ok && sources::can_build(cc, scratch, *t)
+                })
+            })
+            .collect();
+        probes.into_iter().map(|p| p.join().unwrap_or(false)).collect()
+    });
+    let wanted: Vec<abi::StencilTarget> = abi::StencilTarget::ALL
+        .iter()
+        .zip(&buildable)
+        .filter(|(_, ok)| **ok)
+        .map(|(t, _)| *t)
+        .collect();
+    let mut built = sources::build_all(&cc, &scratch, jobs, &wanted).into_iter();
+    for (t, ok) in abi::StencilTarget::ALL.iter().zip(&buildable) {
+        let out = blob(*t);
+        if !*ok {
             write_empty(&out);
             continue;
         }
-        match sources::build(&cc, &scratch, jobs, t) {
+        match built.next() {
             // A failure *after* `cc` has been shown to compile this target's
             // prelude is a bug in the generators, not a missing tool, so it
             // fails the build rather than degrading: a toolchain that silently
             // shipped no stencils because a generator stopped compiling would
             // be a silent loss of a backend.
-            Err(e) => fail(&format!("stencil library ({}): {e}", t.slug())),
-            Ok(lib) => {
+            Some(Err(e)) => fail(&format!("stencil library ({}): {e}", t.slug())),
+            None => fail(&format!("stencil library ({}): no result", t.slug())),
+            Some(Ok(lib)) => {
                 if let Err(e) = std::fs::write(&out, lib.encode()) {
                     fail(&format!("could not write {}: {e}", out.display()));
                 }

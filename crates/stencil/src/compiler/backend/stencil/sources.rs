@@ -42,7 +42,7 @@ use super::machobj as macho;
 use super::library::{Library, Stencil};
 use std::collections::HashMap;
 use std::process::Command;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Level {
@@ -1834,65 +1834,114 @@ fn supernodes(o: &mut Out, level: Level) {
 // Building
 // ---------------------------------------------------------------------------
 
-/// Generates the C, compiles it with `cc`, and extracts the library.
+/// Generates the C for every target in `targets`, compiles it with `cc`, and
+/// extracts each target's library, answering in the order asked.
 ///
 /// `dir` is a scratch directory (`OUT_DIR`) that both the sources and the
 /// objects are written into, so that a rebuild whose generated C is
-/// byte-identical does not pay for clang again. `jobs` shards are compiled in
-/// parallel; the sharding exists because one translation unit of twenty-three
-/// thousand functions is a minute of clang and twelve are a second.
+/// byte-identical does not pay for clang again. The sharding exists because one
+/// translation unit of twenty-three thousand functions is a minute of clang and
+/// twelve are a second.
+///
+/// **Every target's shards are one queue** for `jobs` workers. One pool per
+/// target waited three times for its slowest shard, with workers idle at the
+/// end of each; one queue keeps them busy until the last shard of the last
+/// target. Each library is still assembled from its own shards alone, so the
+/// bytes are the ones a target built by itself gets.
 ///
 /// The compiler is `cc` rather than `clang` by name, taken from `CC` when it is
 /// set, because that is the variable a cross-build or a Nix shell already sets
 /// and the toolchain has no business having its own.
-/// One slot per shard, filled by whichever worker took it.
-type Shards = Arc<Mutex<Vec<Result<Vec<Stencil>, String>>>>;
-
-pub fn build(
+pub fn build_all(
     cc: &str,
     dir: &std::path::Path,
     jobs: usize,
+    targets: &[StencilTarget],
+) -> Vec<Result<Library, String>> {
+    let plans: Vec<Result<Plan, String>> = targets.iter().map(|t| plan(dir, cc, *t)).collect();
+    // One slot per shard of every planned target, filled by whichever worker
+    // took it.
+    let work: Vec<(usize, usize)> = plans
+        .iter()
+        .enumerate()
+        .filter_map(|(ti, p)| p.as_ref().ok().map(|p| (ti, p.shards.len())))
+        .flat_map(|(ti, n)| (0..n).map(move |i| (ti, i)))
+        .collect();
+    let slots: Vec<Mutex<Result<Vec<Stencil>, String>>> =
+        work.iter().map(|_| Mutex::new(Ok(Vec::new()))).collect();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..jobs.max(1) {
+            scope.spawn(|| loop {
+                let k = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let Some(&(ti, i)) = work.get(k) else { return };
+                let Some(Ok(p)) = plans.get(ti) else { continue };
+                let Some(shard) = p.shards.get(i) else { continue };
+                let r = shard_library(cc, &p.dir, i, &shard.src, &p.flags, p.target);
+                if let Some(Ok(mut slot)) = slots.get(k).map(Mutex::lock) {
+                    *slot = r;
+                }
+            });
+        }
+    });
+    let mut done: Vec<Vec<Result<Vec<Stencil>, String>>> = targets.iter().map(|_| Vec::new()).collect();
+    for ((ti, _), slot) in work.iter().zip(slots) {
+        let r = slot.into_inner().unwrap_or_else(|_| Err(String::from("a stencil shard's worker panicked")));
+        if let Some(d) = done.get_mut(*ti) {
+            d.push(r);
+        }
+    }
+    // The folds are a pass over every stencil, so the targets assemble side
+    // by side too.
+    std::thread::scope(|scope| {
+        let assembling: Vec<_> = plans
+            .iter()
+            .zip(&done)
+            .map(|(p, results)| {
+                scope.spawn(move || match p {
+                    Ok(p) => assemble(cc, p, results),
+                    Err(e) => Err(e.clone()),
+                })
+            })
+            .collect();
+        assembling
+            .into_iter()
+            .map(|h| h.join().unwrap_or_else(|_| Err(String::from("a stencil library's assembly panicked"))))
+            .collect()
+    })
+}
+
+/// One target's generated C, and how it is compiled.
+struct Plan {
     target: StencilTarget,
-) -> Result<Library, String> {
+    dir: std::path::PathBuf,
+    flags: Vec<String>,
+    shards: Vec<Out2>,
+}
+
+fn plan(dir: &std::path::Path, cc: &str, target: StencilTarget) -> Result<Plan, String> {
     // One scratch directory per target. The generated C differs between them
     // by one line (`memcpy_decl`) and the objects differ entirely, so sharing
     // `s0.c`/`s0.o` between targets would make every target's build invalidate
     // every other's — three clang runs per rebuild instead of the one that
     // actually changed.
-    let dir = &dir.join(target.slug());
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let dir = dir.join(target.slug());
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let flags = compile_flags(cc, target)?;
-    let shards = Arc::new(sources(Level::Tag, target)?);
-    let results: Shards = Arc::new(Mutex::new((0..shards.len()).map(|_| Ok(Vec::new())).collect()));
-    let next = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let mut handles = Vec::new();
-    for _ in 0..jobs.max(1) {
-        let shards = Arc::clone(&shards);
-        let results = Arc::clone(&results);
-        let next = Arc::clone(&next);
-        let dir = dir.to_path_buf();
-        let cc = cc.to_string();
-        let flags = flags.clone();
-        handles.push(std::thread::spawn(move || {
-            loop {
-                let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                let Some(shard) = shards.get(i) else { return };
-                let r = shard_library(&cc, &dir, i, &shard.src, &flags, target);
-                if let Ok(mut slot) = results.lock() {
-                    if let Some(cell) = slot.get_mut(i) {
-                        *cell = r;
-                    }
-                }
-            }
-        }));
-    }
-    for h in handles {
-        h.join().map_err(|_| String::from("a stencil shard's thread panicked"))?;
-    }
+    let shards = sources(Level::Tag, target)?;
+    Ok(Plan { target, dir, flags, shards })
+}
 
+/// One target's library, from its shards' stencils in shard order.
+fn assemble(
+    cc: &str,
+    plan: &Plan,
+    done: &[Result<Vec<Stencil>, String>],
+) -> Result<Library, String> {
+    let target = plan.target;
+    let shards = &plan.shards;
     let mut byname: HashMap<String, Stencil> = HashMap::new();
-    let done = results.lock().map_err(|_| String::from("stencil results were poisoned"))?;
-    for r in done.iter() {
+    for r in done {
         for st in r.as_ref().map_err(String::clone)? {
             byname.insert(st.name.clone(), st.clone());
         }
