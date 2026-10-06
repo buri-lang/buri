@@ -108,7 +108,28 @@ pub fn parse_stdlib(text: &str, file: FileId) -> Parsed {
     parse_with(text, file, true)
 }
 
+/// What the lexer said about a file beyond its tree: the tokens, and what was
+/// written above each one. The formatter reads both, and a second lex of the
+/// same text would only say them again.
+///
+/// A trivia run's doc lines index the tree's doc list, which begins with the
+/// lexer's: read them through [`Tree::doc_lines`](crate::parsing::flat::Tree::doc_lines).
+pub struct Kept<'a> {
+    pub tokens: Tokens<'a>,
+    pub trivia: Vec<(u32, Trivia)>,
+    pub module_docs: Vec<(Location, Span)>,
+}
+
+/// [`parse`] or [`parse_stdlib`], keeping what the lexer said.
+pub fn parse_kept(text: &str, file: FileId, allow_bodyless: bool) -> (Parsed, Kept<'_>) {
+    parse_inner(text, file, allow_bodyless)
+}
+
 fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
+    parse_inner(text, file, allow_bodyless).0
+}
+
+fn parse_inner(text: &str, file: FileId, allow_bodyless: bool) -> (Parsed, Kept<'_>) {
     let lexed = lex(text, file);
     let first_item = lexed.tokens.span(0).start;
     let mut p = Parser {
@@ -145,7 +166,8 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
     for (_, span) in late {
         p.errors.push(Diagnostic::templated("module-doc-not-first", *span));
     }
-    Parsed { module, errors: p.errors }
+    let kept = Kept { tokens: p.tokens, trivia: p.trivia, module_docs: lexed.module_docs };
+    (Parsed { module, errors: p.errors }, kept)
 }
 
 /// Whether a token can begin an expression.
@@ -630,23 +652,18 @@ impl<'a> Parser<'a> {
     /// trivia table. The run indexes the lexer's doc lines, which the tree
     /// adopted whole, so nothing is copied.
     ///
-    /// Taking rather than copying is safe because a token's documentation is
-    /// read once: the production that reads it is the one that owns the
-    /// declaration, and a speculative parse — see [`Parser::type_args_in_expr`]
-    /// — never reaches a declaration.
+    /// The table is read, not taken from, so the formatter can read it again
+    /// after the parse ([`Kept`]).
     ///
     /// A binary search rather than an index because the table holds only the
     /// tokens that have something above them, which is a small fraction of the
     /// file — and this is called once per declaration, not once per token.
-    fn docs(&mut self) -> Docs {
+    fn docs(&self) -> Docs {
         let at = self.pos as u32;
         let Ok(i) = self.trivia.binary_search_by_key(&at, |(a, _)| *a) else {
             return Docs::default();
         };
-        match self.trivia.get_mut(i) {
-            Some((_, t)) => std::mem::take(&mut t.docs),
-            None => Docs::default(),
-        }
+        self.trivia.get(i).map_or_else(Docs::default, |(_, t)| t.docs)
     }
 
     /// The source under a span, empty if it does not describe one.

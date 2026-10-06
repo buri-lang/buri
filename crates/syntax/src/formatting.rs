@@ -87,6 +87,7 @@ use crate::parsing::flat::{
     PartView, PatId, PatView, StmtKind, Tree, TypeId, TypeView,
 };
 use crate::parsing::lexer::{lex, Comment, TokenKind};
+use crate::parsing::parser::Kept;
 use crate::parsing::tree::*;
 use std::fmt::Write as _;
 
@@ -120,7 +121,7 @@ pub fn broken_regions(text: &str) -> Vec<(usize, usize)> {
 
 /// The same, for text read as `dialect`.
 pub fn broken_regions_in(text: &str, dialect: Dialect) -> Vec<(usize, usize)> {
-    let parsed = read(text, dialect);
+    let (parsed, _) = read(text, dialect);
     regions(&parsed).into_iter().map(|s| (s.start as usize, s.end as usize)).collect()
 }
 
@@ -140,11 +141,8 @@ pub enum Dialect {
     Std,
 }
 
-fn read(text: &str, dialect: Dialect) -> crate::parsing::parser::Parsed {
-    match dialect {
-        Dialect::Source => crate::parsing::parser::parse(text, FileId(0)),
-        Dialect::Std => crate::parsing::parser::parse_stdlib(text, FileId(0)),
-    }
+fn read(text: &str, dialect: Dialect) -> (crate::parsing::parser::Parsed, Kept<'_>) {
+    crate::parsing::parser::parse_kept(text, FileId(0), dialect == Dialect::Std)
 }
 
 /// The same, over a parse already in hand.
@@ -230,9 +228,9 @@ fn region_text(text: &str, regions: &[Span]) -> Vec<String> {
 
 /// The formatter without its safety check, for the toolchain's own tests.
 pub fn source_unchecked(text: &str) -> String {
-    let parsed = read(text, Dialect::Source);
+    let (parsed, kept) = read(text, Dialect::Source);
     let broken = regions(&parsed);
-    let mut tv = Comments::read(text);
+    let mut tv = Comments::read(text, kept, &parsed.module.tree);
     render(
         &Build { tv: &mut tv, t: &parsed.module.tree, src: text, broken: &broken }
             .module(&parsed.module),
@@ -270,12 +268,16 @@ pub fn source_with_regions(text: &str) -> Option<Formatted> {
 /// The canonical form of `text` read as `dialect`, and which declarations came
 /// back verbatim.
 pub fn formatted(text: &str, dialect: Dialect) -> Option<Formatted> {
-    let parsed = read(text, dialect);
+    let (parsed, kept) = read(text, dialect);
     let broken = regions(&parsed);
     if !placed(&parsed) {
         return None;
     }
-    let mut tv = Comments::read(text);
+    // The comments the output must keep, read off the parse before the
+    // printer takes them.
+    let tree = &parsed.module.tree;
+    let mut before = shapes_of(text, &kept, |d| tree.doc_lines(d), false);
+    let mut tv = Comments::read(text, kept, &parsed.module.tree);
     let out = render(
         &Build { tv: &mut tv, t: &parsed.module.tree, src: text, broken: &broken }
             .module(&parsed.module),
@@ -286,7 +288,7 @@ pub fn formatted(text: &str, dialect: Dialect) -> Option<Formatted> {
     // in it the output does not parse by construction, so the claim is the
     // stronger and honest one: it parses outside every region, and every
     // region is byte for byte what was written.
-    let check = read(&out, dialect);
+    let (check, kept) = read(&out, dialect);
     let after = regions(&check);
     if !placed(&check) || region_text(text, &broken) != region_text(&out, &after) {
         return None;
@@ -295,7 +297,8 @@ pub fn formatted(text: &str, dialect: Dialect) -> Option<Formatted> {
     // in the output, which is the one place somebody might have looked. The
     // set is compared rather than the sequence, because the leading import run
     // is sorted and a comment travels with the import it sits above.
-    let (mut before, mut afterwards) = (comment_shape(text), comment_shape(&out));
+    let tree = &check.module.tree;
+    let mut afterwards = shapes_of(&out, &kept, |d| tree.doc_lines(d), false);
     before.sort();
     afterwards.sort();
     if before != afterwards {
@@ -933,13 +936,6 @@ impl Docs {
     }
 }
 
-/// The text of a run of doc lines, from the lexer's list of where each is.
-fn doc_strings(text: &str, lines: &[Location], d: crate::parsing::flat::Docs) -> Vec<String> {
-    let a = d.start as usize;
-    let run = lines.get(a..a.saturating_add(d.len as usize)).unwrap_or(&[]);
-    run.iter().map(|at| text.get(at.start as usize..at.end as usize).unwrap_or("").to_string()).collect()
-}
-
 /// What was written above one token, with that token's byte offset.
 ///
 /// The two cases are separate variants because most of what a run has to say
@@ -1092,12 +1088,11 @@ struct Comments {
 }
 
 impl Comments {
-    fn read(text: &str) -> Comments {
-        let lexed = lex(text, FileId(0));
-        let tokens = lexed.tokens;
+    fn read(text: &str, kept: Kept<'_>, tree: &Tree) -> Comments {
+        let tokens = kept.tokens;
         let mut entries = Vec::new();
         let mut beside_code = Vec::new();
-        for (at, t) in lexed.trivia {
+        for (at, t) in kept.trivia {
             let at = at as usize;
             if at >= tokens.len() {
                 continue;
@@ -1118,7 +1113,7 @@ impl Comments {
                 }
             }
             let start = tokens.span(at).start;
-            let lines = doc_strings(text, &lexed.docs, t.docs);
+            let lines = tree.doc_lines(t.docs).map(str::to_string).collect();
             entries.push(Entry { trivia: Trivia::read(start, t, lines), claimed: false });
         }
         Comments { entries, beside_code }
@@ -3404,8 +3399,29 @@ pub fn token_shape(text: &str) -> Vec<Shape> {
 /// discarded every one of them immediately.
 fn shapes(text: &str, tokens: bool) -> Vec<Shape> {
     let lexed = lex(text, FileId(0));
+    let kept = Kept { tokens: lexed.tokens, trivia: lexed.trivia, module_docs: lexed.module_docs };
+    let docs = lexed.docs;
+    shapes_of(text, &kept, |d| doc_run(text, &docs, d), tokens)
+}
+
+/// The text of a run of doc lines, from the lexer's list of where each is.
+fn doc_run<'s>(text: &'s str, lines: &'s [Location], d: crate::parsing::flat::Docs) -> impl Iterator<Item = &'s str> {
+    let a = d.start as usize;
+    let run = lines.get(a..a.saturating_add(d.len as usize)).unwrap_or(&[]);
+    run.iter().map(|at| text.get(at.start as usize..at.end as usize).unwrap_or(""))
+}
+
+/// The same, over a lex already in hand, with `doc_lines` reading a run of
+/// `///` lines.
+fn shapes_of<'s, I: Iterator<Item = &'s str>>(
+    text: &'s str,
+    lexed: &Kept<'_>,
+    doc_lines: impl Fn(crate::parsing::flat::Docs) -> I,
+    tokens: bool,
+) -> Vec<Shape> {
     let mut out: Vec<Shape> = Vec::new();
-    for line in lexed.module_docs.iter().map(|(at, _)| lexed.doc(*at)) {
+    for (at, _) in &lexed.module_docs {
+        let line = text.get(at.start as usize..at.end as usize).unwrap_or("");
         out.push(Shape::ModuleDoc(line.trim().to_string()));
     }
     // The trivia table is keyed by token index and in ascending order of it,
@@ -3417,7 +3433,7 @@ fn shapes(text: &str, tokens: bool) -> Vec<Shape> {
             for c in &tv.comments {
                 out.push(Shape::Comment(trim_lines(&c.text)));
             }
-            for d in lexed.doc_lines(tv.docs) {
+            for d in doc_lines(tv.docs) {
                 out.push(Shape::Doc(d.trim().to_string()));
             }
         }
