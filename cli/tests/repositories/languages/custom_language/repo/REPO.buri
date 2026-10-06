@@ -3,6 +3,6 @@
 language {
     name: "lines"
     extensions: [".lines"]
-    check: "//tool/lines"
-    format: "//tool/lines"
+    check: "//tools/lines"
+    format: "//tools/lines"
 }

@@ -1,6 +1,6 @@
 library {
     generators: [
-        { tool: "//tool/gen", inputs: ["size.txt"] },
+        { tool: "//tools/gen", inputs: ["size.txt"] },
     ]
 
     test {

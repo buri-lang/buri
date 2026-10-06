@@ -330,7 +330,7 @@ A program the build runs on a language's files: its check, its formatter, or a
 generator. Its root is `tool.buri`, which exports one function per block.
 
 ```textproto schema=build
-# tool/lines/BUILD.buri
+# tools/lines/BUILD.buri
 tool {
     sources: ["words.buri"]
     dependencies: ["//lib/text"]
@@ -343,9 +343,9 @@ tool {
 `sources`, `dependencies` and `test` mean what they mean on a `binary`, and a
 tool implicitly depends on the library in its own package. There is no `main`
 and no `outputs`: the build compiles the tool itself and calls its entry
-points. `buri build //tool/lines` checks it.
+points. `buri build //tools/lines` checks it.
 
-A `tool` rule lives under the top-level `tool/` directory, at any depth, and
+A `tool` rule lives under the top-level `tools/` directory, at any depth, and
 nowhere else
 ([`misplaced-rule`](../errors/misplaced-rule.md)).
 Libraries and binaries may live there too. [`tools.md`](./tools.md) has the

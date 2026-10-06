@@ -44,7 +44,7 @@ edit {
 # Editing the contract's schema checks the file again, and regenerates the
 # types the tool reads.
 edit {
-  file: "tool/routes/routes.proto"
+  file: "tools/routes/routes.proto"
   replace: "int32 port = 2;"
   with: "int32 port = 2;\n    bool tls = 3;"
 }
@@ -59,7 +59,7 @@ run {
 edit {
   file: "lib/routes/routes.txtpb"
   replace: "# No header: the tool's contract names the message.\n"
-  with: "# proto-file: //tool/routes/routes.proto\n# proto-message: routes.v1.Routes\n"
+  with: "# proto-file: //tools/routes/routes.proto\n# proto-message: routes.v1.Routes\n"
 }
 
 run {
@@ -84,7 +84,7 @@ run {
 # And so is any other schema.
 edit {
   file: "lib/routes/routes.txtpb"
-  replace: "# proto-file: //tool/routes/routes.proto\n# proto-message: Route"
+  replace: "# proto-file: //tools/routes/routes.proto\n# proto-message: Route"
   with: "# proto-file: other.proto\n# proto-message: Routes"
 }
 

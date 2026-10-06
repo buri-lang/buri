@@ -1,8 +1,8 @@
 error: `//lib/wire/lib.buri` is a module of this rule already [generator-duplicate-module]
  --> lib/wire/BUILD.buri:7:9
   |
-7 |         { tool: "//tool/gen", inputs: ["mode.txt"] },
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7 |         { tool: "//tools/gen", inputs: ["mode.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = `lib.buri` is a source of this package
   = fix: give the generated module a name the package does not already declare

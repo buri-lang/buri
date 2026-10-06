@@ -10,8 +10,8 @@ reproduction: none
 language {
     name: "yaml"
     extensions: [".yaml"]
-    check: "//tool/yaml"
-    generate: "//tool/yaml_types"
+    check: "//tools/yaml"
+    generate: "//tools/yaml_types"
 }
 ```
 

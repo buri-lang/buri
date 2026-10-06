@@ -1,6 +1,6 @@
 from "core/tool" import { Generated, GenerateRequest };
 from "platform/effect" import { Allocator };
-from "//tool/routes/textproto" import { Routes };
+from "//tools/routes/textproto" import { Routes };
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Routes>): Generated {
     Generated { modules: [], diagnostics: [], needs: [] }

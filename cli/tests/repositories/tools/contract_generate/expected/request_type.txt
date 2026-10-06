@@ -1,15 +1,15 @@
 error: `generate` takes `GenerateRequest<Config>` under its `json` contract [tool-request-mismatch]
-  --> tool/database_schema_codegen/tool.buri:10:51
+  --> tools/database_schema_codegen/tool.buri:10:51
    |
 10 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
    |                                                   ^^^^^^^^^^^^^^^^^^^^
    |
-   = the types of the contract are the module `//tool/database_schema_codegen/json`, and each input arrives as its root type
-   = fix: import the root type from `//tool/database_schema_codegen/json` and write `GenerateRequest<Config>`
+   = the types of the contract are the module `//tools/database_schema_codegen/json`, and each input arrives as its root type
+   = fix: import the root type from `//tools/database_schema_codegen/json` and write `GenerateRequest<Config>`
 
        from "platform/effect" import { Allocator };
        from "core/tool" import { Generated, GenerateRequest };
-       from "//tool/database_schema_codegen/json" import { Config };
+       from "//tools/database_schema_codegen/json" import { Config };
 
        export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Config>): Generated {
            Generated { modules: [], diagnostics: [], needs: [] }
@@ -19,7 +19,7 @@ error: `generate` takes `GenerateRequest<Config>` under its `json` contract [too
      hands the entry point typed values. Without it, the entry point takes Str.
 
 error: `Str` has no field `tables` [unknown-field]
-  --> tool/database_schema_codegen/tool.buri:14:25
+  --> tools/database_schema_codegen/tool.buri:14:25
    |
 14 |             input.value.tables.mapCtx(c, fn(c2, t) => table(c2, t)).join(c, "; ")
    |                         ^^^^^^

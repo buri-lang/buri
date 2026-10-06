@@ -1,15 +1,15 @@
 //! `.lines`: one word a line, and every word in the dictionary.
 
 from "core/buri/ast" import * as ast;
+from "platform/effect" import { Allocator };
 from "core/format" import { Doc };
 from "core/str" import * as str;
 from "core/tool" import { Checked, CheckRequest, Diagnostic, FormatRequest, Input };
-from "platform/effect" import { Allocator };
 
-let DICTIONARY: Str = "tool/lines/dictionary.txt";
+let DICTIONARY: Str = "tools/lines/dictionary.txt";
 
 /// Asks for the dictionary first, then checks each line against it.
-export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
+export fn check(C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
     match (request.files.find(fn(f) => f.0 == DICTIONARY)) {
         .None => Checked { diagnostics: [], needs: [DICTIONARY] },
         .Some(dictionary) => {
@@ -93,7 +93,7 @@ fn notInDictionary<C: Allocator>(
         code: "lines-unknown-word",
         message: str.format(ctx, "`${word}` is not in the dictionary"),
         note: .None,
-        fix: .Some("add it to tool/lines/dictionary.txt"),
+        fix: .Some("add it to tools/lines/dictionary.txt"),
         origin: .Some(ast.origin(path, at, at + line.length())),
     }
 }

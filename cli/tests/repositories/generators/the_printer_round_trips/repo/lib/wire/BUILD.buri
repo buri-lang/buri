@@ -2,7 +2,7 @@ library {
     sources: ["helper.buri", "twin.buri"]
 
     generators: [
-        { tool: "//tool/gen", inputs: [] },
+        { tool: "//tools/gen", inputs: [] },
     ]
 
     visibility: ["//visibility:public"]

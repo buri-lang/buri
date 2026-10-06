@@ -1,6 +1,6 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
 #
-# `width` is declared by `//tool/gen`, in text no file holds. A rename would
+# `width` is declared by `//tools/gen`, in text no file holds. A rename would
 # rewrite what the next build overwrites, so it is refused — and the sentence
 # has to be the one that tells a reader where the edit does belong.
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {}}}

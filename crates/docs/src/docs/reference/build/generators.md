@@ -7,7 +7,7 @@ belong to the rule that declared it, like a `.buri` source.
 # lib/wire/BUILD.buri
 library {
     generators: [
-        { tool: "//tool/units", inputs: ["units.txt"] },
+        { tool: "//tools/units", inputs: ["units.txt"] },
     ]
 }
 ```
@@ -34,14 +34,14 @@ names a `.units`, a second `.units` nothing names is
 ## Writing one
 
 ```textproto schema=build
-# tool/units/BUILD.buri
+# tools/units/BUILD.buri
 tool {
     generate {}
 }
 ```
 
 ```buri
-// tool/units/tool.buri
+// tools/units/tool.buri
 from "core/buri/ast" import * as ast;
 from "core/tool" import { Generated, GenerateRequest };
 from "platform/effect" import { Allocator };
@@ -83,7 +83,7 @@ hand-built nodes.
 
 A `binary` named as a generator is
 [`generator-not-tool`](../errors/generator-not-tool.md): move the package
-under `tool/`, rename `main.buri` to `tool.buri`, export `generate`, and declare
+under `tools/`, rename `main.buri` to `tool.buri`, export `generate`, and declare
 `generate {}`.
 
 ## The modules it produces

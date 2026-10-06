@@ -53,9 +53,18 @@ impl Packages for Workspace {
     }
 }
 
-/// A `tool` rule may only be declared in `tool/` or a package below it.
+/// A `tool` rule may only be declared in `tools/` or a package below it.
 fn is_tool_directory(package_path: &str) -> bool {
-    package_path.split('/').next() == Some("tool")
+    package_path.split('/').next() == Some("tools")
+}
+
+/// Where a misplaced tool package belongs. A package under the old `tool/`
+/// keeps its path below it, so `//tool/db/seed` moves to `//tools/db/seed`.
+fn tool_destination(package_path: &str, name: &str) -> String {
+    match package_path.strip_prefix("tool/") {
+        Some(rest) => format!("//tools/{rest}"),
+        None => format!("//tools/{name}"),
+    }
 }
 
 /// A `platform` rule may only be declared below `platform/`, and never in
@@ -120,7 +129,7 @@ impl Workspace {
             diagnostics.extend(read.errors);
             let name = path.rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or("<name>");
             let misplaced = [
-                ("tool", read.value.tool.is_some() && !is_tool_directory(&path), "outside //tool/", format!("//tool/{name}")),
+                ("tool", read.value.tool.is_some() && !is_tool_directory(&path), "outside //tools/", tool_destination(&path, name)),
                 (
                     "platform",
                     read.value.platform.is_some() && !is_platform_directory(&path),

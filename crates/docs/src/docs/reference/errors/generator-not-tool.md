@@ -2,13 +2,13 @@
 title: A generator is a tool rule
 message: '`{tool}` is a binary, and a generator is a `tool` rule'
 note: the build calls a tool's `generate` itself, so a generator has no `main` and reads no standard input
-fix: 'make it a `tool` rule under //tool/: move `main.buri` to `tool.buri`, export `generate`, and declare `generate {{}}`'
+fix: 'make it a `tool` rule under //tools/: move `main.buri` to `tool.buri`, export `generate`, and declare `generate {{}}`'
 reproduction: none
 ---
 # A generator is a tool rule
 
 ```textproto schema=build
-# tool/routes/BUILD.buri
+# tools/routes/BUILD.buri
 tool {
     generate {}
 }
@@ -17,7 +17,7 @@ tool {
 ```buri
 from "core/tool" import { Generated, GenerateRequest };
 
-// tool/routes/tool.buri
+// tools/routes/tool.buri
 from "platform/effect" import { Allocator };
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {

@@ -1,10 +1,10 @@
-error: `//tool/gen` is built from //lib/wire, which is the target that runs it [circular-generator]
+error: `//tools/gen` is built from //lib/wire, which is the target that runs it [circular-generator]
  --> lib/wire/BUILD.buri:3:17
   |
-3 |         { tool: "//tool/gen", inputs: ["units.txt"] },
-  |                 ^^^^^^^^^^^^
+3 |         { tool: "//tools/gen", inputs: ["units.txt"] },
+  |                 ^^^^^^^^^^^^^
   |
-  = the tool reaches back through //tool/gen -> //lib/helper -> //lib/wire
+  = the tool reaches back through //tools/gen -> //lib/helper -> //lib/wire
   = fix: move what the tool needs into a third library, or run the generator from a target the tool does not depend on
 
     The build links a tool before running it, and linking compiles everything

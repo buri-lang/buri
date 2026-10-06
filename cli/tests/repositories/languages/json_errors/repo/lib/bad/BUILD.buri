@@ -1,6 +1,6 @@
 library {
     generators: [
-        { tool: "//tool/gen", inputs: [
+        { tool: "//tools/gen", inputs: [
             "comment.json",
             "trailing.json",
             "quoted.json",

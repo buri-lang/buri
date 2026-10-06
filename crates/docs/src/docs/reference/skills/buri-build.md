@@ -34,8 +34,8 @@ cmd/server/
   main.buri                # exports main
   routes.buri
   test/routes.buri
-tool/lines/
-  BUILD.buri               # declares //tool/lines; every tool rule lives under tool/
+tools/lines/
+  BUILD.buri               # declares //tools/lines; every tool rule lives under tools/
   tool.buri                # exports check, format or generate
 ```
 

@@ -1,5 +1,5 @@
 error: `https://example.com/b.schema.json` is not a file in this repository [schema-outside-repository]
- --> tool/b/BUILD.buri:4:46
+ --> tools/b/BUILD.buri:4:46
   |
 4 |             { language: "json", type_schema: "https://example.com/b.schema.json" },
   |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -18,18 +18,18 @@ error: `https://example.com/b.schema.json` is not a file in this repository [sch
     https://json-schema.org/draft/2020-12/schema, which marks a file as a
     schema.
 
-error: "//tool/b/json" names no file (tool/b/json.buri) [unknown-module]
- --> tool/b/tool.buri:6:6
+error: "//tools/b/json" names no file (tools/b/json.buri) [unknown-module]
+ --> tools/b/tool.buri:6:6
   |
-6 | from "//tool/b/json" import * as a;
-  |      ^^^^^^^^^^^^^^^
+6 | from "//tools/b/json" import * as a;
+  |      ^^^^^^^^^^^^^^^^
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
     There's no search path and no fallback, so a path never has two candidates.
 
 error: there is no type `a.Names` [unknown-type]
- --> tool/b/tool.buri:8:67
+ --> tools/b/tool.buri:8:67
   |
 8 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<a.Names>): Generated {
   |                                                                   ^^^^^^^

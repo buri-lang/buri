@@ -1,5 +1,5 @@
 error: `generate` cannot take `proto` inputs typed: a `.proto` file is a schema, not a value [proto-contract-unsupported]
- --> tool/b/BUILD.buri:5:25
+ --> tools/b/BUILD.buri:5:25
   |
 5 |             { language: "proto", type_schema: "config.proto:Config" },
   |                         ^^^^^^^

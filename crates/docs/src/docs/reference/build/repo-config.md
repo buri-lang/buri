@@ -167,8 +167,8 @@ check, format and generate from it:
 language {
     name: "lines"
     extensions: [".lines"]
-    check: "//tool/lines"
-    format: "//tool/lines"
+    check: "//tools/lines"
+    format: "//tools/lines"
 }
 ```
 
@@ -176,7 +176,7 @@ language {
 |---|---|
 | `name` | The language the block is about. Required. |
 | `extensions` | More extensions for it, each with a leading dot. |
-| `check`, `format`, `generate` | A `tool` rule under `//tool/`, or a built-in tool by its bare name, whose entry point of the same name does the work. Refused on a built-in language: [`built-in-language-tool`](../errors/built-in-language-tool.md). |
+| `check`, `format`, `generate` | A `tool` rule under `//tools/`, or a built-in tool by its bare name, whose entry point of the same name does the work. Refused on a built-in language: [`built-in-language-tool`](../errors/built-in-language-tool.md). |
 
 - `check` runs on each referenced file before any generator reads it, in
   `buri build`, `buri test`, `buri lint` and your editor. `format` is what

@@ -1,20 +1,20 @@
-error: `//tool/yaml` names no tool [unknown-tool]
+error: `//tools/yaml` names no tool [unknown-tool]
   --> REPO.buri:10:12
    |
-10 |     check: "//tool/yaml"
-   |            ^^^^^^^^^^^^^
+10 |     check: "//tools/yaml"
+   |            ^^^^^^^^^^^^^^
    |
    = a tool is a `//label` naming a `tool` rule in this repository, or a built-in: `json`, `proto` or `textproto`
    = fix: name a package whose BUILD.buri declares a `tool` rule
 
        library {
            generators: [
-               { tool: "//tool/routes", inputs: ["regions.json"] },
+               { tool: "//tools/routes", inputs: ["regions.json"] },
            ]
        }
 
-     //tool/routes is a package whose BUILD.buri holds tool { generate {} }. See
-     `tools.md` (../build/tools.md).
+     //tools/routes is a package whose BUILD.buri holds tool { generate {} }.
+     See `tools.md` (../build/tools.md).
 
 error: `yaml` is declared twice [duplicate-language]
   --> REPO.buri:14:11
@@ -60,7 +60,7 @@ error: `.json` already belongs to `json` [duplicate-extension]
 error: `check` cannot be set on `json`, a built-in language [built-in-language-tool]
   --> REPO.buri:21:5
    |
-21 |     check: "//tool/json"
+21 |     check: "//tools/json"
    |     ^^^^^
    |
    = a built-in language means the same thing in every repository, so a block for one may only add extensions

@@ -1,11 +1,11 @@
-error: `//tool/good` did not answer [tool-failed]
+error: `//tools/good` did not answer [tool-failed]
  --> lib/app/BUILD.buri:3:9
   |
-3 |         { tool: "//tool/good", inputs: ["input.txt"] },
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+3 |         { tool: "//tools/good", inputs: ["input.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = the tool does not build: error: expected `I64`, found `Str` [type-mismatch]
-      --> tool/good/tool.buri:14:42
+      --> tools/good/tool.buri:14:42
        |
     14 |             value: ast.Expr { kind: .Int("forty-two"), origin: ast.nowhere() },
        |                                          ^^^^^^^^^^^ the parameter type is `I64`

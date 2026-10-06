@@ -4,7 +4,7 @@ A tool is a program the build runs on a language's files. It's a rule of its
 own, a peer of `library` and `binary`:
 
 ```textproto schema=build
-# tool/lines/BUILD.buri
+# tools/lines/BUILD.buri
 tool {
     sources: ["words.buri"]
 
@@ -13,8 +13,8 @@ tool {
 }
 ```
 
-A `tool` rule must live under the top-level `tool/` directory, at any depth
-(`//tool/db/schema`), or it's
+A `tool` rule must live under the top-level `tools/` directory, at any depth
+(`//tools/db/schema`), or it's
 [`misplaced-rule`](../errors/misplaced-rule.md).
 Libraries and binaries may live there too.
 
@@ -24,7 +24,7 @@ Its root is `tool.buri`, which exports one function per block:
 from "core/format" import { Doc };
 from "core/tool" import { Checked, CheckRequest, Diagnostic, FormatRequest };
 
-// tool/lines/tool.buri
+// tools/lines/tool.buri
 from "platform/effect" import { Allocator };
 
 export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
@@ -60,7 +60,7 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generat
 - **There is no `main`.** The toolchain writes one that reads the request,
   calls the entry point and writes the answer.
 - `sources`, `dependencies` and `test` mean what they mean on a `binary`. A
-  tool's own tests import `//tool/lines/tool.buri`; nothing else may import a
+  tool's own tests import `//tools/lines/tool.buri`; nothing else may import a
   tool's modules ([`tool-source-import`](../errors/tool-source-import.md)).
 - `buri gen` leaves a package with a `tool` rule as written.
 
@@ -106,8 +106,8 @@ doesn't answer is [`tool-failed`](../errors/tool-failed.md).
 
 A tool whose inputs follow one schema declares it:
 
-```textproto schema=build repo=cli/tests/docs/repositories/tool-contract file=tool/database_schema_codegen/BUILD.buri
-# tool/database_schema_codegen/BUILD.buri
+```textproto schema=build repo=cli/tests/docs/repositories/tool-contract file=tools/database_schema_codegen/BUILD.buri
+# tools/database_schema_codegen/BUILD.buri
 tool {
     sources: ["emit.buri"]
 
@@ -125,7 +125,7 @@ The consumer lists its file as usual, and the file may leave out `"$schema"`:
 # lib/orders/BUILD.buri
 library {
     generators: [
-        { tool: "//tool/database_schema_codegen", inputs: ["schema.json"] },
+        { tool: "//tools/database_schema_codegen", inputs: ["schema.json"] },
     ]
 }
 ```
@@ -133,12 +133,12 @@ library {
 The build generates the schema's types into the tool as the module
 `<tool label>/<language>`, and `generate` takes them:
 
-```buri repo=cli/tests/docs/repositories/tool-contract file=tool/database_schema_codegen/tool.buri
-// tool/database_schema_codegen/tool.buri
+```buri repo=cli/tests/docs/repositories/tool-contract file=tools/database_schema_codegen/tool.buri
+// tools/database_schema_codegen/tool.buri
 
 from "core/tool" import { Generated, GenerateRequest };
 from "platform/effect" import { Allocator };
-from "//tool/database_schema_codegen/json" import { Config };
+from "//tools/database_schema_codegen/json" import { Config };
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Config>): Generated {
     // request.inputs[i].value is a Config
@@ -177,7 +177,7 @@ A `textproto` contract names a schema and a message, and the tool imports the
 message from `<tool label>/textproto`:
 
 ```textproto schema=build
-# tool/routes/BUILD.buri
+# tools/routes/BUILD.buri
 tool {
     generate {
         accepts: [

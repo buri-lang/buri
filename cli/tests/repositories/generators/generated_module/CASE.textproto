@@ -88,7 +88,7 @@ run {
 # rebuilds everything that read its modules, with no source of this repository
 # touched — which is the half a run that only ever edits an input cannot show.
 edit {
-  file: "tool/gen/tool.buri"
+  file: "tools/gen/tool.buri"
   replace: "let ${split.0}: Int = ${value};"
   with: "let ${split.0}: Int = ${value * 2};"
 }
@@ -106,7 +106,7 @@ run {
 }
 
 edit {
-  file: "tool/gen/tool.buri"
+  file: "tools/gen/tool.buri"
   replace: "let ${split.0}: Int = ${value * 2};"
   with: "let ${split.0}: Int = ${value};"
 }
@@ -136,7 +136,7 @@ edit {
 # `generators` entry is written, with why as the note — never a silent empty
 # module.
 edit {
-  file: "tool/gen/tool.buri"
+  file: "tools/gen/tool.buri"
   replace: "let value = split.1.trim().toInt()?;"
   with: "let value = split.1.trim().toInt()? + \"one\";"
 }
@@ -150,7 +150,7 @@ run {
 # A tool that stops partway fails the same way, with what it said on standard
 # error as the note.
 edit {
-  file: "tool/gen/tool.buri"
+  file: "tools/gen/tool.buri"
   replace: "let value = split.1.trim().toInt()? + \"one\";"
   with: "let value = split.1.trim().toInt()? / (split.0.length() - split.0.length());"
 }

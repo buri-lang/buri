@@ -14,7 +14,7 @@ error: `"bool"` is not one of the values `enum` allows: `"int"`, `"text"` [json-
 6 |                 { "name": "id", "type": "bool" },
   |                                         ^^^^^^
   |
-  = the schema says so at `tool/database_schema_codegen/config.schema.json#/$defs/Column/properties/type/enum`
+  = the schema says so at `tools/database_schema_codegen/config.schema.json#/$defs/Column/properties/type/enum`
   = fix: write one of the allowed values
 
     Change the value, or, if the value is right, change the schema. The

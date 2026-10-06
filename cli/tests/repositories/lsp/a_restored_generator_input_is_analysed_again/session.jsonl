@@ -1,7 +1,7 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
 # A `!` line is the harness acting as the editor would; see harness/case.rs.
 #
-# `//lib/schemas` hands `a.txt` and `b.txt` to `//tool/embed`, and
+# `//lib/schemas` hands `a.txt` and `b.txt` to `//tools/embed`, and
 # `schemas.buri` imports `A_TXT` from the module that comes back. Neither the
 # inputs nor the tool are in that file, so every answer below is one a key
 # that left them out would get wrong.
@@ -24,15 +24,15 @@
 # The tool now writes lower-case names, so `A_TXT` is not exported. The line
 # the second half of the case is for: neither the buffer nor an input moved.
 !wait 4
-!move tool/embed/tool.buri tool.buri.upper
-!move tool/embed/tool.buri.lower tool/embed/tool.buri
-{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tool/embed/tool.buri", "type": 2}]}}
+!move tools/embed/tool.buri tool.buri.upper
+!move tools/embed/tool.buri.lower tools/embed/tool.buri
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tools/embed/tool.buri", "type": 2}]}}
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/schemas/schemas.buri"}, "previousResultId": "3"}}
 # And back.
 !wait 5
-!move tool/embed/tool.buri tool/embed/tool.buri.lower
-!move tool.buri.upper tool/embed/tool.buri
-{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tool/embed/tool.buri", "type": 2}]}}
+!move tools/embed/tool.buri tools/embed/tool.buri.lower
+!move tool.buri.upper tools/embed/tool.buri
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tools/embed/tool.buri", "type": 2}]}}
 {"jsonrpc": "2.0", "id": 6, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/schemas/schemas.buri"}, "previousResultId": "4"}}
 {"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}
