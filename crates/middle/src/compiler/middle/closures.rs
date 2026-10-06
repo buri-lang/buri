@@ -32,16 +32,14 @@
 //!
 //! A lifted body still holds the `LocalId`s of the function it came out of —
 //! its own parameters, its own bindings, and the captures it reads — and a
-//! `LocalId` is an index into one function's table. So the lifted function is
-//! given its parent's whole table, plus the environment parameter at the end,
-//! and nothing is renumbered.
+//! `LocalId` is an index into one function's table. So the lifted function
+//! gets a table of just the locals its body names, in their old order, with
+//! the environment parameter at the end, and every read and binding is
+//! renumbered into it ([`each_local`]).
 //!
-//! The alternative is to build a minimal table and remap, which means rewriting
-//! every pattern that binds as well as every read, for a saving of some entries
-//! in a `Vec` that hold a name and a type. A local nothing binds and nothing
-//! reads produces no value in `lower`, so the entries cost nothing past this
-//! module — and not renumbering is one fewer way to produce a body that reads
-//! the wrong slot.
+//! Handing it the parent's whole table instead made a function with `n`
+//! lambdas cost `n²`: every lifted function's table, and every per-function
+//! pass sized by it, held all of the parent's locals.
 //!
 //! Design: `design/native/ARCHITECTURE.md` §2.2, §2.3, `VALUE-MODEL.md` §7.
 
@@ -97,13 +95,12 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
         Box::new(Expr::new(ExprKind::Unit, Ty::UNIT, e.span)),
     );
 
-    let mut locals = parent.locals.clone();
+    let locals = &parent.locals;
     let env = LocalId(locals.len() as u32);
     let env_ty = Ty::tuple(captures
             .iter()
             .filter_map(|c| locals.get(c.index()).map(|l| l.ty))
             );
-    locals.push(typed::Local { name: Name::new("env"), ty: env_ty, span: e.span });
 
     // Each capture is bound back to the id it had, out of the environment, so
     // the body below reads what it always read.
@@ -145,6 +142,12 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
     let n = lifted.len();
     let mut lifted_params = vec![env];
     lifted_params.extend(params);
+    let (mut inner, mut lifted_params) = (inner, lifted_params);
+    let locals = compact(&mut inner, &mut lifted_params, &parent.locals, env, typed::Local {
+        name: Name::new("env"),
+        ty: env_ty,
+        span: e.span,
+    });
     lifted.push(Func {
         symbol: format!("{}$fn{n}", parent.symbol),
         debug_name: format!("{} lambda {n}", parent.debug_name),
@@ -172,6 +175,91 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
                 .collect(),
         }
     };
+}
+
+/// Renumbers a lifted body and its parameters into a table of the locals they
+/// name, in their old order, with `env` last; answers that table.
+fn compact(
+    body: &mut Expr,
+    params: &mut [LocalId],
+    parent: &[typed::Local],
+    env: LocalId,
+    env_local: typed::Local,
+) -> Vec<typed::Local> {
+    // Sized by the lambda rather than by its parent, which may hold thousands
+    // of locals and as many lambdas.
+    let mut used: Vec<u32> = Vec::new();
+    let mut mark = |l: &mut LocalId| {
+        if l.index() < parent.len() {
+            used.push(l.0);
+        }
+    };
+    params.iter_mut().for_each(&mut mark);
+    each_local(body, &mut mark);
+    used.sort_unstable();
+    used.dedup();
+    let mut locals: Vec<typed::Local> =
+        used.iter().filter_map(|l| parent.get(*l as usize).cloned()).collect();
+    let new_env = LocalId(locals.len() as u32);
+    locals.push(env_local);
+    let mut renumber = |l: &mut LocalId| {
+        if *l == env {
+            *l = new_env;
+        } else if let Ok(k) = used.binary_search(&l.0) {
+            *l = LocalId(k as u32);
+        }
+    };
+    params.iter_mut().for_each(&mut renumber);
+    each_local(body, &mut renumber);
+    locals
+}
+
+/// Hands `f` every `LocalId` in an expression: every read, every lambda
+/// parameter and capture, and every name a pattern binds.
+fn each_local(e: &mut Expr, f: &mut impl FnMut(&mut LocalId)) {
+    match &mut e.kind {
+        ExprKind::Local(l) => f(l),
+        ExprKind::Lambda { params, captures, .. } => {
+            params.iter_mut().for_each(&mut *f);
+            captures.iter_mut().for_each(&mut *f);
+        }
+        ExprKind::Block { stmts, .. } => {
+            for st in stmts.iter_mut() {
+                if let Stmt::Let { pattern, .. } = st {
+                    pattern_locals(pattern, f);
+                }
+            }
+        }
+        ExprKind::Match { arms, .. } => {
+            for a in arms.iter_mut() {
+                pattern_locals(&mut a.pattern, f);
+            }
+        }
+        _ => {}
+    }
+    typed::children_mut(e, &mut |child| each_local(child, f));
+}
+
+fn pattern_locals(p: &mut Pattern, f: &mut impl FnMut(&mut LocalId)) {
+    match &mut p.kind {
+        PatKind::Bind { local, sub } => {
+            f(local);
+            if let Some(s) = sub {
+                pattern_locals(s, f);
+            }
+        }
+        PatKind::Tuple(ps) | PatKind::Or(ps) => ps.iter_mut().for_each(|p| pattern_locals(p, f)),
+        PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
+            fields.iter_mut().for_each(|x| pattern_locals(&mut x.pattern, f))
+        }
+        PatKind::Array { elems, rest } => {
+            elems.iter_mut().for_each(|p| pattern_locals(p, f));
+            if let typed::ArrayRest::Bound(l) = rest {
+                f(l);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -241,6 +329,38 @@ mod tests {
         // The environment parameter comes first and is a fresh local.
         assert_eq!(lifted.params[0], LocalId(2));
         assert_eq!(lifted.params[1], LocalId(1));
+    }
+
+    /// A lifted function's table holds what its body names and its
+    /// environment, not every local of the function it came out of: a table
+    /// sizes every later per-function pass, and a function with many lambdas
+    /// would hand each one all of them.
+    #[test]
+    fn a_lifted_table_holds_only_what_the_lambda_names() {
+        let lambda = e(ExprKind::Lambda {
+            params: vec![LocalId(3)],
+            body: Box::new(e(ExprKind::Tuple(vec![
+                e(ExprKind::Local(LocalId(1))),
+                e(ExprKind::Local(LocalId(3))),
+            ]))),
+            captures: vec![LocalId(1)],
+        });
+        let names = ["a", "n", "b", "x", "c"];
+        let mut p = program(names.iter().map(|n| local(n)).collect(), vec![0], lambda);
+        run(&mut p);
+
+        let lifted = &p.funcs[1];
+        let table: Vec<&str> = lifted.locals.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(table, ["n", "x", "env"]);
+        assert_eq!(lifted.params, [LocalId(2), LocalId(1)]);
+        let mut read = Vec::new();
+        crate::compiler::semantics::typed::walk(lifted.body().unwrap(), &mut |x| {
+            if let ExprKind::Local(l) = x.kind {
+                read.push(l.0);
+            }
+        });
+        // The environment, then the capture and the parameter it binds and reads.
+        assert_eq!(read, [2, 0, 1]);
     }
 
     /// A lambda over nothing is a top-level function, and a null environment is
