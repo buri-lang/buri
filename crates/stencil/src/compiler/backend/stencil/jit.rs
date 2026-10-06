@@ -500,6 +500,34 @@ impl<'a> Jit<'a> {
         self.layouts.boxes(owner, field)
     }
 
+    /// The type of one field of `owner`, or of one field of its `variant`.
+    ///
+    /// One field's, not `types::field_types`' whole list: a read of each field
+    /// of an `n`-field value would otherwise be `n²` (PERFORMANCE.md §6.37).
+    pub(crate) fn field_ty(&self, owner: &Ty, variant: Option<usize>, index: usize) -> Option<Ty> {
+        use crate::compiler::semantics::types::{substitute, TyDef, TyKind};
+        match (owner.kind(), variant) {
+            (TyKind::Tuple(elements), None) => elements.get(index).copied(),
+            (TyKind::Ctx(id), None) => {
+                self.tables.ctx_type(*id).bindings.get(index).map(|(_, t)| *t)
+            }
+            (TyKind::Con(id, args), None) => match &self.tables.tycon(*id).def {
+                TyDef::Struct { fields, .. } => {
+                    fields.get(index).map(|f| substitute(&f.ty, args, None))
+                }
+                TyDef::Prim(_) | TyDef::Enum { .. } => None,
+            },
+            (TyKind::Con(id, args), Some(v)) => match &self.tables.tycon(*id).def {
+                TyDef::Enum { .. } => {
+                    let field = self.tables.tycon(*id).variants().get(v)?.fields.get(index)?;
+                    Some(substitute(&field.ty, args, None))
+                }
+                TyDef::Prim(_) | TyDef::Struct { .. } => None,
+            },
+            _ => None,
+        }
+    }
+
     /// Whether a source type owns a counted block anywhere inside it.
     pub(crate) fn rc_counted(&mut self, ty: &Ty) -> bool {
         self.counts.counted(self.tables, &mut self.layouts, ty)
@@ -1656,6 +1684,22 @@ impl<'a> Jit<'a> {
                 .enumerate()
                 .flat_map(|(k, i)| i.results().iter().map(move |d| (d.0, k)))
                 .collect();
+            // Per aggregate built here, the last instruction before it that
+            // touches its class. Scanning back from each field instead is `n²`
+            // in a variant's fields (PERFORMANCE.md §6.37).
+            let mut last: HashMap<u32, usize> = HashMap::default();
+            let mut touched_before: Vec<Option<usize>> = vec![None; b.insts.len()];
+            for (j, i) in b.insts.iter().enumerate() {
+                if let ir::Inst::MakeStruct { dest, .. } | ir::Inst::MakeEnum { dest, .. } = i {
+                    put(&mut touched_before, j, last.get(&find(uf, dest.0)).copied());
+                }
+                ops.clear();
+                i.operands(&mut ops);
+                ops.extend_from_slice(i.results());
+                for o in &ops {
+                    last.insert(find(uf, o.0), j);
+                }
+            }
             for (j, i) in b.insts.iter().enumerate() {
                 if let ir::Inst::ArrayLen { dest, array } = i {
                     if alone(*dest) && still(*array) {
@@ -1725,7 +1769,7 @@ impl<'a> Jit<'a> {
                         x.operands(&mut ops);
                         ops.iter().any(&in_class) || x.results().iter().any(&in_class)
                     };
-                    if def.is_some_and(touches) || b.insts.iter().take(j).skip(k + 1).any(touches) {
+                    if def.is_some_and(touches) || ent(&touched_before, j, None).is_some_and(|t| t > k) {
                         continue;
                     }
                     put(slot, f.index(), ent(slot, dest.index(), 0) + off);

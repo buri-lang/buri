@@ -295,3 +295,52 @@ fn deriving_hash_is_linear_in_a_structs_fields() {
         400,
     );
 }
+
+/// A variant of `n` fields, alternately `Int` and `Str`, built and taken apart.
+fn wide_variant(n: usize) -> (String, String) {
+    let types: Vec<&str> = (0..n).map(|i| if i % 2 == 0 { "Int" } else { "Str" }).collect();
+    let values: Vec<String> =
+        (0..n).map(|i| if i % 2 == 0 { format!("k + {i}") } else { String::from("s") }).collect();
+    let names: Vec<String> = (0..n).map(|i| format!("a{i}")).collect();
+    let summed: Vec<String> = (0..n)
+        .map(|i| if i % 2 == 0 { format!("a{i}") } else { format!("a{i}.length()") })
+        .collect();
+    let items = format!(
+        "enum W {{\n    T({types}),\n    Empty,\n}}\n\n\
+         derive Equal, Hash, Show, Ordered for W;\n\n\
+         fn make<C: Allocator>(ctx: C, k: Int): W {{\n    \
+         let s = \"w\".repeat(ctx, k);\n    .T({values})\n}}\n\n\
+         fn sum(w: W): Int {{\n    match (w) {{\n        \
+         .T({names}) => {summed},\n        .Empty => 0 - 1,\n    }}\n}}\n",
+        types = types.join(", "),
+        values = values.join(", "),
+        names = names.join(", "),
+        summed = summed.join(" + "),
+    );
+    let body = String::from(
+        "    let (a, b) = (make(ctx, 1), make(ctx, 2));\n    \
+         let _ = io.println(ctx, \"${sum(a)} ${a == b} ${a < b} ${a.hash() == b.hash()} ${a}\").ignore();\n",
+    );
+    (items, body)
+}
+
+/// **A debug build's emission is linear in a variant's fields.** Reading one
+/// payload field typed every field in the variant, and building one scanned
+/// back from each field for writes to its slot, so both were `n²`. §6.32's wide
+/// variants took 2.7 G instructions at 1,600 fields, 2.9 times what 800 took.
+/// PERFORMANCE.md §6.37.
+#[test]
+fn a_debug_builds_emission_is_linear_in_a_variants_fields() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::profile", &why);
+        return;
+    }
+    grows_linearly(
+        "emitting a wide variant's functions",
+        |n| {
+            let (items, body) = wide_variant(n);
+            profiled("native", &items, &body, "emit")
+        },
+        1000,
+    );
+}
