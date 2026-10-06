@@ -229,6 +229,7 @@ pub struct Jit<'a> {
     /// generated helpers take their local symbols from
     /// ([`super::glue::symbol`]).
     part: usize,
+    bufs: Bufs,
 }
 
 /// The two memo tables a `Jit` is worth keeping across the parts one worker
@@ -245,6 +246,45 @@ pub struct Jit<'a> {
 pub(crate) struct Scratch<'a> {
     layouts: Layouts<'a>,
     counts: Counts,
+    /// Storage, not answers: every table in it is cleared before it is read.
+    bufs: Bufs,
+}
+
+/// The per-function tables the analyses below fill, kept from one function to
+/// the next so their storage is allocated once per worker rather than once per
+/// function. [`table`] hands one out cleared and refilled.
+#[derive(Default)]
+struct Bufs {
+    /// The last function's [`Fn2`], whose vectors the next one refills.
+    st: Fn2,
+    order: Vec<usize>,
+    skip: Vec<bool>,
+    pin: Vec<Option<u32>>,
+    width: Vec<u32>,
+    uf: Vec<u32>,
+    of_root: Vec<Option<u32>>,
+    wide: Vec<u32>,
+    is_param: Vec<bool>,
+    def_block: Vec<u32>,
+    def_idx: Vec<u32>,
+    members: Vec<u32>,
+    reads: Vec<BlockUses>,
+    defs: Vec<(u32, usize)>,
+    kept: Vec<usize>,
+    block_uses: Vec<BlockUses>,
+    barrier: Vec<bool>,
+    imm: Vec<u32>,
+    seen: Vec<bool>,
+    stack: Vec<(usize, usize)>,
+    ops: Vec<ir::ValueId>,
+}
+
+/// `spare`'s storage, as `n` copies of `fill`.
+fn table<T: Clone>(spare: &mut Vec<T>, n: usize, fill: T) -> Vec<T> {
+    let mut v = std::mem::take(spare);
+    v.clear();
+    v.resize(n, fill);
+    v
 }
 
 impl<'a> Scratch<'a> {
@@ -252,7 +292,11 @@ impl<'a> Scratch<'a> {
         tables: &'a Tables,
         cycles: std::sync::Arc<crate::compiler::middle::layout::Cycles>,
     ) -> Scratch<'a> {
-        Scratch { layouts: Layouts::with_cycles(tables, cycles), counts: Counts::default() }
+        Scratch {
+            layouts: Layouts::with_cycles(tables, cycles),
+            counts: Counts::default(),
+            bufs: Bufs::default(),
+        }
     }
 }
 
@@ -264,6 +308,10 @@ pub(crate) struct FrameSig {
     pub param_end: u32,
     pub size: u32,
 }
+
+/// The frame of a function `frame_sigs` has no entry for, which no member can be.
+static NO_FRAME: FrameSig =
+    FrameSig { ret: Vec::new(), ret_size: 0, params: Vec::new(), param_end: 0, size: 0 };
 
 fn round8(n: u32) -> u32 {
     (n + 7) & !7
@@ -405,6 +453,7 @@ impl<'a> Jit<'a> {
             helper_at: Vec::new(),
             spilled: HashMap::default(),
             counts: scratch.counts,
+            bufs: scratch.bufs,
             part,
         }
     }
@@ -417,7 +466,7 @@ impl<'a> Jit<'a> {
     /// rather than reset, so a field added later cannot leak into the next part
     /// by being forgotten.
     pub(crate) fn into_scratch(self) -> Scratch<'a> {
-        Scratch { layouts: self.layouts, counts: self.counts }
+        Scratch { layouts: self.layouts, counts: self.counts, bufs: self.bufs }
     }
 
     /// The symbol of a generated helper, registering it the first time it is
@@ -715,6 +764,7 @@ pub(crate) const SCRATCH_WORDS: usize = super::rtcall::RESERVED_WORDS as usize;
 // ---------------------------------------------------------------------------
 
 /// Per-function emission state.
+#[derive(Default)]
 pub(crate) struct Fn2 {
     /// Byte offset of every value's frame slot.
     pub slot: Vec<u32>,
@@ -848,35 +898,30 @@ impl<'a> Jit<'a> {
         // the check above is what makes both of these present.
         let entry = self.region.code_addr();
         put(&mut self.entries, fi, entry);
-        let frame = self.frames.get(fi).cloned().unwrap_or_default();
+        let frames: &'a [FrameSig] = self.frames;
+        let frame = frames.get(fi).unwrap_or(&NO_FRAME);
 
         match &f.body {
             ir::Body::Code(code) => {
+                // The last function's tables, refilled: every field below is
+                // cleared and written before anything reads it.
+                let mut st = std::mem::take(&mut self.bufs.st);
+                let n = code.values();
+                st.frame.clone_from(frame);
                 // How often each value is read, which five of the analyses
                 // below ask and used to count for themselves.
-                let uses = count_uses(code);
-                let (slot, scratch) = self.slots(prog, code, &frame, &uses);
-                let mut reg = vec![None; code.values()];
-                let mut wt = vec![true; code.values()];
-                let mut cross = vec![false; code.values()];
-                let mut promoted = Vec::new();
-                let taken = self.promote(code, &mut reg, &mut wt, &mut cross, &mut promoted);
-                self.regalloc(code, &mut reg, taken, &uses);
-                let (constants, folded) = self.constants(code, &uses);
-                let mut st = Fn2 {
-                    slot,
-                    blk: vec![0; code.blocks.len()],
-                    frame,
-                    scratch,
-                    reg,
-                    wt,
-                    cross,
-                    region: promoted,
-                    cur: 0,
-                    constants,
-                    folded,
-                    uses,
-                };
+                count_uses(code, &mut st.uses, &mut self.bufs.ops);
+                st.scratch = self.slots(prog, code, frame, &st.uses, &mut st.slot);
+                st.reg = table(&mut st.reg, n, None);
+                st.wt = table(&mut st.wt, n, true);
+                st.cross = table(&mut st.cross, n, false);
+                st.region.clear();
+                let taken =
+                    self.promote(code, &mut st.reg, &mut st.wt, &mut st.cross, &mut st.region);
+                self.regalloc(code, &mut st.reg, taken, &st.uses);
+                self.constants(code, &st.uses, &mut st.constants, &mut st.folded);
+                st.blk = table(&mut st.blk, code.blocks.len(), 0);
+                st.cur = 0;
                 let base = self.fixups.len();
                 let order = self.layout(code);
                 for (oi, bi) in order.iter().copied().enumerate() {
@@ -902,8 +947,11 @@ impl<'a> Jit<'a> {
                     {
                         self.term(prog, code, &mut st, next, &block.term, &plan);
                     }
+                    self.bufs.skip = plan.skip;
                 }
                 self.resolve_blocks(base, &st.blk);
+                self.bufs.order = order;
+                self.bufs.st = st;
             }
             // A runtime-supplied body has no IR to walk, but its sequence may
             // still branch, which needs labels and the same function-local
@@ -1599,16 +1647,21 @@ impl<'a> Jit<'a> {
         code: &ir::Code,
         frame: &FrameSig,
         uses: &[u32],
-    ) -> (Vec<u32>, u32) {
+        slot: &mut Vec<u32>,
+    ) -> u32 {
         let n = code.values();
-        let entry: Vec<ir::ValueId> = code.get(ir::BlockId(0)).params.clone();
-        let mut pin: Vec<Option<u32>> = vec![None; n];
-        for (k, v) in entry.iter().enumerate() {
+        let mut pin = table(&mut self.bufs.pin, n, None);
+        for (k, v) in code.get(ir::BlockId(0)).params.iter().enumerate() {
             put(&mut pin, v.index(), frame.params.get(k).copied());
         }
-        let width: Vec<u32> =
-            (0..n).map(|v| self.slot_bytes(prog, code.ty_of(ir::ValueId(v as u32)))).collect();
-        let mut uf: Vec<u32> = (0..n as u32).collect();
+        let mut width = table(&mut self.bufs.width, n, 0);
+        for (v, w) in width.iter_mut().enumerate() {
+            *w = self.slot_bytes(prog, code.ty_of(ir::ValueId(v as u32)));
+        }
+        let mut uf = table(&mut self.bufs.uf, n, 0);
+        for (v, u) in uf.iter_mut().enumerate() {
+            *u = v as u32;
+        }
         {
             self.coalesce(code, &mut uf, &mut pin, &width, uses);
         }
@@ -1616,7 +1669,7 @@ impl<'a> Jit<'a> {
         // One slot per class: the pinned offset when the class holds a
         // parameter or a return value, a fresh one otherwise.
         let mut at = frame.param_end;
-        let mut of_root: Vec<Option<u32>> = vec![None; n];
+        let mut of_root = table(&mut self.bufs.of_root, n, None);
         for (v, pinned) in pin.iter().enumerate() {
             let Some(p) = *pinned else { continue };
             let r = find(&uf, v as u32) as usize;
@@ -1632,14 +1685,14 @@ impl<'a> Jit<'a> {
             }
             *root = Some(p);
         }
-        let mut wide: Vec<u32> = vec![0; n];
+        let mut wide = table(&mut self.bufs.wide, n, 0);
         for (v, w) in width.iter().enumerate() {
             let r = find(&uf, v as u32) as usize;
             if let Some(x) = wide.get_mut(r) {
                 *x = (*x).max(*w);
             }
         }
-        let mut slot = vec![0u32; n];
+        *slot = table(slot, n, 0);
         for (v, s) in slot.iter_mut().enumerate() {
             let r = find(&uf, v as u32) as usize;
             let off = match ent(&of_root, r, None) {
@@ -1653,8 +1706,13 @@ impl<'a> Jit<'a> {
             };
             *s = off;
         }
-        self.alias_parts(prog, code, &uf, &pin, &mut slot, uses);
-        (slot, at)
+        self.alias_parts(prog, code, &uf, &pin, slot, uses);
+        self.bufs.pin = pin;
+        self.bufs.width = width;
+        self.bufs.uf = uf;
+        self.bufs.of_root = of_root;
+        self.bufs.wide = wide;
+        at
     }
 
     /// (i.e) A value that is **part of another** lives there. A list's length
@@ -1828,9 +1886,9 @@ impl<'a> Jit<'a> {
         uses: &[u32],
     ) {
         let n = code.values();
-        let mut is_param = vec![false; n];
-        let mut def_block = vec![u32::MAX; n];
-        let mut def_idx = vec![u32::MAX; n];
+        let mut is_param = table(&mut self.bufs.is_param, n, false);
+        let mut def_block = table(&mut self.bufs.def_block, n, u32::MAX);
+        let mut def_idx = table(&mut self.bufs.def_idx, n, u32::MAX);
         for (bi, b) in code.blocks.iter().enumerate() {
             for p in &b.params {
                 put(&mut is_param, p.index(), true);
@@ -1843,10 +1901,11 @@ impl<'a> Jit<'a> {
                 }
             }
         }
-        let mut used_here: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
+        let mut used_here: crate::hash::Set<(u32, u32)> = crate::hash::Set::default();
+        let mut pairs: Vec<(ir::ValueId, ir::ValueId)> = Vec::new();
         for (bi, b) in code.blocks.iter().enumerate() {
             // (i.a) An edge's block arguments.
-            let mut pairs: Vec<(ir::ValueId, ir::ValueId)> = Vec::new();
+            pairs.clear();
             for t in b.term.targets() {
                 for (p, a) in code.get(t.block).params.iter().zip(t.args.iter()) {
                     pairs.push((*p, *a));
@@ -1872,7 +1931,7 @@ impl<'a> Jit<'a> {
             // from some other function would read: a width no slot has, a
             // definition in no block, and no uses — each of which declines the
             // merge rather than making one on a guess.
-            for (p, a) in pairs {
+            for &(p, a) in &pairs {
                 let (pi, ai) = (p.index(), a.index());
                 if ent(width, ai, 0) != ent(width, pi, 0) {
                     continue;
@@ -1925,6 +1984,9 @@ impl<'a> Jit<'a> {
             }
         }
         self.coalesce_latches(code, uf, pin, width, uses, &def_block, &def_idx);
+        self.bufs.is_param = is_param;
+        self.bufs.def_block = def_block;
+        self.bufs.def_idx = def_idx;
     }
 
     /// (i.d) A **latch**: a block whose parameter is only passed on to the
@@ -2061,8 +2123,8 @@ impl<'a> Jit<'a> {
             return;
         }
         let n = code.values();
-        let mut members = vec![0u32; n];
-        let mut ops = Vec::new();
+        let mut members = table(&mut self.bufs.members, n, 0);
+        let mut ops = std::mem::take(&mut self.bufs.ops);
         for v in 0..n {
             bump(&mut members, find(uf, v as u32) as usize);
         }
@@ -2077,9 +2139,9 @@ impl<'a> Jit<'a> {
         // Where each value is read in the block at hand — an instruction's
         // index, or `last` for the terminator — and where it is defined. One
         // entry per value, stamped with the block it describes.
-        let mut reads = vec![BlockUses::default(); n];
-        let mut defs: Vec<(u32, usize)> = vec![(u32::MAX, 0); n];
-        let mut kept: Vec<usize> = Vec::new();
+        let mut reads = table(&mut self.bufs.reads, n, BlockUses::default());
+        let mut defs = table(&mut self.bufs.defs, n, (u32::MAX, 0));
+        let mut kept = std::mem::take(&mut self.bufs.kept);
         for (bi, b) in code.blocks.iter().enumerate() {
             if !has_call(b) {
                 continue;
@@ -2192,6 +2254,11 @@ impl<'a> Jit<'a> {
                 }
             }
         }
+        self.bufs.members = members;
+        self.bufs.ops = ops;
+        self.bufs.reads = reads;
+        self.bufs.defs = defs;
+        self.bufs.kept = kept;
     }
 
     /// Whether nothing in `root`'s class is read or written between `a`'s
@@ -2236,13 +2303,15 @@ impl<'a> Jit<'a> {
     /// — depth-first, `then` before `else`, reversed — puts the else-arm and
     /// the loop body immediately after the test, which is where the elision
     /// wants them. Blocks the walk never reaches keep IR order at the end.
-    fn layout(&self, code: &ir::Code) -> Vec<usize> {
+    fn layout(&mut self, code: &ir::Code) -> Vec<usize> {
         let nb = code.blocks.len();
-        let mut seen = vec![false; nb];
-        let mut post = Vec::with_capacity(nb);
+        let mut seen = table(&mut self.bufs.seen, nb, false);
+        let mut post = std::mem::take(&mut self.bufs.order);
+        post.clear();
         // An explicit stack, because a deeply nested function would blow a
         // recursive one and this runs on every function in the program.
-        let mut stack: Vec<(usize, usize)> = Vec::new();
+        let mut stack = std::mem::take(&mut self.bufs.stack);
+        stack.clear();
         // Block zero is the entry, and a body with no blocks has nothing to
         // walk from.
         if let Some(s) = seen.first_mut() {
@@ -2274,6 +2343,8 @@ impl<'a> Jit<'a> {
                 post.push(b);
             }
         }
+        self.bufs.seen = seen;
+        self.bufs.stack = stack;
         post
     }
 
@@ -2603,9 +2674,9 @@ impl<'a> Jit<'a> {
         // Where each value is used in the block being allocated: how often,
         // first and last. One entry per value of the function, stamped with
         // the block it describes, so moving to the next block resets nothing.
-        let mut uses = vec![BlockUses::default(); code.values()];
-        let mut barrier: Vec<bool> = Vec::new();
-        let mut ops = Vec::new();
+        let mut uses = table(&mut self.bufs.block_uses, code.values(), BlockUses::default());
+        let mut barrier = std::mem::take(&mut self.bufs.barrier);
+        let mut ops = std::mem::take(&mut self.bufs.ops);
         // The registers cross-block promotion took are not the local
         // allocator's to hand out.
         let register_count = super::abi::CPS_REGISTER_COUNT;
@@ -2741,6 +2812,9 @@ impl<'a> Jit<'a> {
                 }
             }
         }
+        self.bufs.block_uses = uses;
+        self.bufs.barrier = barrier;
+        self.bufs.ops = ops;
     }
 
     /// Which `Inst::Const`s never need a frame slot, because every use of them
@@ -2748,23 +2822,29 @@ impl<'a> Jit<'a> {
     ///
     /// [`zero_divisor`] is the one use that is *not* eligible however good the
     /// stencil is.
-    fn constants(&mut self, code: &ir::Code, total: &[u32]) -> (Vec<Option<u64>>, Vec<bool>) {
-        let mut constants: Vec<Option<u64>> = vec![None; code.values()];
-        let mut folded = vec![false; code.values()];
+    fn constants(
+        &mut self,
+        code: &ir::Code,
+        total: &[u32],
+        constants: &mut Vec<Option<u64>>,
+        folded: &mut Vec<bool>,
+    ) {
+        *constants = table(constants, code.values(), None);
+        *folded = table(folded, code.values(), false);
         for block in &code.blocks {
             for i in &block.insts {
                 if let ir::Inst::Const { dest, value } = i {
-                    put(&mut constants, dest.index(), literal(value, code.ty_of(*dest)));
+                    put(constants, dest.index(), literal(value, code.ty_of(*dest)));
                 }
             }
         }
         // A use is immediate-eligible only as the right operand of a binary
         // operation whose immediate variant this level has.
-        let mut imm = vec![0u32; code.values()];
+        let mut imm = table(&mut self.bufs.imm, code.values(), 0);
         for block in &code.blocks {
             for i in &block.insts {
                 if let ir::Inst::Binary { op, prim, rhs, .. } = i {
-                    if let Some(k) = ent(&constants, rhs.index(), None) {
+                    if let Some(k) = ent(constants, rhs.index(), None) {
                         if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
                             let name = super::emit::binop_name(*op);
                             let key = key!("bin/{name}/{tag}/fi/f");
@@ -2778,15 +2858,16 @@ impl<'a> Jit<'a> {
         }
         for (v, f) in folded.iter_mut().enumerate() {
             let seen = ent(total, v, 0);
-            *f = ent(&constants, v, None).is_some() && seen > 0 && seen == ent(&imm, v, 0);
+            *f = ent(constants, v, None).is_some() && seen > 0 && seen == ent(&imm, v, 0);
         }
-        (constants, folded)
+        self.bufs.imm = imm;
     }
 
     /// Fusions the terminator can absorb.
     pub(super) fn plan_block(&mut self, code: &ir::Code, st: &Fn2, block: &ir::Block) -> Plan {
         let n = block.insts.len();
-        let mut p = Plan { skip: vec![false; n], cmpbr: None, tagsw: None, incbr: None };
+        let skip = table(&mut self.bufs.skip, n, false);
+        let mut p = Plan { skip, cmpbr: None, tagsw: None, incbr: None };
         // Every `Const` whose uses are all immediates disappears.
         for (i, skip) in block.insts.iter().zip(p.skip.iter_mut()) {
             if let ir::Inst::Const { dest, .. } = i {
@@ -2817,7 +2898,7 @@ impl<'a> Jit<'a> {
                             st.loc(*rhs).tag()
                         };
                         if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
-                            let key = format!(
+                            let key = key!(
                                 "brcmp/{}/{tag}/{a}{b}",
                                 super::emit::binop_name(*op)
                             );
@@ -3048,27 +3129,25 @@ impl Dominance {
 
 /// How many times each value of `code` is read: as an instruction's operand, as
 /// a terminator's, and as an edge's argument.
-fn count_uses(code: &ir::Code) -> Vec<u32> {
-    let mut uses = vec![0u32; code.values()];
-    let mut ops = Vec::new();
+fn count_uses(code: &ir::Code, uses: &mut Vec<u32>, ops: &mut Vec<ir::ValueId>) {
+    *uses = table(uses, code.values(), 0);
     for b in &code.blocks {
         for i in &b.insts {
             ops.clear();
-            i.operands(&mut ops);
-            for o in &ops {
-                bump(&mut uses, o.index());
+            i.operands(ops);
+            for o in ops.iter() {
+                bump(uses, o.index());
             }
         }
         ops.clear();
-        b.term.operands(&mut ops);
+        b.term.operands(ops);
         for t in b.term.targets() {
             ops.extend_from_slice(&t.args);
         }
-        for o in &ops {
-            bump(&mut uses, o.index());
+        for o in ops.iter() {
+            bump(uses, o.index());
         }
     }
-    uses
 }
 
 /// How many times `v` is read in the function `st` was built for. A value is
