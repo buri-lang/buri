@@ -13,8 +13,9 @@ from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
 from "//lib/codegen" import {
-    adders, addersEven, allBelow, countDownAnd, countDownOr, evenAnd, hexDigitsFrom,
-    lengthNever, pairs, scalers, walkSkipping,
+    adders, addersEven, allBelow, anyPositiveGuarded, countDownAnd, countDownGuarded,
+    countDownOr, dropped, evenAnd, hexDigitsFrom, lastBelow, lengthNever, pairs,
+    positives, positivesNoTail, scalers, toSeven, walkSkipping,
 };
 
 // -----------------------------------------------------------------------------
@@ -130,4 +131,50 @@ test "the index a call ran in front of is still the index" {
     assert.isTrue(lengthNever("aab", 0));
     // Length 2: the index reaches 2, `2 != 2` fails, and the answer is false.
     assert.isFalse(lengthNever("ab", 0));
+}
+
+// -----------------------------------------------------------------------------
+// A tail call out of a match with a guarded arm
+// -----------------------------------------------------------------------------
+//
+// Each answer below is one a match that kept looking at the first call's
+// scrutinee cannot give (buri-lang/buri#249). The functions hold the reasons.
+
+test "a tail call after a guarded list arm looks at the rest of the list" {
+    assert.isTrue(anyPositiveGuarded([-1, 2], 10));
+    assert.isTrue(anyPositiveGuarded([-1, -2, -3, 4], 10));
+    assert.isFalse(anyPositiveGuarded([-1, -2], 10));
+    assert.isFalse(anyPositiveGuarded([], 10));
+}
+
+test "a tail call after a guarded Int arm matches the new argument" {
+    assert.equal(toSeven(10, 20), 7);
+    assert.equal(toSeven(7, 20), 7);
+    assert.equal(toSeven(20, 20), 14);
+}
+
+test "a guard over a let before the match is computed again on each call" {
+    assert.equal(dropped([1, 2, 3, 4, 5], 0, 2), 3);
+    assert.equal(dropped([1, 2, 3, 4, 5], 0, 5), 0);
+    assert.equal(dropped([1, 2], 0, 0), 2);
+}
+
+test "a guarded arm with a call that is not a tail call, beside one that is" {
+    assert.equal(positives([-1, 2, -3, 4], 10), 2);
+    assert.equal(positives([1, 2, 3], 10), 3);
+    assert.equal(positives([-1, -2], 10), 0);
+}
+
+test "a guarded arm with a call that is not a tail call, and no tail call" {
+    assert.equal(positivesNoTail([-1, 2, -3, 4]), 2);
+    assert.equal(positivesNoTail([1, 2, 3]), 3);
+}
+
+test "a guarded arm answers with the scrutinee of the call it is in" {
+    assert.equal(lastBelow(0, 3), 3);
+    assert.equal(lastBelow(5, 0), 5);
+}
+
+test "a tail call out of a guarded match runs in constant stack" {
+    assert.isTrue(countDownGuarded(200000));
 }
