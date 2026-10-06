@@ -1241,7 +1241,7 @@ fn dominators(code: &Code) -> Dominance {
         }
         while let Some((b, next)) = stack.last_mut().map(|(b, k)| (*b, k)) {
             if let Some(t) = code.blocks.get(b).and_then(|blk| blk.term.targets().nth(*next)) {
-                *next += 1;
+                *next = next.saturating_add(1);
                 let t = t.block.index();
                 if let Some(s) = seen.get_mut(t) {
                     if !*s {
@@ -1304,27 +1304,27 @@ fn dominators(code: &Code) -> Dominance {
         }
     }
     let (mut pre, mut post) = (vec![0; n], vec![0; n]);
-    let (mut next_pre, mut next_post) = (0, 0);
+    let (mut next_pre, mut next_post) = (0usize, 0usize);
     if n > 0 {
         let mut stack: Vec<(usize, usize)> = vec![(0, 0)];
         if let Some(p) = pre.get_mut(0) {
             *p = next_pre;
         }
-        next_pre += 1;
+        next_pre = next_pre.saturating_add(1);
         while let Some((b, k)) = stack.last_mut().map(|(b, k)| (*b, k)) {
             if let Some(&c) = children.get(b).and_then(|cs| cs.get(*k)) {
-                *k += 1;
+                *k = k.saturating_add(1);
                 if let Some(p) = pre.get_mut(c) {
                     *p = next_pre;
                 }
-                next_pre += 1;
+                next_pre = next_pre.saturating_add(1);
                 stack.push((c, 0));
             } else {
                 stack.pop();
                 if let Some(p) = post.get_mut(b) {
                     *p = next_post;
                 }
-                next_post += 1;
+                next_post = next_post.saturating_add(1);
             }
         }
     }
