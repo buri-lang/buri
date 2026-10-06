@@ -372,9 +372,13 @@ fn removeNode<K: Equal, V, C: Allocator>(
             let bit = bitOf(chunkAt(hash, depth));
             if (hasSlot(bitmap, bit)) {
                 let idx = indexOf(bitmap, bit);
-                match (children.get(idx)) {
-                    .None => (.Some(n), false),
+                // Taken out of the list before the descent and put back after,
+                // for the reason `insertNode` does it.
+                let found = children.get(idx);
+                match (found) {
+                    .None => (.Some(.Branch(bitmap, children)), false),
                     .Some(child) => {
+                        let rest = removeAt(ctx, children, idx);
                         let (shrunk, removed) = removeNode(
                             ctx,
                             child,
@@ -382,34 +386,22 @@ fn removeNode<K: Equal, V, C: Allocator>(
                             key,
                             depth + 1,
                         );
-                        if (removed) {
-                            match (shrunk) {
-                                .None => {
-                                    (
-                                        compact(
-                                            bitmap & ~bit,
-                                            removeAt(ctx, children, idx),
-                                        ),
-                                        true,
-                                    )
-                                },
-                                .Some(c) => {
-                                    (
-                                        compact(
-                                            bitmap,
-                                            replaceAt(ctx, children, idx, c),
-                                        ),
-                                        true,
-                                    )
-                                },
-                            }
-                        } else {
-                            (.Some(n), false)
+                        match (shrunk) {
+                            // Only a removal empties a subtree.
+                            .None => (compact(bitmap & ~bit, rest), true),
+                            .Some(c) => {
+                                let back = insertAt(ctx, rest, idx, c);
+                                if (removed) {
+                                    (compact(bitmap, back), true)
+                                } else {
+                                    (.Some(.Branch(bitmap, back)), false)
+                                }
+                            },
                         }
                     },
                 }
             } else {
-                (.Some(n), false)
+                (.Some(.Branch(bitmap, children)), false)
             }
         },
     }
@@ -479,14 +471,17 @@ impl<K: Hash + Equal, V> Map<K, V> {
 
     /// Removes `key`, if it is there. Removing what is absent is not an error.
     export fn remove<C: Allocator>(self, ctx: C, key: K): Map<K, V> {
-        let (root, removed) = removeNode(ctx, self.root, key.hash(), key, 0);
-        if (removed) {
+        // Asked first, so an absent key copies nothing of a shared map, and a
+        // present one is removed from a root this call alone holds.
+        if (!self.has(key)) {
+            self
+        } else {
+            let size = self.size;
+            let (root, _removed) = removeNode(ctx, self.root, key.hash(), key, 0);
             match (root) {
                 .None => empty<K, V>(),
-                .Some(r) => Map { root: r, size: self.size - 1 },
+                .Some(r) => Map { root: r, size: size - 1 },
             }
-        } else {
-            self
         }
     }
 
