@@ -641,7 +641,8 @@ impl Workspace {
         }
         let mut end = rest.len();
         while let Some(slash) = rest.get(..end).and_then(|r| r.rfind('/')) {
-            let (package_path, remainder) = (rest.get(..slash)?, rest.get(slash + 1..)?);
+            let (package_path, tail) = rest.split_at_checked(slash)?;
+            let remainder = tail.strip_prefix('/')?;
             if !package_path.is_empty() {
                 if let Some(&id) = self.by_path.get(package_path) {
                     return Some((package_path, remainder, id));
