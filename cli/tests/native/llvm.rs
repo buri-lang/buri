@@ -5433,3 +5433,85 @@ export fn main(host: NativeHost): Result<(), Str> {{
         "a template of 601 parts stores {longest} words in one straight line"
     );
 }
+
+/// How many instructions in `body` are `op`.
+fn count_op(body: &str, op: &str) -> usize {
+    body.lines().filter(|l| l.split_once(" = ").is_some_and(|(_, rest)| rest.starts_with(op))).count()
+}
+
+/// The body of the function whose symbol ends in `suffix`, from its `define`.
+fn definition<'a>(ir: &'a str, suffix: &str) -> &'a str {
+    let at = ir
+        .lines()
+        .find(|l| l.starts_with("define ") && l.contains(&format!("{suffix}\"(")))
+        .and_then(|l| ir.find(l))
+        .unwrap_or_else(|| panic!("no function ending in `{suffix}` in:\n{ir}"));
+    function_body(&ir[at..], "define ")
+}
+
+/// **A match reads its scrutinee's tag once, however many arms test it.** Each
+/// block of a decision chain read the tag again, a `zext` apiece, and a pair's
+/// element an `extractvalue` apiece. `opt`'s first `SimplifyCFG` only folds a
+/// chain into a `switch` where each block is a compare and a branch, so the
+/// chain reached InstCombine, which asks every dominating branch about every
+/// compare: a match of 400 arms took 5.5 G instructions to emit under
+/// `--release`, 2.4 times as much for each doubling. PERFORMANCE.md §6.33.
+#[test]
+fn a_matchs_tests_of_one_value_read_its_tag_once() {
+    skip_unless_executable!();
+    let n = 120;
+    let variants: String = (0..n).map(|i| format!("    V{i},\n")).collect();
+    let groups: String = (0..n - 3)
+        .step_by(3)
+        .map(|i| format!("        .V{i} | .V{} | .V{} => {},\n", i + 1, i + 2, i / 3))
+        .collect();
+    let pairs: String = (0..n).map(|i| format!("        (.V{i}, .V{i}) => {i},\n")).collect();
+    let ir = emitted_ir(&program(&format!(
+        r#"
+from "native" import {{ NativeHost }};
+from "core/list" import * as list;
+
+enum E {{
+{variants}}}
+
+fn nth(i: Int): E {{
+    match (i) {{
+        0 => .V0,
+        1 => .V7,
+        _ => .V9,
+    }}
+}}
+
+fn group(e: E): Int {{
+    match (e) {{
+{groups}        _ => 0 - 1,
+    }}
+}}
+
+fn same(a: E, b: E): Int {{
+    match ((a, b)) {{
+{pairs}        _ => 0 - 1,
+    }}
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+    let total = list.range(ctx, 0, 3).fold(fn(acc, i) => acc + group(nth(i)) + same(nth(i), nth(1)), 0);
+    let _ = io.println(ctx, "${{total}}").ignore();
+    .Ok(())
+}}
+"#
+    )));
+    // The middle end may inline `group` into its caller, so every function is
+    // held to a few reads, far below the arm count.
+    for body in ir.split("\ndefine ").skip(1) {
+        let reads = count_op(body, "zext ");
+        let name = body.lines().next().unwrap_or_default();
+        assert!(reads <= 8, "a function reads tags {reads} times: {name}");
+    }
+    let same = definition(&ir, "$same");
+    for op in ["zext ", "extractvalue "] {
+        let count = count_op(same, op);
+        assert!(count <= 2, "a match of {n} arms over a pair has {count} `{}`s", op.trim_end());
+    }
+}
