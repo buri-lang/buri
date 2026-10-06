@@ -683,7 +683,7 @@ impl Frame {
 }
 
 struct Generator {
-    descs: Vec<Desc>,
+    descs: std::rc::Rc<Vec<Desc>>,
     /// The module each descriptor's type is declared in, from
     /// [`Program::desc_modules`]. A generated function's debug name is
     /// qualified with it, which is what puts it in that module's codegen unit.
@@ -712,7 +712,7 @@ impl Generator {
         let env = Env::discover(program);
         let ok = support(program, &env);
         Generator {
-            descs: program.descriptors.clone(),
+            descs: std::rc::Rc::new(program.descriptors.clone()),
             modules: program.desc_modules.clone(),
             env,
             ok,
@@ -1151,9 +1151,10 @@ impl Generator {
     /// generated function for it.
     fn eq(&mut self, desc: usize, a: Expr, b: Expr, frame: &mut Frame) -> Option<Expr> {
         let bool_ty = self.bool_ty();
-        match self.desc(desc).cloned()? {
+        let descs = std::rc::Rc::clone(&self.descs);
+        match descs.get(desc)? {
             Desc::Prim(p) => Some(Expr::new(
-                ExprKind::Prim { op: PrimOp::Eq, prim: p, args: vec![a, b] },
+                ExprKind::Prim { op: PrimOp::Eq, prim: *p, args: vec![a, b] },
                 bool_ty,
                 Span::NONE,
             )),
@@ -1169,12 +1170,12 @@ impl Generator {
                 self.eq_fields(&parts, a, b, true)
             }
             Desc::Array(elem) => {
-                let elem_ty = self.ty_of(elem);
-                let f = self.request(Op::Eq, elem)?;
+                let elem_ty = self.ty_of(*elem);
+                let f = self.request(Op::Eq, *elem)?;
                 let ptr = self.fn_ref(f, vec![elem_ty, elem_ty], bool_ty);
                 Some(self.intrinsic("deriveArrayEq", vec![elem_ty], vec![a, b, ptr], bool_ty))
             }
-            Desc::Option(inner) => self.eq_option(desc, inner, a, b, frame),
+            Desc::Option(inner) => self.eq_option(desc, *inner, a, b, frame),
             Desc::Enum { variants, .. } => self.eq_enum(desc, &variants, a, b, frame),
             Desc::Opaque(_) | Desc::Reserved => None,
         }
@@ -1290,16 +1291,17 @@ impl Generator {
 
     fn compare(&mut self, desc: usize, a: Expr, b: Expr, frame: &mut Frame) -> Option<Expr> {
         let order = self.result_ty(Op::Compare);
-        match self.desc(desc).cloned()? {
+        let descs = std::rc::Rc::clone(&self.descs);
+        match descs.get(desc)? {
             Desc::Prim(p) => {
                 let bool_ty = self.bool_ty();
                 let lt = Expr::new(
-                    ExprKind::Prim { op: PrimOp::Lt, prim: p, args: vec![a.clone(), b.clone()] },
+                    ExprKind::Prim { op: PrimOp::Lt, prim: *p, args: vec![a.clone(), b.clone()] },
                     bool_ty,
                     Span::NONE,
                 );
                 let gt = Expr::new(
-                    ExprKind::Prim { op: PrimOp::Gt, prim: p, args: vec![a, b] },
+                    ExprKind::Prim { op: PrimOp::Gt, prim: *p, args: vec![a, b] },
                     bool_ty,
                     Span::NONE,
                 );
@@ -1334,8 +1336,8 @@ impl Generator {
                 self.compare_fields(&parts, a, b, true, frame)
             }
             Desc::Array(elem) => {
-                let elem_ty = self.ty_of(elem);
-                let f = self.request(Op::Compare, elem)?;
+                let elem_ty = self.ty_of(*elem);
+                let f = self.request(Op::Compare, *elem)?;
                 let ptr = self.fn_ref(f, vec![elem_ty, elem_ty], order);
                 Some(self.intrinsic(
                     "deriveArrayCompare",
@@ -1344,7 +1346,7 @@ impl Generator {
                     order,
                 ))
             }
-            Desc::Option(inner) => self.compare_option(desc, inner, a, b, frame),
+            Desc::Option(inner) => self.compare_option(desc, *inner, a, b, frame),
             Desc::Enum { variants, .. } => self.compare_enum(desc, &variants, a, b, frame),
             Desc::Opaque(_) | Desc::Reserved => None,
         }
@@ -1725,7 +1727,8 @@ impl Generator {
 
     fn show(&mut self, desc: usize, x: Expr, frame: &mut Frame) -> Option<Expr> {
         let str_ty = self.str_ty();
-        match self.desc(desc).cloned()? {
+        let descs = std::rc::Rc::clone(&self.descs);
+        match descs.get(desc)? {
             Desc::Prim(_) => {
                 let ty = self.ty_of(desc);
                 Some(self.intrinsic("derivePrimShow", vec![ty], vec![x], str_ty))
@@ -1737,7 +1740,7 @@ impl Generator {
                 // the same shape, because a failure report and a hand-called
                 // `show` may not disagree about one value.
                 if fields.is_empty() {
-                    let shown = if record { format!("{name} {{}}") } else { format!("{name}()") };
+                    let shown = if *record { format!("{name} {{}}") } else { format!("{name}()") };
                     return Some(self.str_lit(&shown));
                 }
                 let parts: Vec<(String, usize, usize)> = fields
@@ -1745,7 +1748,7 @@ impl Generator {
                     .enumerate()
                     .map(|(i, f)| (f.name.clone(), i, f.ty))
                     .collect();
-                self.show_fields(&name, record, &parts, x, false)
+                self.show_fields(&name, *record, &parts, x, false)
             }
             Desc::Tuple(es) => {
                 let parts: Vec<(String, usize, usize)> =
@@ -1753,17 +1756,17 @@ impl Generator {
                 self.show_fields("", false, &parts, x, true)
             }
             Desc::Array(elem) => {
-                let elem_ty = self.ty_of(elem);
-                let f = self.request(Op::Show, elem)?;
+                let elem_ty = self.ty_of(*elem);
+                let f = self.request(Op::Show, *elem)?;
                 let ptr = self.fn_ref(f, vec![elem_ty], str_ty);
                 Some(self.intrinsic("deriveArrayShow", vec![elem_ty], vec![x, ptr], str_ty))
             }
             Desc::Option(inner) => {
                 let ty = self.ty_of(desc);
-                let inner_ty = self.ty_of(inner);
+                let inner_ty = self.ty_of(*inner);
                 let v = frame.local("v", &inner_ty);
                 let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty)])?;
-                let shown = self.at(Op::Show, inner, vec![self.local_expr(v, &inner_ty)])?;
+                let shown = self.at(Op::Show, *inner, vec![self.local_expr(v, &inner_ty)])?;
                 let body = self.joined(vec![
                     TemplatePart::Text(".Some(".into()),
                     TemplatePart::Hole(shown),
@@ -1983,7 +1986,8 @@ impl Generator {
 
     fn json_of(&mut self, desc: usize, x: Expr, frame: &mut Frame) -> Option<Expr> {
         let json = self.result_ty(Op::ToJson);
-        match self.desc(desc).cloned()? {
+        let descs = std::rc::Rc::clone(&self.descs);
+        match descs.get(desc)? {
             Desc::Prim(_) => {
                 let ty = self.ty_of(desc);
                 Some(self.intrinsic("derivePrimJson", vec![ty], vec![x], json))
@@ -1996,13 +2000,13 @@ impl Generator {
                     let fty = self.ty_of(f.ty);
                     let proj = self.project(x.clone(), i, false, fty);
                     let v = self.at(Op::ToJson, f.ty, vec![proj])?;
-                    if record {
+                    if *record {
                         members.push((f.name.clone(), v));
                     } else {
                         items.push(v);
                     }
                 }
-                if record {
+                if *record {
                     let obj = self.json_members(members);
                     self.json_lit("Object", vec![obj])
                 } else {
@@ -2021,8 +2025,8 @@ impl Generator {
                 self.json_lit("Array", vec![arr])
             }
             Desc::Array(elem) => {
-                let elem_ty = self.ty_of(elem);
-                let f = self.request(Op::ToJson, elem)?;
+                let elem_ty = self.ty_of(*elem);
+                let f = self.request(Op::ToJson, *elem)?;
                 let ptr = self.fn_ref(f, vec![elem_ty], json);
                 let mapped = self.intrinsic(
                     "deriveArrayJson",
@@ -2034,10 +2038,10 @@ impl Generator {
             }
             Desc::Option(inner) => {
                 let ty = self.ty_of(desc);
-                let inner_ty = self.ty_of(inner);
+                let inner_ty = self.ty_of(*inner);
                 let v = frame.local("v", &inner_ty);
                 let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty)])?;
-                let body = self.at(Op::ToJson, inner, vec![self.local_expr(v, &inner_ty)])?;
+                let body = self.at(Op::ToJson, *inner, vec![self.local_expr(v, &inner_ty)])?;
                 let null = self.json_lit("Null", Vec::new())?;
                 Some(self.match_(
                     x,
@@ -2111,7 +2115,8 @@ impl Generator {
 
     fn hash(&mut self, desc: usize, h: Expr, x: Expr, frame: &mut Frame) -> Option<Expr> {
         let acc = self.hash_ty();
-        match self.desc(desc).cloned()? {
+        let descs = std::rc::Rc::clone(&self.descs);
+        match descs.get(desc)? {
             Desc::Prim(_) => {
                 let ty = self.ty_of(desc);
                 Some(self.intrinsic("derivePrimHash", vec![ty], vec![h, x], acc))
@@ -2130,18 +2135,18 @@ impl Generator {
                 self.hash_fields(&parts, h, x, true)
             }
             Desc::Array(elem) => {
-                let elem_ty = self.ty_of(elem);
-                let f = self.request(Op::Hash, elem)?;
+                let elem_ty = self.ty_of(*elem);
+                let f = self.request(Op::Hash, *elem)?;
                 let ptr = self.fn_ref(f, vec![acc, elem_ty], acc);
                 Some(self.intrinsic("deriveArrayHash", vec![elem_ty], vec![h, x, ptr], acc))
             }
             Desc::Option(inner) => {
                 let ty = self.ty_of(desc);
-                let inner_ty = self.ty_of(inner);
+                let inner_ty = self.ty_of(*inner);
                 let v = frame.local("v", &inner_ty);
                 let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty)])?;
                 let body =
-                    self.at_hash(inner, h.clone(), self.local_expr(v, &inner_ty))?;
+                    self.at_hash(*inner, h.clone(), self.local_expr(v, &inner_ty))?;
                 Some(self.match_(
                     x,
                     vec![self.arm(some, body), self.arm(self.wild(&ty), self.mix(h, 0))],
