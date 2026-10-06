@@ -3919,10 +3919,65 @@ the uncontended case most.
 - **A per-`TypeId` aggregate-size cache** in front of `Layouts::shared`. Under
   1%.
 
+**A second round** took `emit` down another 16%. Seven changes, each its own
+commit:
+
+- **Literal keys by address.** `mixed-10k` × 8 copies 280,000 stencils under
+  79 distinct keys, and half are literals like `"jump"` or `"decref/free"`. A
+  literal's address never changes, so a worker maps it to its library index in
+  a 256-slot table. `arm_key` already had the index, so it passes it on, and
+  the width-keyed moves name literals instead of spelling `mov/8`. -2.4%.
+- **Binding without `memcmp`.** Every hole name starts with `JIT_`, so each
+  equal-length pair went to `memcmp`. `same_name` compares from the end,
+  inline. -2.7%.
+- **Flat loop graphs.** `promote` runs on every function whose `match` joins,
+  because `lower` lays the join out ahead of its arms. It built predecessors,
+  successors and the dominator tree as a `Vec` per block, fresh per function.
+  `Lists` keeps them in two flat tables refilled from `Bufs`. -4.8%.
+- **Imports borrow their names.** `import` cloned the hole's name for every
+  relocation. The library lives for the process, so `Target::Symbol` is a
+  `Cow<'static, str>`. -3.4%.
+- **Latch classes as rings.** `coalesce_latches` kept a `Vec` per slot class.
+  A ring through one `next` table merges two classes with a swap. -1.6%.
+- **`frame_sigs` shares `Cycles`** and sizes aggregates by `TypeId`. It runs
+  on the main thread before the workers start. -1.1%.
+- **Relocations remember their symbol.** `assemble_unit` hashed
+  `buri$stencil$pool` for both halves of every pool reference, and the
+  callee's name for every call. -1.7%.
+
+On `dc96906ac`, cold, `emit` instructions, the lower of two alternating runs:
+
+| Workload | Before | After | |
+|---|---:|---:|---:|
+| `mixed-10k` × 8 binaries | 1,054 M | 884 M | -16% |
+| eight saved corpora and ten shapes, 18 binaries | 521 M | 437 M | -16% |
+| §6.32 wide payload, 200 | 98 M | 80 M | -19% |
+| §6.32 long match, 400 | 64 M | 60 M | -6% |
+| §6.32 payload enum, 400 | 181 M | 151 M | -17% |
+| §6.32 records, 200 | 85 M | 69 M | -19% |
+| §6.32 long tuple, 400 | 96 M | 78 M | -19% |
+| `cli/tests/example` server | 16.2 M | 16.2 M | 0% |
+
+The bytes didn't move: the 18-binary repository's objects and the 270 objects
+of the eight corpora on all three targets are identical before and after.
+
+**Second-round dead ends:**
+
+- **Sizing each part's region from the last one** to skip `Vec` doubling.
+  -0.5%.
+- **Borrowing the object writer's section bodies** instead of copying them,
+  with relocations sorted as `(section, offset, index)` tuples. Together
+  they cost +1.5%, and the borrow alone didn't move.
+
 **What's left:**
 
-- About 3,700 instructions per stencil. Keys are still hashed per emit, and a
-  constant key like `"call"` or `"mov/8"` could be resolved once per library.
+- About 3,150 instructions per stencil, spread thin. `Jit::emit` is about 30%
+  of a worker's samples, and pairing holes with bindings is still 5%. The slot
+  analyses are 16%, `assemble_unit` about 14% of the phase, and none of them
+  has a single hot spot.
+- **Dropping the lowered program** is 5% of the phase, on the main thread after
+  the workers finish. Most of it is `ir::Program`'s many small allocations,
+  which live in `crates/middle`.
 - **A shared store for the shard objects.** Each fresh worktree pays the 20 s
   of `cc`. The shard cache in `OUT_DIR` keys on the generated C alone. A store
   under `~/.buri/toolchain-build/` would need the C, the flags, the
