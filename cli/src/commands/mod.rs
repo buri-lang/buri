@@ -438,7 +438,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "static checks beyond type checking",
         doc: crate::documentation::embedded::cli::LINT,
         flags: &["fix", "explain", "dense"],
-        run: lint::command_lint,
+        run: |args| counted(args, lint::command_lint),
         subcommands: &[],
         hidden: false,
     },
@@ -527,7 +527,22 @@ fn once(args: &Args, command: fn(&Args) -> i32) -> i32 {
     if !args.flags.watch {
         crate::build::actions::remember_reads();
     }
-    command(args)
+    counted(args, command)
+}
+
+/// Runs `command`, then, under `BURI_PROFILE`, says how much of the build
+/// graph it walked ([`crate::build::workspace::graph_work`]): a count that,
+/// unlike instructions, no load can move.
+#[expect(
+    clippy::print_stderr,
+    reason = "a line of the profile report, which goes to standard error with the rest of it"
+)]
+fn counted(args: &Args, command: fn(&Args) -> i32) -> i32 {
+    let code = command(args);
+    if crate::profile::enabled() {
+        eprintln!("graph work {}", crate::build::workspace::graph_work());
+    }
+    code
 }
 
 /// `buri <command> <subcommand>`, dispatched through the command's own table.

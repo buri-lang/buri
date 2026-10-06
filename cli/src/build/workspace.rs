@@ -44,6 +44,21 @@ pub struct Workspace {
     edges: std::sync::Mutex<HashMap<TargetId, Edges>>,
 }
 
+/// How much of the build graph this process walked: targets whose edges were
+/// read, closures expanded, and closures folded into keys. `BURI_PROFILE`
+/// prints it, because unlike instructions it is the same on every run.
+static GRAPH_WORK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Adds to [`graph_work`].
+pub fn count_graph_work(n: u64) {
+    GRAPH_WORK.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// See [`GRAPH_WORK`].
+pub fn graph_work() -> u64 {
+    GRAPH_WORK.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// A target's dependency edges, shared.
 type Edges = std::sync::Arc<[(TargetId, Option<Span>)]>;
 
@@ -286,6 +301,7 @@ impl Workspace {
     }
 
     fn read_dep_edges(&self, target: TargetId) -> Vec<(TargetId, Option<Span>)> {
+        count_graph_work(1);
         let mut out = Vec::new();
         if target.kind != RuleKind::Library && self.package(target.package).has_library() {
             out.push((TargetId { package: target.package, kind: RuleKind::Library }, None));
@@ -479,21 +495,56 @@ impl Workspace {
         seen.into_iter().collect()
     }
 
+    /// Walks the targets `target` reaches depth first, keeping every one's
+    /// closure on the way back up, so each target's edges are read once
+    /// however many closures hold it. A target in a cycle is walked on its
+    /// own instead, since its closure is its cycle's.
     fn walk_closure(&self, target: TargetId) -> Vec<TargetId> {
+        let known = |t: &TargetId| self.closures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(t).cloned();
+        let mut open: Vec<TargetId> = Vec::new();
+        let mut stack: Vec<(TargetId, bool)> = vec![(target, false)];
+        while let Some((cur, done)) = stack.pop() {
+            if known(&cur).is_some() {
+                continue;
+            }
+            if !done {
+                if open.contains(&cur) {
+                    return self.walk_alone(target);
+                }
+                open.push(cur);
+                stack.push((cur, true));
+                count_graph_work(1);
+                for &(dep, _) in self.shared_dep_edges(cur).iter() {
+                    if known(&dep).is_none() {
+                        stack.push((dep, false));
+                    }
+                }
+                continue;
+            }
+            open.retain(|t| *t != cur);
+            let mut seen = BTreeSet::from([cur]);
+            for &(dep, _) in self.shared_dep_edges(cur).iter() {
+                match known(&dep) {
+                    Some(closure) => seen.extend(closure.iter().copied()),
+                    None => return self.walk_alone(target),
+                }
+            }
+            let closure: std::sync::Arc<[TargetId]> = seen.into_iter().collect::<Vec<_>>().into();
+            self.closures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(cur, closure);
+        }
+        known(&target).map_or_else(|| self.walk_alone(target), |c| c.to_vec())
+    }
+
+    /// One target's closure, walked from nothing.
+    fn walk_alone(&self, target: TargetId) -> Vec<TargetId> {
         let mut seen = BTreeSet::new();
         let mut stack = vec![target];
         while let Some(cur) = stack.pop() {
             if !seen.insert(cur) {
                 continue;
             }
-            for &(dep, _) in self.shared_dep_edges(cur).iter() {
-                // A dependency already walked brings its whole closure.
-                let known = self.closures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&dep).cloned();
-                match known {
-                    Some(closure) => seen.extend(closure.iter().copied()),
-                    None => stack.push(dep),
-                }
-            }
+            count_graph_work(1);
+            stack.extend(self.shared_dep_edges(cur).iter().map(|&(dep, _)| dep));
         }
         seen.into_iter().collect()
     }

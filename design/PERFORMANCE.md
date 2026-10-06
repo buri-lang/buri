@@ -4270,11 +4270,23 @@ Outside the compiler's phases, instructions, one run each:
 | warm `test //...`, before | 0.16 G | 0.36 G | 0.86 G |
 | warm `test //...`, after | 0.08 G | 0.25 G | 0.46 G |
 
-Each doubling now costs 2.0–2.2×, where it cost 2.3–2.8×.
-`profile::linting_a_chain_of_libraries_is_linear_outside_the_compiler` and
-`a_warm_build_of_a_chain_of_libraries_is_linear_outside_the_compiler` hold
-150 against 300 to 2.3×. Lint output is identical on all 414 fixture
-repositories, cold, warm and one target at a time.
+Each doubling now costs 2.0–2.2×, where it cost 2.3–2.8×. Lint output is
+identical on all 414 fixture repositories, cold, warm and one target at a
+time.
+
+**The bound counts the graph walked, not instructions.** The first bound
+read the warm build's instructions outside the phases, and it was flaky: at
+300 libraries one run read 306 M and the next 445 M, with no change to the
+work. Most of what lands there is the kernel opening files, and that cost
+moved with load: under a profiler or CPU burners nearly every run read high.
+So `BURI_PROFILE` now also prints `graph work`, the targets whose edges were
+read, the closures expanded and the closures folded into keys
+(`workspace::graph_work`). It is 450 at 150 libraries and 900 at 300 on every
+run, against 271,800 and 1,083,600 on the code before this section.
+`profile::building_a_chain_of_libraries_walks_the_graph_once` and its lint
+twin hold 150 against 300 to 2.3× on that count: 55 runs passed, 30 of them
+beside 16 CPU burners at load 40. A closure walk keeps every target's closure
+on the way back up, so each target's edges are read once.
 
 A cold `build //...` still spends 18.6 G outside the phases at 800, and
 nearly all of it is freeing analyses: each library is checked over its whole

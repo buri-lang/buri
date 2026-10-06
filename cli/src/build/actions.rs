@@ -878,6 +878,7 @@ pub fn library_check_key(
         None => {
             k.input("flat", b"");
             for &member in session.workspace.shared_closure(target).iter() {
+                crate::build::workspace::count_graph_work(1);
                 let mut one = KeyBuilder::new(Action::Check, flags.mode);
                 contribute(session, member, &mut one);
                 k.dependency(&one.finish());
@@ -903,6 +904,7 @@ fn closure_fold(
         return None;
     }
     walking.push(target);
+    crate::build::workspace::count_graph_work(1);
     let mut k = KeyBuilder::new(Action::Check, flags.mode);
     k.input("closure", b"");
     contribute(session, target, &mut k);
