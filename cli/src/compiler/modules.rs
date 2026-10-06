@@ -680,6 +680,7 @@ impl<'a> Loader<'a> {
             return None;
         }
 
+        MODULES_LOADED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let rel = match self.ws {
             Some(ws) => ws.rel_of(&disk),
             None => disk.display().to_string(),
@@ -1115,4 +1116,14 @@ fn is_declared_test_source(
     };
     build.library.as_ref().and_then(|l| l.test.as_ref()).is_some_and(listed)
         || build.binary.as_ref().and_then(|b| b.test.as_ref()).is_some_and(listed)
+}
+
+/// How many repository modules this process's loaders read in, counting a
+/// module once per compilation that loads it. `BURI_PROFILE` prints it,
+/// because unlike instructions it is the same on every run.
+static MODULES_LOADED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// See [`MODULES_LOADED`].
+pub fn modules_loaded() -> u64 {
+    MODULES_LOADED.load(std::sync::atomic::Ordering::Relaxed)
 }

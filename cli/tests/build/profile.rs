@@ -552,6 +552,31 @@ fn building_a_chain_of_libraries_walks_the_graph_once() {
     );
 }
 
+/// **A cold build loads and checks each library once.** `buri build //...`
+/// checked every library over its whole closure, so a chain loaded and checked
+/// its first library once per library after it: 3.6 times the work per
+/// doubling at 100 libraries. PERFORMANCE.md §6.47.
+///
+/// Counted in modules loaded and in the `check` phase's instructions, which do
+/// no I/O. Loading's own instructions are mostly the kernel reading files:
+/// beside CPU burners they read 77–120 M for 200 libraries from run to run.
+#[test]
+fn a_cold_build_of_a_chain_of_libraries_checks_each_once() {
+    let cold = |n: usize| {
+        let scratch = Scratch::repo("profile-build-chain");
+        library_chain(&scratch, n);
+        let run = scratch.run_with_env(&["build", "//..."], &[("BURI_PROFILE", "1")]);
+        run.ok();
+        run.all()
+    };
+    let loaded = |all: &str| {
+        let line = all.lines().find(|l| l.starts_with("modules loaded "))?;
+        line.trim_start_matches("modules loaded ").trim().parse::<f64>().ok()
+    };
+    grows_linearly("a cold build of a chain of libraries, loading", |n| loaded(&cold(n)), 100);
+    grows_linearly("a cold build of a chain of libraries, checking", |n| phase_instructions(&cold(n), "check"), 100);
+}
+
 /// A library of `n` types, each with a method and a function that builds one.
 fn many_declarations(scratch: &Scratch, n: usize) {
     let items: String = (0..n)
