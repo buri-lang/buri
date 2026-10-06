@@ -14,6 +14,17 @@ use crate::compiler::middle::ir::{Body, Inst, Program};
 ///
 /// The program's roots aren't here. A backend keeps those itself.
 pub fn named_elsewhere(program: &Program) -> Vec<bool> {
+    named_from(program, false)
+}
+
+/// [`named_elsewhere`], counting a function's own unit too. A function no
+/// one names, `middle::inline` having inlined it at every call, needs no
+/// code at all.
+pub fn named_anywhere(program: &Program) -> Vec<bool> {
+    named_from(program, true)
+}
+
+fn named_from(program: &Program, own_unit: bool) -> Vec<bool> {
     let mut named = vec![false; program.funcs.len()];
     let mut mark = |at: usize| {
         if let Some(slot) = named.get_mut(at) {
@@ -28,7 +39,7 @@ pub fn named_elsewhere(program: &Program) -> Vec<bool> {
                 Inst::DecRef { drop: Some(func), .. } => *func,
                 _ => continue,
             };
-            if program.funcs.get(callee.index()).is_some_and(|c| c.unit != f.unit) {
+            if program.funcs.get(callee.index()).is_some_and(|c| own_unit || c.unit != f.unit) {
                 mark(callee.index());
             }
         }
@@ -68,8 +79,8 @@ mod tests {
         }
     }
 
-    /// A call from another unit names its callee. A call from the callee's own
-    /// unit doesn't.
+    /// A call from another unit names its callee elsewhere. A call from the
+    /// callee's own unit names it only anywhere.
     #[test]
     fn only_a_call_across_units_names_a_function() {
         let program = Program {
@@ -80,5 +91,6 @@ mod tests {
             cell_equal: Default::default(),
         };
         assert_eq!(named_elsewhere(&program), vec![true, false, true, false]);
+        assert_eq!(named_anywhere(&program), vec![true, true, true, false]);
     }
 }
