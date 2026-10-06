@@ -3355,6 +3355,106 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// What both map rows below build on: a map grown by the program, so it is
+/// uniquely owned, and two folds that read every key back.
+const MAP_PRELUDE: &str = r#"
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/map" import * as map;
+from "core/map" import { Map };
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+
+fn build<C: Allocator>(ctx: C, m: Map<Int, Int>, i: Int, n: Int): Map<Int, Int> {
+  if (i == n) { m } else { build(ctx, m.insert(ctx, i * 7, i), i + 1, n) }
+}
+
+fn total(m: Map<Int, Int>, i: Int, n: Int, acc: Int): Int {
+  if (i == n) { acc } else { total(m, i + 1, n, acc + m.get(i * 7).withDefault(0 - 1)) }
+}
+
+fn show<C: Allocator>(ctx: C, m: Map<Int, Int>): Str {
+  str.format(ctx, "${m.length()} ${total(m, 0, 2000, 0)} ${m.get(70).withDefault(0 - 1)} ${m.get(3).withDefault(0 - 1)}")
+}
+"#;
+
+/// **An update leaves every other name for the map as it was**, on every
+/// backend and under the heap check. `core/map` updates a node in place when
+/// nothing else holds it, so each shape here is one where something does: a
+/// second name, a list of versions, and an update of an update.
+#[test]
+fn a_map_updated_through_one_name_is_unchanged_through_another() {
+    rows_or_skip!();
+    let source = format!(
+        "{MAP_PRELUDE}{}",
+        r#"
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let m = build(ctx, map.empty(), 0, 2000);
+  let a = m.insert(ctx, 70, 1000);
+  let b = m.insert(ctx, 3, 5);
+  let c = m.remove(ctx, 140);
+  let d = a.insert(ctx, 77, 9).remove(ctx, 0);
+  let versions = [m, a];
+  let e = build(ctx, versions.get(1).withDefault(m), 0, 2000);
+  let _ = io.println(ctx, "m ${show(ctx, m)}").ignore();
+  let _ = io.println(ctx, "a ${show(ctx, a)}").ignore();
+  let _ = io.println(ctx, "b ${show(ctx, b)}").ignore();
+  let _ = io.println(ctx, "c ${show(ctx, c)}").ignore();
+  let _ = io.println(ctx, "d ${show(ctx, d)}").ignore();
+  let _ = io.println(ctx, "e ${show(ctx, e)}").ignore();
+  let _ = io.println(ctx, "v ${versions.fold(fn(n, v) => n + v.get(70).withDefault(0), 0)}").ignore();
+  .Ok(())
+}
+"#
+    );
+    agree(
+        "core/map aliasing",
+        &source,
+        "m 2000 1999000 10 -1\n\
+         a 2000 1999990 1000 -1\n\
+         b 2001 1999000 10 5\n\
+         c 1999 1998979 10 -1\n\
+         d 1999 1999987 1000 -1\n\
+         e 2000 1999000 10 -1\n\
+         v 1010\n",
+    );
+}
+
+/// **A map a task holds is unchanged by an update beside it**, and the other
+/// way round: the scope's body and a task each update the one map, and each
+/// sees only its own write.
+#[test]
+fn a_map_shared_with_a_task_is_unchanged_by_either_side_s_update() {
+    rows_or_skip!();
+    let source = format!(
+        "{MAP_PRELUDE}{}",
+        r#"
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let m = build(ctx, map.empty(), 0, 2000);
+  let body = tasks.scope(ctx, fn(c, here) => {
+    let _ = tasks.spawn(c, here, fn(c2) => {
+      let theirs = m.insert(c2, 70, 7).remove(c2, 140);
+      let _ = io.println(c2, "task ${show(c2, theirs)} | ${show(c2, m)}").ignore();
+      ()
+    });
+    m.insert(c, 70, 700).insert(c, 3, 3)
+  });
+  let _ = io.println(ctx, "body ${show(ctx, body)} | ${show(ctx, m)}").ignore();
+  .Ok(())
+}
+"#
+    );
+    agree(
+        "core/map shared with a task",
+        &source,
+        "task 1999 1998976 7 -1 | 2000 1999000 10 -1\n\
+         body 2001 1999690 700 3 | 2000 1999000 10 -1\n",
+    );
+}
+
 /// **A task spawned inside an arena runs after that arena is gone.**
 ///
 /// `core/tasks` says `copyAcross` deep-copies the task out of every arena
