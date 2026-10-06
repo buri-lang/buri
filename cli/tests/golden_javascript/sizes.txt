@@ -17,10 +17,10 @@ json_derive: 11747 bytes artifact, 4713 generated
 lazy_load: 2955 bytes artifact, 750 generated
 literals: 3284 bytes artifact, 940 generated
 nested_match: 2752 bytes artifact, 1195 generated
-nested_option: 8216 bytes artifact, 7061 generated
+nested_option: 8054 bytes artifact, 6711 generated
 option_result: 4029 bytes artifact, 2538 generated
 or_patterns: 2685 bytes artifact, 1068 generated
-rebound_scrutinee: 2594 bytes artifact, 893 generated
+rebound_scrutinee: 2556 bytes artifact, 631 generated
 shared_constants: 2736 bytes artifact, 1312 generated
 stdlib_chain: 4514 bytes artifact, 1168 generated
 str_match: 2678 bytes artifact, 760 generated
@@ -37,5 +37,5 @@ ui_styles_dynamic: 43013 bytes artifact, 7060 generated
 ui_theme: 40449 bytes artifact, 12279 generated
 ui_theme_and_computed: 44646 bytes artifact, 6649 generated
 
-total: 332853 bytes artifact, 105009 generated
+total: 332653 bytes artifact, 104397 generated
 largest function: 9971 bytes, ui_counter/$tree_render

@@ -269,6 +269,14 @@ impl Expr {
             Expr::New { .. } => 15,
             Expr::Call { .. } | Expr::Member { .. } | Expr::Index { .. } => 16,
             Expr::Spread(_) => 1,
+            // A literal printed as an operator expression binds like one, so
+            // `(void 0).x` and `(-1).x` keep their parentheses.
+            Expr::Undefined => 13,
+            Expr::BigInt(d) if d.starts_with('-') => 13,
+            Expr::Num(n) if n.is_infinite() => BinOp::Div.prec(),
+            Expr::Num(n) if n.is_sign_negative() && !n.is_nan() => 13,
+            // `1.x` reads as a malformed number, where `(1).x` is a property.
+            Expr::Num(n) if !n.is_nan() && !number(*n).contains(['.', 'e']) => 15,
             _ => 17,
         }
     }
@@ -700,6 +708,13 @@ fn simplify_bin(op: BinOp, lhs: Box<Expr>, rhs: Box<Expr>) -> Expr {
             _ => {}
         }
     }
+    // `undefined === undefined`, and two literals of different types, which
+    // are never strictly equal. A `.None` inlined into a `.Some` test is this.
+    if matches!(op, BinOp::StrictEq | BinOp::StrictNe) {
+        if let Some(eq) = literals_strictly_equal(&lhs, &rhs) {
+            return Expr::Bool(eq == (op == BinOp::StrictEq));
+        }
+    }
 
     match op {
         // Comparing a boolean against a literal is the boolean, or its
@@ -753,6 +768,26 @@ fn simplify_bin(op: BinOp, lhs: Box<Expr>, rhs: Box<Expr>) -> Expr {
     }
 
     Expr::Binary { op, lhs, rhs }
+}
+
+/// Whether two literals are `===`, where that holds whatever their values:
+/// `None` unless both are literals and the answer needs no arithmetic.
+fn literals_strictly_equal(lhs: &Expr, rhs: &Expr) -> Option<bool> {
+    let kind = |e: &Expr| match e {
+        Expr::Num(_) => Some(0),
+        Expr::BigInt(_) => Some(1),
+        Expr::Str(_) => Some(2),
+        Expr::Bool(_) => Some(3),
+        Expr::Null => Some(4),
+        Expr::Undefined => Some(5),
+        _ => None,
+    };
+    let (a, b) = (kind(lhs)?, kind(rhs)?);
+    match (lhs, rhs) {
+        _ if a != b => Some(false),
+        (Expr::Null, Expr::Null) | (Expr::Undefined, Expr::Undefined) => Some(true),
+        _ => None,
+    }
 }
 
 /// For `x === a` and `x === b` over the same pure `x` and two distinct
@@ -1116,8 +1151,7 @@ impl Printer {
             Expr::Unary { op, operand } => {
                 self.out.push_str(op.text());
                 // `- -x` must not print as `--x`.
-                if matches!(op, UnOp::Neg)
-                    && matches!(&**operand, Expr::Unary { op: UnOp::Neg, .. })
+                if matches!(op, UnOp::Neg) && starts_with_sign(operand)
                 {
                     self.out.push(' ');
                 }
@@ -1213,7 +1247,8 @@ impl Printer {
 
 fn starts_with_sign(e: &Expr) -> bool {
     match e {
-        Expr::Num(n) => *n < 0.0,
+        // `-0` too: `a - -0` printed as `a--0` is a decrement.
+        Expr::Num(n) => n.is_sign_negative() && !n.is_nan(),
         Expr::BigInt(s) => s.starts_with('-'),
         Expr::Unary { op: UnOp::Neg, .. } => true,
         _ => false,
@@ -4153,6 +4188,45 @@ const $c = 1;
         assert_eq!(number(0.5), ".5");
         assert_eq!(number(-0.25), "-.25");
         assert_eq!(number(1e21), "1e21");
+    }
+
+    /// A literal that prints as an operator expression is parenthesised where
+    /// a property, an index or a call reads through it.
+    #[test]
+    fn a_literal_read_through_keeps_its_parentheses() {
+        let length = |obj| Expr::member(obj, "length");
+        assert_eq!(f(length(Expr::Undefined)), "(void 0).length");
+        assert_eq!(f(Expr::index(Expr::Undefined, Expr::Num(0.0))), "(void 0)[0]");
+        assert_eq!(f(Expr::call(Expr::Undefined, vec![])), "(void 0)()");
+        assert_eq!(f(length(Expr::Num(1.0))), "(1).length");
+        assert_eq!(f(length(Expr::Num(-1.5))), "(-1.5).length");
+        assert_eq!(f(length(Expr::BigInt("-1".into()))), "(-1n).length");
+        assert_eq!(f(length(Expr::Num(0.5))), ".5.length");
+        assert_eq!(f(length(Expr::BigInt("1".into()))), "1n.length");
+        // `1/0` is a division, so dividing by it needs the parentheses too.
+        let raw = |op, lhs, rhs| Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+        assert_eq!(f(raw(BinOp::Div, a(), Expr::Num(f64::INFINITY))), "a/(1/0)");
+        assert_eq!(f(raw(BinOp::Sub, a(), Expr::Num(-0.0))), "a- -0");
+        assert_eq!(f(Expr::Unary { op: UnOp::Neg, operand: Box::new(Expr::Num(-1.0)) }), "- -1");
+    }
+
+    /// `void 0!==void 0` is false, so the `&&` it heads goes with it, read
+    /// through `void 0` included.
+    #[test]
+    fn an_absent_value_compared_with_itself_folds() {
+        let absent = |op| Expr::bin(op, Expr::Undefined, Expr::Undefined);
+        assert_eq!(f(absent(BinOp::StrictEq)), "true");
+        let test = Expr::bin(
+            BinOp::And,
+            absent(BinOp::StrictNe),
+            Expr::bin(BinOp::StrictEq, Expr::member(Expr::Undefined, "length"), Expr::Num(0.0)),
+        );
+        assert_eq!(f(Expr::cond(test, Expr::Str("a0".into()), Expr::Str("a1".into()))), "'a1'");
+        assert_eq!(f(Expr::bin(BinOp::StrictEq, Expr::Null, Expr::Null)), "true");
+        assert_eq!(f(Expr::bin(BinOp::StrictEq, Expr::Null, Expr::Undefined)), "false");
+        assert_eq!(f(Expr::bin(BinOp::StrictNe, Expr::Undefined, Expr::Num(0.0))), "true");
+        // Different literals of one type stay with the folds that know the type.
+        assert_eq!(f(Expr::bin(BinOp::StrictEq, Expr::Num(f64::NAN), Expr::Num(f64::NAN))), "false");
     }
 
     #[test]
