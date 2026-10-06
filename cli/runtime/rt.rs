@@ -704,6 +704,33 @@ fn push(task: Arc<Task>) {
     }
 }
 
+/// [`push`] for a batch: one lock, and one wake-up for the lot where it will
+/// reach every idle thread anyway.
+///
+/// A fan-out queued its steps one [`push`] at a time, and each paid a
+/// `pthread_cond_signal`, a system call whenever a thread was waiting. That was
+/// most of what the dispatching thread did. A broadcast wakes every waiter in
+/// one call, which is what that many single wake-ups would have done.
+fn push_all(tasks: impl IntoIterator<Item = Arc<Task>>) {
+    let (start, queued, idle) = {
+        let mut s = sched();
+        let before = s.queue.len();
+        s.queue.extend(tasks);
+        let queued = s.queue.len() - before;
+        (s.grow(), queued, s.idle)
+    };
+    if queued >= idle {
+        READY.notify_all();
+    } else {
+        for _ in 0..queued {
+            READY.notify_one();
+        }
+    }
+    if start {
+        start_thread();
+    }
+}
+
 /// Take the next runnable task, waiting for one.
 ///
 /// `armed` says the caller has already counted itself idle — which the
@@ -867,7 +894,7 @@ fn thread_loop() {
         let thread_arena = crate::memory::arena_slot_of_thread();
         crate::memory::set_arena_slot_of_thread(task_arena(&task));
         // SAFETY: the task came off the queue, so no other thread is running
-        // it, and its saved context is either the frame `spawn_task` prepared
+        // it, and its saved context is either the frame `new_task` prepared
         // or one this very call wrote on a previous turn. The `Arc` held here
         // keeps the task — and the stack under that context — alive for the
         // whole of it.
@@ -965,8 +992,9 @@ fn wake_waiters(task: &Task) {
     }
 }
 
-/// Map a task's machine stack, build the frame it starts from, and queue it.
-fn spawn_task(body: Box<dyn FnOnce() + Send>) -> Arc<Task> {
+/// Map a task's machine stack and build the frame it starts from. The caller
+/// queues it.
+fn new_task(body: Box<dyn FnOnce() + Send>) -> Arc<Task> {
     let (base, top) = crate::memory::buri_rt_task_stack_acquire();
     let task = Arc::new(Task {
         state: AtomicU8::new(QUEUED),
@@ -989,7 +1017,6 @@ fn spawn_task(body: Box<dyn FnOnce() + Send>) -> Arc<Task> {
     // on it, and `task.sp` is written before the task is queued, so no thread
     // can read it half-built.
     unsafe { *task.sp.get() = switch::prepare(top, arg) };
-    push(Arc::clone(&task));
     task
 }
 
@@ -1061,9 +1088,16 @@ impl Future for Complete<'_> {
 /// none is idle (see [`push`]), so a program that fans out over work that
 /// waits keeps the handful of threads it started with.
 pub fn on_thread<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Handoff<T> {
+    let handoff = unqueued(f);
+    push(Arc::clone(&handoff.task));
+    handoff
+}
+
+/// [`on_thread`], leaving the task for the caller to queue.
+fn unqueued<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Handoff<T> {
     let answer = Arc::new(Mutex::new(None));
     let slot = Arc::clone(&answer);
-    let task = spawn_task(Box::new(move || {
+    let task = new_task(Box::new(move || {
         let out = f();
         match slot.lock() {
             Ok(mut slot) => *slot = Some(out),
@@ -1315,13 +1349,21 @@ unsafe fn in_order(steps: Steps, n: usize) {
 /// As [`in_order`].
 unsafe fn fan_out(steps: Steps, n: usize) {
     let mut window: VecDeque<Handoff<()>> = VecDeque::with_capacity(n.min(IN_FLIGHT));
-    for i in 0..n {
+    let mut i = 0;
+    while i < n {
         if window.len() == IN_FLIGHT {
             finish(window.pop_front());
         }
-        // SAFETY: `i < n`, each index dispatched once, and `Steps` is `Send`
-        // for the reason stated at its `unsafe impl`.
-        window.push_back(on_thread(move || unsafe { steps.run(i) }));
+        // Every step the window has room for, queued as one batch.
+        let queued = window.len();
+        let end = n.min(i + (IN_FLIGHT - queued));
+        for j in i..end {
+            // SAFETY: `j < n`, each index dispatched once, and `Steps` is
+            // `Send` for the reason stated at its `unsafe impl`.
+            window.push_back(unqueued(move || unsafe { steps.run(j) }));
+        }
+        push_all(window.iter().skip(queued).map(|h| Arc::clone(&h.task)));
+        i = end;
     }
     while let Some(handoff) = window.pop_front() {
         finish(Some(handoff));
@@ -3693,6 +3735,77 @@ mod tests {
         // SAFETY: the only reference.
         unsafe { crate::memory::buri_rt_free(got.ptr) };
         assert_eq!(answers, (0..n as i64).map(|i| i * 3).collect::<Vec<i64>>());
+    }
+
+    /// **Fan-outs queued in batches answer every item under load**: four
+    /// callers at once, every core already busy, steps that park and wake
+    /// themselves, and lists from one item to past the window. A batch that
+    /// lost a wake-up hangs here; one that lost a task leaves a wrong slot.
+    #[test]
+    fn batched_fan_outs_answer_every_item_on_a_loaded_machine() {
+        let _alone = alone();
+        /// Pending once, waking itself, then ready: a park and a re-queue.
+        struct YieldOnce(bool);
+        impl Future for YieldOnce {
+            type Output = ();
+            fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+                if self.0 {
+                    return Poll::Ready(());
+                }
+                self.0 = true;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+        }
+        unsafe extern "C" fn step(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
+            if index % 3 == 0 {
+                park_on(YieldOnce(false));
+            }
+            // SAFETY: an `i64` in and an `i64` out.
+            unsafe { out.cast::<i64>().write(arg.cast::<i64>().read() * 2 + index as i64) }
+        }
+        let stop = Arc::new(AtomicBool::new(false));
+        let cores = thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
+        let hogs: Vec<_> = (0..cores * 2)
+            .map(|_| {
+                let stop = Arc::clone(&stop);
+                thread::spawn(move || {
+                    while !stop.load(Ordering::Relaxed) {
+                        std::hint::spin_loop();
+                    }
+                })
+            })
+            .collect();
+        let callers: Vec<_> = (0..4)
+            .map(|caller| {
+                thread::spawn(move || {
+                    for round in 0..40 {
+                        let n = match round % 4 {
+                            0 => 1,
+                            1 => 7,
+                            2 => 64 + caller,
+                            _ => if round == 3 { IN_FLIGHT * 2 + 1 } else { 200 },
+                        };
+                        let src: Vec<i64> = (0..n as i64).collect();
+                        // SAFETY: `n` `i64`s in and out.
+                        let got = unsafe {
+                            steps_of(src.as_ptr().cast(), n, step, std::ptr::null_mut(), 8, 8, true)
+                        };
+                        // SAFETY: `n` `i64`s were written there.
+                        let answers = unsafe { i64s(&got, n) };
+                        // SAFETY: the only reference.
+                        unsafe { crate::memory::buri_rt_free(got.ptr) };
+                        assert_eq!(answers, (0..n as i64).map(|i| i * 3).collect::<Vec<i64>>());
+                    }
+                })
+            })
+            .collect();
+        let outcomes: Vec<_> = callers.into_iter().map(thread::JoinHandle::join).collect();
+        stop.store(true, Ordering::Relaxed);
+        for hog in hogs {
+            hog.join().unwrap();
+        }
+        assert!(outcomes.iter().all(Result::is_ok), "a caller's fan-out answered wrongly");
     }
 
     /// A step that is itself a fan-out.
