@@ -37,7 +37,15 @@ pub struct Workspace {
     /// `actions::graph_key` per mode, worked out once: it is the build files'
     /// bytes, and a workspace is loaded anew whenever one of them moves.
     pub graph_keys: std::sync::Mutex<Vec<(crate::commands::arguments::BuildMode, crate::build::cache::ActionKey)>>,
+    /// Each target's [`Workspace::closure`], walked once: the edges are the
+    /// build files', and they don't move while a workspace is loaded.
+    closures: std::sync::Mutex<HashMap<TargetId, std::sync::Arc<[TargetId]>>>,
+    /// Each target's [`Workspace::dep_edges`], read once, for the same reason.
+    edges: std::sync::Mutex<HashMap<TargetId, Edges>>,
 }
+
+/// A target's dependency edges, shared.
+type Edges = std::sync::Arc<[(TargetId, Option<Span>)]>;
 
 impl Packages for Workspace {
     fn package(&self, id: PackageId) -> &Package {
@@ -190,6 +198,8 @@ impl Workspace {
                 by_path,
                 generated: crate::build::generators::Store::default(),
                 graph_keys: std::sync::Mutex::new(Vec::new()),
+                closures: std::sync::Mutex::new(HashMap::new()),
+                edges: std::sync::Mutex::new(HashMap::new()),
             };
         // Only once the build file it names has been read can a tool name be
         // resolved, so the references are checked here rather than by the
@@ -261,6 +271,21 @@ impl Workspace {
     /// A binary and a tool additionally depend on the library in their own
     /// package, which is implicit and carries no span.
     pub fn dep_edges(&self, target: TargetId) -> Vec<(TargetId, Option<Span>)> {
+        self.shared_dep_edges(target).to_vec()
+    }
+
+    /// [`Workspace::dep_edges`], shared rather than copied.
+    pub fn shared_dep_edges(&self, target: TargetId) -> Edges {
+        let known = self.edges.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&target).cloned();
+        if let Some(known) = known {
+            return known;
+        }
+        let read: Edges = self.read_dep_edges(target).into();
+        self.edges.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(target, std::sync::Arc::clone(&read));
+        read
+    }
+
+    fn read_dep_edges(&self, target: TargetId) -> Vec<(TargetId, Option<Span>)> {
         let mut out = Vec::new();
         if target.kind != RuleKind::Library && self.package(target.package).has_library() {
             out.push((TargetId { package: target.package, kind: RuleKind::Library }, None));
@@ -423,14 +448,51 @@ impl Workspace {
 
     /// Everything reachable from `target` through `dependencies`, including it.
     pub fn closure(&self, target: TargetId) -> Vec<TargetId> {
+        self.shared_closure(target).to_vec()
+    }
+
+    /// [`Workspace::closure`], shared rather than copied.
+    pub fn shared_closure(&self, target: TargetId) -> std::sync::Arc<[TargetId]> {
+        let known = self.closures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&target).cloned();
+        if let Some(known) = known {
+            return known;
+        }
+        let walked: std::sync::Arc<[TargetId]> = self.walk_closure(target).into();
+        self.closures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(target, std::sync::Arc::clone(&walked));
+        walked
+    }
+
+    /// Every target in the closure of any of `roots`, sorted: one walk, where
+    /// asking each root's [`Workspace::closure`] would walk shared members once
+    /// per root.
+    pub fn union_closure(&self, roots: impl IntoIterator<Item = TargetId>) -> Vec<TargetId> {
+        let mut seen = BTreeSet::new();
+        let mut stack: Vec<TargetId> = roots.into_iter().collect();
+        while let Some(cur) = stack.pop() {
+            if seen.insert(cur) {
+                stack.extend(self.shared_dep_edges(cur).iter().map(|&(dep, _)| dep));
+            }
+        }
+        seen.into_iter().collect()
+    }
+
+    fn walk_closure(&self, target: TargetId) -> Vec<TargetId> {
         let mut seen = BTreeSet::new();
         let mut stack = vec![target];
         while let Some(cur) = stack.pop() {
             if !seen.insert(cur) {
                 continue;
             }
-            for (dep, _) in self.dep_edges(cur) {
-                stack.push(dep);
+            for &(dep, _) in self.shared_dep_edges(cur).iter() {
+                // A dependency already walked brings its whole closure.
+                let known = self.closures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&dep).cloned();
+                match known {
+                    Some(closure) => seen.extend(closure.iter().copied()),
+                    None => stack.push(dep),
+                }
             }
         }
         seen.into_iter().collect()

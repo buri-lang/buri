@@ -165,9 +165,10 @@ pub fn findings_reusing(
         };
         let marks =
             one_target(session, *target, &part, &mut seen_packages, &mut spoken, &mut diagnostics);
-        let closure = part.closure(&session.workspace);
+        let closure = part.reads(&session.workspace);
         store.remember(session, *target, &closure, &marks.parts(&diagnostics));
     }
+    store.flush(session);
     check_cycles(session, &mut diagnostics);
 
     keep_what_the_repository_runs(session, &mut diagnostics);
@@ -413,6 +414,26 @@ impl<'a> Part<'a> {
     /// ([`crate::build::sources::closure_of`]).
     fn closure(&self, workspace: &crate::build::workspace::Workspace) -> Vec<PathBuf> {
         crate::build::sources::closure_over(workspace, self.generated_rules, self.modules())
+    }
+
+    /// The files of [`Part::closure`], in no order and perhaps repeated: what
+    /// a lint record keeps, which numbers and sorts them itself.
+    fn reads(&self, workspace: &crate::build::workspace::Workspace) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        for rule in self.generated_rules {
+            files.extend(crate::build::generators::worked_out_from(workspace, *rule));
+        }
+        for module in self.modules() {
+            match &module.disk {
+                Some(disk) => files.push(disk.clone()),
+                None => {
+                    if let Some(owner) = workspace.generated.owner(&module.path) {
+                        files.extend(crate::build::generators::worked_out_from(workspace, owner));
+                    }
+                }
+            }
+        }
+        files
     }
 }
 
@@ -4177,14 +4198,16 @@ fn check_cycles(session: &Session, diagnostics: &mut Diagnostics) {
             if dep == t {
                 continue;
             }
-            if !session.workspace.closure(dep).contains(&t) {
+            // A closure is sorted, and shared rather than copied.
+            if session.workspace.shared_closure(dep).binary_search(&t).is_err() {
                 continue;
             }
             let mut members: Vec<TargetId> = session
                 .workspace
-                .closure(t)
-                .into_iter()
-                .filter(|m| session.workspace.closure(*m).contains(&t))
+                .shared_closure(t)
+                .iter()
+                .copied()
+                .filter(|m| session.workspace.shared_closure(*m).binary_search(&t).is_ok())
                 .collect();
             members.sort();
             if !reported.insert(members) {

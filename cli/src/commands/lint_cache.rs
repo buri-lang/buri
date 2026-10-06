@@ -52,7 +52,10 @@ use std::path::{Path, PathBuf};
 /// The shape of a record, so that a change to the encoding below is a miss
 /// rather than a misreading. The toolchain version is already in every key;
 /// this is what makes the decoder safe to point at a truncated file.
-const FORMAT: &[u8] = b"buri-lint-findings-1\n";
+const FORMAT: &[u8] = b"buri-lint-findings-2\n";
+
+/// The shape of a closure node ([`Store::node_of`]).
+const NODE_FORMAT: &[u8] = b"buri-lint-closure-1\n";
 
 /// The three lists the per-target pass adds to the report, in the order it
 /// adds them.
@@ -91,6 +94,29 @@ pub struct Store {
     graph: u64,
     mode: BuildMode,
     explain: bool,
+    /// Every file named this run, by repository-relative name, as a number.
+    ids: std::collections::HashMap<String, u32>,
+    names: Vec<String>,
+    paths: std::collections::HashMap<PathBuf, u32>,
+    /// Each named file's hash now, by number.
+    hashes: Vec<Option<u64>>,
+    /// Whether a closure node still holds, by key, once asked.
+    holds: std::collections::HashMap<String, bool>,
+    /// The files a node covers, sorted, once a new node needs them.
+    sets: std::collections::HashMap<String, std::rc::Rc<Vec<u32>>>,
+    /// The node each target's record named or was written with, this run.
+    nodes: std::collections::HashMap<TargetId, ActionKey>,
+    /// Records [`Store::remember`] took, written by [`Store::flush`].
+    pending: Vec<Pending>,
+}
+
+/// A record waiting for [`Store::flush`]: its closure, as file numbers, sorted,
+/// and the rest of it, encoded.
+struct Pending {
+    target: TargetId,
+    closure: Vec<u32>,
+    asked_the_package: bool,
+    findings: Vec<u8>,
 }
 
 impl Store {
@@ -106,7 +132,167 @@ impl Store {
             graph,
             mode: flags.mode,
             explain: flags.explain,
+            ids: std::collections::HashMap::new(),
+            names: Vec::new(),
+            paths: std::collections::HashMap::new(),
+            hashes: Vec::new(),
+            holds: std::collections::HashMap::new(),
+            sets: std::collections::HashMap::new(),
+            nodes: std::collections::HashMap::new(),
+            pending: Vec::new(),
         }
+    }
+
+    /// The number a file's repository-relative name goes by this run.
+    fn id(&mut self, name: &str) -> u32 {
+        if let Some(&id) = self.ids.get(name) {
+            return id;
+        }
+        let id = u32::try_from(self.names.len()).unwrap_or(u32::MAX);
+        self.ids.insert(name.to_string(), id);
+        self.names.push(name.to_string());
+        self.hashes.push(None);
+        id
+    }
+
+    /// [`Store::id`] for a path, named repository-relatively once a run.
+    fn id_of_path(&mut self, session: &Session, path: &Path) -> u32 {
+        if let Some(&id) = self.paths.get(path) {
+            return id;
+        }
+        let id = self.id(&session.workspace.rel_of(path));
+        self.paths.insert(path.to_path_buf(), id);
+        id
+    }
+
+    /// The hash of a file's bytes now, read once a run.
+    fn hash(&mut self, id: u32) -> u64 {
+        let at = id as usize;
+        if let Some(Some(known)) = self.hashes.get(at) {
+            return *known;
+        }
+        let path = self.root.join(self.names.get(at).map_or("", String::as_str));
+        let hash = self.sources.content_hash(&path, &self.overlay);
+        if let Some(slot) = self.hashes.get_mut(at) {
+            *slot = Some(hash);
+        }
+        hash
+    }
+
+    /// Whether every file a closure node covers still holds the bytes it did.
+    ///
+    /// A node lists some files with their hashes and names the nodes it
+    /// shares the rest with, so a chain of targets lists each file once. Each
+    /// node is asked once a run.
+    fn holds(&mut self, key: &ActionKey) -> bool {
+        if let Some(&known) = self.holds.get(key.as_str()) {
+            return known;
+        }
+        let held = self.check_node(key).unwrap_or(false);
+        self.holds.insert(key.as_str().to_string(), held);
+        held
+    }
+
+    fn check_node(&mut self, key: &ActionKey) -> Option<bool> {
+        let bytes = self.cache.get(key)?;
+        let mut reader = Reader::after(NODE_FORMAT, &bytes)?;
+        for _ in 0..reader.u32()? {
+            let name = reader.text()?;
+            let was = reader.u64()?;
+            let id = self.id(&name);
+            if self.hash(id) != was {
+                return Some(false);
+            }
+        }
+        for _ in 0..reader.u32()? {
+            let child = ActionKey::parse(&reader.text()?)?;
+            if !self.holds(&child) {
+                return Some(false);
+            }
+        }
+        Some(true)
+    }
+
+    /// Every file a node covers, as sorted numbers.
+    fn set_of(&mut self, key: &ActionKey) -> Option<std::rc::Rc<Vec<u32>>> {
+        if let Some(known) = self.sets.get(key.as_str()) {
+            return Some(std::rc::Rc::clone(known));
+        }
+        let bytes = self.cache.get(key)?;
+        let mut reader = Reader::after(NODE_FORMAT, &bytes)?;
+        let mut set = Vec::new();
+        for _ in 0..reader.u32()? {
+            let name = reader.text()?;
+            let _ = reader.u64()?;
+            set.push(self.id(&name));
+        }
+        for _ in 0..reader.u32()? {
+            let child = ActionKey::parse(&reader.text()?)?;
+            set.extend(self.set_of(&child)?.iter().copied());
+        }
+        set.sort_unstable();
+        set.dedup();
+        let set = std::rc::Rc::new(set);
+        self.sets.insert(key.as_str().to_string(), std::rc::Rc::clone(&set));
+        Some(set)
+    }
+
+    /// Writes the node covering exactly `closure`, and answers its key.
+    ///
+    /// The node names every node of `target`'s dependencies whose files are
+    /// all in `closure`, and lists the rest. Content-addressed, so two
+    /// targets with one closure share a node, and one already written is not
+    /// written again.
+    fn node_of(&mut self, session: &Session, target: TargetId, closure: &[u32]) -> ActionKey {
+        let mut covered = vec![false; closure.len()];
+        let mut children: Vec<ActionKey> = Vec::new();
+        for (dep, _) in session.workspace.dep_edges(target) {
+            let Some(key) = self.nodes.get(&dep).cloned() else { continue };
+            let Some(set) = self.set_of(&key) else { continue };
+            // Both sorted: one pass says whether `set` is inside `closure`,
+            // and where.
+            let mut at = Vec::with_capacity(set.len());
+            let mut i = 0;
+            let inside = set.iter().all(|f| {
+                while closure.get(i).is_some_and(|c| c < f) {
+                    i += 1;
+                }
+                let found = closure.get(i) == Some(f);
+                if found {
+                    at.push(i);
+                }
+                found
+            });
+            if inside && !children.iter().any(|c| c.as_str() == key.as_str()) {
+                for i in at {
+                    if let Some(c) = covered.get_mut(i) {
+                        *c = true;
+                    }
+                }
+                children.push(key);
+            }
+        }
+        let mut out = NODE_FORMAT.to_vec();
+        let own: Vec<u32> =
+            closure.iter().zip(&covered).filter(|(_, c)| !**c).map(|(f, _)| *f).collect();
+        put_u32(&mut out, own.len() as u32);
+        for f in own {
+            let hash = self.hash(f);
+            put_text(&mut out, self.names.get(f as usize).map_or("", String::as_str));
+            put_u64(&mut out, hash);
+        }
+        children.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        put_u32(&mut out, children.len() as u32);
+        for child in &children {
+            put_text(&mut out, child.as_str());
+        }
+        let key = ActionKey::of(&out);
+        if self.cache.entry(&key).is_none() {
+            self.cache.put(&key, &out);
+        }
+        self.holds.insert(key.as_str().to_string(), true);
+        self.sets.insert(key.as_str().to_string(), std::rc::Rc::new(closure.to_vec()));
+        key
     }
 
     /// The key one target's findings are filed under: the action, the build
@@ -149,13 +335,9 @@ impl Store {
         if first_in_package && !asked_the_package {
             return None;
         }
-        let files = reader.u32()?;
-        for _ in 0..files {
-            let name = reader.text()?;
-            let was = reader.u64()?;
-            if self.sources.content_hash(&self.root.join(&name), &self.overlay) != was {
-                return None;
-            }
+        let node = ActionKey::parse(&reader.text()?)?;
+        if !self.holds(&node) {
+            return None;
         }
         let parts = Parts {
             analysis: read_findings(&mut reader, &mut session.map, &self.root)?,
@@ -163,6 +345,7 @@ impl Store {
             target: read_findings(&mut reader, &mut session.map, &self.root)?,
             asked_the_package,
         };
+        self.nodes.insert(target, node);
         Some(parts)
     }
 
@@ -172,8 +355,8 @@ impl Store {
         self.say(Status::Cached, session, target, &key);
     }
 
-    /// Writes down what this run found, under the closure it read
-    /// ([`crate::build::sources::closure_of`]).
+    /// Takes down what this run found, under the closure it read
+    /// ([`crate::build::sources::closure_of`]). Written by [`Store::flush`].
     pub fn remember(
         &mut self,
         session: &Session,
@@ -183,20 +366,35 @@ impl Store {
     ) {
         let key = self.key(session, target);
         self.say(Status::Run, session, target, &key);
-        let mut out = FORMAT.to_vec();
-        out.push(u8::from(parts.asked_the_package));
-        put_u32(&mut out, closure.len() as u32);
-        for path in closure {
-            put_text(&mut out, &session.workspace.rel_of(path));
-            put_u64(&mut out, self.sources.content_hash(path, &self.overlay));
-        }
+        let mut ids: Vec<u32> = closure.iter().map(|path| self.id_of_path(session, path)).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let mut findings = Vec::new();
         for list in [&parts.analysis, &parts.package, &parts.target] {
-            put_u32(&mut out, list.len() as u32);
+            put_u32(&mut findings, list.len() as u32);
             for d in list {
-                put_diagnostic(&mut out, &session.map, d);
+                put_diagnostic(&mut findings, &session.map, d);
             }
         }
-        self.cache.put(&key, &out);
+        self.pending.push(Pending { target, closure: ids, asked_the_package: parts.asked_the_package, findings });
+    }
+
+    /// Writes what [`Store::remember`] took. A target's node can name its
+    /// dependencies' only once theirs exist, so the smallest closures go
+    /// first: a dependency's closure is inside its dependent's.
+    pub fn flush(&mut self, session: &Session) {
+        let mut pending = std::mem::take(&mut self.pending);
+        pending.sort_by_key(|p| p.closure.len());
+        for p in pending {
+            let node = self.node_of(session, p.target, &p.closure);
+            self.nodes.insert(p.target, node.clone());
+            let mut out = FORMAT.to_vec();
+            out.push(u8::from(p.asked_the_package));
+            put_text(&mut out, node.as_str());
+            out.extend_from_slice(&p.findings);
+            let key = self.key(session, p.target);
+            self.cache.put(&key, &out);
+        }
     }
 
     /// `--explain`'s line for one target: what became of it, and the key.

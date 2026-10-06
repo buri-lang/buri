@@ -805,13 +805,12 @@ pub fn prepare(session: &mut Session, flags: &Flags, overlay: &Overlay) {
 /// repository are tool processes whose output nothing in the command reads.
 pub fn prepare_for(session: &mut Session, flags: &Flags, targets: &[TargetId]) {
     let workspace = Arc::clone(&session.workspace);
-    let mut reached: Vec<TargetId> = Vec::new();
+    let mut roots: Vec<TargetId> = Vec::new();
     for &target in targets {
-        reached.extend(workspace.closure(target));
-        for (dep, _) in workspace.test_dep_edges(target) {
-            reached.extend(workspace.closure(dep));
-        }
+        roots.push(target);
+        roots.extend(workspace.test_dep_edges(target).into_iter().map(|(dep, _)| dep));
     }
+    let mut reached = workspace.union_closure(roots);
     let mut seen: BTreeSet<TargetId> = BTreeSet::new();
     let every_rule: Vec<TargetId> =
         workspace.targets().into_iter().filter(|t| generates(&workspace, *t)).collect();

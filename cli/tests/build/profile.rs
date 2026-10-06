@@ -508,6 +508,46 @@ fn linting_checks_each_library_once() {
     );
 }
 
+/// `buri <args>` over a chain of `n` libraries, cold and then warm: the
+/// instructions outside the compiler's phases, in both runs or in the warm
+/// one alone.
+fn bookkeeping(name: &str, n: usize, args: &[&str], cold_too: bool) -> Option<f64> {
+    let scratch = Scratch::repo(name);
+    library_chain(&scratch, n);
+    let run = scratch.run_with_env(args, &[("BURI_PROFILE", "1")]);
+    run.ok();
+    let cold = phase_instructions(&run.all(), "other")?;
+    let run = scratch.run_with_env(args, &[("BURI_PROFILE", "1")]);
+    run.ok();
+    let warm = phase_instructions(&run.all(), "other")?;
+    Some(if cold_too { cold + warm } else { warm })
+}
+
+/// **A command's bookkeeping is linear in the packages.** Each target's
+/// closure was walked again from scratch, and each lint record held its whole
+/// closure, so a chain of 800 libraries spent 11.7 G instructions outside the
+/// compiler to lint, against 1.8 G at 200. PERFORMANCE.md §6.43.
+#[test]
+fn linting_a_chain_of_libraries_is_linear_outside_the_compiler() {
+    grows_linearly(
+        "linting a chain of libraries, outside the compiler",
+        |n| bookkeeping("profile-lint-bookkeeping", n, &["lint", "//..."], true),
+        150,
+    );
+}
+
+/// The same for a warm `buri build`, which keys every library's check. A cold
+/// one checks each library over its whole closure, and freeing those analyses
+/// is compiler work that lands outside its phases.
+#[test]
+fn a_warm_build_of_a_chain_of_libraries_is_linear_outside_the_compiler() {
+    grows_linearly(
+        "a warm build of a chain of libraries, outside the compiler",
+        |n| bookkeeping("profile-build-bookkeeping", n, &["build", "//..."], false),
+        150,
+    );
+}
+
 /// A library of `n` types, each with a method and a function that builds one.
 fn many_declarations(scratch: &Scratch, n: usize) {
     let items: String = (0..n)
