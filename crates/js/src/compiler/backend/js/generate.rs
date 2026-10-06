@@ -1747,8 +1747,21 @@ impl<'a> Gen<'a> {
             return;
         }
 
-        // With guards, an arm that matches may still fall through, so the arms
-        // run inside a loop the first success breaks out of.
+        // With guards, an arm that matches may still fall through to the next,
+        // so the arms are a sequence of `if`s rather than a chain, and each
+        // taken arm has to leave the sequence.
+        //
+        // In tail position every arm already does: `tail` ends in a `return`,
+        // a `throw` or the `continue` of a tail call. So the arms are a plain
+        // block, and that `continue` reaches the function's own loop. Inside a
+        // `while (true)` of the match's own, it went back to the top of the
+        // match instead, with the parameters rebound and the scrutinee above
+        // still the first call's, and ran forever (buri-lang/buri#249).
+        //
+        // A match that produces a value assigns `target` and `break`s out of a
+        // loop of its own. No `continue` can be in there: a tail call is only
+        // ever in tail position, which an arm assigning a value is not, and
+        // `expr` spells a `Continue` that reaches it as `$abort`.
         let mut body: Vec<Stmt> = Vec::new();
         for arm in arms {
             self.hoist_or_declarations(&arm.pattern, &mut body);
@@ -1777,7 +1790,10 @@ impl<'a> Gen<'a> {
             Expr::ident("$abort"),
             vec![Expr::Str("no arm matched".into())],
         )));
-        out.push(Stmt::While { cond: Expr::Bool(true), body });
+        match target {
+            None => out.push(Stmt::Block(body)),
+            Some(_) => out.push(Stmt::While { cond: Expr::Bool(true), body }),
+        }
     }
 
     /// The arms, in the order they arrived, as an `if`/`else` chain.
