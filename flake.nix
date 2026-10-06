@@ -543,6 +543,21 @@
           LLVM_SYS_211_PREFIX = "${llvm.dev}";
 
           packages = [
+              # cargo without rust-overlay's Darwin wrapper, ahead of the one
+              # in `rustToolchain`. The wrapper exports `DYLD_LIBRARY_PATH` so
+              # a sandboxed build's cargo uses Nix's curl. Every process under
+              # cargo inherits it: rustc, build scripts, test binaries, and the
+              # `buri`, `clang` and `ld64.lld` each test starts. With it set,
+              # dyld skips its prebuilt launch closures, so each start costs
+              # more: `buri version` 2 → 33 ms of CPU, `clang --version` 39 →
+              # 167 ms, `rustc --version` 13 → 44 ms (design/PERFORMANCE.md
+              # §6.32). A shell isn't a sandbox, so this cargo uses the
+              # system's curl, as rustup's does. `nix build` still uses the
+              # wrapped one.
+              (pkgs.runCommand "cargo-without-dyld-library-path" { } ''
+                mkdir -p $out/bin
+                ln -s ${rustToolchain.availableComponents.cargo}/bin/cargo $out/bin/cargo
+              '')
               # rustc, cargo and clippy at the version `rust-toolchain.toml`
               # pins, ahead of any `rustup` already on `PATH`.
               rustToolchain
