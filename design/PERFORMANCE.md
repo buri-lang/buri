@@ -4843,6 +4843,14 @@ guards it: on `main` its loading and checking grew 3.6 times per doubling at
 100 libraries, and 1.4 times after. The teardown lands in "other", which
 also holds the bookkeeping the warm build's bound already measures.
 
+The bound counts modules loaded (`modules loaded` in the profile) and the
+`check` phase's instructions, not loading's. Loading's instructions are
+mostly the kernel reading files, and beside CPU burners they read 77–120 M
+for 200 libraries from run to run, so the bound read anywhere from 1.36× to
+1.93×. The count is 100 and 200 on every run, 5,050 and 20,100 on the code
+before this section. 30 runs at load 33–57 read 2.00× loading and
+1.06–1.08× checking.
+
 **What's left.**
 
 - **Lint's own bookkeeping is `n²` in a chain of packages.** On `pkgs_deep`,
