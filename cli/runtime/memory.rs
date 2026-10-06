@@ -877,6 +877,18 @@ struct Cache {
     /// lines per allocation where one will do.
     slots: [Slot; CACHE_SLOTS],
     held: u64,
+    /// What `held` may grow to: [`cache_budget`] once the cache is armed, and
+    /// zero before that and after it closes, so a push past it is the one
+    /// test that sends the first free and every late one off the fast path.
+    ///
+    /// **Zero rather than a sentinel in `held`, so the thread-local starts
+    /// all zeros.** An all-zero thread-local is `__thread_bss` and costs the
+    /// binary nothing; one non-zero word made the whole 16 KiB of slots
+    /// initialised `__thread_data`, in every program.
+    limit: u64,
+    /// The drain is registered: a refused push with a zero `limit` is a
+    /// closed cache, not a new one.
+    armed: bool,
     /// What this thread last told [`RETAINED_BYTES`] it was holding.
     ///
     /// **The counter is published at sweep boundaries, not per operation**,
@@ -989,12 +1001,12 @@ impl Cache {
     #[cold]
     #[inline(never)]
     fn arm(&mut self) {
+        self.armed = true;
         // A thread too far into its exit to register the drain keeps nothing,
         // because nothing would give it back.
-        self.held = match CACHE_DRAIN.try_with(|_| ()) {
-            Ok(()) => 0,
-            Err(_) => CACHE_CLOSED,
-        };
+        if CACHE_DRAIN.try_with(|_| ()).is_ok() {
+            self.limit = cache_budget();
+        }
     }
 
     /// Give every cached block back and refuse to keep another. Runs from
@@ -1004,14 +1016,12 @@ impl Cache {
             self.release_slot(idx);
         }
         self.publish();
-        self.held = CACHE_CLOSED;
+        self.armed = true;
+        self.limit = 0;
     }
 
     /// Tell [`RETAINED_BYTES`] what this thread is holding now.
     fn publish(&mut self) {
-        if self.held >= CACHE_UNARMED {
-            return;
-        }
         if self.held >= self.published {
             RETAINED_BYTES.fetch_add(self.held - self.published, Ordering::Relaxed);
         } else {
@@ -1092,24 +1102,6 @@ impl Cache {
     }
 }
 
-/// The `held` of a thread whose cache has been drained for the last time.
-///
-/// Every push tests `held + bytes > cache_budget()` already, and `u64::MAX`
-/// fails it forever, so closing the cache costs the fast path no branch of its
-/// own: a block freed after this thread's destructor has run goes straight
-/// back to the allocator instead of onto a list nothing will ever drain again.
-const CACHE_CLOSED: u64 = u64::MAX;
-
-/// The `held` of a thread that has not yet registered [`CACHE_DRAIN`].
-///
-/// **A sentinel rather than a flag, so that arming costs the fast path
-/// nothing.** Every push already tests `held + bytes > cache_budget()`; this
-/// value fails that test, so a thread's *first* free takes the refusal path,
-/// which is where [`Cache::arm`] lives and which is out of line already; the
-/// arm opens the cache and the block is kept after all. The accepted-push path
-/// therefore has no have-I-armed branch in it at all.
-const CACHE_UNARMED: u64 = u64::MAX - 1;
-
 /// **A thread that ends gives its cache back**, and this is the thing that
 /// makes it happen.
 ///
@@ -1159,7 +1151,9 @@ thread_local! {
         ThreadHeap {
             cache: std::cell::UnsafeCell::new(Cache {
                 slots: [Slot { head: std::ptr::null_mut(), idle: 0 }; CACHE_SLOTS],
-                held: CACHE_UNARMED,
+                held: 0,
+                limit: 0,
+                armed: false,
                 published: 0,
                 since_sweep: 0,
                 sweeps: 0,
@@ -1346,11 +1340,11 @@ unsafe fn cache_push_counted(p: *mut u8, cap: u64) -> bool {
         // SAFETY: `t` is this thread's own cell, as in `cache_pop_counted`.
         let cache = unsafe { &mut *t.cache.get() };
         let bytes = slot_bytes(cap);
-        if cache.held.saturating_add(bytes) > cache_budget() {
+        if cache.held.saturating_add(bytes) > cache.limit {
             // Unarmed, closed or full: the one place a push asks after the
             // tally, and the arm below needs it open first.
             t.tally.seen(&freed(cap));
-            if cache.held != CACHE_UNARMED {
+            if cache.armed {
                 // G6: a refusal is still an operation. See
                 // `CACHE_SWEEP_OPS`.
                 cache.tick();
@@ -1359,7 +1353,7 @@ unsafe fn cache_push_counted(p: *mut u8, cap: u64) -> bool {
             // The thread's first free. Register the destructor that will
             // drain this cache, open it, and keep the block after all.
             cache.arm();
-            if cache.held == CACHE_CLOSED {
+            if cache.held.saturating_add(bytes) > cache.limit {
                 return false;
             }
         }
