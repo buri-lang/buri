@@ -178,6 +178,9 @@ pub struct Unit<'ctx, 'a> {
     /// [`Unit::rc_counted`].
     rc: std::rc::Rc<std::cell::RefCell<rc::Syntactic>>,
     pub diags: Diagnostics,
+    /// What [`Unit::ice`] reported, moved into `diags` by [`Unit::finish`]. A
+    /// cell, because the emitter's value-building helpers take `&self`.
+    ices: std::cell::RefCell<Vec<String>>,
 }
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
@@ -222,6 +225,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             helpers: 0,
             rc,
             diags: Diagnostics::new(),
+            ices: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -248,6 +252,19 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     fn error(&mut self, span: Span, message: String, fix: &str) {
         self.diags.push(Diagnostic::error(span, message).with_fix(fix.to_string()));
+    }
+
+    /// Reports that the emitter is about to leave out something the module
+    /// needs: an operand of the wrong kind, a missing value, an instruction the
+    /// builder would not make. The module never reaches LLVM afterwards, since a
+    /// release build does not verify it and LLVM does not survive malformed IR.
+    fn ice(&self, what: impl std::fmt::Display) {
+        let within = self.builder.get_insert_block().and_then(|b| b.get_parent());
+        let message = match within {
+            Some(f) => format!("in `{}`, {what}", f.get_name().to_string_lossy()),
+            None => format!("outside any function, {what}"),
+        };
+        self.ices.borrow_mut().push(message);
     }
 
     // -----------------------------------------------------------------------
@@ -561,6 +578,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.builder.position_at_end(bb);
             for inst in &block.insts {
                 self.inst(&mut state, code, inst, func.span);
+                self.check_results(&state, code, inst);
             }
             if let Some(slot) = state.ends.get_mut(i) {
                 *slot = self.builder.get_insert_block();
@@ -594,16 +612,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // A value held in memory arrives as its address, which the caller
             // keeps alive and unchanged for the length of the call.
             if repr::in_memory(&slots) {
-                if let Some(arg) = state.value.get_nth_param(next) {
-                    self.set(state, *p, arg);
+                match state.value.get_nth_param(next) {
+                    Some(arg) => self.set(state, *p, arg),
+                    None => self.ice(format_args!("found no parameter {next} for `v{}`", p.0)),
                 }
                 next = next.saturating_add(1);
                 continue;
             }
             let mut pieces = Vec::with_capacity(slots.len());
             for _ in &slots {
-                if let Some(arg) = state.value.get_nth_param(next) {
-                    pieces.push(arg);
+                match state.value.get_nth_param(next) {
+                    Some(arg) => pieces.push(arg),
+                    None => self.ice(format_args!("found no parameter {next} for `v{}`", p.0)),
                 }
                 next = next.saturating_add(1);
             }
@@ -645,6 +665,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
+    /// Reports an instruction that gave a result no value. Only a zero-sized
+    /// result may have none: a `()` has no bits, and [`Unit::get`]'s stand-in
+    /// for any other is a value of the wrong type.
+    fn check_results(&mut self, state: &Function<'ctx>, code: &ir::Code, inst: &ir::Inst) {
+        for d in inst.results() {
+            if state.values.get(d.index()).copied().flatten().is_some() {
+                continue;
+            }
+            if !repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*d)).is_empty() {
+                self.ice(format_args!("gave `v{}` no value", d.0));
+            }
+        }
+    }
+
     fn get(&self, state: &Function<'ctx>, v: ir::ValueId) -> BasicValueEnum<'ctx> {
         match state.values.get(v.index()).copied().flatten() {
             Some(value) => value,
@@ -678,29 +712,43 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         match term {
             ir::Term::Jump(t) => {
                 self.edge_copies(state, code, t);
-                if let Some(bb) = state.blocks.get(t.block.index()).copied() {
-                    let _ = self.builder.build_unconditional_branch(bb);
-                }
+                let Some(bb) = state.blocks.get(t.block.index()).copied() else {
+                    return self.ice(format_args!("found no block `b{}` to jump to", t.block.0));
+                };
+                let built = self.builder.build_unconditional_branch(bb);
+                self.built(built, "jump");
             }
             ir::Term::Branch { cond, then, else_ } => {
-                let c = self.get(state, *cond);
+                let BasicValueEnum::IntValue(c) = self.get(state, *cond) else {
+                    return self.ice(format_args!(
+                        "branched on `v{}`, which is not an integer",
+                        cond.0
+                    ));
+                };
                 let (Some(t), Some(e)) = (
                     self.edge_block(state, code, from, 0, then),
                     self.edge_block(state, code, from, 1, else_),
                 ) else {
-                    return;
+                    return self.ice("found no block for a branch's edge");
                 };
-                if let BasicValueEnum::IntValue(c) = c {
-                    let _ = self.builder.build_conditional_branch(c, t, e);
-                }
+                let built = self.builder.build_conditional_branch(c, t, e);
+                self.built(built, "branch");
             }
             ir::Term::Switch { on, cases, default } => {
                 self.switch(state, code, from, *on, cases, default.as_ref(), span)
             }
             ir::Term::Return(vs) => self.ret(state, code, vs),
             ir::Term::Unreachable => {
-                let _ = self.builder.build_unreachable();
+                let built = self.builder.build_unreachable();
+                self.built(built, "`unreachable`");
             }
+        }
+    }
+
+    /// Reports a terminator the builder would not make.
+    fn built<T>(&self, built: Result<T, inkwell::builder::BuilderError>, what: &str) {
+        if let Err(e) = built {
+            self.ice(format_args!("could not build a {what}: {e}"));
         }
     }
 
@@ -718,13 +766,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         default: Option<&ir::Target>,
         span: Span,
     ) {
-        let BasicValueEnum::IntValue(subject) = self.get(state, on) else { return };
+        let BasicValueEnum::IntValue(subject) = self.get(state, on) else {
+            return self.ice(format_args!("switched on `v{}`, which is not an integer", on.0));
+        };
         let width = subject.get_type();
         let mut arms: Vec<(IntValue<'ctx>, BasicBlock<'ctx>)> = Vec::with_capacity(cases.len());
         for (k, (key, target)) in cases.iter().enumerate() {
-            if let Some(bb) = self.edge_block(state, code, from, k, target) {
-                arms.push((width.const_int(*key, false), bb));
-            }
+            let Some(bb) = self.edge_block(state, code, from, k, target) else {
+                return self.ice(format_args!("found no block for a switch's case {key}"));
+            };
+            arms.push((width.const_int(*key, false), bb));
         }
         // `default` is `None` wherever the middle end proved the table total,
         // which for an enum is always. LLVM's `switch` still needs one, and
@@ -736,8 +787,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             Some(t) => self.edge_block(state, code, from, cases.len(), t),
             None => Some(self.total_switch_default(state, span)),
         };
-        let Some(fallback) = fallback else { return };
-        let _ = self.builder.build_switch(subject, fallback, &arms);
+        let Some(fallback) = fallback else {
+            return self.ice("found no block for a switch's default");
+        };
+        let built = self.builder.build_switch(subject, fallback, &arms);
+        self.built(built, "switch");
         let _ = code;
     }
 
@@ -792,6 +846,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let (BasicValueEnum::PointerValue(dst), BasicValueEnum::PointerValue(src)) =
                 (self.get(state, *p), self.get(state, *a))
             else {
+                self.ice(format_args!(
+                    "copied `v{}` into `v{}`, and one is not in memory",
+                    a.0,
+                    p.0
+                ));
                 continue;
             };
             if dst != src {
@@ -840,8 +899,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*v));
             let value = self.get(state, *v);
             self.store_value(out, &slots, HEAP_ALIGN, value);
-            let _ = self.builder.build_return(None);
-            return;
+            let built = self.builder.build_return(None);
+            return self.built(built, "return");
         }
         let mut slots = Vec::new();
         let mut pieces = Vec::new();
@@ -851,15 +910,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             pieces.extend(self.pieces(&s, value));
             slots.extend(s);
         }
-        match slots.len() {
-            0 => {
-                let _ = self.builder.build_return(None);
-            }
+        let built = match slots.len() {
+            0 => self.builder.build_return(None),
             _ => {
                 let value = self.assemble(&slots, &pieces);
-                let _ = self.builder.build_return(Some(&value as &dyn BasicValue<'ctx>));
+                self.builder.build_return(Some(&value as &dyn BasicValue<'ctx>))
             }
-        }
+        };
+        self.built(built, "return");
     }
 
     // -----------------------------------------------------------------------
@@ -961,7 +1019,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Const::Int { bits, negative } => self.int_constant(llvm, bits.get(), *negative),
             ir::Const::Float(f) => match llvm {
                 BasicTypeEnum::FloatType(t) => t.const_float(*f).into(),
-                other => other.const_zero(),
+                other => {
+                    self.ice(format_args!("wrote a float constant at {other}"));
+                    other.const_zero()
+                }
             },
             ir::Const::Str(s) => self.str_literal(s),
             ir::Const::Char(c) => self.ctx.i32_type().const_int(u64::from(*c as u32), false).into(),
@@ -990,7 +1051,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         bits: u128,
         negative: bool,
     ) -> BasicValueEnum<'ctx> {
-        let BasicTypeEnum::IntType(t) = llvm else { return llvm.const_zero() };
+        let BasicTypeEnum::IntType(t) = llvm else {
+            self.ice(format_args!("wrote an integer constant at {llvm}"));
+            return llvm.const_zero();
+        };
         let magnitude = if t.get_bit_width() > 64 {
             let words = [bits as u64, (bits >> 64) as u64];
             t.const_int_arbitrary_precision(&words)
@@ -1026,7 +1090,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 .map(Into::into)
                 .unwrap_or(arg),
             _ => {
-                let _ = prim;
+                self.ice(format_args!("applied `{op:?}` at `{prim:?}` to a {}", arg.get_type()));
                 arg
             }
         }
@@ -1055,6 +1119,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return self.string_binary(state, op, operand, lhs, rhs);
         }
         let (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) = (lhs, rhs) else {
+            self.ice(format_args!(
+                "applied `{op:?}` at `{prim:?}` to operands that are not integers"
+            ));
             return lhs;
         };
         let signed = prim.is_signed();
@@ -1090,6 +1157,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         rhs: BasicValueEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) = (lhs, rhs) else {
+            self.ice(format_args!("applied `{op:?}` to operands that are not floats"));
             return lhs;
         };
         let b = &self.builder;
@@ -1506,7 +1574,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if self.boxed_fields(code.ty_of(agg)).get(index).copied().unwrap_or(false) {
             let taken = self.pieces_range(&slots, whole, start..start.saturating_add(1));
             let Some(BasicValueEnum::PointerValue(block)) = taken.first().copied() else {
-                return;
+                return self.ice(format_args!(
+                    "found boxed field {index} of `v{}` not a pointer",
+                    agg.0
+                ));
             };
             let (_, _, align) = self.dest_shape(code, dest);
             let value = self.load_value(block, &want, align);
@@ -1591,7 +1662,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let slot = [Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) }];
             let block = match self.load_slots(p, &slot, 8).first().copied() {
                 Some(BasicValueEnum::PointerValue(block)) => block,
-                _ => self.ptr_ty().const_null(),
+                _ => {
+                    self.ice("loaded a boxed field that is not a pointer");
+                    self.ptr_ty().const_null()
+                }
             };
             return self.load_value(block, &want, align);
         }
@@ -1669,7 +1743,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     .build_int_z_extend_or_bit_cast(*v, i32t, "tag")
                     .map(Into::into)
                     .unwrap_or_else(|_| i32t.const_zero().into()),
-                _ => i32t.const_zero().into(),
+                _ => {
+                    self.ice("read a tag that is not an integer");
+                    i32t.const_zero().into()
+                }
             },
             // The niche: `.None` is the pointer at `null_at` set to null, so
             // the tag is a null test and a `select` between the two variant
@@ -1692,7 +1769,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                             .build_select(is_null, none, some, "tag")
                             .unwrap_or_else(|_| i32t.const_zero().into())
                     }
-                    _ => i32t.const_zero().into(),
+                    _ => {
+                        self.ice("read a niche that is not a pointer");
+                        i32t.const_zero().into()
+                    }
                 }
             }
         }
@@ -1937,7 +2017,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         let taken = self.payload_of(&slots, &enum_repr, &offsets, index, &read, whole);
         let value = if boxed {
-            let BasicValueEnum::PointerValue(block) = taken else { return };
+            let BasicValueEnum::PointerValue(block) = taken else {
+                return self.ice(format_args!(
+                    "found boxed payload {index} of `v{}` not a pointer",
+                    agg.0
+                ));
+            };
             let (_, _, align) = self.dest_shape(code, dest);
             self.load_value(block, &want, align)
         } else {
@@ -1980,6 +2065,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     return self.assemble(want, &taken);
                 }
                 let Some(BasicValueEnum::IntValue(blob)) = pieces.get(1).copied() else {
+                    self.ice("read a payload that is neither words nor an integer");
                     return self.assemble(want, &[]);
                 };
                 let mut taken = Vec::with_capacity(want.len());
@@ -2139,9 +2225,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             pieces.get(layout::LIST_PTR).copied(),
             pieces.get(layout::LIST_LEN).copied(),
         ) else {
-            return;
+            return self.ice(format_args!(
+                "sliced `v{}`, which is not a pointer and a length",
+                array.0
+            ));
         };
-        let BasicValueEnum::IntValue(start) = self.get(state, from) else { return };
+        let BasicValueEnum::IntValue(start) = self.get(state, from) else {
+            return self.ice(format_args!("sliced from `v{}`, which is not an integer", from.0));
+        };
         let Ok(count) = self.builder.build_int_sub(len, start, "slice.n") else { return };
         let bytes = self
             .builder
@@ -2206,7 +2297,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return;
         };
         let stride = self.reprs.of_ty(&element).layout.stride;
-        let BasicValueEnum::IntValue(n) = self.get(state, len) else { return };
+        let BasicValueEnum::IntValue(n) = self.get(state, len) else {
+            return self.ice(format_args!(
+                "allocated `v{}` elements, which is not an integer",
+                len.0
+            ));
+        };
         let word = self.ctx.i64_type();
         let bytes = self
             .builder
@@ -2266,9 +2362,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let pieces = self.pieces(&slots, source);
         let Some(BasicValueEnum::PointerValue(scratch)) = pieces.get(layout::LIST_PTR).copied()
         else {
-            return;
+            return self.ice(format_args!(
+                "kept a prefix of `v{}`, which is not a pointer",
+                array.0
+            ));
         };
-        let BasicValueEnum::IntValue(kept) = self.get(state, len) else { return };
+        let BasicValueEnum::IntValue(kept) = self.get(state, len) else {
+            return self.ice(format_args!(
+                "kept a prefix `v{}` long, which is not an integer",
+                len.0
+            ));
+        };
         let word = self.ctx.i64_type();
         let bytes = self
             .builder
@@ -2302,9 +2406,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let pieces = self.pieces(&list_slots, list);
         let Some(BasicValueEnum::PointerValue(base)) = pieces.get(layout::LIST_PTR).copied()
         else {
+            self.ice(format_args!("indexed `v{}`, which is not a pointer", array.0));
             return None;
         };
-        let BasicValueEnum::IntValue(i) = self.get(state, index) else { return None };
+        let BasicValueEnum::IntValue(i) = self.get(state, index) else {
+            self.ice(format_args!("indexed by `v{}`, which is not an integer", index.0));
+            return None;
+        };
         Some(ElementRead { base, index: i, element })
     }
 
@@ -2502,9 +2610,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.call_intrinsic(state, code, dests, &key, args, span);
             return;
         }
-        let Some(callee) = self.declare(func) else { return };
+        let Some(callee) = self.declare(func) else {
+            return self.ice(format_args!("found no function {} to call", func.0));
+        };
         let program = self.program;
-        let Some(sig) = program.funcs.get(func.index()).map(|f| &f.sig) else { return };
+        let Some(sig) = program.funcs.get(func.index()).map(|f| &f.sig) else {
+            return self.ice(format_args!("found no signature for function {}", func.0));
+        };
         let sig = self.machine_of(sig);
         let ret = self.slots_of(code, dests);
         let argv = self.flatten_args(state, code, args);
@@ -2557,7 +2669,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             pieces.get(layout::CLOSURE_ENV).copied(),
         )
         else {
-            return;
+            return self.ice(format_args!(
+                "called `v{}`, which is not a code and an environment",
+                callee.0
+            ));
         };
         let params: Vec<Vec<Slot>> = args
             .iter()
@@ -3247,17 +3362,32 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // declaration is written — the buffer is a parameter.
         match entry.ret {
             runtime::Ret::Out => {
-                let Some(dest) = dests.first().copied() else { return };
+                let Some(dest) = dests.first().copied() else {
+                    return self.ice(format_args!(
+                        "called `{}` with nowhere to put its answer",
+                        entry.key
+                    ));
+                };
                 self.call_out(state, code, dest, &entry.symbol(), &mut argv);
                 return;
             }
             runtime::Ret::Sum => {
-                let Some(dest) = dests.first().copied() else { return };
+                let Some(dest) = dests.first().copied() else {
+                    return self.ice(format_args!(
+                        "called `{}` with nowhere to put its answer",
+                        entry.key
+                    ));
+                };
                 self.call_sum(state, code, dest, entry, argv, span);
                 return;
             }
             runtime::Ret::Res | runtime::Ret::ResMsg => {
-                let Some(dest) = dests.first().copied() else { return };
+                let Some(dest) = dests.first().copied() else {
+                    return self.ice(format_args!(
+                        "called `{}` with nowhere to put its answer",
+                        entry.key
+                    ));
+                };
                 self.call_result(state, code, dest, entry, argv, span);
                 return;
             }
@@ -3281,7 +3411,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if matches!(entry.ret, runtime::Ret::NoReturn) {
             attrs::mark_noreturn(self.ctx, f);
         }
-        let Ok(call) = self.builder.build_call(f, &argv, "") else { return };
+        let call = match self.builder.build_call(f, &argv, "") {
+            Ok(call) => call,
+            Err(e) => return self.ice(format_args!("could not call `{}`: {e}", entry.key)),
+        };
         attrs::set_call_convention(call, attrs::C);
         // A host capability is the world: the caller keeps `memory(readwrite)`.
         state.observed.opaque = true;
@@ -3297,7 +3430,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // narrowing happens here rather than in the declaration, because the
         // declaration is what has to agree with the archive.
         if let runtime::Ret::Int(_) = entry.ret {
-            let Some(dest) = dests.first().copied() else { return };
+            let Some(dest) = dests.first().copied() else {
+                return self.ice(format_args!(
+                    "called `{}` with nowhere to put its answer",
+                    entry.key
+                ));
+            };
             let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
             let value = call
                 .try_as_basic_value()
@@ -3314,9 +3452,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let text = self.literal(message.as_bytes());
         let len = self.ctx.i64_type().const_int(message.len() as u64, false);
         let f = self.rt_abort();
-        if let Ok(call) = self.builder.build_call(f, &[text.into(), len.into()], "") {
-            attrs::set_call_convention(call, attrs::C);
-            attrs::noreturn_call(self.ctx, call);
+        match self.builder.build_call(f, &[text.into(), len.into()], "") {
+            Ok(call) => {
+                attrs::set_call_convention(call, attrs::C);
+                attrs::noreturn_call(self.ctx, call);
+            }
+            Err(e) => self.ice(format_args!("could not call the abort: {e}")),
         }
         state.observed.aborts = true;
     }
@@ -3388,7 +3529,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 Some(BasicValueEnum::IntValue(raw)),
             ) = (pieces.get(layout::STR_PTR).copied(), pieces.get(layout::STR_LEN).copied())
             else {
-                return;
+                return self.ice(format_args!("aborted with `v{}`, which is not a string", text.0));
             };
             let len = self
                 .builder
@@ -3526,6 +3667,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     if op == Op::Copy {
                         let Some(p) = Self::place_address(self.ctx, &self.builder, place, at)
                         else {
+                            self.ice("copied a count held in registers");
                             continue;
                         };
                         if *glue == Glue::Str {
@@ -3536,7 +3678,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         }
                         continue;
                     }
-                    let Some(p) = self.place_pointer(place, at) else { continue };
+                    let Some(p) = self.place_pointer(place, at) else {
+                        self.ice(format_args!("found no counted pointer at byte {at}"));
+                        continue;
+                    };
                     if op == Op::Retain {
                         self.incref_pointer(state, p, Counted::Nullable);
                     } else {
@@ -3549,7 +3694,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // anything counted in it. The default is the join, not an
                 // `unreachable`: a variant with nothing counted has no arm.
                 Site::Tagged { tag, arms } => {
-                    let Some(raw) = self.place_int(place, base, *tag) else { continue };
+                    let Some(raw) = self.place_int(place, base, *tag) else {
+                        self.ice(format_args!("found no tag at byte {base}"));
+                        continue;
+                    };
                     let i32t = self.ctx.i32_type();
                     let key = self
                         .builder
@@ -3581,10 +3729,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // tag to read.
                 Site::Guarded { null_at, ty } => {
                     let at = base.saturating_add(*null_at);
-                    let Some(p) = self.place_pointer(place, at) else { continue };
+                    let Some(p) = self.place_pointer(place, at) else {
+                        self.ice(format_args!("found no niche pointer at byte {at}"));
+                        continue;
+                    };
+                    let Ok(is_null) = self.builder.build_is_null(p, "rc.isnone") else {
+                        self.ice("could not test a niche for null");
+                        continue;
+                    };
                     let live = self.ctx.append_basic_block(state.value, "rc.some");
                     let done = self.ctx.append_basic_block(state.value, "rc.done");
-                    let Ok(is_null) = self.builder.build_is_null(p, "rc.isnone") else { continue };
                     let _ = self.builder.build_conditional_branch(is_null, done, live);
                     self.builder.position_at_end(live);
                     self.walk_rc(state, ty, place, base, op, next);
@@ -3619,24 +3773,21 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.walk_rc(state, &f.ty, place, at, op, depth);
             return;
         }
-        match op {
-            Op::Retain => {
-                if let Some(p) = self.place_pointer(place, at) {
-                    self.incref_pointer(state, p, Counted::NonNull);
-                }
-            }
-            Op::Release => {
-                if let Some(p) = self.place_pointer(place, at) {
-                    let g = self.glue(op, &f.ty).map(function_pointer);
-                    self.decref_pointer(state, p, Counted::NonNull, g);
-                }
-            }
-            Op::Copy => {
-                if let Some(p) = Self::place_address(self.ctx, &self.builder, place, at) {
-                    let g = self.glue(op, &f.ty).map(function_pointer);
-                    self.replace_with_copy(p, g);
-                }
-            }
+        let found = match op {
+            Op::Retain => self.place_pointer(place, at).map(|p| {
+                self.incref_pointer(state, p, Counted::NonNull);
+            }),
+            Op::Release => self.place_pointer(place, at).map(|p| {
+                let g = self.glue(op, &f.ty).map(function_pointer);
+                self.decref_pointer(state, p, Counted::NonNull, g);
+            }),
+            Op::Copy => Self::place_address(self.ctx, &self.builder, place, at).map(|p| {
+                let g = self.glue(op, &f.ty).map(function_pointer);
+                self.replace_with_copy(p, g);
+            }),
+        };
+        if found.is_none() {
+            self.ice(format_args!("found no box at byte {at} to {op:?}"));
         }
     }
 
@@ -3765,9 +3916,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // field is behind (MEMORY.md §5.1).
             Counted::NonNull => (None, None),
             Counted::Nullable => {
+                let Ok(is_null) = self.builder.build_is_null(p, "isnull") else {
+                    return self.ice("could not test a count's block for null");
+                };
                 let body = self.ctx.append_basic_block(state.value, "inc.some");
                 let join = self.ctx.append_basic_block(state.value, "inc.done");
-                let Ok(is_null) = self.builder.build_is_null(p, "isnull") else { return };
                 let _ = self.builder.build_conditional_branch(is_null, join, body);
                 self.builder.position_at_end(body);
                 (Some(body), Some(join))
@@ -3788,9 +3941,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // === G2 end =========================================================
 
         let Ok(BasicValueEnum::IntValue(rc)) = self.builder.build_load(word, header, "rc") else {
-            let _ = self.builder.build_unconditional_branch(meet);
-            self.builder.position_at_end(meet);
-            return;
+            return self.ice("loaded a count that is not an integer");
         };
         if let Some(instr) = rc.as_instruction() {
             let _ = instr.set_alignment(8);
@@ -4016,8 +4167,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) {
         let join = self.ctx.append_basic_block(state.value, "dec.done");
         if matches!(kind, Counted::Nullable) {
+            let Ok(is_null) = self.builder.build_is_null(p, "isnull") else {
+                return self.ice("could not test a count's block for null");
+            };
             let live = self.ctx.append_basic_block(state.value, "dec.some");
-            let Ok(is_null) = self.builder.build_is_null(p, "isnull") else { return };
             let _ = self.builder.build_conditional_branch(is_null, join, live);
             self.builder.position_at_end(live);
         }
@@ -4034,9 +4187,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // === G2 end =========================================================
 
         let Ok(BasicValueEnum::IntValue(rc)) = self.builder.build_load(word, header, "rc") else {
-            let _ = self.builder.build_unconditional_branch(join);
-            self.builder.position_at_end(join);
-            return;
+            return self.ice("loaded a count that is not an integer");
         };
         if let Some(instr) = rc.as_instruction() {
             let _ = instr.set_alignment(8);
@@ -4239,6 +4390,38 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         while let Some(job) = self.pending.pop() {
             self.define_helper(job);
         }
+        self.check_terminators();
+        for message in self.ices.take() {
+            self.diags.push(
+                Diagnostic::error(
+                    Span::NONE,
+                    format!("internal error: the LLVM backend, {message}"),
+                )
+                .with_fix("this is a toolchain bug; report it".to_string()),
+            );
+        }
+    }
+
+    /// Every block ends in a terminator: the one structural fact a release
+    /// build checks, because LLVM crashes on a block without one rather than
+    /// rejecting it. It costs 3 M instructions on `mixed-10k`, whose `emit` is
+    /// 20 G.
+    fn check_terminators(&self) {
+        let mut function = self.module.get_first_function();
+        while let Some(f) = function {
+            let mut block = f.get_first_basic_block();
+            while let Some(b) = block {
+                if b.get_terminator().is_none() {
+                    let name = b.get_name().to_string_lossy();
+                    self.ices.borrow_mut().push(format!(
+                        "in `{}`, left block `{name}` without a terminator",
+                        f.get_name().to_string_lossy()
+                    ));
+                }
+                block = b.get_next_basic_block();
+            }
+            function = f.get_next_function();
+        }
     }
 
     /// One `void(ptr)` glue function, and whether it still needs a body.
@@ -4353,14 +4536,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             state.value.get_nth_param(2).and_then(|p| p.try_into().ok()),
             state.value.get_nth_param(3).and_then(|p| p.try_into().ok()),
         ) else {
-            let _ = self.builder.build_unreachable();
-            return;
+            return self.ice("found an equality thunk without its three pointers");
         };
         let (a, b, out): (PointerValue<'ctx>, PointerValue<'ctx>, PointerValue<'ctx>) =
             (a, b, out);
         let Some(callee) = self.declare(func) else {
-            let _ = self.builder.build_unreachable();
-            return;
+            return self.ice(format_args!("found no function {} to compare with", func.0));
         };
         let own = self
             .program
@@ -4488,8 +4669,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             state.value.get_nth_param(2).and_then(|p| p.try_into().ok()),
             state.value.get_nth_param(3).and_then(|p| p.try_into().ok()),
         ) else {
-            let _ = self.builder.build_unreachable();
-            return;
+            return self.ice("found an entry thunk without its three pointers");
         };
         let counter = state.value.get_nth_param(1);
         let record: PointerValue<'ctx> = record;
@@ -4768,14 +4948,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         env_ptr: PointerValue<'ctx>,
     ) {
         let Some(callee) = self.declare(func) else {
-            let _ = self.builder.build_unreachable();
-            return;
+            return self.ice(format_args!("found no function {} for a closure", func.0));
         };
         let Some(first_param) =
             self.program.funcs.get(func.index()).map(|f| f.sig.params.first().copied())
         else {
-            let _ = self.builder.build_unreachable();
-            return;
+            return self.ice(format_args!("found no signature for function {}", func.0));
         };
         let program = self.program;
         let empty = ir::Signature { params: Vec::new(), rets: Vec::new() };
@@ -4844,7 +5022,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let slots = repr::ir_slots(&mut self.reprs, self.program, *p);
             // A value held in memory is the caller's address, passed on.
             if repr::in_memory(&slots) {
-                let Some(arg) = state.value.get_nth_param(at) else { continue };
+                let Some(arg) = state.value.get_nth_param(at) else {
+                    self.ice(format_args!("found no parameter {at} to forward"));
+                    continue;
+                };
                 at = at.saturating_add(1);
                 argv.push(arg.into());
                 if let (Some(&ir::Ownership::Borrow), Some(ty), BasicValueEnum::PointerValue(base)) =
@@ -4856,8 +5037,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             let mut taken = Vec::with_capacity(slots.len());
             for _ in 0..slots.len() {
-                if let Some(v) = state.value.get_nth_param(at) {
-                    taken.push(v);
+                match state.value.get_nth_param(at) {
+                    Some(v) => taken.push(v),
+                    None => self.ice(format_args!("found no parameter {at} to forward")),
                 }
                 at = at.saturating_add(1);
             }
@@ -4875,9 +5057,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 argv.push(p.into());
             }
         }
-        let Ok(call) = self.builder.build_call(callee, &argv, "") else {
-            let _ = self.builder.build_unreachable();
-            return;
+        let call = match self.builder.build_call(callee, &argv, "") {
+            Ok(call) => call,
+            Err(e) => return self.ice(format_args!("could not forward a closure's call: {e}")),
         };
         attrs::set_call_convention(call, attrs::FAST);
         if let Some(bytes) = callee_sig.sret {
@@ -4918,11 +5100,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let Ok(BasicValueEnum::PointerValue(f)) =
             self.builder.build_load(self.ptr_ty(), slot, "env.glue")
         else {
-            return;
+            return self.ice("loaded an environment's glue that is not a pointer");
+        };
+        let Ok(none) = self.builder.build_is_null(f, "env.none") else {
+            return self.ice("could not test an environment's glue for null");
         };
         let live = self.ctx.append_basic_block(state.value, "env.some");
         let done = self.ctx.append_basic_block(state.value, "env.done");
-        let Ok(none) = self.builder.build_is_null(f, "env.none") else { return };
         let _ = self.builder.build_conditional_branch(none, done, live);
         self.builder.position_at_end(live);
         let record =
@@ -4970,7 +5154,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// `*p = buri_rt_copy_block(*p, glue)`.
     fn replace_with_copy(&mut self, p: PointerValue<'ctx>, glue: Option<PointerValue<'ctx>>) {
-        let Ok(old) = self.builder.build_load(self.ptr_ty(), p, "cp.old") else { return };
+        let Ok(old) = self.builder.build_load(self.ptr_ty(), p, "cp.old") else {
+            return self.ice("could not load a block to copy");
+        };
         let f = self.declare_rt(
             runtime::COPY_BLOCK,
             &[self.ptr_ty().into(), self.ptr_ty().into()],
@@ -4978,7 +5164,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         );
         let g = glue.unwrap_or_else(|| self.ptr_ty().const_null());
         let Ok(call) = self.builder.build_call(f, &[old.into(), g.into()], "cp.new") else {
-            return;
+            return self.ice("could not call the block copy");
         };
         attrs::set_call_convention(call, attrs::C);
         if let Some(fresh) = call.try_as_basic_value().basic() {
@@ -5072,15 +5258,21 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         op: Op,
     ) {
         let word = self.ctx.i64_type();
-        let Some(pre) = self.builder.get_insert_block() else { return };
+        let Some(pre) = self.builder.get_insert_block() else {
+            return self.ice("walked elements from outside any block");
+        };
         let header = self.ctx.append_basic_block(state.value, "elem.head");
         let body = self.ctx.append_basic_block(state.value, "elem.body");
         let done = self.ctx.append_basic_block(state.value, "elem.done");
         let _ = self.builder.build_unconditional_branch(header);
 
         self.builder.position_at_end(header);
-        let Ok(phi) = self.builder.build_phi(word, "i") else { return };
-        let Ok(index) = TryInto::<IntValue<'ctx>>::try_into(phi.as_basic_value()) else { return };
+        let Ok(phi) = self.builder.build_phi(word, "i") else {
+            return self.ice("could not build an element loop's index");
+        };
+        let Ok(index) = TryInto::<IntValue<'ctx>>::try_into(phi.as_basic_value()) else {
+            return self.ice("built an element loop's index that is not an integer");
+        };
         let more = self
             .builder
             .build_int_compare(IntPredicate::ULT, index, count, "elem.more")
@@ -5378,10 +5570,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             all.push(out.into());
         }
         all.extend(argv);
-        let call = match callee {
-            Callee::Direct(f) => self.builder.build_call(f, &all, "").ok()?,
-            Callee::Indirect(ty, target) => {
-                self.builder.build_indirect_call(ty, target, &all, "").ok()?
+        let built = match callee {
+            Callee::Direct(f) => self.builder.build_call(f, &all, ""),
+            Callee::Indirect(ty, target) => self.builder.build_indirect_call(ty, target, &all, ""),
+        };
+        let call = match built {
+            Ok(call) => call,
+            Err(e) => {
+                self.ice(format_args!("could not build a call: {e}"));
+                return None;
             }
         };
         attrs::set_call_convention(call, attrs::FAST);
@@ -5913,12 +6110,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ..
         } = &l.repr
         else {
-            return;
+            return self.ice("stored a variant index into a value with no tag");
         };
         let slot = Slot { offset: at, ty: SlotTy::Scalar(*tag) };
         let want = match repr::slot_type(self.ctx, slot.ty) {
             BasicTypeEnum::IntType(t) => t,
-            _ => return,
+            other => return self.ice(format_args!("stored a variant index into a {other} tag")),
         };
         let narrowed = self.narrow_int(index.as_basic_value_enum(), want.as_basic_type_enum());
         self.store_slots(buf, &[slot], align, &[narrowed]);
@@ -6000,6 +6197,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         want: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let (BasicValueEnum::IntValue(v), BasicTypeEnum::IntType(t)) = (value, want) else {
+            self.ice(format_args!("narrowed a {} to {want}", value.get_type()));
             return value;
         };
         if v.get_type().get_bit_width() == t.get_bit_width() {
@@ -6057,7 +6255,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
             argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
         let f = self.declare_rt(symbol, &param_types, Some(ret.as_basic_type_enum()));
-        let Ok(call) = self.builder.build_call(f, &argv, "") else { return lhs };
+        let Ok(call) = self.builder.build_call(f, &argv, "") else {
+            self.ice(format_args!("could not call `{symbol}`"));
+            return lhs;
+        };
         attrs::set_call_convention(call, attrs::C);
         state.observed.opaque = true;
         let answer: IntValue<'ctx> = call
@@ -6836,9 +7037,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .builder
             .build_int_compare(IntPredicate::NE, flag, word.const_zero(), "str.isascii")
             .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let Some(fast) = self.builder.get_insert_block() else { return false };
         let slow = self.ctx.append_basic_block(state.value, "len.scan");
         let join = self.ctx.append_basic_block(state.value, "len.done");
-        let Some(fast) = self.builder.get_insert_block() else { return false };
         let _ = self.builder.build_conditional_branch(is_ascii, join, slow);
 
         self.builder.position_at_end(slow);
@@ -6857,7 +7058,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             Err(_) => bytes,
         };
-        let Some(slow_end) = self.builder.get_insert_block() else { return false };
+        let Some(slow_end) = self.builder.get_insert_block() else {
+            self.ice("lost its place scanning a string's length");
+            return true;
+        };
         let _ = self.builder.build_unconditional_branch(join);
 
         self.builder.position_at_end(join);
@@ -7100,8 +7304,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
         // The header load stays behind the null test: a literal and a static
         // have no base, and `base == 0` is how a `Str` says so.
-        let Some(entry) = self.builder.get_insert_block() else { return false };
-        let Ok(no_base) = self.builder.build_is_null(a_base, "cat.nobase") else { return false };
+        let Some(entry) = self.builder.get_insert_block() else {
+            self.ice("concatenated from outside any block");
+            return true;
+        };
+        let Ok(no_base) = self.builder.build_is_null(a_base, "cat.nobase") else {
+            self.ice("could not test a string's block for null");
+            return true;
+        };
         let _ = self.builder.build_conditional_branch(no_base, check, probe);
 
         self.builder.position_at_end(probe);
@@ -7777,7 +7987,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.builder.build_phi(wide, "pw.base"),
             self.builder.build_phi(count_ty, "pw.n"),
         ) else {
-            return false;
+            self.ice("could not build a power loop's counters");
+            return true;
         };
         let (Ok(acc), Ok(base), Ok(n)): (
             Result<IntValue<'ctx>, _>,
@@ -7788,7 +7999,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             base_phi.as_basic_value().try_into(),
             n_phi.as_basic_value().try_into(),
         ) else {
-            return false;
+            self.ice("built a power loop whose counters are not integers");
+            return true;
         };
         let more = self
             .builder
@@ -7845,7 +8057,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let (Ok(ok_phi), Ok(value_phi)) =
             (self.builder.build_phi(bool_ty, "pw.ok"), self.builder.build_phi(wide, "pw.v"))
         else {
-            return false;
+            self.ice("could not build a power's answer");
+            return true;
         };
         let no = bool_ty.const_zero();
         let yes = bool_ty.const_int(1, false);
@@ -7860,7 +8073,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let (Ok(ok), Ok(value)): (Result<IntValue<'ctx>, _>, Result<IntValue<'ctx>, _>) =
             (ok_phi.as_basic_value().try_into(), value_phi.as_basic_value().try_into())
         else {
-            return false;
+            self.ice("built a power's answer that is not an integer");
+            return true;
         };
         let narrow = self
             .builder
@@ -8216,7 +8430,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         want: BasicTypeEnum<'ctx>,
     ) -> (IntValue<'ctx>, BasicValueEnum<'ctx>) {
         let bool_ty = self.ctx.bool_type();
-        let BasicValueEnum::IntValue(x) = v else { return (bool_ty.const_zero(), want.const_zero()) };
+        let BasicValueEnum::IntValue(x) = v else {
+            self.ice(format_args!("range-checked a {} as an integer", v.get_type()));
+            return (bool_ty.const_zero(), want.const_zero());
+        };
         let wide = self.ctx.i128_type();
         let a = self.widen(x, wide, from.is_signed());
         let (lo, hi) = to.int_range().unwrap_or((0, 0));
@@ -8247,7 +8464,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         want: BasicTypeEnum<'ctx>,
     ) -> (IntValue<'ctx>, BasicValueEnum<'ctx>) {
         let bool_ty = self.ctx.bool_type();
-        let BasicValueEnum::IntValue(x) = v else { return (bool_ty.const_zero(), want.const_zero()) };
+        let BasicValueEnum::IntValue(x) = v else {
+            self.ice(format_args!("range-checked a {} as an integer", v.get_type()));
+            return (bool_ty.const_zero(), want.const_zero());
+        };
         let ty = x.get_type();
         let cmp = |s: &Self, p, c: u64, name| {
             s.builder
@@ -8276,7 +8496,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         want: BasicTypeEnum<'ctx>,
     ) -> (IntValue<'ctx>, BasicValueEnum<'ctx>) {
         let bool_ty = self.ctx.bool_type();
-        let BasicValueEnum::FloatValue(x) = v else { return (bool_ty.const_zero(), want.const_zero()) };
+        let BasicValueEnum::FloatValue(x) = v else {
+            self.ice(format_args!("range-checked a {} as a float", v.get_type()));
+            return (bool_ty.const_zero(), want.const_zero());
+        };
         let f64t = self.ctx.f64_type();
         let xf = if x.get_type() == f64t {
             x
@@ -8326,7 +8549,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         want: BasicTypeEnum<'ctx>,
     ) -> (IntValue<'ctx>, BasicValueEnum<'ctx>) {
         let bool_ty = self.ctx.bool_type();
-        let BasicValueEnum::FloatValue(x) = v else { return (bool_ty.const_zero(), want.const_zero()) };
+        let BasicValueEnum::FloatValue(x) = v else {
+            self.ice(format_args!("range-checked a {} as a float", v.get_type()));
+            return (bool_ty.const_zero(), want.const_zero());
+        };
         let f32t = self.ctx.f32_type();
         let f64t = self.ctx.f64_type();
         let narrowed = self.builder.build_float_trunc(x, f32t, "cvt.f32").unwrap_or(x);
@@ -8448,9 +8674,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let origin = match x {
             BasicValueEnum::FloatValue(v) => v.get_type().const_zero().as_basic_value_enum(),
             BasicValueEnum::IntValue(v) => v.get_type().const_zero().as_basic_value_enum(),
-            other => return other,
+            other => {
+                self.ice(format_args!("took the sign of a {}", other.get_type()));
+                return other;
+            }
         };
-        let Some((above, below)) = self.cmp_pair(x, origin, float, signed) else { return x };
+        let Some((above, below)) = self.cmp_pair(x, origin, float, signed) else {
+            self.ice(format_args!("took the sign of a {}", x.get_type()));
+            return x;
+        };
         let (zero, one, minus) = match x {
             BasicValueEnum::FloatValue(v) => {
                 let t = v.get_type();
@@ -8488,7 +8720,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         signed: bool,
         tag: IntType<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let Some((above, below)) = self.cmp_pair(x, y, float, signed) else { return x };
+        let Some((above, below)) = self.cmp_pair(x, y, float, signed) else {
+            self.ice(format_args!("ordered a {} and a {}", x.get_type(), y.get_type()));
+            return x;
+        };
         let less = tag.const_zero().as_basic_value_enum();
         let equal = tag.const_int(1, false).as_basic_value_enum();
         let greater = tag.const_int(2, false).as_basic_value_enum();
@@ -8550,7 +8785,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 }
                 .unwrap_or(v)
             }
-            _ => v,
+            _ => {
+                self.ice(format_args!("cast a {} to {want}", v.get_type()));
+                v
+            }
         }
     }
 
@@ -8570,9 +8808,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) -> BasicValueEnum<'ctx> {
         let name = if signed { "llvm.fptosi.sat" } else { "llvm.fptoui.sat" };
         let zero = want.const_zero().as_basic_value_enum();
-        let Some(intrinsic) = inkwell::intrinsics::Intrinsic::find(name) else { return zero };
+        let Some(intrinsic) = inkwell::intrinsics::Intrinsic::find(name) else {
+            self.ice(format_args!("found no `{name}`"));
+            return zero;
+        };
         let overloads = [want.as_basic_type_enum(), x.get_type().as_basic_type_enum()];
-        let Some(f) = intrinsic.get_declaration(&self.module, &overloads) else { return zero };
+        let Some(f) = intrinsic.get_declaration(&self.module, &overloads) else {
+            self.ice(format_args!("could not declare `{name}`"));
+            return zero;
+        };
         match self.builder.build_call(f, &[x.into()], "sat") {
             Ok(call) => call.try_as_basic_value().basic().unwrap_or(zero),
             Err(_) => zero,
@@ -8771,7 +9015,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return;
         }
         let sig = ir::Signature { params: Vec::new(), rets: func.sig.rets.clone() };
-        let Some(callee) = self.declare(root) else { return };
+        let Some(callee) = self.declare(root) else {
+            return self.ice(format_args!("found no function {} behind `{symbol}`", root.0));
+        };
         let door = self.module.add_function(symbol, thread_fn_type(self.ctx), Some(Linkage::External));
         self.platform_abi(door);
         let block = self.ctx.append_basic_block(door, "entry");
@@ -8811,8 +9057,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     pub fn entry_point(&mut self, main: FuncIdx) {
-        let Some(func) = self.program.funcs.get(main.index()) else { return };
-        let Some(callee) = self.declare(main) else { return };
+        let Some(func) = self.program.funcs.get(main.index()) else {
+            return self.ice(format_args!("found no function {} for `main`", main.0));
+        };
+        let Some(callee) = self.declare(main) else {
+            return self.ice(format_args!("found no function {} for `main`", main.0));
+        };
         let i32t = self.ctx.i32_type();
         let ty = i32t.fn_type(&[i32t.into(), self.ptr_ty().into()], false);
         let shim = self.module.add_function("main", ty, Some(Linkage::External));
@@ -8830,7 +9080,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.declare_values_may_cross_tasks();
         self.declare_frames_are_per_thread();
 
-        let Ok(call) = self.builder.build_call(callee, &[], "r") else { return };
+        let call = match self.builder.build_call(callee, &[], "r") {
+            Ok(call) => call,
+            Err(e) => return self.ice(format_args!("could not call `main`: {e}")),
+        };
         attrs::set_call_convention(call, attrs::FAST);
         let result = call.try_as_basic_value().basic();
 
@@ -8959,23 +9212,29 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.declare_frames_are_per_thread();
         let word = self.ctx.i64_type();
         for (i, test) in tests.iter().enumerate() {
-            let Some(callee) = self.declare(*test) else { continue };
+            let Some(callee) = self.declare(*test) else {
+                self.ice(format_args!("found no function {} for test {i}", test.0));
+                continue;
+            };
             let enter = self.declare_rt(runtime::TEST_ENTER, &[word.into()], Some(i32t.into()));
             let index = word.const_int(i as u64, false);
             let Ok(answer) = self.builder.build_call(enter, &[index.into()], "enter") else {
+                self.ice(format_args!("could not ask whether to run test {i}"));
                 continue;
             };
             attrs::set_call_convention(answer, attrs::C);
             let Some(BasicValueEnum::IntValue(run)) = answer.try_as_basic_value().basic() else {
+                self.ice(format_args!("was told whether to run test {i} by a non-integer"));
+                continue;
+            };
+            let Ok(cond) =
+                self.builder.build_int_compare(IntPredicate::NE, run, i32t.const_zero(), "asked")
+            else {
+                self.ice(format_args!("could not test whether to run test {i}"));
                 continue;
             };
             let body = self.ctx.append_basic_block(shim, "test.run");
             let next = self.ctx.append_basic_block(shim, "test.next");
-            let Ok(cond) =
-                self.builder.build_int_compare(IntPredicate::NE, run, i32t.const_zero(), "asked")
-            else {
-                continue;
-            };
             let _ = self.builder.build_conditional_branch(cond, body, next);
             self.builder.position_at_end(body);
             if let Ok(call) = self.builder.build_call(callee, &[], "") {
@@ -9603,6 +9862,86 @@ mod tests {
         let ctx = Context::create();
         let printed = thread_fn_type(&ctx).print_to_string().to_string();
         assert_eq!(printed.split_whitespace().collect::<String>(), "void(ptr,ptr)");
+    }
+
+    /// The diagnostics from emitting `code` as the only function of a program.
+    fn emitted(code: ir::Code) -> Vec<String> {
+        use crate::compiler::middle::monomorphize;
+        let program = ir::Program {
+            funcs: vec![ir::Func {
+                symbol: "m$f".into(),
+                debug_name: "m:f".into(),
+                sig: ir::Signature { params: Vec::new(), rets: Vec::new() },
+                facts: ir::Facts { params: Vec::new(), purity: ir::Purity::Pure, can_abort: false },
+                unit: 0,
+                body: ir::Body::Code(code),
+                span: Span::NONE,
+            }],
+            units: vec!["m".into()],
+            types: Vec::new(),
+            crosses_tasks: false,
+            cell_equal: Default::default(),
+        };
+        let checked = monomorphize::Program {
+            funcs: Vec::new(),
+            roots: monomorphize::ProgramRoots::Tests(Vec::new()),
+            descriptors: Vec::new(),
+            desc_modules: Vec::new(),
+            desc_index: Default::default(),
+            cell_equal: Default::default(),
+            ctx_layouts: Default::default(),
+            shapes: Default::default(),
+            stylesheet: String::new(),
+            inline_styles: false,
+            themes: false,
+            icons: false,
+            chunks: Vec::new(),
+            hosted: Default::default(),
+        };
+        let tables = Tables::default();
+        let ctx = Context::create();
+        let observed = [Observed::opaque()];
+        let mut unit = Unit::new(
+            &ctx,
+            &program,
+            &tables,
+            "m",
+            Profile::Release,
+            &observed,
+            false,
+            std::sync::Arc::new(layout::Cycles::new(&tables)),
+            std::rc::Rc::new(std::cell::RefCell::new(rc::Syntactic::new(&checked))),
+        );
+        unit.define(FuncIdx(0));
+        unit.finish();
+        unit.diags.items.iter().map(|d| d.message.clone()).collect()
+    }
+
+    /// **A branch on a value that is not an integer is an internal error**,
+    /// not a block left without its `br` for a release build's LLVM to crash on.
+    #[test]
+    fn a_branch_on_a_float_is_an_internal_error() {
+        let mut code = ir::Code::new();
+        let entry = code.block(&[]);
+        let (yes, no) = (code.block(&[]), code.block(&[]));
+        let cond = code.value(ir::Type::F64);
+        let float = ir::Inst::Const { dest: cond, value: ir::Const::Float(1.0) };
+        code.get_mut(entry).insts.push(float);
+        code.get_mut(entry).term = ir::Term::Branch {
+            cond,
+            then: ir::Target { block: yes, args: Vec::new() },
+            else_: ir::Target { block: no, args: Vec::new() },
+        };
+        code.get_mut(yes).term = ir::Term::Return(Vec::new());
+        code.get_mut(no).term = ir::Term::Return(Vec::new());
+        assert_eq!(
+            emitted(code),
+            vec![
+                "internal error: the LLVM backend, in `m$f`, branched on `v0`, which is not an \
+                 integer",
+                "internal error: the LLVM backend, in `m$f`, left block `b0` without a terminator",
+            ]
+        );
     }
 }
 
