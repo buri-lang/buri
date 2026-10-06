@@ -256,3 +256,42 @@ fn reference_counting_is_linear_in_a_long_branching_expression() {
         400,
     );
 }
+
+/// A struct of `n` fields, alternately `Int` and `Str`, that derives `Hash`
+/// and is hashed.
+fn wide_hashed_struct(n: usize) -> (String, String) {
+    let types: Vec<&str> = (0..n).map(|i| if i % 2 == 0 { "Int" } else { "Str" }).collect();
+    let values: Vec<String> =
+        (0..n).map(|i| if i % 2 == 0 { format!("k + {i}") } else { String::from("s") }).collect();
+    let items = format!(
+        "struct W({types});\n\nderive Hash for W;\n\n\
+         fn make<C: Allocator>(ctx: C, k: Int): W {{\n    \
+         let s = \"w\".repeat(ctx, k);\n    W({values})\n}}\n",
+        types = types.join(", "),
+        values = values.join(", "),
+    );
+    let body = String::from(
+        "    let _ = io.println(ctx, \"${make(ctx, 1).hash() == make(ctx, 1).hash()}\").ignore();\n",
+    );
+    (items, body)
+}
+
+/// **Deriving `Hash` is linear in a struct's fields.** The hash threads one
+/// accumulator through every field, and inlining a field's hash copied the
+/// accumulator built so far: 0.55 G instructions in `middle` at 800 fields,
+/// 3.8 times what 400 took. PERFORMANCE.md §6.36.
+#[test]
+fn deriving_hash_is_linear_in_a_structs_fields() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::profile", &why);
+        return;
+    }
+    grows_linearly(
+        "deriving a wide struct's hash",
+        |n| {
+            let (items, body) = wide_hashed_struct(n);
+            profiled("native", &items, &body, "middle")
+        },
+        400,
+    );
+}
