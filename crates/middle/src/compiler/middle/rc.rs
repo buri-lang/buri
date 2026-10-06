@@ -1033,24 +1033,15 @@ fn scan_func(
             moved: Vec::new(),
         };
         if let Some(body) = f.body() {
-            let mut sizes: Vec<u32> = Vec::new();
-            subtree_sizes(body, &mut sizes);
+            let BodyIndex { sizes, mut jumps_before, mentions, binders, let_bound: bound } =
+                BodyIndex::of(body, f.locals.len());
             let (child_at, child_ids) = child_index(&sizes);
-            let mut jumps_before: Vec<u32> = vec![0; sizes.len().saturating_add(1)];
-            preorder(body, &mut |id, e| {
-                if let (ExprKind::Continue { .. }, Some(slot)) =
-                    (&e.kind, jumps_before.get_mut(id.0 as usize + 1))
-                {
-                    *slot = 1;
-                }
-            });
             for k in 1..jumps_before.len() {
                 let previous = jumps_before.get(k - 1).copied().unwrap_or(0);
                 if let Some(slot) = jumps_before.get_mut(k) {
                     *slot += previous;
                 }
             }
-            let (mentions, binders) = name_index(body, &sizes);
             let mut scan = Scan {
                 func: f,
                 counted,
@@ -1090,16 +1081,6 @@ fn scan_func(
             // A `let` always owns what it binds, and the scan runs backwards —
             // so the obligations are collected before it, or a use scanned
             // before its binder would not know there was one.
-            let mut bound: Vec<LocalId> = Vec::new();
-            typed::walk(body, &mut |e| {
-                if let ExprKind::Block { stmts, .. } = &e.kind {
-                    for st in stmts {
-                        if let Stmt::Let { pattern, .. } = st {
-                            pattern.binds(&mut bound);
-                        }
-                    }
-                }
-            });
             for b in bound {
                 scan.plain.insert(b);
                 if scan.is_counted(b) {
@@ -2280,8 +2261,8 @@ struct Scan<'a> {
     diverged: bool,
     /// Where each local is named, by pre-order id, ascending, and the `let` or
     /// `match` that binds it, each with the lambda it is inside: [`Scan::names`].
-    mentions: HashMap<LocalId, Vec<(u32, Option<u32>)>>,
-    binders: HashMap<LocalId, (u32, Option<u32>)>,
+    mentions: Vec<Vec<(u32, Option<u32>)>>,
+    binders: Vec<Option<(u32, Option<u32>)>>,
     /// The function's own parameter ownership, for a `Continue` that re-enters
     /// the loop it is inside: the loop's variables *are* the parameters
     /// (`typed::ExprKind::Loop`).
@@ -3974,10 +3955,10 @@ impl Scan<'_> {
         let end = start.saturating_add(self.size(id));
         let counts =
             |(p, lambda): (u32, Option<u32>)| p >= start && p < end && lambda.is_none_or(|f| f < start);
-        if self.binders.get(&l).is_some_and(|b| counts(*b)) {
+        if self.binders.get(l.index()).copied().flatten().is_some_and(counts) {
             return false;
         }
-        let Some(at) = self.mentions.get(&l) else { return false };
+        let Some(at) = self.mentions.get(l.index()) else { return false };
         let first = at.partition_point(|(p, _)| *p < start);
         at.get(first..)
             .unwrap_or_default()
@@ -4294,54 +4275,113 @@ impl Scan<'_> {
     }
 }
 
-/// Where each local is named and bound in `body`, for [`Scan::names`]: every
-/// `Local` and every lambda's captures, at their node, and every `let` and
-/// `match` pattern's names, at the binding node, each with the innermost lambda
-/// whose body it is in.
-#[allow(clippy::type_complexity, reason = "the two halves of one index")]
-fn name_index(
-    body: &Expr,
-    sizes: &[u32],
-) -> (HashMap<LocalId, Vec<(u32, Option<u32>)>>, HashMap<LocalId, (u32, Option<u32>)>) {
-    let mut mentions: HashMap<LocalId, Vec<(u32, Option<u32>)>> = HashMap::default();
-    let mut binders: HashMap<LocalId, (u32, Option<u32>)> = HashMap::default();
-    // The lambdas around the node being visited, innermost last, with where
-    // each one's subtree ends.
-    let mut lambdas: Vec<(u32, u32)> = Vec::new();
-    preorder(body, &mut |id, e| {
-        while lambdas.last().is_some_and(|(_, end)| *end <= id.0) {
-            lambdas.pop();
+/// What [`scan_func`] reads about a body before it scans it, from one walk.
+struct BodyIndex {
+    /// [`subtree_sizes`].
+    sizes: Vec<u32>,
+    /// A 1 just past every `Continue`, by pre-order id; [`scan_func`] sums it.
+    jumps_before: Vec<u32>,
+    /// Where each local is named and bound, for [`Scan::names`]: every `Local`
+    /// and every lambda's captures, at their node, and every `let` and `match`
+    /// pattern's names, at the binding node, each with the innermost lambda
+    /// whose body it is in. By local.
+    mentions: Vec<Vec<(u32, Option<u32>)>>,
+    binders: Vec<Option<(u32, Option<u32>)>>,
+    /// What every `let` binds, in walk order.
+    let_bound: Vec<LocalId>,
+}
+
+impl BodyIndex {
+    fn of(body: &Expr, locals: usize) -> BodyIndex {
+        let mut ix = BodyIndex {
+            sizes: Vec::new(),
+            jumps_before: Vec::new(),
+            mentions: vec![Vec::new(); locals],
+            binders: vec![None; locals],
+            let_bound: Vec::new(),
+        };
+        let mut continues: Vec<u32> = Vec::new();
+        // The lambdas around the node being visited, innermost last.
+        let mut lambdas: Vec<u32> = Vec::new();
+        ix.go(body, &mut continues, &mut lambdas);
+        ix.jumps_before = vec![0; ix.sizes.len().saturating_add(1)];
+        for id in continues {
+            if let Some(slot) = ix.jumps_before.get_mut(id as usize + 1) {
+                *slot = 1;
+            }
         }
-        let inside = lambdas.last().map(|(f, _)| *f);
-        let mut bound: Vec<LocalId> = Vec::new();
+        ix
+    }
+
+    fn go(&mut self, e: &Expr, continues: &mut Vec<u32>, lambdas: &mut Vec<u32>) -> u32 {
+        let id = u32::try_from(self.sizes.len()).unwrap_or(u32::MAX);
+        self.sizes.push(0);
+        let inside = lambdas.last().copied();
+        let mut lambda = false;
         match &e.kind {
-            ExprKind::Local(l) => mentions.entry(*l).or_default().push((id.0, inside)),
+            ExprKind::Local(l) => self.mention(*l, (id, inside)),
             ExprKind::Lambda { captures, .. } => {
                 for c in captures {
-                    mentions.entry(*c).or_default().push((id.0, inside));
+                    self.mention(*c, (id, inside));
                 }
-                let size = sizes.get(id.0 as usize).copied().unwrap_or(1);
-                lambdas.push((id.0, id.0.saturating_add(size)));
+                lambda = true;
             }
             ExprKind::Block { stmts, .. } => {
                 for st in stmts {
                     if let Stmt::Let { pattern, .. } = st {
-                        pattern.binds(&mut bound);
+                        let start = self.let_bound.len();
+                        pattern.binds(&mut self.let_bound);
+                        for k in start..self.let_bound.len() {
+                            if let Some(b) = self.let_bound.get(k).copied() {
+                                self.bind(b, (id, inside));
+                            }
+                        }
                     }
                 }
             }
             ExprKind::Match { arms, .. } => {
+                let mut bound: Vec<LocalId> = Vec::new();
                 for a in arms {
                     a.pattern.binds(&mut bound);
                 }
+                for b in bound {
+                    self.bind(b, (id, inside));
+                }
             }
+            ExprKind::Continue { .. } => continues.push(id),
             _ => {}
         }
-        for b in bound {
-            binders.insert(b, (id.0, inside));
+        if lambda {
+            lambdas.push(id);
         }
-    });
-    (mentions, binders)
+        let mut total = 1u32;
+        typed::children(e, &mut |k| total = total.saturating_add(self.go(k, continues, lambdas)));
+        if lambda {
+            lambdas.pop();
+        }
+        if let Some(slot) = self.sizes.get_mut(id as usize) {
+            *slot = total;
+        }
+        total
+    }
+
+    fn mention(&mut self, l: LocalId, at: (u32, Option<u32>)) {
+        if self.mentions.len() <= l.index() {
+            self.mentions.resize_with(l.index() + 1, Vec::new);
+        }
+        if let Some(row) = self.mentions.get_mut(l.index()) {
+            row.push(at);
+        }
+    }
+
+    fn bind(&mut self, l: LocalId, at: (u32, Option<u32>)) {
+        if self.binders.len() <= l.index() {
+            self.binders.resize(l.index() + 1, None);
+        }
+        if let Some(slot) = self.binders.get_mut(l.index()) {
+            *slot = Some(at);
+        }
+    }
 }
 
 /// Where the operations that have to happen *before* a back edge go.
