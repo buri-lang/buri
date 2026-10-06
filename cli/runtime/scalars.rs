@@ -67,7 +67,7 @@
 //! and a marked block is the only kind two threads can reach, so those hooks
 //! never race an indexing thread on the same block.
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 /// The shortest view worth indexing, in bytes. A shorter one is walked: the
@@ -107,6 +107,11 @@ static KEPT: Mutex<Kept> = Mutex::new(Kept { slots: [None, None, None, None], ne
 /// Each slot's `base`, or `0` when the slot is empty, for [`forget`] to read
 /// without the lock. Written only under it.
 static KEYS: [AtomicUsize; SLOTS] = [const { AtomicUsize::new(0) }; SLOTS];
+
+/// Whether any index has ever been built. Set before the first key is stored,
+/// so whatever reads a key reads this set too; until then [`forget`], which
+/// every free calls, is one load rather than four.
+static INDEXED: AtomicBool = AtomicBool::new(false);
 
 /// Bytes read to find where scalars start, over the whole run: every walk, and
 /// every pass that built an index. A count of work for a test to read through
@@ -247,6 +252,7 @@ fn with_index<T>(base: *mut u8, bytes: &[u8], answer: impl FnOnce(&Index, usize)
             if let Some(s) = kept.slots.get_mut(slot) {
                 *s = Some(Index::build(key, bytes));
             }
+            INDEXED.store(true, Ordering::Relaxed);
             if let Some(k) = KEYS.get(slot) {
                 k.store(key, Ordering::Relaxed);
             }
@@ -347,7 +353,7 @@ fn walk(bytes: &[u8], index: usize) -> usize {
 #[inline]
 pub(crate) fn forget(p: *mut u8) {
     let key = p as usize;
-    if key == 0 || KEYS.iter().all(|k| k.load(Ordering::Relaxed) != key) {
+    if !INDEXED.load(Ordering::Relaxed) || key == 0 || KEYS.iter().all(|k| k.load(Ordering::Relaxed) != key) {
         return;
     }
     forget_slow(key);
