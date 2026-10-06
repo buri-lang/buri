@@ -168,6 +168,16 @@ fn wide_payload(n: usize) -> (String, Vec<String>) {
     let summed = join(strs.iter().enumerate().map(|(i, s)| if *s { format!("a{i}.length()") } else { format!("a{i}") }), " + ");
     let last = n - 1;
     let read_last = if strs[last] { format!("f{last}.length()") } else { format!("f{last}") };
+    // Equal up to the last `Int`, which is `x`.
+    let late = strs.iter().rposition(|s| !*s).unwrap_or(0);
+    let lates = join(
+        strs.iter().enumerate().map(|(i, s)| match (*s, i == late) {
+            (true, _) => String::from("\"w\""),
+            (false, true) => String::from("x"),
+            (false, false) => i.to_string(),
+        }),
+        ", ",
+    );
     let source = format!(
         "{HEAD}\nenum W {{\n    Tuple({types}),\n    Record {{ {fields} }},\n    Empty,\n}}\n\n\
          derive Equal, Hash, Show, Ordered for W;\n\n\
@@ -175,13 +185,15 @@ fn wide_payload(n: usize) -> (String, Vec<String>) {
          let s = \"w\".repeat(ctx, k % 3 + 1);\n    match (which) {{\n        \
          0 => .Tuple({values}),\n        1 => .Record {{ {named} }},\n        _ => .Empty,\n    }}\n}}\n\n\
          fn sum(w: W): Int {{\n    match (w) {{\n        .Tuple({binds}) => {summed},\n        \
-         .Record {{ f{last}, .. }} => {read_last},\n        .Empty => 0 - 1,\n    }}\n}}\n\n{MAIN}\
+         .Record {{ f{last}, .. }} => {read_last},\n        .Empty => 0 - 1,\n    }}\n}}\n\n\
+         fn late(x: Int): W {{\n    .Tuple({lates})\n}}\n\n{MAIN}\
          \x20   let ws = list.range(ctx, 0, 12).mapCtx(ctx, fn(c, i) => make(c, i, i % 3));\n\
          \x20   let again = list.range(ctx, 0, 12).mapCtx(ctx, fn(c, i) => make(c, i, i % 3));\n\
          \x20   let total = ws.fold(fn(acc, w) => acc + sum(w), 0);\n\
-         \x20   let hashed = ws.fold(fn(acc, w) => acc && w.hash() == w.hash(), true);\n{}{}    .Ok(())\n}}\n",
+         \x20   let hashed = ws.fold(fn(acc, w) => acc && w.hash() == w.hash(), true);\n{}{}{}    .Ok(())\n}}\n",
         say("\"${total} ${ws == again} ${hashed} ${ws.sort(ctx).isSortedBy(fn(x, y) => x.compare(y))}\""),
         say("\"${make(ctx, 1, 0) < make(ctx, 2, 0)} ${make(ctx, 1, 1) > make(ctx, 1, 0)} ${make(ctx, 1, 0)}\""),
+        say("\"${late(1) == late(1)} ${late(1) == late(2)} ${late(1) < late(2)} ${late(2) > late(1)} ${late(1).hash() == late(1).hash()} ${late(1).hash() == late(2).hash()}\""),
     );
     let total: i64 = (0..12usize)
         .map(|k| {
@@ -197,7 +209,7 @@ fn wide_payload(n: usize) -> (String, Vec<String>) {
         ".Tuple({})",
         join(strs.iter().enumerate().map(|(i, s)| if *s { String::from("\"ww\"") } else { (1 + i).to_string() }), ", ")
     );
-    (source, vec![format!("{total} true true true"), format!("true true {shown}")])
+    (source, vec![format!("{total} true true true"), format!("true true {shown}"), String::from("true false true true true false")])
 }
 
 /// `Option<Result<Option<…Int…>, Str>>`, `depth` levels, in a struct, matched

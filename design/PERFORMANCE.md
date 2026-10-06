@@ -3364,10 +3364,8 @@ natively under the heap check and on JavaScript, and asserts only what it prints
 **Still worse than linear:**
 
 - **`--release` on wide payloads and long tuples** grows 2.5 times per
-  doubling. A derived `compare` binds every payload field at the arm's entry,
-  so a 200-field variant is 1,203 loads in one scheduling region, and the
-  greedy allocator and both schedulers grow with it. Reading each field where
-  it's compared would bound it.
+  doubling. The derived functions' part of it is fixed in §6.34, and what's
+  left is listed there.
 - **`--release` on long matches and long templates** grows 2.4 times per
   doubling. §6.33 has both.
 - **The `rc` pass** clones live sets across a long expression: 0.13 G for a
@@ -3467,6 +3465,59 @@ allocator grow with values times the blocks they span. Two measurements:
 all the converted strings are live at once too. Showing each piece's holes
 next to its join would shrink the live set. It wouldn't change the growth,
 since the program's own lets stay live.
+
+### 6.34 A derived function reads a wide payload where it uses it, 2026-10-06
+
+A derived `compare`, `==` or `hash` bound every payload field on entering a
+variant's arm. At 200 fields that's 401 loads in a row before the first call,
+and `llc`'s schedulers are quadratic in a region that long (§6.31).
+
+Past eight fields (`derives.rs`, `EAGER_FIELDS_MAX`), the arm binds nothing and
+the payload is read eight fields at a time, just before they're compared:
+
+```text
+match a { .V(..) => match b { .V(..) =>
+    match a { .V(x0, …, x7, ..) => match b { .V(y0, …, y7, ..) =>
+        <compare fields 0 to 7, and if they're equal:>
+        match a { .V(.., x8, …, x15, ..) => …
+```
+
+One field at a time was worse. Each read tests both tags again, and `opt`'s
+`JumpThreading` and `GVN` are quadratic in those tests. `opt -O2` plus
+`llc -O2` on the derived `compare` of §6.32's wide variants alone:
+
+| Fields | All at the arm | One at a time | Eight at a time |
+|---:|---:|---:|---:|
+| 100 | 2.99 G | 2.49 G | 1.46 G |
+| 200 | 7.91 G | 5.99 G | 2.76 G |
+
+`buri build --release`, emit phase, §6.32's shapes:
+
+| Shape | 50 | 100 | 200 |
+|---|---:|---:|---:|
+| variants carrying `n` fields, before | 7.32 G | 18.00 G | 46.37 G |
+| variants carrying `n` fields, after | 6.50 G | 14.87 G | 35.99 G |
+| tuple of `n`, before and after | 3.25 G | 6.72 G | 15.30 G |
+
+`middle` on the 200-field variants went from 0.14 G to 0.05 G, because `rc`
+has fewer names live across the comparison. Debug emit is 0.16 G either way.
+
+A struct or tuple was never affected: its derived functions read a field by
+projection, where it's compared. `native::llvm`'s
+`a_wide_variants_derived_functions_read_each_field_where_they_use_it` bounds the
+longest run of loads in the derived functions at 32 and holds it flat from 100
+fields to 200. `native::e2e::shapes` compares and hashes two variants that
+differ only in their last `Int`.
+
+**What's left on these two shapes isn't in the derives.** Each function's
+`opt -O2` plus `llc -O2`, from 100 fields to 200:
+
+- **`make`, which builds the variant**, goes from 1.3 G to 3.5 G.
+  `JumpThreading` on it grows 5.6 times.
+- **The derived `Show`** goes from 3.2 G to 7.2 G for the tuple. It's a
+  template of 401 parts, and the greedy allocator's global splitting grows 3.1
+  times.
+- **`sum`, whose `let` binds all `n` fields**, goes from 0.74 G to 1.9 G.
 
 ## 7. Profiling, on this platform
 
