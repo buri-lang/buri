@@ -177,7 +177,7 @@ use std::cell::{Cell, UnsafeCell};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use std::thread;
@@ -430,7 +430,12 @@ pub(crate) struct Task {
     /// by thread. `memory::stack_list` is what reaches it.
     blocks: UnsafeCell<Blocks>,
     /// Taken by [`buri_rt_task_main`] on the task's own stack, exactly once.
-    body: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    ///
+    /// An `UnsafeCell` rather than a `Mutex`: it is written before the task is
+    /// queued and read once by the task itself, and the queue's lock orders
+    /// the two. A `Mutex` here was a boxed `pthread_mutex_t` per task, made,
+    /// locked once and destroyed.
+    body: UnsafeCell<Option<Box<dyn FnOnce() + Send>>>,
     /// Set by the thread after the task's stack has been given back, which is
     /// the moment a joiner may look at the answer.
     done: AtomicBool,
@@ -438,6 +443,8 @@ pub(crate) struct Task {
     ok: AtomicBool,
     /// Everybody waiting for `done`, woken once.
     waiters: Mutex<Vec<Waker>>,
+    /// The fan-out this task is a step of, told after `done` and the waiters.
+    latch: Option<Arc<Latch>>,
     /// G5: the `core/alloc` scope this task is inside — the arena, and the bump
     /// window into it (`memory::ArenaSlot`).
     ///
@@ -447,9 +454,10 @@ pub(crate) struct Task {
     /// leaves its scope here and finds it again on whichever thread resumes
     /// it, and the thread's own slot goes back to what it was.
     ///
-    /// A `Mutex` rather than an atomic because it is three words now; it is
-    /// taken twice per turn of a task, which is nowhere near anything hot.
-    arena: Mutex<crate::memory::ArenaSlot>,
+    /// Read and written only by the thread running the task, before and after
+    /// its turn, so an `UnsafeCell`: the run queue orders one turn's writes
+    /// before the next turn's reads, whichever threads they are on.
+    arena: UnsafeCell<crate::memory::ArenaSlot>,
     /// What started this task, outermost first: the thread that is not a task
     /// at the root, then every task between it and this one.
     ///
@@ -858,17 +866,13 @@ fn leave(task: &Task) {
 
 /// The scope a parked task left behind, and where it is put back.
 fn task_arena(task: &Task) -> crate::memory::ArenaSlot {
-    match task.arena.lock() {
-        Ok(g) => *g,
-        Err(poisoned) => *poisoned.into_inner(),
-    }
+    // SAFETY: only the thread running this task's turn touches the slot.
+    unsafe { *task.arena.get() }
 }
 
 fn set_task_arena(task: &Task, slot: crate::memory::ArenaSlot) {
-    match task.arena.lock() {
-        Ok(mut g) => *g = slot,
-        Err(poisoned) => *poisoned.into_inner() = slot,
-    }
+    // SAFETY: as above.
+    unsafe { *task.arena.get() = slot }
 }
 
 /// What every thread does, for the life of the process.
@@ -917,6 +921,9 @@ fn thread_loop() {
             armed = true;
             task.done.store(true, Ordering::Release);
             wake_waiters(&task);
+            if let Some(latch) = &task.latch {
+                latch.arrive();
+            }
         } else if task
             .state
             .compare_exchange(PARKING, PARKED, Ordering::AcqRel, Ordering::Acquire)
@@ -962,10 +969,8 @@ fn thread_loop() {
 pub unsafe extern "C" fn buri_rt_task_main(arg: *mut u8) -> ! {
     // SAFETY: the thread planted the address of the task it is holding.
     let task: &Task = unsafe { &*arg.cast::<Task>() };
-    let body = match task.body.lock() {
-        Ok(mut slot) => slot.take(),
-        Err(poisoned) => poisoned.into_inner().take(),
-    };
+    // SAFETY: the one read of a slot written before the task was queued.
+    let body = unsafe { (*task.body.get()).take() };
     if let Some(body) = body {
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body));
         task.ok.store(ran.is_ok(), Ordering::Release);
@@ -994,7 +999,7 @@ fn wake_waiters(task: &Task) {
 
 /// Map a task's machine stack and build the frame it starts from. The caller
 /// queues it.
-fn new_task(body: Box<dyn FnOnce() + Send>) -> Arc<Task> {
+fn new_task(body: Box<dyn FnOnce() + Send>, latch: Option<Arc<Latch>>) -> Arc<Task> {
     let (base, top) = crate::memory::buri_rt_task_stack_acquire();
     let task = Arc::new(Task {
         state: AtomicU8::new(QUEUED),
@@ -1002,11 +1007,12 @@ fn new_task(body: Box<dyn FnOnce() + Send>) -> Arc<Task> {
         sp: UnsafeCell::new(std::ptr::null_mut()),
         stack: base,
         blocks: UnsafeCell::new(Blocks::new()),
-        body: Mutex::new(Some(body)),
+        body: UnsafeCell::new(Some(body)),
         done: AtomicBool::new(false),
         ok: AtomicBool::new(false),
         waiters: Mutex::new(Vec::new()),
-        arena: Mutex::new(crate::memory::ArenaSlot::NONE),
+        latch,
+        arena: UnsafeCell::new(crate::memory::ArenaSlot::NONE),
         lineage: lineage_here(),
     });
     // The task's *own* address travels in the frame, and the `Arc` that keeps
@@ -1097,13 +1103,16 @@ pub fn on_thread<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> H
 fn unqueued<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Handoff<T> {
     let answer = Arc::new(Mutex::new(None));
     let slot = Arc::clone(&answer);
-    let task = new_task(Box::new(move || {
+    let task = new_task(
+        Box::new(move || {
         let out = f();
         match slot.lock() {
             Ok(mut slot) => *slot = Some(out),
             Err(poisoned) => *poisoned.into_inner() = Some(out),
         }
-    }));
+        }),
+        None,
+    );
     Handoff { task, answer }
 }
 
@@ -1348,6 +1357,21 @@ unsafe fn in_order(steps: Steps, n: usize) {
 /// # Safety
 /// As [`in_order`].
 unsafe fn fan_out(steps: Steps, n: usize) {
+    if n <= IN_FLIGHT {
+        // The whole list fits the window: one batch, and one wait for all of
+        // it rather than a join per step, each of which was a flush, a look at
+        // the timers and a trip into the reactor.
+        let latch = Arc::new(Latch::new(n));
+        let tasks: Vec<Arc<Task>> = (0..n)
+            // SAFETY: `j < n`, each index dispatched once, and `Steps` is
+            // `Send` for the reason stated at its `unsafe impl`.
+            .map(|j| new_task(Box::new(move || unsafe { steps.run(j) }), Some(Arc::clone(&latch))))
+            .collect();
+        push_all(tasks.iter().cloned());
+        park_on(AllArrived(&latch));
+        assert!(tasks.iter().all(|t| t.ok.load(Ordering::Acquire)), "a buri task did not finish");
+        return;
+    }
     let mut window: VecDeque<Handoff<()>> = VecDeque::with_capacity(n.min(IN_FLIGHT));
     let mut i = 0;
     while i < n {
@@ -1367,6 +1391,60 @@ unsafe fn fan_out(steps: Steps, n: usize) {
     }
     while let Some(handoff) = window.pop_front() {
         finish(Some(handoff));
+    }
+}
+
+/// A count of a fan-out's steps still to finish, and whoever waits for none.
+///
+/// [`thread_loop`] tells it after a step's `done`, at the same point it wakes
+/// the step's joiners, so a step's thread is counted idle before the
+/// dispatcher can go on.
+struct Latch {
+    left: AtomicUsize,
+    waiter: Mutex<Option<Waker>>,
+}
+
+impl Latch {
+    fn new(n: usize) -> Latch {
+        Latch { left: AtomicUsize::new(n), waiter: Mutex::new(None) }
+    }
+
+    fn waiter(&self) -> std::sync::MutexGuard<'_, Option<Waker>> {
+        match self.waiter.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// One step has finished; the last one wakes the waiter.
+    fn arrive(&self) {
+        if self.left.fetch_sub(1, Ordering::AcqRel) == 1 {
+            let waker = self.waiter().take();
+            if let Some(waker) = waker {
+                waker.wake();
+            }
+        }
+    }
+}
+
+/// Ready once every step of a [`Latch`] has arrived.
+struct AllArrived<'a>(&'a Latch);
+
+impl Future for AllArrived<'_> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if self.0.left.load(Ordering::Acquire) == 0 {
+            return Poll::Ready(());
+        }
+        let mut waiter = self.0.waiter();
+        // Under the lock `arrive` takes after its decrement, so the last
+        // arrival either sees this waker or this check sees it.
+        if self.0.left.load(Ordering::Acquire) == 0 {
+            return Poll::Ready(());
+        }
+        *waiter = Some(cx.waker().clone());
+        Poll::Pending
     }
 }
 
