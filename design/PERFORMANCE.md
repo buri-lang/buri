@@ -4440,6 +4440,55 @@ about 1.5%, so the new slots are swept one sweep in four.
 What's left in tiny tasks is the kernel waking ten workers per round and the
 run queue's lock. A per-worker queue with stealing is the next shape to try.
 
+#### 6.44.2 Round three: the pool's size
+
+The profile said ten workers, and the pool had sixty-four. `Sched::grow`
+started a thread whenever the queue was longer than the idle count, so a
+64-step fan-out started a thread for every step past the idle ones, and the
+pool ended at one thread per step. Each round's broadcast then woke all of
+them onto ten cores.
+
+```rust
+// before
+let short = self.queue.len() > self.idle && !self.starting && self.threads < MAX_THREADS;
+// after
+let short = !self.queue.is_empty() && self.idle == 0 && !self.starting && self.threads < MAX_THREADS;
+```
+
+An idle thread takes the next task, so the queue is short of threads only
+once none is idle. `take` asks again after every pop, so a backlog behind
+threads that block still grows the pool one thread at a time. Two new tests
+run with a busy process on every core: steps that block on a barrier, more of
+them than cores, all meet; and a fan-out whose steps hold every thread doesn't
+starve the next caller's. Both hang with the pool capped.
+
+| Program | Instructions before | after | Wall before | after |
+|---|---:|---:|---:|---:|
+| tiny tasks | 19,531 M | 7,454 M | 2.59 s | 1.07 s |
+| parallel | 10,346 M | 8,921 M | 0.40 s | 0.24 s |
+
+Best of three at load 46–51. The single-threaded programs don't move.
+
+**That one line made the work-stealing rewrite unnecessary for now.** Two
+smaller changes, measured on top of it, didn't pay and were dropped:
+
+- **Waking one worker per batch, each taker waking the next** while work
+  remains: tiny tasks 1.11–1.28 s became 1.26–1.52 s.
+- **Taking the next task under the lock that counts a finishing thread
+  idle**, which saves a lock per task: within noise on tiny tasks, and
+  parallel went from 0.33–0.49 s to 0.40–0.57 s.
+
+What's left is contention on the run queue's one lock, the largest cost in a
+tiny-tasks profile after idle waiting.
+
+**A thread-local that isn't all zeros costs every binary its full size.**
+The block cache marked an unarmed thread with a sentinel in `held`, so Mach-O
+stored the whole initialiser as `__thread_data`. With round two's 1 KiB slots
+that was 16,552 bytes, and a stripped hello world on CI's macOS went 2.4 KB
+past its 512 KiB ceiling. The cache now keeps a `limit` that is zero until it
+is armed and an `armed` flag, so the thread-local lands in `__thread_bss`:
+`__thread_data` 56 bytes, stripped hello 477,600 to 461,088 bytes locally.
+
 ### 6.45 What `--release` hands to LLVM, 2026-10-06
 
 `buri build --release` of `mixed-10k` spent 20.2 G instructions in `emit`:
