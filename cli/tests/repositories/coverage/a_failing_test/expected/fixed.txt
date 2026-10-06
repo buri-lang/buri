@@ -1,0 +1,6 @@
+2 passed, 0 failed, 0 skipped (0.0s)
+
+coverage
+  lib/calc/calc.buri  4/4  100.0%
+  total               4/4  100.0%
+lcov: .buri/coverage/lcov.info

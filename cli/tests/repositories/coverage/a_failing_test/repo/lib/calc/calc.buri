@@ -1,0 +1,7 @@
+export fn half(n: I64): I64 {
+    n / 2
+}
+
+export fn third(n: I64): I64 {
+    n / 3
+}

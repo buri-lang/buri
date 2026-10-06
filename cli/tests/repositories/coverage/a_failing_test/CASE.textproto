@@ -1,0 +1,57 @@
+# A failing test under `--coverage`: the same report and the same exit code as
+# without it, with the counts after them. The failed assertion ends its
+# process, and the lines it ran before that still count, on both backends.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "--coverage leaves a failing run's report and exit code alone, and counts the lines a failed test ran"
+
+run {
+  args: ["test", "//lib/calc"]
+  exit: 1
+  golden: "plain.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//lib/calc", "--coverage"]
+  exit: 1
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
+
+run {
+  args: ["test", "//lib/calc", "--coverage", "--output=js"]
+  exit: 1
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
+
+# The fix: the run passes, and the counts don't move.
+edit {
+  file: "lib/calc/test/calc.buri"
+  replace: "assert.equal(half(4), 3);"
+  with: "assert.equal(half(4), 2);"
+}
+
+run {
+  args: ["test", "//lib/calc", "--coverage"]
+  exit: 0
+  golden: "fixed.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
