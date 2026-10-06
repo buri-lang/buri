@@ -100,6 +100,27 @@ fn the_cache_cannot_serve_a_stale_answer() {
     eprintln!("cache: invalidates on edit, hits on revert, never stale");
 }
 
+/// A file no rule lists is still a module its own package can import, and
+/// editing it must not leave the artifact built from its old bytes.
+#[test]
+fn an_import_no_rule_lists_cannot_serve_a_stale_answer() {
+    let scratch = Scratch::repo("cache-unlisted");
+    let main = program(0)
+        .replace("fn answer(): Int { 0 }", "")
+        .replace("from \"core/io\"", "from \"//cmd/c/helper.buri\" import { answer };\nfrom \"core/io\"");
+    scratch.binary_package("cmd/c", &main);
+    scratch.write("cmd/c/helper.buri", "export fn answer(): Int { 1 }\n");
+
+    scratch.run(&["build", "//cmd/c"]).ok();
+    assert_eq!(scratch.exec_js("cmd/c").stdout, "answer=1\n");
+    scratch.run(&["build", "//cmd/c"]).says("cached");
+
+    scratch.write("cmd/c/helper.buri", "export fn answer(): Int { 2 }\n");
+    scratch.run(&["build", "//cmd/c"]).ok();
+    assert_eq!(scratch.exec_js("cmd/c").stdout, "answer=2\n", "the cache served a stale artifact");
+    scratch.run(&["build", "//cmd/c"]).says("cached");
+}
+
 /// A rebuilt `buri` — a new binary at the same version — must not be served the
 /// previous build's artifacts. The key folds the running executable's hash, and
 /// a `.buri/cache/.toolchain` marker records it, so a build whose marker names a
