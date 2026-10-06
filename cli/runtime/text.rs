@@ -1088,10 +1088,25 @@ pub unsafe extern "C" fn buri_rt_str_from_chars(
 /// `out` is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_str_from_int(n: i64, out: *mut BuriStr) {
-    let mut text = crate::fmt::Buf::new();
-    text.push_i64(n);
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(BuriStr::copy_from(text.as_bytes())) }
+    // The digits go straight into the block: no buffer, no copy.
+    let sign = usize::from(n < 0);
+    let digits = crate::fmt::decimal_len(n.unsigned_abs());
+    let len = sign + digits;
+    let base = buri_rt_alloc(len as u64);
+    // SAFETY: `base` is a fresh block of `len` bytes, and `out` is the
+    // caller's writable, aligned destination.
+    unsafe {
+        let bytes = std::slice::from_raw_parts_mut(base, len);
+        if let Some((minus, rest)) = bytes.split_first_mut()
+            && sign == 1
+        {
+            *minus = b'-';
+            crate::fmt::write_decimal(n.unsigned_abs(), rest);
+        } else {
+            crate::fmt::write_decimal(n.unsigned_abs(), bytes);
+        }
+        out.write(BuriStr { base, ptr: base, len: len as u64 | BURI_RT_STR_ASCII });
+    }
 }
 
 /// `str.padStart(self, ctx, width, fill) -> Str`.
