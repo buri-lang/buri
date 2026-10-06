@@ -4378,6 +4378,49 @@ fn function_pointer<'ctx>(f: FunctionValue<'ctx>) -> PointerValue<'ctx> {
 }
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
+    /// Deletes each of `members` that nothing left in the module uses and
+    /// `kept` doesn't ask for, until there are none.
+    ///
+    /// Run on the optimized module. A function inlined at every call is still
+    /// external, so LLVM keeps it, and generating code for it was 9% of
+    /// `mixed-10k`'s `--release` emit. The linker strips it anyway, so the
+    /// executable is the same. `kept` says which functions another unit or the
+    /// entry point names (`linkage::named_elsewhere`), and the unit's key
+    /// carries it.
+    ///
+    /// The module is walked rather than [`Unit`]'s own table, which can hold a
+    /// declaration the pipeline has since deleted.
+    pub fn prune(&mut self, members: &[usize], kept: &[bool]) {
+        self.funcs.clear();
+        let droppable: crate::hash::Set<&str> = members
+            .iter()
+            .filter(|at| !kept.get(**at).copied().unwrap_or(true))
+            .filter_map(|at| self.program.funcs.get(*at))
+            .map(|f| f.symbol.as_str())
+            .collect();
+        loop {
+            let mut unused = Vec::new();
+            let mut next = self.module.get_first_function();
+            while let Some(f) = next {
+                next = f.get_next_function();
+                if f.count_basic_blocks() > 0
+                    && f.as_global_value().as_pointer_value().get_first_use().is_none()
+                    && f.get_name().to_str().is_ok_and(|n| droppable.contains(n))
+                {
+                    unused.push(f);
+                }
+            }
+            if unused.is_empty() {
+                return;
+            }
+            for f in unused {
+                // SAFETY: nothing in the module uses `f`, and nothing outside
+                // it holds it: `funcs` was cleared above.
+                unsafe { f.delete() };
+            }
+        }
+    }
+
     /// Builds every helper body that has been asked for, and every one those
     /// ask for in turn.
     ///
