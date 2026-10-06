@@ -494,6 +494,22 @@ test "sortBy is stable when every key is equal" {
     ]);
 }
 
+// JavaScript's own sort moves `undefined` to the end without asking the
+// comparator, and `None` is `undefined` there.
+test "sortBy orders None by the comparator" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs: [Option<Int>] = [.Some(2), .None, .Some(1), .None];
+    let rank = fn(x: Option<Int>): Int => x.withDefault(0);
+    assert.equal(xs.sortBy(ctx, fn(a, b) => order.int(rank(a), rank(b))), [
+        .None,
+        .None,
+        .Some(1),
+        .Some(2),
+    ]);
+}
+
 test "sort orders by Ordered" {
     let ctx = context {
         Allocator: alloc(),
