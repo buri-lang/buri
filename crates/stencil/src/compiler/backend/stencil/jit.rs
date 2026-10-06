@@ -424,6 +424,7 @@ struct Bufs {
     touched: Vec<Option<usize>>,
     opnd: Operands,
     literals: Literals,
+    loops: Loops,
 }
 
 /// What every instruction and terminator of one function reads, listed once.
@@ -1054,6 +1055,176 @@ impl Fn2 {
             return Loc::Frame;
         }
         self.home(v)
+    }
+}
+
+/// One list of block indices per block, in two flat tables rather than a
+/// `Vec` each. [`Jit::promote`] builds three of these per function with a
+/// loop in it, and a `Vec` per block was most of its time.
+#[derive(Default)]
+struct Lists {
+    /// Where each list starts in `items`, and one past the last.
+    at: Vec<u32>,
+    items: Vec<u32>,
+    /// Where the next item of each list goes, while filling.
+    next: Vec<u32>,
+}
+
+impl Lists {
+    /// `n` lists, from `(list, item)` pairs, each list in the order its
+    /// pairs come. A pair naming a list past `n` is dropped.
+    fn fill<I: Iterator<Item = (usize, usize)>>(&mut self, n: usize, pairs: impl Fn() -> I) {
+        self.at.clear();
+        self.at.resize(n + 1, 0);
+        for (l, _) in pairs() {
+            if l < n {
+                bump(&mut self.at, l + 1);
+            }
+        }
+        let mut sum = 0u32;
+        for a in self.at.iter_mut() {
+            sum += *a;
+            *a = sum;
+        }
+        self.items.clear();
+        self.items.resize(sum as usize, 0);
+        self.next.clear();
+        self.next.extend_from_slice(self.at.get(..n).unwrap_or_default());
+        for (l, x) in pairs() {
+            let Some(k) = self.next.get_mut(l) else { continue };
+            put(&mut self.items, *k as usize, x as u32);
+            *k += 1;
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.at.len().saturating_sub(1)
+    }
+
+    fn of(&self, l: usize) -> &[u32] {
+        let lo = ent(&self.at, l, 0) as usize;
+        let hi = ent(&self.at, l + 1, 0) as usize;
+        self.items.get(lo..hi).unwrap_or_default()
+    }
+}
+
+/// What [`Jit::promote`] looks for its loop with, kept from one function to
+/// the next.
+#[derive(Default)]
+struct Loops {
+    preds: Lists,
+    dom: Dominance,
+    barrier: Vec<bool>,
+    stamp: Vec<u32>,
+    members: Vec<usize>,
+    stack: Vec<usize>,
+    /// The innermost loop's blocks, once [`Loops::innermost`] has found one.
+    best: Vec<usize>,
+}
+
+impl Loops {
+    /// The header of the innermost promotable loop, with its blocks in
+    /// [`Loops::best`].
+    fn innermost(&mut self, code: &ir::Code) -> Option<usize> {
+        let nb = code.blocks.len();
+        let Loops { preds, dom, barrier, stamp, members, stack, best } = self;
+        barrier.clear();
+        barrier.extend(code.blocks.iter().map(|b| b.insts.iter().any(is_barrier)));
+        preds.fill(nb, || {
+            code.blocks
+                .iter()
+                .enumerate()
+                .flat_map(|(bi, b)| b.term.targets().map(move |t| (t.block.index(), bi)))
+        });
+        // The innermost promotable loop. A back edge is any edge whose target
+        // is not after its source in layout order; the loop it makes is the
+        // blocks that reach the source without passing the header, and it is a
+        // real, *reducible* loop exactly when every predecessor of every block
+        // in that set is in it too. That test is what makes the region safe
+        // without a dominator tree: control cannot be inside the loop without
+        // having come through the header, so a register filled at the header is
+        // filled everywhere in it.
+        //
+        // The dominator tree is still worth having, as a filter: a candidate
+        // whose header does not dominate its source is one the walk below
+        // would abandon, and it would have walked back to the entry to find
+        // that out. `lower` puts a `match`'s join block ahead of its arms, so
+        // every arm of a wide `match` is such a candidate, and walking each of
+        // them was quadratic in the width.
+        dom.compute(preds);
+        // One side table for every candidate, told apart by a stamp, and the
+        // members listed beside it: a table per candidate was the other half
+        // of the quadratic.
+        stamp.clear();
+        stamp.resize(nb, 0);
+        let mut epoch = 0u32;
+        let mut found: Option<usize> = None;
+        for (p, b) in code.blocks.iter().enumerate() {
+            for t in b.term.targets() {
+                let h = t.block.index();
+                if h > p {
+                    continue;
+                }
+                if code.get(ir::BlockId(h as u32)).params.is_empty() {
+                    continue;
+                }
+                if !dom.may_loop(h, p) {
+                    continue;
+                }
+                epoch += 1;
+                let inside = |stamp: &[u32], x: usize| ent(stamp, x, epoch) == epoch;
+                members.clear();
+                put(stamp, h, epoch);
+                members.push(h);
+                if p != h {
+                    put(stamp, p, epoch);
+                    members.push(p);
+                }
+                stack.clear();
+                stack.push(p);
+                let mut ok = true;
+                while let Some(x) = stack.pop() {
+                    if x == h {
+                        continue;
+                    }
+                    if x >= nb {
+                        ok = false;
+                        break;
+                    }
+                    let ps = preds.of(x);
+                    if ps.is_empty() {
+                        ok = false; // reached the entry: not a natural loop
+                        break;
+                    }
+                    for q in ps.iter().map(|q| *q as usize) {
+                        if !inside(stamp, q) {
+                            put(stamp, q, epoch);
+                            members.push(q);
+                            stack.push(q);
+                        }
+                    }
+                }
+                if !ok || inside(stamp, 0) {
+                    continue;
+                }
+                // Every way into the loop is through the header.
+                let closed = members.iter().all(|x| {
+                    *x == h
+                        || (*x < nb && preds.of(*x).iter().all(|q| inside(stamp, *q as usize)))
+                });
+                if !closed {
+                    continue;
+                }
+                if members.iter().any(|x| ent(barrier, *x, false)) {
+                    continue;
+                }
+                if found.is_none() || members.len() < best.len() {
+                    best.clone_from(members);
+                    found = Some(h);
+                }
+            }
+        }
+        found
     }
 }
 
@@ -2624,112 +2795,18 @@ impl<'a> Jit<'a> {
         if !back_edge {
             return (0, 0);
         }
-        let barrier: Vec<bool> =
-            code.blocks.iter().map(|b| b.insts.iter().any(is_barrier)).collect();
-        let mut preds: Vec<Vec<usize>> = vec![Vec::new(); nb];
-        for (bi, b) in code.blocks.iter().enumerate() {
-            for t in b.term.targets() {
-                if let Some(ps) = preds.get_mut(t.block.index()) {
-                    ps.push(bi);
-                }
+        let mut loops = std::mem::take(&mut self.bufs.loops);
+        let found = loops.innermost(code);
+        if found.is_some() {
+            region.clear();
+            region.resize(nb, false);
+            for x in &loops.best {
+                put(region, *x, true);
             }
         }
-        // The innermost promotable loop. A back edge is any edge whose target
-        // is not after its source in layout order; the loop it makes is the
-        // blocks that reach the source without passing the header, and it is a
-        // real, *reducible* loop exactly when every predecessor of every block
-        // in that set is in it too. That test is what makes the region safe
-        // without a dominator tree: control cannot be inside the loop without
-        // having come through the header, so a register filled at the header is
-        // filled everywhere in it.
-        //
-        // The dominator tree is still worth having, as a filter: a candidate
-        // whose header does not dominate its source is one the walk below
-        // would abandon, and it would have walked back to the entry to find
-        // that out. `lower` puts a `match`'s join block ahead of its arms, so
-        // every arm of a wide `match` is such a candidate, and walking each of
-        // them was quadratic in the width.
-        let dom = Dominance::of(&preds);
-        // One side table for every candidate, told apart by a stamp, and the
-        // members listed beside it: a table per candidate was the other half
-        // of the quadratic.
-        let mut stamp: Vec<u32> = vec![0; nb];
-        let mut epoch = 0u32;
-        let mut members: Vec<usize> = Vec::new();
-        let mut stack: Vec<usize> = Vec::new();
-        let mut best: Option<Vec<usize>> = None;
-        let mut best_h = 0usize;
-        for (p, b) in code.blocks.iter().enumerate() {
-            for t in b.term.targets() {
-                let h = t.block.index();
-                if h > p {
-                    continue;
-                }
-                if code.get(ir::BlockId(h as u32)).params.is_empty() {
-                    continue;
-                }
-                if !dom.may_loop(h, p) {
-                    continue;
-                }
-                epoch += 1;
-                let inside = |stamp: &[u32], x: usize| ent(stamp, x, epoch) == epoch;
-                members.clear();
-                put(&mut stamp, h, epoch);
-                members.push(h);
-                if p != h {
-                    put(&mut stamp, p, epoch);
-                    members.push(p);
-                }
-                stack.clear();
-                stack.push(p);
-                let mut ok = true;
-                while let Some(x) = stack.pop() {
-                    if x == h {
-                        continue;
-                    }
-                    let Some(ps) = preds.get(x) else {
-                        ok = false;
-                        break;
-                    };
-                    if ps.is_empty() {
-                        ok = false; // reached the entry: not a natural loop
-                        break;
-                    }
-                    for q in ps {
-                        if !inside(&stamp, *q) {
-                            put(&mut stamp, *q, epoch);
-                            members.push(*q);
-                            stack.push(*q);
-                        }
-                    }
-                }
-                if !ok || inside(&stamp, 0) {
-                    continue;
-                }
-                // Every way into the loop is through the header.
-                let closed = members.iter().all(|x| {
-                    *x == h
-                        || preds.get(*x).is_some_and(|ps| ps.iter().all(|q| inside(&stamp, *q)))
-                });
-                if !closed {
-                    continue;
-                }
-                if members.iter().any(|x| ent(&barrier, *x, false)) {
-                    continue;
-                }
-                if best.as_ref().is_none_or(|bb| members.len() < bb.len()) {
-                    best = Some(members.clone());
-                    best_h = h;
-                }
-            }
-        }
-        let Some(best) = best else { return (0, 0) };
-        let h = best_h;
-        let mut body = vec![false; nb];
-        for x in best {
-            put(&mut body, x, true);
-        }
-        region.clone_from(&body);
+        self.bufs.loops = loops;
+        let Some(h) = found else { return (0, 0) };
+        let body: &[bool] = region;
 
         // Where every value is used, and whether every one of those uses can
         // read a register.
@@ -2739,7 +2816,7 @@ impl<'a> Jit<'a> {
         let mut uses = vec![0u32; n];
         let mut ops = Vec::new();
         for (bi, b) in code.blocks.iter().enumerate() {
-            let inside = ent(&body, bi, false);
+            let inside = ent(body, bi, false);
             for i in &b.insts {
                 ops.clear();
                 i.operands(&mut ops);
@@ -2809,7 +2886,7 @@ impl<'a> Jit<'a> {
         // the frame, because it adds a reload to a chain that already had a
         // store-to-load forward in it.
         for (bi, b) in code.blocks.iter().enumerate() {
-            if !ent(&body, bi, false) {
+            if !ent(body, bi, false) {
                 continue;
             }
             for t in b.term.targets() {
@@ -3208,61 +3285,70 @@ impl Jit<'_> {
 /// nothing jumps to, because those are what `promote`'s walk counts as a way
 /// in. Built once per function, by Cooper, Harvey and Kennedy's iteration ("A
 /// Simple, Fast Dominance Algorithm"), and asked in constant time.
+#[derive(Default)]
 struct Dominance {
     /// Each block's entry in a preorder walk of the dominator tree, and one
     /// past its last descendant's: `a` dominates `b` exactly when `b`'s entry
     /// is inside `a`'s range. `None` for a block no way in reaches.
     range: Vec<Option<(u32, u32)>>,
+    /// The walks' storage, kept from one function to the next.
+    succ: Lists,
+    children: Lists,
+    number: Vec<usize>,
+    post: Vec<usize>,
+    seen: Vec<bool>,
+    idom: Vec<usize>,
+    stack: Vec<(usize, usize)>,
 }
 
 impl Dominance {
-    fn of(preds: &[Vec<usize>]) -> Dominance {
+    fn compute(&mut self, preds: &Lists) {
+        let Dominance { range, succ, children, number, post, seen, idom, stack } = self;
         let nb = preds.len();
         let root = nb;
-        let way_in = |x: usize| x == 0 || preds.get(x).is_some_and(Vec::is_empty);
-        let mut succ: Vec<Vec<usize>> = vec![Vec::new(); nb + 1];
-        for (x, ps) in preds.iter().enumerate() {
-            for p in ps {
-                if let Some(s) = succ.get_mut(*p) {
-                    s.push(x);
-                }
-            }
-        }
-        if let Some(s) = succ.get_mut(root) {
-            s.extend((0..nb).filter(|x| way_in(*x)));
-        }
+        let way_in = |x: usize| x == 0 || preds.of(x).is_empty();
+        succ.fill(nb + 1, || {
+            (0..nb)
+                .flat_map(|x| preds.of(x).iter().map(move |p| (*p as usize, x)))
+                .chain((0..nb).filter(move |x| way_in(*x)).map(move |x| (root, x)))
+        });
 
         // Postorder from the root.
         const NONE: usize = usize::MAX;
-        let mut number = vec![NONE; nb + 1];
-        let mut post: Vec<usize> = Vec::with_capacity(nb + 1);
-        let mut seen = vec![false; nb + 1];
-        put(&mut seen, root, true);
-        let mut stack: Vec<(usize, usize)> = vec![(root, 0)];
+        number.clear();
+        number.resize(nb + 1, NONE);
+        post.clear();
+        seen.clear();
+        seen.resize(nb + 1, false);
+        put(seen, root, true);
+        stack.clear();
+        stack.push((root, 0));
         while let Some((x, k)) = stack.pop() {
-            match succ.get(x).and_then(|s| s.get(k)).copied() {
+            match succ.of(x).get(k).map(|y| *y as usize) {
                 Some(y) => {
                     stack.push((x, k + 1));
-                    if !ent(&seen, y, true) {
-                        put(&mut seen, y, true);
+                    if !ent(seen, y, true) {
+                        put(seen, y, true);
                         stack.push((y, 0));
                     }
                 }
                 None => {
-                    put(&mut number, x, post.len());
+                    put(number, x, post.len());
                     post.push(x);
                 }
             }
         }
 
-        let mut idom = vec![NONE; nb + 1];
-        put(&mut idom, root, root);
+        idom.clear();
+        idom.resize(nb + 1, NONE);
+        put(idom, root, root);
+        let number: &[usize] = number;
         let intersect = |idom: &[usize], mut a: usize, mut b: usize| {
             while a != b {
-                while ent(&number, a, NONE) < ent(&number, b, NONE) {
+                while ent(number, a, NONE) < ent(number, b, NONE) {
                     a = ent(idom, a, root);
                 }
-                while ent(&number, b, NONE) < ent(&number, a, NONE) {
+                while ent(number, b, NONE) < ent(number, a, NONE) {
                     b = ent(idom, b, root);
                 }
             }
@@ -3274,37 +3360,34 @@ impl Dominance {
             // Reverse postorder, the root (which is last) left out.
             for b in post.iter().rev().skip(1).copied() {
                 let from_root = way_in(b).then_some(root);
-                let ps = preds.get(b).map(Vec::as_slice).unwrap_or_default();
                 let mut next = NONE;
-                for p in ps.iter().copied().chain(from_root) {
-                    if ent(&idom, p, NONE) == NONE {
+                for p in preds.of(b).iter().map(|p| *p as usize).chain(from_root) {
+                    if ent(idom, p, NONE) == NONE {
                         continue;
                     }
-                    next = if next == NONE { p } else { intersect(&idom, p, next) };
+                    next = if next == NONE { p } else { intersect(idom, p, next) };
                 }
-                if ent(&idom, b, NONE) != next {
-                    put(&mut idom, b, next);
+                if ent(idom, b, NONE) != next {
+                    put(idom, b, next);
                     changed = true;
                 }
             }
         }
 
         // The tree, numbered in preorder.
-        let mut children: Vec<Vec<usize>> = vec![Vec::new(); nb + 1];
-        for b in post.iter().rev().skip(1).copied() {
-            if let Some(c) = children.get_mut(ent(&idom, b, root)) {
-                c.push(b);
-            }
-        }
-        let mut range: Vec<Option<(u32, u32)>> = vec![None; nb + 1];
+        let idom: &[usize] = idom;
+        children.fill(nb + 1, || post.iter().rev().skip(1).map(|b| (ent(idom, *b, root), *b)));
+        range.clear();
+        range.resize(nb + 1, None);
         let mut clock = 0u32;
-        let mut stack: Vec<(usize, usize)> = vec![(root, 0)];
+        stack.clear();
+        stack.push((root, 0));
         while let Some((x, k)) = stack.pop() {
             if k == 0 {
-                put(&mut range, x, Some((clock, clock)));
+                put(range, x, Some((clock, clock)));
                 clock += 1;
             }
-            match children.get(x).and_then(|c| c.get(k)).copied() {
+            match children.of(x).get(k).map(|y| *y as usize) {
                 Some(y) => {
                     stack.push((x, k + 1));
                     stack.push((y, 0));
@@ -3317,7 +3400,6 @@ impl Dominance {
             }
         }
         range.truncate(nb);
-        Dominance { range }
     }
 
     /// Whether [`Jit::promote`]'s walk could accept the back edge from `p` to
