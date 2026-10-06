@@ -158,8 +158,7 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     let mut types = Types::default();
     let mut funcs = Vec::with_capacity(lowered.len());
     for (mut func, local) in lowered {
-        let remap: Vec<TypeId> =
-            local.into_iter().map(|info| types.adopt(info.ty, info.name)).collect();
+        let remap: Vec<TypeId> = local.into_iter().map(|info| types.adopt(tables, info.ty)).collect();
         remap_func_types(&mut func, &remap);
         funcs.push(func);
     }
@@ -392,24 +391,23 @@ impl Types {
             return *id;
         }
         let id = TypeId(self.list.len() as u32);
-        self.list.push(TypeInfo {
-            name: crate::compiler::semantics::types::show(tables, None, &[], ty),
-            ty: *ty,
-        });
+        // Named in [`Types::adopt`], once per program rather than once per
+        // function that meets the type: nothing reads a function's own names.
+        self.list.push(TypeInfo { name: String::new(), ty: *ty });
         self.index.insert(*ty, id);
         id
     }
 
-    /// Folds one already-interned type — a runtime `ty` and the name it was
-    /// interned under — into this interner, for merging the per-function
-    /// interners `run_with` builds. It takes the entry whole rather than
-    /// recomputing it: the `ty` is already `runtime_ty`-normalized and the name
-    /// is already rendered, so a merged table is byte-for-byte a serial one.
-    fn adopt(&mut self, ty: Ty, name: String) -> TypeId {
+    /// Folds one already-interned type, a runtime `ty`, into this interner,
+    /// for merging the per-function interners `run_with` builds. The `ty` is
+    /// already `runtime_ty`-normalized, so a merged table is byte-for-byte a
+    /// serial one.
+    fn adopt(&mut self, tables: &Tables, ty: Ty) -> TypeId {
         if let Some(id) = self.index.get(&ty) {
             return *id;
         }
         let id = TypeId(self.list.len() as u32);
+        let name = crate::compiler::semantics::types::show(tables, None, &[], &ty);
         self.list.push(TypeInfo { name, ty });
         self.index.insert(ty, id);
         id
