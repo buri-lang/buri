@@ -2239,43 +2239,51 @@ impl Generator {
     /// operands twice, so at a call site whose operand is a call it becomes a
     /// function instead.
     fn at(&mut self, op: Op, desc: usize, args: Vec<Expr>) -> Option<Expr> {
-        let leaf = matches!(self.desc(desc), Some(Desc::Prim(_) | Desc::Unit));
-        if leaf {
-            // A leaf expansion may write an operand twice (`a < b`, then
-            // `a > b`) or not at all (`()` is equal to `()`). Where it writes
-            // each exactly once it is inlined over anything; otherwise only
-            // over operands that may be written any number of times.
-            let linear = op != Op::Compare && matches!(self.desc(desc), Some(Desc::Prim(_)));
-            if linear || args.iter().all(Generator::duplicable) {
-                let mut frame = Frame::new();
-                let built = match op {
-                    Op::Eq => {
-                        let (a, b) = two(&args)?;
-                        self.eq(desc, a, b, &mut frame)
-                    }
-                    Op::Compare => {
-                        let (a, b) = two(&args)?;
-                        self.compare(desc, a, b, &mut frame)
-                    }
-                    Op::Show => self.show(desc, one(&args)?, &mut frame),
-                    Op::ToJson => self.json_of(desc, one(&args)?, &mut frame),
-                    Op::Hash => {
-                        let (h, x) = two(&args)?;
-                        self.hash(desc, h, x, &mut frame)
-                    }
-                };
-                // A leaf never allocates a local; if one appeared, the
-                // expression would be referring to a frame nobody kept.
-                if frame.locals.is_empty() {
-                    if let Some(e) = built {
-                        return Some(e);
-                    }
-                }
+        let prim = matches!(self.desc(desc), Some(Desc::Prim(_)));
+        let unit = matches!(self.desc(desc), Some(Desc::Unit));
+        // A leaf expansion may write an operand twice (`a < b`, then `a > b`)
+        // or not at all (`()` is equal to `()`). A primitive's writes each
+        // exactly once and can't fail, so it takes the operands themselves.
+        // Copying them copied a hash's accumulator at every field, which made
+        // a wide struct's hash `n²` (PERFORMANCE.md §6.36).
+        if prim && op != Op::Compare {
+            return self.leaf(op, desc, args);
+        }
+        // Otherwise it's inlined only over operands that may be written any
+        // number of times, which are cheap to copy.
+        if (prim || unit) && args.iter().all(Generator::duplicable) {
+            if let Some(e) = self.leaf(op, desc, args.clone()) {
+                return Some(e);
             }
         }
         let f = self.request(op, desc)?;
         let ret = self.result_ty(op);
         Some(self.call(f, args, ret))
+    }
+
+    /// The operation at a primitive or `()`, written out.
+    fn leaf(&mut self, op: Op, desc: usize, args: Vec<Expr>) -> Option<Expr> {
+        let mut frame = Frame::new();
+        let mut args = args.into_iter();
+        let built = match op {
+            Op::Eq => {
+                let (a, b) = (args.next()?, args.next()?);
+                self.eq(desc, a, b, &mut frame)
+            }
+            Op::Compare => {
+                let (a, b) = (args.next()?, args.next()?);
+                self.compare(desc, a, b, &mut frame)
+            }
+            Op::Show => self.show(desc, args.next()?, &mut frame),
+            Op::ToJson => self.json_of(desc, args.next()?, &mut frame),
+            Op::Hash => {
+                let (h, x) = (args.next()?, args.next()?);
+                self.hash(desc, h, x, &mut frame)
+            }
+        };
+        // A leaf never allocates a local; if one appeared, the expression
+        // would be referring to a frame nobody kept.
+        if frame.locals.is_empty() { built } else { None }
     }
 }
 
@@ -2286,10 +2294,6 @@ fn side_name(side: usize) -> &'static str {
 
 fn one(args: &[Expr]) -> Option<Expr> {
     args.first().cloned()
-}
-
-fn two(args: &[Expr]) -> Option<(Expr, Expr)> {
-    Some((args.first()?.clone(), args.get(1)?.clone()))
 }
 
 /// `Option`'s variants, in declaration order (`core/option`).
