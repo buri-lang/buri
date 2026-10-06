@@ -94,6 +94,7 @@ impl Buf {
     }
 
     /// `v` in decimal, with a `-` if it is negative.
+    #[cfg(test)]
     pub(crate) fn push_i64(&mut self, v: i64) {
         if v < 0 {
             self.push(b'-');
