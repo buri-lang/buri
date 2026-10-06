@@ -740,7 +740,7 @@ fn finish_uncounted(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
     // certainly running, so it is where the mode is read and the exit audit is
     // registered. Off — every shipped artifact — is a load of an initialised
     // `OnceLock` beside a `malloc`.
-    let mode = heap_check();
+    let off = heap_check_off();
     // SAFETY: `raw` is a fresh allocation of at least `BURI_RT_HEADER` bytes,
     // aligned to 16, so the header is in bounds and aligned.
     unsafe {
@@ -756,7 +756,9 @@ fn finish_uncounted(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
     // SAFETY: the block is `BURI_RT_HEADER + payload` bytes, so the payload
     // start is one-past-the-header and in bounds.
     let p = unsafe { raw.add(BURI_RT_HEADER) };
-    if mode == HeapCheck::Trace && flags & BURI_RT_CAP_ARENA == 0 {
+    // `heap_check` decides the mode on the first allocation, which is the
+    // one place an undecided mode isn't `off`.
+    if !off && heap_check() == HeapCheck::Trace && flags & BURI_RT_CAP_ARENA == 0 {
         trace_insert(p, payload);
     }
     p
@@ -1532,13 +1534,12 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     // The mode is read once, and a shipped program's, `Off`, gets a copy of
     // the body with every check folded away: no quarantine test, no trace,
     // and none of their registers saved on the way in.
-    let mode = heap_check();
-    if mode == HeapCheck::Off {
+    if heap_check_off() {
         // SAFETY: forwarded.
         unsafe { free_block(p, HeapCheck::Off) }
     } else {
         // SAFETY: forwarded.
-        unsafe { free_checked(p, mode) }
+        unsafe { free_checked(p, heap_check()) }
     }
 }
 
@@ -2028,6 +2029,13 @@ fn heap_check() -> HeapCheck {
         4 => HeapCheck::Trace,
         _ => heap_check_decided(),
     }
+}
+
+/// Whether the mode is decided and [`HeapCheck::Off`]: one byte compare, for
+/// the allocation and free paths of every shipped program.
+#[inline(always)]
+fn heap_check_off() -> bool {
+    HEAP_MODE.load(Ordering::Relaxed) == 1
 }
 
 /// [`heap_check`]'s cached answer: `0` until it is decided, then one more than
