@@ -42,20 +42,21 @@ impl Position {
 /// lands inside a multi-byte character counts that character rather than
 /// splitting it. Nothing in the compiler produces such an offset, but the
 /// alternative to counting one is a panic.
+///
+/// The lines above are counted as bytes: a `\n` is never part of a longer
+/// character, and counting bytes is what keeps a finding near the end of a
+/// large file from decoding the whole file.
 pub fn position_of(text: &str, offset: u32) -> Position {
     let offset = (offset as usize).min(text.len());
-    let mut line = 0u32;
+    let above = text.as_bytes().get(..offset).unwrap_or_default();
+    let line = u32::try_from(above.iter().filter(|b| **b == b'\n').count()).unwrap_or(u32::MAX);
+    let start = above.iter().rposition(|b| *b == b'\n').map_or(0, |at| at.saturating_add(1));
     let mut character = 0u32;
-    for (i, c) in text.char_indices() {
-        if i >= offset {
+    for (i, c) in text.get(start..).unwrap_or_default().char_indices() {
+        if start.saturating_add(i) >= offset {
             break;
         }
-        if c == '\n' {
-            line = line.saturating_add(1);
-            character = 0;
-        } else {
-            character = character.saturating_add(c.len_utf16() as u32);
-        }
+        character = character.saturating_add(c.len_utf16() as u32);
     }
     Position { line, character }
 }
@@ -285,6 +286,10 @@ mod tests {
         let many = positions_of(text, &offsets);
         for (offset, position) in offsets.iter().zip(many) {
             assert_eq!(position, position_of(text, *offset), "at {offset}");
+        }
+        // Inside a character too, where both count the character whole.
+        for offset in 0..=text.len() as u32 {
+            assert_eq!(positions_of(text, &[offset]), vec![position_of(text, offset)], "at {offset}");
         }
         // And past the end, where there is no character left to count.
         assert_eq!(positions_of(text, &[u32::MAX]), vec![position_of(text, u32::MAX)]);

@@ -1273,28 +1273,29 @@ impl State {
         // by every target that reaches it, and rendering it once is the
         // difference between a sweep and a stall. See `add_finding_rendering`.
         let mut rendered = super::Rendered::new();
-        for target in stale {
-            // Between targets and not inside one: a target's findings are
-            // filed whole or not at all, so this is the only place where
-            // stopping leaves the cache saying something true.
-            if wanted.superseded() {
-                break;
-            }
+        // One compilation for the lot where that gives each target its own
+        // answer: a library every stale target reaches is checked once.
+        //
+        // Between targets and not inside one: a target's findings are filed
+        // whole or not at all, so that is the only place where stopping leaves
+        // the cache saying something true.
+        let reports = crate::commands::lint::reports(&mut session, &stale, graph_loads, || {
+            wanted.superseded()
+        });
+        for report in reports {
+            let target = report.target;
             self.work.analyses = self.work.analyses.saturating_add(1);
-            let analysis = crate::commands::lint::analysis_of(&mut session, target);
             let mut found = super::Published::new();
-            for d in &analysis.diagnostics.items {
+            for d in &report.analysis {
                 super::add_finding_rendering(&mut found, &mut rendered, &session, d);
             }
-            if graph_loads {
+            if let Some(linted) = &report.findings {
                 self.work.lints = self.work.lints.saturating_add(1);
-                let linted =
-                    crate::commands::lint::findings_for_target(&session, target, &analysis);
                 for d in &linted.items {
                     super::add_finding_rendering(&mut found, &mut rendered, &session, d);
                 }
             }
-            let closure = Rc::new(closure_of(&session.workspace, &analysis));
+            let closure = Rc::new(report.closure);
             let key = self.closure_key(root, &closure);
             self.target_findings.insert(
                 (root.to_path_buf(), target),
