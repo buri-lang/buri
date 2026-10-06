@@ -1470,19 +1470,22 @@ impl Rewrite for Fold {
                 Stmt::If { cond, then, else_ }
             }
             Stmt::While { cond, body } => {
-                // A guarded match compiles to `while(true)` because an arm that
-                // matches may still fall through to the next one. Where no arm
-                // does — every one of them `return`s — nothing jumps back to the
-                // top and nothing jumps out, so the loop runs exactly once and is
-                // only a wrapper. Removing it is what lets `block`'s
-                // truncation-after-a-terminator and the `sole_return` rule above
-                // reach the arms.
+                // A `while(true)` that nothing jumps back to the top of and
+                // nothing jumps out of, and that leaves on every path, runs
+                // exactly once and is only a wrapper. Removing it is what lets
+                // `block`'s truncation-after-a-terminator and the `sole_return`
+                // rule above reach what is inside — a tail-call loop whose only
+                // `continue` sat in a branch folding just removed, say.
                 //
-                // A tail-call loop and a merged dispatch group both `continue`,
-                // and a guarded match in statement position `break`s out with its
-                // answer — where the `break` is doing real work and removing the
-                // loop around it would run the arms after it as well. Both are
-                // left exactly as they were.
+                // A guarded match is not one of these. In tail position it is
+                // a block and never a loop, because a tail call's `continue`
+                // in one of its arms has to reach the function's loop
+                // (`generate::match_stmts`, buri-lang/buri#249). Producing a
+                // value, it is a loop that `break`s out with its answer, where
+                // the `break` is doing real work and removing the loop around
+                // it would run the arms after it as well. A tail-call loop and
+                // a merged dispatch group both `continue`. All three are left
+                // exactly as they were.
                 if matches!(cond, Expr::Bool(true))
                     && !reaches_continue(&body)
                     && !reaches_break(&body)

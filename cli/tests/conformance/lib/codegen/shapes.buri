@@ -174,6 +174,93 @@ export fn lengthNever(value: Str, index: Int): Bool {
     }
 }
 
+// -----------------------------------------------------------------------------
+// A tail call out of a match with a guarded arm
+// -----------------------------------------------------------------------------
+//
+// A guarded arm whose pattern matches may still fall through to the next arm,
+// so the JavaScript backend once ran a guarded match inside a `while (true)` of
+// its own. A tail call in one of its arms became a `continue`, and that
+// `continue` went back to the top of the *match* rather than the function: the
+// parameters were rebound, but the scrutinee, bound once before the match, was
+// not. The match then ran against the first call's scrutinee forever
+// (buri-lang/buri#249).
+//
+// Each function below has an arm that reads a *parameter*, which the broken
+// loop did rebind. That arm is never taken on the right answer's path, and is
+// always taken eventually on the broken one, so the failure is a wrong answer
+// rather than a test that never finishes.
+
+/// The list-pattern shape from the report. `fuel` runs out only when the loop
+/// keeps looking at the first element.
+export fn anyPositiveGuarded(xs: [Int], fuel: Int): Bool {
+    match (xs) {
+        _ if fuel == 0 => false,
+        [head, ..] if head > 0 => true,
+        [_, ..rest] => anyPositiveGuarded(rest, fuel - 1),
+        [] => false,
+    }
+}
+
+/// An `Int` scrutinee, so the shape is not about list patterns.
+export fn toSeven(n: Int, fuel: Int): Int {
+    match (n) {
+        _ if fuel == 0 => -1,
+        m if m % 7 == 0 => m,
+        _ => toSeven(n - 1, fuel - 1),
+    }
+}
+
+/// The guard reads a `let` bound before the match, from the parameters: it has
+/// to be computed again on every iteration, and the scrutinee with it.
+export fn dropped(held: [Int], count: Int, keep: Int): Int {
+    let over = held.length() - count > keep;
+    match (held.get(count)) {
+        _ if count > held.length() => -1,
+        .Some(_) if over => dropped(held, count + 1, keep),
+        _ => count,
+    }
+}
+
+/// A call that is *not* in tail position in the guarded arm, beside one that
+/// is. The answer counts the positive elements.
+export fn positives(xs: [Int], fuel: Int): Int {
+    match (xs) {
+        _ if fuel == 0 => -100,
+        [head, ..rest] if head > 0 => 1 + positives(rest, fuel - 1),
+        [_, ..rest] => positives(rest, fuel - 1),
+        [] => 0,
+    }
+}
+
+/// The same count with no tail call anywhere, so no loop at all.
+export fn positivesNoTail(xs: [Int]): Int {
+    match (xs) {
+        [head, ..rest] if head > 0 => 1 + positivesNoTail(rest),
+        [_, ..rest] => 0 + positivesNoTail(rest),
+        [] => 0,
+    }
+}
+
+/// The answer is the scrutinee the guarded arm bound, so a match that read a
+/// stale one answers with the first call's `n` instead of the last.
+export fn lastBelow(n: Int, steps: Int): Int {
+    match (n) {
+        m if steps == 0 => m,
+        _ => lastBelow(n + 1, steps - 1),
+    }
+}
+
+/// A guarded match whose tail call still runs in constant stack: the depth is
+/// past what an engine gives a recursive function.
+export fn countDownGuarded(n: Int): Bool {
+    match (n % 2) {
+        _ if n <= 0 => true,
+        0 => countDownGuarded(n - 1),
+        _ => countDownGuarded(n - 1),
+    }
+}
+
 derive Equal, Show for Pair;
 // -----------------------------------------------------------------------------
 // Derived structural equality
