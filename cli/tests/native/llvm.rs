@@ -5515,3 +5515,91 @@ export fn main(host: NativeHost): Result<(), Str> {{
         assert!(count <= 2, "a match of {n} arms over a pair has {count} `{}`s", op.trim_end());
     }
 }
+
+/// The longest run of loads in one block of the derived functions, with no
+/// call between them: the largest scheduling region their field reads make.
+fn longest_derived_load_run(source: &str) -> usize {
+    let lowered = lower(source);
+    let mut units: Vec<u32> = lowered
+        .ir
+        .funcs
+        .iter()
+        .filter(|f| f.symbol.contains("derive$"))
+        .map(|f| f.unit)
+        .collect();
+    units.sort_unstable();
+    units.dedup();
+    let (mut backend, program, tables) = lowered.adopted();
+    let (mut longest, mut run) = (0, 0);
+    for unit in units {
+        let ir = expect(backend.emit_ir_text(&program, &tables, &options(Profile::Debug), unit));
+        let mut inside = false;
+        for line in ir.lines() {
+            if line.starts_with("define ") {
+                inside = line.contains("derive$");
+                run = 0;
+            } else if !inside || !line.starts_with("  ") || line.contains("call ") {
+                run = 0;
+            } else if line.contains(" = load ") {
+                run += 1;
+                longest = longest.max(run);
+            }
+        }
+    }
+    longest
+}
+
+/// An enum whose variants carry `n` fields each, alternating `Int` and `Str`,
+/// with every derive that reads them all.
+fn wide_variants(n: usize) -> String {
+    let tys: Vec<&str> = (0..n).map(|i| if i % 2 == 0 { "Int" } else { "Str" }).collect();
+    let positional = tys.join(", ");
+    let named: String = tys.iter().enumerate().map(|(i, t)| format!("f{i}: {t}, ")).collect();
+    let vals: String = tys
+        .iter()
+        .enumerate()
+        .map(|(i, t)| if *t == "Int" { format!("k + {i}, ") } else { "s, ".to_string() })
+        .collect();
+    program(&format!(
+        r#"
+from "native" import {{ NativeHost }};
+
+enum W {{
+    Tuple({positional}),
+    Record {{ {named} }},
+    Empty,
+}}
+
+derive Equal, Hash, Ordered for W;
+
+fn make<C: Allocator>(ctx: C, k: Int): W {{
+    let s = "w".repeat(ctx, k);
+    .Tuple({vals})
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+    let (a, b) = (make(ctx, 1), make(ctx, 2));
+    let _ = io.println(ctx, "${{a == b}} ${{a < b}} ${{a.hash() == b.hash()}}").ignore();
+    .Ok(())
+}}
+"#
+    ))
+}
+
+/// **A derived function reads each payload field where it uses it.**
+/// `compare`, `==` and `hash` bound every field of a variant on entering its
+/// arm, so a 200-field variant was 401 loads before the first call, and
+/// `llc`'s schedulers are quadratic in a region that long. PERFORMANCE.md
+/// §6.34.
+#[test]
+fn a_wide_variants_derived_functions_read_each_field_where_they_use_it() {
+    skip_unless_executable!();
+    let small = longest_derived_load_run(&wide_variants(100));
+    let large = longest_derived_load_run(&wide_variants(200));
+    assert!(
+        large <= small && large <= 32,
+        "the derived functions of a variant read {small} slots in one region at 100 \
+         fields and {large} at 200"
+    );
+}

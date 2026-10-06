@@ -174,6 +174,12 @@ const HASH_SEED: u128 = 0x811c_9dc5;
 /// tags are ranked and the ranks compared ([`Generator::compare_enum`]).
 const RANKED_COMPARE_MIN: usize = 8;
 
+/// The most payload fields a derived function binds on entering a variant's
+/// arm. Past it, the payload is read this many fields at a time, where they're
+/// used ([`Generator::payload`]). One at a time re-tests the tag per field, and
+/// `opt`'s jump threading is quadratic in those tests.
+const EAGER_FIELDS_MAX: usize = 8;
+
 /// The five operations a `derive` can stand for, once monomorphization has
 /// resolved it.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -622,6 +628,33 @@ fn merge(parts: Vec<TemplatePart>) -> Vec<TemplatePart> {
         }
     }
     merged
+}
+
+/// One side's pattern bindings: each field's index, local and type.
+type Binds = Vec<(usize, LocalId, Ty)>;
+
+/// How a derived function reads variant `vi`'s payload out of each of its
+/// sides: the arm's patterns, one per side, and the fields they bind.
+struct Payload {
+    ty: Ty,
+    vi: usize,
+    sides: Vec<Expr>,
+    /// Each field's descriptor and type.
+    fields: Vec<(usize, Ty)>,
+    patterns: Vec<Pattern>,
+    /// Each field's value on every side, or `None` where the patterns bind
+    /// nothing and [`Generator::read`] reads the fields where they're used.
+    bound: Option<Vec<Vec<Expr>>>,
+}
+
+impl Payload {
+    /// The runs of fields the payload is read in: all of them where the arm
+    /// binds them, and [`EAGER_FIELDS_MAX`] at a time where it doesn't.
+    fn runs(&self) -> Vec<std::ops::Range<usize>> {
+        let n = self.fields.len();
+        let step = if self.bound.is_some() { n.max(1) } else { EAGER_FIELDS_MAX };
+        (0..n).step_by(step).map(|start| start..n.min(start + step)).collect()
+    }
 }
 
 /// One generated function under construction: its locals, and the parameters
@@ -1163,14 +1196,7 @@ impl Generator {
             let ae = self.project(a.clone(), *i, tuple, fty);
             let be = self.project(b.clone(), *i, tuple, fty);
             let one = self.at(Op::Eq, *d, vec![ae, be])?;
-            acc = Some(match acc {
-                None => one,
-                Some(rest) => Expr::new(
-                    ExprKind::And { lhs: Box::new(one), rhs: Box::new(rest) },
-                    bool_ty,
-                    Span::NONE,
-                ),
-            });
+            acc = Some(self.then_eq(one, acc));
         }
         Some(acc.unwrap_or_else(|| Expr::new(ExprKind::Bool(true), bool_ty, Span::NONE)))
     }
@@ -1225,46 +1251,29 @@ impl Generator {
         let ty = self.ty_of(desc);
         let bool_ty = self.bool_ty();
         let mut arms: Vec<Arm> = Vec::new();
+        let false_ = Expr::new(ExprKind::Bool(false), bool_ty, Span::NONE);
         for (vi, v) in variants.iter().enumerate() {
-            let mut xs: Vec<(usize, LocalId, Ty)> = Vec::new();
-            let mut ys: Vec<(usize, LocalId, Ty)> = Vec::new();
-            for (fi, f) in v.fields.iter().enumerate() {
-                let fty = self.ty_of(f.ty);
-                xs.push((fi, frame.local("x", &fty), fty));
-                ys.push((fi, frame.local("y", &fty), fty));
-            }
-            let px = self.variant_pattern(&ty, vi, &xs)?;
-            let py = self.variant_pattern(&ty, vi, &ys)?;
+            let payload = self.payload(&ty, vi, v, &[a.clone(), b.clone()], frame)?;
             let mut acc: Option<Expr> = None;
-            for (k, f) in v.fields.iter().enumerate().rev() {
-                let (_, xl, xt) = xs.get(k)?;
-                let (_, yl, _) = ys.get(k)?;
-                let one = self.at(
-                    Op::Eq,
-                    f.ty,
-                    vec![self.local_expr(*xl, xt), self.local_expr(*yl, xt)],
-                )?;
-                acc = Some(match acc {
-                    None => one,
-                    Some(rest) => Expr::new(
-                        ExprKind::And { lhs: Box::new(one), rhs: Box::new(rest) },
-                        bool_ty,
-                        Span::NONE,
-                    ),
-                });
+            for run in payload.runs().into_iter().rev() {
+                let descs = payload.fields.get(run.clone())?.to_vec();
+                acc = Some(self.read(&payload, run, frame, false_.clone(), |g, _, values| {
+                    let mut acc = acc;
+                    for ((d, _), xs) in descs.iter().zip(values).rev() {
+                        let one = g.at(Op::Eq, *d, xs)?;
+                        acc = Some(g.then_eq(one, acc));
+                    }
+                    acc
+                })?);
             }
             let same = acc.unwrap_or_else(|| {
                 Expr::new(ExprKind::Bool(true), bool_ty, Span::NONE)
             });
+            let mut patterns = payload.patterns.into_iter();
+            let (px, py) = (patterns.next()?, patterns.next()?);
             let inner = self.match_(
                 b.clone(),
-                vec![
-                    self.arm(py, same),
-                    self.arm(
-                        self.wild(&ty),
-                        Expr::new(ExprKind::Bool(false), bool_ty, Span::NONE),
-                    ),
-                ],
+                vec![self.arm(py, same), self.arm(self.wild(&ty), false_.clone())],
                 bool_ty,
             );
             arms.push(self.arm(px, inner));
@@ -1351,33 +1360,13 @@ impl Generator {
         tuple: bool,
         frame: &mut Frame,
     ) -> Option<Expr> {
-        let order = self.result_ty(Op::Compare);
         let mut acc: Option<Expr> = None;
         for (i, d) in fields.iter().rev() {
             let fty = self.ty_of(*d);
             let ae = self.project(a.clone(), *i, tuple, fty);
             let be = self.project(b.clone(), *i, tuple, fty);
             let one = self.at(Op::Compare, *d, vec![ae, be])?;
-            acc = Some(match acc {
-                None => one,
-                Some(rest) => {
-                    let c = frame.local("c", &order);
-                    let equal = self.variant_pattern(&order, ORDER_EQUAL, &[])?;
-                    let bind = Pattern {
-                        kind: PatKind::Bind { local: c, sub: None },
-                        ty: order,
-                        span: Span::NONE,
-                    };
-                    self.match_(
-                        one,
-                        vec![
-                            self.arm(equal, rest),
-                            self.arm(bind, self.local_expr(c, &order)),
-                        ],
-                        order,
-                    )
-                }
-            });
+            acc = Some(self.then_compare(one, acc, frame)?);
         }
         match acc {
             Some(e) => Some(e),
@@ -1455,7 +1444,8 @@ impl Generator {
         let order = self.result_ty(Op::Compare);
         let mut arms: Vec<Arm> = Vec::new();
         for (vi, v) in variants.iter().enumerate() {
-            let (px, py, same) = self.same_variant(&ty, vi, v, frame)?;
+            let sides = [a.clone(), b.clone()];
+            let (px, py, same) = self.same_variant(&ty, vi, v, &sides, frame)?;
             // A lower-numbered variant on the right means this one is greater.
             let mut inner: Vec<Arm> = Vec::new();
             for wi in 0..variants.len() {
@@ -1473,57 +1463,33 @@ impl Generator {
         Some(self.match_(a, arms, order))
     }
 
-    /// The patterns binding variant `vi`'s payload on each side, and the
+    /// The arm patterns for variant `vi` on each of `sides`, and the
     /// lexicographic comparison of the two payloads.
     fn same_variant(
         &mut self,
         ty: &Ty,
         vi: usize,
         v: &DescVariant,
+        sides: &[Expr],
         frame: &mut Frame,
     ) -> Option<(Pattern, Pattern, Expr)> {
-        let order = self.result_ty(Op::Compare);
-        let mut xs: Vec<(usize, LocalId, Ty)> = Vec::new();
-        let mut ys: Vec<(usize, LocalId, Ty)> = Vec::new();
-        for (fi, f) in v.fields.iter().enumerate() {
-            let fty = self.ty_of(f.ty);
-            xs.push((fi, frame.local("x", &fty), fty));
-            ys.push((fi, frame.local("y", &fty), fty));
-        }
-        let px = self.variant_pattern(ty, vi, &xs)?;
-        let py = self.variant_pattern(ty, vi, &ys)?;
+        let payload = self.payload(ty, vi, v, sides, frame)?;
+        let equal_lit = self.order_lit(ORDER_EQUAL)?;
         let mut acc: Option<Expr> = None;
-        for (k, f) in v.fields.iter().enumerate().rev() {
-            let (_, xl, xt) = xs.get(k)?;
-            let (_, yl, _) = ys.get(k)?;
-            let one = self.at(
-                Op::Compare,
-                f.ty,
-                vec![self.local_expr(*xl, xt), self.local_expr(*yl, xt)],
-            )?;
-            acc = Some(match acc {
-                None => one,
-                Some(rest) => {
-                    let c = frame.local("c", &order);
-                    let equal = self.variant_pattern(&order, ORDER_EQUAL, &[])?;
-                    let bind = Pattern {
-                        kind: PatKind::Bind { local: c, sub: None },
-                        ty: order,
-                        span: Span::NONE,
-                    };
-                    self.match_(
-                        one,
-                        vec![self.arm(equal, rest), self.arm(bind, self.local_expr(c, &order))],
-                        order,
-                    )
+        for run in payload.runs().into_iter().rev() {
+            let descs = payload.fields.get(run.clone())?.to_vec();
+            acc = Some(self.read(&payload, run, frame, equal_lit.clone(), |g, frame, values| {
+                let mut acc = acc;
+                for ((d, _), xs) in descs.iter().zip(values).rev() {
+                    let one = g.at(Op::Compare, *d, xs)?;
+                    acc = Some(g.then_compare(one, acc, frame)?);
                 }
-            });
+                acc
+            })?);
         }
-        let same = match acc {
-            Some(e) => e,
-            None => self.order_lit(ORDER_EQUAL)?,
-        };
-        Some((px, py, same))
+        let same = acc.unwrap_or(equal_lit);
+        let mut patterns = payload.patterns.into_iter();
+        Some((patterns.next()?, patterns.next()?, same))
     }
 
     /// `compare` for a wide enum, in code linear in its variants:
@@ -1578,7 +1544,8 @@ impl Generator {
             if v.fields.is_empty() {
                 continue;
             }
-            let (px, py, same) = self.same_variant(&ty, vi, v, frame)?;
+            let sides = [a.clone(), b.clone()];
+            let (px, py, same) = self.same_variant(&ty, vi, v, &sides, frame)?;
             let inner = self.match_(
                 b.clone(),
                 vec![self.arm(py, same), self.arm(self.wild(&ty), self.order_lit(ORDER_EQUAL)?)],
@@ -1636,6 +1603,122 @@ impl Generator {
             ty: *ty,
             span: Span::NONE,
         })
+    }
+
+    /// The arm patterns for variant `vi` on each of `sides`. Up to
+    /// [`EAGER_FIELDS_MAX`] fields they bind the whole payload. Past it they
+    /// bind nothing, because every field bound at the arm's entry is a load
+    /// there, and 401 of them in one region made `llc` quadratic
+    /// (PERFORMANCE.md §6.34).
+    fn payload(
+        &mut self,
+        ty: &Ty,
+        vi: usize,
+        v: &DescVariant,
+        sides: &[Expr],
+        frame: &mut Frame,
+    ) -> Option<Payload> {
+        let fields: Vec<(usize, Ty)> = v.fields.iter().map(|f| (f.ty, self.ty_of(f.ty))).collect();
+        let lazy = fields.len() > EAGER_FIELDS_MAX && sides.iter().all(Generator::duplicable);
+        let mut payload = Payload {
+            ty: *ty,
+            vi,
+            sides: sides.to_vec(),
+            fields,
+            patterns: Vec::new(),
+            bound: None,
+        };
+        if lazy {
+            for _ in sides {
+                payload.patterns.push(self.tag_pattern(ty, vi)?);
+            }
+            return Some(payload);
+        }
+        let (binds, bound) = self.bind(&payload, 0..payload.fields.len(), frame)?;
+        for b in &binds {
+            payload.patterns.push(self.variant_pattern(ty, vi, b)?);
+        }
+        payload.bound = Some(bound);
+        Some(payload)
+    }
+
+    /// A local for each field in `run` on each side: the bindings for each
+    /// side's pattern, and each field's value per side.
+    fn bind(
+        &self,
+        payload: &Payload,
+        run: std::ops::Range<usize>,
+        frame: &mut Frame,
+    ) -> Option<(Vec<Binds>, Vec<Vec<Expr>>)> {
+        let mut binds: Vec<Binds> = vec![Vec::new(); payload.sides.len()];
+        let mut values: Vec<Vec<Expr>> = Vec::new();
+        for fi in run {
+            let (_, fty) = payload.fields.get(fi)?;
+            let mut each = Vec::new();
+            for (side, b) in binds.iter_mut().enumerate() {
+                let l = frame.local(side_name(side), fty);
+                b.push((fi, l, *fty));
+                each.push(self.local_expr(l, fty));
+            }
+            values.push(each);
+        }
+        Some((binds, values))
+    }
+
+    /// `use_` over the fields in `run`, each a value per side. Fields the arm
+    /// didn't bind are read here, by matching each side again and binding just
+    /// these: `match a { .V(x0, x1, ..) => match b { .V(y0, y1, ..) => use_(..),
+    /// _ => other }, _ => other }`. Both sides are already known to be that
+    /// variant, so `other` never runs.
+    fn read(
+        &mut self,
+        payload: &Payload,
+        run: std::ops::Range<usize>,
+        frame: &mut Frame,
+        other: Expr,
+        use_: impl FnOnce(&mut Self, &mut Frame, Vec<Vec<Expr>>) -> Option<Expr>,
+    ) -> Option<Expr> {
+        if let Some(bound) = &payload.bound {
+            return use_(self, frame, bound.get(run)?.to_vec());
+        }
+        let (binds, values) = self.bind(payload, run, frame)?;
+        let mut body = use_(self, frame, values)?;
+        for (side, b) in payload.sides.iter().zip(&binds).rev() {
+            let pat = self.variant_pattern(&payload.ty, payload.vi, b)?;
+            let ty = body.ty;
+            body = self.match_(
+                side.clone(),
+                vec![self.arm(pat, body), self.arm(self.wild(&payload.ty), other.clone())],
+                ty,
+            );
+        }
+        Some(body)
+    }
+
+    /// `match one { .Equal => rest, c => c }`, or `one` alone at the end.
+    fn then_compare(&self, one: Expr, rest: Option<Expr>, frame: &mut Frame) -> Option<Expr> {
+        let Some(rest) = rest else { return Some(one) };
+        let order = self.result_ty(Op::Compare);
+        let c = frame.local("c", &order);
+        let equal = self.variant_pattern(&order, ORDER_EQUAL, &[])?;
+        let bind = Pattern { kind: PatKind::Bind { local: c, sub: None }, ty: order, span: Span::NONE };
+        Some(self.match_(
+            one,
+            vec![self.arm(equal, rest), self.arm(bind, self.local_expr(c, &order))],
+            order,
+        ))
+    }
+
+    /// `one && rest`, or `one` alone at the end.
+    fn then_eq(&self, one: Expr, rest: Option<Expr>) -> Expr {
+        match rest {
+            None => one,
+            Some(rest) => Expr::new(
+                ExprKind::And { lhs: Box::new(one), rhs: Box::new(rest) },
+                self.bool_ty(),
+                Span::NONE,
+            ),
+        }
     }
 
     // -- rendering ----------------------------------------------------------
@@ -2070,12 +2153,7 @@ impl Generator {
                 let payloads = variants.iter().any(|v| !v.fields.is_empty());
                 let mut arms: Vec<Arm> = Vec::new();
                 for (vi, v) in variants.iter().enumerate() {
-                    let mut binds: Vec<(usize, LocalId, Ty)> = Vec::new();
-                    for (fi, f) in v.fields.iter().enumerate() {
-                        let fty = self.ty_of(f.ty);
-                        binds.push((fi, frame.local("v", &fty), fty));
-                    }
-                    let pat = self.variant_pattern(&ty, vi, &binds)?;
+                    let payload = self.payload(&ty, vi, v, std::slice::from_ref(&x), frame)?;
                     // A payload-carrying enum is an array of tag and payload in
                     // JavaScript, so its length is mixed first and its tag
                     // second. A payloadless one is the tag itself.
@@ -2086,10 +2164,41 @@ impl Generator {
                     } else {
                         self.mix(h.clone(), vi as u128)
                     };
-                    for (k, f) in v.fields.iter().enumerate() {
-                        let (_, l, lt) = binds.get(k)?;
-                        cur = self.at_hash(f.ty, cur, self.local_expr(*l, lt))?;
+                    // Fields read where they're hashed are hashed into the
+                    // accumulator a `let` holds, which `other` can then be.
+                    let mut stmts = Vec::new();
+                    for run in payload.runs() {
+                        if payload.bound.is_none() {
+                            let prev = frame.local("h", &acc);
+                            stmts.push(typed::Stmt::Let {
+                                pattern: Pattern {
+                                    kind: PatKind::Bind { local: prev, sub: None },
+                                    ty: acc,
+                                    span: Span::NONE,
+                                },
+                                value: cur,
+                                span: Span::NONE,
+                            });
+                            cur = self.local_expr(prev, &acc);
+                        }
+                        let descs = payload.fields.get(run.clone())?.to_vec();
+                        let from = cur.clone();
+                        cur = self.read(&payload, run, frame, cur, |g, _, values| {
+                            let mut cur = from;
+                            for ((d, _), xs) in descs.iter().zip(values) {
+                                cur = g.at_hash(*d, cur, one(&xs)?)?;
+                            }
+                            Some(cur)
+                        })?;
                     }
+                    if !stmts.is_empty() {
+                        cur = Expr::new(
+                            ExprKind::Block { stmts, tail: Some(Box::new(cur)) },
+                            acc,
+                            Span::NONE,
+                        );
+                    }
+                    let pat = payload.patterns.into_iter().next()?;
                     arms.push(self.arm(pat, cur));
                 }
                 Some(self.match_(x, arms, acc))
@@ -2168,6 +2277,11 @@ impl Generator {
         let ret = self.result_ty(op);
         Some(self.call(f, args, ret))
     }
+}
+
+/// The name of a payload local on one side of a derived function.
+fn side_name(side: usize) -> &'static str {
+    if side == 0 { "x" } else { "y" }
 }
 
 fn one(args: &[Expr]) -> Option<Expr> {
