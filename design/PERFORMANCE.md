@@ -3329,7 +3329,7 @@ the phase that grew; `--release` counts `emit`. The "after" column includes
 | matches of 400 arms | emit 0.84 G → 0.09 G, check 0.14 G → 0.06 G | 5.5 G → 4.1 G (§6.33) | emit 1.16 G → 0.13 G |
 | template of 400 holes | linear | 34.5 G → 15.4 G | linear |
 
-Seven causes, each fixed and bound by a test:
+Eight causes, each fixed and bound by a test:
 
 - **A derived `compare` on an enum was `n²` arms.** Each arm for the left value
   matched the right one against every variant. Past eight variants it ranks
@@ -3356,6 +3356,15 @@ Seven causes, each fixed and bound by a test:
   `build::profile`'s `checking_a_match_over_pairs_is_linear_in_its_arms`.
 - **A `let` walked the value's type once per name it binds.** It walks it once.
   `build::profile`'s `checking_a_pattern_is_linear_in_the_names_it_binds`.
+- **`rc` copied its live set at every node and every branch.** It rewrites
+  one set in place. A branch is scanned into it and taken back out, keeping
+  only what it added, and the largest branch is left in place, so a chain of
+  branches pays for its short arms (`rc.rs`, `Live`, `Scan::branches`). A
+  `&&` asks an index which owned locals its right operand names, rather than
+  walking the operand (`Scan::names`). An `else if` chain over 1,600 fields
+  went from 610 M instructions in `middle` to 33 M, and §6.34's wide variants
+  from 375 M to 320 M. `build::profile`'s
+  `reference_counting_is_linear_in_a_long_branching_expression`.
 
 The `build::profile` bounds read instructions off `BURI_PROFILE=1` and assert
 nothing where the platform has no counter. `native::e2e::shapes` runs each shape
@@ -3368,8 +3377,6 @@ natively under the heap check and on JavaScript, and asserts only what it prints
   left is listed there.
 - **`--release` on long matches and long templates** grows 2.4 times per
   doubling. §6.33 has both.
-- **The `rc` pass** clones live sets across a long expression: 0.13 G for a
-  200-field variant's match, 2.6 times per doubling.
 - **A debug build runs a match in time linear in its arms** where the decision
   tree falls back to a chain: `Int` and `Str` literal arms, or a variant split
   across two rows. LLVM turns the chain back into a `switch`.
