@@ -634,7 +634,7 @@ impl Jit<'_> {
         }
         let base = st.scratch + CARG_WORD * 8;
         let fbase = base + MAX_INT as u32 * 8;
-        let callee = key!("{}", super::abi::rt_callee(ints.len(), floats.len(), kind));
+        let callee = key_fmt!("{}", super::abi::rt_callee(ints.len(), floats.len(), kind));
 
         // Where each argument will be **read from**. An operand that is already
         // a whole frame word is read where it lies; everything else — a literal,
@@ -692,7 +692,7 @@ impl Jit<'_> {
                 *b = t;
             }
             let binds = binds.get(..args + 3).unwrap_or_default();
-            self.emit(&key!("crts/{}/{}/{kind}", ints.len(), floats.len()), binds);
+            self.emit(&key!["crts/", ints.len(), "/", floats.len(), "/", kind], binds);
             return Ok(());
         }
 
@@ -703,7 +703,7 @@ impl Jit<'_> {
             self.marshal(fbase + i as u32 * 8, src);
         }
         self.emit(
-            &key!("crt/{}/{}/{kind}", ints.len(), floats.len()),
+            &key!["crt/", ints.len(), "/", floats.len(), "/", kind],
             &[
                 ("JIT_A", V::I(u64::from(base))),
                 ("JIT_B", V::I(u64::from(fbase))),
@@ -1516,7 +1516,7 @@ impl Jit<'_> {
                 let at = match int_bits(prim) {
                     Some(bits) => {
                         self.emit(
-                            &key!("sext/{bits}"),
+                            &key!["sext/", bits],
                             &[
                                 ("JIT_D", V::I(u64::from(scr))),
                                 ("JIT_A", V::I(u64::from(src))),
