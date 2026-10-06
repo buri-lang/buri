@@ -117,10 +117,9 @@ pub fn optimize(
     // Loop unrolling and loop vectorization are left at their defaults, which
     // is on: the point of `--release` on an `[Int]` fold is the vectorizer.
     //
-    // `verify_each` checks *our* IR rather than LLVM's, under this repository's
-    // rule for a verifier: a developer build pays for the check and a user's
-    // build does not.
-    options.set_verify_each(cfg!(debug_assertions));
+    // No `verify_each`. `mod.rs` verifies our IR once, before this, in a
+    // developer build. Verifying after every pass checks LLVM's passes rather
+    // than our IR, and it made `opt` seven times the work on `mixed-10k`.
     let pipeline = match profile {
         Profile::Release => "default<O2>",
         // A debug build still runs a pipeline, because this backend is only
