@@ -286,7 +286,7 @@ backends.
 cargo nextest run --workspace --exclude website --exclude buri-llvm && cargo test -p buri --doc # everything
 cargo test -p buri --test language                    # one domain
 cargo test -p buri --test language conformance::      # one suite in it
-cargo test -p buri --test native -- --skip float_parity
+cargo test -p buri --test native
 cargo test -p buri --features backend-llvm --test native
 BURI_RECOVERY_CAP=0 cargo test -p buri --test recovery   # every case, not a stride
 ```
@@ -299,7 +299,7 @@ buri-llvm --lib` is its unit tests. A unit test that compiles a snippet needs
 than beside the pass they test.
 
 A module is a name prefix, so `--test language conformance::` selects exactly
-what `--test conformance` used to, and `--skip` takes a module out the same way.
+what `--test conformance` used to.
 
 Run them inside `nix develop`. Its rustc is the one CI uses, pinned in
 `rust-toolchain.toml`. To bump it, change `channel` there and run
