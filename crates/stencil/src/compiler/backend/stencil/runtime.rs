@@ -27,6 +27,27 @@ use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 /// this backend's emitter looks.
 pub use crate::compiler::backend::runtime_table::*;
 
+/// The table's row for `key`, as `runtime_table::entry` answers it, through an
+/// index built once per process.
+///
+/// The emitter asks once or twice per runtime call, and the table's own lookup
+/// is a scan of its three hundred rows. The first row with a key wins, as in
+/// the scan.
+pub fn entry(key: &str) -> Option<&'static Entry> {
+    static INDEX: std::sync::OnceLock<crate::hash::Map<&'static str, &'static Entry>> =
+        std::sync::OnceLock::new();
+    INDEX
+        .get_or_init(|| {
+            let mut index = crate::hash::Map::default();
+            for e in ENTRIES {
+                index.entry(e.key).or_insert(e);
+            }
+            index
+        })
+        .get(key)
+        .copied()
+}
+
 /// How an `Option<T>` is written, flattened out of `middle::layout` so that the
 /// emitter never learns which niche the layout chose.
 ///
