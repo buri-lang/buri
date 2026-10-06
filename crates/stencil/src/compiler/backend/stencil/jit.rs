@@ -1869,6 +1869,7 @@ impl<'a> Jit<'a> {
     ///    aggregate's class, with nothing in between touching that class. The
     ///    field is whole frame words wide, because a slot write is a whole
     ///    word, and not behind a pointer.
+    #[allow(clippy::too_many_arguments, reason = "the tables `slots` already built")]
     fn alias_parts(
         &mut self,
         prog: &ir::Program,
@@ -2266,6 +2267,7 @@ impl<'a> Jit<'a> {
     ///  * an **argument**, used once, by that call, and defined by an
     ///    instruction that writes nothing but its own slot. Its definition must
     ///    not land inside a pinned result's life, whose slot it could overlap.
+    #[allow(clippy::too_many_arguments, reason = "the tables `slots` already built")]
     fn pin_call_values(
         &mut self,
         prog: &ir::Program,
