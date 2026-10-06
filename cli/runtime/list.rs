@@ -218,7 +218,11 @@ unsafe fn append_dest(
 /// `at` covers `bytes` readable bytes.
 pub(crate) unsafe fn spare(at: *const u8, bytes: usize) -> bool {
     // SAFETY: the caller promises the range.
-    unsafe { std::slice::from_raw_parts(at, bytes) }.iter().all(|b| *b == 0)
+    let bytes = unsafe { std::slice::from_raw_parts(at, bytes) };
+    // A word at a time: OR-ing whole chunks lets the loop vectorise.
+    let mut words = bytes.chunks_exact(8);
+    let any = (&mut words).fold(0u64, |acc, w| acc | u64::from_ne_bytes(w.try_into().unwrap_or([0; 8])));
+    any == 0 && words.remainder().iter().all(|b| *b == 0)
 }
 
 /// `list.get(self, index) -> Option<T>` — `stride` bytes into `out`.
@@ -526,6 +530,23 @@ pub type StepEntry =
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A run is spare only when every byte is zero, at any length and with
+    /// the one non-zero byte anywhere in it.
+    #[test]
+    fn a_run_is_spare_only_when_every_byte_is_zero() {
+        for len in 0..40 {
+            let mut run = vec![0u8; len];
+            // SAFETY: `run` covers `len` bytes.
+            assert!(unsafe { spare(run.as_ptr(), len) }, "{len} zeros");
+            for at in 0..len {
+                run[at] = 1;
+                // SAFETY: as above.
+                assert!(!unsafe { spare(run.as_ptr(), len) }, "{len} bytes, a one at {at}");
+                run[at] = 0;
+            }
+        }
+    }
 
     #[test]
     fn a_range_is_half_open() {
