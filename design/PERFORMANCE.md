@@ -3651,6 +3651,36 @@ lsof -a -p $$ -d 3-254 -F fnt    # in the runner, before `exec "$@"`
 `.config/nextest.toml` refuses anything older. A longer leak timeout wouldn't
 have helped: the borrower holds the pipe for as long as it runs.
 
+### 6.36 A derived hash is linear in a struct's fields, 2026-10-06
+
+A derived `hash` threads one accumulator through every field:
+
+```text
+$mix($mix($mix(h, n), x.0), x.1) …
+```
+
+Inlining a field's hash copied its operands first, in case the inline failed
+and a call needed them. The accumulator is one of them, so the `i`th field
+copied the `i` fields before it. A struct or tuple of `n` fields was `n²` in
+`middle`. A primitive's hash can't fail, so it now takes the operands
+themselves (`derives.rs`, `Generator::at`).
+
+`middle` on a tuple struct of `n` fields, alternately `Int` and `Str`, that
+derives only `Hash`:
+
+| Fields | Before | After |
+|---:|---:|---:|
+| 400 | 144 M | 7.6 M |
+| 800 | 553 M | 12.2 M |
+| 1,600 | 2,186 M | 23.0 M |
+
+An enum variant wasn't affected. Since §6.34 its hash binds the accumulator
+in a `let` every eight fields, so it never copied more than eight. §6.32's
+wide variants read 85.8, 164 and 319 M in `middle` at 400, 800 and 1,600
+fields, and 81.3, 157 and 303 M after. The derived `compare`, `==` and `Show`
+build their chains outside the inlined call and were already linear.
+`build::profile`'s `deriving_hash_is_linear_in_a_structs_fields`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
