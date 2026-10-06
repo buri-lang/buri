@@ -5142,6 +5142,94 @@ lowering two to three times slower in wall time. Counts can't see contention
 or cache behaviour (§8, "What counts can't see"), so the allocator needs a
 wall-time comparison on a quiet machine first.
 
+### 6.53 The JavaScript runtime's helpers, 2026-10-06
+
+Native had a day of run-time work and `--output=js` had none. Twenty programs
+ran on both engines, built `--release` for `node`: the native run-time apps
+(strings, maps, lists, floats, tasks, their parallel forms), `mkrt.py`'s seven,
+and the research `mapk` kernel. `bun --cpu-prof` and `node --cpu-prof` wrote
+the profiles.
+
+**One helper was 70% of a map program.** `core/map` tests a slot with
+`popCountU64`, and the runtime counted one `BigInt` bit at a time:
+
+```js
+while (v) { n += v & 1n; v >>= 1n; }   // a BigInt op, and an allocation, per bit
+```
+
+The counts read the word as two 32-bit `number`s now, and the three counts and
+every shift count read their answer from a table of `0n` to `1023n` rather
+than calling `BigInt()`. Lengths and indices read from it too.
+
+Two smaller ones:
+
+- **`sortBy` sorted index pairs.** `Array.prototype.sort` is stable, and
+  `Order`'s tags are 0, 1 and 2, so `order(a, b) - 1` is the comparator. The
+  built-in sort moves `undefined` to the end without asking, and `None` is
+  `undefined`, so a list holding one still sorts pairs.
+  `lists.buri`'s `sortBy orders None by the comparator` pins that.
+- **`range` counted in a `BigInt`.** The loop counts in a `number` now.
+
+Best of three, alternating, at load 7–27. CPU is user plus system; the counts
+are instructions retired, which moved least with the load:
+
+| Program | bun CPU before | after | instructions | node CPU before | after | instructions |
+|---|---:|---:|---:|---:|---:|---:|
+| `mapk`, 1M inserts + 1M gets | 14.5 s | 4.9 s | −74% | 6.4 s | 2.8 s | −66% |
+| `kern/mapk` | 14.6 s | 4.9 s | −74% | 6.7 s | 3.1 s | −67% |
+| `maps`, `Str` keys | 5.4 s | 1.6 s | −74% | 2.5 s | 0.95 s | −69% |
+| `pmaps` | 38.1 s | 9.7 s | −79% | 10.6 s | 3.0 s | −79% |
+| `rt_lists` | 0.91 s | 0.73 s | −6% | 0.41 s | 0.31 s | −20% |
+| `lists` | 1.66 s | 1.53 s | −9% | 0.64 s | 0.54 s | −13% |
+| `plists` | 12.8 s | 11.8 s | −8% | 4.0 s | 3.6 s | −9% |
+| `tasks` | 2.62 s | 2.44 s | −7% | 0.84 s | 0.87 s | +5% |
+| `seqwork` | 2.43 s | 2.25 s | −6% | 0.84 s | 0.86 s | +4% |
+| `rt_pairs` | 1.64 s | 1.56 s | −5% | 0.46 s | 0.48 s | +4% |
+| `fib`, `tree`, `machine`, `shapes` | | | ±1% | | | ±1% |
+
+The other six took 4–8% fewer instructions on bun and about 1% more on node.
+Every output matched.
+
+**The table costs node what it saves bun.** Reading a length from it is 6–8%
+fewer instructions on bun and 3–4% more on node, in the programs that ask
+`length()` in their loop. Bun's figures are two to three times node's, so it
+stays.
+
+**What's left is `BigInt`.** `Int` is a `BigInt` on this backend
+([`resolved-questions.md`](./resolved-questions.md)). A loop step of an add, a
+remainder, an increment and a compare takes 44 ns on bun and 14 ns on node,
+against 3 ns on `number`s. The emitted code for `fib`, `tree` and `machine` is
+already a loop of `BigInt` operations and array reads, with no runtime helper
+left in their profiles. That's also why node runs them two to three times
+faster than bun.
+
+Code size: `cli/tests/example`'s two JavaScript artifacts went from 70,821 to
+70,923 bytes, and the golden corpus from 332,653 to 333,735, with the generated
+half unchanged. That's the table and its reader, about 100 bytes in a program
+that asks a length.
+
+**Tried and dropped:**
+
+- **Splicing a map node's children in place.** §6.48's idea applies: `$u`
+  marks a list nothing else holds. But a branch's children are `$share`d where
+  the match binds them, so only `insertAt` over `removeAt`'s fresh list could
+  write in place. Done by hand in `mapk`, that saved 7% of CPU. It needs the
+  JavaScript sharing plan to hand `map.insertAt` its receiver
+  (`rc::TAKEN_NATIVELY`, `crates/middle`), so it's left.
+- **Every sharing mark off**, unsound and only a ceiling: 5–8% on `lists`,
+  `plists`, `maps` and `mapk`. The marks aren't where the time goes.
+- **Skipping `$shareEach` over a list of primitives:** under 1%.
+- **Copying the map splices with `push` instead of `slice` and `splice`:**
+  faster in a microbenchmark, 3–10% more instructions in `mapk` and `maps`.
+- **A preallocated `new Array(n)` in `range`:** V8 marks it holey, and
+  `tasks.parallel`'s `map` over one made `tiny` twice as slow on node.
+- **Dropping `chunkAt`'s `asIntN` around `& 31n`:** ±2%.
+- **Objects instead of arrays for variants,** measured on a microbenchmark
+  only: 8% slower on bun and 26% faster on node. It'd change the whole value
+  representation, so it wasn't tried.
+- **`BigInt` to string through `Number`,** and **a scan instead of the
+  surrogate regex:** slower on bun, or on both.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
