@@ -272,3 +272,47 @@ export fn main(host: NativeHost): Result<(), Str> {
     let wrong = check(&case);
     assert!(wrong.is_empty(), "{}", wrong.join("\n\n"));
 }
+
+/// Seed 0x17, batches 73 and 197, cut down: a match on a literal struct whose
+/// one field is a tuple. The struct and the tuple are the same LLVM constant,
+/// so the release backend must not answer the tuple's first field with the
+/// struct's.
+#[test]
+fn a_match_on_a_literal_struct_of_one_tuple() {
+    if let Some(why) = agreement::skip_reason() {
+        crate::ci::skipped("generated matches", &why);
+        return;
+    }
+    let source = r#"from "core/io" import * as io;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+struct Point {
+    held: (Bool, Int),
+}
+
+fn shut(p: Point): Str {
+    match (p) {
+        Point { held: (false, _) } => "shut",
+        _ => "open",
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, shut(Point { held: (false, 5) })).ignore();
+    let _ = io.println(ctx, shut(Point { held: (true, 5) })).ignore();
+    .Ok(())
+}
+"#;
+    let case = Case {
+        name: "a literal struct of one tuple".to_string(),
+        source: source.to_string(),
+        expected: "shut\nopen\n".to_string(),
+    };
+    let wrong = check(&case);
+    assert!(wrong.is_empty(), "{}", wrong.join("\n\n"));
+}
