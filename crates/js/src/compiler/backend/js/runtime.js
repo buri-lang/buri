@@ -1380,32 +1380,33 @@ function $bits_shiftRightArithmetic(x, n) {
   return x >> $shiftCount(n, 64);
 }
 
+// The three counts read the word as two 32-bit halves of `number`s: walking a
+// `BigInt` a bit at a time allocates at every step.
+function $pop32(n) {
+  n -= (n >>> 1) & 0x55555555;
+  n = (n & 0x33333333) + ((n >>> 2) & 0x33333333);
+  return (Math.imul((n + (n >>> 4)) & 0x0f0f0f0f, 0x01010101) >>> 24);
+}
+
+function $ctz32(n) {
+  return n === 0 ? 32 : 31 - Math.clz32(n & -n);
+}
+
 function $bits_popCount(x) {
-  let v = BigInt.asUintN(64, x);
-  let n = 0n;
-  while (v) {
-    n += v & 1n;
-    v >>= 1n;
-  }
-  return n;
+  const v = BigInt.asUintN(64, x);
+  return BigInt($pop32(Number(v & 0xffffffffn)) + $pop32(Number(v >> 32n)));
 }
 
 function $bits_leadingZeros(x) {
   const v = BigInt.asUintN(64, x);
-  let n = 0n;
-  for (let i = 63n; i >= 0n; i--) {
-    if ((v >> i) & 1n) break;
-    n++;
-  }
-  return n;
+  const hi = Number(v >> 32n);
+  return BigInt(hi !== 0 ? Math.clz32(hi) : 32 + Math.clz32(Number(v & 0xffffffffn)));
 }
 
 function $bits_trailingZeros(x) {
   const v = BigInt.asUintN(64, x);
-  if (v === 0n) return 64n;
-  let n = 0n;
-  while (!((v >> n) & 1n)) n++;
-  return n;
+  const lo = Number(v & 0xffffffffn);
+  return BigInt(lo !== 0 ? $ctz32(lo) : 32 + $ctz32(Number(v >> 32n)));
 }
 
 function $bits_rotateLeft(x, n) {
