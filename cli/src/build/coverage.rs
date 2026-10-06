@@ -24,6 +24,40 @@ pub const LCOV: &str = ".buri/coverage/lcov.info";
 /// Where the processes write their counts, from the repository root.
 const RAW: &str = ".buri/coverage/raw";
 
+/// What a JavaScript probe calls, appended to a coverage build's test bundle.
+///
+/// Here rather than in `runtime.js`, because a test bundle carries the whole
+/// runtime unminified and a plain one has to stay the bytes it was. On exit the
+/// counts go where `cli/runtime/coverage.rs` puts them, in the same shape.
+/// `var` and function declarations, so the probes reach them from above.
+pub const JS: &str = r#"
+// `buri test --coverage`: the probes' counts (`design/COVERAGE.md`).
+var $coverage_counts = null;
+function $coverage_hit(key) {
+  if ($coverage_counts === null) {
+    $coverage_counts = new Map();
+    process.on("exit", $coverage_write);
+  }
+  $coverage_counts.set(key, ($coverage_counts.get(key) || 0) + 1);
+  return 0;
+}
+function $coverage_write() {
+  const dir = process.env.BURI_COVERAGE;
+  const fs = process.getBuiltinModule ? process.getBuiltinModule("fs") : $fsOrNull();
+  if (!dir || !fs) return;
+  let text = "";
+  for (const [key, count] of $coverage_counts) text += String(key) + " " + count + "\n";
+  for (let i = 0; ; i++) {
+    try {
+      fs.writeFileSync(dir + "/" + process.pid + "-" + i + ".hits", text, { flag: "wx" });
+      return;
+    } catch (e) {
+      if (e.code !== "EEXIST") return;
+    }
+  }
+}
+"#;
+
 struct Run {
     raw: PathBuf,
     /// Every line a site starts on, by file.
