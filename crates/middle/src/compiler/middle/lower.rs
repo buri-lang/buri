@@ -98,6 +98,10 @@ mod lists;
 /// is joined by the runtime in one call ([`FnLower::template_joined`]).
 pub(crate) const CONCAT_CHAIN_MAX: usize = 16;
 
+/// The most parts one `list.join` of a long template takes. A longer one is
+/// joined in pieces of this many ([`FnLower::template_joined`]).
+pub(crate) const JOIN_PIECE: usize = 32;
+
 /// Whether lowering builds `key`'s body itself, as IR, so that no backend
 /// meets it as a call: `core/list`'s closure operations and the loops the
 /// derives use (`lower/lists.rs`).
@@ -1522,7 +1526,31 @@ impl FnLower<'_> {
     /// a count of its own going in, and dropping the list afterwards gives
     /// every part back, including the rendered ones this template owned. A
     /// literal's block is null, so it needs no count either way.
+    ///
+    /// More than [`JOIN_PIECE`] parts are joined a piece at a time, and then the
+    /// pieces. One list of every part is three stores a part in one straight
+    /// line, and `llc`'s schedulers are quadratic in a line with no call in it:
+    /// a template of 801 parts took 34.5 G instructions to emit
+    /// (PERFORMANCE.md §6.32). A piece ends at its `list.join` call.
     fn template_joined(
+        &mut self,
+        ty: Type,
+        rendered: &[(ValueId, bool)],
+        literal: &[bool],
+    ) -> ValueId {
+        if rendered.len() <= JOIN_PIECE {
+            return self.join_parts(ty, rendered, literal);
+        }
+        let mut pieces: Vec<(ValueId, bool)> = Vec::new();
+        for (parts, literal) in rendered.chunks(JOIN_PIECE).zip(literal.chunks(JOIN_PIECE)) {
+            pieces.push((self.join_parts(ty, parts, literal), true));
+        }
+        let owned = vec![false; pieces.len()];
+        self.template_joined(ty, &pieces, &owned)
+    }
+
+    /// `rendered` into one `[Str]`, joined by the runtime.
+    fn join_parts(
         &mut self,
         ty: Type,
         rendered: &[(ValueId, bool)],
