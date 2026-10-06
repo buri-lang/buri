@@ -58,7 +58,9 @@ pub struct Listing {
 #[derive(Default)]
 struct Round {
     listing: Option<Rc<Listing>>,
-    contents: BTreeMap<PathBuf, u64>,
+    /// Hashed rather than ordered: it is only ever looked up, and comparing
+    /// two paths component by component was most of what a lookup cost.
+    contents: crate::hash::Map<PathBuf, u64>,
     /// Whether the warm session has been brought up to date this round.
     ///
     /// Once is right and twice is waste, for the same reason the two above are
@@ -395,11 +397,21 @@ impl Sources {
 ///
 /// [`generators::worked_out_from`]: crate::build::generators::worked_out_from
 pub fn closure_of(workspace: &Workspace, analysis: &Analysis) -> Vec<PathBuf> {
+    closure_over(workspace, &analysis.loaded.generated_rules, analysis.loaded.modules.iter())
+}
+
+/// [`closure_of`], for one target's share of a compilation of several: the
+/// rules whose generated code it loaded, and the modules it holds.
+pub fn closure_over<'m>(
+    workspace: &Workspace,
+    generated_rules: &[crate::build::workspace::TargetId],
+    modules: impl Iterator<Item = &'m crate::compiler::modules::ModuleData>,
+) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    for rule in &analysis.loaded.generated_rules {
+    for rule in generated_rules {
         files.extend(crate::build::generators::worked_out_from(workspace, *rule));
     }
-    for module in &analysis.loaded.modules {
+    for module in modules {
         if let Some(disk) = &module.disk {
             files.push(disk.clone());
             continue;

@@ -46,7 +46,6 @@ use crate::build::session::Session;
 use crate::build::sources::{Overlay, Sources};
 use crate::build::workspace::TargetId;
 use crate::commands::arguments::{BuildMode, Flags};
-use crate::compiler::driver::Analysis;
 use crate::diagnostics::{Diagnostic, Edit, FileId, SecondarySpan, Severity, SourceMap, Span};
 use std::path::{Path, PathBuf};
 
@@ -134,6 +133,9 @@ impl Store {
     /// record names is found by name, or read into the map under it. A name
     /// with no file behind it makes the whole record unusable, and the target
     /// is analysed instead.
+    ///
+    /// Says nothing: [`Store::reused`] says so when the caller replays it, so
+    /// `--explain` lists the targets in the order the report reads them.
     pub fn recall(
         &mut self,
         session: &mut Session,
@@ -161,25 +163,30 @@ impl Store {
             target: read_findings(&mut reader, &mut session.map, &self.root)?,
             asked_the_package,
         };
-        self.say(Status::Cached, session, target, &key);
         Some(parts)
     }
 
-    /// Writes down what this run found, under the closure it read.
+    /// `--explain`'s line for a target [`Store::recall`] answered.
+    pub fn reused(&self, session: &Session, target: TargetId) {
+        let key = self.key(session, target);
+        self.say(Status::Cached, session, target, &key);
+    }
+
+    /// Writes down what this run found, under the closure it read
+    /// ([`crate::build::sources::closure_of`]).
     pub fn remember(
         &mut self,
         session: &Session,
         target: TargetId,
-        analysis: &Analysis,
+        closure: &[PathBuf],
         parts: &Parts,
     ) {
         let key = self.key(session, target);
         self.say(Status::Run, session, target, &key);
         let mut out = FORMAT.to_vec();
         out.push(u8::from(parts.asked_the_package));
-        let closure = crate::build::sources::closure_of(&session.workspace, analysis);
         put_u32(&mut out, closure.len() as u32);
-        for path in &closure {
+        for path in closure {
             put_text(&mut out, &session.workspace.rel_of(path));
             put_u64(&mut out, self.sources.content_hash(path, &self.overlay));
         }

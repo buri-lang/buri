@@ -69,6 +69,8 @@ pub fn analyze_all(
 pub struct Loading {
     loaded: Loaded,
     diagnostics: Diagnostics,
+    /// How many of `diagnostics` the opening's snapshot carried in.
+    opening: usize,
 }
 
 /// The first half of [`analyze_all`]: loads the units.
@@ -92,6 +94,16 @@ impl Loading {
     /// What was loaded, for a caller recording which files it read.
     pub fn loaded(&self) -> &Loaded {
         &self.loaded
+    }
+
+    /// What the opening's snapshot carried in, which every load starts with.
+    pub fn opening(&self) -> &[Diagnostic] {
+        self.diagnostics.items.get(..self.opening).unwrap_or_default()
+    }
+
+    /// What loading reported, after the opening's own diagnostics.
+    pub fn reported(&self) -> &[Diagnostic] {
+        self.diagnostics.items.get(self.opening..).unwrap_or_default()
     }
 
     /// The bytes of repository source this load holds, which is what checking
@@ -169,12 +181,13 @@ fn load_on(
     let _phase = crate::profile::enter(crate::profile::Phase::Parse);
     let mut diagnostics = Diagnostics::new();
     diagnostics.extend(snapshot.diagnostics.items.iter().cloned());
+    let opening = diagnostics.items.len();
     let loaded = {
         let mut loader = Loader::seeded(ws, map, &mut diagnostics, cache, snapshot);
         load(&mut loader);
         loader.finish()
     };
-    Loading { loaded, diagnostics }
+    Loading { loaded, diagnostics, opening }
 }
 
 fn check_on(
@@ -185,7 +198,7 @@ fn check_on(
     bodies: Bodies,
 ) -> Analysis {
     let _phase = crate::profile::enter(crate::profile::Phase::Check);
-    let Loading { loaded, mut diagnostics } = loading;
+    let Loading { loaded, mut diagnostics, .. } = loading;
     let checked =
         Checker::resume(&loaded, ws.map(|w| w as &dyn Packages), &mut diagnostics, &snapshot.base).checking(bodies).run();
     diagnostics.sort(map);
@@ -225,6 +238,27 @@ pub fn analyze_program(
     unit: &Unit,
 ) -> Analysis {
     analyze_on(ws, map, cache, Opening::Builtin, Scope::Repository, |loader| loader.load_unit(unit))
+}
+
+/// [`analyze_program`] over several units as one compilation, in its two
+/// halves: this one loads, and [`check_programs`] checks.
+///
+/// `buri lint` asks this of every target at once, so that a library twenty
+/// targets depend on is loaded and checked once rather than twenty times.
+pub fn load_programs(
+    ws: Option<&Workspace>,
+    map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
+    units: &[Unit],
+) -> Loading {
+    load_on(ws, map, cache, snapshot::of(Opening::Builtin, false), |loader| load_units(loader, units))
+}
+
+/// The second half of [`load_programs`]. One unit through both halves is
+/// [`analyze_program`].
+pub fn check_programs(loading: Loading, ws: Option<&Workspace>, map: &SourceMap) -> Analysis {
+    let bodies = Bodies::In(repository_files(&loading.loaded));
+    check_on(loading, ws, map, snapshot::of(Opening::Builtin, false), bodies)
 }
 
 /// Every file in the closure that the standard library did not supply.

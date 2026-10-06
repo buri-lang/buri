@@ -463,3 +463,75 @@ fn closure_conversion_is_linear_in_a_functions_lambdas() {
         1000,
     );
 }
+
+/// `buri lint //...` over a repository `write` fills in, answering `phase`'s
+/// instructions.
+fn linted(name: &str, write: impl Fn(&Scratch), phase: &str) -> Option<f64> {
+    let scratch = Scratch::repo(name);
+    write(&scratch);
+    let run = scratch.run_with_env(&["lint", "//..."], &[("BURI_PROFILE", "1")]);
+    run.ok();
+    phase_instructions(&run.all(), phase)
+}
+
+/// A chain of `n` libraries, each calling the one before it.
+fn library_chain(scratch: &Scratch, n: usize) {
+    for i in 0..n {
+        let (deps, source) = match i.checked_sub(1) {
+            Some(before) => (
+                format!("    dependencies: [\"//lib/p{before}\"]\n"),
+                format!(
+                    "from \"//lib/p{before}\" import * as before;\n\n\
+                     export fn total(): Int {{\n    before.total() + 1\n}}\n"
+                ),
+            ),
+            None => (String::new(), String::from("export fn total(): Int {\n    1\n}\n")),
+        };
+        scratch.write(
+            &format!("lib/p{i}/BUILD.buri"),
+            &format!("library {{\n{deps}    visibility: [\"//visibility:public\"]\n}}\n"),
+        );
+        scratch.write(&format!("lib/p{i}/lib.buri"), &source);
+    }
+}
+
+/// **Linting checks each library once.** `buri lint` analysed every target on
+/// its own, so a library was checked again for every target that depends on
+/// it: a chain of 200 libraries took 24.8 G instructions to lint, against 2.4 G
+/// to build. PERFORMANCE.md §6.43.
+#[test]
+fn linting_checks_each_library_once() {
+    grows_linearly(
+        "checking a chain of libraries for lint",
+        |n| linted("profile-lint-chain", |s| library_chain(s, n), "check"),
+        60,
+    );
+}
+
+/// A library of `n` types, each with a method and a function that builds one.
+fn many_declarations(scratch: &Scratch, n: usize) {
+    let items: String = (0..n)
+        .map(|i| {
+            format!(
+                "struct R{i} {{\n    a: Int,\n}}\n\n\
+                 impl R{i} {{\n    fn get(self): Int {{\n        self.a\n    }}\n}}\n\n\
+                 export fn use{i}(x: Int): Int {{\n    R{i} {{ a: x }}.get()\n}}\n\n"
+            )
+        })
+        .collect();
+    scratch.write("lib/big/BUILD.buri", "library {\n    visibility: [\"//visibility:public\"]\n}\n");
+    scratch.write("lib/big/lib.buri", &items);
+}
+
+/// **The lint rules are linear in the length of a file.** The type census
+/// asked every type a module declares about every identifier in it: a file of
+/// 1,000 types took 1.5 G instructions to lint, three times what 500 took.
+/// PERFORMANCE.md §6.43.
+#[test]
+fn the_lint_rules_are_linear_in_a_files_length() {
+    grows_linearly(
+        "the lint rules over one long file",
+        |n| linted("profile-lint-long-file", |s| many_declarations(s, n), "other"),
+        400,
+    );
+}
