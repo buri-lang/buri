@@ -595,27 +595,8 @@ fn emit_unit(
         diags.extend(emitter.diags.items);
         return Err(diags);
     }
-    // The verifier checks *our* IR rather than LLVM's, under this
-    // repository's rule for a verifier: a developer build pays for the check
-    // and a user's build does not. A user's build still gets `finish`'s
-    // internal errors, including a block left without a terminator.
-    if cfg!(debug_assertions) {
-        if let Err(message) = emitter.module.verify() {
-            diags.push(
-                Diagnostic::error(
-                    Span::NONE,
-                    format!(
-                        "internal error: the LLVM backend emitted invalid IR for unit \
-                         `{unit_name}`: {message}"
-                    ),
-                )
-                .with_fix("this is a toolchain bug; report it"),
-            );
-            return Err(diags);
-        }
-    }
-    if let Err(message) = target::optimize(&emitter.module, &worker.machine, opts.profile) {
-        diags.push(Diagnostic::error(Span::NONE, message));
+    if let Err(d) = optimize(&emitter.module, &worker.machine, opts.profile, unit_name) {
+        diags.push(d);
         return Err(diags);
     }
     let bytes = match render(&emitter.module, &worker.machine) {
@@ -632,9 +613,57 @@ fn emit_unit(
     })
 }
 
+/// One unit's module, verified in a developer build and then optimized.
+///
+/// The verifier checks *our* IR rather than LLVM's, under this repository's
+/// rule for a verifier: a developer build pays for the check and a user's
+/// build does not. A user's build still gets `finish`'s internal errors,
+/// including a block left without a terminator. It runs once, here, rather
+/// than after every pass (`target::optimize`).
+fn optimize(
+    module: &inkwell::module::Module<'_>,
+    machine: &inkwell::targets::TargetMachine,
+    profile: crate::compiler::backend::Profile,
+    unit_name: &str,
+) -> Result<(), Diagnostic> {
+    if cfg!(debug_assertions) {
+        if let Err(message) = module.verify() {
+            return Err(Diagnostic::error(
+                Span::NONE,
+                format!(
+                    "internal error: the LLVM backend emitted invalid IR for unit \
+                     `{unit_name}`: {message}"
+                ),
+            )
+            .with_fix("this is a toolchain bug; report it"));
+        }
+    }
+    target::optimize(module, machine, profile).map_err(|m| Diagnostic::error(Span::NONE, m))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::build::buildfile::{Arch, Platform};
+    use crate::compiler::backend::{Profile, Target};
+
+    /// A developer build still rejects a malformed module before optimizing
+    /// it, now that `target::optimize` doesn't verify after each pass.
+    #[test]
+    fn a_developer_build_rejects_a_malformed_module() {
+        let ctx = Context::create();
+        let module = ctx.create_module("m");
+        let f = module.add_function("f", ctx.i64_type().fn_type(&[], false), None);
+        // A block with no terminator, the shape a missing branch leaves.
+        ctx.append_basic_block(f, "entry");
+        let triple = target::triple(Target { platform: Platform::Macos, arch: Some(Arch::Arm64) });
+        let machine = target::machine(&triple.unwrap(), Profile::Release).unwrap();
+        let result = optimize(&module, &machine, Profile::Release, "u");
+        assert!(cfg!(debug_assertions), "this test needs a developer build");
+        let message = format!("{:?}", result.unwrap_err());
+        assert!(message.contains("emitted invalid IR for unit `u`"), "{message}");
+        assert!(message.contains("does not have terminator"), "{message}");
+    }
 
     /// The identity names the library rather than the feature flag, so a
     /// toolchain built against a different LLVM produces a different key.
