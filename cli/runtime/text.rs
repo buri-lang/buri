@@ -284,19 +284,22 @@ unsafe fn list_of_views(
         return BuriList { ptr: std::ptr::null_mut(), len: 0 };
     }
     let block = buri_rt_alloc((pieces.len().saturating_mul(stride)) as u64);
+    let mut views = 0u64;
     for (i, (from, to)) in pieces.iter().enumerate() {
         let n = to.saturating_sub(*from);
         let element = if n == 0 || ptr.is_null() {
             BuriStr::empty()
         } else {
+            views += 1;
             // SAFETY: the caller promises the range is inside `base`'s block.
-            unsafe { buri_rt_incref(base) };
-            // SAFETY: as above.
             BuriStr { base, ptr: unsafe { ptr.add(*from) }, len: n as u64 | ascii }
         };
         // SAFETY: `i * stride` is inside the spine block just allocated.
         unsafe { block.add(i.saturating_mul(stride)).cast::<BuriStr>().write(element) };
     }
+    // One reference per non-empty view, taken in one update.
+    // SAFETY: `base` is the live block every view points into.
+    unsafe { crate::memory::incref_by(base, views) };
     BuriList { ptr: block, len: pieces.len() as u64 }
 }
 
@@ -1373,6 +1376,33 @@ mod tests {
         assert_eq!(find(b"abcabd", b"abd"), Some(3));
         assert_eq!(find(b"aaaaaaaaaaaaaaaaab", b"ab"), Some(16));
         assert_eq!(find(b"ab", b"abc"), None);
+    }
+
+    /// A split's pieces are views, each holding a reference to the block,
+    /// taken in one update for the lot.
+    #[test]
+    fn a_split_takes_one_reference_per_non_empty_piece() {
+        let s = BuriStr::copy_from(b"a,b,,c");
+        let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        // SAFETY: both ranges are readable and `out` is writable.
+        unsafe { buri_rt_str_split(s.base, s.ptr, s.len, std::ptr::null_mut(), b",".as_ptr(), 1, &raw mut out) };
+        assert_eq!(out.len, 4);
+        // SAFETY: `s.base` is live.
+        assert_eq!(unsafe { crate::memory::buri_rt_rc(s.base) }, 1 + 3, "a, b and c; the empty piece holds none");
+        for i in 0..out.len as usize {
+            // SAFETY: four pieces were written there.
+            let piece = unsafe { out.ptr.cast::<BuriStr>().add(i).read() };
+            if !piece.base.is_null() {
+                // SAFETY: the piece's reference, given back.
+                unsafe { crate::memory::buri_rt_decref(piece.base, None) };
+            }
+        }
+        // SAFETY: the spine and the string, each held once.
+        unsafe {
+            crate::memory::buri_rt_free(out.ptr);
+            assert_eq!(crate::memory::buri_rt_rc(s.base), 1);
+            crate::memory::buri_rt_free(s.base);
+        }
     }
 
     /// The jumping search answers what trying every offset answers.
