@@ -87,8 +87,9 @@ fn disambiguate_unreached_symbols(program: &mut Program, reached: &[bool]) {
     // The symbols worn by two functions or more — the only ones a rename has to
     // reach. A second sighting of a symbol records it, so no count and no
     // arithmetic: `insert` returning `false` is the collision.
-    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let mut shared: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen: crate::hash::Set<&str> = crate::hash::Set::default();
+    seen.reserve(program.funcs.len());
+    let mut shared: crate::hash::Set<String> = crate::hash::Set::default();
     for f in &program.funcs {
         if !seen.insert(&f.symbol) {
             shared.insert(f.symbol.clone());
