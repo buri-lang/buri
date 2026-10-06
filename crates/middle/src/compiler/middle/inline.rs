@@ -83,7 +83,7 @@ pub fn run(program: &mut Program, opts: &Options) -> Stats {
         if let Some(before) = &before {
             revisit(&mut dirty, &own, &facts, before);
         }
-        let inlined = inline_round(program, &facts, &dirty);
+        let inlined = inline_round(program, &facts, &dirty, &own);
         // Inlining a constructor into a projection is what makes most of the
         // folding below possible, so it runs after rather than before.
         let folded = fold_round(program, &dirty, &inlined, &own);
@@ -403,10 +403,14 @@ impl Facts {
 /// respect it, one pool start per level, measured slower than this on every
 /// corpus: thread start and stack teardown cost more than the work they
 /// shared. `buri test` already prepares one program per job thread.
-fn inline_round(program: &mut Program, facts: &Facts, dirty: &[bool]) -> Vec<usize> {
+fn inline_round(program: &mut Program, facts: &Facts, dirty: &[bool], own: &[Own]) -> Vec<usize> {
     let n = program.funcs.len();
     let mut done = vec![0usize; n];
     for i in (0..n).filter(|i| dirty.get(*i) == Some(&true)) {
+        // A body that calls nothing inlinable would be walked to inline nothing.
+        if own.get(i).is_some_and(|o| !o.callees().any(|j| j != i && facts.inlinable(j))) {
+            continue;
+        }
         let Some(func) = program.funcs.get_mut(i) else { continue };
         let Some(mut body) = func.take_body() else { continue };
         let mut locals = std::mem::take(&mut func.locals);
