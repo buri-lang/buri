@@ -4080,8 +4080,21 @@ fn map_task_stack() -> *mut u8 {
     // and the guard is the bottom `BURI_RT_STACK_GUARD` of it.
     let rc = unsafe { mprotect(p.cast(), BURI_RT_STACK_GUARD, PROT_NONE) };
     assert!(rc == 0, "a task stack could not be given its guard");
+    // SAFETY: the mapping just made, and the word is in its usable range.
+    unsafe { task_watermark(p).write(BURI_RT_STACK_WATERMARK) };
     p
 }
+
+/// The word a task's machine stack is probed at: the top of the range a
+/// release decommits, one word below the retained [`BURI_RT_STACK_WARM`].
+/// A task whose stack grew past the retained prefix wrote over it on the way.
+fn task_watermark(base: *mut u8) -> *mut u64 {
+    base.wrapping_add(BURI_RT_STACK_BYTES - BURI_RT_STACK_WARM - 8).cast()
+}
+
+/// Task stacks released since one was last decommitted whatever its
+/// watermark said: [`STACK_DECOMMIT_EVERY`]'s floor, at this stack.
+static TASK_RELEASES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 /// Idle task machine stacks, capped the way [`POOL`] is and for the same
 /// reason.
@@ -4124,6 +4137,17 @@ pub(crate) unsafe fn buri_rt_task_stack_release(base: *mut u8) {
     }
     let low = base.wrapping_add(BURI_RT_STACK_GUARD);
     let len = BURI_RT_STACK_USABLE - BURI_RT_STACK_WARM;
+    // A task that stayed inside the retained prefix left nothing below it to
+    // give back, and the re-map is a system call per task: most of what a
+    // short step cost. The data stack asks its watermark the same question.
+    //
+    // SAFETY: the word is in the mapping's usable range, and nothing runs on it.
+    let shallow = unsafe { task_watermark(base).read() } == BURI_RT_STACK_WATERMARK;
+    let floor = TASK_RELEASES.fetch_add(1, Ordering::Relaxed) % STACK_DECOMMIT_EVERY == STACK_DECOMMIT_EVERY - 1;
+    if shallow && !floor {
+        task_pool_keep(base);
+        return;
+    }
     // SAFETY: `[base + GUARD, base + BYTES - WARM)` is inside the mapping
     // `map_task_stack` made, is a whole number of pages at a page boundary,
     // and nothing is running on it.
@@ -4149,13 +4173,22 @@ pub(crate) unsafe fn buri_rt_task_stack_release(base: *mut u8) {
         return;
     }
     DECOMMITTED_BYTES.fetch_add(len as u64, Ordering::Relaxed);
+    // SAFETY: the range was just re-mapped, so the word is zero and writable.
+    unsafe { task_watermark(base).write(BURI_RT_STACK_WATERMARK) };
+    task_pool_keep(base);
+}
+
+/// Put a released task stack in [`TASK_POOL`], or give it back where the pool
+/// is full.
+fn task_pool_keep(base: *mut u8) {
     let mut pool = task_pool();
     if pool.len() < STACK_POOL_MAX {
         pool.push(base as usize);
         return;
     }
     drop(pool);
-    // SAFETY: as above; the pool is full and this block is on no list.
+    // SAFETY: `base` came from `map_task_stack`, trimmed to exactly this
+    // length; the pool is full and this block is on no list.
     unsafe {
         munmap(base.cast(), BURI_RT_STACK_BYTES);
     }
@@ -4368,6 +4401,36 @@ mod tests {
         }
     }
 
+
+    /// **A task stack that grew past its retained prefix is decommitted on
+    /// release, and a shallow one is on a floor.** The watermark spares the
+    /// system call for a step that stayed shallow; these are the two cases it
+    /// must not spare.
+    #[test]
+    fn a_task_stack_decommits_when_deep_and_on_a_floor() {
+        let decommitted = || heap_stats().decommitted_bytes;
+        let tail = (BURI_RT_STACK_USABLE - BURI_RT_STACK_WARM) as u64;
+
+        let before = decommitted();
+        let (base, top) = buri_rt_task_stack_acquire();
+        // SAFETY: the 64 bytes just below the retained prefix, in the usable
+        // range, on a stack nothing runs on. A deep task's frames write
+        // through them on the way down.
+        unsafe { top.sub(BURI_RT_STACK_WARM + 64).write_bytes(7, 64) };
+        // SAFETY: nothing is running on it.
+        unsafe { buri_rt_task_stack_release(base) };
+        assert!(decommitted() >= before + tail, "a deep task stack was kept dirty");
+
+        let before = decommitted();
+        for _ in 0..=STACK_DECOMMIT_EVERY {
+            let (base, top) = buri_rt_task_stack_acquire();
+            // SAFETY: the top byte, inside the retained prefix.
+            unsafe { top.sub(1).write(1) };
+            // SAFETY: nothing is running on it.
+            unsafe { buri_rt_task_stack_release(base) };
+        }
+        assert!(decommitted() >= before + tail, "{STACK_DECOMMIT_EVERY} shallow releases decommitted nothing");
+    }
 
     /// The reserved bit is bit 63, the mask is its complement, and neither
     /// touches a capacity a block can have.
