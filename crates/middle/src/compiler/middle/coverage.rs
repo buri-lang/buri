@@ -109,7 +109,7 @@ impl Probe<'_> {
                 self.inside(e, after);
                 if let Some(k) = fresh {
                     let span = e.span;
-                    let ty = e.ty.clone();
+                    let ty = e.ty;
                     let inner = std::mem::replace(e, Expr::new(ExprKind::Unit, Ty::UNIT, span));
                     *e = Expr::new(
                         ExprKind::Block {
@@ -177,7 +177,7 @@ impl Probe<'_> {
     }
 
     fn hit(&self, key: u64, span: Span) -> Expr {
-        let arg = Expr::new(ExprKind::Int(Magnitude::new(u128::from(key)), false), self.i64_ty.clone(), span);
+        let arg = Expr::new(ExprKind::Int(Magnitude::new(u128::from(key)), false), *self.i64_ty, span);
         Expr::new(
             ExprKind::Intrinsic { name: HIT.to_string(), targs: Vec::new(), args: vec![arg] },
             Ty::UNIT,

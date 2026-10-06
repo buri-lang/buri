@@ -140,7 +140,7 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
         out("coverage: the suites reached no source of this repository's own");
         return;
     }
-    let (hit, total) = rows.iter().fold((0, 0), |(h, t), r| (h + r.1, t + r.2));
+    let (hit, total) = rows.iter().fold((0usize, 0usize), |(h, t), r| (h.saturating_add(r.1), t.saturating_add(r.2)));
     rows.push(("total".to_string(), hit, total));
     let name_width = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
     let fraction = |r: &(String, usize, usize)| format!("{}/{}", r.1, r.2);

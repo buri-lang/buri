@@ -90,6 +90,34 @@ the whole review. The
 [user interfaces guide](../../guides/user-interfaces.md#snapshots) covers what
 the painter does and does not do.
 
+## Coverage
+
+`--coverage` counts the lines your tests reach, prints a line per file after
+the verdicts, and writes an lcov file:
+
+```sh
+buri test //... --coverage
+```
+
+```text
+3 passed, 0 failed, 0 skipped (0.4s)
+
+coverage
+  lib/shapes/shapes.buri  9/15   60.0%
+  total                   9/15   60.0%
+lcov: .buri/coverage/lcov.info
+```
+
+A line counts when a statement, a block's last expression, an `if` branch, a
+`match` arm or a function body starts on it. Only your repository's own source
+counts: test sources, the standard library and the platforms don't. Paths are
+relative to the repository root, and counts add up across suites and backends.
+
+A coverage run builds its own instrumented artifacts and runs every suite, even
+one whose verdict is cached, so the counts are always this run's. Verdicts,
+output and the exit status are the same as without the flag. `--coverage` and
+`--watch` together are refused.
+
 ## Watching
 
 With `--watch`, `buri test` runs the same invocation again every time one of its
