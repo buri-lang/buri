@@ -4339,6 +4339,59 @@ idea, now skips the re-map for a task that never reached it, with every
 The tiny-tasks program is still mostly the kernel: waking ten workers per round
 and the run queue's one lock. That's what's left to take.
 
+#### 6.44.1 Round two
+
+Against the round above, with a seventh program, `mapk`: a million `Int`
+inserts into a `Map` and a million lookups.
+
+| Program | Instructions before | after | Δ | Wall before | after |
+|---|---:|---:|---:|---:|---:|
+| strings | 2,417 M | 2,316 M | −4.2% | | |
+| maps | 7,994 M | 6,981 M | −13% | 0.52 s | 0.46 s |
+| lists | 3,223 M | 3,202 M | −0.7% | | |
+| floats | 790 M | 783 M | −0.9% | | |
+| parallel | 11,221 M | 10,602 M | −5.5% | | |
+| tiny tasks | 29,121 M | 21,376 M | −27% | 2.82 s | 2.22 s |
+| mapk | 25,538 M | 21,954 M | −14% | 1.65 s | 1.42 s |
+
+Wall is the best of three, alternating, at load 35–40.
+
+| Change | What moved |
+|---|---|
+| A fan-out waits once, through a latch | tiny tasks −20% |
+| A task's body and arena slot leave their `Mutex`es | (in the row above) |
+| A fan-out's step never makes its waiter list | tiny tasks −4.5%, median of eight |
+| The block cache holds payloads up to 1 KiB | mapk −9.8%, maps −7.4%, others +0.4–0.6% |
+| A list append checks spare slots a word at a time | mapk −4.5%, maps −5.0% |
+| A free reads the heap-check mode once | strings −1.5%, lists −1.0%, maps −0.7% |
+
+**Joining a fan-out cost more than running it.** The dispatcher joined each
+step in turn, and every join went through `park_on`: a flush, a look at the
+timers, and `block_on` into the reactor, even for a step already done. A
+fan-out that fits the window now hands its steps one latch, which
+`thread_loop` counts down where it used to wake a step's joiners, after the
+step's thread is counted idle. The dispatcher waits once. Rust's `Mutex` on
+macOS boxes a `pthread_mutex_t` on first use, and a task had three of them.
+Two guarded fields only the running thread touches, so they're `UnsafeCell`s
+now. A fan-out's step skips the third, its waiter list.
+
+**A persistent map's node arrays outgrew the cache.** Copying a node on
+insert allocates a few hundred bytes, past the 256-byte ceiling, so each copy
+was a `malloc` and a zeroing `free`. The cache now keeps exact sizes up to
+1 KiB. Sweeping four times the slots on every sweep cost the other programs
+about 1.5%, so the new slots are swept one sweep in four.
+
+**Measured dead ends:**
+
+- **Spinning before sleeping.** Workers spun on the queue length for 4,096
+  `spin_loop` turns before waiting, and the dispatcher on the latch. On this
+  shared machine the tiny-tasks program went from 2.5–2.9 s to 5.6–6.4 s and
+  doubled its instructions: spinners took the cores the woken threads needed.
+- **A larger cache budget.** Ten times the per-thread share moved `mapk` 1%.
+
+What's left in tiny tasks is the kernel waking ten workers per round and the
+run queue's lock. A per-worker queue with stealing is the next shape to try.
+
 ### 6.45 What `--release` hands to LLVM, 2026-10-06
 
 `buri build --release` of `mixed-10k` spent 20.2 G instructions in `emit`:
