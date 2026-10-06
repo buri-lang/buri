@@ -1022,6 +1022,35 @@ impl Unchecked {
     }
 }
 
+/// Each file's tokens, lexed once for every rule that reads them.
+///
+/// Five rules read a module's tokens rather than its tree, and each lexing the
+/// file for itself was a fifth of what linting a large file cost.
+struct Lexes<'s> {
+    session: &'s Session,
+    by_file: std::cell::RefCell<
+        std::collections::BTreeMap<crate::diagnostics::FileId, std::rc::Rc<crate::parsing::lexer::Lexed<'s>>>,
+    >,
+}
+
+impl<'s> Lexes<'s> {
+    fn new(session: &'s Session) -> Lexes<'s> {
+        Lexes { session, by_file: std::cell::RefCell::default() }
+    }
+
+    fn text(&self, file: crate::diagnostics::FileId) -> &'s str {
+        self.session.map.text(file)
+    }
+
+    fn of(&self, file: crate::diagnostics::FileId) -> std::rc::Rc<crate::parsing::lexer::Lexed<'s>> {
+        let mut by_file = self.by_file.borrow_mut();
+        let lexed = by_file
+            .entry(file)
+            .or_insert_with(|| std::rc::Rc::new(crate::parsing::lexer::lex(self.session.map.text(file), file)));
+        std::rc::Rc::clone(lexed)
+    }
+}
+
 fn check_hygiene(
     session: &Session,
     target: TargetId,
@@ -1031,20 +1060,21 @@ fn check_hygiene(
     let own = target.package;
     let unchecked = Unchecked::of(analysis);
     let held = Held::of(analysis, &modules_of(analysis, own));
+    let lexes = Lexes::new(session);
     for m in &analysis.loaded.modules {
         if m.pkg == Some(own) && !is_generated(m) {
-            check_unused_imports(session, analysis, m, &held, diagnostics);
+            check_unused_imports(&lexes, analysis, m, &held, diagnostics);
             check_duplicate_imports(m, diagnostics);
-            check_warning_comments(session, m, diagnostics);
-            check_hex_digit_tables(session, m, diagnostics);
-            check_time_unit_conversions(session, m, diagnostics);
+            check_warning_comments(&lexes, m, diagnostics);
+            check_hex_digit_tables(&lexes, m, diagnostics);
+            check_time_unit_conversions(&lexes, m, diagnostics);
             check_function_shapes(session, m, diagnostics);
         }
     }
     check_dead_code(session, target, analysis, &unchecked, &held, diagnostics);
-    check_unused_declarations(session, target, analysis, &unchecked, diagnostics);
+    check_unused_declarations(session, &lexes, target, analysis, &unchecked, diagnostics);
     check_ctx_rebindings(own, analysis, &unchecked, diagnostics);
-    check_unused_contexts(session, target, analysis, &unchecked, diagnostics);
+    check_unused_contexts(session, &lexes, target, analysis, &unchecked, diagnostics);
     check_unused_context_bounds(session, target, analysis, &unchecked, diagnostics);
     check_discarded_results(own, analysis, diagnostics);
     check_hand_rolled_discards(own, analysis, &unchecked, diagnostics);
@@ -1190,9 +1220,9 @@ const WARNING_MARKERS: &[&str] = &["TODO", "FIXME", "HACK"];
 /// is what makes the rule about comments rather than about text: everything
 /// between two tokens is whitespace or a comment, so a `TODO` inside a string
 /// literal is inside a token and is never looked at.
-fn check_warning_comments(session: &Session, m: &ModuleData, diagnostics: &mut Diagnostics) {
-    let text = session.map.text(m.file);
-    let lexed = crate::parsing::lexer::lex(text, m.file);
+fn check_warning_comments(lexes: &Lexes<'_>, m: &ModuleData, diagnostics: &mut Diagnostics) {
+    let text = lexes.text(m.file);
+    let lexed = lexes.of(m.file);
     let mut found: Vec<(usize, &'static str)> = Vec::new();
     let mut at = 0usize;
     for i in 0..lexed.tokens.len() {
@@ -1217,6 +1247,11 @@ fn check_warning_comments(session: &Session, m: &ModuleData, diagnostics: &mut D
 /// Every marker in `text[from..to]`, as an offset into the whole file.
 fn markers_in(text: &str, from: usize, to: usize, out: &mut Vec<(usize, &'static str)>) {
     let Some(gap) = text.get(from..to) else { return };
+    // Nearly every gap is a space or an indent, which holds no marker's first
+    // letter; searching it three times was most of what this rule cost.
+    if !gap.bytes().any(|b| WARNING_MARKERS.iter().any(|m| m.as_bytes().first() == Some(&b))) {
+        return;
+    }
     let is_word = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
     for marker in WARNING_MARKERS {
         let mut at = 0usize;
@@ -1251,10 +1286,9 @@ const HEX_DIGITS: [char; 16] =
 /// **Nothing else is the table.** Sixteen characters in that order are not a
 /// coincidence anybody has to weigh — the run has to match digit for digit, in
 /// one case, with nothing between them but the commas of a list.
-fn check_hex_digit_tables(session: &Session, m: &ModuleData, diagnostics: &mut Diagnostics) {
+fn check_hex_digit_tables(lexes: &Lexes<'_>, m: &ModuleData, diagnostics: &mut Diagnostics) {
     use crate::parsing::lexer::TokenKind;
-    let text = session.map.text(m.file);
-    let lexed = crate::parsing::lexer::lex(text, m.file);
+    let lexed = lexes.of(m.file);
     let count = lexed.tokens.len();
     let alphabet: String = HEX_DIGITS.iter().collect();
     let mut at = 0usize;
@@ -1348,10 +1382,9 @@ const NANOS_PER_MILLISECOND: u128 = 1_000_000;
 /// `1_000_000` is a million of something and this rule does not guess which,
 /// which is why a `PPM_DENOMINATOR` and a test asserting `a / 1000000` are not
 /// findings.
-fn check_time_unit_conversions(session: &Session, m: &ModuleData, diagnostics: &mut Diagnostics) {
+fn check_time_unit_conversions(lexes: &Lexes<'_>, m: &ModuleData, diagnostics: &mut Diagnostics) {
     use crate::parsing::lexer::TokenKind;
-    let text = session.map.text(m.file);
-    let lexed = crate::parsing::lexer::lex(text, m.file);
+    let lexed = lexes.of(m.file);
     let count = lexed.tokens.len();
     let mut found: Vec<(Span, String)> = Vec::new();
     for at in 0..count {
@@ -1786,6 +1819,7 @@ fn check_dead_code(
 /// rather than any field of it.
 fn check_unused_declarations(
     session: &Session,
+    lexes: &Lexes<'_>,
     target: TargetId,
     analysis: &crate::compiler::driver::Analysis,
     unchecked: &Unchecked,
@@ -1810,7 +1844,7 @@ fn check_unused_declarations(
         .map(|d| (d.span.file.0, d.span.start, d.span.end))
         .collect();
 
-    let names = Names::of(session, analysis, &mine, unchecked);
+    let names = Names::of(lexes, analysis, &mine, unchecked);
     let census = Census::of(analysis, &mine);
     let reportable = editable_modules_of(analysis, own);
     // A package with no library has no surface, and nothing in it is exempt.
@@ -1919,7 +1953,7 @@ struct Names {
 
 impl Names {
     fn of(
-        session: &Session,
+        lexes: &Lexes<'_>,
         analysis: &crate::compiler::driver::Analysis,
         mine: &BTreeSet<ModuleId>,
         unchecked: &Unchecked,
@@ -1972,20 +2006,36 @@ impl Names {
                     _ => {}
                 }
             }
-            let text = session.map.text(m.file);
-            let lexed = crate::parsing::lexer::lex(text, m.file);
+            // Declarations do not overlap, so the one that can hold a token is
+            // the last to start at or before it. Where they do overlap, every
+            // one is asked.
+            owned.sort_by_key(|(_, range)| (range.start, range.end));
+            let disjoint = owned.windows(2).all(|w| match w {
+                [(_, a), (_, b)] => a.end <= b.start,
+                _ => true,
+            });
+            let lexed = lexes.of(m.file);
             for i in 0..lexed.tokens.len() {
                 if lexed.tokens.kind(i) != crate::parsing::lexer::TokenKind::Ident {
                     continue;
                 }
                 let at = lexed.tokens.span(i);
                 let name = lexed.tokens.text(i);
-                if unreadable.iter().any(|r| at.start >= r.start && at.end <= r.end) {
+                if unreadable.iter().any(|r| at.start >= r.start && at.end <= r.end)
+                    && !names.doubted.contains(name)
+                {
                     names.doubted.insert(name.to_string());
                 }
-                if owned.iter().any(|(owner, range)| {
+                let holds = |(owner, range): &(&str, Span)| {
                     *owner == name && at.start >= range.start && at.end <= range.end
-                }) {
+                };
+                let declared = if disjoint {
+                    let after = owned.partition_point(|(_, range)| range.start <= at.start);
+                    after.checked_sub(1).and_then(|i| owned.get(i)).is_some_and(holds)
+                } else {
+                    owned.iter().any(holds)
+                };
+                if declared || names.written.contains(name) {
                     continue;
                 }
                 names.written.insert(name.to_string());
@@ -2248,7 +2298,7 @@ fn exported_name<'t>(
 /// `.Circle(r)` arms. An import of that type's name counts as used too, which
 /// is [`Held`]'s answer and over-approximates in the same safe direction.
 fn check_unused_imports(
-    session: &Session,
+    lexes: &Lexes<'_>,
     analysis: &crate::compiler::driver::Analysis,
     m: &ModuleData,
     held: &Held,
@@ -2266,9 +2316,9 @@ fn check_unused_imports(
         }
     }
 
-    let text = session.map.text(m.file);
-    let lexed = crate::parsing::lexer::lex(text, m.file);
-    let mut used: BTreeSet<&str> = BTreeSet::new();
+    let text = lexes.text(m.file);
+    let lexed = lexes.of(m.file);
+    let mut used: crate::hash::Set<&str> = crate::hash::Set::default();
     for i in 0..lexed.tokens.len() {
         if lexed.tokens.kind(i) != crate::parsing::lexer::TokenKind::Ident {
             continue;
@@ -2456,6 +2506,7 @@ fn check_ctx_rebindings(
 ///   declared. Whether the *trait* needs it is a question about the trait.
 fn check_unused_contexts(
     session: &Session,
+    lexes: &Lexes<'_>,
     target: TargetId,
     analysis: &crate::compiler::driver::Analysis,
     unchecked: &Unchecked,
@@ -2463,18 +2514,27 @@ fn check_unused_contexts(
 ) {
     use crate::compiler::semantics::types::ParamRole;
     let mine = editable_modules_of(analysis, target.package);
+    let mut compiled: std::collections::BTreeMap<ModuleId, bool> = std::collections::BTreeMap::new();
     let mut found: Vec<(Span, Vec<crate::diagnostics::Edit>)> = Vec::new();
     for (fid, body) in &analysis.checked.bodies {
         let info = analysis.checked.tables.fn_info(fid);
         if !mine.contains(&info.module) {
             continue;
         }
-        if info.impl_of.is_some() || !compiled_by(session, analysis, target, info.module) {
+        if info.impl_of.is_some() {
             continue;
         }
         let Some(index) = info.params.iter().position(|p| p.role == ParamRole::Ctx) else {
             continue;
         };
+        // Once per module: the answer is about the file, and asking it costs a
+        // scan of every source the package lists.
+        let compiled = *compiled
+            .entry(info.module)
+            .or_insert_with(|| compiled_by(session, analysis, target, info.module));
+        if !compiled {
+            continue;
+        }
         let (Some(param), Some(ctx_local)) =
             (info.params.get(index), body.params.get(index).copied())
         else {
@@ -2483,7 +2543,7 @@ fn check_unused_contexts(
         // A body that did not check has lost the reads written under whatever
         // it failed on, so the tree is not the evidence there and the text is.
         let used = if unchecked.body(fid) {
-            names_ctx(session, extent_of(info, body), param.span)
+            names_ctx(lexes, extent_of(info, body), param.span)
         } else {
             let mut read = false;
             typed::walk(&body.expr, &mut |e| {
@@ -2546,8 +2606,8 @@ fn extent_of(
 ///
 /// The parameter's own occurrence is excluded by extent rather than by
 /// counting, so a signature written across lines is read like any other.
-fn names_ctx(session: &Session, extent: Span, param: Span) -> bool {
-    let lexed = crate::parsing::lexer::lex(session.map.text(extent.file), extent.file);
+fn names_ctx(lexes: &Lexes<'_>, extent: Span, param: Span) -> bool {
+    let lexed = lexes.of(extent.file);
     (0..lexed.tokens.len()).any(|i| {
         let at = lexed.tokens.span(i);
         at.start >= extent.start
