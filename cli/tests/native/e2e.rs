@@ -3450,6 +3450,70 @@ fn a_large_struct_held_deep_inside_options_lists_and_records_leaks_nothing() {
 /// back.** `ui/node`'s `Node(NodeKind)` is this shape: `Pair` makes the type
 /// recursive, so `Tree` is one pointer to a `Kind` wider than 256 bytes.
 #[test]
+fn a_field_taken_out_of_what_a_match_drops_keeps_its_count() {
+    unless_ready!();
+    // Each function binds a field and drops the value it matched on. Where
+    // that value holds no other count, the LLVM backend emits neither the
+    // field's increment nor the value's decrement. `Two`, `Both` and
+    // `Tree.Node` hold a second count, and `Node`'s first field is boxed, so
+    // those must still count. Every value is also held elsewhere, in a list or
+    // a second binding, and every string grows afterwards: a count one too low
+    // would let the growth write in place into a string something else holds.
+    let source = r#"
+from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+enum Ev { Named(Str, Int), Two(Str, Str), Empty }
+enum Tree { Leaf(Str), Node(Tree, Str) }
+struct Pair { a: Str, n: Int }
+struct Both { a: Str, b: Str }
+
+fn named(e: Ev): Str { match (e) { .Named(s, _) => s, .Two(a, _) => a, .Empty => "-" } }
+fn label(t: Tree): Str { match (t) { .Leaf(s) => s, .Node(_, s) => s } }
+fn left(t: Tree): Tree { match (t) { .Leaf(_) => t, .Node(l, _) => l } }
+fn first(p: Pair): Str { p.a }
+fn firstOfBoth(b: Both): Str { b.a }
+
+fn grown<C: Allocator>(ctx: C, s: Str): Str { str.format(ctx, "${s}!") }
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+    let one = Ev.Named("ab".repeat(ctx, 2), 1);
+    let two = Ev.Two("cd".repeat(ctx, 2), "ef".repeat(ctx, 2));
+    let evs = [one, two, Ev.Empty, one];
+    let names = evs.mapCtx(ctx, fn(c, e) => grown(c, named(e)));
+    let _ = io.println(ctx, names.join(ctx, ",")).ignore();
+    let _ = io.println(ctx, "${named(one)} ${named(two)} ${grown(ctx, named(one))} ${named(evs.get(0).withDefault(Ev.Empty))}").ignore();
+
+    let leaf = Tree.Leaf("gh".repeat(ctx, 2));
+    let tree = Tree.Node(Tree.Node(leaf, "ij".repeat(ctx, 2)), "kl".repeat(ctx, 2));
+    let inner = left(tree);
+    let _ = io.println(ctx, "${grown(ctx, label(tree))} ${grown(ctx, label(inner))} ${label(left(inner))} ${label(leaf)} ${label(tree)}").ignore();
+
+    let p = Pair { a: "mn".repeat(ctx, 2), n: 3 };
+    let ps = [p, p];
+    let b = Both { a: "op".repeat(ctx, 2), b: "qr".repeat(ctx, 2) };
+    let _ = io.println(ctx, "${grown(ctx, first(p))} ${first(ps.get(1).withDefault(p))} ${grown(ctx, firstOfBoth(b))} ${b.a} ${b.b} ${p.a}").ignore();
+    .Ok(())
+}
+"#;
+    let (stdout, stderr) = heap_checked("e2e-field-out-of-a-match", source);
+    assert_eq!(
+        stdout,
+        vec![
+            "abab!,cdcd!,-!,abab!",
+            "abab cdcd abab! abab",
+            "klkl! ijij! ghgh ghgh klkl",
+            "mnmn! mnmn opop! opop qrqr mnmn",
+        ],
+        "stderr:\n{stderr}"
+    );
+}
+
+#[test]
 fn a_tree_boxing_a_large_enum_is_built_walked_and_dropped() {
     unless_ready!();
     let strs: String = (0..13).map(|i| format!("f{i}: Str, ")).collect();

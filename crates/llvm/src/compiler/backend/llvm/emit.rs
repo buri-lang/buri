@@ -572,11 +572,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let _ = self.builder.build_unconditional_branch(*b0);
         }
 
+        let projections = projections(code);
         for i in reverse_postorder(code) {
             let Some(block) = code.blocks.get(i) else { continue };
             let Some(bb) = state.blocks.get(i).copied() else { continue };
             self.builder.position_at_end(bb);
-            for inst in &block.insts {
+            let cancelled = self.cancelled_counts(code, &block.insts, &projections);
+            for (at, inst) in block.insts.iter().enumerate() {
+                if cancelled.get(at).copied().unwrap_or(false) {
+                    self.observe_cancelled(&mut state, code, inst);
+                    continue;
+                }
                 self.inst(&mut state, code, inst, func.span);
                 self.check_results(&state, code, inst);
             }
@@ -3583,6 +3589,93 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) {
         let _ = drop;
         self.rc(state, code, v, Op::Release);
+    }
+
+    /// Which `incref`s and `decref`s in a block cancel, by instruction.
+    ///
+    /// An `incref x` followed by a `decref w`, with nothing between them that
+    /// can call, allocate or count, is a pair of no-ops when the decrement
+    /// releases exactly what the increment retained: `w` is `x` itself, or `x`
+    /// is an unboxed field or payload field of `w` and no other field of `w`
+    /// (or of `x`'s variant) holds a count. The middle end plans it that way
+    /// where a match binds a field and then drops what it matched on, as a
+    /// lookup in a map does at every level of the tree. LLVM can't fold the
+    /// two itself: it can't tell the decrement doesn't reach zero.
+    ///
+    /// A `GetPayload` is only emitted where the variant is known (`ir.rs`), so
+    /// `x` being a payload of variant `k` says `w` is variant `k` too.
+    fn cancelled_counts(
+        &mut self,
+        code: &ir::Code,
+        insts: &[ir::Inst],
+        projections: &Map<usize, (ir::ValueId, Option<u32>, u32)>,
+    ) -> Vec<bool> {
+        let mut out = vec![false; insts.len()];
+        for (i, inst) in insts.iter().enumerate() {
+            let ir::Inst::IncRef { value: x } = inst else { continue };
+            let after = i.saturating_add(1);
+            let Some(rest) = insts.get(after..) else { continue };
+            let Some((k, w)) = rest
+                .iter()
+                .enumerate()
+                .find(|(_, next)| !cannot_count(next))
+                .and_then(|(k, next)| match next {
+                    ir::Inst::DecRef { value, .. } => Some((k, *value)),
+                    _ => None,
+                })
+            else {
+                continue;
+            };
+            let j = after.saturating_add(k);
+            let free = out.get(i) == Some(&false) && out.get(j) == Some(&false);
+            if free && (*x == w || self.holds_only(code, *x, w, projections)) {
+                for at in [i, j] {
+                    if let Some(slot) = out.get_mut(at) {
+                        *slot = true;
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether `x` is a field of `w` that holds every count `w` holds.
+    fn holds_only(
+        &mut self,
+        code: &ir::Code,
+        x: ir::ValueId,
+        w: ir::ValueId,
+        projections: &Map<usize, (ir::ValueId, Option<u32>, u32)>,
+    ) -> bool {
+        let Some(&(agg, variant, index)) = projections.get(&x.index()) else { return false };
+        if agg != w {
+            return false;
+        }
+        let Some(owner) = self.type_of(code.ty_of(w)) else { return false };
+        let fields = match variant {
+            None => types::field_types(self.tables, &owner),
+            Some(v) => types::variant_types(self.tables, &owner, v as usize),
+        };
+        if fields.get(index as usize).is_none() {
+            return false;
+        }
+        fields.iter().enumerate().all(|(i, f)| {
+            !self.reprs.boxes(&owner, f) && (i == index as usize || !self.reprs.counted_type(f))
+        })
+    }
+
+    /// What a cancelled `incref` or `decref` would have told the attributes,
+    /// so that they come out as they would have with the pair in place.
+    fn observe_cancelled(&mut self, state: &mut Function<'ctx>, code: &ir::Code, inst: &ir::Inst) {
+        let (v, op) = match inst {
+            ir::Inst::IncRef { value } => (*value, Op::Retain),
+            ir::Inst::DecRef { value, .. } => (*value, Op::Release),
+            _ => return,
+        };
+        let Some(ty) = self.type_of(code.ty_of(v)) else { return };
+        if self.reprs.counted_type(&ty) {
+            self.rc_observed(state, v, op);
+        }
     }
 
     fn rc(&mut self, state: &mut Function<'ctx>, code: &ir::Code, v: ir::ValueId, op: Op) {
@@ -9682,6 +9775,40 @@ impl<'a> Boxes<'a> {
     fn owner(&self, code: &ir::Code, v: ir::ValueId) -> Option<Ty> {
         let ir::Type::Agg(id) = code.ty_of(v) else { return None };
         Some(self.program.type_info(id).ty)
+    }
+}
+
+/// Every `GetField` and `GetPayload` in a body, by the value it defines: the
+/// aggregate, the variant for a payload, and the field.
+fn projections(code: &ir::Code) -> Map<usize, (ir::ValueId, Option<u32>, u32)> {
+    let mut out = Map::default();
+    for inst in code.blocks.iter().flat_map(|b| &b.insts) {
+        match inst {
+            ir::Inst::GetField { dest, agg, index } => {
+                out.insert(dest.index(), (*agg, None, *index));
+            }
+            ir::Inst::GetPayload { dest, agg, variant, index } => {
+                out.insert(dest.index(), (*agg, Some(*variant), *index));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Whether an instruction can't touch a count: no call, no allocation, no
+/// store. An `incref` and a `decref` with only these between them can cancel
+/// (`Unit::cancelled_counts`).
+fn cannot_count(inst: &ir::Inst) -> bool {
+    match inst {
+        ir::Inst::Const { .. }
+        | ir::Inst::Unary { .. }
+        | ir::Inst::GetField { .. }
+        | ir::Inst::GetPayload { .. }
+        | ir::Inst::GetTag { .. }
+        | ir::Inst::ArrayLen { .. } => true,
+        ir::Inst::Binary { prim, .. } => !matches!(prim, Prim::Str | Prim::Template),
+        _ => false,
     }
 }
 
