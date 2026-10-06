@@ -148,14 +148,73 @@ fn scalar_at(bytes: &[u8], at: usize) -> Option<char> {
 ///
 /// The empty needle occurs at 0, which is what `String.prototype.indexOf` says.
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() {
-        return Some(0);
-    }
+    let Some((&first, rest)) = needle.split_first() else { return Some(0) };
     if needle.len() > haystack.len() {
         return None;
     }
-    let last = haystack.len().saturating_sub(needle.len());
-    (0..=last).find(|i| haystack.get(*i..i.saturating_add(needle.len())) == Some(needle))
+    // Only a start can hold the needle's first byte, so the scan jumps from
+    // one of those to the next and compares the rest only there.
+    let starts = haystack.get(..=haystack.len() - needle.len()).unwrap_or(&[]);
+    let mut at = 0;
+    while let Some(found) = memchr(first, starts.get(at..).unwrap_or(&[])) {
+        let start = at + found;
+        if haystack.get(start + 1..start + needle.len()) == Some(rest) {
+            return Some(start);
+        }
+        at = start + 1;
+    }
+    None
+}
+
+/// The first offset of `byte` in `bytes`, eight bytes at a time.
+fn memchr(byte: u8, bytes: &[u8]) -> Option<usize> {
+    const LOW: u64 = 0x0101_0101_0101_0101;
+    const HIGH: u64 = 0x8080_8080_8080_8080;
+    let pattern = LOW.wrapping_mul(u64::from(byte));
+    let mut chunks = bytes.chunks_exact(8);
+    let mut at = 0;
+    for chunk in &mut chunks {
+        let mut word = [0u8; 8];
+        word.copy_from_slice(chunk);
+        // A zero byte in `x` is a match; this sets its high bit, and the
+        // lowest set bit is exact (a borrow only runs upward from it).
+        let x = u64::from_le_bytes(word) ^ pattern;
+        let hit = x.wrapping_sub(LOW) & !x & HIGH;
+        if hit != 0 {
+            return Some(at + (hit.trailing_zeros() / 8) as usize);
+        }
+        at += 8;
+    }
+    chunks.remainder().iter().position(|&b| b == byte).map(|i| at + i)
+}
+
+/// The ranges a split cut, on the stack until there are more than sixteen.
+struct Pieces {
+    inline: [(usize, usize); 16],
+    n: usize,
+    spilled: Vec<(usize, usize)>,
+}
+
+impl Pieces {
+    fn new() -> Pieces {
+        Pieces { inline: [(0, 0); 16], n: 0, spilled: Vec::new() }
+    }
+
+    fn push(&mut self, piece: (usize, usize)) {
+        if let Some(slot) = self.inline.get_mut(self.n) {
+            *slot = piece;
+            self.n += 1;
+            return;
+        }
+        if self.spilled.is_empty() {
+            self.spilled.extend_from_slice(&self.inline);
+        }
+        self.spilled.push(piece);
+    }
+
+    fn as_slice(&self) -> &[(usize, usize)] {
+        if self.spilled.is_empty() { self.inline.get(..self.n).unwrap_or(&[]) } else { &self.spilled }
+    }
 }
 
 /// JavaScript's `WhiteSpace` and `LineTerminator`, which is what `String.trim`
@@ -778,7 +837,7 @@ pub unsafe extern "C" fn buri_rt_str_split(
     // SAFETY: the caller promises both ranges.
     let (s, sep) = unsafe { (view(ptr, len), view(sptr, slen)) };
     let ascii = len & BURI_RT_STR_ASCII;
-    let mut pieces: Vec<(usize, usize)> = Vec::new();
+    let mut pieces = Pieces::new();
     if sep.is_empty() {
         // Per scalar, which is `$chars`.
         // SAFETY: forwarded.
@@ -799,7 +858,7 @@ pub unsafe extern "C" fn buri_rt_str_split(
         pieces.push((at, s.len()));
     }
     // SAFETY: every range came from `s`, so it is inside `base`'s block.
-    unsafe { out.write(list_of_views(base, ptr, ascii, &pieces)) }
+    unsafe { out.write(list_of_views(base, ptr, ascii, pieces.as_slice())) }
 }
 
 /// `str.splitAny(self, ctx, separators) -> [Str]` — split on any of the
@@ -821,7 +880,7 @@ pub unsafe extern "C" fn buri_rt_str_split_any(
     let (s, seps) = unsafe { (text(ptr, len), text(sptr, slen)) };
     let set: Vec<char> = seps.chars().collect();
     let ascii = len & BURI_RT_STR_ASCII;
-    let mut pieces: Vec<(usize, usize)> = Vec::new();
+    let mut pieces = Pieces::new();
     let mut start = 0usize;
     let mut at = 0usize;
     for c in s.chars() {
@@ -838,7 +897,7 @@ pub unsafe extern "C" fn buri_rt_str_split_any(
         pieces.push((start, at));
     }
     // SAFETY: every range came from the receiver's bytes.
-    unsafe { out.write(list_of_views(base, ptr, ascii, &pieces)) }
+    unsafe { out.write(list_of_views(base, ptr, ascii, pieces.as_slice())) }
 }
 
 /// `str.lines(self, ctx) -> [Str]` — split on `\n`, empties kept, `\r` left
@@ -856,17 +915,15 @@ pub unsafe extern "C" fn buri_rt_str_lines(
     // SAFETY: the caller promises `len` readable bytes.
     let s = unsafe { view(ptr, len) };
     let ascii = len & BURI_RT_STR_ASCII;
-    let mut pieces: Vec<(usize, usize)> = Vec::new();
+    let mut pieces = Pieces::new();
     let mut start = 0usize;
-    for (at, b) in s.iter().enumerate() {
-        if *b == b'\n' {
-            pieces.push((start, at));
-            start = at.saturating_add(1);
-        }
+    while let Some(at) = memchr(b'\n', s.get(start..).unwrap_or(&[])) {
+        pieces.push((start, start + at));
+        start += at + 1;
     }
     pieces.push((start, s.len()));
     // SAFETY: every range came from `s`.
-    unsafe { out.write(list_of_views(base, ptr, ascii, &pieces)) }
+    unsafe { out.write(list_of_views(base, ptr, ascii, pieces.as_slice())) }
 }
 
 /// `str.replace(self, ctx, needle, replacement) -> Str`.
@@ -1300,6 +1357,33 @@ mod tests {
         assert_eq!(find(b"", b""), Some(0));
         assert_eq!(find(b"abc", b"c"), Some(2));
         assert_eq!(find(b"abc", b"d"), None);
+        assert_eq!(find(b"abcabd", b"abd"), Some(3));
+        assert_eq!(find(b"aaaaaaaaaaaaaaaaab", b"ab"), Some(16));
+        assert_eq!(find(b"ab", b"abc"), None);
+    }
+
+    /// The jumping search answers what trying every offset answers.
+    #[test]
+    fn the_search_agrees_with_trying_every_offset() {
+        let naive = |h: &[u8], n: &[u8]| (0..=h.len().saturating_sub(n.len())).find(|&i| h[i..].starts_with(n));
+        let mut s: u64 = 0x1234_5678_9ABC_DEF1;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        };
+        for _ in 0..200_000 {
+            let len = (next() % 40) as usize;
+            // Three letters plus a high byte, so matches and near-misses are common.
+            let pick = |r: u64| [b'a', b'b', b'c', 0xE2][(r % 4) as usize];
+            let h: Vec<u8> = (0..len).map(|_| pick(next())).collect();
+            let nlen = 1 + (next() % 4) as usize;
+            let n: Vec<u8> = (0..nlen).map(|_| pick(next())).collect();
+            let want = if n.len() > h.len() { None } else { naive(&h, &n) };
+            assert_eq!(find(&h, &n), want, "{h:?} {n:?}");
+            assert_eq!(memchr(n[0], &h), h.iter().position(|&b| b == n[0]));
+        }
     }
 
     /// One concatenation per step onto a uniquely-owned string reallocates
