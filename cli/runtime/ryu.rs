@@ -43,7 +43,7 @@ fn pow5_bits(e: i32) -> i32 {
 
 fn pow5_factor(mut v: u64) -> u32 {
     let mut count = 0;
-    while v > 0 && v % 5 == 0 {
+    while v > 0 && v.is_multiple_of(5) {
         v /= 5;
         count += 1;
     }
@@ -132,8 +132,7 @@ pub(crate) fn shortest(x: f64) -> (u64, i32) {
     // Drop digits while the interval still holds a shorter number.
     let mut removed = 0i32;
     let mut last_removed = 0u64;
-    let output;
-    if vm_trailing_zeros || vr_trailing_zeros {
+    let output = if vm_trailing_zeros || vr_trailing_zeros {
         loop {
             let (vp10, vm10) = (vp / 10, vm / 10);
             if vp10 <= vm10 {
@@ -160,7 +159,7 @@ pub(crate) fn shortest(x: f64) -> (u64, i32) {
             // Exactly half way: round to even.
             last_removed = 4;
         }
-        output = vr + u64::from((vr == vm && (!accept_bounds || !vm_trailing_zeros)) || last_removed >= 5);
+        vr + u64::from((vr == vm && (!accept_bounds || !vm_trailing_zeros)) || last_removed >= 5)
     } else {
         let mut round_up = false;
         let (vp100, vm100) = (vp / 100, vm / 100);
@@ -182,8 +181,8 @@ pub(crate) fn shortest(x: f64) -> (u64, i32) {
             vm = vm10;
             removed += 1;
         }
-        output = vr + u64::from(vr == vm || round_up);
-    }
+        vr + u64::from(vr == vm || round_up)
+    };
     (output, e10 + removed)
 }
 
@@ -948,7 +947,7 @@ mod tests {
     #[test]
     fn the_tables_are_the_powers_of_five() {
         let mut p = Big::one();
-        for i in 0..POW5_INV_SPLIT.len() {
+        for (i, inverse) in POW5_INV_SPLIT.iter().enumerate() {
             let n = p.bits();
             if let Some(entry) = POW5_SPLIT.get(i) {
                 assert_eq!(*entry, split(p.window(n as i64 - 125)), "POW5_SPLIT[{i}]");
@@ -964,7 +963,7 @@ mod tests {
                 }
                 quot = quot << 1 | u128::from(fits);
             }
-            assert_eq!(POW5_INV_SPLIT[i], split(quot + 1), "POW5_INV_SPLIT[{i}]");
+            assert_eq!(*inverse, split(quot + 1), "POW5_INV_SPLIT[{i}]");
             p.times5();
         }
     }

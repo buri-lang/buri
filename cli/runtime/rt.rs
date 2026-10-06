@@ -3838,7 +3838,7 @@ mod tests {
             }
         }
         unsafe extern "C" fn step(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
-            if index % 3 == 0 {
+            if index.is_multiple_of(3) {
                 park_on(YieldOnce(false));
             }
             // SAFETY: an `i64` in and an `i64` out.

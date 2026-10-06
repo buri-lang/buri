@@ -171,21 +171,19 @@ fn memchr(byte: u8, bytes: &[u8]) -> Option<usize> {
     const LOW: u64 = 0x0101_0101_0101_0101;
     const HIGH: u64 = 0x8080_8080_8080_8080;
     let pattern = LOW.wrapping_mul(u64::from(byte));
-    let mut chunks = bytes.chunks_exact(8);
+    let (words, rest) = bytes.as_chunks::<8>();
     let mut at = 0;
-    for chunk in &mut chunks {
-        let mut word = [0u8; 8];
-        word.copy_from_slice(chunk);
+    for word in words {
         // A zero byte in `x` is a match; this sets its high bit, and the
         // lowest set bit is exact (a borrow only runs upward from it).
-        let x = u64::from_le_bytes(word) ^ pattern;
+        let x = u64::from_le_bytes(*word) ^ pattern;
         let hit = x.wrapping_sub(LOW) & !x & HIGH;
         if hit != 0 {
             return Some(at + (hit.trailing_zeros() / 8) as usize);
         }
         at += 8;
     }
-    chunks.remainder().iter().position(|&b| b == byte).map(|i| at + i)
+    rest.iter().position(|&b| b == byte).map(|i| at + i)
 }
 
 /// The ranges a split cut, on the stack until there are more than sixteen.
