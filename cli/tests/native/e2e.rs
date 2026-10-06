@@ -6238,3 +6238,5 @@ fn a_socket_pings_its_client_when_the_program_asks() {
     );
     assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
 }
+
+mod shapes;

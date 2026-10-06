@@ -45,6 +45,8 @@ cli/tests/
                           backend, and the generator that writes them
     e2e.rs                gated on either: WHOLE PROGRAMS, real processes, real
                           sockets, real signals — the top of the trust ordering
+      e2e/shapes.rs         large data shapes: wide enums, long matches,
+                          tuples and templates, deep nesting, big records
     growth.rs             gated on either: the generated `growth/` corpus, its
       growth/generator.rs   output and its allocations bounded, and the
                           generator that writes it
