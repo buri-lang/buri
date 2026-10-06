@@ -6,7 +6,26 @@
 fail-fast = false
 retries = 0
 
-# The longest tests start first, so none of them is the last thing running.
+# First, tests that are short alone and long when started late:
+#
+# * The cross test. From a cold target directory it builds the Linux runtime,
+#   a minute of release cargo. In the tier below it started last.
+# * Tests whose cases take milliseconds: the manifest ids, the rejected
+#   programs and the pool's own tests. A pool worker that finishes a case takes
+#   its next seat at once (`harness/pool.rs`), so whoever holds the seats keeps
+#   them. Started beside `repositories::snapshots`, whose cases run for
+#   seconds, these held test slots for a minute waiting for seats. Started
+#   first, they take 5 s.
+[[profile.default.overrides]]
+filter = '''
+  test(=cross::a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container)
+  | test(/^documents::every_manifest_id_is_fetchable::/)
+  | test(/^conformance::rejected_programs_are_rejected::/)
+  | test(/pool::pool_tests::/)
+'''
+priority = 100
+
+# Then the longest tests, so none of them is the last thing running.
 # A sharded corpus (cli/tests/harness/shard.rs) is a module of tests, so its
 # shards are matched by prefix.
 [[profile.default.overrides]]
@@ -17,11 +36,8 @@ filter = '''
   | test(=repositories::snapshots)
   | test(=a_syntax_error_does_not_become_a_type_error)
   | test(/^the_default_backend_prints_the_report_the_javascript_one_does::/)
-  | test(/^documents::every_manifest_id_is_fetchable::/)
   | (binary(checking) & test(/^(a_case_is_in_the_half|a_broken_file_reports|the_generated_corpus_is)/))
   | test(/^examples::standard_library_doc_comments::/)
-  | test(=cross::a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container)
-  | test(/^conformance::rejected_programs_are_rejected::/)
   | test(/^stencil::the_corpus_files_it_compiles_pass::/)
 '''
-priority = 100
+priority = 90
