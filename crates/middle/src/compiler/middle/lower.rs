@@ -491,8 +491,23 @@ impl Sites {
             return Sites::default();
         }
         let mut sites = Sites { moved: plan.moved.clone(), ..Sites::default() };
+        // Only a node the plan names needs its id: every other one has no
+        // sites, isn't a site's target and moved nothing.
+        let mut wanted: Vec<u32> = Vec::with_capacity(plan.sites.len().saturating_mul(2));
+        for site in &plan.sites {
+            wanted.push(site.node.0);
+            if let rc::Target::Node(n) = site.target {
+                wanted.push(n.0);
+            }
+        }
+        wanted.extend(plan.moved.iter().map(|(n, _)| n.0));
+        wanted.sort_unstable();
+        wanted.dedup();
+        sites.ids.reserve(wanted.len());
         rc::preorder(body, &mut |id, e| {
-            sites.ids.insert(std::ptr::from_ref(e), id);
+            if wanted.binary_search(&id.0).is_ok() {
+                sites.ids.insert(std::ptr::from_ref(e), id);
+            }
         });
         for site in &plan.sites {
             sites.at.entry((site.node.0, site.at)).or_default().push(*site);
