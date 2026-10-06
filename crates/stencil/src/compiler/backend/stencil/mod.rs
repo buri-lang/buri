@@ -126,9 +126,20 @@
 //! a `Char`, `json.*`, and `core/math`'s thirteen transcendentals — is refused
 //! here for the reasons `native/conformance.rs`'s `PACKAGES` gives.
 
-/// `format!` for a stencil key, into a [`jit::Key`] rather than a `String`:
-/// the emitter spells a key or two per instruction it emits.
+/// A stencil key from its pieces, into a [`jit::Key`]: the emitter spells a
+/// key or two per instruction it emits, so this neither allocates nor goes
+/// through `fmt`. Each piece is a [`jit::KeyPart`]: a string, or a number in
+/// decimal.
 macro_rules! key {
+    ($($part:expr),+ $(,)?) => {{
+        let mut k = $crate::compiler::backend::stencil::jit::Key::default();
+        $( $crate::compiler::backend::stencil::jit::KeyPart::spell($part, &mut k); )+
+        k
+    }};
+}
+
+/// [`key!`] from a format string, for the rare key built from a `Display`.
+macro_rules! key_fmt {
     ($($arg:tt)*) => {{
         let mut k = $crate::compiler::backend::stencil::jit::Key::default();
         // A `Key` takes any length, so the write cannot fail.

@@ -107,6 +107,83 @@ impl Key {
     }
 }
 
+impl Key {
+    fn push(&mut self, s: &str) {
+        let _ = std::fmt::Write::write_str(self, s);
+    }
+
+    /// `n` in decimal, as `format!` writes it.
+    fn push_number(&mut self, mut n: u64) {
+        let mut digits = [0u8; 20];
+        let mut at = digits.len();
+        loop {
+            at -= 1;
+            if let Some(d) = digits.get_mut(at) {
+                *d = b'0' + (n % 10) as u8;
+            }
+            n /= 10;
+            if n == 0 {
+                break;
+            }
+        }
+        let s = digits.get(at..).and_then(|d| std::str::from_utf8(d).ok()).unwrap_or_default();
+        self.push(s);
+    }
+}
+
+/// One piece of a [`key!`].
+pub trait KeyPart {
+    fn spell(self, key: &mut Key);
+}
+
+impl KeyPart for &str {
+    fn spell(self, key: &mut Key) {
+        key.push(self);
+    }
+}
+
+impl KeyPart for &String {
+    fn spell(self, key: &mut Key) {
+        key.push(self);
+    }
+}
+
+impl KeyPart for std::borrow::Cow<'_, str> {
+    fn spell(self, key: &mut Key) {
+        key.push(&self);
+    }
+}
+
+impl KeyPart for &std::borrow::Cow<'_, str> {
+    fn spell(self, key: &mut Key) {
+        key.push(self);
+    }
+}
+
+impl KeyPart for u32 {
+    fn spell(self, key: &mut Key) {
+        key.push_number(u64::from(self));
+    }
+}
+
+impl KeyPart for u64 {
+    fn spell(self, key: &mut Key) {
+        key.push_number(self);
+    }
+}
+
+impl KeyPart for usize {
+    fn spell(self, key: &mut Key) {
+        key.push_number(self as u64);
+    }
+}
+
+impl KeyPart for u8 {
+    fn spell(self, key: &mut Key) {
+        key.push_number(u64::from(self));
+    }
+}
+
 impl std::fmt::Write for Key {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
         if self.spilled.is_empty() {
@@ -2847,7 +2924,7 @@ impl<'a> Jit<'a> {
                     if let Some(k) = ent(constants, rhs.index(), None) {
                         if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
                             let name = super::emit::binop_name(*op);
-                            let key = key!("bin/{name}/{tag}/fi/f");
+                            let key = key!["bin/", name, "/", tag, "/fi/f"];
                             if self.has(&key) && !zero_divisor(name, tag, k) {
                                 bump(&mut imm, rhs.index());
                             }
@@ -2898,10 +2975,7 @@ impl<'a> Jit<'a> {
                             st.loc(*rhs).tag()
                         };
                         if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
-                            let key = key!(
-                                "brcmp/{}/{tag}/{a}{b}",
-                                super::emit::binop_name(*op)
-                            );
+                            let key = key!["brcmp/", super::emit::binop_name(*op), "/", tag, "/", a, b];
                             if self.has(&key) {
                                 put(&mut p.skip, k, true);
                                 p.cmpbr = Some((*op, *prim, *lhs, *rhs));

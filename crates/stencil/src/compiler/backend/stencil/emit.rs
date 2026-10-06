@@ -173,7 +173,7 @@ impl<'a> Jit<'a> {
         while left > 0 {
             let n = [32u32, 24, 16, 8, 4, 2, 1].into_iter().find(|n| *n <= left).unwrap_or(1);
             self.emit(
-                &key!("mov/{n}"),
+                &key!["mov/", n],
                 &[("JIT_D", V::I(d as u64)), ("JIT_A", V::I(s as u64)), ("JIT_CONT", V::Fall)],
             );
             d += n;
@@ -214,7 +214,7 @@ impl<'a> Jit<'a> {
         match w {
             0 => {}
             1 | 2 | 4 => self.emit(
-                &key!("store/{w}"),
+                &key!["store/", w],
                 &[("JIT_D", V::I(dst as u64)), ("JIT_A", V::I(src as u64)), ("JIT_CONT", V::Fall)],
             ),
             _ => self.mv(dst, src, w),
@@ -227,7 +227,7 @@ impl<'a> Jit<'a> {
         match w {
             0 => {}
             1 | 2 | 4 => self.emit(
-                &key!("loadu/{w}"),
+                &key!["loadu/", w],
                 &[("JIT_D", V::I(dst as u64)), ("JIT_A", V::I(src as u64)), ("JIT_CONT", V::Fall)],
             ),
             _ => self.mv(dst, src, w),
@@ -459,7 +459,7 @@ impl<'a> Jit<'a> {
                     while done < w {
                         let n = [8u32, 4, 2, 1].into_iter().find(|n| *n <= w - done).unwrap_or(1);
                         self.emit(
-                            &key!("pstore/{n}"),
+                            &key!["pstore/", n],
                             &[
                                 ("JIT_A", V::I(d0 as u64)),
                                 ("JIT_B", V::I((src + done) as u64)),
@@ -813,7 +813,7 @@ impl<'a> Jit<'a> {
     pub(crate) fn imm_w(&mut self, dst: u32, w: u32, v: u64) {
         match w {
             1 | 2 | 4 => self.emit(
-                &key!("immw/{w}"),
+                &key!["immw/", w],
                 &[("JIT_D", V::I(dst as u64)), ("JIT_N", V::I(v)), ("JIT_CONT", V::Fall)],
             ),
             _ => self.imm_to(dst, v),
@@ -1175,7 +1175,7 @@ impl<'a> Jit<'a> {
         // `Const` definition is.
         let lb = if folded(st, rhs) { Loc::Imm } else { st.loc(rhs) };
         let ld = st.home(dest);
-        let key = key!("bin/{name}/{tag}/{}{}/{}", la.tag(), lb.tag(), ld.tag());
+        let key = key!["bin/", name, "/", tag, "/", la.tag(), lb.tag(), "/", ld.tag()];
         if self.has(&key) {
             let k = constant(st, rhs);
             self.emit(
@@ -1202,7 +1202,7 @@ impl<'a> Jit<'a> {
         if la != Loc::Frame || lb != Loc::Frame || ld != Loc::Frame {
             return self.unsupported(format!("Binary {name} at {tag} with no register variant"));
         }
-        let key = key!("bin/{name}/{tag}/ff/f");
+        let key = key!["bin/", name, "/", tag, "/ff/f"];
         if self.has(&key) {
             self.emit(
                 &key,
@@ -1221,18 +1221,18 @@ impl<'a> Jit<'a> {
         let (s0, s1, s2) = (st.scratch, st.scratch + 8, st.scratch + 16);
         let ext = if signed { "sext" } else { "zext" };
         self.emit(
-            &key!("{ext}/{bits}"),
+            &key![ext, "/", bits],
             &[("JIT_D", V::I(s0 as u64)), ("JIT_A", V::I(a as u64)), ("JIT_CONT", V::Fall)],
         );
         self.emit(
-            &key!("{ext}/{bits}"),
+            &key![ext, "/", bits],
             &[("JIT_D", V::I(s1 as u64)), ("JIT_A", V::I(b as u64)), ("JIT_CONT", V::Fall)],
         );
         let wide = if signed { "i64" } else { "u64" };
         let cmp = op.is_comparison();
         let out = if cmp { d } else { s2 };
         self.emit(
-            &key!("bin/{name}/{wide}/ff/f"),
+            &key!["bin/", name, "/", wide, "/ff/f"],
             &[
                 ("JIT_A", V::I(s0 as u64)),
                 ("JIT_B", V::I(s1 as u64)),
@@ -1242,7 +1242,7 @@ impl<'a> Jit<'a> {
         );
         if !cmp {
             self.emit(
-                &key!("zext/{bits}"),
+                &key!["zext/", bits],
                 &[("JIT_D", V::I(d as u64)), ("JIT_A", V::I(s2 as u64)), ("JIT_CONT", V::Fall)],
             );
         }
@@ -1275,7 +1275,7 @@ impl<'a> Jit<'a> {
             // miscompile: the stencil wrote the frame while the consumer read
             // the register.
             let key =
-                key!("un/lnot/b/{}/{}", st.loc(arg).tag(), st.home(dest).tag());
+                key!["un/lnot/b/", st.loc(arg).tag(), "/", st.home(dest).tag()];
             return self.emit(
                 &key,
                 &[("JIT_A", V::I(a as u64)), ("JIT_D", V::I(d as u64)), ("JIT_CONT", V::Fall)],
@@ -1285,7 +1285,7 @@ impl<'a> Jit<'a> {
             return self.unsupported(format!("Unary at {prim:?}"));
         };
         let name = if op == UnOp::Neg { "neg" } else { "bnot" };
-        let key = key!("un/{name}/{tag}/{}/{}", st.loc(arg).tag(), st.home(dest).tag());
+        let key = key!["un/", name, "/", tag, "/", st.loc(arg).tag(), "/", st.home(dest).tag()];
         if self.has(&key) {
             return self.emit(
                 &key,
@@ -1295,7 +1295,7 @@ impl<'a> Jit<'a> {
         if st.loc(arg) != Loc::Frame || st.home(dest) != Loc::Frame {
             return self.unsupported(format!("Unary {name} at {tag} with no register variant"));
         }
-        let key = key!("un/{name}/{tag}/f/f");
+        let key = key!["un/", name, "/", tag, "/f/f"];
         if self.has(&key) {
             return self.emit(
                 &key,
@@ -1305,16 +1305,16 @@ impl<'a> Jit<'a> {
         let (s0, s2) = (st.scratch, st.scratch + 16);
         let ext = if signed { "sext" } else { "zext" };
         self.emit(
-            &key!("{ext}/{bits}"),
+            &key![ext, "/", bits],
             &[("JIT_D", V::I(s0 as u64)), ("JIT_A", V::I(a as u64)), ("JIT_CONT", V::Fall)],
         );
         let wide = if signed { "i64" } else { "u64" };
         self.emit(
-            &key!("un/{name}/{wide}/f/f"),
+            &key!["un/", name, "/", wide, "/f/f"],
             &[("JIT_A", V::I(s0 as u64)), ("JIT_D", V::I(s2 as u64)), ("JIT_CONT", V::Fall)],
         );
         self.emit(
-            &key!("zext/{bits}"),
+            &key!["zext/", bits],
             &[("JIT_D", V::I(d as u64)), ("JIT_A", V::I(s2 as u64)), ("JIT_CONT", V::Fall)],
         );
         let _ = (prog, code);
@@ -1834,10 +1834,10 @@ impl<'a> Jit<'a> {
             let (tag, _, _) = prim_tag(prim)?;
             let la = st.loc(lhs).tag();
             let lb = if folded(st, rhs) { "i".into() } else { st.loc(rhs).tag() };
-            let k = key!("brcmp/{}/{tag}/{la}{lb}", binop_name(op));
+            let k = key!["brcmp/", binop_name(op), "/", tag, "/", la, lb];
             return self.has(&k).then_some(k);
         }
-        let k = key!("br/{}", st.loc(cond).tag());
+        let k = key!["br/", st.loc(cond).tag()];
         self.has(&k).then_some(k)
     }
 
@@ -1994,7 +1994,7 @@ impl<'a> Jit<'a> {
         if n == 0 || n > 4 {
             return false;
         }
-        let key = key!("movjump/{n}");
+        let key = key!["movjump/", n];
         if !self.has(&key) {
             return false;
         }
@@ -2033,10 +2033,7 @@ impl<'a> Jit<'a> {
                     // slot still needs it when anything reads the slot.
                     if write_through(st, *p) {
                         self.emit(
-                            &key!(
-                                "{}/r{k}",
-                                if code.ty_of(*p) == ir::Type::F64 { "stwg" } else { "stw" }
-                            ),
+                            &key![if code.ty_of(*p) == ir::Type::F64 { "stwg" } else { "stw" }, "/r", k],
                             &[
                                 ("JIT_D", V::I(st.at(*p) as u64)),
                                 ("JIT_CONT", V::Fall),
@@ -2078,7 +2075,7 @@ impl<'a> Jit<'a> {
                         )
                     };
                     self.emit(
-                        &key!("{}/r{j}", if f { "stwg" } else { "stw" }),
+                        &key![if f { "stwg" } else { "stw" }, "/r", j],
                         &[("JIT_D", V::I(tmp as u64)), ("JIT_CONT", V::Fall)],
                     );
                     for p in pend.iter_mut() {
@@ -2130,11 +2127,11 @@ impl<'a> Jit<'a> {
     fn reg_move(&mut self, k: u8, float: bool, src: RSrc) {
         match src {
             RSrc::Reg(j) => self.emit(
-                &key!("{}/r{k}/r{j}", if float { "mvg" } else { "mvr" }),
+                &key![if float { "mvg" } else { "mvr" }, "/r", k, "/r", j],
                 &[("JIT_CONT", V::Fall)],
             ),
             RSrc::Slot(o) => self.emit(
-                &key!("{}/r{k}", if float { "ldg" } else { "ld" }),
+                &key![if float { "ldg" } else { "ld" }, "/r", k],
                 &[("JIT_A", V::I(o as u64)), ("JIT_CONT", V::Fall)],
             ),
         }
@@ -2397,7 +2394,7 @@ impl<'a> Jit<'a> {
                     return;
                 }
                 if let Some((tag, _, _)) = prim_tag(prim) {
-                    let binkey = key!("bin/{}/{tag}/ff/f", stencil_op(op));
+                    let binkey = key!["bin/", stencil_op(op), "/", tag, "/ff/f"];
                     if nrets == 1 && self.has(&binkey) && fs.params.len() == 2 {
                         self.emit(
                             &binkey,
@@ -2414,7 +2411,7 @@ impl<'a> Jit<'a> {
                     }
                     if op == "negate" && fs.params.len() == 1 {
                         self.emit(
-                            &key!("un/neg/{tag}/f/f"),
+                            &key!["un/neg/", tag, "/f/f"],
                             &[
                                 ("JIT_A", V::I(p(0) as u64)),
                                 ("JIT_D", V::I(ret0 as u64)),
@@ -2790,7 +2787,7 @@ impl Jit<'_> {
             "Power" => "pow",
             _ => return false,
         };
-        let key = key!("chk/{name}/{tag}");
+        let key = key!["chk/", name, "/", tag];
         if !self.has(&key) {
             return false;
         }
@@ -3061,7 +3058,7 @@ impl Jit<'_> {
         when: bool,
     ) {
         self.emit(
-            &key!("bin/{op}/{tag}/ff/f"),
+            &key!["bin/", op, "/", tag, "/ff/f"],
             &[
                 ("JIT_D", V::I(u64::from(verdict))),
                 ("JIT_A", V::I(u64::from(a))),
@@ -3098,7 +3095,7 @@ impl Jit<'_> {
             self.mv(dest, src, 8);
         } else {
             self.emit(
-                &key!("zext/{bits}"),
+                &key!["zext/", bits],
                 &[
                     ("JIT_D", V::I(u64::from(dest))),
                     ("JIT_A", V::I(u64::from(src))),
@@ -3219,9 +3216,9 @@ impl Jit<'_> {
     /// same question one instruction narrower.
     fn lt_zero(&mut self, d: u32, a: u32, tag: &str) {
         let (key, at) = if tag == "i128" || tag == "u128" {
-            (key!("bin/lt/i64/fi/f"), a + 8)
+            (key!["bin/lt/i64/fi/f"], a + 8)
         } else {
-            (key!("bin/lt/{tag}/fi/f"), a)
+            (key!["bin/lt/", tag, "/fi/f"], a)
         };
         self.emit(
             &key,
@@ -3263,7 +3260,7 @@ impl Jit<'_> {
             "Multiply" => "mul",
             _ => return false,
         };
-        let key = key!("bin/{name}/{tag}/ff/f");
+        let key = key!["bin/", name, "/", tag, "/ff/f"];
         if !self.has(&key) {
             return false;
         }
@@ -3324,7 +3321,7 @@ impl Jit<'_> {
                 ],
             );
             self.emit(
-                &key!("un/neg/{tag}/f/f"),
+                &key!["un/neg/", tag, "/f/f"],
                 &[
                     ("JIT_A", V::I(u64::from(a))),
                     ("JIT_D", V::I(u64::from(dest))),
@@ -3358,7 +3355,7 @@ impl Jit<'_> {
         }
         for (op, v) in [("gt", one), ("lt", minus)] {
             let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
-            let key = key!("bin/{op}/{tag}/{}/f", if wide { "ff" } else { "fi" });
+            let key = key!["bin/", op, "/", tag, "/", if wide { "ff" } else { "fi" }, "/f"];
             self.emit(
                 &key,
                 &[
@@ -3403,7 +3400,7 @@ impl Jit<'_> {
         for (op, v) in [("lt", LESS), ("gt", GREATER)] {
             let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
             self.emit(
-                &key!("bin/{op}/{tag}/ff/f"),
+                &key!["bin/", op, "/", tag, "/ff/f"],
                 &[
                     ("JIT_D", V::I(u64::from(scr))),
                     ("JIT_A", V::I(u64::from(a))),
@@ -3534,7 +3531,7 @@ impl Jit<'_> {
                 let wide = st.scratch + super::rtcall::SPARE_WORD * 8;
                 let at = self.widen(src, wide, fw, fsigned);
                 self.emit(
-                    &key!("cvt/to/{ttag}/{}", if fsigned { "i" } else { "u" }),
+                    &key!["cvt/to/", ttag, "/", if fsigned { "i" } else { "u" }],
                     &[
                         ("JIT_D", V::I(u64::from(dest))),
                         ("JIT_A", V::I(u64::from(at))),
@@ -3544,9 +3541,9 @@ impl Jit<'_> {
                 return Ok(());
             }
             let key = if to.is_float() {
-                key!("cvt/from/{ftag}/f")
+                key!["cvt/from/", ftag, "/f"]
             } else {
-                key!("cvt/from/{ftag}/{tw}")
+                key!["cvt/from/", ftag, "/", tw]
             };
             self.emit(
                 &key,
@@ -3636,7 +3633,7 @@ impl Jit<'_> {
                     self.mv(dest, at, 8);
                 } else {
                     self.emit(
-                        &key!("zext/{tw}"),
+                        &key!["zext/", tw],
                         &[
                             ("JIT_D", V::I(u64::from(dest))),
                             ("JIT_A", V::I(u64::from(at))),
@@ -3657,7 +3654,7 @@ impl Jit<'_> {
             return src;
         }
         self.emit(
-            &key!("sext/{bits}"),
+            &key!["sext/", bits],
             &[
                 ("JIT_D", V::I(u64::from(scratch))),
                 ("JIT_A", V::I(u64::from(src))),
@@ -3742,7 +3739,7 @@ impl Jit<'_> {
         // The one-operand family: three counts and the byte reversal, none of
         // which takes a shift count and so none of which needs the range check.
         if matches!(stem, "popCount" | "leadingZeros" | "trailingZeros" | "byteSwap") {
-            let k = key!("bits/{stem}/{width}");
+            let k = key!["bits/", stem, "/", width];
             if !self.has(&k) {
                 self.unsupported(format!("CallIntrinsic {key}"));
                 return true;
@@ -3759,7 +3756,7 @@ impl Jit<'_> {
         }
         let Some(count) = count else { return false };
         self.shift_count_check(st, count, width);
-        let key2 = key!("bits/{stem}/{width}");
+        let key2 = key!["bits/", stem, "/", width];
         if !self.has(&key2) {
             self.unsupported(format!("CallIntrinsic {key}"));
             return true;

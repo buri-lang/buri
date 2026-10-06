@@ -42,9 +42,9 @@ impl Jit<'_> {
         // into a whole one; see `sources.rs`'s `eloadz` family for why.
         if bytes < 8 {
             let zk = if stride == bytes {
-                key!("eloadz/{bytes}/s")
+                key!["eloadz/", bytes, "/s"]
             } else {
-                key!("eloadz/{bytes}")
+                key!["eloadz/", bytes]
             };
             if self.has(&zk) {
                 self.emit(
@@ -63,11 +63,11 @@ impl Jit<'_> {
             // first and the bytes copied over its low half.
             self.imm_to(dst, 0);
         }
-        let sk = key!("eload/{bytes}/s");
+        let sk = key!["eload/", bytes, "/s"];
         let key = if stride == bytes && self.has(&sk) {
             sk
         } else {
-            key!("eload/{bytes}")
+            key!["eload/", bytes]
         };
         if self.has(&key) {
             self.emit(
@@ -97,11 +97,11 @@ impl Jit<'_> {
 
     /// `*(base + i * stride) = frame[src]`, `bytes` wide.
     pub(crate) fn elem_store(&mut self, src: u32, base: u32, i: u32, stride: u32, bytes: u32) {
-        let sk = key!("estore/{bytes}/s");
+        let sk = key!["estore/", bytes, "/s"];
         let key = if stride == bytes && self.has(&sk) {
             sk
         } else {
-            key!("estore/{bytes}")
+            key!["estore/", bytes]
         };
         if self.has(&key) {
             self.emit(
