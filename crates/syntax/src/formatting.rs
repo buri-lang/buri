@@ -1131,13 +1131,25 @@ impl Comments {
     /// written after the one enclosing it: a caller passes the span it has just
     /// laid out and the offset the next thing begins at.
     fn take_beside(&mut self, lo: u32, hi: u32) -> Option<String> {
+        // A comment lies between its token and the token before it, so only
+        // entries from `lo` up to the first one at or past `hi` can hold one.
         let beside = &self.beside_code;
-        let entry = self.entries.iter_mut().find(|e| {
-            !e.claimed
-                && e.trivia
-                    .first_comment()
-                    .is_some_and(|c| beside.contains(&c.offset) && (lo..hi).contains(&c.offset))
-        })?;
+        let start = self.first_at(lo);
+        let mut found = None;
+        for (i, e) in self.entries.iter().enumerate().skip(start) {
+            let hit = !e.claimed
+                && e.trivia.first_comment().is_some_and(|c| {
+                    (lo..hi).contains(&c.offset) && beside.binary_search(&c.offset).is_ok()
+                });
+            if hit {
+                found = Some(i);
+                break;
+            }
+            if e.trivia.at() >= hi {
+                break;
+            }
+        }
+        let entry = self.entries.get_mut(found?)?;
         let taken = entry.trivia.take_first_comment()?;
         // A run that was only that comment has nothing left to say, unless a
         // blank line was written between it and the token below — which is a
@@ -1165,7 +1177,7 @@ impl Comments {
     /// doc lines, so the next read of the file would swap the two and `format`
     /// would not be a fixed point.
     fn is_file_header(&self, at: u32) -> bool {
-        self.entries.iter().any(|e| match &e.trivia {
+        self.at(at).iter().any(|e| match &e.trivia {
             Trivia::Run { at: a, comments, detached, .. } => {
                 *a == at && !comments.is_empty() && *detached && !e.trivia.documented()
             }
@@ -1175,7 +1187,8 @@ impl Comments {
 
     /// The trivia written above the token at `at`, marked as put back.
     fn take(&mut self, at: u32) -> Option<Trivia> {
-        let e = self.entries.iter_mut().find(|e| e.trivia.at() == at)?;
+        let i = self.first_at(at);
+        let e = self.entries.get_mut(i).filter(|e| e.trivia.at() == at)?;
         if e.claimed {
             return None;
         }
@@ -1213,9 +1226,13 @@ impl Comments {
         keep: impl Fn(&Trivia) -> bool,
     ) -> Vec<Trivia> {
         let mut out = Vec::new();
-        for e in &mut self.entries {
+        let start = self.first_at(lo);
+        for e in self.entries.iter_mut().skip(start) {
             let at = e.trivia.at();
-            if e.claimed || at < lo || at > hi || !keep(&e.trivia) {
+            if at > hi {
+                break;
+            }
+            if e.claimed || !keep(&e.trivia) {
                 continue;
             }
             e.claimed = true;
@@ -1232,9 +1249,7 @@ impl Comments {
     /// of it either way, and what the caller wants to know is whether somebody
     /// left a gap there, not whether anybody has asked yet.
     fn blank_at(&self, at: u32) -> bool {
-        self.entries
-            .iter()
-            .any(|e| !e.claimed && e.trivia.at() == at && e.trivia.blank())
+        self.at(at).iter().any(|e| !e.claimed && e.trivia.blank())
     }
 
     /// Whether a comment is waiting inside `lo ..= hi`. Only the constructs
@@ -1242,9 +1257,25 @@ impl Comments {
     /// on, so it has to be printed as the other shape. Everywhere else the
     /// comment's own `HardLine` settles it.
     fn any_in(&self, lo: u32, hi: u32) -> bool {
-        self.entries.iter().any(|e| {
-            !e.claimed && (lo..=hi).contains(&e.trivia.at()) && e.trivia.is_run()
-        })
+        let start = self.first_at(lo);
+        let rest = self.entries.get(start..).unwrap_or(&[]);
+        rest.iter()
+            .take_while(|e| e.trivia.at() <= hi)
+            .any(|e| !e.claimed && e.trivia.is_run())
+    }
+
+    /// The index of the first entry at or after `at`. Entries are in source
+    /// order, so every lookup by offset is a binary search.
+    fn first_at(&self, at: u32) -> usize {
+        self.entries.partition_point(|e| e.trivia.at() < at)
+    }
+
+    /// The entries for the token at `at`.
+    fn at(&self, at: u32) -> &[Entry] {
+        let start = self.first_at(at);
+        let rest = self.entries.get(start..).unwrap_or(&[]);
+        let n = rest.partition_point(|e| e.trivia.at() == at);
+        rest.get(..n).unwrap_or(&[])
     }
 }
 
@@ -1577,6 +1608,7 @@ impl<'t> Build<'t> {
         // reporting it as a lint is the same argument the rest of this file
         // makes: a canonical layout is not a finding.
         let run = m.items.iter().take_while(|i| matches!(i, Item::Import(_))).count();
+        let written = Written::of(&m.items);
         // `run` is a count of a prefix of `m.items`, so the split is always the
         // one asked for.
         let (imports, declarations) = m.items.split_at_checked(run).unwrap_or((&m.items, &[]));
@@ -1613,7 +1645,7 @@ impl<'t> Build<'t> {
             parts.push(d);
             // An import's own aside travels with it, the same way the comment
             // above it does — and the run is sorted, so it has to.
-            let beside = self.trailing(item.span().end, written_after(&m.items, item.span().start));
+            let beside = self.trailing(item.span().end, written_after(&written, item.span().start));
             parts.push(beside);
             parts.push(Doc::HardLine);
         }
@@ -1656,7 +1688,7 @@ impl<'t> Build<'t> {
                 // A `derive` is moved to sit on the type it is about, and what
                 // was written beside it goes with it. Left behind, it would end
                 // up at the bottom of the file explaining nothing.
-                let beside = self.trailing(d.span().end, written_after(&m.items, d.span().start));
+                let beside = self.trailing(d.span().end, written_after(&written, d.span().start));
                 parts.push(beside);
                 parts.push(Doc::HardLine);
             }
@@ -1669,7 +1701,7 @@ impl<'t> Build<'t> {
             // A one-line declaration often carries its explanation beside it —
             // `type Int = I64;   // the default integer` — and that comment is
             // about the line, not about whatever comes next.
-            let beside = self.trailing(decl.span().end, written_after(&m.items, decl.span().start));
+            let beside = self.trailing(decl.span().end, written_after(&written, decl.span().start));
             parts.push(beside);
             parts.push(Doc::HardLine);
             stranded = Some((decl.span().start, decl.span().end));
@@ -2687,10 +2719,33 @@ fn record(head: &str, items: Vec<(Doc, Doc)>, trailing: Option<Doc>) -> Doc {
 /// by the one under it, and the leading import run is printed *sorted* — so the
 /// question is about the order the items were written in, which is the order
 /// they are in here.
-fn written_after(items: &[Item], start: u32) -> u32 {
-    let mut after = items.iter().skip_while(|i| i.span().start != start);
+fn written_after(items: &Written, start: u32) -> u32 {
+    let starts = &items.starts;
+    if items.sorted {
+        let i = starts.partition_point(|s| *s < start);
+        if starts.get(i) != Some(&start) {
+            return u32::MAX;
+        }
+        return starts.get(i.saturating_add(1)).copied().unwrap_or(u32::MAX);
+    }
+    let mut after = starts.iter().skip_while(|s| **s != start);
     after.next();
-    after.next().map_or(u32::MAX, |i| i.span().start)
+    after.next().copied().unwrap_or(u32::MAX)
+}
+
+/// Where each declaration begins, in the order they were written, and whether
+/// that order is ascending — so [`written_after`] can binary search it.
+struct Written {
+    starts: Vec<u32>,
+    sorted: bool,
+}
+
+impl Written {
+    fn of(items: &[Item]) -> Written {
+        let starts: Vec<u32> = items.iter().map(|i| i.span().start).collect();
+        let sorted = starts.windows(2).all(|w| matches!(w, [a, b] if a < b));
+        Written { starts, sorted }
+    }
 }
 
 /// The declarations, with each `derive` moved to sit directly on the type it
@@ -2726,26 +2781,31 @@ fn derive_groups<'a>(t: &Tree, items: &[&'a Item]) -> Vec<(Vec<&'a Item>, &'a It
 
     // Which declaration each `derive` belongs above, if any here does. It may
     // have been written above it or below it; either way it ends up on it.
+    // The first declaration of each name, as `position` would find it.
+    let mut first: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (i, x) in items.iter().enumerate() {
+        if let Some(name) = declares(t, x) {
+            first.entry(name).or_insert(i);
+        }
+    }
     let attach: Vec<Option<usize>> = items
         .iter()
-        .map(|item| {
-            let name = derives_for(t, item)?;
-            items.iter().position(|x| declares(t, x) == Some(name))
-        })
+        .map(|item| first.get(derives_for(t, item)?).copied())
         .collect();
 
+    // Each declaration's derives, in the order they were written.
+    let mut derives: Vec<Vec<&Item>> = vec![Vec::new(); items.len()];
+    for (d, a) in items.iter().zip(&attach) {
+        if let Some(list) = a.and_then(|i| derives.get_mut(i)) {
+            list.push(*d);
+        }
+    }
     let mut out: Vec<(Vec<&Item>, &Item)> = Vec::new();
-    for (i, (item, a)) in items.iter().zip(&attach).enumerate() {
+    for ((item, a), mine) in items.iter().zip(&attach).zip(derives) {
         if a.is_some() {
             continue;
         }
-        let derives: Vec<&Item> = attach
-            .iter()
-            .zip(items)
-            .filter(|(a, _)| **a == Some(i))
-            .map(|(_, d)| *d)
-            .collect();
-        out.push((derives, *item));
+        out.push((mine, *item));
     }
     out
 }

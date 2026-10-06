@@ -344,3 +344,28 @@ fn a_debug_builds_emission_is_linear_in_a_variants_fields() {
         1000,
     );
 }
+
+/// A file of `n` functions, each under a comment and holding two, unformatted.
+fn commented_file(n: usize) -> String {
+    (0..n)
+        .map(|i| format!("// f{i} adds.\nfn f{i}(a:Int):Int{{\n  // inside {i}\n  a+{i} // beside {i}\n}}\n\n"))
+        .collect()
+}
+
+/// **Formatting is linear in a file's comments.** Every lookup of the comments
+/// above a token scanned the file's whole list, so a file of a few thousand
+/// lines spent most of its formatting there. PERFORMANCE.md §6.39.
+#[test]
+fn formatting_is_linear_in_a_files_comments() {
+    grows_linearly(
+        "formatting a long commented file",
+        |n| {
+            let scratch = Scratch::repo("profile-format");
+            scratch.write("app/main.buri", &commented_file(n));
+            let run = scratch.run_with_env(&["format", "app/main.buri"], &[("BURI_PROFILE", "1")]);
+            run.ok();
+            phase_instructions(&run.all(), "other")
+        },
+        2000,
+    );
+}
