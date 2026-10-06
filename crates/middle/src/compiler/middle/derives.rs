@@ -170,6 +170,10 @@ use crate::hash::Map as HashMap;
 /// other.
 const HASH_SEED: u128 = 0x811c_9dc5;
 
+/// The most variants a derived `compare` matches pairwise. Past it, the two
+/// tags are ranked and the ranks compared ([`Generator::compare_enum`]).
+const RANKED_COMPARE_MIN: usize = 8;
+
 /// The five operations a `derive` can stand for, once monomorphization has
 /// resolved it.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -1429,6 +1433,11 @@ impl Generator {
     /// Tag first, then payload — declaration order is the order, which is what
     /// makes `derive Ordered` on an enum mean what a reader of the declaration
     /// expects.
+    ///
+    /// Up to [`RANKED_COMPARE_MIN`] variants, each arm for `a` matches `b`
+    /// against every variant, which is a direct jump per pair. Past it the
+    /// variants are ranked once each and the ranks compared, because `n²` arms
+    /// for `n` variants was 90,000 arms at 300 (PERFORMANCE.md §6.32).
     fn compare_enum(
         &mut self,
         desc: usize,
@@ -1437,54 +1446,16 @@ impl Generator {
         b: Expr,
         frame: &mut Frame,
     ) -> Option<Expr> {
+        if variants.len() > RANKED_COMPARE_MIN {
+            if let Some(int) = self.env.prim_of.get(&Prim::I64).cloned() {
+                return self.compare_enum_ranked(desc, variants, a, b, int, frame);
+            }
+        }
         let ty = self.ty_of(desc);
         let order = self.result_ty(Op::Compare);
         let mut arms: Vec<Arm> = Vec::new();
         for (vi, v) in variants.iter().enumerate() {
-            let mut xs: Vec<(usize, LocalId, Ty)> = Vec::new();
-            let mut ys: Vec<(usize, LocalId, Ty)> = Vec::new();
-            for (fi, f) in v.fields.iter().enumerate() {
-                let fty = self.ty_of(f.ty);
-                xs.push((fi, frame.local("x", &fty), fty));
-                ys.push((fi, frame.local("y", &fty), fty));
-            }
-            let px = self.variant_pattern(&ty, vi, &xs)?;
-            let py = self.variant_pattern(&ty, vi, &ys)?;
-            // Same variant: compare the payloads lexicographically.
-            let mut acc: Option<Expr> = None;
-            for (k, f) in v.fields.iter().enumerate().rev() {
-                let (_, xl, xt) = xs.get(k)?;
-                let (_, yl, _) = ys.get(k)?;
-                let one = self.at(
-                    Op::Compare,
-                    f.ty,
-                    vec![self.local_expr(*xl, xt), self.local_expr(*yl, xt)],
-                )?;
-                acc = Some(match acc {
-                    None => one,
-                    Some(rest) => {
-                        let c = frame.local("c", &order);
-                        let equal = self.variant_pattern(&order, ORDER_EQUAL, &[])?;
-                        let bind = Pattern {
-                            kind: PatKind::Bind { local: c, sub: None },
-                            ty: order,
-                            span: Span::NONE,
-                        };
-                        self.match_(
-                            one,
-                            vec![
-                                self.arm(equal, rest),
-                                self.arm(bind, self.local_expr(c, &order)),
-                            ],
-                            order,
-                        )
-                    }
-                });
-            }
-            let same = match acc {
-                Some(e) => e,
-                None => self.order_lit(ORDER_EQUAL)?,
-            };
+            let (px, py, same) = self.same_variant(&ty, vi, v, frame)?;
             // A lower-numbered variant on the right means this one is greater.
             let mut inner: Vec<Arm> = Vec::new();
             for wi in 0..variants.len() {
@@ -1500,6 +1471,159 @@ impl Generator {
             arms.push(self.arm(px, self.match_(b.clone(), inner, order)));
         }
         Some(self.match_(a, arms, order))
+    }
+
+    /// The patterns binding variant `vi`'s payload on each side, and the
+    /// lexicographic comparison of the two payloads.
+    fn same_variant(
+        &mut self,
+        ty: &Ty,
+        vi: usize,
+        v: &DescVariant,
+        frame: &mut Frame,
+    ) -> Option<(Pattern, Pattern, Expr)> {
+        let order = self.result_ty(Op::Compare);
+        let mut xs: Vec<(usize, LocalId, Ty)> = Vec::new();
+        let mut ys: Vec<(usize, LocalId, Ty)> = Vec::new();
+        for (fi, f) in v.fields.iter().enumerate() {
+            let fty = self.ty_of(f.ty);
+            xs.push((fi, frame.local("x", &fty), fty));
+            ys.push((fi, frame.local("y", &fty), fty));
+        }
+        let px = self.variant_pattern(ty, vi, &xs)?;
+        let py = self.variant_pattern(ty, vi, &ys)?;
+        let mut acc: Option<Expr> = None;
+        for (k, f) in v.fields.iter().enumerate().rev() {
+            let (_, xl, xt) = xs.get(k)?;
+            let (_, yl, _) = ys.get(k)?;
+            let one = self.at(
+                Op::Compare,
+                f.ty,
+                vec![self.local_expr(*xl, xt), self.local_expr(*yl, xt)],
+            )?;
+            acc = Some(match acc {
+                None => one,
+                Some(rest) => {
+                    let c = frame.local("c", &order);
+                    let equal = self.variant_pattern(&order, ORDER_EQUAL, &[])?;
+                    let bind = Pattern {
+                        kind: PatKind::Bind { local: c, sub: None },
+                        ty: order,
+                        span: Span::NONE,
+                    };
+                    self.match_(
+                        one,
+                        vec![self.arm(equal, rest), self.arm(bind, self.local_expr(c, &order))],
+                        order,
+                    )
+                }
+            });
+        }
+        let same = match acc {
+            Some(e) => e,
+            None => self.order_lit(ORDER_EQUAL)?,
+        };
+        Some((px, py, same))
+    }
+
+    /// `compare` for a wide enum, in code linear in its variants:
+    ///
+    /// ```text
+    /// let ra = match a { .V0 => 0, .V1 => 1, … };
+    /// let rb = match b { .V0 => 0, .V1 => 1, … };
+    /// if ra < rb { .Less } else if ra > rb { .Greater } else {
+    ///     match a { .V0(x) => match b { .V0(y) => <payloads>, _ => .Equal }, …, _ => .Equal }
+    /// }
+    /// ```
+    fn compare_enum_ranked(
+        &mut self,
+        desc: usize,
+        variants: &[DescVariant],
+        a: Expr,
+        b: Expr,
+        int: Ty,
+        frame: &mut Frame,
+    ) -> Option<Expr> {
+        let ty = self.ty_of(desc);
+        let order = self.result_ty(Op::Compare);
+        let bool_ty = self.bool_ty();
+        let rank = |this: &Self, x: Expr| -> Option<Expr> {
+            let mut arms = Vec::with_capacity(variants.len());
+            for vi in 0..variants.len() {
+                let lit = Expr::new(
+                    ExprKind::Int(typed::Magnitude::new(vi as u128), false),
+                    int,
+                    Span::NONE,
+                );
+                arms.push(this.arm(this.tag_pattern(&ty, vi)?, lit));
+            }
+            Some(this.match_(x, arms, int))
+        };
+        let (ra, rb) = (frame.local("ra", &int), frame.local("rb", &int));
+        let let_rank = |this: &Self, local: LocalId, x: Expr| -> Option<typed::Stmt> {
+            Some(typed::Stmt::Let {
+                pattern: Pattern {
+                    kind: PatKind::Bind { local, sub: None },
+                    ty: int,
+                    span: Span::NONE,
+                },
+                value: rank(this, x)?,
+                span: Span::NONE,
+            })
+        };
+        let stmts = vec![let_rank(self, ra, a.clone())?, let_rank(self, rb, b.clone())?];
+
+        let mut arms: Vec<Arm> = Vec::new();
+        for (vi, v) in variants.iter().enumerate() {
+            if v.fields.is_empty() {
+                continue;
+            }
+            let (px, py, same) = self.same_variant(&ty, vi, v, frame)?;
+            let inner = self.match_(
+                b.clone(),
+                vec![self.arm(py, same), self.arm(self.wild(&ty), self.order_lit(ORDER_EQUAL)?)],
+                order,
+            );
+            arms.push(self.arm(px, inner));
+        }
+        let payloads = if arms.is_empty() {
+            self.order_lit(ORDER_EQUAL)?
+        } else {
+            if arms.len() < variants.len() {
+                arms.push(self.arm(self.wild(&ty), self.order_lit(ORDER_EQUAL)?));
+            }
+            self.match_(a, arms, order)
+        };
+        let ranks = |op: PrimOp| {
+            Expr::new(
+                ExprKind::Prim {
+                    op,
+                    prim: Prim::I64,
+                    args: vec![self.local_expr(ra, &int), self.local_expr(rb, &int)],
+                },
+                bool_ty,
+                Span::NONE,
+            )
+        };
+        let greater = Expr::new(
+            ExprKind::If {
+                cond: Box::new(ranks(PrimOp::Gt)),
+                then: Box::new(self.order_lit(ORDER_GREATER)?),
+                else_: Box::new(payloads),
+            },
+            order,
+            Span::NONE,
+        );
+        let body = Expr::new(
+            ExprKind::If {
+                cond: Box::new(ranks(PrimOp::Lt)),
+                then: Box::new(self.order_lit(ORDER_LESS)?),
+                else_: Box::new(greater),
+            },
+            order,
+            Span::NONE,
+        );
+        Some(Expr::new(ExprKind::Block { stmts, tail: Some(Box::new(body)) }, order, Span::NONE))
     }
 
     /// A variant pattern that binds nothing, for a test that only reads the
