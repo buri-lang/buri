@@ -23,10 +23,14 @@
 //! second spelling of the layout table — and two spellings of a layout are how
 //! two backends come to disagree about a byte.
 //!
-//! The pair is what lets CODEGEN-LLVM.md §2.2 hold. There is no `alloca` for an
-//! SSA value anywhere, because an SSA value is never in memory: an aggregate is
-//! built with `insertvalue` and taken apart with `extractvalue`, both of which
-//! are register operations.
+//! The pair is what lets CODEGEN-LLVM.md §2.2 hold for every value up to
+//! [`WIDEST_IN_REGISTERS`]: an aggregate is built with `insertvalue` and taken
+//! apart with `extractvalue`, both of which are register operations.
+//!
+//! **A wider value is held in memory.** Its SSA value is a pointer to its
+//! memory form in an entry-block `alloca`, a call passes that pointer and
+//! returns through `sret`, and a move is one `memcpy`. Values are immutable, so
+//! a copy shares the pointer and a field of one is a `getelementptr` into it.
 //!
 //! # The one place bytes are opaque: a tagged enum's payload
 //!
@@ -81,7 +85,7 @@ impl SlotTy {
     /// A blob is aligned to what its enum is aligned to, which the caller
     /// knows and this does not; the conservative answer here is one byte, and
     /// [`access_align`] raises it from the layout.
-    fn align(self) -> u32 {
+    pub fn align(self) -> u32 {
         match self {
             SlotTy::Scalar(s) => s.align(),
             SlotTy::Blob(_) => 1,
@@ -552,6 +556,80 @@ pub fn ir_slots(reprs: &mut Reprs<'_>, program: &ir::Program, ty: ir::Type) -> V
         ir::Type::Ptr => scalar(Scalar::Ptr),
         ir::Type::Unit => Vec::new(),
         ir::Type::Agg(id) => reprs.of(program, id).slots.clone(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A value held in memory
+// ---------------------------------------------------------------------------
+
+/// The widest value held in registers. A wider one is held in memory: an SSA
+/// value is then a pointer to its memory form, a call passes that pointer and
+/// returns through `sret`, and a move is one `memcpy`.
+///
+/// Moved slot by slot, a value is a run of loads and stores between two calls,
+/// and `llc`'s two schedulers are quadratic in such a run: a 200-field struct
+/// cost `llc` 174 G instructions in one unit (PERFORMANCE.md §6.31). The
+/// measured crossover was between 8 and 16 three-word fields.
+pub const WIDEST_IN_REGISTERS: u32 = 256;
+
+/// The bytes a value's slots reach: its layout size less trailing padding.
+pub fn extent(slots: &[Slot]) -> u32 {
+    slots.iter().map(|s| s.offset.saturating_add(s.ty.size())).max().unwrap_or(0)
+}
+
+/// Whether a value of these slots is held in memory ([`WIDEST_IN_REGISTERS`]).
+pub fn in_memory(slots: &[Slot]) -> bool {
+    slots.len() > 1 && extent(slots) > WIDEST_IN_REGISTERS
+}
+
+/// The alignment a value of these slots may claim wherever it is: the widest
+/// natural alignment among them. No more than its layout's, so it holds for a
+/// value inside another one too.
+pub fn memory_align(slots: &[Slot]) -> u32 {
+    slots.iter().map(|s| s.ty.align()).max().unwrap_or(1).max(1)
+}
+
+/// A Buri signature as the machine sees it.
+///
+/// A value held in memory crosses as one pointer, and a result held in memory
+/// comes back through a leading `sret` pointer the caller supplies.
+#[derive(Clone, Debug, Default)]
+pub struct Machine {
+    /// One per LLVM parameter after the `sret` one.
+    pub params: Vec<Slot>,
+    /// For each of `params`, whether it is the address of a value in memory.
+    pub indirect: Vec<bool>,
+    /// The register result. Empty for `()` and for a result through `sret`.
+    pub rets: Vec<Slot>,
+    /// The extent of the result written through the leading pointer.
+    pub sret: Option<u32>,
+}
+
+impl Machine {
+    /// The machine signature of these parameter values and this result.
+    pub fn of(params: &[Vec<Slot>], ret: Vec<Slot>) -> Machine {
+        let mut out = Machine::default();
+        for slots in params {
+            if in_memory(slots) {
+                out.params.push(Slot { offset: 0, ty: ptr() });
+                out.indirect.push(true);
+            } else {
+                out.indirect.extend(slots.iter().map(|_| false));
+                out.params.extend(slots.iter().copied());
+            }
+        }
+        if in_memory(&ret) {
+            out.sret = Some(extent(&ret));
+        } else {
+            out.rets = ret;
+        }
+        out
+    }
+
+    /// The index of the first parameter after the `sret` pointer.
+    pub fn first(&self) -> u32 {
+        u32::from(self.sret.is_some())
     }
 }
 

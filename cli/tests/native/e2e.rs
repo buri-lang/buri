@@ -3446,6 +3446,61 @@ fn a_large_struct_held_deep_inside_options_lists_and_records_leaks_nothing() {
     );
 }
 
+/// **A tree whose nodes box a large enum builds, walks and gives every block
+/// back.** `ui/node`'s `Node(NodeKind)` is this shape: `Pair` makes the type
+/// recursive, so `Tree` is one pointer to a `Kind` wider than 256 bytes.
+#[test]
+fn a_tree_boxing_a_large_enum_is_built_walked_and_dropped() {
+    unless_ready!();
+    let strs: String = (0..13).map(|i| format!("f{i}: Str, ")).collect();
+    let built: String = (0..13).map(|i| format!("f{i}: s, ")).collect();
+    let source = format!(
+        r#"
+from "platform/effect" import {{ Allocator, Stdout }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+
+struct Wide {{ {strs} }}
+
+struct Tree(Kind);
+
+enum Kind {{
+    Leaf(Wide),
+    Many(Str, [Tree]),
+    Pair(Tree, Tree),
+}}
+
+fn leaf<C: Allocator>(ctx: C, letter: Str): Tree {{
+    let s = letter.repeat(ctx, 2);
+    Tree(.Leaf(Wide {{ {built} }}))
+}}
+
+fn many<C: Allocator>(ctx: C, label: Str, children: [Tree]): Tree {{
+    Tree(.Many(label.repeat(ctx, 1), children))
+}}
+
+fn size(t: Tree): Int {{
+    match (t) {{
+        Tree(.Leaf(w)) => w.f12.length(),
+        Tree(.Many(label, children)) => children.fold(fn(n, c) => n + size(c), label.length()),
+        Tree(.Pair(a, b)) => size(a) + size(b),
+    }}
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+    let pair = Tree(.Pair(leaf(ctx, "e"), leaf(ctx, "f")));
+    let tree = many(ctx, "root", [leaf(ctx, "a"), many(ctx, "in", [leaf(ctx, "b"), pair]), leaf(ctx, "d")]);
+    let again = tree;
+    let _ = io.println(ctx, "${{size(tree)}} ${{size(again)}}").ignore();
+    .Ok(())
+}}
+"#
+    );
+    let (stdout, stderr) = heap_checked("e2e-boxed-large-enum", &source);
+    assert_eq!(stdout, vec!["16 16"], "stderr:\n{stderr}");
+}
+
 /// **A template of more than sixteen parts reads the same as a short one and
 /// gives every block back.** A derived `Show` on a struct of nine fields is one
 /// such template, and the hand-written one below mixes literals, held strings,

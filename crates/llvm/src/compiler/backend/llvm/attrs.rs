@@ -165,11 +165,12 @@
 
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::context::Context;
+use inkwell::types::AnyType;
 use inkwell::values::{CallSiteValue, FunctionValue};
 
 use crate::compiler::middle::ir;
 
-use super::repr::{Slot, SlotTy};
+use super::repr::{Machine, Slot, SlotTy};
 use crate::compiler::middle::layout::Scalar;
 
 // ---------------------------------------------------------------------------
@@ -527,25 +528,44 @@ fn narrow_for_params(effects: MemoryEffects, params: &[Slot]) -> MemoryEffects {
 
 /// Applies the whole discipline to one function.
 ///
-/// `params` is the flattened parameter list — one entry per LLVM parameter,
-/// which is what makes `readonly`, `nonnull` and `align` per-*slot* facts
-/// rather than per-Buri-parameter ones.
+/// `sig.params` is the flattened parameter list — one entry per LLVM parameter
+/// after the `sret` one, which is what makes `readonly`, `nonnull` and `align`
+/// per-*slot* facts rather than per-Buri-parameter ones.
+///
+/// **A value held in memory moves the far half of the table.** Its fields are
+/// *loaded* from the parameter, and LangRef's argument memory is what is
+/// reached through pointers *based on* one — a pointer loaded out of it is not.
+/// So a count or a string reached through such a parameter is the default
+/// location, which `observe` cannot see because it reads the IR and not the
+/// representation, and the widening is made here, where both are known. A
+/// result written through `sret` is a write to argument memory.
 pub fn decorate(
     ctx: &Context,
     f: FunctionValue<'_>,
     facts: &ir::Facts,
     observed: Observed,
-    params: &[Slot],
-    ret: &[Slot],
+    sig: &Machine,
     heap_align: u32,
 ) {
+    let mut observed = observed;
+    if sig.indirect.iter().any(|i| *i) {
+        observed.reads_far = true;
+        observed.writes_far |= observed.writes_args;
+    }
+    if sig.sret.is_some() {
+        observed.writes_args = true;
+    }
+
     // `nounwind` on every function, on every backend. The single most valuable
     // attribute here and it costs no analysis: the language has no `throw`, no
     // unwinding `panic` and no `catch` (SPEC 6.9). LLVM without it has to
     // assume every call is a potential unwind edge.
     enum_attr(ctx, f, "nounwind", 0);
 
-    let effects = narrow_for_params(memory_effects(facts, observed), params);
+    // The `sret` pointer is argument memory the function writes, so a
+    // signature with one is never narrowed to having none.
+    let effects = memory_effects(facts, observed);
+    let effects = if sig.sret.is_some() { effects } else { narrow_for_params(effects, &sig.params) };
     memory(ctx, f, effects);
 
     // `willreturn` and `mustprogress` follow one fact — that the function
@@ -572,8 +592,21 @@ pub fn decorate(
 
     // `nofree` is deliberately *not* set: `decref` frees.
 
-    for (i, slot) in params.iter().enumerate() {
-        decorate_param(ctx, f, AttributeLoc::Param(i as u32), *slot, heap_align, observed);
+    let first = sig.first();
+    if let Some(bytes) = sig.sret {
+        sret(ctx, f, bytes);
+        enum_attr_at(ctx, f, AttributeLoc::Param(0), "noalias", 0);
+    }
+    for (i, slot) in sig.params.iter().enumerate() {
+        let loc = AttributeLoc::Param(first.saturating_add(i as u32));
+        if sig.indirect.get(i).copied().unwrap_or(false) {
+            // The value's own bytes, which nothing writes: values are
+            // immutable. Not `align 16`: a field of a value in memory is
+            // passed as its address inside the value.
+            enum_attr_at(ctx, f, loc, "readonly", 0);
+            continue;
+        }
+        decorate_param(ctx, f, loc, *slot, heap_align, observed);
     }
     // A pointer return is a freshly allocated block on every path that
     // produces one — every allocating runtime entry returns a block nothing
@@ -581,7 +614,7 @@ pub fn decorate(
     // valuable case) — so `noalias` on the return is unconditional, and it is
     // what lets LLVM keep a just-built aggregate's fields in registers across
     // a call.
-    if let [one] = ret {
+    if let [one] = sig.rets.as_slice() {
         if one.ty.is_pointer() {
             enum_attr_at(ctx, f, AttributeLoc::Return, "noalias", 0);
             enum_attr_at(ctx, f, AttributeLoc::Return, "align", u64::from(heap_align));
@@ -596,10 +629,35 @@ pub fn decorate(
     // emitted. Emitting `noalias` where aliasing is possible is a miscompile
     // that shows up as a wrong answer months later.
     let pointers: Vec<usize> =
-        params.iter().enumerate().filter(|(_, s)| s.ty.is_pointer()).map(|(i, _)| i).collect();
-    if let [only] = pointers.as_slice() {
+        sig.params.iter().enumerate().filter(|(_, s)| s.ty.is_pointer()).map(|(i, _)| i).collect();
+    if let ([only], None) = (pointers.as_slice(), sig.sret) {
         enum_attr_at(ctx, f, AttributeLoc::Param(*only as u32), "noalias", 0);
     }
+}
+
+/// `sret([bytes x i8])` on a function's first parameter: the result is written
+/// through it rather than returned.
+pub fn sret(ctx: &Context, f: FunctionValue<'_>, bytes: u32) {
+    if let Some(attr) = sret_attribute(ctx, bytes) {
+        f.add_attribute(AttributeLoc::Param(0), attr);
+    }
+}
+
+/// The same on a call. The call site's attribute is what the call lowering
+/// reads, so a callee with `sret` called without it is an ABI mismatch.
+pub fn sret_call(ctx: &Context, call: CallSiteValue<'_>, bytes: u32) {
+    if let Some(attr) = sret_attribute(ctx, bytes) {
+        call.add_attribute(AttributeLoc::Param(0), attr);
+    }
+}
+
+fn sret_attribute(ctx: &Context, bytes: u32) -> Option<Attribute> {
+    let kind = Attribute::get_named_enum_kind_id("sret");
+    if kind == 0 {
+        return None;
+    }
+    let ty = ctx.i8_type().array_type(bytes.max(1)).as_any_type_enum();
+    Some(ctx.create_type_attribute(kind, ty))
 }
 
 /// The value model's half of the table (CODEGEN-LLVM.md §3.2).
@@ -846,7 +904,8 @@ mod tests {
         let slot = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::I64) };
         let decorated = |name: &str, observed: Observed| {
             let f = module.add_function(name, i64t.fn_type(&[i64t.into()], false), None);
-            decorate(&ctx, f, &facts(ir::Purity::Pure, false), observed, &[slot], &[slot], 16);
+            let sig = Machine::of(&[vec![slot]], vec![slot]);
+            decorate(&ctx, f, &facts(ir::Purity::Pure, false), observed, &sig, 16);
             f
         };
         let has = |f: FunctionValue<'_>, name: &str| {
