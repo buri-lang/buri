@@ -5293,3 +5293,85 @@ export fn main(host: NativeHost): Result<(), Str> {{
          {per_field} per field per operation"
     );
 }
+
+/// **A value over 256 bytes stays in memory from the call that makes it to the
+/// copy that consumes it.** PERFORMANCE.md §6.31.
+///
+/// `Big` is 200 strings, 600 slots and 4800 bytes. Passed and returned as its
+/// slots, every call took 600 parameters or answered a 600-member struct, and
+/// every move was 600 `insertvalue`s or `extractvalue`s. After `opt`, each
+/// move was a run of 1,200 loads and stores between two calls, and `llc`'s
+/// schedulers are quadratic in such a run: `e2e.rs`'s `deep_big` spent 174 G
+/// instructions in `llc`. Held in memory, a large value crosses a call as one
+/// pointer, comes back through `sret`, and moves by `memcpy`.
+///
+/// A bound on the IR's shape rather than on time, as for the two tests above.
+#[test]
+fn a_large_value_crosses_calls_by_pointer_and_moves_by_memcpy() {
+    skip_unless_executable!();
+    let fields: String = (0..200).map(|i| format!("    f{i}: Str,\n")).collect();
+    let built: String = (0..200).map(|i| format!(" f{i}: s,")).collect();
+    let lowered = lower(&program(&format!(
+        r#"
+from "native" import {{ NativeHost }};
+
+struct Big {{
+{fields}}}
+
+fn big<C: Allocator>(ctx: C, letter: Str, size: Int): Big {{
+    let s = letter.repeat(ctx, size);
+    Big {{{built} }}
+}}
+
+fn longest(a: Big, b: Big): Big {{
+    if (a.f0.length() >= b.f0.length()) {{ a }} else {{ b }}
+}}
+
+fn last(b: Big): Int {{
+    b.f199.length()
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+    let a = big(ctx, "a", 3);
+    let b = big(ctx, "b", 4);
+    let c = longest(a, b);
+    let held: Option<Big> = .Some(c);
+    let n = match (held) {{
+        .Some(x) => last(x),
+        .None => 0,
+    }};
+    let listed = [a, b, c];
+    let _ = io.println(ctx, "${{n}} ${{listed.length()}} ${{last(a)}}").ignore();
+    .Ok(())
+}}
+"#
+    )));
+    let unit = lowered.ir.funcs.get(lowered.entry().index()).map(|f| f.unit).expect("an entry");
+    let (mut backend, program, tables) = lowered.adopted();
+    let ir = expect(backend.emit_ir_text(&program, &tables, &options(Profile::Debug), unit));
+    // Every function but `big`, which builds the value and so writes its 600
+    // slots once, whatever the representation.
+    let mut moves = 0usize;
+    let mut inside = false;
+    for line in ir.lines() {
+        if line.starts_with("define ") {
+            inside = !line.contains("big");
+            let (head, params) = line.split_once('@').unwrap_or((line, ""));
+            assert!(
+                head.matches(',').count() < 64 && params.matches(',').count() < 64,
+                "a large value crosses a call as its slots:\n{}",
+                &line[..line.len().min(300)]
+            );
+        } else if line.starts_with('}') {
+            inside = false;
+        } else if inside && (line.contains(" insertvalue ") || line.contains(" extractvalue ")) {
+            moves += 1;
+        }
+    }
+    assert!(
+        moves <= 200,
+        "the functions passing a 200-field struct around move it a slot at a time: {moves} \
+         `insertvalue`s and `extractvalue`s"
+    );
+}
