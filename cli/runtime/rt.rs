@@ -679,11 +679,21 @@ impl<T> Sched<T> {
     /// arriving thread asks again in [`take`], so a backlog of tasks that block
     /// still grows the pool, one thread per arrival.
     ///
+    /// **Only when no thread is idle.** An idle thread will take the next
+    /// task, so a queue longer than the idle count is not yet short of threads:
+    /// it is short once every thread is busy or blocked with work still
+    /// queued, and [`take`] asks again after each pop, so a backlog behind
+    /// threads that block still grows the pool one thread at a time. Comparing
+    /// the queue's length with `idle` started a thread for every step of a
+    /// fan-out wider than the idle count: a 64-step `parallel` of trivial work
+    /// ran on 64 threads on a ten-core machine, and every round's broadcast
+    /// woke all of them.
+    ///
     /// Counted here, under the lock, rather than in the thread that is about
     /// to be created: two pushes racing would otherwise each see the same
     /// count and start a thread apiece.
     fn grow(&mut self) -> bool {
-        let short = self.queue.len() > self.idle && !self.starting && self.threads < MAX_THREADS;
+        let short = !self.queue.is_empty() && self.idle == 0 && !self.starting && self.threads < MAX_THREADS;
         if short {
             self.threads += 1;
             self.starting = true;
@@ -3888,6 +3898,121 @@ mod tests {
         assert!(outcomes.iter().all(Result::is_ok), "a caller's fan-out answered wrongly");
     }
 
+    /// Busy-loop processes on every core, killed by PID when dropped.
+    struct Burners(Vec<std::process::Child>);
+
+    impl Burners {
+        fn start() -> Burners {
+            let cores = thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
+            Burners(
+                (0..cores)
+                    .filter_map(|_| {
+                        // Bounded, so a test killed before its `Drop` leaves nothing burning.
+                        std::process::Command::new("sh")
+                            .args(["-c", "end=$((SECONDS + 120)); while [ $SECONDS -lt $end ]; do :; done"])
+                            .spawn()
+                            .ok()
+                    })
+                    .collect(),
+            )
+        }
+    }
+
+    impl Drop for Burners {
+        fn drop(&mut self) {
+            for child in &mut self.0 {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
+    /// **Steps that block, more of them than cores, still all run at once.**
+    /// The pool starts threads only when none is idle, so this is the case
+    /// that rule must still cover: every thread taken by a step that waits
+    /// for all the others, with more queued. Each step waits on a barrier, a
+    /// blocking wait that holds its thread.
+    #[test]
+    fn blocking_steps_wider_than_the_machine_all_meet_on_a_loaded_machine() {
+        let _alone = alone();
+        let _burners = Burners::start();
+        let cores = thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
+        let n = cores * 2 + 3;
+        let barrier = std::sync::Barrier::new(n);
+        unsafe extern "C" fn meet(state: *mut u8, index: u64, _: *const u8, out: *mut u8) {
+            // SAFETY: `state` is the barrier, which outlives the fan-out.
+            let barrier = unsafe { &*state.cast::<std::sync::Barrier>() };
+            barrier.wait();
+            // SAFETY: an `i64` out.
+            unsafe { out.cast::<i64>().write(index as i64) }
+        }
+        let src = vec![0i64; n];
+        for _ in 0..3 {
+            // SAFETY: `n` `i64`s in and out, and the barrier outlives the call.
+            let got = unsafe {
+                steps_of(src.as_ptr().cast(), n, meet, (&raw const barrier).cast_mut().cast(), 8, 8, true)
+            };
+            // SAFETY: `n` `i64`s were written there.
+            let answers = unsafe { i64s(&got, n) };
+            // SAFETY: the only reference.
+            unsafe { crate::memory::buri_rt_free(got.ptr) };
+            assert_eq!(answers, (0..n as i64).collect::<Vec<i64>>());
+        }
+    }
+
+    /// **A fan-out whose steps hold every thread doesn't starve the next
+    /// one.** The first caller's steps block until the second caller's
+    /// fan-out has finished, so the second must get threads while the first
+    /// holds all it has. A pool that only reused its idle threads would hang.
+    #[test]
+    fn a_fan_out_holding_every_thread_does_not_starve_the_next_one() {
+        let _alone = alone();
+        let _burners = Burners::start();
+        let released = Arc::new(AtomicBool::new(false));
+        unsafe extern "C" fn hold(state: *mut u8, index: u64, _: *const u8, out: *mut u8) {
+            // SAFETY: `state` is the flag, which outlives the call.
+            let released = unsafe { &*state.cast::<AtomicBool>() };
+            // A blocking wait: the thread stays taken.
+            while !released.load(Ordering::SeqCst) {
+                thread::sleep(Duration::from_millis(1));
+            }
+            // SAFETY: an `i64` out.
+            unsafe { out.cast::<i64>().write(index as i64) }
+        }
+        unsafe extern "C" fn double(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
+            // SAFETY: an `i64` in and an `i64` out.
+            unsafe { out.cast::<i64>().write(arg.cast::<i64>().read() * 2 + index as i64) }
+        }
+        let first = {
+            let released = Arc::clone(&released);
+            thread::spawn(move || {
+                let n = 64;
+                let src = vec![0i64; n];
+                let state = Arc::as_ptr(&released).cast_mut().cast::<u8>();
+                // SAFETY: `n` `i64`s in and out; the flag outlives the call.
+                let got = unsafe { steps_of(src.as_ptr().cast(), n, hold, state, 8, 8, true) };
+                // SAFETY: as above.
+                let answers = unsafe { i64s(&got, n) };
+                // SAFETY: the only reference.
+                unsafe { crate::memory::buri_rt_free(got.ptr) };
+                answers
+            })
+        };
+        // Give the first fan-out time to take its threads.
+        thread::sleep(Duration::from_millis(20));
+        let n = 16;
+        let src: Vec<i64> = (0..n as i64).collect();
+        // SAFETY: `n` `i64`s in and out.
+        let got = unsafe { steps_of(src.as_ptr().cast(), n, double, std::ptr::null_mut(), 8, 8, true) };
+        // SAFETY: as above.
+        let answers = unsafe { i64s(&got, n) };
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(got.ptr) };
+        assert_eq!(answers, (0..n as i64).map(|i| i * 3).collect::<Vec<i64>>());
+        released.store(true, Ordering::SeqCst);
+        assert_eq!(first.join().unwrap(), (0..64).collect::<Vec<i64>>());
+    }
+
     /// A step that is itself a fan-out.
     ///
     /// `a_nested_fan_out_gives_the_baton_up_first` under the baton, where the
@@ -4309,9 +4434,9 @@ mod tests {
 
         // Then every thread in the pool is held. With every task parked, each
         // thread is idle, so one holder per thread lands on a thread apiece:
-        // the pool only starts a thread when the queue is longer than the
-        // idle count. Each holder says which thread it holds, and waits on a
-        // channel of its own so it can be let go alone.
+        // the pool only starts a thread when no thread is idle. Each holder
+        // says which thread it holds, and waits on a channel of its own so it
+        // can be let go alone.
         let holders = threads();
         let holding: std::sync::Arc<Mutex<Vec<(usize, ThreadId)>>> =
             std::sync::Arc::new(Mutex::new(Vec::new()));
