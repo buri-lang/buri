@@ -210,3 +210,49 @@ fn checking_a_pattern_is_linear_in_the_names_it_binds() {
         1000,
     );
 }
+
+/// A variant of `n` strings, two of them taken apart, and an `else if` chain
+/// comparing them field by field.
+fn long_branching(n: usize) -> (String, String) {
+    let types = vec!["Str"; n].join(", ");
+    let made = vec!["s"; n].join(", ");
+    let left: Vec<String> = (0..n).map(|i| format!("a{i}")).collect();
+    let right: Vec<String> = (0..n).map(|i| format!("b{i}")).collect();
+    let chain: Vec<String> = (0..n).map(|i| format!("if (a{i} != b{i}) {{ {i} }}")).collect();
+    let items = format!(
+        "enum W {{\n    T({types}),\n    Empty,\n}}\n\n\
+         fn make<C: Allocator>(ctx: C, k: Int): W {{\n    \
+         let s = \"w\".repeat(ctx, k);\n    .T({made})\n}}\n\n\
+         fn differ(a: W, b: W): Int {{\n    match ((a, b)) {{\n        \
+         (.T({left}), .T({right})) => {chain} else {{ 0 - 1 }},\n        \
+         _ => 0 - 2,\n    }}\n}}\n",
+        left = left.join(", "),
+        right = right.join(", "),
+        chain = chain.join(" else "),
+    );
+    let body = String::from(
+        "    let _ = io.println(ctx, \"${differ(make(ctx, 1), make(ctx, 2))}\").ignore();\n",
+    );
+    (items, body)
+}
+
+/// **Reference counting is linear in the length of a branching expression.**
+/// The `rc` pass copied its live set at every node and at every branch, so an
+/// `else if` chain over `n` live fields copied `n` sets of up to `n` names:
+/// 0.16 G instructions at 800 fields, 3.5 times what 400 took.
+/// PERFORMANCE.md §6.32.
+#[test]
+fn reference_counting_is_linear_in_a_long_branching_expression() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::profile", &why);
+        return;
+    }
+    grows_linearly(
+        "planning the reference counts of a long `else if` chain",
+        |n| {
+            let (items, body) = long_branching(n);
+            profiled("native", &items, &body, "middle")
+        },
+        400,
+    );
+}
