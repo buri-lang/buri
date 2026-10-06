@@ -802,7 +802,7 @@ mod tests {
     }
 
     /// [`FOLD_PLAIN`] names the plain `+fold` slot, which is the one
-    /// `Jit::elidable_arm` asks for. An index into a constant array is the kind
+    /// `Jit::elidable_at` asks for. An index into a constant array is the kind
     /// of thing that silently means something else after the array is reordered.
     #[test]
     fn the_plain_fold_slot_is_the_plain_fold_suffix() {

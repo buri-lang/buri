@@ -525,7 +525,7 @@ impl Jit<'_> {
                         let next = st.label();
                         let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
                         self.emit(
-                            &key,
+                            key,
                             &[
                                 ("JIT_A", V::I(u64::from(G_SPARE))),
                                 ("JIT_K", V::I(u64::from(arm.variant))),
@@ -551,7 +551,7 @@ impl Jit<'_> {
                     let skip = st.label();
                     let key = self.arm_key("brcmp/eq/u64/fi", "JIT_F");
                     self.emit(
-                        &key,
+                        key,
                         &[
                             ("JIT_A", V::I(u64::from(G_SPARE))),
                             ("JIT_K", V::I(0)),
@@ -749,7 +749,7 @@ impl Jit<'_> {
         };
         let key = self.arm_key("brcmp/eq/u64/fi", "JIT_F");
         self.emit(
-            &key,
+            key,
             &[
                 ("JIT_A", V::I(u64::from(any))),
                 ("JIT_K", V::I(0)),
@@ -781,7 +781,7 @@ impl Jit<'_> {
             };
             let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
             self.emit(
-                &key,
+                key,
                 &[
                     ("JIT_A", V::I(u64::from(any))),
                     ("JIT_K", V::I(0)),
@@ -886,7 +886,7 @@ impl Jit<'_> {
     fn glue_loop_test(&mut self, i: u32, n: u32, tv: V, fv: V, fall: &str) {
         let key = self.arm_key("brcmp/lt/u64/ff", fall);
         self.emit(
-            &key,
+            key,
             &[
                 ("JIT_A", V::I(u64::from(i))),
                 ("JIT_B", V::I(u64::from(n))),

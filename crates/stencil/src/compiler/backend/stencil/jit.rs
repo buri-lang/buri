@@ -214,6 +214,70 @@ impl std::fmt::Display for Key {
     }
 }
 
+/// A stencil key as [`Jit::emit`] takes it.
+///
+/// Most emitted stencils are named by a literal (`"ret"`, `"jump"`,
+/// `"decref/free"`), and a literal's address never changes, so the worker's
+/// [`Literals`] answers it by address instead of hashing it into the library's
+/// index on every emit.
+#[derive(Clone, Copy)]
+pub(crate) enum KeyArg<'k> {
+    Literal(&'static str),
+    Spelled(&'k str),
+    /// A stencil already found, by its index in the library.
+    At(usize),
+}
+
+impl From<&'static str> for KeyArg<'static> {
+    fn from(s: &'static str) -> KeyArg<'static> {
+        KeyArg::Literal(s)
+    }
+}
+
+impl<'k> From<&'k Key> for KeyArg<'k> {
+    fn from(k: &'k Key) -> KeyArg<'k> {
+        KeyArg::Spelled(k.as_str())
+    }
+}
+
+/// Library indices of the literal keys a worker has emitted, by the literal's
+/// address: direct-mapped, so a collision costs one more index lookup.
+struct Literals {
+    /// The library the indices are into.
+    lib: *const Library,
+    slots: [(usize, usize, u32); LITERAL_SLOTS],
+}
+
+const LITERAL_SLOTS: usize = 256;
+
+impl Default for Literals {
+    fn default() -> Literals {
+        Literals { lib: std::ptr::null(), slots: [(0, 0, 0); LITERAL_SLOTS] }
+    }
+}
+
+impl Literals {
+    fn slot(key: &'static str) -> usize {
+        let a = key.as_ptr() as usize;
+        (a ^ (a >> 7) ^ (a >> 14)) % LITERAL_SLOTS
+    }
+
+    /// `key`'s index in `lib`, asking the library the first time.
+    fn at(&mut self, lib: &Library, key: &'static str) -> Option<usize> {
+        if !std::ptr::eq(self.lib, lib) {
+            *self = Literals { lib, ..Literals::default() };
+        }
+        let id = (key.as_ptr() as usize, key.len());
+        let slot = self.slots.get_mut(Literals::slot(key))?;
+        if (slot.0, slot.1) == id {
+            return Some(slot.2 as usize);
+        }
+        let (i, _) = lib.at(key)?;
+        *slot = (id.0, id.1, i as u32);
+        Some(i)
+    }
+}
+
 #[derive(Clone, Copy)]
 enum Fix {
     /// A `b`/`bl` whose target is a block of the function being emitted.
@@ -359,6 +423,7 @@ struct Bufs {
     last: Vec<(u32, u32)>,
     touched: Vec<Option<usize>>,
     opnd: Operands,
+    literals: Literals,
 }
 
 /// What every instruction and terminator of one function reads, listed once.
@@ -648,26 +713,30 @@ impl<'a> Jit<'a> {
             .collect()
     }
 
+    /// Where `key` is in the library.
+    pub(crate) fn index_of(&mut self, key: KeyArg<'_>) -> Option<usize> {
+        match key {
+            KeyArg::Literal(k) => self.bufs.literals.at(self.lib, k),
+            KeyArg::Spelled(k) => self.lib.at(k).map(|(i, _)| i),
+            KeyArg::At(i) => Some(i),
+        }
+    }
+
     pub(crate) fn has(&self, key: &str) -> bool {
         self.lib.get(key).is_some()
     }
 
-    /// The name of the hole whose branch is a two-target stencil's **last**
-    /// instruction — the only arm copy-and-patch can elide. Which one it is is
-    /// clang's layout decision, not the emitter's, and it flips with the
-    /// comparison; `None` when the two twins disagree, so that the caller never
-    /// has to know which one `emit` will pick.
+    /// The name of the hole whose branch is the **last** instruction of the
+    /// two-target stencil at `at` in the library — the only arm copy-and-patch
+    /// can elide. Which one it is is clang's layout decision, not the
+    /// emitter's, and it flips with the comparison; `None` when the two twins
+    /// disagree, so that the caller never has to know which one `emit` will
+    /// pick.
     ///
     /// Borrowed out of the library rather than copied out of it, and the fold
     /// twin asked for by index: this is called twice per conditional branch
     /// the backend emits, and it used to allocate a `String` for the name, a
     /// second for the comparison and a third for `key+fold`.
-    pub(crate) fn elidable_arm(&self, key: &str) -> Option<&'a str> {
-        let (at, _) = self.lib.at(key)?;
-        self.elidable_at(at)
-    }
-
-    /// [`Jit::elidable_arm`], of the stencil at `at` in the library.
     pub(crate) fn elidable_at(&self, at: usize) -> Option<&'a str> {
         let s = self.lib.stencil(at)?;
         let n = s.holes.get(s.tail?)?.name.as_str();
@@ -1163,15 +1232,22 @@ impl<'a> Jit<'a> {
     /// lives independently of the `&mut self` the region needs: no stencil is
     /// ever copied out of the library, which matters because a clone per
     /// instruction would be most of this compiler's running time.
-    pub(crate) fn emit(&mut self, key: &str, binds: &[(&str, V)]) {
+    pub(crate) fn emit<'k>(&mut self, key: impl Into<KeyArg<'k>>, binds: &[(&str, V)]) {
         let lib: &'a Library = self.lib;
-        let (at, mut s) = match lib.at(key) {
+        let key = key.into();
+        let found = self.index_of(key).and_then(|i| Some((i, lib.stencil(i)?)));
+        let (at, mut s) = match found {
             Some(found) => found,
             None => crate::diagnostics::ice(&format!(
-                "stencil: no stencil {key} in {}",
+                "stencil: no stencil {} in {}",
+                match key {
+                    KeyArg::Literal(k) | KeyArg::Spelled(k) => k.to_string(),
+                    KeyArg::At(i) => format!("#{i}"),
+                },
                 lib.config
             )),
         };
+        let key = s.name.as_str();
         // The folded twins, most specific first: every offset or literal a twin
         // would put in an `imm12` field has to be a multiple of the field's
         // scale and inside its reach, and the two folds are independent, so a
