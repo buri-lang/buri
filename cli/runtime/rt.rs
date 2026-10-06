@@ -464,7 +464,10 @@ pub(crate) struct Task {
     /// Written once, before the task is queued, and read by [`within`]. An
     /// actor's state held by an ancestor is held by the step this task is
     /// working for, so a send to that actor must not wait for it.
-    lineage: Vec<Who>,
+    ///
+    /// Shared, because every step of a fan-out has the same one: the fan-out
+    /// builds it once rather than once per step.
+    lineage: Arc<[Who]>,
 }
 
 /// Who is running Buri code: a task, or a thread that is not one.
@@ -513,15 +516,15 @@ fn within(holder: Who) -> bool {
 
 /// The lineage a task started from here carries: the caller's own, and the
 /// caller.
-fn lineage_here() -> Vec<Who> {
+fn lineage_here() -> Arc<[Who]> {
     let here = running();
     if here.is_null() {
-        return vec![Who::Thread(thread::current().id())];
+        return Arc::from([Who::Thread(thread::current().id())]);
     }
     // SAFETY: as in [`within`].
-    let mut lineage = unsafe { (*here).lineage.clone() };
+    let mut lineage = unsafe { (*here).lineage.to_vec() };
     lineage.push(Who::Task(here as usize));
-    lineage
+    lineage.into()
 }
 
 // SAFETY: every field is either atomic, behind a `Mutex`, or an `UnsafeCell`
@@ -1011,7 +1014,7 @@ fn wake_waiters(task: &Task) {
 
 /// Map a task's machine stack and build the frame it starts from. The caller
 /// queues it.
-fn new_task(body: Box<dyn FnOnce() + Send>, latch: Option<Arc<Latch>>) -> Arc<Task> {
+fn new_task(body: Box<dyn FnOnce() + Send>, latch: Option<Arc<Latch>>, lineage: Arc<[Who]>) -> Arc<Task> {
     let (base, top) = crate::memory::buri_rt_task_stack_acquire();
     let task = Arc::new(Task {
         state: AtomicU8::new(QUEUED),
@@ -1025,7 +1028,7 @@ fn new_task(body: Box<dyn FnOnce() + Send>, latch: Option<Arc<Latch>>) -> Arc<Ta
         waiters: Mutex::new(Vec::new()),
         latch,
         arena: UnsafeCell::new(crate::memory::ArenaSlot::NONE),
-        lineage: lineage_here(),
+        lineage,
     });
     // The task's *own* address travels in the frame, and the `Arc` that keeps
     // it alive travels on the queue: the launch pad hands the address back and
@@ -1124,6 +1127,7 @@ fn unqueued<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Handof
         }
         }),
         None,
+        lineage_here(),
     );
     Handoff { task, answer }
 }
@@ -1374,10 +1378,17 @@ unsafe fn fan_out(steps: Steps, n: usize) {
         // it rather than a join per step, each of which was a flush, a look at
         // the timers and a trip into the reactor.
         let latch = Arc::new(Latch::new(n));
+        let lineage = lineage_here();
         let tasks: Vec<Arc<Task>> = (0..n)
-            // SAFETY: `j < n`, each index dispatched once, and `Steps` is
-            // `Send` for the reason stated at its `unsafe impl`.
-            .map(|j| new_task(Box::new(move || unsafe { steps.run(j) }), Some(Arc::clone(&latch))))
+            .map(|j| {
+                new_task(
+                    // SAFETY: `j < n`, each index dispatched once, and `Steps`
+                    // is `Send` for the reason stated at its `unsafe impl`.
+                    Box::new(move || unsafe { steps.run(j) }),
+                    Some(Arc::clone(&latch)),
+                    Arc::clone(&lineage),
+                )
+            })
             .collect();
         push_all(tasks.iter().cloned());
         park_on(AllArrived(&latch));
