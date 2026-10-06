@@ -557,9 +557,7 @@ fn action_key_as(
     // Every target in the closure contributes its identity and its sources,
     // in a deterministic order.
     let closure = session.workspace.closure(target);
-    for member in &closure {
-        contribute_as(session, *member, &mut k, content);
-    }
+    contribute_all(session, &closure, &mut k, content);
     // Every repository platform the binary's outputs name: its build file, its
     // `platform.buri` and sources, its `js` files and assets, and the
     // libraries it depends on. An edit to any of them is an edit to every
@@ -755,37 +753,63 @@ pub fn read_as(rel: &str, bytes: Vec<u8>, content: Content) -> Vec<u8> {
 }
 
 fn contribute_as(session: &Session, member: TargetId, k: &mut KeyBuilder, content: Content) {
-    let package = session.workspace.package(member.package);
-    let kind = member.kind.name();
-    let sources = rule_files(&session.workspace, member);
-    k.rule_identity(&package.label(), kind, &sources);
-    // What a generator produced, rather than only what it was given. The
-    // inputs above catch an edit to a declared file; this catches everything
-    // else that decides the modules this rule is compiled from — the tool's own
-    // sources above all, which are in no list here and are what a generator
-    // *is*. Without it, editing the tool left every dependent's `link` key
-    // where it was and the cache served the old artifact.
-    for module in crate::build::generators::modules_of(&session.workspace, member) {
-        k.input(&format!("{}/{}", package.label(), module.name), module.text.as_bytes());
-    }
+    contribute_all(session, &[member], k, content);
+}
+
+/// [`contribute_as`] for each of `members` in turn, with every member's
+/// sources read in one batch.
+fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, content: Content) {
+    let workspace = &session.workspace;
+    let rules: Vec<(TargetId, Vec<String>)> =
+        members.iter().map(|&member| (member, rule_files(workspace, member))).collect();
+    let files: Vec<(&std::path::Path, &str)> = rules
+        .iter()
+        .flat_map(|(member, sources)| {
+            let dir = workspace.package(member.package).dir.as_path();
+            sources.iter().map(move |rel| (dir, rel.as_str()))
+        })
+        .collect();
+    let read = |i: usize| {
+        let (dir, rel) = *files.get(i)?;
+        let bytes = std::fs::read(dir.join(rel)).ok()?;
+        Some(match content {
+            Content::Bytes => bytes,
+            Content::Program => read_as(rel, bytes, content),
+        })
+    };
     // Read in parallel, hashed in order. A key is a fold over the sources in
     // sorted order and that fold stays exactly where it was, on this thread; a
     // library of three hundred and sixty files is three hundred and sixty
     // `open`/`read`/`close` round trips, and those are what the cores are idle
     // for. `parallel::map` returns in index order, so the bytes reach the
-    // builder in the order `sources` is in.
-    let contents: Vec<Option<Vec<u8>>> = crate::parallel::map(sources.len(), |i| {
-        let rel = sources.get(i)?;
-        let bytes = std::fs::read(package.dir.join(rel)).ok()?;
-        Some(match content {
-            Content::Bytes => bytes,
-            Content::Program => read_as(rel, bytes, content),
-        })
-    });
-    for (rel, contents) in sources.iter().zip(&contents) {
-        k.file(&session.workspace.rel_of(&package.dir.join(rel)), contents.as_deref());
+    // builder in the order `sources` is in. A few files cost less to read than
+    // the threads would to start.
+    let contents: Vec<Option<Vec<u8>>> = if files.len() < SERIAL_READS {
+        (0..files.len()).map(read).collect()
+    } else {
+        crate::parallel::map(files.len(), read)
+    };
+    let mut contents = contents.iter();
+    for (member, sources) in &rules {
+        let package = workspace.package(member.package);
+        k.rule_identity(&package.label(), member.kind.name(), sources);
+        // What a generator produced, rather than only what it was given. The
+        // inputs above catch an edit to a declared file; this catches everything
+        // else that decides the modules this rule is compiled from — the tool's own
+        // sources above all, which are in no list here and are what a generator
+        // *is*. Without it, editing the tool left every dependent's `link` key
+        // where it was and the cache served the old artifact.
+        for module in crate::build::generators::modules_of(workspace, *member) {
+            k.input(&format!("{}/{}", package.label(), module.name), module.text.as_bytes());
+        }
+        for (rel, read) in sources.iter().zip(contents.by_ref()) {
+            k.file(&workspace.rel_of(&package.dir.join(rel)), read.as_deref());
+        }
     }
 }
+
+/// Below this many files a key reads them on its own thread.
+const SERIAL_READS: usize = 32;
 
 /// Every file one rule names, package-relative and sorted: its entry module,
 /// its `sources`, its `testing` sources, and its generators' inputs.
