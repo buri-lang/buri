@@ -1046,7 +1046,7 @@ impl Cache {
     #[inline(never)]
     fn sweep(&mut self) {
         self.since_sweep = 0;
-        let end = if self.sweeps % CACHE_MID_SWEEP_EVERY == 0 { CACHE_SLOTS } else { CACHE_SMALL_SLOTS };
+        let end = if self.sweeps.is_multiple_of(CACHE_MID_SWEEP_EVERY) { CACHE_SLOTS } else { CACHE_SMALL_SLOTS };
         self.sweeps = self.sweeps.wrapping_add(1);
         for idx in 0..end {
             if self.slots[idx].idle < CACHE_GRACE_SWEEPS {
@@ -4884,7 +4884,7 @@ mod tests {
             const THREADS: usize = 16;
             const EACH: usize = 1000;
             // Both sides of the cache: a cached size and one past it.
-            let size = |i: usize| if i % 2 == 0 { 24 } else { CACHE_MAX_PAYLOAD + 40 };
+            let size = |i: usize| if i.is_multiple_of(2) { 24 } else { CACHE_MAX_PAYLOAD + 40 };
             let before = heap_stats();
 
             let (go, wait) = std::sync::mpsc::channel::<()>();
@@ -4921,7 +4921,7 @@ mod tests {
                 .flat_map(|t| t.join().unwrap())
                 .collect();
 
-            let bytes = |n: usize, from: usize| (from..from + n).map(|i| size(i)).sum::<u64>();
+            let bytes = |n: usize, from: usize| (from..from + n).map(size).sum::<u64>();
             let all = THREADS * EACH + EACH;
             let mid = heap_stats();
             assert_eq!(mid.total_blocks - before.total_blocks, all as u64);

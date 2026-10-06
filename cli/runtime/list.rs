@@ -220,9 +220,9 @@ pub(crate) unsafe fn spare(at: *const u8, bytes: usize) -> bool {
     // SAFETY: the caller promises the range.
     let bytes = unsafe { std::slice::from_raw_parts(at, bytes) };
     // A word at a time: OR-ing whole chunks lets the loop vectorise.
-    let mut words = bytes.chunks_exact(8);
-    let any = (&mut words).fold(0u64, |acc, w| acc | u64::from_ne_bytes(w.try_into().unwrap_or([0; 8])));
-    any == 0 && words.remainder().iter().all(|b| *b == 0)
+    let (words, rest) = bytes.as_chunks::<8>();
+    let any = words.iter().fold(0u64, |acc, w| acc | u64::from_ne_bytes(*w));
+    any == 0 && rest.iter().all(|b| *b == 0)
 }
 
 /// `list.get(self, index) -> Option<T>` — `stride` bytes into `out`.
