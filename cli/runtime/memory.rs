@@ -926,14 +926,15 @@ struct Slot {
     /// The first dead block, or null. The rest are chained through their own
     /// `rc` words.
     head: *mut u8,
-    /// **The whole of the decay state, and it is one byte set by `pop`.**
+    /// **The whole of the decay state, and it is one byte zeroed by `pop`.**
     ///
-    /// True if the program has taken a block of this size since the last
-    /// sweep. A sweep gives back the *whole* of every slot that has not been
-    /// touched — blocks the workload demonstrably did not want across a full
-    /// period — and leaves a touched slot entirely alone. So a ping-pong
-    /// workload, which pops from its slot in every period, pays nothing at all
-    /// for this mechanism, and a drained cache empties itself.
+    /// How many sweeps have passed since the program last took a block of
+    /// this size. A sweep gives back the *whole* of every slot that has gone
+    /// [`CACHE_GRACE_SWEEPS`] periods untouched — blocks the workload
+    /// demonstrably did not want — and leaves a recently touched slot entirely
+    /// alone. So a ping-pong workload, which pops from its slot in every
+    /// period, pays nothing at all for this mechanism, and a drained cache
+    /// empties itself.
     ///
     /// **It replaced a length and a low-water mark, and that was worth 4.5% of
     /// an allocation-bound program.** Tracking how *many* blocks a slot could
@@ -944,8 +945,20 @@ struct Slot {
     /// popped once in a period keeps everything it holds rather than only what
     /// it needs — which is bounded by [`cache_budget`] either way, and is the
     /// bound G2 already chose to live with.
-    hit: bool,
+    idle: u8,
 }
+
+/// How many whole sweep periods a slot may go without a pop before a sweep
+/// gives its blocks back.
+///
+/// One period was too short for a program that allocates a batch and frees
+/// it: two thousand strings made in one pass and dropped in the next span two
+/// periods of frees, and the sweep in the second handed every block to
+/// `free` just before the next pass asked `malloc` for them again. That was
+/// most of a list-building bench's allocator time. A drained cache still
+/// empties: once a slot is past the grace, every sweep releases it, so it
+/// ends holding at most the period since the last sweep.
+const CACHE_GRACE_SWEEPS: u8 = 2;
 
 /// The bytes one block of `payload` usable bytes costs the process.
 #[inline]
@@ -1007,19 +1020,20 @@ impl Cache {
         }
     }
 
-    /// **Give back every slot that went a whole sweep period untouched.**
+    /// **Give back every slot that went [`CACHE_GRACE_SWEEPS`] periods
+    /// untouched.**
     ///
-    /// See [`Slot::hit`] for why that is the right set. A slot that survives
-    /// this sweep starts the next period untouched again, so it is asked the
-    /// same question every period rather than being kept forever because it
-    /// was once popular.
+    /// See [`Slot::idle`] for why that is the right set. A slot that survives
+    /// this sweep is one period older at the next, so it is asked the same
+    /// question every period rather than being kept forever because it was
+    /// once popular.
     #[cold]
     #[inline(never)]
     fn sweep(&mut self) {
         self.since_sweep = 0;
         for idx in 0..CACHE_SLOTS {
-            if self.slots[idx].hit {
-                self.slots[idx].hit = false;
+            if self.slots[idx].idle < CACHE_GRACE_SWEEPS {
+                self.slots[idx].idle += 1;
             } else if !self.slots[idx].head.is_null() {
                 self.release_slot(idx);
             }
@@ -1125,7 +1139,7 @@ thread_local! {
     static CACHE: ThreadHeap = const {
         ThreadHeap {
             cache: std::cell::UnsafeCell::new(Cache {
-                slots: [Slot { head: std::ptr::null_mut(), hit: false }; CACHE_SLOTS],
+                slots: [Slot { head: std::ptr::null_mut(), idle: 0 }; CACHE_SLOTS],
                 held: CACHE_UNARMED,
                 published: 0,
                 since_sweep: 0,
@@ -1187,7 +1201,7 @@ fn cache_take(cache: &mut Cache, payload: u64) -> Option<*mut u8> {
     slot.head = unsafe { (*header(p)).rc as *mut u8 };
     // G6: the program wanted this size in this period, so the sweep
     // leaves the slot alone.
-    slot.hit = true;
+    slot.idle = 0;
     cache.held = cache.held.saturating_sub(slot_bytes(payload));
     Some(p)
 }
@@ -1250,7 +1264,7 @@ fn scoped_alloc(payload: u64, zeroed: bool) -> Option<*mut u8> {
             slot.head = unsafe { (*header(p)).rc as *mut u8 };
             // G6: the program wanted this size in this period, so the sweep
             // leaves the slot alone.
-            slot.hit = true;
+            slot.idle = 0;
             cache.held = cache.held.saturating_sub(slot_bytes(payload));
             Take::Cached(p)
         })
