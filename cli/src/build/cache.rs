@@ -397,27 +397,86 @@ const TOOLCHAIN_MARKER: &str = ".toolchain";
 /// for `rm -rf .buri` after every rebuild is what this replaces. The marker
 /// records which toolchain last wrote here; when it is absent (a cache from
 /// before this marker existed, or a fresh one) or names another toolchain, the
-/// cache is emptied and re-marked, and `.buri/link` with it. The compare is a lock-free read on the common
-/// path, so only the first open of a process — or one after a real change —
-/// pays for the lock.
+/// cache is emptied and re-marked, and `.buri/link` with it.
+///
+/// **Once per process, before this process uses the cache, and never again.**
+/// The wipe is housekeeping and nothing more: no key of this toolchain can
+/// name an entry another one wrote. So it is never worth removing what this
+/// process is in the middle of using, and every open used to be a chance to.
+/// A run opens the cache once per action, on every thread, and each open read
+/// the marker. One that named another toolchain — rewritten by a language
+/// server still running an older `buri` — or that could not be read emptied
+/// the cache and removed `.buri/link` under the run's own links, which then
+/// failed with "cannot write …/core_io.o" or "cannot run /usr/bin/cc" (#248).
+/// Now the first open of a directory decides, and the process's other opens
+/// wait for it and then read nothing.
+///
+/// What may wipe is narrow on purpose. A marker that cannot be read is not a
+/// marker that names another toolchain, so it wipes nothing. Neither does an
+/// open that could not take the lock: the process holding it is wiping
+/// already, or is too slow to race without removing what it is using.
 fn reconcile_toolchain(dir: &Path) {
-    let marker = dir.join(TOOLCHAIN_MARKER);
-    let identity = toolchain_identity();
-    if std::fs::read_to_string(&marker).ok().as_deref() == Some(identity) {
-        return;
-    }
-    // Wipe under the lock, so two processes that both see a new toolchain do
-    // not empty the cache twice. The double-check covers another process
-    // reconciling while this one waited. An entry another toolchain writes
-    // during the wipe is keyed on that toolchain, so this one is never served
-    // it.
-    let _guard = match Lock::acquire(dir) {
-        LockOutcome::Held(lock) => Some(lock),
-        LockOutcome::ProceedUnlocked => None,
+    static RECONCILED: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+    let set_aside = {
+        let mut reconciled = RECONCILED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if reconciled.iter().any(|d| d == dir) {
+            return;
+        }
+        reconciled.push(dir.to_path_buf());
+        set_aside_another_toolchains(dir)
     };
-    if std::fs::read_to_string(&marker).ok().as_deref() == Some(identity) {
-        return;
+    // Removed once nothing waits on it. What is in it was moved out from under
+    // every name anything opens, so this process's other threads, and other
+    // processes, go on while it goes.
+    if let Some(trash) = set_aside {
+        let _ = std::fs::remove_dir_all(trash);
     }
+}
+
+/// Whether the marker names another toolchain. A marker that cannot be read
+/// says nothing either way, so it does not; a missing one does, because a
+/// cache from before the marker existed has none.
+fn names_another_toolchain(marker: &Path) -> bool {
+    match std::fs::read_to_string(marker) {
+        Ok(text) => text != toolchain_identity(),
+        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+    }
+}
+
+/// Moves another toolchain's entries, and `.buri/link`, out of the way and
+/// marks the cache as this toolchain's, under the lock. Hands back where they
+/// went, for the caller to remove once it has let go of everything.
+///
+/// Moved rather than removed, so the lock is held for one rename per entry
+/// rather than for the deletion of every file a large repository's cache
+/// holds. A deletion that outlasted [`PATIENCE`] used to be joined by a second
+/// one, which went on removing after the first had marked the cache and its
+/// process had started building in it.
+fn set_aside_another_toolchains(dir: &Path) -> Option<PathBuf> {
+    let marker = dir.join(TOOLCHAIN_MARKER);
+    if !names_another_toolchain(&marker) {
+        return None;
+    }
+    // Under the lock, so two processes that both see a new toolchain do not
+    // empty the cache twice. The double-check covers another process
+    // reconciling while this one waited.
+    let LockOutcome::Held(_guard) = Lock::acquire(dir) else { return None };
+    if !names_another_toolchain(&marker) {
+        return None;
+    }
+    let buri = dir.parent()?;
+    let trash = buri.join("trash");
+    let into = trash.join(temporary_extension());
+    let _ = std::fs::create_dir_all(&into);
+    let set_aside = |path: &Path, name: &std::ffi::OsStr| {
+        if std::fs::rename(path, into.join(name)).is_err() {
+            if path.is_dir() {
+                let _ = std::fs::remove_dir_all(path);
+            } else {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    };
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             // Everything but the lock this holds and the marker it is about to
@@ -426,12 +485,7 @@ fn reconcile_toolchain(dir: &Path) {
             if name == TOOLCHAIN_MARKER || name == ".lock" {
                 continue;
             }
-            let path = entry.path();
-            if path.is_dir() {
-                let _ = std::fs::remove_dir_all(&path);
-            } else {
-                let _ = std::fs::remove_file(&path);
-            }
+            set_aside(&entry.path(), &name);
         }
     }
     // And the link directories, which are made of this cache's entries
@@ -439,10 +493,21 @@ fn reconcile_toolchain(dir: &Path) {
     // ask for again. A hard link would otherwise keep a wiped entry's bytes on
     // disk, and a directory from before hard links holds copies: `.buri/link`
     // was never pruned, and reached 41 GB in a repository of 82 suites.
-    if let Some(buri) = dir.parent() {
-        let _ = std::fs::remove_dir_all(buri.join("link"));
+    let links = buri.join("link");
+    if links.exists() {
+        set_aside(&links, std::ffi::OsStr::new("link"));
     }
-    let _ = std::fs::write(&marker, identity);
+    // Written beside and renamed, so no reader sees half a marker and takes it
+    // for another toolchain's.
+    let partial = marker.with_extension(temporary_extension());
+    if std::fs::write(&partial, toolchain_identity()).is_err()
+        || std::fs::rename(&partial, &marker).is_err()
+    {
+        let _ = std::fs::remove_file(&partial);
+    }
+    // All of `trash` and not only this wipe's: a process killed while removing
+    // its own left the rest.
+    Some(trash)
 }
 
 /// The file lock a toolchain change empties the cache under
@@ -458,9 +523,12 @@ fn reconcile_toolchain(dir: &Path) {
 ///   leaves its lock file behind, and a repository that can be wedged by one
 ///   `^C` is a repository nobody trusts. Stealing is safe because a second
 ///   wipe of a cache for the same toolchain removes nothing the first kept.
-/// - **After [`PATIENCE`] the wipe proceeds unlocked.** A build that hangs
-///   waiting for one would be a worse failure than two processes emptying one
-///   cache.
+/// - **After [`PATIENCE`] the caller gives up and goes on.** A build that
+///   hangs waiting for one would be a worse failure than a cache left
+///   unemptied. Going on means *without* wiping: a wipe raced by a second one
+///   went on removing after the first had marked the cache and its process
+///   had started building in it (#248), and an old toolchain's entries cost
+///   room, never correctness.
 pub struct Lock {
     path: PathBuf,
 }
@@ -714,32 +782,62 @@ mod tests {
         );
     }
 
-    /// Two opens with the same toolchain identity share their entries; an open
-    /// after the marker records a different toolchain starts empty. This is the
-    /// cleanup that keeps a rebuilt `buri` from being served — or crowded by —
-    /// the previous build's work.
+    /// A process's first open of a cache a different toolchain marked starts
+    /// empty, and later opens with the same toolchain share their entries.
+    /// This is the cleanup that keeps a rebuilt `buri` from being served — or
+    /// crowded by — the previous build's work.
     #[test]
     fn a_changed_toolchain_wipes_the_cache() {
         let root = std::env::temp_dir().join(format!("buri-toolchain-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let key = ActionKey::of(b"an entry");
 
-        let cache = Cache::open(&root);
-        cache.put(&key, b"an entry");
-        // A second open with the same toolchain keeps it.
+        // What a different toolchain left: an entry, a link directory, and a
+        // marker with its name. Written without an open, which is what a
+        // process that has not opened this cache yet finds.
+        let dir = root.join(".buri/cache");
+        Cache { dir: dir.clone() }.put(&key, b"an entry");
+        std::fs::write(dir.join(TOOLCHAIN_MARKER), "a-different-toolchain").unwrap();
+        let link = root.join(".buri/link/a-link-key");
+        std::fs::create_dir_all(&link).unwrap();
+        std::fs::write(link.join("main.o"), b"an object").unwrap();
+
+        let opened = Cache::open(&root);
+        assert_eq!(opened.get(&key), None, "a changed toolchain did not wipe the cache");
+        assert!(!root.join(".buri/link").exists(), "a changed toolchain left its link directories");
+        assert!(!root.join(".buri/trash").exists(), "the wipe left what it set aside");
+        assert_eq!(std::fs::read_to_string(dir.join(TOOLCHAIN_MARKER)).ok().as_deref(), Some(toolchain_identity()));
+
+        // The marker now names this toolchain, so what this open writes
+        // survives the next.
+        opened.put(&key, b"an entry");
         assert_eq!(Cache::open(&root).get(&key).as_deref(), Some(&b"an entry"[..]));
 
-        // Record a different toolchain, as a rebuilt binary would, and the next
-        // open finds the entry gone.
-        std::fs::write(root.join(".buri/cache").join(TOOLCHAIN_MARKER), "a-different-toolchain")
-            .unwrap();
-        let reopened = Cache::open(&root);
-        assert_eq!(reopened.get(&key), None, "a changed toolchain did not wipe the cache");
-
-        // And the marker now names this toolchain again, so what this open
-        // writes survives the next.
-        reopened.put(&key, b"an entry");
+        // And once this process has opened the cache, a marker rewritten under
+        // it — by a language server still running another `buri` — empties
+        // nothing this process is using (#248).
+        std::fs::write(dir.join(TOOLCHAIN_MARKER), "a-different-toolchain").unwrap();
         assert_eq!(Cache::open(&root).get(&key).as_deref(), Some(&b"an entry"[..]));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A marker that cannot be read names no toolchain, so the open that finds
+    /// it removes nothing. Every read error used to read as "another
+    /// toolchain", and one failed `open` under load emptied the cache (#248).
+    #[test]
+    fn a_marker_that_cannot_be_read_wipes_nothing() {
+        let root = std::env::temp_dir().join(format!("buri-unread-marker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let key = ActionKey::of(b"an entry");
+        let dir = root.join(".buri/cache");
+        Cache { dir: dir.clone() }.put(&key, b"an entry");
+        // A directory where the file should be: reading it fails, and not
+        // with "not found".
+        std::fs::create_dir_all(dir.join(TOOLCHAIN_MARKER)).unwrap();
+        std::fs::create_dir_all(root.join(".buri/link/a-link-key")).unwrap();
+
+        assert_eq!(Cache::open(&root).get(&key).as_deref(), Some(&b"an entry"[..]));
+        assert!(root.join(".buri/link/a-link-key").exists(), "an unreadable marker removed a link directory");
         let _ = std::fs::remove_dir_all(&root);
     }
 
