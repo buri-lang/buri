@@ -1444,38 +1444,10 @@ impl FnLower<'_> {
     /// the node's own value, which the plan *does* cover: `rc::fresh` counts a
     /// `Template` as producing a new reference, so a borrowing parent drops it.
     fn template(&mut self, ty: Type, parts: &[TemplatePart]) -> ValueId {
-        let mut rendered: Vec<(ValueId, bool)> = Vec::new();
-        // Which parts are literals, whose block is null and needs no count.
-        let mut literal: Vec<bool> = Vec::new();
-        for p in parts {
-            literal.push(matches!(p, TemplatePart::Text(_)));
-            match p {
-                TemplatePart::Text(t) => {
-                    let v = self.constant(ty, Const::Str(t.as_str().into()));
-                    rendered.push((v, false));
-                }
-                TemplatePart::Hole(h) => {
-                    let v = self.expr(h);
-                    let is_str =
-                        matches!(self.tables.as_prim(&h.ty), Some(Prim::Str | Prim::Template));
-                    if is_str {
-                        rendered.push((v, false));
-                    } else {
-                        let at = self.type_id(&h.ty);
-                        let shown = self.emit(ty, |dest| Inst::Structural {
-                            dest,
-                            op: StructuralOp::Show,
-                            ty: at,
-                            args: vec![v],
-                        });
-                        rendered.push((shown, true));
-                    }
-                }
-            }
+        if parts.len() > CONCAT_CHAIN_MAX {
+            return self.template_pieces(ty, parts);
         }
-        if rendered.len() > CONCAT_CHAIN_MAX {
-            return self.template_joined(ty, &rendered, &literal);
-        }
+        let (rendered, _) = self.render(ty, parts);
         let mut it = rendered.into_iter();
         let Some((mut acc, mut acc_is_mine)) = it.next() else {
             return self.constant(ty, Const::Str(Box::default()));
@@ -1510,6 +1482,60 @@ impl FnLower<'_> {
             self.push(Inst::IncRef { value: acc });
         }
         acc
+    }
+
+    /// Each part as a string, and whether this template owns it, then which
+    /// parts are literals, whose block is null and needs no count.
+    fn render(&mut self, ty: Type, parts: &[TemplatePart]) -> (Vec<(ValueId, bool)>, Vec<bool>) {
+        let mut rendered: Vec<(ValueId, bool)> = Vec::new();
+        let mut literal: Vec<bool> = Vec::new();
+        for p in parts {
+            literal.push(matches!(p, TemplatePart::Text(_)));
+            match p {
+                TemplatePart::Text(t) => {
+                    let v = self.constant(ty, Const::Str(t.as_str().into()));
+                    rendered.push((v, false));
+                }
+                TemplatePart::Hole(h) => {
+                    let v = self.expr(h);
+                    let is_str =
+                        matches!(self.tables.as_prim(&h.ty), Some(Prim::Str | Prim::Template));
+                    if is_str {
+                        rendered.push((v, false));
+                    } else {
+                        let at = self.type_id(&h.ty);
+                        let shown = self.emit(ty, |dest| Inst::Structural {
+                            dest,
+                            op: StructuralOp::Show,
+                            ty: at,
+                            args: vec![v],
+                        });
+                        rendered.push((shown, true));
+                    }
+                }
+            }
+        }
+        (rendered, literal)
+    }
+
+    /// A template of more than [`CONCAT_CHAIN_MAX`] parts, rendered and joined
+    /// a piece of [`JOIN_PIECE`] at a time, then the pieces
+    /// ([`FnLower::template_joined`]). Rendering every part before the first
+    /// join kept every converted string live at once, and `llc`'s register
+    /// allocator grows with that (PERFORMANCE.md §6.33).
+    fn template_pieces(&mut self, ty: Type, parts: &[TemplatePart]) -> ValueId {
+        let mut pieces: Vec<(ValueId, bool)> = Vec::new();
+        for piece in parts.chunks(JOIN_PIECE) {
+            let (rendered, literal) = self.render(ty, piece);
+            pieces.push((self.join_parts(ty, &rendered, &literal), true));
+        }
+        match pieces.as_slice() {
+            [(one, _)] => *one,
+            _ => {
+                let owned = vec![false; pieces.len()];
+                self.template_joined(ty, &pieces, &owned)
+            }
+        }
     }
 
     /// A template of more than [`CONCAT_CHAIN_MAX`] parts: the parts go into
