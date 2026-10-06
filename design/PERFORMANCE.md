@@ -4489,6 +4489,44 @@ past its 512 KiB ceiling. The cache now keeps a `limit` that is zero until it
 is armed and an `armed` flag, so the thread-local lands in `__thread_bss`:
 `__thread_data` 56 bytes, stripped hello 477,600 to 461,088 bytes locally.
 
+#### 6.44.3 Round four: the allocator's fixed cost
+
+With the formatting, search and scheduling costs gone, `buri_rt_alloc` and
+`buri_rt_free` were the largest runtime frames in every single-threaded
+profile. Each change below shaves instructions every allocation or free
+pays:
+
+| Change | strings | lists | floats | maps |
+|---|---:|---:|---:|---:|
+| A free's cache push inlines, the rest out of line | −5.1% | −4.2% | −4.3% | −2.4% |
+| One byte compare for the heap-check mode | −2.2% | −1.8% | −1.8% | −1.0% |
+| A free skips the scalar-index keys until an index exists | −4.2% | −2.4% | −3.6% | −1.2% |
+| A split takes its pieces' references in one update | −1.6% | | | |
+
+| Program | Instructions before | after | Δ |
+|---|---:|---:|---:|
+| strings | 2,286 M | 1,998 M | −13% |
+| lists | 3,170 M | 2,905 M | −8.4% |
+| floats | 775 M | 703 M | −9.4% |
+| maps | 1,717 M | 1,636 M | −4.7% |
+| mapk | 2,930 M | 2,921 M | −0.3% |
+
+- **The push closure was its own function.** The closure `cache_push_counted`
+  runs inside the thread-local carried the arm, the refusal, the sweep tick
+  and the large-block path, so it compiled to a second frame on every free.
+  Its fast path is now an accepted push between two sweeps.
+- **The heap-check mode was decoded on every allocation and free**, about
+  eight instructions each. Both now compare the cached byte with `Off`'s.
+- **`scalars::forget` read four atomic keys on every free**, for an index
+  only a long non-ASCII string ever builds. A flag, set before the first key,
+  makes it one load until then.
+
+Tiny tasks: sharing one lineage across a fan-out's steps saves a `Vec` and a
+`thread::current()` per step, about 4% of the median instructions. The rest
+of that program is the run queue's lock and the task-stack pool's lock, which
+every finishing step takes; per-worker queues would remove only the first,
+and neither moves wall time much while wake-up latency dominates a round.
+
 ### 6.45 What `--release` hands to LLVM, 2026-10-06
 
 `buri build --release` of `mixed-10k` spent 20.2 G instructions in `emit`:
