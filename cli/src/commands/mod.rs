@@ -395,7 +395,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "compile",
         doc: crate::documentation::embedded::cli::BUILD,
         flags: &["release", "debug", "output", "force", "explain", "check-reproducible", "dense"],
-        run: build::command_build,
+        run: |args| once(args, build::command_build),
         subcommands: &[],
         hidden: false,
     },
@@ -408,7 +408,7 @@ pub const COMMANDS: &[Command] = &[
             "release", "debug", "output", "filter", "force", "explain", "watch", "dense",
             "update", "jobs", "coverage",
         ],
-        run: test::command_test,
+        run: |args| once(args, test::command_test),
         subcommands: &[],
         hidden: false,
     },
@@ -529,6 +529,16 @@ pub fn find(name: &str) -> Option<&'static Command> {
     clippy::print_stderr,
     reason = "a malformed invocation is reported by the CLI itself, before there is a session"
 )]
+/// A command that answers once reads each source once for its keys
+/// ([`crate::build::actions::remember_reads`]); under `--watch` it answers
+/// again after the disk moves, so it reads afresh.
+fn once(args: &Args, command: fn(&Args) -> i32) -> i32 {
+    if !args.flags.watch {
+        crate::build::actions::remember_reads();
+    }
+    command(args)
+}
+
 pub fn dispatch(command: &'static str, subcommands: &'static [Subcommand], args: &Args) -> i32 {
     let Some((asked, rest)) = args.targets.split_first() else {
         eprintln!("error: `buri {command}` needs a subcommand");

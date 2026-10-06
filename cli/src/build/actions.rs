@@ -731,7 +731,7 @@ fn contribute(session: &Session, member: TargetId, k: &mut KeyBuilder) {
 }
 
 /// How a key reads a source file.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Content {
     /// Every byte. An artifact's key, where a comment edit may move a debug location.
     Bytes,
@@ -773,14 +773,20 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
             sources.iter().map(move |rel| (dir, rel.as_str()))
         })
         .collect();
-    let read = |i: usize| {
+    let read = |i: usize| -> Option<std::sync::Arc<Vec<u8>>> {
         let (dir, rel) = *files.get(i)?;
         let bytes = std::fs::read(dir.join(rel)).ok()?;
-        Some(match content {
+        Some(std::sync::Arc::new(match content {
             Content::Bytes => bytes,
             Content::Program => read_as(rel, bytes, content),
-        })
+        }))
     };
+    let path = |i: usize| files.get(i).map(|(dir, rel)| (dir.join(rel), content));
+    let mut contents: Vec<Option<Option<std::sync::Arc<Vec<u8>>>>> = {
+        let memo = READS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        (0..files.len()).map(|i| memo.as_ref().and_then(|m| m.get(&path(i)?).cloned())).collect()
+    };
+    let missing: Vec<usize> = (0..files.len()).filter(|&i| contents.get(i).is_some_and(Option::is_none)).collect();
     // Read in parallel, hashed in order. A key is a fold over the sources in
     // sorted order and that fold stays exactly where it was, on this thread; a
     // library of three hundred and sixty files is three hundred and sixty
@@ -788,11 +794,23 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
     // for. `parallel::map` returns in index order, so the bytes reach the
     // builder in the order `sources` is in. A few files cost less to read than
     // the threads would to start.
-    let contents: Vec<Option<Vec<u8>>> = if files.len() < SERIAL_READS {
-        (0..files.len()).map(read).collect()
+    let fresh: Vec<Option<std::sync::Arc<Vec<u8>>>> = if missing.len() < SERIAL_READS {
+        missing.iter().map(|&i| read(i)).collect()
     } else {
-        crate::parallel::map(files.len(), read)
+        crate::parallel::map(missing.len(), |j| read(*missing.get(j)?))
     };
+    {
+        let mut memo = READS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (&i, bytes) in missing.iter().zip(fresh) {
+            if let (Some(memo), Some(at)) = (memo.as_mut(), path(i)) {
+                memo.insert(at, bytes.clone());
+            }
+            if let Some(slot) = contents.get_mut(i) {
+                *slot = Some(bytes);
+            }
+        }
+    }
+    let contents: Vec<Option<std::sync::Arc<Vec<u8>>>> = contents.into_iter().map(Option::flatten).collect();
     let mut contents = contents.iter();
     for (member, sources) in &rules {
         let package = workspace.package(member.package);
@@ -807,13 +825,30 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
             k.input(&format!("{}/{}", package.label(), module.name), module.text.as_bytes());
         }
         for (rel, read) in sources.iter().zip(contents.by_ref()) {
-            k.file(&workspace.rel_of(&package.dir.join(rel)), read.as_deref());
+            k.file(&workspace.rel_of(&package.dir.join(rel)), read.as_deref().map(Vec::as_slice));
         }
     }
 }
 
 /// Below this many files a key reads them on its own thread.
 const SERIAL_READS: usize = 32;
+
+type Reads = std::collections::HashMap<(PathBuf, Content), Option<std::sync::Arc<Vec<u8>>>>;
+
+/// Every source a key has read, by path and reading, once [`remember_reads`]
+/// has been called.
+static READS: std::sync::Mutex<Option<Reads>> = std::sync::Mutex::new(None);
+
+/// From here to the end of the process, a key reads each source once.
+///
+/// For a command that answers once and exits, `buri build` and `buri test`
+/// without `--watch`: it computes a key per suite and per artifact, over
+/// closures that overlap, and nothing it does writes a source. A process that
+/// answers again after the disk may have moved never calls this.
+pub fn remember_reads() {
+    let mut memo = READS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    memo.get_or_insert_with(Reads::new);
+}
 
 /// Every file one rule names, package-relative and sorted: its entry module,
 /// its `sources`, its `testing` sources, and its generators' inputs.
