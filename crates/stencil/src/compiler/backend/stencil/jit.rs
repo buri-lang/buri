@@ -300,7 +300,7 @@ pub struct HelperSymbol {
 }
 
 pub struct Jit<'a> {
-    pub(crate) lib: &'a Library,
+    pub(crate) lib: &'static Library,
     /// Which machine's fields are being patched.
     ///
     /// The one axis this file has: a stencil's bytes are clang's, so *where* a
@@ -635,7 +635,7 @@ impl<'a> Jit<'a> {
     /// `Layouts::with_cycles` as the answer; the LLVM backend took it and this
     /// one had not.
     pub(crate) fn new(
-        lib: &'a Library,
+        lib: &'static Library,
         tables: &'a Tables,
         frames: &'a [FrameSig],
         target: StencilTarget,
@@ -1412,7 +1412,7 @@ impl<'a> Jit<'a> {
     /// ever copied out of the library, which matters because a clone per
     /// instruction would be most of this compiler's running time.
     pub(crate) fn emit<'k>(&mut self, key: impl Into<KeyArg<'k>>, binds: &[(&str, V)]) {
-        let lib: &'a Library = self.lib;
+        let lib: &'static Library = self.lib;
         let key = key.into();
         let found = self.index_of(key).and_then(|i| Some((i, lib.stencil(i)?)));
         let (at, mut s) = match found {
@@ -1528,13 +1528,13 @@ impl<'a> Jit<'a> {
     /// A hole naming a symbol outside this program: one relocation per site,
     /// and no instruction rewritten. A `bl` becomes a `BRANCH26`; the address
     /// of one, materialised into the constant pool, becomes an `Abs64`.
-    fn import(&mut self, at: u64, h: &Hole) {
-        let name = h.name.clone();
+    fn import(&mut self, at: u64, h: &'static Hole) {
+        let name = h.name.as_str();
         for off in &h.branches {
-            self.branch_reloc(at + *off as u64, Target::Symbol(name.clone()));
+            self.branch_reloc(at + *off as u64, Target::Symbol(name.into()));
         }
         if !h.pairs.is_empty() {
-            let slot = self.region.pool_target(Target::Symbol(name));
+            let slot = self.region.pool_target(Target::Symbol(name.into()));
             for (a, b) in &h.pairs {
                 self.pool_ref(at, *a, *b, slot);
             }
@@ -1579,13 +1579,13 @@ impl<'a> Jit<'a> {
                     // one instruction shorter.
                     V::Ext(n) => {
                         for off in &h.branches {
-                            self.branch_reloc(at + *off as u64, Target::Symbol(String::from(n)));
+                            self.branch_reloc(at + *off as u64, Target::Symbol(n.into()));
                         }
                         None
                     }
                     V::Sym(ref n) => {
                         for off in &h.branches {
-                            self.branch_reloc(at + *off as u64, Target::Symbol(n.clone()));
+                            self.branch_reloc(at + *off as u64, Target::Symbol(n.clone().into()));
                         }
                         None
                     }
@@ -1685,8 +1685,8 @@ impl<'a> Jit<'a> {
                     // A byte inside this section, whose base the linker picks.
                     V::Ptr(x) => self.region.pool_target(Target::Here(x)),
                     V::Fn(f) => self.region.pool_target(Target::Func(f)),
-                    V::Ext(n) => self.region.pool_target(Target::Symbol(String::from(n))),
-                    V::Sym(ref n) => self.region.pool_target(Target::Symbol(n.clone())),
+                    V::Ext(n) => self.region.pool_target(Target::Symbol(n.into())),
+                    V::Sym(ref n) => self.region.pool_target(Target::Symbol(n.clone().into())),
                     ref other => crate::diagnostics::ice(&format!(
                         "stencil: hole {} takes a datum, got {other:?}",
                         h.name
@@ -1727,8 +1727,8 @@ impl<'a> Jit<'a> {
             V::I(x) => self.region.pool_u64(x),
             V::Ptr(x) => self.region.pool_target(Target::Here(x)),
             V::Fn(f) => self.region.pool_target(Target::Func(f)),
-            V::Ext(n) => self.region.pool_target(Target::Symbol(String::from(n))),
-            V::Sym(ref n) => self.region.pool_target(Target::Symbol(n.clone())),
+            V::Ext(n) => self.region.pool_target(Target::Symbol(n.into())),
+            V::Sym(ref n) => self.region.pool_target(Target::Symbol(n.clone().into())),
             ref other => crate::diagnostics::ice(&format!(
                 "stencil: hole {} takes a datum, got {other:?}",
                 h.name
@@ -1912,7 +1912,7 @@ impl<'a> Jit<'a> {
                 Fix::Block { .. } | Fix::BlockCond { .. } => continue,
             };
             let name = symbol_of(prog, callee);
-            self.branch_reloc(at, Target::Symbol(name));
+            self.branch_reloc(at, Target::Symbol(name.into()));
         }
     }
 
