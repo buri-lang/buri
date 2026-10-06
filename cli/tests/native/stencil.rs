@@ -4725,3 +4725,88 @@ fn a_socket_counts_the_messages_it_was_sent() {
         out.stdout
     );
 }
+
+// -----------------------------------------------------------------------
+// Large shapes: what the middle end hands both native backends grows
+// linearly in the shape's size (PERFORMANCE.md §6.32)
+// -----------------------------------------------------------------------
+
+/// Blocks plus instructions in the lowered IR of every function whose symbol
+/// `pick` accepts. Both native backends emit from this IR, so a bound here
+/// holds for both.
+fn lowered_size(source: &str, pick: impl Fn(&str) -> bool) -> usize {
+    let (program, tables) = lowered(source);
+    let ir = buri::compiler::middle::lower::run(&program, &tables);
+    ir.funcs
+        .iter()
+        .filter(|f| pick(&f.symbol))
+        .filter_map(|f| f.code())
+        .map(|code| code.blocks.iter().map(|b| 1 + b.insts.len()).sum::<usize>())
+        .sum()
+}
+
+/// Asserts that `size(2n)` is at most 2.3 times `size(n)`: linear growth with
+/// a fixed part, and nothing quadratic.
+fn grows_linearly(what: &str, size: impl Fn(usize) -> usize, n: usize) {
+    let (small, large) = (size(n), size(2 * n));
+    assert!(small > 0, "{what}: nothing was measured at {n}");
+    assert!(
+        large * 10 <= small * 23,
+        "{what}: {small} at {n} and {large} at {}, {:.2} times as much for twice the size",
+        2 * n,
+        large as f64 / small as f64
+    );
+}
+
+/// An enum of `n` variants whose payloads cycle through a number, a string,
+/// both, a record holding an option, and nothing, with every derive.
+fn many_variants(n: usize) -> String {
+    let mut variants = String::new();
+    for i in 0..n {
+        variants.push_str(&match i % 5 {
+            0 => format!("    V{i}(Int),\n"),
+            1 => format!("    V{i}(Str),\n"),
+            2 => format!("    V{i}(Int, Str),\n"),
+            3 => format!("    V{i} {{ a: Int, b: Option<Str> }},\n"),
+            _ => format!("    V{i},\n"),
+        });
+    }
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator, Stdout }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+
+enum E {{
+{variants}}}
+
+derive Equal, Hash, Show, Ordered for E;
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+    let a: E = .V0(1);
+    let b: E = .V1("b");
+    let _ = io.println(ctx, "${{a == b}} ${{a < b}} ${{a.hash() == b.hash()}} ${{a}}").ignore();
+    .Ok(())
+}}
+"#
+    )
+}
+
+/// **The derived functions of an enum are linear in its variants.** A derived
+/// `compare` matched the right-hand value against every variant inside each
+/// arm for the left-hand one, so an enum of `n` variants compiled `n²` arms:
+/// 300 variants were 90,000 arms, a stencil function too large to branch
+/// across and minutes of `--release`.
+#[test]
+fn a_many_variant_enums_derived_functions_are_linear_in_its_variants() {
+    if !supported() {
+        return;
+    }
+    grows_linearly(
+        "the derived functions of an enum",
+        |n| lowered_size(&many_variants(n), |s| s.contains("derive$")),
+        64,
+    );
+}
+
