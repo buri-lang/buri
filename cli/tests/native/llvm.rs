@@ -5516,6 +5516,54 @@ export fn main(host: NativeHost): Result<(), Str> {{
     }
 }
 
+/// **A failed guard goes on at the next arm that can still match.** It went to
+/// the next arm's tag test, so every failed guard of `.Vi if ...` re-entered
+/// the chain LLVM folds into a `switch` and tested tags already known.
+/// `SimplifyCFG` threads each of those edges back through the `switch`.
+/// PERFORMANCE.md §6.33.
+#[test]
+fn a_failed_guard_skips_the_arms_it_cannot_match() {
+    skip_unless_executable!();
+    let n = 60;
+    let variants: String = (0..n).map(|i| format!("    V{i},\n")).collect();
+    let guarded: String = (0..n).map(|i| format!("        .V{i} if k > {i} => {i},\n")).collect();
+    let ir = emitted_ir(&program(&format!(
+        r#"
+from "native" import {{ NativeHost }};
+from "core/list" import * as list;
+
+enum E {{
+{variants}}}
+
+fn nth(i: Int): E {{
+    match (i) {{
+        0 => .V0,
+        1 => .V7,
+        _ => .V9,
+    }}
+}}
+
+fn guard(e: E, k: Int): Int {{
+    match (e) {{
+{guarded}        _ => 0 - 1,
+    }}
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+    let total = list.range(ctx, 0, 3).fold(fn(acc, i) => acc + guard(nth(i), i), 0);
+    let _ = io.println(ctx, "${{total}}").ignore();
+    .Ok(())
+}}
+"#
+    )));
+    // Each arm's tag test is entered from the test before it alone. The blocks
+    // with more than one way in are the catch-all and the join.
+    let guard = definition(&ir, "$guard");
+    let merges = guard.lines().filter(|l| l.contains("; preds = %") && l.contains(',')).count();
+    assert!(merges <= 4, "a match of {n} guarded arms has {merges} blocks entered from two places");
+}
+
 /// The longest run of loads in one block of the derived functions, with no
 /// call between them: the largest scheduling region their field reads make.
 fn longest_derived_load_run(source: &str) -> usize {
