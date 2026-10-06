@@ -1,0 +1,6 @@
+1 passed, 0 failed, 0 skipped (0.0s)
+
+coverage
+  lib/shapes/shapes.buri  2/6   33.3%
+  total                   2/6   33.3%
+lcov: .buri/coverage/lcov.info

@@ -1,0 +1,111 @@
+# `buri test --coverage`: one library whose tests leave an `if` branch, a
+# `match` arm and a whole function unreached. The same lines come back from the
+# native backend and from JavaScript, both read against one hand-written lcov
+# golden. A cached verdict is run again rather than reported with no counts, and
+# a coverage run leaves the plain run's cache alone.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "--coverage counts the lines a suite reached, the same on both backends, and never from the cache"
+
+# A plain run, twice, so the second is served from the cache.
+run {
+  args: ["test", "//lib/shapes"]
+  exit: 0
+  golden: "plain.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//lib/shapes"]
+  exit: 0
+  golden: "cached.txt"
+  stream: OUT
+}
+
+# The cached verdicts are run again, so the counts are this run's.
+run {
+  args: ["test", "//lib/shapes", "--coverage"]
+  exit: 0
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
+
+# And again: a coverage run is never served from the cache either.
+run {
+  args: ["test", "//lib/shapes", "--coverage"]
+  exit: 0
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
+
+# The instrumented build took nothing from the plain one's cache entries, and
+# left them there.
+run {
+  args: ["test", "//lib/shapes"]
+  exit: 0
+  golden: "cached.txt"
+  stream: OUT
+}
+
+# JavaScript reaches the same lines the same number of times.
+run {
+  args: ["test", "//lib/shapes", "--coverage", "--output=js"]
+  exit: 0
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
+
+# A filter counts only the tests it ran.
+run {
+  args: ["test", "//lib/shapes", "--coverage", "--filter=circle"]
+  exit: 0
+  golden: "filtered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "filtered.info"
+}
+
+# A watch loop has no end for the report to come after. No golden: the refusal
+# prints the whole usage page, which every new command would move.
+run {
+  args: ["test", "//lib/shapes", "--coverage", "--watch"]
+  exit: 2
+}
+
+# The edit that reaches the other branch.
+edit {
+  file: "lib/shapes/test/shapes.buri"
+  replace: "assert.equal(label(5), \"small\");"
+  with: "assert.equal(label(500), \"big\");"
+}
+
+run {
+  args: ["test", "//lib/shapes", "--coverage"]
+  exit: 0
+  golden: "big.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "big.info"
+}

@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//lib/report" import { summary };
+
+test "sums" {
+    assert.equal(summary(1), 5);
+}
