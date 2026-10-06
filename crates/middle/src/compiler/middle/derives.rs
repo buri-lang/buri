@@ -1176,7 +1176,7 @@ impl Generator {
                 Some(self.intrinsic("deriveArrayEq", vec![elem_ty], vec![a, b, ptr], bool_ty))
             }
             Desc::Option(inner) => self.eq_option(desc, *inner, a, b, frame),
-            Desc::Enum { variants, .. } => self.eq_enum(desc, &variants, a, b, frame),
+            Desc::Enum { variants, .. } => self.eq_enum(desc, variants, a, b, frame),
             Desc::Opaque(_) | Desc::Reserved => None,
         }
     }
@@ -1347,7 +1347,7 @@ impl Generator {
                 ))
             }
             Desc::Option(inner) => self.compare_option(desc, *inner, a, b, frame),
-            Desc::Enum { variants, .. } => self.compare_enum(desc, &variants, a, b, frame),
+            Desc::Enum { variants, .. } => self.compare_enum(desc, variants, a, b, frame),
             Desc::Opaque(_) | Desc::Reserved => None,
         }
     }
@@ -1748,7 +1748,7 @@ impl Generator {
                     .enumerate()
                     .map(|(i, f)| (f.name.clone(), i, f.ty))
                     .collect();
-                self.show_fields(&name, *record, &parts, x, false)
+                self.show_fields(name, *record, &parts, x, false)
             }
             Desc::Tuple(es) => {
                 let parts: Vec<(String, usize, usize)> =

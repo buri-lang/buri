@@ -1222,7 +1222,7 @@ impl Monomorphizer<'_> {
         let checked = self.checked;
         let info = checked.tables.fn_info(f);
         if info.intrinsic {
-            let key = self.intrinsic_key(&info, &targs);
+            let key = self.intrinsic_key(info, &targs);
             // The instantiated parameter types, which only the descriptor
             // choice below reads. They used to live on `Func` as a second
             // vector parallel to `params`, filled on this path and left empty
