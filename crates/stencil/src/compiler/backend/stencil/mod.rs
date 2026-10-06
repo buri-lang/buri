@@ -660,7 +660,7 @@ fn thread_door(
 /// a property of the unit or of a part of one. `name` and `members` are the
 /// unit's, and they stay arguments.
 struct Whole<'a> {
-    lib: &'a library::Library,
+    lib: &'static library::Library,
     program: &'a ir::Program,
     tables: &'a Tables,
     frames: &'a [jit::FrameSig],
@@ -959,7 +959,7 @@ fn assemble_unit(
                 Some(func) => std::borrow::Cow::Borrowed(func.symbol.as_str()),
                 None => std::borrow::Cow::Owned(jit::symbol_of(program, *f)),
             },
-            region::Target::Symbol(s) => std::borrow::Cow::Borrowed(s.as_str()),
+            region::Target::Symbol(s) => std::borrow::Cow::Borrowed(s.as_ref()),
             // The pool's own base, under a local name no Buri symbol can
             // collide with: Mach-O has no "this section" relocation that is
             // not scattered, so an offset into the pool is a symbol plus an

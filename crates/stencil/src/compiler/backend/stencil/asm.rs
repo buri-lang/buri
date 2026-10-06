@@ -387,7 +387,7 @@ impl Asm {
     pub fn bl_symbol(&mut self, name: &str) {
         let at = self.at();
         self.word(BL);
-        self.relocs.push((at, RelKind::Branch26, Target::Symbol(String::from(name))));
+        self.relocs.push((at, RelKind::Branch26, Target::Symbol(name.to_string().into())));
     }
 
     /// `adrp xd, name` + `add xd, xd, #:lo12:name` — the address of a symbol in
@@ -401,8 +401,8 @@ impl Asm {
         self.word(ADRP | (rd & 31));
         let off = self.at();
         self.word(ADD_X_IMM | ((rd & 31) << 5) | (rd & 31));
-        self.relocs.push((page, RelKind::Page21, Target::Symbol(String::from(name))));
-        self.relocs.push((off, RelKind::PageOff12, Target::Symbol(String::from(name))));
+        self.relocs.push((page, RelKind::Page21, Target::Symbol(name.to_string().into())));
+        self.relocs.push((off, RelKind::PageOff12, Target::Symbol(name.to_string().into())));
     }
 
     pub fn ret(&mut self) {
@@ -703,7 +703,7 @@ impl X86 {
     fn pcrel(&mut self, kind: RelKind, name: &str) {
         let at = self.at();
         self.put(&[0, 0, 0, 0]);
-        self.relocs.push((at, kind, Target::Symbol(String::from(name)), -4));
+        self.relocs.push((at, kind, Target::Symbol(name.to_string().into()), -4));
     }
 
     /// `call .+bytes` — a call to a place this many bytes past the end of this
@@ -1312,7 +1312,7 @@ mod tests {
         let named: Vec<String> = relocs
             .iter()
             .map(|(_, _, t)| match t {
-                Target::Symbol(s) => s.clone(),
+                Target::Symbol(s) => s.to_string(),
                 other => format!("{other:?}"),
             })
             .collect();
@@ -1329,7 +1329,7 @@ mod tests {
         let named: Vec<String> = relocs
             .iter()
             .map(|r| match &r.2 {
-                Target::Symbol(s) => s.clone(),
+                Target::Symbol(s) => s.to_string(),
                 other => format!("{other:?}"),
             })
             .collect();
@@ -1463,7 +1463,7 @@ mod tests {
             .into_iter()
             .map(|(_, k, t, _)| {
                 let n = match t {
-                    Target::Symbol(s) => s,
+                    Target::Symbol(s) => s.into_owned(),
                     other => format!("{other:?}"),
                 };
                 (kind(k), n)

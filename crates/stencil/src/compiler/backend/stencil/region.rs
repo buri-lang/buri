@@ -75,8 +75,9 @@ pub enum Target {
     /// when the callee is in this unit and left to the linker when it is not.
     Func(u32),
     /// A symbol outside this program: the runtime archive's, or the C
-    /// library's.
-    Symbol(String),
+    /// library's. Borrowed when the name is the stencil library's or a
+    /// literal, which is every import a stencil body makes.
+    Symbol(std::borrow::Cow<'static, str>),
     /// A byte offset within the constant pool — a string literal's bytes. The
     /// linker still has to see it, because the pool's base is its choice.
     Here(u64),
@@ -456,7 +457,7 @@ mod tests {
         second.pool_ref(at, at + 4, slot);
         let here = second.pool_bytes(b"xy");
         second.pool_target(Target::Here(here & !(1 << 40)));
-        second.reloc(at, RelKind::Branch26, Target::Symbol(String::from(runtime::FLUSH)));
+        second.reloc(at, RelKind::Branch26, Target::Symbol(runtime::FLUSH.into()));
         let second = second.finish();
         let (code_relocs, pool_relocs) = (second.code_relocs.clone(), second.pool_relocs.clone());
         let (second_code, second_pool) = (second.code.clone(), second.pool.clone());
@@ -492,7 +493,7 @@ mod tests {
         assert!(whole
             .code_relocs
             .iter()
-            .any(|r| r.target == Target::Symbol(String::from(runtime::FLUSH))));
+            .any(|r| r.target == Target::Symbol(runtime::FLUSH.into())));
     }
 
     /// A pool word that names a symbol becomes a relocation and stays zero in
@@ -504,7 +505,7 @@ mod tests {
         r.put(&[0; 8]);
         r.pool_bytes(b"leading bytes");
         let here = r.pool_bytes(b"abcd");
-        r.pool_target(Target::Symbol(String::from(runtime::FLUSH)));
+        r.pool_target(Target::Symbol(runtime::FLUSH.into()));
         r.pool_target(Target::Here(here & !(1 << 40)));
         let out = r.finish();
         assert_eq!(out.pool_relocs.len(), 2);
