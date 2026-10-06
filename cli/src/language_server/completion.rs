@@ -167,9 +167,8 @@ fn in_source(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Vec<V
     // it is the one context that offers no values.
     if in_a_type(analyzed, path, cursor) {
         let named = scope
-            .names
-            .iter()
-            .filter_map(|(name, sym)| Some((name.clone(), symbols::symbol_of(sym)?)))
+            .visible()
+            .filter_map(|(name, sym)| Some((name.to_string(), symbols::symbol_of(sym)?)))
             .filter(|(_, symbol)| {
                 matches!(symbol, Symbol::Type(_) | Symbol::Trait(_) | Symbol::Module(_))
             })
@@ -182,7 +181,7 @@ fn in_source(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Vec<V
 
     let mut candidates = locals_at(analyzed, path, cursor);
     candidates.extend(
-        scope.names.iter().filter_map(|(name, sym)| Some((name.clone(), symbols::symbol_of(sym)?))),
+        scope.visible().filter_map(|(name, sym)| Some((name.to_string(), symbols::symbol_of(sym)?))),
     );
     candidates.extend(namespaces(scope));
     let mut items = rendered(analyzed, candidates, prefix, text, replacing, &uri, Some(module_path));
@@ -239,7 +238,7 @@ fn receiver_symbol(
         return Some(symbol);
     }
     if let Some((_, scope)) = module_scope(analyzed, path) {
-        if let Some(symbol) = scope.names.get(name).and_then(symbols::symbol_of) {
+        if let Some(symbol) = scope.name(name).and_then(symbols::symbol_of) {
             return Some(symbol);
         }
         // A namespace alias is kept in its own map rather than among the
@@ -396,7 +395,7 @@ fn annotated_enum(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> 
     let written = annotated.trim_start();
     let name: String =
         written.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-    let Some(Sym::Ty(con)) = scope.names.get(&name) else { return None };
+    let Some(Sym::Ty(con)) = scope.name(&name) else { return None };
     let has_variants = !analyzed.analysis.checked.tables.tycon(*con).variants().is_empty();
     has_variants.then_some(*con)
 }
@@ -560,7 +559,7 @@ fn head_type(
 ) -> Option<(TyConId, Option<usize>)> {
     let (_, scope) = module_scope(analyzed, path)?;
     match tree.expr(head) {
-        ExprView::Ident { name, .. } => match scope.names.get(name) {
+        ExprView::Ident { name, .. } => match scope.name(name) {
             Some(Sym::Ty(con)) => Some((*con, None)),
             _ => None,
         },
@@ -578,7 +577,7 @@ fn head_type(
                     _ => None,
                 };
             }
-            let Some(Sym::Ty(con)) = scope.names.get(outer) else { return None };
+            let Some(Sym::Ty(con)) = scope.name(outer) else { return None };
             let index = analyzed
                 .analysis
                 .checked
@@ -1185,7 +1184,7 @@ pub fn resolve_completion(analyzed: &Analyzed, item: &Value) -> Value {
             // wider list and includes what it imported.
             Some(name) => {
                 let scope = analyzed.analysis.checked.scopes.get(id.index())?;
-                let sym = scope.exports.get(name).or_else(|| scope.names.get(name))?;
+                let sym = scope.exports.get(name).or_else(|| scope.name(name))?;
                 symbols::symbol_of(sym)?
             }
             // No name is the path itself, and what a path names is a module.

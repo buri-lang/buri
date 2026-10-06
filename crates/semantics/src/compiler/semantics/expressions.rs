@@ -599,7 +599,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         if let Some(local) = self.lookup_local(name) {
             return typed::Expr::new(typed::ExprKind::Local(local), self.local_ty(local), span);
         }
-        let sym = self.c.scope(self.module).names.get(name).cloned();
+        let sym = self.c.scope(self.module).name(name).cloned();
         match sym {
             Some(Sym::Fn(f)) => self.fn_ref(f, None, span),
             Some(Sym::Const(cid)) => {
@@ -674,7 +674,7 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn nearest_value(&self, name: &str) -> Option<String> {
         let mut refs: Vec<&str> = self.scopes.iter().map(|(_, id)| self.local(*id).name.as_str()).collect();
-        refs.extend(self.c.scope(self.module).names.keys().map(String::as_str));
+        refs.extend(self.c.scope(self.module).visible().map(|(k, _)| k));
         nearest(name, &refs).map(|s| s.to_string())
     }
 
@@ -738,7 +738,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if self.lookup_local(name).is_some() {
                     return None;
                 }
-                match self.c.scope(self.module).names.get(name).cloned()? {
+                match self.c.scope(self.module).name(name).cloned()? {
                     Sym::Fn(f) => Some(Static::Fn(f)),
                     Sym::Context(c) => Some(Static::Context(c)),
                     Sym::Const(c) => Some(Static::Const(c)),
@@ -791,7 +791,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
         }
         // `Shape.Circle` — a qualified variant.
-        if let Some(Sym::Ty(con)) = self.c.scope(self.module).names.get(head).cloned() {
+        if let Some(Sym::Ty(con)) = self.c.scope(self.module).name(head).cloned() {
             let index = self.c.tables.variant_index(con, name)?;
             return Some(Static::Variant(con, index));
         }
@@ -2537,7 +2537,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn struct_lit_head(&mut self, head: ExprId) -> Option<TyConId> {
         match self.tree().expr(head) {
             V::Ident { name, .. } => {
-                match self.c.scope(self.module).names.get(name)? {
+                match self.c.scope(self.module).name(name)? {
                     Sym::Ty(c) => Some(*c),
                     _ => None,
                 }

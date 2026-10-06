@@ -295,7 +295,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
         let (resolved, rest) = match namespaced {
             Some((ns, second, tail)) => (self.c.lookup_export(ns, second), tail),
-            None => (self.c.scope(module).names.get(head).cloned(), rest),
+            None => (self.c.scope(module).name(head).cloned(), rest),
         };
 
         match resolved {
