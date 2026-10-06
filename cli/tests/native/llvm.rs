@@ -5434,6 +5434,40 @@ export fn main(host: NativeHost): Result<(), Str> {{
     );
 }
 
+/// **A long template converts each piece's holes next to that piece's join.**
+/// It converted every hole before the first join, so every converted string
+/// was live at once, and `llc`'s register allocator grows with values times
+/// the blocks they span. PERFORMANCE.md §6.33.
+#[test]
+fn a_long_templates_holes_are_converted_beside_their_join() {
+    skip_unless_executable!();
+    let holes: String = (0..300).map(|i| format!("${{a + {i}}}|")).collect();
+    let ir = emitted_ir(&program(&format!(
+        r#"
+from "native" import {{ NativeHost }};
+from "core/str" import * as str;
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+    let a = 7;
+    let line = str.format(ctx, "<{holes}>");
+    let _ = io.println(ctx, line).ignore();
+    .Ok(())
+}}
+"#
+    )));
+    let (mut longest, mut run) = (0, 0);
+    for line in ir.lines() {
+        if line.contains("@buri_rt_list_join") {
+            run = 0;
+        } else if line.contains("@buri_rt_str_from_int") {
+            run += 1;
+            longest = longest.max(run);
+        }
+    }
+    assert!(longest <= 32, "a template converts {longest} holes before joining any");
+}
+
 /// How many instructions in `body` are `op`.
 fn count_op(body: &str, op: &str) -> usize {
     body.lines().filter(|l| l.split_once(" = ").is_some_and(|(_, rest)| rest.starts_with(op))).count()
