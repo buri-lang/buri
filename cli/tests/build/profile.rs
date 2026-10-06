@@ -345,6 +345,32 @@ fn a_debug_builds_emission_is_linear_in_a_variants_fields() {
     );
 }
 
+/// A body of `n` `let`s, each calling a function by a name no local has.
+fn many_lets(n: usize) -> (String, String) {
+    let lets: String = (0..n).map(|i| format!("    let t{} = step(t{i}, {i});\n", i + 1)).collect();
+    let items = format!(
+        "fn step(a: Int, b: Int): Int {{\n    (a + b) % 1013\n}}\n\n\
+         fn long(x: Int): Int {{\n    let t0 = x;\n{lets}    t{n}\n}}\n"
+    );
+    let body = String::from("    let _ = io.println(ctx, \"${long(2)}\").ignore();\n");
+    (items, body)
+}
+
+/// **Checking a body is linear in its `let`s.** Looking a name up walked
+/// every local in scope, and a name that is not a local, such as a function's,
+/// walked all of them every time. PERFORMANCE.md §6.39.
+#[test]
+fn checking_is_linear_in_a_bodys_lets() {
+    grows_linearly(
+        "checking a long body",
+        |n| {
+            let (items, body) = many_lets(n);
+            profiled("node", &items, &body, "check")
+        },
+        4000,
+    );
+}
+
 /// A file of `n` functions, each under a comment and holding two, unformatted.
 fn commented_file(n: usize) -> String {
     (0..n)

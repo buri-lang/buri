@@ -369,10 +369,16 @@ pub struct Infer<'a, 'b> {
     /// hash and then the name in [`Infer::locals`].
     ///
     /// One flat list rather than a map per scope: a body binds a handful of
-    /// names, and walking them back from the innermost is quicker than hashing
-    /// into a table that had to be allocated, with a copy of every name as its
-    /// key.
+    /// names, and walking them back from the innermost is quicker than hashing.
+    /// Past [`UNINDEXED`] of them, the older ones are indexed by `shadows` and
+    /// `latest`, so a body of a thousand `let`s does not walk a thousand of
+    /// them for every name that is not a local at all.
     pub(crate) scopes: Vec<(u64, LocalId)>,
+    /// For each of the oldest `shadows.len()` entries of `scopes`, the entry
+    /// before it whose name has the same hash, or [`NO_SHADOW`].
+    shadows: Vec<u32>,
+    /// The innermost indexed entry of `scopes` for each name hash.
+    latest: crate::hash::Map<u64, u32>,
     /// Where each open scope starts in `scopes`.
     pub(crate) scope_starts: Vec<usize>,
     /// Emptied type lists, for a call being checked to borrow and give back.
@@ -440,6 +446,8 @@ pub struct Infer<'a, 'b> {
 pub(crate) struct Scratch<'b> {
     subst: Subst,
     scopes: Vec<(u64, LocalId)>,
+    shadows: Vec<u32>,
+    latest: crate::hash::Map<u64, u32>,
     scope_starts: Vec<usize>,
     ty_lists: Vec<Vec<Ty>>,
     obligations: Vec<(Ty, TraitId, Span)>,
@@ -453,6 +461,10 @@ impl Drop for Infer<'_, '_> {
         subst.clear();
         let mut scopes = std::mem::take(&mut self.scopes);
         scopes.clear();
+        let mut shadows = std::mem::take(&mut self.shadows);
+        shadows.clear();
+        let mut latest = std::mem::take(&mut self.latest);
+        latest.clear();
         let mut scope_starts = std::mem::take(&mut self.scope_starts);
         scope_starts.clear();
         let ty_lists = std::mem::take(&mut self.ty_lists);
@@ -463,9 +475,15 @@ impl Drop for Infer<'_, '_> {
         let mut pattern_names = std::mem::take(&mut self.pattern_names);
         pattern_names.clear();
         self.c.scratch =
-            Scratch { subst, scopes, scope_starts, ty_lists, obligations, lit_checks, pattern_names };
+            Scratch { subst, scopes, shadows, latest, scope_starts, ty_lists, obligations, lit_checks, pattern_names };
     }
 }
+
+/// No earlier binding shares the name's hash.
+const NO_SHADOW: u32 = u32::MAX;
+
+/// How many of the innermost bindings a lookup walks before it uses the index.
+const UNINDEXED: usize = 32;
 
 /// The hash a local's name is found by in [`Infer::scopes`].
 fn name_hash(name: &str) -> u64 {
@@ -478,7 +496,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let role = c.module(module).role;
         let mark = c.diags.items.len();
         let t = &c.module(module).ast.tree;
-        let Scratch { subst, scopes, scope_starts, ty_lists, obligations, lit_checks, pattern_names } =
+        let Scratch { subst, scopes, shadows, latest, scope_starts, ty_lists, obligations, lit_checks, pattern_names } =
             std::mem::take(&mut c.scratch);
         Infer {
             c,
@@ -488,6 +506,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             ret,
             subst,
             scopes,
+            shadows,
+            latest,
             scope_starts,
             ty_lists,
             locals: Vec::new(),
@@ -718,7 +738,34 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     pub(crate) fn pop_scope(&mut self) {
         if let Some(start) = self.scope_starts.pop() {
+            while self.shadows.len() > start {
+                let at = self.shadows.len().saturating_sub(1);
+                let (Some(prev), Some(&(hash, _))) = (self.shadows.pop(), self.scopes.get(at)) else { break };
+                if prev == NO_SHADOW {
+                    self.latest.remove(&hash);
+                } else {
+                    self.latest.insert(hash, prev);
+                }
+            }
             self.scopes.truncate(start);
+        }
+    }
+
+    /// Binds `id` in the innermost scope under a name with this hash.
+    fn push_binding(&mut self, hash: u64, id: LocalId) {
+        self.scopes.push((hash, id));
+        if self.scopes.len().saturating_sub(self.shadows.len()) > UNINDEXED {
+            self.index_bindings();
+        }
+    }
+
+    /// Indexes every binding not yet indexed.
+    #[inline(never)]
+    fn index_bindings(&mut self) {
+        for at in self.shadows.len()..self.scopes.len() {
+            let Some(&(h, _)) = self.scopes.get(at) else { break };
+            let prev = self.latest.insert(h, at as u32).unwrap_or(NO_SHADOW);
+            self.shadows.push(prev);
         }
     }
 
@@ -731,7 +778,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// A new local, bound in the innermost scope under the name it takes.
     pub(crate) fn bind_new(&mut self, name: Name, ty: Ty, span: Span) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
-        self.scopes.push((name_hash(&name), id));
+        self.push_binding(name_hash(&name), id);
         self.locals.push(typed::Local { name, ty, span });
         id
     }
@@ -741,16 +788,35 @@ impl<'a, 'b> Infer<'a, 'b> {
         // the innermost binding is the last one, and a lookup finds it first.
         debug_assert!(!self.scope_starts.is_empty(), "a body is checked inside a scope pushed by `push_scope`");
         debug_assert_eq!(self.local(local).name, name, "a local is bound under its own name");
-        self.scopes.push((name_hash(name), local));
+        self.push_binding(name_hash(name), local);
     }
 
+    #[inline]
     pub(crate) fn lookup_local(&self, name: &str) -> Option<LocalId> {
         let hash = name_hash(name);
-        self.scopes
-            .iter()
-            .rev()
-            .find(|(h, id)| *h == hash && self.local(*id).name == name)
-            .map(|(_, id)| *id)
+        let recent = self.scopes.get(self.shadows.len()..).unwrap_or(&[]);
+        if let Some(&(_, id)) =
+            recent.iter().rev().find(|(h, id)| *h == hash && self.local(*id).name == name)
+        {
+            return Some(id);
+        }
+        if self.shadows.is_empty() {
+            return None;
+        }
+        self.lookup_indexed(hash, name)
+    }
+
+    /// The same, among the bindings old enough to be indexed.
+    #[inline(never)]
+    fn lookup_indexed(&self, hash: u64, name: &str) -> Option<LocalId> {
+        let mut at = *self.latest.get(&hash)?;
+        while let Some(&(_, id)) = self.scopes.get(at as usize) {
+            if self.local(id).name == name {
+                return Some(id);
+            }
+            at = *self.shadows.get(at as usize)?;
+        }
+        None
     }
 
     pub(crate) fn local(&self, id: LocalId) -> &typed::Local {
