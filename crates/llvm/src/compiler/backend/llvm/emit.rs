@@ -4453,10 +4453,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let mut function = self.module.get_first_function();
         while let Some(f) = function {
             let mut block = f.get_first_basic_block();
-            let mut at = 0;
+            let mut at = 0usize;
             while let Some(b) = block {
                 if b.get_terminator().is_none() {
-                    // An object's unit discards names (`mod.rs`, `Names`), so
+                    // An object's unit discards names (`mod.rs`, `For`), so
                     // the block's position stands in for one there.
                     let name = match b.get_name().to_string_lossy() {
                         n if n.is_empty() => format!("#{at}").into(),
@@ -4468,7 +4468,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     ));
                 }
                 block = b.get_next_basic_block();
-                at += 1;
+                at = at.saturating_add(1);
             }
             function = f.get_next_function();
         }

@@ -627,10 +627,7 @@ fn emit_unit(
         diags.extend(emitter.diags.items);
         return Err(diags);
     }
-    if let Err(d) = optimize(&emitter.module, &worker.machine, opts.profile, unit_name) {
-        diags.push(d);
-        return Err(diags);
-    }
+    optimize(&emitter.module, &worker.machine, opts.profile, unit_name)?;
     if linker {
         emitter.prune(&members, &shared.kept);
     }
@@ -660,20 +657,28 @@ fn optimize(
     machine: &inkwell::targets::TargetMachine,
     profile: crate::compiler::backend::Profile,
     unit_name: &str,
-) -> Result<(), Diagnostic> {
+) -> Result<(), Diagnostics> {
+    let mut diags = Diagnostics::new();
     if cfg!(debug_assertions) {
         if let Err(message) = module.verify() {
-            return Err(Diagnostic::error(
-                Span::NONE,
-                format!(
-                    "internal error: the LLVM backend emitted invalid IR for unit \
-                     `{unit_name}`: {message}"
-                ),
-            )
-            .with_fix("this is a toolchain bug; report it"));
+            diags.push(
+                Diagnostic::error(
+                    Span::NONE,
+                    format!(
+                        "internal error: the LLVM backend emitted invalid IR for unit \
+                         `{unit_name}`: {message}"
+                    ),
+                )
+                .with_fix("this is a toolchain bug; report it"),
+            );
+            return Err(diags);
         }
     }
-    target::optimize(module, machine, profile).map_err(|m| Diagnostic::error(Span::NONE, m))
+    if let Err(message) = target::optimize(module, machine, profile) {
+        diags.push(Diagnostic::error(Span::NONE, message));
+        return Err(diags);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -684,6 +689,7 @@ mod tests {
 
     /// A developer build still rejects a malformed module before optimizing
     /// it, now that `target::optimize` doesn't verify after each pass.
+    #[cfg(debug_assertions)]
     #[test]
     fn a_developer_build_rejects_a_malformed_module() {
         let ctx = Context::create();
@@ -694,8 +700,7 @@ mod tests {
         let triple = target::triple(Target { platform: Platform::Macos, arch: Some(Arch::Arm64) });
         let machine = target::machine(&triple.unwrap(), Profile::Release).unwrap();
         let result = optimize(&module, &machine, Profile::Release, "u");
-        assert!(cfg!(debug_assertions), "this test needs a developer build");
-        let message = format!("{:?}", result.unwrap_err());
+        let message = format!("{:?}", result.unwrap_err().items);
         assert!(message.contains("emitted invalid IR for unit `u`"), "{message}");
         assert!(message.contains("does not have terminator"), "{message}");
     }
