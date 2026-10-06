@@ -919,9 +919,18 @@ impl<'a> Jit<'a> {
 /// cannot be restricted to a unit's own members. `mod.rs::emit_units` calls it
 /// beside `lower::run` and hands every `Jit` the same slice; calling it from
 /// `Jit::plan` made emission quadratic in the program (see `Jit::frames`).
-pub(crate) fn frame_sigs(prog: &ir::Program, tables: &Tables) -> Vec<FrameSig> {
-    let mut layouts = Layouts::new(tables);
-    let width = |l: &mut Layouts, t: ir::Type| -> u32 {
+///
+/// `cycles` is the emission's own, which [`Scratch::new`] takes too.
+pub(crate) fn frame_sigs(
+    prog: &ir::Program,
+    tables: &Tables,
+    cycles: std::sync::Arc<crate::compiler::middle::layout::Cycles>,
+) -> Vec<FrameSig> {
+    let mut layouts = Layouts::with_cycles(tables, cycles);
+    // Every value of every function is sized here, so an aggregate's size is
+    // looked up by its `TypeId` rather than hashed into `layouts` each time.
+    let mut sizes: Vec<u32> = vec![u32::MAX; prog.types.len()];
+    let mut width = |t: ir::Type| -> u32 {
         match t {
             ir::Type::I1 | ir::Type::I8 => 1,
             ir::Type::I16 => 2,
@@ -929,7 +938,14 @@ pub(crate) fn frame_sigs(prog: &ir::Program, tables: &Tables) -> Vec<FrameSig> {
             ir::Type::I64 | ir::Type::F64 | ir::Type::Ptr => 8,
             ir::Type::I128 => 16,
             ir::Type::Unit => 0,
-            ir::Type::Agg(id) => l.shared(&prog.type_info(id).ty).size,
+            ir::Type::Agg(id) => match sizes.get(id.index()) {
+                Some(&w) if w != u32::MAX => w,
+                _ => {
+                    let w = layouts.shared(&prog.type_info(id).ty).size;
+                    put(&mut sizes, id.index(), w);
+                    w
+                }
+            },
         }
     };
     let mut out = Vec::with_capacity(prog.funcs.len());
@@ -938,23 +954,22 @@ pub(crate) fn frame_sigs(prog: &ir::Program, tables: &Tables) -> Vec<FrameSig> {
         let mut at = 0u32;
         for t in &f.sig.rets {
             fs.ret.push(at);
-            at += round8(width(&mut layouts, *t)).max(8);
+            at += round8(width(*t)).max(8);
         }
         fs.ret_size = at;
         for t in &f.sig.params {
             fs.params.push(at);
-            at += round8(width(&mut layouts, *t)).max(8);
+            at += round8(width(*t)).max(8);
         }
         fs.param_end = at;
         if let ir::Body::Code(code) = &f.body {
-            let entry_params: Vec<u32> =
-                code.get(ir::BlockId(0)).params.iter().map(|v| v.0).collect();
+            let entry_params = &code.get(ir::BlockId(0)).params;
             for v in 0..code.values() {
-                let t = code.ty_of(ir::ValueId(v as u32));
-                if entry_params.contains(&(v as u32)) {
+                let v = ir::ValueId(v as u32);
+                if entry_params.contains(&v) {
                     continue;
                 }
-                at += round8(width(&mut layouts, t)).max(8);
+                at += round8(width(code.ty_of(v))).max(8);
             }
         }
         at += SCRATCH_WORDS as u32 * 8;

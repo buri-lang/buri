@@ -454,10 +454,9 @@ impl Backend for Stencil {
         // emitter O(units × program) — 2,378 ms of a 3,184 ms emission at 104k
         // lines and 367 units. This is the same place `lower::run` above is,
         // for the same reason.
-        let frames = jit::frame_sigs(&lowered, tables);
-
         let cycles =
             std::sync::Arc::new(crate::compiler::middle::layout::Cycles::new(tables));
+        let frames = jit::frame_sigs(&lowered, tables, std::sync::Arc::clone(&cycles));
         let whole = Whole {
             lib,
             program: &lowered,
