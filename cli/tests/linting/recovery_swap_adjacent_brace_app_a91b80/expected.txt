@@ -22,17 +22,10 @@ warning: this comment is marked `TODO` [todo-comment]
   |
   = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
   = fix: finish the work, or delete the marker
-error: `Stdout` is not a declared effect [unknown-effect]
+error: `Stdout` is an effect, but this file does not import it [effect-not-imported]
   --> lib/recovery_swap_adjacent_brace_app_a91b80/main.buri:17:9
    |
 17 |         Stdout: host.stdout,
    |         ^^^^^^
    |
-   = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Stdout` is not one
-error: `a context` does not implement `Stdout` [missing-impl]
-  --> lib/recovery_swap_adjacent_brace_app_a91b80/main.buri:19:5
-   |
-19 |     io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = fix: bound the type parameter with `Stdout`, or use a type that has one
+   = fix: import it: `from "platform/effect" import { Stdout };`

@@ -3318,10 +3318,31 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .bind("binding", "this type");
                 continue;
             };
-            let Some(Sym::Trait(tid)) = self.c.resolve_path(self.module, path) else {
-                let shown = t.type_head(effect_id).unwrap_or("?").to_string();
-                self.templated("unknown-effect", effect_span).bind("name", shown);
-                continue;
+            let resolved = self.c.resolve_path(self.module, path);
+            let tid = match resolved {
+                Some(Sym::Trait(tid)) => tid,
+                _ => {
+                    let shown = t.type_head(effect_id).unwrap_or("?").to_string();
+                    // A bare name that resolves to nothing here, and that an
+                    // effect a loaded module exports is called: what is
+                    // missing is the import, not the effect
+                    // (buri-lang/buri#250). The binding is then checked as the
+                    // effect it plainly means, so a use of the context that
+                    // needs the effect is not reported as well, as "`a
+                    // context` does not implement" it, far from here.
+                    let declared = (resolved.is_none() && t.path_text(path) == shown)
+                        .then(|| self.exported_effect(&shown))
+                        .flatten();
+                    let Some((tid, module)) = declared else {
+                        self.templated("unknown-effect", effect_span).bind("name", shown);
+                        continue;
+                    };
+                    let line = format!("from \"{module}\" import {{ {shown} }};");
+                    self.templated("effect-not-imported", effect_span)
+                        .bind("name", shown)
+                        .bind("import", line);
+                    tid
+                }
             };
             if !self.c.tables.trait_(tid).is_effect {
                 let shown = self.c.tables.trait_(tid).name.clone();
@@ -3365,6 +3386,22 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
         let id = self.c.tables.intern_ctx_type(ctx_ty);
         typed::Expr::new(typed::ExprKind::CtxLit { bindings }, Ty::ctx(id), span)
+    }
+
+    /// The effect a loaded module exports under `name`, and the path a file
+    /// imports it from — the first one declared, so the answer is the same on
+    /// every run. A module's `lib.buri` is imported by its directory.
+    fn exported_effect(&self, name: &str) -> Option<(TraitId, String)> {
+        let (index, info) = self
+            .c
+            .tables
+            .traits
+            .iter()
+            .enumerate()
+            .find(|(_, tr)| tr.is_effect && tr.exported && tr.name == name)?;
+        let path = &self.c.module(info.module).path;
+        let path = path.strip_suffix("/lib.buri").unwrap_or(path).to_string();
+        Some((TraitId(u32::try_from(index).ok()?), path))
     }
 
     fn check_match(
