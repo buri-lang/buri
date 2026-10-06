@@ -30,7 +30,7 @@
 //! A `Char` is a one-character string on JavaScript, so it takes the string
 //! path too — [`buri_rt_hash_char`] and not [`buri_rt_mix`].
 
-use crate::value::BURI_RT_STR_LEN_MASK;
+use crate::value::{BURI_RT_STR_ASCII, BURI_RT_STR_LEN_MASK};
 
 /// The FNV-1a offset basis, and the seed `$hash` starts from.
 pub const BURI_RT_HASH_SEED: u64 = 0x811c_9dc5;
@@ -91,6 +91,10 @@ pub unsafe extern "C" fn buri_rt_hash_str(
     }
     // SAFETY: the caller promises `n` readable bytes.
     let bytes = unsafe { std::slice::from_raw_parts(ptr, n) };
+    // ASCII is one code unit per byte, and so is a run of it in any string.
+    if len & BURI_RT_STR_ASCII != 0 || bytes.is_ascii() {
+        return bytes.iter().fold(h, |acc, &b| buri_rt_mix(acc, u32::from(b)));
+    }
     let text = String::from_utf8_lossy(bytes);
     let mut acc = h;
     for unit in text.encode_utf16() {
@@ -199,5 +203,20 @@ mod tests {
         };
         let want = buri_rt_mix(buri_rt_mix(BURI_RT_HASH_SEED, 0x61), 0x62);
         assert_eq!(got, want);
+    }
+
+    /// The ASCII shortcut mixes what the code-unit walk mixes, flagged or not.
+    #[test]
+    fn every_string_hashes_by_its_utf16_units() {
+        for text in ["", "a", "key-123", "héllo", "日本語", "a😀b", "\u{7f}\u{80}"] {
+            let by_units = text.encode_utf16().fold(BURI_RT_HASH_SEED, |h, u| buri_rt_mix(h, u32::from(u)));
+            let n = text.len() as u64;
+            let flag = if text.is_ascii() { BURI_RT_STR_ASCII } else { 0 };
+            for len in [n, n | flag] {
+                // SAFETY: `text` covers `n` bytes.
+                let got = unsafe { buri_rt_hash_str(BURI_RT_HASH_SEED, std::ptr::null_mut(), text.as_ptr(), len) };
+                assert_eq!(got, by_units, "{text:?}");
+            }
+        }
     }
 }
