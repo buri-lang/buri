@@ -5375,3 +5375,61 @@ export fn main(host: NativeHost): Result<(), Str> {{
          `insertvalue`s and `extractvalue`s"
     );
 }
+
+/// The longest run of `store`s in `ir` with no call between them.
+///
+/// Both of `llc`'s instruction schedulers are quadratic in a scheduling
+/// region's size, and a call ends a region (PERFORMANCE.md §6.31), so this is
+/// the size of the largest region a straight line of stores makes.
+fn longest_store_run(ir: &str) -> usize {
+    let (mut longest, mut run) = (0, 0);
+    for line in ir.lines() {
+        let line = line.trim_start();
+        if line.contains("call ") {
+            run = 0;
+        } else if line.starts_with("store ") {
+            run += 1;
+            longest = longest.max(run);
+        }
+    }
+    longest
+}
+
+/// **A template of hundreds of parts is joined in bounded pieces.** It was one
+/// `[Str]` of all its parts, three stores apiece in one straight line, and
+/// `llc`'s schedulers are quadratic in a line that long: a template of 400
+/// holes took 34.5 G instructions to emit under `--release`, 2.6 times as
+/// much for each doubling. A derived `Show` on a wide struct is such a
+/// template. PERFORMANCE.md §6.32.
+#[test]
+fn a_long_template_is_joined_in_pieces_of_bounded_size() {
+    skip_unless_executable!();
+    let lets: String = (0..300)
+        .map(|i| {
+            if i % 2 == 0 {
+                format!("    let a{i} = {i} * 3;\n")
+            } else {
+                format!("    let a{i} = \"p{i}\".repeat(ctx, 2);\n")
+            }
+        })
+        .collect();
+    let holes: String = (0..300).map(|i| format!("${{a{i}}}|")).collect();
+    let ir = emitted_ir(&program(&format!(
+        r#"
+from "native" import {{ NativeHost }};
+from "core/str" import * as str;
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+{lets}    let line = str.format(ctx, "<{holes}>");
+    let _ = io.println(ctx, line).ignore();
+    .Ok(())
+}}
+"#
+    )));
+    let longest = longest_store_run(&ir);
+    assert!(
+        longest <= 200,
+        "a template of 601 parts stores {longest} words in one straight line"
+    );
+}
