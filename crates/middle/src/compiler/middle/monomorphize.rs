@@ -530,7 +530,7 @@ pub fn run(
         desc_modules: Vec::new(),
         desc_index: HashMap::default(),
         ctx_layouts: HashMap::default(),
-        ctx_canon: canonical_contexts(&checked.tables),
+        ctx_canon: moving_contexts(canonical_contexts(&checked.tables)),
         module_paths,
         taken: HashMap::default(),
         locals: Vec::new(),
@@ -2828,7 +2828,13 @@ fn canonical_contexts(tables: &Tables) -> Vec<CtxTypeId> {
 /// Read first and rebuilt only where a context moves: rebuilding interns every
 /// level, and most types name no context that moves.
 fn canonical_ty(canon: &[CtxTypeId], ty: &Ty) -> Ty {
-    if moves_no_context(canon, ty) { *ty } else { rebuild_canonical(canon, ty) }
+    if canon.is_empty() || moves_no_context(canon, ty) { *ty } else { rebuild_canonical(canon, ty) }
+}
+
+/// `canon`, or nothing where it maps every context to itself, which
+/// [`canonical_ty`] reads the same way and answers without a walk.
+fn moving_contexts(canon: Vec<CtxTypeId>) -> Vec<CtxTypeId> {
+    if canon.iter().enumerate().all(|(i, c)| c.index() == i) { Vec::new() } else { canon }
 }
 
 /// Whether [`canonical_ty`] would hand `ty` back unchanged.
