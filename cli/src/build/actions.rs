@@ -584,7 +584,7 @@ pub fn unkeyed_reads(
     let workspace = &session.workspace;
     let closure = workspace.closure(target);
     let mut keyed: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
-    let mut add_member = |member: TargetId, keyed: &mut std::collections::BTreeSet<PathBuf>| {
+    let add_member = |member: TargetId, keyed: &mut std::collections::BTreeSet<PathBuf>| {
         let dir = &workspace.package(member.package).dir;
         keyed.extend(rule_files(workspace, member).iter().map(|rel| dir.join(rel)));
     };
@@ -627,6 +627,54 @@ pub fn reads_hold(root: &Path, record: &str) -> bool {
         let now = std::fs::read(root.join(rel)).map_or_else(|_| "absent".to_string(), |b| hash_bytes(&b));
         now == digest
     })
+}
+
+/// The key a library's clean check is recorded under: the build graph and its
+/// closure's sources, as [`action_key`] reads them.
+///
+/// `buri build` checks every library it is asked about. A check that found
+/// nothing finds nothing again while these stand still, so the record lets a
+/// warm build skip it. A module no rule lists is in the record
+/// ([`unkeyed_reads`]), as it is in an artifact's entry.
+///
+/// Each member's contribution is hashed once per command into `members`, so
+/// checking a hundred libraries that share a closure reads it once.
+pub fn library_check_key(
+    session: &Session,
+    target: TargetId,
+    flags: &Flags,
+    members: &mut std::collections::HashMap<TargetId, ActionKey>,
+) -> ActionKey {
+    let mut k = KeyBuilder::new(Action::Check, flags.mode);
+    k.input("library-check", b"");
+    k.dependency(&graph_key(session, flags));
+    for member in session.workspace.closure(target) {
+        let digest = members.entry(member).or_insert_with(|| {
+            let mut one = KeyBuilder::new(Action::Check, flags.mode);
+            contribute(session, member, &mut one);
+            one.finish()
+        });
+        k.dependency(digest);
+    }
+    k.finish()
+}
+
+/// Whether a check recorded under `key` found nothing, and every module no
+/// rule lists that it read still holds the bytes it did.
+pub fn clean_check_holds(session: &Session, key: &ActionKey) -> bool {
+    let Some(record) = Cache::open(&session.root).get(key) else { return false };
+    std::str::from_utf8(&record).is_ok_and(|reads| reads_hold(&session.root, reads))
+}
+
+/// Records that a library's check found nothing ([`library_check_key`]).
+pub fn record_clean_check(
+    session: &Session,
+    target: TargetId,
+    key: &ActionKey,
+    analysis: &crate::compiler::driver::Analysis,
+) {
+    let reads = encode_reads(session, &unkeyed_reads(session, target, analysis));
+    Cache::open(&session.root).put(key, reads.as_bytes());
 }
 
 /// One repository platform's contribution to a key. See [`action_key`].

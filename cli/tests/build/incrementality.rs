@@ -151,6 +151,42 @@ fn a_native_import_no_rule_lists_cannot_serve_a_stale_answer() {
     assert_eq!(answer(), "answer=2\n", "the cache served a stale artifact");
 }
 
+/// `buri build` of a library checks it, and a check that passed may be
+/// remembered. An edit to its sources, to a dependency's, or to a module no
+/// rule lists must still be checked.
+#[test]
+fn a_remembered_library_check_cannot_hide_an_error() {
+    let scratch = Scratch::repo("library-check");
+    let public = "  visibility: [\"//visibility:public\"]\n";
+    scratch.write("lib/a/BUILD.buri", &format!("library {{\n{public}}}\n"));
+    scratch.write("lib/a/lib.buri", "export fn f(x: Int): Int { x }\n");
+    scratch.write("lib/b/BUILD.buri", &format!("library {{\n  dependencies: [\"//lib/a\"]\n{public}}}\n"));
+    scratch.write(
+        "lib/b/lib.buri",
+        "from \"//lib/a\" import { f };\nfrom \"//lib/b/hidden.buri\" import { h };\nexport fn g(): Int { f(1) + h() }\n",
+    );
+    scratch.write("lib/b/hidden.buri", "export fn h(): Int { 2 }\n");
+    scratch.run(&["build", "//lib/b"]).ok();
+    scratch.run(&["build", "//lib/b"]).ok();
+
+    // The dependency's signature moves under the call.
+    scratch.write("lib/a/lib.buri", "export fn f(x: Str): Int { 0 }\n");
+    scratch.run(&["build", "//lib/b"]).exits(1);
+    scratch.write("lib/a/lib.buri", "export fn f(x: Int): Int { x }\n");
+    scratch.run(&["build", "//lib/b"]).ok();
+
+    // A module no rule lists stops type-checking.
+    scratch.write("lib/b/hidden.buri", "export fn h(): Int { \"two\" }\n");
+    scratch.run(&["build", "//lib/b"]).exits(1);
+    scratch.run(&["build", "//lib/b"]).exits(1);
+    scratch.write("lib/b/hidden.buri", "export fn h(): Int { 2 }\n");
+    scratch.run(&["build", "//lib/b"]).ok();
+
+    // And its own source.
+    scratch.write("lib/b/lib.buri", "export fn g(): Int { \"one\" }\n");
+    scratch.run(&["build", "//lib/b"]).exits(1);
+}
+
 /// A rebuilt `buri` — a new binary at the same version — must not be served the
 /// previous build's artifacts. The key folds the running executable's hash, and
 /// a `.buri/cache/.toolchain` marker records it, so a build whose marker names a
