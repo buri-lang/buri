@@ -65,6 +65,8 @@ pub fn command_build(args: &arguments::Args) -> i32 {
 
     let mut built = 0;
     let mut failed = false;
+    // Each library's own contribution to a check key, read once.
+    let mut members = std::collections::HashMap::new();
     // By reference: the resolved list is the catalogue's input too, below.
     for &target in &targets {
         // Only a binary produces an artifact; a library or a tool is checked,
@@ -77,7 +79,11 @@ pub fn command_build(args: &arguments::Args) -> i32 {
             // admits none at all is `unsatisfiable-target`.
             actions::check_visibility(&session, target, &mut diagnostics);
             actions::check_tags(&session, target, &mut diagnostics);
-            if !diagnostics.has_errors() {
+            // A check that found nothing is recorded, and finds nothing again
+            // while its sources and the graph stand still.
+            let key = (!diagnostics.has_errors()).then(|| actions::library_check_key(&session, target, &args.flags, &mut members));
+            let clean = !args.flags.force && key.as_ref().is_some_and(|key| actions::clean_check_holds(&session, key));
+            if let Some(key) = key.filter(|_| !clean) {
                 let unit = crate::compiler::modules::Unit {
                     target: Some(target),
                     // A library is checked, not built for an output, and it
@@ -92,6 +98,9 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                     &mut session.parsed,
                     &unit,
                 );
+                if analysis.diagnostics.items.is_empty() {
+                    actions::record_clean_check(&session, target, &key, &analysis);
+                }
                 diagnostics.extend(analysis.diagnostics.items);
             }
             failed |= session.print(&diagnostics);
