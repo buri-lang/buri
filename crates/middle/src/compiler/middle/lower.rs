@@ -245,7 +245,7 @@ fn lower_one(
         symbol: f.symbol.clone(),
         debug_name: f.debug_name.clone(),
         sig,
-        unit: units.of(&f.debug_name),
+        unit: units.of(i),
         body,
         span: f.span,
     }
@@ -328,6 +328,8 @@ fn loop_entries(body: Option<&Expr>) -> usize {
 struct Units {
     names: Vec<String>,
     index: HashMap<String, u32>,
+    /// Each function's unit, by function index.
+    by_func: Vec<u32>,
 }
 
 impl Units {
@@ -336,9 +338,8 @@ impl Units {
     /// the same on two builds of one commit.
     fn assign(program: &Program) -> Units {
         let mut units = Units::default();
-        for f in &program.funcs {
-            let _ = units.intern(&f.debug_name);
-        }
+        let by_func = program.funcs.iter().map(|f| units.intern(&f.debug_name)).collect();
+        units.by_func = by_func;
         units
     }
 
@@ -353,8 +354,8 @@ impl Units {
         i
     }
 
-    fn of(&self, debug_name: &str) -> u32 {
-        self.index.get(&unit_name(debug_name)).copied().unwrap_or(0)
+    fn of(&self, func: usize) -> u32 {
+        self.by_func.get(func).copied().unwrap_or(0)
     }
 }
 
