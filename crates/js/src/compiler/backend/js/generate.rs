@@ -2772,6 +2772,8 @@ impl<'a> Gen<'a> {
                     // answers true, so the reruns are the same tree on all
                     // three backends.
                     "test.replay" => Expr::call(Expr::ident("$test_replay"), a),
+                    // `buri test --coverage`'s probe (`middle::coverage`).
+                    "coverage.hit" => Expr::call(Expr::ident("$coverage_hit"), a),
                     other => {
                         self.missing.push(other.to_string());
                         Expr::Num(0.0)

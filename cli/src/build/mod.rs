@@ -27,6 +27,9 @@
 
 pub mod actions;
 pub mod cache;
+/// `buri test --coverage`: where the counts go, the lines they count, and the
+/// report (`design/COVERAGE.md`).
+pub mod coverage;
 /// Which build of `buri` is running: the id the linker wrote into the
 /// executable's header, which the cache key folds in.
 pub mod exe_identity;

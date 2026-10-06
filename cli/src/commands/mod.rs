@@ -258,6 +258,17 @@ pub const FLAGS: &[Flag] = &[
         },
     },
     Flag {
+        name: "coverage",
+        value: Value::None,
+        choices: &[],
+        blurb: "count the lines the tests reach, and write .buri/coverage/lcov.info",
+        global: false,
+        set: |f, _| {
+            f.coverage = true;
+            Ok(())
+        },
+    },
+    Flag {
         name: "self-check",
         value: Value::None,
         choices: &[],
@@ -395,7 +406,7 @@ pub const COMMANDS: &[Command] = &[
         doc: crate::documentation::embedded::cli::TEST,
         flags: &[
             "release", "debug", "output", "filter", "force", "explain", "watch", "dense",
-            "update", "jobs",
+            "update", "jobs", "coverage",
         ],
         run: test::command_test,
         subcommands: &[],

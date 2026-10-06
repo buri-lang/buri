@@ -84,6 +84,9 @@ pub struct Flags {
     /// How many suites `buri test` builds and runs at once. `None` picks from
     /// the cores and the memory this machine has.
     pub jobs: Option<usize>,
+    /// Count the lines each suite reaches and report them after the verdicts.
+    /// `buri test` only.
+    pub coverage: bool,
 }
 
 /// How `buri docs` prints a page.
@@ -211,6 +214,13 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
 /// person could have meant differently.
 fn refuse_watch(command: &str, flags: &Flags) -> Result<(), String> {
     use std::io::IsTerminal as _;
+    if flags.coverage {
+        return Err(
+            "`--watch` and `--coverage` are exclusive: the coverage report comes after the last \
+             suite, and a watch loop has no last suite"
+                .into(),
+        );
+    }
     if flags.force {
         return Err(
             "`--watch` and `--force` are exclusive: `--force` turns every cache hit into a run, \

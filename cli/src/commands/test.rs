@@ -298,6 +298,12 @@ fn one_pass(
         crate::build::generators::prepare_for(&mut session, &args.flags, &targets);
     }
 
+    if args.flags.coverage {
+        if let Err(msg) = crate::build::coverage::begin(&session.root) {
+            eprintln!("error: {msg}");
+            return watch::Pass { code: 2, inputs, output: out.take(), quiet: false };
+        }
+    }
     let started = Instant::now();
     warm_linker(args);
     let mut pre = Prepass {
@@ -380,6 +386,9 @@ fn one_pass(
     out.line(&format!(
         "{passed} passed, {failed} failed, {skipped} skipped{uncompiled_note} ({elapsed:.1}s{note})"
     ));
+    if args.flags.coverage {
+        crate::build::coverage::report(&session.root, &mut |line| out.line(line));
+    }
     // Silent only when there was nothing to do: every case came out of the
     // cache, none failed, and nothing was asked for by name. `--explain` is
     // never silent — a transcript of what the cache did is exactly what
@@ -549,8 +558,10 @@ fn plan(
             explain = say(crate::build::cache::Status::Run, crate::build::cache::Action::Test, &key);
             let graph = graph.get_or_insert_with(|| actions::graph_key(session, &args.flags)).clone();
             let at = actions::test_build_key(session, target, &output, &args.flags, &graph);
-            // `--force` builds again, as it links again.
-            let recalled = if args.flags.force { None } else { recall(session, &at) };
+            // `--force` builds again, as it links again. So does `--coverage`:
+            // a recorded build may put its probes on lines an edit has moved.
+            let recalled =
+                if args.flags.force || args.flags.coverage { None } else { recall(session, &at) };
             let status = match recalled {
                 Some(_) => crate::build::cache::Status::Cached,
                 None => crate::build::cache::Status::Run,
@@ -1063,7 +1074,6 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
     } = job;
     let answer = |answer, built| Done::Answer { slot, answer, explain: String::new(), notes: String::new(), built };
     let mut analysis = crate::compiler::driver::check(loading, Some(&shared.workspace), &map);
-    drop(map);
     if analysis.diagnostics.has_errors() {
         return answer(Err(analysis.diagnostics), Some(Built::Refused));
     }
@@ -1079,6 +1089,10 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
     if diagnostics.has_errors() {
         return answer(Err(diagnostics), Some(Built::Refused));
     }
+    if shared.flags.coverage {
+        crate::build::coverage::instrument(&analysis, &map, &mut program);
+    }
+    drop(map);
     if program.roots.tests().is_empty() {
         if keep {
             tell.tell(Done::Checked { target, analysis: Box::new(analysis) });
@@ -1949,7 +1963,8 @@ fn served(
     // `--update` is a request to write the goldens, and a cached verdict writes
     // nothing. The sources did not move, so the key is the same and the record
     // a recording run stores is the record a later plain run wants.
-    if args.flags.force || args.flags.update || args.flags.filter.is_some() {
+    // `--coverage` runs again too: a cached verdict holds no counts.
+    if args.flags.force || args.flags.update || args.flags.filter.is_some() || args.flags.coverage {
         return None;
     }
     let bytes = crate::build::cache::Cache::open(&session.root).get(key)?;
@@ -2923,8 +2938,9 @@ fn recorded<'b>(
 /// A slot this leaves unqueued is compiled on its own by [`solo`].
 fn batch(session: &mut Session, args: &arguments::Args, slots: &mut [Slot], queue: &Queue) {
     // A batch is only ever the *default's* answer: `--output=` is a request,
-    // and a request is served one suite at a time.
-    if args.flags.output.is_some() {
+    // and a request is served one suite at a time. So is a coverage run, whose
+    // probes go in where each suite's own front end sees its program.
+    if args.flags.output.is_some() || args.flags.coverage {
         return;
     }
     let platform = crate::compiler::driver::host_native_platform();

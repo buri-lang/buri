@@ -107,6 +107,10 @@ pub fn command(program: &str) -> Option<Command> {
     cmd.env_clear();
     cmd.env("TZ", "UTC");
     cmd.env("SOURCE_DATE_EPOCH", SOURCE_DATE_EPOCH);
+    // Only during `buri test --coverage`: where a test process writes its counts.
+    if let Some(dir) = crate::build::coverage::raw_dir() {
+        cmd.env(crate::build::coverage::VARIABLE, dir);
+    }
     Some(cmd)
 }
 
