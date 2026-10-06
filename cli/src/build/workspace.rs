@@ -34,9 +34,6 @@ pub struct Workspace {
     /// every command and the language server read one answer.
     pub generated: crate::build::generators::Store,
     by_path: HashMap<String, PackageId>,
-    /// Package paths longest-first, for resolving a module path to the package
-    /// that contains it.
-    sorted_paths: Vec<(String, PackageId)>,
 }
 
 impl Packages for Workspace {
@@ -181,10 +178,6 @@ impl Workspace {
             .collect();
         resolve_custom_outputs(&mut packages, &by_path, &refused, diagnostics);
         check_artifact_paths(root, &packages, diagnostics);
-        let mut sorted_paths: Vec<(String, PackageId)> =
-            by_path.iter().map(|(k, v)| (k.clone(), *v)).collect();
-        // Longest first, so `//lib/money/cents` finds `lib/money` before `lib`.
-        sorted_paths.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then(a.0.cmp(&b.0)));
 
         let workspace =
             Workspace {
@@ -192,7 +185,6 @@ impl Workspace {
                 repo,
                 packages,
                 by_path,
-                sorted_paths,
                 generated: crate::build::generators::Store::default(),
             };
         // Only once the build file it names has been read can a tool name be
@@ -549,18 +541,8 @@ impl Workspace {
         };
 
         // Longest package prefix wins.
-        for (package_path, id) in &self.sorted_paths {
-            let remainder = if rest == package_path {
-                ""
-            } else if package_path.is_empty() {
-                rest
-            } else if let Some(r) = rest.strip_prefix(&format!("{package_path}/")) {
-                r
-            } else {
-                continue;
-            };
-
-            let package = self.package(*id);
+        if let Some((package_path, remainder, id)) = self.owning_prefix(rest) {
+            let package = self.package(id);
             // A module a generator produced has no file, so it is answered
             // before anything asks the disk about one. Its name is whatever the
             // generator called it, which is why this is a lookup rather than a
@@ -570,7 +552,7 @@ impl Workspace {
                 return Ok(ModuleLocation::InPackage(PackageModule {
                     path: generated,
                     kind: ModuleKind::Generated,
-                    package: *id,
+                    package: id,
                     // The path the module *would* have, so a reader that wants
                     // somewhere to point has somewhere. Nothing is there, and
                     // every reader that opens a file checks first.
@@ -609,7 +591,7 @@ impl Workspace {
                     let listed = self
                         .targets()
                         .into_iter()
-                        .filter(|t| t.package == *id)
+                        .filter(|t| t.package == id)
                         .any(|t| crate::build::generators::inputs(self, t).iter().any(|i| i == r));
                     if listed && file.is_file() {
                         return Err(SCHEMA_HAS_ERRORS.to_string());
@@ -638,12 +620,32 @@ impl Workspace {
             return Ok(ModuleLocation::InPackage(PackageModule {
                 path: format!("//{rel}"),
                 kind,
-                package: *id,
+                package: id,
                 file,
                 rel,
             }));
         }
         Err(format!("\"{path}\" is in no package of this repository"))
+    }
+
+    /// The longest package path that is `rest`, a prefix of it ending before a
+    /// `/`, or the root's, and what of `rest` follows it. Only those can
+    /// contain `rest`, so each is one lookup rather than a scan of packages.
+    fn owning_prefix<'r>(&self, rest: &'r str) -> Option<(&'r str, &'r str, PackageId)> {
+        if let Some(&id) = self.by_path.get(rest) {
+            return Some((rest, "", id));
+        }
+        let mut end = rest.len();
+        while let Some(slash) = rest.get(..end).and_then(|r| r.rfind('/')) {
+            let (package_path, remainder) = (rest.get(..slash)?, rest.get(slash + 1..)?);
+            if !package_path.is_empty() {
+                if let Some(&id) = self.by_path.get(package_path) {
+                    return Some((package_path, remainder, id));
+                }
+            }
+            end = slash;
+        }
+        self.by_path.get("").map(|&id| ("", rest, id))
     }
 
     pub fn rel_of(&self, p: &Path) -> String {
@@ -1282,6 +1284,32 @@ mod tests {
             assert_eq!(a.file, b.file, "{module_form} and {file_form} are different files");
             assert_eq!(a.kind, kind);
             assert_eq!(b.kind, kind);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The longest package that contains a path owns it, down to the root's.
+    #[test]
+    fn the_longest_package_owns_a_path() {
+        let dir = scratch("longest");
+        let _ = std::fs::write(dir.join("BUILD.buri"), "library {\n  sources: [\"top.buri\"]\n}\n");
+        let _ = std::fs::write(dir.join("top.buri"), "");
+        let _ = std::fs::write(dir.join("lib/BUILD.buri"), "library {\n  sources: [\"moneyx/a.buri\"]\n}\n");
+        let _ = std::fs::create_dir_all(dir.join("lib/moneyx"));
+        let _ = std::fs::write(dir.join("lib/moneyx/a.buri"), "");
+        let mut map = crate::diagnostics::SourceMap::default();
+        let mut diags = Diagnostics::default();
+        let ws = Workspace::load(&dir, &mut map, &mut diags).expect("the scratch repository loads");
+        for (path, package, file) in [
+            ("//lib/money/cents.buri", "lib/money", "lib/money/cents.buri"),
+            ("//lib/money", "lib/money", "lib/money/lib.buri"),
+            ("//lib/moneyx/a.buri", "lib", "lib/moneyx/a.buri"),
+            ("//top.buri", "", "top.buri"),
+        ] {
+            let found = ws.resolve_module(path).expect(path);
+            let found = found.in_package().expect(path);
+            assert_eq!(ws.package(found.package).path, package, "{path}");
+            assert_eq!(found.rel, file, "{path}");
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
