@@ -585,7 +585,9 @@ impl Token<'_> {
 /// keeps only the lines glues them together.
 #[derive(Clone, Debug)]
 pub struct Comment {
-    pub text: String,
+    /// Where its text is in the file: a `//` line without its trailing
+    /// blanks, or the whole of a `/* */`. Read it with [`Comment::text`].
+    pub at: Location,
     /// Whether a blank line sat immediately above this comment.
     pub blank_before: bool,
     /// The column its first character was written at, so a formatter can move
@@ -597,6 +599,13 @@ pub struct Comment {
     /// it — and the trivia table alone cannot say which this is, because it is
     /// keyed by the token *after* the comment.
     pub offset: u32,
+}
+
+impl Comment {
+    /// The comment's text, out of the source it was lexed from.
+    pub fn text<'s>(&self, src: &'s str) -> &'s str {
+        src.get(self.at.start as usize..self.at.end as usize).unwrap_or("")
+    }
 }
 
 /// What was written above one token: its documentation, the comments above
@@ -1388,10 +1397,10 @@ impl<'a> Lexer<'a> {
             if self.run_empty() {
                 self.hold_blank(blank);
             }
-            let text = raw.trim_end().to_string();
+            let end = start.saturating_add(raw.trim_end().len());
             let column = self.column(start);
             self.pending_comments.push(Comment {
-                text,
+                at: Location { start: start as u32, end: end as u32 },
                 blank_before: blank,
                 column,
                 offset: start as u32,
@@ -1422,10 +1431,10 @@ impl<'a> Lexer<'a> {
         if self.run_empty() {
             self.hold_blank(blank);
         }
-        let text = self.slice(start, self.pos).to_string();
+
         let column = self.column(start);
         self.pending_comments.push(Comment {
-            text,
+            at: Location { start: start as u32, end: self.pos as u32 },
             blank_before: blank,
             column,
             offset: start as u32,
