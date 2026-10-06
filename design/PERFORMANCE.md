@@ -3309,6 +3309,73 @@ one `insertvalue` or `extractvalue` per field. `native::e2e`'s
 shape, a small struct boxing a large enum, which a slot-by-slot read of the
 box got wrong.
 
+### 6.32 Large data shapes, 2026-10-06
+
+Every shape at four sizes, built three ways under `BURI_PROFILE=1`. Each cell is
+instructions at the largest size, before and after. Debug and JavaScript count
+the phase that grew; `--release` counts `emit`. The "after" column includes
+§6.31.
+
+| Shape, largest size | Debug (stencil) | `--release` (LLVM) | JavaScript |
+|---|---:|---:|---:|
+| enum of 400 unit variants, derives | emit 17.1 G → 0.08 G | 346 G → 2.6 G | linear |
+| enum of 400 payload variants, derives | panicked from 100 → 0.23 G | 325 G → 38 G | linear |
+| variants carrying 200 fields | emit 1.2 G → 0.15 G | 221 G → 46 G | linear |
+| `Option`/`Result` 100 deep | linear | 213 G → 30 G | linear |
+| chain of 100 enums | linear | 100 G → 12 G | linear |
+| tuple of 400 | emit 1.24 G → 0.15 G, check 0.09 G → 0.04 G | 398 G → 38 G | linear |
+| records of 200 fields in lists and maps | emit 0.41 G → 0.13 G | 352 G → 18 G | linear |
+| 400 records of 12 fields | linear | flat | linear |
+| matches of 400 arms | emit 0.84 G → 0.09 G, check 0.14 G → 0.06 G | 5.5 G, unchanged | emit 1.16 G → 0.13 G |
+| template of 400 holes | linear | 34.5 G → 15.4 G | linear |
+
+Seven causes, each fixed and bound by a test:
+
+- **A derived `compare` on an enum was `n²` arms.** Each arm for the left value
+  matched the right one against every variant. Past eight variants it ranks
+  both sides and compares the ranks (`derives.rs`, `RANKED_COMPARE_MIN`).
+  `native::stencil`'s `a_many_variant_enums_derived_functions_are_linear_in_its_variants`.
+- **A stencil retain or release wrote the whole walk in place.** A match makes
+  one per arm, so a match over `n` counted variants was `n²` tests, and at 100
+  variants a function passed the 1 MB a conditional branch reaches. A walk
+  heavier than 16 calls the type's glue (`emit.rs`, `RC_OUT_OF_LINE`).
+  `native::stencil`'s `a_match_over_many_counted_variants_is_linear_in_its_arms`.
+- **A long template was one list of every part,** three stores a part with no
+  call between them, and `llc`'s schedulers are quadratic in that line. It's
+  joined 32 parts at a time (`lower.rs`, `JOIN_PIECE`).
+  `native::llvm`'s `a_long_template_is_joined_in_pieces_of_bounded_size`.
+- **The stencil backend counted a value's reads by scanning the function,**
+  once per branch it might fuse. It counts them once (`jit.rs`, `Fn2::uses`).
+  The debug-build IR verifier kept dominator flags per block pair; it builds the
+  dominator tree instead. `build::profile`'s
+  `a_debug_builds_emission_is_linear_in_a_functions_length`.
+- **The JavaScript folder cloned the rest of a match chain at every arm.** It
+  moves it. `build::profile`'s `javascript_emission_is_linear_in_a_matchs_arms`.
+- **Reachability over a pair copied every earlier row per arm.** The arms'
+  matrix keeps each constructor's specialization and extends it.
+  `build::profile`'s `checking_a_match_over_pairs_is_linear_in_its_arms`.
+- **A `let` walked the value's type once per name it binds.** It walks it once.
+  `build::profile`'s `checking_a_pattern_is_linear_in_the_names_it_binds`.
+
+The `build::profile` bounds read instructions off `BURI_PROFILE=1` and assert
+nothing where the platform has no counter. `native::e2e::shapes` runs each shape
+natively under the heap check and on JavaScript, and asserts only what it prints.
+
+**Still worse than linear:**
+
+- **`--release` on wide payloads and long tuples** grows 2.5 times per
+  doubling. A derived `compare` binds every payload field at the arm's entry,
+  so a 200-field variant is 1,203 loads in one scheduling region, and the
+  greedy allocator and both schedulers grow with it. Reading each field where
+  it's compared would bound it.
+- **`--release` on long matches and long templates** grows 2.4 times per
+  doubling. Not yet diagnosed.
+- **The `rc` pass** clones live sets across a long expression: 0.13 G for a
+  200-field variant's match, 2.6 times per doubling.
+- **A debug build runs a match in time linear in its arms** where the decision
+  tree falls back to a chain: `Int` and `Str` literal arms, or a variant split
+  across two rows. LLVM turns the chain back into a `switch`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
