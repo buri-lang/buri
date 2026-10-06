@@ -193,7 +193,7 @@ const INVENTED_CEILING: usize = 3;
 /// stopped by the per-body rule, which is the rule doing its job:
 ///
 /// * **`unused-variable`, 30 cases.** The mutation broke the import the body
-///   depends on, so the body itself no longer checks — `unknown-effect`,
+///   depends on, so the body itself no longer checks — `effect-not-imported`,
 ///   `missing-impl`, `unknown-name`, reported *inside* it. A body the
 ///   checker stopped in has lost the reads under wherever it stopped, so what
 ///   the binding is read by is not something the report can claim to know.

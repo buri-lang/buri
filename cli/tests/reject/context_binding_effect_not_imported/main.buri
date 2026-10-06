@@ -1,0 +1,13 @@
+// EXPECT: `Allocator` is an effect, but this file does not import it
+// A binding names an effect `platform/effect` declares and this file never
+// imports (buri-lang/buri#250). The one error is the binding's, saying so; the
+// print below needs `Allocator` from the context, and is not reported.
+from "platform/effect" import { Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "hi").ignore();
+  .Ok(())
+}

@@ -39,24 +39,17 @@ error: `C` does not implement `Allocator` [missing-impl]
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: bound the type parameter with `Allocator`, or use a type that has one
-error: `Allocator` is not a declared effect [unknown-effect]
+error: `Allocator` is an effect, but this file does not import it [effect-not-imported]
   --> lib/recovery_insert_stray_brace_app_b19155/main.buri:45:9
    |
 45 |         Allocator: host.alloc,
    |         ^^^^^^^^^
    |
-   = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Allocator` is not one
-error: `Stdout` is not a declared effect [unknown-effect]
+   = fix: import it: `from "platform/effect" import { Allocator };`
+error: `Stdout` is an effect, but this file does not import it [effect-not-imported]
   --> lib/recovery_insert_stray_brace_app_b19155/main.buri:46:9
    |
 46 |         Stdout: host.stdout,
    |         ^^^^^^
    |
-   = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Stdout` is not one
-error: `a context` does not implement `Stdout` [missing-impl]
-  --> lib/recovery_insert_stray_brace_app_b19155/main.buri:48:5
-   |
-48 |     io
-   |     ^^
-   |
-   = fix: bound the type parameter with `Stdout`, or use a type that has one
+   = fix: import it: `from "platform/effect" import { Stdout };`

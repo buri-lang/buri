@@ -1,0 +1,17 @@
+error: `Allocator` is an effect, but this file does not import it [effect-not-imported]
+  --> cmd/context_binding_effect_not_imported/main.buri:10:23
+   |
+10 |   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+   |                       ^^^^^^^^^
+   |
+   = fix: import it: `from "platform/effect" import { Allocator };`
+
+     The name on the left of a binding is resolved like any other name, so an
+     effect has to be imported before a context can bind it — even when the
+     value on the right, host.alloc or a test's alloc(), comes from a module
+     that does.
+
+     The binding is still checked as the effect it names, so this is the one
+     error reported: a call that needs that effect from the context isn't
+     reported as well, as a context not implementing it.
+
