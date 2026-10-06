@@ -908,6 +908,87 @@ fn alternatives_of(p: &Pattern, out: &mut Vec<(Span, Pat)>) {
     }
 }
 
+/// Whether a match is the common shape, and has nothing to report: arms of
+/// distinct variants or literals that bind at most names, then at most one
+/// catch-all, covering the scrutinee. Every arm of that shape is reachable, so
+/// the matrix below would say nothing. Any other match, including every one it
+/// would report on, goes the long way.
+fn plainly_covered(
+    tables: &crate::compiler::semantics::types::Tables,
+    scrutinee: &Ty,
+    arms: &[typed::Arm],
+) -> bool {
+    #[derive(PartialEq, Eq, Hash)]
+    enum Key<'a> {
+        Variant(usize),
+        Bool(bool),
+        Int(u128, bool),
+        Float(u64),
+        Str(&'a str),
+        Char(char),
+    }
+    #[derive(Clone, Copy, PartialEq)]
+    enum Of {
+        Enum(TyConId, usize),
+        Bool,
+        Literal,
+    }
+    fn names_only(p: &Pattern) -> bool {
+        match &p.kind {
+            PatKind::Wild | PatKind::Bind { sub: None, .. } => true,
+            PatKind::Bind { sub: Some(s), .. } => names_only(s),
+            _ => false,
+        }
+    }
+    // `None` is a catch-all; anything that is neither is the long way.
+    fn head(p: &Pattern, of: Of) -> Option<Option<Key<'_>>> {
+        let key = match (&p.kind, of) {
+            (PatKind::Wild | PatKind::Bind { sub: None, .. }, _) => return Some(None),
+            (PatKind::Bind { sub: Some(s), .. }, _) => return head(s, of),
+            (PatKind::Variant { con, variant, fields }, Of::Enum(e, n))
+                if *con == e && *variant < n && fields.iter().all(|f| names_only(&f.pattern)) =>
+            {
+                Key::Variant(*variant)
+            }
+            (PatKind::Bool(b), Of::Bool) => Key::Bool(*b),
+            (PatKind::Int(v, neg), Of::Literal) => Key::Int(v.get(), *neg),
+            // As `lower` keys it: `+0.0 == -0.0`.
+            (PatKind::Float(v), Of::Literal) => Key::Float((v + 0.0).to_bits()),
+            (PatKind::Str(s), Of::Literal) => Key::Str(s),
+            (PatKind::Char(c), Of::Literal) => Key::Char(*c),
+            _ => return None,
+        };
+        Some(Some(key))
+    }
+
+    let TyKind::Con(con, _) = scrutinee.kind() else { return false };
+    let (of, finite) = match &tables.tycon(*con).def {
+        TyDef::Enum { variants } => (Of::Enum(*con, variants.len()), Some(variants.len())),
+        TyDef::Prim(Prim::Bool) => (Of::Bool, Some(2)),
+        TyDef::Prim(_) => (Of::Literal, None),
+        TyDef::Struct { .. } => return false,
+    };
+    let mut seen: HashSet<Key<'_>> = HashSet::default();
+    let mut caught = false;
+    for arm in arms {
+        if caught || arm.guard.is_some() {
+            return false;
+        }
+        match head(&arm.pattern, of) {
+            None => return false,
+            // A catch-all after every case is unreachable.
+            Some(None) if finite == Some(seen.len()) => return false,
+            Some(None) => caught = true,
+            Some(Some(key)) => {
+                if !seen.insert(key) {
+                    return false;
+                }
+            }
+        }
+    }
+    caught || finite == Some(seen.len())
+}
+
 /// Whether any part of this pattern is one the checker could not build.
 ///
 /// `PatKind::Error` lowers to a wildcard, and a wildcard covers everything
@@ -999,7 +1080,7 @@ fn render(tables: &crate::compiler::semantics::types::Tables, w: &Witness) -> St
 }
 
 pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span: Span) {
-    if scrutinee.is_error() {
+    if scrutinee.is_error() || plainly_covered(&inf.c.tables, scrutinee, arms) {
         return;
     }
     let alternatives: Vec<Vec<(Span, Pat)>> = arms
