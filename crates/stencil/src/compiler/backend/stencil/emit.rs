@@ -22,7 +22,7 @@
               bounded by a program already in memory"
 )]
 
-use std::borrow::Cow;
+use super::jit::KeyArg;
 use super::abi::Loc;
 use crate::compiler::backend::intrinsic_keys::{
     bits_op, checked_kind, conversion_target, json_arm, json_variant, numeric_key,
@@ -171,9 +171,19 @@ impl<'a> Jit<'a> {
         // across it, and the widest of these is two `ldp`/`stp` pairs.
         let (mut d, mut s, mut left) = (dst, src, bytes);
         while left > 0 {
-            let n = [32u32, 24, 16, 8, 4, 2, 1].into_iter().find(|n| *n <= left).unwrap_or(1);
+            let (n, key) = [
+                (32u32, "mov/32"),
+                (24, "mov/24"),
+                (16, "mov/16"),
+                (8, "mov/8"),
+                (4, "mov/4"),
+                (2, "mov/2"),
+            ]
+            .into_iter()
+            .find(|(n, _)| *n <= left)
+            .unwrap_or((1, "mov/1"));
             self.emit(
-                &key!["mov/", n],
+                key,
                 &[("JIT_D", V::I(d as u64)), ("JIT_A", V::I(s as u64)), ("JIT_CONT", V::Fall)],
             );
             d += n;
@@ -214,7 +224,11 @@ impl<'a> Jit<'a> {
         match w {
             0 => {}
             1 | 2 | 4 => self.emit(
-                &key!["store/", w],
+                match w {
+                    1 => "store/1",
+                    2 => "store/2",
+                    _ => "store/4",
+                },
                 &[("JIT_D", V::I(dst as u64)), ("JIT_A", V::I(src as u64)), ("JIT_CONT", V::Fall)],
             ),
             _ => self.mv(dst, src, w),
@@ -227,7 +241,11 @@ impl<'a> Jit<'a> {
         match w {
             0 => {}
             1 | 2 | 4 => self.emit(
-                &key!["loadu/", w],
+                match w {
+                    1 => "loadu/1",
+                    2 => "loadu/2",
+                    _ => "loadu/4",
+                },
                 &[("JIT_D", V::I(dst as u64)), ("JIT_A", V::I(src as u64)), ("JIT_CONT", V::Fall)],
             ),
             _ => self.mv(dst, src, w),
@@ -457,9 +475,12 @@ impl<'a> Jit<'a> {
                     // which is what the aggregate's flat frame layout allows.
                     let (mut done, mut k) = (0u32, 0u64);
                     while done < w {
-                        let n = [8u32, 4, 2, 1].into_iter().find(|n| *n <= w - done).unwrap_or(1);
+                        let (n, key) = [(8u32, "pstore/8"), (4, "pstore/4"), (2, "pstore/2")]
+                            .into_iter()
+                            .find(|(n, _)| *n <= w - done)
+                            .unwrap_or((1, "pstore/1"));
                         self.emit(
-                            &key!["pstore/", n],
+                            key,
                             &[
                                 ("JIT_A", V::I(d0 as u64)),
                                 ("JIT_B", V::I((src + done) as u64)),
@@ -813,7 +834,11 @@ impl<'a> Jit<'a> {
     pub(crate) fn imm_w(&mut self, dst: u32, w: u32, v: u64) {
         match w {
             1 | 2 | 4 => self.emit(
-                &key!["immw/", w],
+                match w {
+                    1 => "immw/1",
+                    2 => "immw/2",
+                    _ => "immw/4",
+                },
                 &[("JIT_D", V::I(dst as u64)), ("JIT_N", V::I(v)), ("JIT_CONT", V::Fall)],
             ),
             _ => self.imm_to(dst, v),
@@ -956,7 +981,7 @@ impl<'a> Jit<'a> {
                         if let Some(base) = fused {
                             let key = self.arm_key(base, "JIT_T");
                             self.emit(
-                                &key,
+                                key,
                                 &[
                                     ("JIT_A", V::I(u64::from(at))),
                                     ("JIT_N", V::I(u64::from(arm.variant))),
@@ -969,7 +994,7 @@ impl<'a> Jit<'a> {
                             self.load_w(scr, at, tag.size());
                             let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
                             self.emit(
-                                &key,
+                                key,
                                 &[
                                     ("JIT_A", V::I(u64::from(scr))),
                                     ("JIT_K", V::I(u64::from(arm.variant))),
@@ -999,7 +1024,7 @@ impl<'a> Jit<'a> {
                     let skip = st.label();
                     let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
                     self.emit(
-                        &key,
+                        key,
                         &[
                             ("JIT_A", V::I(u64::from(at + null_at))),
                             ("JIT_K", V::I(0)),
@@ -1467,7 +1492,7 @@ impl<'a> Jit<'a> {
                 let ok = st.label();
                 let brkey = self.arm_key("br/f", "JIT_F");
                 self.emit(
-                    &brkey,
+                    brkey,
                     &[
                         ("JIT_A", V::I(arg(st, 0) as u64)),
                         ("JIT_T", V::Blk(ok)),
@@ -1644,7 +1669,7 @@ impl<'a> Jit<'a> {
                     let out = if b.out.index() == next { V::Fall } else { V::Blk(b.out.0) };
                     let key = self.arm_key("incbr/lt", "JIT_F");
                     self.emit(
-                        &key,
+                        key,
                         &[
                             ("JIT_D", V::I(u64::from(st.at(b.into)))),
                             ("JIT_A", V::I(u64::from(st.at(b.from)))),
@@ -1770,11 +1795,7 @@ impl<'a> Jit<'a> {
                     let lnext = st.label();
                     // (g) The case body falls through, so the test's `JIT_T`
                     // arm is the one that has to be the elidable one.
-                    let base = match fusedw {
-                        Some(f) => f.to_string(),
-                        None => "brcmp/eq/u64/fi".to_string(),
-                    };
-                    let key = self.arm_key(&base, "JIT_T");
+                    let key = self.arm_key(fusedw.unwrap_or("brcmp/eq/u64/fi"), "JIT_T");
                     let mut binds: Vec<(&str, V)> = vec![
                         ("JIT_A", V::I(src as u64)),
                         ("JIT_T", V::Fall),
@@ -1798,7 +1819,7 @@ impl<'a> Jit<'a> {
                             }
                         }
                     }
-                    self.emit(&key, &binds);
+                    self.emit(key, &binds);
                     if !direct {
                         self.edge(prog, code, st, tgt);
                         self.emit("jump", &[("JIT_T", V::Blk(tgt.block.0))]);
@@ -1846,27 +1867,27 @@ impl<'a> Jit<'a> {
     /// `extract::swap_arms` for why this is a choice the library has to offer
     /// rather than one the emitter can make by negating the test.
     ///
-    /// Borrowed, from `base` or from the library: this is asked once per
-    /// conditional branch, and the twin is found by index rather than by
-    /// building its name.
-    pub(crate) fn arm_key<'k>(&self, base: &'k str, fall: &str) -> Cow<'k, str>
-    where
-        'a: 'k,
-    {
-        let Some((at, _)) = self.lib.at(base) else {
+    /// Answered as an index into the library, which `emit` then copies
+    /// without looking the name up again: this is asked once per conditional
+    /// branch, and the twin is found by index rather than by building its
+    /// name.
+    pub(crate) fn arm_key<'k>(&mut self, base: impl Into<KeyArg<'k>>, fall: &str) -> KeyArg<'k> {
+        let base = base.into();
+        let Some(at) = self.index_of(base) else {
             // Not a stencil itself, so it has no twin to find by index.
-            let sw = format!("{base}+swap");
-            if self.elidable_arm(&sw) == Some(fall) {
-                return Cow::Owned(sw);
-            }
-            return Cow::Borrowed(base);
+            let (KeyArg::Literal(name) | KeyArg::Spelled(name)) = base else { return base };
+            let sw = format!("{name}+swap");
+            return match self.lib.at(&sw) {
+                Some((i, _)) if self.elidable_at(i) == Some(fall) => KeyArg::At(i),
+                _ => base,
+            };
         };
         if self.elidable_at(at) == Some(fall) {
-            return Cow::Borrowed(base);
+            return KeyArg::At(at);
         }
         match self.lib.swap_twin(at) {
-            Some((sw, s)) if self.elidable_at(sw) == Some(fall) => Cow::Borrowed(s.name.as_str()),
-            _ => Cow::Borrowed(base),
+            Some((sw, _)) if self.elidable_at(sw) == Some(fall) => KeyArg::At(sw),
+            _ => KeyArg::At(at),
         }
     }
 
@@ -1879,12 +1900,12 @@ impl<'a> Jit<'a> {
         };
         let key = match fall {
             Some(f) => self.arm_key(&key, f),
-            None => Cow::Borrowed(&*key),
+            None => KeyArg::from(&key),
         };
         if let Some((_, _, lhs, rhs)) = plan.cmpbr {
             let k = constant(st, rhs);
             self.emit(
-                &key,
+                key,
                 &[
                     ("JIT_A", V::I(st.at(lhs) as u64)),
                     ("JIT_B", V::I(st.at(rhs) as u64)),
@@ -1896,7 +1917,7 @@ impl<'a> Jit<'a> {
             return;
         }
         self.emit(
-            &key,
+            key,
             &[("JIT_A", V::I(st.at(cond) as u64)), ("JIT_T", tv), ("JIT_F", fv)],
         );
     }
@@ -2194,7 +2215,7 @@ impl<'a> Jit<'a> {
             let ok = st.label();
             let brkey = self.arm_key("br/f", "JIT_F");
             self.emit(
-                &brkey,
+                brkey,
                 &[("JIT_A", V::I(p(0) as u64)), ("JIT_T", V::Blk(ok)), ("JIT_F", V::Fall)],
             );
             let (kp, kl) = self.str_arg(p(1), fs.param_end);
@@ -2694,7 +2715,7 @@ impl Jit<'_> {
             }
             "compare" if prim != Prim::Str => {
                 let raw = st.scratch + super::rtcall::RAW_WORD * 8;
-                let entry: &[(&str, u64)] =
+                let entry: &[(&'static str, u64)] =
                     &[("bin/lt/u64/ff/f", LESS), ("bin/gt/u64/ff/f", GREATER)];
                 // `Less`, `Equal`, `Greater` in declaration order, which is
                 // what `middle::layout` gives a three-variant enum as a bare
@@ -2703,7 +2724,7 @@ impl Jit<'_> {
                 for (k, v) in entry {
                     let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
                     self.emit(
-                        k,
+                        *k,
                         &[
                             ("JIT_D", V::I(u64::from(scr))),
                             ("JIT_A", V::I(u64::from(a))),
@@ -2714,7 +2735,7 @@ impl Jit<'_> {
                     let skip = st.label();
                     let brkey = self.arm_key("br/f", "JIT_T");
                     self.emit(
-                        &brkey,
+                        brkey,
                         &[
                             ("JIT_A", V::I(u64::from(scr))),
                             ("JIT_T", V::Fall),
@@ -2842,7 +2863,7 @@ impl Jit<'_> {
         let done = st.label();
         let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
         self.emit(
-            &key,
+            key,
             &[
                 ("JIT_A", V::I(u64::from(flag))),
                 ("JIT_K", V::I(0)),
@@ -3070,13 +3091,13 @@ impl Jit<'_> {
         let (t, f) =
             if when { (V::Blk(target), V::Fall) } else { (V::Fall, V::Blk(target)) };
         self.emit(
-            &brkey,
+            brkey,
             &[("JIT_A", V::I(u64::from(verdict))), ("JIT_T", t), ("JIT_F", f)],
         );
     }
 
     /// One `cvt/*` stencil, which every conversion here is a sequence of.
-    fn cvt(&mut self, key: &str, dest: u32, src: u32) {
+    fn cvt(&mut self, key: &'static str, dest: u32, src: u32) {
         self.emit(
             key,
             &[
@@ -3149,7 +3170,7 @@ impl Jit<'_> {
         let done = st.label();
         let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
         self.emit(
-            &key,
+            key,
             &[
                 ("JIT_A", V::I(u64::from(flag))),
                 ("JIT_K", V::I(0)),
@@ -3187,7 +3208,7 @@ impl Jit<'_> {
             let top = st.label();
             let brkey = self.arm_key("br/f", "JIT_T");
             self.emit(
-                &brkey,
+                brkey,
                 &[
                     ("JIT_A", V::I(u64::from(scr))),
                     ("JIT_T", V::Fall),
@@ -3313,7 +3334,7 @@ impl Jit<'_> {
             let skip = st.label();
             let brkey = self.arm_key("br/f", "JIT_T");
             self.emit(
-                &brkey,
+                brkey,
                 &[
                     ("JIT_A", V::I(u64::from(scr))),
                     ("JIT_T", V::Fall),
@@ -3369,7 +3390,7 @@ impl Jit<'_> {
             let skip = st.label();
             let brkey = self.arm_key("br/f", "JIT_T");
             self.emit(
-                &brkey,
+                brkey,
                 &[
                     ("JIT_A", V::I(u64::from(scr))),
                     ("JIT_T", V::Fall),
@@ -3411,7 +3432,7 @@ impl Jit<'_> {
             let skip = st.label();
             let brkey = self.arm_key("br/f", "JIT_T");
             self.emit(
-                &brkey,
+                brkey,
                 &[
                     ("JIT_A", V::I(u64::from(scr))),
                     ("JIT_T", V::Fall),
@@ -3794,7 +3815,7 @@ impl Jit<'_> {
         );
         let brkey = self.arm_key("br/f", "JIT_T");
         self.emit(
-            &brkey,
+            brkey,
             &[
                 ("JIT_A", V::I(u64::from(scr))),
                 ("JIT_T", V::Blk(ok)),

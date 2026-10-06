@@ -522,7 +522,7 @@ impl Jit<'_> {
         // slot zero-extended, so the comparison is against its unsigned form.
         let key = self.arm_key("brcmp/eq/u64/fi", "JIT_F");
         self.emit(
-            &key,
+            key,
             &[
                 ("JIT_A", V::I(u64::from(disc))),
                 ("JIT_K", V::I(u64::from(BURI_OK as u32))),
@@ -817,7 +817,7 @@ impl Jit<'_> {
         // slot zero-extended, so the comparison is against its unsigned form.
         let key = self.arm_key("brcmp/eq/u64/fi", "JIT_F");
         self.emit(
-            &key,
+            key,
             &[
                 ("JIT_A", V::I(u64::from(disc))),
                 ("JIT_K", V::I(u64::from(BURI_OK as u32))),
@@ -1577,7 +1577,7 @@ impl Jit<'_> {
         let done = st.label();
         let key = self.arm_key("br/f", "JIT_F");
         self.emit(
-            &key,
+            key,
             &[
                 ("JIT_A", V::I(u64::from(src))),
                 ("JIT_T", V::Blk(yes)),
