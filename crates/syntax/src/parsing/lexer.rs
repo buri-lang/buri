@@ -1368,9 +1368,9 @@ impl<'a> Lexer<'a> {
         // legal only before the first token; `check` reports one that appears
         // later, where a reader would take it for a `///` typo.
         let is_module_doc = self.peek_at(2) == b'!';
-        while self.pos < self.src.len() && self.peek() != b'\n' {
-            self.pos = self.pos.saturating_add(1);
-        }
+        // A `char` pattern finds the line break with `memchr`, a word at a time.
+        let rest = self.text.get(self.pos..).unwrap_or("");
+        self.pos = self.pos.saturating_add(rest.find('\n').unwrap_or(rest.len()));
         let raw = self.slice(start, self.pos);
         if is_module_doc {
             let span = self.span(start);
