@@ -354,6 +354,11 @@ struct Bufs {
     seen: Vec<bool>,
     stack: Vec<(usize, usize)>,
     ops: Vec<ir::ValueId>,
+    param: Vec<bool>,
+    def_in: Vec<(u32, u32)>,
+    aliased: Vec<bool>,
+    last: Vec<(u32, u32)>,
+    touched: Vec<Option<usize>>,
 }
 
 /// `spare`'s storage, as `n` copies of `fill`.
@@ -1823,9 +1828,9 @@ impl<'a> Jit<'a> {
             return;
         }
         let n = code.values();
-        let mut members = vec![0u32; n];
-        let mut param = vec![false; n];
-        let mut ops = Vec::new();
+        let mut members = table(&mut self.bufs.members, n, 0);
+        let mut param = table(&mut self.bufs.param, n, false);
+        let mut ops = std::mem::take(&mut self.bufs.ops);
         for v in 0..n {
             bump(&mut members, find(uf, v as u32) as usize);
         }
@@ -1834,44 +1839,60 @@ impl<'a> Jit<'a> {
                 put(&mut param, p.index(), true);
             }
         }
+        // Where each instruction result is defined: its block, and its index
+        // there.
+        let mut def_in = table(&mut self.bufs.def_in, n, (u32::MAX, 0));
+        for (bi, b) in code.blocks.iter().enumerate() {
+            for (k, i) in b.insts.iter().enumerate() {
+                for d in i.results() {
+                    put(&mut def_in, d.index(), (bi as u32, k as u32));
+                }
+            }
+        }
         let alone = |v: ir::ValueId| {
             find(uf, v.0) == v.0
                 && ent(&members, v.index(), 0) == 1
                 && ent(pin, v.index(), None).is_none()
         };
         // The entry's parameters keep the slots the caller left them in.
-        let entry: Vec<ir::ValueId> = code.get(ir::BlockId(0)).params.clone();
+        let entry: &[ir::ValueId] = &code.get(ir::BlockId(0)).params;
         let still = |v: ir::ValueId| {
             find(uf, v.0) == v.0
                 && ent(&members, v.index(), 0) == 1
                 && !ent(&param, v.index(), true)
                 && (ent(pin, v.index(), None).is_none() || entry.contains(&v))
         };
-        let mut aliased = vec![false; n];
-        for b in &code.blocks {
+        let mut aliased = table(&mut self.bufs.aliased, n, false);
+        // Per class, the last instruction of the block at hand that touched
+        // it, stamped with the block.
+        let mut last = table(&mut self.bufs.last, n, (u32::MAX, 0));
+        let mut touched_before = std::mem::take(&mut self.bufs.touched);
+        for (bi, b) in code.blocks.iter().enumerate() {
             if !b.insts.iter().any(part) {
                 continue;
             }
-            let def_at: HashMap<u32, usize> = b
-                .insts
-                .iter()
-                .enumerate()
-                .flat_map(|(k, i)| i.results().iter().map(move |d| (d.0, k)))
-                .collect();
+            let stamp = bi as u32;
+            let def_at = |v: ir::ValueId| {
+                def_in.get(v.index()).filter(|(db, _)| *db == stamp).map(|(_, k)| *k as usize)
+            };
             // Per aggregate built here, the last instruction before it that
             // touches its class. Scanning back from each field instead is `n²`
             // in a variant's fields (PERFORMANCE.md §6.37).
-            let mut last: HashMap<u32, usize> = HashMap::default();
-            let mut touched_before: Vec<Option<usize>> = vec![None; b.insts.len()];
+            touched_before.clear();
+            touched_before.resize(b.insts.len(), None);
             for (j, i) in b.insts.iter().enumerate() {
                 if let ir::Inst::MakeStruct { dest, .. } | ir::Inst::MakeEnum { dest, .. } = i {
-                    put(&mut touched_before, j, last.get(&find(uf, dest.0)).copied());
+                    let at = last
+                        .get(find(uf, dest.0) as usize)
+                        .filter(|(lb, _)| *lb == stamp)
+                        .map(|(_, t)| *t as usize);
+                    put(&mut touched_before, j, at);
                 }
                 ops.clear();
                 i.operands(&mut ops);
                 ops.extend_from_slice(i.results());
                 for o in &ops {
-                    last.insert(find(uf, o.0), j);
+                    put(&mut last, find(uf, o.0) as usize, (stamp, j as u32));
                 }
             }
             for (j, i) in b.insts.iter().enumerate() {
@@ -1882,29 +1903,26 @@ impl<'a> Jit<'a> {
                     }
                     continue;
                 }
-                let (dest, fields, offs, owner, ftys) = match i {
+                let (dest, fields, l, variant) = match i {
                     ir::Inst::MakeStruct { dest, fields } => {
                         let ir::Type::Agg(id) = code.ty_of(*dest) else { continue };
-                        let owner = prog.type_info(id).ty;
-                        let l = self.layout_of(prog, id);
-                        let ftys = crate::compiler::semantics::types::field_types(self.tables, &owner);
-                        (*dest, fields, l.fields.clone(), owner, ftys)
+                        (*dest, fields, self.layout_of(prog, id), None)
                     }
                     ir::Inst::MakeEnum { dest, variant, fields } => {
                         let ir::Type::Agg(id) = code.ty_of(*dest) else { continue };
-                        let owner = prog.type_info(id).ty;
                         let l = self.layout_of(prog, id);
                         if matches!(&l.repr, Repr::Enum { repr: EnumRepr::Bare { .. }, .. }) {
                             continue;
                         }
-                        let ftys = crate::compiler::semantics::types::variant_types(
-                            self.tables,
-                            &owner,
-                            *variant as usize,
-                        );
-                        (*dest, fields, l.variant(*variant as usize).to_vec(), owner, ftys)
+                        (*dest, fields, l, Some(*variant as usize))
                     }
                     _ => continue,
+                };
+                let ir::Type::Agg(id) = code.ty_of(dest) else { continue };
+                let owner = prog.type_info(id).ty;
+                let offs: &[u32] = match variant {
+                    None => &l.fields,
+                    Some(v) => l.variant(v),
                 };
                 if ent(pin, dest.index(), None).is_some() {
                     continue;
@@ -1916,14 +1934,14 @@ impl<'a> Jit<'a> {
                     let w = self.width(prog, code.ty_of(*f));
                     if w == 0
                         || !w.is_multiple_of(8)
-                        || ftys.get(fi).is_some_and(|t| self.boxes(&owner, t))
                         || !alone(*f)
                         || ent(&aliased, f.index(), true)
                         || ent(uses, f.index(), 0) != 1
+                        || self.field_ty(&owner, variant, fi).is_some_and(|t| self.boxes(&owner, &t))
                     {
                         continue;
                     }
-                    let Some(&k) = def_at.get(&f.0).filter(|k| **k < j) else { continue };
+                    let Some(k) = def_at(*f).filter(|k| *k < j) else { continue };
                     let def = b.insts.get(k);
                     let loads = matches!(
                         def,
@@ -1938,12 +1956,14 @@ impl<'a> Jit<'a> {
                     if !loads {
                         continue;
                     }
-                    let touches = |x: &ir::Inst| {
-                        let mut ops = Vec::new();
-                        x.operands(&mut ops);
+                    let touches = |x: &ir::Inst, ops: &mut Vec<ir::ValueId>| {
+                        ops.clear();
+                        x.operands(ops);
                         ops.iter().any(&in_class) || x.results().iter().any(&in_class)
                     };
-                    if def.is_some_and(touches) || ent(&touched_before, j, None).is_some_and(|t| t > k) {
+                    if def.is_some_and(|d| touches(d, &mut ops))
+                        || ent(&touched_before, j, None).is_some_and(|t| t > k)
+                    {
                         continue;
                     }
                     put(slot, f.index(), ent(slot, dest.index(), 0) + off);
@@ -1951,6 +1971,13 @@ impl<'a> Jit<'a> {
                 }
             }
         }
+        self.bufs.members = members;
+        self.bufs.param = param;
+        self.bufs.ops = ops;
+        self.bufs.def_in = def_in;
+        self.bufs.aliased = aliased;
+        self.bufs.last = last;
+        self.bufs.touched = touched_before;
     }
 
     /// The merges themselves. See [`Jit::slots`].
