@@ -1,8 +1,8 @@
 argument_order: 2738 bytes artifact, 1424 generated
 arithmetic: 2583 bytes artifact, 652 generated
-array_patterns: 2940 bytes artifact, 1568 generated
+array_patterns: 3044 bytes artifact, 1568 generated
 bool_logic: 2666 bytes artifact, 992 generated
-closures: 3640 bytes artifact, 843 generated
+closures: 3744 bytes artifact, 843 generated
 derives: 4477 bytes artifact, 1475 generated
 destructuring: 2933 bytes artifact, 1892 generated
 enum_match: 2813 bytes artifact, 1572 generated
@@ -13,22 +13,22 @@ guards: 2581 bytes artifact, 628 generated
 int_match: 2723 bytes artifact, 873 generated
 interpolation: 2714 bytes artifact, 1083 generated
 interpreter: 5964 bytes artifact, 7436 generated
-json_derive: 11747 bytes artifact, 4713 generated
+json_derive: 11851 bytes artifact, 4713 generated
 lazy_load: 2955 bytes artifact, 750 generated
-literals: 3284 bytes artifact, 940 generated
+literals: 3388 bytes artifact, 940 generated
 nested_match: 2752 bytes artifact, 1195 generated
-nested_option: 8054 bytes artifact, 6711 generated
+nested_option: 8410 bytes artifact, 6711 generated
 option_result: 4029 bytes artifact, 2538 generated
 or_patterns: 2685 bytes artifact, 1068 generated
 rebound_scrutinee: 2556 bytes artifact, 631 generated
 shared_constants: 2736 bytes artifact, 1312 generated
-stdlib_chain: 4514 bytes artifact, 1168 generated
+stdlib_chain: 4616 bytes artifact, 1168 generated
 str_match: 2678 bytes artifact, 760 generated
 structs: 2629 bytes artifact, 613 generated
-tail_closure: 4181 bytes artifact, 2850 generated
+tail_closure: 4285 bytes artifact, 2850 generated
 tail_mutual: 2702 bytes artifact, 937 generated
 tail_self: 2968 bytes artifact, 1608 generated
-tail_short_circuit: 3168 bytes artifact, 2060 generated
+tail_short_circuit: 3272 bytes artifact, 2060 generated
 traits: 2560 bytes artifact, 629 generated
 ui_counter: 37160 bytes artifact, 10036 generated
 ui_signals: 10574 bytes artifact, 6319 generated
@@ -37,5 +37,5 @@ ui_styles_dynamic: 43013 bytes artifact, 7060 generated
 ui_theme: 40449 bytes artifact, 12279 generated
 ui_theme_and_computed: 44646 bytes artifact, 6649 generated
 
-total: 332653 bytes artifact, 104397 generated
+total: 333735 bytes artifact, 104397 generated
 largest function: 9971 bytes, ui_counter/$tree_render
