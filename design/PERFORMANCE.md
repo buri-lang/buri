@@ -4709,6 +4709,82 @@ emptying paths.
 - **Building `rc::Syntactic` once per native build** instead of three times:
   about 0.8% of the middle end on `mixed-100k`.
 
+### 6.50 A higher opt-level for the tests' `buri`, measured and left, 2026-10-06
+
+The suite's `buri` is built at `opt-level = 1`. Four other profiles were
+built from `dc96906ac`, each in a target directory of its own, by passing
+`--config` rather than editing `Cargo.toml`:
+
+```sh
+cargo nextest run --workspace --exclude website --exclude buri-llvm \
+  --config 'profile.dev.package.buri-middle.opt-level=2'   # one per crate
+```
+
+| Profile | Change from today's |
+|---|---|
+| all at 2 | the 13 toolchain crates at `opt-level = 2` |
+| hot at 2 | `buri-syntax`, `-semantics`, `-middle`, `-stencil` and `-js` at 2, the rest at 1 |
+| all at 3 | the 13 at 3 |
+| no line tables | `profile.test.debug = false` |
+
+`debug-assertions` stayed on in all of them. Every run was alternated with the
+others at load 17–63, and CPU is user plus system:
+
+| Profile | Cold build, CPU-s | Suite run, CPU-s | `buri test //...` on `cli/tests/example` |
+|---|---:|---:|---:|
+| today | 648, 682 | 589–663 | 1,196 M instructions |
+| all at 2 | 748 | 645, 680 | 1,102 M |
+| hot at 2 | 647, 666 | 648, 670 | 1,118 M |
+| all at 3 | 791 | 631, 666 | 1,068 M |
+| no line tables | 561–611 | 570, 659 | 1,200 M |
+
+- **`buri` gets 7–11% faster and the suite doesn't notice.** `buri` is about
+  half the suite's CPU (§6.21), and its own instructions are only part of
+  that. 8% of that is about 25 CPU-seconds, and two identical runs here
+  differ by up to 75.
+- **The build does notice.** A package override reaches every target in the
+  package, so "all at 2" also builds `buri`'s 15 test binaries at 2. They're
+  most of a cold build: `cargo build --bin buri` alone is 208 CPU-seconds.
+  "All at 2" adds 80–140 CPU-seconds to a cold build and "all at 3" adds
+  125–170. "Hot at 2" adds almost nothing and saves almost nothing.
+- **Incremental builds don't move.** After touching
+  `crates/middle/src/lib.rs` or adding a function to it, every profile
+  rebuilt in 13–41 s and 19–25 CPU-seconds.
+- **Neither does a cold build with sccache warm.** It took 82–144 s for every
+  profile, in no consistent order. The sccache server compiles misses outside
+  cargo's process tree, so this row has no CPU figure.
+- **Wall time isn't quotable.** The suite took 207–668 s. The first run after
+  a fresh build was usually the slowest, because its new executables queue for
+  the system-wide check (§6.39).
+- **`266070021` showed the same.** Over two alternating rounds, the suite took
+  665–724 CPU-seconds at all four opt-levels. Cold builds took 608–646 today,
+  762–778 for "all at 2", 639 for "hot at 2" and 789–814 for "all at 3".
+
+**Line tables stay.** On macOS the debug information stays in the object
+files, so `debug` only changes the debug map in `__LINKEDIT`: 8.5 MB → 4.5 MB of
+`buri`'s 66.6 MB. `__TEXT` is 57.9 MB either way, and the dev profile's
+full-debug `buri` is also 66.6 MB. The `native` test binary goes from
+77.0 MB to 73.6 MB. Six alternating rounds timed the first exec of a fresh
+copy at load 25–48:
+
+| Binary | First exec, median | Range |
+|---|---:|---:|
+| `buri`, today | 4.7 s | 1.9–11.1 s |
+| `buri`, no line tables | 3.5 s | 1.0–11.1 s |
+| `buri`, all at 2 | 3.8 s | 1.0–10.1 s |
+| `native`, today | 3.8 s | 1.1–8.3 s |
+| `native`, no line tables | 3.8 s | 2.4–8.5 s |
+
+A second exec took 4–15 ms. The wait is the queue, not the size (§6.39). Going
+without line tables saves about 60 CPU-seconds per cold build and nothing in
+the suite, and every backtrace loses its line numbers.
+
+**A faster `buri` exposed a race.**
+`fuzz::the_watchdog_reports_a_toolchain_that_does_not_stop` failed once at
+"all at 2". `hang::launched` polls every 10 ms, and a no-op build that exits
+before the first poll beats a zero cap. "All at 3" failed one test once, but
+its log was overwritten before it was read.
+
 ### 6.52 An arena for the typed tree, measured and left, 2026-10-06
 
 The proposal: each `typed::Body` holds its nodes in a `Vec<Expr>`, `Box<Expr>`
