@@ -1167,7 +1167,19 @@ fn check_platform_labels(workspace: &Workspace) -> Vec<Diagnostic> {
 
 /// Walks the tree collecting every directory that holds a `BUILD.buri`.
 fn collect_packages(root: &Path, dir: &Path, out: &mut Vec<String>) {
-    if dir.join("BUILD.buri").is_file() {
+    let entries = std::fs::read_dir(dir).ok().map(|e| e.filter_map(Result::ok).collect::<Vec<_>>());
+    // The listing's own file types answer `is_file` and `is_dir` without a
+    // `stat` per entry. A symbolic link is asked about what it points at, as
+    // `Path::is_dir` would.
+    let is = |entry: &std::fs::DirEntry, dir_wanted: bool| match entry.file_type() {
+        Ok(t) if !t.is_symlink() => if dir_wanted { t.is_dir() } else { t.is_file() },
+        _ => if dir_wanted { entry.path().is_dir() } else { entry.path().is_file() },
+    };
+    let has_build_file = match &entries {
+        Some(entries) => entries.iter().any(|e| e.file_name() == "BUILD.buri" && is(e, false)),
+        None => dir.join("BUILD.buri").is_file(),
+    };
+    if has_build_file {
         let rel = dir
             .strip_prefix(root)
             .or_ice("this walk started at `root` and only ever descends, so every path is under it")
@@ -1176,16 +1188,16 @@ fn collect_packages(root: &Path, dir: &Path, out: &mut Vec<String>) {
             .replace('\\', "/");
         out.push(rel);
     }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Some(entries) = entries else { return };
     let mut subdirs: Vec<PathBuf> = entries
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .filter(|p| {
-            let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        .iter()
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
             // `.buri` holds the cache and the outputs; nothing there is source.
             !name.starts_with('.') && name != "target" && name != "node_modules"
         })
+        .filter(|e| is(e, true))
+        .map(std::fs::DirEntry::path)
         .collect();
     subdirs.sort();
     for sub in subdirs {
