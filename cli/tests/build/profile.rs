@@ -180,3 +180,17 @@ fn javascript_emission_is_linear_in_a_matchs_arms() {
         500,
     );
 }
+
+/// **Checking a match is linear in its arms.** Each arm of a match over a
+/// pair is asked whether the arms before it already cover it.
+#[test]
+fn checking_a_match_over_pairs_is_linear_in_its_arms() {
+    grows_linearly(
+        "checking a match over pairs",
+        |n| {
+            let (items, body) = long_matches(n, true);
+            profiled("node", &items, &body, "check")
+        },
+        500,
+    );
+}
