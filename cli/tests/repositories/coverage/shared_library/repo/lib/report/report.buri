@@ -1,0 +1,5 @@
+from "//lib/shapes" import { double, triple };
+
+export fn summary(n: I64): I64 {
+    double(n) + triple(n)
+}

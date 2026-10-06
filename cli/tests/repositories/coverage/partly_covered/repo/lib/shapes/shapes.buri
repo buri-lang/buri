@@ -1,0 +1,28 @@
+export enum Shape {
+    Circle(I64),
+    Square(I64),
+    Triangle(I64, I64),
+}
+
+export fn area(shape: Shape): I64 {
+    match (shape) {
+        .Circle(r) => 3 * r * r,
+        .Square(w) => w * w,
+        .Triangle(b, h) => b * h / 2,
+    }
+}
+
+export fn label(n: I64): Str {
+    if (n > 100) {
+        let word = "big";
+        word
+    } else {
+        let word = "small";
+        word
+    }
+}
+
+export fn unused(n: I64): I64 {
+    let doubled = n * 2;
+    doubled + 1
+}

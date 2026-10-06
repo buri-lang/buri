@@ -232,6 +232,13 @@ fn test_suites() {
     run_corpus(&tests_dir().join("repositories/testing"), "testing", 14);
 }
 
+/// TESTING.md's `--coverage`: the lines a run's tests reached, the same on both
+/// backends, summed across suites, and never served from the cache.
+#[test]
+fn test_coverage() {
+    run_corpus(&tests_dir().join("repositories/coverage"), "coverage", 2);
+}
+
 /// The concurrency-and-servers surface, driven the way a person drives it: a
 /// package in a repository, a suite beside it, and one `buri` command.
 ///

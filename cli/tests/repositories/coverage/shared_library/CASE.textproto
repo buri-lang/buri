@@ -1,0 +1,66 @@
+# Two suites over one library: `//lib/report`'s suite reaches `//lib/shapes`
+# through its own code, and `//lib/shapes`' suite reaches it directly. The
+# report adds both suites' counts together line by line, on the native backend
+# and on JavaScript alike.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "--coverage over two suites adds up the lines each one reached in the library they share"
+
+run {
+  args: ["test", "//...", "--coverage"]
+  exit: 0
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
+
+run {
+  args: ["test", "//...", "--coverage", "--output=js"]
+  exit: 0
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
+
+# One suite alone reports only what it reached.
+run {
+  args: ["test", "//lib/shapes", "--coverage"]
+  exit: 0
+  golden: "one.txt"
+  stream: OUT
+}
+
+# The edit that reaches the last function.
+edit {
+  file: "lib/report/test/report.buri"
+  replace: "assert.equal(summary(1), 5);"
+  with: "assert.equal(summary(1), 5);\n    assert.equal(never(1), 4);"
+}
+
+edit {
+  file: "lib/report/test/report.buri"
+  replace: "from \"//lib/report\" import { summary };"
+  with: "from \"//lib/report\" import { summary };\nfrom \"//lib/shapes\" import { never };"
+}
+
+edit {
+  file: "lib/report/BUILD.buri"
+  replace: "sources: [\"test/report.buri\"]"
+  with: "sources: [\"test/report.buri\"]\n        dependencies: [\"//lib/shapes\"]"
+}
+
+run {
+  args: ["test", "//...", "--coverage"]
+  exit: 0
+  golden: "all.txt"
+  stream: OUT
+}

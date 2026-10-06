@@ -1,0 +1,7 @@
+library {
+    sources: ["shapes.buri"]
+
+    test {
+        sources: ["test/shapes.buri"]
+    }
+}

@@ -1,0 +1,14 @@
+from "core/testing/assert" import * as assert;
+from "//lib/shapes" import { area, label, Shape };
+
+test "a circle" {
+    assert.equal(area(Shape.Circle(2)), 12);
+}
+
+test "a square" {
+    assert.equal(area(Shape.Square(3)), 9);
+}
+
+test "a small label" {
+    assert.equal(label(5), "small");
+}

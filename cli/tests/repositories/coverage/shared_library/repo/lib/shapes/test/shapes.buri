@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//lib/shapes" import { double };
+
+test "doubles" {
+    assert.equal(double(1), 2);
+}
