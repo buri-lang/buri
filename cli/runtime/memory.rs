@@ -1624,6 +1624,32 @@ unsafe fn free_block(p: *mut u8, mode: HeapCheck) {
     unsafe { dealloc(p.sub(BURI_RT_HEADER), layout_for(cap)) }
 }
 
+/// [`buri_rt_incref`] `n` times over, in one update: the references a run of
+/// views into one block takes, such as a split's pieces.
+///
+/// # Safety
+/// As [`buri_rt_incref`].
+pub(crate) unsafe fn incref_by(p: *mut u8, n: u64) {
+    if p.is_null() || n == 0 {
+        return;
+    }
+    // SAFETY: the caller promises a live payload pointer, and a quarantined
+    // block's header is readable too.
+    if unsafe { is_quarantined(p) } {
+        heap_use_after_free(b"incref");
+    }
+    // SAFETY: as above.
+    unsafe {
+        let h = header(p);
+        if is_shared(h) {
+            let rc = rc_atomic(h);
+            rc.fetch_add(atomic_delta(rc) * n, Ordering::Relaxed);
+        } else {
+            (*h).rc = (*h).rc.saturating_add(n);
+        }
+    }
+}
+
 /// The non-inlined `incref`. Saturating, so `IMMORTAL` is a fixed point.
 ///
 /// Forks on [`BURI_RT_CAP_SHARED`] exactly as both backends' open-coded copies
