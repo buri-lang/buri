@@ -15,11 +15,9 @@ retries = 0
 # * The cross test. From a cold target directory it builds the Linux runtime,
 #   a minute of release cargo. In the tier below it started last.
 # * Tests whose cases take milliseconds: the manifest ids, the rejected
-#   programs and the pool's own tests. A pool worker that finishes a case takes
-#   its next seat at once (`harness/pool.rs`), so whoever holds the seats keeps
-#   them. Started beside `repositories::snapshots`, whose cases run for
-#   seconds, these held test slots for a minute waiting for seats. Started
-#   first, they take 5 s.
+#   programs and the pool's own tests. Started beside `repositories::snapshots`
+#   they share the pool's seats with it (`harness/pool.rs`), and the manifest
+#   ids take 5–7 s. Started first, they take 3 s.
 [[profile.default.overrides]]
 filter = '''
   test(=cross::a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container)
