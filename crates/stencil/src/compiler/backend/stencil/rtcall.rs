@@ -675,7 +675,7 @@ impl Jit<'_> {
             binds.push((String::from("JIT_CONT0"), V::Fall));
             let refs: Vec<(&str, V)> =
                 binds.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
-            self.emit(&format!("crts/{}/{}/{kind}", ints.len(), floats.len()), &refs);
+            self.emit(&key!("crts/{}/{}/{kind}", ints.len(), floats.len()), &refs);
             return Ok(());
         }
 
@@ -686,7 +686,7 @@ impl Jit<'_> {
             self.marshal(fbase + i as u32 * 8, src);
         }
         self.emit(
-            &format!("crt/{}/{}/{kind}", ints.len(), floats.len()),
+            &key!("crt/{}/{}/{kind}", ints.len(), floats.len()),
             &[
                 ("JIT_A", V::I(u64::from(base))),
                 ("JIT_B", V::I(u64::from(fbase))),
@@ -1499,7 +1499,7 @@ impl Jit<'_> {
                 let at = match int_bits(prim) {
                     Some(bits) => {
                         self.emit(
-                            &format!("sext/{bits}"),
+                            &key!("sext/{bits}"),
                             &[
                                 ("JIT_D", V::I(u64::from(scr))),
                                 ("JIT_A", V::I(u64::from(src))),

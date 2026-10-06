@@ -26,11 +26,18 @@ pub enum Loc {
 impl Loc {
     /// The letter this location contributes to a stencil key. The key is the
     /// whole of the lookup, so this spelling is part of the library's format.
-    pub fn tag(self) -> String {
+    ///
+    /// Borrowed for every register a library has, because the emitter spells
+    /// one or more of these per instruction.
+    pub fn tag(self) -> std::borrow::Cow<'static, str> {
+        const REGS: [&str; 8] = ["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7"];
         match self {
-            Loc::Frame => String::from("f"),
-            Loc::Imm => String::from("i"),
-            Loc::Reg(k) => format!("r{k}"),
+            Loc::Frame => "f".into(),
+            Loc::Imm => "i".into(),
+            Loc::Reg(k) => match REGS.get(usize::from(k)) {
+                Some(r) => (*r).into(),
+                None => format!("r{k}").into(),
+            },
         }
     }
 }
