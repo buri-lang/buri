@@ -194,3 +194,19 @@ fn checking_a_match_over_pairs_is_linear_in_its_arms() {
         500,
     );
 }
+
+/// **Checking a pattern is linear in the names it binds.** A `let` asked
+/// whether the whole value could carry an effect once per name it binds, a
+/// walk of the value's type each time: a tuple of 2,000 elements taken apart
+/// took 1.2 G instructions to check.
+#[test]
+fn checking_a_pattern_is_linear_in_the_names_it_binds() {
+    grows_linearly(
+        "checking a long tuple's functions",
+        |n| {
+            let (items, body) = long_tuple(n);
+            profiled("node", &items, &body, "check")
+        },
+        1000,
+    );
+}
