@@ -503,8 +503,12 @@ impl Sites {
         wanted.sort_unstable();
         wanted.dedup();
         sites.ids.reserve(wanted.len());
+        // Pre-order hands out ids in increasing order, so one cursor into the
+        // sorted list does.
+        let mut next = wanted.iter().peekable();
         rc::preorder(body, &mut |id, e| {
-            if wanted.binary_search(&id.0).is_ok() {
+            if next.peek() == Some(&&id.0) {
+                next.next();
                 sites.ids.insert(std::ptr::from_ref(e), id);
             }
         });
