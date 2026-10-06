@@ -3216,8 +3216,8 @@ text and its blocks.
 
 ### 6.31 A large value copied slot by slot is quadratic in `llc`, 2026-10-05
 
-Diagnosis only; the fix isn't in yet. `deep_big`'s `--release` emit phase is
-261.8 G instructions, and `llc -O2 -time-passes` on its main unit is 174 G:
+`deep_big`'s `--release` emit phase was 261.8 G instructions, and
+`llc -O2 -time-passes` on its main unit was 174 G:
 
 ```text
 Machine Instruction Scheduler          72.1 G
@@ -3254,15 +3254,60 @@ returned value once and `memcpy`ing it on costs the same 125.8 G, and taking
 the return by `sret` and then loading its slots still costs 61.9 G. The value
 has to stay in memory from the call that makes it to the copy that consumes it.
 
-**The fix:** above a size threshold, an SSA value is a pointer to an
-entry-block `alloca` holding its memory form (`repr.rs`'s offsets). Values are
-immutable, so a copy shares the pointer, and a move into a heap block or a
-scratch buffer is one `memcpy`. A field read is a GEP, a definition writes its
-own buffer, and a phi merges SSA aggregates so that a loop can't overwrite a
-buffer a phi still holds. Calls pass such a value by pointer and return it by
-`sret`. The table puts the threshold between 8 and 16 three-word fields, so
-256 bytes; hash the bench's IR before and after, as §6.29 did, to show nothing
-below it moved.
+**The fix:** a value wider than 256 bytes (`repr::WIDEST_IN_REGISTERS`, from
+the table's crossover) is held in memory end to end.
+
+```llvm
+; `main` after `opt -O2`: `big` writes its result into the caller's buffer,
+; and the value moves into an `Option`'s payload as one copy.
+call fastcc void @"main_buri$big$zxuhxr"(ptr nonnull sret([4800 x i8]) %out2, ptr null, ptr nonnull @buri.str.0, i64 -9223372036854775807, i64 3)
+call void @llvm.memcpy.p0.p0.i64(ptr align 1 %pay, ptr align 16 %out2, i64 4800, i1 false)
+```
+
+- **Values:** an SSA value is the address of an entry-block `alloca` holding
+  its memory form (`repr.rs`'s offsets). Values are immutable, so a copy
+  shares the address, and a large field is a GEP into its owner.
+- **Calls:** a large argument is its address, and a large result comes back
+  through `sret` into the caller's buffer. A closure's thunk passes both on.
+- **Moves:** a store into a heap block, an environment or a scratch buffer is
+  one `memcpy`. A read out of a heap block is a `memcpy` into a buffer of its
+  own, because the block may be freed first.
+- **Block parameters:** each has a buffer of its own and no phi. Each edge
+  copies its argument in, through an edge block where the terminator has other
+  edges, and through temporaries where an edge has two or more copies, because
+  the copies are a parallel assignment.
+- **Attributes:** a field loaded out of an indirect parameter isn't argument
+  memory, so `attrs::decorate` widens such a function to the default location,
+  and `sret` makes it write argument memory.
+
+`llc -O2` on `deep_big`'s main unit, after `opt -O2`, `/usr/bin/time -l`:
+
+| | Before | After |
+|---|---:|---:|
+| instructions retired | 174.5 G | 17.8 G |
+| both schedulers, `-time-passes` | 125.7 G | 5.3 G |
+| `main`, instructions | 55,216 | 2,514 |
+| the unit's `insertvalue`s and `extractvalue`s | 9,615 | 6 |
+| the unit's `store`s | 22,743 | 3,337 |
+
+What's left is per field and linear: the derived `Show`, the release and retain
+glue, and `big` building its 600 slots. The greedy register allocator is the
+largest pass on it, at 6.7 G.
+
+**Nothing below the threshold moved.** All 641 release objects of 104
+programs, every `cli/tests/matches` batch and every fourth `cli/tests/growth`
+case, are byte-identical before and after: a value of 256 bytes or less takes
+the old path at every site.
+
+`native::llvm`'s `a_large_value_crosses_calls_by_pointer_and_moves_by_memcpy`
+bounds the IR: no signature in the unit has 64 or more parameters or a result
+of 64 or more members, and the functions passing `Big` around hold at most
+one `insertvalue` or `extractvalue` per field. `native::e2e`'s
+`a_large_struct_held_deep_inside_options_lists_and_records_leaks_nothing` runs
+`deep_big` under the heap check, and
+`a_tree_boxing_a_large_enum_is_built_walked_and_dropped` covers `ui/node`'s
+shape, a small struct boxing a large enum, which a slot-by-slot read of the
+box got wrong.
 
 ## 7. Profiling, on this platform
 
