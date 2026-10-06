@@ -666,8 +666,17 @@ function $val(x) {
   return x;
 }
 
+// `0n` to `1023n`, so a count, a length or an index is read rather than made:
+// `BigInt()` is a call into the engine, and these are most of what is asked.
+const $ints = Array.from({ length: 1024 }, (_, i) => BigInt(i));
+
+// A length or an index, which is a non-negative integer, as an `Int`.
+function $int(n) {
+  return n < 1024 ? $ints[n] : BigInt(n);
+}
+
 function $list_length(xs) {
-  return BigInt(xs.length);
+  return $int(xs.length);
 }
 
 function $list_get(xs, i) {
@@ -755,7 +764,7 @@ function $list_findFlat(xs, p) {
 
 function $list_findIndex(xs, p) {
   $shareEach(xs);
-  for (let i = 0; i < xs.length; i++) if (p(xs[i])) return BigInt(i);
+  for (let i = 0; i < xs.length; i++) if (p(xs[i])) return $int(i);
   return undefined;
 }
 
@@ -763,7 +772,7 @@ function $list_count(xs, p) {
   $shareEach(xs);
   let n = 0;
   for (let i = 0; i < xs.length; i++) if (p(xs[i])) n++;
-  return BigInt(n);
+  return $int(n);
 }
 
 function $list_map(xs, c, f) {
@@ -976,9 +985,15 @@ function $list_empty() {
 }
 
 // The counter is the element type, because the elements are what it produces.
+// The loop counts in a `number`, which is cheaper to test than the `BigInt`
+// it produces. Pushed rather than preallocated: `new Array(n)` is a holey
+// array in V8, and every later `map` over one is slower.
 function $list_range(c, a, b) {
   const out = [];
-  for (let i = a; i < b; i++) out.push(i);
+  if (!(a < b)) return $own(out);
+  const n = Number(b - a);
+  let v = a;
+  for (let i = 0; i < n; i++) out.push(v++);
   return $own(out);
 }
 
@@ -1060,7 +1075,7 @@ function $scalarStarts(s) {
 
 function $str_length(s) {
   const t = $starts(s);
-  return BigInt(t === null ? s.length : t.length - 1);
+  return $int(t === null ? s.length : t.length - 1);
 }
 
 // A character is a string and an index a bigint, so neither is ever
@@ -1116,7 +1131,7 @@ function $str_indexOf(s, n) {
   // The answer is a scalar index, and `indexOf` gives a code-unit index, so
   // what has to be counted is the scalars that start before it.
   const t = $starts(s);
-  if (t === null) return BigInt(i);
+  if (t === null) return $int(i);
   let lo = 0;
   let hi = t.length;
   while (lo < hi) {
@@ -1124,7 +1139,7 @@ function $str_indexOf(s, n) {
     if (t[mid] < i) lo = mid + 1;
     else hi = mid;
   }
-  return BigInt(lo);
+  return $int(lo);
 }
 
 // Two slices, or .None when the separator does not occur. Pure, because
@@ -1344,11 +1359,9 @@ const $math_isFinite = Number.isFinite;
 function $shiftCount(n, bits) {
   const k = Number(n);
   if (k < 0 || k >= bits) $abort("shift out of range");
-  return $counts[k];
+  return $ints[k];
 }
 
-// `0n` to `64n`, so a shift count or a bit count is read rather than made.
-const $counts = Array.from({ length: 65 }, (_, i) => BigInt(i));
 
 function $big(x) {
   return BigInt(Math.trunc(x));
@@ -1402,20 +1415,20 @@ function $ctz32(n) {
 
 function $bits_popCount(x) {
   const v = BigInt.asUintN(64, x);
-  if (v <= 0xffffffffn) return $counts[$pop32(Number(v))];
-  return $counts[$pop32(Number(v & 0xffffffffn)) + $pop32(Number(v >> 32n))];
+  if (v <= 0xffffffffn) return $ints[$pop32(Number(v))];
+  return $ints[$pop32(Number(v & 0xffffffffn)) + $pop32(Number(v >> 32n))];
 }
 
 function $bits_leadingZeros(x) {
   const v = BigInt.asUintN(64, x);
   const hi = Number(v >> 32n);
-  return $counts[hi !== 0 ? Math.clz32(hi) : 32 + Math.clz32(Number(v & 0xffffffffn))];
+  return $ints[hi !== 0 ? Math.clz32(hi) : 32 + Math.clz32(Number(v & 0xffffffffn))];
 }
 
 function $bits_trailingZeros(x) {
   const v = BigInt.asUintN(64, x);
   const lo = Number(v & 0xffffffffn);
-  return $counts[lo !== 0 ? $ctz32(lo) : 32 + $ctz32(Number(v >> 32n))];
+  return $ints[lo !== 0 ? $ctz32(lo) : 32 + $ctz32(Number(v >> 32n))];
 }
 
 function $bits_rotateLeft(x, n) {
@@ -1458,7 +1471,7 @@ function $bits_shiftRightU64(x, n) {
 function $rotate(x, n, bits, left) {
   const k = $shiftCount(n, bits);
   const v = BigInt.asUintN(bits, $toBig(x));
-  const w = $counts[bits];
+  const w = $ints[bits];
   const spun = left ? (v << k) | (v >> (w - k)) : (v >> k) | (v << (w - k));
   return BigInt.asUintN(bits, spun);
 }
