@@ -311,11 +311,11 @@ pub fn formatted(text: &str, dialect: Dialect) -> Option<Formatted> {
 // -- the document ----------------------------------------------------------
 
 #[derive(Clone, Debug)]
-enum Doc {
+enum Doc<'s> {
     Nil,
     /// Never contains a newline: a comment written over several lines is
     /// several `Text`s with `HardLine` between them.
-    Text(std::borrow::Cow<'static, str>),
+    Text(std::borrow::Cow<'s, str>),
     /// Text that is printed and **not measured**: the comment somebody wrote at
     /// the end of a line.
     ///
@@ -327,7 +327,7 @@ enum Doc {
     /// this is the same rule stated at the other end: the line is as long as the
     /// author's comment makes it.
     Aside(String),
-    Concat(Vec<Doc>),
+    Concat(Vec<Doc<'s>>),
     /// A space when flat, a line break when broken.
     Line,
     /// Nothing when flat, a line break when broken.
@@ -346,12 +346,12 @@ enum Doc {
     /// rule, and it lives here rather than in the printers because every
     /// printer wants the same answer.
     Blank,
-    Nest(Box<Doc>),
-    Group(group::Group),
+    Nest(Box<Doc<'s>>),
+    Group(group::Group<'s>),
     /// Items and the separators between them, alternating, broken only where
     /// the next item would not fit.
-    Fill(Vec<Doc>),
-    IfBreak(Box<Doc>, Box<Doc>),
+    Fill(Vec<Doc<'s>>),
+    IfBreak(Box<Doc<'s>>, Box<Doc<'s>>),
     /// Nothing is printed; the enclosing group cannot be flat.
     BreakParent,
     /// Candidate layouts, most preferred first. The last is used when none of
@@ -367,13 +367,13 @@ enum Doc {
     Alt {
         /// The candidate a flat parent prints, and the only one measured
         /// strictly: a forced break anywhere inside it rules it out.
-        flat: Box<Doc>,
+        flat: Box<Doc<'s>>,
         /// The second candidate, which is what makes an `Alt` a choice.
-        next: Box<Doc>,
+        next: Box<Doc<'s>>,
         /// Any candidates after the second. The last candidate overall — the
         /// last of these, or `next` when there are none — is what is used when
         /// none of the ones before it has a first line that fits.
-        rest: Vec<Doc>,
+        rest: Vec<Doc<'s>>,
     },
 }
 
@@ -391,27 +391,27 @@ mod group {
     use super::Doc;
 
     #[derive(Clone, Debug)]
-    pub struct Group {
-        doc: Box<Doc>,
+    pub struct Group<'s> {
+        doc: Box<Doc<'s>>,
         /// Whether the contents force a break. Prettier calls the pass that
         /// does this `propagateBreaks`.
         breaks: bool,
     }
 
-    impl Group {
+    impl<'s> Group<'s> {
         /// The group around `doc`, breaking exactly when `doc` does.
-        pub fn of(doc: Doc) -> Group {
+        pub fn of(doc: Doc<'s>) -> Group<'s> {
             let breaks = super::breaks(&doc);
             Group { doc: Box::new(doc), breaks }
         }
 
         /// The same group, broken. Deliberately one-way: a caller may insist a
         /// group breaks, and may never claim one does not.
-        pub fn forced(self) -> Group {
+        pub fn forced(self) -> Group<'s> {
             Group { doc: self.doc, breaks: true }
         }
 
-        pub fn doc(&self) -> &Doc {
+        pub fn doc(&self) -> &Doc<'s> {
             &self.doc
         }
 
@@ -421,7 +421,7 @@ mod group {
     }
 }
 
-fn text(s: impl Into<std::borrow::Cow<'static, str>>) -> Doc {
+fn text<'s>(s: impl Into<std::borrow::Cow<'s, str>>) -> Doc<'s> {
     Doc::Text(s.into())
 }
 
@@ -433,7 +433,7 @@ fn nest(d: Doc) -> Doc {
     Doc::Nest(Box::new(d))
 }
 
-fn if_break(broken: Doc, flat: Doc) -> Doc {
+fn if_break<'s>(broken: Doc<'s>, flat: Doc<'s>) -> Doc<'s> {
     Doc::IfBreak(Box::new(broken), Box::new(flat))
 }
 
@@ -460,7 +460,7 @@ fn group(d: Doc) -> Doc {
 }
 
 /// Two candidate layouts: all on a line, or the one to fall back to.
-fn alt(flat: Doc, next: Doc) -> Doc {
+fn alt<'s>(flat: Doc<'s>, next: Doc<'s>) -> Doc<'s> {
     Doc::Alt { flat: Box::new(flat), next: Box::new(next), rest: Vec::new() }
 }
 
@@ -497,7 +497,7 @@ fn force(d: Doc) -> Doc {
     }
 }
 
-fn join(sep: Doc, items: Vec<Doc>) -> Doc {
+fn join<'s>(sep: Doc<'s>, items: Vec<Doc<'s>>) -> Doc<'s> {
     let mut out = Vec::with_capacity(items.len().saturating_mul(2));
     for (i, it) in items.into_iter().enumerate() {
         if i > 0 {
@@ -510,7 +510,7 @@ fn join(sep: Doc, items: Vec<Doc>) -> Doc {
 
 /// A comma-separated list that breaks all at once: `(a, b)`, or one item to a
 /// line with the trailing comma a broken list gets.
-fn bracketed(open: &'static str, items: Vec<Doc>, close: &'static str) -> Doc {
+fn bracketed<'s>(open: &'static str, items: Vec<Doc<'s>>, close: &'static str) -> Doc<'s> {
     if items.is_empty() {
         return text(format!("{open}{close}"));
     }
@@ -531,7 +531,7 @@ fn bracketed(open: &'static str, items: Vec<Doc>, close: &'static str) -> Doc {
 /// two back onto one line, and the `BreakParent` the comment carries breaks the
 /// list that holds it — which is how the comment keeps the construct it sits
 /// inside broken across lines rather than being swept out to after it.
-fn with_lead(lead: Option<Doc>, item: Doc) -> Doc {
+fn with_lead<'s>(lead: Option<Doc<'s>>, item: Doc<'s>) -> Doc<'s> {
     match lead {
         Some(c) => cat(vec![c, Doc::HardLine, item]),
         None => item,
@@ -574,8 +574,8 @@ enum Mode {
 /// consumed two items at a time.
 #[derive(Clone, Copy)]
 enum Cmd<'a> {
-    One(&'a Doc),
-    Fill(&'a [Doc]),
+    One(&'a Doc<'a>),
+    Fill(&'a [Doc<'a>]),
 }
 
 type Frame<'a> = (usize, Mode, Cmd<'a>);
@@ -1385,12 +1385,12 @@ impl<'t> Build<'t> {
     /// order. A slice printed run by run therefore comes back reordered:
     /// `from ""export{///` / `d,d//` / `};` printed its stranded `///` above
     /// its stranded `//`, and the second run swapped them.
-    fn trivia_doc(&mut self, ts: &[Trivia]) -> Doc {
+    fn trivia_doc(&mut self, ts: &[Trivia]) -> Doc<'t> {
         // Whatever encloses a comment cannot be flat: a line that holds a
         // whole body has nowhere to put one. Every construct used to ask this
         // question for itself; now the comment answers it, once, for all of
         // them.
-        let mut lines: Vec<Doc> = vec![Doc::BreakParent];
+        let mut lines: Vec<Doc<'t>> = vec![Doc::BreakParent];
         // How many ordinary comments have been printed, across every run so
         // far. The count rather than the position inside one run, because the
         // blank line above the *first* comment printed belongs to the caller
@@ -1492,19 +1492,19 @@ impl<'t> Build<'t> {
     /// One space between the code and the `//`, like every other gap the
     /// formatter decides. Columns lined up by hand are a layout, and a layout
     /// is what this file is for.
-    fn trailing(&mut self, lo: u32, hi: u32) -> Doc {
+    fn trailing(&mut self, lo: u32, hi: u32) -> Doc<'t> {
         match self.tv.take_beside(lo, hi) {
             Some(c) => Doc::Aside(format!(" {c}")),
             None => Doc::Nil,
         }
     }
 
-    fn flush(&mut self, lo: u32, hi: u32) -> Option<Doc> {
+    fn flush(&mut self, lo: u32, hi: u32) -> Option<Doc<'t>> {
         let ts = self.tv.drain(lo, hi);
         self.flushed(&ts)
     }
 
-    fn flushed(&mut self, ts: &[Trivia]) -> Option<Doc> {
+    fn flushed(&mut self, ts: &[Trivia]) -> Option<Doc<'t>> {
         if ts.is_empty() {
             return None;
         }
@@ -1519,7 +1519,7 @@ impl<'t> Build<'t> {
     /// An import's own comments, without the blank line `decl_trivia` would put
     /// back — inside a sorted run the blanks belong to the grouping, not to
     /// where the line used to sit.
-    fn import_trivia(&mut self, at: u32, first: bool) -> Doc {
+    fn import_trivia(&mut self, at: u32, first: bool) -> Doc<'t> {
         let Some(t) = self.tv.take(at) else { return Doc::Nil };
         if !t.is_run() {
             return Doc::Nil;
@@ -1564,7 +1564,7 @@ impl<'t> Build<'t> {
     /// declaration's the next time the file is read. It is left unclaimed and
     /// comes back at the module's closing sweep instead; see
     /// [`Comments::drain_undocumented`].
-    fn lead_trivia(&mut self, stranded: Option<(u32, u32)>, at: u32, first: bool) -> Doc {
+    fn lead_trivia(&mut self, stranded: Option<(u32, u32)>, at: u32, first: bool) -> Doc<'t> {
         let mut ts = match stranded {
             Some((lo, hi)) => self.tv.drain_undocumented(lo, hi),
             None => Vec::new(),
@@ -1585,8 +1585,8 @@ impl<'t> Build<'t> {
 
     // -- the module --------------------------------------------------------
 
-    fn module(&mut self, m: &Module) -> Doc {
-        let mut parts: Vec<Doc> = Vec::new();
+    fn module(&mut self, m: &Module) -> Doc<'t> {
+        let mut parts: Vec<Doc<'t>> = Vec::new();
         // The module's own documentation comes back first, and is separated
         // from the first declaration by a blank line.
         for line in self.tree().doc_lines(m.docs) {
@@ -1717,7 +1717,7 @@ impl<'t> Build<'t> {
 
     // -- declarations ------------------------------------------------------
 
-    fn item(&mut self, item: &Item) -> Doc {
+    fn item(&mut self, item: &Item) -> Doc<'t> {
         // What the parser could not read, it did not understand, and what it
         // did not understand it does not lay out.
         if self.broken.iter().any(|s| *s == item.span()) {
@@ -1812,7 +1812,7 @@ impl<'t> Build<'t> {
             }
             Item::Derive(d) => {
                 let t = self.tree();
-                let traits: Vec<Doc> =
+                let traits: Vec<Doc<'t>> =
                     t.type_list(d.traits).iter().map(|x| text(type_text(t, *x))).collect();
                 // No trailing comma when the list wraps: the grammar has none
                 // before `for`, so a broken clause carrying one does not parse.
@@ -1847,7 +1847,7 @@ impl<'t> Build<'t> {
     /// which would print them twice. A comment written *above* the region sits
     /// above its first token, so it is left to the gap printer — the span
     /// starts one byte later to say so.
-    fn verbatim(&mut self, at: Span) -> Doc {
+    fn verbatim(&mut self, at: Span) -> Doc<'t> {
         self.tv.drain(at.start.saturating_add(1), at.end);
         let src = self.src.get(at.start as usize..at.end as usize).unwrap_or("");
         // A declaration begins at column zero, so its lines go back as they
@@ -1858,7 +1858,7 @@ impl<'t> Build<'t> {
             if i > 0 {
                 lines.push(Doc::HardBreak);
             }
-            lines.push(text(line.trim_end().to_string()));
+            lines.push(text(line.trim_end()));
         }
         cat(lines)
     }
@@ -1890,7 +1890,7 @@ impl<'t> Build<'t> {
     /// was written in by hand: a brace on the head line, the names filled
     /// across as many lines as they need, and a trailing comma so that adding
     /// a name is a one-line diff.
-    fn name_list(&mut self, head: &str, specs: &[ImportSpec]) -> Doc {
+    fn name_list(&mut self, head: &str, specs: &[ImportSpec]) -> Doc<'t> {
         let names = spec_list(self.tree(), specs);
         if names.is_empty() {
             return text(format!("{head} {{  }};"));
@@ -1907,7 +1907,7 @@ impl<'t> Build<'t> {
         ]))
     }
 
-    fn context_body(&mut self, id: CtxBodyId) -> Doc {
+    fn context_body(&mut self, id: CtxBodyId) -> Doc<'t> {
         let body = self.tree().ctx_body(id);
         let lo = body.span.start;
         let mut lines = Vec::new();
@@ -1937,13 +1937,13 @@ impl<'t> Build<'t> {
     /// the shape the widest function in the conformance suite was written in by
     /// hand. `tail` is whatever follows the return type: `;` for a declaration
     /// without a body, ` {` for one with.
-    fn signature_doc(&mut self, d: &FnDecl, lead: &str, tail: &str) -> Doc {
+    fn signature_doc(&mut self, d: &FnDecl, lead: &str, tail: &str) -> Doc<'t> {
         // A comment written above a parameter is about that parameter, and a
         // broken signature has a line for it to sit on. Its `BreakParent` is
         // what breaks the signature: a comment cannot share a line with the
         // list it is annotating, so a flat signature is not on offer.
         let t = self.tree();
-        let params: Vec<Doc> = t
+        let params: Vec<Doc<'t>> = t
             .list(d.params)
             .iter()
             .map(|p| {
@@ -1973,7 +1973,7 @@ impl<'t> Build<'t> {
     /// somebody adds a line to it, and the diff that does it then touches
     /// three lines to add one. A body that is *empty* has no line to put
     /// anywhere, so it closes up: `fn f(): () {}`.
-    fn fn_decl(&mut self, d: &FnDecl, exported: bool) -> Doc {
+    fn fn_decl(&mut self, d: &FnDecl, exported: bool) -> Doc<'t> {
         // A comment inside the signature — above a parameter, say — has no
         // line of its own once the signature is re-printed on one, so it comes
         // back above the declaration.
@@ -2007,7 +2007,7 @@ impl<'t> Build<'t> {
         with_above(above, decl)
     }
 
-    fn struct_decl(&mut self, d: &StructDecl) -> Doc {
+    fn struct_decl(&mut self, d: &StructDecl) -> Doc<'t> {
         let ex = if d.exported { "export " } else { "" };
         let t = self.tree();
         let g = generics(t, t.list(d.generics));
@@ -2046,7 +2046,7 @@ impl<'t> Build<'t> {
         }
     }
 
-    fn enum_decl(&mut self, d: &EnumDecl) -> Doc {
+    fn enum_decl(&mut self, d: &EnumDecl) -> Doc<'t> {
         let ex = if d.exported { "export " } else { "" };
         let t = self.tree();
         let g = generics(t, t.list(d.generics));
@@ -2081,10 +2081,10 @@ impl<'t> Build<'t> {
     /// blank / `y }` came back as `if (n == 0) { y }`, and `format` moved the
     /// file on every other run. A break has to be visible in the output that
     /// caused it, so the blank is dropped where it would not be written.
-    fn block_lines(&mut self, id: BlockId) -> Doc {
+    fn block_lines(&mut self, id: BlockId) -> Doc<'t> {
         let b = self.tree().block(id);
         let lo = b.span.start;
-        let mut lines: Vec<Doc> = Vec::new();
+        let mut lines: Vec<Doc<'t>> = Vec::new();
         // Where the *next* thing in the block begins, for each statement: a
         // comment written between the two, on the statement's own line, is
         // about the statement.
@@ -2157,33 +2157,33 @@ impl<'t> Build<'t> {
     /// columns of room. That is a `group` around the space before it, and it is
     /// the only place the printer looks at the *shape* of an expression rather
     /// than at its width.
-    fn assign(&mut self, prefix: &str, e: ExprId, suffix: &str) -> Doc {
+    fn assign(&mut self, prefix: &str, e: ExprId, suffix: &'static str) -> Doc<'t> {
         let d = self.expr(e);
         match prefix.strip_suffix(' ') {
             Some(head) if !breakable(self.tree(), e) => group(cat(vec![
                 text(head.to_string()),
                 nest(cat(vec![Doc::Line, d])),
-                text(suffix.to_string()),
+                text(suffix),
             ])),
-            _ => cat(vec![text(prefix.to_string()), d, text(suffix.to_string())]),
+            _ => cat(vec![text(prefix.to_string()), d, text(suffix)]),
         }
     }
 
     // -- expressions -------------------------------------------------------
 
-    fn expr(&mut self, e: ExprId) -> Doc {
+    fn expr(&mut self, e: ExprId) -> Doc<'t> {
         match self.tree().expr(e) {
-            ExprView::Int { raw, .. } | ExprView::Float { raw, .. } => text(raw.to_string()),
+            ExprView::Int { raw, .. } | ExprView::Float { raw, .. } => text(raw),
             ExprView::Str { value, .. } => text(quote(value)),
             ExprView::Char { value, .. } => text(quote_char(value)),
-            ExprView::Bool { value, .. } => text(value.to_string()),
+            ExprView::Bool { value, .. } => text(if value { "true" } else { "false" }),
             ExprView::Unit { .. } => text("()"),
             // Unreachable through `source`: the declaration around a broken
             // expression is printed verbatim whole, so no printer descends
             // into one. It is here so that a caller that built a `Build` by
             // hand still prints the text rather than nothing.
             ExprView::Error { span } => self.verbatim(span),
-            ExprView::Ident { name, .. } => text(name.to_string()),
+            ExprView::Ident { name, .. } => text(name),
             ExprView::SelfValue { .. } => text("self"),
             ExprView::Ctx { .. } => text("ctx"),
             ExprView::DotVariant { name, .. } => text(format!(".{name}")),
@@ -2212,11 +2212,11 @@ impl<'t> Build<'t> {
                 // reflow the ones after it; a list that reads down does not.
                 // The clause of an import is the exception, and it is one
                 // because a name there is not an element of anything.
-                let items: Vec<Doc> = elems.iter().map(|x| self.expr(*x)).collect();
+                let items: Vec<Doc<'t>> = elems.iter().map(|x| self.expr(*x)).collect();
                 bracketed("[", items, "]")
             }
             ExprView::Tuple { elems, .. } => {
-                let items: Vec<Doc> = elems.iter().map(|x| self.expr(*x)).collect();
+                let items: Vec<Doc<'t>> = elems.iter().map(|x| self.expr(*x)).collect();
                 bracketed("(", items, ")")
             }
             ExprView::Block { block, .. } => {
@@ -2360,7 +2360,7 @@ impl<'t> Build<'t> {
                                     let d = self.expr(v);
                                     cat(vec![text(format!("{name}: ")), d])
                                 }
-                                None => text(name.to_string()),
+                                None => text(name),
                             };
                             (d, f.span.end)
                         }
@@ -2392,7 +2392,7 @@ impl<'t> Build<'t> {
     }
 
     /// Parenthesizes only where precedence requires it.
-    fn at(&mut self, e: ExprId, parent: u8) -> Doc {
+    fn at(&mut self, e: ExprId, parent: u8) -> Doc<'t> {
         let d = self.expr(e);
         if expr_prec(self.tree(), e) < parent {
             cat(vec![text("("), d, text(")")])
@@ -2402,7 +2402,7 @@ impl<'t> Build<'t> {
     }
 
     /// The head of a postfix chain.
-    fn operand(&mut self, e: ExprId) -> Doc {
+    fn operand(&mut self, e: ExprId) -> Doc<'t> {
         let d = self.expr(e);
         if needs_parens(self.tree(), e) {
             cat(vec![text("("), d, text(")")])
@@ -2415,7 +2415,7 @@ impl<'t> Build<'t> {
     /// moment any of it breaks all of it does. Keeping `{ a }` beside the
     /// condition and breaking only the tail gives a shape that depends on
     /// which branch happened to be longest.
-    fn if_chain(&mut self, e: ExprId) -> Doc {
+    fn if_chain(&mut self, e: ExprId) -> Doc<'t> {
         let mut v = Vec::new();
         let mut node = e;
         let mut lead = "if (";
@@ -2456,7 +2456,7 @@ impl<'t> Build<'t> {
         group(cat(v))
     }
 
-    fn match_expr(&mut self, scrutinee: ExprId, arms: &[ArmData], span: Span) -> Doc {
+    fn match_expr(&mut self, scrutinee: ExprId, arms: &[ArmData], span: Span) -> Doc<'t> {
         let s = self.expr(scrutinee);
         let head = group(cat(vec![
             text("match ("),
@@ -2559,7 +2559,7 @@ impl<'t> Build<'t> {
     /// arguments between the name and the call do not stop `.parse<T>()`
     /// being one. What makes a link a break point is that it starts with `.`,
     /// which is also what makes it readable at the start of a line.
-    fn chain_expr(&mut self, e: ExprId) -> Doc {
+    fn chain_expr(&mut self, e: ExprId) -> Doc<'t> {
         let mut links = Vec::new();
         let base = chain(self.tree(), e, &mut links);
         let base_doc = self.operand(base);
@@ -2567,12 +2567,12 @@ impl<'t> Build<'t> {
         // Each link is built once and cloned into every candidate: building it
         // twice would claim its comments twice, and the second copy would get
         // none of them.
-        let mut assembled: Vec<Doc> = Vec::new();
+        let mut assembled: Vec<Doc<'t>> = Vec::new();
         for l in &links {
             match *l {
                 Link::Field(name) => assembled.push(text(format!(".{name}"))),
                 Link::Call(xs) => {
-                    let ds: Vec<Doc> = xs.iter().map(|x| self.expr(*x)).collect();
+                    let ds: Vec<Doc<'t>> = xs.iter().map(|x| self.expr(*x)).collect();
                     let hug = xs.last().is_some_and(|x| huggable(self.tree(), *x));
                     assembled.push(args_doc(ds, hug));
                 }
@@ -2629,7 +2629,7 @@ impl<'t> Build<'t> {
 /// its own to spill into — all on one line, **hugging** so that the head of the
 /// call stays on its line while that argument breaks, or one argument to a
 /// line — and the plain bracketed form otherwise.
-fn args_doc(mut ds: Vec<Doc>, hug: bool) -> Doc {
+fn args_doc<'s>(mut ds: Vec<Doc<'s>>, hug: bool) -> Doc<'s> {
     // The earlier arguments have to fit on the head line for a hug to mean
     // anything, so one that breaks rules it out. An empty list has no last
     // argument to hug either.
@@ -2657,7 +2657,7 @@ fn args_doc(mut ds: Vec<Doc>, hug: bool) -> Doc {
 
 /// `<head>` and a body on lines of its own, always — the shape every
 /// declaration with members is printed in.
-fn braced(head: &str, body: Doc) -> Doc {
+fn braced<'s>(head: &str, body: Doc<'s>) -> Doc<'s> {
     cat(vec![
         text(head.to_string()),
         nest(cat(vec![Doc::HardLine, body])),
@@ -2676,7 +2676,7 @@ fn braced(head: &str, body: Doc) -> Doc {
 /// line is the empty one — `struct S {}` — which has no member to give a line
 /// to and no list to put a comma on, and which `struct_decl` and `enum_decl`
 /// answer before they get here.
-fn record(head: &str, items: Vec<(Doc, Doc)>, trailing: Option<Doc>) -> Doc {
+fn record<'s>(head: &str, items: Vec<(Doc<'s>, Doc<'s>)>, trailing: Option<Doc<'s>>) -> Doc<'s> {
     // A body of nothing but a comment has no list to put a trailing comma on.
     if items.is_empty() {
         return braced(&format!("{head} {{"), trailing.unwrap_or(Doc::Nil));
@@ -2810,7 +2810,7 @@ fn derive_groups<'a>(t: &Tree, items: &[&'a Item]) -> Vec<(Vec<&'a Item>, &'a It
 }
 
 /// A declaration with whatever was stranded above it.
-fn with_above(c: Option<Doc>, d: Doc) -> Doc {
+fn with_above<'s>(c: Option<Doc<'s>>, d: Doc<'s>) -> Doc<'s> {
     match c {
         Some(c) => cat(vec![c, Doc::HardLine, d]),
         None => d,
@@ -2818,7 +2818,7 @@ fn with_above(c: Option<Doc>, d: Doc) -> Doc {
 }
 
 /// A member with whatever was written above it.
-fn with_comment(c: Option<Doc>, d: Doc) -> Doc {
+fn with_comment<'s>(c: Option<Doc<'s>>, d: Doc<'s>) -> Doc<'s> {
     match c {
         Some(c) => cat(vec![c, Doc::HardLine, d]),
         None => d,
@@ -2826,7 +2826,7 @@ fn with_comment(c: Option<Doc>, d: Doc) -> Doc {
 }
 
 /// `{ tail }`, or a block on lines of its own.
-fn block_doc(inner: Doc) -> Doc {
+fn block_doc<'s>(inner: Doc<'s>) -> Doc<'s> {
     if matches!(inner, Doc::Concat(ref v) if v.is_empty()) {
         return cat(vec![text("{"), Doc::HardLine, text("}")]);
     }
