@@ -314,8 +314,10 @@ fn records(fields: usize, count: usize) -> (String, Vec<String>) {
         say("\"${make(ctx, 3).hash() == make(ctx, 3).hash()} ${make(ctx, 3) < make(ctx, 4)} ${make(ctx, 3)}\""),
     );
     let keys: Vec<usize> = (0..count).map(|i| (count - i) * 7 % count).collect();
-    let distinct = keys.iter().collect::<std::collections::BTreeSet<_>>().len();
-    let found: usize = (0..count).sum();
+    let present: std::collections::BTreeSet<usize> = keys.iter().copied().collect();
+    let distinct = present.len();
+    // When 7 divides `count`, only some keys are made; each miss adds -1000.
+    let found: i64 = (0..count).map(|k| if present.contains(&k) { k as i64 } else { -1000 }).sum();
     let total: usize = keys.iter().map(|k| k * (last + 1)).sum();
     let shown = format!(
         "R {{ {} }}",
