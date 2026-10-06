@@ -528,6 +528,14 @@ fn round8(n: u32) -> u32 {
 // can actually produce: they are here so that consulting a table is not a
 // panic, and each call site that leans on one says which way it leans.
 
+/// Whether a binding names a hole. Hole names share their `JIT_` prefix and
+/// differ at the end, so this compares from the end, inline, rather than
+/// calling `memcmp` for every hole and binding [`Jit::emit`] pairs up.
+fn same_name(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    a.len() == b.len() && a.iter().rev().zip(b.iter().rev()).all(|(x, y)| x == y)
+}
+
 /// Entry `i` of a side table, or `d` when the table has none.
 fn ent<T: Copy>(t: &[T], i: usize, d: T) -> T {
     t.get(i).copied().unwrap_or(d)
@@ -1261,7 +1269,7 @@ impl<'a> Jit<'a> {
             let Some(f) = lib.fold_twin(at, k) else { continue };
             let fits = f.holes.iter().all(|h| {
                 h.lo12.is_empty()
-                    || match binds.iter().find(|(n, _)| *n == h.name.as_str()) {
+                    || match binds.iter().find(|(n, _)| same_name(n, &h.name)) {
                         Some((_, V::I(v))) => h
                             .lo12
                             .iter()
@@ -1285,7 +1293,7 @@ impl<'a> Jit<'a> {
         let tail_bytes = if self.target.is_arm64() { 4 } else { 5 };
         let mut elide = false;
         if let Some(name) = tail_name {
-            if binds.iter().any(|(n, v)| *n == name && matches!(v, V::Fall)) {
+            if binds.iter().any(|(n, v)| matches!(v, V::Fall) && same_name(n, name)) {
                 elide = true;
                 len -= tail_bytes;
             }
@@ -1311,12 +1319,11 @@ impl<'a> Jit<'a> {
                 );
             }
         }
-        for h in &s.holes {
-            if elide && tail_name == Some(h.name.as_str()) {
+        for (i, h) in s.holes.iter().enumerate() {
+            if elide && s.tail == Some(i) {
                 continue;
             }
-            let bound = binds.iter().find(|(n, _)| *n == h.name.as_str()).map(|(_, v)| v.clone());
-            let Some(v) = bound else {
+            let Some((_, v)) = binds.iter().find(|(n, _)| same_name(n, &h.name)) else {
                 // A hole the caller did not name is a symbol the stencil body
                 // reached on its own — an abort, `buri_rt_free`, `memcpy` —
                 // and becomes an import. The generated C declares nothing
@@ -1389,10 +1396,10 @@ impl<'a> Jit<'a> {
         self.region.pool_ref_pc32(at + b as u64, at + a as u64, slot);
     }
 
-    fn patch_hole(&mut self, at: u64, end: u64, h: &Hole, v: V) {
+    fn patch_hole(&mut self, at: u64, end: u64, h: &Hole, v: &V) {
         match h.kind {
             HoleKind::Branch => {
-                let target = match v {
+                let target = match *v {
                     V::I(x) | V::Ptr(x) => Some(x),
                     // A call out of the program: `bl` a symbol the linker
                     // resolves. The prototype planted a veneer holding the
@@ -1441,7 +1448,7 @@ impl<'a> Jit<'a> {
                 }
             }
             HoleKind::Imm32 => {
-                let V::I(x) = v else {
+                let V::I(x) = *v else {
                     crate::diagnostics::ice(&format!("stencil: hole {} takes a literal", h.name));
                 };
                 if !self.target.is_arm64() {
@@ -1471,7 +1478,7 @@ impl<'a> Jit<'a> {
                     // The stencil builder only ever produces `lo12` for
                     // offset-shaped holes, so anything else here is a library
                     // that does not match this emitter.
-                    let V::I(x) = v else {
+                    let V::I(x) = *v else {
                         crate::diagnostics::ice(&format!(
                             "stencil: hole {} was folded into an imm12 but is not an offset",
                             h.name
@@ -1488,7 +1495,7 @@ impl<'a> Jit<'a> {
                 // GOT form is two instructions with one destination register,
                 // and so is `movz`/`movk`. This is the same relaxation a linker
                 // does, and it takes a load off every immediate operand.
-                if let V::I(x) = v {
+                if let V::I(x) = *v {
                     if x < (1u64 << 32)
                         && h.pairs.iter().all(|(a, b)| {
                             let wa = self.region.word_at(at + *a as u64);
@@ -1502,14 +1509,14 @@ impl<'a> Jit<'a> {
                         return;
                     }
                 }
-                let slot = match v {
+                let slot = match *v {
                     V::I(x) => self.region.pool_u64(x),
                     // A byte inside this section, whose base the linker picks.
                     V::Ptr(x) => self.region.pool_target(Target::Here(x)),
                     V::Fn(f) => self.region.pool_target(Target::Func(f)),
                     V::Ext(n) => self.region.pool_target(Target::Symbol(String::from(n))),
                     V::Sym(ref n) => self.region.pool_target(Target::Symbol(n.clone())),
-                    other => crate::diagnostics::ice(&format!(
+                    ref other => crate::diagnostics::ice(&format!(
                         "stencil: hole {} takes a datum, got {other:?}",
                         h.name
                     )),
@@ -1526,14 +1533,14 @@ impl<'a> Jit<'a> {
     /// A default-visibility hole compiles to `mov rD, sym@GOTPCREL(%rip)`, and
     /// the patch is to aim its `disp32` at this unit's constant pool — one
     /// relocation, where A64 needs the two halves of a GOT `adrp`/`ldr` pair.
-    fn patch_imm64_x86_64(&mut self, at: u64, h: &Hole, v: V) {
+    fn patch_imm64_x86_64(&mut self, at: u64, h: &Hole, v: &V) {
         // The same relaxation A64 takes, and for the same reason: a value that
         // fits 32 bits does not need the pool, and dropping the load takes an
         // L1 access off every immediate operand. It is only sound where the
         // instruction is a plain `mov rD, [rip+disp32]` — a float immediate
         // arrives as `movsd` and a small comparison as `cmpl $0, …`, and
         // neither may become a `mov` of a literal.
-        if let V::I(x) = v {
+        if let V::I(x) = *v {
             if x < (1u64 << 32)
                 && h.pairs
                     .iter()
@@ -1545,13 +1552,13 @@ impl<'a> Jit<'a> {
                 return;
             }
         }
-        let slot = match v {
+        let slot = match *v {
             V::I(x) => self.region.pool_u64(x),
             V::Ptr(x) => self.region.pool_target(Target::Here(x)),
             V::Fn(f) => self.region.pool_target(Target::Func(f)),
             V::Ext(n) => self.region.pool_target(Target::Symbol(String::from(n))),
             V::Sym(ref n) => self.region.pool_target(Target::Symbol(n.clone())),
-            other => crate::diagnostics::ice(&format!(
+            ref other => crate::diagnostics::ice(&format!(
                 "stencil: hole {} takes a datum, got {other:?}",
                 h.name
             )),
