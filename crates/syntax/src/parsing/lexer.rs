@@ -1140,8 +1140,15 @@ impl<'a> Lexer<'a> {
         // with nothing between is a blank line.
         let mut newlines = 0usize;
         loop {
-            let start = self.pos;
-            let c = self.peek();
+            let mut start = self.pos;
+            let mut c = self.peek();
+            // One space is what follows most tokens, so it is stepped over
+            // here rather than by a trip through the `match`.
+            if c == b' ' {
+                start = start.saturating_add(1);
+                self.pos = start;
+                c = self.peek();
+            }
             // Whitespace and comments go round again; every other arm reads
             // one token, and settles what was above it first.
             let kind = match c {
