@@ -89,6 +89,11 @@ pub fn load_all(
 }
 
 impl Loading {
+    /// What was loaded, for a caller recording which files it read.
+    pub fn loaded(&self) -> &Loaded {
+        &self.loaded
+    }
+
     /// The bytes of repository source this load holds, which is what checking
     /// it grows with. The standard library is left out: every load has it.
     pub fn source_bytes(&self, map: &SourceMap) -> u64 {

@@ -37,7 +37,7 @@ use crate::diagnostics::{Diagnostic, Span};
 use crate::json::Value;
 use crate::languages::{Finding, Kind, Language, Said};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// The entry points a tool may export, one per block.
 pub const ENTRY_POINTS: [&str; 3] = ["check", "format", "generate"];
@@ -539,7 +539,34 @@ fn source(workspace: &Workspace, tool: Tool) -> Option<(Option<crate::build::wor
 /// The key of the program a tool is: its `main`, and — for a tool of this
 /// repository — the `link` key of everything it is compiled from. Computed
 /// without building anything, so a cached answer costs no compile.
+///
+/// A module of the tool's closure that no rule lists is part of the program
+/// too, and the `link` key can't see it. The files the last compile read that
+/// way are kept in the cache, and while they hold the bytes they did,
+/// their digests finish the key. When they don't, or nothing was kept, the
+/// tool is compiled here to learn them. With none, the key is the one above.
 pub fn program_key(session: &Session, tool: Tool, flags: &Flags) -> ActionKey {
+    let base = base_key(session, tool, flags);
+    let Tool::Repo(t) = tool else { return base };
+    let dir = session.root.join(".buri/out/tools");
+    let cache = crate::build::cache::Cache::open(&session.root);
+    let kept = ActionKey::of(format!("tool reads\n{}", base.as_str()).as_bytes());
+    if let Some((reads, _)) = cache.get(&kept).as_deref().and_then(|r| crate::build::actions::held_record(&session.root, r)) {
+        return finished(&base, &reads);
+    }
+    let Ok((js, read)) = compile(session, tool) else { return base };
+    let reads = crate::build::actions::encode_reads(
+        session,
+        &crate::build::actions::tool_unkeyed_reads(session, t, read.iter().map(PathBuf::as_path)),
+    );
+    let key = finished(&base, &reads);
+    let _ = place(&dir, &dir.join(format!("{}.mjs", key.as_str())), js.as_bytes());
+    cache.put(&kept, &crate::build::actions::with_reads(&reads, b""));
+    key
+}
+
+/// [`program_key`] before the files no rule lists.
+fn base_key(session: &Session, tool: Tool, flags: &Flags) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Link, flags.mode);
     k.platform(Platform::Js, None);
     let name = tool.name(&session.workspace);
@@ -553,21 +580,31 @@ pub fn program_key(session: &Session, tool: Tool, flags: &Flags) -> ActionKey {
     k.finish()
 }
 
-/// The `.mjs` a tool is compiled to, built once per [`program_key`] and kept.
-///
-/// Written through a temporary and renamed, because two builds in one
-/// repository may reach this at the same moment.
-pub fn artifact(session: &Session, tool: Tool, flags: &Flags) -> Result<PathBuf, String> {
+/// `base` with the digests of the files no rule lists, or `base` with none.
+fn finished(base: &ActionKey, reads: &str) -> ActionKey {
+    if reads.is_empty() {
+        return base.clone();
+    }
+    ActionKey::of(format!("{}\n{reads}", base.as_str()).as_bytes())
+}
+
+/// Writes `bytes` to `path` through a temporary and a rename, because two
+/// builds in one repository may reach it at the same moment.
+fn place(dir: &Path, path: &Path, bytes: &[u8]) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{}", std::process::id()));
+    let staged = path.with_file_name(name);
+    std::fs::write(&staged, bytes).map_err(|e| format!("{}: {e}", staged.display()))?;
+    std::fs::rename(&staged, path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Compiles a tool's program: the JavaScript, and every file it read.
+fn compile(session: &Session, tool: Tool) -> Result<(String, Vec<PathBuf>), String> {
     let name = tool.name(&session.workspace);
     let Some((package, main_name, main)) = source(&session.workspace, tool) else {
         return Err(format!("`{name}` runs in-tree and has no program"));
     };
-    let key = program_key(session, tool, flags);
-    let dir = session.root.join(".buri/out/tools");
-    let path = dir.join(format!("{}.mjs", key.as_str()));
-    if path.is_file() {
-        return Ok(path);
-    }
     if let Some(why) = broken_contract(&session.workspace, tool) {
         return Err(format!("the tool does not build: {why}"));
     }
@@ -589,10 +626,23 @@ pub fn artifact(session: &Session, tool: Tool, flags: &Flags) -> Result<PathBuf,
         Some(first) => format!("the tool does not build: {}", map.render(first, false)),
         None => "the tool does not build".to_string(),
     })?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let staged = dir.join(format!("{}.mjs.{}", key.as_str(), std::process::id()));
-    std::fs::write(&staged, js.as_bytes()).map_err(|e| format!("{}: {e}", staged.display()))?;
-    std::fs::rename(&staged, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok((js, map.paths().map(Path::to_path_buf).collect()))
+}
+
+/// The `.mjs` a tool is compiled to, built once per [`program_key`] and kept.
+pub fn artifact(session: &Session, tool: Tool, flags: &Flags) -> Result<PathBuf, String> {
+    let name = tool.name(&session.workspace);
+    if source(&session.workspace, tool).is_none() {
+        return Err(format!("`{name}` runs in-tree and has no program"));
+    }
+    let key = program_key(session, tool, flags);
+    let dir = session.root.join(".buri/out/tools");
+    let path = dir.join(format!("{}.mjs", key.as_str()));
+    if path.is_file() {
+        return Ok(path);
+    }
+    let (js, _) = compile(session, tool)?;
+    place(&dir, &path, js.as_bytes())?;
     Ok(path)
 }
 

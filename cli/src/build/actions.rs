@@ -339,7 +339,7 @@ pub fn compile_artifact(
 ) -> Result<Compiled, Diagnostics> {
     let platform = output.platform();
     let (analysis, mut program) = monomorphized_entry(session, target, output, diagnostics)?;
-    let unkeyed = unkeyed_reads(session, target, &analysis, &mut RulePaths::new());
+    let unkeyed = unkeyed_reads(session, target, &analysis.loaded, &mut RulePaths::new());
     // An entry with a `js` file hands itself to the file, which is read and
     // checked here and bundled with the program below.
     let host_file = host_file(session, output, &analysis, diagnostics)?;
@@ -577,21 +577,101 @@ fn action_key_as(
 pub fn unkeyed_reads(
     session: &Session,
     target: TargetId,
-    analysis: &crate::compiler::driver::Analysis,
+    loaded: &crate::compiler::modules::Loaded,
     rule_paths: &mut RulePaths,
 ) -> Vec<PathBuf> {
     let workspace = &session.workspace;
-    let mut closure: std::collections::HashSet<TargetId> = workspace.closure(target).into_iter().collect();
-    let mut platform_files: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let mut members: std::collections::HashSet<TargetId> = workspace.closure(target).into_iter().collect();
+    let mut extra: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     for label in workspace.custom_platforms(target) {
-        if let Some((pid, files, members)) = platform_inputs(workspace, &label) {
+        if let Some((pid, files, platform_members)) = platform_inputs(workspace, &label) {
             let dir = &workspace.package(pid).dir;
-            platform_files.extend(files.iter().map(|rel| dir.join(rel)));
-            closure.extend(members);
+            extra.extend(files.iter().map(|rel| dir.join(rel)));
+            members.extend(platform_members);
         }
     }
+    let files = loaded.modules.iter().filter_map(|m| Some((m.disk.clone()?, m.pkg)));
+    let worked = worked_out(session, loaded, |_| true);
+    unlisted(session, &members, &extra, files, worked, rule_paths, false)
+}
+
+/// [`unkeyed_reads`] for a test suite, whose key ([`test_key`]) is its target's
+/// closure, its test dependencies' and its own test sources.
+///
+/// A batch loads several suites as one program, so only the files of packages
+/// in this suite's closure are its own: another member's are in that member's
+/// record.
+pub fn suite_unkeyed_reads(
+    session: &Session,
+    target: TargetId,
+    loaded: &crate::compiler::modules::Loaded,
+    rule_paths: &mut RulePaths,
+) -> Vec<PathBuf> {
+    let workspace = &session.workspace;
+    let mut members: std::collections::HashSet<TargetId> = workspace.closure(target).into_iter().collect();
+    for (dep, _) in workspace.test_dep_edges(target) {
+        members.extend(workspace.closure(dep));
+    }
+    let package = workspace.package(target.package);
+    let extra: std::collections::HashSet<PathBuf> = package
+        .test_suite(target.kind)
+        .map(|suite| suite.sources.iter().map(|x| package.dir.join(&x.value)).collect())
+        .unwrap_or_default();
+    let files = loaded.modules.iter().filter_map(|m| Some((m.disk.clone()?, m.pkg)));
+    let worked = worked_out(session, loaded, |rule| members.contains(&rule));
+    unlisted(session, &members, &extra, files, worked, rule_paths, true)
+}
+
+/// [`unkeyed_reads`] for a tool's program ([`crate::build::tools::program_key`]),
+/// from the files its compilation read.
+pub fn tool_unkeyed_reads<'p>(
+    session: &Session,
+    tool: TargetId,
+    read: impl Iterator<Item = &'p Path>,
+) -> Vec<PathBuf> {
+    let workspace = &session.workspace;
+    let members: std::collections::HashSet<TargetId> = workspace.closure(tool).into_iter().collect();
+    let files = read.map(|p| (p.to_path_buf(), workspace.owning_package(p)));
+    let none = std::collections::HashSet::new();
+    unlisted(session, &members, &none, files, Vec::new(), &mut RulePaths::new(), false)
+}
+
+/// The files a load's generators read: every rule whose generators it reported
+/// on, and the owner of every generated module it loaded, that `wanted` says.
+fn worked_out(
+    session: &Session,
+    loaded: &crate::compiler::modules::Loaded,
+    wanted: impl Fn(TargetId) -> bool,
+) -> Vec<PathBuf> {
+    let workspace = &session.workspace;
+    let owners = loaded.modules.iter().filter(|m| m.disk.is_none()).filter_map(|m| workspace.generated.owner(&m.path));
+    let mut worked = Vec::new();
+    for rule in loaded.generated_rules.iter().copied().chain(owners).filter(|r| wanted(*r)) {
+        worked.extend(crate::build::generators::worked_out_from(workspace, rule));
+    }
+    worked
+}
+
+/// Of `files`, each with the package it is in, and of what generators read in
+/// `worked`: those no rule among `members` lists and `extra` doesn't name.
+/// A file names its package, so only that package's rules are asked.
+/// `within` leaves out a file of a package with no member in `members`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the session, who keys, what else is keyed, the two kinds of read, the memo and the               scope: none derivable from another"
+)]
+fn unlisted(
+    session: &Session,
+    members: &std::collections::HashSet<TargetId>,
+    extra: &std::collections::HashSet<PathBuf>,
+    files: impl Iterator<Item = (PathBuf, Option<crate::build::workspace::PackageId>)>,
+    worked: Vec<PathBuf>,
+    rule_paths: &mut RulePaths,
+    within: bool,
+) -> Vec<PathBuf> {
+    let workspace = &session.workspace;
     let mut keyed_by = |member: TargetId, path: &Path| {
-        closure.contains(&member)
+        members.contains(&member)
             && rule_paths
                 .entry(member)
                 .or_insert_with(|| {
@@ -601,38 +681,62 @@ pub fn unkeyed_reads(
                 .contains(path)
     };
     const KINDS: [RuleKind; 3] = [RuleKind::Library, RuleKind::Binary, RuleKind::Tool];
-    let members: Vec<TargetId> = closure.iter().copied().collect();
+    let all: Vec<TargetId> = members.iter().copied().collect();
     let mut unkeyed = Vec::new();
-    // A module names its package, so only that package's rules can list it.
-    // Anything else a generator read is asked of every member.
-    for module in &analysis.loaded.modules {
-        let Some(path) = &module.disk else { continue };
-        let listed = platform_files.contains(path)
-            || match module.pkg {
-                Some(package) => KINDS.iter().any(|&kind| keyed_by(TargetId { package, kind }, path)),
-                None => members.iter().any(|&m| keyed_by(m, path)),
-            };
-        if !listed {
-            unkeyed.push(path.clone());
+    for (path, package) in files {
+        if extra.contains(&path) {
+            continue;
         }
-    }
-    let mut worked: Vec<PathBuf> = Vec::new();
-    for rule in &analysis.loaded.generated_rules {
-        worked.extend(crate::build::generators::worked_out_from(workspace, *rule));
-    }
-    for module in analysis.loaded.modules.iter().filter(|m| m.disk.is_none()) {
-        if let Some(owner) = workspace.generated.owner(&module.path) {
-            worked.extend(crate::build::generators::worked_out_from(workspace, owner));
+        let listed = match package {
+            Some(package) => {
+                let mine = KINDS.iter().map(|&kind| TargetId { package, kind });
+                if within && !mine.clone().any(|t| members.contains(&t)) {
+                    continue;
+                }
+                mine.into_iter().any(|t| keyed_by(t, &path))
+            }
+            None => all.iter().any(|&m| keyed_by(m, &path)),
+        };
+        if !listed {
+            unkeyed.push(path);
         }
     }
     for path in worked {
-        if !platform_files.contains(&path) && !members.iter().any(|&m| keyed_by(m, &path)) {
+        if !extra.contains(&path) && !all.iter().any(|&m| keyed_by(m, &path)) {
             unkeyed.push(path);
         }
     }
     unkeyed.sort();
     unkeyed.dedup();
     unkeyed
+}
+
+/// A record with the files it read and their digests ahead of `body`
+/// ([`encode_reads`]).
+pub fn with_reads(reads: &str, body: &[u8]) -> Vec<u8> {
+    let mut out = format!("reads {}\n{reads}", reads.lines().count()).into_bytes();
+    out.extend_from_slice(body);
+    out
+}
+
+/// The reads and the body of a [`with_reads`] record, while every file it
+/// lists holds the bytes it did. `None` for a record that doesn't start with
+/// its reads.
+pub fn held_record<'b>(root: &Path, record: &'b [u8]) -> Option<(String, &'b [u8])> {
+    let mut rest = record;
+    let mut line = || {
+        let end = rest.iter().position(|b| *b == b'\n')?;
+        let (head, tail) = rest.split_at(end);
+        rest = tail.get(1..)?;
+        std::str::from_utf8(head).ok()
+    };
+    let count: usize = line()?.strip_prefix("reads ")?.parse().ok()?;
+    let mut reads = String::new();
+    for _ in 0..count {
+        reads.push_str(line()?);
+        reads.push('\n');
+    }
+    reads_hold(root, &reads).then_some((reads, rest))
 }
 
 /// Each rule's files as paths, worked out once for the [`unkeyed_reads`] of
@@ -711,7 +815,7 @@ pub fn record_clean_check(
     analysis: &crate::compiler::driver::Analysis,
     rule_paths: &mut RulePaths,
 ) {
-    let reads = encode_reads(session, &unkeyed_reads(session, target, analysis, rule_paths));
+    let reads = encode_reads(session, &unkeyed_reads(session, target, &analysis.loaded, rule_paths));
     Cache::open(&session.root).put(key, format!("{CLEAN}{reads}").as_bytes());
 }
 
@@ -2242,7 +2346,7 @@ fn build_native(
         }
     }
     let (analysis, mut program) = monomorphized_entry(session, target, output, &mut diagnostics)?;
-    let reads = encode_reads(session, &unkeyed_reads(session, target, &analysis, &mut RulePaths::new()));
+    let reads = encode_reads(session, &unkeyed_reads(session, target, &analysis.loaded, &mut RulePaths::new()));
     let tables = &analysis.checked.tables;
     let objects = objects_of(session, target, output, flags, &mut program, tables, &mut diagnostics)?;
     let prefix = session.workspace.package(target.package).path.clone();
