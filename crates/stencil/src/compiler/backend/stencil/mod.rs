@@ -966,13 +966,27 @@ fn assemble_unit(
             region::Target::Here(_) | region::Target::Pool => std::borrow::Cow::Borrowed(POOL_ANCHOR),
         }
     }
+    // Most relocations name the pool or a function of the program, so those
+    // two remember their symbol rather than hashing its name every time.
+    let mut pool_sym: Option<usize> = None;
+    let mut func_sym: crate::hash::Map<u32, usize> = crate::hash::Map::default();
+    out.reserve(emitted.code_relocs.len().saturating_add(emitted.pool_relocs.len()));
     for (section, r) in emitted
         .code_relocs
         .iter()
         .map(|r| (CODE, r))
         .chain(emitted.pool_relocs.iter().map(|r| (POOL, r)))
     {
-        let sym = want(&mut symbols, &mut index, &name_of(program, &r.target));
+        let sym = match r.target {
+            region::Target::Here(_) | region::Target::Pool => *pool_sym
+                .get_or_insert_with(|| want(&mut symbols, &mut index, POOL_ANCHOR)),
+            region::Target::Func(f) => *func_sym
+                .entry(f)
+                .or_insert_with(|| want(&mut symbols, &mut index, &name_of(program, &r.target))),
+            region::Target::Symbol(_) => {
+                want(&mut symbols, &mut index, &name_of(program, &r.target))
+            }
+        };
         out.push(object::Reloc {
             section,
             offset: r.at,
