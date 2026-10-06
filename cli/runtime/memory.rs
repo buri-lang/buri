@@ -378,16 +378,25 @@ fn atomic_delta(rc: &AtomicU64) -> u64 {
     u64::from(rc.load(Ordering::Relaxed) != BURI_RT_IMMORTAL)
 }
 
-// The one place this runtime is atomic, and it is not on the reference-count
-// path: the counts themselves are open-coded plain loads and stores, because
-// the language has no threads (MEMORY.md §1). These four are here so that
-// `cli/tests/native/memory.rs` can assert "every allocation is freed at exit" — the
-// test MEMORY.md §2 asks for to defend the acyclicity lemma — and a relaxed
-// add next to a `malloc` is not a cost anybody can measure.
-static LIVE_BLOCKS: AtomicU64 = AtomicU64::new(0);
-static LIVE_BYTES: AtomicU64 = AtomicU64::new(0);
-static TOTAL_BLOCKS: AtomicU64 = AtomicU64::new(0);
-static TOTAL_BYTES: AtomicU64 = AtomicU64::new(0);
+// The heap counters, so that `cli/tests/native/memory.rs` can assert "every
+// allocation is freed at exit" — the test MEMORY.md §2 asks for to defend the
+// acyclicity lemma.
+//
+// **Each thread counts into its own [`Tally`], and a reader sums them.** They
+// were four process-wide atomics, and a relaxed add is cheap only while one
+// core owns the line: with a pool allocating on every worker, `buri_rt_alloc`
+// and `buri_rt_free` spent most of a fan-out bouncing those lines between
+// cores. A thread writes its own tally with a plain load and store, and the
+// sum is exact whenever the threads it covers have synchronised with the
+// reader, which is what an atomic counter promised too.
+//
+// Indices into a tally. An allocation and a free each touch two words: the
+// totals are what was allocated, and live is that less what was freed
+// ([`tallied`]).
+const ALLOCATED_BLOCKS: usize = 0;
+const ALLOCATED_BYTES: usize = 1;
+const FREED_BLOCKS: usize = 2;
+const FREED_BYTES: usize = 3;
 
 // G6: two more, and they are about *resident memory* rather than about the
 // program's blocks. The four above answer "did this program leak"; these two
@@ -411,7 +420,154 @@ static DECOMMITTED_BYTES: AtomicU64 = AtomicU64::new(0);
 ///
 /// It is not in [`BuriHeapStats`]: that struct is an ABI three files declare by
 /// hand, and this is a number only the audit below asks for.
-static LIVE_ARENA_BLOCKS: AtomicU64 = AtomicU64::new(0);
+const LIVE_ARENA_BLOCKS: usize = 4;
+
+const TALLY_WORDS: usize = 5;
+
+/// One thread's share of the heap counters. Only its own thread writes it, so a
+/// change is a load and a store rather than a read-modify-write; readers on
+/// other threads sum it under [`OPEN_TALLIES`].
+struct Tally {
+    words: [AtomicU64; TALLY_WORDS],
+    state: std::cell::Cell<u8>,
+}
+
+/// Not yet in [`OPEN_TALLIES`]; the thread's first count opens it.
+const TALLY_NEW: u8 = 0;
+const TALLY_OPEN: u8 = 1;
+/// The thread is ending, or its tally could not be opened: counts go straight
+/// to [`RETIRED_TALLY`].
+const TALLY_CLOSED: u8 = 2;
+
+/// What ended threads counted, plus anything counted with no tally open.
+static RETIRED_TALLY: [AtomicU64; TALLY_WORDS] = [const { AtomicU64::new(0) }; TALLY_WORDS];
+
+/// The address of every open tally's `words`. A thread leaves under this lock,
+/// folding its counts into [`RETIRED_TALLY`], so a sum taken under it counts
+/// each thread exactly once.
+static OPEN_TALLIES: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+fn open_tallies() -> MutexGuard<'static, Vec<usize>> {
+    match OPEN_TALLIES.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// Add each `(word, delta)` to this thread's tally.
+#[inline(always)]
+fn count<const N: usize>(deltas: [(usize, u64); N]) {
+    let counted = CACHE.try_with(|t| {
+        t.tally.add(&deltas);
+        t.tally.seen(&deltas);
+    });
+    if counted.is_err() {
+        retire(&deltas);
+    }
+}
+
+/// What one allocation of `payload` bytes adds, and one free of `cap` takes away.
+#[inline(always)]
+fn allocated(payload: u64) -> [(usize, u64); 2] {
+    [(ALLOCATED_BLOCKS, 1), (ALLOCATED_BYTES, payload)]
+}
+
+#[inline(always)]
+fn freed(cap: u64) -> [(usize, u64); 2] {
+    [(FREED_BLOCKS, 1), (FREED_BYTES, cap)]
+}
+
+impl Tally {
+    /// Add `deltas` to this thread's words, open or not. [`Tally::seen`] makes
+    /// sure a reader will see them, and the hot paths skip it where the tally
+    /// is certainly open: a cache that holds or takes a block is armed, and
+    /// [`Cache::arm`] runs only once the tally is open.
+    #[inline(always)]
+    fn add(&self, deltas: &[(usize, u64)]) {
+        for &(i, d) in deltas {
+            let w = &self.words[i];
+            w.store(w.load(Ordering::Relaxed).wrapping_add(d), Ordering::Relaxed);
+        }
+    }
+
+    /// Make the `deltas` just added count where a reader looks.
+    #[inline(always)]
+    fn seen(&self, deltas: &[(usize, u64)]) {
+        if self.state.get() != TALLY_OPEN {
+            self.settle(deltas);
+        }
+    }
+
+    /// [`Tally::seen`] on a tally that isn't open: open it, or, on a thread
+    /// that is ending, count `deltas` in [`RETIRED_TALLY`] instead.
+    #[cold]
+    #[inline(never)]
+    fn settle(&self, deltas: &[(usize, u64)]) {
+        if self.state.get() == TALLY_NEW {
+            // The drain closes the tally at thread exit, so a thread that can
+            // no longer register one never opens it.
+            if CACHE_DRAIN.try_with(|_| ()).is_ok() {
+                open_tallies().push(self.words.as_ptr() as usize);
+                self.state.set(TALLY_OPEN);
+                return;
+            }
+            self.state.set(TALLY_CLOSED);
+        }
+        if self.state.get() == TALLY_CLOSED {
+            retire(deltas);
+        }
+    }
+}
+
+/// Count `deltas` where no thread's tally holds them.
+#[cold]
+#[inline(never)]
+fn retire(deltas: &[(usize, u64)]) {
+    for &(i, d) in deltas {
+        RETIRED_TALLY[i].fetch_add(d, Ordering::Relaxed);
+    }
+}
+
+/// Fold this thread's tally into [`RETIRED_TALLY`] and stop counting into it.
+fn close_tally(t: &Tally) {
+    if t.state.get() == TALLY_OPEN {
+        let mut open = open_tallies();
+        for (i, w) in t.words.iter().enumerate() {
+            RETIRED_TALLY[i].fetch_add(w.load(Ordering::Relaxed), Ordering::Relaxed);
+        }
+        let me = t.words.as_ptr() as usize;
+        open.retain(|&a| a != me);
+    }
+    t.state.set(TALLY_CLOSED);
+}
+
+/// The heap counters as [`BuriHeapStats`] states them: live blocks, live bytes,
+/// total blocks, total bytes, and live arena blocks.
+fn tallied() -> [u64; TALLY_WORDS] {
+    let n = summed();
+    [
+        n[ALLOCATED_BLOCKS].wrapping_sub(n[FREED_BLOCKS]),
+        n[ALLOCATED_BYTES].wrapping_sub(n[FREED_BYTES]),
+        n[ALLOCATED_BLOCKS],
+        n[ALLOCATED_BYTES],
+        n[LIVE_ARENA_BLOCKS],
+    ]
+}
+
+/// Every thread's tally, summed.
+fn summed() -> [u64; TALLY_WORDS] {
+    let open = open_tallies();
+    let mut sum: [u64; TALLY_WORDS] = std::array::from_fn(|i| RETIRED_TALLY[i].load(Ordering::Relaxed));
+    for &a in open.iter() {
+        // SAFETY: an address stays in the list only while its thread is alive,
+        // and it leaves under the lock this holds.
+        let words = unsafe { &*(a as *const [AtomicU64; TALLY_WORDS]) };
+        for (s, w) in sum.iter_mut().zip(words) {
+            *s = s.wrapping_add(w.load(Ordering::Relaxed));
+        }
+    }
+    sum
+}
 
 /// What [`buri_rt_heap_stats`] writes. Eight `u64`s, in this order.
 ///
@@ -506,13 +662,19 @@ pub extern "C" fn buri_rt_alloc(payload: u64) -> *mut u8 {
         if let Some(p) = scoped_alloc(payload, false) {
             return p;
         }
-    } else if let Some(p) = cache_pop(payload) {
-        // G2: this thread's cache first. A hit is a block of exactly `payload`
+    } else {
+        // G2: this thread's cache first, and the block counted in the same
+        // visit to the thread-local. A hit is a block of exactly `payload`
         // usable bytes, so `finish` writes the same header it would have
         // written over a fresh one.
-        //
-        // SAFETY: `p` is a payload pointer, so `p - 16` is its block.
-        return finish(unsafe { p.sub(BURI_RT_HEADER) }, payload);
+        let hit = cache_pop_counted(payload);
+        let raw = match hit {
+            // SAFETY: `p` is a payload pointer, so `p - 16` is its block.
+            Some(p) => unsafe { p.sub(BURI_RT_HEADER) },
+            // SAFETY: `layout` has a non-zero size — the header alone is 16 bytes.
+            None => unsafe { alloc(layout_for(payload)) },
+        };
+        return finish_uncounted(raw, payload, 0);
     }
     let layout = layout_for(payload);
     // SAFETY: `layout` has a non-zero size — the header alone is 16 bytes.
@@ -531,16 +693,22 @@ pub extern "C" fn buri_rt_alloc_zeroed(payload: u64) -> *mut u8 {
         if let Some(p) = scoped_alloc(payload, true) {
             return p;
         }
-    } else if let Some(p) = cache_pop(payload) {
-        // G2: a cached block holds whatever the last value in it held, so this
-        // one zeroes what `alloc_zeroed` would have got from the allocator.
-        //
-        // SAFETY: `p` is a payload pointer to a block with `payload` usable
-        // bytes, which is exactly the range written.
-        unsafe {
-            std::ptr::write_bytes(p, 0, payload as usize);
-            return finish(p.sub(BURI_RT_HEADER), payload);
-        }
+    } else {
+        let raw = match cache_pop_counted(payload) {
+            // G2: a cached block holds whatever the last value in it held, so
+            // this one zeroes what `alloc_zeroed` would have got from the
+            // allocator.
+            //
+            // SAFETY: `p` is a payload pointer to a block with `payload`
+            // usable bytes, which is exactly the range written.
+            Some(p) => unsafe {
+                std::ptr::write_bytes(p, 0, payload as usize);
+                p.sub(BURI_RT_HEADER)
+            },
+            // SAFETY: as above.
+            None => unsafe { alloc_zeroed(layout_for(payload)) },
+        };
+        return finish_uncounted(raw, payload, 0);
     }
     let layout = layout_for(payload);
     // SAFETY: as above.
@@ -555,6 +723,15 @@ fn finish(raw: *mut u8, payload: u64) -> *mut u8 {
 /// [`finish`], with the block's own flag bits — G5's [`BURI_RT_CAP_ARENA`] for
 /// a block a scope served, and nothing for one the platform allocator did.
 fn finish_with(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
+    let arena = u64::from(flags & BURI_RT_CAP_ARENA != 0);
+    let [a, b] = allocated(payload);
+    count([a, b, (LIVE_ARENA_BLOCKS, arena)]);
+    finish_uncounted(raw, payload, flags)
+}
+
+/// [`finish_with`] for a block [`cache_pop_counted`] has already counted.
+#[inline(always)]
+fn finish_uncounted(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
     if raw.is_null() {
         buri_rt_abort_oom(payload);
     }
@@ -575,13 +752,6 @@ fn finish_with(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
         // through here too, which is what keeps a cache hit and a fresh
         // `malloc` indistinguishable.
         raw.cast::<Header>().write(Header { rc: 1, cap: payload | shared_mask() | flags });
-    }
-    LIVE_BLOCKS.fetch_add(1, Ordering::Relaxed);
-    LIVE_BYTES.fetch_add(payload, Ordering::Relaxed);
-    TOTAL_BLOCKS.fetch_add(1, Ordering::Relaxed);
-    TOTAL_BYTES.fetch_add(payload, Ordering::Relaxed);
-    if flags & BURI_RT_CAP_ARENA != 0 {
-        LIVE_ARENA_BLOCKS.fetch_add(1, Ordering::Relaxed);
     }
     // SAFETY: the block is `BURI_RT_HEADER + payload` bytes, so the payload
     // start is one-past-the-header and in bounds.
@@ -789,8 +959,12 @@ impl Cache {
     #[cold]
     #[inline(never)]
     fn arm(&mut self) {
-        self.held = 0;
-        let _ = CACHE_DRAIN.try_with(|_| ());
+        // A thread too far into its exit to register the drain keeps nothing,
+        // because nothing would give it back.
+        self.held = match CACHE_DRAIN.try_with(|_| ()) {
+            Ok(()) => 0,
+            Err(_) => CACHE_CLOSED,
+        };
     }
 
     /// Give every cached block back and refuse to keep another. Runs from
@@ -932,23 +1106,38 @@ impl Drop for CacheDrain {
         let _ = CACHE.try_with(|c| {
             // SAFETY: this thread's own cell, on the way out; nothing else can
             // hold a reference derived from it.
-            let cache = unsafe { &mut *c.get() };
+            let cache = unsafe { &mut *c.cache.get() };
             cache.close();
+            close_tally(&c.tally);
         });
     }
 }
 
+/// A thread's cache and its [`Tally`], in one thread-local so the allocation
+/// path pays one `tlv_get_addr` for both. The tally sits outside the
+/// `UnsafeCell` because other threads read it.
+struct ThreadHeap {
+    cache: std::cell::UnsafeCell<Cache>,
+    tally: Tally,
+}
+
 thread_local! {
-    static CACHE: std::cell::UnsafeCell<Cache> = const {
-        std::cell::UnsafeCell::new(Cache {
-            slots: [Slot { head: std::ptr::null_mut(), hit: false }; CACHE_SLOTS],
-            held: CACHE_UNARMED,
-            published: 0,
-            since_sweep: 0,
-            arena: 0,
-            arena_at: 0,
-            arena_end: 0,
-        })
+    static CACHE: ThreadHeap = const {
+        ThreadHeap {
+            cache: std::cell::UnsafeCell::new(Cache {
+                slots: [Slot { head: std::ptr::null_mut(), hit: false }; CACHE_SLOTS],
+                held: CACHE_UNARMED,
+                published: 0,
+                since_sweep: 0,
+                arena: 0,
+                arena_at: 0,
+                arena_end: 0,
+            }),
+            tally: Tally {
+                words: [const { AtomicU64::new(0) }; TALLY_WORDS],
+                state: std::cell::Cell::new(TALLY_NEW),
+            },
+        }
     };
 
     /// Touched once per thread, by [`Cache::arm`], purely so that its
@@ -956,37 +1145,51 @@ thread_local! {
     static CACHE_DRAIN: CacheDrain = const { CacheDrain };
 }
 
-/// A dead block of exactly `payload` usable bytes from this thread's cache.
-fn cache_pop(payload: u64) -> Option<*mut u8> {
-    if payload > CACHE_MAX_PAYLOAD {
-        return None;
-    }
-    let idx = payload as usize;
+/// A dead block of exactly `payload` usable bytes from this thread's cache,
+/// with an allocation of `payload` bytes counted either way.
+#[inline(always)]
+fn cache_pop_counted(payload: u64) -> Option<*mut u8> {
     // `try_with` rather than `with`: a block freed while this thread's
     // destructors run must not panic, and the answer there is simply "no
     // cache".
-    CACHE
-        .try_with(|c| {
-            // SAFETY: `c` is this thread's own cell, and no reference derived
+    let popped = CACHE.try_with(|t| {
+        t.tally.add(&allocated(payload));
+        let hit = if payload <= CACHE_MAX_PAYLOAD {
+            // SAFETY: `t` is this thread's own cell, and no reference derived
             // from it escapes this closure or crosses a call that could
             // re-enter.
-            let cache = unsafe { &mut *c.get() };
-            let slot = cache.slots.get_mut(idx)?;
-            let p = slot.head;
-            if p.is_null() {
-                return None;
-            }
-            // SAFETY: every pointer in a slot is a block this file freed, of
-            // exactly `payload` usable bytes, whose `rc` holds the next one.
-            slot.head = unsafe { (*header(p)).rc as *mut u8 };
-            // G6: the program wanted this size in this period, so the sweep
-            // leaves the slot alone.
-            slot.hit = true;
-            cache.held = cache.held.saturating_sub(slot_bytes(payload));
-            Some(p)
-        })
-        .ok()
-        .flatten()
+            cache_take(unsafe { &mut *t.cache.get() }, payload)
+        } else {
+            None
+        };
+        // A hit came from an armed cache, so the tally is open.
+        if hit.is_none() {
+            t.tally.seen(&allocated(payload));
+        }
+        hit
+    });
+    popped.unwrap_or_else(|_| {
+        retire(&allocated(payload));
+        None
+    })
+}
+
+/// The head of `payload`'s slot, if it has one.
+#[inline(always)]
+fn cache_take(cache: &mut Cache, payload: u64) -> Option<*mut u8> {
+    let slot = cache.slots.get_mut(payload as usize)?;
+    let p = slot.head;
+    if p.is_null() {
+        return None;
+    }
+    // SAFETY: every pointer in a slot is a block this file freed, of
+    // exactly `payload` usable bytes, whose `rc` holds the next one.
+    slot.head = unsafe { (*header(p)).rc as *mut u8 };
+    // G6: the program wanted this size in this period, so the sweep
+    // leaves the slot alone.
+    slot.hit = true;
+    cache.held = cache.held.saturating_sub(slot_bytes(payload));
+    Some(p)
 }
 
 /// The allocation path of a process that has opened a scope at some point:
@@ -1021,7 +1224,7 @@ fn scoped_alloc(payload: u64, zeroed: bool) -> Option<*mut u8> {
             // SAFETY: `c` is this thread's own cell, and no reference derived
             // from it escapes this closure or crosses a call that could
             // re-enter.
-            let cache = unsafe { &mut *c.get() };
+            let cache = unsafe { &mut *c.cache.get() };
             if cache.arena != 0 {
                 let need = block_bytes(payload);
                 if let Some(end) = cache.arena_at.checked_add(need)
@@ -1096,42 +1299,51 @@ fn scoped_alloc(payload: u64, zeroed: bool) -> Option<*mut u8> {
 /// # Safety
 /// `p` is a payload pointer whose block is dead, has exactly `cap` usable
 /// bytes, and is not reachable from anywhere else.
-unsafe fn cache_push(p: *mut u8, cap: u64) -> bool {
-    if cap > CACHE_MAX_PAYLOAD {
-        return false;
-    }
-    let idx = cap as usize;
-    CACHE
-        .try_with(|c| {
-            // SAFETY: as in `cache_pop`.
-            let cache = unsafe { &mut *c.get() };
-            let bytes = slot_bytes(cap);
-            if idx >= CACHE_SLOTS {
+///
+/// Counts the free of `cap` bytes in the same visit to the thread-local.
+#[inline(always)]
+unsafe fn cache_push_counted(p: *mut u8, cap: u64) -> bool {
+    let pushed = CACHE.try_with(|t| {
+        t.tally.add(&freed(cap));
+        if cap > CACHE_MAX_PAYLOAD {
+            t.tally.seen(&freed(cap));
+            return false;
+        }
+        // SAFETY: `t` is this thread's own cell, as in `cache_pop_counted`.
+        let cache = unsafe { &mut *t.cache.get() };
+        let bytes = slot_bytes(cap);
+        if cache.held.saturating_add(bytes) > cache_budget() {
+            // Unarmed, closed or full: the one place a push asks after the
+            // tally, and the arm below needs it open first.
+            t.tally.seen(&freed(cap));
+            if cache.held != CACHE_UNARMED {
+                // G6: a refusal is still an operation. See
+                // `CACHE_SWEEP_OPS`.
+                cache.tick();
                 return false;
             }
-            if cache.held.saturating_add(bytes) > cache_budget() {
-                if cache.held != CACHE_UNARMED {
-                    // G6: a refusal is still an operation. See
-                    // `CACHE_SWEEP_OPS`.
-                    cache.tick();
-                    return false;
-                }
-                // The thread's first free. Register the destructor that will
-                // drain this cache, open it, and keep the block after all.
-                cache.arm();
+            // The thread's first free. Register the destructor that will
+            // drain this cache, open it, and keep the block after all.
+            cache.arm();
+            if cache.held == CACHE_CLOSED {
+                return false;
             }
-            let slot = &mut cache.slots[idx];
-            // SAFETY: the caller promises a dead block, so its header is this
-            // file's to use as list storage.
-            unsafe {
-                (*header(p)).rc = slot.head as u64;
-            }
-            slot.head = p;
-            cache.held = cache.held.saturating_add(bytes);
-            cache.tick();
-            true
-        })
-        .unwrap_or(false)
+        }
+        let slot = &mut cache.slots[cap as usize];
+        // SAFETY: the caller promises a dead block, so its header is this
+        // file's to use as list storage.
+        unsafe {
+            (*header(p)).rc = slot.head as u64;
+        }
+        slot.head = p;
+        cache.held = cache.held.saturating_add(bytes);
+        cache.tick();
+        true
+    });
+    pushed.unwrap_or_else(|_| {
+        retire(&freed(cap));
+        false
+    })
 }
 
 // === G2 end ================================================================
@@ -1195,9 +1407,10 @@ pub unsafe extern "C" fn buri_rt_realloc(p: *mut u8, payload: u64) -> *mut u8 {
         // function reached it, so the *cumulative* counters are corrected back
         // to what the in-place arm below would have left: this mode may not
         // move a number a program or a probe can read.
-        TOTAL_BLOCKS.fetch_sub(1, Ordering::Relaxed);
-        TOTAL_BYTES.fetch_sub(payload, Ordering::Relaxed);
-        TOTAL_BYTES.fetch_add(payload.saturating_sub(old_cap), Ordering::Relaxed);
+        // Taking the same amount off both sides leaves live where it is.
+        let bytes = payload.saturating_sub(old_cap).wrapping_sub(payload);
+        let one_less = 1u64.wrapping_neg();
+        count([(ALLOCATED_BLOCKS, one_less), (FREED_BLOCKS, one_less), (ALLOCATED_BYTES, bytes), (FREED_BYTES, bytes)]);
         return fresh;
     }
     // G5: a bump allocator cannot grow the block it handed out last but one, so
@@ -1234,8 +1447,7 @@ pub unsafe extern "C" fn buri_rt_realloc(p: *mut u8, payload: u64) -> *mut u8 {
     unsafe {
         raw.cast::<Header>().write(Header { rc, cap: payload | flags });
     }
-    LIVE_BYTES.fetch_add(payload.wrapping_sub(old_cap), Ordering::Relaxed);
-    TOTAL_BYTES.fetch_add(payload.saturating_sub(old_cap), Ordering::Relaxed);
+    count([(ALLOCATED_BYTES, payload.saturating_sub(old_cap)), (FREED_BYTES, old_cap.saturating_sub(payload))]);
     // SAFETY: in bounds, as in `finish`.
     unsafe { raw.add(BURI_RT_HEADER) }
 }
@@ -1272,8 +1484,6 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
         }
         (cap_of(h), is_arena(h))
     };
-    LIVE_BLOCKS.fetch_sub(1, Ordering::Relaxed);
-    LIVE_BYTES.fetch_sub(cap, Ordering::Relaxed);
     trace_free(p);
     // Before the address can be handed to another block: an index of this
     // block's bytes must not answer for the next one's (`scalars.rs`).
@@ -1289,7 +1499,8 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     // path, and the arena's bulk free reclaims only address space whose last
     // reference has already gone.
     if arena {
-        LIVE_ARENA_BLOCKS.fetch_sub(1, Ordering::Relaxed);
+        let [a, b] = freed(cap);
+        count([a, b, (LIVE_ARENA_BLOCKS, 1u64.wrapping_neg())]);
         return;
     }
     // The test-mode quarantine, which takes the block instead of the cache and
@@ -1297,6 +1508,7 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     // ring needs the room. An arena block is not offered — its pages are the
     // scope's and go back in one `munmap`.
     if heap_check().quarantines() {
+        count(freed(cap));
         // SAFETY: the block is dead, has `cap` usable bytes, is not an arena
         // block, and this is its last reference.
         unsafe { quarantine_push(p, cap) };
@@ -1309,7 +1521,7 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     //
     // SAFETY: the block is dead, has `cap` usable bytes, and this is its last
     // reference.
-    if unsafe { cache_push(p, cap) } {
+    if unsafe { cache_push_counted(p, cap) } {
         return;
     }
     // SAFETY: `p - 16` is the allocation, and `layout_for(cap)` is the layout
@@ -1432,8 +1644,7 @@ pub unsafe extern "C" fn buri_rt_make_immortal(p: *mut u8) {
         if (*h).rc == BURI_RT_IMMORTAL {
             return;
         }
-        LIVE_BLOCKS.fetch_sub(1, Ordering::Relaxed);
-        LIVE_BYTES.fetch_sub(cap_of(h), Ordering::Relaxed);
+        count(freed(cap_of(h)));
         trace_free(p);
         (*h).rc = BURI_RT_IMMORTAL;
     }
@@ -1465,13 +1676,14 @@ pub unsafe extern "C" fn buri_rt_cap(p: *mut u8) -> u64 {
 /// `out` must be non-null and aligned for [`BuriHeapStats`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_heap_stats(out: *mut BuriHeapStats) {
+    let [live_blocks, live_bytes, total_blocks, total_bytes, _] = tallied();
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe {
         out.write(BuriHeapStats {
-            live_blocks: LIVE_BLOCKS.load(Ordering::Relaxed),
-            live_bytes: LIVE_BYTES.load(Ordering::Relaxed),
-            total_blocks: TOTAL_BLOCKS.load(Ordering::Relaxed),
-            total_bytes: TOTAL_BYTES.load(Ordering::Relaxed),
+            live_blocks,
+            live_bytes,
+            total_blocks,
+            total_bytes,
             retained_bytes: RETAINED_BYTES.load(Ordering::Relaxed),
             decommitted_bytes: DECOMMITTED_BYTES.load(Ordering::Relaxed),
             arena_bytes: ARENA_BYTES.load(Ordering::Relaxed),
@@ -1484,7 +1696,7 @@ pub unsafe extern "C" fn buri_rt_heap_stats(out: *mut BuriHeapStats) {
 /// MEMORY.md §2 asks a test to assert.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_live_blocks() -> u64 {
-    LIVE_BLOCKS.load(Ordering::Relaxed)
+    tallied()[0]
 }
 
 // ---------------------------------------------------------------------------
@@ -2021,13 +2233,12 @@ extern "C" fn heap_audit() {
     // The arena's residue comes out first: `LIVE_ARENA_BLOCKS` is the part of
     // the count whose memory a `munmap` has already taken back, and a leak
     // report about it would be a report about `core/alloc::scoped` working.
-    let live = LIVE_BLOCKS
-        .load(Ordering::Relaxed)
-        .saturating_sub(LIVE_ARENA_BLOCKS.load(Ordering::Relaxed));
+    let [live_blocks, live_bytes, total_blocks, _, live_arena_blocks] = tallied();
+    let live = live_blocks.saturating_sub(live_arena_blocks);
     if live != 0 {
         trace_dump();
         let blocks = HeapDigits::of(live);
-        let bytes = HeapDigits::of(LIVE_BYTES.load(Ordering::Relaxed));
+        let bytes = HeapDigits::of(live_bytes);
         heap_bug(&[
             b"leak: ",
             blocks.as_bytes(),
@@ -2039,7 +2250,7 @@ extern "C" fn heap_audit() {
     if std::env::var_os("BURI_RT_HEAP_REPORT").is_some() {
         use std::io::Write as _;
         let seen = quarantine(|q| q.seen);
-        let total = HeapDigits::of(TOTAL_BLOCKS.load(Ordering::Relaxed));
+        let total = HeapDigits::of(total_blocks);
         let quarantined = HeapDigits::of(seen);
         let verified = HeapDigits::of(held);
         let err = std::io::stderr();
@@ -2842,7 +3053,7 @@ pub fn arena_slot_of_thread() -> ArenaSlot {
     // SAFETY: this thread's own cell, and nothing derived from it escapes.
     CACHE
         .try_with(|c| unsafe {
-            let cache = &*c.get();
+            let cache = &*c.cache.get();
             ArenaSlot { biased: cache.arena, at: cache.arena_at, end: cache.arena_end }
         })
         .unwrap_or(ArenaSlot::NONE)
@@ -2852,7 +3063,7 @@ pub fn arena_slot_of_thread() -> ArenaSlot {
 pub fn set_arena_slot_of_thread(slot: ArenaSlot) {
     // SAFETY: as above.
     let _ = CACHE.try_with(|c| unsafe {
-        let cache = &mut *c.get();
+        let cache = &mut *c.cache.get();
         cache.arena = slot.biased;
         cache.arena_at = slot.at;
         cache.arena_end = slot.end;
@@ -2961,7 +3172,7 @@ fn arena_block(handle: i64, payload: u64) -> Option<*mut u8> {
 fn set_window(at: usize, end: usize) {
     // SAFETY: this thread's own cell, and nothing derived from it escapes.
     let _ = CACHE.try_with(|c| unsafe {
-        let cache = &mut *c.get();
+        let cache = &mut *c.cache.get();
         cache.arena_at = at;
         cache.arena_end = end;
     });
@@ -4436,7 +4647,7 @@ mod tests {
     /// and the convergence claim below is a per-thread claim.
     fn cache_held() -> u64 {
         // SAFETY: this thread's own cell, and the reference does not escape.
-        CACHE.with(|c| unsafe { (*c.get()).held })
+        CACHE.with(|c| unsafe { (*c.cache.get()).held })
     }
 
     /// Run a test of the per-thread cache with the heap check off.
@@ -4481,6 +4692,116 @@ mod tests {
             .output()
             .ok()?;
         String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+    }
+
+    /// Run `body` in a child process that runs nothing else, so process-wide
+    /// counters move only for it.
+    fn alone_in_a_process(test: &str, body: impl FnOnce()) {
+        if std::env::var_os("BURI_RT_TEST_ALONE").is_some() {
+            body();
+            return;
+        }
+        let module = module_path!().split_once("::").map_or(module_path!(), |(_, rest)| rest);
+        let name = format!("{module}::{test}");
+        let out = std::process::Command::new(std::env::current_exe().expect("this test binary"))
+            .args(["--exact", &name, "--test-threads=1"])
+            .env("BURI_RT_TEST_ALONE", "1")
+            .output()
+            .expect("the test binary runs");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            out.status.success(),
+            "`{name}` failed alone:\n{stdout}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(stdout.contains("1 passed"), "`{name}` did not run:\n{stdout}");
+    }
+
+    fn heap_stats() -> BuriHeapStats {
+        let mut s = BuriHeapStats {
+            live_blocks: 0,
+            live_bytes: 0,
+            total_blocks: 0,
+            total_bytes: 0,
+            retained_bytes: 0,
+            decommitted_bytes: 0,
+            arena_bytes: 0,
+            arena_released_bytes: 0,
+        };
+        // SAFETY: a writable, aligned destination.
+        unsafe { buri_rt_heap_stats(&raw mut s) };
+        s
+    }
+
+    /// **The heap counters are exact across threads**: those still running,
+    /// those that have ended, and blocks freed on a thread other than the one
+    /// that allocated them. Each thread counts into its own tally, so this is
+    /// what a lost or doubled tally would break.
+    #[test]
+    fn the_heap_counts_add_up_across_threads_that_come_and_go() {
+        alone_in_a_process("the_heap_counts_add_up_across_threads_that_come_and_go", || {
+            const THREADS: usize = 16;
+            const EACH: usize = 1000;
+            // Both sides of the cache: a cached size and one past it.
+            let size = |i: usize| if i % 2 == 0 { 24 } else { CACHE_MAX_PAYLOAD + 40 };
+            let before = heap_stats();
+
+            let (go, wait) = std::sync::mpsc::channel::<()>();
+            let (ready, readied) = std::sync::mpsc::channel::<()>();
+            let staying = std::thread::spawn(move || {
+                let held: Vec<usize> = (0..EACH).map(|i| buri_rt_alloc(size(i)) as usize).collect();
+                ready.send(()).unwrap();
+                wait.recv().unwrap();
+                for p in held {
+                    // SAFETY: a live block this thread allocated and holds alone.
+                    unsafe { buri_rt_free(p as *mut u8) };
+                }
+            });
+            readied.recv().unwrap();
+
+            let handed: Vec<usize> = (0..THREADS)
+                .map(|_| {
+                    std::thread::spawn(move || {
+                        let mut kept = Vec::new();
+                        for i in 0..EACH {
+                            let p = buri_rt_alloc(size(i));
+                            if i % 2 == 0 {
+                                // SAFETY: a live block this thread holds alone.
+                                unsafe { buri_rt_free(p) };
+                            } else {
+                                kept.push(p as usize);
+                            }
+                        }
+                        kept
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .flat_map(|t| t.join().unwrap())
+                .collect();
+
+            let bytes = |n: usize, from: usize| (from..from + n).map(|i| size(i)).sum::<u64>();
+            let all = THREADS * EACH + EACH;
+            let mid = heap_stats();
+            assert_eq!(mid.total_blocks - before.total_blocks, all as u64);
+            assert_eq!(mid.live_blocks - before.live_blocks, (THREADS * EACH / 2 + EACH) as u64);
+            assert_eq!(
+                mid.live_bytes - before.live_bytes,
+                THREADS as u64 * (CACHE_MAX_PAYLOAD + 40) * (EACH / 2) as u64 + bytes(EACH, 0)
+            );
+
+            for p in handed {
+                // SAFETY: a live block another thread allocated and handed over.
+                unsafe { buri_rt_free(p as *mut u8) };
+            }
+            assert_eq!(heap_stats().live_blocks - before.live_blocks, EACH as u64);
+            go.send(()).unwrap();
+            staying.join().unwrap();
+            let after = heap_stats();
+            assert_eq!(after.live_blocks, before.live_blocks);
+            assert_eq!(after.live_bytes, before.live_bytes);
+            assert_eq!(after.total_blocks - before.total_blocks, all as u64);
+        });
     }
 
     /// **The stats struct is six words in this order**, which is an ABI two
