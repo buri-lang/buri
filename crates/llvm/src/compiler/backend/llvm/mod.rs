@@ -231,7 +231,8 @@ impl Backend for Llvm {
     ) -> Result<Vec<Emitted>, Diagnostics> {
         let lowered = self.take_lowering(program, tables);
         let counted = classifier(program);
-        emit_selected(&lowered, tables, opts, root_of(program), units, &counted, target::object)
+        let (root, names) = (root_of(program), Names::Discard);
+        emit_selected(&lowered, tables, opts, root, units, &counted, names, target::object)
     }
 }
 
@@ -275,8 +276,16 @@ impl Llvm {
             Ok(module.to_string().into_bytes())
         };
         let only = [unit];
-        let emitted =
-            emit_selected(&lowered, tables, opts, root_of(program), Units::Only(&only), &counted, text)?;
+        let emitted = emit_selected(
+            &lowered,
+            tables,
+            opts,
+            root_of(program),
+            Units::Only(&only),
+            &counted,
+            Names::Keep,
+            text,
+        )?;
         let bytes = emitted.into_iter().next().map(|e| e.bytes).unwrap_or_default();
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
@@ -325,6 +334,18 @@ fn classifier(program: &monomorphize::Program) -> rc::Syntactic {
     rc::Syntactic::new(program)
 }
 
+/// Whether a unit's values and blocks keep the names the emitter gives them.
+///
+/// Only a reader needs them, so only [`Llvm::emit_ir_text`] keeps them. An
+/// object discards them, as `clang` does outside a debug build: every name is
+/// a string LLVM uniques into a symbol table, and every pass that makes an
+/// instruction names it too. An object's bytes don't depend on a local name.
+#[derive(Clone, Copy)]
+enum Names {
+    Keep,
+    Discard,
+}
+
 /// What one thread emitting units keeps between them: the machine, which
 /// LLVM does not share between threads, and the thread's own copy of the
 /// classifier.
@@ -347,6 +368,7 @@ struct Shared<'p> {
     /// `runtime_table::shares_counts`: whether every count's fork reads
     /// `buri_rt_shared_mask`.
     shares: bool,
+    names: Names,
 }
 
 /// One object per codegen unit, for a chosen subset of the units, from an
@@ -375,6 +397,7 @@ struct Shared<'p> {
 ///
 /// `render` turns each optimized module into the bytes returned for it: an
 /// object file for the build, the IR text for [`Llvm::emit_ir_text`].
+#[allow(clippy::too_many_arguments, reason = "the whole-program answers every unit reads")]
 fn emit_selected(
     program: &ir::Program,
     tables: &Tables,
@@ -382,6 +405,7 @@ fn emit_selected(
     root: Option<Root>,
     units: Units<'_>,
     counted: &rc::Syntactic,
+    names: Names,
     render: impl Fn(
             &inkwell::module::Module<'_>,
             &inkwell::targets::TargetMachine,
@@ -421,6 +445,7 @@ fn emit_selected(
         cycles,
         observed,
         shares: crate::compiler::backend::runtime_table::shares_counts(program),
+        names,
     };
 
     let mut wanted: Vec<usize> =
@@ -521,6 +546,10 @@ fn emit_unit(
     // `x`". The debug backend's loop is over the same list for the same
     // reason.
     let ctx = Context::create();
+    if matches!(shared.names, Names::Discard) {
+        // SAFETY: `ctx` is a live context that nothing has built in yet.
+        unsafe { inkwell::llvm_sys::core::LLVMContextSetDiscardValueNames(ctx.raw(), 1) };
+    }
     let module_name = format!("{}{unit_name}", opts.unit_prefix);
     let mut emitter = emit::Unit::new(
         &ctx,
