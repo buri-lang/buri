@@ -168,19 +168,7 @@ function __cmd_x_main_buri$main$withHost(host_0){
   }else{
     $abort('no arm matched');
   }
-  let $t29;
-  if(void 0===void 0){
-    $t29=0n;
-  }else if(void 0!==void 0&&$val(void 0)===void 0){
-    $t29=1n;
-  }else if(void 0!==void 0&&($val(void 0)!==void 0&&$val($val(void 0))===void 0)){
-    $t29=2n;
-  }else if(void 0!==void 0&&($val(void 0)!==void 0&&$val($val(void 0))!==void 0)){
-    $t29=3n;
-  }else{
-    $abort('no arm matched');
-  }
-  const text_43=String($t23)+' '+String($t25)+' '+String($t27)+' '+String($t29);
+  const text_43=String($t23)+' '+String($t25)+' '+String($t27)+' '+String(0n);
   const self_44=$host_HostStdout_println(ctx_1[1],text_43);
   let $t31;
   if(self_44[0]===0){

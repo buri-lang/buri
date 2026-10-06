@@ -209,3 +209,66 @@ fn the_checked_in_matches_are_what_the_generator_writes() {
         stale.join("\n  ")
     );
 }
+
+/// Seed 11, batch 85, cut down: an `Option` passed as a literal `.None` to a
+/// match whose `.Some` arm reads through it. Once the call is inlined, that
+/// read must fold away with the arm on JavaScript rather than print as
+/// `void 0.length`, which doesn't parse.
+#[test]
+fn a_none_passed_to_a_match_that_reads_under_some() {
+    if let Some(why) = agreement::skip_reason() {
+        crate::ci::skipped("generated matches", &why);
+        return;
+    }
+    let source = r#"from "core/io" import * as io;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+struct Point {
+    open: Bool,
+}
+
+fn emptiness(body: Option<[Str]>): Str {
+    match (body) {
+        .Some([]) => "empty",
+        _ => "other",
+    }
+}
+
+fn openness(p: Option<Point>): Str {
+    match (p) {
+        .Some(q) if q.open => "open",
+        _ => "shut",
+    }
+}
+
+fn longest(s: Option<Str>): Int {
+    match (s) {
+        .Some(t) if t.length() > 1 => t.length(),
+        _ => 0,
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, emptiness(.None)).ignore();
+    let _ = io.println(ctx, emptiness(.Some([]))).ignore();
+    let _ = io.println(ctx, openness(.None)).ignore();
+    let _ = io.println(ctx, openness(.Some(Point { open: true }))).ignore();
+    let _ = io.println(ctx, str.format(ctx, "${longest(.None)}")).ignore();
+    let _ = io.println(ctx, str.format(ctx, "${longest(.Some("abc"))}")).ignore();
+    .Ok(())
+}
+"#;
+    let case = Case {
+        name: "a none passed to a match".to_string(),
+        source: source.to_string(),
+        expected: "other\nempty\nshut\nopen\n0\n3\n".to_string(),
+    };
+    let wrong = check(&case);
+    assert!(wrong.is_empty(), "{}", wrong.join("\n\n"));
+}
