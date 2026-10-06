@@ -17,4 +17,6 @@ pub const HARNESSES: &[(&str, &str)] = &[
     ("shapes", include_str!("../docs/harness/shapes.buri")),
     ("money", include_str!("../docs/harness/money.buri")),
     ("errors", include_str!("../docs/harness/errors.buri")),
+    ("skills", include_str!("../docs/harness/skills.buri")),
+    ("skill-tests", include_str!("../docs/harness/skill_tests.buri")),
 ];

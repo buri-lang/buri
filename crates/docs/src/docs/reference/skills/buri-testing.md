@@ -20,15 +20,12 @@ lib/money/
   test/cents.buri
 ```
 
-```textproto
+```textproto schema=build
 library {
     sources: ["cents.buri"]
 
     test {
-        sources: [
-            "test/cents.buri",
-            "test/parse.buri",
-        ]
+        sources: ["test/cents.buri", "test/parse.buri"]
         dependencies: ["//lib/ledger/testing"]
         timeout_seconds: 30
         backends: [NATIVE, JS]
@@ -42,15 +39,17 @@ declarations and imports of test-only modules are legal there and nowhere else.
 
 ## A test
 
-```buri
-from "//lib/money" import { fromCents, fromDollars };
+```buri repo=cli/tests/example role=test
 from "core/testing/assert" import * as assert;
-from "platform/effect/testing" import { alloc };
 from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//lib/money" import { fromCents, fromDollars };
 
 test "pads the cents place" {
-    let ctx = context { Allocator: alloc() };
-    assert.equal(fromCents(1905).format(ctx), "\$19.05");
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(fromCents(1905).format(ctx), "$19.05");
 }
 
 test "addition composes" {
@@ -85,13 +84,17 @@ test "addition composes" {
   rest return `()` and stand alone as statements, which only a test source
   allows (type `()`, ending in `;`).
 
-```buri
+```buri role=test use=skill-tests
 test "reads the config it wrote" {
-    let disk = memory();                            // one filesystem, two effects
-    let ctx = context { Allocator: alloc(), FileSystemRead: disk, FileSystemWrite: disk };
-    let cfg = path.of(ctx, "cfg");                  // core/fs takes a Path
+    let disk = memory(); // one filesystem, two effects
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    let cfg = path.of(ctx, "cfg"); // core/fs takes a Path
     assert.ok(fs.writeText(ctx, cfg, "port=8080")); // returns (), so a statement
-    let text = assert.ok(fs.readText(ctx, cfg));    // returns Str, so a binding
+    let text = assert.ok(fs.readText(ctx, cfg)); // returns Str, so a binding
     assert.equal(text, "port=8080");
 }
 ```
@@ -130,10 +133,10 @@ original alone:
 Read back what happened with `captured()`, `fs().read(p)`, `fs().snapshot()` and
 `calls()`, which lists what the code under test **asked** for.
 
-```buri
+```buri role=test use=skill-tests
 context Fixture {
     Allocator: alloc(),
-    Environment: env().variables([("LEDGER_LOG", "custom.log")]).withArguments(["--verbose"]),
+    Environment: env().variables([("LEDGER_LOG", "custom.log")]).withArguments(["-v"]),
 }
 
 test "reads the log path from the environment" {
@@ -142,7 +145,10 @@ test "reads the log path from the environment" {
 }
 
 test "falls back when the variable is unset" {
-    let ctx = context { ..Fixture(), Environment: env() };
+    let ctx = context {
+        ..Fixture(),
+        Environment: env(),
+    };
     assert.equal(logPath(ctx), "ledger.log");
 }
 ```
@@ -157,8 +163,10 @@ calls, so code that reads *and* writes binds one named double, as in
 Effects are ordinary interfaces, so a fake is an ordinary struct with methods.
 There's no mocking framework and no global to stub.
 
-```buri
-struct StubNet { export failing: Str }
+```buri role=test use=skill-tests
+struct StubNet {
+    export failing: Str,
+}
 
 impl Network for StubNet {
     fn fetch(self, request: Request): Result<Response, NetError> {
@@ -171,8 +179,11 @@ impl Network for StubNet {
 }
 
 test "a timeout reaches the caller as an error" {
-    let ctx = context { Allocator: alloc(), Network: StubNet { failing: "https://example.test/slow" } };
-    assert.equal(assert.err(status(ctx, "https://example.test/slow")), NetError.Timeout);
+    let ctx = context {
+        Allocator: alloc(),
+        Network: StubNet { failing: "https://x.test" },
+    };
+    assert.equal(assert.err(status(ctx, "https://x.test")), NetError.Timeout);
 }
 ```
 
@@ -198,15 +209,18 @@ testing an implementation detail.
 **You can't test `main` itself.** It takes a host only the CLI can build. Put
 the logic in a function taking an ordinary bounded `ctx`:
 
-```buri
-export fn run<C: Allocator + Stdout + FileSystemWrite>(ctx: C, at: Path): Result<(), Str> {
+```buri use=skills
+export fn run<C: Allocator + FileSystemWrite>(ctx: C, at: Path): Result<(), Str> {
     fs.writeText(ctx, at, "started\n").mapErr(fn(e) => "could not write the ledger log")
 }
 ```
 
-```buri
+```buri role=test use=skill-tests
 test "run fails cleanly when the log is unwritable" {
-    let ctx = context { Allocator: alloc(), Stdout: stdout(), FileSystemWrite: memory().readOnly() };
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemWrite: memory().readOnly(),
+    };
     let msg = assert.err(run(ctx, path.of(ctx, "ledger.log")));
     assert.isTrue(msg.contains("ledger"));
 }
@@ -224,11 +238,14 @@ is an API.
 
 Write the suite's filesystem in the suite with `fs().files`:
 
-```buri
+```buri role=test use=skill-tests
 from "platform/effect/testing" import { alloc, fs as memory };
 
 test "renders the statement" {
-    let ctx = context { Allocator: alloc(), FileSystemRead: memory().files([("statement.txt", "coffee")]) };
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: memory().files([("statement.txt", "coffee")]),
+    };
     let want = assert.ok(fs.readText(ctx, path.of(ctx, "statement.txt")));
     assert.equal(render(ctx, sample()), want);
 }
