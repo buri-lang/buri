@@ -366,6 +366,89 @@ fn concurrent_links_of_one_key_each_have_a_directory_of_their_own() {
     assert_eq!(left, [".buri", "link"], "the links left their own directories behind");
 }
 
+/// A run never empties the cache, or `.buri/link`, under its own links (#248).
+///
+/// Every action of a run opens the cache again — each codegen, each link, each
+/// test result — and every open read the toolchain marker. When the marker
+/// named another toolchain, or could not be read, that open emptied the cache
+/// and removed `.buri/link` there and then, while the run's other threads
+/// were linking in it. A language server still running an older `buri`
+/// rewrites the marker each time it runs a generator. What the run printed was
+/// "cannot write …/.buri/link/<key>/core_io.o" (the cache entry an object is
+/// hard-linked from, gone between the check and the link) and "cannot run
+/// /usr/bin/cc" (the driver's working directory, gone before the spawn), with
+/// one `buri` process running.
+///
+/// The interleaving is forced rather than raced for. Twelve links finish and
+/// each holds its executable in `.buri/link`, as a link does until the cache
+/// takes it. Then the marker names another toolchain, every thread opens the
+/// cache again as its next action would, and only then do the executables go
+/// to the cache, and does one more link stage its objects from it.
+#[test]
+fn a_run_never_empties_the_cache_under_its_own_links() {
+    let Some(target) = linkable() else {
+        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        return;
+    };
+    let dir = workspace("reopened");
+    let units = vec![emit(&dir, "lib_answer", &library(5)), emit(&dir, "main", MAIN)];
+    let cache = Cache::open(&dir);
+    // The codegen entries, which every link hard-links its objects from.
+    for unit in &units {
+        cache.put(unit.key.as_ref().unwrap(), &unit.bytes);
+    }
+    let linker = link::select(target).unwrap().in_dir(link::dir(&dir, "app")).from_cache(cache.clone());
+    let rows = rows(&units, &[true, true]);
+
+    const LINKS: usize = 12;
+    let start = std::sync::Barrier::new(LINKS);
+    let linked: Vec<(PathBuf, link::Staged)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..LINKS)
+            .map(|n| {
+                let (units, rows, linker, start, dir) = (&units, &rows, &linker, &start, &dir);
+                scope.spawn(move || {
+                    let out = dir.join(format!("app-{n}"));
+                    start.wait();
+                    let staged = ok(link::run(units, rows, linker, &out, &options(target)));
+                    (out, staged)
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
+    std::fs::write(dir.join(".buri/cache/.toolchain"), "a toolchain from before this run").unwrap();
+    let reopened = std::sync::Barrier::new(LINKS);
+    std::thread::scope(|scope| {
+        for (n, (out, staged)) in linked.iter().enumerate() {
+            let (reopened, dir) = (&reopened, &dir);
+            scope.spawn(move || {
+                reopened.wait();
+                let cache = Cache::open(dir);
+                let key = ActionKey::of(format!("the executable of link {n}").as_bytes());
+                cache.put_file(&key, staged.path());
+                let entry = cache.entry(&key).unwrap_or_else(|| {
+                    panic!("link {n}'s executable was removed before the cache could take it")
+                });
+                assert_eq!(std::fs::read(entry).unwrap(), std::fs::read(out).unwrap());
+            });
+        }
+    });
+
+    for unit in &units {
+        assert!(
+            cache.entry(unit.key.as_ref().unwrap()).is_some(),
+            "the entry {}'s object is hard-linked from was removed mid-run",
+            unit.name
+        );
+    }
+    assert!(link::dir(&dir, "app").join("manifest").exists(), "the run's link record was removed");
+    let out = dir.join("app-again");
+    drop(ok(link::run(&units, &rows, &linker, &out, &options(target))));
+    let ran = crate::shared::run_artifact(&out);
+    assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=5\n");
+}
+
 /// An unchanged unit's object is not rewritten. "Swap only the object files
 /// that changed" is delivered above the linker rather than inside it — no
 /// shipping linker links incrementally — and this is the whole of what the
