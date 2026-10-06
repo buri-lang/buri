@@ -4016,6 +4016,96 @@ every module as a `String`, and the language server iterates it. The `Doc` tree
 is still a `Box` or a `Vec` per node, and freeing it is about a tenth of
 `format`.
 
+### 6.42 The middle end's own overhead, 2026-10-06
+
+A scratch harness ran each pass of `monomorphize::run`, `middle::run`,
+`middle::native` and `lower::run_with` on the bench's generated corpora, and
+read the process's instructions retired between passes. Best of three, 100k
+lines, `main` at `526fe94bc`:
+
+| Corpus | `main` | After | Δ | `monomorphize` | `rc::analyze` | `lower` |
+|---|---:|---:|---:|---:|---:|---:|
+| `mixed` | 1,712 M | 1,425 M | −16.8% | −41% | −10% | −20% |
+| `generic-blowup` | 2,501 M | 2,018 M | −19.3% | −44% | −11% | −25% |
+| `enum-heavy` | 2,526 M | 2,239 M | −11.4% | −44% | −11% | −8% |
+| `derive-heavy` | 1,641 M | 1,391 M | −15.2% | −39% | −10% | −18% |
+| `match-heavy` | 1,365 M | 1,134 M | −17.0% | −44% | −11% | −19% |
+| `struct-heavy` | 846 M | 698 M | −17.5% | −37% | −11% | −23% |
+
+Most of it was work done again for an answer already in hand:
+
+- **`monomorphize`.** `canonical_ty` rebuilt every substituted type level by
+  level, interning each, to swap context ids that almost never move. It reads
+  first now, and skips the walk when every context is its own canon.
+  Every instantiation spelled its declaration's symbol a character at a time
+  and formatted its type arguments into a `String` to hash. The base symbol is
+  kept per declaration, each argument's spelling per type, and the tag is
+  FNV-1a over the same bytes, fed in pieces. `build_fn` cloned the whole
+  `FnInfo` per instance and `descriptor` the whole `TyCon`; both borrow
+  through `&'a Checked` now.
+- **`lower`.** `Sites::of` hashed every node's address, where only the nodes
+  the plan names are ever asked for. Each function's type interner rendered a
+  name for every type it met, and the merge kept one; the merge names a type
+  when it adopts it. `Units::of` parsed every debug name a second time.
+- **`rc`.** `scan_func` walked each body four times before scanning it, for
+  subtree sizes, jumps, names and `let` bindings. `BodyIndex` is one walk, and
+  the name index is by local rather than hashed. `consuming_uses` redid its
+  growth scan every round and ran one round past its last growth. It stops
+  once no `let` or `match` that kept nothing could keep something now.
+- **Smaller.** `dce` hashed every symbol with SipHash. `derives` cloned a
+  descriptor per body; the table is behind an `Rc`. `inline` walks a body only
+  when it calls something inlinable.
+
+Two shapes from the algorithm audit were quadratic. `forward` walked a block's
+whole subtree for update bases at every nested block, and walked each later
+statement once per forwarded path. It's one walk per body now, with the paths
+in a table. `closures` handed each lifted lambda a copy of its parent's whole
+table of locals, which then sized every later per-function pass. A lifted
+function gets a table of what its body names. `middle` in a debug native
+build:
+
+| Shape | n | `main` | After |
+|---|---:|---:|---:|
+| field-reading `let`s in one body | 2,000 | 807 M | 38 M |
+| | 4,000 | 3,147 M | 73 M |
+| | 8,000 | 12,427 M | 143 M |
+| capturing lambdas in one function | 1,000 | 223 M | 61 M |
+| | 2,000 | 746 M | 121 M |
+| | 4,000 | 2,269 M | 235 M |
+| `if` blocks nested `n` deep | 64 | 99 M | 55 M |
+
+`build::profile`'s `forwarding_field_reads_is_linear_in_a_bodys_lets` and
+`closure_conversion_is_linear_in_a_functions_lambdas` grew 3.76 and 3.59
+times per doubling before.
+
+End to end, two alternating runs each:
+
+| Run | Phase | `main` | After |
+|---|---|---:|---:|
+| `buri build` of `saved:mixed-10k`, native | `monomorphize` | 33.2–33.8 M | 20.8–21.7 M |
+| | `middle` | 95.9–98.3 M | 88.2–90.8 M |
+| | process | 0.835–0.919 G | 0.805–0.886 G |
+| `buri test //...` in `cli/tests/example` | `monomorphize` | 42.4–43.4 M | 25.0–26.1 M |
+| | process | 1.090–1.092 G | 1.073–1.078 G |
+
+Output is identical. The JavaScript, the `rc::Plan`'s `Debug`, the IR's
+`Display` and every stencil object hash the same for 14 generated profiles at
+3k and 30k lines. So do the `saved:mixed-10k`, `cli/tests/example` and
+1,000-lambda and 2,000-`let` executables, and both suites pass.
+
+**Tried and dropped.** Reading each body's effects in the walk that builds
+the ownership graph saved a walk and no instructions: the per-node match is
+the cost, not the traversal. Measuring a pasted body from its callee's measure
+instead of walking it cost 2–6% more in `inline`, because most pasted bodies
+fold, and a fold still needs the walk.
+
+**What's left.** `rc::Syntactic::new` walks every body three times per native
+build: in `middle::native`, in `lower`'s list loops, and in the backend.
+Handing the first to `lower` needs a field on `rc::Plan`, and a test outside
+the middle end builds one literally. `Scan::expr`'s sets are hashed by
+`LocalId`, and their iteration order reaches the tick order a branch scan
+reads, so dense sets need care. Dropping the program is 7% of the table.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
