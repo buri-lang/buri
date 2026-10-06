@@ -661,8 +661,12 @@ pub fn library_check_key(
 /// rule lists that it read still holds the bytes it did.
 pub fn clean_check_holds(session: &Session, key: &ActionKey) -> bool {
     let Some(record) = Cache::open(&session.root).get(key) else { return false };
-    std::str::from_utf8(&record).is_ok_and(|reads| reads_hold(&session.root, reads))
+    let record = std::str::from_utf8(&record).ok().and_then(|r| r.strip_prefix(CLEAN));
+    record.is_some_and(|reads| reads_hold(&session.root, reads))
 }
+
+/// What a clean check's record starts with, so that no entry is empty.
+const CLEAN: &str = "clean\n";
 
 /// Records that a library's check found nothing ([`library_check_key`]).
 pub fn record_clean_check(
@@ -672,7 +676,7 @@ pub fn record_clean_check(
     analysis: &crate::compiler::driver::Analysis,
 ) {
     let reads = encode_reads(session, &unkeyed_reads(session, target, analysis));
-    Cache::open(&session.root).put(key, reads.as_bytes());
+    Cache::open(&session.root).put(key, format!("{CLEAN}{reads}").as_bytes());
 }
 
 /// One repository platform's contribution to a key. See [`action_key`].
