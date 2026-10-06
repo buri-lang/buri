@@ -883,10 +883,15 @@ function $list_reverse(xs, c) {
 }
 
 // Stable, so a tie-break the comparator does not decide keeps source order.
+// `Array.prototype.sort` is stable, and `Order`'s tags are 0, 1 and 2, so the
+// tag less one is the comparator's answer. A `None` is `undefined`, which the
+// built-in sort moves to the end unasked, so a list holding one sorts pairs.
 function $list_sortBy(xs, c, order) {
+  $shareEach(xs);
+  if (!xs.includes(undefined)) return $own(xs.slice().sort((a, b) => order(a, b) - 1));
   return $own(
     xs
-      .map((v, i) => [$share(v), i])
+      .map((v, i) => [v, i])
       .sort((a, b) => {
         const o = order(a[0], b[0]);
         return o === 1 ? a[1] - b[1] : o === 0 ? -1 : 1;
