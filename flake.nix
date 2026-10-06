@@ -98,6 +98,33 @@
           rustc = rustToolchain;
         };
 
+        # nextest 0.9.145 or later, which `nixos-25.11` doesn't have yet (it
+        # ships 0.9.114). Older ones make each test's capture pipe in two calls
+        # on macOS, so a test started between them inherits a sibling's pipe and
+        # nextest reports the sibling as leaky (design/PERFORMANCE.md §6.35).
+        # `.config/nextest.toml` refuses an older one.
+        cargoNextest = rustPlatform.buildRustPackage (finalAttrs: {
+          pname = "cargo-nextest";
+          version = "0.9.146";
+          src = pkgs.fetchFromGitHub {
+            owner = "nextest-rs";
+            repo = "nextest";
+            tag = "cargo-nextest-${finalAttrs.version}";
+            hash = "sha256-2ndrHZ1pmu1oBZGlq5pyv0vhSEUf23gNRyyenNw0fdk=";
+          };
+          cargoHash = "sha256-ZW0/JQ9RECxfDn479ww4bO4ixoMGaM+GtGUOCWy2Cyg=";
+          # nixpkgs' `no-dtrace-macos.patch`: its DTrace probes need a `dtrace`
+          # that Nix doesn't build on macOS.
+          postPatch = lib.optionalString pkgs.stdenv.isDarwin ''
+            substituteInPlace nextest-runner/Cargo.toml nextest-runner/src/usdt.rs \
+              --replace-fail 'any(target_os = "macos", target_os = "freebsd"' 'any(target_os = "freebsd"'
+          '';
+          cargoBuildFlags = [ "-p" "cargo-nextest" ];
+          # Its own suite, which nixpkgs runs; this shell only needs the binary.
+          doCheck = false;
+          meta.mainProgram = "cargo-nextest";
+        });
+
         # The version is read rather than written down. `buri version` prints
         # `CARGO_PKG_VERSION`, so a version repeated here is a second place to
         # forget, and a package that claims 0.3.0 while its binary says 0.4.0
@@ -564,7 +591,7 @@
               # Runs the local full suite with every test binary at once
               # rather than one after another. `.config/nextest.toml` has the
               # limits, and cli/tests/README.md the command.
-              pkgs.cargo-nextest
+              cargoNextest
               pkgs.bun
               # `elan`, not `lean4`: elan honours `formal/lean-toolchain`, which
               # is how a Lean project pins its compiler. It fetches that

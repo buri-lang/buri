@@ -3608,20 +3608,41 @@ If the quiet run's ratio of wall time to CPU holds, an idle machine tests in
   100 times a second, and the manifest-id shards took 39 s instead of 3.
 - **First-exec checks.** Three samples of `ui` cases each found a fresh
   `test-runner` still at `_dyld_start`, up to 4.6 s after launch, while macOS
-  checked it. A fresh copy of a 0.5 MB program
-  took 145 ms to run the first time and 31 ms after. Only fewer new
-  executables per run would help, and that's `build/link.rs`'s job.
+  checked it. A fresh copy of a 0.5 MB program took 145 ms to run the first
+  time and 31 ms after. Only fewer new executables per run would help, and
+  that's `build/link.rs`'s job.
 - **`buri-stencil`'s build script**, 2.6 s alone and 7 s in a cold build,
   where it delays `buri`'s compile by about 5 s. Its three targets build one
   after another, each split across `NUM_JOBS` compiles.
 - **The hostile-schema tests**, 57 s each in the quiet run, took 0.2–2.3 s in
   every run here, fresh target directories included. That's a first-run cost
   on that machine, not the tests.
-- **nextest's `LEAK`.** Two of ten runs marked one test leaky in the first
-  seconds: a pool test, which starts no process, and the manifest-id
-  partition check, which waits for its one child. Neither reproduced in
-  fourteen runs of those tests alone. With no child to leak, it's nextest
-  missing its 100 ms leak window while dozens of short tests exit together.
+
+**nextest before 0.9.145 lent one test's pipes to another.** Two of ten runs
+marked a test `LEAK` in the first seconds, though neither test leaves a child
+behind: a pool test starts no process, and the manifest-id partition check
+waits for its one child. The cause is the race `spawn::start_alone` guards
+against in `buri`. macOS has no `pipe2`, so nextest's standard library makes
+each test's capture pipe and marks it close-on-exec in two calls. A test that
+nextest starts between them inherits the pipe and holds it until it exits, and
+nextest reports the pipe's owner as leaky.
+
+A runner that lists the descriptors each test process starts with shows it. Ten
+bursts of 290 short tests each:
+
+```sh
+lsof -a -p $$ -d 3-254 -F fnt    # in the runner, before `exec "$@"`
+```
+
+| nextest | Tests started holding a pipe they didn't make | `LEAK` |
+|---|---:|---:|
+| 0.9.114, `nixos-25.11`'s | 4 | 1 |
+| 0.9.146 | 0 | 0 |
+
+0.9.145 makes the capture pipes itself, coordinated with spawning
+(nextest-rs/nextest#3553). The dev shell builds 0.9.146 (`flake.nix`), and
+`.config/nextest.toml` refuses anything older. A longer leak timeout wouldn't
+have helped: the borrower holds the pipe for as long as it runs.
 
 ## 7. Profiling, on this platform
 
