@@ -52,8 +52,10 @@ holds it exactly. Two probes on one line share a key and add up.
 - **Native.** A runtime table row, `buri_rt_coverage_hit(key)`. The runtime
   adds to a table behind a mutex and registers an `atexit` handler on the first
   hit. An abort leaves through `exit`, so a failing test's lines still count.
-- **JavaScript.** `$coverage_hit` in `runtime.js`, with a `process.on("exit")`
-  handler. The minifier drops it from every program that never calls it.
+- **JavaScript.** `$coverage_hit`, with a `process.on("exit")` handler.
+  `emit_test_bundle` appends it to a coverage build's bundle
+  (`build::coverage::JS`). It isn't in `runtime.js`, because a test bundle
+  carries the whole runtime unminified.
 
 A plain build never runs the pass, never names the key, and emits the same
 bytes it did before.

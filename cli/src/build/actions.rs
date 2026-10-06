@@ -983,6 +983,7 @@ pub fn emit_test_bundle(
     };
     drop(emitting);
     match units.into_iter().next().map(|unit| String::from_utf8(unit.bytes)) {
+        Some(Ok(module)) if flags.coverage => Ok(module + crate::build::coverage::JS),
         Some(Ok(module)) => Ok(module),
         _ => {
             diagnostics.push(Diagnostic::error(
