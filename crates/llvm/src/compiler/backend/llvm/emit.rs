@@ -4410,15 +4410,22 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let mut function = self.module.get_first_function();
         while let Some(f) = function {
             let mut block = f.get_first_basic_block();
+            let mut at = 0;
             while let Some(b) = block {
                 if b.get_terminator().is_none() {
-                    let name = b.get_name().to_string_lossy();
+                    // An object's unit discards names (`mod.rs`, `Names`), so
+                    // the block's position stands in for one there.
+                    let name = match b.get_name().to_string_lossy() {
+                        n if n.is_empty() => format!("#{at}").into(),
+                        n => n,
+                    };
                     self.ices.borrow_mut().push(format!(
                         "in `{}`, left block `{name}` without a terminator",
                         f.get_name().to_string_lossy()
                     ));
                 }
                 block = b.get_next_basic_block();
+                at += 1;
             }
             function = f.get_next_function();
         }
