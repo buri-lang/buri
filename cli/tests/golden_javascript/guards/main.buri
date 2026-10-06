@@ -1,5 +1,6 @@
-// Guards: an arm that matches may still fall through, which is why the whole
-// match runs inside a loop the first success breaks out of.
+// Guards: an arm that matches may still fall through, which is why the arms
+// are a sequence of `if`s rather than a chain. In tail position every arm
+// returns, so nothing wraps them.
 
 from "core/io" import * as io;
 from "node" import { NodeHost };
