@@ -334,11 +334,11 @@ impl<'a> Jit<'a> {
                     _ => return self.unsupported("GetField of a non-aggregate".into()),
                 };
                 let w = self.width_of(prog, code.ty_of(*dest));
-                let ftys = field_types(self.tables, owner);
                 if (*index as usize) < l.fields.len() {
                     let off = l.field(*index as usize);
                     let src = st.at(*agg) + off;
-                    if ftys.get(*index as usize).is_some_and(|t| self.boxes(owner, t)) {
+                    let fty = self.field_ty(owner, None, *index as usize);
+                    if fty.is_some_and(|t| self.boxes(owner, &t)) {
                         self.unbox_from(st, st.at(*dest), src, w);
                         return;
                     }
@@ -356,12 +356,12 @@ impl<'a> Jit<'a> {
                     _ => return self.unsupported("GetPayload of a non-aggregate".into()),
                 };
                 let w = self.width_of(prog, code.ty_of(*dest));
-                let ftys = variant_types(self.tables, owner, *variant as usize);
                 let off = l.variant(*variant as usize).get(*index as usize).copied();
                 match off {
                     Some(o) => {
                         let src = st.at(*agg) + o;
-                        if ftys.get(*index as usize).is_some_and(|t| self.boxes(owner, t)) {
+                        let fty = self.field_ty(owner, Some(*variant as usize), *index as usize);
+                        if fty.is_some_and(|t| self.boxes(owner, &t)) {
                             self.unbox_from(st, st.at(*dest), src, w);
                             return;
                         }

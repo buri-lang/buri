@@ -3713,6 +3713,35 @@ fields, and 81.3, 157 and 303 M after. The derived `compare`, `==` and `Show`
 build their chains outside the inlined call and were already linear.
 `build::profile`'s `deriving_hash_is_linear_in_a_structs_fields`.
 
+### 6.37 A debug build's emission is linear in a variant's fields, 2026-10-06
+
+§6.32's wide variants still grew 2.5 to 2.9 times per doubling in a debug
+build's `emit`. Two loops in the stencil backend were `n²` in a value's fields:
+
+- **A field read typed the whole value.** `GetField` and `GetPayload` asked
+  `types::field_types` or `variant_types` for every field's type, to check
+  whether the one being read is boxed. The derives and the matches read each
+  of `n` fields, so that was `n` lists of `n` types. They ask for the one field
+  now (`jit.rs`, `Jit::field_ty`).
+- **Building a value scanned back from each field.** A field computed just
+  before the `MakeEnum` or `MakeStruct` that stores it shares the value's slot
+  if nothing between the two touches the value. That was a scan of the
+  instructions in between, per field. `alias_parts` now records, per value
+  built in a block, the last instruction before it that touches it, in one
+  pass.
+
+`buri build` of §6.32's wide variants, `emit` phase:
+
+| Fields | Before | Slots alone | Both |
+|---:|---:|---:|---:|
+| 400 | 358 M | 322 M | 246 M |
+| 800 | 903 M | 755 M | 461 M |
+| 1,600 | 2,665 M | 2,054 M | 891 M |
+
+`build::profile`'s `a_debug_builds_emission_is_linear_in_a_variants_fields`
+builds a variant of 1,000 and 2,000 fields with every derive. With only the
+slot fix it grew 2.49 times.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
