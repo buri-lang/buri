@@ -3326,7 +3326,7 @@ the phase that grew; `--release` counts `emit`. The "after" column includes
 | tuple of 400 | emit 1.24 G → 0.15 G, check 0.09 G → 0.04 G | 398 G → 38 G | linear |
 | records of 200 fields in lists and maps | emit 0.41 G → 0.13 G | 352 G → 18 G | linear |
 | 400 records of 12 fields | linear | flat | linear |
-| matches of 400 arms | emit 0.84 G → 0.09 G, check 0.14 G → 0.06 G | 5.5 G, unchanged | emit 1.16 G → 0.13 G |
+| matches of 400 arms | emit 0.84 G → 0.09 G, check 0.14 G → 0.06 G | 5.5 G → 4.1 G (§6.33) | emit 1.16 G → 0.13 G |
 | template of 400 holes | linear | 34.5 G → 15.4 G | linear |
 
 Seven causes, each fixed and bound by a test:
@@ -3369,12 +3369,104 @@ natively under the heap check and on JavaScript, and asserts only what it prints
   greedy allocator and both schedulers grow with it. Reading each field where
   it's compared would bound it.
 - **`--release` on long matches and long templates** grows 2.4 times per
-  doubling. Not yet diagnosed.
+  doubling. §6.33 has both.
 - **The `rc` pass** clones live sets across a long expression: 0.13 G for a
   200-field variant's match, 2.6 times per doubling.
 - **A debug build runs a match in time linear in its arms** where the decision
   tree falls back to a chain: `Int` and `Str` literal arms, or a variant split
   across two rows. LLVM turns the chain back into a `switch`.
+
+### 6.33 Long matches and long templates in `--release`, 2026-10-06
+
+Both of §6.32's open `--release` rows grow in `opt` and `llc`, not in the
+emitter. The main unit's `opt -O2` and `llc -O2`, run on the IR the backend
+hands them:
+
+| Shape | `opt`, 200 → 400 | `llc`, 200 → 400 |
+|---|---:|---:|
+| match of 400 arms | 1.48 → 4.07 G | 1.02 → 1.75 G |
+| template of 400 holes | 2.87 → 6.24 G | 4.01 → 9.79 G |
+
+**A long match was ours.** The decision tree falls back to a chain of tag tests
+for or-patterns, pairs and guards, and every block of the chain read the tag
+again:
+
+```llvm
+b2:
+  %slot5 = extractvalue { i16, i16 } %agg1, 0   ; a pair's element, again
+  %tag6  = zext i16 %slot5 to i32               ; the tag, again
+  %cmp7  = icmp eq i32 %tag6, 1
+  br i1 %cmp7, label %b6, label %b5
+```
+
+`opt`'s first `SimplifyCFG` folds a chain into a `switch` only where each block
+is a compare and a branch, so this chain reached InstCombine whole. InstCombine
+asks every branch on a value about every compare of it
+(`computeKnownBitsFromContext`, `foldICmpWithDominatingICmp`), which is `n²`:
+3.8 times per doubling, 2.7 G of `opt`'s 4.1 G at 400 arms.
+
+**The fix:** a tag or a field of a value in registers is read once per
+function, right after the value is defined (`emit.rs`, `Unit::read_once`). The
+chain is then foldable, and the or-pattern match costs `opt` 0.23 G at 400 arms
+where it cost 0.68 G.
+
+`buri build --release` of `long_match`, emit phase:
+
+| Arms | Before | After |
+|---:|---:|---:|
+| 50 | 0.72 G | 0.68 G |
+| 100 | 1.10 G | 1.18 G |
+| 200 | 2.22 G | 2.04 G |
+| 400 | 5.46 G | 4.07 G |
+| 800 | 16.6 G | 9.19 G |
+
+400 to 800 went from 3.0 to 2.26 times. At 100 arms the guarded match costs
+`SimplifyCFG` 0.14 G more: a failed guard jumps back into the chain, which is
+now a `switch`, and re-tests tags it already knows. The unit enum, payload
+enum, wide payload, nested generic, enum chain, long tuple and records shapes,
+and `cli/tests/example`'s two binaries, are within 1% of their old emit
+phase. `native::llvm`'s `a_matchs_tests_of_one_value_read_its_tag_once` holds
+the emitted IR to a few tag reads per function.
+
+**What's left of a long match is LLVM's.** A pair's diagonal or a guard is `n`
+compares of one value in `n` blocks, and InstCombine is `n²` in those whatever
+shape surrounds them. A hand-written module in the best shape there is, a
+`switch` on one value and a single compare of the other in each case:
+
+| Cases | `opt -O2` | Per doubling |
+|---:|---:|---:|
+| 400 | 0.46 G | |
+| 800 | 1.22 G | 2.7× |
+| 1,600 | 4.12 G | 3.4× |
+| 3,200 | 15.3 G | 3.7× |
+
+At 800 arms that is 1.3 G of the 9.2 G.
+
+**A long template is LLVM's register allocator.** `llc -time-passes`, 200 to
+400 holes:
+
+```text
+Greedy Register Allocator   1.28 → 3.61 G
+Live Interval Analysis      0.22 → 0.85 G
+Instruction Selection       0.78 → 1.59 G
+Machine Instruction Sched.  0.82 → 1.68 G
+```
+
+Every `Str` the program lets is three words, live until the template that
+reads it, and `main` is 3,100 blocks, most of them the inline count
+diamonds around the `incref`s and `decref`s. Live intervals and the greedy
+allocator grow with values times the blocks they span. Two measurements:
+
+- Templates of only `Str` holes grow 2.6 times per doubling, and of only `Int`
+  holes 2.1 times.
+- With every count a runtime call, `llc` grows 2.19 times per doubling and
+  costs half as much. That's a call per count at run time, and `opt` took
+  about 8 G more on the longer blocks, so it's not done.
+
+`lower` makes it worse: it shows every hole before joining the first piece, so
+all the converted strings are live at once too. Showing each piece's holes
+next to its join would shrink the live set. It wouldn't change the growth,
+since the program's own lets stay live.
 
 ## 7. Profiling, on this platform
 
