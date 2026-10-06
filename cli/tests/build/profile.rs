@@ -395,3 +395,71 @@ fn formatting_is_linear_in_a_files_comments() {
         2000,
     );
 }
+
+/// One block of `n` `let`s naming a field of a parameter, each read once.
+fn field_lets(n: usize) -> (String, String) {
+    let lets: String = (0..n)
+        .map(|i| {
+            let field = if i % 2 == 0 { "b" } else { "a" };
+            format!("    let v{i} = p.{field};\n    let t{} = (t{i} + v{i} * {}) % 1013;\n", i + 1, i % 7 + 1)
+        })
+        .collect();
+    let items = format!(
+        "struct P {{\n    a: Int,\n    b: Int,\n}}\n\n\
+         fn long(p: P): Int {{\n    let t0 = 0;\n{lets}    t{n}\n}}\n"
+    );
+    let body = String::from("    let _ = io.println(ctx, \"${long(P { a: 3, b: 4 })}\").ignore();\n");
+    (items, body)
+}
+
+/// **Forwarding field reads is linear in a body's `let`s.** Each forwarded
+/// path was substituted by a walk of every later statement, and every nested
+/// block walked its whole subtree again: 12 G instructions in `middle` at
+/// 8,000 `let`s, 3.96 times what 4,000 took. PERFORMANCE.md §6.42.
+#[test]
+fn forwarding_field_reads_is_linear_in_a_bodys_lets() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::profile", &why);
+        return;
+    }
+    grows_linearly(
+        "forwarding a long body's field reads",
+        |n| {
+            let (items, body) = field_lets(n);
+            profiled("native", &items, &body, "middle")
+        },
+        1000,
+    );
+}
+
+/// One function of `n` capturing lambdas, each called.
+fn many_lambdas(n: usize) -> (String, String) {
+    let lambdas: String = (0..n)
+        .map(|i| format!("    let k{i} = x + {i};\n    let f{i} = fn(y: Int): Int => (y * k{i}) % 1013;\n"))
+        .collect();
+    let sums: String =
+        (0..n).map(|i| format!("    let t{} = (t{i} + f{i}({i})) % 100003;\n", i + 1)).collect();
+    let items = format!("fn many(x: Int): Int {{\n{lambdas}    let t0 = 0;\n{sums}    t{n}\n}}\n");
+    let body = String::from("    let _ = io.println(ctx, \"${many(2)}\").ignore();\n");
+    (items, body)
+}
+
+/// **Closure conversion is linear in a function's lambdas.** Every lifted
+/// lambda took a copy of its parent's whole table of locals, and every later
+/// pass sized itself by it: 2.3 G instructions in `middle` at 4,000 lambdas,
+/// 3 times what 2,000 took. PERFORMANCE.md §6.42.
+#[test]
+fn closure_conversion_is_linear_in_a_functions_lambdas() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::profile", &why);
+        return;
+    }
+    grows_linearly(
+        "lifting many lambdas out of one function",
+        |n| {
+            let (items, body) = many_lambdas(n);
+            profiled("native", &items, &body, "middle")
+        },
+        1000,
+    );
+}
