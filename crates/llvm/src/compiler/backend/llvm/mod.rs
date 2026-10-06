@@ -341,8 +341,9 @@ fn classifier(program: &monomorphize::Program) -> rc::Syntactic {
 /// - **Value and block names**, as `clang` does outside a debug build. Every
 ///   name is a string LLVM uniques into a symbol table, and every pass that
 ///   makes an instruction names it too.
-/// - **Functions nothing will call.** One no other unit names is dropped once
-///   `opt` leaves no use of it (`Unit::prune`). The linker would strip it.
+/// - **Functions nothing will call.** One nothing names isn't emitted, and one
+///   no other unit names is dropped once `opt` leaves no use of it
+///   (`Unit::prune`). The linker would strip both.
 ///
 /// The functions left are optimized exactly as the reader sees them.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -377,6 +378,9 @@ struct Shared<'p> {
     /// Whether another unit or the entry point names each function, so that
     /// its unit keeps it (`Unit::prune`).
     kept: Vec<bool>,
+    /// Whether anything names each function. One nothing names is not
+    /// emitted at all.
+    named: Vec<bool>,
 }
 
 /// One object per codegen unit, for a chosen subset of the units, from an
@@ -457,6 +461,7 @@ fn emit_selected(
         named
     };
     let kept = with_roots(crate::compiler::backend::linkage::named_elsewhere(program));
+    let named = with_roots(crate::compiler::backend::linkage::named_anywhere(program));
     let shared = Shared {
         program,
         tables,
@@ -469,6 +474,7 @@ fn emit_selected(
         shares: crate::compiler::backend::runtime_table::shares_counts(program),
         audience,
         kept,
+        named,
     };
 
     let mut wanted: Vec<usize> =
@@ -548,7 +554,8 @@ fn emit_unit(
     let unit_name = program.units.get(index).map_or("", String::as_str);
     let linker = shared.audience == For::Linker;
     // This unit's functions, ascending — the same list, in the same order,
-    // that a filter over the whole program yielded.
+    // that a filter over the whole program yielded. An object leaves out the
+    // ones nothing names (`For`).
     let members: Vec<usize> = shared
         .by_unit
         .get(index)
@@ -556,6 +563,7 @@ fn emit_unit(
         .iter()
         .copied()
         .filter(|i| program.funcs.get(*i).is_some_and(|f| f.code().is_some()))
+        .filter(|i| !linker || shared.named.get(*i).copied().unwrap_or(true))
         .collect();
     // The entry point goes in the unit that owns `main`, so a program is
     // one `_start`-adjacent symbol and the other units are libraries. A test
