@@ -245,7 +245,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         } else {
             // A binding of an effect-carrying value is itself effect-carrying,
             // so the capture rule follows it.
-            pat.each_bind(&mut |l| self.note_capture_risk(l, &ty));
+            // Asked of the value once, not once per name: a type walk per name
+            // was `n²` for a tuple of `n` taken apart.
+            let risk = self.capture_risk(&ty);
+            pat.each_bind(&mut |l| self.mark_capture_risk(l, risk));
         }
         typed::Stmt::Let { pattern: pat, value: value_hir, span }
     }
