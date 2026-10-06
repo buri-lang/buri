@@ -353,12 +353,65 @@ struct Bufs {
     imm: Vec<u32>,
     seen: Vec<bool>,
     stack: Vec<(usize, usize)>,
-    ops: Vec<ir::ValueId>,
     param: Vec<bool>,
     def_in: Vec<(u32, u32)>,
     aliased: Vec<bool>,
     last: Vec<(u32, u32)>,
     touched: Vec<Option<usize>>,
+    opnd: Operands,
+}
+
+/// What every instruction and terminator of one function reads, listed once.
+///
+/// Five analyses walk a function's operands, and `Inst::operands` is a match
+/// and a push per operand each time. This is that walk done once, as one flat
+/// list with a row per instruction and one per terminator. A terminator's row
+/// is its own operands and then its edges' arguments.
+#[derive(Default)]
+struct Operands {
+    /// Where each row starts in `ops`, and one past the last row.
+    at: Vec<u32>,
+    ops: Vec<ir::ValueId>,
+    /// Each block's first row: its instructions', then its terminator's.
+    first: Vec<u32>,
+}
+
+impl Operands {
+    fn fill(&mut self, code: &ir::Code) {
+        self.at.clear();
+        self.ops.clear();
+        self.first.clear();
+        for b in &code.blocks {
+            self.first.push(self.at.len() as u32);
+            for i in &b.insts {
+                self.at.push(self.ops.len() as u32);
+                i.operands(&mut self.ops);
+            }
+            self.at.push(self.ops.len() as u32);
+            b.term.operands(&mut self.ops);
+            for t in b.term.targets() {
+                self.ops.extend_from_slice(&t.args);
+            }
+        }
+        self.at.push(self.ops.len() as u32);
+    }
+
+    fn row(&self, r: usize) -> &[ir::ValueId] {
+        let lo = ent(&self.at, r, 0) as usize;
+        let hi = ent(&self.at, r + 1, 0) as usize;
+        self.ops.get(lo..hi).unwrap_or_default()
+    }
+
+    /// What instruction `k` of block `b` reads.
+    fn inst(&self, b: usize, k: usize) -> &[ir::ValueId] {
+        self.row(ent(&self.first, b, 0) as usize + k)
+    }
+
+    /// What block `b`'s terminator reads, its edges' arguments included.
+    fn term(&self, code: &ir::Code, b: usize) -> &[ir::ValueId] {
+        let n = code.blocks.get(b).map_or(0, |block| block.insts.len());
+        self.row(ent(&self.first, b, 0) as usize + n)
+    }
 }
 
 /// `spare`'s storage, as `n` copies of `fill`.
@@ -992,15 +1045,18 @@ impl<'a> Jit<'a> {
                 st.frame.clone_from(frame);
                 // How often each value is read, which five of the analyses
                 // below ask and used to count for themselves.
-                count_uses(code, &mut st.uses, &mut self.bufs.ops);
-                st.scratch = self.slots(prog, code, frame, &st.uses, &mut st.slot);
+                let mut opnd = std::mem::take(&mut self.bufs.opnd);
+                opnd.fill(code);
+                count_uses(&opnd, n, &mut st.uses);
+                st.scratch = self.slots(prog, code, frame, &st.uses, &opnd, &mut st.slot);
                 st.reg = table(&mut st.reg, n, None);
                 st.wt = table(&mut st.wt, n, true);
                 st.cross = table(&mut st.cross, n, false);
                 st.region.clear();
                 let taken =
                     self.promote(code, &mut st.reg, &mut st.wt, &mut st.cross, &mut st.region);
-                self.regalloc(code, &mut st.reg, taken, &st.uses);
+                self.regalloc(code, &mut st.reg, taken, &st.uses, &opnd);
+                self.bufs.opnd = opnd;
                 self.constants(code, &st.uses, &mut st.constants, &mut st.folded);
                 st.blk = table(&mut st.blk, code.blocks.len(), 0);
                 st.cur = 0;
@@ -1729,6 +1785,7 @@ impl<'a> Jit<'a> {
         code: &ir::Code,
         frame: &FrameSig,
         uses: &[u32],
+        opnd: &Operands,
         slot: &mut Vec<u32>,
     ) -> u32 {
         let n = code.values();
@@ -1745,9 +1802,9 @@ impl<'a> Jit<'a> {
             *u = v as u32;
         }
         {
-            self.coalesce(code, &mut uf, &mut pin, &width, uses);
+            self.coalesce(code, &mut uf, &mut pin, &width, uses, opnd);
         }
-        self.pin_call_values(prog, code, &uf, &mut pin, frame.size, uses);
+        self.pin_call_values(prog, code, &uf, &mut pin, frame.size, uses, opnd);
         // One slot per class: the pinned offset when the class holds a
         // parameter or a return value, a fresh one otherwise.
         let mut at = frame.param_end;
@@ -1788,7 +1845,7 @@ impl<'a> Jit<'a> {
             };
             *s = off;
         }
-        self.alias_parts(prog, code, &uf, &pin, slot, uses);
+        self.alias_parts(prog, code, &uf, &pin, slot, uses, opnd);
         self.bufs.pin = pin;
         self.bufs.width = width;
         self.bufs.uf = uf;
@@ -1820,6 +1877,7 @@ impl<'a> Jit<'a> {
         pin: &[Option<u32>],
         slot: &mut [u32],
         uses: &[u32],
+        opnd: &Operands,
     ) {
         let part = |i: &ir::Inst| {
             matches!(i, ir::Inst::ArrayLen { .. } | ir::Inst::MakeStruct { .. } | ir::Inst::MakeEnum { .. })
@@ -1830,7 +1888,6 @@ impl<'a> Jit<'a> {
         let n = code.values();
         let mut members = table(&mut self.bufs.members, n, 0);
         let mut param = table(&mut self.bufs.param, n, false);
-        let mut ops = std::mem::take(&mut self.bufs.ops);
         for v in 0..n {
             bump(&mut members, find(uf, v as u32) as usize);
         }
@@ -1888,10 +1945,7 @@ impl<'a> Jit<'a> {
                         .map(|(_, t)| *t as usize);
                     put(&mut touched_before, j, at);
                 }
-                ops.clear();
-                i.operands(&mut ops);
-                ops.extend_from_slice(i.results());
-                for o in &ops {
+                for o in opnd.inst(bi, j).iter().chain(i.results()) {
                     put(&mut last, find(uf, o.0) as usize, (stamp, j as u32));
                 }
             }
@@ -1956,12 +2010,10 @@ impl<'a> Jit<'a> {
                     if !loads {
                         continue;
                     }
-                    let touches = |x: &ir::Inst, ops: &mut Vec<ir::ValueId>| {
-                        ops.clear();
-                        x.operands(ops);
-                        ops.iter().any(&in_class) || x.results().iter().any(&in_class)
+                    let touches = |x: &ir::Inst| {
+                        opnd.inst(bi, k).iter().any(&in_class) || x.results().iter().any(&in_class)
                     };
-                    if def.is_some_and(|d| touches(d, &mut ops))
+                    if def.is_some_and(touches)
                         || ent(&touched_before, j, None).is_some_and(|t| t > k)
                     {
                         continue;
@@ -1973,7 +2025,6 @@ impl<'a> Jit<'a> {
         }
         self.bufs.members = members;
         self.bufs.param = param;
-        self.bufs.ops = ops;
         self.bufs.def_in = def_in;
         self.bufs.aliased = aliased;
         self.bufs.last = last;
@@ -1988,6 +2039,7 @@ impl<'a> Jit<'a> {
         pin: &mut [Option<u32>],
         width: &[u32],
         uses: &[u32],
+        opnd: &Operands,
     ) {
         let n = code.values();
         let mut is_param = table(&mut self.bufs.is_param, n, false);
@@ -2064,7 +2116,7 @@ impl<'a> Jit<'a> {
                 if !used_here.insert((bi as u32, root)) {
                     continue;
                 }
-                if !self.merge_is_safe(code, b, uf, root, a, ent(&def_idx, ai, u32::MAX)) {
+                if !self.merge_is_safe(code, opnd, bi, uf, root, a, ent(&def_idx, ai, u32::MAX)) {
                     continue;
                 }
                 put(uf, ai, root);
@@ -2080,14 +2132,14 @@ impl<'a> Jit<'a> {
                 {
                     continue;
                 }
-                if !self.merge_is_safe(code, b, uf, vi as u32, v, ent(&def_idx, vi, u32::MAX)) {
+                if !self.merge_is_safe(code, opnd, bi, uf, vi as u32, v, ent(&def_idx, vi, u32::MAX)) {
                     continue;
                 }
                 // A class of one, pinned at the return area.
                 put(pin, vi, Some(off));
             }
         }
-        self.coalesce_latches(code, uf, pin, width, uses, &def_block, &def_idx);
+        self.coalesce_latches(code, uf, pin, width, uses, &def_block, &def_idx, opnd);
         self.bufs.is_param = is_param;
         self.bufs.def_block = def_block;
         self.bufs.def_idx = def_idx;
@@ -2115,6 +2167,7 @@ impl<'a> Jit<'a> {
         uses: &[u32],
         def_block: &[u32],
         def_idx: &[u32],
+        opnd: &Operands,
     ) {
         let candidate = |b: &ir::Block| match &b.term {
             ir::Term::Jump(t) => b.params.iter().any(|p| t.args.contains(p)),
@@ -2183,7 +2236,7 @@ impl<'a> Jit<'a> {
                     if !matches!(&block.term, ir::Term::Jump(j) if std::ptr::eq(code.get(j.block), latch)) {
                         return false;
                     }
-                    self.merge_is_safe(code, block, uf, r1, ir::ValueId(*m), ent(def_idx, *m as usize, u32::MAX))
+                    self.merge_is_safe(code, opnd, b as usize, uf, r1, ir::ValueId(*m), ent(def_idx, *m as usize, u32::MAX))
                 });
                 if !safe {
                     continue;
@@ -2221,6 +2274,7 @@ impl<'a> Jit<'a> {
         pin: &mut [Option<u32>],
         frame_size: u32,
         uses: &[u32],
+        opnd: &Operands,
     ) {
         let has_call = |b: &ir::Block| b.insts.iter().any(|i| matches!(i, ir::Inst::Call { .. }));
         if !code.blocks.iter().any(has_call) {
@@ -2228,7 +2282,6 @@ impl<'a> Jit<'a> {
         }
         let n = code.values();
         let mut members = table(&mut self.bufs.members, n, 0);
-        let mut ops = std::mem::take(&mut self.bufs.ops);
         for v in 0..n {
             bump(&mut members, find(uf, v as u32) as usize);
         }
@@ -2263,19 +2316,12 @@ impl<'a> Jit<'a> {
                 let so_far = ent(&kept, k, 0) + usize::from(keeps_callee_frame(i));
                 put(&mut kept, k + 1, so_far);
             }
-            for (k, i) in b.insts.iter().enumerate() {
-                ops.clear();
-                i.operands(&mut ops);
-                for o in &ops {
+            for k in 0..b.insts.len() {
+                for o in opnd.inst(bi, k) {
                     note_use(&mut reads, stamp, o, k);
                 }
             }
-            ops.clear();
-            b.term.operands(&mut ops);
-            for t in b.term.targets() {
-                ops.extend_from_slice(&t.args);
-            }
-            for o in &ops {
+            for o in opnd.term(code, bi) {
                 note_use(&mut reads, stamp, o, last);
             }
             let read_at = |v: ir::ValueId| reads.get(v.index()).copied().filter(|u| u.block == stamp);
@@ -2359,7 +2405,6 @@ impl<'a> Jit<'a> {
             }
         }
         self.bufs.members = members;
-        self.bufs.ops = ops;
         self.bufs.reads = reads;
         self.bufs.defs = defs;
         self.bufs.kept = kept;
@@ -2367,35 +2412,29 @@ impl<'a> Jit<'a> {
 
     /// Whether nothing in `root`'s class is read or written between `a`'s
     /// definition and the end of the block.
+    #[allow(clippy::too_many_arguments, reason = "one question about one block")]
     fn merge_is_safe(
         &self,
         code: &ir::Code,
-        b: &ir::Block,
+        opnd: &Operands,
+        bi: usize,
         uf: &[u32],
         root: u32,
         a: ir::ValueId,
         from: u32,
     ) -> bool {
-        let _ = code;
-        let mut ops = Vec::new();
-        for i in b.insts.iter().skip(from as usize + 1) {
-            ops.clear();
-            i.operands(&mut ops);
-            if ops.iter().any(|o| find(uf, o.0) == root) {
+        let Some(b) = code.blocks.get(bi) else { return false };
+        for (k, i) in b.insts.iter().enumerate().skip(from as usize + 1) {
+            if opnd.inst(bi, k).iter().any(|o| find(uf, o.0) == root) {
                 return false;
             }
             if i.results().iter().any(|d| find(uf, d.0) == root) {
                 return false;
             }
         }
-        ops.clear();
-        b.term.operands(&mut ops);
-        for t in b.term.targets() {
-            ops.extend_from_slice(&t.args);
-        }
         // The terminator reads `a` itself once; anything else in the class is
         // a conflict.
-        ops.iter().filter(|o| find(uf, o.0) == root || **o == a).count() <= 1
+        opnd.term(code, bi).iter().filter(|o| find(uf, o.0) == root || **o == a).count() <= 1
     }
 
     /// (k) The order the blocks are laid out in.
@@ -2768,6 +2807,7 @@ impl<'a> Jit<'a> {
         out: &mut [Option<Loc>],
         taken: (usize, usize),
         total: &[u32],
+        opnd: &Operands,
     ) {
         // Uses over the **whole function**, not just the defining block. A
         // value defined in one block is visible to every block it dominates,
@@ -2780,7 +2820,6 @@ impl<'a> Jit<'a> {
         // the block it describes, so moving to the next block resets nothing.
         let mut uses = table(&mut self.bufs.block_uses, code.values(), BlockUses::default());
         let mut barrier = std::mem::take(&mut self.bufs.barrier);
-        let mut ops = std::mem::take(&mut self.bufs.ops);
         // The registers cross-block promotion took are not the local
         // allocator's to hand out.
         let register_count = super::abi::CPS_REGISTER_COUNT;
@@ -2795,19 +2834,12 @@ impl<'a> Jit<'a> {
             barrier.clear();
             barrier.resize(n + 1, false);
             for (k, i) in block.insts.iter().enumerate() {
-                ops.clear();
-                i.operands(&mut ops);
-                for o in &ops {
+                for o in opnd.inst(bi, k) {
                     note_use(&mut uses, stamp, o, k);
                 }
                 put(&mut barrier, k, is_barrier(i));
             }
-            ops.clear();
-            block.term.operands(&mut ops);
-            for t in block.term.targets() {
-                ops.extend_from_slice(&t.args);
-            }
-            for o in &ops {
+            for o in opnd.term(code, bi) {
                 note_use(&mut uses, stamp, o, n);
             }
             // The uses of `v` in this block, if it has any.
@@ -2918,7 +2950,6 @@ impl<'a> Jit<'a> {
         }
         self.bufs.block_uses = uses;
         self.bufs.barrier = barrier;
-        self.bufs.ops = ops;
     }
 
     /// Which `Inst::Const`s never need a frame slot, because every use of them
@@ -3230,24 +3261,10 @@ impl Dominance {
 
 /// How many times each value of `code` is read: as an instruction's operand, as
 /// a terminator's, and as an edge's argument.
-fn count_uses(code: &ir::Code, uses: &mut Vec<u32>, ops: &mut Vec<ir::ValueId>) {
-    *uses = table(uses, code.values(), 0);
-    for b in &code.blocks {
-        for i in &b.insts {
-            ops.clear();
-            i.operands(ops);
-            for o in ops.iter() {
-                bump(uses, o.index());
-            }
-        }
-        ops.clear();
-        b.term.operands(ops);
-        for t in b.term.targets() {
-            ops.extend_from_slice(&t.args);
-        }
-        for o in ops.iter() {
-            bump(uses, o.index());
-        }
+fn count_uses(opnd: &Operands, values: usize, uses: &mut Vec<u32>) {
+    *uses = table(uses, values, 0);
+    for o in &opnd.ops {
+        bump(uses, o.index());
     }
 }
 
