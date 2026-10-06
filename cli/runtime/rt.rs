@@ -635,8 +635,8 @@ unsafe fn notify(p: *const Task) {
 /// One lock over all three, because the decision is a **relation** between
 /// them — "is there a queued task no idle thread will take?" — and reading
 /// two atomics would answer it about no instant in particular.
-struct Sched {
-    queue: VecDeque<Arc<Task>>,
+struct Sched<T> {
+    queue: VecDeque<T>,
     /// Threads inside [`take`], whether or not they are blocked yet.
     idle: usize,
     /// Threads started, ever. Never decremented: a thread is not
@@ -644,17 +644,43 @@ struct Sched {
     /// reaped idle threads would trade a thread for a thread creation on every
     /// burst.
     threads: usize,
+    /// A thread is started and has not reached [`take`] yet.
+    starting: bool,
 }
 
-static SCHED: Mutex<Sched> =
-    Mutex::new(Sched { queue: VecDeque::new(), idle: 0, threads: 0 });
+static SCHED: Mutex<Sched<Arc<Task>>> =
+    Mutex::new(Sched { queue: VecDeque::new(), idle: 0, threads: 0, starting: false });
 /// Woken by [`push`], waited on by [`take`].
 static READY: Condvar = Condvar::new();
 
-fn sched() -> MutexGuard<'static, Sched> {
+fn sched() -> MutexGuard<'static, Sched<Arc<Task>>> {
     match SCHED.lock() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+impl<T> Sched<T> {
+    /// Whether a queued task needs a thread started for it, counting the
+    /// thread if so.
+    ///
+    /// **One start at a time.** A thread that is starting will take a task, so
+    /// a second start before it arrives is a guess that the first one is not
+    /// coming. Under load that guess was made on every push of a burst, and a
+    /// thousand tasks that all park started the whole [`MAX_THREADS`]. The
+    /// arriving thread asks again in [`take`], so a backlog of tasks that block
+    /// still grows the pool, one thread per arrival.
+    ///
+    /// Counted here, under the lock, rather than in the thread that is about
+    /// to be created: two pushes racing would otherwise each see the same
+    /// count and start a thread apiece.
+    fn grow(&mut self) -> bool {
+        let short = self.queue.len() > self.idle && !self.starting && self.threads < MAX_THREADS;
+        if short {
+            self.threads += 1;
+            self.starting = true;
+        }
+        short
     }
 }
 
@@ -670,14 +696,7 @@ fn push(task: Arc<Task>) {
     let start = {
         let mut s = sched();
         s.queue.push_back(task);
-        let short = s.queue.len() > s.idle && s.threads < MAX_THREADS;
-        if short {
-            // Counted here, under the lock, rather than in the thread that is
-            // about to be created: two pushes racing would otherwise each see
-            // the same count and start a thread apiece.
-            s.threads += 1;
-        }
-        short
+        s.grow()
     };
     READY.notify_one();
     if start {
@@ -693,14 +712,25 @@ fn push(task: Arc<Task>) {
 /// one finds an idle thread rather than starting a second. That ordering is
 /// the pool's oldest promise; what changed in B9 is that it is a counter
 /// rather than a channel put back in a vector.
-fn take(armed: bool) -> Arc<Task> {
+///
+/// `fresh` says this is the thread's first call: the arrival [`Sched::grow`]
+/// waits for before it starts another.
+fn take(armed: bool, fresh: bool) -> Arc<Task> {
     let mut s = sched();
+    if fresh {
+        s.starting = false;
+    }
     if !armed {
         s.idle += 1;
     }
     loop {
         if let Some(task) = s.queue.pop_front() {
             s.idle -= 1;
+            let start = s.grow();
+            drop(s);
+            if start {
+                start_thread();
+            }
             return task;
         }
         s = match READY.wait(s) {
@@ -822,9 +852,11 @@ fn set_task_arena(task: &Task, slot: crate::memory::ArenaSlot) {
 /// something else.
 fn thread_loop() {
     let mut armed = false;
+    let mut fresh = true;
     loop {
-        let task = take(armed);
+        let task = take(armed, fresh);
         armed = false;
+        fresh = false;
         set_running(Arc::as_ptr(&task));
         task.state.store(RUNNING, Ordering::Release);
         // G5: the arena belongs to the task, not to the thread it is on this
@@ -2902,6 +2934,29 @@ mod tests {
     /// that is exact: `arm` counts a finishing thread as available before its
     /// joiner is told the answer is ready, which is the same ordering the
     /// vector gave and the reason it is written that way round.
+    /// **A burst starts one thread, and the next when that one arrives.**
+    ///
+    /// The pool's growth rule, on a queue nothing drains: a thread that has
+    /// been started but not yet reached [`take`] is invisible to `idle`, so a
+    /// rule that only compared the queue with `idle` started a thread for every
+    /// push it made before the first one ran. Under load that was the whole of
+    /// [`MAX_THREADS`] for a thousand tasks that park.
+    #[test]
+    fn a_burst_starts_one_thread_until_that_thread_arrives() {
+        let mut s = Sched { queue: VecDeque::new(), idle: 0, threads: 0, starting: false };
+        for _ in 0..1000 {
+            s.queue.push_back(());
+            s.grow();
+        }
+        assert_eq!(s.threads, 1, "a burst of pushes started more than the thread already on its way");
+
+        // The thread arrives, as `take` has it, and takes a task with a backlog behind it.
+        s.starting = false;
+        s.queue.pop_front();
+        assert!(s.grow(), "a backlog with no thread on its way started none");
+        assert_eq!(s.threads, 2);
+    }
+
     #[test]
     fn a_thread_runs_the_job_and_is_reused() {
         let _alone = alone();
@@ -3944,25 +3999,21 @@ mod tests {
     /// `EAGAIN` on the 8 192nd thread of this process and `spawn_thread`
     /// turns that into an abort. `reports/wave8-b9.md` has the run.
     ///
-    /// What is asserted is the ratio rather than a number: a thousand tasks in
-    /// flight cost fewer than a quarter as many threads. The threads that do
-    /// get started are the ones the dispatch loop outruns — a task is queued
-    /// before the previous one has reached its park — and [`MAX_THREADS`] is
-    /// the ceiling under all of it.
+    /// **The proof is a count no scheduler can move**: more tasks are parked
+    /// at once than [`MAX_THREADS`] lets the pool have, so at least one of them
+    /// holds no thread, and every one of them reached the same `PARKED` state.
+    /// How many threads the burst started is the scheduler's business, and
+    /// under load it was most of the ceiling; it used to be asserted here, as a
+    /// ratio, and that was the flake. The growth rule has a case of its own,
+    /// `a_burst_starts_one_thread_until_that_thread_arrives`.
     #[test]
     fn a_thousand_parked_tasks_do_not_cost_a_thousand_threads() {
-        let _alone = alone();
         const N: usize = 1000;
+        const { assert!(N > MAX_THREADS) };
+        let _alone = alone();
         let before = threads();
-        let (_, _, started) = park_n(N);
-        assert!(
-            started * 4 < N,
-            "{N} parked tasks started {started} threads, which is not a saving worth the switch",
-        );
-        assert!(
-            threads() - before <= MAX_THREADS,
-            "the pool went past its own ceiling",
-        );
+        park_n(N);
+        assert!(threads() - before <= MAX_THREADS, "the pool went past its own ceiling");
     }
 
     /// **A task resumed on a different thread keeps its frames.**
@@ -4360,6 +4411,14 @@ mod tests {
         Some(pages * 4096 / 1024)
     }
 
+    /// The state word of the task a handle names.
+    fn task_state(handle: i64) -> u8 {
+        match &tasks()[usize::try_from(handle).unwrap()] {
+            Slot::Running(h) => h.task.state.load(Ordering::Acquire),
+            Slot::Done => FINISHED,
+        }
+    }
+
     /// **What `n` parked tasks cost**, printed rather than asserted.
     ///
     /// The design's B9 row asks for one number: the resident set of ten
@@ -4402,9 +4461,13 @@ mod tests {
             assert!(Instant::now() < deadline, "only {} of {n} tasks ever parked", arrived.load(Ordering::SeqCst));
             thread::sleep(Duration::from_millis(5));
         }
-        // Every task is inside `acquire`, or one instruction from it, and none
-        // will come out until the permits below.
-        thread::sleep(Duration::from_millis(200));
+        // Every task is inside `acquire`, and none will come out until the
+        // permits below. Waited for rather than slept on: a task that holds its
+        // thread instead of parking never gets here.
+        while let Some(h) = handles.iter().find(|h| task_state(**h) != PARKED) {
+            assert!(Instant::now() < deadline, "a task never parked, it is in state {}", task_state(*h));
+            thread::sleep(Duration::from_millis(5));
+        }
         let parked = rss_kib().unwrap_or(0);
         let threads_now = threads();
 
