@@ -740,7 +740,7 @@ fn finish_uncounted(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
     // certainly running, so it is where the mode is read and the exit audit is
     // registered. Off — every shipped artifact — is a load of an initialised
     // `OnceLock` beside a `malloc`.
-    let _ = heap_check();
+    let mode = heap_check();
     // SAFETY: `raw` is a fresh allocation of at least `BURI_RT_HEADER` bytes,
     // aligned to 16, so the header is in bounds and aligned.
     unsafe {
@@ -756,7 +756,9 @@ fn finish_uncounted(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
     // SAFETY: the block is `BURI_RT_HEADER + payload` bytes, so the payload
     // start is one-past-the-header and in bounds.
     let p = unsafe { raw.add(BURI_RT_HEADER) };
-    trace_alloc(p, payload, flags);
+    if mode == HeapCheck::Trace && flags & BURI_RT_CAP_ARENA == 0 {
+        trace_insert(p, payload);
+    }
     p
 }
 
@@ -1499,13 +1501,43 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     if p.is_null() {
         return;
     }
+    // The mode is read once, and a shipped program's, `Off`, gets a copy of
+    // the body with every check folded away: no quarantine test, no trace,
+    // and none of their registers saved on the way in.
+    let mode = heap_check();
+    if mode == HeapCheck::Off {
+        // SAFETY: forwarded.
+        unsafe { free_block(p, HeapCheck::Off) }
+    } else {
+        // SAFETY: forwarded.
+        unsafe { free_checked(p, mode) }
+    }
+}
+
+/// [`buri_rt_free`] under a heap check.
+///
+/// # Safety
+/// As [`buri_rt_free`], and `p` is not null.
+#[cold]
+#[inline(never)]
+unsafe fn free_checked(p: *mut u8, mode: HeapCheck) {
+    // SAFETY: forwarded.
+    unsafe { free_block(p, mode) }
+}
+
+/// [`buri_rt_free`]'s body, with the heap check's mode as an argument.
+///
+/// # Safety
+/// As [`buri_rt_free`], and `p` is not null.
+#[inline(always)]
+unsafe fn free_block(p: *mut u8, mode: HeapCheck) {
     // The quarantine's immediate half: a block that is already dead being
     // freed again is a double free, which is the over-decrement family's
     // loudest member and the one worth naming on the spot.
     //
     // SAFETY: the caller promises a live payload pointer, so the header is
     // readable — and a quarantined block's header is readable too.
-    if unsafe { is_quarantined(p) } {
+    if mode.quarantines() && unsafe { (*header(p)).rc } == QUARANTINE_RC {
         heap_use_after_free(b"free");
     }
     // SAFETY: the caller promises a live payload pointer.
@@ -1516,7 +1548,9 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
         }
         (cap_of(h), is_arena(h))
     };
-    trace_free(p);
+    if mode == HeapCheck::Trace {
+        trace_remove(p);
+    }
     // Before the address can be handed to another block: an index of this
     // block's bytes must not answer for the next one's (`scalars.rs`).
     crate::scalars::forget(p);
@@ -1539,7 +1573,7 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     // instead of the allocator: poisoned, held, and released for real once the
     // ring needs the room. An arena block is not offered — its pages are the
     // scope's and go back in one `munmap`.
-    if heap_check().quarantines() {
+    if mode.quarantines() {
         count(freed(cap));
         // SAFETY: the block is dead, has `cap` usable bytes, is not an arena
         // block, and this is its last reference.
@@ -2192,14 +2226,7 @@ fn traced<T>(f: impl FnOnce(&mut std::collections::BTreeMap<usize, u64>) -> T) -
 ///
 /// The register is out of line and cold, so that the allocation path it sits
 /// on does not save every callee-saved register for a `BTreeMap` it never
-/// touches.
-#[inline]
-fn trace_alloc(p: *mut u8, cap: u64, flags: u64) {
-    if heap_check() == HeapCheck::Trace && flags & BURI_RT_CAP_ARENA == 0 {
-        trace_insert(p, cap);
-    }
-}
-
+/// touches. `finish_uncounted` makes the mode and arena tests.
 #[cold]
 #[inline(never)]
 fn trace_insert(p: *mut u8, cap: u64) {
