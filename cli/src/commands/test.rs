@@ -667,6 +667,7 @@ fn drive(
     done: &std::sync::mpsc::Receiver<Option<Done>>,
     out: &mut Out,
 ) -> Tally {
+    RULE_PATHS.with(|paths| paths.borrow_mut().clear());
     rerun(session, slots, queue);
     batch(session, args, slots, queue);
     for i in 0..slots.len() {
@@ -995,7 +996,7 @@ fn solo(
         &mut session.parsed,
         std::slice::from_ref(&unit),
     );
-    note_reads(session, target, &key, &loading);
+    note_reads(session, target, &key, &loading, &actions::Imports::of(loading.loaded()));
     let bytes = build_bytes(loading.source_bytes(&session.map));
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
     let limit = suite(session, target).and_then(|x| x.timeout_seconds);
@@ -1973,9 +1974,18 @@ fn note_reads(
     target: TargetId,
     key: &crate::build::cache::ActionKey,
     loading: &crate::compiler::driver::Loading,
+    imports: &actions::Imports,
 ) {
-    let files = actions::suite_unkeyed_reads(session, target, loading.loaded(), &mut actions::RulePaths::new());
+    let files = RULE_PATHS.with(|paths| {
+        actions::suite_unkeyed_reads(session, target, loading.loaded(), imports, &mut paths.borrow_mut())
+    });
     note(key, actions::encode_reads(session, &files));
+}
+
+thread_local! {
+    /// Each rule's files as paths, for one pass's [`note_reads`]: emptied when
+    /// [`drive`] starts, since a pass may run against a new graph.
+    static RULE_PATHS: std::cell::RefCell<actions::RulePaths> = std::cell::RefCell::new(actions::RulePaths::new());
 }
 
 /// Stores a verdict with its reads. One whose reads were never noted isn't
@@ -3167,9 +3177,10 @@ fn queue_batch(
         &mut session.parsed,
         &units,
     );
+    let imports = actions::Imports::of(loading.loaded());
     for (&target, &i) in members.iter().zip(member_slots) {
         if let Some(slot) = slots.get(i) {
-            note_reads(session, target, &slot.key, &loading);
+            note_reads(session, target, &slot.key, &loading, &imports);
         }
     }
     let platform = crate::compiler::driver::host_native_platform();

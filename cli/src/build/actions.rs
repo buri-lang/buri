@@ -592,19 +592,20 @@ pub fn unkeyed_reads(
     }
     let files = loaded.modules.iter().filter_map(|m| Some((m.disk.clone()?, m.pkg)));
     let worked = worked_out(session, loaded, |_| true);
-    unlisted(session, &members, &extra, files, worked, rule_paths, false)
+    unlisted(session, &members, &extra, files, worked, rule_paths)
 }
 
 /// [`unkeyed_reads`] for a test suite, whose key ([`test_key`]) is its target's
 /// closure, its test dependencies' and its own test sources.
 ///
-/// A batch loads several suites as one program, so only the files of packages
-/// in this suite's closure are its own: another member's are in that member's
-/// record.
+/// A batch loads several suites as one program, so a suite's reads are the
+/// modules its own package's modules reach by import, a library it doesn't
+/// declare included: another member's are in that member's record.
 pub fn suite_unkeyed_reads(
     session: &Session,
     target: TargetId,
     loaded: &crate::compiler::modules::Loaded,
+    imports: &Imports,
     rule_paths: &mut RulePaths,
 ) -> Vec<PathBuf> {
     let workspace = &session.workspace;
@@ -617,9 +618,78 @@ pub fn suite_unkeyed_reads(
         .test_suite(target.kind)
         .map(|suite| suite.sources.iter().map(|x| package.dir.join(&x.value)).collect())
         .unwrap_or_default();
-    let files = loaded.modules.iter().filter_map(|m| Some((m.disk.clone()?, m.pkg)));
-    let worked = worked_out(session, loaded, |rule| members.contains(&rule));
-    unlisted(session, &members, &extra, files, worked, rule_paths, true)
+    let reached: Vec<&crate::compiler::modules::ModuleData> =
+        imports.reached_from(loaded, target.package).filter_map(|i| loaded.modules.get(i)).collect();
+    let files = reached.iter().filter_map(|m| Some((m.disk.clone()?, m.pkg)));
+    let owners: Vec<TargetId> = reached
+        .iter()
+        .filter(|m| m.disk.is_none())
+        .filter_map(|m| workspace.generated.owner(&m.path))
+        .collect();
+    let worked = worked_out(session, loaded, |rule| members.contains(&rule) || owners.contains(&rule));
+    unlisted(session, &members, &extra, files, worked, rule_paths)
+}
+
+/// Which loaded modules each loaded module imports or re-exports, by position
+/// in `Loaded::modules`. Worked out once per load, since a batch asks it once
+/// per member. The standard library is left out: it is part of the toolchain.
+pub struct Imports {
+    edges: Vec<Vec<usize>>,
+}
+
+impl Imports {
+    pub fn of(loaded: &crate::compiler::modules::Loaded) -> Imports {
+        use crate::parsing::tree::Item;
+        let at: std::collections::HashMap<&str, usize> =
+            loaded.modules.iter().enumerate().map(|(i, m)| (m.path.as_str(), i)).collect();
+        let edges = loaded
+            .modules
+            .iter()
+            .map(|module| {
+                let mut out = Vec::new();
+                for item in &module.ast.items {
+                    let written = match item {
+                        Item::Import(import) => &import.path,
+                        Item::ReExport(export) => &export.path,
+                        _ => continue,
+                    };
+                    // The import was loaded, so its canonical path is here: the
+                    // path itself, a file's extensionless spelling, or a
+                    // package's surface. Taking every one there can only reach
+                    // more.
+                    if !written.starts_with("//") {
+                        continue;
+                    }
+                    for suffix in ["", ".buri", "/lib.buri", "/platform.buri"] {
+                        if let Some(&i) = at.get(format!("{written}{suffix}").as_str()) {
+                            out.push(i);
+                        }
+                    }
+                }
+                out
+            })
+            .collect();
+        Imports { edges }
+    }
+
+    /// The modules `package`'s own modules reach, themselves included.
+    fn reached_from(
+        &self,
+        loaded: &crate::compiler::modules::Loaded,
+        package: crate::build::workspace::PackageId,
+    ) -> impl Iterator<Item = usize> {
+        let mut seen = vec![false; self.edges.len()];
+        let mut stack: Vec<usize> =
+            loaded.modules.iter().enumerate().filter(|(_, m)| m.pkg == Some(package)).map(|(i, _)| i).collect();
+        while let Some(i) = stack.pop() {
+            match seen.get_mut(i) {
+                Some(s) if !*s => *s = true,
+                _ => continue,
+            }
+            stack.extend(self.edges.get(i).into_iter().flatten());
+        }
+        seen.into_iter().enumerate().filter(|(_, s)| *s).map(|(i, _)| i)
+    }
 }
 
 /// [`unkeyed_reads`] for a tool's program ([`crate::build::tools::program_key`]),
@@ -633,7 +703,7 @@ pub fn tool_unkeyed_reads<'p>(
     let members: std::collections::HashSet<TargetId> = workspace.closure(tool).into_iter().collect();
     let files = read.map(|p| (p.to_path_buf(), workspace.owning_package(p)));
     let none = std::collections::HashSet::new();
-    unlisted(session, &members, &none, files, Vec::new(), &mut RulePaths::new(), false)
+    unlisted(session, &members, &none, files, Vec::new(), &mut RulePaths::new())
 }
 
 /// The files a load's generators read: every rule whose generators it reported
@@ -655,7 +725,6 @@ fn worked_out(
 /// Of `files`, each with the package it is in, and of what generators read in
 /// `worked`: those no rule among `members` lists and `extra` doesn't name.
 /// A file names its package, so only that package's rules are asked.
-/// `within` leaves out a file of a package with no member in `members`.
 #[allow(
     clippy::too_many_arguments,
     reason = "the session, who keys, what else is keyed, the two kinds of read, the memo and the               scope: none derivable from another"
@@ -667,7 +736,6 @@ fn unlisted(
     files: impl Iterator<Item = (PathBuf, Option<crate::build::workspace::PackageId>)>,
     worked: Vec<PathBuf>,
     rule_paths: &mut RulePaths,
-    within: bool,
 ) -> Vec<PathBuf> {
     let workspace = &session.workspace;
     let mut keyed_by = |member: TargetId, path: &Path| {
@@ -688,13 +756,7 @@ fn unlisted(
             continue;
         }
         let listed = match package {
-            Some(package) => {
-                let mine = KINDS.iter().map(|&kind| TargetId { package, kind });
-                if within && !mine.clone().any(|t| members.contains(&t)) {
-                    continue;
-                }
-                mine.into_iter().any(|t| keyed_by(t, &path))
-            }
+            Some(package) => KINDS.iter().any(|&kind| keyed_by(TargetId { package, kind }, &path)),
             None => all.iter().any(|&m| keyed_by(m, &path)),
         };
         if !listed {
