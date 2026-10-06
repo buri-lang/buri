@@ -2,6 +2,10 @@
 # CI runs `cargo test` and never reads this file, so it only schedules tests:
 # cli/tests/ci.rs forbids killing, retrying or filtering one here.
 
+# 0.9.145 stopped tests inheriting a sibling's capture pipe on macOS, which
+# made nextest report the sibling as leaky (design/PERFORMANCE.md §6.35).
+nextest-version = { required = "0.9.145" }
+
 [profile.default]
 fail-fast = false
 retries = 0
