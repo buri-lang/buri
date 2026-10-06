@@ -358,7 +358,7 @@ fn many_lets(n: usize) -> (String, String) {
 
 /// **Checking a body is linear in its `let`s.** Looking a name up walked
 /// every local in scope, and a name that is not a local, such as a function's,
-/// walked all of them every time. PERFORMANCE.md §6.39.
+/// walked all of them every time. PERFORMANCE.md §6.41.
 #[test]
 fn checking_is_linear_in_a_bodys_lets() {
     grows_linearly(
@@ -380,7 +380,7 @@ fn commented_file(n: usize) -> String {
 
 /// **Formatting is linear in a file's comments.** Every lookup of the comments
 /// above a token scanned the file's whole list, so a file of a few thousand
-/// lines spent most of its formatting there. PERFORMANCE.md §6.39.
+/// lines spent most of its formatting there. PERFORMANCE.md §6.41.
 #[test]
 fn formatting_is_linear_in_a_files_comments() {
     grows_linearly(

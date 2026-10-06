@@ -3929,6 +3929,93 @@ the uncontended case most.
   `cc -###` line with its paths made portable, and the resolved `clang`'s
   identity, as §6.24 asks.
 
+### 6.41 The formatter and the checker, 2026-10-06
+
+Instructions per repetition of each phase, from a bench child that runs it once
+and then four times, `main` at `1c674296` against the seven commits below. `check`
+is the `sema` child minus the `load` child, so parsing drops out.
+
+| Corpus | `check` before | after | Δ | `format` before | after | Δ |
+|---|---:|---:|---:|---:|---:|---:|
+| `mixed-100k` | 470 M | 438 M | −6.8% | 2,237 M | 1,642 M | −27% |
+| `match-heavy-100k` | 550 M | 440 M | −20% | 2,073 M | 1,493 M | −28% |
+| `enum-heavy-100k` | 655 M | 414 M | −37% | 2,056 M | 1,529 M | −26% |
+| `mixed-few-files-100k` | 489 M | 454 M | −7.2% | 4,457 M | 1,662 M | −63% |
+| `string-heavy-100k` | 457 M | 443 M | −2.9% | 2,314 M | 1,684 M | −27% |
+| `comment-heavy-100k` | 267 M | 252 M | −5.6% | 1,753 M | 1,253 M | −29% |
+
+`lex+parse` didn't move: every row is within 1.7%, both ways.
+
+**The formatter was `n²` in a file's length, three ways.** Every lookup of the
+comments above a token scanned the file's whole list, `written_after` scanned
+the declarations once per declaration, and `derive_groups` compared every
+declaration with every other. Comments are in source order, so lookups binary
+search, the declarations' starts are listed once, and derives group through a
+map. `buri format` of one file from `/tmp/buri-algo/gen.py big_file`:
+
+| Declarations | Lines | Before | After |
+|---:|---:|---:|---:|
+| 1,000 | 27k | 3.50 G | 0.43 G |
+| 2,000 | 54k | 12.92 G | 0.81 G |
+
+`build::profile`'s `formatting_is_linear_in_a_files_comments` formats 2,000
+and 4,000 commented functions. Before, it read 35.3 G and 277.2 G.
+
+**Then the formatter's constant**, each change measured on `mixed-100k`
+against the one before:
+
+| Change | `format` |
+|---|---:|
+| One lex per text: the parse hands its tokens and trivia to the comments and the check (`parse_kept`) | −12.8% |
+| `Doc::Text` is a `Cow<'static, str>`, so a `,` or a keyword isn't an allocation | −4.5% |
+| `Doc` borrows identifiers, numbers and verbatim lines from the source | −2.2% |
+| `fits` measures on one spare list per render, and `Alt` candidates are an iterator | −5.9% |
+
+A file used to be lexed five times: to parse it, for its comments, for the
+comment check, and twice more for the output. Now it's twice. The parser
+reads a token's doc lines from the trivia table instead of taking them, which
+is what lets the table be read again.
+
+**Most matches skip the usefulness matrix.** `plainly_covered` takes a match
+whose arms are distinct variants or literals binding only names, then at most
+one catch-all. Every arm of that shape is reachable and exhaustiveness is a
+count, so the matrix would report nothing. Any other match goes the long way,
+including every one with something to report, so no diagnostic changes.
+
+**A local lookup follows an index past the innermost 32 bindings.**
+`lookup_local` walked every binding in scope, and a name that isn't a local,
+such as a function's, walked all of them. Older bindings are now indexed by
+name hash, each pointing at the one it shadows. Short bodies still walk their
+list, and `mixed-100k` pays about 1% of `check` for the bookkeeping:
+
+| `check` of one body of `n` `let`s | Before | After |
+|---|---:|---:|
+| 8,000 `let`s calling a function | 270 M | 78 M |
+| 16,000 `let`s calling a function | 890 M | 127 M |
+| `gen.py path_lets`, 8,000 | 1,277 M | 130 M |
+| `gen.py closures`, 4,000 | 508 M | 127 M |
+
+`build::profile`'s `checking_is_linear_in_a_bodys_lets` guards it.
+
+Formatted output is identical on all 7,787 checked-in `.buri` files, which
+include the unformatted inputs under `cli/tests/formatting`, and on six pinned
+corpora. The full workspace suite passes.
+
+**Measured and dropped:**
+
+- **Scanning a word eight bytes at a time** in the lexer, SWAR: +4% `lex`
+  instructions. A word is short, so the byte loop retires fewer.
+- **Sizing a module's `names` map for the prelude up front**, and **one
+  `resolve_path` per named type** in `elaborate` instead of two: both within
+  noise.
+
+**What's left.** Dropping the typed tree is about a tenth of a `sema`
+repetition, freeing one `Box<Expr>` at a time. An arena would fix it, and
+`middle` reads that tree. `ModuleScope::names` copies every prelude name into
+every module as a `String`, and the language server iterates it. The `Doc` tree
+is still a `Box` or a `Vec` per node, and freeing it is about a tenth of
+`format`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
