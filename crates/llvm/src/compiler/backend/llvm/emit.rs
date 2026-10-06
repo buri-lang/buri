@@ -468,11 +468,15 @@ struct Function<'ctx> {
     reads: Map<(usize, Read), BasicValueEnum<'ctx>>,
 }
 
-/// What [`Unit::read_once`] read out of a value.
+/// What [`Unit::read_once`] read out of a value, and the value's type.
+///
+/// The type is part of the key because LLVM uniques constants, so one value
+/// can stand for two: `Point { held: (false, 5) }` and its `held` are the same
+/// constant, and field 0 of each is a different read.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Read {
-    Tag,
-    Field(usize),
+    Tag(ir::TypeId),
+    Field(ir::TypeId, usize),
 }
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
@@ -1510,7 +1514,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return;
         }
         // Only the field's own slots: the rest of a wide struct is not read.
-        let value = self.read_once(state, whole, Read::Field(index), |this| {
+        let value = self.read_once(state, whole, Read::Field(id, index), |this| {
             let taken = this.pieces_range(&slots, whole, start..end);
             this.assemble(&want, &taken)
         });
@@ -1617,7 +1621,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let tag = if repr::in_memory(&slots) {
             self.tag_of(&slots, &enum_repr, none_variant, some_variant, whole)
         } else {
-            self.read_once(state, whole, Read::Tag, |this| {
+            self.read_once(state, whole, Read::Tag(id), |this| {
                 this.tag_of(&slots, &enum_repr, none_variant, some_variant, whole)
             })
         };
