@@ -76,7 +76,7 @@ const BURI_ABSENT: i32 = 0;
 /// # Safety
 /// `src` and `dst` must each cover `count * stride` bytes and must not overlap;
 /// `retain`, where non-null, must be the retain glue for the element type.
-unsafe fn copy_retaining(
+pub(crate) unsafe fn copy_retaining(
     dst: *mut u8,
     src: *const u8,
     count: usize,
@@ -216,7 +216,7 @@ unsafe fn append_dest(
 ///
 /// # Safety
 /// `at` covers `bytes` readable bytes.
-unsafe fn spare(at: *const u8, bytes: usize) -> bool {
+pub(crate) unsafe fn spare(at: *const u8, bytes: usize) -> bool {
     // SAFETY: the caller promises the range.
     unsafe { std::slice::from_raw_parts(at, bytes) }.iter().all(|b| *b == 0)
 }

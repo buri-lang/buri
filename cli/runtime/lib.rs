@@ -674,6 +674,7 @@ mod switch;
 /// rather than as a toolchain fault. Behind `paint` because the painter is.
 #[cfg(feature = "paint")]
 mod snapshot;
+mod splice;
 mod tcp;
 mod testing;
 mod text;

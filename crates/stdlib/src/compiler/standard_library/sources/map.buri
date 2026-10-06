@@ -109,22 +109,20 @@ fn indexOf(bitmap: U64, bit: U64): Int {
 // -----------------------------------------------------------------------------
 // Splicing
 //
-// Free functions over an unbounded `T` rather than lambdas, because a lambda
-// may not capture a value whose type could be a context (SPEC 10.6), and a
-// `[Node<K, V>]` or `[(K, V)]` is exactly such a type when `V` is unbounded.
+// The runtime's, because a native build writes into a list nothing else holds:
+// the list is handed over, so a count of one means the caller gave up its only
+// reference (`cli/runtime/splice.rs`). A shared list is copied. An `at` outside
+// the list inserts at the nearer end, and replaces or removes nothing.
 // -----------------------------------------------------------------------------
 
-fn insertAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, x: T): [T] {
-    xs.take(ctx, at).push(ctx, x).concat(ctx, xs.drop(ctx, at))
-}
+/// `xs` with `x` before index `at`.
+fn insertAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, x: T): [T];
 
-fn replaceAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, x: T): [T] {
-    xs.take(ctx, at).push(ctx, x).concat(ctx, xs.drop(ctx, at + 1))
-}
+/// `xs` with the element at `at` exchanged for `x`.
+fn replaceAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, x: T): [T];
 
-fn removeAt<T, C: Allocator>(ctx: C, xs: [T], at: Int): [T] {
-    xs.take(ctx, at).concat(ctx, xs.drop(ctx, at + 1))
-}
+/// `xs` without the element at `at`.
+fn removeAt<T, C: Allocator>(ctx: C, xs: [T], at: Int): [T];
 
 // -----------------------------------------------------------------------------
 // Collision lists
@@ -266,9 +264,16 @@ fn insertNode<K: Equal, V, C: Allocator>(
             let bit = bitOf(chunkAt(hash, depth));
             let idx = indexOf(bitmap, bit);
             if (hasSlot(bitmap, bit)) {
-                match (children.get(idx)) {
+                // A name rather than a scrutinee, so the option lets go of the
+                // child where the match takes it apart rather than after it.
+                let found = children.get(idx);
+                match (found) {
                     .None => (.Branch(bitmap, children), false),
                     .Some(child) => {
+                        // Out of the list before the descent, so a list nothing
+                        // else holds lets go of the child and the child is held
+                        // once: each level below then updates in place too.
+                        let rest = removeAt(ctx, children, idx);
                         let (grown, added) = insertNode(
                             ctx,
                             child,
@@ -277,7 +282,7 @@ fn insertNode<K: Equal, V, C: Allocator>(
                             value,
                             depth + 1,
                         );
-                        (.Branch(bitmap, replaceAt(ctx, children, idx, grown)), added)
+                        (.Branch(bitmap, insertAt(ctx, rest, idx, grown)), added)
                     },
                 }
             } else {

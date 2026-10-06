@@ -526,6 +526,13 @@ pub const ENTRIES: &[Entry] = &[
     // each element and then calls this. No element descriptor: the block is a
     // `[Str]` at every instantiation. No source names the key.
     e("show.list", &[List], Ret::Out),
+    // -- core/map -----------------------------------------------------------
+    //
+    // A node's children, spliced. These own the list (`cli/runtime/splice.rs`),
+    // so they carry the element's release for what a splice writes over.
+    e("map.insertAt", &[Dropped, Elems, Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Out),
+    e("map.replaceAt", &[Dropped, Elems, Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Out),
+    e("map.removeAt", &[Dropped, Elems, Scalar, Stride, Retain, Release, Equal], Ret::Out),
     // -- core/bytes ---------------------------------------------------------
     //
     // Six of `bytes.buri`'s surface, and the rest of that module is Buri:
