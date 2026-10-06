@@ -232,8 +232,12 @@ pub struct Checker<'a> {
     ///
     /// [`Checker::entries`] is the wider table: it holds every exported
     /// function of `main.buri`, so a build can look one up and say what it
-    /// found. This one is the set that may build a context.
-    pub entry_points: HashSet<String>,
+    /// found. This one is the set that may build a context. Both this and
+    /// [`Checker::module_entries`] are per entry module, so several binaries
+    /// can share one compilation and each `main` builds its own context.
+    pub entry_points: HashSet<(ModuleId, String)>,
+    /// Every exported free function of each entry module, by name.
+    pub module_entries: HashMap<ModuleId, HashMap<String, FnId>>,
     pub tests: Vec<TestCase>,
     /// The synthetic module the primitives are declared in.
     pub prim_module: ModuleId,
@@ -439,6 +443,7 @@ impl<'a> Checker<'a> {
             entry: None,
             entries: HashMap::default(),
             entry_points: HashSet::default(),
+            module_entries: HashMap::default(),
             tests: Vec::new(),
             prim_module: ModuleId(u32::MAX),
             surfaces: HashMap::default(),
@@ -1549,6 +1554,7 @@ impl<'a> Checker<'a> {
         }
         let name = self.tables.fn_info(fid).name.clone();
         self.entries.insert(name.clone(), fid);
+        self.module_entries.entry(module).or_default().insert(name.clone(), fid);
         if name == "main" {
             self.entry = Some(fid);
         }
@@ -1561,7 +1567,7 @@ impl<'a> Checker<'a> {
         // is the artifact being compiled, and refusing it there would refuse a
         // program that is correct.
         if self.declares_entry(module, &name) {
-            self.entry_points.insert(name.clone());
+            self.entry_points.insert((module, name.clone()));
         }
         // An entry of a repository platform is held to that platform's own
         // declaration of it.
@@ -1697,21 +1703,29 @@ impl<'a> Checker<'a> {
     /// function leaves the function it *did* name an ordinary one, which may
     /// then not build a context.
     fn check_declared_entries(&mut self) {
-        let Some(ws) = self.ws else { return };
-        let entry_module = (0..self.loaded.modules.len() as u32)
+        let entry_modules: Vec<ModuleId> = (0..self.loaded.modules.len() as u32)
             .map(ModuleId)
-            .find(|m| self.module(*m).role == Role::Entry && self.module(*m).pkg.is_some());
-        let Some(module) = entry_module else { return };
+            .filter(|m| self.module(*m).role == Role::Entry && self.module(*m).pkg.is_some())
+            .collect();
+        for module in entry_modules {
+            self.check_declared_entries_of(module);
+        }
+    }
+
+    /// [`Checker::check_declared_entries`] for one binary's entry module.
+    fn check_declared_entries_of(&mut self, module: ModuleId) {
+        let Some(ws) = self.ws else { return };
         let Some(pkg) = self.module(module).pkg else { return };
         let target = TargetId { package: pkg, kind: RuleKind::Binary };
-        let mut exported: Vec<String> = self.entries.keys().cloned().collect();
+        let own = self.module_entries.get(&module);
+        let mut exported: Vec<String> = own.map(|m| m.keys().cloned().collect()).unwrap_or_default();
         exported.sort();
         let label = ws.package(pkg).label();
         let mut said: Vec<String> = Vec::new();
         for entry in ws.declared_entries(target) {
             // An output that named nothing is `missing-main`'s business, which is a
             // different mistake and is reported by the build.
-            if !entry.named || self.entries.contains_key(&entry.name) {
+            if !entry.named || exported.contains(&entry.name) {
                 continue;
             }
             // The build file may name one missing entry from several outputs;

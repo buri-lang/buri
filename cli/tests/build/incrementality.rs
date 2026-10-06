@@ -2964,3 +2964,52 @@ fn a_filtered_run_over_a_derived_ordered_suite_runs_rather_than_ices() {
         );
     }
 }
+
+/// A binary package whose `main` builds a context, with `extra` above it.
+fn binary_package(scratch: &Scratch, path: &str, extra: &str) {
+    scratch.write(
+        &format!("{path}/BUILD.buri"),
+        "binary {\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n",
+    );
+    scratch.write(
+        &format!("{path}/main.buri"),
+        &format!(
+            "from \"platform/effect\" import {{ Allocator, Stdout }};\n\
+             from \"node\" import {{ NodeHost }};\n\
+             from \"core/io\" import * as io;\n\n{extra}\
+             export fn main(host: NodeHost): Result<(), Str> {{\n    \
+             let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};\n    \
+             let _ = io.println(ctx, \"hi\").ignore();\n    .Ok(())\n}}\n"
+        ),
+    );
+}
+
+/// Two binaries linted in one run each build their context in their own
+/// `main`, which is where a context belongs, and a context built anywhere else
+/// is still refused. PERFORMANCE.md §6.47.
+#[test]
+fn each_binary_in_one_lint_builds_its_context_in_its_own_main() {
+    let scratch = Scratch::repo("lint-two-binaries");
+    binary_package(&scratch, "cmd/a", "");
+    binary_package(
+        &scratch,
+        "cmd/b",
+        "fn helper(host: NodeHost): Int {\n    \
+         let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n    1\n}\n\n",
+    );
+    let run = scratch.run(&["lint", "//..."]);
+    let all = run.all();
+    // Where each `misplaced-context` points: the `-->` line under it.
+    let lines: Vec<&str> = all.lines().collect();
+    let refused: Vec<&str> = lines
+        .windows(2)
+        .filter(|w| w[0].contains("[misplaced-context]"))
+        .filter_map(|w| w[1].trim().strip_prefix("--> "))
+        .collect();
+    assert_eq!(
+        refused,
+        ["cmd/b/main.buri:6:15"],
+        "only the context built outside `main` is refused:\n{}",
+        indent(&all)
+    );
+}

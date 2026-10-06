@@ -153,8 +153,8 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     // resolver filled says which exported functions those are.
     let in_main = c.module(info.module).role == Role::Entry
         && info.exported
-        && c.entry_points.contains(&info.name)
-        && c.entries.get(&info.name) == Some(&fid);
+        && c.entry_points.contains(&(info.module, info.name.clone()))
+        && c.module_entries.get(&info.module).and_then(|m| m.get(&info.name)) == Some(&fid);
     // The parts the body is checked against, copied once: the checker is
     // borrowed mutably from here on, and the declaration lives in its tables.
     // The parameters are read one at a time below instead, so that each name
