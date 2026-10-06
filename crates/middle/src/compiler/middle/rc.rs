@@ -1553,27 +1553,93 @@ fn consuming_uses(
     out: &mut HashSet<LocalId>,
     pieces: Option<&[bool]>,
 ) {
+    // `let n = r.push(..);`, as `(n, r)`: a name for the result of a growth,
+    // and what was grown. And the locals a functional update is written over.
+    // Neither depends on `out`, so they're found once rather than per round.
+    let mut grown: Vec<(LocalId, &Expr)> = Vec::new();
+    let mut bases: Vec<LocalId> = Vec::new();
+    if let Some(g) = pieces {
+        typed::walk(body, &mut |e| {
+            if let ExprKind::StructUpdate { base, .. } = &e.kind {
+                if let ExprKind::Local(l) = base.kind {
+                    bases.push(l);
+                }
+            }
+            let ExprKind::Block { stmts, .. } = &e.kind else { return };
+            for st in stmts {
+                let Stmt::Let { pattern, value, .. } = st else { continue };
+                let typed::PatKind::Bind { local, sub: None } = &pattern.kind else { continue };
+                if let ExprKind::CallFn { func, args } = &value.kind {
+                    if let (true, Some(r)) = (grower(g, func.func()), args.first()) {
+                        grown.push((*local, r));
+                    }
+                }
+            }
+        });
+    }
     // Repeated to a fixpoint: whether a `match` consumes its scrutinee depends
     // on whether the payloads it binds are consumed, and those are found by
     // this same walk. It terminates because the set only grows and is bounded
     // by the function's locals.
+    //
+    // Only a `let` or a `match` whose check failed can answer differently next
+    // round, and only once one of its bindings is in `out`. Where none is, the
+    // next round would add nothing, so it isn't run.
+    let mut waiting: Vec<Waiting<'_>> = Vec::new();
+    let grew = Grew { grown: &grown, bases: &bases };
     loop {
         let before = out.len();
-        collect_consuming(body, own, counted, self_index, out, pieces);
-        if out.len() == before {
+        waiting.clear();
+        collect_consuming(body, own, counted, self_index, out, pieces, &grew, &mut waiting);
+        if out.len() == before || !waiting.iter().any(|w| w.kept(out)) {
             return;
         }
     }
 }
 
-fn collect_consuming(
-    body: &Expr,
+/// What [`consuming_uses`] finds once for every round of [`collect_consuming`].
+struct Grew<'a, 'e> {
+    grown: &'a [(LocalId, &'e Expr)],
+    bases: &'a [LocalId],
+}
+
+/// A `let` or a `match` that kept none of what it binds when
+/// [`collect_consuming`] reached it.
+enum Waiting<'e> {
+    Let(&'e typed::Pattern),
+    Match(&'e [typed::Arm]),
+}
+
+impl Waiting<'_> {
+    /// Whether it keeps something now.
+    fn kept(&self, out: &HashSet<LocalId>) -> bool {
+        match self {
+            Waiting::Let(pattern) => {
+                let mut kept = false;
+                pattern.each_bind(&mut |l| kept |= out.contains(&l));
+                kept
+            }
+            Waiting::Match(arms) => arms.iter().any(|a| {
+                let mut bound = Vec::new();
+                a.pattern.binds(&mut bound);
+                bound.iter().any(|b| out.contains(b))
+            }),
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments, reason = "the round's inputs, and what it leaves waiting")]
+fn collect_consuming<'e>(
+    body: &'e Expr,
     own: &[Vec<ir::Ownership>],
     counted: &mut dyn Counted,
     self_index: usize,
     out: &mut HashSet<LocalId>,
     pieces: Option<&[bool]>,
+    grew: &Grew<'_, 'e>,
+    waiting: &mut Vec<Waiting<'e>>,
 ) {
+    let Grew { grown, bases } = *grew;
     // The tail of a function is returned, and a `let` transfers into a local
     // whose own last use decides the rest, so both count as consuming.
     //
@@ -1598,30 +1664,6 @@ fn collect_consuming(
         }
         _ => {}
     };
-    // `let n = r.push(..);`, as `(n, r)`: a name for the result of a growth,
-    // and what was grown.
-    let mut grown: Vec<(LocalId, &Expr)> = Vec::new();
-    // The locals a functional update is written over.
-    let mut bases: Vec<LocalId> = Vec::new();
-    if let Some(g) = pieces {
-        typed::walk(body, &mut |e| {
-            if let ExprKind::StructUpdate { base, .. } = &e.kind {
-                if let ExprKind::Local(l) = base.kind {
-                    bases.push(l);
-                }
-            }
-            let ExprKind::Block { stmts, .. } = &e.kind else { return };
-            for st in stmts {
-                let Stmt::Let { pattern, value, .. } = st else { continue };
-                let typed::PatKind::Bind { local, sub: None } = &pattern.kind else { continue };
-                if let ExprKind::CallFn { func, args } = &value.kind {
-                    if let (true, Some(r)) = (grower(g, func.func()), args.first()) {
-                        grown.push((*local, r));
-                    }
-                }
-            }
-        });
-    }
     typed::walk(body, &mut |e| match &e.kind {
         ExprKind::StructLit { fields: args, .. }
         | ExprKind::EnumLit { args, .. }
@@ -1664,6 +1706,8 @@ fn collect_consuming(
                 pattern.each_bind(&mut |l| kept |= out.contains(&l));
                 if kept {
                     consume(value, out, counted);
+                } else {
+                    waiting.push(Waiting::Let(pattern));
                 }
             }
         }
@@ -1679,6 +1723,8 @@ fn collect_consuming(
             });
             if kept {
                 consume(scrutinee, out, counted);
+            } else {
+                waiting.push(Waiting::Match(arms));
             }
         }
         // Natively, a value grown twice in a row — `items.push(ctx, a).push(ctx,
