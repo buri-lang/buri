@@ -94,14 +94,14 @@ fn check(case: &Case) -> Vec<String> {
     let mut wrong = Vec::new();
     let js = agreement::run_js(name, &checked, &paths);
     let mut said = vec![("javascript", js)];
+    // One middle end for every native backend, and one emission each.
+    let program = agreement::prepared_native(name, &checked, &paths);
     for native in agreement::natives(name) {
-        let refusal = agreement::native_refusal(name, native, &checked, &paths);
-        if !refusal.is_empty() {
-            wrong.push(format!("{name}: `{}` refused the program: {refusal}", native.name));
-            continue;
-        }
-        if let Some(ran) = agreement::run_native(name, native, &checked, &paths) {
-            said.push((native.name, ran));
+        match agreement::emitted(native, &program, &checked) {
+            Ok(units) => said.push((native.name, agreement::link_and_run(name, native, &units))),
+            Err(refusal) => {
+                wrong.push(format!("{name}: `{}` refused the program: {refusal}", native.name))
+            }
         }
     }
     for (backend, ran) in said {

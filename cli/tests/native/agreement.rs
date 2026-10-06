@@ -404,30 +404,37 @@ pub(crate) fn run_js(row: &str, checked: &Checked, paths: &[String]) -> Ran {
     }
 }
 
-/// Why one native backend will not compile a program, or the empty string
-/// where it will.
+/// Monomorphize and run the middle end for this host, once for every native
+/// backend: `actions::prepare` reads the target alone, and every native
+/// backend here builds for the host.
+pub(crate) fn prepared_native(row: &str, checked: &Checked, paths: &[String]) -> monomorphize::Program {
+    prepared(row, checked, paths, host_target())
+}
+
+/// One native backend's codegen units for a prepared program, or why it
+/// will not compile it.
 ///
-/// Both halves, because a backend refuses in two places and the gap tests
-/// care about either. `missing_intrinsics` answers *before* emission and is
-/// where an unimplemented `FuncKind::Intrinsic` shows up — that is the hook
-/// on the trait, and a key with no runtime row is what trips it. But a
-/// structural operation is an `ir::Inst::Structural`, which exists only
-/// after lowering and is therefore not in the program that hook is handed
+/// Both halves of a refusal, because a backend refuses in two places and the
+/// gap tests care about either. `missing_intrinsics` answers *before* emission
+/// and is where an unimplemented `FuncKind::Intrinsic` shows up — that is the
+/// hook on the trait, and a key with no runtime row is what trips it. But a
+/// structural operation is an `ir::Inst::Structural`, which exists only after
+/// lowering and is therefore not in the program that hook is handed
 /// (`llvm/mod.rs` says so where the hook is implemented), so a `deriveArray*`
 /// can only be discovered by asking the backend to emit and reading the
 /// diagnostic.
-pub(crate) fn native_refusal(row: &str, native: Native, checked: &Checked, paths: &[String]) -> String {
-    let program = prepared(row, checked, paths, host_target());
+pub(crate) fn emitted(
+    native: Native,
+    program: &monomorphize::Program,
+    checked: &Checked,
+) -> Result<Vec<backend::Emitted>, String> {
     let opts = Options { profile: native.profile, target: host_target(), unit_prefix: "" };
     let mut backend = native.backend();
-    let missing = backend.missing_intrinsics(&program, &checked.tables);
+    let missing = backend.missing_intrinsics(program, &checked.tables);
     if !missing.is_empty() {
-        return missing.join("; ");
+        return Err(missing.join("; "));
     }
-    match backend.emit(&program, &checked.tables, &opts) {
-        Ok(_) => String::new(),
-        Err(d) => messages(&d),
-    }
+    backend.emit(program, &checked.tables, &opts).map_err(|d| messages(&d))
 }
 
 /// Compile through one native backend, link, and run the executable.
@@ -436,49 +443,32 @@ pub(crate) fn native_refusal(row: &str, native: Native, checked: &Checked, paths
 /// reason is printed and the row is not asked of it. A backend with no
 /// `partial` note refusing is a failure, which is what makes the tolerance
 /// specific rather than general.
-pub(crate) fn run_native(row: &str, native: Native, checked: &Checked, paths: &[String]) -> Option<Ran> {
-    let target = host_target();
-    let program = prepared(row, checked, paths, target);
-    let opts = Options { profile: native.profile, target, unit_prefix: "" };
-    let mut backend = native.backend();
-    let missing = backend.missing_intrinsics(&program, &checked.tables);
-    if !missing.is_empty() {
-        let why = native.partial.unwrap_or_else(|| {
-            panic!(
-                "{row}: the `{}` backend is missing {missing:?} — if that is the gap \
-                     the row is about, the row belongs with the gap tests rather than here",
-                native.name
-            )
-        });
-        eprintln!(
-            "backend agreement: {row} not asked of `{}` (missing {missing:?}); it is {why}",
-            native.name
-        );
-        return None;
-    }
-    let units = match backend.emit(&program, &checked.tables, &opts) {
+fn run_native(row: &str, native: Native, program: &monomorphize::Program, checked: &Checked) -> Option<Ran> {
+    let units = match emitted(native, program, checked) {
         Ok(units) => units,
-        Err(d) => {
+        Err(why_not) => {
             let why = native.partial.unwrap_or_else(|| {
                 panic!(
-                    "{row}: the `{}` backend refused the program: {}",
-                    native.name,
-                    messages(&d)
+                    "{row}: the `{}` backend refused the program: {why_not} — if that is \
+                     the gap the row is about, the row belongs with the gap tests rather \
+                     than here",
+                    native.name
                 )
             });
-            eprintln!(
-                "backend agreement: {row} not asked of `{}` ({}); it is {why}",
-                native.name,
-                messages(&d)
-            );
+            eprintln!("backend agreement: {row} not asked of `{}` ({why_not}); it is {why}", native.name);
             return None;
         }
     };
+    Some(link_and_run(row, native, &units))
+}
+
+/// Link one native backend's units and run the executable.
+pub(crate) fn link_and_run(row: &str, native: Native, units: &[backend::Emitted]) -> Ran {
     assert!(!units.is_empty(), "{row}: the `{}` backend emitted no unit", native.name);
 
     let dir = workspace(&format!("{row}-{}", native.name));
     let mut objects = Vec::new();
-    for unit in &units {
+    for unit in units {
         let path = dir.join(&unit.name);
         std::fs::write(&path, &unit.bytes).unwrap();
         objects.push(path);
@@ -503,7 +493,7 @@ pub(crate) fn run_native(row: &str, native: Native, checked: &Checked, paths: &[
     // (`shared::ran_checked`, and `cli/runtime/memory.rs`'s heap-check
     // section).
     let ran = crate::shared::ran_checked(&binary);
-    Some(Ran { status: ran.status, stdout: ran.stdout, stderr: ran.stderr })
+    Ran { status: ran.status, stdout: ran.stdout, stderr: ran.stderr }
 }
 
 // -------------------------------------------------------------------
@@ -515,9 +505,10 @@ pub(crate) fn run_native(row: &str, native: Native, checked: &Checked, paths: &[
 fn both(row: &str, source: &str) -> (Ran, Vec<(&'static str, Ran)>) {
     let (checked, paths) = analyze(row, source);
     let js = run_js(row, &checked, &paths);
+    let program = prepared_native(row, &checked, &paths);
     let natives = natives(row)
         .into_iter()
-        .filter_map(|n| run_native(row, n, &checked, &paths).map(|ran| (n.name, ran)))
+        .filter_map(|n| run_native(row, n, &program, &checked).map(|ran| (n.name, ran)))
         .collect();
     (js, natives)
 }
@@ -624,8 +615,9 @@ fn gap(row: &str, source: &str, wanted: &[&str]) {
     let (checked, paths) = analyze(row, source);
     let js = run_js(row, &checked, &paths);
     assert_eq!(js.status, 0, "{row}: JavaScript could not run it either: {}", js.stderr);
+    let program = prepared_native(row, &checked, &paths);
     for native in natives(row) {
-        let refusal = native_refusal(row, native, &checked, &paths);
+        let refusal = emitted(native, &program, &checked).err().unwrap_or_default();
         // A [`Native::partial`] backend has its own reasons to refuse and
         // its own reasons not to, and neither is what a gap row is about — so
         // its answer is reported rather than asserted on. The two surfaces are
