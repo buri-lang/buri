@@ -1118,7 +1118,7 @@ impl Comments {
                 let same_line = previous.is_some_and(|end| {
                     text.get(end..c.offset as usize).is_some_and(|gap| !gap.contains('\n'))
                 });
-                if same_line && c.text.starts_with("//") {
+                if same_line && c.text(text).starts_with("//") {
                     beside_code.push(c.offset);
                 }
             }
@@ -1135,7 +1135,7 @@ impl Comments {
     /// The range is what stops a nested construct from claiming a comment
     /// written after the one enclosing it: a caller passes the span it has just
     /// laid out and the offset the next thing begins at.
-    fn take_beside(&mut self, lo: u32, hi: u32) -> Option<String> {
+    fn take_beside(&mut self, lo: u32, hi: u32) -> Option<Comment> {
         // A comment lies between its token and the token before it, so only
         // entries from `lo` up to the first one at or past `hi` can hold one.
         let beside = &self.beside_code;
@@ -1166,7 +1166,7 @@ impl Comments {
                 entry.claimed = true;
             }
         }
-        Some(taken.text)
+        Some(taken)
     }
 
     /// Whether the run above the token at `at` is a comment about the file
@@ -1425,14 +1425,14 @@ impl<'t> Build<'t> {
                 // line inside a comment is one of its lines: `HardLine`
                 // collapses against the break above it, and an empty line is
                 // exactly the case where there is nothing between the two.
-                for (j, l) in c.text.lines().enumerate() {
+                for (j, l) in c.text(self.src).lines().enumerate() {
                     if j > 0 {
                         let indent = l.len().saturating_sub(l.trim_start().len());
                         let rel = indent.saturating_sub(c.column as usize);
                         lines.push(Doc::HardBreak);
                         lines.push(text(format!("{}{}", " ".repeat(rel), l.trim())));
                     } else {
-                        lines.push(text(l.trim_end().to_string()));
+                        lines.push(text(l.trim_end()));
                     }
                 }
                 lines.push(Doc::HardLine);
@@ -1500,7 +1500,7 @@ impl<'t> Build<'t> {
     /// is what this file is for.
     fn trailing(&mut self, lo: u32, hi: u32) -> Doc<'t> {
         match self.tv.take_beside(lo, hi) {
-            Some(c) => Doc::Aside(format!(" {c}")),
+            Some(c) => Doc::Aside(format!(" {}", c.text(self.src))),
             None => Doc::Nil,
         }
     }
@@ -3441,7 +3441,7 @@ fn shapes_of<'s, I: Iterator<Item = &'s str>>(
     for i in 0..lexed.tokens.len() {
         if let Some((_, tv)) = trivia.next_if(|(at, _)| *at as usize == i) {
             for c in &tv.comments {
-                out.push(Shape::Comment(trim_lines(&c.text)));
+                out.push(Shape::Comment(trim_lines(c.text(text))));
             }
             for d in doc_lines(tv.docs) {
                 out.push(Shape::Doc(d.trim().to_string()));
