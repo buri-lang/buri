@@ -69,11 +69,11 @@ fn package(scratch: &Scratch, name: &str, backends: &str, want: i64) {
     );
 }
 
-/// `libs/wire`, whose one module `//tool/gen` generates from `size.txt`.
+/// `libs/wire`, whose one module `//tools/gen` generates from `size.txt`.
 fn generated_package(scratch: &Scratch) {
     scratch.write(
         "libs/wire/BUILD.buri",
-        "library {\n  generators: [\n    { tool: \"//tool/gen\", inputs: [\"size.txt\"] },\n  ]\n\n  test {\n    sources: [\"test/wire.buri\"]\n  }\n}\n",
+        "library {\n  generators: [\n    { tool: \"//tools/gen\", inputs: [\"size.txt\"] },\n  ]\n\n  test {\n    sources: [\"test/wire.buri\"]\n  }\n}\n",
     );
     scratch.write("libs/wire/lib.buri", "from \"//libs/wire/units\" export { size };\n");
     scratch.write("libs/wire/size.txt", "four");
@@ -83,9 +83,9 @@ fn generated_package(scratch: &Scratch) {
          from \"core/testing/assert\" import * as assert;\n\
          \ntest \"the input is not empty\" {\n  assert.equal(size > 0, true);\n}\n",
     );
-    scratch.write("tool/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
+    scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
     scratch.write(
-        "tool/gen/tool.buri",
+        "tools/gen/tool.buri",
         "from \"core/buri/ast\" import * as ast;\n\
          from \"core/str\" import * as str;\n\
          from \"core/tool\" import { Generated, GenerateRequest };\n\

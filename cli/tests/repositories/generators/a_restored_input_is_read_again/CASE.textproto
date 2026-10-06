@@ -52,7 +52,7 @@ run {
 # The tool is what turns the inputs into a module, so it is as much a part of
 # the answer as they are. Lower-case names leave `A_TXT` without a definition.
 edit {
-  file: "tool/embed/tool.buri"
+  file: "tools/embed/tool.buri"
   replace: "file.toUpper(c)"
   with: "file.toLower(c)"
 }
@@ -70,7 +70,7 @@ run {
 }
 
 edit {
-  file: "tool/embed/tool.buri"
+  file: "tools/embed/tool.buri"
   replace: "file.toLower(c)"
   with: "file.toUpper(c)"
 }

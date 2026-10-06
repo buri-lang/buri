@@ -1,9 +1,9 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
 # A `!` line is the harness acting as the editor would; see harness/case.rs.
 #
-# `colors.lines` is checked by `//tool/lines`, which reads
-# `tool/lines/dictionary.txt` through `needs`, and only a file that passes is
-# handed to `//tool/count`. `lib.buri` re-exports what that generates. Neither
+# `colors.lines` is checked by `//tools/lines`, which reads
+# `tools/lines/dictionary.txt` through `needs`, and only a file that passes is
+# handed to `//tools/count`. `lib.buri` re-exports what that generates. Neither
 # the dictionary nor the check tool is in `lib.buri`'s closure of imports, so
 # every answer below is one a key that left them out would get wrong.
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "trace": "verbose", "capabilities": {"workspace": {"didChangeWatchedFiles": {"dynamicRegistration": true}}}}}
@@ -14,28 +14,28 @@
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/colors/lib.buri"}}}
 # The dictionary loses `blue`, so the check fails and nothing is generated.
 !wait 2
-!move tool/lines/dictionary.txt tool/lines/dictionary.txt.full
-!move tool/lines/dictionary.txt.short tool/lines/dictionary.txt
-{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tool/lines/dictionary.txt", "type": 2}]}}
+!move tools/lines/dictionary.txt tools/lines/dictionary.txt.full
+!move tools/lines/dictionary.txt.short tools/lines/dictionary.txt
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tools/lines/dictionary.txt", "type": 2}]}}
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/colors/lib.buri"}, "previousResultId": "1"}}
 # The whole dictionary again: clean.
 !wait 3
-!move tool/lines/dictionary.txt tool/lines/dictionary.txt.short
-!move tool/lines/dictionary.txt.full tool/lines/dictionary.txt
-{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tool/lines/dictionary.txt", "type": 2}]}}
+!move tools/lines/dictionary.txt tools/lines/dictionary.txt.short
+!move tools/lines/dictionary.txt.full tools/lines/dictionary.txt
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tools/lines/dictionary.txt", "type": 2}]}}
 {"jsonrpc": "2.0", "id": 4, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/colors/lib.buri"}, "previousResultId": "2"}}
 # The check tool stops building, so the check cannot be asked.
 !wait 4
-!move tool/lines/tool.buri tool/lines/tool.buri.good
-!move tool/lines/tool.buri.broken tool/lines/tool.buri
-{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tool/lines/tool.buri", "type": 2}]}}
+!move tools/lines/tool.buri tools/lines/tool.buri.good
+!move tools/lines/tool.buri.broken tools/lines/tool.buri
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tools/lines/tool.buri", "type": 2}]}}
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/colors/lib.buri"}, "previousResultId": "3"}}
 # Fixed: clean again. Nothing but the tool moved, and the tool is not an input
 # of the check it answers.
 !wait 5
-!move tool/lines/tool.buri tool/lines/tool.buri.broken
-!move tool/lines/tool.buri.good tool/lines/tool.buri
-{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tool/lines/tool.buri", "type": 2}]}}
+!move tools/lines/tool.buri tools/lines/tool.buri.broken
+!move tools/lines/tool.buri.good tools/lines/tool.buri
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tools/lines/tool.buri", "type": 2}]}}
 {"jsonrpc": "2.0", "id": 6, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/colors/lib.buri"}, "previousResultId": "4"}}
 {"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

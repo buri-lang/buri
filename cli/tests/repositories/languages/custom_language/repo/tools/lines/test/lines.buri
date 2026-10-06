@@ -2,7 +2,7 @@ from "core/testing/assert" import * as assert;
 from "core/tool" import { CheckRequest, Input };
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
-from "//tool/lines/tool.buri" import { check };
+from "//tools/lines/tool.buri" import { check };
 
 fn request(text: Str, dictionary: Str): CheckRequest<Str> {
     CheckRequest {
@@ -14,7 +14,7 @@ fn request(text: Str, dictionary: Str): CheckRequest<Str> {
                 value: text,
             },
         ],
-        files: [("tool/lines/dictionary.txt", dictionary)],
+        files: [("tools/lines/dictionary.txt", dictionary)],
     }
 }
 

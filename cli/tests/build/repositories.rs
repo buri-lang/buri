@@ -1171,7 +1171,7 @@ fn monorepo_shaped(name: &str, packages: usize, functions: usize, tests: usize) 
     );
     scratch.write(
         "libs/wire/BUILD.buri",
-        &suite("wire", "  generators: [\n    { tool: \"//tool/gen\", inputs: [\"size.txt\"] },\n  ]\n"),
+        &suite("wire", "  generators: [\n    { tool: \"//tools/gen\", inputs: [\"size.txt\"] },\n  ]\n"),
     );
     scratch.write("libs/wire/lib.buri", "from \"//libs/wire/units\" export { size };\n");
     scratch.write("libs/wire/size.txt", "four");
@@ -1180,11 +1180,11 @@ fn monorepo_shaped(name: &str, packages: usize, functions: usize, tests: usize) 
         "from \"//libs/wire\" import { size };\nfrom \"core/testing/assert\" import * as assert;\n\
          \ntest \"the generated size\" {\n  assert.equal(size, 4);\n}\n",
     );
-    scratch.write("tool/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
+    scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
     scratch.write(
-        "tool/gen/tool.buri",
+        "tools/gen/tool.buri",
         &std::fs::read_to_string(
-            tests_dir().join("repositories/generators/only_the_generators_a_command_reads/repo/tool/gen/tool.buri"),
+            tests_dir().join("repositories/generators/only_the_generators_a_command_reads/repo/tools/gen/tool.buri"),
         )
         .unwrap(),
     );

@@ -300,7 +300,7 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
     let scratch = Scratch::repo("generators-large-input");
     scratch.write(
         "lib/wire/BUILD.buri",
-        "library {\n    generators: [{ tool: \"//tool/gen\", inputs: [\"big.txt\"] }]\n\n    \
+        "library {\n    generators: [{ tool: \"//tools/gen\", inputs: [\"big.txt\"] }]\n\n    \
          visibility: [\"//visibility:public\"]\n}\n",
     );
     // One megabyte, which no pipe buffer on either platform holds.
@@ -310,8 +310,8 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
         "lib/wire/lib.buri",
         "from \"//lib/wire/units\" export { echoed, size };\n",
     );
-    scratch.write("tool/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
-    scratch.write("tool/gen/tool.buri", MEASURING_GENERATOR);
+    scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
+    scratch.write("tools/gen/tool.buri", MEASURING_GENERATOR);
     scratch.write(
         "cmd/app/BUILD.buri",
         "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: \"node\" }]\n}\n",
@@ -453,11 +453,11 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// entry, and a program printing what the two modules hold between them.
 fn two_entries(name: &str) -> Scratch {
     let scratch = Scratch::repo(name);
-    scratch.write("tool/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
-    scratch.write("tool/gen/tool.buri", DIVIDING_TOOL);
+    scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
+    scratch.write("tools/gen/tool.buri", DIVIDING_TOOL);
     scratch.write(
         "lib/wire/BUILD.buri",
-        "library {\n    generators: [\n        { tool: \"//tool/gen\", inputs: [\"alpha.txt\"] },\n        { tool: \"//tool/gen\", inputs: [\"beta.txt\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n",
+        "library {\n    generators: [\n        { tool: \"//tools/gen\", inputs: [\"alpha.txt\"] },\n        { tool: \"//tools/gen\", inputs: [\"beta.txt\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n",
     );
     scratch.write("lib/wire/alpha.txt", "alpha 1\n");
     scratch.write("lib/wire/beta.txt", "beta 2\n");
@@ -534,7 +534,7 @@ fn a_tool_that_stops_partway_through_a_pass_is_reported_in_its_own_words() {
     scratch.write("lib/wire/beta.txt", "beta 0\n");
     let run = scratch.run_with_env(&["build", "//cmd/app"], &[("BURI_JS", &runtime)]);
     run.exits(1);
-    let want = "error: `//tool/gen` did not answer [tool-failed]\n --> lib/wire/BUILD.buri:4:9\n  |\n4 |         { tool: \"//tool/gen\", inputs: [\"beta.txt\"] },\n  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  |\n  = the tool exited with 1\n    division by zero\n";
+    let want = "error: `//tools/gen` did not answer [tool-failed]\n --> lib/wire/BUILD.buri:4:9\n  |\n4 |         { tool: \"//tools/gen\", inputs: [\"beta.txt\"] },\n  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  |\n  = the tool exited with 1\n    division by zero\n";
     assert!(run.stderr.contains(want), "the stopped tool was not reported in its own words:\n{}", indent(&run.all()));
     assert!(
         !run.stderr.contains("\"//lib/wire/alpha\" names no file"),
@@ -543,17 +543,17 @@ fn a_tool_that_stops_partway_through_a_pass_is_reported_in_its_own_words() {
     );
 }
 
-/// A repository of `rules` libraries, each with one rule asking `//tool/gen`
+/// A repository of `rules` libraries, each with one rule asking `//tools/gen`
 /// for one module. Each rule is in a package of its own, so they all run in
 /// the same round, side by side, and most start a tool process of their own.
 fn many_rules(name: &str, rules: usize) -> Scratch {
     let scratch = Scratch::repo(name);
-    scratch.write("tool/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
-    scratch.write("tool/gen/tool.buri", DIVIDING_TOOL);
+    scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
+    scratch.write("tools/gen/tool.buri", DIVIDING_TOOL);
     for i in 0..rules {
         scratch.write(
             &format!("lib/w{i}/BUILD.buri"),
-            "library {\n    generators: [\n        { tool: \"//tool/gen\", inputs: [\"alpha.txt\"] },\n    ]\n}\n",
+            "library {\n    generators: [\n        { tool: \"//tools/gen\", inputs: [\"alpha.txt\"] },\n    ]\n}\n",
         );
         scratch.write(&format!("lib/w{i}/alpha.txt"), &format!("alpha {}\n", i + 1));
         scratch.write(&format!("lib/w{i}/lib.buri"), &format!("from \"//lib/w{i}/alpha\" export {{ alpha }};\n"));

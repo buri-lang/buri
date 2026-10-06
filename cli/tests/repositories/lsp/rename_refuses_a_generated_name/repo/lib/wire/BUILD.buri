@@ -1,5 +1,5 @@
 library {
     generators: [
-        { tool: "//tool/gen", inputs: ["units.txt"] },
+        { tool: "//tools/gen", inputs: ["units.txt"] },
     ]
 }

@@ -4,8 +4,8 @@ library {
     # Two entries on one rule. The second declares no inputs at all, which is
     # what makes `Request.inputs` an empty list rather than a missing field.
     generators: [
-        { tool: "//tool/gen", inputs: ["mode.txt"] },
-        { tool: "//tool/gen", inputs: [] },
+        { tool: "//tools/gen", inputs: ["mode.txt"] },
+        { tool: "//tools/gen", inputs: [] },
     ]
 
     visibility: ["//visibility:public"]

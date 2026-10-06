@@ -1,6 +1,6 @@
 library {
     sources: ["schemas.buri"]
     generators: [
-        { tool: "//tool/embed", inputs: ["a.txt", "b.txt"] },
+        { tool: "//tools/embed", inputs: ["a.txt", "b.txt"] },
     ]
 }

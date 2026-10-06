@@ -1,5 +1,5 @@
 library {
     generators: [
-        { tool: "//tool/gen", inputs: ["app.code-workspace"] },
+        { tool: "//tools/gen", inputs: ["app.code-workspace"] },
     ]
 }

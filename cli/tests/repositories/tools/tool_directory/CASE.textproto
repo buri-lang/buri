@@ -1,17 +1,17 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a tool rule lives under the repository's tool/ directory: a nested //tool/db/schema generates, and a tool rule in //tools/gen is refused where the build file is read"
+doc: "a tool rule lives under the repository's tools/ directory: a nested //tools/db/schema generates, and a tool rule in the old //tool/db/seed is refused with the path it moves to"
 
-# A tool two directories under `tool/`, and a library outside it.
+# A tool two directories under `tools/`, and libraries outside it.
 run {
-  args: ["build", "//lib/app", "//tool/db/schema", "//tools/gen"]
+  args: ["build", "//lib/app", "//tools/db/schema", "//tool/db/seed"]
   exit: 0
 }
 
 # The same package holding a tool rule instead: refused before anything builds.
 edit {
-  file: "tools/gen/BUILD.buri"
+  file: "tool/db/seed/BUILD.buri"
   replace: "library {}\n"
   with: "tool {\n    generate {}\n}\n"
 }

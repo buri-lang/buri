@@ -171,7 +171,7 @@ message Binary {
 // the answer, and each entry point's `ctx` is bounded by `Allocator` and
 // nothing else, so what a tool answers is a function of what it was handed.
 //
-// No `name` field, for the reason a library has none: `//tool/yaml` names it.
+// No `name` field, for the reason a library has none: `//tools/yaml` names it.
 // Nothing depends on a tool and nothing imports its modules but its own tests,
 // so it has no `visibility`.
 message Tool {
@@ -182,7 +182,7 @@ message Tool {
   // Libraries the tool uses. The library in its own package needs no entry.
   repeated string dependencies = 2;
 
-  // Tests of the tool. A test source imports `//tool/yaml/tool.buri`.
+  // Tests of the tool. A test source imports `//tools/yaml/tool.buri`.
   TestSuite test = 3;
 
   // `tool.buri` exports `check`, a language's check.

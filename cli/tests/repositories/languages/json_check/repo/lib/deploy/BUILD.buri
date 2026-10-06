@@ -1,6 +1,6 @@
 library {
     generators: [
-        { tool: "//tool/gen", inputs: ["regions.json", "ports.jsonc", "limits.json5"] },
+        { tool: "//tools/gen", inputs: ["regions.json", "ports.jsonc", "limits.json5"] },
     ]
 
     visibility: ["//visibility:public"]

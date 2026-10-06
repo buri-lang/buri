@@ -2,7 +2,7 @@
 
 from "core/str" import * as str;
 from "platform/effect" import { Allocator };
-from "//tool/database_schema_codegen/json" import { Column, Table };
+from "//tools/database_schema_codegen/json" import { Column, Table };
 
 export fn table<C: Allocator>(ctx: C, t: Table): Str {
     let columns = t.columns.mapCtx(ctx, fn(c2, c) => column(c2, c)).join(ctx, ", ");

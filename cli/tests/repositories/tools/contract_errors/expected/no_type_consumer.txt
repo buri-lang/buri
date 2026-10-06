@@ -1,10 +1,10 @@
-error: `//tool/b` did not answer [tool-failed]
+error: `//tools/b` did not answer [tool-failed]
  --> lib/x/BUILD.buri:3:9
   |
-3 |         { tool: "//tool/b", inputs: ["config.json"] },
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+3 |         { tool: "//tools/b", inputs: ["config.json"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
-  = its contract's types did not generate; `buri build //tool/b` says why
+  = its contract's types did not generate; `buri build //tools/b` says why
   = fix: fix what the note names; `buri test` on the tool runs its own tests
 
       = the tool was killed by SIGSEGV (signal 11)

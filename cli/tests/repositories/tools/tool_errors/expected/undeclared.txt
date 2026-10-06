@@ -1,5 +1,5 @@
 error: `check` is exported, and the `tool` rule has no `check` block [tool-missing-block]
- --> tool/good/tool.buri:6:11
+ --> tools/good/tool.buri:6:11
   |
 6 | export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
   |           ^^^^^
@@ -12,7 +12,7 @@ error: `check` is exported, and the `tool` rule has no `check` block [tool-missi
     that reads the BUILD.buri would not know it was there.
 
 warning: `ctx` is not used; the function is pure [unused-context]
- --> tool/good/tool.buri:6:31
+ --> tools/good/tool.buri:6:31
   |
 6 | export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
   |                               ^^^^^^
@@ -62,7 +62,7 @@ warning: `ctx` is not used; the function is pure [unused-context]
     rule only reports a context the body never names.
 
 warning: `ctx` is not used; the function is pure [unused-context]
-  --> tool/good/tool.buri:12:34
+  --> tools/good/tool.buri:12:34
    |
 12 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
    |                                  ^^^^^^

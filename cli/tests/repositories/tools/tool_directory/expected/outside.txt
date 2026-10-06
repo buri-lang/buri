@@ -1,13 +1,13 @@
-error: //tools/gen declares a `tool` rule outside //tool/ [misplaced-rule]
- --> tools/gen/BUILD.buri:1:1
+error: //tool/db/seed declares a `tool` rule outside //tools/ [misplaced-rule]
+ --> tool/db/seed/BUILD.buri:1:1
   |
 1 | tool {
   | ^^^^ a tool rule here
   |
-  = every tool lives under the repository's top-level `tool/` directory, and every platform under `platform/`, so one place lists each
-  = fix: move this package to //tool/gen, and rename every label that names it
+  = every tool lives under the repository's top-level `tools/` directory, and every platform under `platform/`, so one place lists each
+  = fix: move this package to //tools/db/seed, and rename every label that names it
 
-      # tool/routes/BUILD.buri
+      # tools/routes/BUILD.buri
       tool {
           generate {}
       }
@@ -22,7 +22,7 @@ error: //tools/gen declares a `tool` rule outside //tool/ [misplaced-rule]
           }
       }
 
-    Any depth works, so //tool/db/schema is a tool too. platform/effect/ holds
+    Any depth works, so //tools/db/schema is a tool too. platform/effect/ holds
     effect packages, so no platform lives there. A library or a binary may live
     beside either rule, and anywhere else.
 

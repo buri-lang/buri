@@ -5,7 +5,7 @@ doc: "a tool built from another rule's generated code runs once that code is gen
 
 # `//lib/loud`'s tool imports `//lib/greeting`, whose module is generated. The
 # generators run side by side, so this is the order that has to hold anyway:
-# `//lib/greeting` generates before `//tool/shout` is built.
+# `//lib/greeting` generates before `//tools/shout` is built.
 run {
   args: ["run", "//cmd/app"]
   exit: 0

@@ -1,8 +1,8 @@
 error: b.txt does not exist [unknown-source]
- --> lib/schemas/BUILD.buri:4:51
+ --> lib/schemas/BUILD.buri:4:52
   |
-4 |         { tool: "//tool/embed", inputs: ["a.txt", "b.txt"] },
-  |                                                   ^^^^^^^
+4 |         { tool: "//tools/embed", inputs: ["a.txt", "b.txt"] },
+  |                                                    ^^^^^^^
   |
   = every source is declared one path at a time; there are no globs
   = fix: create the file, or remove it from `generators`

@@ -1,5 +1,5 @@
 error: `prefixItems` has no Buri type [json-untyped-keyword]
- --> tool/b/b.schema.json:6:37
+ --> tools/b/b.schema.json:6:37
   |
 6 |         "names": { "type": "array", "prefixItems": [{ "type": "string" }], "items": { "type": "string" } }
   |                                     ^^^^^^^^^^^^^
@@ -25,18 +25,18 @@ error: `prefixItems` has no Buri type [json-untyped-keyword]
 
     buri docs guides/json has the whole mapping.
 
-error: "//tool/b/json" names no file (tool/b/json.buri) [unknown-module]
- --> tool/b/tool.buri:6:6
+error: "//tools/b/json" names no file (tools/b/json.buri) [unknown-module]
+ --> tools/b/tool.buri:6:6
   |
-6 | from "//tool/b/json" import * as a;
-  |      ^^^^^^^^^^^^^^^
+6 | from "//tools/b/json" import * as a;
+  |      ^^^^^^^^^^^^^^^^
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
     There's no search path and no fallback, so a path never has two candidates.
 
 error: there is no type `a.Names` [unknown-type]
- --> tool/b/tool.buri:8:67
+ --> tools/b/tool.buri:8:67
   |
 8 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<a.Names>): Generated {
   |                                                                   ^^^^^^^

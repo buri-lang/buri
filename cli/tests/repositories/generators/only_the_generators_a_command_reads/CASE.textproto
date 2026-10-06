@@ -1,7 +1,7 @@
 # Testing or building one target runs the generators it reads, and no others.
 #
 # `//lib/wire` generates a module with a tool of this repository's own,
-# `//tool/gen`, and nothing `//lib/plain` builds or tests reads it. So
+# `//tools/gen`, and nothing `//lib/plain` builds or tests reads it. So
 # `buri test //lib/plain` and `buri build //lib/plain` never build that tool:
 # its program, which `buri` compiles into `.buri/out/tools` the first time a
 # command runs it, is not there afterwards. `//...` reads everything, and the

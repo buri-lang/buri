@@ -9,10 +9,10 @@ error: `//lib/wire` names no tool [unknown-tool]
 
       library {
           generators: [
-              { tool: "//tool/routes", inputs: ["regions.json"] },
+              { tool: "//tools/routes", inputs: ["regions.json"] },
           ]
       }
 
-    //tool/routes is a package whose BUILD.buri holds tool { generate {} }. See
+    //tools/routes is a package whose BUILD.buri holds tool { generate {} }. See
     `tools.md` (../build/tools.md).
 

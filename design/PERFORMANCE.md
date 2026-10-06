@@ -2595,7 +2595,7 @@ requests of two tools:
 - 16 checks of the proto inputs, plus a second round for the 13 that import
   another file. The tool answers the first with `needs`, and the build asks
   again with the files.
-- One proto `generate` over all 16, and one `//tool/app_manifest` `generate`.
+- One proto `generate` over all 16, and one `//tools/app_manifest` `generate`.
 
 Loading the 316 KB proto tool costs about 0.24 G instructions before it
 reads a byte, and a cold JIT makes each check cost 0.33–0.8 G. Replayed

@@ -1,6 +1,6 @@
 library {
     generators: [
-        { tool: "//tool/count", inputs: ["colors.lines"] },
+        { tool: "//tools/count", inputs: ["colors.lines"] },
     ]
 
     visibility: ["//visibility:public"]

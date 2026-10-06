@@ -1,5 +1,5 @@
 library {
     generators: [
-        { tool: "//tool/routes", inputs: ["routes.txtpb"] },
+        { tool: "//tools/routes", inputs: ["routes.txtpb"] },
     ]
 }

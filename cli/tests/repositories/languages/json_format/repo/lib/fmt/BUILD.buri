@@ -1,5 +1,5 @@
 library {
     generators: [
-        { tool: "//tool/gen", inputs: ["plain.json", "notes.jsonc", "wide.json5", "broken.json"] },
+        { tool: "//tools/gen", inputs: ["plain.json", "notes.jsonc", "wide.json5", "broken.json"] },
     ]
 }

@@ -6,7 +6,7 @@ schema:
 ```textproto schema=build
 library {
     generators: [
-        { tool: "//tool/routes", inputs: ["regions.json"] },
+        { tool: "//tools/routes", inputs: ["regions.json"] },
     ]
 }
 ```
@@ -45,7 +45,7 @@ error: expected a string, found an integer [json-schema-violation]
 ```
 
 `buri build`, `buri test`, `buri lint` and the language server run the check.
-The check and formatter come from the built-in `json` tool; `//tool/routes` is
+The check and formatter come from the built-in `json` tool; `//tools/routes` is
 a [tool](../reference/build/tools.md) of your own with a `generate` entry
 point. Built-in tools have bare names, and yours are `//label`s.
 

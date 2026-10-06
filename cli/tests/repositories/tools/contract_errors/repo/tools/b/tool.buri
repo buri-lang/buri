@@ -3,7 +3,7 @@
 from "core/buri/ast" import * as ast;
 from "core/tool" import { Generated, GenerateRequest };
 from "platform/effect" import { Allocator };
-from "//tool/b/json" import * as a;
+from "//tools/b/json" import * as a;
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<a.Names>): Generated {
     let total = request

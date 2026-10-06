@@ -10,7 +10,7 @@ reproduction: none
 ```text
 from "platform/effect" import { Allocator };
 from "core/tool" import { Generated, GenerateRequest };
-from "//tool/database_schema_codegen/json" import { Config };
+from "//tools/database_schema_codegen/json" import { Config };
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Config>): Generated {
     Generated { modules: [], diagnostics: [], needs: [] }

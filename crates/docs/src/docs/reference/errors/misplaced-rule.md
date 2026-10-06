@@ -2,18 +2,18 @@
 title: A tool or platform rule lives in its own directory
 message: '{package} declares a `{rule}` rule {place}'
 label: a {rule} rule here
-note: every tool lives under the repository's top-level `tool/` directory, and every platform under `platform/`, so one place lists each
+note: every tool lives under the repository's top-level `tools/` directory, and every platform under `platform/`, so one place lists each
 fix: move this package to {destination}, and rename every label that names it
 reproduction: none
 ---
 # A tool or platform rule lives in its own directory
 
 ```text
-error: //lib/routes declares a `tool` rule outside //tool/ [misplaced-rule]
+error: //lib/routes declares a `tool` rule outside //tools/ [misplaced-rule]
 ```
 
 ```textproto schema=build
-# tool/routes/BUILD.buri
+# tools/routes/BUILD.buri
 tool {
     generate {}
 }
@@ -31,6 +31,6 @@ platform {
 }
 ```
 
-Any depth works, so `//tool/db/schema` is a tool too. `platform/effect/` holds
+Any depth works, so `//tools/db/schema` is a tool too. `platform/effect/` holds
 effect packages, so no platform lives there. A library or a binary may live
 beside either rule, and anywhere else.
