@@ -913,13 +913,19 @@ pub fn test_build_key(
 /// the graph's order. See [`test_build_key`].
 pub fn graph_key(session: &Session, flags: &Flags) -> ActionKey {
     let workspace = &session.workspace;
+    let mut known = workspace.graph_keys.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, key)) = known.iter().find(|(mode, _)| *mode == flags.mode) {
+        return key.clone();
+    }
     let mut k = KeyBuilder::new(Action::Build, flags.mode);
     k.file("REPO.buri", std::fs::read(workspace.root.join("REPO.buri")).ok().as_deref());
     for package in &workspace.packages {
         let file = package.dir.join("BUILD.buri");
         k.file(&workspace.rel_of(&file), std::fs::read(&file).ok().as_deref());
     }
-    k.finish()
+    let key = k.finish();
+    known.push((flags.mode, key.clone()));
+    key
 }
 
 /// The closure [`test_key`] and [`test_build_key`] share: the target's, each
@@ -2079,11 +2085,25 @@ fn build_native(
     let Some(linker) = linker_for(output, &mut diagnostics) else { return Err(diagnostics) };
 
     explain_closure(session, target, output, flags);
-    let objects = compile_objects(session, target, output, flags, &mut diagnostics)?;
     let label = session.workspace.label(target);
+    let front = native_front_key(session, target, output, flags, &linker);
+    let cache = Cache::open(&session.root);
+    if !flags.force {
+        if let Some(artifact) = native_from_record(session, &cache, &front, &label, output, flags, &path) {
+            link_out_symlink(session, output);
+            return Ok(Artifact { target, path, bytes: artifact, cached: true });
+        }
+    }
+    let (analysis, mut program) = monomorphized_entry(session, target, output, &mut diagnostics)?;
+    let reads = encode_reads(session, &unkeyed_reads(session, target, &analysis));
+    let tables = &analysis.checked.tables;
+    let objects = objects_of(session, target, output, flags, &mut program, tables, &mut diagnostics)?;
     let prefix = session.workspace.package(target.package).path.clone();
     let hit = match link_cached(&session.root, &label, output, flags, linker, &objects, &path, &prefix) {
-        Ok((_, hit)) => hit,
+        Ok((key, hit)) => {
+            cache.put(&front, &encode_native_record(&key, &objects.rows, &reads));
+            hit
+        }
         Err(errors) => {
             diagnostics.extend(errors.items);
             return Err(diagnostics);
@@ -2101,6 +2121,80 @@ fn build_native(
     };
     link_out_symlink(session, output);
     Ok(Artifact { target, path, bytes: usize::try_from(size).unwrap_or(usize::MAX), cached: hit.is_some() })
+}
+
+/// The key a native artifact's record is filed under: the closure's sources,
+/// as a JavaScript artifact is keyed ([`action_key`]), the build graph
+/// ([`graph_key`]) and the linker.
+///
+/// Known before the front end runs, so a warm build reads the `link` key its
+/// last build of these sources produced and places that executable without
+/// checking, lowering or hashing a unit. Everything the `codegen` keys depend
+/// on is in it: the output, the mode, the backend and its identity, the
+/// package, and every source the rules list. A module no rule lists is checked
+/// by the record ([`unkeyed_reads`]), and the graph decides which package
+/// such a path belongs to. The `link` key adds the linker, so this does too.
+fn native_front_key(
+    session: &Session,
+    target: TargetId,
+    output: &Output,
+    flags: &Flags,
+    linker: &link::CDriver,
+) -> ActionKey {
+    let sources = action_key_as(session, target, output, flags, Action::Link, Content::Bytes);
+    let mut k = KeyBuilder::new(Action::Build, flags.mode);
+    k.input("native-artifact", b"");
+    k.dependency(&sources);
+    k.dependency(&graph_key(session, flags));
+    let identity = linker.identity();
+    k.linker(&identity.name, &identity.version);
+    k.input("libc", identity.link.as_bytes());
+    k.finish()
+}
+
+/// A native build's record: its `link` key, each unit with its `codegen` key
+/// one per line, and the files the build read that the key does not hash
+/// ([`encode_reads`]).
+fn encode_native_record(link: &ActionKey, rows: &[link::Row], reads: &str) -> Vec<u8> {
+    let units: String = rows.iter().map(|row| format!("{}\t{}\n", row.unit, row.key)).collect();
+    encode_parts([link.as_str(), &units, reads].into_iter())
+}
+
+/// The executable a record names, placed at `path`, with the `--explain` lines
+/// a build that found every unit and the link in the cache prints. Its size,
+/// or `None` when the record or the executable it names is gone, or a file
+/// the record lists has changed.
+fn native_from_record(
+    session: &Session,
+    cache: &Cache,
+    front: &ActionKey,
+    label: &str,
+    output: &Output,
+    flags: &Flags,
+    path: &std::path::Path,
+) -> Option<usize> {
+    let [link, units, reads] = decode_parts(&cache.get(front)?)?.try_into().ok()?;
+    let link = ActionKey::parse(&link)?;
+    let mut keys = Vec::new();
+    for line in units.lines() {
+        let (unit, key) = line.split_once('\t')?;
+        keys.push((unit, ActionKey::parse(key)?));
+    }
+    if !reads_hold(&session.root, &reads) {
+        return None;
+    }
+    let entry = cache.entry(&link)?;
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let size = write_executable(&entry, path).ok()?;
+    let platform = output.platform_label();
+    let cached = crate::build::cache::Status::Cached;
+    for (unit, key) in &keys {
+        crate::build::cache::explain(flags.explain, cached, Action::Codegen, &format!("{label}:{unit}"), &platform, key);
+    }
+    crate::build::cache::explain(flags.explain, cached, Action::Link, label, &platform, &link);
+    Some(usize::try_from(size).unwrap_or(usize::MAX))
 }
 
 /// The link step with the cache in front of it: the executable `objects` link

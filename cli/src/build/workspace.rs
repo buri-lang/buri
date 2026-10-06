@@ -34,6 +34,9 @@ pub struct Workspace {
     /// every command and the language server read one answer.
     pub generated: crate::build::generators::Store,
     by_path: HashMap<String, PackageId>,
+    /// `actions::graph_key` per mode, worked out once: it is the build files'
+    /// bytes, and a workspace is loaded anew whenever one of them moves.
+    pub graph_keys: std::sync::Mutex<Vec<(crate::commands::arguments::BuildMode, crate::build::cache::ActionKey)>>,
 }
 
 impl Packages for Workspace {
@@ -186,6 +189,7 @@ impl Workspace {
                 packages,
                 by_path,
                 generated: crate::build::generators::Store::default(),
+                graph_keys: std::sync::Mutex::new(Vec::new()),
             };
         // Only once the build file it names has been read can a tool name be
         // resolved, so the references are checked here rather than by the

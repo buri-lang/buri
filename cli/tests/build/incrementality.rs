@@ -121,6 +121,36 @@ fn an_import_no_rule_lists_cannot_serve_a_stale_answer() {
     scratch.run(&["build", "//cmd/c"]).says("cached");
 }
 
+/// The same, for a native output, whose record is read before the front end.
+#[test]
+fn a_native_import_no_rule_lists_cannot_serve_a_stale_answer() {
+    let host = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let scratch = Scratch::repo("cache-unlisted-native");
+    scratch.write(
+        "cmd/c/BUILD.buri",
+        &format!("binary {{\n  outputs: [{{ platform: \"native\", variant: \"{host}-{arch}\" }}]\n}}\n"),
+    );
+    let main = native_program(0)
+        .replace("fn answer(): Int { 0 }", "")
+        .replace("from \"core/io\"", "from \"//cmd/c/helper.buri\" import { answer };\nfrom \"core/io\"");
+    scratch.write("cmd/c/main.buri", &main);
+    scratch.write("cmd/c/helper.buri", "export fn answer(): Int { 1 }\n");
+    let exe = scratch.root.join(format!(".buri/out/native/{host}-{arch}/cmd/c/c"));
+    let answer = || {
+        let out = std::process::Command::new(&exe).output().expect("the artifact runs");
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+
+    scratch.run(&["build", "//cmd/c"]).ok();
+    assert_eq!(answer(), "answer=1\n");
+    scratch.run(&["build", "//cmd/c"]).says("cached");
+
+    scratch.write("cmd/c/helper.buri", "export fn answer(): Int { 2 }\n");
+    scratch.run(&["build", "//cmd/c"]).ok();
+    assert_eq!(answer(), "answer=2\n", "the cache served a stale artifact");
+}
+
 /// A rebuilt `buri` — a new binary at the same version — must not be served the
 /// previous build's artifacts. The key folds the running executable's hash, and
 /// a `.buri/cache/.toolchain` marker records it, so a build whose marker names a
