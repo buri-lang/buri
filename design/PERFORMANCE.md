@@ -4192,6 +4192,97 @@ build pays for writing the new records.
   records each object's path in a debug stab, so the bytes would move.
 - A JavaScript artifact re-emits the whole program after a one-function edit.
 
+### 6.44 The native runtime, 2026-10-06
+
+What a compiled program spends in `cli/runtime/`, on six release-built
+programs, `main` at `526fe94b` against the ten commits below:
+
+- **strings**: 300,000 `concat`s of `str.fromInt`, then a million of
+  `str.format("item-${i}-${i * 3}")` with `split`, `contains` and `indexOf`
+- **maps**: 300,000 inserts and 600,000 lookups on `"key-${i % 50000}"`
+- **lists**: 3,000 rounds of `range`, `mapCtx` to a struct with a `fromInt`,
+  `filter`, `reverse`, `fold` and `sortBy` over 2,000 items
+- **floats**: 500,000 `str.format("${x} ${i}")` with `x` a non-integer
+- **parallel**: 2,000 rounds of a 64-item `tasks.parallel` whose steps each make
+  200 `fromInt`s
+- **tiny tasks**: 20,000 rounds of a 64-item `tasks.parallel` of `x * 2 + i`
+
+Instructions are the minimum of three runs. Wall is the best of five, alternating
+with `main`, at load 28–47 on the ten-core M1 Pro.
+
+| Program | Instructions before | after | Δ | Wall before | after |
+|---|---:|---:|---:|---:|---:|
+| strings | 4,838 M | 2,412 M | −50% | 0.31 s | 0.13 s |
+| maps | 8,416 M | 7,968 M | −5.3% | 1.02 s | 0.68 s |
+| lists | 7,153 M | 3,220 M | −55% | 0.34 s | 0.15 s |
+| floats | 5,114 M | 787 M | −85% | 0.26 s | 0.04 s |
+| parallel | 22,493 M | 11,156 M | −50% | 4.18 s | 0.36 s |
+| tiny tasks | 42,053 M | 26,478 M | −37% | 4.73 s | 3.16 s |
+
+Each change, measured against the one before:
+
+| Change | What moved |
+|---|---|
+| Heap counters per thread | parallel 4.3–5.4 s to 0.42–0.53 s wall |
+| Numbers render on the stack | floats −56%, lists −26%, strings −15%, parallel −37% |
+| Substring search jumps to first-byte matches | strings −35% |
+| An ASCII string hashes byte by byte | maps −1.9% |
+| A cached size survives two idle sweeps | lists −29% |
+| `str.fromInt` writes into its block | lists −14%, strings −10% |
+| Floats render through Ryū | floats −64% |
+| A fan-out queues one batch, one wake-up | tiny tasks −20%, 8.9–15.1 s to 3.4–5.7 s |
+| A shallow task keeps its stack | tiny tasks −15% |
+
+**Four process-wide atomics were the whole fan-out.** `buri_rt_alloc` and
+`buri_rt_free` each did a relaxed `fetch_add` on `LIVE_BLOCKS`, `LIVE_BYTES`,
+`TOTAL_BLOCKS` and `TOTAL_BYTES`, and with every worker allocating, those lines
+bounced between cores: they were the top two Rust frames of a 64-way fan-out.
+Each thread now counts into its own `Tally`, in the thread-local the block
+cache already uses, and a reader sums the open tallies under a lock that an
+ending thread takes to fold its counts in. So the sum stays exact, and the exit
+audit sees a thread still running at exit
+(`the_exit_audit_counts_threads_that_are_still_running`).
+
+The first version cost single-threaded programs 3.5–7% in instructions: a
+plain counter update is a load, an add and a store, against one `ldadd`. Two
+words per operation instead of four (live is allocated less freed), one
+thread-local visit for the count and the cache, and no open-check on a cache
+hit brought that to within ±1%.
+
+**macOS's allocator zeroes what it frees**, so a Rust `String` built and
+dropped inside a runtime entry is a `malloc`, a `memset` and a `free`.
+`fromInt`, `show` of a Float and 128-bit `show` each did that. They render on
+the stack now, and `fromInt` sizes its block from the bit length and writes the
+digits straight in.
+
+**The block cache gave blocks back between two passes of the same loop.** A
+sweep every 1,024 frees released any size nobody had popped since the last
+sweep. Two thousand strings made in one pass and dropped in the next span two
+sweeps of frees, so the second sweep handed every block to `free` just before
+the next pass asked `malloc` for them again. A size now goes two sweeps
+unpopped first. A drained cache still ends holding one period, because past
+the grace every sweep releases.
+
+**Ryū replaces two formatter passes per float.** `fmt.rs` took the digit count
+from `core::fmt`'s shortest formatter and the digits from its exact one,
+because the shortest formatter doesn't promise the closest digits.
+`cli/runtime/ryu.rs` ports the reference `d2s`, which answers shortest, closest
+and ties-to-even in one integer pass. Its tables are recomputed from the powers
+of five in a test, the old two passes are the reference in `fmt.rs`'s tests,
+and `float_parity` still matches JavaScript on 3.8 M doubles. An integral float
+below 2^53 skips both and renders as its integer.
+
+**A fan-out spent its dispatching thread in `pthread_cond_signal`.** Each step
+was its own `push`: a lock, and a signal that is a system call whenever a
+thread waits. The window's steps are now queued as one batch under one lock,
+with one broadcast. Each finished task also re-mapped 63.75 MiB of its machine
+stack to decommit it. A watermark at the top of that range, the data stack's
+idea, now skips the re-map for a task that never reached it, with every
+1,024th release decommitting regardless.
+
+The tiny-tasks program is still mostly the kernel: waking ten workers per round
+and the run queue's one lock. That's what's left to take.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
