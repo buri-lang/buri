@@ -61,15 +61,9 @@ hand-rolled one compiles and gives the wrong answer.
 ## A whole program
 
 ```buri
-from "platform/effect" import { Allocator, Stdout };
-from "native" import { NativeHost };
 from "core/io" import * as io;
-from "core/list" import * as list;
-
-struct Point {
-    x: Float,
-    y: Float,
-}
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
 
 enum Shape {
     Circle(Float),
@@ -123,10 +117,10 @@ like a Cloudflare Worker, is a repository platform:
 
 The path comes first, and imports end in `;`.
 
-```buri
-from "core/list" import { map, filter };
-from "core/list" import { map as listMap };
+```buri repo=cli/tests/example
 from "core/list" import * as list;
+from "core/list" import { filter, map };
+from "core/list" import { map as listMap };
 from "//lib/money" import { Cents };
 ```
 
@@ -153,9 +147,16 @@ from "//lib/money" import { Cents };
 ## Declarations
 
 ```buri
-type UserId = Str;                          // transparent alias
-struct Meters(export F64);                  // tuple struct; `;`-terminated
-struct User { export id: UserId, secret: Str }   // record struct; no `;`
+type UserId = Str; // transparent alias
+
+derive Equal, Ordered, Show for Meters;
+struct Meters(export F64); // tuple struct; `;`-terminated
+
+// record struct; no `;`
+struct User {
+    export id: UserId,
+    secret: Str,
+}
 
 enum Tree<T> {
     Leaf,
@@ -163,10 +164,10 @@ enum Tree<T> {
 }
 
 impl Meters {
-    export fn doubled(self): Meters { Meters(self.0 * 2.0) }
+    export fn doubled(self): Meters {
+        Meters(self.0 * 2.0)
+    }
 }
-
-derive Equal, Ordered, Show for Meters;
 ```
 
 - Every top-level `fn` **must** declare its parameter and return types. Lambdas
@@ -182,14 +183,20 @@ derive Equal, Ordered, Show for Meters;
 except in a test source, where any `()`-typed expression — a call, `match`,
 `if`, or block — can be a statement ending in `;`.
 
-```buri
+```buri wrap=body use=skills
 let hypotenuse = {
     let a2 = a * a;
     let b2 = b * b;
     math.squareRoot(a2 + b2)
 };
 
-let label = if (n < 0) { "negative" } else if (n == 0) { "zero" } else { "positive" };
+let label = if (n < 0) {
+    "negative"
+} else if (n == 0) {
+    "zero"
+} else {
+    "positive"
+};
 
 let describe = match (shape) {
     .Circle(r) if r > 100.0 => "huge circle",
@@ -214,11 +221,10 @@ let sum = xs.fold(fn(acc, x) => acc + x, 0);
 
 ### `?` and defaults
 
-```buri
-fn loadPort<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Int, ConfigError> {
-    let text = fs.readText(ctx, at)?;         // Err(e) => return Err(e)
-    let cfg = parseConfig(text)?;
-    .Ok(cfg.port.withDefault(8080))
+```buri use=skills
+fn loadPort<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Int, IoError> {
+    let text = fs.readText(ctx, at)?; // Err(e) => return Err(e)
+    .Ok(text.trim().toInt().withDefault(8080))
 }
 ```
 

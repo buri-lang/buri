@@ -200,6 +200,23 @@ fn cli_reference_examples() {
     assert!(failures.is_empty(), "\n{}", examples::report(&failures));
 }
 
+/// The skill pages `buri add skills` installs, which the site serves under
+/// `reference/skills/`. An agent copies their examples first.
+#[test]
+fn skill_examples() {
+    let root = repo_root();
+    let mut failures = Vec::new();
+    let mut compiled = 0;
+    for s in buri::commands::add::skills::SKILLS {
+        let path = format!("crates/docs/src/docs/reference/skills/{}.md", s.name);
+        let text = document(&root, &path, s.text);
+        compiled += examples::extract(&path, &text).blocks.len();
+        failures.extend(examples::run_file_at(&root, &path, &text));
+    }
+    assert!(compiled > 0, "no example extracts from the skill pages; this test has gone vacuous");
+    assert!(failures.is_empty(), "\n{}", examples::report(&failures));
+}
+
 /// A census, so that a harness regression shows up as a changed count rather
 /// than as every suite passing vacuously over zero blocks.
 #[test]

@@ -1,0 +1,33 @@
+// What the skill pages' fragments use without declaring it: the modules they
+// call, and the values and types their prose names in passing.
+
+from "core/fs" import * as fs;
+from "core/fs" import { FileSystemRead, FileSystemWrite, IoError, Path };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/math" import * as math;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Network, Stdout };
+
+export enum Shape {
+    Circle(Float),
+    Rect { width: Float, height: Float },
+    Empty,
+}
+
+export struct Version {
+    export major: Int,
+    export minor: Int,
+}
+
+export let a: Float = 3.0;
+
+export let b: Float = 4.0;
+
+export let n: Int = 7;
+
+export let shape: Shape = Shape.Empty;
+
+export let xs: [Int] = [1, 2, 3];
+
+export let paths: [Path] = [];

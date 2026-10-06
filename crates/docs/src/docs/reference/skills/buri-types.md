@@ -29,11 +29,11 @@ distinct types**, so `Int` and `I64` mix freely. Everyday code writes `Int` and
 
 ## Composites
 
-```buri
-let pair: (Int, Str) = (1, "one");      // tuples have arity 2 or more
-let first = pair.0;                     // nested access needs parens: (t.0).1
-let xs: [Int] = [1, 2, 3];              // immutable, densely packed
-let maybe = xs[0];                      // Option<Int>, never Int
+```buri wrap=body
+let pair: (Int, Str) = (1, "one"); // tuples have arity 2 or more
+let first = pair.0; // nested access needs parens: (t.0).1
+let xs: [Int] = [1, 2, 3]; // immutable, densely packed
+let maybe = xs[0]; // Option<Int>, never Int
 ```
 
 - **No anonymous records.** Every product type is a named `struct`, and every
@@ -55,12 +55,15 @@ the greppable `result.ignore`. `Option` is not must-use.
 
 ## Generics
 
-```buri
-fn identity<T>(x: T): T { x }
-fn largest<T: Ordered>(xs: [T]): Option<T> { ... }
-fn report<T: Ordered + Show, C: Allocator>(ctx: C, xs: [T]): Str { ... }
+```buri sig use=skills
+fn identity<T>(x: T): T;
 
-let f = identity<Int>;                  // type arguments go on the expression
+fn largest<T: Ordered>(xs: [T]): Option<T>;
+
+fn report<T: Ordered + Show, C: Allocator>(ctx: C, xs: [T]): Str;
+
+let f: fn(Int) => Int = identity<Int>; // type arguments go on the expression
+
 let e: [Int] = list.empty<Int>();
 ```
 
@@ -71,10 +74,11 @@ feature.
 
 ## Traits
 
-```buri
+```buri use=skills
 trait Ordered {
     fn compare(self, other: Self): Order;
 }
+
 trait Show {
     fn show<C: Allocator>(self, ctx: C): Str;
 }
@@ -90,7 +94,7 @@ trait Show {
 
 ### `derive`
 
-```buri
+```buri use=skills
 derive Equal, Ordered, Show for Version;
 ```
 
@@ -113,11 +117,12 @@ test usually wants `derive Equal, Show for YourType;`.
 | `a < b` `a <= b` `a > b` `a >= b` | `Ordered.compare` |
 
 ```buri
-struct Meters(F64);
 derive Add, Subtract, Ordered, Show for Meters;
+struct Meters(F64);
 
-let total = Meters(1.5) + Meters(2.0);     // Meters
-// let bad = Meters(1.5) + 2.0;            // ERROR: F64 is not Meters
+let total: Meters = Meters(1.5) + Meters(2.0);
+
+let bad: Meters = Meters(1.5) + 2.0; // ERROR: expected `Meters`, found `Float`
 ```
 
 **An operator can't allocate or perform an effect**, since `a + b` has nowhere
@@ -192,11 +197,10 @@ An effect differs from a trait in three ways:
 **An effect-carrying parameter must be named `self` or `ctx`**, at most one of
 each, with the receiver first, the context second, and everything else after.
 
-```buri
-fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>  // ok
-fn render<C: Allocator>(self, ctx: C): Str                        // ok
-fn sneaky<C: FileSystemRead>(a: Int, handle: C): Bool                           // ERROR
-fn twoWorlds<A: FileSystemRead, B: Network>(ctx: A, other: B): ()                   // ERROR
+```buri role=std use=skills
+fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>; // ok
+fn sneaky<C: FileSystemRead>(a: Int, handle: C): Bool; // ERROR: `handle` carries an effect
+fn twoWorlds<A: FileSystemRead, B: Network>(ctx: A, other: B): (); // ERROR: `other` carries an effect
 ```
 
 > A function is effectful if and only if it has a `ctx` parameter or an
@@ -218,9 +222,8 @@ Fixed-size construction — literals, tuples, enum payloads, closures,
 
 **A lambda may not capture an effect-carrying value.**
 
-```buri
-// ERROR: the lambda captures ctx
-let texts = paths.map(ctx, fn(p) => fs.readText(ctx, p));
+```buri wrap=body ctx=alloc,fsread use=skills
+let texts = paths.map(ctx, fn(p) => fs.readText(ctx, p)); // ERROR: may not capture `ctx`
 
 // Thread the context through a *Ctx combinator instead
 let texts = paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p));
@@ -237,12 +240,21 @@ instead. A `T` with an ordinary trait bound is exempt, as is any function type.
 A context binds each effect to a value implementing it. `main` and tests use the
 same form.
 
-```buri
-let ctx = context { Allocator: host.alloc, Stdout: host.stdout, FileSystemRead: host.fs };
+```buri use=skills
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+        FileSystemRead: host.fs,
+    };
+    .Ok(())
+}
+```
 
+```buri role=test use=skill-tests
 context Fixture {
     Allocator: alloc(),
-    FileSystemRead: fs().files([("config.toml", "port=8080")]),
+    FileSystemRead: memory().files([("config.toml", "port=8080")]),
 }
 ```
 
@@ -262,10 +274,10 @@ test-only module (a path with a `testing` segment) — never inside a lambda.
 **Static confinement**: bound the callee to fewer effects. It gets the same
 value but can't use or pass on anything its bounds don't name, transitively.
 
-```buri
-fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
-    let _ = io.println(ctx, msg).ignore();
-    // fs.readText(ctx, at)              // ERROR: C is not bounded by FileSystemRead
+```buri use=skills
+fn logOnly<C: Stdout>(ctx: C, msg: Str, at: Path): () {
+    let text = fs.readText(ctx, at); // ERROR: `C` does not implement `FileSystemRead`
+    io.println(ctx, msg).ignore()
 }
 ```
 

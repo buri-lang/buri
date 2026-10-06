@@ -1,0 +1,32 @@
+// What the testing skill's suites use without importing it, and the code under
+// test they call without showing it.
+
+from "core/env" import * as environment;
+from "core/fs" import * as fs;
+from "core/fs" import { FileSystemRead, FileSystemWrite, Path };
+from "core/net/http" import * as http;
+from "core/net/http" import { NetError, Request, Response };
+from "core/path" import * as path;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Environment, Network };
+from "platform/effect/testing" import { alloc, env, fs as memory };
+
+fn logPath<C: Environment>(ctx: C): Str {
+    environment.get(ctx, "LEDGER_LOG").withDefault("ledger.log")
+}
+
+fn status<C: Allocator + Network>(ctx: C, url: Str): Result<Int, NetError> {
+    http.get(ctx, url).map(fn(r) => r.status)
+}
+
+fn run<C: Allocator + FileSystemWrite>(ctx: C, at: Path): Result<(), Str> {
+    fs.writeText(ctx, at, "started\n").mapErr(fn(e) => "could not write the ledger log")
+}
+
+fn sample(): Str {
+    "coffee"
+}
+
+fn render<C: Allocator>(ctx: C, item: Str): Str {
+    item
+}

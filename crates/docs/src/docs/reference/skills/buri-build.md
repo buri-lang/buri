@@ -53,14 +53,18 @@ means every target in it. Patterns like `//lib/...` and `//...` are CLI-only.
 A directory with a `REPO.buri` is a repository root. The file parses as
 `buri.build.v1.RepoConfig` and has **three fields**:
 
-```textproto
+```textproto schema=repo
 tag {
     name: "server"
     doc: "runs on infrastructure we operate"
 
-    forbids { tags: ["client"] }
+    forbids {
+        tags: ["client"]
+    }
 
-    requires { backends: [NATIVE] }
+    requires {
+        backends: [NATIVE]
+    }
 }
 
 tag {
@@ -102,23 +106,20 @@ Textproto that parses as `buri.build.v1.BuildFile`. `#` starts a comment. No
 variables, conditionals, concatenation, globs, `load` or rule authoring:
 `sources: ["*.buri"]` is refused.
 
-```textproto
+```textproto schema=build
 library {
-    sources: [
-        "cents.buri",
-        "parse.buri",
-    ]
+    sources: ["cents.buri", "parse.buri"]
     dependencies: ["//lib/money"]
     tags: ["server"]
     visibility: ["//cmd/...", "//lib/reporting"]
 
-    testing {
-        sources: ["testing/fixtures.buri"]
-    }
-
     test {
         sources: ["test/cents.buri"]
         dependencies: ["//lib/testing/fakes"]
+    }
+
+    testing {
+        sources: ["testing/fixtures.buri"]
     }
 }
 ```
@@ -135,13 +136,10 @@ library {
 | `test` | The suite. See the `buri-testing` skill. |
 | `testing` | Utilities for *other people's* tests, rooted at `testing/lib.buri`. |
 
-```textproto
+```textproto schema=build
 binary {
     sources: ["routes.buri"]
-    dependencies: [
-        "//lib/ledger",
-        "//lib/money",
-    ]
+    dependencies: ["//lib/ledger", "//lib/money"]
     tags: ["server"]
 
     outputs: [
@@ -168,7 +166,7 @@ binary {
 
 An empty rule is enough to start, and `gen` never invents one:
 
-```textproto
+```textproto schema=build
 library {}
 ```
 
@@ -223,9 +221,10 @@ Mixing up a label and a module path is `import-missing-extension`.
 
 `lib.buri` is made of re-exports, and may declare things itself:
 
-```buri
-from "//lib/money/cents.buri" export { Cents, fromCents, add, format };
-from "//lib/money/parse.buri" export { ParseError, parse };
+```buri repo=cli/tests/example package=//lib/money
+from "//lib/money/cents.buri" export { add, Cents, format, fromCents };
+
+from "//lib/money/parse.buri" export { parse, ParseError };
 ```
 
 Export `add` and callers get both `add(a, b)` and `a.add(b)`. Leave `toCents`
