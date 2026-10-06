@@ -4696,6 +4696,19 @@ name, in a list of versions, and across a task, then update one name and read
 the others. `splice::tests` covers the runtime's in-place, copy, grow and
 emptying paths.
 
+**Tried and dropped:**
+
+- **Releasing a temporary scrutinee at an arm's entry.** `rc` would give
+  `match (xs.get(i))` the dying-local treatment `insertNode`'s named lookup
+  gets, which subsumes that workaround. Nothing else gained: a heap, an
+  ordered map and the matches corpus moved under 1%. Run beside the old pass
+  over 498 programs, it added 105 retain-and-release pairs, where a read the
+  pre-pass called consuming was a borrow to the scan, and changed 13 functions
+  in ways a per-name diff couldn't account for. It's parked on the branch
+  `rc-temp-scrutinee`, with the two `native::ownership` rows that pin it.
+- **Building `rc::Syntactic` once per native build** instead of three times:
+  about 0.8% of the middle end on `mixed-100k`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
