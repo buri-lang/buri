@@ -4747,6 +4747,52 @@ mod tests {
         s
     }
 
+    /// **The exit audit sees a block a still-running thread leaked**, and
+    /// stays quiet when that thread freed everything. The thread is parked,
+    /// not ended, when the process exits, so its tally is still open.
+    #[test]
+    fn the_exit_audit_counts_threads_that_are_still_running() {
+        if std::env::var_os("BURI_RT_TEST_ALONE").is_some() {
+            let leak = std::env::var_os("BURI_RT_TEST_LEAK").is_some();
+            let (ready, readied) = std::sync::mpsc::channel::<()>();
+            std::thread::spawn(move || {
+                let kept: Vec<usize> = (0..3).map(|i| buri_rt_alloc(16 + i) as usize).collect();
+                for (i, p) in kept.into_iter().enumerate() {
+                    if !(leak && i == 0) {
+                        // SAFETY: a live block this thread holds alone.
+                        unsafe { buri_rt_free(p as *mut u8) };
+                    }
+                }
+                ready.send(()).unwrap();
+                loop {
+                    std::thread::park();
+                }
+            });
+            readied.recv().unwrap();
+            return;
+        }
+        let module = module_path!().split_once("::").map_or(module_path!(), |(_, rest)| rest);
+        let name = format!("{module}::the_exit_audit_counts_threads_that_are_still_running");
+        let run = |leak: bool| {
+            let mut child = std::process::Command::new(std::env::current_exe().expect("this test binary"));
+            child
+                .args(["--exact", &name, "--test-threads=1"])
+                .env("BURI_RT_TEST_ALONE", "1")
+                .env("BURI_RT_HEAP_CHECK", "leak")
+                .env_remove("BURI_RT_HEAP_REPORT");
+            if leak {
+                child.env("BURI_RT_TEST_LEAK", "1");
+            }
+            child.output().expect("the test binary runs")
+        };
+        let clean = run(false);
+        assert!(clean.status.success(), "{}", String::from_utf8_lossy(&clean.stderr));
+        let leaky = run(true);
+        let said = String::from_utf8_lossy(&leaky.stderr);
+        assert!(!leaky.status.success(), "a leak on a running thread passed the audit");
+        assert!(said.contains("leak: 1 block(s) and 16 byte(s)"), "{said}");
+    }
+
     /// **The heap counters are exact across threads**: those still running,
     /// those that have ended, and blocks freed on a thread other than the one
     /// that allocated them. Each thread counts into its own tally, so this is
