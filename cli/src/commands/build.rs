@@ -68,36 +68,56 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     // Each library's own contribution to a check key, read once.
     let mut members = std::collections::HashMap::new();
     let mut rule_paths = actions::RulePaths::new();
+    // What each library or tool asks before it is checked, and which of them
+    // are checked: those are checked together below, each module once.
+    let mut asked = std::collections::HashMap::new();
+    for &target in targets.iter().filter(|t| t.kind != RuleKind::Binary) {
+        let mut diagnostics = crate::diagnostics::Diagnostics::new();
+        // A library declares no outputs, so there is no platform this is
+        // *for*, and none to check. Every binary that depends on it asks
+        // about its tags' platforms again, per output; a library that
+        // admits none at all is `unsatisfiable-target`.
+        actions::check_visibility(&session, target, &mut diagnostics);
+        actions::check_tags(&session, target, &mut diagnostics);
+        // A check that found nothing is recorded, and finds nothing again
+        // while its sources and the graph stand still.
+        let key = (!diagnostics.has_errors()).then(|| actions::library_check_key(&session, target, &args.flags, &mut members));
+        let clean = !args.flags.force && key.as_ref().is_some_and(|key| actions::clean_check_holds(&session, key));
+        asked.insert(target, (diagnostics, key.filter(|_| !clean)));
+    }
+    // A library is checked, not built for an output, and it is handed no host
+    // at all. See `Unit::platform`.
+    let unit = |target| crate::compiler::modules::Unit { target: Some(target), platform: None, entry: None, with_tests: false };
+    let checked: Vec<crate::compiler::modules::Unit> = targets
+        .iter()
+        .filter(|t| asked.get(t).is_some_and(|(_, key)| key.is_some()))
+        .map(|t| unit(*t))
+        .collect();
+    let shared = crate::compiler::driver::shared(
+        &session.workspace,
+        &mut session.map,
+        &mut session.parsed,
+        &checked,
+        crate::compiler::driver::Checking::All,
+    );
     // By reference: the resolved list is the catalogue's input too, below.
     for &target in &targets {
         // Only a binary produces an artifact; a library or a tool is checked,
         // which is what `buri build //lib/money` means.
         if target.kind != RuleKind::Binary {
-            let mut diagnostics = crate::diagnostics::Diagnostics::new();
-            // A library declares no outputs, so there is no platform this is
-            // *for*, and none to check. Every binary that depends on it asks
-            // about its tags' platforms again, per output; a library that
-            // admits none at all is `unsatisfiable-target`.
-            actions::check_visibility(&session, target, &mut diagnostics);
-            actions::check_tags(&session, target, &mut diagnostics);
-            // A check that found nothing is recorded, and finds nothing again
-            // while its sources and the graph stand still.
-            let key = (!diagnostics.has_errors()).then(|| actions::library_check_key(&session, target, &args.flags, &mut members));
-            let clean = !args.flags.force && key.as_ref().is_some_and(|key| actions::clean_check_holds(&session, key));
-            if let Some(key) = key.filter(|_| !clean) {
-                let unit = crate::compiler::modules::Unit {
-                    target: Some(target),
-                    // A library is checked, not built for an output, and it
-                    // is handed no host at all. See `Unit::platform`.
-                    platform: None,
-                    entry: None,
-                    with_tests: false,
-                };
+            let Some((mut diagnostics, key)) = asked.remove(&target) else { continue };
+            let share = shared.as_ref().and_then(|s| Some((s, s.shares.get(&target)?)));
+            if let (Some(key), Some((shared, share))) = (&key, share) {
+                if share.reported.is_empty() {
+                    actions::record_clean_share(&session, target, key, &shared.analysis, share, &mut rule_paths);
+                }
+                diagnostics.extend(share.reported.iter().cloned());
+            } else if let Some(key) = key {
                 let analysis = crate::compiler::driver::analyze(
                     Some(&session.workspace),
                     &mut session.map,
                     &mut session.parsed,
-                    &unit,
+                    &unit(target),
                 );
                 if analysis.diagnostics.items.is_empty() {
                     actions::record_clean_check(&session, target, &key, &analysis, &mut rule_paths);

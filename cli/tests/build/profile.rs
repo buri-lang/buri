@@ -548,6 +548,26 @@ fn a_warm_build_of_a_chain_of_libraries_is_linear_outside_the_compiler() {
     );
 }
 
+/// **A cold build loads and checks each library once.** `buri build //...`
+/// checked every library over its whole closure, so a chain loaded and checked
+/// its first library once per library after it: 3.6 times the work per
+/// doubling at 100 libraries. PERFORMANCE.md §6.47.
+#[test]
+fn a_cold_build_of_a_chain_of_libraries_checks_each_once() {
+    grows_linearly(
+        "a cold build of a chain of libraries, loading and checking",
+        |n| {
+            let scratch = Scratch::repo("profile-build-chain");
+            library_chain(&scratch, n);
+            let run = scratch.run_with_env(&["build", "//..."], &[("BURI_PROFILE", "1")]);
+            run.ok();
+            let all = run.all();
+            Some(phase_instructions(&all, "lex+parse")? + phase_instructions(&all, "check")?)
+        },
+        100,
+    );
+}
+
 /// A library of `n` types, each with a method and a function that builds one.
 fn many_declarations(scratch: &Scratch, n: usize) {
     let items: String = (0..n)
