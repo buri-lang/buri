@@ -4556,6 +4556,70 @@ be safe short of a clock stepping backwards.
   modules' bodies needs the checker to say when an edit left every signature
   where it was.
 
+### 6.48 `core/map` updates in place, 2026-10-06
+
+A million inserts and a million gets into a `Map<Int, Int>` took 25 G
+instructions in `--release`, 25 thousand an insert. Half of a debug run was
+`glue$retain` and `glue$elems`. Two things made every insert copy its whole
+path:
+
+- **Every level was rebuilt by four list operations.**
+  `xs.take(at).push(x).concat(xs.drop(at + 1))` retained each child into the
+  copy, and the old list released each one when it died.
+- **Nothing below the root was ever unique.** `children.get(idx)` hands back a
+  second count on the child, and the option holding it let go only after the
+  descent, so the next level down found its list at two.
+
+`insertAt`, `replaceAt` and `removeAt` are runtime splices now
+(`cli/runtime/splice.rs`), and they **own** the list:
+
+```text
+rc.rs   TAKEN_NATIVELY = [("map.insertAt", 1), ("map.replaceAt", 1), ("map.removeAt", 1)]
+```
+
+A caller that keeps the list takes a second count first, so a count of one
+means nobody else can see the block, and the splice writes into it. An append
+can be in place with a borrowed list, because it writes past every alias's
+end. A splice writes inside one. A shared list is copied, and the splice gives
+its count back. JavaScript copies, so it has nothing to mark.
+
+`insertNode` takes the child out of its list before descending, and binds the
+lookup to a name:
+
+```buri
+let found = children.get(idx);       // let go of where the match takes it apart
+match (found) {
+    .Some(child) => {
+        let rest = removeAt(ctx, children, idx);   // the list lets go of the child
+        let (grown, added) = insertNode(ctx, child, hash, key, value, depth + 1);
+        (.Branch(bitmap, insertAt(ctx, rest, idx, grown)), added)
+    },
+    …
+}
+```
+
+So each level holds its child once, and the whole path updates in place.
+`removeNode` does the same. `remove` asks `has` first. Before, a miss answered
+`self`, which kept the old root alive beside the descent.
+
+| Kernel, instructions retired | `main` | After |
+|---|---:|---:|
+| 1M inserts + 1M gets, debug | 37.4 G | 5.35 G |
+| 1M inserts + 1M gets, `--release` | 25.5 G | 3.13 G |
+| 300k inserts, 150k removes + 150k misses, debug | 15.2 G | 2.27 G |
+| the same, `--release` | 10.5 G | 1.37 G |
+
+Wall time for the first kernel, two warm runs at load 22–30: debug 7.1–9.0 s
+before, 1.9–2.1 s after; `--release` 5.3–8.0 s before, 0.54–0.55 s after. A
+fresh executable's first run waits in §6.39's system check, so time the second.
+
+`agreement`'s `a_map_updated_through_one_name_is_unchanged_through_another`
+and `a_map_shared_with_a_task_is_unchanged_by_either_side_s_update` run on
+JavaScript, stencil and LLVM under the heap check. They hold a map by a second
+name, in a list of versions, and across a task, then update one name and read
+the others. `splice::tests` covers the runtime's in-place, copy, grow and
+emptying paths.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
