@@ -1174,7 +1174,7 @@ fn allowed_leak(path: &str) -> u64 {
 /// shows up — but a `deriveArray*` is an `ExprKind::Intrinsic` inside a body
 /// `middle::derives` generated, and a structural operation is an
 /// `ir::Inst::Structural` that exists only after lowering, so neither is in the
-/// program that hook is handed. `native/agreement.rs`'s `native_refusal` says
+/// program that hook is handed. `native/agreement.rs`'s `emitted` says
 /// the same thing and asks the same two questions; this used to ask only the
 /// first, and `data/patterns.buri` — refused for `deriveArrayShow` and for
 /// nothing the hook can see — is the file that made the difference visible.
@@ -1336,25 +1336,21 @@ fn native_set_shard(at: usize, count: usize) {
     for &&case in &mine {
         let source = read(case);
         // A file the *front end* refuses fails like any other: a native-set
-        // file that does not compile is a file this shard did not run.
-        match missing_for(case.path, &source) {
-            Err(e) => {
+        // file that does not compile is a file this shard did not run. The
+        // build asks the backend's two questions itself, so the file goes
+        // through the front and middle ends once.
+        let (binary, blocks) = match linked(case.path, &source) {
+            Built::Linked(binary, blocks) => (binary, blocks),
+            Built::FrontEnd(e) => {
                 failures.push(format!("`{}`: the front end refused it: {e}", case.path));
                 continue;
             }
-            Ok(missing) if !missing.is_empty() => panic!(
-                "`{}` is in the native set but the backend is missing {missing:?}",
-                case.path
-            ),
-            Ok(_) => {}
-        }
-        let (status, out, err, blocks) = match run(case.path, &source) {
-            Ok(ran) => ran,
-            Err(e) => {
-                failures.push(format!("`{}`: the front end refused it: {e}", case.path));
-                continue;
+            Built::Unsupported(why) => {
+                panic!("`{}` is in the native set but {why}", case.path)
             }
         };
+        let output = crate::shared::ran_checked(&binary);
+        let (status, out, err) = (output.status, output.stdout, output.stderr);
         // The heap invariant, and it is a *different* verdict from the one
         // above: a program that failed an assertion aborts, which is status 1
         // and suppresses the audit, so this status can only mean every block
