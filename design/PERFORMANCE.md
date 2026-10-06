@@ -4500,10 +4500,30 @@ alone as before, wherever its own answer could differ:
   order modules were reached in (`circular-import`), or is said once per
   compilation (a generator's diagnostics);
 - a module was loaded in a role an importer would decide differently;
-- a diagnostic lands outside every module's file;
-- there's a second binary. The checker keeps one function per entry-point
-  name for the whole compilation, so a second `main` would be refused its
-  `context`. Every binary after the first is analysed alone.
+- a diagnostic lands outside every module's file.
+
+**Several binaries share it too.** The checker kept one function per
+entry-point name for the whole compilation, so a second binary's `main` was
+refused its `context`, and every binary after the first was analysed alone.
+Entry points are now kept per entry module (`Checker::module_entries`,
+`entry_points`), and `unknown-entry-function` is asked of each binary's
+`main.buri` against its own exports. `buri lint //...`, cold, process
+instructions:
+
+| Repository | Before | After | `check` before | after |
+|---|---:|---:|---:|---:|
+| 10 binaries sharing a library of 2,000 functions | 0.70 G | 0.26 G (−64%) | 410 M | 53 M |
+| `pkgs_layered` 40 | 2.03 G | 1.94 G (−5%) | 118 M | 64 M |
+| `pkgs_deep` 200 | 2.12 G | 2.06 G (−3%) | 99 M | 54 M |
+
+`gen.py`'s repositories have two binaries, so checking halves there, but most
+of their lint is outside the compiler (below). Output is identical on all 414
+fixture repositories, cold, warm and one package at a time.
+`build::incrementality`'s
+`each_binary_in_one_lint_builds_its_context_in_its_own_main` lints two
+binaries in one run and expects only the `context` built outside `main` to be
+refused. With the sharing and without the per-module table, it also refused
+the first binary's `main`.
 
 Checking one module can't depend on what else is loaded: a name resolves
 through the module's imports, and a method through its receiver's type, whose
@@ -4550,8 +4570,11 @@ be safe short of a clock stepping backwards.
 
 **What's left.**
 
-- Every binary after the first is still analysed alone, closure and all. A
-  checker that keyed entry points by module would let them share.
+- **Lint's own bookkeeping is `n²` in a chain of packages.** On `pkgs_deep`,
+  "other" is 1.76 G at 200 packages and 11.7 G at 800. A profile at 800 puts
+  it in `Workspace::closure` once per target, `Cache::put` writing each
+  target's record with its whole closure, `check_cycles`, `check_visibility`
+  and `Workspace::dep_edges`. All of it is in `cli/src/build`.
 - A keystroke still checks and lints the whole target. Reusing the other
   modules' bodies needs the checker to say when an edit left every signature
   where it was.

@@ -140,7 +140,7 @@ pub fn findings_reusing(
         .filter(|(target, parts)| parts.is_none() && !analyses.iter().any(|(t, _)| t == *target))
         .map(|(target, _)| *target)
         .collect();
-    let shared = Shared::of(session, &shareable(&unanswered));
+    let shared = Shared::of(session, &unanswered);
     for (target, recalled) in targets.iter().zip(recalled) {
         let first_in_package = !seen_packages.contains(&target.package);
         if let Some(parts) = recalled {
@@ -254,7 +254,7 @@ pub fn reports(
     rules: bool,
     stop: impl Fn() -> bool,
 ) -> Vec<Report> {
-    let shared = Shared::of(session, &shareable(targets));
+    let shared = Shared::of(session, targets);
     let mut out = Vec::new();
     for target in targets {
         if stop() {
@@ -276,21 +276,6 @@ pub fn reports(
         });
     }
     out
-}
-
-/// The targets one compilation may hold: all of them but every binary after
-/// the first, because a compilation keeps one function per entry-point name
-/// and a second `main` would be checked as though it were not one.
-fn shareable(targets: &[TargetId]) -> Vec<TargetId> {
-    let mut binaries = 0usize;
-    targets
-        .iter()
-        .copied()
-        .filter(|target| {
-            binaries += usize::from(target.kind == RuleKind::Binary);
-            target.kind != RuleKind::Binary || binaries == 1
-        })
-        .collect()
 }
 
 /// The whole front end over one target's closure, as the rules below ask about
@@ -458,9 +443,9 @@ impl<'a> Part<'a> {
 ///   differently.
 /// - **Every diagnostic lands in a module's file**, which is how it is handed
 ///   to the targets whose closure holds that module.
-/// - **There is one entry module at most.** The checker keeps one function per
-///   entry-point name for the whole compilation, and only that one may build a
-///   context, so a second binary's `main` would be refused one.
+/// - **Each binary's entries are its own.** The checker decides which
+///   functions may build a context per entry module, so several binaries share
+///   one compilation.
 struct Shared {
     analysis: crate::compiler::driver::Analysis,
     shares: std::collections::BTreeMap<TargetId, Share>,
@@ -498,9 +483,6 @@ impl Shared {
             &units,
         );
         let loaded = loading.loaded();
-        if loaded.modules.iter().filter(|m| m.role == Role::Entry).count() > 1 {
-            return None;
-        }
 
         let mut parse_errors: crate::hash::Set<Said> = crate::hash::Set::default();
         for m in &loaded.modules {
