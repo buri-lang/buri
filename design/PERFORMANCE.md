@@ -3800,6 +3800,61 @@ Without the manifest ids' head start in `.config/nextest.toml`, they took
 5–7 s, against 35–52 s in §6.35. The suite read 140 s and 98 s, against 126 s
 and 106 s with it, which is noise, so the head start stays.
 
+### 6.39 Every new code file waits in one system-wide check, 2026-10-06
+
+In the `ui` corpus, 183 new `test-runner`s per run waited a median 5.7 s each
+at `_dyld_start`, 954 s in all. A runner that is already checked and loads
+each suite some other way would skip that, if the other way skips the check.
+None that loads a file does.
+
+**Measured:** one already-run host loads fresh, distinct images, alternating
+kinds, a new host process per load. Each image is
+`clang` output with its own seed and 5 MB of new bytes in `__TEXT`. Load
+12–25:
+
+| Fresh 5 MB image | First load, median | Min | Second load |
+|---|---:|---:|---:|
+| executable, `posix_spawn` | 216 ms | 213 ms | 1.6 ms |
+| dylib, `dlopen` | 221 ms | 212 ms | 0.2 ms |
+| bundle, `dlopen` | 218 ms | 213 ms | 0.2 ms |
+| executable, `codesign -f -s -` again | 217 ms | 208 ms | 1.6 ms |
+| dylib, `codesign -f -s -` again | 215 ms | 210 ms | 0.2 ms |
+
+- **A dylib waits where an executable does.** `sample` finds `dlopen` in
+  `dyld4::Loader::mapSegments` → `fcntl` for the whole 200 ms. `/usr/bin/time
+  -l` reads 0.23 s real and 0.00 s user and system.
+- **The check is per file, not per bytes.** A `cp` of a dylib that had
+  already been checked pays it again.
+- **`mmap(PROT_READ | PROT_EXEC)` of a fresh file pays it too**, then fails
+  with `EPERM`. A `dlopen` of that file afterwards takes 0.2 ms.
+- **Size matters little.** 0.5 MB took about 200 ms, 5 MB 230 ms, 20 MB
+  324 ms, for either kind.
+- **The checks queue system-wide.** 24 fresh images, 12 at a time, took a
+  median 1.5 s each and 5.7 s in all, about 230 ms per image either way. So
+  `ui`'s 5.7 s median is queueing behind other checks, not a slow check.
+- **Code with no file behind it skips the check.** 5 MB copied into `MAP_JIT`
+  memory and called took 1.2–1.8 ms. Using it means loading each
+  suite's objects in-process: relocations, binding to the runtime, thread
+  locals and unwind info. That's a linker, so it waits for a decision.
+
+**One runner per run doesn't cut files.** `ui` runs one suite per step: 294
+of its 296 `buri test` runs name one target, and an exec log shows every
+fresh runner at the shared `test-runner`, one at most per run. Runs that touch
+several suites already share binaries (`commands/test.rs`, `batch`).
+`cli/tests/example` makes two files from eight suites, because `server`
+forbids `client` and a batch splits on tags:
+
+| Step in `cli/tests/example` | Fresh files |
+|---|---:|
+| cold | 2 |
+| unchanged | 0 |
+| a new test in `//lib/money` | 1 |
+| a change to `//lib/money`'s code | 2 |
+| `--force` | 0 |
+
+Only 25 runs in every `repositories` corpus could touch more than one suite.
+Fewer new files would have to come from fewer runs, not wider ones.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
