@@ -276,6 +276,7 @@ use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, 
 use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
+use std::collections::BTreeMap;
 
 // ---------------------------------------------------------------------------
 // The plan
@@ -1035,6 +1036,21 @@ fn scan_func(
             let mut sizes: Vec<u32> = Vec::new();
             subtree_sizes(body, &mut sizes);
             let (child_at, child_ids) = child_index(&sizes);
+            let mut jumps_before: Vec<u32> = vec![0; sizes.len().saturating_add(1)];
+            preorder(body, &mut |id, e| {
+                if let (ExprKind::Continue { .. }, Some(slot)) =
+                    (&e.kind, jumps_before.get_mut(id.0 as usize + 1))
+                {
+                    *slot = 1;
+                }
+            });
+            for k in 1..jumps_before.len() {
+                let previous = jumps_before.get(k - 1).copied().unwrap_or(0);
+                if let Some(slot) = jumps_before.get_mut(k) {
+                    *slot += previous;
+                }
+            }
+            let (mentions, binders) = name_index(body, &sizes);
             let mut scan = Scan {
                 func: f,
                 counted,
@@ -1051,9 +1067,12 @@ fn scan_func(
                 floor: 0,
                 jumps: Vec::new(),
                 diverged: false,
-                named: vec![None; sizes.len()],
+                mentions,
+                binders,
                 self_params: plan.params.clone(),
                 inherits: Vec::new(),
+                chain_link: None,
+                jumps_before,
                 handed_on: Vec::new(),
                 moving: Vec::new(),
                 escape_except: Vec::new(),
@@ -1104,7 +1123,7 @@ fn scan_func(
                     }
                 }
             }
-            scan.expr(body, NodeId(0), &Live::default(), Mode::Own);
+            scan.expr(body, NodeId(0), &mut Live::default(), Mode::Own);
             // Anything a borrow left pending at the root is dropped before the
             // function returns.
             scan.flush(NodeId(0));
@@ -2028,7 +2047,150 @@ pub enum Mode {
     Borrow,
 }
 
-type Live = HashSet<LocalId>;
+/// What is live at one point of the backwards scan.
+///
+/// One set, rewritten in place as the scan moves, rather than a fresh copy
+/// answered at every node: a copy per node made a long expression over many
+/// live names quadratic. A branch is scanned into the set and then taken back
+/// out ([`Live::mark`], [`Live::undo`]), which is what lets two branches start
+/// from the same set without either copying it.
+#[derive(Clone, Default)]
+struct Live {
+    /// Each live local, with the tick it became live at and whether the
+    /// function owned it then.
+    at: HashMap<LocalId, (u64, bool)>,
+    /// The owned ones among them, by the tick they became live at, so a
+    /// branch can ask which owned locals became live after a point without
+    /// reading the whole set.
+    owned: BTreeMap<u64, LocalId>,
+    tick: u64,
+    /// Every change since the oldest open mark, to take back.
+    log: Vec<Change>,
+    open: usize,
+}
+
+#[derive(Clone, Copy)]
+enum Change {
+    Added(LocalId),
+    Dropped(LocalId, u64, bool),
+}
+
+/// A point [`Live::undo`] takes the set back to.
+#[derive(Clone, Copy)]
+struct Mark {
+    log: usize,
+    tick: u64,
+}
+
+impl Live {
+    fn contains(&self, l: &LocalId) -> bool {
+        self.at.contains_key(l)
+    }
+
+    fn len(&self) -> usize {
+        self.at.len()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = LocalId> + '_ {
+        self.at.keys().copied()
+    }
+
+    fn tick(&self) -> u64 {
+        self.tick
+    }
+
+    /// Makes `l` live. `owned` is whether the function owns it. Only a name
+    /// bound inside the construct being scanned changes that answer, and the
+    /// scan takes such a name out of the set again before the construct ends.
+    fn insert(&mut self, l: LocalId, owned: bool) {
+        if self.at.contains_key(&l) {
+            return;
+        }
+        self.tick += 1;
+        self.at.insert(l, (self.tick, owned));
+        if owned {
+            self.owned.insert(self.tick, l);
+        }
+        if self.open > 0 {
+            self.log.push(Change::Added(l));
+        }
+    }
+
+    fn remove(&mut self, l: &LocalId) {
+        let Some((tick, owned)) = self.at.remove(l) else { return };
+        if owned {
+            self.owned.remove(&tick);
+        }
+        if self.open > 0 {
+            self.log.push(Change::Dropped(*l, tick, owned));
+        }
+    }
+
+    fn clear(&mut self) {
+        let all: Vec<LocalId> = self.iter().collect();
+        for l in all {
+            self.remove(&l);
+        }
+    }
+
+    fn mark(&mut self) -> Mark {
+        self.open += 1;
+        Mark { log: self.log.len(), tick: self.tick }
+    }
+
+    /// Takes the set back to `mark`, and answers what had become live since
+    /// that was still live.
+    fn undo(&mut self, mark: Mark) -> HashSet<LocalId> {
+        let changes = self.log.split_off(mark.log.min(self.log.len()));
+        let mut added: HashSet<LocalId> = HashSet::default();
+        for change in &changes {
+            if let Change::Added(l) = change {
+                if self.at.get(l).is_some_and(|(t, _)| *t > mark.tick) {
+                    added.insert(*l);
+                }
+            }
+        }
+        for change in changes.into_iter().rev() {
+            match change {
+                Change::Added(l) => {
+                    if let Some((tick, owned)) = self.at.remove(&l) {
+                        if owned {
+                            self.owned.remove(&tick);
+                        }
+                    }
+                }
+                Change::Dropped(l, tick, owned) => {
+                    self.at.insert(l, (tick, owned));
+                    if owned {
+                        self.owned.insert(tick, l);
+                    }
+                }
+            }
+        }
+        self.open = self.open.saturating_sub(1);
+        if self.open == 0 {
+            self.log.clear();
+        }
+        added
+    }
+
+    /// The owned locals that became live after `tick` and still are.
+    fn owned_since(&self, tick: u64) -> impl Iterator<Item = LocalId> + '_ {
+        self.owned.range(tick.saturating_add(1)..).map(|(_, l)| *l)
+    }
+}
+
+/// What one branch left live, for [`Scan::balance`].
+enum Left {
+    /// Scanned and taken back out: what it made live that was not live after
+    /// the construct. Nothing that was live after it was taken away.
+    Added(HashSet<LocalId>),
+    /// The largest branch, scanned last and left in `live`.
+    Kept,
+    /// Scanned and taken back out, whole, because a jump under the construct
+    /// may have taken away what was live after it.
+    Whole(HashSet<LocalId>),
+}
 
 struct Scan<'a> {
     func: &'a Func,
@@ -2070,16 +2232,22 @@ struct Scan<'a> {
     jumps: Vec<(NodeId, Position)>,
     /// Whether every path out of the expression just scanned is a jump.
     diverged: bool,
-    /// [`Scan::names_in`]'s memo, one slot per node, filled only for the nodes
-    /// that are asked — a short-circuit's right operand. See that function for
-    /// why it holds the *unfiltered* names.
-    named: Vec<Option<Vec<LocalId>>>,
+    /// Where each local is named, by pre-order id, ascending, and the `let` or
+    /// `match` that binds it, each with the lambda it is inside: [`Scan::names`].
+    mentions: HashMap<LocalId, Vec<(u32, Option<u32>)>>,
+    binders: HashMap<LocalId, (u32, Option<u32>)>,
     /// The function's own parameter ownership, for a `Continue` that re-enters
     /// the loop it is inside: the loop's variables *are* the parameters
     /// (`typed::ExprKind::Loop`).
     self_params: Vec<ir::Ownership>,
     /// [`FuncPlan::inherits`], as it is found.
     inherits: Vec<(NodeId, LocalId)>,
+    /// The right operand of a `&&` or `||` that is itself one, set as the
+    /// scan steps into it. [`Scan::short_circuit`] reads it.
+    chain_link: Option<NodeId>,
+    /// How many `Continue`s come before each node in pre-order, and one past
+    /// the end: [`Scan::jumps_within`].
+    jumps_before: Vec<u32>,
     /// The fields of a dying base each functional update being scanned hands
     /// on whole — see [`handed_on_fields`]. Innermost last. `sharing` only.
     handed_on: Vec<(LocalId, Vec<usize>)>,
@@ -2294,7 +2462,7 @@ impl Scan<'_> {
         let jumps = std::mem::take(&mut self.jumps);
         let floor = std::mem::replace(&mut self.floor, 0);
         let diverged = std::mem::replace(&mut self.diverged, false);
-        self.expr(body, id, &Live::default(), Mode::Own);
+        self.expr(body, id, &mut Live::default(), Mode::Own);
         self.pending = pending;
         self.jumps = jumps;
         self.floor = floor;
@@ -2387,7 +2555,7 @@ impl Scan<'_> {
         id: NodeId,
         bid: NodeId,
         mode: Mode,
-        live: &Live,
+        base_dead: bool,
     ) {
         // Asked again rather than passed in: it is a question about the base's
         // shape, the answer is the same both times, and a caller that could
@@ -2417,7 +2585,7 @@ impl Scan<'_> {
             if self.opts.sharing {
                 if let Some(root) = borrowed_root(base) {
                     if self.owned.contains(&root)
-                        && (!live.contains(&root) || self.hands_on(e, base, root))
+                        && (base_dead || self.hands_on(e, base, root))
                     {
                         self.inherits.push((id, root));
                     }
@@ -2540,11 +2708,10 @@ impl Scan<'_> {
         base: &Expr,
         updates: &[(usize, Expr)],
         id: NodeId,
-        live: &Live,
-    ) -> Live {
-        let Some(root) = self.dying_base(base, live) else { return live.clone() };
-        let mut after = live.clone();
-        after.insert(root);
+        live: &mut Live,
+    ) {
+        let Some(root) = self.dying_base(base, live) else { return };
+        self.enliven(live, root);
         let moved = moved_fields(root, updates);
         let mask = moved.iter().fold(0u64, |m, f| m | (1u64 << f));
         self.moving.push((root, id, moved));
@@ -2552,7 +2719,7 @@ impl Scan<'_> {
         let first = self.sites.len();
         for (k, (_, value)) in updates.iter().enumerate().rev() {
             let kid = self.child(id, k + 1);
-            after = self.expr(value, kid, &after, Mode::Own);
+            self.expr(value, kid, live, Mode::Own);
         }
         self.escape_except.pop();
         self.moving.pop();
@@ -2571,11 +2738,10 @@ impl Scan<'_> {
                     if taken == 0 { Target::Local(root) } else { Target::LocalExcept(root, taken) };
             }
         }
-        after.remove(&root);
+        live.remove(&root);
         let bid = self.child(id, 0);
-        let before = self.expr(base, bid, &after, Mode::Own);
+        self.expr(base, bid, live, Mode::Own);
         self.flush(id);
-        before
     }
 
     /// Whether `e` reads a value with no count out of a local through fields
@@ -2693,17 +2859,203 @@ impl Scan<'_> {
         NodeId(cur)
     }
 
+    /// Makes `l` live, noting whether this function owns it.
+    fn enliven(&self, live: &mut Live, l: LocalId) {
+        live.insert(l, self.owned.contains(&l));
+    }
+
+    fn size(&self, id: NodeId) -> u32 {
+        self.sizes.get(id.0 as usize).copied().unwrap_or(1)
+    }
+
+    /// Whether a `Continue` is anywhere under `id`.
+    fn jumps_within(&self, id: NodeId) -> bool {
+        let start = id.0 as usize;
+        let end = start.saturating_add(self.size(id) as usize);
+        let at = |k: usize| self.jumps_before.get(k).copied().unwrap_or(0);
+        at(end) > at(start)
+    }
+
+    /// Scans the branches of an `if` or a `match`, each from what is
+    /// live after the construct, which is `live` on the way in. `sizes` are
+    /// the branches' subtree sizes and `scan` scans one by its index.
+    ///
+    /// The largest branch is scanned last and left in `live`. Every other one
+    /// is scanned and taken back out, keeping only what it added, so a long
+    /// chain of branches pays for its short ones and not for the live set it
+    /// carries past them. That leans on a branch never taking away what was
+    /// live after it, and only a `Continue` does: under one, every branch is
+    /// kept whole, in order. A jump is in tail position, where little is live.
+    fn branches(
+        &mut self,
+        id: NodeId,
+        live: &mut Live,
+        sizes: &[u32],
+        scan: &mut dyn FnMut(&mut Self, usize, &mut Live),
+    ) -> Vec<Left> {
+        let whole = self.jumps_within(id);
+        let last = if whole {
+            None
+        } else {
+            (0..sizes.len()).max_by_key(|&i| sizes.get(i).copied().unwrap_or(0))
+        };
+        let mut left: Vec<Left> = (0..sizes.len()).map(|_| Left::Kept).collect();
+        for i in (0..sizes.len()).filter(|i| Some(*i) != last).chain(last) {
+            if Some(i) == last {
+                scan(self, i, live);
+                continue;
+            }
+            let mark = live.mark();
+            scan(self, i, live);
+            let entry = if whole {
+                let all: HashSet<LocalId> = live.iter().collect();
+                live.undo(mark);
+                Left::Whole(all)
+            } else {
+                Left::Added(live.undo(mark))
+            };
+            if let Some(slot) = left.get_mut(i) {
+                *slot = entry;
+            }
+        }
+        left
+    }
+
     /// Drops, at the entry of a branch, every owned local the branch does not
     /// use but a sibling does. This is what makes the counts agree at a join
     /// without a merge block to put anything in.
-    fn balance(&mut self, node: NodeId, mine: &Live, theirs: &Live) {
-        let mut extra: Vec<LocalId> = theirs.difference(mine).copied().collect();
-        extra.sort_by_key(|l| l.0);
-        for l in extra {
-            if self.owned.contains(&l) {
-                self.push(node, Position::Before, RcOp::DecRef, Target::Local(l));
+    ///
+    /// `left` is what [`Scan::branches`] answered, `tick` the set's tick before
+    /// it ran, and `ids` where each branch's drops go. The union of the
+    /// branches is left in `live`, less `token`: a consumed scrutinee, which is
+    /// out of the balancing question. `skips` holds, per branch, a local left
+    /// out of what that branch is balanced against.
+    fn balance(
+        &mut self,
+        live: &mut Live,
+        tick: u64,
+        ids: &[NodeId],
+        left: Vec<Left>,
+        token: Option<LocalId>,
+        skips: &[Option<LocalId>],
+    ) {
+        if left.iter().any(|l| matches!(l, Left::Whole(_))) {
+            self.balance_whole(live, ids, &left, token, skips);
+            return;
+        }
+        // What the kept branch lacks is what the others added, read before
+        // they are added to it.
+        let mut kept_extra: Vec<LocalId> = Vec::new();
+        for l in &left {
+            if let Left::Added(added) = l {
+                kept_extra.extend(added.iter().copied().filter(|x| {
+                    Some(*x) != token && !live.contains(x) && self.owned.contains(x)
+                }));
             }
         }
+        kept_extra.sort_by_key(|l| l.0);
+        kept_extra.dedup();
+        for l in &left {
+            if let Left::Added(added) = l {
+                for x in added {
+                    self.enliven(live, *x);
+                }
+            }
+        }
+        if let Some(t) = token {
+            live.remove(&t);
+        }
+        // What any other branch lacks is an owned local some branch made live
+        // and it did not.
+        for (bid, l) in ids.iter().zip(&left) {
+            let extra = match l {
+                Left::Added(added) => {
+                    let mut extra: Vec<LocalId> = live
+                        .owned_since(tick)
+                        .filter(|x| !added.contains(x) && self.owned.contains(x))
+                        .collect();
+                    extra.sort_by_key(|l| l.0);
+                    extra
+                }
+                _ => std::mem::take(&mut kept_extra),
+            };
+            self.drop_on_entry(*bid, extra);
+        }
+    }
+
+    /// [`Scan::balance`] over branches kept whole.
+    fn balance_whole(
+        &mut self,
+        live: &mut Live,
+        ids: &[NodeId],
+        left: &[Left],
+        token: Option<LocalId>,
+        skips: &[Option<LocalId>],
+    ) {
+        let mut union: HashSet<LocalId> = HashSet::default();
+        for l in left {
+            if let Left::Whole(mine) = l {
+                union.extend(mine.iter().copied());
+            }
+        }
+        if let Some(t) = token {
+            union.remove(&t);
+        }
+        for (i, (bid, l)) in ids.iter().zip(left).enumerate() {
+            let Left::Whole(mine) = l else { continue };
+            let extra = self.owned_extra(mine, &union, skips.get(i).copied().flatten());
+            self.drop_on_entry(*bid, extra);
+        }
+        self.overwrite(live, union);
+    }
+
+    /// Rewrites `live` to `to`, through its own changes, so a mark open around
+    /// it can still take it back.
+    fn overwrite(&self, live: &mut Live, to: HashSet<LocalId>) {
+        let gone: Vec<LocalId> = live.iter().filter(|l| !to.contains(l)).collect();
+        for l in gone {
+            live.remove(&l);
+        }
+        for l in to {
+            if !live.contains(&l) {
+                self.enliven(live, l);
+            }
+        }
+    }
+
+    fn drop_on_entry(&mut self, node: NodeId, extra: Vec<LocalId>) {
+        for l in extra {
+            self.push(node, Position::Before, RcOp::DecRef, Target::Local(l));
+        }
+    }
+
+    /// `(theirs \ mine) ∩ owned`, less `skip`, sorted, reading whichever of
+    /// `theirs` and [`Scan::owned`] is smaller.
+    fn owned_extra(
+        &self,
+        mine: &HashSet<LocalId>,
+        theirs: &HashSet<LocalId>,
+        skip: Option<LocalId>,
+    ) -> Vec<LocalId> {
+        let wanted = |l: &LocalId| Some(*l) != skip && !mine.contains(l);
+        let mut extra: Vec<LocalId> = if self.owned.len() < theirs.len() {
+            self.owned.iter().copied().filter(|l| theirs.contains(l) && wanted(l)).collect()
+        } else {
+            theirs.iter().copied().filter(|l| self.owned.contains(l) && wanted(l)).collect()
+        };
+        extra.sort_by_key(|l| l.0);
+        extra
+    }
+
+    /// `live ∩ owned`, sorted, reading whichever is smaller.
+    fn owned_live(&self, live: &Live) -> Vec<LocalId> {
+        let mut held: Vec<LocalId> = if self.owned.len() < live.len() {
+            self.owned.iter().copied().filter(|l| live.contains(l)).collect()
+        } else {
+            live.iter().filter(|l| self.owned.contains(l)).collect()
+        };
+        held.sort_by_key(|l| l.0);
+        held
     }
 
     /// Drops, on the path a `?` leaves the function by, every owned local the
@@ -2714,10 +3066,11 @@ impl Scan<'_> {
     /// extra. Counted-ness is not filtered here for the same reason it is not
     /// there — `lower` skips a local nothing has bound, and both backends make
     /// a reference operation on an uncounted type a no-op.
-    fn escape(&mut self, node: NodeId, live: &Live) {
-        let mut held: Vec<LocalId> = live.iter().copied().collect();
-        held.sort_by_key(|l| l.0);
-        for l in held {
+    ///
+    /// `held` is [`Scan::owned_live`] of what is live after the `?`, taken
+    /// before its operand is scanned, because the scan writes over that set.
+    fn escape(&mut self, node: NodeId, held: &[LocalId]) {
+        for &l in held {
             if self.owned.contains(&l) {
                 let except = self.escape_except.iter().rev().find(|(r, _)| *r == l);
                 let target = match except {
@@ -2742,26 +3095,26 @@ impl Scan<'_> {
         }
     }
 
-    /// Scans one expression, given what is live *after* it, and answers what is
-    /// live before it. Emits every site the expression itself needs.
+    /// Scans one expression. `live` comes in as what is live *after* it and
+    /// leaves as what is live before it. Emits every site the expression itself
+    /// needs. [`Live`] says why it is one set, and [`Scan::branches`] how a
+    /// branch shares it.
     ///
     /// The deferred drops this expression raises are its own: [`Scan::floor`]
     /// is what stops a construct nested inside it from flushing a drop a
     /// sibling raised, and it is restored so the parent can still flush both.
-    fn expr(&mut self, e: &Expr, id: NodeId, live: &Live, mode: Mode) -> Live {
+    fn expr(&mut self, e: &Expr, id: NodeId, live: &mut Live, mode: Mode) {
         let outer = std::mem::replace(&mut self.floor, self.pending.len());
-        let out = self.expr_at(e, id, live, mode);
+        self.expr_at(e, id, live, mode);
         self.floor = outer;
-        out
     }
 
-    fn expr_at(&mut self, e: &Expr, id: NodeId, live: &Live, mode: Mode) -> Live {
+    fn expr_at(&mut self, e: &Expr, id: NodeId, live: &mut Live, mode: Mode) {
         match &e.kind {
             ExprKind::Local(l) => {
-                let mut before = live.clone();
                 self.used.insert(*l);
                 if !self.is_counted(*l) {
-                    return before;
+                    return;
                 }
                 let last = !live.contains(l);
                 if mode == Mode::Own {
@@ -2776,21 +3129,19 @@ impl Scan<'_> {
                     // drop belongs after whatever is reading it.
                     self.pending.push(*l);
                 }
-                before.insert(*l);
-                before
+                self.enliven(live, *l);
             }
             ExprKind::Lambda { params: ps, captures, body } => {
                 // An environment is a construction over the captures, and the
                 // body does not run here.
-                let mut before = live.clone();
                 for c in captures {
                     self.used.insert(*c);
                     if self.is_counted(*c) {
-                        let last = !before.contains(c);
+                        let last = !live.contains(c);
                         if !last || !self.owned.contains(c) {
                             self.push(id, Position::After, RcOp::IncRef, Target::Local(*c));
                         }
-                        before.insert(*c);
+                        self.enliven(live, *c);
                     }
                 }
                 // Under `sharing` the body is scanned here, because nothing
@@ -2804,19 +3155,17 @@ impl Scan<'_> {
                     self.nested(body, bid);
                     self.owned = outer;
                 }
-                before
             }
             ExprKind::Block { stmts, tail } => {
                 // Decided before the scan, because the scan runs backwards and
                 // reaches every use of a binding before its binder.
                 let aliases = self.aliases(stmts, live);
-                let mut live_after = live.clone();
                 let children = stmts.len() + usize::from(tail.is_some());
                 // Backwards: the tail first, then each statement, so a
                 // binding's last use is known before its binder is reached.
                 if let Some(t) = tail {
                     let tid = self.child(id, children.saturating_sub(1));
-                    live_after = self.expr(t, tid, &live_after, mode);
+                    self.expr(t, tid, live, mode);
                     self.flush(tid);
                 }
                 for (k, s) in stmts.iter().enumerate().rev() {
@@ -2836,17 +3185,16 @@ impl Scan<'_> {
                             // `Stmt::Expr` is — borrowed, and the temporary it
                             // built dropped after it.
                             if bound.is_empty() {
-                                live_after =
-                                    self.expr(value, sid, &live_after, Mode::Borrow);
+                                self.expr(value, sid, live, Mode::Borrow);
                                 self.drop_temporary(value, sid, sid);
                                 self.flush(sid);
                                 continue;
                             }
                             if bound.iter().any(|b| aliases.contains(b)) {
                                 for b in &bound {
-                                    live_after.remove(b);
+                                    live.remove(b);
                                 }
-                                live_after = self.expr(value, sid, &live_after, Mode::Borrow);
+                                self.expr(value, sid, live, Mode::Borrow);
                                 self.flush(sid);
                                 continue;
                             }
@@ -2860,13 +3208,13 @@ impl Scan<'_> {
                             for b in &bound {
                                 if self.is_counted(*b) {
                                     self.owned.insert(*b);
-                                    if !live_after.contains(b) {
+                                    if !live.contains(b) {
                                         unread.push(*b);
                                     }
-                                    live_after.remove(b);
+                                    live.remove(b);
                                 }
                             }
-                            live_after = self.expr(value, sid, &live_after, Mode::Own);
+                            self.expr(value, sid, live, Mode::Own);
                             // **After the initializer, and the ordering is the
                             // whole of it.** The initializer is scanned at
                             // *this* node, so its own operations land at
@@ -2894,29 +3242,30 @@ impl Scan<'_> {
                             self.flush(sid);
                         }
                         Stmt::Expr(x) => {
-                            live_after = self.expr(x, sid, &live_after, Mode::Borrow);
+                            self.expr(x, sid, live, Mode::Borrow);
                             self.drop_temporary(x, sid, sid);
                             self.flush(sid);
                         }
                     }
                 }
-                live_after
             }
             ExprKind::If { cond, then, else_ } => {
                 let then_id = self.child(id, 1);
                 let else_id = self.child(id, 2);
-                let ((lt, le), jumps, diverged) = self.scoped(|me| {
-                    let lt = me.expr(then, then_id, live, mode);
-                    me.flush(then_id);
-                    let le = me.expr(else_, else_id, live, mode);
-                    me.flush(else_id);
-                    (lt, le)
+                let ids = [then_id, else_id];
+                let sizes = [self.size(then_id), self.size(else_id)];
+                let tick = live.tick();
+                let (left, jumps, diverged) = self.scoped(|me| {
+                    me.branches(id, live, &sizes, &mut |me, i, live| {
+                        let (branch, bid): (&Expr, NodeId) =
+                            if i == 0 { (then, then_id) } else { (else_, else_id) };
+                        me.expr(branch, bid, live, mode);
+                        me.flush(bid);
+                    })
                 });
-                self.balance(then_id, &lt, &le);
-                self.balance(else_id, &le, &lt);
-                let union: Live = lt.union(&le).copied().collect();
+                self.balance(live, tick, &ids, left, None, &[]);
                 let cid = self.child(id, 0);
-                let out = self.expr(cond, cid, &union, Mode::Borrow);
+                self.expr(cond, cid, live, Mode::Borrow);
                 // What the condition read for the last time is dropped after
                 // the branches, not between the test and the jump — unless
                 // both branches jump, in which case "after" never runs and the
@@ -2927,7 +3276,6 @@ impl Scan<'_> {
                 } else {
                     self.flush(id);
                 }
-                out
             }
             ExprKind::Match { .. } => self.match_(e, id, live, mode),
             // A loop is always a whole function body, and its entries are
@@ -2948,20 +3296,21 @@ impl Scan<'_> {
             // drops a slot it owns and does not read, so the disposal is
             // written where only that entry runs it.
             ExprKind::Loop { entries } => {
-                let mut befores: Vec<Live> = Vec::new();
                 let (_, jumps, diverged) = self.scoped(|me| {
+                    let mut union: HashSet<LocalId> = HashSet::default();
                     for (k, entry) in entries.iter().enumerate() {
                         let eid = me.child(id, k);
-                        let lb = me.expr(entry, eid, live, mode);
+                        let mark = live.mark();
+                        me.expr(entry, eid, live, mode);
                         me.flush(eid);
-                        befores.push(lb);
+                        union.extend(live.iter());
+                        live.undo(mark);
                     }
+                    me.overwrite(live, union);
                 });
-                let union: Live = befores.iter().flat_map(|b| b.iter().copied()).collect();
                 if diverged && !jumps.is_empty() {
                     self.diverged = true;
                 }
-                union
             }
             // A jump: the values go into the loop's variables and nothing
             // after it runs. So the arguments are scanned against an *empty*
@@ -2978,14 +3327,14 @@ impl Scan<'_> {
                     None => self.self_params.clone(),
                 };
                 let key = jump_key(id, args, self);
-                let mut after = Live::default();
+                live.clear();
                 for (k, arg) in args.iter().enumerate().rev() {
                     let aid = self.child(id, k);
                     let m = match row.get(k) {
                         Some(ir::Ownership::Borrow) => Mode::Borrow,
                         _ => Mode::Own,
                     };
-                    after = self.expr(arg, aid, &after, m);
+                    self.expr(arg, aid, live, m);
                     if m == Mode::Borrow {
                         self.drop_temporary(arg, aid, key.0);
                     }
@@ -2996,7 +3345,6 @@ impl Scan<'_> {
                 self.flush_at(&[key]);
                 self.jumps.push(key);
                 self.diverged = true;
-                after
             }
             ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
                 self.short_circuit(id, lhs, rhs, live)
@@ -3011,7 +3359,8 @@ impl Scan<'_> {
                 // subtree too and owes the same drops. [`Scan::push`] is what
                 // reads it.
                 self.tries.push(id);
-                let out = self.expr(base, bid, live, mode);
+                let held = self.owned_live(live);
+                self.expr(base, bid, live, mode);
                 // ...and the other half of that sentence: *because* nothing
                 // after it runs, the drops the continuation would have
                 // performed never happen on the escape path, and every owned
@@ -3026,9 +3375,8 @@ impl Scan<'_> {
                 // and releasing it here would be the second release of one
                 // reference. What survives into the escape is what the code
                 // after the `?` would have gone on to read.
-                self.escape(id, live);
+                self.escape(id, &held);
                 self.flush(id);
-                out
             }
             // A projection reads its base without taking it, which is the whole
             // of borrowing at the tree level. What it *produces* is a reference
@@ -3039,29 +3387,30 @@ impl Scan<'_> {
             | ExprKind::TupleIndex { base, .. }
             | ExprKind::CtxGet { base, .. } => {
                 if self.inline_read(e) {
-                    return live.clone();
+                    return;
                 }
                 let bid = self.child(id, 0);
                 let bmode =
                     if self.tail_shaped_base(base) { Mode::Own } else { Mode::Borrow };
-                let mut out = self.expr(base, bid, live, bmode);
-                self.projected(e, base, id, bid, mode, live);
+                let base_dead = dead_after(borrowed_root(base), live);
+                let path_dead = dead_after(field_root(e), live);
+                self.expr(base, bid, live, bmode);
+                self.projected(e, base, id, bid, mode, base_dead);
                 if let Some(root) = self.no_reference_path(e) {
-                    if !live.contains(&root) {
-                        out.remove(&root);
+                    if path_dead {
+                        live.remove(&root);
                     }
                 }
-                out
             }
             ExprKind::Index { base, index, .. } => {
+                let base_dead = dead_after(borrowed_root(base), live);
                 let iid = self.child(id, 1);
-                let after = self.expr(index, iid, live, Mode::Borrow);
+                self.expr(index, iid, live, Mode::Borrow);
                 let bid = self.child(id, 0);
                 let bmode =
                     if self.tail_shaped_base(base) { Mode::Own } else { Mode::Borrow };
-                let out = self.expr(base, bid, &after, bmode);
-                self.projected(e, base, id, bid, mode, live);
-                out
+                self.expr(base, bid, live, bmode);
+                self.projected(e, base, id, bid, mode, base_dead);
             }
             // A functional update **consumes** its base: what comes out is a
             // new value and the old one has no reader left. The projections
@@ -3088,18 +3437,16 @@ impl Scan<'_> {
                 };
                 let pushed = handed.is_some();
                 self.handed_on.extend(handed);
-                let mut after = live.clone();
                 for (k, (_, value)) in updates.iter().enumerate().rev() {
                     let kid = self.child(id, k + 1);
-                    after = self.expr(value, kid, &after, Mode::Own);
+                    self.expr(value, kid, live, Mode::Own);
                 }
                 if pushed {
                     self.handed_on.pop();
                 }
                 let bid = self.child(id, 0);
-                let after = self.expr(base, bid, &after, Mode::Borrow);
+                self.expr(base, bid, live, Mode::Borrow);
                 self.flush(id);
-                after
             }
             ExprKind::StructUpdate { base, updates, .. }
                 if !self.opts.sharing && self.dying_base(base, live).is_some() =>
@@ -3116,8 +3463,8 @@ impl Scan<'_> {
     /// it: the payloads it binds are increfed out of the value and the value
     /// itself is dropped, which is MEMORY.md §5.3's dying value and the moment
     /// reuse replaces the drop with a write.
-    fn match_(&mut self, e: &Expr, id: NodeId, live: &Live, mode: Mode) -> Live {
-        let ExprKind::Match { scrutinee, arms } = &e.kind else { return live.clone() };
+    fn match_(&mut self, e: &Expr, id: NodeId, live: &mut Live, mode: Mode) {
+        let ExprKind::Match { scrutinee, arms } = &e.kind else { return };
         let token = match &scrutinee.kind {
             ExprKind::Local(l)
                 if self.is_counted(*l) && self.owned.contains(l) && !live.contains(l) =>
@@ -3153,181 +3500,42 @@ impl Scan<'_> {
                 self.is_counted(*r) && self.owned.contains(r) && !live.contains(r)
             }),
         };
-        let arm_live = match kept {
-            Some(r) => {
-                let mut l = live.clone();
-                l.insert(r);
-                l
-            }
-            None => live.clone(),
-        };
-        let live = &arm_live;
-        let mut befores: Vec<Live> = Vec::new();
+        if let Some(r) = kept {
+            self.enliven(live, r);
+        }
+        let mut gids: Vec<Option<NodeId>> = Vec::new();
         let mut ids: Vec<NodeId> = Vec::new();
+        let mut kids = (1usize..).map(|k| self.child(id, k));
+        for a in arms {
+            let gid = if a.guard.is_some() { kids.next() } else { None };
+            let Some(bid) = kids.next() else { break };
+            ids.push(bid);
+            gids.push(gid);
+        }
+        let sizes: Vec<u32> = ids
+            .iter()
+            .zip(&gids)
+            .map(|(b, g)| self.size(*b) + g.map_or(0, |g| self.size(g)))
+            .collect();
         // The back edges each arm takes, kept per arm rather than in one list:
         // a drop the arms disagree about belongs on the paths of the arm that
         // wanted it, and a jump in the arm beside it is a different path.
-        let mut arm_edges: Vec<Vec<(NodeId, Position)>> = Vec::new();
+        let mut arm_edges: Vec<Vec<(NodeId, Position)>> = vec![Vec::new(); arms.len()];
         let outer_jumps = std::mem::take(&mut self.jumps);
         let outer_diverged = std::mem::replace(&mut self.diverged, true);
-        let mut k = 1usize;
-        for a in arms {
-            let edges_before = self.jumps.len();
-            let gid = if a.guard.is_some() {
-                let g = self.child(id, k);
-                k += 1;
-                Some(g)
-            } else {
-                None
-            };
-            let bid = self.child(id, k);
-            k += 1;
-            let mut bound: Vec<LocalId> = Vec::new();
-            a.pattern.binds(&mut bound);
-            bound.sort_by_key(|l| l.0);
-            // A `..rest` binding is a block this arm allocates, not a piece of
-            // the scrutinee: both backends' `ArraySlice` calls the allocator,
-            // copies and retains every element. So the arm owns it however the
-            // scrutinee is held, and it takes no count out of the scrutinee.
-            let mut fresh_bound: Vec<LocalId> = Vec::new();
-            a.pattern.fresh_binds(&mut fresh_bound);
-            fresh_bound.retain(|b| self.is_counted(*b));
-            fresh_bound.sort_by_key(|l| l.0);
-            for b in &fresh_bound {
-                self.owned.insert(*b);
+        let tick = live.tick();
+        let left = self.branches(id, live, &sizes, &mut |me, i, live| {
+            let (Some(a), Some(bid)) = (arms.get(i), ids.get(i)) else { return };
+            let gid = gids.get(i).copied().flatten();
+            let edges_before = me.jumps.len();
+            me.arm(a, gid, *bid, live, mode, token, scrutinee);
+            if let Some(edges) = arm_edges.get_mut(i) {
+                *edges = me.jumps.get(edges_before..).unwrap_or_default().to_vec();
             }
-            if owns {
-                for b in &bound {
-                    if self.is_counted(*b) {
-                        self.owned.insert(*b);
-                    }
-                }
-            }
-            let before_arm = std::mem::replace(&mut self.diverged, false);
-            let body_live = self.expr(&a.body, bid, live, mode);
-            self.flush(bid);
-            // Every arm has to jump for the match to.
-            self.diverged = before_arm && self.diverged;
-            let mut lb = body_live.clone();
-            if let (Some(g), Some(gid)) = (a.guard.as_ref(), gid) {
-                // A guard is speculative: when it is false the *next* arm runs,
-                // so the guard is not the last use of anything, even a value it
-                // hands to a callee that owns it — `match (k) { _ if take(v) =>
-                // …, .A => … }` reaches `.A` with `v` already consumed. Scanned
-                // as an ordinary last use, `take(v)`'s release is the arm's only
-                // one, and the fall-through arm releases `v` a second time
-                // (issue #198, a query filter's heap `Str` freed a recompute
-                // early). So every owned counted local the guard reads is forced
-                // live across it: a consuming use is then a duplicating one and
-                // takes a retain, and the guard nets to zero on ownership. What
-                // the arm body does not go on to use is released at its entry,
-                // which the fall-through never reaches — the arm it lands on
-                // releases its own copy there instead. The scrutinee is left to
-                // the match's own disposal, and a pattern binding to the arm's.
-                let mut held: Vec<LocalId> = Vec::new();
-                collect_locals(g, &mut held);
-                held.retain(|l| {
-                    self.is_counted(*l)
-                        && self.owned.contains(l)
-                        && !bound.contains(l)
-                        && borrowed_root(scrutinee) != Some(*l)
-                });
-                held.sort_by_key(|l| l.0);
-                held.dedup();
-                let mut guarded = body_live.clone();
-                for l in &held {
-                    guarded.insert(*l);
-                }
-                // The names the pattern binds out of a consumed scrutinee take
-                // their counts at the arm's entry, which is *after* the guard:
-                // while it runs they are words of the scrutinee with no count of
-                // their own, so the guard holds them as borrowed. Owned, the
-                // guard's last read of one released it, on the path that falls
-                // through too — and the arm it fell to released the scrutinee
-                // that still held it, so a heap value the guard read was freed
-                // twice (issue #231).
-                let lent: Vec<LocalId> = if owns {
-                    bound
-                        .iter()
-                        .copied()
-                        .filter(|b| !fresh_bound.contains(b) && self.owned.remove(b))
-                        .collect()
-                } else {
-                    Vec::new()
-                };
-                lb = self.expr(g, gid, &guarded, Mode::Borrow);
-                self.flush(gid);
-                self.owned.extend(lent);
-                // A `..rest` binding the guard did not release itself is still
-                // owned when the guard is false, and the arm that drops it at
-                // its entry is not the one the match goes on to.
-                for b in &fresh_bound {
-                    if guarded.contains(b) || !lb.contains(b) {
-                        self.push(gid, Position::Rejected, RcOp::DecRef, Target::Local(*b));
-                    }
-                }
-                for l in &held {
-                    if !body_live.contains(l) && !live.contains(l) {
-                        self.push(bid, Position::Before, RcOp::DecRef, Target::Local(*l));
-                    }
-                }
-            }
-            // A fresh binding the arm never reads is dropped where it is bound,
-            // for the reason `Stmt::Let` drops one: the allocation happened
-            // whether or not a use for it did.
-            for b in &fresh_bound {
-                if !lb.contains(b) {
-                    self.push(bid, Position::Before, RcOp::DecRef, Target::Local(*b));
-                }
-            }
-            if let Some(t) = token {
-                // What the *body* reads: the guard has run by the entry, and
-                // held what it read as borrowed.
-                let used: Vec<LocalId> = bound
-                    .iter()
-                    .copied()
-                    .filter(|b| body_live.contains(b) && !fresh_bound.contains(b))
-                    .collect();
-                for b in used {
-                    if self.is_counted(b) {
-                        self.push(bid, Position::Before, RcOp::IncRef, Target::Local(b));
-                    }
-                }
-                // The entry drop is for an arm that is *done* with the
-                // scrutinee. An arm that still reads it — `assert.some`'s
-                // `.None => failExpected("some", o)` — has already had its own
-                // last-use drop placed after the read, and a second one here
-                // would take the count to zero before the arm ran.
-                if !lb.contains(&t) {
-                    self.push(bid, Position::Before, RcOp::DecRef, Target::Local(t));
-                    if self.opts.reuse {
-                        if let Some(fields) = construction(&a.body) {
-                            self.reuse.push(Reuse { token: t, at: bid, fields });
-                        }
-                    }
-                }
-            }
-            for b in &bound {
-                lb.remove(b);
-            }
-            arm_edges.push(self.jumps.get(edges_before..).unwrap_or_default().to_vec());
-            befores.push(lb);
-            ids.push(bid);
-        }
+        });
         let arm_jumps = std::mem::replace(&mut self.jumps, outer_jumps);
         self.jumps.extend(arm_jumps.iter().copied());
         let arms_diverged = std::mem::replace(&mut self.diverged, outer_diverged);
-        let mut union: Live = befores.iter().flat_map(|b| b.iter().copied()).collect();
-        // A consumed scrutinee is disposed of by every arm — at the entry where
-        // the arm does not read it, at its own last use where it does — so it
-        // is out of the balancing question entirely. Leaving it in made
-        // `balance` add, to each arm that was done with it, the drop that arm
-        // had already been given: two decrements against one count.
-        if let Some(t) = token {
-            union.remove(&t);
-        }
-        let pairs: Vec<(NodeId, Live)> =
-            ids.iter().copied().zip(befores).collect();
         // Whether the code after the arms is reachable at all.
         let falls_through = !arms_diverged || arm_jumps.is_empty();
         // **The root held open across the arms is never dropped at an arm's
@@ -3347,21 +3555,32 @@ impl Scan<'_> {
         // every argument, which is where an argument reading the root still
         // reads a live one. Per arm, because a jump in the arm beside it is a
         // different path and the root may be what that one passes on.
-        for ((bid, b), edges) in pairs.iter().zip(&arm_edges) {
-            let mut theirs = union.clone();
-            if let Some(r) = kept.filter(|r| !edges.is_empty() && !b.contains(r)) {
-                theirs.remove(&r);
-                // Where no path falls through, `flush_at` below already writes
-                // this drop at every back edge.
-                if falls_through {
-                    for (node, at) in edges {
-                        self.push(*node, *at, RcOp::DecRef, Target::Local(r));
-                    }
+        //
+        // Only an arm under a jump has back edges, so only a construct whose
+        // branches are kept whole has a root to leave out.
+        let skips: Vec<Option<LocalId>> = left
+            .iter()
+            .zip(&arm_edges)
+            .map(|(l, edges)| match l {
+                Left::Whole(b) => kept.filter(|r| !edges.is_empty() && !b.contains(r)),
+                _ => None,
+            })
+            .collect();
+        for (skip, edges) in skips.iter().zip(&arm_edges) {
+            // Where no path falls through, `flush_at` below already writes
+            // this drop at every back edge.
+            if let (Some(r), true) = (skip, falls_through) {
+                for (node, at) in edges {
+                    self.push(*node, *at, RcOp::DecRef, Target::Local(*r));
                 }
             }
-            self.balance(*bid, b, &theirs);
         }
-        let before = union;
+        // A consumed scrutinee is disposed of by every arm — at the entry where
+        // the arm does not read it, at its own last use where it does — so it
+        // is out of the balancing question entirely. Leaving it in made
+        // `balance` add, to each arm that was done with it, the drop that arm
+        // had already been given: two decrements against one count.
+        self.balance(live, tick, &ids, left, token, &skips);
         let sid = self.child(id, 0);
         // A counted compound scrutinee is owned for `Scan::children`'s reason:
         // borrowed, its tail's alias would be dropped inside it, before the
@@ -3369,7 +3588,7 @@ impl Scan<'_> {
         let promoted =
             !owns && compound(scrutinee) && self.counted_ty(&scrutinee.ty.clone());
         let smode = if owns || promoted { Mode::Own } else { Mode::Borrow };
-        let out = self.expr(scrutinee, sid, &before, smode);
+        self.expr(scrutinee, sid, live, smode);
         // A scrutinee read for the last time is dropped after the arms, which
         // are the things reading what it holds — a payload binding points into
         // it, so dropping at an arm's entry would free what the arm is about
@@ -3412,19 +3631,182 @@ impl Scan<'_> {
                 self.push(id, Position::After, RcOp::DecRef, Target::Node(sid));
             }
         }
-        // Deliberately *not* removed from `out`: the scrutinee is read here,
+        // Deliberately *not* removed from `live`: the scrutinee is read here,
         // so it is live before this expression however the arms dispose of it.
         // Removing it made a second consuming `match` on the same local — a
         // shape the standard library does not have and a program can — look
         // like a first use, so both matches emitted a drop.
-        out
+    }
+
+    /// One arm of [`Scan::match_`], scanned from what is live after the match:
+    /// what its pattern binds, its body, then its guard.
+    #[allow(clippy::too_many_arguments, reason = "the match's own answers an arm reads")]
+    fn arm(
+        &mut self,
+        a: &typed::Arm,
+        gid: Option<NodeId>,
+        bid: NodeId,
+        live: &mut Live,
+        mode: Mode,
+        token: Option<LocalId>,
+        scrutinee: &Expr,
+    ) {
+        let owns = token.is_some();
+        let mut bound: Vec<LocalId> = Vec::new();
+        a.pattern.binds(&mut bound);
+        bound.sort_by_key(|l| l.0);
+        // A `..rest` binding is a block this arm allocates, not a piece of
+        // the scrutinee: both backends' `ArraySlice` calls the allocator,
+        // copies and retains every element. So the arm owns it however the
+        // scrutinee is held, and it takes no count out of the scrutinee.
+        let mut fresh_bound: Vec<LocalId> = Vec::new();
+        a.pattern.fresh_binds(&mut fresh_bound);
+        fresh_bound.retain(|b| self.is_counted(*b));
+        fresh_bound.sort_by_key(|l| l.0);
+        for b in &fresh_bound {
+            self.owned.insert(*b);
+        }
+        if owns {
+            for b in &bound {
+                if self.is_counted(*b) {
+                    self.owned.insert(*b);
+                }
+            }
+        }
+        // What the guard reads that is live after the match, asked before the
+        // body is scanned into the same set.
+        let after_match: Vec<LocalId> = match &a.guard {
+            Some(g) => {
+                let mut read: Vec<LocalId> = Vec::new();
+                collect_locals(g, &mut read);
+                read.retain(|l| live.contains(l));
+                read
+            }
+            None => Vec::new(),
+        };
+        let before_arm = std::mem::replace(&mut self.diverged, false);
+        self.expr(&a.body, bid, live, mode);
+        self.flush(bid);
+        // Every arm has to jump for the match to.
+        self.diverged = before_arm && self.diverged;
+        // What the *body* reads, asked before a guard is scanned into the same
+        // set: the guard has run by the entry, and held what it read as
+        // borrowed.
+        let used: Vec<LocalId> = match token {
+            Some(_) => bound
+                .iter()
+                .copied()
+                .filter(|b| live.contains(b) && !fresh_bound.contains(b))
+                .collect(),
+            None => Vec::new(),
+        };
+        if let (Some(g), Some(gid)) = (a.guard.as_ref(), gid) {
+            // A guard is speculative: when it is false the *next* arm runs,
+            // so the guard is not the last use of anything, even a value it
+            // hands to a callee that owns it — `match (k) { _ if take(v) =>
+            // …, .A => … }` reaches `.A` with `v` already consumed. Scanned
+            // as an ordinary last use, `take(v)`'s release is the arm's only
+            // one, and the fall-through arm releases `v` a second time
+            // (issue #198, a query filter's heap `Str` freed a recompute
+            // early). So every owned counted local the guard reads is forced
+            // live across it: a consuming use is then a duplicating one and
+            // takes a retain, and the guard nets to zero on ownership. What
+            // the arm body does not go on to use is released at its entry,
+            // which the fall-through never reaches — the arm it lands on
+            // releases its own copy there instead. The scrutinee is left to
+            // the match's own disposal, and a pattern binding to the arm's.
+            let mut held: Vec<LocalId> = Vec::new();
+            collect_locals(g, &mut held);
+            held.retain(|l| {
+                self.is_counted(*l)
+                    && self.owned.contains(l)
+                    && !bound.contains(l)
+                    && borrowed_root(scrutinee) != Some(*l)
+            });
+            held.sort_by_key(|l| l.0);
+            held.dedup();
+            // Two questions about the body's set, asked before the guard is
+            // scanned into it.
+            let unread: Vec<LocalId> = held
+                .iter()
+                .copied()
+                .filter(|l| !live.contains(l) && !after_match.contains(l))
+                .collect();
+            let was_guarded: Vec<bool> =
+                fresh_bound.iter().map(|b| live.contains(b) || held.contains(b)).collect();
+            for l in &held {
+                self.enliven(live, *l);
+            }
+            // The names the pattern binds out of a consumed scrutinee take
+            // their counts at the arm's entry, which is *after* the guard:
+            // while it runs they are words of the scrutinee with no count of
+            // their own, so the guard holds them as borrowed. Owned, the
+            // guard's last read of one released it, on the path that falls
+            // through too — and the arm it fell to released the scrutinee
+            // that still held it, so a heap value the guard read was freed
+            // twice (issue #231).
+            let lent: Vec<LocalId> = if owns {
+                bound
+                    .iter()
+                    .copied()
+                    .filter(|b| !fresh_bound.contains(b) && self.owned.remove(b))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            self.expr(g, gid, live, Mode::Borrow);
+            self.flush(gid);
+            self.owned.extend(lent);
+            // A `..rest` binding the guard did not release itself is still
+            // owned when the guard is false, and the arm that drops it at its
+            // entry is not the one the match goes on to.
+            for (b, guarded) in fresh_bound.iter().zip(was_guarded) {
+                if guarded || !live.contains(b) {
+                    self.push(gid, Position::Rejected, RcOp::DecRef, Target::Local(*b));
+                }
+            }
+            for l in unread {
+                self.push(bid, Position::Before, RcOp::DecRef, Target::Local(l));
+            }
+        }
+        // A fresh binding the arm never reads is dropped where it is bound, for
+        // the reason `Stmt::Let` drops one: the allocation happened whether or
+        // not a use for it did.
+        for b in &fresh_bound {
+            if !live.contains(b) {
+                self.push(bid, Position::Before, RcOp::DecRef, Target::Local(*b));
+            }
+        }
+        if let Some(t) = token {
+            for b in used {
+                if self.is_counted(b) {
+                    self.push(bid, Position::Before, RcOp::IncRef, Target::Local(b));
+                }
+            }
+            // The entry drop is for an arm that is *done* with the
+            // scrutinee. An arm that still reads it — `assert.some`'s
+            // `.None => failExpected("some", o)` — has already had its own
+            // last-use drop placed after the read, and a second one here
+            // would take the count to zero before the arm ran.
+            if !live.contains(&t) {
+                self.push(bid, Position::Before, RcOp::DecRef, Target::Local(t));
+                if self.opts.reuse {
+                    if let Some(fields) = construction(&a.body) {
+                        self.reuse.push(Reuse { token: t, at: bid, fields });
+                    }
+                }
+            }
+        }
+        for b in &bound {
+            live.remove(b);
+        }
     }
 
     /// `&&` and `||`: the right operand may not run at all, so a local
     /// whose last use is inside it is kept alive across the whole expression
     /// and dropped after it. One extra pair of operations on the taken path,
     /// and a correct count on the skipped one.
-    fn short_circuit(&mut self, id: NodeId, lhs: &Expr, rhs: &Expr, live: &Live) -> Live {
+    fn short_circuit(&mut self, id: NodeId, lhs: &Expr, rhs: &Expr, live: &mut Live) {
         let rid = self.child(id, 1);
         // Which owned locals die inside the operand — [`Scan::names_in`], not a
         // scan. The right operand used to be scanned **twice**: once as a probe
@@ -3440,23 +3822,48 @@ impl Scan<'_> {
         // `live` exactly when the operand *names* it and does not bind it
         // itself, which is a syntactic property of the subtree and needs no
         // liveness at all — see [`Scan::names_in`] for why the two agree.
-        let mut deferred: Vec<LocalId> = self.names_in(rhs, rid);
+        //
+        // **A link of a chain defers nothing.** Scanned straight off the link
+        // above it, its live set is that link's `kept`, which already holds
+        // every owned name its operand has, since those are names of the
+        // link above's operand too. So only the head of a chain asks, and a
+        // chain of `n` links costs one walk of it rather than `n`.
+        //
+        // **Nor does anything else read more than it has to.** Where the
+        // function owns fewer locals than the operand has nodes, each owned
+        // local is asked about instead ([`Scan::names`]). A derived `==` over a
+        // wide variant is a chain of runs, each behind a `match`, so the chain
+        // above does not apply and every run's head would walk the rest.
+        let link = self.chain_link.take() == Some(id);
+        let mut deferred: Vec<LocalId> = if link {
+            Vec::new()
+        } else if self.owned.len() < self.size(rid) as usize {
+            let mut named: Vec<LocalId> =
+                self.owned.iter().copied().filter(|l| self.names(rid, *l)).collect();
+            named.sort_by_key(|l| l.0);
+            named
+        } else {
+            self.names_in(rhs, rid)
+        };
         deferred.retain(|l| !live.contains(l) && self.owned.contains(l));
-        let mut kept: Live = live.clone();
-        kept.extend(deferred.iter().copied());
-        let after_rhs = self.expr(rhs, rid, &kept, Mode::Borrow);
+        for l in &deferred {
+            self.enliven(live, *l);
+        }
+        if matches!(rhs.kind, ExprKind::And { .. } | ExprKind::Or { .. }) {
+            self.chain_link = Some(rid);
+        }
+        self.expr(rhs, rid, live, Mode::Borrow);
         self.flush(rid);
         for l in &deferred {
             self.push(id, Position::After, RcOp::DecRef, Target::Local(*l));
         }
         let lid = self.child(id, 0);
-        let out = self.expr(lhs, lid, &after_rhs, Mode::Borrow);
+        self.expr(lhs, lid, live, Mode::Borrow);
         self.flush(id);
-        out
     }
 
     /// Every local a subtree **names**: mentioned somewhere inside it and not
-    /// bound inside it either. Sorted, and memoised on the node.
+    /// bound inside it either. Sorted.
     ///
     /// # Why this is the same answer the probe scan gave
     ///
@@ -3490,23 +3897,16 @@ impl Scan<'_> {
     /// `Continue` in one. A right operand *is* a tail position, and that case is
     /// covered: `expr(lhs, G_rhs)` still keeps `G_rhs`.
     ///
-    /// # Why it is memoised
+    /// # Why a chain asks once
     ///
     /// The chains this exists for are right-nested (`middle/derives.rs`'s
     /// `eq_fields` says so in its own doc comment), so asking each link about
-    /// the whole tail below it is quadratic on its own. A chain's tail is a
-    /// short-circuit operand too, so caching exactly those nodes makes each link
-    /// pay for its own left operand and nothing else.
-    ///
-    /// The cache holds the *unfiltered* names deliberately. `owned` grows while
-    /// the scan runs — [`Scan::match_`] adds an arm's payload bindings before it
-    /// scans that arm — so a set filtered when it was first computed could be
-    /// stale by the time it is read again. Filtering at the use site cannot be.
+    /// the whole tail below it is quadratic, and so was caching each link's
+    /// answer, because each answer copies the one below it. Only a chain's head
+    /// asks ([`Scan::short_circuit`] says why), and the walk goes down the
+    /// whole chain once.
     fn names_in(&mut self, e: &Expr, id: NodeId) -> Vec<LocalId> {
-        if let Some(hit) = self.named.get(id.0 as usize).and_then(Option::as_ref) {
-            return hit.clone();
-        }
-        let mut names: Live = Live::default();
+        let mut names: HashSet<LocalId> = HashSet::default();
         let mut bound: Vec<LocalId> = Vec::new();
         self.collect_names(e, id, &mut names, &mut bound);
         for b in &bound {
@@ -3514,15 +3914,41 @@ impl Scan<'_> {
         }
         let mut out: Vec<LocalId> = names.into_iter().collect();
         out.sort_by_key(|l| l.0);
-        if let Some(slot) = self.named.get_mut(id.0 as usize) {
-            *slot = Some(out.clone());
-        }
         out
     }
 
+    /// Whether the subtree at `id` names `l` and does not bind it:
+    /// [`Scan::names_in`]'s answer about one local, off the index.
+    ///
+    /// A place counts when it is in the subtree and not in the body of a
+    /// lambda the subtree holds, which is where `names_in` does not walk: the
+    /// lambda it is inside, if any, starts before the subtree does.
+    fn names(&self, id: NodeId, l: LocalId) -> bool {
+        let start = id.0;
+        let end = start.saturating_add(self.size(id));
+        let counts =
+            |(p, lambda): (u32, Option<u32>)| p >= start && p < end && lambda.is_none_or(|f| f < start);
+        if self.binders.get(&l).is_some_and(|b| counts(*b)) {
+            return false;
+        }
+        let Some(at) = self.mentions.get(&l) else { return false };
+        let first = at.partition_point(|(p, _)| *p < start);
+        at.get(first..)
+            .unwrap_or_default()
+            .iter()
+            .take_while(|(p, _)| *p < end)
+            .any(|m| counts(*m))
+    }
+
     /// [`Scan::names_in`]'s walk. It descends exactly where [`Scan::expr_at`]
-    /// descends, which is where [`kids`] goes with the two exceptions above.
-    fn collect_names(&mut self, e: &Expr, id: NodeId, names: &mut Live, bound: &mut Vec<LocalId>) {
+    /// descends, which is where [`kids`] goes except into a lambda's body.
+    fn collect_names(
+        &mut self,
+        e: &Expr,
+        id: NodeId,
+        names: &mut HashSet<LocalId>,
+        bound: &mut Vec<LocalId>,
+    ) {
         match &e.kind {
             ExprKind::Local(l) => {
                 names.insert(*l);
@@ -3545,16 +3971,6 @@ impl Scan<'_> {
                 for a in arms {
                     a.pattern.binds(bound);
                 }
-            }
-            // The nesting this whole function exists for: the tail of a chain
-            // is asked once and answered from the cache ever after.
-            ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
-                let lid = self.child(id, 0);
-                self.collect_names(lhs, lid, names, bound);
-                let rid = self.child(id, 1);
-                let tail = self.names_in(rhs, rid);
-                names.extend(tail);
-                return;
             }
             _ => {}
         }
@@ -3599,7 +4015,7 @@ impl Scan<'_> {
     /// An *owning* child needs nothing: it increfs what it takes (a
     /// construction's field, an owned parameter), so the alias it holds carries
     /// a count and cannot be freed underneath it.
-    fn children(&mut self, e: &Expr, id: NodeId, live: &Live) -> Live {
+    fn children(&mut self, e: &Expr, id: NodeId, live: &mut Live) {
         let kids = kids(e);
         let modes = child_modes(e, kids.len(), self.ownership);
         let mut kept: Vec<LocalId> = Vec::new();
@@ -3624,9 +4040,9 @@ impl Scan<'_> {
         }
         kept.sort_by_key(|l| l.0);
         let handed = self.handed_over(&kids, id, &modes, live, &kept);
-        let mut after = live.clone();
-        after.extend(kept.iter().copied());
-        after.extend(handed.iter().map(|(_, l)| *l));
+        for l in kept.iter().chain(handed.iter().map(|(_, l)| l)) {
+            self.enliven(live, *l);
+        }
         // Right to left: a child's "live after" is everything the children to
         // its right go on to use, plus whatever `kept` is holding open, plus
         // what `handed` gives the construct once those children are done.
@@ -3634,13 +4050,13 @@ impl Scan<'_> {
             let kid_id = self.child(id, k);
             let m = modes.get(k).copied().unwrap_or(Mode::Borrow);
             if let Some((_, l)) = handed.iter().find(|(at, _)| *at == k) {
-                after.remove(l);
+                live.remove(l);
             }
             // A counted compound child is owned, not borrowed: an arm may
             // answer an alias of a local, and a borrowed scan drops that local
             // inside the arm, before this construct reads the value.
             if m == Mode::Borrow && compound(kid) && self.counted_ty(&kid.ty.clone()) {
-                after = self.expr(kid, kid_id, &after, Mode::Own);
+                self.expr(kid, kid_id, live, Mode::Own);
                 self.push(id, Position::After, RcOp::DecRef, Target::Node(kid_id));
                 continue;
             }
@@ -3653,13 +4069,13 @@ impl Scan<'_> {
             if m == Mode::Borrow {
                 if let ExprKind::Field { base, .. } = &kid.kind {
                     if self.movable(kid, base).is_some() {
-                        after = self.expr(kid, kid_id, &after, Mode::Own);
+                        self.expr(kid, kid_id, live, Mode::Own);
                         self.push(id, Position::After, RcOp::DecRef, Target::Node(kid_id));
                         continue;
                     }
                 }
             }
-            after = self.expr(kid, kid_id, &after, m);
+            self.expr(kid, kid_id, live, m);
             if m == Mode::Borrow {
                 self.drop_temporary(kid, kid_id, id);
             }
@@ -3687,7 +4103,6 @@ impl Scan<'_> {
             self.pending.push(l);
         }
         self.flush(id);
-        after
     }
 
     /// The `let y = x;` and `let (a, b) = x;` statements of a block that bind
@@ -3803,7 +4218,7 @@ impl Scan<'_> {
                     continue;
                 }
                 let other_id = self.child(id, j);
-                if !self.names_in(other, other_id).contains(&l) {
+                if !self.names(other_id, l) {
                     continue;
                 }
                 if j < k || self.counted_ty(&other.ty.clone()) {
@@ -3831,6 +4246,56 @@ impl Scan<'_> {
             self.push(at, Position::After, RcOp::DecRef, Target::Node(kid_id));
         }
     }
+}
+
+/// Where each local is named and bound in `body`, for [`Scan::names`]: every
+/// `Local` and every lambda's captures, at their node, and every `let` and
+/// `match` pattern's names, at the binding node, each with the innermost lambda
+/// whose body it is in.
+#[allow(clippy::type_complexity, reason = "the two halves of one index")]
+fn name_index(
+    body: &Expr,
+    sizes: &[u32],
+) -> (HashMap<LocalId, Vec<(u32, Option<u32>)>>, HashMap<LocalId, (u32, Option<u32>)>) {
+    let mut mentions: HashMap<LocalId, Vec<(u32, Option<u32>)>> = HashMap::default();
+    let mut binders: HashMap<LocalId, (u32, Option<u32>)> = HashMap::default();
+    // The lambdas around the node being visited, innermost last, with where
+    // each one's subtree ends.
+    let mut lambdas: Vec<(u32, u32)> = Vec::new();
+    preorder(body, &mut |id, e| {
+        while lambdas.last().is_some_and(|(_, end)| *end <= id.0) {
+            lambdas.pop();
+        }
+        let inside = lambdas.last().map(|(f, _)| *f);
+        let mut bound: Vec<LocalId> = Vec::new();
+        match &e.kind {
+            ExprKind::Local(l) => mentions.entry(*l).or_default().push((id.0, inside)),
+            ExprKind::Lambda { captures, .. } => {
+                for c in captures {
+                    mentions.entry(*c).or_default().push((id.0, inside));
+                }
+                let size = sizes.get(id.0 as usize).copied().unwrap_or(1);
+                lambdas.push((id.0, id.0.saturating_add(size)));
+            }
+            ExprKind::Block { stmts, .. } => {
+                for st in stmts {
+                    if let Stmt::Let { pattern, .. } = st {
+                        pattern.binds(&mut bound);
+                    }
+                }
+            }
+            ExprKind::Match { arms, .. } => {
+                for a in arms {
+                    a.pattern.binds(&mut bound);
+                }
+            }
+            _ => {}
+        }
+        for b in bound {
+            binders.insert(b, (id.0, inside));
+        }
+    });
+    (mentions, binders)
 }
 
 /// Where the operations that have to happen *before* a back edge go.
@@ -3863,6 +4328,11 @@ pub fn compound(e: &Expr) -> bool {
 /// Whether an expression is a local this function owns and nothing after it
 /// reads: the base of a functional update that is taking it over rather than
 /// reading beside it.
+/// Whether `root` is a local nothing after this point reads.
+fn dead_after(root: Option<LocalId>, live: &Live) -> bool {
+    root.is_some_and(|r| !live.contains(&r))
+}
+
 fn dies_here(e: &Expr, owned: &HashSet<LocalId>, live: &Live) -> bool {
     match &e.kind {
         ExprKind::Local(l) => owned.contains(l) && !live.contains(l),
