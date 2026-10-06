@@ -106,7 +106,7 @@ fn callees(
     let Some(scope) = analyzed.analysis.checked.scopes.get(module.id.index()) else {
         return Vec::new();
     };
-    let ids = match scope.names.get(name) {
+    let ids = match scope.name(name) {
         Some(Sym::Fn(id)) => vec![*id],
         Some(Sym::Overloaded(ids)) => ids.clone(),
         _ => Vec::new(),

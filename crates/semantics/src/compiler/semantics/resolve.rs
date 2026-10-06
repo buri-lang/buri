@@ -84,14 +84,41 @@ fn own_sym<'s>(loaded: &Loaded, scopes: &'s Layered<ModuleScope>, module: &str, 
 
 #[derive(Default, Clone)]
 pub struct ModuleScope {
-    /// Everything visible unqualified inside this module.
-    pub names: HashMap<String, Sym>,
+    /// What this module imports by name. With `own` and `prelude` below, in
+    /// that order, it is everything visible unqualified inside the module:
+    /// see [`ModuleScope::name`].
+    imported: HashMap<String, Sym>,
+    /// What every prelude name refers to. One table for every module of a
+    /// compilation, rather than a copy of it in each.
+    prelude: std::sync::Arc<Prelude>,
     /// What this module publishes.
     pub exports: HashMap<String, Sym>,
     /// Names declared in this module's own source, before imports.
     pub own: HashMap<String, Sym>,
     /// Namespace imports, by local name.
     pub namespaces: HashMap<String, ModuleId>,
+}
+
+/// What every prelude name refers to, by name.
+pub type Prelude = HashMap<String, Sym>;
+
+impl ModuleScope {
+    /// What `name` means unqualified inside this module: an explicit import
+    /// first, then the module's own declaration, then the prelude.
+    pub fn name(&self, name: &str) -> Option<&Sym> {
+        self.imported.get(name).or_else(|| self.own.get(name)).or_else(|| self.prelude.get(name))
+    }
+
+    /// Every name visible unqualified inside this module, once each, with what
+    /// [`ModuleScope::name`] says it means. In no particular order.
+    pub fn visible(&self) -> impl Iterator<Item = (&str, &Sym)> {
+        let own = self.own.iter().filter(|(k, _)| !self.imported.contains_key(*k));
+        let prelude = self
+            .prelude
+            .iter()
+            .filter(|(k, _)| !self.imported.contains_key(*k) && !self.own.contains_key(*k));
+        self.imported.iter().chain(own).chain(prelude).map(|(k, s)| (k.as_str(), s))
+    }
 }
 
 /// Which function bodies an analysis is asked to type-check.
@@ -308,7 +335,7 @@ pub struct Base {
     known_types: HashMap<String, TyConId>,
     /// What every prelude name refers to, which is the same in every module
     /// and is found in these modules' scopes.
-    prelude: Vec<(String, Sym)>,
+    prelude: std::sync::Arc<Prelude>,
     prim_module: ModuleId,
     ctx_rebindings: Vec<Span>,
     ctx_decls_reached: HashSet<ContextDeclId>,
@@ -1011,26 +1038,16 @@ impl<'a> Checker<'a> {
         // before its imports add to that.
         let first = self.first_module();
         debug_assert_eq!(self.scopes.base_len(), first);
-        for scope in self.scopes.own_mut() {
-            scope.names = scope.own.clone();
-        }
-
         // Prelude names sit under everything, so a module may shadow any of
         // them and importing one explicitly is harmless. What each one refers
         // to is the same in every module, so it is looked up once rather than
         // once per module — and once per process where a base looked it up.
-        let computed;
         let prelude = match self.base {
-            Some(base) => &base.prelude,
-            None => {
-                computed = self.prelude();
-                &computed
-            }
+            Some(base) => std::sync::Arc::clone(&base.prelude),
+            None => self.prelude(),
         };
         for scope in self.scopes.own_mut() {
-            for (local, sym) in prelude {
-                scope.names.entry(local.clone()).or_insert_with(|| sym.clone());
-            }
+            scope.prelude = std::sync::Arc::clone(&prelude);
         }
 
         for id in self.own_modules() {
@@ -1118,7 +1135,7 @@ impl<'a> Checker<'a> {
                     };
                     let local = t.name(spec.local()).to_string();
                     // An explicit import wins over a prelude name.
-                    self.scope_mut(module).names.insert(local, sym);
+                    self.scope_mut(module).imported.insert(local, sym);
                 }
             }
         }
@@ -2004,7 +2021,7 @@ impl<'a> Checker<'a> {
     pub fn resolve_path(&mut self, module: ModuleId, path: &[flat::Location]) -> Option<Sym> {
         let t = self.tree(module);
         match path {
-            [name] => self.scope(module).names.get(t.text(*name)).cloned(),
+            [name] => self.scope(module).name(t.text(*name)).cloned(),
             // `ns.Name`, where `ns` is a namespace import. That is the only
             // qualification there is, so a longer path names nothing.
             [ns, name] => {
@@ -2298,10 +2315,9 @@ impl<'a> Checker<'a> {
     fn nearest_type_name(&self, module: ModuleId, name: &str) -> Option<String> {
         let mut candidates: Vec<String> = self
             .scope(module)
-            .names
-            .iter()
+            .visible()
             .filter(|(_, s)| matches!(s, Sym::Ty(_)))
-            .map(|(k, _)| k.clone())
+            .map(|(k, _)| k.to_string())
             .collect();
         candidates.extend(Prim::all().iter().map(|p| p.name().to_string()));
         candidates.extend(["Int", "Float", "Uint", "Byte"].map(String::from));
@@ -2411,14 +2427,15 @@ impl<'a> Checker<'a> {
     /// elaborated, because that is where `main` is checked.
     /// What every prelude name refers to, from the scopes of the modules
     /// that export them.
-    fn prelude(&self) -> Vec<(String, Sym)> {
-        standard_library::prelude()
-            .filter_map(|(path, name)| {
-                let from = self.loaded.find(path)?;
-                let sym = self.scope(from).exports.get(name)?.clone();
-                Some((name.to_string(), sym))
-            })
-            .collect()
+    fn prelude(&self) -> std::sync::Arc<Prelude> {
+        let mut out = Prelude::default();
+        for (path, name) in standard_library::prelude() {
+            let Some(from) = self.loaded.find(path) else { continue };
+            let Some(sym) = self.scope(from).exports.get(name) else { continue };
+            // The first of two prelude entries of one name is the one seen.
+            out.entry(name.to_string()).or_insert_with(|| sym.clone());
+        }
+        std::sync::Arc::new(out)
     }
 
     fn register_known_names(&mut self) {

@@ -959,7 +959,7 @@ fn resolve_path(
         // mostly primitives, so without this the commonest annotation in the
         // language — `I64`, `Str`, `Bool` — was the one the cursor learned
         // nothing from.
-        return match scope.names.get(name) {
+        return match scope.name(name) {
             Some(sym) => symbol_of(sym),
             None => builtin_type(&analyzed.analysis.checked.tables, name).map(Symbol::Type),
         };
@@ -970,7 +970,7 @@ fn resolve_path(
         return symbol_of(inner.exports.get(name)?);
     }
     // `Color.Red` — the head names the enum and the tail one of its variants.
-    if let Some(Sym::Ty(con)) = scope.names.get(head) {
+    if let Some(Sym::Ty(con)) = scope.name(head) {
         let index = analyzed.analysis.checked.tables.tycon(*con).variant_index(name)?;
         return Some(Symbol::Variant { con: *con, index });
     }
