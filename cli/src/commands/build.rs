@@ -67,6 +67,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     let mut failed = false;
     // Each library's own contribution to a check key, read once.
     let mut members = std::collections::HashMap::new();
+    let mut rule_paths = actions::RulePaths::new();
     // By reference: the resolved list is the catalogue's input too, below.
     for &target in &targets {
         // Only a binary produces an artifact; a library or a tool is checked,
@@ -99,7 +100,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                     &unit,
                 );
                 if analysis.diagnostics.items.is_empty() {
-                    actions::record_clean_check(&session, target, &key, &analysis);
+                    actions::record_clean_check(&session, target, &key, &analysis, &mut rule_paths);
                 }
                 diagnostics.extend(analysis.diagnostics.items);
             }

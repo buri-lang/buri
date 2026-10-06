@@ -339,7 +339,7 @@ pub fn compile_artifact(
 ) -> Result<Compiled, Diagnostics> {
     let platform = output.platform();
     let (analysis, mut program) = monomorphized_entry(session, target, output, diagnostics)?;
-    let unkeyed = unkeyed_reads(session, target, &analysis);
+    let unkeyed = unkeyed_reads(session, target, &analysis, &mut RulePaths::new());
     // An entry with a `js` file hands itself to the file, which is read and
     // checked here and bundled with the program below.
     let host_file = host_file(session, output, &analysis, diagnostics)?;
@@ -578,31 +578,66 @@ pub fn unkeyed_reads(
     session: &Session,
     target: TargetId,
     analysis: &crate::compiler::driver::Analysis,
+    rule_paths: &mut RulePaths,
 ) -> Vec<PathBuf> {
     let workspace = &session.workspace;
-    let closure = workspace.closure(target);
-    let mut keyed: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
-    let add_member = |member: TargetId, keyed: &mut std::collections::BTreeSet<PathBuf>| {
-        let dir = &workspace.package(member.package).dir;
-        keyed.extend(rule_files(workspace, member).iter().map(|rel| dir.join(rel)));
-    };
-    for member in &closure {
-        add_member(*member, &mut keyed);
-    }
+    let mut closure: std::collections::HashSet<TargetId> = workspace.closure(target).into_iter().collect();
+    let mut platform_files: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     for label in workspace.custom_platforms(target) {
         if let Some((pid, files, members)) = platform_inputs(workspace, &label) {
             let dir = &workspace.package(pid).dir;
-            keyed.extend(files.iter().map(|rel| dir.join(rel)));
-            for member in members {
-                add_member(member, &mut keyed);
-            }
+            platform_files.extend(files.iter().map(|rel| dir.join(rel)));
+            closure.extend(members);
         }
     }
-    crate::build::sources::closure_of(workspace, analysis)
-        .into_iter()
-        .filter(|path| !keyed.contains(path))
-        .collect()
+    let mut keyed_by = |member: TargetId, path: &Path| {
+        closure.contains(&member)
+            && rule_paths
+                .entry(member)
+                .or_insert_with(|| {
+                    let dir = &workspace.package(member.package).dir;
+                    rule_files(workspace, member).iter().map(|rel| dir.join(rel)).collect()
+                })
+                .contains(path)
+    };
+    const KINDS: [RuleKind; 3] = [RuleKind::Library, RuleKind::Binary, RuleKind::Tool];
+    let members: Vec<TargetId> = closure.iter().copied().collect();
+    let mut unkeyed = Vec::new();
+    // A module names its package, so only that package's rules can list it.
+    // Anything else a generator read is asked of every member.
+    for module in &analysis.loaded.modules {
+        let Some(path) = &module.disk else { continue };
+        let listed = platform_files.contains(path)
+            || match module.pkg {
+                Some(package) => KINDS.iter().any(|&kind| keyed_by(TargetId { package, kind }, path)),
+                None => members.iter().any(|&m| keyed_by(m, path)),
+            };
+        if !listed {
+            unkeyed.push(path.clone());
+        }
+    }
+    let mut worked: Vec<PathBuf> = Vec::new();
+    for rule in &analysis.loaded.generated_rules {
+        worked.extend(crate::build::generators::worked_out_from(workspace, *rule));
+    }
+    for module in analysis.loaded.modules.iter().filter(|m| m.disk.is_none()) {
+        if let Some(owner) = workspace.generated.owner(&module.path) {
+            worked.extend(crate::build::generators::worked_out_from(workspace, owner));
+        }
+    }
+    for path in worked {
+        if !platform_files.contains(&path) && !members.iter().any(|&m| keyed_by(m, &path)) {
+            unkeyed.push(path);
+        }
+    }
+    unkeyed.sort();
+    unkeyed.dedup();
+    unkeyed
 }
+
+/// Each rule's files as paths, worked out once for the [`unkeyed_reads`] of
+/// one command.
+pub type RulePaths = std::collections::HashMap<TargetId, std::collections::HashSet<PathBuf>>;
 
 /// [`unkeyed_reads`] as an entry records them: each file's repository-relative
 /// path and the digest of its bytes, one per line.
@@ -674,8 +709,9 @@ pub fn record_clean_check(
     target: TargetId,
     key: &ActionKey,
     analysis: &crate::compiler::driver::Analysis,
+    rule_paths: &mut RulePaths,
 ) {
-    let reads = encode_reads(session, &unkeyed_reads(session, target, analysis));
+    let reads = encode_reads(session, &unkeyed_reads(session, target, analysis, rule_paths));
     Cache::open(&session.root).put(key, format!("{CLEAN}{reads}").as_bytes());
 }
 
@@ -2206,7 +2242,7 @@ fn build_native(
         }
     }
     let (analysis, mut program) = monomorphized_entry(session, target, output, &mut diagnostics)?;
-    let reads = encode_reads(session, &unkeyed_reads(session, target, &analysis));
+    let reads = encode_reads(session, &unkeyed_reads(session, target, &analysis, &mut RulePaths::new()));
     let tables = &analysis.checked.tables;
     let objects = objects_of(session, target, output, flags, &mut program, tables, &mut diagnostics)?;
     let prefix = session.workspace.package(target.package).path.clone();
