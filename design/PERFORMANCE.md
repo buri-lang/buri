@@ -4413,6 +4413,94 @@ Dropping a `Checked` is still about a tenth of a `sema` repetition: one `free`
 per `Box<Expr>` and `Vec` of the typed tree, which `middle` reads and
 rewrites.
 
+### 6.47 `buri lint` and the language server, 2026-10-06
+
+`buri lint //...`, cold, process instructions, repositories from the algorithm
+audit's `gen.py`. `main` is `dc96906ac`, after §6.43 made `resolve_module` a
+lookup; the audit's numbers, before that, are in brackets:
+
+| Repository | `main` | After | Δ |
+|---|---:|---:|---:|
+| `pkgs_deep` 200, a chain of libraries | 10.47 G (24.76 G) | 2.03 G | −81% |
+| `pkgs_deep` 50 | 1.05 G | 0.48 G | −55% |
+| `pkgs_layered` 40, 6 layers of 40 | 4.11 G (8.48 G) | 2.00 G | −51% |
+| `pkgs_layered` 10 | 1.05 G | 0.56 G | −46% |
+| `pkgs_wide` 100 | 1.00 G | 0.83 G | −17% |
+| `big_file` 1000, 32k lines | 1.84 G | 0.43 G | −76% |
+| `modules` 100 | 0.50 G | 0.33 G | −33% |
+| `mixed-10k` | 0.36 G | 0.24 G | −33% |
+| `mixed-10k` × 10 binaries | 3.01 G | 1.86 G | −38% |
+
+The audit measured a whole JavaScript build of the chain at 2.4 G, and of the layers at 1.6 G.
+
+**Every target is checked in one compilation.** Lint analysed each target on
+its own, so a library was loaded and checked again for every target that
+reaches it. The targets the lint records can't answer are now loaded and
+checked together (`driver::load_programs`), and each target's rules read its
+share of that compilation: the modules its own load would hold, and the
+diagnostics in their files. The share declines, and the target is analysed
+alone as before, wherever its own answer could differ:
+
+- loading said something other than a parse error, which can depend on the
+  order modules were reached in (`circular-import`), or is said once per
+  compilation (a generator's diagnostics);
+- a module was loaded in a role an importer would decide differently;
+- a diagnostic lands outside every module's file;
+- there's a second binary. The checker keeps one function per entry-point
+  name for the whole compilation, so a second `main` would be refused its
+  `context`. Every binary after the first is analysed alone.
+
+Checking one module can't depend on what else is loaded: a name resolves
+through the module's imports, and a method through its receiver's type, whose
+`impl`s live in the type's own module.
+
+**The rules are linear in a file.** Five rules lexed every module for
+themselves; they share one lex. The type census asked every declaration about
+every identifier, and binary-searches now. `todo-comment` searched every gap
+between tokens three times, and skips a gap with no marker letter in it.
+`compiled_by` scanned the package's sources once per function, and runs once
+per module. The rules read the package's modules and bodies from an index
+instead of walking the compilation once per rule, and `unused-type` reads
+what `dead-code` said as the report grows rather than rereading it per target.
+
+**A keystroke relints one file's text.** The rules that read only a module's
+text keep their findings, and its identifiers, under the text's length and
+hash, the test `build::sources` already trusts. Each edit lexes the edited
+file and nothing else. The workspace sweep checks its stale targets through
+the same shared compilation, and `convert::position_of` counts lines as bytes
+instead of decoding the file from the top for every finding.
+
+Per keystroke, a `textDocument/didChange` and a pull, from `lsp.py`:
+
+| Repository | `main` | After | Δ |
+|---|---:|---:|---:|
+| `big_file` 250, 8k lines | 226 M | 83 M | −63% |
+| `big_file` 1000, 32k lines | 1,692 M | 320 M | −81% |
+| `big_file` 4000, 128k lines | 20,941 M | 1,275 M | −94% |
+| `modules` 400, one package | 1,174 M | 621 M | −47% |
+
+Each now grows linearly. `build::profile`'s `linting_checks_each_library_once`
+and `the_lint_rules_are_linear_in_a_files_length` guard the two lint shapes;
+on `main` their phases grow 3.3 and 2.7 times per doubling.
+
+Output is identical to `main`'s on all 414 fixture repositories under `cli/tests`: the
+cold run, the warm run from the records, and one package at a time.
+
+**Kept as it was.** `Sources` reads and hashes every file it holds on every
+question, and that's most of a keystroke in a package of 400 files. Skipping a
+file whose modification time and size held still would miss a rewrite that
+restored both, as `rsync -t` does. A key on the change time as well, trusted
+only once that time is older than the read, as Git does for its index, would
+be safe short of a clock stepping backwards.
+
+**What's left.**
+
+- Every binary after the first is still analysed alone, closure and all. A
+  checker that keyed entry points by module would let them share.
+- A keystroke still checks and lints the whole target. Reusing the other
+  modules' bodies needs the checker to say when an edit left every signature
+  where it was.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

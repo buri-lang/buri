@@ -498,7 +498,7 @@ fn library_chain(scratch: &Scratch, n: usize) {
 /// **Linting checks each library once.** `buri lint` analysed every target on
 /// its own, so a library was checked again for every target that depends on
 /// it: a chain of 200 libraries took 24.8 G instructions to lint, against 2.4 G
-/// to build. PERFORMANCE.md §6.43.
+/// to build. PERFORMANCE.md §6.47.
 #[test]
 fn linting_checks_each_library_once() {
     grows_linearly(
@@ -526,7 +526,7 @@ fn many_declarations(scratch: &Scratch, n: usize) {
 /// **The lint rules are linear in the length of a file.** The type census
 /// asked every type a module declares about every identifier in it: a file of
 /// 1,000 types took 1.5 G instructions to lint, three times what 500 took.
-/// PERFORMANCE.md §6.43.
+/// PERFORMANCE.md §6.47.
 #[test]
 fn the_lint_rules_are_linear_in_a_files_length() {
     grows_linearly(

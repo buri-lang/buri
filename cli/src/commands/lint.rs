@@ -2664,7 +2664,7 @@ impl Census {
                 census.read_whole.insert(*con);
             }
         }
-        for (fid, body) in analysis.bodies_of(&mine) {
+        for (fid, body) in analysis.bodies_of(mine) {
             let info = tables.fn_info(fid);
             if !mine.contains(&info.module) {
                 continue;
@@ -2790,7 +2790,7 @@ impl Held {
         let tables = &analysis.checked.tables;
         let mut by_module: std::collections::BTreeMap<ModuleId, BTreeSet<_>> =
             std::collections::BTreeMap::new();
-        for (fid, body) in analysis.bodies_of(&mine) {
+        for (fid, body) in analysis.bodies_of(mine) {
             let module = tables.fn_info(fid).module;
             if !mine.contains(&module) {
                 continue;
