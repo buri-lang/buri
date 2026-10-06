@@ -236,6 +236,12 @@ pub fn watch(
 ) -> Result<ExitStatus, Killed> {
     let pid = child.id();
     launched(child);
+    // A zero period is over the moment the clock starts. Asking `try_wait`
+    // first would let a child that exits within the launch poll through.
+    if cap.is_zero() {
+        stop(child);
+        return Err(Killed { what: what.to_string(), ran: Duration::ZERO, why: Why::NoTime });
+    }
     let start = Instant::now();
     let (busy, every) = (busy_enough(cap), sample_every(cap));
     let mut progress =
@@ -383,6 +389,8 @@ enum Why {
     /// Past a caller's ceiling on processor time: what the tree had spent, and
     /// the ceiling it went past.
     Burned { spent: Duration, ceiling: Duration },
+    /// A cap of zero, which leaves no time at all.
+    NoTime,
 }
 
 impl Killed {
@@ -418,6 +426,10 @@ impl Killed {
                  machine reaches this at the same reading an idle one does.",
                 spent.as_secs_f64(),
                 ceiling.as_secs_f64()
+            ),
+            Why::NoTime => format!(
+                "`{what}` had a cap of zero, so it was killed as soon as it started, whether or \
+                 not it had already finished."
             ),
         }
     }
@@ -788,6 +800,33 @@ mod hang_tests {
             .status()
             .expect("`kill` is on PATH");
         assert!(!alive.success(), "the cap fired and left process {id} running");
+    }
+
+    /// A zero cap fires however fast the child is. Here the child has already
+    /// exited before the wait begins, which is the race a fast `buri build`
+    /// used to win.
+    #[test]
+    fn a_zero_cap_fires_on_a_child_that_has_already_exited() {
+        let mut child = std::process::Command::new("true").spawn().expect("`true` is on PATH");
+        exited_unreaped(child.id());
+        let verdict = watch(&mut child, "true", Duration::ZERO, None)
+            .expect_err("a zero cap let a child through");
+        assert!(verdict.verdict().contains("was killed"), "{}", verdict.verdict());
+    }
+
+    /// Blocks until `pid` has exited, leaving it for its parent to reap.
+    fn exited_unreaped(pid: u32) {
+        // `waitid(P_PID, pid, &info, WEXITED | WNOWAIT)`.
+        unsafe extern "C" {
+            fn waitid(idtype: i32, id: u32, info: *mut u8, options: i32) -> i32;
+        }
+        const P_PID: i32 = 1;
+        #[cfg(target_os = "macos")]
+        const OPTIONS: i32 = 0x04 | 0x20;
+        #[cfg(not(target_os = "macos"))]
+        const OPTIONS: i32 = 0x04 | 0x0100_0000;
+        let mut info = [0u8; 256];
+        assert_eq!(unsafe { waitid(P_PID, pid, info.as_mut_ptr(), OPTIONS) }, 0, "waitid failed");
     }
 
     /// A child that answers is waited for, not capped, and its status comes
