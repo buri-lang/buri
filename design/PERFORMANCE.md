@@ -4233,6 +4233,54 @@ Instructions retired, `base` is `origin/main` at `1c674296f`, alternating:
 The warm monorepo build went from about a second to 0.05–0.1 s. The small cold
 build pays for writing the new records.
 
+**Bookkeeping that grew with the square of the packages.** On `gen.py`'s
+`pkgs_deep`, a chain of libraries, `buri lint //...` spent 1.5 G instructions
+outside the compiler at 200 packages and 10.8 G at 800. Each target walked its
+closure from scratch, and each lint record listed every file of its closure,
+so a chain of 800 wrote 22 MB of records and read them all back to verify.
+
+- **Closures and dependency edges are walked once per workspace.** The graph
+  is the build files', and a workspace is reloaded when one moves, so
+  `Workspace::closure` and `dep_edges` keep their answers. A walk that reaches
+  a dependency already walked takes its closure whole. `prepare_for` walks
+  the union of its targets' closures once. `check_visibility` and
+  `check_cycles` borrow the shared closures and edges.
+- **A lint record names its closure through its dependencies'.** The closure
+  lives in a content-addressed node: the files the target's dependencies'
+  nodes don't cover, with their hashes, and those nodes' keys. A node is
+  checked once a run, so a chain lists and checks each file once. A node
+  covers exactly the record's closure, so a record holds exactly when it did.
+  Records are written after the pass, smallest closure first, so a
+  dependency's node exists when its dependent's is built.
+- **A library check's key folds each target once.** The fold of a target is
+  its own sources and its dependencies' folds, so a chain hashes each
+  library once instead of once per dependent. A target in a cycle folds its
+  closure flat.
+
+Outside the compiler's phases, instructions, one run each:
+
+| `pkgs_deep` | 200 | 400 | 800 |
+|---|---:|---:|---:|
+| cold `lint //...`, before | 1.55 G | 3.88 G | 10.79 G |
+| cold `lint //...`, after | 1.64 G | 3.33 G | 7.33 G |
+| warm `lint //...`, before | 0.80 G | 1.83 G | 4.54 G |
+| warm `lint //...`, after | 0.73 G | 1.24 G | 2.61 G |
+| warm `build //...`, before | 0.48 G | 1.17 G | 3.43 G |
+| warm `build //...`, after | 0.34 G | 0.80 G | 1.66 G |
+| warm `test //...`, before | 0.16 G | 0.36 G | 0.86 G |
+| warm `test //...`, after | 0.08 G | 0.25 G | 0.46 G |
+
+Each doubling now costs 2.0–2.2×, where it cost 2.3–2.8×.
+`profile::linting_a_chain_of_libraries_is_linear_outside_the_compiler` and
+`a_warm_build_of_a_chain_of_libraries_is_linear_outside_the_compiler` hold
+150 against 300 to 2.3×. Lint output is identical on all 414 fixture
+repositories, cold, warm and one target at a time.
+
+A cold `build //...` still spends 18.6 G outside the phases at 800, and
+nearly all of it is freeing analyses: each library is checked over its whole
+closure. Checking them in one compilation, as `buri lint` now does, is the fix,
+and it belongs to the front end.
+
 **Measured dead ends:**
 
 - **Serial link staging.** Ten threads hard-linking into one directory spent

@@ -836,8 +836,11 @@ pub fn reads_hold(root: &Path, record: &str) -> bool {
 /// warm build skip it. A module no rule lists is in the record
 /// ([`unkeyed_reads`]), as it is in an artifact's entry.
 ///
-/// Each member's contribution is hashed once per command into `members`, so
-/// checking a hundred libraries that share a closure reads it once.
+/// Each target's closure is folded once per command into `members`: its own
+/// contribution and its dependencies' folds, so a chain of a hundred libraries
+/// hashes each once rather than once per dependent. The fold names every
+/// member's contribution through its dependencies', exactly as the closure
+/// does. A target in a cycle folds its members flat instead.
 pub fn library_check_key(
     session: &Session,
     target: TargetId,
@@ -847,15 +850,54 @@ pub fn library_check_key(
     let mut k = KeyBuilder::new(Action::Check, flags.mode);
     k.input("library-check", b"");
     k.dependency(&graph_key(session, flags));
-    for member in session.workspace.closure(target) {
-        let digest = members.entry(member).or_insert_with(|| {
-            let mut one = KeyBuilder::new(Action::Check, flags.mode);
-            contribute(session, member, &mut one);
-            one.finish()
-        });
-        k.dependency(digest);
+    match closure_fold(session, target, flags, members, &mut Vec::new()) {
+        Some(fold) => k.dependency(&fold),
+        None => {
+            k.input("flat", b"");
+            for &member in session.workspace.shared_closure(target).iter() {
+                let mut one = KeyBuilder::new(Action::Check, flags.mode);
+                contribute(session, member, &mut one);
+                k.dependency(&one.finish());
+            }
+        }
     }
     k.finish()
+}
+
+/// A target's contribution and its dependencies' folds, in edge order; `None`
+/// when a dependency leads back to a target `walking` holds.
+fn closure_fold(
+    session: &Session,
+    target: TargetId,
+    flags: &Flags,
+    members: &mut std::collections::HashMap<TargetId, ActionKey>,
+    walking: &mut Vec<TargetId>,
+) -> Option<ActionKey> {
+    if let Some(known) = members.get(&target) {
+        return Some(known.clone());
+    }
+    if walking.contains(&target) {
+        return None;
+    }
+    walking.push(target);
+    let mut k = KeyBuilder::new(Action::Check, flags.mode);
+    k.input("closure", b"");
+    contribute(session, target, &mut k);
+    let mut deps: Vec<TargetId> = session.workspace.shared_dep_edges(target).iter().map(|&(d, _)| d).collect();
+    deps.sort();
+    deps.dedup();
+    for dep in deps {
+        let fold = closure_fold(session, dep, flags, members, walking);
+        let Some(fold) = fold else {
+            walking.pop();
+            return None;
+        };
+        k.dependency(&fold);
+    }
+    walking.pop();
+    let fold = k.finish();
+    members.insert(target, fold.clone());
+    Some(fold)
 }
 
 /// Whether a check recorded under `key` found nothing, and every module no
@@ -2990,14 +3032,13 @@ pub fn check_visibility(session: &Session, target: TargetId, diagnostics: &mut D
     // checked on the target itself only — a suite is not linked into anything
     // downstream, so a consumer neither depends on that edge nor could fix it,
     // and `//...` reaches every target's own suite anyway.
-    let edges = session
-        .workspace
-        .closure(target)
-        .into_iter()
-        .map(|m| (m, session.workspace.dep_edges(m)))
-        .chain(std::iter::once((target, session.workspace.test_dep_edges(target))));
+    let closure = session.workspace.shared_closure(target);
+    let edges = closure
+        .iter()
+        .map(|&m| (m, session.workspace.shared_dep_edges(m)))
+        .chain(std::iter::once((target, session.workspace.test_dep_edges(target).into())));
     for (member, member_edges) in edges {
-        for (dep, span) in member_edges {
+        for &(dep, span) in member_edges.iter() {
             let Some(span) = span else { continue };
             if session.workspace.visible(member.package, dep) {
                 continue;
