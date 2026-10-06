@@ -113,9 +113,11 @@ impl Buf {
 
     /// `v` in decimal.
     pub(crate) fn push_u64(&mut self, v: u64) {
-        let mut digits = [0u8; 20];
-        let n = decimal(v, &mut digits);
-        self.push_bytes(digits.get(20 - n..).unwrap_or(&[]));
+        let end = self.len + decimal_len(v);
+        if let Some(dst) = self.bytes.get_mut(self.len..end) {
+            write_decimal(v, dst);
+            self.len = end;
+        }
     }
 
     /// `v` in decimal, with a `-` if it is negative.
@@ -145,27 +147,41 @@ const PAIRS: &[u8; 200] = b"\
 6061626364656667686970717273747576777879\
 8081828384858687888990919293949596979899";
 
-/// Write `v`'s decimal digits at the end of `out` and answer how many there
-/// are.
-pub(crate) fn decimal(mut v: u64, out: &mut [u8; 20]) -> usize {
-    let mut at = 20;
-    while v >= 100 {
+/// How many decimal digits `v` has.
+pub(crate) fn decimal_len(v: u64) -> usize {
+    const POW10: [u64; 20] = {
+        let mut p = [1u64; 20];
+        let mut i = 1;
+        while i < 20 {
+            p[i] = p[i - 1] * 10;
+            i += 1;
+        }
+        p
+    };
+    // `bits * 1233 >> 12` is `floor(bits * log10(2))`, which is the digit
+    // count less one or exactly it; one compare settles which.
+    let bits = 64 - (v | 1).leading_zeros() as usize;
+    let guess = (bits * 1233) >> 12;
+    guess + usize::from(POW10.get(guess).is_some_and(|p| (v | 1) >= *p))
+}
+
+/// Write `v`'s decimal digits into `out`, which is [`decimal_len`]`(v)` long.
+pub(crate) fn write_decimal(mut v: u64, out: &mut [u8]) {
+    let mut at = out.len();
+    while v >= 100 && at >= 2 {
         let pair = (v % 100) as usize * 2;
         v /= 100;
         at -= 2;
         out[at] = PAIRS[pair];
         out[at + 1] = PAIRS[pair + 1];
     }
-    if v >= 10 {
+    if v >= 10 && at >= 2 {
         let pair = v as usize * 2;
-        at -= 2;
-        out[at] = PAIRS[pair];
-        out[at + 1] = PAIRS[pair + 1];
-    } else {
-        at -= 1;
-        out[at] = b'0' + v as u8;
+        out[at - 2] = PAIRS[pair];
+        out[at - 1] = PAIRS[pair + 1];
+    } else if at >= 1 {
+        out[at - 1] = b'0' + v as u8;
     }
-    20 - at
 }
 
 /// The shortest digit string of `x` and its decimal exponent, as ECMA-262's
@@ -420,8 +436,10 @@ pub unsafe extern "C" fn buri_rt_char_to_str(c: u32, out: *mut BuriStr) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_show_char(c: u32, out: *mut BuriStr) {
     let ch = char::from_u32(c).unwrap_or(char::REPLACEMENT_CHARACTER);
+    let mut quoted = [b'\''; 6];
+    let n = ch.encode_utf8(&mut quoted[1..5]).len();
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(str_of(&format!("'{ch}'"))) }
+    unsafe { out.write(BuriStr::copy_from(&quoted[..n + 2])) }
 }
 
 /// `derive Show` of a `[T]`: `[` + the elements, already rendered, joined by
@@ -678,6 +696,14 @@ mod tests {
             let mut b = Buf::new();
             b.push_i64(v);
             assert_eq!(b.as_bytes(), v.to_string().as_bytes());
+            let mut out = crate::value::BuriStr::empty();
+            // SAFETY: a writable, aligned destination.
+            unsafe { crate::text::buri_rt_str_from_int(v, &raw mut out) };
+            // SAFETY: the rendering just made.
+            assert_eq!(unsafe { out.bytes() }, v.to_string().as_bytes());
+            assert_ne!(out.len & crate::value::BURI_RT_STR_ASCII, 0);
+            // SAFETY: the block the rendering allocated, held alone.
+            unsafe { crate::memory::buri_rt_free(out.base) };
         };
         for v in [0, 1, -1, 9, 10, 99, 100, 101, i64::MAX, i64::MIN, i64::MIN + 1] {
             check(v);
