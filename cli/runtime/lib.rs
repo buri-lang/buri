@@ -651,6 +651,7 @@ mod net;
 #[cfg(feature = "paint")]
 mod paint;
 mod rng;
+mod ryu;
 /// Scalar indices into a long non-ASCII `Str`: the kept tables that make
 /// `slice`, `charAt` and `indexOf` a lookup rather than a walk.
 mod scalars;

@@ -16,25 +16,17 @@
 //! achieve that `k`, the one whose value is **closest to `x`**, and on a tie the
 //! **even** one. Then a fixed presentation rule turns `(n, k, s)` into digits.
 //!
-//! Two halves, and they are found separately here:
+//! [`crate::ryu`] answers `(s, n)`: Ryū (Ulf Adams, PLDI 2018) finds the
+//! shortest `s` and rounds it to nearest, ties to even, which is the property
+//! word for word. This file writes the presentation rule around it.
 //!
-//! 1. **`k`, the shortest length**, comes from Rust's own shortest formatter —
-//!    `format!("{:e}", x)`, which is Grisu3 with an exact Dragon4 fallback and
-//!    is documented to produce the shortest digit string that round-trips.
-//! 2. **`s`, the digits**, comes from `format!("{:.*e}", k - 1, x)`, Rust's
-//!    *exact* formatter at `k` significant digits, which is correctly rounded to
-//!    nearest with ties to even — which is precisely the second and third
-//!    clauses of the property above.
-//!
-//! Step 2 is not redundant, and finding that out is what this file is for. The
-//! shortest formatter promises only that its digits round-trip, not that they
-//! are the *closest* `k`-digit decimal: over a corpus of this size it disagrees
-//! with V8 on the last digit about once in twenty-five thousand
-//! (`2181495296738027.3` where JavaScript says `2181495296738027.2`; both read
-//! back as the same double, and only one of them is closer). Re-rounding at the
-//! length the first step found fixes every one of those, and cannot lengthen the
-//! answer: if some `k`-digit decimal is within half an ulp of `x`, the *closest*
-//! `k`-digit decimal is too.
+//! It used to take two `core::fmt` passes: the shortest formatter for `k`, then
+//! the exact one at `k` digits for `s`. The second pass was needed because the
+//! shortest formatter promises only digits that round-trip, not the *closest*
+//! ones: it disagreed with V8 about once in twenty-five thousand
+//! (`2181495296738027.3` where JavaScript says `2181495296738027.2`). Those two
+//! passes and their buffers were most of the cost of a rendered float, and they
+//! stay in this file's tests as the reference Ryū must match.
 //!
 //! The evidence is `cli/tests/native/float_parity.rs`, which renders a corpus of
 //! **3,807,072** doubles — every corner case named in this file, a strided sweep
@@ -42,25 +34,6 @@
 //! patterns, every power of ten from `1e-320` to `1e308`, and the subnormals at
 //! both ends — and compares each against `String(v)` under the JavaScript
 //! engine the toolchain's own tests run. Zero disagreements.
-//!
-//! # Why this rather than a hand-rolled Ryū
-//!
-//! (Ulf Adams, *Ryū: Fast Float-to-String Conversion*, PLDI 2018; linked from
-//! `reference/README.md`.)
-//!
-//! The dependency bar (workspace `Cargo.toml`) is about *crates*, and `std` is
-//! not one: this runtime already uses `String::from_utf8_lossy`, `std::alloc`
-//! and `std::io`. A hand-written Ryū would be four hundred lines of table-driven
-//! integer arithmetic reproducing something `core::fmt` already does correctly,
-//! and its bugs would be exactly the ones that are hardest to find — a wrong
-//! digit on one input in a million. What is genuinely *not* in `std` is the
-//! ECMA-262 presentation rule, and that is what is written out below.
-//!
-//! The cost is two formatting calls per rendered float. That is the right trade
-//! for a v1 whose correctness is checked against another implementation and
-//! whose allocator is still one `malloc` per value (`lib.rs` §5); a Ryū fast
-//! path can be dropped in under this same test corpus when a profile asks for
-//! one.
 
 use crate::value::{str_of, BuriStr, BURI_RT_STR_LEN_MASK};
 
@@ -190,44 +163,18 @@ pub(crate) fn write_decimal(mut v: u64, out: &mut [u8]) {
 /// `x` must be finite, non-zero and positive — the three cases the caller has
 /// already peeled off.
 fn shortest_digits(x: f64) -> (Buf, i32) {
-    use std::fmt::Write as _;
-    // Step 1: the *length*. Rust's shortest formatter answers `d.ddde<exp>`,
-    // and the count is of the **mantissa's** digits: the exponent has digits
-    // too, and counting those made `1.0 / 3.0` seventeen significant figures
-    // instead of sixteen — which is a wrong answer, not a rounding one.
-    let mut short = Buf::new();
-    let _ = write!(short, "{x:e}");
-    let short = short.as_str();
-    let mantissa = short.split('e').next().unwrap_or(short);
-    let k = mantissa.bytes().filter(u8::is_ascii_digit).count();
-    // Step 2: the *digits*, correctly rounded at that length. `k >= 1` always,
-    // because a finite non-zero float has at least one significant digit.
-    let mut exact = Buf::new();
-    let _ = write!(exact, "{:.*e}", k.saturating_sub(1), x);
+    let (mut s, mut e) = crate::ryu::shortest(x);
+    // A shortest answer has no trailing zero, so this never runs; it keeps
+    // `k` honest if it ever did.
+    while s >= 10 && s % 10 == 0 {
+        s /= 10;
+        e += 1;
+    }
     let mut digits = Buf::new();
-    let Some((mantissa, exponent)) = exact.as_str().split_once('e') else {
-        // `{:e}` always emits an `e`. Answering `0` here rather than reaching
-        // for a panic keeps the promise that no input panics the runtime.
-        digits.push(b'0');
-        return (digits, 0);
-    };
-    let exponent: i32 = exponent.parse().unwrap_or(0);
-    for b in mantissa.bytes().filter(u8::is_ascii_digit) {
-        digits.push(b);
-    }
-    // Re-rounding can turn `9.99` into `10.0`; the trailing zero is not a
-    // significant digit and `k` shrinks by one, which the presentation rule
-    // below reads off `digits.len()` rather than from step 1.
-    while digits.len > 1 && digits.as_bytes().last() == Some(&b'0') {
-        digits.len -= 1;
-    }
-    if digits.as_bytes() == b"0" {
-        digits.len = 0;
-        digits.push(b'0');
-    }
-    // `{:e}` writes `d.ddd`, so the value is `mantissa * 10^exponent` and
-    // ECMA's `n` — the position of the decimal point — is one further right.
-    (digits, exponent.saturating_add(1))
+    digits.push_u64(s);
+    // `x == s * 10^e`, and ECMA's `n` is where the point goes: `k` digits on.
+    let k = digits.len as i32;
+    (digits, e.saturating_add(k))
 }
 
 /// `Number::toString(x, 10)` — what JavaScript's `String(x)` produces.
@@ -667,7 +614,7 @@ mod tests {
     fn the_stack_rendering_matches_the_string_one() {
         let mut inputs: Vec<f64> = Vec::new();
         let mut s: u64 = 0x9E37_79B9_7F4A_7C15;
-        for _ in 0..300_000 {
+        for _ in 0..500_000 {
             s ^= s << 13;
             s ^= s >> 7;
             s ^= s << 17;
