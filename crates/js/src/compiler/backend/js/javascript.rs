@@ -1454,18 +1454,31 @@ impl Rewrite for Fold {
                 // Because this pass runs bottom-up, a chain collapses from the
                 // inside out: the innermost `if`/`else` becomes a ternary, which
                 // makes its parent's branch a single `return`, and so on.
-                if let (Some(a), Some(b)) = (sole_return(&then), sole_return(&else_)) {
-                    return Stmt::Return(Some(Expr::cond(cond, a.clone(), b.clone())));
+                // Moved rather than cloned: `else_` holds the rest of the chain.
+                if sole_return(&then).is_some() && sole_return(&else_).is_some() {
+                    if let (Ok([Stmt::Return(Some(a))]), Ok([Stmt::Return(Some(b))])) =
+                        (<[Stmt; 1]>::try_from(then), <[Stmt; 1]>::try_from(else_))
+                    {
+                        return Stmt::Return(Some(Expr::cond(cond, a, b)));
+                    }
+                    crate::ice!("both branches were matched as one `return` a line above")
                 }
-                if let (Some((ta, a)), Some((tb, b))) =
-                    (sole_assignment(&then), sole_assignment(&else_))
-                {
-                    if ta.same_as(tb) {
+                let same_target = matches!(
+                    (sole_assignment(&then), sole_assignment(&else_)),
+                    (Some((ta, _)), Some((tb, _))) if ta.same_as(tb)
+                );
+                if same_target {
+                    if let (
+                        Ok([Stmt::Expr(Expr::Assign { target, value: a })]),
+                        Ok([Stmt::Expr(Expr::Assign { value: b, .. })]),
+                    ) = (<[Stmt; 1]>::try_from(then), <[Stmt; 1]>::try_from(else_))
+                    {
                         return Stmt::Expr(Expr::Assign {
-                            target: Box::new(ta.clone()),
-                            value: Box::new(Expr::cond(cond, a.clone(), b.clone())),
+                            target,
+                            value: Box::new(Expr::cond(cond, *a, *b)),
                         });
                     }
+                    crate::ice!("both branches were matched as one assignment a line above")
                 }
                 Stmt::If { cond, then, else_ }
             }
