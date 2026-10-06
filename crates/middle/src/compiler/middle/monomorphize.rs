@@ -2824,7 +2824,25 @@ fn canonical_contexts(tables: &Tables) -> Vec<CtxTypeId> {
 }
 
 /// `ty` with every context type replaced by its canonical one.
+///
+/// Read first and rebuilt only where a context moves: rebuilding interns every
+/// level, and most types name no context that moves.
 fn canonical_ty(canon: &[CtxTypeId], ty: &Ty) -> Ty {
+    if moves_no_context(canon, ty) { *ty } else { rebuild_canonical(canon, ty) }
+}
+
+/// Whether [`canonical_ty`] would hand `ty` back unchanged.
+fn moves_no_context(canon: &[CtxTypeId], ty: &Ty) -> bool {
+    match ty.kind() {
+        TyKind::Ctx(id) => canon.get(id.index()).is_none_or(|c| c == id),
+        TyKind::Con(_, xs) | TyKind::Tuple(xs) => xs.iter().all(|x| moves_no_context(canon, x)),
+        TyKind::Array(e) => moves_no_context(canon, e),
+        TyKind::Fn(ps, r) => ps.iter().all(|p| moves_no_context(canon, p)) && moves_no_context(canon, r),
+        TyKind::Var(_) | TyKind::Param(_) | TyKind::Unit | TyKind::SelfTy | TyKind::Error => true,
+    }
+}
+
+fn rebuild_canonical(canon: &[CtxTypeId], ty: &Ty) -> Ty {
     match ty.kind() {
         TyKind::Ctx(id) => Ty::ctx(canon.get(id.index()).copied().unwrap_or(*id)),
         TyKind::Con(id, xs) => Ty::con(*id, xs.iter().map(|x| canonical_ty(canon, x))),
