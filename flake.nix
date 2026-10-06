@@ -551,7 +551,7 @@
               # dyld skips its prebuilt launch closures, so each start costs
               # more: `buri version` 2 → 33 ms of CPU, `clang --version` 39 →
               # 167 ms, `rustc --version` 13 → 44 ms (design/PERFORMANCE.md
-              # §6.32). A shell isn't a sandbox, so this cargo uses the
+              # §6.35). A shell isn't a sandbox, so this cargo uses the
               # system's curl, as rustup's does. `nix build` still uses the
               # wrapped one.
               (pkgs.runCommand "cargo-without-dyld-library-path" { } ''
