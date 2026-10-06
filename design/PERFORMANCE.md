@@ -4283,6 +4283,79 @@ idea, now skips the re-map for a task that never reached it, with every
 The tiny-tasks program is still mostly the kernel: waking ten workers per round
 and the run queue's one lock. That's what's left to take.
 
+### 6.45 What `--release` hands to LLVM, 2026-10-06
+
+`buri build --release` of `mixed-10k` spent 20.2 G instructions in `emit`:
+0.6 G building IR, 8.4 G in `opt` and 11.1 G generating code. After `opt` the
+unit held 1,521 functions, and 880 of them had fewer than five instructions.
+`llc` spends about 1.1 M instructions on a function before it looks at the
+body, and `opt` about 0.8 M, so those 880 cost more than all the code in them.
+Most were external functions inlined at every call. LLVM kept them because they
+were external, and the linker stripped them afterwards.
+
+Four changes, each its own commit:
+
+- **An object leaves out functions nothing will call** (`backend/linkage.rs`,
+  `Unit::prune`). A unit doesn't emit a function nothing names. Once `opt` is
+  done, it deletes one no other unit names that nothing in the unit still
+  uses. `opt` still sees every survivor as external, so its inlining doesn't
+  change. Internal linkage for the same functions saved 17%, but then LLVM
+  inlined `shapes`'s whole loop into `main`, and the program ran 12% more
+  instructions.
+- **A unit's key says which of its functions another unit names.**
+  `actions::unit_hashes` adds a line per such function, so a cached object
+  that dropped a function doesn't serve a program in which another unit calls
+  it. Without that line,
+  `native::llvm::a_call_into_a_cached_unit_links_when_it_is_added_and_when_it_is_removed`
+  fails with `undefined symbol`.
+- **An object's unit discards value names**, as `clang` does outside a debug
+  build. `emit_ir_text` keeps them, along with every function, for the tests
+  that read IR.
+- **A developer build verifies our IR once.** `verify_each` checked the output
+  of every `default<O2>` pass. That checks LLVM's work, not ours, and it made
+  `opt` seven times the work. The single check before the pipeline stays, and
+  `a_developer_build_rejects_a_malformed_module` holds it.
+
+`buri build --release`, `emit` phase, two alternating runs each:
+
+| Program | Before | After |
+|---|---:|---:|
+| `mixed-10k` | 20.25 G | 17.72 G (-12.5%) |
+| `mixed-1k` | 2.42 G | 2.10 G (-13.2%) |
+| `derive-heavy-1k` | 2.32 G | 2.01 G (-13.3%) |
+| `few-large-fns-1k` | 74.0 M | 67.5 M (-8.8%) |
+| `wide-match-1k` | 327 M | 120 M (-63%) |
+| `many-small-fns-1k` | 536 M | 92 M (-83%) |
+| 125 programs: every matches batch, every fourth growth case, §6.32's shapes at 50 and 100 | 234.1 G | 215.0 G (-8.2%) |
+| `mixed-10k` with a dev-profile toolchain | 68.6 G | 20.4 G (-70%) |
+
+**Run time doesn't move.** All seven run-time programs link to the same bytes
+before and after: `fib(32)`, a tree of 2¹⁶ nodes built and walked 20 times,
+lists of 100k pushed, folded, mapped and sorted, 400k templates, a 20 M-step
+enum state machine, and 20 M payload enums with and without `Str`. Of the 124
+programs in the set above that link, 118 link to the same bytes. The other six
+run the same instructions: their data sits 16 bytes lower, because a constant
+only a dropped function used is gone, or only their UUID differs.
+
+**Tried and dropped:**
+
+- **Payloads wider than 16 bytes held as words** (`repr::WIDEST_INT_BLOB` at
+  16 rather than 64). It saved 1.4% on `mixed-10k` and 2.4% on the 125
+  programs, but the lists program ran 0.27% more instructions.
+- **Skipping the count on a constant null.** `opt` folds those branches
+  almost for free. It saved 0.4%, and 12 objects changed.
+- **Ordering units by IR size** instead of member count. A simulated schedule
+  of `mixed-10k`'s units finished no sooner.
+- **`-O3`**, measured and not changed. O3's IR pipeline made the lists program
+  10% slower. O3's code generation saved 1–3% of instructions on three
+  programs and no wall time.
+
+**What's left is LLVM's fixed cost.** Running `opt` on IR it has already
+optimized still costs 83% of the first run, so cleaner IR could save at most
+17% of `opt`. A unit costs about 13 M before its first function, mostly to
+build the code-generation pass pipeline, which the C API builds again for
+every module.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
