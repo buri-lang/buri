@@ -12,6 +12,7 @@
 //!   runtime_table.rs   which keys have a `buri_rt_*` symbol, and its shape
 //!   task_thread.rs     the C signature a stencil door enters Buri through
 //!   counts.rs          where the reference counts live inside a value
+//!   linkage.rs         which functions another unit names
 //! ```
 //!
 //! Each backend is its own crate: `buri-js`, `buri-stencil` and `buri-llvm`.
@@ -37,6 +38,9 @@ pub mod runtime_table;
 
 /// Where the reference counts live inside a value.
 pub mod counts;
+
+/// Which functions a unit other than their own names.
+pub mod linkage;
 use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::ActionKey;
 use crate::compiler::middle::monomorphize::Program;

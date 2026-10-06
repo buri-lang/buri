@@ -231,8 +231,8 @@ impl Backend for Llvm {
     ) -> Result<Vec<Emitted>, Diagnostics> {
         let lowered = self.take_lowering(program, tables);
         let counted = classifier(program);
-        let (root, names) = (root_of(program), Names::Discard);
-        emit_selected(&lowered, tables, opts, root, units, &counted, names, target::object)
+        let root = root_of(program);
+        emit_selected(&lowered, tables, opts, root, units, &counted, For::Linker, target::object)
     }
 }
 
@@ -283,7 +283,7 @@ impl Llvm {
             root_of(program),
             Units::Only(&only),
             &counted,
-            Names::Keep,
+            For::Reader,
             text,
         )?;
         let bytes = emitted.into_iter().next().map(|e| e.bytes).unwrap_or_default();
@@ -334,16 +334,21 @@ fn classifier(program: &monomorphize::Program) -> rc::Syntactic {
     rc::Syntactic::new(program)
 }
 
-/// Whether a unit's values and blocks keep the names the emitter gives them.
+/// Who a unit is for: a reader of [`Llvm::emit_ir_text`], or the linker.
 ///
-/// Only a reader needs them, so only [`Llvm::emit_ir_text`] keeps them. An
-/// object discards them, as `clang` does outside a debug build: every name is
-/// a string LLVM uniques into a symbol table, and every pass that makes an
-/// instruction names it too. An object's bytes don't depend on a local name.
-#[derive(Clone, Copy)]
-enum Names {
-    Keep,
-    Discard,
+/// An object leaves out what only a reader would look at:
+///
+/// - **Value and block names**, as `clang` does outside a debug build. Every
+///   name is a string LLVM uniques into a symbol table, and every pass that
+///   makes an instruction names it too.
+/// - **Functions nothing will call.** One no other unit names is dropped once
+///   `opt` leaves no use of it (`Unit::prune`). The linker would strip it.
+///
+/// The functions left are optimized exactly as the reader sees them.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum For {
+    Reader,
+    Linker,
 }
 
 /// What one thread emitting units keeps between them: the machine, which
@@ -368,7 +373,10 @@ struct Shared<'p> {
     /// `runtime_table::shares_counts`: whether every count's fork reads
     /// `buri_rt_shared_mask`.
     shares: bool,
-    names: Names,
+    audience: For,
+    /// Whether another unit or the entry point names each function, so that
+    /// its unit keeps it (`Unit::prune`).
+    kept: Vec<bool>,
 }
 
 /// One object per codegen unit, for a chosen subset of the units, from an
@@ -405,7 +413,7 @@ fn emit_selected(
     root: Option<Root>,
     units: Units<'_>,
     counted: &rc::Syntactic,
-    names: Names,
+    audience: For,
     render: impl Fn(
             &inkwell::module::Module<'_>,
             &inkwell::targets::TargetMachine,
@@ -435,6 +443,20 @@ fn emit_selected(
         let layouts = layout::Layouts::with_cycles(tables, cycles.clone());
         emit::observe(program, &emit::Boxes::new(program, tables, &layouts), opts.profile)
     };
+    let roots = match &root {
+        Some(Root::Main(e)) => std::slice::from_ref(e),
+        Some(Root::Tests(tests)) => tests.as_slice(),
+        None => &[],
+    };
+    let with_roots = |mut named: Vec<bool>| {
+        for r in roots {
+            if let Some(n) = named.get_mut(r.index()) {
+                *n = true;
+            }
+        }
+        named
+    };
+    let kept = with_roots(crate::compiler::backend::linkage::named_elsewhere(program));
     let shared = Shared {
         program,
         tables,
@@ -445,7 +467,8 @@ fn emit_selected(
         cycles,
         observed,
         shares: crate::compiler::backend::runtime_table::shares_counts(program),
-        names,
+        audience,
+        kept,
     };
 
     let mut wanted: Vec<usize> =
@@ -523,6 +546,7 @@ fn emit_unit(
     let mut diags = Diagnostics::new();
     let unit = index as u32;
     let unit_name = program.units.get(index).map_or("", String::as_str);
+    let linker = shared.audience == For::Linker;
     // This unit's functions, ascending — the same list, in the same order,
     // that a filter over the whole program yielded.
     let members: Vec<usize> = shared
@@ -546,7 +570,7 @@ fn emit_unit(
     // `x`". The debug backend's loop is over the same list for the same
     // reason.
     let ctx = Context::create();
-    if matches!(shared.names, Names::Discard) {
+    if linker {
         // SAFETY: `ctx` is a live context that nothing has built in yet.
         unsafe { inkwell::llvm_sys::core::LLVMContextSetDiscardValueNames(ctx.raw(), 1) };
     }
@@ -598,6 +622,9 @@ fn emit_unit(
     if let Err(d) = optimize(&emitter.module, &worker.machine, opts.profile, unit_name) {
         diags.push(d);
         return Err(diags);
+    }
+    if linker {
+        emitter.prune(&members, &shared.kept);
     }
     let bytes = match render(&emitter.module, &worker.machine) {
         Ok(b) => b,

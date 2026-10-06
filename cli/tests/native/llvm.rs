@@ -2233,6 +2233,87 @@ export fn main(host: NativeHost): Result<(), Str> {
     let _ = std::fs::remove_dir_all(&repo);
 }
 
+/// A unit drops a function nothing else in the program names, so a cached
+/// object must not be reused once another unit starts naming one, and must be
+/// again once it stops.
+///
+/// `used` calls `later`, so `helper.buri` holds both and its IR is the same in
+/// all three builds. While `main` doesn't call `later`, LLVM inlines it into
+/// `used` and the unit drops it. Both are large enough, and called often
+/// enough, that `middle::inline` leaves them where they are. Each build has to
+/// link and print what `main` asks for.
+#[test]
+fn a_call_into_a_cached_unit_links_when_it_is_added_and_when_it_is_removed() {
+    skip_unless_executable!();
+    let helper = program(
+        r#"
+export fn later(n: Int): Int {
+    let m = n * 3;
+    let k = m + 1;
+    if (k > 100) { k - 100 } else { k * 2 }
+}
+export fn used(): Int {
+    let a = later(13);
+    let b = later(14);
+    let c = later(15);
+    if (a > b) { a - c } else { b + c * 2 }
+}
+"#,
+    );
+    let main = |body: &str| {
+        program(&format!(
+            r#"
+from "native" import {{ NativeHost }};
+from "//cmd/app/helper.buri" import {{ later, used }};
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+  let _ = io.println(ctx, "{body}").ignore();
+  .Ok(())
+}}
+"#
+        ))
+    };
+    let repo = workspace().join("a-call-into-a-cached-unit");
+    let _ = std::fs::remove_dir_all(&repo);
+    let pkg = repo.join("cmd").join("app");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(repo.join("REPO.buri"), "").unwrap();
+    std::fs::write(pkg.join("helper.buri"), helper).unwrap();
+    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let variant = format!("{os}-{arch}");
+    std::fs::write(
+        pkg.join("BUILD.buri"),
+        format!(
+            "binary {{\n    sources: [\"helper.buri\"]\n    outputs: [{{ platform: \"native\", \
+             variant: \"{variant}\" }}]\n}}\n"
+        ),
+    )
+    .unwrap();
+    let artifact = repo.join(".buri/out/native").join(&variant).join("cmd/app/app");
+    let build = |source: &str, says: &str| {
+        std::fs::write(pkg.join("main.buri"), source).unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_buri"))
+            .current_dir(&repo)
+            .args(["build", "--release"])
+            .output()
+            .expect("run buri build");
+        assert!(
+            out.status.success(),
+            "the build failed:\n{}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let ran = Command::new(&artifact).output().expect("run the artifact");
+        assert_eq!(String::from_utf8_lossy(&ran.stdout), format!("{says}\n"));
+    };
+    build(&main("${used()} ${used()}"), "270 270");
+    build(&main("${used()} ${used()} ${later(4)}"), "270 270 26");
+    build(&main("${used()} ${used()}"), "270 270");
+    let _ = std::fs::remove_dir_all(&repo);
+}
+
 // ---------------------------------------------------------------------------
 // The intrinsic surface
 // ---------------------------------------------------------------------------

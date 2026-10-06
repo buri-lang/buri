@@ -1807,6 +1807,7 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
             slot.push(i);
         }
     }
+    let elsewhere = crate::compiler::backend::linkage::named_elsewhere(program);
     // A unit at a time, over the cores this machine has. Each unit's two hashes
     // are a pure function of the unit's members and of `tables`, and nothing
     // here writes to the program — so the only per-worker state is the `Layouts`
@@ -1821,9 +1822,14 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
             let name = program.units.get(u).cloned().unwrap_or_default();
             let mut text = String::new();
             let mut types: Vec<usize> = Vec::new();
-            for func in members.get(u).map(Vec::as_slice).unwrap_or_default() {
-                let Some(func) = program.funcs.get(*func) else { continue };
+            for at in members.get(u).map(Vec::as_slice).unwrap_or_default() {
+                let Some(func) = program.funcs.get(*at) else { continue };
                 program.render_func_into(func, &mut text);
+                // The LLVM backend drops a function no other unit names
+                // (`backend::linkage`), so who names it is part of the object.
+                if elsewhere.get(*at).copied().unwrap_or(false) {
+                    text.push_str("named elsewhere\n");
+                }
                 collect_types(func, &mut types);
             }
             types.sort_unstable();
