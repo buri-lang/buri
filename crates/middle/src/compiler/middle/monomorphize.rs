@@ -1219,7 +1219,8 @@ impl Monomorphizer<'_> {
     }
 
     fn build_fn(&mut self, f: FnId, targs: Vec<Ty>, slot: usize) {
-        let info = self.tables().fn_info(f).clone();
+        let checked = self.checked;
+        let info = checked.tables.fn_info(f);
         if info.intrinsic {
             let key = self.intrinsic_key(&info, &targs);
             // The instantiated parameter types, which only the descriptor
@@ -2167,7 +2168,8 @@ impl Monomorphizer<'_> {
                 Desc::Tuple(es.iter().map(|e| self.descriptor(e)).collect::<Vec<_>>())
             }
             TyKind::Con(con, args) => {
-                let tycon = self.tables().tycon(*con).clone();
+                let checked = self.checked;
+                let tycon = checked.tables.tycon(*con);
                 match &tycon.def {
                     TyDef::Prim(p) => Desc::Prim(*p),
                     TyDef::Struct { fields, record } => {
