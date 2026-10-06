@@ -7954,6 +7954,36 @@ function $test_leave(index) {
   return 0;
 }
 
+// `buri test --coverage`'s probe: one more pass over the line `key` names
+// (`middle::coverage`). On exit the counts go to a new file in the directory
+// `BURI_COVERAGE` names, one `key count` line each, which is what
+// `cli/runtime/coverage.rs` writes too.
+let $coverage_counts = null;
+function $coverage_hit(key) {
+  if ($coverage_counts === null) {
+    $coverage_counts = new Map();
+    if (typeof process !== "undefined") process.on("exit", $coverage_write);
+  }
+  $coverage_counts.set(key, ($coverage_counts.get(key) || 0) + 1);
+  return 0;
+}
+
+function $coverage_write() {
+  const dir = process.env.BURI_COVERAGE;
+  const fs = typeof process.getBuiltinModule === "function" ? process.getBuiltinModule("fs") : $fsOrNull();
+  if (!dir || !fs) return;
+  let text = "";
+  for (const [key, count] of $coverage_counts) text += String(key) + " " + count + "\n";
+  for (let i = 0; ; i++) {
+    try {
+      fs.writeFileSync(dir + "/" + process.pid + "-" + i + ".hits", text, { flag: "wx" });
+      return;
+    } catch (e) {
+      if (e.code !== "EEXIST") return;
+    }
+  }
+}
+
 // --- tasks(): the order the work happens in ---------------------------------------
 //
 // The one double whose subject is scheduling rather than state.

@@ -618,6 +618,8 @@
 mod abort;
 mod bytes;
 mod character;
+/// `buri test --coverage`'s counts.
+mod coverage;
 /// `core/crypto`'s sealing and signature checks, through `ring`. Behind
 /// `crypto` beside `entropy`, and refused by name the same way without it.
 #[cfg(feature = "crypto")]

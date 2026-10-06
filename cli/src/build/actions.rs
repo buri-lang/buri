@@ -866,6 +866,11 @@ fn suite_key(
     let base = action_key_as(session, target, output, flags, action, content);
     let mut k = KeyBuilder::new(action, flags.mode);
     k.dependency(&base);
+    // An instrumented build and its verdicts are never a plain run's, or the
+    // reverse (`design/COVERAGE.md`). Absent from a plain key, which keeps it.
+    if flags.coverage {
+        k.input("coverage", b"1");
+    }
     // Sorted and deduplicated: `test_dep_edges` yields declaration order, and a
     // key must not depend on the order two `dependencies` entries were written
     // in — nor count a helper twice because two of them reach it.

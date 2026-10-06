@@ -58,6 +58,7 @@
 
 pub mod chunks;
 pub mod closures;
+pub mod coverage;
 pub mod dce;
 pub mod decision;
 pub mod derives;

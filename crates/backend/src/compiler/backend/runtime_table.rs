@@ -1175,6 +1175,9 @@ pub const ENTRIES: &[Entry] = &[
     // reruns are one tree on all three backends rather than a loop in each of
     // three entry points.
     e("test.replay", &[Scalar], Ret::Scalar),
+    // `buri test --coverage`'s probe, which `middle::coverage` puts in front of
+    // every line it counts. No declaration produces it either.
+    e("coverage.hit", &[Scalar], Ret::Void),
     // -- the reactive graph, and the snapshot it paints ----------------------
     //
     // `cli/runtime/ui.rs` holds the graph and `cli/runtime/snapshot.rs` the
