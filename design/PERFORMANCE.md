@@ -3855,6 +3855,80 @@ forbids `client` and a batch splits on tags:
 Only 25 runs in every `repositories` corpus could touch more than one suite.
 Fewer new files would have to come from fewer runs, not wider ones.
 
+### 6.40 The stencil emitter's own overhead, 2026-10-06
+
+A debug build's `emit` spent about 5,400 instructions per stencil it copied.
+Copy-and-patch should cost a few hundred. Most of the rest was bookkeeping
+around the copy: allocations, `core::fmt`, and the same operand walk done five
+times per function. Eight changes in `crates/stencil`, each its own commit:
+
+- **Keys on the stack.** Every emitted instruction built its key with
+  `format!`. `key!["bin/", name, "/", tag]` copies the pieces into an inline
+  `jit::Key`, and `Loc::tag` borrows. -6.5%, then -2.4% for dropping `fmt`.
+- **One read count per function.** Coalescing, call pinning, aliasing, the
+  register allocator and constant folding each counted every value's reads.
+  They share one count. -5.0%.
+- **Tables refilled, not reallocated.** A function's `Fn2` and every
+  analysis's side tables live in the worker's `Scratch` (`jit::Bufs`) and are
+  cleared and refilled per function. -10.7%.
+- **Runtime calls without allocation.** `c_call_to` built each argument's hole
+  name with `format!` into two vectors. The names are a static table and the
+  bindings an array. -5.0%.
+- **Aliasing without hash maps.** `alias_parts` built two maps per block and
+  typed every field of a value. The maps are per-function tables stamped with
+  the block, and a field is typed only when it is still a candidate. -3.4%.
+- **One operand table.** `Inst::operands` ran in five passes. `jit::Operands`
+  lists every row once per function. -2.3%.
+- **The runtime table indexed.** `runtime_table::entry` scans 300 rows, once or
+  twice per runtime call. `stencil::runtime::entry` asks an index. -0.6%.
+
+`BURI_PROFILE=1 buri build`, cold, `emit` instructions, the lower of two
+alternating runs:
+
+| Workload | Before | After | |
+|---|---:|---:|---:|
+| `mixed-10k` × 8 binaries | 1,492 M | 1,046 M | -30% |
+| eight saved corpora and ten shapes, 18 binaries | 717 M | 520 M | -27% |
+| §6.32 wide payload, 200 | 129 M | 98 M | -24% |
+| §6.32 long match, 400 | 87 M | 64 M | -26% |
+| §6.32 payload enum, 400 | 234 M | 181 M | -23% |
+| §6.32 records, 200 | 110 M | 85 M | -22% |
+| §6.32 long tuple, 400 | 125 M | 96 M | -23% |
+| `cli/tests/example` server | 17.0 M | 16.6 M | -2% |
+
+Allocations in `emit` for `mixed-10k` × 8 fell from 1.45 M to 0.66 M before the
+last three changes. The bytes didn't move: every object the 18-binary
+repository emits, every object of the eight saved corpora for all three
+targets (270, emitted in-process, so the Linux ones need no cross runtime), and
+all three stencil libraries are identical before and after.
+
+**`build.rs` compiles from one queue.** It built the three libraries one after
+another, each on its own pool, and waited three times for a slowest shard. The
+probes now run side by side, all thirty shards share one queue of `NUM_JOBS`
+workers, and the libraries assemble side by side. A cold run into an empty
+`OUT_DIR` at load 24: wall 3.48 s to 2.93 s, median of three, CPU unchanged at
+20 s. Under a loaded cold `cargo build` the script is CPU-bound, so this helps
+the uncontended case most.
+
+**Measured dead ends:**
+
+- **A per-worker cache of key lookups**, 256 slots in front of the library's
+  index. Instructions and `emit` CPU didn't move.
+- **Hole names packed into words** to skip `memcmp` when binding. Packing every
+  binding cost more than the compares: +7.7%.
+- **A per-`TypeId` aggregate-size cache** in front of `Layouts::shared`. Under
+  1%.
+
+**What's left:**
+
+- About 3,700 instructions per stencil. Keys are still hashed per emit, and a
+  constant key like `"call"` or `"mov/8"` could be resolved once per library.
+- **A shared store for the shard objects.** Each fresh worktree pays the 20 s
+  of `cc`. The shard cache in `OUT_DIR` keys on the generated C alone. A store
+  under `~/.buri/toolchain-build/` would need the C, the flags, the
+  `cc -###` line with its paths made portable, and the resolved `clang`'s
+  identity, as §6.24 asks.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
