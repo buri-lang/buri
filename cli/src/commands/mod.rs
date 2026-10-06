@@ -520,15 +520,6 @@ pub fn find(name: &str) -> Option<&'static Command> {
     COMMANDS.iter().find(|c| c.name == name)
 }
 
-/// `buri <command> <subcommand>`, dispatched through the command's own table.
-///
-/// The two refusals are the ones `main` makes for a command that is not there,
-/// one level down and in the same order: what was wrong, the nearest real
-/// spelling when there is one, then the list to choose from.
-#[expect(
-    clippy::print_stderr,
-    reason = "a malformed invocation is reported by the CLI itself, before there is a session"
-)]
 /// A command that answers once reads each source once for its keys
 /// ([`crate::build::actions::remember_reads`]); under `--watch` it answers
 /// again after the disk moves, so it reads afresh.
@@ -539,6 +530,15 @@ fn once(args: &Args, command: fn(&Args) -> i32) -> i32 {
     command(args)
 }
 
+/// `buri <command> <subcommand>`, dispatched through the command's own table.
+///
+/// The two refusals are the ones `main` makes for a command that is not there,
+/// one level down and in the same order: what was wrong, the nearest real
+/// spelling when there is one, then the list to choose from.
+#[expect(
+    clippy::print_stderr,
+    reason = "a malformed invocation is reported by the CLI itself, before there is a session"
+)]
 pub fn dispatch(command: &'static str, subcommands: &'static [Subcommand], args: &Args) -> i32 {
     let Some((asked, rest)) = args.targets.split_first() else {
         eprintln!("error: `buri {command}` needs a subcommand");
