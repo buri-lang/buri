@@ -798,7 +798,20 @@ fn finish_uncounted(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
 // compiler's elision rather than this file's hit rate.
 
 /// The largest payload a cached block holds, in bytes.
-const CACHE_MAX_PAYLOAD: u64 = 256;
+///
+/// 1 KiB rather than the 256 above: a persistent map's node arrays copied on
+/// every insert run to a few hundred bytes, and each one past 256 was a
+/// `malloc` and a zeroing `free`. Sizes past [`CACHE_SMALL_SLOTS`] are swept
+/// one sweep in [`CACHE_MID_SWEEP_EVERY`], so walking four times the slots
+/// doesn't cost every program four times the sweep.
+const CACHE_MAX_PAYLOAD: u64 = 1024;
+
+/// The slots every sweep visits: payloads up to 256 bytes.
+const CACHE_SMALL_SLOTS: usize = 257;
+
+/// How many sweeps pass between two visits to the slots above
+/// [`CACHE_SMALL_SLOTS`]. Their grace is counted in their own visits.
+const CACHE_MID_SWEEP_EVERY: u32 = 4;
 
 /// One free-list head per exact payload size, `0..=CACHE_MAX_PAYLOAD`.
 const CACHE_SLOTS: usize = CACHE_MAX_PAYLOAD as usize + 1;
@@ -877,6 +890,8 @@ struct Cache {
     published: u64,
     /// Cache operations since the last sweep.
     since_sweep: u32,
+    /// Sweeps so far, for [`CACHE_MID_SWEEP_EVERY`].
+    sweeps: u32,
     /// **G5: the `core/alloc::scoped` arena this thread is inside, plus one;
     /// `0` is none.**
     ///
@@ -1031,7 +1046,9 @@ impl Cache {
     #[inline(never)]
     fn sweep(&mut self) {
         self.since_sweep = 0;
-        for idx in 0..CACHE_SLOTS {
+        let end = if self.sweeps % CACHE_MID_SWEEP_EVERY == 0 { CACHE_SLOTS } else { CACHE_SMALL_SLOTS };
+        self.sweeps = self.sweeps.wrapping_add(1);
+        for idx in 0..end {
             if self.slots[idx].idle < CACHE_GRACE_SWEEPS {
                 self.slots[idx].idle += 1;
             } else if !self.slots[idx].head.is_null() {
@@ -1143,6 +1160,7 @@ thread_local! {
                 held: CACHE_UNARMED,
                 published: 0,
                 since_sweep: 0,
+                sweeps: 0,
                 arena: 0,
                 arena_at: 0,
                 arena_end: 0,
