@@ -42,10 +42,54 @@ fn phase_instructions(report: &str, phase: &str) -> Option<f64> {
     (count > 0.0).then_some(count)
 }
 
-/// One binary whose `main` builds tuples of `n` elements, takes one apart and
-/// compares two.
-fn long_function(n: usize) -> Scratch {
-    let scratch = Scratch::repo("profile-long-function");
+/// This machine's `variant` for a native output.
+fn host_variant() -> String {
+    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    format!("{os}-{arch}")
+}
+
+/// `buri build` of one binary for `platform`, `native` or `node`, whose source
+/// is `items` and a `main` running `body`. Answers `phase`'s instructions.
+fn profiled(platform: &str, items: &str, body: &str, phase: &str) -> Option<f64> {
+    let scratch = Scratch::repo("profile-large-shape");
+    let output = match platform {
+        "native" => format!("{{ platform: \"native\", variant: \"{}\" }}", host_variant()),
+        _ => format!("{{ platform: \"{platform}\" }}"),
+    };
+    let host = if platform == "native" { "NativeHost" } else { "NodeHost" };
+    scratch.write("app/BUILD.buri", &format!("binary {{\n    outputs: [\n        {output},\n    ]\n}}\n"));
+    scratch.write(
+        "app/main.buri",
+        &format!(
+            "from \"platform/effect\" import {{ Allocator, Stdout }};\n\
+             from \"{platform}\" import {{ {host} }};\n\
+             from \"core/io\" import * as io;\n\n{items}\n\
+             export fn main(host: {host}): Result<(), Str> {{\n    \
+             let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};\n{body}    .Ok(())\n}}\n"
+        ),
+    );
+    let run = scratch.run_with_env(&["build", "//app"], &[("BURI_PROFILE", "1")]);
+    run.ok();
+    phase_instructions(&run.all(), phase)
+}
+
+/// Asserts that `work(2n)` is at most 2.3 times `work(n)`. Where the platform
+/// has no counter, there is nothing to compare and this asserts nothing.
+fn grows_linearly(what: &str, work: impl Fn(usize) -> Option<f64>, n: usize) {
+    let (Some(small), Some(large)) = (work(n), work(2 * n)) else {
+        return;
+    };
+    assert!(
+        large <= small * 2.3,
+        "{what}: {large:.0} M instructions at {}, {:.2} times the {small:.0} M at {n}",
+        2 * n,
+        large / small
+    );
+}
+
+/// Builds tuples of `n` elements, takes one apart and compares two.
+fn long_tuple(n: usize) -> (String, String) {
     let types: Vec<&str> = (0..n).map(|i| if i % 2 == 0 { "Int" } else { "Str" }).collect();
     let values: Vec<String> =
         (0..n).map(|i| if i % 2 == 0 { format!("k + {i}") } else { String::from("s") }).collect();
@@ -53,40 +97,48 @@ fn long_function(n: usize) -> Scratch {
     let summed: Vec<String> = (0..n)
         .map(|i| if i % 2 == 0 { format!("a{i}") } else { format!("a{i}.length()") })
         .collect();
-    scratch.write(
-        "app/BUILD.buri",
-        &format!(
-            "binary {{\n    outputs: [\n        {{ platform: \"native\", variant: \"{}\" }},\n    ]\n}}\n",
-            host_variant()
-        ),
+    let items = format!(
+        "fn make<C: Allocator>(ctx: C, k: Int): ({types}) {{\n    \
+         let s = \"u\".repeat(ctx, 2);\n    ({values})\n}}\n\n\
+         fn sum(t: ({types})): Int {{\n    let ({names}) = t;\n    {summed}\n}}\n",
+        types = types.join(", "),
+        values = values.join(", "),
+        names = names.join(", "),
+        summed = summed.join(" + "),
     );
-    scratch.write(
-        "app/main.buri",
-        &format!(
-            "from \"platform/effect\" import {{ Allocator, Stdout }};\n\
-             from \"native\" import {{ NativeHost }};\n\
-             from \"core/io\" import * as io;\n\n\
-             fn make<C: Allocator>(ctx: C, k: Int): ({types}) {{\n    \
-             let s = \"u\".repeat(ctx, 2);\n    ({values})\n}}\n\n\
-             fn sum(t: ({types})): Int {{\n    let ({names}) = t;\n    {summed}\n}}\n\n\
-             export fn main(host: NativeHost): Result<(), Str> {{\n    \
-             let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};\n    \
-             let (a, b) = (make(ctx, 1), make(ctx, 2));\n    \
-             let _ = io.println(ctx, \"${{sum(a)}} ${{a == b}} ${{a < b}}\").ignore();\n    .Ok(())\n}}\n",
-            types = types.join(", "),
-            values = values.join(", "),
-            names = names.join(", "),
-            summed = summed.join(" + "),
-        ),
+    let body = String::from(
+        "    let (a, b) = (make(ctx, 1), make(ctx, 2));\n    \
+         let _ = io.println(ctx, \"${sum(a)} ${a == b} ${a < b}\").ignore();\n",
     );
-    scratch
+    (items, body)
 }
 
-/// This machine's `variant` for a native output.
-fn host_variant() -> String {
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
-    format!("{os}-{arch}")
+/// An enum of `n` variants, and a match of `n` arms over it, over an `Int` and
+/// over a `Str`. With `pairs`, a match over a pair of them as well, whose arms
+/// are the diagonal.
+fn long_matches(n: usize, pairs: bool) -> (String, String) {
+    let variants: String = (0..n).map(|i| format!("    V{i},\n")).collect();
+    let from_int: String = (0..n - 1).map(|i| format!("        {i} => .V{i},\n")).collect();
+    let to_int: String = (0..n).map(|i| format!("        .V{i} => {i},\n")).collect();
+    let words: String = (0..n).map(|i| format!("        \"w{i}\" => {i},\n")).collect();
+    let diagonal: String = (0..n).map(|i| format!("        (.V{i}, .V{i}) => {i},\n")).collect();
+    let mut items = format!(
+        "enum E {{\n{variants}}}\n\n\
+         fn nth(i: Int): E {{\n    match (i) {{\n{from_int}        _ => .V{},\n    }}\n}}\n\n\
+         fn code(e: E): Int {{\n    match (e) {{\n{to_int}    }}\n}}\n\n\
+         fn word(w: Str): Int {{\n    match (w) {{\n{words}        _ => 0 - 1,\n    }}\n}}\n",
+        n - 1
+    );
+    let mut body = String::from(
+        "    let w = word(\"w2\");\n    let _ = io.println(ctx, \"${code(nth(3))} ${w}\").ignore();\n",
+    );
+    if pairs {
+        items.push_str(&format!(
+            "\nfn same(a: E, b: E): Int {{\n    match ((a, b)) {{\n{diagonal}        _ => 0 - 1,\n    }}\n}}\n"
+        ));
+        body.push_str("    let _ = io.println(ctx, \"${same(nth(1), nth(1))}\").ignore();\n");
+    }
+    (items, body)
 }
 
 /// **A debug build's emission is linear in the length of a function.** The
@@ -97,26 +149,34 @@ fn host_variant() -> String {
 /// emit, 3.5 times what 200 took. PERFORMANCE.md §6.32.
 ///
 /// An instruction count rather than a time: one run reads to within about 1%
-/// under any load (PERFORMANCE.md §8). Where the platform has no counter, the
-/// report has no number and this asserts nothing.
+/// under any load (PERFORMANCE.md §8).
 #[test]
 fn a_debug_builds_emission_is_linear_in_a_functions_length() {
     if let Some(why) = ci::native_host_gap() {
         ci::skipped("build::profile", &why);
         return;
     }
-    let emitted = |n: usize| {
-        let run = long_function(n).run_with_env(&["build", "//app"], &[("BURI_PROFILE", "1")]);
-        run.ok();
-        phase_instructions(&run.all(), "emit")
-    };
-    let (Some(small), Some(large)) = (emitted(300), emitted(600)) else {
-        return;
-    };
-    assert!(
-        large <= small * 2.3,
-        "emitting a tuple of 600 elements took {large:.0} M instructions, {:.2} times the \
-         {small:.0} M that 300 took",
-        large / small
+    grows_linearly(
+        "emitting a long tuple's functions",
+        |n| {
+            let (items, body) = long_tuple(n);
+            profiled("native", &items, &body, "emit")
+        },
+        300,
+    );
+}
+
+/// **JavaScript emission is linear in a match's arms.** A match is a chain of
+/// tests, and the folder that turns each `if`/`else` of returns into a
+/// conditional copied the rest of the chain at every arm.
+#[test]
+fn javascript_emission_is_linear_in_a_matchs_arms() {
+    grows_linearly(
+        "emitting long matches as JavaScript",
+        |n| {
+            let (items, body) = long_matches(n, false);
+            profiled("node", &items, &body, "emit")
+        },
+        500,
     );
 }
