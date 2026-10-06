@@ -1,0 +1,12 @@
+FAIL //lib/calc  test/calc.buri  "halves"
+  assert.equal failed
+    actual:   2
+    expected: 3
+  --> lib/calc/test/calc.buri:4:1
+
+1 passed, 1 failed, 0 skipped (0.0s)
+
+coverage
+  lib/calc/calc.buri  4/4  100.0%
+  total               4/4  100.0%
+lcov: .buri/coverage/lcov.info

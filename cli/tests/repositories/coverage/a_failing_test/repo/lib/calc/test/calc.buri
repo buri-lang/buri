@@ -1,0 +1,10 @@
+from "core/testing/assert" import * as assert;
+from "//lib/calc" import { half, third };
+
+test "halves" {
+    assert.equal(half(4), 3);
+}
+
+test "thirds" {
+    assert.equal(third(9), 3);
+}
