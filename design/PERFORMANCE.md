@@ -4882,6 +4882,89 @@ the suite, and every backtrace loses its line numbers.
 before the first poll beats a zero cap. "All at 3" failed one test once, but
 its log was overwritten before it was read.
 
+### 6.51 The suites wait on the check, not the CPU, 2026-10-06
+
+Both suites spend most of their wall time in §6.39's check of each new
+executable, which runs one file at a time for the whole machine. The CPU they
+use barely moves. Here's the LLVM `native` suite, built once at `d0c9b730a`,
+at load 45:
+
+| Programs | Tests | CPU, user + sys |
+|---|---:|---:|
+| all freshly linked | 616 s | 230 s |
+| all checked by an earlier run | 64 s, 55 s | 242 s, 249 s |
+
+`kept::settle` already runs a program from the first file that held its bytes.
+Any compiler change gives every program new bytes, though, so a run after one
+pays a check for each of its ~580 programs. The workspace suite pays them on
+every run. Each `buri test` in a scratch repository links a new runner, and
+`repositories::snapshots` alone runs 65 cases of them.
+
+A check takes 0.2 s on a quiet machine. With other agents' suites in the same
+queue it took 2.5–5 s, and 6 s for a 70 MB test binary. That's how one test
+runs 0.3 s alone and 33 s in a full run.
+
+**Three changes landed.**
+
+- **Generated matches run the middle end once.** `check` emitted each
+  program twice per native backend, once in `native_refusal` and again in
+  `run_native`. It also ran the middle end once per backend. Now one
+  `prepared_native` program goes to every backend, and `emitted` runs once
+  per backend, which answers both "does it refuse?" and "what does it
+  print?". The agreement rows share the prepared program the same way.
+- **The native set runs each file's front end once.** Each shard ran
+  `missing_for`, which is the front and middle end, before `linked` ran both
+  again. `linked`'s build already asks the same question.
+- **`test-threads = 36`** in `.config/nextest.toml`, three times this
+  machine's cores. A test waiting on the check holds a nextest slot while the
+  CPU idles.
+
+Instructions, `cargo test` on the native test binary, 4 threads, two runs
+each, both identical:
+
+| Tests | Before | After |
+|---|---:|---:|
+| `matches::` | 110.3 G | 56.4 G (−49%) |
+| `conformance::the_native_set_passes` | 25.1 G | 20.1 G (−20%) |
+| `agreement::` | 36.2 G | 35.6 G (−1.7%) |
+
+Workspace suite, test phase, alternating, load 25–70:
+
+| `test-threads` | Runs | Median |
+|---|---|---:|
+| 12 | 312 s, 179 s, 141 s, 162 s, 199 s, 138 s, 182 s | 179 s |
+| 24 | 258 s, 169 s, 169 s, 189 s | 179 s |
+| 36 | 124 s, 142 s, 181 s, 101 s, 134 s, 108 s, 156 s, 118 s, 129 s, 125 s | 127 s |
+
+The first 12-thread run also checked freshly built test binaries. The 36
+column includes the two experiments below, which changed nothing measurable.
+
+LLVM `native` suite, every program freshly linked, alternating:
+
+| `test-threads` | Tests | CPU, user + sys | Load before → after |
+|---|---:|---:|---|
+| 12 | 391 s | 229 s | 43 → 32 |
+| 36 | 192 s | 196 s | 32 → 6 |
+| 12 | 187 s | 207 s | 6 → 9 |
+| 36 | 89 s | 228 s | 9 → 12 |
+
+**Measured and dropped:**
+
+- **`repositories::snapshots` in eight shards.** It's the last test running in
+  most runs. In shards, a shard was last instead, and the totals didn't move:
+  138 s and 182 s at 12 threads, 156 s and 118 s at 36.
+- **A pool twice the cores wide** (`harness/pool.rs`). At 36 threads: 134 s and
+  108 s against 181 s and 101 s.
+
+**What's left** is fewer new executables per run, which the harness can't
+provide without changing what a test checks. `buri` could run a linked
+program from a store keyed by its bytes, as `kept::settle` does. Then a rerun
+with an unchanged compiler would check nothing. Rerunning to rule out a flake
+is that case. Smaller test binaries would make each check of a test binary
+shorter: `debug = "line-tables-only"` is with the `Cargo.toml` profile work.
+Adding the terminal to Developer Tools would skip the check entirely, but
+that's ruled out on this machine.
+
 ### 6.52 An arena for the typed tree, measured and left, 2026-10-06
 
 The proposal: each `typed::Body` holds its nodes in a `Vec<Expr>`, `Box<Expr>`

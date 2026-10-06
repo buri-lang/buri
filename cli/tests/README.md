@@ -309,8 +309,10 @@ The first line is the whole suite. `cargo test -p buri` runs the same set, but
 one binary after another, which is over ten minutes on a ten-core mac. nextest
 runs every test in a process of its own and keeps the machine busy instead.
 It doesn't run doctests, hence the second command. `.config/nextest.toml` only
-schedules: it starts the longest tests first and never kills, retries or
-filters one (`ci.rs::the_runner_config_never_kills_retries_or_filters_a_test`).
+schedules: it starts the longest tests first, runs 36 at once because most of
+them are waiting on macOS's check of a new executable (`design/PERFORMANCE.md`
+§6.51), and never kills, retries or filters one
+(`ci.rs::the_runner_config_never_kills_retries_or_filters_a_test`).
 
 Bless with `cargo test`, not nextest. A blessing corpus is written once per
 process, so one process per test would write it from several at once.
