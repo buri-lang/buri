@@ -407,7 +407,7 @@ const FREED_BYTES: usize = 3;
 static RETAINED_BYTES: AtomicU64 = AtomicU64::new(0);
 static DECOMMITTED_BYTES: AtomicU64 = AtomicU64::new(0);
 
-/// Of the blocks `LIVE_BLOCKS` counts, how many are a **scoped arena's**.
+/// Of the live blocks the tallies count, how many are a **scoped arena's**.
 ///
 /// The test-mode exit audit is the only reader, and the reason it needs the
 /// number is that an arena block is reclaimed by `munmap` whether or not its
@@ -866,7 +866,7 @@ struct Cache {
     ///
     /// **The counter is published at sweep boundaries, not per operation**,
     /// and that is a measured decision rather than a tidy one: an
-    /// `AtomicU64::fetch_add` in `cache_push` and a `fetch_sub` in `cache_pop`
+    /// `AtomicU64::fetch_add` on every push and a `fetch_sub` on every pop
     /// measured **2.3 ns on an alloc-and-free pair that takes 7.4 ns in
     /// total** — a third of the fast path G2 exists to make fast, spent on a
     /// number nothing reads more than a few times in a program's life.
@@ -1008,8 +1008,8 @@ impl Cache {
     /// **`sweep` is `#[cold]` and `#[inline(never)]` deliberately**, and this
     /// is the single largest thing G6 does for the allocator's fast path.
     /// What is left here is an increment and a compare; letting the sweep's
-    /// loop inline into `cache_push` grows the free path enough that
-    /// `cache_push` stops being inlined into `buri_rt_free`, and that decision
+    /// loop inline into `cache_push_counted` grows the free path enough that
+    /// `cache_push_counted` stops being inlined into `buri_rt_free`, and that decision
     /// alone measured **0.6 ns on a 7.1 ns alloc-and-free pair** — as much as
     /// the whole of the rest of this slice costs it.
     #[inline(always)]
@@ -2188,7 +2188,7 @@ fn trace_insert(p: *mut u8, cap: u64) {
     traced(|t| t.insert(p as usize, cap));
 }
 
-/// Forget one. Called wherever `LIVE_BLOCKS` falls, so the register and the
+/// Forget one. Called wherever the live count falls, so the register and the
 /// counter are the same claim written twice.
 #[inline]
 fn trace_free(p: *mut u8) {
@@ -2508,7 +2508,7 @@ pub extern "C" fn buri_rt_alloc_budget_check(requested: i64, used: i64, budget: 
 //
 // What is counted is what `core/alloc` says is counted — every `allocate`, at
 // the bytes it asked for, which is the cost model's last row. This table is
-// not the heap accounting above it and does not want to be: `LIVE_BYTES` is a
+// not the heap accounting above it and does not want to be: the live byte count is a
 // measurement of `malloc`, and a charge is a *definition* evaluated from the
 // types (MEMORY.md §7.1), so the two disagree by construction and only one of
 // them is the same number on the JavaScript backend.
