@@ -425,6 +425,8 @@ struct Bufs {
     opnd: Operands,
     literals: Literals,
     loops: Loops,
+    next: Vec<u32>,
+    pinned: Vec<bool>,
 }
 
 /// What every instruction and terminator of one function reads, listed once.
@@ -2434,17 +2436,25 @@ impl<'a> Jit<'a> {
         let n = code.values();
         // Each class's members and whether one is pinned, kept up to date as
         // classes merge, so a candidate costs its own class and not the code.
-        let mut members: Vec<Vec<u32>> = vec![Vec::new(); n];
-        let mut pinned = vec![false; n];
+        // A class is a ring through `next`, so merging two is one swap.
+        let mut next = table(&mut self.bufs.next, n, 0);
+        let mut pinned = table(&mut self.bufs.pinned, n, false);
+        for (v, x) in next.iter_mut().enumerate() {
+            *x = v as u32;
+        }
         for v in 0..n {
             let r = find(uf, v as u32) as usize;
-            if let Some(m) = members.get_mut(r) {
-                m.push(v as u32);
+            if r != v {
+                let after = ent(&next, r, r as u32);
+                put(&mut next, v, after);
+                put(&mut next, r, v as u32);
             }
             if ent(pin, v, None).is_some() {
                 put(&mut pinned, r, true);
             }
         }
+        let mut ops = Vec::new();
+        let mut class = Vec::new();
         for latch in &code.blocks {
             let ir::Term::Jump(t) = &latch.term else { continue };
             let header = code.get(t.block);
@@ -2464,7 +2474,7 @@ impl<'a> Jit<'a> {
                 }
                 // Nothing in the latch reads the header parameter's class, and
                 // the jump passes it nothing but this one value.
-                let mut ops = Vec::new();
+                ops.clear();
                 for i in &latch.insts {
                     i.operands(&mut ops);
                 }
@@ -2474,7 +2484,15 @@ impl<'a> Jit<'a> {
                 {
                     continue;
                 }
-                let class = members.get(r2 as usize).cloned().unwrap_or_default();
+                class.clear();
+                let mut m = r2;
+                loop {
+                    class.push(m);
+                    m = ent(&next, m as usize, r2);
+                    if m == r2 {
+                        break;
+                    }
+                }
                 let safe = class.iter().all(|m| {
                     if *m == p2.0 {
                         return true;
@@ -2497,11 +2515,13 @@ impl<'a> Jit<'a> {
                     continue;
                 }
                 put(uf, r2 as usize, r1);
-                if let Some(m) = members.get_mut(r1 as usize) {
-                    m.extend(class);
-                }
+                let (n1, n2) = (ent(&next, r1 as usize, r1), ent(&next, r2 as usize, r2));
+                put(&mut next, r1 as usize, n2);
+                put(&mut next, r2 as usize, n1);
             }
         }
+        self.bufs.next = next;
+        self.bufs.pinned = pinned;
     }
 
     /// (i.c) A value that only crosses a direct call lives **in the callee's
