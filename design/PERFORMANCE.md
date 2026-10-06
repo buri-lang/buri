@@ -4600,6 +4600,56 @@ optimized still costs 83% of the first run, so cleaner IR could save at most
 build the code-generation pass pipeline, which the C API builds again for
 every module.
 
+**Run time: an increment and a decrement that cancel.** Profiles of the seven
+run-time programs, the runtime's twelve and the map kernel spend most of their
+generated code's time in one shape. A match binds a field and then drops the
+value it matched on, so the middle end plans:
+
+```text
+v23 = payload.#2.1 v4     ; a map node's children
+incref v23
+decref v4                 ; the node, whose only count is v23
+```
+
+That pair does nothing, but LLVM can't fold it. After inlining it's an
+increment of a count followed by a decrement of the same one, and LLVM can't
+tell the decrement doesn't reach zero and free the block. A `!range` on the
+count load, and testing for the last reference before the immortal one, left
+the binaries byte-identical. `Unit::cancelled_counts` leaves out an `incref x`
+and the `decref w` after it when only instructions that can't call, allocate
+or count lie between them, and `w` is `x` or holds no count but `x`'s. A field
+behind a box doesn't qualify, and neither does a variant with a second counted
+field. `e2e::a_field_taken_out_of_what_a_match_drops_keeps_its_count` holds
+those cases, with every value also held in a list or a second binding while
+its string grows. It leaks four blocks if every field is allowed to cancel.
+
+Best of nine alternating runs:
+
+| Program | Instructions before | After | Wall before | After |
+|---|---:|---:|---:|---:|
+| `pairs`, 20 M `Str` payloads | 1,068.3 M | 895.0 M (-16.2%) | 68.7 ms | 67.1 ms |
+| `pmaps`, a `Map<Str, Int>` | 7,385.3 M | 6,529.5 M (-11.6%) | 443.0 ms | 429.2 ms |
+| `mapk`, 1 M inserts and gets | 2,926.4 M | 2,682.8 M (-8.3%) | 234.1 ms | 219.4 ms |
+| `maps` | 1,716.5 M | 1,594.3 M (-7.1%) | 111.3 ms | 105.6 ms |
+
+The other fifteen programs are within noise. `emit` for the nineteen fell from
+5.25 G to 4.55 G instructions, `mixed-10k`'s is flat, and the nineteen
+executables shrank by 272 bytes.
+
+**Tried and dropped for run time:**
+
+- **`noalias`, `nonnull` and `align 16` on `buri_rt_alloc`'s result.** Every
+  program stayed within 0.12% of its old count, which is noise: the same
+  binary reads ±0.25% from one run to the next.
+- **A branching increment** (`rc == IMMORTAL` or `rc + 1`), so that an exact
+  `rc + 1` would meet the decrement. LLVM folded no pair, and `pairs` ran 1.9%
+  more instructions.
+
+What's left in the profiles is mostly the runtime's: `buri_rt_alloc`,
+`buri_rt_free`, the thread cache, `write_decimal` and the map's node copies.
+The hot generated loops are the merge in `sortBy` and the pointer chase in
+`core_map.find`, and both already compile tight.
+
 ### 6.46 The lexer's constant and the shared prelude, 2026-10-06
 
 A second front-end round after §6.41. These are instructions per repetition,
