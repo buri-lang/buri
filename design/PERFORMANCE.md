@@ -3425,13 +3425,27 @@ where it cost 0.68 G.
 | 400 | 5.46 G | 4.07 G |
 | 800 | 16.6 G | 9.19 G |
 
-400 to 800 went from 3.0 to 2.26 times. At 100 arms the guarded match costs
-`SimplifyCFG` 0.14 G more: a failed guard jumps back into the chain, which is
-now a `switch`, and re-tests tags it already knows. The unit enum, payload
+400 to 800 went from 3.0 to 2.26 times. At 100 arms the guarded match cost
+`SimplifyCFG` 0.14 G more: a failed guard jumped back into the chain, which is
+now a `switch`, and re-tested tags it already knew. The unit enum, payload
 enum, wide payload, nested generic, enum chain, long tuple and records shapes,
 and `cli/tests/example`'s two binaries, are within 1% of their old emit
 phase. `native::llvm`'s `a_matchs_tests_of_one_value_read_its_tag_once` holds
 the emitted IR to a few tag reads per function.
+
+**A failed guard now skips the arms it can't match** (`lower.rs`,
+`FnLower::chain`). It goes on at the first later arm whose pattern isn't
+disjoint from its own, so `.V7 if k > 7` fails straight to the catch-all.
+`native::llvm`'s `a_failed_guard_skips_the_arms_it_cannot_match` holds this.
+Emit phase of `--release`, for `long_match` and for its `guard` and `nth`
+alone:
+
+| Arms | `guard` alone, before | After | `long_match`, before | After |
+|---:|---:|---:|---:|---:|
+| 100 | 0.40 G | 0.23 G | 1.18 G | 1.01 G |
+| 200 | 0.72 G | 0.40 G | 2.04 G | 1.73 G |
+| 400 | 1.48 G | 0.76 G | 4.07 G | 3.35 G |
+| 800 | 3.32 G | 1.65 G | 9.18 G | 7.53 G |
 
 **What's left of a long match is LLVM's.** A pair's diagonal or a guard is `n`
 compares of one value in `n` blocks, and InstCombine is `n²` in those whatever
