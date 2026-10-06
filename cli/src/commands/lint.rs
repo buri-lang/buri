@@ -479,98 +479,26 @@ struct Share {
     generated_rules: Vec<TargetId>,
 }
 
-/// What [`Diagnostics`] deduplicates on.
-type Said = (u32, u32, u32, String);
-
-fn said(d: &Diagnostic) -> Said {
-    (d.span.file.0, d.span.start, d.span.end, d.message.clone())
-}
-
 impl Shared {
     fn of(session: &mut Session, targets: &[TargetId]) -> Option<Shared> {
-        use crate::compiler::modules::Role;
-        // One target's compilation is its own analysis already.
-        if targets.len() < 2 {
-            return None;
-        }
         let units: Vec<Unit> = targets
             .iter()
             .map(|t| Unit { target: Some(*t), platform: None, entry: None, with_tests: true })
             .collect();
-        let loading = crate::compiler::driver::load_programs(
-            Some(&session.workspace),
+        let shared = crate::compiler::driver::shared(
+            &session.workspace,
             &mut session.map,
             &mut session.parsed,
             &units,
-        );
-        let loaded = loading.loaded();
-
-        let mut parse_errors: crate::hash::Set<Said> = crate::hash::Set::default();
-        for m in &loaded.modules {
-            if crate::compiler::standard_library::find(&m.path).is_some() {
-                continue;
-            }
-            let (_, errors) = session.parsed.parse(session.map.text(m.file), m.file, false);
-            parse_errors.extend(errors.iter().map(said));
-        }
-        if !loading.reported().iter().all(|d| parse_errors.contains(&said(d))) {
-            return None;
-        }
-        // A module's role, as an import of it would decide it.
-        for m in &loaded.modules {
-            for path in imports(m) {
-                let Some(id) = loaded.find(path) else { continue };
-                let reached = loaded.module(id);
-                if reached.pkg.is_none() {
-                    continue;
-                }
-                let test_only = crate::build::workspace::is_test_only_path(path);
-                let agrees = match reached.role {
-                    Role::TestSource => false,
-                    Role::Source => !test_only,
-                    Role::TestOnly => test_only,
-                    Role::Entry | Role::Std | Role::Platform => true,
-                };
-                if !agrees {
-                    return None;
-                }
-            }
-        }
-        let mut shares = std::collections::BTreeMap::new();
-        for target in targets {
-            let (holds, generated_rules) = reach(&session.workspace, loaded, *target)?;
-            shares.insert(*target, Share { holds, reported: Vec::new(), generated_rules });
-        }
-
-        let opening: crate::hash::Set<Said> = loading.opening().iter().map(said).collect();
-        let analysis =
-            crate::compiler::driver::check_programs(loading, Some(&session.workspace), &session.map);
-        let mut module_of: crate::hash::Map<crate::diagnostics::FileId, usize> =
-            crate::hash::Map::default();
-        for m in &analysis.loaded.modules {
-            module_of.insert(m.file, m.id.index());
-        }
-        for d in &analysis.diagnostics.items {
-            if !opening.contains(&said(d)) && (d.span.is_none() || !module_of.contains_key(&d.span.file)) {
-                return None;
-            }
-        }
-        for share in shares.values_mut() {
-            share.reported = analysis
-                .diagnostics
-                .items
-                .iter()
-                .filter(|d| {
-                    opening.contains(&said(d))
-                        || module_of
-                            .get(&d.span.file)
-                            .is_some_and(|i| share.holds.get(*i).copied().unwrap_or(false))
-                })
-                .cloned()
-                .collect();
-        }
-        let index = std::rc::Rc::new(Index::of(&analysis));
-        Some(Shared { analysis, shares, index })
+            crate::compiler::driver::Checking::Repository,
+        )?;
+        let index = std::rc::Rc::new(Index::of(&shared.analysis));
+        let shares = shared
+            .shares
+            .into_iter()
+            .map(|(t, s)| (t, Share { holds: s.holds, reported: s.reported, generated_rules: s.generated_rules }))
+            .collect();
+        Some(Shared { analysis: shared.analysis, shares, index })
     }
 
     fn part(&self, target: TargetId) -> Option<Part<'_>> {
@@ -585,119 +513,6 @@ impl Shared {
     }
 }
 
-/// The module paths a module imports and re-exports, as written.
-fn imports(m: &ModuleData) -> impl Iterator<Item = &str> {
-    m.ast.items.iter().filter_map(|item| match item {
-        crate::parsing::tree::Item::Import(i) => Some(i.path.as_str()),
-        crate::parsing::tree::Item::ReExport(r) => Some(r.path.as_str()),
-        _ => None,
-    })
-}
-
-/// The modules one target's own compilation holds, found in a compilation of
-/// several, and the rules whose generated code it loaded.
-///
-/// What `Loader::load_unit` starts from, followed through every import. `None`
-/// where one of those starting points was loaded in a role other than the one
-/// this target gives it (see [`Shared`]).
-fn reach(
-    ws: &crate::build::workspace::Workspace,
-    loaded: &crate::compiler::modules::Loaded,
-    target: TargetId,
-) -> Option<(Vec<bool>, Vec<TargetId>)> {
-    use crate::compiler::modules::Role;
-    let pkg = ws.package(target.package);
-    // Each start, and the role the target loads it in; `None` for the standard
-    // library's, whose role is the library's own.
-    let mut starts: Vec<(String, Option<Role>)> = crate::compiler::standard_library::prelude_modules()
-        .chain(crate::compiler::standard_library::eager_modules())
-        .map(|path| (path.to_string(), None))
-        .collect();
-    let rules: Vec<TargetId> = ws
-        .closure(target)
-        .into_iter()
-        .filter(|r| {
-            !crate::build::generators::declared(ws, *r).is_empty()
-                || crate::build::generators::has_contracts(ws, *r)
-        })
-        .collect();
-    let generated = |starts: &mut Vec<(String, Option<Role>)>| {
-        if rules.is_empty() {
-            return;
-        }
-        for m in &loaded.modules {
-            if m.disk.is_none() && ws.generated.owner(&m.path).is_some_and(|r| rules.contains(&r)) {
-                starts.push((m.path.clone(), Some(Role::Source)));
-            }
-        }
-    };
-    let listed = |starts: &mut Vec<(String, Option<Role>)>,
-                  sources: &[crate::build::buildfile::Spanned<String>],
-                  role: Role| {
-        starts.extend(sources.iter().map(|s| (pkg.module_path(&s.value), Some(role))));
-    };
-    let mut loads_generators = true;
-    match target.kind {
-        RuleKind::Library => match &pkg.build.library {
-            Some(lib) => {
-                starts.push((pkg.module_path("lib.buri"), Some(Role::Source)));
-                generated(&mut starts);
-                listed(&mut starts, &lib.sources, Role::Source);
-                if let Some(testing) = &lib.testing {
-                    starts.push((pkg.module_path("testing/lib.buri"), Some(Role::TestOnly)));
-                    listed(&mut starts, &testing.sources, Role::TestOnly);
-                }
-                if let Some(suite) = &lib.test {
-                    listed(&mut starts, &suite.sources, Role::TestSource);
-                }
-            }
-            None => loads_generators = false,
-        },
-        RuleKind::Binary => match &pkg.build.binary {
-            Some(bin) => {
-                generated(&mut starts);
-                for label in ws.custom_platforms(target) {
-                    starts.push((label, Some(Role::Source)));
-                }
-                starts.push((pkg.module_path("main.buri"), Some(Role::Entry)));
-                listed(&mut starts, &bin.sources, Role::Source);
-                if let Some(suite) = &bin.test {
-                    listed(&mut starts, &suite.sources, Role::TestSource);
-                }
-            }
-            None => loads_generators = false,
-        },
-        RuleKind::Tool => match &pkg.build.tool {
-            Some(tool) => {
-                generated(&mut starts);
-                starts.push((pkg.module_path("tool.buri"), Some(Role::Source)));
-                listed(&mut starts, &tool.sources, Role::Source);
-                if let Some(suite) = &tool.test {
-                    listed(&mut starts, &suite.sources, Role::TestSource);
-                }
-            }
-            None => loads_generators = false,
-        },
-    }
-
-    let mut holds = vec![false; loaded.modules.len()];
-    let mut queue: Vec<ModuleId> = Vec::new();
-    for (path, role) in &starts {
-        let Some(id) = loaded.find(path) else { continue };
-        if role.is_some_and(|role| loaded.module(id).role != role) {
-            return None;
-        }
-        queue.push(id);
-    }
-    while let Some(id) = queue.pop() {
-        let Some(seen) = holds.get_mut(id.index()) else { continue };
-        if std::mem::replace(seen, true) {
-            continue;
-        }
-        queue.extend(imports(loaded.module(id)).filter_map(|path| loaded.find(path)));
-    }
-    Some((holds, if loads_generators { rules } else { Vec::new() }))
-}
 
 /// Where `dead-code` has spoken so far in a report, which
 /// [`check_unused_declarations`] stays quiet about.

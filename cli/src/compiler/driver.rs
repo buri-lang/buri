@@ -2,9 +2,10 @@
 
 use crate::build::actions;
 use crate::build::buildfile::Platform;
-use crate::build::workspace::{Packages, Workspace};
-use crate::compiler::modules::{Loaded, Loader, Unit};
+use crate::build::workspace::{Packages, RuleKind, TargetId, Workspace};
+use crate::compiler::modules::{Loaded, Loader, ModuleData, Unit};
 use crate::compiler::semantics::resolve::{Bodies, Checked, Checker};
+use crate::compiler::semantics::types::ModuleId;
 use crate::compiler::snapshot::{self, Opening, Snapshot};
 use crate::diagnostics::{Diagnostic, Diagnostics, FileId, SourceMap, Span};
 
@@ -259,6 +260,267 @@ pub fn load_programs(
 pub fn check_programs(loading: Loading, ws: Option<&Workspace>, map: &SourceMap) -> Analysis {
     let bodies = Bodies::In(repository_files(&loading.loaded));
     check_on(loading, ws, map, snapshot::of(Opening::Builtin, false), bodies)
+}
+
+/// Which bodies a [`shared`] compilation checks: all of them, as a build's
+/// [`analyze`] does, or the repository's, as [`analyze_program`] does.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Checking {
+    All,
+    Repository,
+}
+
+/// Several targets checked as one compilation, and each one's share of it.
+pub struct Shared {
+    pub analysis: Analysis,
+    pub shares: std::collections::BTreeMap<crate::build::workspace::TargetId, Share>,
+}
+
+/// What one target's own compilation would have held and reported.
+pub struct Share {
+    /// By module index.
+    pub holds: Vec<bool>,
+    /// What its own compilation reports, in the order it sorts in.
+    pub reported: Vec<Diagnostic>,
+    /// The rules whose generated code it loaded.
+    pub generated_rules: Vec<crate::build::workspace::TargetId>,
+}
+
+impl Share {
+    /// The modules this target's own compilation holds, in load order.
+    pub fn modules<'a>(&'a self, analysis: &'a Analysis) -> impl Iterator<Item = &'a crate::compiler::modules::ModuleData> + 'a {
+        analysis.loaded.modules.iter().filter(|m| self.holds.get(m.id.index()).copied().unwrap_or(false))
+    }
+}
+
+/// What [`Diagnostics`] deduplicates on.
+type Said = (u32, u32, u32, String);
+
+fn said(d: &Diagnostic) -> Said {
+    (d.span.file.0, d.span.start, d.span.end, d.message.clone())
+}
+
+/// Several units, one per target, loaded and checked as one compilation, so a
+/// library twenty targets depend on is checked once rather than twenty times.
+///
+/// **Each target's share has to be what its own compilation gives**, so this
+/// declines, and each target is analysed alone, anywhere that might not hold:
+///
+/// - **Checking a module does not depend on what else is loaded.** A name
+///   resolves through the module's imports, and a method through its
+///   receiver's type, whose `impl`s can only be in the type's own module
+///   (`impl-outside-type-module`), so in the compilation of anything that can
+///   name the type. Each binary's entries are its own entry module's.
+/// - **Loading reported nothing but parse errors.** A parse error is a fact
+///   about one file. Everything else the loader says can depend on the order
+///   modules were reached in (`circular-import`), is said once per compilation
+///   (a generator's diagnostics), or sits in a build file several targets
+///   share.
+/// - **Every module was loaded in the role each target would load it in.** The
+///   role is decided where a module is first reached, and the import rules
+///   read it, so a test source that something also imports could come out
+///   differently.
+/// - **Every diagnostic lands in a module's file**, which is how it is handed
+///   to the targets whose closure holds that module.
+pub fn shared(
+    ws: &Workspace,
+    map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
+    units: &[Unit],
+    bodies: Checking,
+) -> Option<Shared> {
+    use crate::compiler::modules::Role;
+    // One target's compilation is its own analysis already.
+    if units.len() < 2 {
+        return None;
+    }
+    let loading = match bodies {
+        Checking::All => load_all(Some(ws), map, cache, units),
+        Checking::Repository => load_programs(Some(ws), map, cache, units),
+    };
+    let loaded = loading.loaded();
+
+    let mut parse_errors: crate::hash::Set<Said> = crate::hash::Set::default();
+    for m in &loaded.modules {
+        if crate::compiler::standard_library::find(&m.path).is_some() {
+            continue;
+        }
+        let (_, errors) = cache.parse(map.text(m.file), m.file, false);
+        parse_errors.extend(errors.iter().map(said));
+    }
+    if !loading.reported().iter().all(|d| parse_errors.contains(&said(d))) {
+        return None;
+    }
+    // A module's role, as an import of it would decide it.
+    for m in &loaded.modules {
+        for path in imports(m) {
+            let Some(id) = loaded.find(path) else { continue };
+            let reached = loaded.module(id);
+            if reached.pkg.is_none() {
+                continue;
+            }
+            let test_only = crate::build::workspace::is_test_only_path(path);
+            let agrees = match reached.role {
+                Role::TestSource => false,
+                Role::Source => !test_only,
+                Role::TestOnly => test_only,
+                Role::Entry | Role::Std | Role::Platform => true,
+            };
+            if !agrees {
+                return None;
+            }
+        }
+    }
+    let mut shares = std::collections::BTreeMap::new();
+    for unit in units {
+        let target = unit.target?;
+        let (holds, generated_rules) = reach(ws, loaded, target)?;
+        shares.insert(target, Share { holds, reported: Vec::new(), generated_rules });
+    }
+
+    let opening: crate::hash::Set<Said> = loading.opening().iter().map(said).collect();
+    let analysis = match bodies {
+        Checking::All => check(loading, Some(ws), map),
+        Checking::Repository => check_programs(loading, Some(ws), map),
+    };
+    let mut module_of: crate::hash::Map<FileId, usize> = crate::hash::Map::default();
+    for m in &analysis.loaded.modules {
+        module_of.insert(m.file, m.id.index());
+    }
+    for d in &analysis.diagnostics.items {
+        if !opening.contains(&said(d)) && (d.span.is_none() || !module_of.contains_key(&d.span.file)) {
+            return None;
+        }
+    }
+    for share in shares.values_mut() {
+        share.reported = analysis
+            .diagnostics
+            .items
+            .iter()
+            .filter(|d| {
+                opening.contains(&said(d))
+                    || module_of
+                        .get(&d.span.file)
+                        .is_some_and(|i| share.holds.get(*i).copied().unwrap_or(false))
+            })
+            .cloned()
+            .collect();
+    }
+    Some(Shared { analysis, shares })
+}
+
+/// The module paths a module imports and re-exports, as written.
+pub(crate) fn imports(m: &ModuleData) -> impl Iterator<Item = &str> {
+    m.ast.items.iter().filter_map(|item| match item {
+        crate::parsing::tree::Item::Import(i) => Some(i.path.as_str()),
+        crate::parsing::tree::Item::ReExport(r) => Some(r.path.as_str()),
+        _ => None,
+    })
+}
+
+/// The modules one target's own compilation holds, found in a compilation of
+/// several, and the rules whose generated code it loaded.
+///
+/// What `Loader::load_unit` starts from, followed through every import. `None`
+/// where one of those starting points was loaded in a role other than the one
+/// this target gives it (see [`shared`]).
+pub(crate) fn reach(
+    ws: &crate::build::workspace::Workspace,
+    loaded: &crate::compiler::modules::Loaded,
+    target: TargetId,
+) -> Option<(Vec<bool>, Vec<TargetId>)> {
+    use crate::compiler::modules::Role;
+    let pkg = ws.package(target.package);
+    // Each start, and the role the target loads it in; `None` for the standard
+    // library's, whose role is the library's own.
+    let mut starts: Vec<(String, Option<Role>)> = crate::compiler::standard_library::prelude_modules()
+        .chain(crate::compiler::standard_library::eager_modules())
+        .map(|path| (path.to_string(), None))
+        .collect();
+    let rules: Vec<TargetId> = ws
+        .closure(target)
+        .into_iter()
+        .filter(|r| {
+            !crate::build::generators::declared(ws, *r).is_empty()
+                || crate::build::generators::has_contracts(ws, *r)
+        })
+        .collect();
+    let generated = |starts: &mut Vec<(String, Option<Role>)>| {
+        if rules.is_empty() {
+            return;
+        }
+        for m in &loaded.modules {
+            if m.disk.is_none() && ws.generated.owner(&m.path).is_some_and(|r| rules.contains(&r)) {
+                starts.push((m.path.clone(), Some(Role::Source)));
+            }
+        }
+    };
+    let listed = |starts: &mut Vec<(String, Option<Role>)>,
+                  sources: &[crate::build::buildfile::Spanned<String>],
+                  role: Role| {
+        starts.extend(sources.iter().map(|s| (pkg.module_path(&s.value), Some(role))));
+    };
+    let mut loads_generators = true;
+    match target.kind {
+        RuleKind::Library => match &pkg.build.library {
+            Some(lib) => {
+                starts.push((pkg.module_path("lib.buri"), Some(Role::Source)));
+                generated(&mut starts);
+                listed(&mut starts, &lib.sources, Role::Source);
+                if let Some(testing) = &lib.testing {
+                    starts.push((pkg.module_path("testing/lib.buri"), Some(Role::TestOnly)));
+                    listed(&mut starts, &testing.sources, Role::TestOnly);
+                }
+                if let Some(suite) = &lib.test {
+                    listed(&mut starts, &suite.sources, Role::TestSource);
+                }
+            }
+            None => loads_generators = false,
+        },
+        RuleKind::Binary => match &pkg.build.binary {
+            Some(bin) => {
+                generated(&mut starts);
+                for label in ws.custom_platforms(target) {
+                    starts.push((label, Some(Role::Source)));
+                }
+                starts.push((pkg.module_path("main.buri"), Some(Role::Entry)));
+                listed(&mut starts, &bin.sources, Role::Source);
+                if let Some(suite) = &bin.test {
+                    listed(&mut starts, &suite.sources, Role::TestSource);
+                }
+            }
+            None => loads_generators = false,
+        },
+        RuleKind::Tool => match &pkg.build.tool {
+            Some(tool) => {
+                generated(&mut starts);
+                starts.push((pkg.module_path("tool.buri"), Some(Role::Source)));
+                listed(&mut starts, &tool.sources, Role::Source);
+                if let Some(suite) = &tool.test {
+                    listed(&mut starts, &suite.sources, Role::TestSource);
+                }
+            }
+            None => loads_generators = false,
+        },
+    }
+
+    let mut holds = vec![false; loaded.modules.len()];
+    let mut queue: Vec<ModuleId> = Vec::new();
+    for (path, role) in &starts {
+        let Some(id) = loaded.find(path) else { continue };
+        if role.is_some_and(|role| loaded.module(id).role != role) {
+            return None;
+        }
+        queue.push(id);
+    }
+    while let Some(id) = queue.pop() {
+        let Some(seen) = holds.get_mut(id.index()) else { continue };
+        if std::mem::replace(seen, true) {
+            continue;
+        }
+        queue.extend(imports(loaded.module(id)).filter_map(|path| loaded.find(path)));
+    }
+    Some((holds, if loads_generators { rules } else { Vec::new() }))
 }
 
 /// Every file in the closure that the standard library did not supply.

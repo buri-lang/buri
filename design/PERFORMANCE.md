@@ -4756,6 +4756,31 @@ restored both, as `rsync -t` does. A key on the change time as well, trusted
 only once that time is older than the read, as Git does for its index, would
 be safe short of a clock stepping backwards.
 
+**A cold `buri build` checks its libraries the same way.** It checked each
+library over its whole closure, so a chain checked its first library once per
+library after it, and freed each of those analyses outside the compiler's
+phases. The libraries and tools a build checks now go through one shared
+compilation (`driver::shared`, which lint's `Shared` now wraps too), with
+every body checked as `driver::analyze` checks them. Each library prints its
+own share of the diagnostics, in the order its own check sorted them, and
+records its own reads for its clean-check record. Anywhere the share could
+differ, it declines the same way, and each library is checked alone as
+before. Cold `buri build //...`, process instructions:
+
+| Repository | Before | After | `lex+parse` | `check` | other |
+|---|---:|---:|---:|---:|---:|
+| `pkgs_deep` 800 | 138.1 G | 13.7 G (−90%) | 59.0 → 1.1 G | 54.8 → 0.5 G | 18.6 → 6.3 G |
+| `pkgs_deep` 200 | 10.8 G | 3.3 G (−69%) | 3.57 → 0.27 G | 3.59 → 0.15 G | 2.07 → 1.28 G |
+| `pkgs_layered` 40 | 5.21 G | 3.75 G (−28%) | 1.10 → 0.37 G | 0.82 → 0.18 G | 1.41 → 1.38 G |
+
+On the fixture repositories, every build prints the same thing, cold and warm,
+and writes the same objects, JavaScript outputs and cache records, with key
+hashes masked because keys hold the toolchain's identity.
+`build::profile`'s `a_cold_build_of_a_chain_of_libraries_checks_each_once`
+guards it: on `main` its loading and checking grew 3.6 times per doubling at
+100 libraries, and 1.4 times after. The teardown lands in "other", which
+also holds the bookkeeping the warm build's bound already measures.
+
 **What's left.**
 
 - **Lint's own bookkeeping is `n²` in a chain of packages.** On `pkgs_deep`,

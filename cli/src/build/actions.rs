@@ -580,6 +580,19 @@ pub fn unkeyed_reads(
     loaded: &crate::compiler::modules::Loaded,
     rule_paths: &mut RulePaths,
 ) -> Vec<PathBuf> {
+    let modules: Vec<&crate::compiler::modules::ModuleData> = loaded.modules.iter().collect();
+    unkeyed_reads_over(session, target, &loaded.generated_rules, &modules, rule_paths)
+}
+
+/// [`unkeyed_reads`] for one target's share of a compilation of several: the
+/// rules whose generated code it loaded, and the modules it holds.
+fn unkeyed_reads_over(
+    session: &Session,
+    target: TargetId,
+    generated_rules: &[TargetId],
+    modules: &[&crate::compiler::modules::ModuleData],
+    rule_paths: &mut RulePaths,
+) -> Vec<PathBuf> {
     let workspace = &session.workspace;
     let mut members: std::collections::HashSet<TargetId> = workspace.closure(target).into_iter().collect();
     let mut extra: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
@@ -590,8 +603,8 @@ pub fn unkeyed_reads(
             members.extend(platform_members);
         }
     }
-    let files = loaded.modules.iter().filter_map(|m| Some((m.disk.clone()?, m.pkg)));
-    let worked = worked_out(session, loaded, |_| true);
+    let files = modules.iter().filter_map(|m| Some((m.disk.clone()?, m.pkg)));
+    let worked = worked_out_over(session, generated_rules, modules.iter().copied(), |_| true);
     unlisted(session, &members, &extra, files, worked, rule_paths)
 }
 
@@ -713,10 +726,20 @@ fn worked_out(
     loaded: &crate::compiler::modules::Loaded,
     wanted: impl Fn(TargetId) -> bool,
 ) -> Vec<PathBuf> {
+    worked_out_over(session, &loaded.generated_rules, loaded.modules.iter(), wanted)
+}
+
+/// [`worked_out`] over some of a compilation's modules.
+fn worked_out_over<'m>(
+    session: &Session,
+    generated_rules: &[TargetId],
+    modules: impl Iterator<Item = &'m crate::compiler::modules::ModuleData>,
+    wanted: impl Fn(TargetId) -> bool,
+) -> Vec<PathBuf> {
     let workspace = &session.workspace;
-    let owners = loaded.modules.iter().filter(|m| m.disk.is_none()).filter_map(|m| workspace.generated.owner(&m.path));
+    let owners = modules.filter(|m| m.disk.is_none()).filter_map(|m| workspace.generated.owner(&m.path));
     let mut worked = Vec::new();
-    for rule in loaded.generated_rules.iter().copied().chain(owners).filter(|r| wanted(*r)) {
+    for rule in generated_rules.iter().copied().chain(owners).filter(|r| wanted(*r)) {
         worked.extend(crate::build::generators::worked_out_from(workspace, rule));
     }
     worked
@@ -920,6 +943,24 @@ pub fn record_clean_check(
     rule_paths: &mut RulePaths,
 ) {
     let reads = encode_reads(session, &unkeyed_reads(session, target, &analysis.loaded, rule_paths));
+    Cache::open(&session.root).put(key, format!("{CLEAN}{reads}").as_bytes());
+}
+
+/// [`record_clean_check`] for one library's share of a shared check
+/// ([`crate::compiler::driver::shared`]).
+pub fn record_clean_share(
+    session: &Session,
+    target: TargetId,
+    key: &ActionKey,
+    analysis: &crate::compiler::driver::Analysis,
+    share: &crate::compiler::driver::Share,
+    rule_paths: &mut RulePaths,
+) {
+    let modules: Vec<&crate::compiler::modules::ModuleData> = share.modules(analysis).collect();
+    let reads = encode_reads(
+        session,
+        &unkeyed_reads_over(session, target, &share.generated_rules, &modules, rule_paths),
+    );
     Cache::open(&session.root).put(key, format!("{CLEAN}{reads}").as_bytes());
 }
 
