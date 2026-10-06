@@ -1255,6 +1255,14 @@ const TAKEN_BY: &[(&str, usize)] = &[
     ("str.show", 0),
 ];
 
+/// The intrinsic parameters handed over on the **native** branch only: the list
+/// `core/map` splices a node's children out of. The runtime writes into it when
+/// it holds the only count (`cli/runtime/splice.rs`), and a write *inside* a
+/// list is only invisible when the caller gave that count up. JavaScript copies,
+/// so it has nothing to mark.
+const TAKEN_NATIVELY: &[(&str, usize)] =
+    &[("map.insertAt", 1), ("map.replaceAt", 1), ("map.removeAt", 1)];
+
 /// Whether an intrinsic key is one of [`TAKEN_BY`]'s four folds, whose seed is
 /// handed over on the native branch too.
 ///
@@ -1282,7 +1290,7 @@ fn is_fold(key: &str) -> bool {
 /// Whether a [`TAKEN_BY`] parameter is handed over on the native branch too:
 /// a fold's seed, and `str.show`'s receiver.
 fn taken_natively(key: &str) -> bool {
-    is_fold(key) || key == "str.show"
+    is_fold(key) || key == "str.show" || TAKEN_NATIVELY.iter().any(|(k, _)| *k == key)
 }
 
 fn infer_ownership(
@@ -1319,7 +1327,8 @@ fn infer_ownership(
     // and answer the shown `Str`, without a retain of their own.
     for (i, f) in program.funcs.iter().enumerate() {
         let FuncKind::Intrinsic(key) = &f.kind else { continue };
-        let Some((_, at)) = TAKEN_BY.iter().find(|(k, _)| *k == key.as_str()) else {
+        let native = TAKEN_NATIVELY.iter().filter(|_| !opts.sharing);
+        let Some((_, at)) = TAKEN_BY.iter().chain(native).find(|(k, _)| *k == key.as_str()) else {
             continue;
         };
         if !opts.sharing && !taken_natively(key) {

@@ -2662,6 +2662,11 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "list.sortBy",
     "list.take",
     "list.zip",
+    // `core/map`'s splices of a node's children, generic in the child type and
+    // given its stride and glue by `Extra::Owned` (`runtime_table`).
+    "map.insertAt",
+    "map.removeAt",
+    "map.replaceAt",
     // `Bounded`'s two, which take no argument at all and are generic in their
     // *return* type. Neither backend emits a call: both open-code the constant
     // from the destination's own width (`stencil/emit.rs`, `js/intrinsics.rs`),
@@ -3239,6 +3244,7 @@ mod tests {
         list.join list.length list.map list.mapCtx list.push \
         list.range \
         list.repeat list.reverse list.slice list.sortBy list.take list.zip \
+        map.insertAt map.removeAt map.replaceAt \
         number.maxValue number.minValue \
         platforms_testing_state.stateNew platforms_testing_state.statePut \
         platforms_testing_state.stateRead platforms_testing_state.stateTake \

@@ -895,6 +895,30 @@ function $list_sortBy(xs, c, order) {
   );
 }
 
+// `core/map`'s splices of a node's children. Natively they write into a list
+// nothing else holds; here they copy, because no plan says the receiver is
+// given up.
+function $map_insertAt(c, xs, at, x) {
+  const k = Math.min(Math.max(0, Number(at)), xs.length);
+  const out = xs.slice();
+  out.splice(k, 0, x);
+  return $own(out);
+}
+
+function $map_replaceAt(c, xs, at, x) {
+  const k = Number(at);
+  const out = xs.slice();
+  if (k >= 0 && k < out.length) out[k] = x;
+  return $own(out);
+}
+
+function $map_removeAt(c, xs, at) {
+  const k = Number(at);
+  const out = xs.slice();
+  if (k >= 0 && k < out.length) out.splice(k, 1);
+  return $own(out);
+}
+
 function $list_take(xs, c, n) {
   const k = Math.min(Math.max(0, Number(n)), xs.length);
   if (xs.$u === true) {
