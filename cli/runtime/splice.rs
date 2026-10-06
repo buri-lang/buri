@@ -295,8 +295,11 @@ mod tests {
         BuriList { ptr: std::ptr::null_mut(), len: 0 }
     }
 
+    /// Takes `memory::latch`, because an in-place write is what a marked block
+    /// does not get, and a case beside this one may mark every block.
     #[test]
     fn a_list_held_once_is_spliced_in_place() {
+        let _latch = crate::memory::latch();
         let xs = ints(&[1, 2, 3], 4);
         let (mut a, mut b, mut c) = (empty(), empty(), empty());
         let nine: i64 = 9;
@@ -339,6 +342,7 @@ mod tests {
 
     #[test]
     fn an_insert_past_the_capacity_grows_and_frees_the_old_block() {
+        let _latch = crate::memory::latch();
         let xs = ints(&[1, 2], 2);
         let mut out = empty();
         let nine: i64 = 9;
@@ -349,6 +353,26 @@ mod tests {
             assert!(buri_rt_cap(out.ptr) >= 24);
             buri_rt_free(out.ptr);
         }
+    }
+
+    /// A **marked** list held once is copied rather than written into: a
+    /// marked block's count of one may be borrowed by several threads
+    /// (`buri_rt_unique_cap`), so it is no licence for a write inside it.
+    #[test]
+    fn a_marked_list_held_once_is_copied_and_given_back() {
+        let _latch = crate::memory::latch();
+        crate::memory::share_now();
+        let xs = ints(&[1, 2, 3], 4);
+        let mut out = empty();
+        let nine: i64 = 9;
+        // SAFETY: the call owns the one count, and gives it back on the copy.
+        unsafe {
+            buri_rt_map_replace_at(xs.ptr, xs.len, 1, (&raw const nine).cast(), 8, None, None, std::ptr::null(), &raw mut out);
+            assert_ne!(out.ptr, xs.ptr);
+            assert_eq!(read(&out), [1, 9, 3]);
+            crate::memory::buri_rt_decref(out.ptr, None);
+        }
+        crate::memory::forget_values_may_cross_tasks();
     }
 
     #[test]
