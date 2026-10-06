@@ -1333,29 +1333,18 @@ fn scoped_alloc(payload: u64, zeroed: bool) -> Option<*mut u8> {
 unsafe fn cache_push_counted(p: *mut u8, cap: u64) -> bool {
     let pushed = CACHE.try_with(|t| {
         t.tally.add(&freed(cap));
-        if cap > CACHE_MAX_PAYLOAD {
-            t.tally.seen(&freed(cap));
-            return false;
-        }
         // SAFETY: `t` is this thread's own cell, as in `cache_pop_counted`.
         let cache = unsafe { &mut *t.cache.get() };
         let bytes = slot_bytes(cap);
-        if cache.held.saturating_add(bytes) > cache.limit {
-            // Unarmed, closed or full: the one place a push asks after the
-            // tally, and the arm below needs it open first.
-            t.tally.seen(&freed(cap));
-            if cache.armed {
-                // G6: a refusal is still an operation. See
-                // `CACHE_SWEEP_OPS`.
-                cache.tick();
-                return false;
-            }
-            // The thread's first free. Register the destructor that will
-            // drain this cache, open it, and keep the block after all.
-            cache.arm();
-            if cache.held.saturating_add(bytes) > cache.limit {
-                return false;
-            }
+        // Everything but an accepted push between two sweeps is out of line,
+        // so this closure stays small enough to inline into `buri_rt_free`
+        // rather than costing a second frame on every free.
+        if cap > CACHE_MAX_PAYLOAD
+            || cache.held + bytes > cache.limit
+            || cache.since_sweep + 1 >= CACHE_SWEEP_OPS
+        {
+            // SAFETY: forwarded.
+            return unsafe { cache_push_slow(t, p, cap) };
         }
         let slot = &mut cache.slots[cap as usize];
         // SAFETY: the caller promises a dead block, so its header is this
@@ -1364,14 +1353,59 @@ unsafe fn cache_push_counted(p: *mut u8, cap: u64) -> bool {
             (*header(p)).rc = slot.head as u64;
         }
         slot.head = p;
-        cache.held = cache.held.saturating_add(bytes);
-        cache.tick();
+        cache.held += bytes;
+        cache.since_sweep += 1;
         true
     });
     pushed.unwrap_or_else(|_| {
         retire(&freed(cap));
         false
     })
+}
+
+/// [`cache_push_counted`] past its fast path: a block too large to cache, a
+/// cache that is unarmed, closed or full, or a push that is due a sweep. The
+/// free is already in the tally.
+///
+/// # Safety
+/// As [`cache_push_counted`].
+#[cold]
+#[inline(never)]
+unsafe fn cache_push_slow(t: &ThreadHeap, p: *mut u8, cap: u64) -> bool {
+    if cap > CACHE_MAX_PAYLOAD {
+        t.tally.seen(&freed(cap));
+        return false;
+    }
+    // SAFETY: this thread's own cell, and the caller's reference to it has
+    // ended.
+    let cache = unsafe { &mut *t.cache.get() };
+    let bytes = slot_bytes(cap);
+    if cache.held.saturating_add(bytes) > cache.limit {
+        // Unarmed, closed or full: the one place a push asks after the
+        // tally, and the arm below needs it open first.
+        t.tally.seen(&freed(cap));
+        if cache.armed {
+            // G6: a refusal is still an operation. See `CACHE_SWEEP_OPS`.
+            cache.tick();
+            return false;
+        }
+        // The thread's first free. Register the destructor that will drain
+        // this cache, open it, and keep the block after all.
+        cache.arm();
+        if cache.held.saturating_add(bytes) > cache.limit {
+            return false;
+        }
+    }
+    let slot = &mut cache.slots[cap as usize];
+    // SAFETY: the caller promises a dead block, so its header is this file's
+    // to use as list storage.
+    unsafe {
+        (*header(p)).rc = slot.head as u64;
+    }
+    slot.head = p;
+    cache.held = cache.held.saturating_add(bytes);
+    cache.tick();
+    true
 }
 
 // === G2 end ================================================================
