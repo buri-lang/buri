@@ -320,3 +320,139 @@ test "rows, a region and a press call the context's effect" {
         );
     }
 }
+
+/// The context `render` walks with, when it binds `platform/effect/testing`'s
+/// filesystem double beside `Ui` and `Watch` (buri-lang/buri#250). That double
+/// keeps its fault plan, a list, in the context, so the walk takes and gives
+/// back a count on it as it hands the context to each child of a stack.
+///
+/// Before #241 nothing wrote the context slot of the walk's record, and the
+/// walk counted whatever the stack held there: the run was killed by SIGSEGV or
+/// SIGBUS, or not, depending on what else the binary held. The first file is
+/// the issue's repro exactly; the second holds the shapes beside it — one
+/// double bound to both filesystem effects under a nested stack, and a press
+/// that reads a file through the context it was rendered with.
+#[test]
+fn a_render_with_the_filesystem_double_in_the_context() {
+    let repo = workspace("filesystem-double");
+    write(&repo.join("REPO.buri"), "");
+    write(
+        &repo.join("lib/page/BUILD.buri"),
+        "library {\n    sources: []\n\n    test {\n        \
+         sources: [\"test/stack.buri\", \"test/shapes.buri\"]\n    }\n}\n",
+    );
+    write(&repo.join("lib/page/lib.buri"), "");
+    write(
+        &repo.join("lib/page/test/stack.buri"),
+        r#"from "core/fs" import { FileSystemRead };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import { alloc, fs, headless, observer, render };
+from "ui/node" import * as ui;
+
+test "a stack of texts rendered with a filesystem double bound" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+        FileSystemRead: fs(),
+    };
+    let out = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.text({ content: .Const("a") }),
+                ui.text({ content: .Const("b") }),
+            ],
+        }),
+    );
+    assert.isTrue(out.text().contains("b"));
+}
+"#,
+    );
+    write(
+        &repo.join("lib/page/test/shapes.buri"),
+        r#"from "core/fs" import { FileSystemRead, FileSystemWrite, readText };
+from "core/path" import * as path;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import {
+    alloc, fs, headless, observer, readFile, render,
+};
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+
+test "a nested stack rendered with one double bound to both filesystem effects" {
+    let files = fs().files([("a.txt", "from disk")]);
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
+    };
+    let out = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.text({ content: .Const("a") }),
+                ui.text({ content: .Const("b") }),
+                ui.stack({ styles: [], children: [ui.text({ content: .Const("c") })] }),
+            ],
+        }),
+    );
+    assert.equal(out.text(), "a b c");
+}
+
+test "a press reads the file through the context it was rendered with" {
+    let files = fs().files([("a.txt", "from disk")]);
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+        FileSystemRead: files,
+    };
+    let seen = signal(ctx, "nothing yet");
+    let out = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.text({ content: .Const("a") }),
+                ui.button({
+                    label: .Const("Load"),
+                    styles: [],
+                    onPress: .Some(fn(c) => {
+                        let read = match (readText(c, path.of(c, "a.txt"))) {
+                            .Ok(text) => text,
+                            .Err(_) => "unreadable",
+                        };
+                        let _ = seen.set(c, read);
+                    }),
+                }),
+            ],
+        }),
+    );
+    out.press("Load");
+    assert.equal(seen.get(ctx), "from disk");
+    assert.equal(files.calls(), [readFile("a.txt")]);
+}
+"#,
+    );
+
+    let mut modes = crate::e2e::build_modes();
+    modes.push(("js", &["--output=js"]));
+    for (backend, flags) in modes {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
+        cmd.current_dir(&repo).arg("test").args(flags).arg("//lib/page");
+        let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
+        assert!(
+            ran.status == 0 && ran.stdout.contains("3 passed, 0 failed"),
+            "{backend}: a render with the filesystem double in the context:\n{}\n{}",
+            ran.stdout,
+            ran.stderr
+        );
+    }
+}
