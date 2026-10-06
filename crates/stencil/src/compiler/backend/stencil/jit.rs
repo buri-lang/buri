@@ -85,6 +85,58 @@ pub enum V {
     Fall,
 }
 
+/// A stencil key, built without allocating ([`key!`]).
+///
+/// Keys are a few dozen bytes, so the bytes stay inline and a longer one moves
+/// to the heap.
+#[derive(Clone, Default)]
+pub struct Key {
+    len: usize,
+    inline: [u8; KEY_INLINE],
+    spilled: String,
+}
+
+const KEY_INLINE: usize = 32;
+
+impl Key {
+    pub fn as_str(&self) -> &str {
+        if !self.spilled.is_empty() {
+            return &self.spilled;
+        }
+        self.inline.get(..self.len).and_then(|b| std::str::from_utf8(b).ok()).unwrap_or_default()
+    }
+}
+
+impl std::fmt::Write for Key {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        if self.spilled.is_empty() {
+            let end = self.len + s.len();
+            if let Some(dst) = self.inline.get_mut(self.len..end) {
+                dst.copy_from_slice(s.as_bytes());
+                self.len = end;
+                return Ok(());
+            }
+            let head = self.as_str().to_string();
+            self.spilled = head;
+        }
+        self.spilled.push_str(s);
+        Ok(())
+    }
+}
+
+impl std::ops::Deref for Key {
+    type Target = str;
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::fmt::Display for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Clone, Copy)]
 enum Fix {
     /// A `b`/`bl` whose target is a block of the function being emitted.
@@ -2780,7 +2832,7 @@ impl<'a> Jit<'a> {
                     if let Some(k) = ent(&constants, rhs.index(), None) {
                         if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
                             let name = super::emit::binop_name(*op);
-                            let key = format!("bin/{name}/{tag}/fi/f");
+                            let key = key!("bin/{name}/{tag}/fi/f");
                             if self.has(&key) && !zero_divisor(name, tag, k) {
                                 bump(&mut imm, rhs.index());
                             }

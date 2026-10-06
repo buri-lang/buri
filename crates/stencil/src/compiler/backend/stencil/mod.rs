@@ -126,6 +126,17 @@
 //! a `Char`, `json.*`, and `core/math`'s thirteen transcendentals — is refused
 //! here for the reasons `native/conformance.rs`'s `PACKAGES` gives.
 
+/// `format!` for a stencil key, into a [`jit::Key`] rather than a `String`:
+/// the emitter spells a key or two per instruction it emits.
+macro_rules! key {
+    ($($arg:tt)*) => {{
+        let mut k = $crate::compiler::backend::stencil::jit::Key::default();
+        // A `Key` takes any length, so the write cannot fail.
+        let _ = ::std::fmt::Write::write_fmt(&mut k, ::std::format_args!($($arg)*));
+        k
+    }};
+}
+
 pub mod abi;
 pub mod asm;
 pub mod elf;
