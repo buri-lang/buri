@@ -1794,12 +1794,20 @@ impl FnLower<'_> {
 
     /// Arms in order: test, bind, guard, body. The general form, for
     /// everything the switch form declines.
+    ///
+    /// A failed guard goes on at the first later arm whose pattern isn't
+    /// [`disjoint`] from its own, past the tests that can only fail.
     fn chain(&mut self, s: ValueId, arms: &[Arm], join: BlockId) {
+        // Each arm's entry, made when first jumped to. `arms.len()` is the
+        // abort past the last arm.
+        let mut entries: Vec<Option<BlockId>> = vec![None; arms.len()];
         for (i, arm) in arms.iter().enumerate() {
-            let last = i.saturating_add(1) == arms.len();
-            let next = if last { self.unmatched() } else { self.block(&[]) };
+            let next = self.arm_entry(&mut entries, i.saturating_add(1));
             self.matched(s, &arm.pattern, next);
             if let Some(g) = &arm.guard {
+                let later = arms.get(i.saturating_add(1)..).unwrap_or_default();
+                let skip = later.iter().take_while(|a| disjoint(&arm.pattern, &a.pattern)).count();
+                let next = self.arm_entry(&mut entries, i.saturating_add(1).saturating_add(skip));
                 let c = self.expr(g);
                 let body_b = self.block(&[]);
                 // What the arm bound for itself and still owns is released on
@@ -1823,8 +1831,14 @@ impl FnLower<'_> {
             }
             let v = self.expr(&arm.body);
             self.set_term(Term::Jump(Target::new(join, vec![v])));
-            self.cur = next;
+            self.cur = self.arm_entry(&mut entries, i.saturating_add(1));
         }
+    }
+
+    /// Arm `i`'s entry block in [`FnLower::chain`], or the abort past the last.
+    fn arm_entry(&mut self, entries: &mut [Option<BlockId>], i: usize) -> BlockId {
+        let Some(slot) = entries.get_mut(i) else { return self.unmatched() };
+        *slot.get_or_insert_with(|| self.block(&[]))
     }
 
     /// [`FnLower::pattern`], then the `..rest` slices it bound, once nothing
@@ -2104,6 +2118,38 @@ impl FnLower<'_> {
             }
             _ => field,
         }
+    }
+}
+
+/// Whether no value matches both `p` and `q`. `false` where it can't tell, so
+/// a `true` is what lets [`FnLower::chain`] skip an arm.
+fn disjoint(p: &Pattern, q: &Pattern) -> bool {
+    let same_fields = |a: &[FieldPat], b: &[FieldPat]| {
+        a.iter().any(|f| {
+            b.iter().any(|g| g.index == f.index && disjoint(&f.pattern, &g.pattern))
+        })
+    };
+    match (&p.kind, &q.kind) {
+        (PatKind::Bind { sub: Some(s), .. }, _) => disjoint(s, q),
+        (_, PatKind::Bind { sub: Some(s), .. }) => disjoint(p, s),
+        (PatKind::Or(alts), _) => alts.iter().all(|a| disjoint(a, q)),
+        (_, PatKind::Or(alts)) => alts.iter().all(|a| disjoint(p, a)),
+        (
+            PatKind::Variant { con: c, variant: v, fields: f },
+            PatKind::Variant { con: d, variant: w, fields: g },
+        ) => c == d && (v != w || same_fields(f, g)),
+        (PatKind::Struct { fields: f, .. }, PatKind::Struct { fields: g, .. }) => {
+            same_fields(f, g)
+        }
+        (PatKind::Tuple(a), PatKind::Tuple(b)) => {
+            a.iter().zip(b).any(|(x, y)| disjoint(x, y))
+        }
+        // `-0` is `0`.
+        (PatKind::Int(a, m), PatKind::Int(b, n)) => a != b || (m != n && a.get() != 0),
+        (PatKind::Str(a), PatKind::Str(b)) => a != b,
+        (PatKind::Char(a), PatKind::Char(b)) => a != b,
+        (PatKind::Bool(a), PatKind::Bool(b)) => a != b,
+        _ => false,
     }
 }
 
