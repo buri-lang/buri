@@ -3645,6 +3645,7 @@ If the quiet run's ratio of wall time to CPU holds, an idle machine tests in
 - **A fair pool.** A turnstile lock in front of the seats made every worker
   queue, but handing the turnstile over is a wakeup. Seats then went out about
   100 times a second, and the manifest-id shards took 39 s instead of 3.
+  §6.38 is one that hands over only when another process waits.
 - **First-exec checks.** Three samples of `ui` cases each found a fresh
   `test-runner` still at `_dyld_start`, up to 4.6 s after launch, while macOS
   checked it. A fresh copy of a 0.5 MB program took 145 ms to run the first
@@ -3741,6 +3742,63 @@ build's `emit`. Two loops in the stencil backend were `n²` in a value's fields:
 `build::profile`'s `a_debug_builds_emission_is_linear_in_a_variants_fields`
 builds a variant of 1,000 and 2,000 fields with every derive. With only the
 slot fix it grew 2.49 times.
+
+### 6.38 A fair pool, 2026-10-06
+
+§6.35 left the pool unfair. A worker that finishes a case takes its next seat
+at once, and a waiting thread asks every 10 ms, so a corpus that gets the
+seats first keeps them. `hermeticity::hermeticity_rules`, 1 s alone, took
+45–72 s in a full run behind `repositories::snapshots`.
+
+Now a thread takes no seat while another process holding fewer seats waits
+(`cli/tests/harness/pool.rs`):
+
+```rust
+held > 0 && lock::held_by_another(&self.queue, 0, (held as i64) << 32)
+```
+
+A waiting thread holds an `fcntl` read lock on one byte of a `queue` file, at
+`held << 32 | slot`, where `held` is its process's seat count. Those locks fit
+for three reasons:
+
+- `F_GETLK` asks whether anyone poorer waits in one call. Nobody waiting is
+  the common case, and it costs that one call and no handover.
+- They belong to the process, so a process never defers to its own threads.
+- The OS drops a dead process's locks, so a crashed waiter leaves nothing
+  behind. Seats are still `flock`s, which the OS drops too.
+
+The process waiting with the fewest seats is never told to wait, so nobody
+starves, and the processes that want seats split them evenly, give or take
+one. §6.35's turnstile queued every hand-out behind a 10 ms poll. Here only a
+seat that changes process waits for one.
+
+`pool_tests::a_waiting_process_gets_the_next_seat_a_busy_one_frees` runs the
+test binary again as a busy process that fills a two-seat pool, and counts the
+seats it takes back while the test waits. The old pool took back 20 of 20,
+this one none.
+
+**A small corpus started 8 s after `repositories::snapshots`**, running the
+test binary by hand (`hermeticity_rules`):
+
+| Pool | Alone | Behind `snapshots` |
+|---|---:|---:|
+| `main` | 1.1 s | 32.0 s, 68.8 s |
+| fair | 2.8 s | 3.9 s, 0.6 s |
+
+**The suite, alternating, load 18–43:**
+
+| Pool | Wall | CPU, user + sys | `hermeticity_rules` | Manifest-id shards |
+|---|---:|---:|---:|---:|
+| `main` | 138 s, 108 s, 130 s | 555 s, 554 s, 564 s | 72 s, 45 s, 62 s | 1.2–1.8 s |
+| fair | 108 s, 105 s, 106 s | 551 s, 556 s, 556 s | 1.2 s, 1.1 s, 0.5 s | 2.6–2.9 s |
+
+`repositories::snapshots` now shares its seats, so it went from 54–74 s to
+80–92 s, still well inside the run. The manifest-id shards lose about 1.4 s to
+seats waiting a poll on their way between processes.
+
+Without the manifest ids' head start in `.config/nextest.toml`, they took
+5–7 s, against 35–52 s in §6.35. The suite read 140 s and 98 s, against 126 s
+and 106 s with it, which is noise, so the head start stays.
 
 ## 7. Profiling, on this platform
 

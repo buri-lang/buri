@@ -407,7 +407,9 @@ takes a permit from one gate shared by the run (lock files, so it spans
 nextest's processes) and the number in flight is `available_parallelism`
 however many corpora are going. A waiting thread asks for a seat every 10 ms
 through handles it opened once, because a full run spends hours of thread time
-waiting, and opening each seat per ask was about 150 CPU-seconds of it.
+waiting, and opening each seat per ask was about 150 CPU-seconds of it. No
+process takes a seat while another holding fewer waits, so a corpus that gets
+the seats first can't keep them (`design/PERFORMANCE.md` §6.38).
 Nothing else is shared — a scratch tree is
 named for the process and a counter, goldens live one directory per case, and
 no case in a corpus that comes through `run_corpus` opens a socket.
@@ -544,14 +546,9 @@ compiler cache, at load 11–25, the build took 52–71 s and the nextest half
 157 s. The build takes about 30 s more when `cli/build.rs` can't reuse a runtime
 archive from `~/.buri`. With the tests and the kept stores warm, the nextest
 half takes 96–122 s and about 560 CPU-seconds. Before `design/PERFORMANCE.md`
-§6.35, a quiet machine measured 116 s and 224 s. Two things from that section
-matter when you run it:
-
-- **Run cargo from `nix develop`.** Its cargo doesn't set `DYLD_LIBRARY_PATH`,
-  which slows every process start under cargo by 30–130 ms.
-- **The pool keeps seats with whoever holds them.** `.config/nextest.toml`
-  starts the corpora whose cases take milliseconds before the ones whose cases
-  take seconds.
+§6.35, a quiet machine measured 116 s and 224 s. **Run cargo from `nix
+develop`.** Its cargo doesn't set `DYLD_LIBRARY_PATH`, which slows every
+process start under cargo by 30–130 ms.
 
 Most of the remaining CPU is the `buri` processes the tests start and the
 linker tools they call (§6.21). On a busy machine, check a change by its
