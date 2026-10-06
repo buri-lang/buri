@@ -315,7 +315,7 @@ enum Doc {
     Nil,
     /// Never contains a newline: a comment written over several lines is
     /// several `Text`s with `HardLine` between them.
-    Text(String),
+    Text(std::borrow::Cow<'static, str>),
     /// Text that is printed and **not measured**: the comment somebody wrote at
     /// the end of a line.
     ///
@@ -421,7 +421,7 @@ mod group {
     }
 }
 
-fn text(s: impl Into<String>) -> Doc {
+fn text(s: impl Into<std::borrow::Cow<'static, str>>) -> Doc {
     Doc::Text(s.into())
 }
 
@@ -510,7 +510,7 @@ fn join(sep: Doc, items: Vec<Doc>) -> Doc {
 
 /// A comma-separated list that breaks all at once: `(a, b)`, or one item to a
 /// line with the trailing comma a broken list gets.
-fn bracketed(open: &str, items: Vec<Doc>, close: &str) -> Doc {
+fn bracketed(open: &'static str, items: Vec<Doc>, close: &'static str) -> Doc {
     if items.is_empty() {
         return text(format!("{open}{close}"));
     }
@@ -757,7 +757,11 @@ fn render(doc: &Doc) -> String {
         };
         match d {
             Doc::Nil | Doc::BreakParent => {}
-            Doc::Text(s) | Doc::Aside(s) => {
+            Doc::Text(s) => {
+                out.push_str(s);
+                pos = pos.saturating_add(s.chars().count());
+            }
+            Doc::Aside(s) => {
                 out.push_str(s);
                 pos = pos.saturating_add(s.chars().count());
             }
@@ -2169,7 +2173,7 @@ impl<'t> Build<'t> {
 
     fn expr(&mut self, e: ExprId) -> Doc {
         match self.tree().expr(e) {
-            ExprView::Int { raw, .. } | ExprView::Float { raw, .. } => text(raw),
+            ExprView::Int { raw, .. } | ExprView::Float { raw, .. } => text(raw.to_string()),
             ExprView::Str { value, .. } => text(quote(value)),
             ExprView::Char { value, .. } => text(quote_char(value)),
             ExprView::Bool { value, .. } => text(value.to_string()),
@@ -2179,7 +2183,7 @@ impl<'t> Build<'t> {
             // into one. It is here so that a caller that built a `Build` by
             // hand still prints the text rather than nothing.
             ExprView::Error { span } => self.verbatim(span),
-            ExprView::Ident { name, .. } => text(name),
+            ExprView::Ident { name, .. } => text(name.to_string()),
             ExprView::SelfValue { .. } => text("self"),
             ExprView::Ctx { .. } => text("ctx"),
             ExprView::DotVariant { name, .. } => text(format!(".{name}")),
@@ -2356,7 +2360,7 @@ impl<'t> Build<'t> {
                                     let d = self.expr(v);
                                     cat(vec![text(format!("{name}: ")), d])
                                 }
-                                None => text(name),
+                                None => text(name.to_string()),
                             };
                             (d, f.span.end)
                         }
