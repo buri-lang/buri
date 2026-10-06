@@ -188,8 +188,24 @@ const _: () = assert!(MAX_INT_ARGS <= 10 && MAX_FLOAT_ARGS <= 2);
 /// the declared type is what decides which registers clang reads the arguments
 /// out of. `sources.rs::runtime_calls` declares them; `rtcall.rs` binds them;
 /// this is the one spelling both compile.
-pub fn rt_callee(ints: usize, floats: usize, ret: &str) -> String {
-    format!("JIT_RT_{ints}_{floats}_{ret}")
+///
+/// A `Display` rather than a `String`, because the emitter spells one per
+/// runtime call and can write it without allocating.
+pub fn rt_callee(ints: usize, floats: usize, ret: &str) -> RtCallee<'_> {
+    RtCallee { ints, floats, ret }
+}
+
+/// [`rt_callee`]'s spelling.
+pub struct RtCallee<'r> {
+    ints: usize,
+    floats: usize,
+    ret: &'r str,
+}
+
+impl std::fmt::Display for RtCallee<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "JIT_RT_{}_{}_{}", self.ints, self.floats, self.ret)
+    }
 }
 
 /// The hole a **slots-only** runtime call reads its `i`th integer argument
@@ -204,11 +220,20 @@ pub fn rt_callee(ints: usize, floats: usize, ret: &str) -> String {
 ///
 /// Declared in `sources.rs`'s prelude, bound in `rtcall.rs`; this is the one
 /// spelling both compile.
-pub fn rt_slot(i: usize) -> String {
-    format!("JIT_S{i}")
+pub fn rt_slot(i: usize) -> std::borrow::Cow<'static, str> {
+    const SLOTS: [&str; MAX_INT_ARGS] =
+        ["JIT_S0", "JIT_S1", "JIT_S2", "JIT_S3", "JIT_S4", "JIT_S5", "JIT_S6", "JIT_S7", "JIT_S8", "JIT_S9"];
+    match SLOTS.get(i) {
+        Some(s) => (*s).into(),
+        None => format!("JIT_S{i}").into(),
+    }
 }
 
 /// [`rt_slot`] for a float argument, in the second register bank.
-pub fn rt_float_slot(i: usize) -> String {
-    format!("JIT_G{i}")
+pub fn rt_float_slot(i: usize) -> std::borrow::Cow<'static, str> {
+    const SLOTS: [&str; MAX_FLOAT_ARGS] = ["JIT_G0", "JIT_G1"];
+    match SLOTS.get(i) {
+        Some(s) => (*s).into(),
+        None => format!("JIT_G{i}").into(),
+    }
 }
