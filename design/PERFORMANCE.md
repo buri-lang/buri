@@ -4106,6 +4106,92 @@ the middle end builds one literally. `Scan::expr`'s sets are hashed by
 `LocalId`, and their iteration order reaches the tick order a branch scan
 reads, so dense sets need care. Dropping the program is 7% of the table.
 
+### 6.43 A build with nothing to do, 2026-10-06
+
+A warm `buri build //...` of a generated monorepo (200 libraries of four
+modules, 6 native and 6 node binaries, `/tmp/buri-perf-driver/gen.py`) took
+17.9 G instructions and a second to find that nothing had changed. Most of it
+was work a cache already held the answer to.
+
+- **A module path finds its package by lookup.** `resolve_module` tried every
+  package longest first and built `format!("{pkg}/")` for each, per import.
+  Only the path, its prefixes before a `/` and the root can own it, so those
+  are looked up. Lex+parse 14.0 G → 2.2 G.
+- **A warm native build skips the front end.** A native artifact is keyed on
+  its IR, so a no-op build still checked, lowered and hashed the whole
+  program. A record keyed on the JavaScript artifact's key, the build graph
+  and the linker names the `link` key and each unit's `codegen` key. A hit
+  places that executable and prints the same `--explain` lines.
+- **A clean library check is remembered.** `buri build //...` analyses every
+  library it names. A check with no diagnostics is recorded under the graph
+  and its closure's sources, each member's part hashed once per command. One
+  with any diagnostic is never recorded, so it prints every time.
+- **Packages are found from the listing.** `collect_packages` asked `is_dir`
+  of every entry. The listing's file types answer, and a symlink is still
+  followed. About -1.4%.
+- **One batch of reads per key.** `contribute_as` started a `parallel::map`
+  per closure member: 250 threads to read 250 small files. All members are
+  read in one batch, on one thread below 32 files. Key bytes are unchanged.
+- **One read per source per command.** `buri build` and `buri test` without
+  `--watch` keep what their keys read for the life of the process
+  (`actions::remember_reads`). A watching process never turns it on.
+- **The next link takes over the last link's directory.** A link ran in
+  `.buri/link/<link-key>`, and the key moves with any unit, so one edit
+  hard-linked every object into a fresh directory, about 0.5 ms each on APFS.
+  The directory is now named for the output. A link renames it to its private
+  name, keeps the objects it still names and drops the rest, so unchanged
+  objects are already the cache's files. An incremental link and a `--force`
+  link of 800 modules are byte-identical.
+
+**A stale hit, fixed.** A package's modules that no rule lists are importable
+(`unused-source` is a lint), but the key is built from `rule_files` before
+anything loads. Editing one left a JavaScript artifact built from its old
+bytes. Each entry now records the files its analysis read that the key didn't
+hash, with digests (`actions::unkeyed_reads`), and a hit holds only while they
+match. The native record and the library check record do the same.
+`incrementality::an_import_no_rule_lists_cannot_serve_a_stale_answer` covers
+it.
+
+`buri test` and tools had the same gap. A suite's verdict and recorded build
+now carry what its load read that the key didn't hash. A batch member counts
+only files of packages in its own closure, so one suite's edit doesn't reach
+another's record. A tool's program key adds the digests of what its last
+compile read that way, kept in the cache, and compiles to learn them when they
+no longer hold. With none, every key is what it was. A suite importing a
+library it doesn't declare (a `missing-dependency` lint, not an error) is
+still keyed without that library's sources.
+
+Instructions retired, `base` is `origin/main` at `1c674296f`, alternating:
+
+| Workload | Before | After | |
+|---|---:|---:|---:|
+| monorepo, warm `build //...` | 18.05–18.07 G | 0.68–0.72 G | -96% |
+| monorepo, warm `test //...` (400 cached) | 9.38–10.03 G | 1.02 G | -89% |
+| monorepo, cold `build //...` | 25.65–25.73 G | 13.31–13.34 G | -48% |
+| `cli/tests/example`, warm `build //...` | 230–233 M | 58–61 M | -74% |
+| `cli/tests/example`, warm `test //...` | 72–73 M | 55–57 M | -23% |
+| `cli/tests/example`, cold `build //...` | 668–670 M | 679.5–679.7 M | +1.5% |
+| `modules 800`, one edit, rebuild `//cmd/native` | 6.89 G | 3.11 G | -55% |
+| — its `link` phase | 4.17 G, 1.91 s CPU | 0.20 G, 0.04 s CPU | -95% |
+
+The warm monorepo build went from about a second to 0.05–0.1 s. The small cold
+build pays for writing the new records.
+
+**Measured dead ends:**
+
+- **Serial link staging.** Ten threads hard-linking into one directory spent
+  2.6 s of CPU where one spent 1.35 s, but wall time rose 20%. Three lanes cut
+  the CPU in half for +5–9% wall.
+- **Always-serial key reads.** Same instructions and wall, less CPU. Kept the
+  threshold, since a cold page cache likely wants the threads.
+
+**What's left:**
+
+- A cold link of N binaries still hard-links every object once per binary.
+  Naming cache entries on the command line would skip that, but `ld64`
+  records each object's path in a debug stab, so the bytes would move.
+- A JavaScript artifact re-emits the whole program after a one-function edit.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
