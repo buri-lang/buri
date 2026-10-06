@@ -3275,7 +3275,7 @@ async function $host_HostTasks_parallel(self, ctx, xs, f) {
   // Each task is handed a context of its own, which is how `core/actor` tells
   // two of them apart: see `$taskFrom`.
   const line = $lineFrom(ctx);
-  const out = await Promise.all(xs.map((x, i) => f($taskFrom(ctx, line), BigInt(i), $share(x))));
+  const out = await Promise.all(xs.map((x, i) => f($taskFrom(ctx, line), $int(i), $share(x))));
   return $own(out);
 }
 
