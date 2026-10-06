@@ -399,6 +399,11 @@ const INDEX_THRESHOLD: usize = 16;
 struct Matrix<'p> {
     rows: Rows<'p>,
     index: Option<Index>,
+    /// Each constructor's specialization so far, and how many rows it has
+    /// seen, for the matrix the reachability loop grows. That loop asks the
+    /// same question with one more row each time, so a column every row
+    /// shares, a tuple's, was `n²` rows copied over `n` arms.
+    memo: Option<std::cell::RefCell<HashMap<Ctor, (usize, Matrix<'p>)>>>,
 }
 
 #[derive(Default)]
@@ -413,13 +418,15 @@ struct Index {
 }
 
 impl Index {
-    /// The rows `specialize` must visit for `ctor`, ascending. Two sorted
-    /// lists merged rather than concatenated and sorted, so this allocates
-    /// nothing.
-    fn rows_for<'i>(&'i self, ctor: &Ctor) -> Merge<'i> {
+    /// The rows from `from` on that `specialize` must visit for `ctor`,
+    /// ascending. Two sorted lists merged rather than concatenated and sorted,
+    /// so this allocates nothing.
+    fn rows_for_from<'i>(&'i self, ctor: &Ctor, from: usize) -> Merge<'i> {
+        let a = self.by_ctor.get(ctor).map_or(&[][..], Vec::as_slice);
+        let b = self.open.as_slice();
         Merge {
-            a: self.by_ctor.get(ctor).map_or(&[][..], Vec::as_slice),
-            b: &self.open,
+            a: a.get(a.partition_point(|&r| r < from)..).unwrap_or_default(),
+            b: b.get(b.partition_point(|&r| r < from)..).unwrap_or_default(),
         }
     }
 }
@@ -459,7 +466,7 @@ impl Iterator for Merge<'_> {
 
 impl<'p> Matrix<'p> {
     fn new(rows: Rows<'p>) -> Self {
-        let mut m = Matrix { rows, index: None };
+        let mut m = Matrix { rows, index: None, memo: None };
         if m.rows.len() >= INDEX_THRESHOLD {
             m.build_index();
         }
@@ -495,6 +502,9 @@ impl<'p> Matrix<'p> {
         self.rows.truncate(len);
         if self.index.is_some() {
             self.build_index();
+        }
+        if let Some(memo) = &self.memo {
+            memo.borrow_mut().clear();
         }
     }
 
@@ -536,6 +546,23 @@ fn head_mentions(p: &Pat, c: &Ctor) -> bool {
     }
 }
 
+/// A specialization: built for the asking, or kept by the matrix it came from.
+enum Specialized<'m, 'p> {
+    Owned(Matrix<'p>),
+    Kept(std::cell::Ref<'m, Matrix<'p>>),
+}
+
+impl<'p> std::ops::Deref for Specialized<'_, 'p> {
+    type Target = Matrix<'p>;
+
+    fn deref(&self) -> &Matrix<'p> {
+        match self {
+            Specialized::Owned(m) => m,
+            Specialized::Kept(m) => m,
+        }
+    }
+}
+
 struct Ctx<'a> {
     tables: &'a crate::compiler::semantics::types::Tables,
     /// The largest array length the match distinguishes.
@@ -571,23 +598,63 @@ impl<'a> Ctx<'a> {
 
     /// Rows of the matrix whose first pattern is `ctor`, with that pattern's
     /// sub-patterns spliced in.
-    fn specialize<'p>(&self, matrix: &Matrix<'p>, ctor: &Ctor, arity: usize) -> Matrix<'p> {
-        let mut out = Rows::default();
+    fn specialize<'m, 'p>(
+        &self,
+        matrix: &'m Matrix<'p>,
+        ctor: &Ctor,
+        arity: usize,
+    ) -> Specialized<'m, 'p> {
+        let Some(memo) = &matrix.memo else {
+            let mut out = Rows::default();
+            self.specialize_from(matrix, ctor, arity, 0, &mut out);
+            return Specialized::Owned(Matrix::new(out));
+        };
+        {
+            let mut memo = memo.borrow_mut();
+            let (seen, known) = memo.entry(ctor.clone()).or_default();
+            if *seen < matrix.rows.len() {
+                let mut out = Rows::default();
+                self.specialize_from(matrix, ctor, arity, *seen, &mut out);
+                for row in out.iter() {
+                    known.push(row);
+                }
+                *seen = matrix.rows.len();
+            }
+        }
+        match std::cell::Ref::filter_map(memo.borrow(), |m| m.get(ctor).map(|(_, known)| known)) {
+            Ok(known) => Specialized::Kept(known),
+            // The entry was made a few lines up.
+            Err(_) => {
+                let mut out = Rows::default();
+                self.specialize_from(matrix, ctor, arity, 0, &mut out);
+                Specialized::Owned(Matrix::new(out))
+            }
+        }
+    }
+
+    /// [`Ctx::specialize`]'s rows from row `from` of `matrix` on, into `out`.
+    fn specialize_from<'p>(
+        &self,
+        matrix: &Matrix<'p>,
+        ctor: &Ctor,
+        arity: usize,
+        from: usize,
+        out: &mut Rows<'p>,
+    ) {
         match matrix.index.as_ref() {
             Some(ix) => {
-                for at in ix.rows_for(ctor) {
+                for at in ix.rows_for_from(ctor, from) {
                     if let Some(row) = matrix.rows.get(at) {
-                        self.specialize_row(row, ctor, arity, &mut out);
+                        self.specialize_row(row, ctor, arity, out);
                     }
                 }
             }
             None => {
-                for row in matrix.rows.iter() {
-                    self.specialize_row(row, ctor, arity, &mut out);
+                for row in matrix.rows.iter().skip(from) {
+                    self.specialize_row(row, ctor, arity, out);
                 }
             }
         }
-        Matrix::new(out)
     }
 
     fn specialize_row<'p>(
@@ -971,7 +1038,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
     // `origin` runs alongside the matrix's rows: which alternative put each one
     // there, so that a dead alternative can be shown the pattern that subsumes
     // it rather than told to go and find it.
-    let mut covering = Matrix::default();
+    let mut covering = Matrix { memo: Some(Default::default()), ..Matrix::default() };
     let mut origin: Vec<Span> = Vec::new();
     let mut reported = Vec::new();
     for (arm, alts) in arms.iter().zip(&alternatives) {
