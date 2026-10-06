@@ -568,7 +568,8 @@ fn emit_unit(
     }
     // The verifier checks *our* IR rather than LLVM's, under this
     // repository's rule for a verifier: a developer build pays for the check
-    // and a user's build does not.
+    // and a user's build does not. A user's build still gets `finish`'s
+    // internal errors, including a block left without a terminator.
     if cfg!(debug_assertions) {
         if let Err(message) = emitter.module.verify() {
             diags.push(
