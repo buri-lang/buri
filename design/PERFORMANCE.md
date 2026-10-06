@@ -3519,6 +3519,110 @@ differ only in their last `Int`.
   times.
 - **`sum`, whose `let` binds all `n` fields**, goes from 0.74 G to 1.9 G.
 
+### 6.35 The dev shell's cargo slowed every process start, 2026-10-06
+
+On a quiet 12-core machine, a fresh target directory took 116 s to build and
+224 s to test: 341 s against the five-minute budget. The test run used 1,052
+CPU-seconds, 4.7 cores on average, so it wasn't bound by CPU.
+
+**`DYLD_LIBRARY_PATH` was most of the CPU.** rust-overlay wraps cargo on
+Darwin so a sandboxed build uses Nix's curl:
+
+```sh
+# /nix/store/…-rust-minimal-1.99.0/bin/cargo
+DYLD_LIBRARY_PATH='/nix/store/…-curl-8.20.0/lib'$DYLD_LIBRARY_PATH
+export DYLD_LIBRARY_PATH
+exec "/nix/store/…-cargo-1.99.0-aarch64-apple-darwin/bin/cargo" "$@"
+```
+
+Every process under cargo inherits it: rustc, build scripts, test binaries,
+and every `buri`, `clang` and `ld64.lld` a test starts. With it set, each start
+costs far more CPU:
+
+| Process | Without | With |
+|---|---:|---:|
+| `buri version` | 2.2 ms | 32.8 ms |
+| `buri docs <id>` | 4.3 ms | 36.8 ms |
+| `clang --version`, through the cc-wrapper | 38.6 ms | 167.1 ms |
+| `ld64.lld --version` | 12.7 ms | 41.1 ms |
+| `rustc --version` | 12.5 ms | 44.2 ms |
+
+It hid well. A manifest-id shard took 0.3 s run by hand and 3.3 s under
+nextest. Any runner script fixed it, because `/bin/bash` and `/usr/bin/time`
+are SIP-protected, and macOS strips `DYLD_*` from what they start. That also
+means `/usr/bin/time -l cargo …` measures the slow path, and a test binary
+started from a shell measures the fast one. Part of §6.21's "half of
+`ld64.lld` and 90% of the driver run before `main`" may have been this.
+
+The dev shell now puts the unwrapped cargo first on `PATH` (`flake.nix`). A
+shell isn't a sandbox, so it uses the system's curl, as rustup's cargo does.
+`nix build` still uses the wrapped one, and CI uses rustup.
+
+**The pool keeps seats with whoever holds them.** A worker that finishes a
+case takes its next seat at once, and waiters ask every 10 ms
+(`cli/tests/harness/pool.rs`). So a corpus that gets the seats keeps them
+until it runs out of cases. `repositories::snapshots`, whose cases run for
+seconds, got them first. The manifest-id shards, 2,000 processes of a few
+milliseconds each, then held four test slots for 35–52 s, and the
+rejected-program shards held seven more. `.config/nextest.toml` now starts
+the cross test and the millisecond-case corpora first, and the manifest-id
+shards take 3 s.
+
+**The suite, alternating, tests and kept stores warm, load 11–55:**
+
+| Run | Wall | CPU, user + sys |
+|---|---:|---:|
+| `main` | 177 s, 161 s | 1,081 s, 1,068 s |
+| unwrapped cargo | 116 s, 132 s, 96 s | 584 s, 561 s, 563 s |
+| unwrapped cargo and the new schedule | 99 s, 122 s, 96 s, 116 s | 563 s, 565 s, 558 s, 559 s |
+
+The unwrapped cargo saves 500 CPU-seconds, 47%. At this load the schedule
+doesn't separate from noise, because other agents held the cores. Its saving
+is slots: 11 slots idle for about 40 s is 440 slot-seconds, or up to 37 s of
+wall time on an idle machine.
+
+**From a fresh target directory with no compiler cache**, building then
+testing, load 13–25:
+
+| Run | Build | Test | Total |
+|---|---:|---:|---:|
+| `main`, runtime archive stored | 164 s | 237 s | 401 s |
+| this change, runtime archive stored | 65 s | 157 s | 222 s |
+
+The `main` build is an outlier; two more builds of each side took 55–59 s and
+52–71 s. A build whose environment hasn't built a runtime archive yet pays
+`cli/build.rs`'s nested cargo on its critical path: 74 s, against 52 s for the
+whole build without it. The store's key hashes the whole environment
+(`hash_environment`), so the first build in a changed shell misses once,
+including the first build after this change.
+
+If the quiet run's ratio of wall time to CPU holds, an idle machine tests in
+224 × 560 / 1,052 ≈ 119 s. With a 52–74 s build, that's 170–195 s.
+
+**Measured and left:**
+
+- **A wider pool.** Twice `available_parallelism` took 112 s and 119 s against
+  105 s and 106 s at the default width, alternating at load 17–24.
+- **A fair pool.** A turnstile lock in front of the seats made every worker
+  queue, but handing the turnstile over is a wakeup. Seats then went out about
+  100 times a second, and the manifest-id shards took 39 s instead of 3.
+- **First-exec checks.** Three samples of `ui` cases each found a fresh
+  `test-runner` still at `_dyld_start`, up to 4.6 s after launch, while macOS
+  checked it. A fresh copy of a 0.5 MB program
+  took 145 ms to run the first time and 31 ms after. Only fewer new
+  executables per run would help, and that's `build/link.rs`'s job.
+- **`buri-stencil`'s build script**, 2.6 s alone and 7 s in a cold build,
+  where it delays `buri`'s compile by about 5 s. Its three targets build one
+  after another, each split across `NUM_JOBS` compiles.
+- **The hostile-schema tests**, 57 s each in the quiet run, took 0.2–2.3 s in
+  every run here, fresh target directories included. That's a first-run cost
+  on that machine, not the tests.
+- **nextest's `LEAK`.** Two of ten runs marked one test leaky in the first
+  seconds: a pool test, which starts no process, and the manifest-id
+  partition check, which waits for its one child. Neither reproduced in
+  fourteen runs of those tests alone. With no child to leak, it's nextest
+  missing its 100 ms leak window while dozens of short tests exit together.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

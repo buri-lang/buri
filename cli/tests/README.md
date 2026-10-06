@@ -539,17 +539,24 @@ cargo clippy -p buri --all-targets --features backend-llvm
 second clippy. On a quiet ten-core M-series mac it is 122 s warm and 176 s after
 a `cli/src` edit, which is the column that matters because it is the loop.
 
-**That number is stale, and the first line alone is over budget once it has
-to build.** With the tests already built, its nextest half took 277 s on
-2026-10-05, at load 26–81: 1,200 CPU-seconds, 842 user and 360 system. It's
-bound by processor time, not by how the tests are scheduled. Getting under the
-line takes the compiler doing less work per case, not a different split.
-`design/PERFORMANCE.md` §6.21 says where that work is: mostly the `buri`
-processes the tests start and the linker tools they call. The standard library
-isn't on that list. Every process checks it once and every analysis in it
-shares the result, which is 2% of the suite's CPU (§6.28). On a machine this busy, check
-whether a change did that by its instructions retired rather than its wall
-time: one run per side reads to within about 1% (`design/PERFORMANCE.md` §8).
+**The first line's numbers, 2026-10-06.** From a fresh target directory with no
+compiler cache, at load 11–25, the build took 52–71 s and the nextest half
+157 s. The build takes about 30 s more when `cli/build.rs` can't reuse a runtime
+archive from `~/.buri`. With the tests and the kept stores warm, the nextest
+half takes 96–122 s and about 560 CPU-seconds. Before `design/PERFORMANCE.md`
+§6.35, a quiet machine measured 116 s and 224 s. Two things from that section
+matter when you run it:
+
+- **Run cargo from `nix develop`.** Its cargo doesn't set `DYLD_LIBRARY_PATH`,
+  which slows every process start under cargo by 30–130 ms.
+- **The pool keeps seats with whoever holds them.** `.config/nextest.toml`
+  starts the corpora whose cases take milliseconds before the ones whose cases
+  take seconds.
+
+Most of the remaining CPU is the `buri` processes the tests start and the
+linker tools they call (§6.21). On a busy machine, check a change by its
+instructions retired rather than its wall time: one run per side reads to
+within about 1% (`design/PERFORMANCE.md` §8).
 
 **Why the feature leg is three lines rather than one.** A plain
 `cargo test -p buri --features backend-llvm` runs 917 tests, and 843 of them are
