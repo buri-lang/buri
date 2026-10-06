@@ -4356,6 +4356,62 @@ optimized still costs 83% of the first run, so cleaner IR could save at most
 build the code-generation pass pipeline, which the C API builds again for
 every module.
 
+### 6.46 The lexer's constant and the shared prelude, 2026-10-06
+
+A second front-end round after §6.41. These are instructions per repetition,
+`main` at `526fe94b` against the four commits below. `check` is the `sema`
+child minus the `load` child.
+
+| Corpus | `lex` | `lex+parse` | `check` |
+|---|---:|---:|---:|
+| `mixed-100k` | 89.4 → 76.5 M (−14%) | 196.9 → 181.8 M (−7.7%) | 451 → 441 M (−2.2%) |
+| `comment-heavy-100k` | 107.0 → 69.8 M (−35%) | 162.4 → 126.9 M (−22%) | 253 → 246 M |
+| `mixed-many-files-100k` | 102.4 → 91.3 M (−11%) | 225.7 → 211.3 M (−6.4%) | 405 → 379 M (−6.5%) |
+| `match-heavy-100k` | 83.6 → 73.8 M (−12%) | 179.4 → 166.7 M (−7.1%) | 437 → 432 M |
+
+Each lexer change, measured against the one before it:
+
+| Change | `mixed-100k` lex | `comment-heavy-100k` lex |
+|---|---:|---:|
+| The one space after a token is stepped over before the `match` | −6.6% | |
+| A `//` comment's end is found with `str::find`, which is `memchr` | −5.3% | −12.8% |
+| A `Comment` holds where its text is, not a `String` copy | −1.3% | −22% |
+
+A file of one-letter words separated by spaces made the first one plain: a
+word cost 126 instructions, and the space after it about 29 of them, all
+spent on a trip through the jump table and the blank-run loop. It's 97 now.
+
+§6.5's dead end for comments measured lex+parse *time* on `mixed`, where a
+word-at-a-time scan is under the noise. Measured in instructions, and on
+comments, it's the largest single lexer change here.
+
+**Every module shares one prelude table.** `resolve_scopes` built each
+module's `names` by copying its own declarations, then every prelude name, a
+`String` each. `ModuleScope` now keeps only its named imports:
+
+```rust
+scope.name("Option")      // imports, then `own`, then the shared prelude
+scope.visible()           // each visible name once, in no particular order
+```
+
+The prelude is one `Arc<Prelude>` per compilation. The language server's nine
+reads moved to `name` and `visible`. `mixed-many-files-100k` gains most,
+because it has the most modules per line.
+
+Formatted output and token shapes are identical on all 7,806 checked-in
+`.buri` files and six pinned corpora. The full workspace suite and the LLVM
+`native` suite pass.
+
+**Measured and dropped:** skipping the final resolution walk in a body that
+made no type variable read within noise. Nearly every body makes one, for a
+literal.
+
+**What's left.** Identifiers now cost about 70 instructions each, and the
+parser about 110 per token, spread across the descent with no single hot spot.
+Dropping a `Checked` is still about a tenth of a `sema` repetition: one `free`
+per `Box<Expr>` and `Vec` of the typed tree, which `middle` reads and
+rewrites.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
