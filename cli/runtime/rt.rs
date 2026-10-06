@@ -920,9 +920,11 @@ fn thread_loop() {
             arm();
             armed = true;
             task.done.store(true, Ordering::Release);
-            wake_waiters(&task);
-            if let Some(latch) = &task.latch {
-                latch.arrive();
+            // A fan-out's step is waited for through its latch and nothing
+            // else, so its waiter list, a boxed lock, is never made.
+            match &task.latch {
+                Some(latch) => latch.arrive(),
+                None => wake_waiters(&task),
             }
         } else if task
             .state
