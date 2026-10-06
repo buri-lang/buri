@@ -387,9 +387,9 @@ pub fn read_manifest(dir: &Path) -> Option<Vec<Row>> {
     Some(rows)
 }
 
-/// `.buri/link/<link-key>`, the directory one link runs in.
-pub fn dir(root: &Path, link_key: &str) -> PathBuf {
-    root.join(".buri/link").join(link_key)
+/// `.buri/link/<name>`, the directory one output's links run in.
+pub fn dir(root: &Path, name: &str) -> PathBuf {
+    root.join(".buri/link").join(name)
 }
 
 // ---------------------------------------------------------------------------
@@ -2665,17 +2665,25 @@ pub fn run(
     let work = linker.private();
     // A directory a killed process of the same id left behind.
     let _ = std::fs::remove_dir_all(work.dir());
-    let _ = std::fs::create_dir_all(work.dir());
-    let _ = std::fs::write(work.dir().join("manifest"), manifest_text(rows));
     let unchanged: Vec<usize> =
         rows.iter().enumerate().filter(|(_, r)| r.cached).map(|(i, _)| i).collect();
-    // An unchanged object the last link left is the same file again, so the
-    // link's own check finds it there rather than writing the bytes anew.
-    for unit in unchanged.iter().filter_map(|&i| units.get(i)) {
-        if let (Some(prior), Some(path)) = (linker.object_path(&unit.name), work.object_path(&unit.name)) {
-            let _ = std::fs::hard_link(prior, path);
+    // The last link's directory, taken whole. Its objects this link still
+    // names stay, and staging finds each is already the cache's file or holds
+    // the bytes; everything else in it goes. Hard-linking every object into a
+    // fresh directory cost about half a millisecond each on APFS.
+    if std::fs::rename(linker.dir(), work.dir()).is_ok() {
+        keep_only_objects(work.dir(), units);
+    } else {
+        let _ = std::fs::create_dir_all(work.dir());
+        // An unchanged object the last link left is the same file again, so the
+        // link's own check finds it there rather than writing the bytes anew.
+        for unit in unchanged.iter().filter_map(|&i| units.get(i)) {
+            if let (Some(prior), Some(path)) = (linker.object_path(&unit.name), work.object_path(&unit.name)) {
+                let _ = std::fs::hard_link(prior, path);
+            }
         }
     }
+    let _ = std::fs::write(work.dir().join("manifest"), manifest_text(rows));
     let linked = work.link(units, &unchanged, out, opts);
     publish(work.dir(), linker.dir());
     if let Err(mut diagnostics) = linked {
@@ -2694,6 +2702,26 @@ pub fn run(
     // again. A caller that does not is a caller that drops this, and dropping
     // it is what removes the file — see [`Staged`].
     Ok(Staged { path: work.claimed() })
+}
+
+/// Empties a link directory taken over from the last link of its output, but
+/// for the objects this link names.
+fn keep_only_objects(dir: &Path, units: &[Emitted]) {
+    let names: std::collections::HashSet<&std::ffi::OsStr> =
+        units.iter().map(|u| std::ffi::OsStr::new(u.name.as_str())).collect();
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.filter_map(Result::ok) {
+        let is_file = entry.file_type().is_ok_and(|t| t.is_file());
+        if is_file && names.contains(entry.file_name().as_os_str()) {
+            continue;
+        }
+        let path = entry.path();
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            let _ = std::fs::remove_dir_all(&path);
+        } else {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
 }
 
 /// Puts a finished link's directory where the shared one is, or drops it.

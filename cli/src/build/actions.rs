@@ -2333,7 +2333,11 @@ fn link_cached(
     let runtime = link::runtime_archive_for(&objects.units);
     let key = link_key(output, flags, &linker, &objects.keys, runtime);
     let cache = Cache::open(root);
-    let linker = linker.in_dir(link::dir(root, key.as_str())).from_cache(cache.clone());
+    // Named for what is linked, not for the key: the next link of this output
+    // takes the directory over, and every object it still uses is already
+    // there ([`link::run`]).
+    let place = ActionKey::of(format!("{label}\n{}\n{}\n{prefix}", output.platform_label(), flags.mode.name()).as_bytes());
+    let linker = linker.in_dir(link::dir(root, place.as_str())).from_cache(cache.clone());
     let explain_link = |status: crate::build::cache::Status| {
         crate::build::cache::explain(flags.explain, status, Action::Link, label, &output.platform_label(), &key);
     };
