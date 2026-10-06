@@ -463,6 +463,16 @@ struct Function<'ctx> {
     /// Empty for the generated helpers, which carry no attributes at all and
     /// so have nothing to be right or wrong about.
     based: Vec<bool>,
+    /// A tag or a field read out of a value in registers, by the value and
+    /// [`Read`]: built once, where the value is defined ([`Unit::read_once`]).
+    reads: Map<(usize, Read), BasicValueEnum<'ctx>>,
+}
+
+/// What [`Unit::read_once`] read out of a value.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Read {
+    Tag,
+    Field(usize),
 }
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
@@ -489,6 +499,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             entry,
             divmod: None,
             observed: Observed::clean(),
+            reads: Map::default(),
             based: argument_based(
                 code,
                 &Boxes::new(self.program, self.tables, self.reprs.layouts()),
@@ -1485,12 +1496,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return;
         }
         let (start, end) = range;
-        // Only the field's own slots: the rest of a wide struct is not read.
-        let taken = self.pieces_range(&slots, whole, start..end);
         let want = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         // A boxed field holds the block's pointer, so the value is the bytes it
         // names — one load per slot, `stencil/emit.rs`'s `unbox_from`.
         if self.boxed_fields(code.ty_of(agg)).get(index).copied().unwrap_or(false) {
+            let taken = self.pieces_range(&slots, whole, start..start.saturating_add(1));
             let Some(BasicValueEnum::PointerValue(block)) = taken.first().copied() else {
                 return;
             };
@@ -1499,8 +1509,61 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.set(state, dest, value);
             return;
         }
-        let value = self.assemble(&want, &taken);
+        // Only the field's own slots: the rest of a wide struct is not read.
+        let value = self.read_once(state, whole, Read::Field(index), |this| {
+            let taken = this.pieces_range(&slots, whole, start..end);
+            this.assemble(&want, &taken)
+        });
         self.set(state, dest, value);
+    }
+
+    /// `read` of `of`, a value in registers, built right after `of` is defined
+    /// and once per function, so every later read is that one.
+    ///
+    /// A match is a chain of blocks each testing the same value, and `opt`'s
+    /// first `SimplifyCFG` folds the chain into a `switch` only where each
+    /// block holds nothing but the compare and the branch. A `zext` or an
+    /// `extractvalue` of its own in every block left the chain to InstCombine,
+    /// which asks every dominating branch about every compare: `n²` in the
+    /// arms (PERFORMANCE.md §6.33). `read` must be pure: it may move earlier.
+    fn read_once(
+        &mut self,
+        state: &mut Function<'ctx>,
+        of: BasicValueEnum<'ctx>,
+        what: Read,
+        read: impl FnOnce(&mut Self) -> BasicValueEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
+        use inkwell::values::{AsValueRef, InstructionOpcode};
+        let key = (of.as_value_ref() as usize, what);
+        if let Some(done) = state.reads.get(&key) {
+            return *done;
+        }
+        let here = self.builder.get_insert_block();
+        match of.as_instruction_value() {
+            Some(def) => {
+                // A block parameter's phi is followed by its siblings.
+                let mut next = def.get_next_instruction();
+                while let Some(phi) = next.filter(|i| i.get_opcode() == InstructionOpcode::Phi) {
+                    next = phi.get_next_instruction();
+                }
+                match (next, def.get_parent()) {
+                    (Some(at), _) => self.builder.position_before(&at),
+                    (None, Some(block)) => self.builder.position_at_end(block),
+                    (None, None) => {}
+                }
+            }
+            // An argument or a constant: the entry block has it, before its jump.
+            None => match state.entry.get_terminator() {
+                Some(jump) => self.builder.position_before(&jump),
+                None => self.builder.position_at_end(state.entry),
+            },
+        }
+        let value = read(self);
+        if let Some(here) = here {
+            self.builder.position_at_end(here);
+        }
+        state.reads.insert(key, value);
+        value
     }
 
     /// The field of type `dest` at byte `at` of a value held in memory at
@@ -1551,7 +1614,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         let Some(enum_repr) = enum_repr else { return };
         let whole = self.get(state, agg);
-        let tag = self.tag_of(&slots, &enum_repr, none_variant, some_variant, whole);
+        let tag = if repr::in_memory(&slots) {
+            self.tag_of(&slots, &enum_repr, none_variant, some_variant, whole)
+        } else {
+            self.read_once(state, whole, Read::Tag, |this| {
+                this.tag_of(&slots, &enum_repr, none_variant, some_variant, whole)
+            })
+        };
         self.set(state, dest, tag);
     }
 
@@ -4637,6 +4706,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             divmod: None,
             observed: Observed::clean(),
             based: Vec::new(),
+            reads: Map::default(),
         };
         let first: PointerValue<'ctx> = value
             .get_nth_param(0)
