@@ -3482,10 +3482,28 @@ allocator grow with values times the blocks they span. Two measurements:
   costs half as much. That's a call per count at run time, and `opt` took
   about 8 G more on the longer blocks, so it's not done.
 
-`lower` makes it worse: it shows every hole before joining the first piece, so
-all the converted strings are live at once too. Showing each piece's holes
-next to its join would shrink the live set. It wouldn't change the growth,
-since the program's own lets stay live.
+`lower` made it worse: it showed every hole before joining the first piece, so
+all the converted strings were live at once too. Now each piece's holes are
+shown next to that piece's join (`FnLower::template_pieces`), and
+`native::llvm`'s `a_long_templates_holes_are_converted_beside_their_join`
+holds it. On a template of 300 `Int` holes, `llc -O2 -time-passes`:
+
+```text
+Greedy Register Allocator   229 → 85 M
+Live Interval Analysis       21 → 6 M
+Total                      1.52 → 1.29 G
+```
+
+`long_template`'s emit phase under `--release`:
+
+| Holes | Before | After |
+|---:|---:|---:|
+| 100 | 2.75 G | 2.70 G |
+| 200 | 6.40 G | 6.12 G |
+| 400 | 15.3 G | 14.4 G |
+| 800 | 36.9 G | 34.5 G |
+
+The growth doesn't change, since the program's own lets stay live.
 
 ### 6.34 A derived function reads a wide payload where it uses it, 2026-10-06
 
