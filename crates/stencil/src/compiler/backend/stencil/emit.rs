@@ -65,6 +65,13 @@ const RC_INLINE: u32 = 2;
 /// cost more than the walk.
 const RC_LIGHT: u32 = 4;
 
+/// The heaviest value, by `Counts::weight`, whose reference operation is
+/// written out where it happens. A heavier one calls its type's glue: a walk
+/// is a test per counted variant and an operation per counted field, and a
+/// function makes a reference operation per arm or per field it reads, so
+/// writing each one out made a match over `n` counted variants `n²` code.
+const RC_OUT_OF_LINE: u32 = 16;
+
 pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
     Some(match p {
         Prim::Bool => ("u64", 64, false),
@@ -872,9 +879,33 @@ impl<'a> Jit<'a> {
         // instruction `middle::rc` emits.
         let ty = &prog.type_info(id).ty;
         let at = st.at(value);
-        if let Err(why) = self.walk_rc(st, ty, at, op, 0) {
+        // A heavy walk goes through the type's glue, so that a function
+        // holding `n` reference operations on an enum of `n` counted variants
+        // is not `n²` tests (PERFORMANCE.md §6.32).
+        let done = if self.rc_weight(ty) > RC_OUT_OF_LINE {
+            self.walk_out_of_line(st, *ty, at, op)
+        } else {
+            self.walk_rc(st, ty, at, op, 0)
+        };
+        if let Err(why) = done {
             self.unsupported(why);
         }
+    }
+
+    /// `op` over a value's counted blocks through its type's glue,
+    /// `fn(*mut u8)`, handed the value's address.
+    fn walk_out_of_line(&mut self, st: &mut Fn2, ty: Ty, at: u32, op: Op) -> Result<(), String> {
+        let sym = self.helper(Helper::Walk { ty, op });
+        let addr = st.scratch + (super::rtcall::RAW_WORD + 3) * 8;
+        self.emit(
+            "lea",
+            &[
+                ("JIT_D", V::I(u64::from(addr))),
+                ("JIT_A", V::I(u64::from(at))),
+                ("JIT_CONT", V::Fall),
+            ],
+        );
+        self.c_call_sym(sym, st, &[Src::Word(addr)], &[], 0, "v")
     }
 
     /// `op` over one value's counted blocks, at frame offset `at`
@@ -1018,17 +1049,7 @@ impl<'a> Jit<'a> {
         // [`RC_DEPTH`]; the glue starts its own count from zero.
         let light = depth + 2 < RC_DEPTH && self.rc_weight(&f.ty) <= RC_LIGHT;
         if compound && depth >= RC_INLINE && !light {
-            let sym = self.helper(Helper::Walk { ty: f.ty, op });
-            let addr = st.scratch + (super::rtcall::RAW_WORD + 3) * 8;
-            self.emit(
-                "lea",
-                &[
-                    ("JIT_D", V::I(u64::from(addr))),
-                    ("JIT_A", V::I(u64::from(at))),
-                    ("JIT_CONT", V::Fall),
-                ],
-            );
-            return self.c_call_sym(sym, st, &[Src::Word(addr)], &[], 0, "v");
+            return self.walk_out_of_line(st, f.ty, at, op);
         }
         self.walk_rc(st, &f.ty, at, op, depth + 1)
     }
