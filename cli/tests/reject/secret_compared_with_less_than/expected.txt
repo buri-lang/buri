@@ -1,0 +1,13 @@
+error: `Secret<Str>` does not implement `Ordered` [missing-impl]
+  --> cmd/secret_compared_with_less_than/main.buri:15:38
+   |
+15 |   let _ = io.println(ctx, "before: ${a < b}").ignore();
+   |                                      ^^^^^
+   |
+   = conformance is nominal: a type satisfies a trait only where a declaration says so
+   = fix: add `derive Ordered for Secret<Str>;` in that type's own module, or write `impl Ordered for Secret<Str> { ... }` there
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

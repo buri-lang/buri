@@ -1,0 +1,12 @@
+error: `Config` cannot derive `FromJson`: `apiKey` has type `Secret<Str>` [underivable-field]
+  --> cmd/secret_in_a_derived_from_json/main.buri:13:1
+   |
+13 | derive FromJson for Config;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a derived implementation is a fold over the type's components, and `Secret<Str>` does not satisfy `FromJson`
+   = fix: make `Secret<Str>` satisfy `FromJson` first — `derive FromJson for Secret<Str>;` in its own module — or drop `FromJson` from this `derive`
+
+     Make the component's type satisfy the trait first, with a derive in its own
+     module or an impl, or drop the trait from this derive.
+

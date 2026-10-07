@@ -170,6 +170,8 @@ pub const MODULES: &[StdModule] = &[
     // hand-written deflate is the PNG writer's and answers to no Buri name.
     m("core/compression", include_str!("sources/compression.buri")),
     m("core/hash", include_str!("sources/hash.buri")),
+    // Above `core/crypto` and `core/env`, which take and answer a `Secret`.
+    m("core/secret", include_str!("sources/secret.buri")),
     m("core/crypto", include_str!("sources/crypto.buri")),
     // Above `core/crypto` rather than beside `core/bytes`: `version4` is
     // sixteen octets from `randomBytes`, so the module that mints one sits on

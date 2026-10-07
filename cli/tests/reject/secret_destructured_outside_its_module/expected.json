@@ -1,0 +1,1 @@
+{"severity":"error","message":"field `0` of `Secret` is private to its module","code":"private-to-module","location":{"file":"cmd/secret_destructured_outside_its_module/main.buri","line":13,"column":7,"endLine":13,"endColumn":19,"text":"  let Secret(text) = key;"},"fix":"add `export` to `0`, or read it through a method","notes":[],"related":[]}

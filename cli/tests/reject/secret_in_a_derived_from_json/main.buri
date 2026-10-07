@@ -1,0 +1,23 @@
+// EXPECT: `Config` cannot derive `FromJson`
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+from "core/secret" import * as secret;
+from "core/secret" import { Secret };
+from "core/json" import * as json;
+from "core/json" import { FromJson };
+
+// No `FromJson` either: a secret comes in through `secret.of`, where the
+// program says it is one.
+
+derive FromJson for Config;
+struct Config {
+    export region: Str,
+    export apiKey: Secret<Str>,
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "decoded").ignore();
+  .Ok(())
+}

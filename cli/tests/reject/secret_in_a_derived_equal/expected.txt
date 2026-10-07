@@ -1,0 +1,25 @@
+error: `Login` cannot derive `Equal`: `password` has type `Secret<Str>` [underivable-field]
+  --> cmd/secret_in_a_derived_equal/main.buri:11:1
+   |
+11 | derive Equal for Login;
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a derived implementation is a fold over the type's components, and `Secret<Str>` does not satisfy `Equal`
+   = fix: make `Secret<Str>` satisfy `Equal` first — `derive Equal for Secret<Str>;` in its own module, or an `impl` — or drop `Equal` from this `derive`
+
+     Make the component's type satisfy the trait first, with a derive in its own
+     module or an impl, or drop the trait from this derive.
+
+error: `Login` does not implement `Equal` [missing-impl]
+  --> cmd/secret_in_a_derived_equal/main.buri:20:36
+   |
+20 |   let _ = io.println(ctx, "same: ${a == a}").ignore();
+   |                                    ^^^^^^
+   |
+   = conformance is nominal: a type satisfies a trait only where a declaration says so
+   = fix: add `derive Equal for Login;` in that type's own module, or write `impl Equal for Login { ... }` there
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

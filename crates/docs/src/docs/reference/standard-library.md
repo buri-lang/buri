@@ -630,6 +630,56 @@ Noll's for FNV-1a, the CRC-32C check value and RFC 3720 B.4's iSCSI cases, and
 the SipHash-2-4 reference table. So the answer is the same on both backends, and
 it is the answer another implementation gives.
 
+## Secrets
+
+[`core/secret`](../../../../stdlib/src/compiler/standard_library/sources/secret.buri) — a
+`Secret<T>` is a value that shows as `***`.
+
+```buri run
+from "core/io" import * as io;
+from "core/secret" import * as secret;
+from "core/secret" import { Secret };
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+derive Show for Config;
+struct Config {
+    region: Str,
+    apiKey: Secret<Str>,
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let config = Config { region: "eu-west-1", apiKey: secret.of("hunter2") };
+    let _ = io.println(ctx, "${config.show(ctx)}").ignore();
+    let _ = io.println(ctx, "Bearer ${config.apiKey.reveal()}").ignore();
+    .Ok(())
+}
+```
+
+```stdout
+Config { region: "eu-west-1", apiKey: *** }
+Bearer hunter2
+```
+
+- `secret.of(value)` wraps a value and `reveal()` unwraps it. The field is
+  private, so there's no other way in or out.
+- `map` and `mapCtx` change the value without revealing it, such as
+  `Secret<Str>` to `Secret<[U8]>` with `bytes.toUtf8`.
+- A derived `Show` calls the field's own, so a `Secret` stays masked in any
+  struct, enum, `Option` or list.
+- A template hole refuses it, and a struct holding one: `"${config}"` doesn't
+  compile, `config.show(ctx)` does.
+- There's no `Equal`, `Ordered`, `Hash`, `ToJson` or `FromJson`, so a secret
+  can't leak through a comparison report or a serializer, and a struct holding
+  one can't derive them. Build a body that carries it by hand, with `reveal()`.
+
+A `Secret` is its value and nothing more, so wrapping and revealing are free.
+Nothing is protected after `reveal()`, and nothing zeroes the memory.
+
 ## Cryptography
 
 [`core/crypto`](../../../../stdlib/src/compiler/standard_library/sources/crypto.buri) — SHA-256,

@@ -1,0 +1,17 @@
+// EXPECT: `Secret<Str>` does not implement `ToJson`
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+from "core/secret" import * as secret;
+from "core/secret" import { Secret };
+from "core/json" import * as json;
+
+// No `ToJson`, so a secret cannot reach a log line or a response body through
+// a serializer. Build the body by hand with `reveal()` where it has to go out.
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let key = secret.of("hunter2");
+  let _ = io.println(ctx, json.stringify(ctx, json.encode(ctx, key))).ignore();
+  .Ok(())
+}

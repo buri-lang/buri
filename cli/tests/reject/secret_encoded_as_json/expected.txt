@@ -1,0 +1,13 @@
+error: `Secret<Str>` does not implement `ToJson` [missing-impl]
+  --> cmd/secret_encoded_as_json/main.buri:15:47
+   |
+15 |   let _ = io.println(ctx, json.stringify(ctx, json.encode(ctx, key))).ignore();
+   |                                               ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `Secret<Str>` implements `Show`, but not `ToJson`
+   = fix: add `derive ToJson for Secret<Str>;` in that type's own module
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

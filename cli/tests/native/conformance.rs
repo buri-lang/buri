@@ -712,6 +712,9 @@ const PACKAGES: &[Case] = &[
     // mint — plus sixteen-element array literals and a derived `Hash` over a
     // `[U8]`, neither of which needed anything new.
     included("uuid/uuid.buri"),
+    // `core/secret`: a struct of one field and a hand-written `Show`, so
+    // nothing in it needs more than `core/crypto`'s HMAC already does.
+    included("secret/secret.buri"),
     excluded(
         "uuid/hashing.buri",
         "`deriveArrayHash` — `derive Hash for Uuid;` over a `[U8]` field, which \
