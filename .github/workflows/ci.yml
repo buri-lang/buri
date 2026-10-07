@@ -479,8 +479,6 @@ jobs:
   # defers that test here; they replay the recording of it instead.
   proto-conformance:
     name: protobuf conformance
-    # Advisory until the Linux runner failure is fixed at its root.
-    continue-on-error: true
     timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
