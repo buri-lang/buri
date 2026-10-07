@@ -29,7 +29,7 @@ from "//cmd/server/routes.buri" import { route };
 /// that only served the log would bind `FileSystemRead` alone and be unable to change
 /// a byte of it anywhere in its call graph.
 export fn main(host: NativeHost): Result<(), Str> {
-    let ctx = context {
+    let ctx = { context
         Allocator: host.alloc,
         Stdout: host.stdout,
         FileSystemRead: host.fs,

@@ -1270,8 +1270,8 @@ test "env answers the variables it was given" {
             .variables([("HOME", "/root"), ("LANG", "C")])
             .withArguments([]),
     };
-    assert.equal(assert.some(env.get(ctx, "HOME")), "/root");
-    assert.equal(assert.some(env.get(ctx, "LANG")), "C");
+    assert.equal(assert.some(env.get(ctx, "HOME")).reveal(), "/root");
+    assert.equal(assert.some(env.get(ctx, "LANG")).reveal(), "C");
 }
 
 test "env reports an unset variable as None" {
@@ -1657,8 +1657,8 @@ test "MY clock ignores sleep, because my implementation does nothing" {
 
 test "MY env answers every variable the same way" {
     let ctx = Mine();
-    assert.equal(assert.some(env.get(ctx, "ANYTHING")), "echo");
-    assert.equal(assert.some(env.get(ctx, "HOME")), "echo");
+    assert.equal(assert.some(env.get(ctx, "ANYTHING")).reveal(), "echo");
+    assert.equal(assert.some(env.get(ctx, "HOME")).reveal(), "echo");
     assert.equal(env.arguments(ctx), ["echo"]);
 }
 

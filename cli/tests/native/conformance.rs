@@ -1566,8 +1566,8 @@ test "an environment holds what it was given and nothing else" {
     Allocator: alloc(),
     Environment: env().variables([("HOME", "/tmp"), ("LANG", "C")]).withArguments(["--verbose", "x"]),
   };
-  assert.equal(assert.some(env.get(ctx, "HOME")), "/tmp");
-  assert.equal(assert.some(env.get(ctx, "LANG")), "C");
+  assert.equal(assert.some(env.get(ctx, "HOME")).reveal(), "/tmp");
+  assert.equal(assert.some(env.get(ctx, "LANG")).reveal(), "C");
   assert.isTrue(env.get(ctx, "PATH").isNone());
   let args = env.arguments(ctx);
   assert.equal(args.length(), 2);

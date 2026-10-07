@@ -209,7 +209,9 @@ export fn which<C: Allocator + Environment + FileSystemRead>(
     } else {
         match (env.get(ctx, "PATH")) {
             .None => .None,
-            .Some(listed) => firstOnPath(ctx, listed.split(ctx, ":"), program, 0),
+            .Some(listed) => {
+                firstOnPath(ctx, listed.reveal().split(ctx, ":"), program, 0)
+            },
         }
     }
 }

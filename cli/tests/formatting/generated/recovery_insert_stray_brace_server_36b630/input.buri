@@ -29,7 +29,7 @@ from "//cmd/server/routes.buri" import { route };
 /// that only served the log would bind `FileSystemRead` alone and be unable to change
 /// a byte of it anywhere in its call graph.
 export fn main(host: NativeHost): Result<(), Str> {
-    let ctx = context {
+    ? let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
         FileSystemRead: host.fs,
@@ -37,11 +37,14 @@ export fn main(host: NativeHost): Result<(), Str> {
         Environment: host.env,
     };
 
-    let log = filepath.of(ctx, env.get(ctx, "LEDGER_LOG").withDefault("ledger.log"));
+    let log = filepath.of(
+        ctx,
+        env.get(ctx, "LEDGER_LOG").mapOr("ledger.log", fn(text) => text.reveal()),
+    );
     let path = log.text();
     let hit = route("/entries");
 
-    match (append(ctx, log, [entry("startup", fromCents(0))]) {
+    match (append(ctx, log, [entry("startup", fromCents(0))])) {
         .Err(_) => .Err(str.format(ctx, "could not open the ledger log at ${path}")),
         .Ok(_) => {
             match (io.println(ctx, "serving ${hit.name} at ${hit.path} from ${path}")) {
