@@ -1555,15 +1555,22 @@ fn sizeFn<C: Allocator>(
                 oneofPiece(c, o, fn(c2, k) => oneSize(c2, k, id("x")), intE(0))
             }),
         );
-    let names = list
-        .range(ctx, 0, pieces.length())
-        .mapCtx(ctx, fn(c, i) => str.format(c, "s${i}"));
-    let body = match (names.first()) {
+    // A running total, one statement at a time: a sum written as one
+    // expression is a tree as deep as the message is wide, and the printer
+    // walks it on the generator's stack.
+    let body = match (pieces.first()) {
         .None => blk([letWildS(id("value"))], [intE(0)]),
         .Some(head) => {
-            blk(names.zip(ctx, pieces).map(ctx, fn(p) => letS(p.0, [], p.1)), [
-                names.drop(ctx, 1).fold(fn(acc, n) => binE(.Add, acc, id(n)), id(head)),
-            ])
+            let rest = pieces
+                .drop(ctx, 1)
+                .mapCtx(ctx, fn(c, p) => {
+                    [
+                        letS("s", [], p),
+                        letS("size", [], binE(.Add, id("size"), id("s"))),
+                    ]
+                })
+                .flatten(ctx);
+            blk([letS("size", [], head)].concat(ctx, rest), [id("size")])
         },
     };
     fnItem(ast.FnDecl {
