@@ -100,7 +100,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 // Startup
 // ---------------------------------------------------------------------------
 
-/// Record `argc`/`argv` and install the panic hook. `lib.rs` §6.
+/// Record `argc`/`argv`, install the panic hook, and ignore `SIGPIPE`. `lib.rs` §6.
 ///
 /// The generated `main` calls this as its first statement. It is not required —
 /// `env.arguments(ctx)` falls back to `std::env` — but it is preferred, because
@@ -113,6 +113,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// `argv` must be an array of `argc` NUL-terminated pointers, or null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_argv_init(argc: i32, argv: *const *const u8) {
+    ignore_sigpipe();
     std::panic::set_hook(Box::new(|info| {
         let mut err = lock(&ERR);
         err.extend_from_slice(b"internal runtime error: ");
@@ -142,6 +143,23 @@ pub unsafe extern "C" fn buri_rt_argv_init(argc: i32, argv: *const *const u8) {
         args.remove(0);
     }
     *lock(&ARGS) = Some(args);
+}
+
+/// A write to a closed pipe or socket fails with `EPIPE` rather than ending the
+/// process, so `io.println` answers `.Err(.Other(""))` and the program decides,
+/// as it does on JavaScript.
+///
+/// A child still starts with the default: `std::process::Command` restores it
+/// between fork and exec, as every Unix tool expects.
+fn ignore_sigpipe() {
+    unsafe extern "C" {
+        fn signal(sig: i32, handler: usize) -> usize;
+    }
+    // The same numbers on Linux and macOS.
+    const SIGPIPE: i32 = 13;
+    const SIG_IGN: usize = 1;
+    // SAFETY: setting a disposition, with no handler of ours to run.
+    unsafe { signal(SIGPIPE, SIG_IGN) };
 }
 
 // ---------------------------------------------------------------------------

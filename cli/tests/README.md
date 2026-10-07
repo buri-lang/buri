@@ -51,6 +51,8 @@ cli/tests/
                           sockets, real signals — the top of the trust ordering
       e2e/shapes.rs         large data shapes: wide enums, long matches,
                           tuples and templates, deep nesting, big records
+    closed_pipe.rs        gated on either: a reader that goes away gives a
+                          compiled program an `Err`, natively and on JS
     growth.rs             gated on either: the generated `growth/` corpus, its
       growth/generator.rs   output and its allocations bounded, and the
                           generator that writes it

@@ -489,7 +489,9 @@
 //! a staticlib depends on a platform-specific startup hook that a linker
 //! `--gc-sections` pass is entitled to have opinions about — and it installs
 //! the panic hook that turns a runtime bug into a message rather than a bare
-//! `SIGABRT`. If it is never called, `env.arguments(ctx)` falls back to `std::env`
+//! `SIGABRT`. It also ignores `SIGPIPE`, so a write to a closed pipe or socket
+//! answers `.Err(.Other(""))` instead of ending the process, as on JavaScript.
+//! If it is never called, `env.arguments(ctx)` falls back to `std::env`
 //! and the fallback is correct on both supported platforms; the call is
 //! preferred, not required.
 //!
