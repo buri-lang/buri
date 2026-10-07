@@ -192,7 +192,9 @@
 //! lets one page hold a toggle that is on and one that is off.
 //! `disabled:true` is a control whose flag is set, and it only ever adds — a
 //! scene with no `disabled:` on it still answers a `disabled` request the way
-//! it always did.
+//! it always did. `focused:<true|false>` is a control bound to a `hasFocus`
+//! signal, and like `checked:` it is the answer: a page holds one field with
+//! the focus and one without, and only the first paints its ring.
 //!
 //! The sheet is read as class rules, plus **one shape of descendant rule**:
 //! `.<class>>*`, which is what `Layout(.Layers)` is written as. Every child of
@@ -747,6 +749,10 @@ struct Node {
     /// `:disabled` whatever the request asked for; one that does not is left
     /// to the request, which may still be asking.
     disabled: bool,
+    /// `Some` for a box that answers for its own `:focus` — a control bound to
+    /// a `hasFocus` signal, whose value is the answer. `None` leaves the
+    /// request's state to say.
+    focused: Option<bool>,
     classes: Vec<String>,
     declarations: Vec<(String, String)>,
     children: Vec<usize>,
@@ -812,6 +818,7 @@ impl Scene {
                     picture: None,
                     checked: None,
                     disabled: false,
+                    focused: None,
                     classes: Vec::new(),
                     declarations: Vec::new(),
                     children: Vec::new(),
@@ -825,12 +832,14 @@ impl Scene {
                     .map(Art::Source)
                     .or_else(|| named("icon").map(Art::Artwork));
                 let checked = named("checked").map(|v| v == "true");
+                let focused = named("focused").map(|v| v == "true");
                 let disabled = named("disabled").as_deref() == Some("true");
                 Node {
                     text: None,
                     picture,
                     checked,
                     disabled,
+                    focused,
                     classes,
                     declarations,
                     children: Vec::new(),
@@ -1626,13 +1635,15 @@ fn resolve(
 
 /// Whether an element is in the state a rule is scoped to.
 ///
-/// Three of the five are the request's to answer, because nothing in a scene
-/// hovers or is focused. The other two the element answers where it can: a
-/// toggle's `checked:` *is* the answer, and a control's `disabled:` adds one
-/// without taking the request's away.
+/// The pointer's and the keyboard's are the request's to answer, because
+/// nothing in a scene hovers or presses. The element answers where it can: a
+/// toggle's `checked:` *is* the answer, a control bound to a `hasFocus` signal
+/// says with `focused:` whether it has the focus, and a control's `disabled:`
+/// adds one without taking the request's away.
 fn holds(node: &Node, rule: State, requested: State) -> bool {
     match rule {
         State::Checked => node.checked.unwrap_or(requested == State::Checked),
+        State::Focus => node.focused.unwrap_or(requested == State::Focus),
         State::Disabled => node.disabled || requested == State::Disabled,
         other => other == requested,
     }
@@ -6845,6 +6856,26 @@ mod tests {
         let plain = "buri-scene 1\nviewport 6 4\ne 0 class:box tick\n";
         assert_eq!(at(&render_ok(plain, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
         assert_eq!(at(&render_ok(plain, sheet, "checked"), 0, 0), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn a_focus_rule_follows_the_box_that_answers_for_itself() {
+        // buri#262. A control bound to `hasFocus` says whether it has the
+        // focus, so a page holds one that does and one that doesn't, and a
+        // request for `focus` leaves the one that says `false` alone.
+        let scene = "buri-scene 1\nviewport 6 6\n\
+                     e 0 class:box ring;focused:true\n\
+                     e 0 class:box ring;focused:false\n";
+        let sheet = ".box{width:4px;height:2px;background-color:rgb(0,0,255)}\n\
+                     .ring:focus-visible{background-color:rgb(255,0,0)}\n";
+        for state in ["rest", "hover", "focus"] {
+            let image = render_ok(scene, sheet, state);
+            assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
+            assert_eq!(at(&image, 0, 2 * S), [0, 0, 255, 255]);
+        }
+        let plain = "buri-scene 1\nviewport 6 4\ne 0 class:box ring\n";
+        assert_eq!(at(&render_ok(plain, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
+        assert_eq!(at(&render_ok(plain, sheet, "focus"), 0, 0), [255, 0, 0, 255]);
     }
 
     #[test]

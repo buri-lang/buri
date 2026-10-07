@@ -1,0 +1,62 @@
+//! Two fields bound to `hasFocus`, with the focus on the second.
+//!
+//! Both draw the same ring on `On(.Focus, ...)`. A field bound to a signal
+//! answers for its own focus, the way a toggle answers for `checked`, so only
+//! the one that has it draws the ring, whatever state the picture is taken in.
+
+from "platform/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Shadow, Style };
+
+/// The form, with the focus on its email field.
+export fn form<C: Ui>(ctx: C): Node<C> {
+    ui.stack({
+        styles: [
+            .Padding(.Px(16)),
+            .Gap(.Px(10)),
+            .Width(.Px(300)),
+            .FontSize(.Px(13)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        children: [
+            ui.field({
+                label: .Const("Name"),
+                kind: .Text,
+                value: signal(ctx, "Ada"),
+                styles: input(),
+                around: .Some([.Gap(.Px(8))]),
+                hasFocus: .Some(signal(ctx, false)),
+            }),
+            ui.field({
+                label: .Const("Email"),
+                kind: .Email,
+                value: signal(ctx, "ada@example.com"),
+                styles: input(),
+                around: .Some([.Gap(.Px(8))]),
+                hasFocus: .Some(signal(ctx, true)),
+            }),
+        ],
+    })
+}
+
+let ring: Shadow = Shadow {
+    x: .Px(0),
+    y: .Px(0),
+    blur: .Px(0),
+    spread: .Px(3),
+    color: .Rgba(59, 130, 246, 0.5),
+};
+
+fn input(): [Style] {
+    [
+        .Width(.Px(200)),
+        .PaddingX(.Px(8)),
+        .PaddingY(.Px(4)),
+        .Radius(.Px(6)),
+        .BorderWidth(.Px(1)),
+        .BorderColor(.Rgb(220, 224, 232)),
+        .On(.Focus, [.Shadow(ring), .BorderColor(.Rgb(59, 130, 246))]),
+    ]
+}

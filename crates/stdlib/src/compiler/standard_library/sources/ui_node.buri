@@ -289,33 +289,34 @@ enum NodeKind<C> {
     Empty,
     Text(Prop<Str>),
     Heading(Int, [Style], Prop<Str>),
-    // Styles, children, `isCurrent` and `isDecorative`.
-    Stack([Style], [Node<C>], Prop<Bool>, Bool, Events<C>),
+    // Styles, children, `isCurrent`, `isDecorative` and the focus. Every node
+    // the focus can reach carries a `Focus` just before its `Events`.
+    Stack([Style], [Node<C>], Prop<Bool>, Bool, Focus, Events<C>),
     // A role, styles, children and `isCurrent`. A region is never decorative:
     // `decorative-with-role` refuses the pair.
-    Region(Role, [Style], [Node<C>], Prop<Bool>, Events<C>),
-    Button(Prop<Str>, [Style], [Node<C>], fn(C, Event) => (), Prop<Bool>, Prop<Bool>, Prop<Bool>, Events<C>),
+    Region(Role, [Style], [Node<C>], Prop<Bool>, Focus, Events<C>),
+    Button(Prop<Str>, [Style], [Node<C>], fn(C, Event) => (), Prop<Bool>, Prop<Bool>, Prop<Bool>, Focus, Events<C>),
     // A `<a href>`. `onFollow` set makes a same-origin dest route client-side
     // (what used to be `routeLink`); left `.None` it is a plain anchor.
-    Link(Prop<Str>, [Style], [Node<C>], Option<fn(C, Str) => ()>, Prop<Bool>, Events<C>),
+    Link(Prop<Str>, [Style], [Node<C>], Option<fn(C, Str) => ()>, Prop<Bool>, Focus, Events<C>),
     Image(Prop<Str>, Str, [Style], Events<C>),
     Icon([Style], Str, Events<C>),
-    Field(Prop<Str>, FieldKind, Prop<Str>, [Style], [Style], Signal<Str>, Option<Signal<(Int, Int)>>, Prop<Bool>, Prop<Bool>, Events<C>),
+    Field(Prop<Str>, FieldKind, Prop<Str>, [Style], [Style], Signal<Str>, Option<Signal<(Int, Int)>>, Prop<Bool>, Prop<Bool>, Focus, Events<C>),
     // The numeric control split out of the old `FieldKind.Range`: label, value,
-    // min, max, step, styles, around, disabled, events. `around` lands on the
-    // `<label>` wrapper, the way a `Field`'s and a `Toggle`'s do.
-    Slider(Prop<Str>, Signal<Float>, Float, Float, Option<Float>, [Style], [Style], Prop<Bool>, Events<C>),
-    Toggle(Prop<Str>, ToggleKind, [Style], [Style], Signal<Bool>, Prop<Bool>, Prop<Bool>, Events<C>),
+    // min, max, step, styles, around, disabled, focus, events. `around` lands on
+    // the `<label>` wrapper, the way a `Field`'s and a `Toggle`'s do.
+    Slider(Prop<Str>, Signal<Float>, Float, Float, Option<Float>, [Style], [Style], Prop<Bool>, Focus, Events<C>),
+    Toggle(Prop<Str>, ToggleKind, [Style], [Style], Signal<Bool>, Prop<Bool>, Prop<Bool>, Focus, Events<C>),
     // The one choice primitive (was `radioGroup`), styled. Each option is a key
     // and the node drawn beside it — any node, not just a caption.
-    Picker(Prop<Str>, [(Str, Node<C>)], [Style], Signal<Str>, ChoiceStyle, Prop<Bool>, Events<C>),
+    Picker(Prop<Str>, [(Str, Node<C>)], [Style], Signal<Str>, ChoiceStyle, Prop<Bool>, Focus, Events<C>),
     Form(fn(C, Event) => (), [Style], [Node<C>], Events<C>),
     // The button that submits its form: a childless `<button type=submit>`. Its
     // handler is the form's `onSubmit`, so it carries none of its own. `disabled`
     // takes it out of the tab order and refuses the submit, the way `<button
     // type=submit disabled>` does — an ordinary button's `isDisabled` reaches a
     // submit too.
-    Submit(Prop<Str>, [Style], Prop<Bool>, Events<C>),
+    Submit(Prop<Str>, [Style], Prop<Bool>, Focus, Events<C>),
     // A modal. `scrimStyles` land on the scrim behind the panel, so a backdrop
     // blur or tint can reach it; `styles` land on the panel.
     Dialog(Signal<Bool>, Prop<Str>, [Style], [Node<C>], [Style], Events<C>),
@@ -383,6 +384,19 @@ fn listen<C>(
         onPointerMove: onPointerMove,
         onPointerUp: onPointerUp,
     }
+}
+
+/// Where an element stands with the focus: the signal the platform writes as
+/// the focus moves, and whether moving the focus forward or back reaches it.
+/// Both left out is an element that keeps its default.
+struct Focus {
+    signal: Option<Signal<Bool>>,
+    order: Option<Prop<Bool>>,
+}
+
+/// The `Focus` a node with no `hasFocus` and no `isInFocusOrder` carries.
+fn noFocus(): Focus {
+    Focus { signal: .None, order: .None }
 }
 
 /// The `Events` a node with no `onX` config carries — every handler unset.
@@ -465,6 +479,15 @@ struct Stack<C> {
     /// of `Image.alt: .Decorative`. A stack with a `role` takes none, because a
     /// hidden element has nothing to announce (`decorative-with-role`).
     export isDecorative: Option<Bool>,
+    /// `true` while this element has the focus. The platform writes it as the
+    /// focus moves, and writing `true` moves the focus here — the shape
+    /// `Field.selection` has. When the element unmounts with the focus, it is
+    /// written `false`.
+    export hasFocus: Option<Signal<Bool>>,
+    /// Whether moving the focus forward or back reaches this element. Left
+    /// out, its default. Out of the order, `hasFocus` still focuses it, which
+    /// is what roving focus needs.
+    export isInFocusOrder: Option<Prop<Bool>>,
     /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
     /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
@@ -496,16 +519,26 @@ export fn stack<C>(config: Stack<C>): Node<C> {
         config.onPointerUp,
     );
     let current = orFalse(config.isCurrent);
+    let focus = Focus { signal: config.hasFocus, order: config.isInFocusOrder };
     match (config.role) {
         .Some(role) => {
-            Node(.Region(role, config.styles, config.children, current, events))
+            Node(.Region(role, config.styles, config.children, current, focus, events))
         },
         .None => {
             let decorative = match (config.isDecorative) {
                 .Some(hidden) => hidden,
                 .None => false,
             };
-            Node(.Stack(config.styles, config.children, current, decorative, events))
+            Node(
+                .Stack(
+                    config.styles,
+                    config.children,
+                    current,
+                    decorative,
+                    focus,
+                    events,
+                ),
+            )
         },
     }
 }
@@ -531,11 +564,14 @@ export fn spacer<C>(config: Spacer): Node<C> {
                     [],
                     .Const(false),
                     false,
+                    noFocus(),
                     noEvents(),
                 ),
             )
         },
-        .None => Node(.Stack([.Grow(1)], [], .Const(false), false, noEvents())),
+        .None => {
+            Node(.Stack([.Grow(1)], [], .Const(false), false, noFocus(), noEvents()))
+        },
     }
 }
 
@@ -615,6 +651,15 @@ struct Button<C> {
     /// Written only when `true`: `aria-current` for the one in a set that is the
     /// current page.
     export isCurrent: Option<Prop<Bool>>,
+    /// `true` while this element has the focus. The platform writes it as the
+    /// focus moves, and writing `true` moves the focus here — the shape
+    /// `Field.selection` has. When the element unmounts with the focus, it is
+    /// written `false`.
+    export hasFocus: Option<Signal<Bool>>,
+    /// Whether moving the focus forward or back reaches this element. Left
+    /// out, its default. Out of the order, `hasFocus` still focuses it, which
+    /// is what roving focus needs.
+    export isInFocusOrder: Option<Prop<Bool>>,
     /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
     /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
@@ -645,6 +690,7 @@ export fn button<C>(config: Button<C>): Node<C> {
         config.onPointerMove,
         config.onPointerUp,
     );
+    let focus = Focus { signal: config.hasFocus, order: config.isInFocusOrder };
     match (config.kind) {
         .Some(.Submit) => {
             Node(
@@ -652,6 +698,7 @@ export fn button<C>(config: Button<C>): Node<C> {
                     config.label,
                     config.styles,
                     orFalse(config.isDisabled),
+                    focus,
                     events,
                 ),
             )
@@ -666,6 +713,7 @@ export fn button<C>(config: Button<C>): Node<C> {
                     orFalse(config.isDisabled),
                     orFalse(config.isExpanded),
                     orFalse(config.isCurrent),
+                    focus,
                     events,
                 ),
             )
@@ -711,6 +759,15 @@ export struct Link<C> {
     /// the destination; modified clicks are left to the browser. Left out, a
     /// plain anchor.
     export onFollow: Option<fn(C, Str) => ()>,
+    /// `true` while this element has the focus. The platform writes it as the
+    /// focus moves, and writing `true` moves the focus here — the shape
+    /// `Field.selection` has. When the element unmounts with the focus, it is
+    /// written `false`.
+    export hasFocus: Option<Signal<Bool>>,
+    /// Whether moving the focus forward or back reaches this element. Left
+    /// out, its default. Out of the order, `hasFocus` still focuses it, which
+    /// is what roving focus needs.
+    export isInFocusOrder: Option<Prop<Bool>>,
     /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
     /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
@@ -748,6 +805,7 @@ export fn link<C>(config: Link<C>): Node<C> {
             config.children,
             config.onFollow,
             orFalse(config.isCurrent),
+            Focus { signal: config.hasFocus, order: config.isInFocusOrder },
             events,
         ),
     )
@@ -879,6 +937,15 @@ struct Field<C> {
     /// Written only when `true`: refuses what a reader types and puts the input
     /// in `State::Disabled`.
     export isDisabled: Option<Prop<Bool>>,
+    /// `true` while this element has the focus. The platform writes it as the
+    /// focus moves, and writing `true` moves the focus here — the shape
+    /// `Field.selection` has. When the element unmounts with the focus, it is
+    /// written `false`.
+    export hasFocus: Option<Signal<Bool>>,
+    /// Whether moving the focus forward or back reaches this element. Left
+    /// out, its default. Out of the order, `hasFocus` still focuses it, which
+    /// is what roving focus needs.
+    export isInFocusOrder: Option<Prop<Bool>>,
     /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
     /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
@@ -920,6 +987,7 @@ export fn field<C>(config: Field<C>): Node<C> {
             config.selection,
             orFalse(config.isInvalid),
             orFalse(config.isDisabled),
+            Focus { signal: config.hasFocus, order: config.isInFocusOrder },
             events,
         ),
     )
@@ -955,6 +1023,15 @@ struct Slider<C> {
     /// Written only when `true`: takes the slider out of the tab order and
     /// refuses input.
     export isDisabled: Option<Prop<Bool>>,
+    /// `true` while this element has the focus. The platform writes it as the
+    /// focus moves, and writing `true` moves the focus here — the shape
+    /// `Field.selection` has. When the element unmounts with the focus, it is
+    /// written `false`.
+    export hasFocus: Option<Signal<Bool>>,
+    /// Whether moving the focus forward or back reaches this element. Left
+    /// out, its default. Out of the order, `hasFocus` still focuses it, which
+    /// is what roving focus needs.
+    export isInFocusOrder: Option<Prop<Bool>>,
     /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
     /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
@@ -995,6 +1072,7 @@ export fn slider<C>(config: Slider<C>): Node<C> {
             config.styles,
             orNoStyles(config.around),
             orFalse(config.isDisabled),
+            Focus { signal: config.hasFocus, order: config.isInFocusOrder },
             events,
         ),
     )
@@ -1029,6 +1107,15 @@ struct Toggle<C> {
     /// Written only when `true`: refuses the toggle and puts the box in
     /// `State::Disabled`.
     export isDisabled: Option<Prop<Bool>>,
+    /// `true` while this element has the focus. The platform writes it as the
+    /// focus moves, and writing `true` moves the focus here — the shape
+    /// `Field.selection` has. When the element unmounts with the focus, it is
+    /// written `false`.
+    export hasFocus: Option<Signal<Bool>>,
+    /// Whether moving the focus forward or back reaches this element. Left
+    /// out, its default. Out of the order, `hasFocus` still focuses it, which
+    /// is what roving focus needs.
+    export isInFocusOrder: Option<Prop<Bool>>,
     /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
     /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
@@ -1068,6 +1155,7 @@ export fn toggle<C>(config: Toggle<C>): Node<C> {
             config.isOn,
             orFalse(config.isInvalid),
             orFalse(config.isDisabled),
+            Focus { signal: config.hasFocus, order: config.isInFocusOrder },
             events,
         ),
     )
@@ -1247,6 +1335,13 @@ struct Picker<C> {
     /// Written only when `true`: takes the group out of the tab order and
     /// refuses a pick.
     export isDisabled: Option<Prop<Bool>>,
+    /// `true` while one of the options has the focus. The platform writes it as
+    /// the focus moves, and writing `true` focuses the checked option, or the
+    /// first when none is.
+    export hasFocus: Option<Signal<Bool>>,
+    /// Whether moving the focus forward or back reaches the group, at its
+    /// checked option. Left out, it does.
+    export isInFocusOrder: Option<Prop<Bool>>,
     /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
     /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
@@ -1289,6 +1384,7 @@ export fn picker<C>(config: Picker<C>): Node<C> {
             config.value,
             style,
             orFalse(config.isDisabled),
+            Focus { signal: config.hasFocus, order: config.isInFocusOrder },
             events,
         ),
     )
@@ -1962,7 +2058,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = emitReactiveText(builder, content);
             exitElement(builder)
         },
-        .Stack(styles, children, current, decorative, events) => {
+        .Stack(styles, children, current, decorative, focus, events) => {
             emitAnnounced(
                 ctx,
                 builder,
@@ -1975,9 +2071,10 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 events,
                 current,
                 decorative,
+                focus,
             )
         },
-        .Region(role, styles, children, current, events) => {
+        .Region(role, styles, children, current, focus, events) => {
             emitAnnounced(
                 ctx,
                 builder,
@@ -1990,44 +2087,28 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 events,
                 current,
                 false,
+                focus,
             )
         },
-        // A reactive `disabled` (or, for a label-only button, a reactive label)
-        // rebuilds the button in place through `bindDynamic`: the build reads
-        // the props under its scope — subscribing — and answers the button with
-        // them snapshotted to `.Const`, so the rebuilt node takes the static arm
-        // and never re-wraps. An all-`Const` button is emitted once, with no
-        // watcher, exactly as `describe` expands it.
-        .Button(label, styles, children, onPress, disabled, expanded, current, events) => {
-            if (constProp(label) && constProp(disabled)) {
-                emitButton(
-                    ctx,
-                    builder,
-                    label,
-                    styles,
-                    children,
-                    onPress,
-                    disabled,
-                    current,
-                    events,
-                    state,
-                )
-            } else {
-                bindDynamic(builder, fn(scope) => {
-                    Node(
-                        .Button(
-                            .Const(label.read(scope)),
-                            styles,
-                            children,
-                            onPress,
-                            .Const(disabled.read(scope)),
-                            expanded,
-                            current,
-                            events,
-                        ),
-                    )
-                })
-            }
+        // A button is emitted once and kept, whatever of it can change: its
+        // body follows its styles, its `disabled` and its focus, its name and
+        // its text follow its label, so the element — and the focus on it —
+        // survive every write. An all-`Const` button registers no watcher,
+        // exactly as `describe` expands it.
+        .Button(label, styles, children, onPress, disabled, _expanded, current, focus, events) => {
+            emitButton(
+                ctx,
+                builder,
+                label,
+                styles,
+                children,
+                onPress,
+                disabled,
+                current,
+                focus,
+                events,
+                state,
+            )
         },
         // A plain anchor, or — when `onFollow` is set — one whose plain
         // left-click routes client-side. The handler crosses whole (`renderInto`
@@ -2035,52 +2116,22 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // unbounded walk); the runtime fires it with the destination on a
         // `follow`. A plain link with no handler is a box like any other, so it
         // keeps `emitBox`'s reactive-style path.
-        .Link(dest, styles, children, onFollow, current, events) => {
-            match (onFollow) {
+        .Link(dest, styles, children, onFollow, current, focus, events) => {
+            // A routing anchor's styles are reactive the same way a plain
+            // link's are: a `.When`/`.Computed` swap — how a nav rail marks the
+            // current row — re-serialises in place rather than being frozen at
+            // first render.
+            let at = openWatched(builder, "a", state, .Const(false), [], styles, focus);
+            let _ = announce(builder, at, current, false);
+            let _ = bindFocus(builder, focusKey(builder), true, focus);
+            let _ = match (onFollow) {
+                .Some(handler) => registerFollow(builder, dest.read(scope), handler),
                 .None => {
-                    emitAnnounced(
-                        ctx,
-                        builder,
-                        "a",
-                        plain(state),
-                        [],
-                        styles,
-                        children,
-                        state,
-                        events,
-                        current,
-                        false,
-                    )
                 },
-                .Some(handler) => {
-                    // A routing anchor's styles are reactive the same way a
-                    // plain link's (`emitBox`) are: a `.When`/`.Computed` swap —
-                    // how a nav rail marks the current row — re-serialises in
-                    // place rather than being frozen at first render.
-                    let at = if (stylesReactive(styles)) {
-                        let opened = openElement(builder, "a", "");
-                        let _ = reactive(fn(scope) => {
-                            patchBody(
-                                builder,
-                                opened,
-                                widgetBodyUnder(scope, plain(state), [], styles),
-                            )
-                        });
-                        opened
-                    } else {
-                        openElement(
-                            builder,
-                            "a",
-                            widgetBody(mem, plain(state), [], styles),
-                        )
-                    };
-                    let _ = announce(builder, at, current, false);
-                    let _ = registerFollow(builder, dest.read(scope), handler);
-                    let _ = registerEvents(builder, events);
-                    let _ = emitChildren(ctx, builder, children, state, 0);
-                    exitElement(builder)
-                },
-            }
+            };
+            let _ = registerEvents(builder, events);
+            let _ = emitChildren(ctx, builder, children, state, 0);
+            exitElement(builder)
         },
         .Image(source, _alt, styles, events) => {
             let declaration = decl(mem, "image", escapeValue(mem, source.read(scope)));
@@ -2107,10 +2158,14 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // watcher re-reads the three — subscribing — and re-emits. The control's
         // own element is ctx-free, so the watcher emits it inline between the
         // region's markers rather than walking a node.
-        .Field(label, kind, hint, styles, around, value, selection, invalid, disabled, events) => {
+        // The focus is the field's, not the element's: `key` is minted once and
+        // every rebuild hands it to the input it builds, so the focus stays on
+        // the field however often its value is written.
+        .Field(label, kind, hint, styles, around, value, selection, invalid, disabled, focus, events) => {
+            let key = focusKey(builder);
             let region = enterDynamic(builder);
             let _ = invalid;
-            reactive(fn(scope) => {
+            let _ = reactive(fn(scope) => {
                 let _ = beginRegion(builder, region);
                 let _ = emitField(
                     scope,
@@ -2123,19 +2178,23 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     value,
                     selection,
                     disabled,
+                    key,
+                    focus,
                     events,
                     state,
                 );
                 endRegion(builder)
-            })
+            });
+            watchFocus(builder, key, focus, false)
         },
         // A slider's value and `disabled` change its scene, so a write rebuilds
         // it in place, the way a field does. The control is ctx-free, so the
         // watcher emits it inline between the region's markers.
-        .Slider(label, value, min, max, step, styles, around, disabled, events) => {
+        .Slider(label, value, min, max, step, styles, around, disabled, focus, events) => {
+            let key = focusKey(builder);
             let region = enterDynamic(builder);
             let _ = step;
-            reactive(fn(scope) => {
+            let _ = reactive(fn(scope) => {
                 let _ = beginRegion(builder, region);
                 let _ = emitSlider(
                     scope,
@@ -2147,20 +2206,24 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     styles,
                     around,
                     disabled,
+                    key,
+                    focus,
                     events,
                     state,
                 );
                 endRegion(builder)
-            })
+            });
+            watchFocus(builder, key, focus, false)
         },
         // A toggle's `checked` (its mark and its `checked:` line) and `disabled`
         // change its scene, so a flip rebuilds it in place. Its element and its
         // mark are ctx-free, so the watcher emits them inline between the
         // region's markers.
-        .Toggle(label, kind, styles, around, value, invalid, disabled, events) => {
+        .Toggle(label, kind, styles, around, value, invalid, disabled, focus, events) => {
+            let key = focusKey(builder);
             let region = enterDynamic(builder);
             let _ = invalid;
-            reactive(fn(scope) => {
+            let _ = reactive(fn(scope) => {
                 let _ = beginRegion(builder, region);
                 let _ = emitToggle(
                     scope,
@@ -2171,20 +2234,23 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     around,
                     value,
                     disabled,
+                    key,
+                    focus,
                     events,
                     state,
                 );
                 endRegion(builder)
-            })
+            });
+            watchFocus(builder, key, focus, false)
         },
         // The group's box is emitted once with the caller's context, since an
         // option's content is any node; each option's input and dot follow the
         // selection in a reactive region of their own, so picking one re-checks
         // and re-dots without rebuilding the content beside it. `style` picks
         // the shape and does not change the scene the painter reads.
-        .Picker(label, options, styles, value, _style, _disabled, events) => {
+        .Picker(label, options, styles, value, _style, _disabled, focus, events) => {
             let _ = label;
-            emitPicker(ctx, builder, options, styles, value, events, state)
+            emitPicker(ctx, builder, options, styles, value, focus, events, state)
         },
         .Form(onSubmit, styles, children, events) => {
             let _ = emitElement(
@@ -2201,9 +2267,10 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // its line carries, and whether a press or an Enter reaches the form —
         // so a write rebuilds it in place, the way a field's does. The element is
         // ctx-free, so the watcher emits it inline between the region's markers.
-        .Submit(label, styles, disabled, events) => {
+        .Submit(label, styles, disabled, focus, events) => {
+            let key = focusKey(builder);
             let region = enterDynamic(builder);
-            reactive(fn(scope) => {
+            let _ = reactive(fn(scope) => {
                 let inner = alloc.generalPurpose();
                 let _ = beginRegion(builder, region);
                 let _ = emitElement(
@@ -2211,17 +2278,19 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     "button",
                     widgetBody(
                         inner,
-                        refusing(state, disabled.read(scope)),
+                        answering(scope, state, disabled, focus),
                         [],
                         styles,
                     ),
                 );
+                let _ = attachFocus(builder, key, true);
                 let _ = markSubmit(builder);
                 let _ = registerEvents(builder, events);
                 let _ = emitText(builder, label.read(scope));
                 let _ = exitElement(builder);
                 endRegion(builder)
-            })
+            });
+            watchFocus(builder, key, focus, false)
         },
         .When(cond, then, otherwise) => {
             match (cond) {
@@ -2310,6 +2379,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // nothing. `pickFile` fires the kept handler, which reads the file the
         // test offered back off the document.
         .FilePicker(label, styles, disabled, _accept, _admit, land, events) => {
+            let key = focusKey(builder);
             let region = enterDynamic(builder);
             reactive(fn(scope) => {
                 let inner = alloc.generalPurpose();
@@ -2324,6 +2394,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                         styles,
                     ),
                 );
+                let _ = attachFocus(builder, key, true);
                 let _ = registerLabel(builder, label.read(scope));
                 let _ = registerPick(builder, fn(c, _event) => {
                     land(c, offered(builder))
@@ -2429,10 +2500,10 @@ fn constProp<T>(prop: Prop<T>): Bool {
     }
 }
 
-/// A button's static emit: its element, the kept press, its events, and its
-/// label or its children. `disabled` is read untracked because the watcher that re-reads it
-/// is the `bindDynamic` the reactive arm wraps this in — here every prop is
-/// already a constant.
+/// A button's emit: its element, the kept press, its events, and its label or
+/// its children. Emitted once and kept: its body follows whatever of its
+/// styles, its `disabled` and its focus can change, its name and its text
+/// follow its label, and none of it rebuilds the element.
 fn emitButton<C>(
     ctx: C,
     builder: Builder,
@@ -2442,28 +2513,18 @@ fn emitButton<C>(
     onPress: fn(C, Event) => (),
     disabled: Prop<Bool>,
     current: Prop<Bool>,
+    focus: Focus,
     events: Events<C>,
     state: State,
 ): () {
-    let mem = alloc.generalPurpose();
-    let painted = refusing(state, disabled.read(rootScope()));
-    // A button whose styles hold a computation opens once and patches its body
-    // from a watcher, so a `.When`/`.Computed` class swap re-serialises in place
-    // — the same reactive-style bind `emitBox` gives a plain box. A button of
-    // constant styles registers nothing. (Its `disabled` is constant here: the
-    // reactive arm of `emitNode`'s `Button` wraps a non-const one in a rebuild.)
-    let at = if (stylesReactive(styles)) {
-        let opened = openElement(builder, "button", "");
-        let _ = reactive(fn(scope) => {
-            patchBody(builder, opened, widgetBodyUnder(scope, painted, [], styles))
-        });
-        opened
-    } else {
-        openElement(builder, "button", widgetBody(mem, painted, [], styles))
-    };
+    let at = openWatched(builder, "button", state, disabled, [], styles, focus);
     let _ = announce(builder, at, current, false);
+    let _ = bindFocus(builder, focusKey(builder), true, focus);
     let _ = registerPress(builder, onPress);
-    let _ = registerLabel(builder, label.read(rootScope()));
+    let _ = match (label) {
+        .Const(name) => registerLabel(builder, name),
+        _ => reactive(fn(scope) => relabel(builder, at, label.read(scope))),
+    };
     let _ = registerEvents(builder, events);
     let _ = if (children.isEmpty()) {
         emitReactiveText(builder, label)
@@ -2473,9 +2534,124 @@ fn emitButton<C>(
     exitElement(builder)
 }
 
-/// A toggle's static emit, reading its signal and `disabled` under `scope` so
-/// the watcher that drives it subscribes to both. No node crosses, so it needs
-/// no context: a toggle holds a control and a caption and no program children.
+/// Opens `name` with the body its styles, its `disabled` and its focus answer
+/// for, and keeps that body following whichever of them can change: a watcher
+/// patches it in place, so the element and its identity stay. One whose three
+/// are all constant registers nothing.
+fn openWatched(
+    builder: Builder,
+    name: Str,
+    state: State,
+    disabled: Prop<Bool>,
+    leading: [Str],
+    styles: [Style],
+    focus: Focus,
+): I64 {
+    let still = !stylesReactive(styles)
+        && constProp(disabled)
+        && !focus.signal.isSome();
+    if (still) {
+        let mem = alloc.generalPurpose();
+        openElement(
+            builder,
+            name,
+            widgetBody(
+                mem,
+                refusing(state, disabled.read(rootScope())),
+                leading,
+                styles,
+            ),
+        )
+    } else {
+        let opened = openElement(builder, name, "");
+        let _ = reactive(fn(scope) => {
+            patchBody(
+                builder,
+                opened,
+                widgetBodyUnder(
+                    scope,
+                    answering(scope, state, disabled, focus),
+                    leading,
+                    styles,
+                ),
+            )
+        });
+        opened
+    }
+}
+
+/// `painted`, with the focus a `hasFocus` signal holds as its answer — read
+/// once, untracked, the way `describe` reads every prop.
+fn answered(painted: Painted, focus: Focus): Painted {
+    match (focus.signal) {
+        .Some(signal) => Painted { ..painted, focused: .Some(signal.get(rootScope())) },
+        .None => painted,
+    }
+}
+
+/// What a control answers for itself, read under `scope`: its `disabled`, and
+/// its focus when a `hasFocus` signal holds it.
+fn answering(ctx: Scope, state: State, disabled: Prop<Bool>, focus: Focus): Painted {
+    let focused: Option<Bool> = match (focus.signal) {
+        .Some(signal) => .Some(signal.get(ctx)),
+        .None => .None,
+    };
+    Painted {
+        state: state,
+        checked: .None,
+        disabled: disabled.read(ctx),
+        focused: focused,
+    }
+}
+
+/// Whether a `Focus` asks for anything — a signal or an order — so a box that
+/// isn't focusable by default becomes one.
+fn asksFocus(focus: Focus): Bool {
+    focus.signal.isSome() || focus.order.isSome()
+}
+
+/// Hands the open element the focus `key` stands for, and watches the order and
+/// the signal `focus` names. For an element emitted once.
+fn bindFocus(builder: Builder, key: Int, natural: Bool, focus: Focus): () {
+    let _ = attachFocus(builder, key, natural);
+    watchFocus(builder, key, focus, false)
+}
+
+/// Watches the order and the signal `focus` names for the focus `key` stands
+/// for: the order is written into the document as it changes, and the signal
+/// moves the focus when it is written. Registered once per element, outside
+/// any rebuild, so a rebuild neither drops nor repeats the request.
+/// `within` says the signal is a group's, true while the focus is anywhere
+/// inside it.
+fn watchFocus(builder: Builder, key: Int, focus: Focus, within: Bool): () {
+    let _ = match (focus.order) {
+        .Some(order) => {
+            match (order) {
+                .Const(on) => setFocusOrder(builder, key, on),
+                _ => {
+                    reactive(fn(scope) => {
+                        setFocusOrder(builder, key, order.read(scope))
+                    })
+                },
+            }
+        },
+        .None => {
+        },
+    };
+    match (focus.signal) {
+        .Some(signal) => {
+            let _ = bindFocusSignal(builder, key, signal.index(), within);
+            reactive(fn(scope) => requestFocus(builder, key, signal.get(scope)))
+        },
+        .None => {
+        },
+    }
+}
+
+/// A toggle's static emit, reading its signal, `disabled` and focus under
+/// `scope` so the watcher that drives it subscribes to each. No node crosses,
+/// so it needs no context: a toggle holds a control and a caption and no
+/// program children.
 fn emitToggle<C>(
     ctx: Scope,
     builder: Builder,
@@ -2485,15 +2661,16 @@ fn emitToggle<C>(
     around: [Style],
     value: Signal<Bool>,
     disabled: Prop<Bool>,
+    key: Int,
+    focus: Focus,
     events: Events<C>,
     state: State,
 ): () {
     let mem = alloc.generalPurpose();
     let on = value.get(ctx);
     let painted = Painted {
-        state: state,
+        ..answering(ctx, state, disabled, focus),
         checked: .Some(on),
-        disabled: disabled.read(ctx),
     };
     let _ = emitElement(
         builder,
@@ -2506,6 +2683,7 @@ fn emitToggle<C>(
         "input",
         widgetBody(mem, painted, [], boxStyles(on, styles)),
     );
+    let _ = attachFocus(builder, key, true);
     let _ = registerValue(builder, value.index());
     let _ = emitMark(builder, kind, on);
     let _ = exitElement(builder);
@@ -2513,9 +2691,9 @@ fn emitToggle<C>(
     exitElement(builder)
 }
 
-/// A field's static emit, reading its signal, hint and `disabled` under `scope`
-/// so the watcher subscribes to each. It holds no program children, so no
-/// context crosses.
+/// A field's static emit, reading its signal, hint, `disabled` and focus under
+/// `scope` so the watcher subscribes to each. It holds no program children, so
+/// no context crosses.
 fn emitField<C>(
     ctx: Scope,
     builder: Builder,
@@ -2527,6 +2705,8 @@ fn emitField<C>(
     value: Signal<Str>,
     selection: Option<Signal<(Int, Int)>>,
     disabled: Prop<Bool>,
+    key: Int,
+    focus: Focus,
     events: Events<C>,
     state: State,
 ): () {
@@ -2540,44 +2720,58 @@ fn emitField<C>(
     let _ = emitReactiveText(builder, label);
     let _ = emitFieldControl(
         builder,
-        refusing(state, disabled.read(ctx)),
+        answering(ctx, state, disabled, focus),
         kind,
         hint.read(ctx),
         styles,
         value.get(ctx),
         value.index(),
         selection,
+        key,
     );
     exitElement(builder)
 }
 
 /// A picker's emit. The group's box is emitted once with the caller's context,
 /// since an option's content is any node; each option's input and dot follow the
-/// selection in a reactive region of their own.
+/// selection in a reactive region of their own. A `hasFocus` is the group's:
+/// true while any option has the focus.
 fn emitPicker<C>(
     ctx: C,
     builder: Builder,
     options: [(Str, Node<C>)],
     styles: [Style],
     value: Signal<Str>,
+    focus: Focus,
     events: Events<C>,
     state: State,
 ): () {
     let mem = alloc.generalPurpose();
     let _ = emitElement(builder, "div", widgetBody(mem, plain(state), [], styles));
+    let _ = if (focus.signal.isSome()) {
+        let group = focusKey(builder);
+        let _ = attachFocus(builder, group, false);
+        watchFocus(builder, group, Focus { signal: focus.signal, order: .None }, true)
+    } else {
+    };
     let _ = registerEvents(builder, events);
-    let _ = emitPickerOptions(ctx, builder, options, value, state, 0);
+    let _ = emitPickerOptions(ctx, builder, options, value, focus.order, state, 0);
     exitElement(builder)
 }
 
 /// Every option, in order: a `<label>` wrapping a reactive input-and-dot region
 /// and the option's content node. The region re-reads the selection, so picking
 /// one re-checks and re-dots it without touching the content beside it.
+///
+/// The focus order is a radio group's: one stop for the group, at the checked
+/// option, or at the first when none is, and none at all when `order` says the
+/// group is out of it.
 fn emitPickerOptions<C>(
     ctx: C,
     builder: Builder,
     options: [(Str, Node<C>)],
     value: Signal<Str>,
+    order: Option<Prop<Bool>>,
     state: State,
     at: Int,
 ): () {
@@ -2588,6 +2782,7 @@ fn emitPickerOptions<C>(
             let mem = alloc.generalPurpose();
             let key = option.0;
             let content = option.1;
+            let stop = focusKey(builder);
             let _ = emitElement(
                 builder,
                 "label",
@@ -2596,32 +2791,41 @@ fn emitPickerOptions<C>(
             let region = enterDynamic(builder);
             let _ = reactive(fn(scope) => {
                 let inner = alloc.generalPurpose();
-                let on = key == value.get(scope);
+                let selected = value.get(scope);
+                let on = key == selected;
                 let painted = Painted {
                     state: state,
                     checked: .Some(on),
                     disabled: false,
+                    focused: .None,
                 };
+                let reached = match (order) {
+                    .Some(prop) => prop.read(scope),
+                    .None => true,
+                };
+                let first = !options.any(fn(o) => o.0 == selected) && at == 0;
                 let _ = beginRegion(builder, region);
                 let _ = emitElement(
                     builder,
                     "input",
                     widgetBody(inner, painted, [], radioBox()),
                 );
+                let _ = attachFocus(builder, stop, true);
+                let _ = setFocusOrder(builder, stop, reached && (on || first));
                 let _ = emitDot(builder, on);
                 let _ = exitElement(builder);
                 endRegion(builder)
             });
             let _ = emitNode(ctx, builder, content, state);
             let _ = exitElement(builder);
-            emitPickerOptions(ctx, builder, options, value, state, at + 1)
+            emitPickerOptions(ctx, builder, options, value, order, state, at + 1)
         },
     }
 }
 
-/// A slider's static emit, reading its value and `disabled` under `scope` so the
-/// watcher subscribes to both. It holds no program children, so no context
-/// crosses.
+/// A slider's static emit, reading its value, `disabled` and focus under
+/// `scope` so the watcher subscribes to each. It holds no program children, so
+/// no context crosses.
 fn emitSlider<C>(
     ctx: Scope,
     builder: Builder,
@@ -2632,6 +2836,8 @@ fn emitSlider<C>(
     styles: [Style],
     around: [Style],
     disabled: Prop<Bool>,
+    key: Int,
+    focus: Focus,
     events: Events<C>,
     state: State,
 ): () {
@@ -2645,12 +2851,13 @@ fn emitSlider<C>(
     let _ = emitReactiveText(builder, label);
     let _ = emitSliderControl(
         builder,
-        refusing(state, disabled.read(ctx)),
+        answering(ctx, state, disabled, focus),
         min,
         max,
         styles,
         value.get(ctx),
         value.index(),
+        key,
     );
     exitElement(builder)
 }
@@ -2666,6 +2873,7 @@ fn emitSliderControl(
     styles: [Style],
     value: Float,
     signal: Int,
+    key: Int,
 ): () {
     let mem = alloc.generalPurpose();
     let leading = [decl(mem, "field", "range")].concat(
@@ -2677,6 +2885,7 @@ fn emitSliderControl(
         "input",
         widgetBody(mem, painted, leading, sliderTrack(styles)),
     );
+    let _ = attachFocus(builder, key, true);
     let _ = registerValue(builder, signal);
     exitElement(builder)
 }
@@ -2781,12 +2990,15 @@ fn emitBoxWith<C>(
         events,
         .Const(false),
         false,
+        noFocus(),
     )
 }
 
 /// `emitBoxWith`, with what a reader is told about the box beside what it
-/// paints: whether it is the current page, and whether it is hidden from
-/// assistive technology. Neither is in the scene a painter reads.
+/// paints — whether it is the current page, and whether it is hidden from
+/// assistive technology, neither of which is in the scene a painter reads —
+/// and the focus a box takes when `focus` asks for one. A box is never in the
+/// focus order unless it says so.
 fn emitAnnounced<C>(
     ctx: C,
     builder: Builder,
@@ -2799,23 +3011,49 @@ fn emitAnnounced<C>(
     events: Events<C>,
     current: Prop<Bool>,
     decorative: Bool,
+    focus: Focus,
 ): () {
     let mem = alloc.generalPurpose();
     // A box whose styles hold a computation opens the element once and patches
     // its body from a watcher, so a write to what a `Computed`/`When` style
     // reads re-serialises the line in place — the scene's `$tree_styles` bind.
-    // Its children are emitted once and kept, as are the element and its
-    // identity. A box of constant styles registers nothing.
-    let at = if (stylesReactive(styles)) {
-        let opened = openElement(builder, name, "");
-        let _ = reactive(fn(scope) => {
-            patchBody(builder, opened, widgetBodyUnder(scope, painted, leading, styles))
-        });
-        opened
-    } else {
-        openElement(builder, name, widgetBody(mem, painted, leading, styles))
+    // A box bound to `hasFocus` does the same, because its focus is its own
+    // answer. Its children are emitted once and kept, as are the element and
+    // its identity. A box of constant styles registers nothing.
+    let at = match (focus.signal) {
+        .Some(signal) => {
+            let opened = openElement(builder, name, "");
+            let _ = reactive(fn(scope) => {
+                let answered = Painted { ..painted, focused: .Some(signal.get(scope)) };
+                patchBody(
+                    builder,
+                    opened,
+                    widgetBodyUnder(scope, answered, leading, styles),
+                )
+            });
+            opened
+        },
+        .None => {
+            if (stylesReactive(styles)) {
+                let opened = openElement(builder, name, "");
+                let _ = reactive(fn(scope) => {
+                    patchBody(
+                        builder,
+                        opened,
+                        widgetBodyUnder(scope, painted, leading, styles),
+                    )
+                });
+                opened
+            } else {
+                openElement(builder, name, widgetBody(mem, painted, leading, styles))
+            }
+        },
     };
     let _ = announce(builder, at, current, decorative);
+    let _ = if (asksFocus(focus)) {
+        bindFocus(builder, focusKey(builder), false, focus)
+    } else {
+    };
     let _ = registerEvents(builder, events);
     let _ = emitChildren(ctx, builder, children, state, 0);
     exitElement(builder)
@@ -2950,6 +3188,7 @@ fn emitFieldControl(
     value: Str,
     signal: Int,
     selection: Option<Signal<(Int, Int)>>,
+    key: Int,
 ): () {
     let mem = alloc.generalPurpose();
     let leading = [decl(mem, "field", kindName(kind))].concat(
@@ -2961,6 +3200,7 @@ fn emitFieldControl(
         fieldName(kind),
         widgetBody(mem, painted, leading, styles),
     );
+    let _ = attachFocus(builder, key, true);
     let _ = registerValue(builder, signal);
     // The caret/selection signal is registered but never read here: the scene a
     // painter reads carries no caret, so a write to it must not rebuild the
@@ -3254,6 +3494,32 @@ fn keyPressed(builder: Builder): Str;
 /// handling of it is suppressed.
 fn claimKey(builder: Builder): ();
 
+/// Mints the focus a focusable element stands for, once per element. The
+/// focus belongs to it rather than to the record it is drawn as, so a widget
+/// that rebuilds its record keeps the focus.
+fn focusKey(builder: Builder): Int;
+
+/// Hands the focus `key` to the open element. `natural` says it is a control
+/// or a link: focusable, and in the order, unless it says otherwise.
+fn attachFocus(builder: Builder, key: Int, natural: Bool): ();
+
+/// Puts the focus `key` in the order moving the focus forward or back follows,
+/// or takes it out.
+fn setFocusOrder(builder: Builder, key: Int, on: Bool): ();
+
+/// Keeps the `hasFocus` signal `signal` for the focus `key`, for the document to
+/// write as the focus moves. `within` makes it a group's: true while the focus
+/// is anywhere inside it.
+fn bindFocusSignal(builder: Builder, key: Int, signal: Int, within: Bool): ();
+
+/// The program wrote `on` to the focus `key`'s signal: `true` moves the focus
+/// there, and `false` takes it away from there.
+fn requestFocus(builder: Builder, key: Int, on: Bool): ();
+
+/// Writes `label` over the accessible name of the element `openElement`
+/// answered `at` — `registerLabel` for a name that can change.
+fn relabel(builder: Builder, at: I64, label: Str): ();
+
 /// Keeps a file picker's `fn(C, Event) => ()` on the open element, in a slot of
 /// its own so `press` never fires it and `pickFile` does. It lives in the
 /// graph, disposed with the subtree.
@@ -3286,16 +3552,17 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         },
         // Being the current page and being decorative are what a reader is
         // told, not what a painter draws, so neither is in the scene.
-        .Stack(styles, children, _current, _decorative, _events) => {
-            container(ctx, state, styles, children, depth)
+        // A stack bound to `hasFocus` answers for its own focus.
+        .Stack(styles, children, _current, _decorative, focus, _events) => {
+            boxed(ctx, answered(plain(state), focus), styles, children, depth)
         },
         // A role paints nothing — it is what a reader is told, not what a
         // painter draws — except the table roles, whose whole point is a
         // two-dimensional arrangement a browser gives them for free.
-        .Region(role, styles, children, _current, _events) => {
+        .Region(role, styles, children, _current, focus, _events) => {
             let line = widgetLine(
                 ctx,
-                plain(state),
+                answered(plain(state), focus),
                 roleScene(ctx, role),
                 roleStyles(role, styles),
                 depth,
@@ -3305,8 +3572,8 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // The children are what is drawn, and a button with none draws its
         // label — which is the one place the accessible name and the glyphs
         // are the same string.
-        .Button(label, styles, children, _onPress, disabled, _expanded, _current, _events) => {
-            let painted = refusing(state, disabled.read(scope));
+        .Button(label, styles, children, _onPress, disabled, _expanded, _current, focus, _events) => {
+            let painted = answering(scope, state, disabled, focus);
             if (children.isEmpty()) {
                 [
                     styledLine(ctx, painted, styles, depth),
@@ -3319,8 +3586,8 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // A link — plain or routing — paints as the anchor it is. The
         // destination and the plain-click handler are behaviour, not a picture,
         // so the scene carries neither.
-        .Link(_dest, styles, children, _onFollow, _current, _events) => {
-            container(ctx, state, styles, children, depth)
+        .Link(_dest, styles, children, _onFollow, _current, focus, _events) => {
+            boxed(ctx, answered(plain(state), focus), styles, children, depth)
         },
         // A picture is a box with a source in it. The painter reads a data URI
         // it can and paints a placeholder box at the same size for one it
@@ -3340,7 +3607,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         },
         // Two boxes and two style lists: `around` on the label, `styles` on the
         // control inside it.
-        .Field(label, kind, hint, styles, around, value, _selection, _invalid, disabled, _events) => {
+        .Field(label, kind, hint, styles, around, value, _selection, _invalid, disabled, focus, _events) => {
             [
                 styledLine(ctx, plain(state), wrapper(around), depth),
                 textLine(ctx, depth + 1, label.read(scope)),
@@ -3348,7 +3615,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 ctx,
                 fieldLines(
                     ctx,
-                    refusing(state, disabled.read(scope)),
+                    answering(scope, state, disabled, focus),
                     kind,
                     hint.read(scope),
                     styles,
@@ -3361,8 +3628,8 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // carries `field:range` and `range:<min> <max> <value>` — the old
         // `FieldKind.Range`'s scene, so the painter draws the thumb unchanged —
         // and no run of text, because a browser draws a thumb and never a number.
-        .Slider(label, value, min, max, _step, styles, around, disabled, _events) => {
-            let painted = refusing(state, disabled.read(scope));
+        .Slider(label, value, min, max, _step, styles, around, disabled, focus, _events) => {
+            let painted = answering(scope, state, disabled, focus);
             let leading = [decl(ctx, "field", "range")].concat(
                 ctx,
                 sliderBounds(ctx, min, max, value.get(scope)),
@@ -3379,12 +3646,11 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // The box answers for its own `:checked`, and the signal is the
         // answer — the same signal the mark is drawn from, so what a reader
         // sees and what the styles say cannot come apart.
-        .Toggle(label, kind, styles, around, value, _invalid, disabled, _events) => {
+        .Toggle(label, kind, styles, around, value, _invalid, disabled, focus, _events) => {
             let on = value.get(scope);
             let painted = Painted {
-                state: state,
+                ..answering(scope, state, disabled, focus),
                 checked: .Some(on),
-                disabled: disabled.read(scope),
             };
             [
                 styledLine(ctx, plain(state), wrapper(around), depth),
@@ -3401,9 +3667,14 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // childless button's own shape: the accessible name and the glyphs are
         // the same string. It answers for its own `disabled`, the way a field's
         // control does.
-        .Submit(label, styles, disabled, _events) => {
+        .Submit(label, styles, disabled, focus, _events) => {
             [
-                styledLine(ctx, refusing(state, disabled.read(scope)), styles, depth),
+                styledLine(
+                    ctx,
+                    answering(scope, state, disabled, focus),
+                    styles,
+                    depth,
+                ),
                 textLine(ctx, depth + 1, label.read(scope)),
             ]
         },
@@ -3436,7 +3707,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // `:checked` off the signal — the option whose key equals it — and a
         // checked one draws the dot the reset paints, in the box's own
         // foreground. `style` picks the shape and changes no line here.
-        .Picker(_label, options, styles, value, _style, _disabled, _events) => {
+        .Picker(_label, options, styles, value, _style, _disabled, _focus, _events) => {
             [styledLine(ctx, plain(state), styles, depth)].concat(
                 ctx,
                 pickerOptionLines(
@@ -3527,7 +3798,12 @@ fn pickerOptionLines<C: Allocator>(
             let key = option.0;
             let content = option.1;
             let on = key == selected;
-            let painted = Painted { state: state, checked: .Some(on), disabled: false };
+            let painted = Painted {
+                state: state,
+                checked: .Some(on),
+                disabled: false,
+                focused: .None,
+            };
             let lines = [
                 styledLine(ctx, plain(state), wrapper([]), depth),
                 styledLine(ctx, painted, radioBox(), depth + 1),
@@ -3862,10 +4138,14 @@ fn answers<C: Allocator>(ctx: C, painted: Painted): [Str] {
         .Some(on) => [decl(ctx, "checked", boolName(on))],
         .None => [],
     };
-    if (painted.disabled) {
+    let refused = if (painted.disabled) {
         checked.push(ctx, decl(ctx, "disabled", "true"))
     } else {
         checked
+    };
+    match (painted.focused) {
+        .Some(on) => refused.push(ctx, decl(ctx, "focused", boolName(on))),
+        .None => refused,
     }
 }
 
@@ -4039,17 +4319,21 @@ struct Painted {
     state: State,
     checked: Option<Bool>,
     disabled: Bool,
+    /// The element's own focus, for one bound to a `hasFocus` signal, which is
+    /// the answer the way a toggle's signal is for `checked`. `.None` leaves
+    /// the snapshot's state to say.
+    focused: Option<Bool>,
 }
 
 /// An element that answers for none of it: everything but a widget.
 fn plain(state: State): Painted {
-    Painted { state: state, checked: .None, disabled: false }
+    Painted { state: state, checked: .None, disabled: false, focused: .None }
 }
 
 /// A control that answers for its own `disabled` and for nothing else — a
 /// button and a field.
 fn refusing(state: State, disabled: Bool): Painted {
-    Painted { state: state, checked: .None, disabled: disabled }
+    Painted { state: state, checked: .None, disabled: disabled, focused: .None }
 }
 
 /// Whether a style scoped to `scoped` — a `State`'s rank, or `-1` for a style
@@ -4065,6 +4349,11 @@ fn applies(scoped: Int, painted: Painted): Bool {
         }
     } else if (scoped == stateRank(.Disabled)) {
         painted.disabled || named == scoped
+    } else if (scoped == stateRank(.Focus)) {
+        match (painted.focused) {
+            .Some(on) => on,
+            .None => named == scoped,
+        }
     } else {
         scoped == named
     }

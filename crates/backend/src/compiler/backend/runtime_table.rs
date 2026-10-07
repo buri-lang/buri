@@ -1401,6 +1401,17 @@ pub const ENTRIES: &[Entry] = &[
     e("ui_node.registerKey", &[Scalar, Press], Ret::Void),
     e("ui_node.keyPressed", &[Scalar], Ret::Out),
     e("ui_node.claimKey", &[Scalar], Ret::Void),
+    // The focus. `focusKey` mints the focus an element stands for, once, and
+    // `attachFocus` hands it to whichever record draws the element now, so a
+    // rebuild keeps it. `setFocusOrder` and `bindFocusSignal` keep what the
+    // program said, and `requestFocus` is its signal written. `relabel` is a
+    // button's changing name.
+    e("ui_node.focusKey", &[Scalar], Ret::Scalar),
+    e("ui_node.attachFocus", &[Scalar, Scalar, Scalar], Ret::Void),
+    e("ui_node.setFocusOrder", &[Scalar, Scalar, Scalar], Ret::Void),
+    e("ui_node.bindFocusSignal", &[Scalar, Scalar, Scalar, Scalar], Ret::Void),
+    e("ui_node.requestFocus", &[Scalar, Scalar, Scalar], Ret::Void),
+    e("ui_node.relabel", &[Scalar, Scalar, Str], Ret::Void),
     // A file picker (#209). `registerPick` keeps its handler in a slot of its
     // own, an `ep` like `registerPress`, so `press` never fires it; the three
     // `offered` readers answer the file `pickFile` left on the document, and
@@ -1421,6 +1432,9 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.Rendered.description", &[Scalar, Str], Ret::Out),
     e("host_testing.Rendered.focus", &[Scalar, Str], Ret::Void),
     e("host_testing.Rendered.key", &[Scalar, Str], Ret::Void),
+    e("host_testing.Rendered.focused", &[Scalar], Ret::Out),
+    e("host_testing.Rendered.tab", &[Scalar], Ret::Void),
+    e("host_testing.Rendered.shiftTab", &[Scalar], Ret::Void),
     e("host_testing.Rendered.count", &[Scalar, Str], Ret::Scalar),
     e("host_testing.Rendered.identity", &[Scalar, Str, Scalar], Ret::Scalar),
     // The event dispatch (#53 phase 4), each addressing the reconciled document

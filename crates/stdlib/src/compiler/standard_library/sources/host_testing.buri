@@ -2038,8 +2038,9 @@ export fn address<C: Ui>(ctx: C, at: Str): Address {
 ///   and that a press inside a label reaches the input it wraps. What `submit`
 ///   models is the rule that decides *whether* the keypress submits, not the
 ///   keypress.
-/// - **Focus and selection.** That a moved row keeps the focus and the caret.
-///   What a test asserts here is the identity that makes it possible.
+/// - **The caret.** That a moved row keeps the caret. What a test asserts here
+///   is the identity that makes it possible. The focus is in reach: `focus`,
+///   `tab`, `key` and `focused` move it and read it the way a reader does.
 /// - **What assistive technology announces**, past what `spoken` and
 ///   `isCurrent` answer. A test asserts a role as the element it became.
 export struct Rendered(I64);
@@ -2095,13 +2096,33 @@ impl Rendered {
     export fn description(self, name: Str): Str;
 
     /// Moves the focus to the element named `name`, the way a reader clicking
-    /// it or tabbing to it does. A part of a control that has no focus of its
-    /// own, like the text inside a button, focuses that control.
+    /// it does. A field's label focuses its field, and the text inside a button
+    /// focuses the button.
     ///
-    /// A tooltip around the focused element shows its bubble. Aborts when no
-    /// element has that name, or when it is nothing a reader can focus: one
-    /// that is disabled, or that an open `dialog` has taken out of reach.
+    /// What can take the focus is what a browser lets take it: a control or a
+    /// link that is enabled, and a stack given a `hasFocus` or an
+    /// `isInFocusOrder`. The `hasFocus` signals of the element that had the
+    /// focus and the one that has it now are written, and a tooltip around the
+    /// focused element shows its bubble. Aborts when no element has that name,
+    /// or when it is nothing a reader can focus: one that is disabled, or that
+    /// an open `dialog` has taken out of reach.
     export fn focus(self, name: Str): ();
+
+    /// The name of the element that has the focus — its label, or else its
+    /// text, and a field's label for a field — or `""` when nothing has it.
+    export fn focused(self): Str;
+
+    /// Presses Tab: every `onKey` from the focused element out hears `"Tab"`,
+    /// and unless one claims it the focus moves to the next element in the
+    /// focus order, in document order, wrapping round at the end.
+    ///
+    /// The order is every element a reader can focus, less what
+    /// `isInFocusOrder` takes out of it. A radio group is one stop, at its
+    /// checked option. With a `dialog` open, it is what is inside the dialog.
+    export fn tab(self): ();
+
+    /// Presses Shift+Tab: `tab`, the other way round the order.
+    export fn shiftTab(self): ();
 
     /// Presses `key` — `"Escape"`, `"ArrowDown"`, the name a browser gives one
     /// — while the focus is where it is.
@@ -2125,6 +2146,10 @@ impl Rendered {
     /// Pressing a `.Submit` button submits the form around it, which is the
     /// browser's own default action for the press rather than a handler the
     /// button carries.
+    ///
+    /// The press focuses the button before its handler runs, the way a
+    /// browser's does, so a handler that hands the focus elsewhere is the one
+    /// that decides where it ends up.
     ///
     /// A `dialog` refuses one the same way, both ways round: what is behind an
     /// open modal is inert, and what is inside a shut one is drawn nowhere.

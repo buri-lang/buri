@@ -17,7 +17,7 @@
 //
 // `platform/effect/testing`'s renderer is the one `mount` uses, against a document the
 // runtime supplies. What it cannot cover is what only a browser does — layout,
-// painting, focus order, and the browser's own dispatch of a press — and that
+// painting, and the browser's own dispatch of a press — and that
 // needs a browser rather than a substitute for one.
 
 from "core/bytes" import * as bytes;
@@ -5639,6 +5639,775 @@ test "a tooltip's text may vary, and what a reader hears follows it" {
     said.set(ctx, "Copied");
     assert.equal(page.description("Copy"), "Copied");
     assert.equal(page.text(), "Copy Copied");
+}
+
+// --- the focus -------------------------------------------------------------------------
+//
+// `hasFocus` is a two-way signal, the shape `Field.selection` has: the platform
+// writes it as the focus moves, and writing it moves the focus.
+// `isInFocusOrder` says whether Tab reaches an element. Each use case the
+// proposal names has a test below: the focus back on a menu's trigger after
+// Escape, the focus inside a panel as it opens, the focus kept in an editor
+// after the pressed row unmounts, and roving focus in tabs and in a listbox.
+
+/// Two buttons, each with a `hasFocus` of its own.
+fn pair<C>(a: Signal<Bool>, b: Signal<Bool>): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const("A"),
+                styles: [],
+                onPress: .Some(fn(_c) => ()),
+                hasFocus: .Some(a),
+            }),
+            ui.button({
+                label: .Const("B"),
+                styles: [],
+                onPress: .Some(fn(_c) => ()),
+                hasFocus: .Some(b),
+            }),
+        ],
+    })
+}
+
+test "the platform writes hasFocus as the focus moves" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let a = signal(ctx, false);
+    let b = signal(ctx, false);
+    let page = render(ctx, pair(a, b));
+    assert.equal(page.focused(), "");
+    let _ = page.focus("A");
+    assert.equal(page.focused(), "A");
+    assert.isTrue(a.get(ctx));
+    let _ = page.focus("B");
+    assert.isFalse(a.get(ctx));
+    assert.isTrue(b.get(ctx));
+}
+
+test "writing hasFocus moves the focus, and writing false takes it away" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let a = signal(ctx, false);
+    let b = signal(ctx, false);
+    let page = render(ctx, pair(a, b));
+    b.set(ctx, true);
+    assert.equal(page.focused(), "B");
+    a.set(ctx, true);
+    assert.equal(page.focused(), "A");
+    assert.isFalse(b.get(ctx));
+    a.set(ctx, false);
+    assert.equal(page.focused(), "");
+}
+
+test "of several writes in one update, the last one written gets the focus" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let a = signal(ctx, false);
+    let b = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                pair(a, b),
+                ui.button({
+                    label: .Const("A then B"),
+                    styles: [],
+                    onPress: .Some(fn(c) => {
+                        let _ = a.set(c, true);
+                        b.set(c, true)
+                    }),
+                }),
+                ui.button({
+                    label: .Const("B then A"),
+                    styles: [],
+                    onPress: .Some(fn(c) => {
+                        let _ = b.set(c, true);
+                        a.set(c, true)
+                    }),
+                }),
+            ],
+        }),
+    );
+    let _ = page.press("A then B");
+    assert.equal(page.focused(), "B");
+    assert.isFalse(a.get(ctx));
+    let _ = page.press("B then A");
+    assert.equal(page.focused(), "A");
+    assert.isFalse(b.get(ctx));
+}
+
+/// A menu button and the menu it opens: opening it puts the focus on its first
+/// item, and Escape shuts it and hands the focus back to the button.
+fn actions<C: Ui>(
+    open: Signal<Bool>,
+    trigger: Signal<Bool>,
+    first: Signal<Bool>,
+): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const("Actions"),
+                styles: [],
+                onPress: .Some(fn(c) => {
+                    let _ = open.set(c, true);
+                    first.set(c, true)
+                }),
+                isExpanded: .Some(.Cell(open)),
+                hasFocus: .Some(trigger),
+            }),
+            ui.choose(
+                .Cell(open),
+                ui.stack({
+                    styles: [],
+                    children: [
+                        ui.button({
+                            label: .Const("Rename"),
+                            styles: [],
+                            onPress: .Some(fn(c) => open.set(c, false)),
+                            hasFocus: .Some(first),
+                        }),
+                        ui.button({
+                            label: .Const("Delete"),
+                            styles: [],
+                            onPress: .Some(fn(c) => open.set(c, false)),
+                        }),
+                    ],
+                    role: .Some(.Group),
+                    onKey: .Some(fn(c, key) => {
+                        if (key == "Escape") {
+                            let _ = open.set(c, false);
+                            let _ = trigger.set(c, true);
+                            true
+                        } else {
+                            false
+                        }
+                    }),
+                }),
+                ui.empty(),
+            ),
+        ],
+    })
+}
+
+test "Escape shuts a menu and returns the focus to its trigger" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let trigger = signal(ctx, false);
+    let first = signal(ctx, false);
+    let page = render(ctx, actions(open, trigger, first));
+    let _ = page.press("Actions");
+    assert.equal(page.focused(), "Rename");
+    assert.isFalse(trigger.get(ctx));
+    let _ = page.key("Escape");
+    assert.isFalse(open.get(ctx));
+    assert.equal(page.focused(), "Actions");
+    assert.isTrue(trigger.get(ctx));
+    // The item went with the focus on it, so its signal says it has none.
+    assert.isFalse(first.get(ctx));
+}
+
+/// A button that opens a dialog with the focus already in its field.
+fn renaming<C: Ui>(
+    open: Signal<Bool>,
+    name: Signal<Str>,
+    editing: Signal<Bool>,
+): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const("Edit name"),
+                styles: [],
+                onPress: .Some(fn(c) => {
+                    let _ = editing.set(c, true);
+                    open.set(c, true)
+                }),
+            }),
+            ui.dialog({
+                isOpen: open,
+                label: .Const("Rename"),
+                children: [
+                    ui.field({
+                        label: .Const("Name"),
+                        kind: .Text,
+                        value: name,
+                        styles: [],
+                        hasFocus: .Some(editing),
+                    }),
+                    ui.button({
+                        label: .Const("Done"),
+                        styles: [],
+                        onPress: .Some(fn(c) => open.set(c, false)),
+                    }),
+                ],
+                styles: [],
+            }),
+        ],
+    })
+}
+
+test "a panel that opens takes the focus inside it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let name = signal(ctx, "draft");
+    let editing = signal(ctx, false);
+    let page = render(ctx, renaming(open, name, editing));
+    // The signal is written before the field exists, and the field takes the
+    // focus as it mounts.
+    let _ = page.press("Edit name");
+    assert.equal(page.focused(), "Name");
+    assert.isTrue(editing.get(ctx));
+    // Behind an open dialog is out of reach, so Tab goes round inside it.
+    let _ = page.tab();
+    assert.equal(page.focused(), "Done");
+    let _ = page.tab();
+    assert.equal(page.focused(), "Name");
+    let _ = page.shiftTab();
+    assert.equal(page.focused(), "Done");
+}
+
+/// A formula editor and the completions under it. Pressing one writes it into
+/// the field, takes the list away and puts the focus back in the field.
+fn formula<C: Ui>(
+    text: Signal<Str>,
+    editing: Signal<Bool>,
+    offers: Signal<[Str]>,
+): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.field({
+                label: .Const("Formula"),
+                kind: .Text,
+                value: text,
+                styles: [],
+                hasFocus: .Some(editing),
+            }),
+            ui.each(.Cell(offers), itself, fn(_c, offer, _index) => {
+                ui.button({
+                    label: .Const(offer),
+                    styles: [],
+                    onPress: .Some(fn(c) => {
+                        let _ = text.set(c, offer);
+                        let _ = offers.set(c, []);
+                        editing.set(c, true)
+                    }),
+                })
+            }),
+        ],
+    })
+}
+
+test "the focus stays in the editor after the pressed row unmounts" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let text = signal(ctx, "SU");
+    let editing = signal(ctx, false);
+    let offers = signal(ctx, ["SUM", "SUMIF"]);
+    let page = render(ctx, formula(text, editing, offers));
+    let _ = page.focus("Formula");
+    assert.isTrue(editing.get(ctx));
+    // The press takes the focus to the row, as a browser's does, and the
+    // handler hands it back as the row goes.
+    let _ = page.press("SUM");
+    assert.equal(text.get(ctx), "SUM");
+    assert.equal(page.count("button"), 0);
+    assert.equal(page.focused(), "Formula");
+    assert.isTrue(editing.get(ctx));
+}
+
+test "a focused element that unmounts writes its signal false" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let shown = signal(ctx, true);
+    let held = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.choose(
+            .Cell(shown),
+            ui.button({
+                label: .Const("Close"),
+                styles: [],
+                onPress: .Some(fn(_c) => ()),
+                hasFocus: .Some(held),
+            }),
+            ui.empty(),
+        ),
+    );
+    let _ = page.focus("Close");
+    assert.isTrue(held.get(ctx));
+    shown.set(ctx, false);
+    assert.isFalse(held.get(ctx));
+    assert.equal(page.focused(), "");
+}
+
+/// The tab after `key`, and the one before it, round three tabs.
+fn tabAfter(key: Str): Str {
+    if (key == "overview") {
+        "billing"
+    } else if (key == "billing") {
+        "team"
+    } else {
+        "overview"
+    }
+}
+
+fn tabBefore(key: Str): Str {
+    if (key == "overview") {
+        "team"
+    } else if (key == "billing") {
+        "overview"
+    } else {
+        "billing"
+    }
+}
+
+/// One tab: in the focus order only while it is the active one, and focused
+/// through its own signal when the arrow keys reach it.
+fn tab<C: Ui>(key: Str, label: Str, active: Signal<Str>, focus: Signal<Bool>): Node<C> {
+    ui.button({
+        label: .Const(label),
+        styles: [],
+        onPress: .Some(fn(c) => active.set(c, key)),
+        isCurrent: .Some(.Computed(fn(s) => active.get(s) == key)),
+        hasFocus: .Some(focus),
+        isInFocusOrder: .Some(.Computed(fn(s) => active.get(s) == key)),
+    })
+}
+
+/// Which tab's signal to write to move the focus to `key`.
+fn focusTab<C: Ui>(
+    ctx: C,
+    key: Str,
+    overview: Signal<Bool>,
+    billing: Signal<Bool>,
+    team: Signal<Bool>,
+): () {
+    if (key == "overview") {
+        overview.set(ctx, true)
+    } else if (key == "billing") {
+        billing.set(ctx, true)
+    } else {
+        team.set(ctx, true)
+    }
+}
+
+/// A tab list with a control on either side: one tab stop for the list, and
+/// the arrow keys move the focus and the selection along it.
+fn tabs<C: Ui + Watch>(
+    active: Signal<Str>,
+    overview: Signal<Bool>,
+    billing: Signal<Bool>,
+    team: Signal<Bool>,
+): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const("Back"),
+                styles: [],
+                onPress: .Some(fn(_c) => ()),
+            }),
+            ui.stack({
+                styles: [.Layout(.Row)],
+                children: [
+                    tab("overview", "Overview", active, overview),
+                    tab("billing", "Billing", active, billing),
+                    tab("team", "Team", active, team),
+                ],
+                role: .Some(.Group),
+                onKey: .Some(fn(c, key) => {
+                    let now = active.get(c);
+                    let next = if (key == "ArrowRight") {
+                        tabAfter(now)
+                    } else if (key == "ArrowLeft") {
+                        tabBefore(now)
+                    } else {
+                        now
+                    };
+                    if (next == now) {
+                        false
+                    } else {
+                        let _ = active.set(c, next);
+                        let _ = focusTab(c, next, overview, billing, team);
+                        true
+                    }
+                }),
+            }),
+            ui.button({
+                label: .Const("Save"),
+                styles: [],
+                onPress: .Some(fn(_c) => ()),
+            }),
+        ],
+    })
+}
+
+test "roving focus: a tab list is one stop, and the arrow keys move along it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let active = signal(ctx, "overview");
+    let overview = signal(ctx, false);
+    let billing = signal(ctx, false);
+    let team = signal(ctx, false);
+    let page = render(ctx, tabs(active, overview, billing, team));
+    let _ = page.tab();
+    assert.equal(page.focused(), "Back");
+    let _ = page.tab();
+    assert.equal(page.focused(), "Overview");
+    // The other two tabs are out of the order, so Tab leaves the list.
+    let _ = page.tab();
+    assert.equal(page.focused(), "Save");
+    let _ = page.shiftTab();
+    assert.equal(page.focused(), "Overview");
+    let _ = page.key("ArrowRight");
+    assert.equal(page.focused(), "Billing");
+    assert.equal(active.get(ctx), "billing");
+    assert.isTrue(page.isCurrent("Billing"));
+    assert.isFalse(overview.get(ctx));
+    // The list's one stop moved with the selection.
+    let _ = page.shiftTab();
+    assert.equal(page.focused(), "Back");
+    let _ = page.tab();
+    assert.equal(page.focused(), "Billing");
+    let _ = page.key("ArrowLeft");
+    let _ = page.key("ArrowLeft");
+    assert.equal(page.focused(), "Team");
+}
+
+/// One option of a listbox drawn as stacks: a box that takes the focus only
+/// because it was given a signal and an order.
+fn fruit<C>(name: Str, selected: Signal<Str>, focus: Signal<Bool>): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [ui.text({ content: .Const(name) })],
+        role: .Some(.ListItem),
+        hasFocus: .Some(focus),
+        isInFocusOrder: .Some(.Computed(fn(s) => selected.get(s) == name)),
+    })
+}
+
+test "roving focus: a listbox of stacks moves the same way" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let selected = signal(ctx, "Apples");
+    let apples = signal(ctx, false);
+    let pears = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [
+                        fruit("Apples", selected, apples),
+                        fruit("Pears", selected, pears),
+                    ],
+                    role: .Some(.List),
+                    onKey: .Some(fn(c, key) => {
+                        if (key == "ArrowDown") {
+                            let _ = selected.set(c, "Pears");
+                            let _ = pears.set(c, true);
+                            true
+                        } else if (key == "ArrowUp") {
+                            let _ = selected.set(c, "Apples");
+                            let _ = apples.set(c, true);
+                            true
+                        } else {
+                            false
+                        }
+                    }),
+                }),
+                ui.button({
+                    label: .Const("Done"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+            ],
+        }),
+    );
+    let _ = page.tab();
+    assert.equal(page.focused(), "Apples");
+    let _ = page.key("ArrowDown");
+    assert.equal(page.focused(), "Pears");
+    assert.isFalse(apples.get(ctx));
+    let _ = page.tab();
+    assert.equal(page.focused(), "Done");
+    let _ = page.shiftTab();
+    assert.equal(page.focused(), "Pears");
+}
+
+test "out of the focus order, Tab skips an element and hasFocus still focuses it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let skipped = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("First"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+                ui.button({
+                    label: .Const("Skipped"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    hasFocus: .Some(skipped),
+                    isInFocusOrder: .Some(.Const(false)),
+                }),
+                ui.button({
+                    label: .Const("Last"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("Note") })],
+                }),
+            ],
+            // A box with neither is no stop at all.
+        }),
+    );
+    let _ = page.tab();
+    let _ = page.tab();
+    assert.equal(page.focused(), "Last");
+    // The order wraps round.
+    let _ = page.tab();
+    assert.equal(page.focused(), "First");
+    skipped.set(ctx, true);
+    assert.equal(page.focused(), "Skipped");
+}
+
+test "a control that can't take the focus writes its signal back false" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let held = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.button({
+            label: .Const("Send"),
+            styles: [],
+            onPress: .Some(fn(_c) => ()),
+            isDisabled: .Some(.Const(true)),
+            hasFocus: .Some(held),
+        }),
+    );
+    held.set(ctx, true);
+    assert.isFalse(held.get(ctx));
+    assert.equal(page.focused(), "");
+}
+
+test "every control takes hasFocus, and a picker's is its group's" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let name = signal(ctx, "");
+    let weekly = signal(ctx, false);
+    let volume = signal(ctx, 3.0);
+    let plan = signal(ctx, "pro");
+    let onName = signal(ctx, false);
+    let onWeekly = signal(ctx, false);
+    let onVolume = signal(ctx, false);
+    let onDocs = signal(ctx, false);
+    let onPanel = signal(ctx, false);
+    let onPlan = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: name,
+                    styles: [],
+                    hasFocus: .Some(onName),
+                }),
+                ui.toggle({
+                    label: .Const("Weekly"),
+                    kind: .Switch,
+                    isOn: weekly,
+                    styles: [],
+                    hasFocus: .Some(onWeekly),
+                }),
+                ui.slider({
+                    label: .Const("Volume"),
+                    value: volume,
+                    min: 0.0,
+                    max: 10.0,
+                    styles: [],
+                    hasFocus: .Some(onVolume),
+                }),
+                ui.link({
+                    dest: .Const("/docs"),
+                    styles: [],
+                    children: [ui.text({ content: .Const("Docs") })],
+                    hasFocus: .Some(onDocs),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("Panel") })],
+                    hasFocus: .Some(onPanel),
+                }),
+                ui.picker({
+                    label: .Const("Plan"),
+                    options: [
+                        ("free", ui.text({ content: .Const("Free") })),
+                        ("pro", ui.text({ content: .Const("Pro") })),
+                    ],
+                    value: plan,
+                    styles: [],
+                    hasFocus: .Some(onPlan),
+                }),
+            ],
+        }),
+    );
+    onName.set(ctx, true);
+    assert.equal(page.focused(), "Name");
+    onWeekly.set(ctx, true);
+    assert.equal(page.focused(), "Weekly");
+    assert.isFalse(onName.get(ctx));
+    onVolume.set(ctx, true);
+    assert.equal(page.focused(), "Volume");
+    onDocs.set(ctx, true);
+    assert.equal(page.focused(), "Docs");
+    onPanel.set(ctx, true);
+    assert.equal(page.focused(), "Panel");
+    // A group takes the focus at its checked option.
+    onPlan.set(ctx, true);
+    assert.equal(page.focused(), "Pro");
+    assert.isFalse(onPanel.get(ctx));
+    // From one option to the next is still inside the group.
+    let _ = page.focus("Free");
+    assert.isTrue(onPlan.get(ctx));
+    let _ = page.focus("Name");
+    assert.isFalse(onPlan.get(ctx));
+    assert.isTrue(onName.get(ctx));
+}
+
+test "a field keeps the focus while what is typed into it rebuilds it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let name = signal(ctx, "");
+    let held = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.field({
+            label: .Const("Name"),
+            kind: .Text,
+            value: name,
+            styles: [],
+            hasFocus: .Some(held),
+        }),
+    );
+    let _ = page.focus("Name");
+    let _ = page.fill("Name", "Ada");
+    assert.equal(page.focused(), "Name");
+    assert.isTrue(held.get(ctx));
+}
+
+test "a radio group is one stop, at its checked option, and isInFocusOrder takes it out" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let plan = signal(ctx, "pro");
+    let reached = signal(ctx, true);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.picker({
+                    label: .Const("Plan"),
+                    options: [
+                        ("free", ui.text({ content: .Const("Free") })),
+                        ("pro", ui.text({ content: .Const("Pro") })),
+                    ],
+                    value: plan,
+                    styles: [],
+                    isInFocusOrder: .Some(.Cell(reached)),
+                }),
+                ui.button({
+                    label: .Const("Next"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+            ],
+        }),
+    );
+    let _ = page.tab();
+    assert.equal(page.focused(), "Pro");
+    let _ = page.tab();
+    assert.equal(page.focused(), "Next");
+    reached.set(ctx, false);
+    let _ = page.tab();
+    assert.equal(page.focused(), "Next");
+}
+
+test "a control bound to hasFocus answers for its own focus in the scene" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let held = signal(ctx, true);
+    let tree = rooted(
+        ctx,
+        ui.button({
+            label: .Const("Save"),
+            styles: [.On(.Focus, [.Padding(.Px(9))])],
+            onPress: .Some(fn(_c) => ()),
+            hasFocus: .Some(held),
+        }),
+    );
+    // Focused, its focus styles paint whatever the snapshot's state is; not
+    // focused, they paint in none, `.Focus` included.
+    assert.containsText(ui.describe(ctx, tree, .Hover), "focused:true");
+    assert.containsText(ui.describe(ctx, tree, .Hover), "focus_p-9");
+    held.set(ctx, false);
+    assert.containsText(ui.describe(ctx, tree, .Focus), "focused:false");
+    assert.isFalse(ui.describe(ctx, tree, .Focus).contains("focus_p-9"));
+    // The document follows the signal, the way its markup follows a toggle's.
+    let page = render(ctx, tree);
+    assert.equal(page.markup(), "e 0 focused:false\nt 1 Save");
+    held.set(ctx, true);
+    assert.containsText(page.markup(), "focused:true");
 }
 
 // --- a progress bar --------------------------------------------------------------------

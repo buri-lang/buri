@@ -126,6 +126,25 @@ struct Record {
     tip_dismissed: bool,
     /// An `onKey`'s handler graph node, or `-1`. `key` fires it.
     key: i64,
+    /// The focus this element stands for, an index into the document's
+    /// `stops`, or `-1` for an element the focus never lands on.
+    focus_key: i64,
+}
+
+/// One element the focus can land on, minted once by `focusKey` and handed
+/// to whichever record draws the element now, so a widget that rebuilds its
+/// record keeps the focus. The JavaScript twin is a scene document's `stops`.
+struct Stop {
+    /// The record that draws the element now, or `None` before the first.
+    record: Option<usize>,
+    /// A control or a link: focusable, and in the order unless it says not.
+    natural: bool,
+    /// What `isInFocusOrder` last said, or `None` for the element's default.
+    order: Option<bool>,
+    /// The `hasFocus` signal, or `-1`.
+    signal: i64,
+    /// Whether the signal is a group's, true while the focus is inside it.
+    within: bool,
 }
 
 /// A record with no widget state — an element, a run or a marker before any
@@ -153,6 +172,7 @@ fn plain_record(identity: i64, kind: Kind, name: String, body: String, text: Str
         tip_text: String::new(),
         tip_dismissed: false,
         key: -1,
+        focus_key: -1,
     }
 }
 
@@ -247,8 +267,10 @@ struct Document {
     pointer: Pointer,
     /// The element the pointer is over: the last one a pointer method named.
     hovered: Option<usize>,
-    /// The element that has the focus.
+    /// The stop that has the focus, an index into `stops`.
     focused: Option<usize>,
+    /// Every element the focus can land on, by the key `focusKey` minted.
+    stops: Vec<Stop>,
     /// What the key handler being fired reads back.
     key: KeyPress,
     /// The context `render` was called with, handed to every walk and handler
@@ -292,6 +314,7 @@ impl Document {
             pointer: Pointer::default(),
             hovered: None,
             focused: None,
+            stops: Vec::new(),
             key: KeyPress::default(),
             ctx: None,
         }
@@ -756,6 +779,7 @@ pub unsafe extern "C" fn buri_rt_ui_node_rebuild_region(
     // its builder now pointed at the region gap.
     unsafe { crate::ui::buri_rt_ui_render_walk(entry, state, handle, node, frame_at) };
     with_doc(handle, |doc| doc.end_region());
+    check_focus(handle);
 }
 
 /// `beginRegion(builder, region)` — clears `region` and points the builder at
@@ -771,10 +795,13 @@ pub extern "C" fn buri_rt_ui_node_begin_region(handle: i64, region: i64) {
 }
 
 /// `endRegion(builder)` — restores where the builder emits after `beginRegion`,
-/// the frame `begin_region` pushed.
+/// the frame `begin_region` pushed. A widget rebuilt in place has handed its
+/// focus to the record it drew, so the focus is lost only when what had it
+/// went for good.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_ui_node_end_region(handle: i64) {
     with_doc(handle, |doc| doc.end_region());
+    check_focus(handle);
 }
 
 impl Document {
@@ -982,6 +1009,8 @@ pub unsafe extern "C" fn buri_rt_ui_node_reconcile(
             r.rows = next;
         }
     });
+    // A row that left with the focus took it with it.
+    check_focus(handle);
 }
 
 // ---------------------------------------------------------------------------
@@ -1678,8 +1707,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_press(
     if !reachable {
         return;
     }
-    // A press is the pointer's, so the button is what the pointer is over.
+    // A press is the pointer's, so the button is what the pointer is over, and
+    // it takes the focus before its handler runs, the way a browser's does.
     hover(handle, button);
+    if let Some(key) = with_doc(handle, |doc| doc.stop_of(button).filter(|&k| doc.focusable(k))).flatten() {
+        set_focus(handle, Some(key));
+    }
     // The press reaches the document before the button, the way a browser's
     // `pointerdown` does: an overlay watching for a press outside itself sees
     // this one and fires on it, unless the press landed inside its subtree. A
@@ -2049,6 +2082,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_pointer_up(
 /// equal write is no write.
 fn sync_tips(handle: i64) {
     let wanted = with_doc(handle, |doc| {
+        let focused = doc.focused_record();
         let tips: Vec<usize> = doc
             .ordered()
             .into_iter()
@@ -2058,12 +2092,12 @@ fn sync_tips(handle: i64) {
         let mut out = Vec::with_capacity(tips.len());
         for i in tips {
             let over = doc.hovered.is_some_and(|h| doc.within(i, h));
-            let focused = doc.focused.is_some_and(|f| doc.within(i, f));
+            let inside = focused.is_some_and(|f| doc.within(i, f));
             let r = &mut doc.records[i];
-            if !over && !focused {
+            if !over && !inside {
                 r.tip_dismissed = false;
             }
-            out.push((r.tip, (over || focused) && !r.tip_dismissed));
+            out.push((r.tip, (over || inside) && !r.tip_dismissed));
         }
         out
     })
@@ -2089,20 +2123,283 @@ fn hover(handle: i64, node: usize) {
 }
 
 impl Document {
-    /// Whether a reader can focus `node`: a control or a link, enabled, and not
-    /// behind an open dialog.
-    fn focusable(&self, node: usize) -> bool {
-        let r = &self.records[node];
-        r.kind == Kind::Element
-            && (is_control(&r.name) || r.name == "a")
-            && !is_disabled(&r.body)
-            && !self.inert(node)
+    /// The record that draws stop `key` now, while it is in the tree.
+    fn stop_record(&self, key: usize) -> Option<usize> {
+        self.stops.get(key).and_then(|s| s.record).filter(|&r| self.within(0, r))
     }
 
-    /// The focused element, while it is still in the tree.
-    fn focus_now(&self) -> Option<usize> {
-        self.focused.filter(|&f| self.within(0, f))
+    /// The record the focus is on, while it is in the tree.
+    fn focused_record(&self) -> Option<usize> {
+        self.focused.and_then(|k| self.stop_record(k))
     }
+
+    /// The stop that has the focus, while what draws it is in the tree.
+    fn focus_now(&self) -> Option<usize> {
+        self.focused.filter(|&k| self.stop_record(k).is_some())
+    }
+
+    /// Whether a reader can focus stop `key`: an element in the tree, enabled,
+    /// not behind an open dialog, and either a control or a link or something
+    /// the program gave a focus. A group's signal is the group's, and the
+    /// group itself is never where the focus lands.
+    fn focusable(&self, key: usize) -> bool {
+        let Some(stop) = self.stops.get(key) else { return false };
+        let Some(record) = self.stop_record(key) else { return false };
+        !stop.within
+            && (stop.natural || stop.signal >= 0 || stop.order.is_some())
+            && self.records[record].kind == Kind::Element
+            && !is_disabled(&self.records[record].body)
+            && !self.inert(record)
+    }
+
+    /// Whether moving the focus forward or back reaches stop `key`.
+    fn in_order(&self, key: usize) -> bool {
+        self.focusable(key) && self.stops[key].order.unwrap_or(self.stops[key].natural)
+    }
+
+    /// The stop drawn as `record`, if one is.
+    fn stop_of(&self, record: usize) -> Option<usize> {
+        usize::try_from(self.records[record].focus_key).ok()
+    }
+
+    /// The stops in the focus order, in document order.
+    fn order(&self) -> Vec<usize> {
+        self.ordered()
+            .into_iter()
+            .filter_map(|(i, _)| self.stop_of(i))
+            .filter(|&k| self.in_order(k))
+            .collect()
+    }
+
+    /// Where `focus(name)` lands: the element `name` names when it takes the
+    /// focus, else the first thing inside it that does — a label's field —
+    /// else the nearest around it that does — a button's text.
+    fn focus_target(&self, node: usize) -> Option<usize> {
+        let mut inside = Vec::new();
+        self.visit(node, 0, &mut inside);
+        std::iter::once(node)
+            .chain(inside.into_iter().map(|(i, _)| i))
+            .find_map(|i| self.stop_of(i).filter(|&k| self.focusable(k)))
+            .or_else(|| {
+                let mut at = self.records[node].parent;
+                while let Some(i) = at {
+                    if let Some(k) = self.stop_of(i).filter(|&k| self.focusable(k)) {
+                        return Some(k);
+                    }
+                    at = self.records[i].parent;
+                }
+                None
+            })
+    }
+
+    /// The writes the focus moving from stop `old` to stop `new` makes: the
+    /// signal of each, and of every group either is inside. Nothing else's — a
+    /// signal the program set and the platform has not got to yet is left for
+    /// its own request, which is how the last of several writes wins.
+    fn moved(&self, old: Option<usize>, new: Option<usize>) -> Vec<(i64, bool)> {
+        let old_at = old.and_then(|k| self.stops.get(k)).and_then(|s| s.record);
+        let new_at = new.and_then(|k| self.stops.get(k)).and_then(|s| s.record);
+        let mut out = Vec::new();
+        for (key, stop) in self.stops.iter().enumerate() {
+            if stop.signal < 0 {
+                continue;
+            }
+            if stop.within {
+                let Some(group) = stop.record else { continue };
+                let had = old_at.is_some_and(|r| self.within(group, r));
+                let has = new_at.is_some_and(|r| self.within(group, r));
+                if had || has {
+                    out.push((stop.signal, has));
+                }
+            } else if Some(key) == old || Some(key) == new {
+                out.push((stop.signal, Some(key) == new));
+            }
+        }
+        out
+    }
+}
+
+/// Moves the focus to stop `new`, or takes it off the page for `None`, and
+/// writes what that changes: the two elements' signals and their groups', and
+/// every tooltip. One update transaction.
+fn set_focus(handle: i64, new: Option<usize>) {
+    let writes = with_doc(handle, |doc| {
+        let old = doc.focus_now();
+        if old == new {
+            return Vec::new();
+        }
+        doc.focused = new;
+        doc.moved(old, new)
+    })
+    .unwrap_or_default();
+    write_focus(&writes);
+    sync_tips(handle);
+}
+
+fn write_focus(writes: &[(i64, bool)]) {
+    if writes.is_empty() {
+        return;
+    }
+    crate::ui::buri_rt_ui_flush_begin();
+    for &(signal, on) in writes {
+        crate::ui::set_bool_signal(signal, on);
+    }
+    crate::ui::buri_rt_ui_flush_end();
+}
+
+/// After a region or a row went: when what had the focus is gone, the focus
+/// is nowhere, and the signal of the element that had it is written `false`,
+/// with every group's — the browser's focus fixup, which writes nothing.
+pub(crate) fn check_focus(handle: i64) {
+    let writes = with_doc(handle, |doc| {
+        let lost = doc.focused.filter(|&k| doc.stop_record(k).is_none())?;
+        doc.focused = None;
+        let mut out = Vec::new();
+        if let Some(stop) = doc.stops.get(lost)
+            && stop.signal >= 0
+            && !stop.within
+        {
+            out.push((stop.signal, false));
+        }
+        for stop in &doc.stops {
+            if stop.within && stop.signal >= 0 {
+                out.push((stop.signal, false));
+            }
+        }
+        Some(out)
+    })
+    .flatten();
+    if let Some(writes) = writes {
+        write_focus(&writes);
+        sync_tips(handle);
+    }
+}
+
+/// `focusKey(builder)` — mints a stop, drawn by no record yet.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_focus_key(handle: i64) -> i64 {
+    with_doc(handle, |doc| {
+        doc.stops.push(Stop { record: None, natural: false, order: None, signal: -1, within: false });
+        (doc.stops.len() as i64) - 1
+    })
+    .unwrap_or(-1)
+}
+
+/// `attachFocus(builder, key, natural)` — the open element draws stop `key`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_attach_focus(handle: i64, key: i64, natural: u8) {
+    with_doc(handle, |doc| {
+        let open = open_element(doc);
+        let Some(stop) = usize::try_from(key).ok().and_then(|k| doc.stops.get_mut(k)) else {
+            return;
+        };
+        stop.record = Some(open);
+        stop.natural = natural != 0;
+        if let Some(r) = doc.records.get_mut(open) {
+            r.focus_key = key;
+        }
+    });
+}
+
+/// `setFocusOrder(builder, key, on)` — puts stop `key` in the order, or takes it
+/// out.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_set_focus_order(handle: i64, key: i64, on: u8) {
+    with_doc(handle, |doc| {
+        if let Some(stop) = usize::try_from(key).ok().and_then(|k| doc.stops.get_mut(k)) {
+            stop.order = Some(on != 0);
+        }
+    });
+}
+
+/// `bindFocusSignal(builder, key, signal, within)` — keeps stop `key`'s
+/// `hasFocus` signal.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_bind_focus_signal(handle: i64, key: i64, signal: i64, within: u8) {
+    with_doc(handle, |doc| {
+        if let Some(stop) = usize::try_from(key).ok().and_then(|k| doc.stops.get_mut(k)) {
+            stop.signal = signal;
+            stop.within = within != 0;
+        }
+    });
+}
+
+/// `requestFocus(builder, key, on)` — the program wrote stop `key`'s signal.
+///
+/// `true` moves the focus there: to the element, or for a group to its first
+/// option in the order, else its first that takes the focus. An element that
+/// can't take it — disabled, or behind an open dialog — has `false` written
+/// back, so the signal never says a thing has the focus that doesn't. `false`
+/// takes the focus away from there, and off the page.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_request_focus(handle: i64, key: i64, on: u8) {
+    let Ok(key) = usize::try_from(key) else { return };
+    enum Asked {
+        Nothing,
+        Move(Option<usize>),
+        Refuse(i64),
+    }
+    let asked = with_doc(handle, |doc| {
+        let Some(stop) = doc.stops.get(key) else { return Asked::Nothing };
+        let (within, signal) = (stop.within, stop.signal);
+        let focused = doc.focused_record();
+        let here = match (within, stop.record) {
+            (true, Some(group)) => focused.is_some_and(|f| doc.within(group, f)),
+            _ => doc.focus_now() == Some(key),
+        };
+        if on == 0 {
+            return if here { Asked::Move(None) } else { Asked::Nothing };
+        }
+        if here {
+            return Asked::Nothing;
+        }
+        let target = match (within, doc.stop_record(key)) {
+            (true, Some(group)) => {
+                let mut inside = Vec::new();
+                doc.visit(group, 0, &mut inside);
+                let stops: Vec<usize> = inside.iter().filter_map(|&(i, _)| doc.stop_of(i)).collect();
+                stops
+                    .iter()
+                    .copied()
+                    .find(|&k| doc.in_order(k))
+                    .or_else(|| stops.iter().copied().find(|&k| doc.focusable(k)))
+            }
+            (false, _) => Some(key).filter(|&k| doc.focusable(k)),
+            (true, None) => None,
+        };
+        match target {
+            Some(k) => Asked::Move(Some(k)),
+            None => Asked::Refuse(signal),
+        }
+    })
+    .unwrap_or(Asked::Nothing);
+    match asked {
+        Asked::Nothing => {}
+        Asked::Move(to) => set_focus(handle, to),
+        Asked::Refuse(signal) => write_focus(&[(signal, false)]),
+    }
+}
+
+/// `relabel(builder, at, label)` — writes over the accessible name of the
+/// element `openElement` answered `at`.
+///
+/// # Safety
+/// `label` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_relabel(
+    handle: i64,
+    at: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let label = unsafe { text_of(ptr, len) };
+    with_doc(handle, |doc| {
+        if let Some(r) = usize::try_from(at).ok().and_then(|i| doc.records.get_mut(i)) {
+            r.label = label;
+        }
+    });
 }
 
 /// `Rendered.description(name)` — the text of the tooltip around the element
@@ -2136,8 +2433,8 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_description(
     unsafe { out.write(str_of(&text)) };
 }
 
-/// `Rendered.focus(name)` — move the focus to the element `name` names, or to
-/// the control it is part of.
+/// `Rendered.focus(name)` — move the focus to the element `name` names, to the
+/// field a label names, or to the control a piece of text is part of.
 ///
 /// # Safety
 /// `name` is a readable UTF-8 range, or null with a zero length.
@@ -2150,44 +2447,46 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_focus(
 ) {
     // SAFETY: forwarded to the caller's promise.
     let label = unsafe { text_of(ptr, len) };
-    let target = with_doc(handle, |doc| {
-        let mut at = doc.named(&label);
-        while let Some(i) = at {
-            if doc.focusable(i) {
-                return Some(i);
-            }
-            at = doc.records[i].parent;
-        }
-        None
-    })
-    .flatten();
+    let target = with_doc(handle, |doc| doc.named(&label).and_then(|n| doc.focus_target(n))).flatten();
     let Some(target) = target else {
         crate::abort::die(&[b"this tree has nothing to focus named \"", label.as_bytes(), b"\""])
     };
-    with_doc(handle, |doc| doc.focused = Some(target));
-    sync_tips(handle);
+    set_focus(handle, Some(target));
 }
 
-/// `Rendered.key(key)` — every `onKey` from the focused element out to the
-/// root hears `key`, innermost first, and an Escape none of them claimed hides
-/// the tooltip that is showing.
+/// `Rendered.focused()` — the name of the element with the focus, or `""`.
 ///
 /// # Safety
-/// `key` is a readable UTF-8 range, or null with a zero length.
+/// `out` is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_rendered_key(
-    handle: i64,
-    _base: *mut u8,
-    ptr: *const u8,
-    len: u64,
-) {
-    // SAFETY: forwarded to the caller's promise.
-    let name = unsafe { text_of(ptr, len) };
-    // The path is taken before any handler runs, the way a browser's is.
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_focused(handle: i64, out: *mut BuriStr) {
+    let name = with_doc(handle, |doc| {
+        let Some(record) = doc.focused_record() else { return String::new() };
+        let r = &doc.records[record];
+        if !r.label.is_empty() {
+            return r.label.clone();
+        }
+        // A field's control is named by the label around it, as a reader hears it.
+        if matches!(r.name.as_str(), "input" | "textarea")
+            && let Some(label) = r.parent.and_then(|p| doc.enclosing(p, "label"))
+        {
+            return doc.accessible_name(label);
+        }
+        doc.accessible_name(record)
+    })
+    .unwrap_or_default();
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(str_of(&name)) };
+}
+
+/// Fires every `onKey` from the focused element out to the root with `name`,
+/// innermost first, and answers whether one claimed it. The path is taken
+/// before any handler runs, the way a browser's is.
+fn dispatch_key(handle: i64, name: &str) -> bool {
     let path: Vec<i64> = with_doc(handle, |doc| {
-        doc.key = KeyPress { name: name.clone(), claimed: false };
+        doc.key = KeyPress { name: name.to_owned(), claimed: false };
         let mut out = Vec::new();
-        let mut at = doc.focus_now();
+        let mut at = doc.focused_record();
         while let Some(i) = at {
             if doc.records[i].key >= 0 {
                 out.push(doc.records[i].key);
@@ -2200,11 +2499,73 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_key(
     for handler in path {
         crate::ui::fire(handler, handle);
     }
-    let claimed = with_doc(handle, |doc| doc.key.claimed).unwrap_or(false);
-    if claimed || name != "Escape" {
+    with_doc(handle, |doc| doc.key.claimed).unwrap_or(false)
+}
+
+/// Tab and Shift+Tab: `"Tab"` to every `onKey`, and unless one claims it the
+/// focus moves to the next stop in the order — or the previous one — wrapping
+/// round at the end.
+fn tab(handle: i64, forward: bool) {
+    if dispatch_key(handle, "Tab") {
+        return;
+    }
+    let next = with_doc(handle, |doc| {
+        let order = doc.order();
+        if order.is_empty() {
+            return None;
+        }
+        let at = doc.focus_now().and_then(|k| order.iter().position(|&o| o == k));
+        let n = order.len();
+        let index = match (at, forward) {
+            (None, true) => 0,
+            (None, false) => n - 1,
+            (Some(i), true) => (i + 1) % n,
+            (Some(i), false) => (i + n - 1) % n,
+        };
+        order.get(index).copied()
+    })
+    .flatten();
+    if next.is_some() {
+        set_focus(handle, next);
+    }
+}
+
+/// `Rendered.tab()` — Tab.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_rendered_tab(handle: i64) {
+    tab(handle, true);
+}
+
+/// `Rendered.shiftTab()` — Shift+Tab.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_rendered_shift_tab(handle: i64) {
+    tab(handle, false);
+}
+
+/// `Rendered.key(key)` — every `onKey` from the focused element out to the
+/// root hears `key`, innermost first. An Escape none of them claimed hides the
+/// tooltip that is showing, and a Tab is `tab`.
+///
+/// # Safety
+/// `key` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_key(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let name = unsafe { text_of(ptr, len) };
+    if name == "Tab" {
+        tab(handle, true);
+        return;
+    }
+    if dispatch_key(handle, &name) || name != "Escape" {
         return;
     }
     with_doc(handle, |doc| {
+        let focused = doc.focused_record();
         let tips: Vec<usize> = doc
             .ordered()
             .into_iter()
@@ -2213,8 +2574,8 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_key(
             .collect();
         for i in tips {
             let over = doc.hovered.is_some_and(|h| doc.within(i, h));
-            let focused = doc.focused.is_some_and(|f| doc.within(i, f));
-            if over || focused {
+            let inside = focused.is_some_and(|f| doc.within(i, f));
+            if over || inside {
                 doc.records[i].tip_dismissed = true;
             }
         }

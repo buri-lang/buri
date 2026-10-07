@@ -1,0 +1,5 @@
+FAIL //lib/form  test/pictures.buri  "a focused picture draws the ring on that field alone"
+  the snapshot "focus-focused" changed: see test/__snapshots__/focus-focused.diff.png
+  --> lib/form/test/pictures.buri:22:1
+
+0 passed, 1 failed, 1 skipped (0.0s)

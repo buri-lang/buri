@@ -1,0 +1,39 @@
+# Two fields bound to `hasFocus`, with the focus on the second, as two pictures:
+# one hovered and one focused.
+#
+# Both fields draw a ring on `On(.Focus, ...)`. A field bound to a signal
+# answers for its own focus, the way a toggle answers for `checked`, so the ring
+# is on the field that has the focus in both pictures, and on the other in
+# neither — a focused picture included.
+#
+# What no picture can show is the half of focus that is not pixels: the signal
+# the platform writes as the focus moves, and the focus a write moves.
+# `conformance/lib/ui/test/tree.buri` asserts those through the headless double,
+# and `language::pages` through a browser.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "two fields, the focus on one, hovered and focused, and an edit that takes the focus away fails the focused picture"
+
+run {
+  args: ["test", "//lib/form", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/form/test/__snapshots__/focus-focused.diff.png"  exists: false }
+
+# The email field without the focus: a focused picture now has no ring at all.
+edit {
+  file: "lib/form/scenes.buri"
+  replace: "hasFocus: .Some(signal(ctx, true))"
+  with: "hasFocus: .Some(signal(ctx, false))"
+}
+
+run {
+  args: ["test", "//lib/form", "--force", "--filter=focused"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/form/test/__snapshots__/focus-focused.diff.png"  exists: true }

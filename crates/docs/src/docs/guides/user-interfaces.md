@@ -1005,6 +1005,127 @@ The document the test renders knows what the pointer and the focus are on,
 so it draws the bubble only while they're on the trigger. That's the one place
 `markup()` differs from `describe` in `.Hover`.
 
+**The focus is a two-way signal.** `button`, `link`, `field`, `toggle`,
+`picker`, `slider` and `stack` take a `hasFocus: Signal<Bool>`, the shape
+`Field.selection` has: the platform writes it as the focus moves, and writing
+`true` moves the focus there. That's how a menu hands the focus back to its
+trigger when Escape shuts it:
+
+```buri
+from "platform/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+export fn menu<C: Ui>(
+    open: Signal<Bool>,
+    trigger: Signal<Bool>,
+    items: [Node<C>],
+): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const("Actions"),
+                styles: [],
+                onPress: .Some(fn(c) => open.set(c, true)),
+                isExpanded: .Some(.Cell(open)),
+                hasFocus: .Some(trigger),
+            }),
+            ui.choose(
+                .Cell(open),
+                ui.stack({
+                    styles: [],
+                    children: items,
+                    role: .Some(.Group),
+                    onKey: .Some(fn(c, key) => {
+                        if (key == "Escape") {
+                            let _ = open.set(c, false);
+                            let _ = trigger.set(c, true);
+                            true
+                        } else {
+                            false
+                        }
+                    }),
+                }),
+                ui.empty(),
+            ),
+        ],
+    })
+}
+```
+
+The same signal puts the focus inside a panel as it opens: write it before the
+panel mounts, and the element takes the focus when it does. It keeps the focus
+in an editor too, when a pressed suggestion row unmounts: the row's handler
+writes the editor's signal. An element that unmounts with the focus has its
+signal written `false`. If several signals are written `true` in one update,
+the last one written gets the focus. A picker's is its group's, true while any
+option has the focus.
+
+`isInFocusOrder: Prop<Bool>` says whether Tab reaches an element. Left out, a
+control is in the order and a stack isn't. Out of the order, `hasFocus` still
+focuses it, which is roving focus: one tab, menu item or listbox option is in
+the order, and the arrow keys write the next one's `hasFocus`. On the web
+they're `tabindex`, `focus()` and `blur()`.
+
+A snapshot reads the signal as the control's answer, the way a toggle's is for
+`checked`: a field whose `hasFocus` is `true` paints its `On(.Focus, ...)` in
+every picture, and one whose signal is `false` paints it in none.
+
+A test moves the focus the way a reader does. `focus(name)` clicks into an
+element, `tab()` and `shiftTab()` press Tab, `key(name)` presses any other key,
+and `focused()` says what has the focus. `press` focuses the button it presses,
+the way a browser's click does:
+
+```buri role=test
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui, Watch };
+from "platform/effect/testing" import { headless, observer, render };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+
+test "the skipped button is out of the order, and its signal still focuses it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let skipped = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("First"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+                ui.button({
+                    label: .Const("Skipped"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    hasFocus: .Some(skipped),
+                    isInFocusOrder: .Some(.Const(false)),
+                }),
+                ui.button({
+                    label: .Const("Last"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+            ],
+        }),
+    );
+    let _ = page.tab();
+    let _ = page.tab();
+    assert.equal(page.focused(), "Last");
+    skipped.set(ctx, true);
+    assert.equal(page.focused(), "Skipped");
+    let _ = page.focus("First");
+    assert.isFalse(skipped.get(ctx));
+}
+```
+
 **Drag and drop is `onPointerDown`, `onPointerMove` and `onPointerUp`.** Each is
 an omittable `fn(C, PointerAt) => ()` on every element. Here a reader picks a
 row up and drops it onto another, which takes its place:

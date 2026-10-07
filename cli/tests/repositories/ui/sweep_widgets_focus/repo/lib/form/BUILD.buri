@@ -1,0 +1,8 @@
+# One library and one test source: two fields, one of them holding the focus.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}

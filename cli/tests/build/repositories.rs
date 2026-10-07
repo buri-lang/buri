@@ -496,7 +496,9 @@ fn serving_a_page() {
 /// the summary alone against the summary and the body both, with the browser's
 /// marker and block layout taken away by the reset. `tooltip` is a toolbar whose
 /// first button has one, hovered and not, so the pair is the bubble under its
-/// trigger covering the line below against the toolbar alone.
+/// trigger covering the line below against the toolbar alone. `focus` is two
+/// fields bound to `hasFocus`, the focus on one, hovered and focused, so the
+/// ring is on the field that answers that it has the focus and on no other.
 #[test]
 fn snapshots() {
     run_corpus(&tests_dir().join("repositories/ui"), "ui", 65);
