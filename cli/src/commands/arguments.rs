@@ -250,11 +250,8 @@ fn unknown_flag(name: &str) -> String {
     }
 }
 
-/// Writes to standard output, treating a closed pipe as success.
-///
-/// `buri docs language/types | head` is the first thing anybody does, and the
-/// `print!` macro panics when the reader goes away. Nothing has gone wrong in
-/// that case — the caller got what it asked for — so exit quietly.
+/// Writes to standard output, ending the process quietly if the reader has
+/// gone ([`reader_gone`]).
 #[expect(
     clippy::print_stderr,
     reason = "a failed write to stdout is the one thing that cannot be reported on stdout"
@@ -265,10 +262,45 @@ pub fn out(text: &str) {
     let mut lock = stdout.lock();
     match lock.write_all(text.as_bytes()).and_then(|()| lock.flush()) {
         Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => std::process::exit(0),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => reader_gone(),
         Err(e) => {
             eprintln!("error: cannot write to stdout: {e}");
             std::process::exit(2);
         }
     }
+}
+
+/// Ends the process the way a Unix tool ends when its reader goes away, as in
+/// `buri test //... | head -1`: by `SIGPIPE`, saying nothing.
+///
+/// Rust ignores `SIGPIPE`, so a write to a closed pipe fails instead and
+/// `println!` panics. The default can't be put back for the whole run, because
+/// `buri` writes to its children's stdin, and a child that exits unread must
+/// not kill it. So `SIGPIPE` is raised here, once stdout is known to be gone.
+/// The shell reads 141, and `set -o pipefail` sees a command that didn't
+/// finish, which is the truth.
+pub fn reader_gone() -> ! {
+    // Declared rather than depended on, as in `commands::run`.
+    unsafe extern "C" {
+        fn signal(sig: i32, handler: usize) -> usize;
+        fn raise(sig: i32) -> i32;
+    }
+    const SIGPIPE: i32 = 13;
+    const SIG_DFL: usize = 0;
+    // SAFETY: both take integers and touch nothing of ours.
+    unsafe {
+        signal(SIGPIPE, SIG_DFL);
+        raise(SIGPIPE);
+    }
+    // Reached only if the signal is blocked: the status a shell would show.
+    std::process::exit(141)
+}
+
+/// Whether a panic message is `println!` finding stdout's reader gone.
+///
+/// Every `print!` in the toolchain, on any thread, panics with it, and `main`'s
+/// panic hook asks this. The wording is the standard library's; the build
+/// suite's `closed_stdout` fails if it ever changes.
+pub fn is_reader_gone(message: &str) -> bool {
+    message.starts_with("failed printing to stdout: ") && message.ends_with("(os error 32)")
 }
