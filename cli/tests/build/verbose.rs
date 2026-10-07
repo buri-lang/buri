@@ -1,16 +1,16 @@
 //! `buri test --verbose`: what a golden can't hold.
 //!
 //! `repositories/testing/verbose` records the list with every time blanked.
-//! This holds what the blanking hides: the unit a time is spelled in, a cache
-//! record written before there were times, and the list each pass of a watch
-//! loop prints.
+//! This holds what the blanking hides: the unit a time is spelled in, the times
+//! a cached suite keeps, a cache record written before there were times, and
+//! the list each pass of a watch loop prints.
 use crate::harness::*;
 
 use std::io::Read as _;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-/// The test lines of `//lib/<package>` in a `--verbose` run, keyed by name.
+/// The line of a `--verbose` list that names the test `name`.
 fn test_line<'a>(stdout: &'a str, name: &str) -> &'a str {
     stdout
         .lines()
@@ -57,6 +57,52 @@ fn a_time_is_spelled_in_the_unit_its_size_calls_for() {
     assert_eq!(unit_of(test_line(&run.stdout, "six hundred million turns")), "s");
     let suite = run.stdout.lines().find(|l| l.starts_with("//lib/spin")).unwrap_or_default();
     assert_eq!(unit_of(suite), "s", "the suite's time is not its tests' time:\n{}", indent(&run.stdout));
+}
+
+/// The lines of a `--verbose` list, without the word `cached`.
+fn listed(stdout: &str) -> Vec<String> {
+    stdout
+        .lines()
+        .filter(|l| l.starts_with("//") || l.starts_with("  ok  ") || l.starts_with("  FAIL  "))
+        .map(|l| l.replacen("  cached  ", "  ", 1))
+        .collect()
+}
+
+/// Two suites that share one binary are still listed one by one, and served
+/// from the cache they show the very times the run that cached them measured.
+#[test]
+fn a_batch_lists_each_suite_and_the_cache_keeps_its_times() {
+    let scratch = Scratch::copy_of("verbose-batch", &tests_dir().join("repositories/testing/verbose/repo"));
+    let cold = scratch.run(&["test", "//lib/...", "--verbose", "--explain"]);
+    cold.heap_ok();
+    assert_eq!(cold.code, 0, "{}", indent(&cold.all()));
+    assert!(
+        cold.stdout.lines().any(|l| l.starts_with("run    link //lib/money,//lib/shapes native ")),
+        "the two suites did not share a binary:\n{}",
+        indent(&cold.stdout)
+    );
+    let cold_list = listed(&cold.stdout);
+    let shape: Vec<String> = cold_list.iter().map(|l| blank_test_time(l)).collect();
+    assert_eq!(
+        shape,
+        [
+            "//lib/money  native  3 tests  <time>",
+            "  ok    cents.buri  adding cents carries into dollars  <time>",
+            "  ok    cents.buri  the cents are what is left over    <time>",
+            "  ok    rates.buri  a rate of zero keeps nothing       <time>",
+            "//lib/shapes  native  3 tests  <time>",
+            "  ok    shapes.buri      a square has four equal sides        <time>",
+            "  ok    shapes.buri      a square's area is its side squared  <time>",
+            "  ok    solid/cube.buri  a cube has six square faces          <time>",
+        ],
+        "{}",
+        indent(&cold.stdout)
+    );
+
+    let cached = scratch.run(&["test", "//lib/...", "--verbose"]);
+    assert_eq!(cached.code, 0, "{}", indent(&cached.all()));
+    assert_eq!(cached.stdout.matches("  cached  ").count(), 2, "{}", indent(&cached.stdout));
+    assert_eq!(listed(&cached.stdout), cold_list, "the cache did not keep the times it was given");
 }
 
 /// A verdict cached before there were times still serves: the suite says
@@ -195,10 +241,10 @@ fn each_pass_of_a_watch_loop_lists_its_own_suites() {
     let passes: Vec<&str> = text.split("── ").skip(1).collect();
     assert_eq!(passes.len(), 2, "expected two passes:\n{}", indent(&text));
     for pass in passes {
-        let listed: Vec<String> =
+        let lines: Vec<String> =
             pass.lines().skip(1).take_while(|l| !l.is_empty()).map(blank_test_time).collect();
         assert_eq!(
-            listed.join("\n"),
+            lines.join("\n"),
             "//lib/shapes  native  3 tests  <time>\n\
              \x20 ok    shapes.buri      a square has four equal sides        <time>\n\
              \x20 ok    shapes.buri      a square's area is its side squared  <time>\n\
