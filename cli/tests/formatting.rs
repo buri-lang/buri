@@ -727,13 +727,21 @@ fn write_generated_inputs() {
     for p in &picks {
         let case = dir.join(&p.name);
         std::fs::create_dir_all(&case).unwrap();
-        std::fs::write(case.join("input.buri"), &p.mutation.source).unwrap();
+        write_if_moved(&case.join("input.buri"), &p.mutation.source);
         // The pair, not the input alone: a case is two files, and the tests
         // that say so run beside the one that records the outputs.
         let out = recordable(&p.mutation.source).unwrap();
-        std::fs::write(case.join("expected.buri"), &out).unwrap();
+        write_if_moved(&case.join("expected.buri"), &out);
     }
     eprintln!("formatting: {} generated pairs written, passed over {skipped:?}", picks.len());
+}
+
+/// nextest blesses each test in its own process, and every one of them writes
+/// this tree, so a file is left alone unless its bytes moved.
+fn write_if_moved(path: &Path, text: &str) {
+    if std::fs::read_to_string(path).ok().as_deref() != Some(text) {
+        std::fs::write(path, text).unwrap();
+    }
 }
 
 /// **Regenerating the corpus produces the files that are checked in.**
