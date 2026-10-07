@@ -118,6 +118,19 @@ test "arithmetic on the three lands where IEEE-754 says" {
     assert.isTrue(math.isNan(math.NAN * 0.0));
 }
 
+// A divisor that overflows to infinity once its literals are multiplied out
+// still divides: `six/(1/0)`, not `six/1/0`.
+test "dividing by a product that overflows to infinity" {
+    let six = 6.0;
+    assert.equal(six / (1.0e308 * 10.0), 0.0);
+}
+
+// `two - -0.0` must not read as a decrement.
+test "subtracting a literal negative zero" {
+    let two = 2.0;
+    assert.equal(two - -0.0, 2.0);
+}
+
 test "the exactly-specified half of core/math agrees with the three" {
     assert.equal(math.squareRoot(math.INFINITY), math.INFINITY);
     assert.isTrue(math.isNan(math.squareRoot(math.NAN)));
