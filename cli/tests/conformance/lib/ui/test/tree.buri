@@ -1301,6 +1301,163 @@ test "the scene document writes the backdrop blur the browser was given" {
     );
 }
 
+// --- an animation ----------------------------------------------------------------------
+
+test "a pulse is a class, and the sheet runs it only for a reader who allows motion" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The loading placeholder the issue is about: a muted box that fades out
+    // and back.
+    assert.equal(
+        render(
+            ctx,
+            ui.stack({
+                styles: [
+                    .Height(.Px(16)),
+                    .Background(.Rgb(228, 232, 240)),
+                    .Animation(.Pulse),
+                ],
+                children: [],
+            }),
+        ).markup(),
+        "e 0 class:h-16 bg-e4e8f0 anim-pulse",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            "@media (prefers-reduced-motion:no-preference){.anim-pulse{animation:buri-pulse 2s cubic-bezier(0.4,0,0.6,1) infinite}}",
+        ),
+    );
+    assert.isTrue(sheet.contains("@keyframes buri-pulse{50%{opacity:0.5}}"));
+}
+
+test "a spinner is an indeterminate progress that turns a full circle" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.progress({
+            label: .Const("Loading"),
+            styles: [.Width(.Px(20)), .Height(.Px(20)), .Animation(.Spin)],
+        }),
+    );
+    assert.equal(page.markup(), "e 0 class:w-20 h-20 anim-spin");
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            "@media (prefers-reduced-motion:no-preference){.anim-spin{animation:buri-spin 1s linear infinite}}",
+        ),
+    );
+    assert.isTrue(sheet.contains("@keyframes buri-spin{to{rotate:360deg}}"));
+}
+
+test "with reduced motion on, nothing in the sheet moves" {
+    // Every rule that runs an animation sits alone inside the query that asks
+    // whether the reader allows motion, so a reader who asked for less sees the
+    // element still. And each animation's keyframes are written once, however
+    // many classes run it.
+    let sheet = stylesheet();
+    assert.isTrue(sheet.count("animation:") > 0);
+    assert.equal(
+        sheet.count("animation:"),
+        sheet.count("@media (prefers-reduced-motion:no-preference){."),
+    );
+    assert.equal(sheet.count("@keyframes buri-pulse"), 1);
+    assert.equal(sheet.count("@keyframes buri-spin"), 1);
+}
+
+test "an animation is its own slot, and the last one written wins" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    assert.equal(
+        render(
+            ctx,
+            ui.stack({ styles: [.Animation(.Pulse), .Animation(.Spin)], children: [] }),
+        ).markup(),
+        "e 0 class:anim-spin",
+    );
+    // A group is transparent to the order, so the last one still wins.
+    assert.equal(
+        render(
+            ctx,
+            ui.stack({
+                styles: [
+                    .Group([.Animation(.Spin), .Opacity(0.8)]),
+                    .Animation(.Pulse),
+                ],
+                children: [],
+            }),
+        ).markup(),
+        "e 0 class:anim-pulse op-0_8",
+    );
+}
+
+test "an animation takes a state and a breakpoint" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let stated: [Style] = [
+        .On(.Hover, [.Animation(.Spin)]),
+        .At(.Medium, [.Animation(.Pulse)]),
+        .At(.Large, [.On(.Hover, [.Animation(.Spin)])]),
+    ];
+    assert.equal(
+        render(ctx, ui.stack({ styles: stated, children: [] })).markup(),
+        "e 0 class:hover_anim-spin md_anim-pulse lg_hover_anim-spin",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            "@media (prefers-reduced-motion:no-preference){.hover_anim-spin:hover{animation:buri-spin 1s linear infinite}}",
+        ),
+    );
+    // The breakpoint's rule is inside its own width query, and guarded there.
+    let medium = sheet.indexOf("@media (min-width:48rem){").withDefault(-1);
+    let large = sheet.indexOf("@media (min-width:64rem){").withDefault(-1);
+    let pulsing = sheet
+        .indexOf(
+            "@media (prefers-reduced-motion:no-preference){.md_anim-pulse{animation:buri-pulse 2s cubic-bezier(0.4,0,0.6,1) infinite}}",
+        )
+        .withDefault(-1);
+    assert.isTrue(medium >= 0);
+    assert.isTrue(pulsing > medium);
+    assert.isTrue(pulsing < large);
+    assert.isTrue(
+        sheet.contains(
+            "@media (prefers-reduced-motion:no-preference){.lg_hover_anim-spin:hover{animation:buri-spin 1s linear infinite}}",
+        ),
+    );
+}
+
+test "an animation the compiler cannot fold is a variable its class reads" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let busy = signal(ctx, true);
+    let which: Style = .Animation(if (busy.get(ctx)) { .Spin } else { .Pulse });
+    let tree = rooted(ctx, ui.stack({ styles: [which], children: [] }));
+    assert.equal(
+        render(ctx, tree).markup(),
+        "e 0 class:anim-var;--buri-anim:buri-spin 1s linear infinite",
+    );
+    // The scene the painter reads says the same, and the painter draws it
+    // still: a snapshot is the reduced-motion frame.
+    assert.equal(
+        ui.describe(ctx, tree, .Hover),
+        "buri-scene 1\nviewport 800 fit\ne 0 class:anim-var;--buri-anim:buri-spin 1s linear infinite",
+    );
+    assert.isTrue(
+        stylesheet().contains(
+            "@media (prefers-reduced-motion:no-preference){.anim-var{animation:var(--buri-anim)}}",
+        ),
+    );
+}
+
 test "a failing control announces so, and the ring hangs off the attribute" {
     let ctx = context {
         Ui: headless(),

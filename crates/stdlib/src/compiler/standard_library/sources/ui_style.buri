@@ -22,8 +22,8 @@
 //! stylesheet and leaves the runtime a precomputed class string to choose
 //! between. **Nothing is generated at run time, ever.**
 //!
-//! **Computed** is the other tier: a value a signal drives — a drag, a
-//! cursor-follow, an animation. It applies inline, per element, and gets
+//! **Computed** is the other tier: a value a signal drives — a drag or a
+//! cursor-follow. It applies inline, per element, and gets
 //! re-serialised on every change. It never reaches the stylesheet. Reach for the
 //! static tier first.
 //!
@@ -364,6 +364,40 @@ export enum Style {
     /// pointer while it stays in sight; this opts it out of sight while it
     /// stays in the tree.
     VisuallyHidden,
+
+    /// How this element moves, forever. A loading placeholder pulses and a
+    /// busy indicator spins:
+    ///
+    /// ```buri
+    /// from "ui/node" import * as ui;
+    /// from "ui/node" import { Node };
+    ///
+    /// export fn spinner<C>(): Node<C> {
+    ///     ui.progress({
+    ///         label: .Const("Loading"),
+    ///         styles: [.Width(.Px(20)), .Height(.Px(20)), .Animation(.Spin)],
+    ///     })
+    /// }
+    /// ```
+    ///
+    /// Meaning stays with the node: a spinner is an indeterminate `progress`,
+    /// and the animation is only how it is drawn.
+    ///
+    /// When the platform's reduce-motion setting is on, the element is drawn
+    /// still. A snapshot draws it still too. Each variant is a fixed class and
+    /// a fixed set of keyframes in the stylesheet, so nothing runs per frame in
+    /// the program, and `Computed` is the wrong tool for a loop that never ends.
+    ///
+    /// The set is closed. A variant is added when a component needs one.
+    Animation(Animation),
+}
+
+/// How an element moves. Each one runs forever.
+export enum Animation {
+    /// Fades out to half and back, every two seconds.
+    Pulse,
+    /// Turns a full circle, every second.
+    Spin,
 }
 
 /// How a container arranges its children.

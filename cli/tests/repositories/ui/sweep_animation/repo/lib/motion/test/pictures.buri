@@ -1,0 +1,14 @@
+// A snapshot of what moves is the still frame: the one a reader with reduced
+// motion sees, which is also where each animation starts.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/motion" import { page };
+
+test "a spinner and a placeholder are drawn still" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "motion-still", page(), .Hover, []);
+}

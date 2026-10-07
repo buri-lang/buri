@@ -287,7 +287,7 @@ A `Style` is a property, a group, a condition, or a computation:
 
 ```buri
 export enum Style {
-  // 54 properties. The arithmetic, because the cut line is the design:
+  // 55 properties. The arithmetic, because the cut line is the design:
   //   11  arrangement, and a child's part in it: Layout, AlignMain, AlignCross,
   //       AlignSelf, Wrap, Scroll, Grow, Shrink, Span, Pin, Position
   //    8  space:      Gap{,X,Y}, Padding{,X,Y}, PaddingEdge, Bleed
@@ -300,6 +300,7 @@ export enum Style {
   //    1  ListMarker
   //    1  Translate — the one transform, applied after the layout
   //    1  Clip
+  //    1  Animation — Pulse or Spin, forever; still under reduced motion
   Layout(Layout),                       // on the container
   AlignMain(Align), AlignCross(Align),  // main/cross axis: survives direction flips
   Grow(Int), Shrink(Int), Span(Int),    // on a child
@@ -314,6 +315,7 @@ export enum Style {
   Clip(Bool),                           // cut to the box, without a scroll container
   Passthrough(Bool),                    // the pointer goes to whatever is behind
   BackdropBlur(Length),                 // the page behind is blurred; a scrim softens it
+  Animation(Animation),                 // a class + keyframes; guarded by prefers-reduced-motion
 
   // and six combinators
   Group([Style]),                       // composition; array literal, no Allocator

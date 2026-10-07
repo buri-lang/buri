@@ -31,13 +31,13 @@ function __cmd_x_main_buri$main(){
   }
   const label_8='clicks';
   const count_9=[$host_HostUi_signal(ctx_1[2],0n)];
-  return $ui_node_mount(ctx_1,ui_node$stack$b1px4q([$k5,[ui_node$button$b1px4q([[0,label_8],[],void 0,c_10=>ui_signal$Signal_update$5m6v0z(count_9,c_10,n_11=>n_11+1n),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),__cmd_x_main_buri$badge$b1px4q([0,label_8],[1,count_9]),__cmd_x_main_buri$badge$b1px4q($k6,[2,c_12=>$effect_Scope_read(c_12,count_9[0])*2n])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  return $ui_node_mount(ctx_1,ui_node$stack$hf1axu([$k5,[ui_node$button$hf1axu([[0,label_8],[],void 0,c_10=>ui_signal$Signal_update$f6w1xe(count_9,c_10,n_11=>n_11+1n),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),__cmd_x_main_buri$badge$hf1axu([0,label_8],[1,count_9]),__cmd_x_main_buri$badge$hf1axu($k6,[2,c_12=>$effect_Scope_read(c_12,count_9[0])*2n])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
-function ui_signal$Signal_update$5m6v0z(self_0,ctx_1,f_2){
+function ui_signal$Signal_update$f6w1xe(self_0,ctx_1,f_2){
   return $host_HostUi_write(ctx_1[2],self_0[0],f_2($host_HostUi_read(ctx_1[2],self_0[0])));
 }
-function ui_node$button$b1px4q(config_0){
-  const events_1=ui_node$listen$b1px4q(config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15]);
+function ui_node$button$hf1axu(config_0){
+  const events_1=ui_node$listen$hf1axu(config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15]);
   const $t1=config_0[4];
   if($t1!==void 0&&$t1===1){
     const $t5=$share(config_0[1]);
@@ -101,8 +101,8 @@ function ui_node$button$b1px4q(config_0){
     return [[5,config_0[0],$t9,$t6,$t10,$t12,$t14,$t16,events_1]];
   }
 }
-function __cmd_x_main_buri$badge$b1px4q(title_0,count_1){
-  return ui_node$stack$b1px4q([$k18,[ui_node$text$b1px4q([title_0,void 0,void 0]),ui_node$text$b1px4q([[2,c_2=>{
+function __cmd_x_main_buri$badge$hf1axu(title_0,count_1){
+  return ui_node$stack$hf1axu([$k18,[ui_node$text$hf1axu([title_0,void 0,void 0]),ui_node$text$hf1axu([[2,c_2=>{
     let $t1;
     if(count_1[0]===0){
       $t1=count_1[1];
@@ -116,8 +116,8 @@ function __cmd_x_main_buri$badge$b1px4q(title_0,count_1){
     return String($t1);
   }],void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
 }
-function ui_node$stack$b1px4q(config_0){
-  const events_1=ui_node$listen$b1px4q(config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]);
+function ui_node$stack$hf1axu(config_0){
+  const events_1=ui_node$listen$hf1axu(config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]);
   const $t1=config_0[2];
   if($t1!==void 0){
     return [[4,$t1,$share(config_0[0]),$share(config_0[1]),events_1]];
@@ -127,10 +127,10 @@ function ui_node$stack$b1px4q(config_0){
     $abort('no arm matched');
   }
 }
-function ui_node$listen$b1px4q(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
+function ui_node$listen$hf1axu(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
   return [onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7];
 }
-function ui_node$text$b1px4q(config_0){
+function ui_node$text$hf1axu(config_0){
   const $t1=config_0[1];
   if($t1!==void 0){
     const styles_2=$share(config_0[2]);

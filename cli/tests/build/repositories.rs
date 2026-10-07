@@ -427,6 +427,12 @@ fn serving_a_page() {
 /// `design/native/DECISIONS.md` records; the pictures keep the field off the
 /// edge so the boundary is the read.
 ///
+/// `sweep_animation` is `Animation` in a snapshot: a spinner, a placeholder,
+/// and a placeholder that pulses only under the pointer, each beside its still
+/// twin. A snapshot draws what moves still, the frame a reader with reduced
+/// motion sees, so taking every animation away does not move the picture. Its
+/// last step recolours a placeholder so the comparison is seen to fail.
+///
 /// The `sweep_states_*` cases are the states sweep: every `State` against every
 /// interactive primitive, six pictures to a case — the resting one and one per
 /// state — each a labelled grid of `Background`, `Foreground`, `Border`,
@@ -491,7 +497,7 @@ fn serving_a_page() {
 /// marker and block layout taken away by the reset.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 64);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 65);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

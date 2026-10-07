@@ -10070,6 +10070,7 @@ mod tests {
             shapes: Default::default(),
             stylesheet: String::new(),
             inline_styles: false,
+            inline_animations: false,
             themes: false,
             icons: false,
             chunks: Vec::new(),

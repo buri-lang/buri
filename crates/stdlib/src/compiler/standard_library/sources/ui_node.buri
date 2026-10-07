@@ -38,8 +38,9 @@ from "platform/effect" import { Allocator, Event, Scope, Ui };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal };
 from "ui/style" import {
-    Align, BorderStyle, Color, Corner, Cursor, Edge, FontFamily, Layout, Length,
-    ListMarker, Shadow, State, Style, TextCase, TextLine, TextWrap, Track, Weight,
+    Align, Animation, BorderStyle, Color, Corner, Cursor, Edge, FontFamily, Layout,
+    Length, ListMarker, Shadow, State, Style, TextCase, TextLine, TextWrap, Track,
+    Weight,
 };
 from "ui/theme" import { Theme };
 
@@ -4015,6 +4016,7 @@ fn variableProperty(style: Style): Option<(Int, Str)> {
         .LetterSpacing(_) => .Some((9400, "ls")),
         .BackdropBlur(_) => .Some((11800, "bdblur")),
         .CaretColor(_) => .Some((12000, "caret")),
+        .Animation(_) => .Some((12400, "anim")),
         _ => .None,
     }
 }
@@ -4191,6 +4193,7 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
                 decl(ctx, "--buri-visually-hidden", "1"),
             ]
         },
+        .Animation(motion) => [decl(ctx, "animation", animationCss(motion))],
         _ => [],
     }
 }
@@ -4341,6 +4344,17 @@ fn truncateCss<C: Allocator>(ctx: C, lines: Int): [Str] {
         ]
     } else {
         ["-webkit-line-clamp:none", "overflow:visible"]
+    }
+}
+
+/// The `animation` each `Animation` lowers to: `semantics::styles`'s
+/// `ANIMATIONS` and `runtime.js`'s `$TREE_MOTION`, word for word. The
+/// keyframes it names are in the stylesheet, and the painter draws neither: a
+/// snapshot is the still frame.
+fn animationCss(motion: Animation): Str {
+    match (motion) {
+        .Pulse => "buri-pulse 2s cubic-bezier(0.4,0,0.6,1) infinite",
+        .Spin => "buri-spin 1s linear infinite",
     }
 }
 

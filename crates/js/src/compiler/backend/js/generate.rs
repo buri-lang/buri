@@ -403,9 +403,17 @@ pub fn generate(
         (program.icons, "$tree_icon_hook", "$tree_icon"),
     ] {
         if flag {
+            // An `Animation` in the inline tier needs the lowering that knows
+            // one, which `$tree_motion` builds around the plain one. Only a
+            // program that can put one there pays for it.
+            let value = if hole == "$tree_declare_hook" && program.inline_animations {
+                Expr::call(Expr::ident("$tree_motion"), Vec::new())
+            } else {
+                Expr::ident(filling)
+            };
             stmts.push(Stmt::Expr(Expr::Assign {
                 target: Box::new(Expr::ident(hole)),
-                value: Box::new(Expr::ident(filling)),
+                value: Box::new(value),
             }));
         }
     }

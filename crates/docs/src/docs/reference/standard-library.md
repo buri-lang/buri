@@ -908,6 +908,20 @@ blur()` — so a modal scrim separates its panel by softening the page rather th
 by hiding it under a heavy wash. The length is the blur radius, and the
 element's own background paints over the blur.
 
+`Animation(Animation)` moves an element forever: `.Pulse` fades it out and back,
+and `.Spin` turns it a full circle.
+
+```buri
+from "ui/style" import { Style };
+
+export let loading: [Style] = [.Width(.Px(20)), .Height(.Px(20)), .Animation(.Spin)];
+```
+
+It's a class plus keyframes in the stylesheet, guarded by
+`prefers-reduced-motion`, so the element is drawn still when the platform's
+reduce-motion setting is on, and in a snapshot. It works inside `On` and `At`,
+and the last one wins.
+
 `text`, `button`, `link`, `image`, `field` and `toggle` take a `[Style]` like
 every container does, and it lands on the element itself — so a
 hover, focus or disabled rule fires on the thing that is hovered, focused or

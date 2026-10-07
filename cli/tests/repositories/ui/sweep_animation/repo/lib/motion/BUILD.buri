@@ -1,0 +1,9 @@
+# One library and one test source: a page of things that move, and the one
+# still picture of them.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}

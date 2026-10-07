@@ -5172,6 +5172,26 @@ function $tree_declare(style, out) {
   }
 }
 
+// What each `Animation` lowers to, in declaration order: `styles.rs`'s
+// `ANIMATIONS` and `ui_node.buri`'s `animationCss`, word for word.
+const $TREE_MOTION = [
+  "buri-pulse 2s cubic-bezier(0.4,0,0.6,1) infinite",
+  "buri-spin 1s linear infinite",
+];
+
+// The inline lowering for a program where an `Animation` the compiler could
+// not fold can reach the inline tier, and in no other. The backend binds this
+// to `$tree_declare_hook` in place of `$tree_declare`, so a program that never
+// animates inline carries none of it. The value lands as the `--buri-anim` an
+// `anim-var` rule reads, and that rule sits inside the reduced-motion guard.
+function $tree_motion() {
+  $TREE_VAR_ABBR[62] = "anim";
+  return (style, out) => {
+    if (style[0] === 62) out.set("animation", $TREE_MOTION[style[1]]);
+    else $tree_declare(style, out);
+  };
+}
+
 // A bleed's length, as the margin it writes: a distance outwards, so the margin
 // is its negation. A negative distance and `Auto` — which is no distance at all
 // — bleed nothing, because inward is the space between things and that belongs

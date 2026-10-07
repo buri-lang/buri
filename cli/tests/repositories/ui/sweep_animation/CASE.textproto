@@ -1,0 +1,64 @@
+# `Animation` in a snapshot: a spinner, a placeholder, and a placeholder that
+# pulses only under the pointer, each beside its still twin.
+#
+# A snapshot draws what moves still — the frame a reader with reduced motion
+# sees, which is also where each animation starts. So the picture is the same
+# whether an element moves or not, and taking every animation away moves no
+# pixel. The negative twin recolours one placeholder, the smallest edit that
+# has to fail, so a run that compares nothing cannot pass for one that matched.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a spinner and a loading placeholder are drawn still in a snapshot, so taking their animations away moves no pixel"
+
+run {
+  args: ["test", "//lib/motion", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/motion/test/__snapshots__/motion-still.diff.png"  exists: false }
+
+# Every animation goes: the spinner's turn, the placeholder's fade, and the fade
+# under the pointer, though the picture is taken in the hover state. Still the
+# same picture.
+edit {
+  file: "lib/motion/scenes.buri"
+  replace: "[.Animation(.Spin)]"
+  with: "[]"
+}
+
+edit {
+  file: "lib/motion/scenes.buri"
+  replace: "[.Animation(.Pulse)]"
+  with: "[]"
+}
+
+edit {
+  file: "lib/motion/scenes.buri"
+  replace: "[.On(.Hover, [.Animation(.Pulse)])]"
+  with: "[]"
+}
+
+run {
+  args: ["test", "//lib/motion", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/motion/test/__snapshots__/motion-still.diff.png"  exists: false }
+
+# The negative twin: three counts of blue on every placeholder.
+edit {
+  file: "lib/motion/scenes.buri"
+  replace: ".Background(.Rgb(203, 213, 225))"
+  with: ".Background(.Rgb(203, 213, 228))"
+}
+
+run {
+  args: ["test", "//lib/motion", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/motion/test/__snapshots__/motion-still.diff.png"  exists: true }

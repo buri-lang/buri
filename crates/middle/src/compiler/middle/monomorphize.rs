@@ -248,6 +248,10 @@ pub struct Program {
     /// [`crate::compiler::semantics::styles::Reached::inline`] is what decides
     /// it, and says why an over-approximation is the safe side.
     pub inline_styles: bool,
+    /// Whether an `Animation` can reach the inline tier, which is when the
+    /// backend binds the lowering that knows it (`$tree_motion`) in place of
+    /// the plain one. Decided the way [`Program::inline_styles`] is.
+    pub inline_animations: bool,
     /// Whether this program can build a `ui/theme` `Theme`.
     ///
     /// The same shape as [`Program::inline_styles`] and for the same reason:
@@ -658,6 +662,7 @@ pub fn run(
             reached.reset,
         ),
         inline_styles: reached.inline,
+        inline_animations: reached.inline_animations,
         themes: reached.themes,
         icons: reached.icons,
         // `middle::chunks` is the only thing that fills this, and it runs after
