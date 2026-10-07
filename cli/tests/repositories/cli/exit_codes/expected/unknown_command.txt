@@ -22,7 +22,7 @@ With no argument, commands operate on the whole repository, wherever you
 happen to be standing in it. `buri format` takes a path too — a file or
 a directory, and everything under it.
 
-  --verbose                say more about what was skipped and why
+  --verbose                say more; on `buri test`, every test with its verdict and how long it took
   --color[=<when>]         ANSI escapes; also honours NO_COLOR
   --error-format=<format>  diagnostics as one JSON object per line, for tools and coding agents
 

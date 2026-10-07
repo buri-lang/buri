@@ -28,6 +28,9 @@ cli/tests/
     incrementality.rs     what the cache may and may not do
     hermeticity.rs        spawn determinism, concurrency, reproducibility
     watch.rs              the input set, and what an edit re-runs
+    verbose.rs            what `buri test --verbose` prints that a golden
+                          blanks: each time's unit, an old cached verdict,
+                          and the list under `--watch`
     monorepo.rs           a large repository's `buri test //...`, scaled down
     serving.rs            `buri run` on a page: a real process, a real socket,
                           the shell for every route, and a rebuild served

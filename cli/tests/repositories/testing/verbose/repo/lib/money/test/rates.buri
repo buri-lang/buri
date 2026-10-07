@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { dollars };
+
+test "a rate of zero keeps nothing" {
+    assert.equal(dollars(0), 0);
+}

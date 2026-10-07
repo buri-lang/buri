@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//lib/shapes" import { square };
+
+test "a cube has six square faces" {
+    assert.equal(6 * square(2), 24);
+}

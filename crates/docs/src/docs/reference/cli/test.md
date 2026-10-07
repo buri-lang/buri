@@ -23,6 +23,42 @@ finished building runs beside the others whatever the memory. Set
 `BURI_TEST_MEMORY_BYTES` to budget against a different amount of memory. A suite
 whose code is unchanged, comments and whitespace aside, reports as cached.
 
+## Every test
+
+`--verbose` lists every suite and every test in it, with its verdict and how
+long it took:
+
+```sh
+buri test //... --verbose
+```
+
+```text
+//apps/web  js  2 tests  48.2 ms
+  ok    page.buri  the title renders       31.0 ms
+  ok    page.buri  a click opens the menu  17.2 ms
+//lib/money  native  3 tests  12.4 ms
+  ok    cents.buri  adding cents carries into dollars        0.8 ms
+  FAIL  cents.buri  formatting pads the cents to two digits  1.1 ms
+  ok    rates.buri  a rate table is sorted by currency       10.5 ms
+//lib/shapes  native  2 tests  cached  412 µs
+  ok    shapes.buri  a square has four equal sides  250 µs
+  ok    shapes.buri  an empty shape has no area     162 µs
+
+FAIL //lib/money  test/cents.buri  "formatting pads the cents to two digits"
+  assert.equal failed
+    actual:   "1.5"
+    expected: "1.05"
+  --> lib/money/test/cents.buri:9:1
+
+6 passed, 1 failed, 0 skipped (0.4s, 2 cached)
+```
+
+Suites print in label order, and tests in the order they ran. The test process
+times each test itself, so building and starting it isn't counted, and a
+suite's time is its tests' times added up. A cached suite shows the times from
+the run that cached it. A test `--filter` leaves out shows as `skip`, with no
+time. Failures print after the list, where they print without the flag.
+
 ## Lint findings
 
 A test run reports the lint catalogue too, where `REPO.buri` asks it to.
