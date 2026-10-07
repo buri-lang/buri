@@ -61,6 +61,11 @@ fn main() -> ExitCode {
 #[global_allocator]
 static COUNTING: buri::profile::Counting = buri::profile::Counting;
 
+/// Per-thread size classes for small blocks (`buri::allocator`).
+#[cfg(not(feature = "alloc-counter"))]
+#[global_allocator]
+static ALLOCATOR: buri::allocator::Allocator = buri::allocator::Allocator;
+
 fn run() -> ExitCode {
     let started = std::time::Instant::now();
     let code = {

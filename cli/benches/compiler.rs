@@ -1150,6 +1150,11 @@ mod counting {
 #[global_allocator]
 static COUNTING_ALLOCATOR: counting::Counting = counting::Counting;
 
+/// The allocator the `buri` binary ships with, so the timed rows measure it.
+#[cfg(not(feature = "alloc-counter"))]
+#[global_allocator]
+static ALLOCATOR: buri::allocator::Allocator = buri::allocator::Allocator;
+
 #[cfg(feature = "alloc-counter")]
 fn allocations_of(f: impl FnOnce()) -> u64 {
     let before = counting::count();
