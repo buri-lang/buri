@@ -35,11 +35,13 @@
               diagnostics still leave through `Session::emit`"
 )]
 
+use crate::build::cache::{Action, Cache, KeyBuilder};
 use crate::build::session;
 use crate::build::textproto;
-use crate::build::workspace::PackageId;
+use crate::build::workspace::{PackageId, Workspace};
 use crate::commands::arguments;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Whether a file is a build file rather than source.
 ///
@@ -195,6 +197,42 @@ fn owned_by(session: &session::Session, id: PackageId, file: &Path) -> bool {
 /// with no options and no configuration file. A formatter with options is a
 /// formatter whose output is a repository decision.
 pub fn command_format(args: &arguments::Args) -> i32 {
+    let code = format_all(args);
+    if crate::profile::enabled() {
+        eprintln!("files formatted {}", FORMATTED.load(Ordering::Relaxed));
+    }
+    code
+}
+
+/// The files the formatter ran over this command, rather than answered from
+/// what it remembered: `files formatted` in a `BURI_PROFILE` report.
+static FORMATTED: AtomicU64 = AtomicU64::new(0);
+
+/// What laying out one file came to.
+#[derive(Default)]
+struct Outcome {
+    /// The canonical text differs from the file's.
+    changed: bool,
+    /// That text, when it is to be written back.
+    text: Option<String>,
+    /// A syntax error kept part of the file out of the formatter's hands.
+    unread: bool,
+    /// The formatter would not lay the file out at all.
+    refused: bool,
+    /// A build file that does not parse, which stops the command.
+    broken_build: bool,
+}
+
+/// One file's part in the command, worked out on any thread.
+enum Work {
+    Skip,
+    /// A repository's own language, whose tool lays it out. Asked in order on
+    /// this thread, because asking may build the tool.
+    Tool(String),
+    Done(String, Outcome),
+}
+
+fn format_all(args: &arguments::Args) -> i32 {
     let session = match session::open_or_exit(&args.flags) {
         Ok(session) => session,
         Err(c) => return c as i32,
@@ -209,6 +247,12 @@ pub fn command_format(args: &arguments::Args) -> i32 {
     files.sort();
     files.dedup();
     let referenced = referenced(&session);
+    let write = !args.flags.check;
+    let cache = Cache::open(&session.root);
+    let workspace = &*session.workspace;
+    let work = crate::parallel::map(files.len(), |i| {
+        files.get(i).map_or(Work::Skip, |path| lay_out(workspace, &referenced, &cache, path, write))
+    });
 
     let mut changed = Vec::new();
     // The files a syntax error kept part or all of out of the formatter's
@@ -217,56 +261,44 @@ pub fn command_format(args: &arguments::Args) -> i32 {
     // `--check` that passed one would be reporting a gate it did not run.
     let mut unread = Vec::new();
     let mut refused = Vec::new();
-    let languages = &session.workspace.repo.languages;
-    for path in &files {
-        let rel = session.workspace.rel_of(path);
-        if languages.of(&rel).is_some() {
-            if !referenced.contains(path) {
+    for (path, work) in files.iter().zip(work) {
+        let (rel, outcome) = match work {
+            Work::Skip => continue,
+            Work::Done(rel, outcome) => (rel, outcome),
+            Work::Tool(rel) => {
+                let Ok(text) = std::fs::read_to_string(path) else { continue };
+                use crate::build::tools::Formatted;
+                match crate::build::tools::format_file(&session, &rel, &text, &args.flags) {
+                    Formatted::Refused => refused.push(rel),
+                    Formatted::Text(out) if out != text => {
+                        changed.push(rel);
+                        if write {
+                            let _ = std::fs::write(path, out);
+                        }
+                    }
+                    Formatted::Text(_) | Formatted::Unformatted => {}
+                }
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(path) else { continue };
-            use crate::build::tools::Formatted;
-            match crate::build::tools::format_file(&session, &rel, &text, &args.flags) {
-                Formatted::Refused => refused.push(rel),
-                Formatted::Text(out) if out != text => {
-                    changed.push(rel);
-                    if !args.flags.check {
-                        let _ = std::fs::write(path, out);
-                    }
-                }
-                Formatted::Text(_) | Formatted::Unformatted => {}
-            }
+        };
+        // A build file that does not read is a hard error, because nothing
+        // else in the repository will work until it is fixed.
+        if outcome.broken_build {
+            eprintln!("error: {rel} does not parse");
+            return 2;
+        }
+        if outcome.refused {
+            refused.push(rel);
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
-        let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
-            continue;
-        };
-        let Some(out) = formatted(&name, &text) else {
-            // A build file that does not read is a hard error, because nothing
-            // else in the repository will work until it is fixed.
-            if is_build_file(&name) {
-                eprintln!("error: {} does not parse", session.workspace.rel_of(path));
-                return 2;
-            }
-            refused.push(session.workspace.rel_of(path));
-            continue;
-        };
-        if !out.regions.is_empty() {
-            unread.push(session.workspace.rel_of(path));
+        if outcome.unread {
+            unread.push(rel.clone());
         }
-        // And the examples in this file's documentation comments, through the
-        // same printer. The layout pass never reaches inside a comment, so the
-        // fences are still where they were when this looks for them.
-        let laid_out = match crate::documentation::layout::format_doc_comments(&out.text) {
-            Some(with_examples) => with_examples,
-            None => out.text,
-        };
-        if laid_out != text {
-            changed.push(session.workspace.rel_of(path));
-            if !args.flags.check {
-                let _ = std::fs::write(path, laid_out);
+        if outcome.changed {
+            if let Some(text) = outcome.text {
+                let _ = std::fs::write(path, text);
             }
+            changed.push(rel);
         }
     }
 
@@ -274,16 +306,25 @@ pub fn command_format(args: &arguments::Args) -> i32 {
     // touched — the prose is the author's.
     documents.sort();
     documents.dedup();
-    for path in &documents {
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
-        let rel = session.workspace.rel_of(path);
-        let Some(out) = crate::documentation::layout::format_document(&rel, &text) else {
+    let laid_out = crate::parallel::map(documents.len(), |i| {
+        let path = documents.get(i)?;
+        let text = std::fs::read_to_string(path).ok()?;
+        let rel = workspace.rel_of(path);
+        let outcome = remembered(&cache, "document", &rel, &text, write, || {
+            let out = crate::documentation::layout::format_document(&rel, &text);
+            Outcome { changed: out.is_some(), text: out, ..Outcome::default() }
+        });
+        Some((rel, outcome))
+    });
+    for (path, done) in documents.iter().zip(laid_out) {
+        let Some((rel, outcome)) = done else { continue };
+        if !outcome.changed {
             continue;
-        };
-        changed.push(rel);
-        if !args.flags.check {
-            let _ = std::fs::write(path, out);
         }
+        if let Some(text) = outcome.text {
+            let _ = std::fs::write(path, text);
+        }
+        changed.push(rel);
     }
     changed.sort();
 
@@ -301,6 +342,98 @@ pub fn command_format(args: &arguments::Args) -> i32 {
     }
     report(&unread, &refused);
     0
+}
+
+/// Lays out one source, build file or referenced file, or says why not.
+fn lay_out(
+    workspace: &Workspace,
+    referenced: &[PathBuf],
+    cache: &Cache,
+    path: &Path,
+    write: bool,
+) -> Work {
+    let rel = workspace.rel_of(path);
+    if let Some(language) = workspace.repo.languages.of(&rel) {
+        if !referenced.iter().any(|r| r == path) {
+            return Work::Skip;
+        }
+        if matches!(language.kind, crate::languages::Kind::Custom(_)) {
+            return Work::Tool(rel);
+        }
+        let Ok(text) = std::fs::read_to_string(path) else { return Work::Skip };
+        let settings = format!("{:?}", language.kind);
+        let outcome = remembered(cache, &settings, &rel, &text, write, || {
+            use crate::build::tools::Formatted;
+            match crate::build::tools::format_in_process(&language.kind, &text) {
+                Some(Formatted::Refused) => Outcome { refused: true, ..Outcome::default() },
+                Some(Formatted::Text(out)) if out != text => {
+                    Outcome { changed: true, text: Some(out), ..Outcome::default() }
+                }
+                _ => Outcome::default(),
+            }
+        });
+        return Work::Done(rel, outcome);
+    }
+    let Ok(text) = std::fs::read_to_string(path) else { return Work::Skip };
+    let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
+        return Work::Skip;
+    };
+    let outcome = remembered(cache, "buri", &rel, &text, write, || {
+        let Some(out) = formatted(&name, &text) else {
+            return Outcome { broken_build: is_build_file(&name), refused: true, ..Outcome::default() };
+        };
+        // And the examples in this file's documentation comments, through the
+        // same printer. The layout pass never reaches inside a comment, so the
+        // fences are still where they were when this looks for them.
+        let laid_out = crate::documentation::layout::format_doc_comments(&out.text).unwrap_or(out.text);
+        let changed = laid_out != text;
+        Outcome { changed, text: changed.then_some(laid_out), unread: !out.regions.is_empty(), ..Outcome::default() }
+    });
+    Work::Done(rel, outcome)
+}
+
+/// The shape of a remembered answer, so a change to it is a miss rather than
+/// a misreading.
+const VERDICT: &[u8] = b"buri-format-verdict-1\n";
+
+/// `lay_out`'s answer for one file, from the cache when this toolchain has
+/// laid out these exact bytes under this name and these settings before.
+///
+/// Only the verdict is kept, not the text, so a remembered change that is to
+/// be written back is laid out again. A build file that does not parse is
+/// never kept: it stops the command, and says so every time.
+fn remembered(
+    cache: &Cache,
+    settings: &str,
+    rel: &str,
+    text: &str,
+    write: bool,
+    lay_out: impl FnOnce() -> Outcome,
+) -> Outcome {
+    let mut k = KeyBuilder::new(Action::Format, arguments::BuildMode::Debug);
+    k.input("in-process", settings.as_bytes());
+    k.input(rel, text.as_bytes());
+    let key = k.finish();
+    let hit = cache.get(&key).and_then(|bytes| {
+        let flags = bytes.strip_prefix(VERDICT)?;
+        let [changed, unread, refused] = *flags else { return None };
+        Some(Outcome { changed: changed == 1, unread: unread == 1, refused: refused == 1, ..Outcome::default() })
+    });
+    if let Some(hit) = hit {
+        if !(write && hit.changed) {
+            return hit;
+        }
+    }
+    FORMATTED.fetch_add(1, Ordering::Relaxed);
+    let mut outcome = lay_out();
+    if !write {
+        outcome.text = None;
+    }
+    if !outcome.broken_build {
+        let flags = [outcome.changed, outcome.unread, outcome.refused].map(u8::from);
+        cache.put(&key, &[VERDICT, &flags].concat());
+    }
+    outcome
 }
 
 /// What the formatter could not read, said once per file.

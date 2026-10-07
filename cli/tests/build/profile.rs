@@ -605,6 +605,27 @@ fn the_lint_rules_are_linear_in_a_files_length() {
     );
 }
 
+/// **A `format --check` of an unchanged tree formats nothing.** It formatted
+/// every file on one core every run: 1.3–1.5 s for #259's 8 MB. Each file's
+/// answer is kept under its bytes. PERFORMANCE.md §6.55.
+#[test]
+fn a_second_format_check_formats_no_file() {
+    let scratch = Scratch::repo("profile-format-check");
+    library_chain(&scratch, 20);
+    scratch.write("README.md", "# Notes\n\n```buri\nfn three(): Int {\n    3\n}\n```\n");
+    let formatted = |all: &str| -> Option<u64> {
+        let line = all.lines().find(|l| l.starts_with("files formatted "))?;
+        line.trim_start_matches("files formatted ").trim().parse().ok()
+    };
+    let check = || scratch.run_with_env(&["format", "--check"], &[("BURI_PROFILE", "1")]);
+    let cold = check();
+    cold.ok();
+    assert_eq!(formatted(&cold.all()), Some(42), "{}", indent(&cold.all()));
+    let warm = check();
+    warm.ok();
+    assert_eq!(formatted(&warm.all()), Some(0), "{}", indent(&warm.all()));
+}
+
 /// The modules a `BURI_PROFILE=1` run loaded (`modules loaded` in the report).
 fn modules_loaded(all: &str) -> Option<u64> {
     let line = all.lines().find(|l| l.starts_with("modules loaded "))?;
