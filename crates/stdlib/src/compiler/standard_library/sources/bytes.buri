@@ -657,13 +657,18 @@ fn joinHalves(hi: Int, lo: Int): Int {
 
 /// The zigzag transform: a small negative number becomes a small positive one,
 /// so that a varint of it is short. -1 is 1, 1 is 2, -2 is 3.
+///
+/// The answer is the 64-bit pattern read as an `Int`, so past 2^62 it is
+/// negative: `zigzag(2^62)` is -2^63. Shifts rather than `*` keep it exact on
+/// every backend, where `*` would overflow.
 export fn zigzag(value: Int): Int {
-    if (value < 0) { (0 - value) * 2 - 1 } else { value * 2 }
+    bits.shiftLeft(value, 1) ^ bits.shiftRightArithmetic(value, 63)
 }
 
-/// Its inverse.
+/// Its inverse, for every `Int`. The shift is logical: the top bit is part of
+/// the magnitude, not a sign.
 export fn unzigzag(value: Int): Int {
-    if (value % 2 == 0) { value / 2 } else { 0 - (value + 1) / 2 }
+    bits.shiftRight(value, 1) ^ -(value & 1)
 }
 
 // --- Fixed-width numbers ------------------------------------------------------------
