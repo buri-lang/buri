@@ -692,6 +692,26 @@ fn a_second_gen_check_works_out_no_build_file() {
     assert_eq!(modules_loaded(&warm.all()), Some(0), "{}", indent(&warm.all()));
 }
 
+/// The same with a generator: a warm check runs no tool and works out
+/// nothing, where a generator's key in a record once spoiled it.
+#[test]
+fn a_second_gen_check_runs_no_generator() {
+    let source = tests_dir().join("repositories/cli/gen_check_remembers/repo");
+    let scratch = Scratch::copy_of("profile-gen-check-generator", &source);
+    let check = || scratch.run_with_env(&["gen", "--check"], &[("BURI_PROFILE", "1")]);
+    let cold = check();
+    cold.ok();
+    assert_eq!(build_files_worked_out(&cold.all()), Some(5), "{}", indent(&cold.all()));
+    let warm = check();
+    warm.ok();
+    // Only where the platform counts a process's children.
+    if let Some(children) = warm.all().lines().find(|l| l.starts_with("child processes: ")) {
+        assert_eq!(children, "child processes: 0.000 s cpu", "{}", indent(&warm.all()));
+    }
+    assert_eq!(build_files_worked_out(&warm.all()), Some(0), "{}", indent(&warm.all()));
+    assert_eq!(modules_loaded(&warm.all()), Some(0), "{}", indent(&warm.all()));
+}
+
 /// **A cold `gen --check` loads each library once.** It analysed every
 /// package over its whole closure, so a chain loaded its first library once
 /// per library after it. PERFORMANCE.md §6.59.

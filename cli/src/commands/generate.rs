@@ -181,7 +181,7 @@ impl Answers {
             record.generated.iter().all(|(path, kind, key)| {
                 let Some(package) = workspace.package_by_path(path) else { return false };
                 let Some(kind) = kind_named(kind) else { return false };
-                workspace.generated.key_of(TargetId { package, kind }).unwrap_or_default() == *key
+                generator_key(workspace, TargetId { package, kind }) == *key
             })
         };
         let names: BTreeSet<&str> =
@@ -216,8 +216,7 @@ impl Answers {
             let mut generated: BTreeSet<(String, &'static str, String)> = BTreeSet::new();
             for rule in &w.generated {
                 let path = workspace.package(rule.package).path.clone();
-                let key = workspace.generated.key_of(*rule).unwrap_or_default();
-                generated.insert((path, rule.kind.name(), key));
+                generated.insert((path, rule.kind.name(), generator_key(workspace, *rule)));
             }
             let mut reads: BTreeMap<String, &str> = BTreeMap::new();
             for path in &w.reads {
@@ -245,6 +244,11 @@ impl Answers {
 
 fn digest(path: &Path) -> String {
     std::fs::read(path).map_or_else(|_| "absent".to_string(), |bytes| hash_bytes(&bytes))
+}
+
+/// A digest of the key a rule's generators last ran under, which spans lines.
+fn generator_key(workspace: &Workspace, rule: TargetId) -> String {
+    hash_bytes(workspace.generated.key_of(rule).unwrap_or_default().as_bytes())
 }
 
 fn kind_named(name: &str) -> Option<RuleKind> {
