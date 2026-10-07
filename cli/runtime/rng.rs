@@ -81,6 +81,7 @@ fn below(range: u64) -> u64 {
     let mut m = u128::from(next_u64()).wrapping_mul(u128::from(range));
     let mut low = m as u64;
     if low < range {
+        #[expect(clippy::arithmetic_side_effects, reason = "`low < range`, so `range` is not zero")]
         let threshold = range.wrapping_neg() % range;
         while low < threshold {
             m = u128::from(next_u64()).wrapping_mul(u128::from(range));
@@ -92,7 +93,7 @@ fn below(range: u64) -> u64 {
 
 /// A uniform integer in `lo ..< hi`. The caller has already rejected `hi <= lo`.
 pub fn int_in(lo: i64, hi: i64) -> i64 {
-    let range = (hi as i128 - lo as i128) as u128 as u64;
+    let range = (hi as i128).wrapping_sub(lo as i128) as u128 as u64;
     lo.wrapping_add(below(range) as i64)
 }
 

@@ -57,6 +57,11 @@
 //! — against a server this file starts, with a certificate this repository
 //! generated. Nothing in that test reaches the network, resolves a name off
 //! this machine, or can wait forever for anything.
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is a handshake round counter capped at eight, base64 decoding \
+              inside one character's range, and a deadline a bounded duration past now"
+)]
 
 use std::io::{Read as _, Write as _};
 use std::net::TcpStream;

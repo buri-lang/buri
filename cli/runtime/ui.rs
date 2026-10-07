@@ -256,6 +256,7 @@ impl Graph {
         body: Release,
     ) -> i64 {
         let owner = self.current;
+        let id = self.nodes.len() as i64;
         self.nodes.push(Node {
             kind,
             value,
@@ -271,7 +272,6 @@ impl Graph {
             disposed: false,
             children: Vec::new(),
         });
-        let id = (self.nodes.len() as i64) - 1;
         // Disposal is keyed on which computation was executing when the node
         // was created, so a nested computation dies with the run that made it.
         if let Some(o) = self.get_mut(owner) {
@@ -769,7 +769,7 @@ pub extern "C" fn buri_rt_ui_flush_end() {
     let closed = {
         let mut g = lock();
         if g.depth > 0 {
-            g.depth -= 1;
+            g.depth = g.depth.saturating_sub(1);
         }
         g.depth == 0
     };
@@ -1007,10 +1007,10 @@ pub(crate) fn flip_bool_signal(id: i64) {
             None => return,
         }
     };
-    if buf.is_empty() {
-        buf.push(0);
+    match buf.first_mut() {
+        Some(byte) => *byte = u8::from(*byte == 0),
+        None => buf.push(1),
     }
-    buf[0] = u8::from(buf[0] == 0);
     // SAFETY: `buf` is the signal's own width, one whole `Bool` value.
     unsafe { write_changed(id, buf.as_ptr(), buf.len()) };
 }
@@ -1220,10 +1220,7 @@ fn resolve<'a>(bindings: &'a [(String, Bound)], start: &'a Bound) -> Option<Stri
         match value {
             Bound::Value(text) => return Some(text.clone()),
             Bound::Token(name) => {
-                if steps == 0 {
-                    return None;
-                }
-                steps -= 1;
+                steps = steps.checked_sub(1)?;
                 let next = bindings.iter().find(|(k, _)| k == name)?;
                 value = &next.1;
             }
@@ -1884,11 +1881,11 @@ fn list_of_ints(items: &[i64]) -> BuriList {
     if items.is_empty() {
         return BuriList { ptr: std::ptr::null_mut(), len: 0 };
     }
-    let ptr = crate::memory::buri_rt_alloc((items.len() * 8) as u64);
+    let ptr = crate::memory::buri_rt_alloc(size_of_val(items) as u64);
     for (i, item) in items.iter().enumerate() {
         // SAFETY: `i * 8` is inside the block just allocated, and the block is
         // 16-aligned so every eight-byte slot in it is aligned.
-        unsafe { ptr.add(i * 8).cast::<i64>().write(*item) };
+        unsafe { ptr.cast::<i64>().add(i).write(*item) };
     }
     BuriList { ptr, len: items.len() as u64 }
 }
@@ -1900,8 +1897,8 @@ fn list_of_ints(items: &[i64]) -> BuriList {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_recorder(out: *mut i64) {
     let mut all = recorders();
+    let id = all.len() as i64;
     all.push((Vec::new(), Vec::new()));
-    let id = (all.len() as i64) - 1;
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(id) };
 }

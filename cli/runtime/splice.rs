@@ -15,6 +15,11 @@
 //! The rows carry the element's **release** glue as well as its retain, for
 //! the element a splice writes over or removes, and the equality glue every
 //! row of that shape carries, which nothing here reads.
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is element offsets, an index times a stride, inside a list block \
+              allocated for `len * stride` bytes"
+)]
 
 use std::cell::Cell;
 

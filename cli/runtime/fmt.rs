@@ -34,6 +34,11 @@
 //! patterns, every power of ten from `1e-320` to `1e308`, and the subnormals at
 //! both ends — and compares each against `String(v)` under the JavaScript
 //! engine the toolchain's own tests run. Zero disagreements.
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here counts the decimal digits and exponent of one `u64` or `f64`, \
+              and offsets into buffers sized to hold them"
+)]
 
 use crate::value::{str_of, BuriStr, BURI_RT_STR_LEN_MASK};
 
@@ -123,6 +128,7 @@ const PAIRS: &[u8; 200] = b"\
 
 /// How many decimal digits `v` has.
 pub(crate) fn decimal_len(v: u64) -> usize {
+    #[expect(clippy::indexing_slicing, reason = "`i` counts from 1 to 19, inside the table")]
     const POW10: [u64; 20] = {
         let mut p = [1u64; 20];
         let mut i = 1;
@@ -140,6 +146,10 @@ pub(crate) fn decimal_len(v: u64) -> usize {
 }
 
 /// Write `v`'s decimal digits into `out`, which is [`decimal_len`]`(v)` long.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`at` is checked against 2 or 1 before each write below it, and `pair` is at most 198"
+)]
 pub(crate) fn write_decimal(mut v: u64, out: &mut [u8]) {
     let mut at = out.len();
     while v >= 100 && at >= 2 {
@@ -387,7 +397,7 @@ pub unsafe extern "C" fn buri_rt_show_char(c: u32, out: *mut BuriStr) {
     let mut quoted = [b'\''; 6];
     let n = ch.encode_utf8(&mut quoted[1..5]).len();
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(BuriStr::copy_from(&quoted[..n + 2])) }
+    unsafe { out.write(BuriStr::copy_from(quoted.get(..n + 2).unwrap_or(&[]))) }
 }
 
 /// `derive Show` of a `[T]`: `[` + the elements, already rendered, joined by

@@ -172,6 +172,11 @@
 //! may free, so which thread a cached block came from does not matter. The
 //! one that *did* matter is B7's Buri-stack free list, and it moved onto the
 //! task — `memory::stack_list` is the seam.
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is scheduler counters bounded by the threads and tasks that \
+              exist, table positions answered by a push, and deadlines a bounded duration past now"
+)]
 
 use std::cell::{Cell, UnsafeCell};
 use std::collections::VecDeque;
@@ -219,6 +224,7 @@ static REACTOR: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 pub fn handle() -> &'static tokio::runtime::Handle {
     REACTOR
         .get_or_init(|| {
+            #[expect(clippy::expect_used, reason = "a program with no reactor has nothing left to run on")]
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .thread_name("buri-reactor")
@@ -794,6 +800,7 @@ fn arm() {
 }
 
 /// Start one thread. The count was taken by [`push`].
+#[expect(clippy::panic, reason = "the count already promised this thread to the scheduler")]
 fn start_thread() {
     let id = {
         let s = sched();
@@ -2088,17 +2095,14 @@ pub extern "C" fn buri_rt_actor_scopes_live() -> u8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_actor_reply_open() -> i64 {
     let mut table = replies();
-    match table.free.pop() {
-        Some(index) => {
-            let generation = table.slots[index].0;
-            table.slots[index].1 = Answer::Waiting;
-            ((generation << REPLY_INDEX_BITS) | index as u64) as i64
-        }
-        None => {
-            table.slots.push((0, Answer::Waiting));
-            (table.slots.len() as i64) - 1
-        }
+    if let Some(index) = table.free.pop()
+        && let Some((generation, answer)) = table.slots.get_mut(index)
+    {
+        *answer = Answer::Waiting;
+        return ((*generation << REPLY_INDEX_BITS) | index as u64) as i64;
     }
+    table.slots.push((0, Answer::Waiting));
+    (table.slots.len() as i64) - 1
 }
 
 /// The slot a reply handle names, checked against its generation.
@@ -2161,7 +2165,9 @@ pub unsafe extern "C" fn buri_rt_actor_reply_take(handle: i64, out: *mut BuriLis
     // The slot is free for reuse, at the next generation, so the handle just
     // spent names nothing from here on.
     let index = (handle as u64 & REPLY_INDEX_MASK) as usize;
-    table.slots[index].0 = table.slots[index].0.wrapping_add(1);
+    if let Some((generation, _)) = table.slots.get_mut(index) {
+        *generation = generation.wrapping_add(1);
+    }
     table.free.push(index);
     let Some(held) = held else { return 0 };
     // SAFETY: the caller promises a writable, aligned destination.
@@ -2428,16 +2434,11 @@ pub extern "C" fn buri_rt_tasks_scope_claim(handle: i64) -> i64 {
         let Some(beside) = place.beside.as_mut() else { return -1 };
         if let Some(task) = place.waiting.pop_front() {
             beside.busy += 1;
-            let at = match place.round.iter().position(Option::is_none) {
-                Some(at) => {
-                    place.round[at] = Some(task);
-                    at
-                }
-                None => {
-                    place.round.push(Some(task));
-                    place.round.len() - 1
-                }
-            };
+            let at = place.round.iter().position(Option::is_none).unwrap_or(place.round.len());
+            match place.round.get_mut(at) {
+                Some(slot) => *slot = Some(task),
+                None => place.round.push(Some(task)),
+            }
             return at as i64;
         }
         if beside.busy == 0 || beside.opener == who() {
@@ -3325,6 +3326,7 @@ mod tests {
         // This case drives the exported entry, which reads the artifact's
         // answer about its own frames — a global, so one case at a time.
         let _alone = alone();
+        #[expect(clippy::unreachable, reason = "the case fails if the runtime ever calls it")]
         unsafe extern "C" fn never(_: *mut u8, _: u64, _: *const u8, _: *mut u8) {
             unreachable!("a task ran on an empty list");
         }

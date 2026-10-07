@@ -142,7 +142,7 @@ pub fn list_of_strs(items: &[String]) -> BuriList {
         // SAFETY: `i * stride` is within the `items.len() * stride` block, and
         // the destination is 8-aligned because the payload is 16-aligned and
         // the stride is a multiple of 8.
-        unsafe { ptr.add(i * stride).cast::<BuriStr>().write(str_of(item)) };
+        unsafe { ptr.cast::<BuriStr>().add(i).write(str_of(item)) };
     }
     BuriList { ptr, len: items.len() as u64 }
 }
@@ -155,7 +155,7 @@ pub fn list_of_strs(items: &[String]) -> BuriList {
 /// `Str`s of an element are written in field order, which is the order the
 /// struct declares them in and the order generated code indexes them by.
 pub fn list_of_headers(items: &[(String, String)]) -> BuriList {
-    let stride = 2 * std::mem::size_of::<BuriStr>();
+    let stride = std::mem::size_of::<[BuriStr; 2]>();
     if items.is_empty() {
         return BuriList { ptr: std::ptr::null_mut(), len: 0 };
     }
@@ -166,7 +166,7 @@ pub fn list_of_headers(items: &[(String, String)]) -> BuriList {
         // `items.len() * stride` block, and both are 8-aligned because the
         // payload is 16-aligned and `size_of::<BuriStr>()` is a multiple of 8.
         unsafe {
-            let element = ptr.add(i * stride).cast::<BuriStr>();
+            let element = ptr.cast::<[BuriStr; 2]>().add(i).cast::<BuriStr>();
             element.write(str_of(name));
             element.add(1).write(str_of(value));
         }

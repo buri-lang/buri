@@ -66,6 +66,11 @@
 //! The concatenation and growth hooks run only on a unique, unmarked block,
 //! and a marked block is the only kind two threads can reach, so those hooks
 //! never race an indexing thread on the same block.
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is byte offsets and scalar counts inside one string, bounded by \
+              its length"
+)]
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -455,7 +460,7 @@ mod tests {
                     continue;
                 }
                 let view = block.bytes(from, to);
-                let scalars = text[from..to].chars().count();
+                let scalars = text.get(from..to).expect("cuts on char boundaries").chars().count();
                 for i in 0..scalars + 3 {
                     // SAFETY: `block` is live and `view` is inside it.
                     let got = unsafe { byte_offset(block.0, view, false, i) };

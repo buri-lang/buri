@@ -107,11 +107,12 @@ struct Digits {
 impl Digits {
     fn of(mut n: u64) -> Digits {
         let mut d = Digits { buf: [b'0'; 20], at: 20 };
-        loop {
-            d.at -= 1;
-            d.buf[d.at] = b'0' + (n % 10) as u8;
+        for (at, slot) in d.buf.iter_mut().enumerate().rev() {
+            // `b'0'` is 0x30, so or-ing in a digit is adding it.
+            *slot = b'0' | (n % 10) as u8;
             n /= 10;
-            if n == 0 || d.at == 0 {
+            d.at = at;
+            if n == 0 {
                 break;
             }
         }
@@ -119,7 +120,7 @@ impl Digits {
     }
 
     fn as_bytes(&self) -> &[u8] {
-        &self.buf[self.at..]
+        self.buf.get(self.at..).unwrap_or(&[])
     }
 }
 

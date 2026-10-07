@@ -165,6 +165,11 @@
 //! acceptor in this file *drive* that protocol — and the two are separate
 //! because a crate being linked and a server being written against it are two
 //! different facts.
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is deadlines a bounded duration past now, connection and round \
+              counters, and offsets inside a buffer that bounds them"
+)]
 
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
@@ -2428,7 +2433,7 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
-    (0..=haystack.len() - needle.len()).find(|i| haystack.get(*i..i + needle.len()) == Some(needle))
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 // ---------------------------------------------------------------------------

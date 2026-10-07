@@ -4,6 +4,12 @@
 //! `alloc` — are open-coded by both backends and never reach this file; what is
 //! here is the block itself, the free path, drop-glue dispatch, and the
 //! non-inlined forms the runtime uses on its own values.
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is the allocator's: a payload plus a fixed header, block and \
+              byte counters bounded by what the process holds, ring positions taken modulo their \
+              length, and offsets inside a stack mapping"
+)]
 
 use crate::abort::{buri_rt_abort_alloc_budget, buri_rt_abort_oom};
 use std::alloc::{alloc, alloc_zeroed, dealloc, realloc, Layout};
@@ -485,8 +491,9 @@ impl Tally {
     #[inline(always)]
     fn add(&self, deltas: &[(usize, u64)]) {
         for &(i, d) in deltas {
-            let w = &self.words[i];
-            w.store(w.load(Ordering::Relaxed).wrapping_add(d), Ordering::Relaxed);
+            if let Some(w) = self.words.get(i) {
+                w.store(w.load(Ordering::Relaxed).wrapping_add(d), Ordering::Relaxed);
+            }
         }
     }
 
@@ -524,7 +531,9 @@ impl Tally {
 #[inline(never)]
 fn retire(deltas: &[(usize, u64)]) {
     for &(i, d) in deltas {
-        RETIRED_TALLY[i].fetch_add(d, Ordering::Relaxed);
+        if let Some(w) = RETIRED_TALLY.get(i) {
+            w.fetch_add(d, Ordering::Relaxed);
+        }
     }
 }
 
@@ -532,8 +541,8 @@ fn retire(deltas: &[(usize, u64)]) {
 fn close_tally(t: &Tally) {
     if t.state.get() == TALLY_OPEN {
         let mut open = open_tallies();
-        for (i, w) in t.words.iter().enumerate() {
-            RETIRED_TALLY[i].fetch_add(w.load(Ordering::Relaxed), Ordering::Relaxed);
+        for (retired, w) in RETIRED_TALLY.iter().zip(&t.words) {
+            retired.fetch_add(w.load(Ordering::Relaxed), Ordering::Relaxed);
         }
         let me = t.words.as_ptr() as usize;
         open.retain(|&a| a != me);
@@ -557,7 +566,7 @@ fn tallied() -> [u64; TALLY_WORDS] {
 /// Every thread's tally, summed.
 fn summed() -> [u64; TALLY_WORDS] {
     let open = open_tallies();
-    let mut sum: [u64; TALLY_WORDS] = std::array::from_fn(|i| RETIRED_TALLY[i].load(Ordering::Relaxed));
+    let mut sum: [u64; TALLY_WORDS] = RETIRED_TALLY.each_ref().map(|w| w.load(Ordering::Relaxed));
     for &a in open.iter() {
         // SAFETY: an address stays in the list only while its thread is alive,
         // and it leaves under the lock this holds.
@@ -1063,9 +1072,10 @@ impl Cache {
         let end = if self.sweeps.is_multiple_of(CACHE_MID_SWEEP_EVERY) { CACHE_SLOTS } else { CACHE_SMALL_SLOTS };
         self.sweeps = self.sweeps.wrapping_add(1);
         for idx in 0..end {
-            if self.slots[idx].idle < CACHE_GRACE_SWEEPS {
-                self.slots[idx].idle += 1;
-            } else if !self.slots[idx].head.is_null() {
+            let Some(slot) = self.slots.get_mut(idx) else { break };
+            if slot.idle < CACHE_GRACE_SWEEPS {
+                slot.idle += 1;
+            } else if !slot.head.is_null() {
                 self.release_slot(idx);
             }
         }
@@ -1087,14 +1097,15 @@ impl Cache {
         let payload = idx as u64;
         let bytes = slot_bytes(payload);
         let layout = layout_for(payload);
+        let Some(slot) = self.slots.get_mut(idx) else { return };
         loop {
-            let p = self.slots[idx].head;
+            let p = slot.head;
             if p.is_null() {
                 return;
             }
             // SAFETY: every pointer in a slot is a dead block this file freed,
             // of exactly `payload` usable bytes, whose `rc` holds the next one.
-            self.slots[idx].head = unsafe { (*header(p)).rc as *mut u8 };
+            slot.head = unsafe { (*header(p)).rc as *mut u8 };
             self.held = self.held.saturating_sub(bytes);
             // SAFETY: `p - 16` is the allocation and `layout` is the layout it
             // was created with — the slot index *is* the capacity, which is
@@ -1348,6 +1359,10 @@ unsafe fn cache_push_counted(p: *mut u8, cap: u64) -> bool {
             // SAFETY: forwarded.
             return unsafe { cache_push_slow(t, p, cap) };
         }
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "`cap <= CACHE_MAX_PAYLOAD` was checked above, and there are `CACHE_SLOTS` of them"
+        )]
         let slot = &mut cache.slots[cap as usize];
         // SAFETY: the caller promises a dead block, so its header is this
         // file's to use as list storage.
@@ -1398,7 +1413,7 @@ unsafe fn cache_push_slow(t: &ThreadHeap, p: *mut u8, cap: u64) -> bool {
             return false;
         }
     }
-    let slot = &mut cache.slots[cap as usize];
+    let Some(slot) = cache.slots.get_mut(cap as usize) else { return false };
     // SAFETY: the caller promises a dead block, so its header is this file's
     // to use as list storage.
     unsafe {
@@ -1974,7 +1989,9 @@ impl Quarantine {
 
     fn put(&mut self, p: usize, cap: u64) {
         let at = (self.head + self.len) % QUARANTINE_BLOCKS;
-        self.slots[at] = (p, cap);
+        if let Some(slot) = self.slots.get_mut(at) {
+            *slot = (p, cap);
+        }
         self.len += 1;
         self.bytes = self.bytes.saturating_add(cap);
         self.seen = self.seen.saturating_add(1);
@@ -1984,7 +2001,7 @@ impl Quarantine {
         if self.len == 0 {
             return None;
         }
-        let taken = self.slots[self.head];
+        let taken = *self.slots.get(self.head)?;
         self.head = (self.head + 1) % QUARANTINE_BLOCKS;
         self.len -= 1;
         self.bytes = self.bytes.saturating_sub(taken.1);
@@ -2146,11 +2163,12 @@ struct HeapDigits {
 impl HeapDigits {
     fn of(mut n: u64) -> HeapDigits {
         let mut d = HeapDigits { buf: [b'0'; 20], at: 20 };
-        loop {
-            d.at -= 1;
-            d.buf[d.at] = b'0' + (n % 10) as u8;
+        for (at, slot) in d.buf.iter_mut().enumerate().rev() {
+            // `b'0'` is 0x30, so or-ing in a digit is adding it.
+            *slot = b'0' | (n % 10) as u8;
             n /= 10;
-            if n == 0 || d.at == 0 {
+            d.at = at;
+            if n == 0 {
                 break;
             }
         }
@@ -2158,7 +2176,7 @@ impl HeapDigits {
     }
 
     fn as_bytes(&self) -> &[u8] {
-        &self.buf[self.at..]
+        self.buf.get(self.at..).unwrap_or(&[])
     }
 }
 
@@ -2316,6 +2334,7 @@ fn trace_remove(p: *mut u8) {
 /// The payload preview is what turns "one block of two bytes" into a name: a
 /// leaked `Str` shows its characters, and a leaked list of pointers shows that
 /// it is one.
+#[expect(clippy::print_stderr, reason = "the leak report is what `BURI_RT_HEAP_CHECK` asked for")]
 fn trace_dump() {
     let leaked = traced(|t| t.iter().map(|(a, c)| (*a, *c)).collect::<Vec<_>>());
     if leaked.is_empty() {
@@ -2329,7 +2348,7 @@ fn trace_dump() {
         let (rc, bytes) = unsafe {
             ((*header(p)).rc, std::slice::from_raw_parts(p.cast_const(), cap as usize))
         };
-        let shown = &bytes[..bytes.len().min(32)];
+        let shown = bytes.get(..32).unwrap_or(bytes);
         let hex: String =
             shown.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
         let text: String = shown

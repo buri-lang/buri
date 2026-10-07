@@ -51,6 +51,11 @@
 //! that convert scalar indices read it first, because it is what makes their
 //! conversion free. [`buri_rt_str_concat`] reads it too and says why at its own
 //! definition.
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is byte offsets and counts inside one string or a search over \
+              it, bounded by its length"
+)]
 
 use crate::memory::{
     buri_rt_alloc, buri_rt_incref, buri_rt_unique_cap, BURI_RT_GROWTH_FLOOR,
