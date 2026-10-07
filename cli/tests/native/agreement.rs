@@ -5646,6 +5646,54 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// **Zigzag is the 64-bit encoding on every backend, at every magnitude** (#257).
+///
+/// `core/bytes` used to compute it with `*` and `/`, so past 2^62 native wrapped
+/// where JavaScript's `BigInt` grew, and `unzigzag` halved a negative pattern
+/// arithmetically. The extremes are where a `sint64` decoder reads wrong.
+#[test]
+fn zigzag_is_the_64_bit_encoding_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "zigzag at 64 bits",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/bytes" import * as bytes;
+
+fn line(host: NativeHost, n: Int): () {
+  let z = bytes.zigzag(n);
+  io.println(host.stdout, "${n} ${z} ${bytes.unzigzag(z)}").ignore()
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let min = -9223372036854775807 - 1;
+  let _ = line(host, 0);
+  let _ = line(host, 1);
+  let _ = line(host, -1);
+  let _ = line(host, 4611686018427387903);
+  let _ = line(host, -4611686018427387903);
+  let _ = line(host, 4611686018427387904);
+  let _ = line(host, -4611686018427387904);
+  let _ = line(host, 9223372036854775807);
+  let _ = line(host, min);
+  let _ = io.println(host.stdout, "${bytes.unzigzag(min)} ${bytes.unzigzag(-1)}").ignore();
+  .Ok(())
+}
+"#,
+        "0 0 0\n\
+         1 2 1\n\
+         -1 1 -1\n\
+         4611686018427387903 9223372036854775806 4611686018427387903\n\
+         -4611686018427387903 9223372036854775805 -4611686018427387903\n\
+         4611686018427387904 -9223372036854775808 4611686018427387904\n\
+         -4611686018427387904 9223372036854775807 -4611686018427387904\n\
+         9223372036854775807 -2 9223372036854775807\n\
+         -9223372036854775808 -1 -9223372036854775808\n\
+         4611686018427387904 -9223372036854775808\n",
+    );
+}
+
 /// `every_conformance_file_is_accounted_for` has to its own list, and it
 /// needs no backend, so it runs on every host.
 #[test]
