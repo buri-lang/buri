@@ -638,6 +638,8 @@ const PACKAGES: &[Case] = &[
     // The exact bytes of nested, repeated and packed fields, and the offsets
     // errors inside a nested message report (buri-lang/buri#254).
     included("proto/wire.buri"),
+    // NaN, the infinities and the 64-bit extremes in proto3 JSON.
+    included("proto/json_numbers.buri"),
     // `core/bytes`'s six intrinsics — the UTF-8 pair and the four IEEE 754
     // byte-pattern entries — are `cli/runtime/bytes.rs` now, which is the one
     // surface each of these two was waiting for.

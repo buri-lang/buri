@@ -1,0 +1,96 @@
+// The numbers proto3 JSON spells its own way: NaN and the infinities as
+// strings, and the 64-bit integers as decimal strings exact to the last digit,
+// across the whole of each type's range.
+//
+// Each case here is one the protobuf conformance runner sends. A `uint64` or
+// `fixed64` holds its value's bits in an `Int`, so one past 2^63 - 1 is a
+// negative `Int` in Buri and a large decimal in the document.
+
+from "core/json" import * as json;
+from "core/json" import { Json };
+from "core/math" import * as math;
+from "core/proto" import { ProtoError };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//lib/proto" import {
+    decodeEverythingJson, defaultEverything, encodeEverythingJson, Everything,
+};
+
+let MIN: Int = -9223372036854775807 - 1;
+
+let MAX: Int = 9223372036854775807;
+
+fn text<C: Allocator>(ctx: C, v: Everything): Str {
+    json.stringify(ctx, encodeEverythingJson(ctx, v))
+}
+
+fn read<C: Allocator>(ctx: C, source: Str): Result<Everything, ProtoError> {
+    match (json.parse(ctx, source)) {
+        .Ok(d) => decodeEverythingJson(ctx, d),
+        .Err(_e) => .Err(.BadJson { path: "", wanted: "JSON" }),
+    }
+}
+
+fn outOfRange(path: Str): Result<Everything, ProtoError> {
+    .Err(.BadJson { path: path, wanted: "an integer in range" })
+}
+
+// --- NaN and the infinities ----------------------------------------------------
+
+test "NaN and the infinities are written as strings" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let nan = 0.0 / 0.0;
+    let inf = 1.0 / 0.0;
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), ratio: .Some(nan) }),
+        "{\"ratio\":\"NaN\"}",
+    );
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), ratio: .Some(inf) }),
+        "{\"ratio\":\"Infinity\"}",
+    );
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), ratio: .Some(0.0 - inf) }),
+        "{\"ratio\":\"-Infinity\"}",
+    );
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), rough: .Some(nan) }),
+        "{\"rough\":\"NaN\"}",
+    );
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), rough: .Some(0.0 - inf) }),
+        "{\"rough\":\"-Infinity\"}",
+    );
+}
+
+test "NaN and the infinities are read from their strings and only from them" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let nan = match (read(ctx, "{\"ratio\":\"NaN\"}")) {
+        .Ok(v) => v.ratio.map(fn(x) => math.isNan(x)),
+        .Err(_e) => .None,
+    };
+    assert.equal(nan, .Some(true));
+    let roughNan = match (read(ctx, "{\"rough\":\"NaN\"}")) {
+        .Ok(v) => v.rough.map(fn(x) => math.isNan(x)),
+        .Err(_e) => .None,
+    };
+    assert.equal(roughNan, .Some(true));
+    assert.equal(
+        read(ctx, "{\"ratio\":\"-Infinity\"}"),
+        .Ok(Everything { ..defaultEverything(), ratio: .Some(0.0 - 1.0 / 0.0) }),
+    );
+    assert.equal(
+        read(ctx, "{\"rough\":\"Infinity\"}"),
+        .Ok(Everything { ..defaultEverything(), rough: .Some(1.0 / 0.0) }),
+    );
+    // A finite number past a float's range is an error, not an infinity.
+    assert.equal(
+        read(ctx, "{\"rough\":3.502823e+38}"),
+        .Err(.BadJson { path: "$.rough", wanted: "a number a float can hold" }),
+    );
+}
