@@ -370,7 +370,11 @@ fn number<C: Allocator>(ctx: C, cs: [Char], i: Int): Result<(Json, Int), JsonErr
     let text = str.fromChars(ctx, cs.slice(ctx, i, end));
     match (text.toFloat()) {
         .Some(x) => {
-            if (grammatical(cs, i, end)) { .Ok((Json.Num(x), end)) } else { .Err(.BadNumber(i)) }
+            if (grammatical(cs, i, end)) {
+                .Ok((Json.Num(x), end))
+            } else {
+                .Err(.BadNumber(i))
+            }
         },
         .None => .Err(.BadNumber(i)),
     }
@@ -392,7 +396,8 @@ fn grammatical(cs: [Char], start: Int, end: Int): Bool {
     } else {
         afterInt
     };
-    let isE = cs.get(afterFraction) == .Some('e') || cs.get(afterFraction) == .Some('E');
+    let isE = cs.get(afterFraction) == .Some('e')
+        || cs.get(afterFraction) == .Some('E');
     let afterExponent = if (afterFraction > afterSign && isE) {
         let signed = cs.get(afterFraction + 1) == .Some('+')
             || cs.get(afterFraction + 1) == .Some('-');
@@ -408,7 +413,9 @@ fn grammatical(cs: [Char], start: Int, end: Int): Bool {
 /// The index just past a run of digits beginning at `i`.
 fn digitsFrom(cs: [Char], i: Int, end: Int): Int {
     match (cs.get(i)) {
-        .Some(c) => if (i < end && c.isDigit()) { digitsFrom(cs, i + 1, end) } else { i },
+        .Some(c) => {
+            if (i < end && c.isDigit()) { digitsFrom(cs, i + 1, end) } else { i }
+        },
         .None => i,
     }
 }
