@@ -3067,17 +3067,6 @@ mod tests {
         );
     }
 
-    /// A job runs off the calling thread, and the next one starts no thread.
-    ///
-    /// **The assertion used to name a `ThreadId`**: the thread put its own
-    /// channel back in the idle vector before signalling, so the next job
-    /// landed on the very same thread. It still usually does, and the case no
-    /// longer says so — a queue and a condvar hand the next task to *whichever*
-    /// idle thread the kernel wakes, and which one that is was never the
-    /// property. What is the property is that no thread was **started**, and
-    /// that is exact: `arm` counts a finishing thread as available before its
-    /// joiner is told the answer is ready, which is the same ordering the
-    /// vector gave and the reason it is written that way round.
     /// **A burst starts one thread, and the next when that one arrives.**
     ///
     /// The pool's growth rule, on a queue nothing drains: a thread that has
@@ -3101,6 +3090,37 @@ mod tests {
         assert_eq!(s.threads, 2);
     }
 
+    /// **An idle thread takes the next task, so a queue with one starts none.**
+    ///
+    /// Comparing the queue's length with `idle` started a thread for every step
+    /// of a fan-out wider than the idle count: a 64-step `parallel` of trivial
+    /// work ran on 64 threads.
+    #[test]
+    fn a_queue_with_an_idle_thread_starts_none() {
+        let mut s = Sched { queue: VecDeque::new(), idle: 1, threads: 1, starting: false };
+        for _ in 0..64 {
+            s.queue.push_back(());
+            assert!(!s.grow(), "a push started a thread while one was idle");
+        }
+        assert_eq!(s.threads, 1);
+
+        // The idle thread takes a task and blocks in it, so the backlog is now short of a thread.
+        s.idle = 0;
+        s.queue.pop_front();
+        assert!(s.grow(), "a backlog with no idle thread started none");
+    }
+
+    /// A job runs off the calling thread, and the next one starts no thread.
+    ///
+    /// **The assertion used to name a `ThreadId`**: the thread put its own
+    /// channel back in the idle vector before signalling, so the next job
+    /// landed on the very same thread. It still usually does, and the case no
+    /// longer says so — a queue and a condvar hand the next task to *whichever*
+    /// idle thread the kernel wakes, and which one that is was never the
+    /// property. What is the property is that no thread was **started**, and
+    /// that is exact: `arm` counts a finishing thread as available before its
+    /// joiner is told the answer is ready, which is the same ordering the
+    /// vector gave and the reason it is written that way round.
     #[test]
     fn a_thread_runs_the_job_and_is_reused() {
         let _alone = alone();
