@@ -369,13 +369,52 @@ fn number<C: Allocator>(ctx: C, cs: [Char], i: Int): Result<(Json, Int), JsonErr
     let end = numberEnd(cs, i, i);
     let text = str.fromChars(ctx, cs.slice(ctx, i, end));
     match (text.toFloat()) {
-        .Some(x) => .Ok((Json.Num(x), end)),
+        .Some(x) => {
+            if (grammatical(cs, i, end)) { .Ok((Json.Num(x), end)) } else { .Err(.BadNumber(i)) }
+        },
         .None => .Err(.BadNumber(i)),
     }
 }
 
+/// RFC 8259's number: `-?`, then `0` or a digit that is not zero and any
+/// digits, then optionally `.` and digits, then optionally `e`, a sign, and
+/// digits. `toFloat` takes `01` and `1.` too, and JSON does not.
+fn grammatical(cs: [Char], start: Int, end: Int): Bool {
+    let afterSign = if (cs.get(start) == .Some('-')) { start + 1 } else { start };
+    let afterInt = if (cs.get(afterSign) == .Some('0')) {
+        afterSign + 1
+    } else {
+        digitsFrom(cs, afterSign, end)
+    };
+    let afterFraction = if (afterInt > afterSign && cs.get(afterInt) == .Some('.')) {
+        let d = digitsFrom(cs, afterInt + 1, end);
+        if (d > afterInt + 1) { d } else { -1 }
+    } else {
+        afterInt
+    };
+    let isE = cs.get(afterFraction) == .Some('e') || cs.get(afterFraction) == .Some('E');
+    let afterExponent = if (afterFraction > afterSign && isE) {
+        let signed = cs.get(afterFraction + 1) == .Some('+')
+            || cs.get(afterFraction + 1) == .Some('-');
+        let first = if (signed) { afterFraction + 2 } else { afterFraction + 1 };
+        let d = digitsFrom(cs, first, end);
+        if (d > first) { d } else { -1 }
+    } else {
+        afterFraction
+    };
+    afterInt > afterSign && afterExponent == end
+}
+
+/// The index just past a run of digits beginning at `i`.
+fn digitsFrom(cs: [Char], i: Int, end: Int): Int {
+    match (cs.get(i)) {
+        .Some(c) => if (i < end && c.isDigit()) { digitsFrom(cs, i + 1, end) } else { i },
+        .None => i,
+    }
+}
+
 /// The extent of a number token. It takes every character a number could
-/// contain and lets `toFloat` be the judge.
+/// contain, and `grammatical` and `toFloat` judge it.
 fn numberEnd(cs: [Char], start: Int, i: Int): Int {
     match (cs.get(i)) {
         .None => i,
