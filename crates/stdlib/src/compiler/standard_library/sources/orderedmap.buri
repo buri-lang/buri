@@ -32,8 +32,9 @@
 //! a tuple is not `Ordered`. A derived `Ordered` compares fields in declaration order,
 //! which is what a multi-column index wants.
 //!
-//! `equals` rather than `derive Equal`: two maps holding the same entries need not
-//! have the same tree, because the shape follows how the map was built.
+//! **Two maps are equal when they hold the same entries**, whatever order they
+//! were built in and whatever shape that gave their trees. So a struct holding
+//! one can `derive Equal, Show`, which is what a generated protobuf message does.
 //!
 //! ```buri run
 //! from "core/io" import * as io;
@@ -61,6 +62,8 @@
 //! ```
 
 from "core/list" import * as list;
+from "core/order" import { Equal, Show };
+from "core/str" import * as str;
 from "platform/effect" import { Allocator };
 
 /// The most entries a node may hold: minimum degree four, so `2 * 4 - 1`.
@@ -946,6 +949,63 @@ fn ceilingIn<K: Ordered, V>(
 // place (MEMORY.md §5.3), so the whole walk is linear.
 // -----------------------------------------------------------------------------
 
+/// A node's entries and children in key order: child `i`, then entry `i`.
+fn foldNode<K, V, B>(n: Node<K, V>, step: fn(B, K, V) => B, acc: B): B {
+    match (n) {
+        .Leaf(e) => e.fold(fn(a, kv) => step(a, kv.0, kv.1), acc),
+        .Branch(e, c) => foldBranch(e, c, 0, step, acc),
+    }
+}
+
+fn foldBranch<K, V, B>(
+    e: [(K, V)],
+    c: [Node<K, V>],
+    i: Int,
+    step: fn(B, K, V) => B,
+    acc: B,
+): B {
+    let below = match (c.get(i)) {
+        .Some(child) => foldNode(child, step, acc),
+        .None => acc,
+    };
+    match (e.get(i)) {
+        .Some(kv) => foldBranch(e, c, i + 1, step, step(below, kv.0, kv.1)),
+        .None => below,
+    }
+}
+
+fn foldNodeCtx<K, V, B, C>(
+    ctx: C,
+    n: Node<K, V>,
+    step: fn(C, B, K, V) => B,
+    acc: B,
+): B {
+    match (n) {
+        .Leaf(e) => e.foldCtx(ctx, fn(c, a, kv) => step(c, a, kv.0, kv.1), acc),
+        .Branch(e, c) => foldBranchCtx(ctx, e, c, 0, step, acc),
+    }
+}
+
+fn foldBranchCtx<K, V, B, C>(
+    ctx: C,
+    e: [(K, V)],
+    c: [Node<K, V>],
+    i: Int,
+    step: fn(C, B, K, V) => B,
+    acc: B,
+): B {
+    let below = match (c.get(i)) {
+        .Some(child) => foldNodeCtx(ctx, child, step, acc),
+        .None => acc,
+    };
+    match (e.get(i)) {
+        .Some(kv) => {
+            foldBranchCtx(ctx, e, c, i + 1, step, step(ctx, below, kv.0, kv.1))
+        },
+        .None => below,
+    }
+}
+
 fn walk<K, V, C: Allocator>(ctx: C, n: Node<K, V>, acc: [(K, V)]): [(K, V)] {
     match (n) {
         .Leaf(e) => acc.concat(ctx, e),
@@ -1346,6 +1406,17 @@ impl<K: Ordered, V> OrderedMap<K, V> {
         walk(ctx, self.root, list.empty<(K, V)>())
     }
 
+    /// Every entry, in key order, folded into `init`: `entries` without the
+    /// list, so it needs no allocator.
+    export fn fold<B>(self, step: fn(B, K, V) => B, init: B): B {
+        foldNode(self.root, step, init)
+    }
+
+    /// The same, with a context for `step` to allocate in.
+    export fn foldCtx<B, C>(self, ctx: C, step: fn(C, B, K, V) => B, init: B): B {
+        foldNodeCtx(ctx, self.root, step, init)
+    }
+
     /// The entries whose keys are at least `start` and less than `end`, in key
     /// order. Half-open, so `range(ctx, k, k)` is empty and two ranges that share
     /// an endpoint share no entry.
@@ -1390,6 +1461,35 @@ impl<K: Ordered, V: Equal> OrderedMap<K, V> {
                     theirs.get(k) == .Some(v)
                 })
         }
+    }
+}
+
+/// The same entries, whatever order either was built in. O(n log n), and it
+/// allocates nothing.
+impl<K: Ordered, V: Equal> Equal for OrderedMap<K, V> {
+    fn equal(self, other: OrderedMap<K, V>): Bool {
+        self.size == other.size && allIn(self.root, other)
+    }
+}
+
+fn allIn<K: Ordered, V: Equal>(n: Node<K, V>, other: OrderedMap<K, V>): Bool {
+    entriesOf(n).all(fn(e) => {
+        let (k, v) = e;
+        other.get(k) == .Some(v)
+    })
+        && childrenOf(n).all(fn(child) => allIn(child, other))
+}
+
+/// `{k: v, k: v}`, in key order.
+impl<K: Ordered + Show, V: Show> Show for OrderedMap<K, V> {
+    fn show<C: Allocator>(self, ctx: C): Str {
+        let parts = self
+            .entries(ctx)
+            .mapCtx(ctx, fn(c, e) => {
+                let (k, v) = e;
+                [k.show(c), ": ", v.show(c)].join(c, "")
+            });
+        ["{", parts.join(ctx, ", "), "}"].join(ctx, "")
     }
 }
 

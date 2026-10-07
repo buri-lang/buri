@@ -352,6 +352,60 @@ test "two maps with the same entries are equal whatever order they were built in
     assert.isFalse(forwards.equals(ctx, backwards.insert(ctx, 7, 700)));
 }
 
+derive Equal, Show for Holder;
+struct Holder {
+    map: OrderedMap<Int, Int>,
+}
+
+test "== asks what equals asks, so a struct holding a map derives Equal" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // Forty keys is five levels of split, so the two trees differ in shape.
+    let up = fn(c, acc: OrderedMap<Int, Int>, k) => acc.insert(c, k, k);
+    let down = fn(c, acc: OrderedMap<Int, Int>, k) => acc.insert(c, 39 - k, 39 - k);
+    let forwards = list
+        .range(ctx, 0, 40)
+        .foldCtx(ctx, up, orderedmap.empty<Int, Int>());
+    let backwards = list
+        .range(ctx, 0, 40)
+        .foldCtx(ctx, down, orderedmap.empty<Int, Int>());
+    assert.isTrue(forwards == backwards);
+    assert.isFalse(forwards == backwards.remove(ctx, 7));
+    assert.isFalse(forwards == backwards.insert(ctx, 7, 700));
+    assert.equal(Holder { map: forwards }, Holder { map: backwards });
+    assert.notEqual(Holder { map: forwards }, Holder {
+        map: orderedmap.empty<Int, Int>(),
+    });
+}
+
+test "show writes the entries in key order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = orderedmap.of(ctx, [(2, "b"), (1, "a")]);
+    assert.equal(m.show(ctx), "{1: a, 2: b}");
+    assert.equal(orderedmap.empty<Int, Int>().show(ctx), "{}");
+}
+
+test "fold and foldCtx visit every entry in key order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = list
+        .range(ctx, 0, 100)
+        .foldCtx(
+            ctx,
+            fn(c, acc: OrderedMap<Int, Int>, k) => acc.insert(c, k * 37 % 100, k),
+            orderedmap.empty<Int, Int>(),
+        );
+    assert.equal(m.fold(fn(n, _k, _v) => n + 1, 0), 100);
+    let seen: [Int] = [];
+    let keys = m.foldCtx(ctx, fn(c, acc: [Int], k, _v) => acc.push(c, k), seen);
+    assert.equal(keys, list.range(ctx, 0, 100));
+    assert.equal(orderedmap.empty<Int, Int>().fold(fn(n, _k, _v) => n + 1, 0), 0);
+}
+
 // --- alter / mapValues ----------------------------------------------------------------
 
 test "alter inserts where there was nothing" {
