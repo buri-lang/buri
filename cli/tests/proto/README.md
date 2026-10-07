@@ -81,10 +81,10 @@ including three Buri's schema reader
   message with a wire layout of its own, and `core/map` does not order itself
   the way a decoded one would have to.
 
-61 lines came out. The file carries a banner saying so, and saying that the
-migration took edition 2026's *own* defaults rather than preserving proto3
-semantics — which is what makes the suite exercise the mapping this toolchain
-implements. One test notices, under its own heading in the failure list.
+61 lines came out. The file carries a banner saying so. The migration keeps
+proto3's semantics the way protoc's own does: the file sets
+`features.field_presence = IMPLICIT`, because a proto3 singular scalar has no
+presence, and the reference message the runner compares against is proto3.
 
 Everything else is intact: all fifteen scalar types in singular, `optional`,
 repeated, packed and unpacked forms; a recursive message and a mutually

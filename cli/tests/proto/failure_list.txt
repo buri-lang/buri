@@ -443,23 +443,6 @@ Required.Proto3.TimestampProtoInputTooSmall.JsonOutput
 Required.Proto3.TimestampProtoNanoTooLarge.JsonOutput
 Required.Proto3.TimestampProtoNegativeNanos.JsonOutput
 
-# --- Explicit presence, which is the edition's default and not proto3's --------
-#
-# The one entry here that is a *behaviour difference* rather than a gap. The
-# vendored schema was migrated to edition 2026 and takes the edition's own
-# defaults, so `features.field_presence` is EXPLICIT: a field the input set is a
-# field the output writes, at its zero value as much as at any other. The
-# reference message is proto3, where a singular scalar has no presence and a
-# zero is indistinguishable from an absent field -- so it expects
-# `{"FieldName13": 0}` in to produce `{}` out, and gets `{"FieldName13":0}`.
-#
-# Both are right about their own schema. The reader implements editions, and
-# this is what editions says. `buri docs build/proto` states it under "Presence
-# is the headline". The same difference shows up in the binary direction as
-# ~18 `Recommended` warnings, which do not fail the suite.
-# (1 tests)
-Required.Proto3.JsonInput.SkipsDefaultPrimitive.Validator
-
 # --- Unknown fields are dropped rather than retained --------------------------
 #
 # Decoding skips a field the schema does not know, which is the forward
