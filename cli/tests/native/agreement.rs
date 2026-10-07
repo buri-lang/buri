@@ -1691,30 +1691,14 @@ export fn main(host: NativeHost): Result<(), Str> {
 
 /// A hand-written `impl Ordered` on a field's type, and the derived `Ordered` above it.
 ///
-/// **The two backends agree, and the answer they agree on is the structural
-/// one.** SPEC 5.12.3 says a `derive` "generates the trait's methods
-/// structurally: struct fields in declaration order … recursing into field
-/// types. It is a fold over one type definition — no search, no instances to
-/// resolve", and the same section is where the language reasons that a
-/// hand-written implementation "would be obeyed where the type is encoded on
-/// its own and ignored where a type holding it is". `ToJson` and `FromJson` are
-/// the two it settles by *rejecting* the `impl`; `Ordered` is left half-obeyed, and
-/// this row is where that shows.
-///
-/// So `direct` is the hand-written verdict and `derived` is the structural one,
-/// and they differ: `Wrapper`'s own `compare` says the longer octets are
-/// greater, while the fold under `Pair` walks straight past it into `[U8]`'s
-/// lexicographic order and answers on the first element. buri-lang/buri#27's
-/// second finding asks for `derived` to become `direct`; that is a change to
-/// SPEC 5.12.3 and to both backends' walkers — `middle::derives` natively and
-/// `$cmp` on JavaScript, which is handed no descriptor at all — rather than a
-/// native-backend fix, and it is not what the array half of that issue was.
-/// What this row is for until then is that the two backends cannot start
-/// disagreeing about it quietly.
+/// **The derive calls the `impl`** (#258, and buri-lang/buri#27's second
+/// finding). `Wrapper`'s own `compare` says the longer octets are greater, and
+/// the fold under `Pair` answers what it answers, where it used to walk past it
+/// into `[U8]`'s lexicographic order on both backends alike.
 #[test]
-fn a_derive_over_a_hand_written_impl_is_structural_on_both_backends() {
+fn a_derive_over_a_hand_written_impl_calls_it_on_both_backends() {
     rows_or_skip!();
-    agree("derive over a hand-written impl", DERIVE_OVER_IMPL, "lt gt\n");
+    agree("derive over a hand-written impl", DERIVE_OVER_IMPL, "lt lt\n");
 }
 
 const DERIVE_OVER_IMPL: &str = r#"
@@ -1743,7 +1727,7 @@ fn pair(octets: [U8]): Pair { Pair { wrapped: wrap(octets) } }
 export fn main(host: NativeHost): Result<(), Str> {
   // The hand-written ordering: fewer octets is `.Less`, whatever they hold.
   let direct = name(wrap([9]).compare(wrap([1, 2])));
-  // The derived one over it: `[U8]`'s own order, which puts `[9]` above.
+  // The derived one over it, which asks `Wrapper`.
   let derived = name(pair([9]).compare(pair([1, 2])));
   let _ = io.println(host.stdout, "${direct} ${derived}").ignore();
   .Ok(())
@@ -5691,6 +5675,120 @@ export fn main(host: NativeHost): Result<(), Str> {
          9223372036854775807 -2 9223372036854775807\n\
          -9223372036854775808 -1 -9223372036854775808\n\
          4611686018427387904 -9223372036854775808\n",
+    );
+}
+
+/// **A derived `Show` calls a field type's hand-written `Show`** (#258).
+///
+/// It used to print the field structurally, so a type that hides its value
+/// printed it in full the moment it sat inside a derived one. The field is
+/// reached every way a derive reaches one: a struct field, a tuple, a variant
+/// payload, an `Option`, a list and a recursive type.
+#[test]
+fn a_derived_show_calls_a_hand_written_one_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "derived show over a hand-written one",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "platform/effect" import { Allocator };
+
+struct Secret { value: Str }
+impl Show for Secret {
+  fn show<C: Allocator>(self, ctx: C): Str { "***" }
+}
+
+struct Login { user: Str, secret: Secret, pair: (Int, Secret) }
+derive Show for Login;
+
+enum Held { Nothing, One(Secret), Many { all: [Secret], spare: Option<Secret> } }
+derive Show for Held;
+
+enum Chain { End, Link(Secret, Chain) }
+derive Show for Chain;
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let s = Secret { value: "hunter2".concat(host.alloc, "!") };
+  let login = Login { user: "ann", secret: s, pair: (1, s) };
+  let _ = io.println(host.stdout, login.show(host.alloc)).ignore();
+  let _ = io.println(host.stdout, Held.Nothing.show(host.alloc)).ignore();
+  let _ = io.println(host.stdout, Held.One(s).show(host.alloc)).ignore();
+  let many = Held.Many { all: [s, Secret { value: "b" }], spare: .Some(s) };
+  let _ = io.println(host.stdout, many.show(host.alloc)).ignore();
+  let none: Option<Secret> = .None;
+  let _ = io.println(host.stdout, Held.Many { all: [], spare: none }.show(host.alloc)).ignore();
+  let _ = io.println(host.stdout, Chain.Link(s, .Link(s, .End)).show(host.alloc)).ignore();
+  .Ok(())
+}
+"#,
+        "Login { user: \"ann\", secret: ***, pair: (1, ***) }\n\
+         .Nothing\n\
+         .One(***)\n\
+         .Many { all: [***, ***], spare: .Some(***) }\n\
+         .Many { all: [], spare: .None }\n\
+         .Link(***, .Link(***, .End))\n",
+    );
+}
+
+/// **A derived `Equal`, `Ordered` and `Hash` call a field type's hand-written
+/// ones** (#258), so a field that compares by part of its value keeps doing so
+/// inside a derived type.
+///
+/// `Tag` compares, orders and hashes by `label` alone, and orders it backwards.
+#[test]
+fn derived_equal_ordered_and_hash_call_hand_written_ones_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "derived comparisons over hand-written ones",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+struct Tag { label: Str, noise: Int }
+impl Equal for Tag {
+  fn equal(self, other: Tag): Bool { self.label == other.label }
+}
+impl Ordered for Tag {
+  fn compare(self, other: Tag): Order { other.label.compare(self.label) }
+}
+impl Hash for Tag {
+  fn hash(self): U64 { self.label.hash() }
+}
+
+struct Item { tag: Tag, count: Int }
+derive Equal, Ordered, Hash for Item;
+
+enum Slot { Empty, Full(Tag) }
+derive Equal, Ordered, Hash for Slot;
+
+struct Bag { tags: [Tag] }
+derive Equal, Ordered, Hash for Bag;
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let a1 = Tag { label: "a", noise: 1 };
+  let a9 = Tag { label: "a", noise: 9 };
+  let b = Tag { label: "b", noise: 1 };
+  let x = Item { tag: a1, count: 2 };
+  let y = Item { tag: a9, count: 2 };
+  let z = Item { tag: b, count: 2 };
+  let _ = io.println(host.stdout, "equal ${x == y} ${x == z} ${x == Item { tag: a1, count: 3 }}").ignore();
+  let _ = io.println(host.stdout, "order ${x < z} ${z < x} ${x < Item { tag: a9, count: 3 }}").ignore();
+  let _ = io.println(host.stdout, "hash ${x.hash() == y.hash()}").ignore();
+  let _ = io.println(host.stdout, "slot ${Slot.Full(a1) == Slot.Full(a9)} ${Slot.Full(a1) == Slot.Full(b)}").ignore();
+  let _ = io.println(host.stdout, "slot order ${Slot.Empty < Slot.Full(a1)} ${Slot.Full(a1) < Slot.Full(b)} ${Slot.Full(b) < Slot.Full(a1)}").ignore();
+  let _ = io.println(host.stdout, "slot hash ${Slot.Full(a1).hash() == Slot.Full(a9).hash()}").ignore();
+  let _ = io.println(host.stdout, "list ${Bag { tags: [a1, b] } == Bag { tags: [a9, b] }} ${Bag { tags: [b] } < Bag { tags: [a1] }} ${Bag { tags: [a1, b] }.hash() == Bag { tags: [a9, b] }.hash()}").ignore();
+  .Ok(())
+}
+"#,
+        "equal true false false\n\
+         order false true true\n\
+         hash true\n\
+         slot true false\n\
+         slot order true false true\n\
+         slot hash true\n\
+         list true true true\n",
     );
 }
 

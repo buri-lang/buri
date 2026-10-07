@@ -30,6 +30,8 @@ use crate::compiler::semantics::types::*;
 use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::hash::Map as HashMap;
 
+mod hand_written;
+
 /// What a concrete function *is*.
 ///
 /// These were two `Option`s side by side. Both set meant the backend picked
@@ -477,6 +479,11 @@ enum Key {
     CtxCtor(ContextDeclId),
     /// A test body.
     Test(usize),
+    /// A derive at a type whose shape reaches a hand-written `impl` of the same
+    /// trait, generated one level deep. `ctx` is `Show`'s context type.
+    Derived { trait_id: TraitId, ty: Ty, ctx: Option<Ty> },
+    /// The rest of a list after its first element, for `Derived` at `[elem]`.
+    DerivedItems { trait_id: TraitId, elem: Ty, ctx: Option<Ty> },
 }
 
 pub struct Monomorphizer<'a> {
@@ -516,6 +523,8 @@ pub struct Monomorphizer<'a> {
     names: HashMap<FnId, (String, String)>,
     /// Each type argument's [`Mangled`] spelling, which a tag hashes.
     mangled: HashMap<Ty, String>,
+    /// Whether a derive at a type reaches a hand-written `impl` of its trait.
+    reaches: HashMap<(TraitId, Ty), bool>,
 }
 
 pub fn run(
@@ -542,6 +551,7 @@ pub fn run(
         js_implemented: std::collections::BTreeSet::new(),
         names: HashMap::default(),
         mangled: HashMap::default(),
+        reaches: HashMap::default(),
     };
 
     let program_roots = match roots {
@@ -945,6 +955,10 @@ impl<'a> Monomorphizer<'a> {
                     .unwrap_or_else(|| "core".into());
                 (format!("test${i}"), format!("{module}:{}", case.name), case.span)
             }
+            Key::Derived { trait_id, ty, ctx } => self.derived_name(*trait_id, *ty, *ctx, false),
+            Key::DerivedItems { trait_id, elem, ctx } => {
+                self.derived_name(*trait_id, *elem, *ctx, true)
+            }
         }
     }
 
@@ -1119,6 +1133,10 @@ impl Monomorphizer<'_> {
                 f.params = b.params;
                 f.locals = b.locals;
                 f.set_body(b.expr);
+            }
+            Key::Derived { trait_id, ty, ctx } => self.build_derived(trait_id, ty, ctx, slot),
+            Key::DerivedItems { trait_id, elem, ctx } => {
+                self.build_derived_items(trait_id, elem, ctx, slot)
             }
         }
     }
@@ -2027,6 +2045,11 @@ impl Monomorphizer<'_> {
         args: Vec<typed::Expr>,
         span: Span,
     ) -> ExprKind {
+        // A descriptor knows shapes rather than `impl`s, so where the shape
+        // reaches a hand-written one the derive is generated instead (#258).
+        if let Some(call) = self.hand_written_derive(trait_id, recv, &args) {
+            return call;
+        }
         let name = self.tables().trait_(trait_id).name.clone();
         let desc = self.descriptor(recv);
         let desc_arg =
