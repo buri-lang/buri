@@ -1,0 +1,3 @@
+README.md
+lib/a/BUILD.buri
+lib/a/b.buri: has a syntax error; what did not parse was left as it was written

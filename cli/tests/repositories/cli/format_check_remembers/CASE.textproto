@@ -1,0 +1,120 @@
+# `buri format --check` remembers which files it found formatted, keyed on
+# their bytes (#259). A remembered answer is only worth having if it is the
+# answer a fresh run gives, so every step here is one a run with no memory
+# answers the same way: a file edited after a clean pass is reported, a file
+# put back is clean again, and a run after `buri clean` says the same thing.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "format --check reports a file edited after a clean pass, and says what a run with nothing remembered says"
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}
+
+# Nothing moved, so nothing to report, twice.
+run {
+  args: ["format", "--check"]
+  exit: 0
+}
+
+# One edit of each kind of file `--check` reads: a source, a build file, a
+# fence in a document, and a source that no longer parses.
+edit {
+  file: "lib/a/a.buri"
+  replace: "    1\n"
+  with: "  1\n"
+}
+
+edit {
+  file: "lib/a/BUILD.buri"
+  replace: "    sources"
+  with: "  sources"
+}
+
+edit {
+  file: "README.md"
+  replace: "    3\n"
+  with: "        3\n"
+}
+
+edit {
+  file: "lib/a/b.buri"
+  replace: "    2\n"
+  with: "    2 +\n"
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 1
+  golden: "four_edits.txt"
+}
+
+# Asked again, the answer is the same.
+run {
+  args: ["format", "--check"]
+  exit: 1
+  golden: "four_edits.txt"
+}
+
+# And the same with nothing remembered.
+run {
+  args: ["clean"]
+  exit: 0
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 1
+  golden: "four_edits.txt"
+}
+
+# A file put back byte for byte is clean again.
+edit {
+  file: "lib/a/a.buri"
+  replace: "  1\n"
+  with: "    1\n"
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 1
+  golden: "three_edits.txt"
+}
+
+# One path, after the whole tree was checked.
+run {
+  args: ["format", "--check", "lib/a/a.buri"]
+  exit: 0
+}
+
+run {
+  args: ["format", "--check", "lib/a/BUILD.buri"]
+  exit: 1
+  golden: "build_file.txt"
+}
+
+# `format` rewrites what `--check` reported, whatever `--check` remembered.
+run {
+  args: ["format"]
+  exit: 0
+  golden: "formatted.txt"
+}
+
+file {
+  path: "lib/a/BUILD.buri"
+  golden: "BUILD.buri"
+}
+
+file {
+  path: "README.md"
+  golden: "README.md"
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 1
+  golden: "syntax_error.txt"
+}

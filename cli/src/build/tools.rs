@@ -935,19 +935,32 @@ pub enum Formatted {
     Unformatted,
 }
 
+/// Formats one file in a language this toolchain lays out itself, or `None`
+/// for a repository's own language, whose tool does.
+pub fn format_in_process(kind: &Kind, text: &str) -> Option<Formatted> {
+    let refused = |t: Option<String>| t.map_or(Formatted::Refused, Formatted::Text);
+    match kind {
+        Kind::BuiltIn(dialect) => Some(refused(crate::languages::json::format(text, *dialect))),
+        Kind::Proto => Some(refused(crate::languages::proto::format(text))),
+        Kind::Textproto => Some(refused(crate::languages::textproto::format(text))),
+        Kind::Custom(_) => None,
+    }
+}
+
 /// Formats one file in a language, through whichever tool formats it.
 pub fn format_file(session: &Session, rel: &str, text: &str, flags: &Flags) -> Formatted {
     let refused = |t: Option<String>| t.map_or(Formatted::Refused, Formatted::Text);
     let languages = &session.workspace.repo.languages;
     let Some(language) = languages.of(rel) else { return Formatted::Unformatted };
+    if let Some(done) = format_in_process(&language.kind, text) {
+        return done;
+    }
     let named = match &language.kind {
-        Kind::BuiltIn(dialect) => return refused(crate::languages::json::format(text, *dialect)),
-        Kind::Proto => return refused(crate::languages::proto::format(text)),
-        Kind::Textproto => return refused(crate::languages::textproto::format(text)),
         Kind::Custom(tools) => match &tools.format {
             Some(named) => named,
             None => return Formatted::Unformatted,
         },
+        _ => return Formatted::Unformatted,
     };
     let tool = match resolve(&session.workspace, &named.value) {
         Ok(Tool::Json) => return refused(crate::languages::json::format(text, crate::languages::json::Dialect::Json)),
