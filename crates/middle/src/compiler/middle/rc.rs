@@ -530,6 +530,15 @@ pub enum Answer {
 /// The classifier.
 pub trait Counted {
     fn counted(&mut self, ty: &Ty) -> Answer;
+
+    /// Whether `middle::layout` puts a field of this type behind a box in this
+    /// owner (`Layouts::boxes`). A boxed field is a load through a block of
+    /// its own, so reading one is not a word of the owner's value. A
+    /// classifier with no shapes to ask answers that nothing is.
+    fn boxes(&mut self, owner: &Ty, field: &Ty) -> bool {
+        let _ = (owner, field);
+        false
+    }
 }
 
 /// The answer from what a program carries about its own types.
@@ -565,6 +574,9 @@ pub struct Syntactic {
     /// The types the walk is inside, under [`Leaves::Lists`]. See
     /// [`Syntactic::answer`] for why only that question keeps one.
     visiting: HashSet<Ty>,
+    /// `middle::layout`'s recursion analysis over [`Syntactic::shapes`], for
+    /// [`Counted::boxes`]. Built on the first question.
+    cycles: Option<std::sync::Arc<crate::compiler::middle::layout::Cycles>>,
 }
 
 /// What a walk of a type is looking for.
@@ -690,6 +702,7 @@ impl Syntactic {
             memo: HashMap::default(),
             leaves: Leaves::Counted,
             visiting: HashSet::default(),
+            cycles: None,
         }
     }
 
@@ -830,6 +843,15 @@ fn join(parts: &[Answer]) -> Answer {
 }
 
 impl Counted for Syntactic {
+    fn boxes(&mut self, owner: &Ty, field: &Ty) -> bool {
+        let shapes = &self.shapes;
+        self.cycles
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(crate::compiler::middle::layout::Cycles::from_shapes(shapes))
+            })
+            .boxes(owner, field)
+    }
+
     fn counted(&mut self, ty: &Ty) -> Answer {
         // Eight is past the nesting any concrete type in the standard library
         // has, and a type deeper than that is one behind a pointer anyway.
@@ -2825,7 +2847,25 @@ impl Scan<'_> {
         if !matches!(e.kind, ExprKind::Field { .. } | ExprKind::TupleIndex { .. }) {
             return false;
         }
+        // A field `middle::layout` boxed is a load through a block, which the
+        // owner's release frees: `mid.kids.length()` read a freed box when the
+        // `decref` of `mid` went first.
+        if self.through_box(e) {
+            return false;
+        }
         field_root(e).is_some_and(|root| self.plain.contains(&root))
+    }
+
+    /// Whether a path of fields and tuple positions passes through a boxed
+    /// field anywhere along it.
+    fn through_box(&mut self, e: &Expr) -> bool {
+        match &e.kind {
+            ExprKind::Field { base, .. } => {
+                self.counted.boxes(&base.ty, &e.ty) || self.through_box(base)
+            }
+            ExprKind::TupleIndex { base, .. } => self.through_box(base),
+            _ => false,
+        }
     }
 
     /// The local a projection may be scanned **without** keeping alive, because

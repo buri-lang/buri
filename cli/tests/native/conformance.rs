@@ -408,6 +408,9 @@ const PACKAGES: &[Case] = &[
     // answers are simply right; this side is where a guard that released a heap
     // `Str` its fall-through arm still held read a freed block (issue #198).
     included("memory/guards.buri"),
+    // A recursive struct's boxed field, updated and read: what a generated
+    // protobuf message with a recursive map does.
+    included("memory/boxes.buri"),
     // It was excluded for `list.fold` until the backend grew the loop
     // over a closure, and
     // `the_excluded_packages_are_excluded_for_the_stated_reason` is what

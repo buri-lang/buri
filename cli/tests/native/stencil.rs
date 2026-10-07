@@ -2101,6 +2101,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "filesystem/fs.buri",
     "lazy/load.buri",
     "memory/allocators.buri",
+    "memory/boxes.buri",
     "memory/captures.buri",
     "memory/copyout.buri",
     "memory/discards.buri",

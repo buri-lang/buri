@@ -83,6 +83,7 @@ use crate::compiler::middle::ir::{
     StructuralOp, Target, Term, Type, TypeId, TypeInfo, UnOp, ValueId,
 };
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
+use crate::compiler::middle::layout;
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{
     self, Arm, ArrayRest, Expr, ExprKind, FieldPat, Magnitude, OptionOrResult, PatKind, Pattern,
@@ -139,6 +140,7 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // function it names.
     let entries: Vec<usize> = program.funcs.iter().map(|f| loop_entries(f.body())).collect();
     let counts = lists::Counts::new(program);
+    let cycles = layout::Cycles::new(tables);
 
     // Lower every function across the cores. Each gets a type interner of its
     // own — the one piece of cross-function state — and its `TypeId`s are made
@@ -146,7 +148,8 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // so `funcs` is the same vector the serial loop built.
     let lowered: Vec<(Func, Vec<TypeInfo>)> = crate::parallel::map(program.funcs.len(), |i| {
         let mut types = Types::default();
-        let func = lower_one(program, tables, plan, &counts, &entries, &units, &mut types, i);
+        let func =
+            lower_one(program, tables, plan, &counts, &cycles, &entries, &units, &mut types, i);
         (func, types.list)
     });
 
@@ -183,6 +186,7 @@ fn lower_one(
     tables: &Tables,
     plan: &rc::Plan,
     counts: &lists::Counts<'_>,
+    cycles: &layout::Cycles,
     entries: &[usize],
     units: &Units,
     types: &mut Types,
@@ -213,6 +217,7 @@ fn lower_one(
                 program,
                 plan,
                 counts,
+                cycles,
                 types,
                 entries,
                 locals: &f.locals,
@@ -548,6 +553,9 @@ struct FnLower<'a> {
     program: &'a Program,
     plan: &'a rc::Plan,
     counts: &'a lists::Counts<'a>,
+    /// Which fields `middle::layout` puts behind a box, for
+    /// [`ExprKind::StructUpdate`].
+    cycles: &'a layout::Cycles,
     types: &'a mut Types,
     entries: &'a [usize],
     locals: &'a [typed::Local],
@@ -1037,6 +1045,9 @@ impl FnLower<'_> {
                 // is shorthand for would have done.
                 let b = self.expr(base);
                 let arity = self.tables.tycon(*con).fields().len();
+                if self.has_boxed_field(&base.ty, arity) {
+                    return self.boxed_update(e, b, arity, updates, ty);
+                }
                 let mut fields = Vec::with_capacity(arity);
                 // The old value of every field this update *replaces*.
                 //
@@ -2133,6 +2144,68 @@ impl FnLower<'_> {
             OptionOrResult::Option => self.variant_of(ty, "Some", 0),
             OptionOrResult::Result => self.variant_of(ty, "Ok", 0),
         }
+    }
+
+    /// Whether any field of this struct is behind a box (`Layouts::boxes`).
+    fn has_boxed_field(&self, owner: &Ty, arity: usize) -> bool {
+        (0..arity).any(|i| {
+            let field = owner
+                .head()
+                .and_then(|c| self.tables.tycon(c).fields().get(i).map(|f| f.ty))
+                .unwrap_or(Ty::UNIT);
+            self.cycles.boxes(owner, &self.substituted(owner, field))
+        })
+    }
+
+    /// `..base` of a struct with a field behind a box.
+    ///
+    /// The general lowering moves each kept field's count out of the base and
+    /// lets the base itself go uncounted. A boxed field is a block of its own,
+    /// though: reading it copies the value out of the box and building the
+    /// result puts it in a new one, so the old box was released by nobody. So
+    /// here every field the result keeps takes a count of its own, and then
+    /// the base is released whole, boxes and replaced fields included. A field
+    /// `middle::rc` moved into a replacement takes its count first, because
+    /// the replacement consumes it and the base's release would be a second.
+    fn boxed_update(
+        &mut self,
+        e: &Expr,
+        b: ValueId,
+        arity: usize,
+        updates: &[(usize, Expr)],
+        ty: Type,
+    ) -> ValueId {
+        let base_ty = match &e.kind {
+            ExprKind::StructUpdate { base, .. } => base.ty,
+            _ => Ty::UNIT,
+        };
+        let node = self.sites.id_of(e);
+        for (i, _) in updates {
+            if self.sites.moved(node, *i) {
+                let f = self.field_type(&base_ty, *i);
+                let old = self.emit(f, |dest| Inst::GetField { dest, agg: b, index: *i as u32 });
+                self.push(Inst::IncRef { value: old });
+            }
+        }
+        let mut fields = Vec::with_capacity(arity);
+        for i in 0..arity {
+            match updates.iter().find(|(j, _)| *j == i) {
+                Some((_, v)) => {
+                    let v = self.expr(v);
+                    fields.push(v);
+                }
+                None => {
+                    let f = self.field_type(&base_ty, i);
+                    let kept =
+                        self.emit(f, |dest| Inst::GetField { dest, agg: b, index: i as u32 });
+                    self.push(Inst::IncRef { value: kept });
+                    fields.push(kept);
+                }
+            }
+        }
+        let out = self.emit(ty, |dest| Inst::MakeStruct { dest, fields });
+        self.push(Inst::DecRef { value: b, drop: None });
+        out
     }
 
     fn field_type(&mut self, ty: &Ty, index: usize) -> Type {
