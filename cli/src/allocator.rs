@@ -29,10 +29,11 @@
 //! - **While a thread has no heap** (starting, exiting, or the range is used
 //!   up) its small blocks come from the system. Those lie outside the range,
 //!   which is how `dealloc` tells them apart.
+//! - **`trim`** gives all but 8 MB of the pool back to the system. `buri lsp`
+//!   calls it whenever no request is waiting, and the watch loops after each pass.
 //!
 //! Nothing here allocates or takes a `Mutex`: the pool and the abandoned list
-//! are behind spin locks, and a heap is never freed. Pages are never returned
-//! to the system, but the pool hands every one back out.
+//! are behind spin locks, and a heap is never freed.
 #![allow(
     clippy::arithmetic_side_effects,
     reason = "sizes are at most `MAX_SMALL`, and offsets are bounded by the reserved range"
@@ -46,7 +47,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::ptr::{self, null_mut};
 use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed, Release};
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicUsize};
 
 const STEP: usize = 16;
 /// 16-byte steps up to here, then four classes to each doubling.
@@ -88,9 +89,21 @@ static NEXT_PAGE: AtomicUsize = AtomicUsize::new(0);
 static ABANDONED_LOCK: AtomicBool = AtomicBool::new(false);
 static ABANDONED: AtomicPtr<Heap> = AtomicPtr::new(null_mut());
 
-/// Pages with no block out, for any heap and class.
+/// Pages with no block out, for any heap and class. `trim` gives all but
+/// `KEEP` of them back to the system and onto `RELEASED`.
 static POOL_LOCK: AtomicBool = AtomicBool::new(false);
 static POOL: AtomicPtr<Page> = AtomicPtr::new(null_mut());
+static POOLED: AtomicUsize = AtomicUsize::new(0);
+const KEEP: usize = KEEP_BYTES / PAGE;
+const KEEP_BYTES: usize = 8 << 20;
+
+/// A stack of released pages' indices. A released page's own bytes may be
+/// gone, so the stack can't live in its header.
+static RELEASED: [AtomicU32; RANGE / PAGE] = {
+    // SAFETY: zero is a valid `AtomicU32`.
+    unsafe { std::mem::zeroed() }
+};
+static RELEASED_TOP: AtomicUsize = AtomicUsize::new(0);
 
 /// The installed allocator.
 pub struct Allocator;
@@ -251,16 +264,27 @@ fn reserve() -> *mut u8 {
 /// or used up.
 #[cold]
 fn new_page(heap: *mut Heap, c: usize) -> *mut Page {
-    let pooled = {
+    let (pooled, released) = {
         let _held = lock(&POOL_LOCK);
         let page = POOL.load(Relaxed);
         if !page.is_null() {
             // SAFETY: a pooled page, owned by the pool, and the lock is held.
             POOL.store(unsafe { (*page).next }, Relaxed);
+            POOLED.store(POOLED.load(Relaxed) - 1, Relaxed);
+            (page, None)
+        } else {
+            let top = RELEASED_TOP.load(Relaxed);
+            if top == 0 {
+                (null_mut(), None)
+            } else {
+                RELEASED_TOP.store(top - 1, Relaxed);
+                (null_mut(), Some(RELEASED[top - 1].load(Relaxed) as usize))
+            }
         }
-        page
     };
-    let page = if pooled.is_null() {
+    let page = if !pooled.is_null() {
+        pooled.cast::<u8>()
+    } else {
         let mut base = BASE.load(Relaxed);
         if base.addr() == UNRESERVED {
             base = reserve();
@@ -268,14 +292,19 @@ fn new_page(heap: *mut Heap, c: usize) -> *mut Page {
         if base.addr() == NO_RANGE {
             return null_mut();
         }
-        let index = NEXT_PAGE.fetch_add(1, Relaxed);
+        let index = match released {
+            Some(index) => index,
+            None => NEXT_PAGE.fetch_add(1, Relaxed),
+        };
         if index >= RANGE / PAGE {
             return null_mut();
         }
         // SAFETY: `index` is below the range's page count, so the page lies inside the mapping.
-        unsafe { base.add(index * PAGE) }
-    } else {
-        pooled.cast::<u8>()
+        let page = unsafe { base.add(index * PAGE) };
+        if released.is_some() {
+            os::reuse(page);
+        }
+        page
     };
     let blocks = (PAGE - HEADER) / SIZES[c];
     // SAFETY: the page is fresh and ours, and the header fits before its first block.
@@ -405,7 +434,95 @@ unsafe fn retire(heap: *mut Heap, page: *mut Page) {
         let _held = lock(&POOL_LOCK);
         (*page).next = POOL.load(Relaxed);
         POOL.store(page, Relaxed);
+        POOLED.store(POOLED.load(Relaxed) + 1, Relaxed);
     }
+}
+
+/// Gives the pool's pages past the first `KEEP` back to the system.
+///
+/// For a process about to sit idle, such as `buri lsp` between requests. A
+/// build doesn't call it: its pages are about to be reused or the process is
+/// about to exit, and releasing them cost it 1–2%.
+pub fn trim() {
+    if !os::RELEASES {
+        return;
+    }
+    let mut excess = {
+        let _held = lock(&POOL_LOCK);
+        if POOLED.load(Relaxed) <= KEEP {
+            return;
+        }
+        let mut page = POOL.load(Relaxed);
+        // Keep the first `KEEP`, detach the rest.
+        let mut kept = 1;
+        while kept < KEEP && !page.is_null() {
+            // SAFETY: pooled pages, and the lock is held.
+            page = unsafe { (*page).next };
+            kept += 1;
+        }
+        if page.is_null() {
+            return;
+        }
+        // SAFETY: as above.
+        let rest = unsafe { std::mem::replace(&mut (*page).next, null_mut()) };
+        POOLED.store(KEEP, Relaxed);
+        rest
+    };
+    while !excess.is_null() {
+        // SAFETY: detached from the pool above, so these pages are this call's.
+        let next = unsafe { (*excess).next };
+        let index = (excess.addr() - BASE.load(Relaxed).addr()) / PAGE;
+        os::release(excess.cast());
+        {
+            let _held = lock(&POOL_LOCK);
+            let top = RELEASED_TOP.load(Relaxed);
+            RELEASED[top].store(index as u32, Relaxed);
+            RELEASED_TOP.store(top + 1, Relaxed);
+        }
+        excess = next;
+    }
+}
+
+/// Giving a page's memory back to the system, and taking it again.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod os {
+    use super::PAGE;
+
+    unsafe extern "C" {
+        fn madvise(addr: *mut u8, len: usize, advice: i32) -> i32;
+    }
+
+    pub const RELEASES: bool = true;
+
+    /// `MADV_FREE_REUSABLE`, what the system allocator uses: the page leaves
+    /// the footprint now, and the kernel takes it when it wants it.
+    #[cfg(target_os = "macos")]
+    const RELEASE: i32 = 7;
+    /// `MADV_DONTNEED`: the page leaves RSS now and reads as zeros after.
+    #[cfg(target_os = "linux")]
+    const RELEASE: i32 = 4;
+
+    pub fn release(page: *mut u8) {
+        // SAFETY: a whole page of the range that no block is in.
+        unsafe { madvise(page, PAGE, RELEASE) };
+    }
+
+    /// `MADV_FREE_REUSE`, so the page counts in the footprint again.
+    #[cfg(target_os = "macos")]
+    pub fn reuse(page: *mut u8) {
+        // SAFETY: a whole page of the range, released earlier.
+        unsafe { madvise(page, PAGE, 8) };
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn reuse(_page: *mut u8) {}
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+mod os {
+    pub const RELEASES: bool = false;
+    pub fn release(_page: *mut u8) {}
+    pub fn reuse(_page: *mut u8) {}
 }
 
 impl Allocator {
@@ -767,6 +884,38 @@ mod tests {
                     .collect();
                 assert_eq!(NEXT_PAGE.load(Relaxed), before);
                 for p in other {
+                    unsafe { Allocator.dealloc(p as *mut u8, layout(1000)) };
+                }
+            });
+        });
+    }
+
+    #[test]
+    fn trimmed_pages_are_released_and_used_again() {
+        let _one = serial();
+        let n = (KEEP + 64) * PAGE / 1024;
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let blocks: Vec<usize> =
+                    (0..n).map(|_| unsafe { Allocator.alloc(layout(1000)) } as usize).collect();
+                for &p in &blocks {
+                    unsafe { Allocator.dealloc(p as *mut u8, layout(1000)) };
+                }
+                assert!(POOLED.load(Relaxed) > KEEP);
+                let released = RELEASED_TOP.load(Relaxed);
+                trim();
+                assert_eq!(POOLED.load(Relaxed), KEEP);
+                assert!(RELEASED_TOP.load(Relaxed) >= released + 32);
+                // Every page comes back from the pool or the released stack.
+                let before = NEXT_PAGE.load(Relaxed);
+                let again: Vec<usize> =
+                    (0..n).map(|_| unsafe { Allocator.alloc(layout(1000)) } as usize).collect();
+                assert_eq!(NEXT_PAGE.load(Relaxed), before);
+                for (i, &p) in again.iter().enumerate() {
+                    unsafe { fill(p as *mut u8, 1000, i) };
+                }
+                for (i, &p) in again.iter().enumerate() {
+                    unsafe { check(p as *mut u8, 1000, i) };
                     unsafe { Allocator.dealloc(p as *mut u8, layout(1000)) };
                 }
             });

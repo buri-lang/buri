@@ -5243,13 +5243,17 @@ for node and once for native: 200,000 lines.
 
 | Workload | system, best of 11 | mimalloc | in-tree | max RSS, system | in-tree |
 |---|---:|---:|---:|---:|---:|
-| example, `build //...` | 0.444 s | −0.9% | +0.5% | 80 MB | +4.7% |
-| example, `build --release //...` | 0.567 s | −2.1% | −0.9% | 93 MB | +6.0% |
-| example, `test //...` | 0.237 s | +0.4% | −2.1% | 82 MB | +8.5% |
-| example, `lint //...` | 14 ms | −7% | −7% | 35 MB | −0.8% |
-| large, `build //...` | 0.581 s | −10.9% | **−11.9%** | 356 MB | −4.2% |
-| large, `build --release //...` | 2.593 s | −6.9% | −3.4% | 387 MB | −4.6% |
-| large, `lint //...` | 0.247 s | −9.3% | −8.5% | 192 MB | −0.6% |
+| example, `build //...` | 0.437 s | −0.9% | +1.8%, median −0.9% | 80 MB | +4.7% |
+| example, `build --release //...` | 0.561 s | −2.1% | −0.5% | 93 MB | +5.8% |
+| example, `test //...` | 0.236 s | +0.4% | −6.4% | 81 MB | +7.2% |
+| example, `lint //...` | 14 ms | −7% | −7% | 35 MB | −0.6% |
+| large, `build //...` | 0.583 s | −10.9% | **−12.2%** | 355 MB | −4.3% |
+| large, `build --release //...` | 2.587 s | −6.9% | −3.1% | 384 MB | −3.7% |
+| large, `lint //...` | 0.246 s | −9.3% | −7.7% | 192 MB | −0.7% |
+
+The mimalloc column is from its own eleven rounds against the system allocator.
+The example's `build` best is one fast system run; its medians are 0.456 and
+0.452 s.
 
 - **The compiler's share decides it.** The example's wall is mostly `bun`,
   the linker and its tests, so no allocator moves it. The large repository is
@@ -5307,27 +5311,68 @@ Also tried and dropped:
 
 - **Classes up to 32 KiB,** on the first design, made no difference to wall
   time.
-- **`MADV_FREE_REUSABLE` on pooled pages.** Peak footprint dropped from 320 to
-  228 MB, but only because the reused pages went uncounted. With the
-  `MADV_FREE_REUSE` that libmalloc pairs it with, footprint was back at 312 MB.
+- **`MADV_FREE_REUSABLE` on every pooled page during a build.** Peak footprint
+  dropped from 320 to 228 MB, but only because the reused pages went
+  uncounted. With the `MADV_FREE_REUSE` that libmalloc pairs it with, it was
+  back at 312 MB.
+- **Releasing the pool past 8 MB whenever a page retired.** The peak only
+  moved from 314 to 305 MB, because it's pages in use, not pooled ones. It cost
+  1.5 points on the large build and lint, and a 32 MB bound cost the same.
 
-**Peak footprint is up, and RSS isn't.** macOS's peak memory footprint on the
-large build is 199 MB on the system allocator, 299 MB in-tree and 289 MB on
-mimalloc. Max RSS is level or lower. The system allocator marks freed pages
-reusable: they stay resident but drop out of the footprint, and here a free
-page stays dirty in the pool. Pages also never return to the system, so
-`buri lsp` keeps its small-block memory at its high-water mark.
+**A build's peak footprint is up, and its RSS isn't.** Peak memory footprint,
+best of three:
+
+| Workload | system | in-tree | mimalloc |
+|---|---:|---:|---:|
+| example, `build //...` | 33 MB | 37 MB | 37 MB |
+| example, `build --release //...` | 30 MB | 35 MB | 50 MB |
+| example, `test //...` | 38 MB | 44 MB | 47 MB |
+| large, `build //...` | 200 MB | 299 MB | 288 MB |
+| large, `build --release //...` | 198 MB | 297 MB | 328 MB |
+| large, `lint //...` | 170 MB | 169 MB | 170 MB |
+
+The system allocator marks freed memory reusable: it stays resident, which is
+why RSS is level, but it drops out of the footprint. The in-tree peak is pages
+in use. At the large build's end, live small blocks peaked at 82 MB in 139 MB
+of pages, the rest being the partly used pages each class keeps per thread.
+
+**An idle process gives its pool back.** `allocator::trim` releases all but
+8 MB of the pool, with `MADV_FREE_REUSABLE` on macOS and `MADV_DONTNEED` on
+Linux, and `MADV_FREE_REUSE` before a released page is used again. A released
+page's bytes may be gone, so the released pages' indices sit in a table of their
+own. `buri lsp` trims whenever no request is waiting, and the watch loops trim
+after each pass. A build never does, so the wall times above are the same with
+it or without it.
+
+`buri lsp` on the large repository, 40 edits to one literal with a diagnostic
+pull after each, then five seconds idle, three runs each, all identical within
+1 MB:
+
+| | system | in-tree, no trim | in-tree |
+|---|---:|---:|---:|
+| the 40 edits | 4.15 s | 3.77 s | 3.84 s |
+| footprint, idle | 152 MB | 173 MB | 149 MB |
+| RSS, idle | 230 MB | 194 MB | 194 MB |
+
+Trimming costs the burst 2% and brings the idle footprint level with the system
+allocator's. Linux wasn't measured: there `MADV_DONTNEED` drops RSS itself.
 
 **The bench installs it too,** so its timed rows from here on measure the
 allocator `buri` ships with. Expect a step in every series: 20–30% fewer
 instructions in check, the middle end and emit. `--features alloc-counter`
 still swaps in the counting allocator over the system's.
 
-**Validation:** the workspace suite (2,480 tests, 234 s with the build),
+**Validation:** the workspace suite (2,481 tests, 142 s with the build),
 `--features backend-llvm --test native`, CI's heap-check step, clippy, and two
 hundred runs of the allocator's own tests. Those run 16 threads that hand
 blocks to each other to free, realloc across classes, and adopt each other's
-heaps, plus a check that pages emptied by remote frees serve another class.
+heaps, plus checks that pages emptied by remote frees serve another class and
+that trimmed pages come back intact.
+
+`a_dial_to_a_port_nobody_holds_is_refused`, in `cli/runtime/net.rs`, failed
+twice in about 210 runs of the runtime's tests under the heap check. Those
+don't link this allocator, and the failing run's detail wasn't kept, so the
+cause is open.
 
 ### 6.55 `format --check`, owned list splices, and two issues already fixed, 2026-10-06
 
