@@ -1116,15 +1116,7 @@ fn clustersFrom<C: Allocator>(
         let broke = breaksBefore(state, next);
         let pieces = if (broke) { acc.push(ctx, text.slice(start, at)) } else { acc };
         let begin = if (broke) { at } else { start };
-        clustersFrom(
-            ctx,
-            text,
-            cs,
-            at + 1,
-            begin,
-            advance(state, next, broke),
-            pieces,
-        )
+        clustersFrom(ctx, text, cs, at + 1, begin, advance(state, next, broke), pieces)
     }
 }
 
@@ -1284,13 +1276,20 @@ fn mapped<C: Allocator>(ctx: C, table: Mapping, cp: Int, acc: [Char]): Option<[C
         .None => .None,
         .Some(found) => {
             let at = codeAt(table.offsets, found * 4);
-            .Some(valuesFrom(ctx, table.values, at, at + digitAt(table.lengths, found), acc))
+            let end = at + digitAt(table.lengths, found);
+            .Some(valuesFrom(ctx, table.values, at, end, acc))
         },
     }
 }
 
 /// `acc` with the code points `at` to `end` of a value table on the end.
-fn valuesFrom<C: Allocator>(ctx: C, values: Str, at: Int, end: Int, acc: [Char]): [Char] {
+fn valuesFrom<C: Allocator>(
+    ctx: C,
+    values: Str,
+    at: Int,
+    end: Int,
+    acc: [Char],
+): [Char] {
     if (at >= end) {
         acc
     } else {
