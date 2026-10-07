@@ -5715,7 +5715,8 @@ a remembered pass, a new source, a hand-edited build file, a generator's tool
 edited, `buri clean` and `gen` after `--check`. Dropping the closure from the
 record fails its first edit. `profile::a_second_gen_check_works_out_no_build_file`
 holds a warm check to 0 `build files worked out`, a new `BURI_PROFILE` line,
-and 0 modules loaded. `a_cold_gen_check_of_a_chain_of_libraries_loads_each_once`
+and 0 modules loaded, and `a_second_gen_check_runs_no_generator` does the
+same with a generator in the tree. `a_cold_gen_check_of_a_chain_of_libraries_loads_each_once`
 holds a cold one linear in the chain: it loaded 5,050 modules at 100
 libraries and 20,100 at 200 before, and 100 and 200 after.
 
