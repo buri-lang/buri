@@ -393,12 +393,15 @@ pub struct Entry {
     /// an `Account` — a store of the wrong width, retained by the wrong walk,
     /// with nothing to say so until the allocator tripped over it at exit.
     pub whole_value: bool,
+    /// The key whose archive body the row calls: its own, or another row's
+    /// whose C signature is the same ([`via`]).
+    pub runs: &'static str,
 }
 
 impl Entry {
     /// The exported symbol, per `cli/runtime/lib.rs` §1.
     pub fn symbol(&self) -> String {
-        crate::compiler::backend::runtime_native::symbol_for(self.key)
+        crate::compiler::backend::runtime_native::symbol_for(self.runs)
     }
 
     /// The shapes of the Buri arguments, one per argument.
@@ -438,7 +441,13 @@ impl Entry {
 }
 
 const fn e(key: &'static str, args: &'static [Arg], ret: Ret) -> Entry {
-    Entry { key, args, ret, whole_value: false }
+    Entry { key, args, ret, whole_value: false, runs: key }
+}
+
+/// The same row, calling `runs`'s body: one the archive already has under
+/// another key, whose arguments flatten the same way.
+const fn via(runs: &'static str, entry: Entry) -> Entry {
+    Entry { runs, ..entry }
 }
 
 /// The same row, carrying **one whole value** rather than a `[T]`'s element
@@ -517,6 +526,12 @@ pub const ENTRIES: &[Entry] = &[
     e("list.slice", &[Elems, Dropped, Scalar, Scalar, Stride, Retain], Ret::Out),
     e("list.take", &[Elems, Dropped, Scalar, Stride, Retain], Ret::Out),
     e("list.drop", &[Elems, Dropped, Scalar, Stride, Retain], Ret::Out),
+    // `insertAt(self, ctx, index, item)` and its two siblings: `core/map`'s
+    // splices with the list first, which flatten to the same C row. They own
+    // the list, as `core/map`'s do.
+    via("map.insertAt", e("list.insertAt", &[Elems, Dropped, Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Out)),
+    via("map.replaceAt", e("list.replaceAt", &[Elems, Dropped, Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Out)),
+    via("map.removeAt", e("list.removeAt", &[Elems, Dropped, Scalar, Stride, Retain, Release, Equal], Ret::Out)),
     // `repeat(ctx, item, times)` — likewise, one place earlier.
     e("list.repeat", &[Dropped, Spilled, Scalar, Stride, Retain], Ret::Out),
     e("list.range", &[Dropped, Scalar, Scalar], Ret::Out),
@@ -1598,7 +1613,7 @@ pub const I128_SATURATING: &str = "buri_rt_i128_saturating";
 /// list is built at the call site from a 128-bit pair rather than from a Buri
 /// signature, and the key is the one [`Entry::symbol`] mangles to that name.
 pub const I128_CHECKED_ENTRY: Entry =
-    Entry { key: "i128.checked", args: &[], ret: Ret::Sum, whole_value: false };
+    e("i128.checked", &[], Ret::Sum);
 
 /// `buri_rt_str_scalar_len(ptr, byte_len) -> u64` — the slow half of
 /// `str.length`, called only where the ASCII flag is clear.
@@ -1975,7 +1990,7 @@ mod tests {
         }
         // A scan that matched nothing would pass every assertion above.
         assert!(checked > 140, "only {checked} rows were read against a declaration");
-        assert_eq!(contexts, 53);
+        assert_eq!(contexts, 56);
     }
 
     /// The two places a context sits, by example, so that the indices are

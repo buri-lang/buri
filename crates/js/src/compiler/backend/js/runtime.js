@@ -933,6 +933,19 @@ function $map_removeAt(c, xs, at) {
   return $own(out);
 }
 
+// `core/list`'s, which run `core/map`'s bodies natively. They copy here too.
+function $list_insertAt(xs, c, at, x) {
+  return $map_insertAt(c, xs, at, x);
+}
+
+function $list_replaceAt(xs, c, at, x) {
+  return $map_replaceAt(c, xs, at, x);
+}
+
+function $list_removeAt(xs, c, at) {
+  return $map_removeAt(c, xs, at);
+}
+
 function $list_take(xs, c, n) {
   const k = Math.min(Math.max(0, Number(n)), xs.length);
   if (xs.$u === true) {

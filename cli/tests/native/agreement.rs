@@ -3431,6 +3431,83 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// **A list spliced through one name is unchanged through another** (#251).
+/// `insertAt`, `replaceAt` and `removeAt` write into a list nothing else
+/// holds, so each shape here is one where something does, and the indices
+/// past either end are the ones the docs promise: insert at the nearer end,
+/// replace and remove nothing.
+#[test]
+fn a_list_spliced_through_one_name_is_unchanged_through_another() {
+    rows_or_skip!();
+    let source = r#"
+from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+fn show<C: Allocator>(ctx: C, xs: [Int]): Str {
+  xs.mapCtx(ctx, fn(c, x) => str.format(c, "${x}")).join(ctx, ",")
+}
+
+// Each hands its splice straight to a tail call, where the list dies at the
+// call that takes it.
+fn tailReplace<C: Allocator>(ctx: C, xs: [Str], left: Int): [Str] {
+  if (left == 0) { xs } else { tailReplace(ctx, xs.replaceAt(ctx, 1, str.format(ctx, "r${left}")), left - 1) }
+}
+
+fn tailInsert<C: Allocator>(ctx: C, xs: [Str], left: Int): [Str] {
+  if (left == 0) { xs } else { tailInsert(ctx, xs.insertAt(ctx, 0, str.format(ctx, "i${left}")), left - 1) }
+}
+
+fn tailRemove<C: Allocator>(ctx: C, xs: [Str], left: Int): [Str] {
+  if (left == 0) { xs } else { tailRemove(ctx, xs.removeAt(ctx, 0), left - 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let xs = list.range(ctx, 0, 5);
+  let a = xs.replaceAt(ctx, 1, 10);
+  let b = xs.insertAt(ctx, 2, 20);
+  let c = xs.removeAt(ctx, 3);
+  let d = a.insertAt(ctx, -4, 30).insertAt(ctx, 99, 31).removeAt(ctx, 0).replaceAt(ctx, 5, 32)
+    .replaceAt(ctx, 9, 33).replaceAt(ctx, -1, 34).removeAt(ctx, -1).removeAt(ctx, 9);
+  let versions = [xs, a];
+  let e = versions.get(1).withDefault(xs).replaceAt(ctx, 0, 40);
+  let strs = list.range(ctx, 0, 3).mapCtx(ctx, fn(c2, i) => str.format(c2, "s${i}"));
+  let s1 = strs.replaceAt(ctx, 1, str.format(ctx, "new"));
+  let s2 = strs.insertAt(ctx, 1, str.format(ctx, "ins")).removeAt(ctx, 3);
+  let s3 = strs.removeAt(ctx, 0).replaceAt(ctx, 0, "lit");
+  let _ = io.println(ctx, "xs ${show(ctx, xs)}").ignore();
+  let _ = io.println(ctx, "a ${show(ctx, a)}").ignore();
+  let _ = io.println(ctx, "b ${show(ctx, b)}").ignore();
+  let _ = io.println(ctx, "c ${show(ctx, c)}").ignore();
+  let _ = io.println(ctx, "d ${show(ctx, d)}").ignore();
+  let _ = io.println(ctx, "e ${show(ctx, e)}").ignore();
+  let _ = io.println(ctx, "v ${versions.fold(fn(n, v) => n + v.length(), 0)}").ignore();
+  let _ = io.println(ctx, "s ${strs.join(ctx, ",")} ${s1.join(ctx, ",")} ${s2.join(ctx, ",")} ${s3.join(ctx, ",")}").ignore();
+  let t1 = tailReplace(ctx, strs, 3);
+  let t2 = tailInsert(ctx, strs, 2);
+  let t3 = tailRemove(ctx, strs, 2);
+  let _ = io.println(ctx, "t ${t1.join(ctx, ",")} ${t2.join(ctx, ",")} ${t3.join(ctx, ",")} ${strs.join(ctx, ",")}").ignore();
+  .Ok(())
+}
+"#;
+    agree(
+        "core/list splices",
+        source,
+        "xs 0,1,2,3,4\n\
+         a 0,10,2,3,4\n\
+         b 0,1,20,2,3,4\n\
+         c 0,1,2,4\n\
+         d 0,10,2,3,4,32\n\
+         e 40,10,2,3,4\n\
+         v 10\n\
+         s s0,s1,s2 s0,new,s2 s0,ins,s1 lit,s2\n\
+         t s0,r1,s2 i1,i2,s0,s1,s2 s2 s0,s1,s2\n",
+    );
+}
+
 /// **A task spawned inside an arena runs after that arena is gone.**
 ///
 /// `core/tasks` says `copyAcross` deep-copies the task out of every arena
