@@ -1,0 +1,13 @@
+from "platform/host" import { HostAllocator, HostStdout };
+from "//apps/api" import { greeting };
+
+export struct KitHost {
+    export alloc: HostAllocator,
+    export stdout: HostStdout,
+}
+
+export fn main(host: KitHost): Result<(), Str>;
+
+export fn hello(): Str {
+    greeting()
+}

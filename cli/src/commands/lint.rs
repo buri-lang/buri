@@ -1086,14 +1086,16 @@ fn collect_package_sources(
     }
 }
 
-/// Whether `label`, a dependency label, names a package of an app other than
-/// the one `own` belongs to: `cross-app-dependency`, not a missing entry.
+/// Whether `own` may not reach `label`, a dependency label, at all: an app's
+/// package outside `own`'s app. That is `cross-app-dependency` or
+/// `shared-depends-on-app`, not a missing entry.
 fn crosses_apps(session: &Session, own: crate::build::workspace::PackageId, label: &str) -> bool {
     use crate::build::workspace::app_of;
     let path = label.trim_start_matches("//");
     match (app_of(&session.workspace.package(own).path), app_of(path)) {
+        (_, None) => false,
         (Some(a), Some(b)) => a != b,
-        _ => false,
+        (None, Some(_)) => true,
     }
 }
 

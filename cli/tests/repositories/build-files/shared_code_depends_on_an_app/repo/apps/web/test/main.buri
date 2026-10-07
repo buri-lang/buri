@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//libs/bridge" import { relay };
+
+test "the relayed greeting" {
+    assert.equal(relay(), "hello");
+}

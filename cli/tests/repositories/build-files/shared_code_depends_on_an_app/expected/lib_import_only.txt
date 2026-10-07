@@ -1,0 +1,28 @@
+error: //libs/bridge imports //apps/api, which belongs to an app [shared-depends-on-app]
+ --> libs/bridge/relay.buri:1:6
+  |
+1 | from "//apps/api" import { greeting };
+  |      ^^^^^^^^^^^^ an app's package
+  |
+  = an app's packages are for that app alone, and //libs/bridge lives outside apps/
+  = fix: move the code //libs/bridge needs out of //apps/api into a library under libs/, and depend on that instead
+
+      # libs/bridge/BUILD.buri
+      library {
+          dependencies: ["//apps/api"]
+          visibility: ["//visibility:public"]
+      }
+
+    A package outside apps/, such as a library in libs/, a tool in tools/ or a
+    platform, is shared. Shared code may not depend on or import any app's
+    package, whatever its visibility says. Move what both need into libs/:
+
+      # libs/bridge/BUILD.buri
+      library {
+          dependencies: ["//libs/greeting"]
+          visibility: ["//visibility:public"]
+      }
+
+    A platform's dependencies are read with the build graph, so naming an app
+    there stops every command until it's fixed.
+

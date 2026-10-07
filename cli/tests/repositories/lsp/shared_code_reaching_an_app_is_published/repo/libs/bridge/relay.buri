@@ -1,0 +1,5 @@
+from "//apps/api" import { greeting };
+
+export fn relay(): Str {
+    greeting()
+}

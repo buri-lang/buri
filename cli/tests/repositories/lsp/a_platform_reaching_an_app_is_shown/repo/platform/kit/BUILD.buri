@@ -1,0 +1,8 @@
+platform {
+    dependencies: ["//apps/api"]
+
+    entry {
+        name: "main"
+        backend: JS
+    }
+}

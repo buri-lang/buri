@@ -69,10 +69,17 @@ tools/
 ```
 
 An app's packages may depend on each other and on anything outside `apps/`.
-They may not reach another app's packages: not by a `dependencies` entry, not
-by an import, and not through a shared library in between
-([`cross-app-dependency`](../errors/cross-app-dependency.md)). `visibility`
-can't grant it. Code two apps share belongs in `libs/`.
+They may not reach another app's packages
+([`cross-app-dependency`](../errors/cross-app-dependency.md)).
+
+Everything outside `apps/` is shared: libraries, tools and platforms. Shared
+code reaches no app's packages at all
+([`shared-depends-on-app`](../errors/shared-depends-on-app.md)), so no path
+through `libs/` leads from one app into another.
+
+Both rules cover `dependencies`, `test.dependencies`, a platform's
+`dependencies` and imports, and `visibility` can't grant an exception. Code
+two apps share, or that shared code needs, belongs in `libs/`.
 
 ## Labels
 
@@ -504,8 +511,8 @@ closure.
   it, and the purity tiers in
   [`language/programs.md` §11.1](../../language/programs.md) already govern
   what any given import of it can do.
-- **An app never depends on another app**, directly or through a library in
-  between. See [apps](#apps).
+- **An app never depends on another app, and shared code never depends on an
+  app.** See [apps](#apps).
 - **Cycles are an error**, at the package level exactly as at the module level.
   The diagnostic prints the cycle in the order you declared the edges.
 - **Every entry must be used, and every use must have an entry.** Using
