@@ -4117,6 +4117,18 @@ const $c = 1;
         assert!(!cut.first().expect("the plain one").1.contains("async"));
     }
 
+    /// The bit counts take a fixed number of steps. `core/map` counts bits twice
+    /// a level, and a loop over a `BigInt` bit by bit was 70% of a map program
+    /// (#252, PERFORMANCE.md §6.53).
+    #[test]
+    fn the_runtime_counts_bits_without_a_loop() {
+        let cut = split_declarations(crate::compiler::backend::js::runtime_source());
+        for name in ["$bits_popCount", "$bits_leadingZeros", "$bits_trailingZeros", "$pop32", "$ctz32"] {
+            let body = &cut.iter().find(|(n, _)| n == name).unwrap_or_else(|| panic!("{name} is gone")).1;
+            assert!(!body.contains("while") && !body.contains("for ("), "{name} loops:\n{body}");
+        }
+    }
+
     #[test]
     fn precedence_adds_only_the_parentheses_it_needs() {
         // Named operands, not literals: `Expr::bin` folds what it can, and a
