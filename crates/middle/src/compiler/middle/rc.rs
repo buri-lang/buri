@@ -1256,12 +1256,19 @@ const TAKEN_BY: &[(&str, usize)] = &[
 ];
 
 /// The intrinsic parameters handed over on the **native** branch only: the list
-/// `core/map` splices a node's children out of. The runtime writes into it when
+/// `core/map` splices a node's children out of, and the receiver of
+/// `core/list`'s three splices, which run the same bodies. The runtime writes into it when
 /// it holds the only count (`cli/runtime/splice.rs`), and a write *inside* a
 /// list is only invisible when the caller gave that count up. JavaScript copies,
 /// so it has nothing to mark.
-const TAKEN_NATIVELY: &[(&str, usize)] =
-    &[("map.insertAt", 1), ("map.replaceAt", 1), ("map.removeAt", 1)];
+const TAKEN_NATIVELY: &[(&str, usize)] = &[
+    ("map.insertAt", 1),
+    ("map.replaceAt", 1),
+    ("map.removeAt", 1),
+    ("list.insertAt", 0),
+    ("list.replaceAt", 0),
+    ("list.removeAt", 0),
+];
 
 /// Whether an intrinsic key is one of [`TAKEN_BY`]'s four folds, whose seed is
 /// handed over on the native branch too.

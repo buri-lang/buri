@@ -2673,13 +2673,16 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "list.foldResult",
     "list.foldResultCtx",
     "list.get",
+    "list.insertAt",
     "list.join",
     "list.length",
     "list.map",
     "list.mapCtx",
     "list.push",
     "list.range",
+    "list.removeAt",
     "list.repeat",
+    "list.replaceAt",
     "list.reverse",
     "list.slice",
     "list.sortBy",
@@ -3264,9 +3267,9 @@ mod tests {
         list.all list.any list.concat list.count list.drop list.empty \
         list.filter list.filterCtx list.find list.findIndex list.flatten \
         list.fold list.foldCtx list.foldResult list.foldResultCtx list.get \
-        list.join list.length list.map list.mapCtx list.push \
-        list.range \
-        list.repeat list.reverse list.slice list.sortBy list.take list.zip \
+        list.insertAt list.join list.length list.map list.mapCtx list.push \
+        list.range list.removeAt \
+        list.repeat list.replaceAt list.reverse list.slice list.sortBy list.take list.zip \
         map.insertAt map.removeAt map.replaceAt \
         number.maxValue number.minValue \
         platforms_testing_state.stateNew platforms_testing_state.statePut \

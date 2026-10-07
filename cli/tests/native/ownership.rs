@@ -480,3 +480,46 @@ export fn main(host: NativeHost): Result<(), Str> {
         assert_eq!(live, 0, "{backend}: blocks still live at exit");
     }
 }
+
+/// Two thousand of each of `replaceAt`, `insertAt` and `removeAt` on a list
+/// threaded through a loop, so each step owns it outright (#251). Each wrote a
+/// whole copy, about 11 ns an element for a `[Str]`, where `push` on the same
+/// list reused it.
+///
+/// Every element is a literal, which allocates nothing, so every block counted
+/// is a list block.
+#[test]
+fn a_list_the_caller_owns_is_spliced_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+fn replaced<C: Allocator>(ctx: C, xs: [Str], left: Int): [Str] {
+  if (left == 0) { xs } else { replaced(ctx, xs.replaceAt(ctx, 16, "r"), left - 1) }
+}
+
+fn moved<C: Allocator>(ctx: C, xs: [Str], left: Int): [Str] {
+  if (left == 0) { xs } else { moved(ctx, xs.insertAt(ctx, 3, "i").removeAt(ctx, 20), left - 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let a = replaced(ctx, list.repeat(ctx, "s", 32), 2000);
+  let b = moved(ctx, list.repeat(ctx, "s", 32), 2000);
+  let _ = io.println(host.stdout, "${a.length()} ${a.get(16).withDefault("")} ${b.length()} ${b.get(3).withDefault("")}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("owned-splice-loop", source) {
+        assert_eq!(r.stdout, "32 r 32 i\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 50,
+            "{backend}: six thousand splices of an owned list allocated {blocks} blocks: \
+             every splice copied its list"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}

@@ -377,9 +377,10 @@ impl<T> [T] {
 
     /// Everything but the element at `index`. An index outside the list removes
     /// nothing.
-    export fn removeAt<C: Allocator>(self, ctx: C, index: Int): [T] {
-        self.take(ctx, index).concat(ctx, self.drop(ctx, index + 1))
-    }
+    ///
+    /// On a list nothing else holds, this writes in place, as `push` does.
+    /// So do `insertAt` and `replaceAt`.
+    export fn removeAt<C: Allocator>(self, ctx: C, index: Int): [T];
 
     /// Every run of `size` neighbouring elements, one position apart:
     /// `[1, 2, 3].windows(ctx, 2)` is `[[1, 2], [2, 3]]`.
@@ -678,20 +679,11 @@ impl<T> [T] {
     /// The list with `item` at `index`, everything from there on moved along.
     /// An `index` past the end appends and one below zero prepends, so there is
     /// no way to insert into a hole.
-    export fn insertAt<C: Allocator>(self, ctx: C, index: Int, item: T): [T] {
-        let at = clampIndex(index, self.length());
-        self.take(ctx, at).push(ctx, item).concat(ctx, self.drop(ctx, at))
-    }
+    export fn insertAt<C: Allocator>(self, ctx: C, index: Int, item: T): [T];
 
     /// The list with the element at `index` exchanged for `item`. An index
     /// outside the list changes nothing, which is `removeAt`'s rule.
-    export fn replaceAt<C: Allocator>(self, ctx: C, index: Int, item: T): [T] {
-        if (index < 0 || index >= self.length()) {
-            self
-        } else {
-            self.take(ctx, index).push(ctx, item).concat(ctx, self.drop(ctx, index + 1))
-        }
-    }
+    export fn replaceAt<C: Allocator>(self, ctx: C, index: Int, item: T): [T];
 
     /// `replaceAt` where the new element is built from the old one. An index
     /// outside the list changes nothing and never calls `update`.
@@ -786,10 +778,6 @@ fn partitionFrom<T, C: Allocator>(
             }
         },
     }
-}
-
-fn clampIndex(index: Int, length: Int): Int {
-    if (index < 0) { 0 } else { if (index > length) { length } else { index } }
 }
 
 // --- Searching a list that is already in order ---------------------------------
