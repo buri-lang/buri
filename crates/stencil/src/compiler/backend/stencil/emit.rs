@@ -51,7 +51,7 @@ use crate::compiler::semantics::types::{Prim, Ty, TyKind};
 /// A recursive type reaches itself through a **box**, and a box is refused by
 /// the walk anyway, so this bounds the walk rather than the type — it is a
 /// second belt on a case the first one already stops.
-const RC_DEPTH: u32 = 8;
+pub(crate) const RC_DEPTH: u32 = 8;
 
 /// How many levels of a compound type's counted-pointer walk are emitted
 /// inline before the rest goes through the type's own glue. See
@@ -1068,19 +1068,30 @@ impl<'a> Jit<'a> {
                 .then(|| self.helper(Helper::Walk { ty: f.ty, op }));
             return self.count_block(st, at, op, glue);
         }
-        let compound =
-            matches!(self.layout_shared(&f.ty).repr, Repr::Aggregate | Repr::Enum { .. });
-        // A light field stays inline however deep, until the walk nears
-        // [`RC_DEPTH`]; the glue starts its own count from zero.
-        let light = depth + 2 < RC_DEPTH && self.rc_weight(&f.ty) <= RC_LIGHT;
-        if compound && depth >= RC_INLINE && !light {
+        if self.field_out_of_line(&f.ty, depth) {
             return self.walk_out_of_line(st, f.ty, at, op);
         }
         self.walk_rc(st, &f.ty, at, op, depth + 1)
     }
 
+    /// Whether an unboxed field of `ty`, `depth` levels into a walk, goes
+    /// through its type's glue rather than inline ([`Jit::walk_field`]).
+    pub(crate) fn field_out_of_line(&mut self, ty: &Ty, depth: u32) -> bool {
+        let compound = matches!(self.layout_shared(ty).repr, Repr::Aggregate | Repr::Enum { .. });
+        // A light field stays inline however deep, until the walk nears
+        // [`RC_DEPTH`]; the glue starts its own count from zero.
+        let light = depth + 2 < RC_DEPTH && self.rc_weight(ty) <= RC_LIGHT;
+        compound && depth >= RC_INLINE && !light
+    }
+
     /// `op` on one nullable block pointer, with the glue its contents need.
-    fn block_op(&mut self, st: &mut Fn2, at: u32, glue: &Glue, op: Op) -> Result<(), String> {
+    pub(crate) fn block_op(
+        &mut self,
+        st: &mut Fn2,
+        at: u32,
+        glue: &Glue,
+        op: Op,
+    ) -> Result<(), String> {
         let glue = match glue {
             // A `Str` is `{ base, ptr, len }` and `ptr` points *into* `base`,
             // so a copy rebases as well as replaces (`buri_rt_copy_str`).
