@@ -5790,6 +5790,126 @@ libraries and 20,100 at 200 before, and 100 and 200 after.
   doesn't exist, is analysed a package at a time and is as slow as before
   when nothing is remembered.
 
+### 6.60 The slowest `test` blocks, 2026-10-07
+
+Every `test "…"` block in the repository, timed by `buri test --verbose`,
+ranked, and the top ones taken apart. A release `buri` from `f9d0deaaa`, each
+corpus copied out of the tree so the runs leave it alone:
+
+```text
+cp -R cli/tests/conformance /tmp/conf && cd /tmp/conf
+buri test //... --verbose --force                     # JavaScript: every BUILD.buri says backends: [JS]
+sed -i '' 's/^ *backends: \[JS\]$//' lib/*/BUILD.buri
+buri test //... --verbose --force                     # native, on stencil
+
+# the same pair in every repository under cli/tests/repositories, cli/tests/example,
+# cli/tests/tutorial and cli/tests/docs/repositories that holds a test block
+buri test //... --verbose --force
+buri test //... --verbose --force --output=js
+```
+
+`--force` makes every suite run rather than report as cached. Each time below
+is the **best of three or four runs** at load 30–50, because one run swings
+wildly: `the type properties, on a heading` took 215 ms once and 5.7 ms on all
+three reruns. Instructions come from `/usr/bin/time -l` on the suite's own
+binary under `.buri/out/native/<host>/`, or on
+`bun .buri/out/node/<package>/test-library.mjs` with every block index on
+standard input.
+
+**Where the slow tests are.** The conformance corpus holds all of them; seven
+of its packages don't compile natively and run on JavaScript only. No
+repository fixture has a test over 42 ms best-of, on either backend. The
+standard library has no `test` blocks of its own: `core/*` is tested by the
+conformance corpus. The docs harness type-checks its `role=test` fences and runs
+none. `--release` needs LLVM for a native run, and on JavaScript it moved none
+of the rankings.
+
+Before, best of three:
+
+| Test | Native | Share of suite | JS | Share of suite |
+|---|---:|---:|---:|---:|
+| `crypto` · the million-character message | 153 ms | 93% | 2.1 s | 81% |
+| `collections` · a map fromSorted survives inserts and removes either side of every level boundary | 90 ms | 47% | 563 ms | 33% |
+| `data` · normalization vectors, 17 blocks of 60 | 16–18 ms each, 269 ms in all | 4–5% each | 68–254 ms each | 2–9% each |
+| `collections` · a map fromSorted survives inserts and removes at every size up to 130 | 21.5 ms | 11% | 125 ms | 7% |
+| `collections` · fromSorted answers like inserts at every size up to three hundred | 18.4 ms | 9.5% | 160 ms | 9% |
+| `compression` · a match at the window's last distance is taken, and one past it is not | 14.6 ms | 49% | 185 ms | 33% |
+| `compression` · six kilobytes there and back, through both wrappers | 5.3 ms | 18% | 157 ms | 28% |
+| `collections` · ten thousand entries round-trip through get | 5.8 ms | 3% | 149 ms | 9% |
+| `ui/every_shape_and_state_is_painted` · every property at the size of the page | 41.6 ms | 36% | — | — |
+| `ui/every_shape_and_state_is_painted` · a thousand siblings | 40.3 ms | 35% | — | — |
+
+One or two tests make up most of four suites: `crypto` (94% native, 84% JS),
+`compression` (67%, 62%), `proto` on JS (65%, `every varint is the bytes
+core/bytes writes for it`), and `every_shape_and_state_is_painted` (71%).
+
+**Three fixes**, each in what the tests call rather than in the tests:
+
+- **`core/str` decoded its Unicode tables on every call.** `normalize`,
+  `caseFold` and `graphemes` turned each table into a `[Char]` first, about
+  86,000 characters for NFKC, so a one-character string paid for all of them.
+  Every table is ASCII now, value tables included, so a probe is `charAt` on a
+  literal, an index under VALUE-MODEL.md §3.1's ASCII flag. Hangul is UAX #15's
+  arithmetic rather than an 11,172-entry table. `native::strings::a_short_string_normalizes_without_copying_the_unicode_tables`
+  holds seven hundred calls under 1 MB allocated: 120.6 MB before, 89 KB after.
+- **`core/orderedmap` built each node three times.** Its splices were `take`,
+  `push`, `concat` and `drop`. They are `core/list`'s `insertAt`, `replaceAt`
+  and `removeAt` now, which copy a node once, or write into it where nothing
+  else holds it, as `core/map`'s do. `native::collections` holds four thousand
+  edits under 30,000 blocks, 58,289 before and 22,317 after, and checks that an
+  edit leaves every other name for the map as it was.
+- **JavaScript shifted a `U8` or `U32` through `BigInt`.** Those widths are
+  `number`s, and JavaScript's own 32-bit shifts are the answer at both. SHA-1
+  and SHA-256 live on them.
+
+| | Before | After |
+|---|---:|---:|
+| `//lib/data`, native | 6.91 G, 381 ms | 0.90 G, 62 ms |
+| `//lib/data`, bun | 39.0 G | 6.3 G |
+| normalization vectors, 0 to 60, native | 15.9 ms | 1.7 ms |
+| `//lib/collections`, native | 2.32 G | 1.72 G |
+| `//lib/collections`, bun | 16.3 G | 14.2 G |
+| either side of every level boundary, native | 90 ms | 49 ms |
+| `//lib/crypto`, bun | 42.8 G | 37.7 G |
+| the million-character message, JS | 1.7 s | 1.5 s |
+| conformance, sum of suite times, native | 807 ms | 460 ms |
+
+**Slow by design**, and left as they are:
+
+- **The million-character message** is FIPS 180-4's long vector: 7,813 SHA-512
+  blocks and 15,625 SHA-1 blocks, and the length is the point. It can get
+  cheaper without getting shorter, in two places:
+  - `core/crypto` builds its 80 round constants and copies them once per
+    block, slices each block out of the message, and rotates with two shifts
+    and an or. Built once per digest, with `bits.rotateRightU64`, SHA-512 of a
+    million bytes drops from 0.96 G to 0.68 G instructions, measured on a copy.
+  - Stencil calls `number.U64.wrappingAdd`, `bits.rotateRightU64` and the
+    shifts out of line. `emit.rs` open-codes them only as the callee's body. In
+    the copy above they are 29% of the samples, before the call overhead
+    around them. Emitting them at the call site is the next step.
+
+  On JavaScript a `U64` is a `BigInt`, and `BigInt.asUintN` alone is 16% of
+  the profile.
+- **The level-boundary test** needs maps of 4,094 to 4,097 entries to reach the
+  third level, and drains each from both ends. What's left is path copying:
+  the retain walk over each node copied was a quarter of its samples before
+  the fix.
+- **The normalization vectors** are Unicode's own 999 cases, four forms each.
+  The 840–960 blocks still take 8–10 ms natively: they carry runs of combining
+  marks, and the canonical reordering looks up every mark's class on every
+  pass.
+- **The deflate window test** round-trips two 32 KB inputs, because the
+  window is 32 KB.
+- **The two page-sized pictures** paint an 800 × 600 scene of every property
+  and of a thousand siblings.
+
+**What's left:**
+
+- `core/crypto`'s changes above, and open-coding the numeric and bit
+  intrinsics in stencil.
+- JavaScript's `$starts` keeps one string's scalar table, and `normalize`
+  alternates between four tables. That miss is 8.7% of `//lib/data` on bun.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
