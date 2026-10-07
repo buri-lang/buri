@@ -194,7 +194,9 @@ Nested types flatten with an underscore, since Buri has no nested namespaces.
 
 64-bit fields round-trip on every backend. An `Int` is an `I64` everywhere, and a
 `BigInt` on JavaScript ([`core/number`](../standard-library.md)), so values past
-2^53 keep every digit. A `uint64` above 2^63 reads back negative.
+2^53 keep every digit. A `uint64` or `fixed64` above 2^63 - 1 is the negative
+`Int` with the same 64 bits: `18446744073709551615` is `-1`. The wire format and
+the JSON mapping both write it back as the unsigned value.
 
 The encoder writes a negative `int32` or `int64` as a ten-byte varint, like
 protoc. Use `sint32`/`sint64` for numbers that are often negative: they zigzag
@@ -325,7 +327,10 @@ Fields go out in schema order, so the same value is always the same bytes.
 `encodeMJson` writes proto3 JSON, which differs from `derive ToJson`:
 
 - A 64-bit integer is a **string**, since `9007199254740993` isn't a double.
-  Readers accept a number too.
+  Readers accept a number too. A string is read digit by digit, so a value one
+  past either end of the type's range is an error rather than rounded into it.
+- NaN and the infinities are the strings `"NaN"`, `"Infinity"` and
+  `"-Infinity"`.
 - `bytes` is padded **base64**.
 - An enum is its value's **name**. Readers accept a number, and an unrecognised
   one is the zero value, as in the binary format.
@@ -334,7 +339,8 @@ Fields go out in schema order, so the same value is always the same bytes.
 
 The writer omits unset fields, `IMPLICIT` fields at their default, and empty
 repeated fields; it writes set fields even at zero. The reader treats `null` as
-absent and ignores unknown members.
+absent and ignores unknown members. A document setting two cases of one
+`oneof` is an error.
 
 One deviation from the spec: members go out in schema order with a `oneof`'s
 case last, not in field-number order. JSON objects are unordered, so no
