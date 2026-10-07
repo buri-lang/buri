@@ -1,6 +1,6 @@
 # Tests the Buri implementation is expected to fail, and why.
 #
-# Recorded from a run and then grouped: every entry belongs to one of the two
+# Recorded from a run and then grouped: every entry belongs to one of the three
 # reasons below, and each reason is a decision written down somewhere else -- in
 # README.md for what was removed from the vendored schema and what edition it
 # was migrated to, in `buri docs build/proto` for the mapping, in `core/proto`
@@ -10,27 +10,20 @@
 # passes, so this file cannot rot in the direction of hiding a fix; and a test
 # that starts failing has to be classified before it can be added.
 #
-# Counts when this was recorded: 1321 succeeded, 1314 skipped, 148 expected to
+# Counts when this was recorded: 1445 succeeded, 1314 skipped, 36 expected to
 # fail, 0 unexpected. `vectors.txt` records the same run, with `fail` beside
 # every test named here, and `cli/tests/vectors/proto.rs` holds the two to
 # agreeing. `./run.sh --update` writes the names of anything unexpected, and
 # leaves the grouping to whoever reads the diff.
 
-# --- The well-known types -----------------------------------------------------
+# --- `Any` in JSON, which needs a type registry --------------------------------
 #
-# Any, Duration, Timestamp, FieldMask, Struct, Value, ListValue, Empty and the
-# scalar wrappers. Every field of one was deleted from the vendored schema: they
-# arrive through `import "google/protobuf/..."`, which this reader has no
-# bundled copy of, and each carries a JSON representation of its own that the
-# generic mapping does not know. None of these is a codec finding — the fields
-# are not in the schema under test.
-# (146 tests)
-Required.Proto3.DurationProtoInputTooLarge.JsonOutput
-Required.Proto3.DurationProtoInputTooSmall.JsonOutput
-Required.Proto3.DurationProtoNanosTooLarge.JsonOutput
-Required.Proto3.DurationProtoNanosTooSmall.JsonOutput
-Required.Proto3.DurationProtoNanosWrongSign.JsonOutput
-Required.Proto3.DurationProtoNanosWrongSignNegativeSecs.JsonOutput
+# proto3 JSON writes an `Any` as the message it holds, `{"@type": url, ...}`, so
+# a reader has to know every type a URL can name and a writer has to decode the
+# bytes as one. A generated module knows only the types its schema reaches, and
+# nothing hands it the rest, so `core/proto/any` writes and reads an `Any` as
+# its two fields. The binary format is unaffected.
+# (24 tests)
 Required.Proto3.JsonInput.Any.JsonOutput
 Required.Proto3.JsonInput.Any.ProtobufOutput
 Required.Proto3.JsonInput.AnyEmpty.JsonOutput
@@ -45,8 +38,6 @@ Required.Proto3.JsonInput.AnyWithFieldMask.JsonOutput
 Required.Proto3.JsonInput.AnyWithFieldMask.ProtobufOutput
 Required.Proto3.JsonInput.AnyWithInt32ValueWrapper.JsonOutput
 Required.Proto3.JsonInput.AnyWithInt32ValueWrapper.ProtobufOutput
-Required.Proto3.JsonInput.AnyWithNoType.JsonOutput
-Required.Proto3.JsonInput.AnyWithNoType.ProtobufOutput
 Required.Proto3.JsonInput.AnyWithStruct.JsonOutput
 Required.Proto3.JsonInput.AnyWithStruct.ProtobufOutput
 Required.Proto3.JsonInput.AnyWithTimestamp.JsonOutput
@@ -57,116 +48,20 @@ Required.Proto3.JsonInput.AnyWithValueForJsonObject.JsonOutput
 Required.Proto3.JsonInput.AnyWithValueForJsonObject.ProtobufOutput
 Required.Proto3.JsonInput.AnyWktRepresentationWithBadType
 Required.Proto3.JsonInput.AnyWktRepresentationWithEmptyTypeAndValue
-Required.Proto3.JsonInput.DurationJsonInputTooLarge
-Required.Proto3.JsonInput.DurationJsonInputTooSmall
-Required.Proto3.JsonInput.DurationMaxValue.JsonOutput
-Required.Proto3.JsonInput.DurationMaxValue.ProtobufOutput
-Required.Proto3.JsonInput.DurationMinValue.JsonOutput
-Required.Proto3.JsonInput.DurationMinValue.ProtobufOutput
-Required.Proto3.JsonInput.DurationMissingS
-Required.Proto3.JsonInput.DurationNegativeNanos.JsonOutput
-Required.Proto3.JsonInput.DurationNegativeNanos.ProtobufOutput
-Required.Proto3.JsonInput.DurationNegativeSeconds.JsonOutput
-Required.Proto3.JsonInput.DurationNegativeSeconds.ProtobufOutput
-Required.Proto3.JsonInput.DurationRepeatedValue.JsonOutput
-Required.Proto3.JsonInput.DurationRepeatedValue.ProtobufOutput
-Required.Proto3.JsonInput.EmptyFieldMask.JsonOutput
-Required.Proto3.JsonInput.EmptyFieldMask.ProtobufOutput
-Required.Proto3.JsonInput.FieldMask.JsonOutput
-Required.Proto3.JsonInput.FieldMask.ProtobufOutput
-Required.Proto3.JsonInput.OptionalBoolWrapper.JsonOutput
-Required.Proto3.JsonInput.OptionalBoolWrapper.ProtobufOutput
-Required.Proto3.JsonInput.OptionalBytesWrapper.JsonOutput
-Required.Proto3.JsonInput.OptionalBytesWrapper.ProtobufOutput
-Required.Proto3.JsonInput.OptionalDoubleWrapper.JsonOutput
-Required.Proto3.JsonInput.OptionalDoubleWrapper.ProtobufOutput
-Required.Proto3.JsonInput.OptionalFloatWrapper.JsonOutput
-Required.Proto3.JsonInput.OptionalFloatWrapper.ProtobufOutput
-Required.Proto3.JsonInput.OptionalInt32Wrapper.JsonOutput
-Required.Proto3.JsonInput.OptionalInt32Wrapper.ProtobufOutput
-Required.Proto3.JsonInput.OptionalInt64Wrapper.JsonOutput
-Required.Proto3.JsonInput.OptionalInt64Wrapper.ProtobufOutput
-Required.Proto3.JsonInput.OptionalStringWrapper.JsonOutput
-Required.Proto3.JsonInput.OptionalStringWrapper.ProtobufOutput
-Required.Proto3.JsonInput.OptionalUint32Wrapper.JsonOutput
-Required.Proto3.JsonInput.OptionalUint32Wrapper.ProtobufOutput
-Required.Proto3.JsonInput.OptionalUint64Wrapper.JsonOutput
-Required.Proto3.JsonInput.OptionalUint64Wrapper.ProtobufOutput
-Required.Proto3.JsonInput.OptionalWrapperTypesWithNonDefaultValue.JsonOutput
-Required.Proto3.JsonInput.OptionalWrapperTypesWithNonDefaultValue.ProtobufOutput
-Required.Proto3.JsonInput.RepeatedBoolWrapper.JsonOutput
-Required.Proto3.JsonInput.RepeatedBoolWrapper.ProtobufOutput
-Required.Proto3.JsonInput.RepeatedBytesWrapper.JsonOutput
-Required.Proto3.JsonInput.RepeatedBytesWrapper.ProtobufOutput
-Required.Proto3.JsonInput.RepeatedDoubleWrapper.JsonOutput
-Required.Proto3.JsonInput.RepeatedDoubleWrapper.ProtobufOutput
-Required.Proto3.JsonInput.RepeatedFloatWrapper.JsonOutput
-Required.Proto3.JsonInput.RepeatedFloatWrapper.ProtobufOutput
-Required.Proto3.JsonInput.RepeatedInt32Wrapper.JsonOutput
-Required.Proto3.JsonInput.RepeatedInt32Wrapper.ProtobufOutput
-Required.Proto3.JsonInput.RepeatedInt64Wrapper.JsonOutput
-Required.Proto3.JsonInput.RepeatedInt64Wrapper.ProtobufOutput
-Required.Proto3.JsonInput.RepeatedListValue.JsonOutput
-Required.Proto3.JsonInput.RepeatedListValue.ProtobufOutput
-Required.Proto3.JsonInput.RepeatedStringWrapper.JsonOutput
-Required.Proto3.JsonInput.RepeatedStringWrapper.ProtobufOutput
-Required.Proto3.JsonInput.RepeatedUint32Wrapper.JsonOutput
-Required.Proto3.JsonInput.RepeatedUint32Wrapper.ProtobufOutput
-Required.Proto3.JsonInput.RepeatedUint64Wrapper.JsonOutput
-Required.Proto3.JsonInput.RepeatedUint64Wrapper.ProtobufOutput
-Required.Proto3.JsonInput.RepeatedValue.JsonOutput
-Required.Proto3.JsonInput.RepeatedValue.ProtobufOutput
-Required.Proto3.JsonInput.Struct.JsonOutput
-Required.Proto3.JsonInput.Struct.ProtobufOutput
-Required.Proto3.JsonInput.StructWithEmptyListValue.JsonOutput
-Required.Proto3.JsonInput.StructWithEmptyListValue.ProtobufOutput
-Required.Proto3.JsonInput.TimestampEpochValue.JsonOutput
-Required.Proto3.JsonInput.TimestampEpochValue.ProtobufOutput
-Required.Proto3.JsonInput.TimestampJsonInputLowercaseT
-Required.Proto3.JsonInput.TimestampJsonInputLowercaseZ
-Required.Proto3.JsonInput.TimestampJsonInputMissingT
-Required.Proto3.JsonInput.TimestampJsonInputMissingZ
-Required.Proto3.JsonInput.TimestampJsonInputTooLarge
-Required.Proto3.JsonInput.TimestampJsonInputTooSmall
-Required.Proto3.JsonInput.TimestampLeap.JsonOutput
-Required.Proto3.JsonInput.TimestampLeap.ProtobufOutput
-Required.Proto3.JsonInput.TimestampLittleAfterEpochlValue.JsonOutput
-Required.Proto3.JsonInput.TimestampLittleAfterEpochlValue.ProtobufOutput
-Required.Proto3.JsonInput.TimestampLittleBeforeEpochValue.JsonOutput
-Required.Proto3.JsonInput.TimestampLittleBeforeEpochValue.ProtobufOutput
-Required.Proto3.JsonInput.TimestampMaxValue.JsonOutput
-Required.Proto3.JsonInput.TimestampMaxValue.ProtobufOutput
-Required.Proto3.JsonInput.TimestampMinValue.JsonOutput
-Required.Proto3.JsonInput.TimestampMinValue.ProtobufOutput
-Required.Proto3.JsonInput.TimestampNanoAfterEpochlValue.JsonOutput
-Required.Proto3.JsonInput.TimestampNanoAfterEpochlValue.ProtobufOutput
-Required.Proto3.JsonInput.TimestampNanoBeforeEpochValue.JsonOutput
-Required.Proto3.JsonInput.TimestampNanoBeforeEpochValue.ProtobufOutput
-Required.Proto3.JsonInput.TimestampRepeatedValue.JsonOutput
-Required.Proto3.JsonInput.TimestampRepeatedValue.ProtobufOutput
-Required.Proto3.JsonInput.TimestampTenAndHalfSecondsAfterEpochValue.JsonOutput
-Required.Proto3.JsonInput.TimestampTenAndHalfSecondsAfterEpochValue.ProtobufOutput
-Required.Proto3.JsonInput.TimestampTenAndHalfSecondsBeforeEpochValue.JsonOutput
-Required.Proto3.JsonInput.TimestampTenAndHalfSecondsBeforeEpochValue.ProtobufOutput
-Required.Proto3.JsonInput.TimestampWithMissingColonInOffset
-Required.Proto3.JsonInput.TimestampWithNegativeOffset.JsonOutput
-Required.Proto3.JsonInput.TimestampWithNegativeOffset.ProtobufOutput
-Required.Proto3.JsonInput.TimestampWithPositiveOffset.JsonOutput
-Required.Proto3.JsonInput.TimestampWithPositiveOffset.ProtobufOutput
-Required.Proto3.JsonInput.ValueAcceptBool.JsonOutput
-Required.Proto3.JsonInput.ValueAcceptBool.ProtobufOutput
-Required.Proto3.JsonInput.ValueAcceptFloat.JsonOutput
-Required.Proto3.JsonInput.ValueAcceptFloat.ProtobufOutput
-Required.Proto3.JsonInput.ValueAcceptInteger.JsonOutput
-Required.Proto3.JsonInput.ValueAcceptInteger.ProtobufOutput
-Required.Proto3.JsonInput.ValueAcceptList.JsonOutput
-Required.Proto3.JsonInput.ValueAcceptList.ProtobufOutput
-Required.Proto3.JsonInput.ValueAcceptNull.JsonOutput
-Required.Proto3.JsonInput.ValueAcceptNull.ProtobufOutput
-Required.Proto3.JsonInput.ValueAcceptObject.JsonOutput
-Required.Proto3.JsonInput.ValueAcceptObject.ProtobufOutput
-Required.Proto3.JsonInput.ValueAcceptString.JsonOutput
-Required.Proto3.JsonInput.ValueAcceptString.ProtobufOutput
+
+# --- A JSON writer that cannot fail -------------------------------------------
+#
+# A `Duration` or `Timestamp` outside the range proto3 JSON can write, or with
+# nanos of the wrong sign, should fail to serialize. `encodeMJson` answers a
+# `Json` rather than a `Result`, so such a value is written as it is. Making it
+# refuse is a change to every generated encoder's signature.
+# (10 tests)
+Required.Proto3.DurationProtoInputTooLarge.JsonOutput
+Required.Proto3.DurationProtoInputTooSmall.JsonOutput
+Required.Proto3.DurationProtoNanosTooLarge.JsonOutput
+Required.Proto3.DurationProtoNanosTooSmall.JsonOutput
+Required.Proto3.DurationProtoNanosWrongSign.JsonOutput
+Required.Proto3.DurationProtoNanosWrongSignNegativeSecs.JsonOutput
 Required.Proto3.TimestampProtoInputTooLarge.JsonOutput
 Required.Proto3.TimestampProtoInputTooSmall.JsonOutput
 Required.Proto3.TimestampProtoNanoTooLarge.JsonOutput
@@ -183,9 +78,6 @@ Required.Proto3.TimestampProtoNegativeNanos.JsonOutput
 # Keeping them would mean a field for the bytes on every generated struct, and
 # every struct literal written without `..defaultM()` would stop compiling.
 # That breaking change is a decision about the mapping, not a codec fix.
-#
-# Unrecognised *enum values* are no longer in this group: editions enums are
-# open, and the generated enum keeps one in an `Unrecognized` variant.
 # (2 tests)
 Required.Proto3.ProtobufInput.UnknownOrdering.ProtobufOutput
 Required.Proto3.ProtobufInput.UnknownVarint.ProtobufOutput

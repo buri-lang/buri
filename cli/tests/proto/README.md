@@ -62,7 +62,7 @@ From **protobuf v35.1** (released 2026-06-11):
 | Vendored file | Origin in the protobuf tree |
 |---|---|
 | `repo/lib/conformance/conformance.proto` | `conformance/conformance.proto`, verbatim but for its edition declaration |
-| `repo/lib/conformance/test_messages_proto3.proto` | `src/google/protobuf/test_messages_proto3.proto`, **pruned and migrated to edition 2026** |
+| `repo/lib/conformance/test_messages_proto3.proto` | `src/google/protobuf/test_messages_proto3.proto`, **migrated to edition 2026** |
 | `vendor/LICENSE` | `LICENSE` — protobuf is BSD-3-Clause, and these files carry that licence |
 
 The reader requires `edition = "2026"`. `EDITION_2026 = 1002` is a real value in
@@ -76,22 +76,14 @@ resolves the same at 2023, 2024 and 2026 (`field_presence` `EXPLICIT`,
 defaults that changed after 2023 are `enforce_naming_style` and
 `default_symbol_visibility`, both `RETENTION_SOURCE`. Lints, not wire format.
 
-### What was pruned
+### What was changed
 
-`test_messages_proto3.proto` is built out of every construct the format has,
-including two Buri's schema reader
-[refuses](../../../crates/docs/src/docs/reference/build/proto.md):
-
-- **`import "google/protobuf/..."`** — nine imports of the well-known types. No
-  bundled copy of those schemas exists here, and each one also has a JSON
-  representation a generic mapping cannot produce.
-- **Every field of a well-known type** — `Any`, `Duration`, `Timestamp`,
-  `FieldMask`, `Struct`, `Value`, `ListValue`, `Empty`, `NullValue`, and the
-  nine scalar wrappers. 46 fields.
-42 lines came out. The file carries a banner saying so. The migration keeps
-proto3's semantics the way protoc's own does: the file sets
-`features.field_presence = IMPLICIT`, because a proto3 singular scalar has no
-presence, and the reference message the runner compares against is proto3.
+Nothing was pruned: every field and import of protobuf's file is here, the
+well-known types included, whose schemas come with the toolchain. The file
+carries a banner saying it was migrated. The migration keeps proto3's semantics
+the way protoc's own does: the file sets `features.field_presence = IMPLICIT`,
+because a proto3 singular scalar has no presence, and the reference message the
+runner compares against is proto3.
 
 Everything else is intact: all fifteen scalar types in singular, `optional`,
 repeated, packed and unpacked forms; a recursive message and a mutually
@@ -108,7 +100,7 @@ four-byte-little-endian-length framing over a pipe: a `ConformanceRequest` in, a
 **Everything but the framing is the code under test.** The request and the
 response are themselves protobuf messages, decoded and encoded by the codecs
 generated from the vendored `conformance.proto`. The payload is a
-`TestAllTypesProto3` from the pruned schema. The program contains no
+`TestAllTypesProto3` from the vendored schema. The program contains no
 hand-written protobuf anywhere, so a bug in the codecs shows up as a runner that
 cannot talk to us at all.
 
@@ -119,24 +111,29 @@ it cannot answer before the other side has finished speaking.
 ## Where it stands
 
 ```text
-CONFORMANCE SUITE PASSED: 1321 successes, 1314 skipped, 148 expected failures, 0 unexpected failures.
+CONFORMANCE SUITE PASSED: 1445 successes, 1314 skipped, 36 expected failures, 0 unexpected failures.
 ```
 
 The 1314 skips are the message types this testee does not implement — proto2 and
-the editions variants — plus the text-format and JSPB categories. The 148
+the editions variants — plus the text-format and JSPB categories. The 36
 expected failures are `failure_list.txt`, which files each one under one of
-two reasons and leaves no entry unexplained:
+three reasons and leaves no entry unexplained:
 
-- **146 are the well-known types**, pruned from the vendored schema because
-  the generator does not support them yet.
+- **24 are `Any` in JSON.** proto3 JSON writes an `Any` as the message inside
+  it, which needs a registry of every type a URL can name; a generated module
+  has only its own schema's types, so `Any` goes out as its two fields.
+- **10 are a JSON writer that cannot fail.** A `Duration` or `Timestamp` out of
+  JSON's range should fail to serialize, and `encodeMJson` answers a `Json`
+  rather than a `Result`.
 - **2 are unknown-field retention.** Decoding skips a field the schema doesn't
   know rather than keeping its bytes, so it doesn't survive a re-encode.
   Keeping them needs a field on every generated struct, and that breaks every
   struct literal written without `..defaultM()`.
 
-The runner also reports 25 `Recommended` warnings, which do not fail the suite.
-Seventeen are the well-known types. Three are a JSON object naming one field
-twice, which `core/json` keeps rather than refuses. Five are
+The runner also reports 13 `Recommended` warnings, which do not fail the suite.
+Five are a JSON writer that cannot fail: a `FieldMask` path with no camelCase
+form, and a `Value` holding NaN or an infinity. Three are a JSON object naming
+one field twice, which `core/json` keeps rather than refuses. Five are
 `JSON_IGNORE_UNKNOWN_PARSING_TEST`, where an unrecognised enum *name* should be
 ignored rather than refused, and nothing tells the generated decoder which mode
 it is in.
