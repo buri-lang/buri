@@ -106,3 +106,30 @@ run {
   args: ["test", "//apps/web"]
   exit: 0
 }
+
+# A suite is held to the same rule: borrowing another app's code under
+# `test.dependencies` is refused at that edge and at the import.
+edit {
+  file: "apps/web/BUILD.buri"
+  replace: "sources: [\"test/main.buri\"]"
+  with: "sources: [\"test/main.buri\"]\n        dependencies: [\"//apps/api\"]"
+}
+
+edit {
+  file: "apps/web/test/main.buri"
+  replace: "from \"//libs/greeting\""
+  with: "from \"//apps/api\""
+}
+
+run {
+  args: ["lint", "//apps/web"]
+  exit: 1
+  golden: "test_dependency.txt"
+}
+
+run {
+  args: ["test", "//apps/web"]
+  exit: 1
+  golden: "test_dependency_test.txt"
+  stream: ERR
+}
