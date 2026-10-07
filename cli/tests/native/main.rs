@@ -217,6 +217,10 @@ mod matches;
 // in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod supplied_context;
+// A context with state read on every effect call, and a test context passed
+// down a recursion, twice to one callee and stored by it, under the heap check.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod context_passing;
 // `after` under `headless()`, fired by `elapse` on a virtual clock: the order,
 // ties, and timers scheduled from a timer, under the heap check, on every
 // backend built in and on JavaScript.
