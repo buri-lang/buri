@@ -575,13 +575,13 @@
           };
           nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.pkg-config ];
           buildInputs = [ pkgs.abseil-cpp pkgs.zlib pkgs.jsoncpp ];
-          # protobuf's CMake links `jsoncpp_static`, and nixpkgs' jsoncpp ships
-          # only the shared library, so that name points at it.
-          preConfigure = ''
-            mkdir -p "$TMPDIR/jsoncpp"
-            ln -s ${pkgs.jsoncpp}/lib/libjsoncpp${pkgs.stdenv.hostPlatform.extensions.sharedLibrary} \
-              "$TMPDIR/jsoncpp/libjsoncpp_static${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}"
-            cmakeFlagsArray+=("-DCMAKE_EXE_LINKER_FLAGS=-L$TMPDIR/jsoncpp")
+          # protobuf's CMake links `jsoncpp_static` in a static build, and
+          # nixpkgs' jsoncpp ships only the shared library, `jsoncpp_lib`. It is
+          # linked by its store path, so the runner finds it at run time on Linux
+          # too, where a library is found by RPATH rather than by install name.
+          postPatch = ''
+            substituteInPlace cmake/conformance.cmake \
+              --replace-fail "conformance_test_runner jsoncpp_static" "conformance_test_runner jsoncpp_lib"
           '';
           cmakeFlags = [
             "-Dprotobuf_BUILD_TESTS=OFF"
@@ -591,6 +591,13 @@
           ninjaFlags = [ "conformance_test_runner" ];
           installPhase = ''
             install -Dm755 conformance_test_runner $out/bin/conformance_test_runner
+          '';
+          # The binary has to start: a library its loader cannot find fails
+          # here, inside the build, rather than as a silent test failure later.
+          doInstallCheck = true;
+          installCheckPhase = ''
+            usage="$($out/bin/conformance_test_runner --help 2>&1 || true)"
+            echo "$usage" | grep -q "Usage: conformance-test-runner"
           '';
         };
 
