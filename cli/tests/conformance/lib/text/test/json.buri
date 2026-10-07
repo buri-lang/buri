@@ -175,6 +175,22 @@ test "a bare word is not a value" {
     assert.equal(failure("undefined"), JsonError.Unexpected(0));
 }
 
+test "a number is what JSON's grammar says one is" {
+    // RFC 8259 §6: no leading zero, a digit on both sides of the point, a
+    // digit after the exponent.
+    assert.equal(failure("01"), JsonError.BadNumber(0));
+    assert.equal(failure("-01"), JsonError.BadNumber(0));
+    assert.equal(failure("[00]"), JsonError.BadNumber(1));
+    assert.equal(failure("1."), JsonError.BadNumber(0));
+    assert.equal(failure("-"), JsonError.BadNumber(0));
+    assert.equal(failure("1e"), JsonError.BadNumber(0));
+    assert.equal(failure("1.e5"), JsonError.BadNumber(0));
+    assert.equal(parsed("0"), Json.Num(0.0));
+    assert.equal(parsed("-0.5"), Json.Num(-0.5));
+    assert.equal(parsed("0e1"), Json.Num(0.0));
+    assert.equal(parsed("10"), Json.Num(10.0));
+}
+
 test "an object key must be a string" {
     assert.equal(failure("{a: 1}"), JsonError.Unexpected(1));
 }

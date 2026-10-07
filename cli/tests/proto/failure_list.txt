@@ -473,13 +473,3 @@ Required.Proto3.JsonInput.SkipsDefaultPrimitive.Validator
 # (2 tests)
 Required.Proto3.ProtobufInput.UnknownOrdering.ProtobufOutput
 Required.Proto3.ProtobufInput.UnknownVarint.ProtobufOutput
-
-# --- `core/json` accepts a number JSON's grammar does not ----------------------
-#
-# Its number scanner is deliberately generous: it takes every character a number
-# can contain and lets `toFloat` be the judge, so that there is one definition
-# of what a number is rather than two that can disagree. A leading zero gets
-# through it. Tightening that is a `core/json` decision rather than a proto one.
-# (2 tests)
-Required.Proto3.JsonInput.Int32FieldLeadingZero
-Required.Proto3.JsonInput.Int32FieldNegativeWithLeadingZero
