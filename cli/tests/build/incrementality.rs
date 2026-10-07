@@ -863,10 +863,10 @@ fn a_native_build_re_emits_the_unit_an_edit_landed_in() {
     assert_eq!(status(&edited, "link //cmd/c"), "run");
 }
 
-/// `//apps/state`'s re-export, unchanged across the shape edit.
-const SHAPE_STATE_LIB: &str = "from \"//apps/state/held.buri\" export { Held, newHeld, open };\n";
+/// `//libs/state`'s re-export, unchanged across the shape edit.
+const SHAPE_STATE_LIB: &str = "from \"//libs/state/held.buri\" export { Held, newHeld, open };\n";
 
-/// `//apps/state`'s struct, two fields — the **before** of buri-lang/buri#196.
+/// `//libs/state`'s struct, two fields — the **before** of buri-lang/buri#196.
 const SHAPE_HELD_TWO_FIELDS: &str = r#"from "platform/effect" import { Allocator };
 from "core/orderedmap" import * as ordmap;
 from "core/orderedmap" import { OrderedMap };
@@ -917,7 +917,7 @@ from "core/actor" import { Actor, Stepped };
 from "platform/effect" import { Allocator, Stdout, Tasks };
 from "native" import { NativeHost };
 from "core/io" import * as io;
-from "//apps/state" import { Held, newHeld, open };
+from "//libs/state" import { Held, newHeld, open };
 
 enum Note {
     Opened(Int),
@@ -979,16 +979,16 @@ fn an_incremental_rebuild_after_a_dependency_struct_changes_shape_is_not_miscomp
     let scratch = Scratch::repo("shape-change");
 
     scratch.write(
-        "apps/state/BUILD.buri",
+        "libs/state/BUILD.buri",
         "library {\n  sources: [\"held.buri\", \"lib.buri\"]\n  \
          visibility: [\"//apps/...\"]\n}\n",
     );
-    scratch.write("apps/state/lib.buri", SHAPE_STATE_LIB);
-    scratch.write("apps/state/held.buri", SHAPE_HELD_TWO_FIELDS);
+    scratch.write("libs/state/lib.buri", SHAPE_STATE_LIB);
+    scratch.write("libs/state/held.buri", SHAPE_HELD_TWO_FIELDS);
     scratch.write(
         "apps/app/BUILD.buri",
         &format!(
-            "binary {{\n  dependencies: [\"//apps/state\"]\n  \
+            "binary {{\n  dependencies: [\"//libs/state\"]\n  \
              outputs: [{{ platform: {host} }}]\n}}\n"
         ),
     );
@@ -1014,7 +1014,7 @@ fn an_incremental_rebuild_after_a_dependency_struct_changes_shape_is_not_miscomp
     // Drop a field, then rebuild and run WITHOUT `--force`. The one that fails
     // before the fix: same answer shape, one fewer field, and the incremental
     // binary aborts in libmalloc at exit (or segfaults in the copy walk).
-    scratch.write("apps/state/held.buri", SHAPE_HELD_ONE_FIELD);
+    scratch.write("libs/state/held.buri", SHAPE_HELD_ONE_FIELD);
     let incremental =
         scratch.run_with_env(&["run", "//apps/app"], &[("BURI_RT_HEAP_REPORT", "1")]);
     incremental
