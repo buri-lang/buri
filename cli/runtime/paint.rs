@@ -238,6 +238,12 @@
 //!
 //! [`render`] never panics. Every refusal is one sentence naming what it could
 //! not read.
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is pixel geometry and colour: coordinates clamped to the canvas, \
+              8-bit channels widened before they multiply, and row offsets inside a mask sized for \
+              them"
+)]
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -647,7 +653,7 @@ fn substitute_once<'a>(value: &'a str, variables: &[(String, String)]) -> Cow<'a
     while let Some(at) = rest.find("var(") {
         let (before, from) = rest.split_at(at);
         out.push_str(before);
-        let Some((inside, after)) = from["var(".len()..].split_once(')') else {
+        let Some((inside, after)) = from.strip_prefix("var(").and_then(|f| f.split_once(')')) else {
             out.push_str(from);
             return Cow::Owned(out);
         };
@@ -2420,12 +2426,14 @@ impl Spare {
 
 impl std::ops::Deref for Spare {
     type Target = Mask;
+    #[expect(clippy::expect_used, reason = "only `drop` takes the mask")]
     fn deref(&self) -> &Mask {
         self.mask.as_ref().expect("a spare holds its mask until it is dropped")
     }
 }
 
 impl std::ops::DerefMut for Spare {
+    #[expect(clippy::expect_used, reason = "only `drop` takes the mask")]
     fn deref_mut(&mut self) -> &mut Mask {
         self.mask.as_mut().expect("a spare holds its mask until it is dropped")
     }
@@ -2441,7 +2449,9 @@ impl Drop for Spare {
         let (t, b) = (dirty.t.clamp(0, h) as usize, dirty.b.clamp(0, h) as usize);
         if l < r {
             for y in t..b {
-                data[y * w as usize + l..y * w as usize + r].fill(0);
+                if let Some(row) = data.get_mut(y * w as usize + l..y * w as usize + r) {
+                    row.fill(0);
+                }
             }
         }
         #[cfg(test)]
@@ -4359,7 +4369,8 @@ fn fill_around(canvas: &mut Pixmap, outer: Box2, hollow: Option<Box2>, mask: &Ma
             let data = mask.data();
             (i.t..i.b).all(|y| {
                 let row = y as usize * w as usize;
-                data[row + i.l as usize..row + i.r as usize].iter().fold(0, |seen, &b| seen | b) == 0
+                data.get(row + i.l as usize..row + i.r as usize)
+                    .is_some_and(|run| run.iter().fold(0, |seen, &b| seen | b) == 0)
             })
         });
     let bands = match hollow {
@@ -4593,6 +4604,10 @@ impl Outside<'_> {
     /// Sets each byte of `mask` inside `region` (device pixels) to `combine` of
     /// it and the knocked-out clip there: the clip (full where there is none)
     /// times the complement of the box's coverage.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "every mask was checked to be `w` by `h`, and the region is clamped inside that"
+    )]
     fn apply(&self, mask: &mut Mask, region: Box2, combine: impl Fn(u8, u8) -> u8) {
         let (w, h) = (mask.width(), mask.height());
         let fits = |other: &Mask| other.width() == w && other.height() == h;
@@ -4665,7 +4680,8 @@ fn each_within(mask: &mut Mask, other: &Mask, region: Box2, combine: impl Fn(u8,
     let ours = mask.data_mut();
     for y in t..b {
         let span = y * w + l..y * w + r;
-        for (mine, &their) in ours[span.clone()].iter_mut().zip(&theirs[span]) {
+        let (Some(ours), Some(theirs)) = (ours.get_mut(span.clone()), theirs.get(span)) else { continue };
+        for (mine, &their) in ours.iter_mut().zip(theirs) {
             *mine = combine(*mine, their);
         }
     }
@@ -4801,7 +4817,9 @@ fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, cli
         for rx in 0..rw {
             let pixel = canvas_row.saturating_add(rx).saturating_mul(4);
             for (c, plane) in planes.iter_mut().enumerate() {
-                plane[region_row + rx] = src.get(pixel + c).copied().unwrap_or(0);
+                if let Some(byte) = plane.get_mut(region_row + rx) {
+                    *byte = src.get(pixel + c).copied().unwrap_or(0);
+                }
             }
         }
     }
@@ -4826,7 +4844,7 @@ fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, cli
             for (c, plane) in planes.iter().enumerate() {
                 if let Some(byte) = dst.get_mut(i * 4 + c) {
                     *byte = mul255(*byte, 255 - cov)
-                        .saturating_add(mul255(plane[region_row + rx], cov));
+                        .saturating_add(mul255(plane.get(region_row + rx).copied().unwrap_or(0), cov));
                 }
             }
         }
@@ -4895,6 +4913,11 @@ fn rows(from: &[u8], to: &mut [u8], w: usize, h: usize, size: usize, lead: usize
 }
 
 /// [`rows`], with the mean handed in.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`from` and `to` hold `w * h` bytes and `padded` four rows of `span`, which every \
+              index here stays inside; this is the blur's inner loop"
+)]
 fn box_rows(
     from: &[u8],
     to: &mut [u8],
@@ -4968,6 +4991,7 @@ fn columns(from: &[u8], to: &mut [u8], w: usize, h: usize, size: usize, lead: us
 }
 
 /// [`columns`], with the mean handed in.
+#[expect(clippy::indexing_slicing, reason = "`row` reads only rows `0..h` of a `w * h` mask")]
 fn box_columns(
     from: &[u8],
     to: &mut [u8],
@@ -5431,6 +5455,7 @@ fn deflate(raw: &[u8], stride: usize) -> Vec<u8> {
 /// in the archive and not a lazy `OnceLock` on the hot path — and computed by
 /// the same bit-at-a-time recurrence [`crc32`] used to run inline, so the
 /// values are provably the polynomial's own.
+#[expect(clippy::indexing_slicing, reason = "`n` counts to 256, the table's length")]
 const CRC_TABLE: [u32; 256] = {
     let mut table = [0_u32; 256];
     let mut n = 0;
@@ -5458,6 +5483,7 @@ const CRC_TABLE: [u32; 256] = {
 /// diff paths now, and a byte a step is eight times less work than a bit a step
 /// on the whole `IDAT`. The table is a kilobyte of `const` bytes, worth it for
 /// that.
+#[expect(clippy::indexing_slicing, reason = "`index` is masked to a byte, and the table has 256")]
 fn crc32(parts: [&[u8]; 2]) -> u32 {
     let mut c = 0xffff_ffff_u32;
     for part in parts {

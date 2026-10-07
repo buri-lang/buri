@@ -61,6 +61,12 @@
 //! fresh block with `rc == 1`. A slot **copies** the text it is given rather
 //! than keeping the caller's pointer, which is the same sentence as "a runtime
 //! function never stores a pointer it was passed".
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is counters over a test's own recorded calls, replay positions \
+              bounded by the number of orders, and offsets inside a script or file body that \
+              bounds them"
+)]
 
 use crate::value::{list_of_bytes, list_of_headers, list_of_strs, str_of, BuriList, BuriStr};
 use crate::BURI_OK;
@@ -2232,13 +2238,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_rec
     let open = writable(owner, socket);
     let next = with(handle, None, |slot| match slot {
         Slot::Client { script, next, .. } => {
-            if !open || *next >= script.len() {
-                None
-            } else {
-                let message = &script[*next];
-                *next += 1;
-                Some((message.frame, message.text.clone(), message.data.clone()))
-            }
+            let message = script.get(*next).filter(|_| open)?;
+            *next += 1;
+            Some((message.frame, message.text.clone(), message.data.clone()))
         }
         _ => None,
     });
@@ -2509,7 +2511,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read_range(
     let Some(body) = fs_read(store, &path) else { return IO_NOT_FOUND };
     let start = (at as usize).min(body.len());
     let end = start.saturating_add(count as usize).min(body.len());
-    let value = list_of_bytes(&body[start..end]);
+    let value = list_of_bytes(body.get(start..end).unwrap_or(&[]));
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) };
     BURI_OK
@@ -4205,8 +4207,9 @@ fn chosen_task_fault(handle: i64, index: i64) -> Option<(usize, String)> {
     with(handle, None, |slot| match slot {
         Slot::Tasks { faults, .. } => faults
             .iter()
-            .position(|f| f.index == index && (f.nth == 0 || f.nth == nth))
-            .map(|at| (at, faults[at].reason.clone())),
+            .enumerate()
+            .find(|(_, f)| f.index == index && (f.nth == 0 || f.nth == nth))
+            .map(|(at, f)| (at, f.reason.clone())),
         _ => None,
     })
 }
@@ -4391,9 +4394,9 @@ fn settled() -> MutexGuard<'static, States> {
 /// The slot `handle` names. Stops the program on a handle nothing made, or on
 /// one whose value is out.
 fn slot(g: MutexGuard<'static, States>, handle: i64) -> (MutexGuard<'static, States>, usize) {
-    let at = usize::try_from(handle).ok().filter(|&i| i < g.kept.len());
+    let at = usize::try_from(handle).ok().and_then(|i| Some((i, g.kept.get(i)?.out)));
     match at {
-        Some(i) if !g.kept[i].out => (g, i),
+        Some((i, false)) => (g, i),
         Some(_) => {
             drop(g);
             crate::abort::die(&[NESTED.as_bytes()])
@@ -4498,9 +4501,10 @@ pub unsafe extern "C" fn buri_rt_platforms_testing_state_state_read(
     if stride == 0 {
         return;
     }
+    let Some(kept) = g.kept.get(i) else { return };
     // SAFETY: the slot holds `stride` bytes and `out` is writable for as many.
     unsafe {
-        std::ptr::copy_nonoverlapping(g.kept[i].words.as_ptr().cast::<u8>(), out, stride);
+        std::ptr::copy_nonoverlapping(kept.words.as_ptr().cast::<u8>(), out, stride);
         walk(retain, out);
     }
 }
@@ -4519,11 +4523,12 @@ pub unsafe extern "C" fn buri_rt_platforms_testing_state_state_take(
     let (mut g, i) = slot(settled(), handle);
     g.owner = Some(std::thread::current().id());
     g.depth += 1;
-    g.kept[i].out = true;
+    let Some(kept) = g.kept.get_mut(i) else { return };
+    kept.out = true;
     if stride > 0 {
         // SAFETY: as in `read`. The kept reference moves to the caller.
         unsafe {
-            std::ptr::copy_nonoverlapping(g.kept[i].words.as_ptr().cast::<u8>(), out, stride);
+            std::ptr::copy_nonoverlapping(kept.words.as_ptr().cast::<u8>(), out, stride);
         }
     }
 }

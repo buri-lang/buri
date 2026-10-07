@@ -132,13 +132,8 @@ pub unsafe extern "C" fn buri_rt_argv_init(argc: i32, argv: *const *const u8) {
         if p.is_null() {
             continue;
         }
-        let mut n = 0_usize;
         // SAFETY: the caller promises a NUL-terminated string at `p`.
-        while unsafe { *p.add(n) } != 0 {
-            n += 1;
-        }
-        // SAFETY: `n` bytes precede the NUL.
-        let bytes = unsafe { std::slice::from_raw_parts(p, n) };
+        let bytes = unsafe { std::ffi::CStr::from_ptr(p.cast()) }.to_bytes();
         args.push(String::from_utf8_lossy(bytes).into_owned());
     }
     // `process.argv.slice(2)` on JavaScript is the arguments *after* the script,
@@ -365,7 +360,7 @@ pub unsafe extern "C" fn buri_rt_host_stdin_read_line(out: *mut BuriStr) -> i32 
         (lines, 0)
     });
     let Some(line) = lines.get(*at) else { return 0 };
-    *at += 1;
+    *at = at.saturating_add(1);
     let value = str_of(line);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) };
@@ -396,7 +391,7 @@ pub unsafe extern "C" fn buri_rt_host_stdin_read_bytes(n: i64, out: *mut BuriLis
         // asked for, so this loops.
         match stream.read(buf.get_mut(got..).unwrap_or(&mut [])) {
             Ok(0) => break,
-            Ok(k) => got += k,
+            Ok(k) => got = got.saturating_add(k),
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(_) => break,
         }
@@ -832,7 +827,7 @@ fn modified_millis(m: &std::fs::Metadata) -> i64 {
     let Ok(at) = m.modified() else { return 0 };
     match at.duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => i64::try_from(d.as_millis()).unwrap_or(i64::MAX),
-        Err(e) => -i64::try_from(e.duration().as_millis()).unwrap_or(i64::MAX),
+        Err(e) => i64::try_from(e.duration().as_millis()).unwrap_or(i64::MAX).saturating_neg(),
     }
 }
 
@@ -1409,7 +1404,7 @@ fn exit_code(status: &std::process::ExitStatus) -> i64 {
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;
-        128 + i64::from(status.signal().unwrap_or(0))
+        i64::from(status.signal().unwrap_or(0)).saturating_add(128)
     }
     #[cfg(not(unix))]
     {
@@ -1426,12 +1421,11 @@ pub(crate) unsafe fn strs(ptr: *const u8, len: u64) -> Vec<String> {
     if ptr.is_null() || len == 0 {
         return Vec::new();
     }
-    let stride = std::mem::size_of::<BuriStr>();
     let mut out = Vec::with_capacity(len as usize);
     for i in 0..len as usize {
         // SAFETY: the caller promises `len` elements at `ptr`, and the stride
         // is the one the layout gives a `Str`.
-        let element = unsafe { &*ptr.add(i * stride).cast::<BuriStr>() };
+        let element = unsafe { &*ptr.cast::<BuriStr>().add(i) };
         // SAFETY: an element of a live list holds a live `Str` view.
         out.push(unsafe { element.as_str().into_owned() });
     }

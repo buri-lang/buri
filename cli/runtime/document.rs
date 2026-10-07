@@ -39,6 +39,17 @@
 //! reader walks to reach the record, and the declarations of an element are the
 //! ones the Buri walk `renderInto` computed and handed here as one string, so a
 //! native `markup()` is byte-for-byte a headerless `describe`.
+#![expect(
+    clippy::indexing_slicing,
+    reason = "every record index here was answered by `add` or read out of a record's \
+              `children` or `parent`, and the record arena only ever grows"
+)]
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is tree depths, child positions, and counts of the records, \
+              regions and identities a document already holds, plus element offsets into a list \
+              the caller holds"
+)]
 
 use crate::list::{Release, Retain};
 use crate::ui::ComputeEntry;
@@ -869,13 +880,14 @@ pub unsafe extern "C" fn buri_rt_ui_node_reconcile(
     }
     let mut anchor = end;
 
-    for i in (0..keys.len()).rev() {
-        let key = &keys[i];
+    for (i, key) in keys.iter().enumerate().rev() {
         if let Some(row) = by_key.remove(key) {
             let (start, end) = (row.start, row.end);
             with_doc(handle, |doc| doc.move_block(parent, start, end, anchor));
             anchor = start;
-            next[i] = row;
+            if let Some(slot) = next.get_mut(i) {
+                *slot = row;
+            }
         } else {
             let row_owner = crate::ui::rows::child_owner(list_owner);
             let (row_start, row_end) = with_doc(handle, |doc| {
@@ -910,7 +922,9 @@ pub unsafe extern "C" fn buri_rt_ui_node_reconcile(
                 }
             });
             anchor = row_start;
-            next[i] = RowRec { key: key.clone(), start: row_start, end: row_end, owner: row_owner };
+            if let Some(slot) = next.get_mut(i) {
+                *slot = RowRec { key: key.clone(), start: row_start, end: row_end, owner: row_owner };
+            }
         }
     }
 
@@ -1183,9 +1197,9 @@ pub unsafe extern "C" fn buri_rt_ui_node_register_pointer(
         unsafe { crate::ui::buri_rt_ui_node_register_handler(entry, state, bytes, frame_at, body) };
     with_doc(handle, |doc| {
         let open = open_element(doc);
-        let slot = usize::try_from(phase).ok().filter(|&p| p < 3);
-        if let (Some(r), Some(slot)) = (doc.records.get_mut(open), slot) {
-            r.pointer[slot] = node;
+        let slot = usize::try_from(phase).ok();
+        if let Some(handler) = slot.and_then(|s| doc.records.get_mut(open)?.pointer.get_mut(s)) {
+            *handler = node;
         }
     });
 }
@@ -1430,7 +1444,7 @@ impl Document {
         let mut out = Vec::new();
         let mut at = Some(target);
         while let Some(i) = at {
-            let handler = self.records[i].pointer[phase];
+            let handler = self.records[i].pointer.get(phase).copied().unwrap_or(-1);
             if handler >= 0 {
                 out.push((handler, self.over_row(i, over)));
             }

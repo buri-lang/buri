@@ -59,6 +59,12 @@
 //! * a box that declares one scales the picture into it;
 //! * an SVG is re-rasterized at the box's size rather than scaled, so an icon
 //!   in a box four times its `viewBox` is four times as sharp.
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is decoding: offsets into a PNG stream whose length was checked \
+              against its header, bit counts inside a 64-bit reader, and pixel coordinates inside \
+              a box on the canvas"
+)]
 
 use tiny_skia::{
     FillRule, LineCap, LineJoin, Mask, Paint, Path, PathBuilder, Pixmap, Rect, Stroke, Transform,
@@ -575,6 +581,10 @@ impl<'a> Samples<'a> {
 /// unfiltered where it lies and slid down over the filter bytes, so `raw` ends
 /// as the rows end to end, [`Header::stride`] bytes each, and no second copy
 /// of the picture is ever held.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`raw` was checked to hold `height` rows of `stride + 1` bytes, which bounds every row"
+)]
 fn unfiltered(header: &Header, raw: &mut Vec<u8>) -> Result<(), String> {
     let bad = |what: &str| format!("the PNG {what}");
     let stride = header.stride().ok_or_else(|| bad("is too wide to hold"))?;
@@ -605,6 +615,11 @@ fn unfiltered(header: &Header, raw: &mut Vec<u8>) -> Result<(), String> {
 ///
 /// One loop per filter rather than one loop asking which filter each byte: the
 /// `Up` filter the painter writes is then a plain byte-wise add over two rows.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`row` and `previous` were checked to be one length, `i` runs below it, and `step` \
+              is clamped to it"
+)]
 pub(super) fn unfilter(
     kind: u8,
     row: &mut [u8],
@@ -728,6 +743,11 @@ struct Huffman {
 }
 
 impl Huffman {
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "every length was checked to be under 16 as it was counted, and `at` runs below \
+                  `table.len()`"
+    )]
     fn new(lengths: &[u8]) -> Option<Self> {
         let mut counts = [0_u16; 16];
         for &length in lengths {
@@ -956,7 +976,9 @@ fn block(
                 if distance == 1 {
                     // A run of one byte, which is most of a flat picture's
                     // filtered rows: a fill rather than a copy.
-                    let byte = out[out.len() - 1];
+                    let Some(&byte) = out.last() else {
+                        return Err(bad("copies from before the start of the image"));
+                    };
                     out.resize(out.len() + length, byte);
                     continue;
                 }

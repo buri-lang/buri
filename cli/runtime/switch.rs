@@ -235,7 +235,7 @@ pub(crate) const FRAME: Frame = FRAMES[HOST];
 /// other stack.
 pub(crate) unsafe fn prepare(top: *mut u8, arg: *mut u8) -> *mut u8 {
     debug_assert!((top as usize).is_multiple_of(16), "a task stack top must be 16-byte aligned");
-    let sp = top.wrapping_sub(FRAME.words * size_of::<usize>()).cast::<usize>();
+    let sp = top.cast::<usize>().wrapping_sub(FRAME.words);
     // SAFETY: the caller promises the range is writable and unshared.
     unsafe {
         sp.write_bytes(0, FRAME.words);

@@ -436,7 +436,13 @@ fn fetch_within(
     // The budget starts at the read rather than at the dial: every step before
     // this one has already had its own [`DEADLINE`], and a response is not late
     // because the name lookup was slow.
-    read_to_end(&mut sock, &mut raw, Instant::now() + deadline, RESPONSE_LIMIT)?;
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "`bound` caps a deadline at `i64::MAX` milliseconds, which an `Instant`'s \
+                  64-bit seconds hold a thousandfold over"
+    )]
+    let until = Instant::now() + deadline;
+    read_to_end(&mut sock, &mut raw, until, RESPONSE_LIMIT)?;
     parse_response(&raw)
 }
 
@@ -570,7 +576,7 @@ fn dechunk(mut body: &[u8]) -> Result<Vec<u8>, NetFail> {
         let size_text = header.split(';').next().unwrap_or("").trim();
         let size = usize::from_str_radix(size_text, 16)
             .map_err(|_| NetFail::Transport(format!("bad chunk size: {size_text}")))?;
-        let after = body.get(end + 2..).unwrap_or(&[]);
+        let after = body.get(end.saturating_add(2)..).unwrap_or(&[]);
         if size == 0 {
             return Ok(out);
         }
@@ -578,7 +584,7 @@ fn dechunk(mut body: &[u8]) -> Result<Vec<u8>, NetFail> {
             .get(..size)
             .ok_or_else(|| NetFail::Transport("truncated chunk".to_string()))?;
         out.extend_from_slice(chunk);
-        body = after.get(size + 2..).unwrap_or(&[]);
+        body = after.get(size.saturating_add(2)..).unwrap_or(&[]);
     }
 }
 
@@ -586,8 +592,7 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
-    let last = haystack.len() - needle.len();
-    (0..=last).find(|i| haystack.get(*i..*i + needle.len()) == Some(needle))
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,11 @@
 //! ```
 //!
 //! `the_tables_are_the_powers_of_five` recomputes every entry.
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "the arithmetic here is Ryū's: fixed-width multiplies and shifts over one `f64`'s \
+              mantissa and exponent, whose ranges the algorithm is proved over"
+)]
 
 const MANTISSA_BITS: u32 = 52;
 const BIAS: i32 = 1023;
@@ -92,6 +97,7 @@ pub(crate) fn shortest(x: f64) -> (u64, i32) {
         e10 = q as i32;
         let k = POW5_INV_BITCOUNT + pow5_bits(q as i32) - 1;
         let i = -e2 + q as i32 + k;
+        #[expect(clippy::indexing_slicing, reason = "an `f64`'s largest exponent bounds `q` inside the table")]
         let mul = POW5_INV_SPLIT[q as usize];
         vr = mul_shift(4 * m2, mul, i);
         vp = mul_shift(4 * m2 + 2, mul, i);
@@ -112,6 +118,7 @@ pub(crate) fn shortest(x: f64) -> (u64, i32) {
         let i = -e2 - q as i32;
         let k = pow5_bits(i) - POW5_BITCOUNT;
         let j = q as i32 - k;
+        #[expect(clippy::indexing_slicing, reason = "an `f64`'s smallest exponent bounds `i` inside the table")]
         let mul = POW5_SPLIT[i as usize];
         vr = mul_shift(4 * m2, mul, j);
         vp = mul_shift(4 * m2 + 2, mul, j);

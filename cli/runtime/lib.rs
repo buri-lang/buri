@@ -805,6 +805,7 @@ pub unsafe extern "C" fn buri_rt_i128_divmod(
     if b == 0 {
         buri_rt_abort_div_zero();
     }
+    #[expect(clippy::arithmetic_side_effects, reason = "`b == 0` aborted above")]
     let (q, r) = if signed == 0 {
         (a / b, a % b)
     } else {
