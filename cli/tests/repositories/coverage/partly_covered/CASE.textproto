@@ -109,3 +109,12 @@ file {
   path: ".buri/coverage/lcov.info"
   golden: "big.info"
 }
+
+# A suite whose tests load none of the repository's own source has nothing to
+# count, and says so rather than printing an empty table.
+run {
+  args: ["test", "//lib/plain", "--coverage", "--output=js"]
+  exit: 0
+  golden: "no_own_source.txt"
+  stream: OUT
+}

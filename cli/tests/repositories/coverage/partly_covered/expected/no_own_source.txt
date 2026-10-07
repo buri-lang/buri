@@ -1,0 +1,3 @@
+1 passed, 0 failed, 0 skipped (0.0s)
+
+coverage: no suite loaded any of this repository's own source

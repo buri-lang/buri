@@ -1,0 +1,5 @@
+from "core/testing/assert" import * as assert;
+
+test "arithmetic" {
+    assert.equal(1 + 1, 2);
+}
