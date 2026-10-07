@@ -604,3 +604,43 @@ fn the_lint_rules_are_linear_in_a_files_length() {
         400,
     );
 }
+
+/// The modules a `BURI_PROFILE=1` run loaded (`modules loaded` in the report).
+fn modules_loaded(all: &str) -> Option<u64> {
+    let line = all.lines().find(|l| l.starts_with("modules loaded "))?;
+    line.trim_start_matches("modules loaded ").trim().parse().ok()
+}
+
+/// **A native build with nothing to do loads nothing.** It used to check,
+/// monomorphize, lower and emit the whole program before finding every unit
+/// and the link cached: 0.42 s for #253's 160 libraries, against 0.03 s for
+/// the same program on node. PERFORMANCE.md §6.43.
+#[test]
+fn a_warm_native_build_loads_no_module() {
+    let scratch = Scratch::repo("profile-warm-native");
+    library_chain(&scratch, 3);
+    scratch.write(
+        "app/BUILD.buri",
+        &format!(
+            "binary {{\n    dependencies: [\"//lib/p2\"]\n    outputs: [{{ platform: \"native\", variant: \"{}\" }}]\n}}\n",
+            host_variant()
+        ),
+    );
+    scratch.write(
+        "app/main.buri",
+        "from \"core/io\" import * as io;\n\
+         from \"native\" import { NativeHost };\n\
+         from \"platform/effect\" import { Allocator, Stdout };\n\
+         from \"//lib/p2\" import { total };\n\n\
+         export fn main(host: NativeHost): Result<(), Str> {\n    \
+         let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n    \
+         io.println(ctx, \"${total()}\").mapErr(fn(_e) => \"stdout\")\n}\n",
+    );
+    let build = || scratch.run_with_env(&["build", "//app"], &[("BURI_PROFILE", "1")]);
+    let cold = build();
+    cold.ok();
+    assert!(modules_loaded(&cold.all()).is_some_and(|n| n > 0), "{}", indent(&cold.all()));
+    let warm = build();
+    warm.ok().says("cached");
+    assert_eq!(modules_loaded(&warm.all()), Some(0), "{}", indent(&warm.all()));
+}
