@@ -2627,6 +2627,13 @@ fn memberTy(): ast.Type {
     ast.Type { kind: .Tuple([tyNamed("Str"), tyNamed("Json")]), origin: ast.nowhere() }
 }
 
+/// `Result<T, ProtoError>`, for any `T`.
+fn resultTy(t: ast.Type): ast.Type {
+    tyOf("Result", [t, tyNamed("ProtoError")])
+}
+
+/// One value's JSON: a `Json` for a scalar or an enum, and for a message the
+/// `Result` its writer answers.
 fn jsonOf<C: Allocator>(
     ctx: C,
     f: ResolvedField,
@@ -2670,6 +2677,34 @@ fn oneMember(name: Str, value: ast.Expr): ast.Expr {
     ex(.Array([ex(.Tuple([strE(name), value]))]))
 }
 
+/// A member's value as a `Json`. A message's writer can refuse, so its
+/// `Result` is moved under `name` and `?` applied.
+fn memberJson<C: Allocator>(
+    ctx: C,
+    f: ResolvedField,
+    name: ast.Expr,
+    value: ast.Expr,
+    c: ast.Expr,
+): ast.Expr {
+    if (isMessageField(f)) {
+        tryE(nsCall("proto", "inMember", [c, jsonOf(ctx, f, value, c), name]))
+    } else {
+        jsonOf(ctx, f, value, c)
+    }
+}
+
+/// A fold's result, `Result<[T], ProtoError>`, as the member `f.json` holding
+/// `Json.<shape>` of it, with `?` applied.
+fn foldedMember(f: ResolvedField, folded: ast.Expr, shape: Str): ast.Expr {
+    let whole = method(folded, "map", [
+        lam1("all", callOf(dot(id("Json"), shape), [id("all")])),
+    ]);
+    oneMember(
+        f.json,
+        tryE(nsCall("proto", "inMember", [id("ctx"), whole, strE(f.json)])),
+    )
+}
+
 /// A map key as the text a JSON object's member name is.
 fn keyText(k: schema.Scalar, key: ast.Expr, c: ast.Expr): ast.Expr {
     let n = scalarName(k);
@@ -2706,25 +2741,97 @@ fn keyRead(k: schema.Scalar, name: ast.Expr, path: ast.Expr): ast.Expr {
 fn jsonMapPiece<C: Allocator>(ctx: C, f: ResolvedField, k: schema.Scalar): ast.Expr {
     let v = dot(id("value"), f.name);
     let valF = entryField(f, 2, f.ty);
-    let member = ex(
-        .Tuple([keyText(k, id("k"), id("c")), jsonOf(ctx, valF, id("x"), id("c"))]),
-    );
-    let members = method(v, "foldCtx", [
-        id("ctx"),
-        lam4(
-            "c",
-            "acc",
-            tyArray(memberTy()),
-            "k",
-            "x",
-            method(id("acc"), "push", [id("c"), member]),
+    let piece = if (isMessageField(valF)) {
+        // A value's writer can refuse, and `OrderedMap` has no fallible fold, so
+        // the accumulator is the `Result` and `?` passes a refusal along.
+        let step = blockE(
+            blk(
+                [
+                    letS("done", [], tryE(id("acc"))),
+                    letS("name", [], keyText(k, id("k"), id("c"))),
+                    letS(
+                        "one",
+                        [],
+                        memberJson(ctx, valF, id("name"), id("x"), id("c")),
+                    ),
+                ],
+                [
+                    variantCall("Ok", [
+                        method(id("done"), "push", [
+                            id("c"),
+                            ex(.Tuple([id("name"), id("one")])),
+                        ]),
+                    ]),
+                ],
+            ),
+        );
+        let accTy = resultTy(tyArray(memberTy()));
+        let lambda = ex(
+            .Lambda(
+                [
+                    lambdaP("c"),
+                    ast.LambdaParam { name: nm("acc"), ty: [accTy] },
+                    lambdaP("k"),
+                    lambdaP("x"),
+                ],
+                [accTy],
+                [step],
+            ),
+        );
+        let folded = method(v, "foldCtx", [
+            id("ctx"),
+            lambda,
+            variantCall("Ok", [emptyList(memberTy())]),
+        ]);
+        foldedMember(f, folded, "Object")
+    } else {
+        let member = ex(
+            .Tuple([keyText(k, id("k"), id("c")), jsonOf(ctx, valF, id("x"), id("c"))]),
+        );
+        let members = method(v, "foldCtx", [
+            id("ctx"),
+            lam4(
+                "c",
+                "acc",
+                tyArray(memberTy()),
+                "k",
+                "x",
+                method(id("acc"), "push", [id("c"), member]),
+            ),
+            emptyList(memberTy()),
+        ]);
+        oneMember(f.json, callOf(dot(id("Json"), "Object"), [members]))
+    };
+    ifE(method(v, "isEmpty", []), emptyList(memberTy()), piece)
+}
+
+/// A repeated message field: each element written in turn, and the first to
+/// refuse named by its index.
+fn jsonMessagesPiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
+    let v = dot(id("value"), f.name);
+    let one = nsCall("proto", "inElement", [
+        id("c"),
+        jsonOf(ctx, f, id("x"), id("c")),
+        id("i"),
+    ]);
+    let step = blockE(
+        blk(
+            [
+                letS("i", [], method(id("acc"), "length", [])),
+                letS("one", [], tryE(one)),
+            ],
+            [variantCall("Ok", [method(id("acc"), "push", [id("c"), id("one")])])],
         ),
-        emptyList(memberTy()),
+    );
+    let folded = method(v, "foldResultCtx", [
+        id("ctx"),
+        foldLambda("c", "acc", tyArray(tyNamed("Json")), "x", step),
+        emptyList(tyNamed("Json")),
     ]);
     ifE(
-        method(v, "isEmpty", []),
+        eqE(method(v, "length", []), intE(0)),
         emptyList(memberTy()),
-        oneMember(f.json, callOf(dot(id("Json"), "Object"), [members])),
+        foldedMember(f, folded, "Array"),
     )
 }
 
@@ -2738,7 +2845,9 @@ fn jsonPiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
 fn jsonOtherPiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
     let v = dot(id("value"), f.name);
     let none = emptyList(memberTy());
-    if (isRepeated(f)) {
+    if (isRepeated(f) && isMessageField(f)) {
+        jsonMessagesPiece(ctx, f)
+    } else if (isRepeated(f)) {
         let each = method(v, "mapCtx", [
             id("ctx"),
             lam2("c", "x", jsonOf(ctx, f, id("x"), id("c"))),
@@ -2752,7 +2861,7 @@ fn jsonOtherPiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
         matchE(v, [
             armOf(
                 dotP1("Some", "x"),
-                oneMember(f.json, jsonOf(ctx, f, id("x"), id("ctx"))),
+                oneMember(f.json, memberJson(ctx, f, strE(f.json), id("x"), id("ctx"))),
             ),
             armOf(dotP0("None"), none),
         ])
@@ -2760,7 +2869,7 @@ fn jsonOtherPiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
         ifE(
             isDefaultTest(ctx, f, v),
             none,
-            oneMember(f.json, jsonOf(ctx, f, v, id("ctx"))),
+            oneMember(f.json, memberJson(ctx, f, strE(f.json), v, id("ctx"))),
         )
     }
 }
@@ -2771,7 +2880,7 @@ fn jsonOneofPiece<C: Allocator>(ctx: C, o: ResolvedOneof): ast.Expr {
         .mapCtx(ctx, fn(c, k) => {
             armOf(
                 dotP1(upperFirst(c, k.name), "x"),
-                oneMember(k.json, jsonOf(c, k, id("x"), id("ctx"))),
+                oneMember(k.json, memberJson(c, k, strE(k.json), id("x"), id("ctx"))),
             )
         });
     matchE(dot(id("value"), o.field), [
@@ -2788,15 +2897,19 @@ fn jsonEncodeFn<C: Allocator>(
 ): ast.Item {
     let body = if (fields.isEmpty() && oneofs.isEmpty()) {
         blk([letWildS(id("value")), letWildS(id("ctx"))], [
-            callOf(dot(id("Json"), "Object"), [emptyList(memberTy())]),
+            variantCall("Ok", [
+                callOf(dot(id("Json"), "Object"), [emptyList(memberTy())]),
+            ]),
         ])
     } else {
         let pieces = fields
             .mapCtx(ctx, fn(c, f) => jsonPiece(c, f))
             .concat(ctx, oneofs.mapCtx(ctx, fn(c, o) => jsonOneofPiece(c, o)));
         tailBlock(
-            callOf(dot(id("Json"), "Object"), [
-                method(ex(.Array(pieces)), "flatten", [id("ctx")]),
+            variantCall("Ok", [
+                callOf(dot(id("Json"), "Object"), [
+                    method(ex(.Array(pieces)), "flatten", [id("ctx")]),
+                ]),
             ]),
         )
     };
@@ -2804,13 +2917,16 @@ fn jsonEncodeFn<C: Allocator>(
         name: nm(str.format(ctx, "encode${name}Json")),
         generics: allocGeneric(),
         params: [ctxParam(), param("value", tyNamed(name))],
-        ret: tyNamed("Json"),
+        ret: resultOf("Json"),
         body: [body],
         exported: true,
         docs: [
             "The proto3 JSON mapping — which is *not* `derive ToJson`'s. A 64-bit",
             "integer is a string, `bytes` is base64, an enum is its value's name, and",
             "a oneof's case is an ordinary member of this object.",
+            "",
+            "A value proto3 JSON cannot write, such as a `Duration` past ten",
+            "thousand years, is an `.Unwritable` naming where it is.",
         ],
     })
 }

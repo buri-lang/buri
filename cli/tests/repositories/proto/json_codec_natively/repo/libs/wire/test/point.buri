@@ -19,7 +19,7 @@ test "a point round-trips through JSON" {
         Allocator: alloc(),
     };
     let p = Point { ..defaultPoint(), x: .Some(3) };
-    let back = assert.ok(decodePointJson(ctx, encodePointJson(ctx, p)));
+    let back = assert.ok(decodePointJson(ctx, assert.ok(encodePointJson(ctx, p))));
     assert.equal(back, p);
 }
 

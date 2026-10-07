@@ -184,8 +184,11 @@ test "a field's Buri name is protoc's json_name, and a keyword gets an underscor
     ]);
     // The JSON document is not ours to rename: the escaped field still writes
     // the name the schema wrote, and a camel name is looked up under both.
-    assert.contains(out, "                .Some(x) => [(\"type\", Json.Str(x))],");
-    assert.contains(out, "                .Some(x) => [(\"userName\", Json.Str(x))],");
+    assert.contains(out, "                    .Some(x) => [(\"type\", Json.Str(x))],");
+    assert.contains(
+        out,
+        "                    .Some(x) => [(\"userName\", Json.Str(x))],",
+    );
     assert.contains(
         out,
         "            let f_type_: Option<Str> = match (proto.member(doc, \"type\")) {",

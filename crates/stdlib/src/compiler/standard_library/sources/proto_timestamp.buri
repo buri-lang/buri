@@ -109,7 +109,10 @@ export fn readTimestamp<C: Allocator>(
 }
 
 /// proto3 JSON writes a `Timestamp` as RFC 3339 in UTC: `"1970-01-01T00:00:10.500Z"`.
-export fn encodeTimestampJson<C: Allocator>(ctx: C, value: Timestamp): Json {
+export fn encodeTimestampJson<C: Allocator>(
+    ctx: C,
+    value: Timestamp,
+): Result<Json, ProtoError> {
     proto.jsonTimestamp(ctx, value.seconds, value.nanos)
 }
 

@@ -66,7 +66,7 @@ fn single<C: Allocator>(ctx: C, name: Str, doc: Str, write: Str, read: Str): Str
         name,
         "Json<C: Allocator>(ctx: C, value: ",
         name,
-        "): Json {\n",
+        "): Result<Json, ProtoError> {\n",
         unused(write),
         "    ",
         write,
@@ -120,13 +120,13 @@ fn instant<C: Allocator>(ctx: C, name: Str, form: Str, doc: Str): Str {
     )
 }
 
-/// A wrapper: the value's own JSON.
+/// A wrapper: the value's own JSON, which always writes.
 fn wrapper<C: Allocator>(ctx: C, name: Str, write: Str, read: Str): Str {
     single(
         ctx,
         name,
         "proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.",
-        write,
+        [".Ok(", write, ")"].join(ctx, ""),
         [".Ok(", name, " { value: ", read, "? })"].join(ctx, ""),
     )
 }
@@ -264,14 +264,18 @@ export fn holdsNull(full: Str): Bool {
 
 let STRUCT: [Str] = [
     "/// proto3 JSON writes a `Struct` as the object it is.",
-    "export fn encodeStructJson<C: Allocator>(ctx: C, value: Struct): Json {",
-    "    Json.Object(",
-    "        value.fields.foldCtx(",
-    "            ctx,",
-    "            fn(c, acc: [(Str, Json)], k, v) => acc.push(c, (k, encodeValueJson(c, v))),",
-    "            list.empty<(Str, Json)>(),",
-    "        ),",
-    "    )",
+    "export fn encodeStructJson<C: Allocator>(ctx: C, value: Struct): Result<Json, ProtoError> {",
+    "    let start: Result<[(Str, Json)], ProtoError> = .Ok(list.empty<(Str, Json)>());",
+    "    let members = value.fields.foldCtx(",
+    "        ctx,",
+    "        fn(c, acc: Result<[(Str, Json)], ProtoError>, k, v): Result<[(Str, Json)], ProtoError> => {",
+    "            let done = acc?;",
+    "            let one = proto.inMember(c, encodeValueJson(c, v), k)?;",
+    "            .Ok(done.push(c, (k, one)))",
+    "        },",
+    "        start,",
+    "    )?;",
+    "    .Ok(Json.Object(members))",
     "}",
     "",
     "/// Reads a proto3 JSON document.",
@@ -296,20 +300,21 @@ let STRUCT: [Str] = [
 ];
 
 let VALUE: [Str] = [
-    "/// proto3 JSON writes a `Value` as whichever JSON value it holds.",
-    "export fn encodeValueJson<C: Allocator>(ctx: C, value: Value): Json {",
+    "/// proto3 JSON writes a `Value` as whichever JSON value it holds. NaN and",
+    "/// the infinities are refused, since JSON has no number for them.",
+    "export fn encodeValueJson<C: Allocator>(ctx: C, value: Value): Result<Json, ProtoError> {",
     "    match (value.kind) {",
     "        .Some(k) => {",
     "            match (k) {",
-    "                .NullValue(_n) => Json.Null,",
-    "                .NumberValue(x) => Json.Num(x),",
-    "                .StringValue(s) => Json.Str(s),",
-    "                .BoolValue(b) => Json.Bool(b),",
+    "                .NullValue(_n) => .Ok(Json.Null),",
+    "                .NumberValue(x) => proto.jsonNumber(x),",
+    "                .StringValue(s) => .Ok(Json.Str(s)),",
+    "                .BoolValue(b) => .Ok(Json.Bool(b)),",
     "                .StructValue(s) => encodeStructJson(ctx, s),",
     "                .ListValue(l) => encodeListValueJson(ctx, l),",
     "            }",
     "        },",
-    "        .None => Json.Null,",
+    "        .None => .Ok(Json.Null),",
     "    }",
     "}",
     "",
@@ -337,8 +342,17 @@ let VALUE: [Str] = [
 
 let LIST_VALUE: [Str] = [
     "/// proto3 JSON writes a `ListValue` as the array it is.",
-    "export fn encodeListValueJson<C: Allocator>(ctx: C, value: ListValue): Json {",
-    "    Json.Array(value.values.mapCtx(ctx, fn(c, v) => encodeValueJson(c, v)))",
+    "export fn encodeListValueJson<C: Allocator>(ctx: C, value: ListValue): Result<Json, ProtoError> {",
+    "    let items = value.values.foldResultCtx(",
+    "        ctx,",
+    "        fn(c, acc: [Json], v) => {",
+    "            let i = acc.length();",
+    "            let one = proto.inElement(c, encodeValueJson(c, v), i)?;",
+    "            .Ok(acc.push(c, one))",
+    "        },",
+    "        list.empty<Json>(),",
+    "    )?;",
+    "    .Ok(Json.Array(items))",
     "}",
     "",
     "/// Reads a proto3 JSON document.",

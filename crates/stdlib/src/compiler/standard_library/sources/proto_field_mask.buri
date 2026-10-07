@@ -94,7 +94,10 @@ export fn readFieldMask<C: Allocator>(
 }
 
 /// proto3 JSON writes a `FieldMask` as its paths in lowerCamelCase, joined by commas.
-export fn encodeFieldMaskJson<C: Allocator>(ctx: C, value: FieldMask): Json {
+export fn encodeFieldMaskJson<C: Allocator>(
+    ctx: C,
+    value: FieldMask,
+): Result<Json, ProtoError> {
     proto.jsonFieldMask(ctx, value.paths)
 }
 

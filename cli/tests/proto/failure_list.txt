@@ -1,6 +1,6 @@
 # Tests the Buri implementation is expected to fail, and why.
 #
-# Recorded from a run and then grouped: every entry belongs to one of the three
+# Recorded from a run and then grouped: every entry belongs to one of the two
 # reasons below, and each reason is a decision written down somewhere else -- in
 # README.md for what was removed from the vendored schema and what edition it
 # was migrated to, in `buri docs build/proto` for the mapping, in `core/proto`
@@ -10,7 +10,7 @@
 # passes, so this file cannot rot in the direction of hiding a fix; and a test
 # that starts failing has to be classified before it can be added.
 #
-# Counts when this was recorded: 1445 succeeded, 1314 skipped, 36 expected to
+# Counts when this was recorded: 1460 succeeded, 1314 skipped, 26 expected to
 # fail, 0 unexpected. `vectors.txt` records the same run, with `fail` beside
 # every test named here, and `cli/tests/vectors/proto.rs` holds the two to
 # agreeing. `./run.sh --update` writes the names of anything unexpected, and
@@ -48,24 +48,6 @@ Required.Proto3.JsonInput.AnyWithValueForJsonObject.JsonOutput
 Required.Proto3.JsonInput.AnyWithValueForJsonObject.ProtobufOutput
 Required.Proto3.JsonInput.AnyWktRepresentationWithBadType
 Required.Proto3.JsonInput.AnyWktRepresentationWithEmptyTypeAndValue
-
-# --- A JSON writer that cannot fail -------------------------------------------
-#
-# A `Duration` or `Timestamp` outside the range proto3 JSON can write, or with
-# nanos of the wrong sign, should fail to serialize. `encodeMJson` answers a
-# `Json` rather than a `Result`, so such a value is written as it is. Making it
-# refuse is a change to every generated encoder's signature.
-# (10 tests)
-Required.Proto3.DurationProtoInputTooLarge.JsonOutput
-Required.Proto3.DurationProtoInputTooSmall.JsonOutput
-Required.Proto3.DurationProtoNanosTooLarge.JsonOutput
-Required.Proto3.DurationProtoNanosTooSmall.JsonOutput
-Required.Proto3.DurationProtoNanosWrongSign.JsonOutput
-Required.Proto3.DurationProtoNanosWrongSignNegativeSecs.JsonOutput
-Required.Proto3.TimestampProtoInputTooLarge.JsonOutput
-Required.Proto3.TimestampProtoInputTooSmall.JsonOutput
-Required.Proto3.TimestampProtoNanoTooLarge.JsonOutput
-Required.Proto3.TimestampProtoNegativeNanos.JsonOutput
 
 # --- Unknown fields are dropped rather than retained --------------------------
 #

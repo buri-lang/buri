@@ -165,11 +165,15 @@ fn serialize<C: Allocator>(
             result: .Some(.ProtobufPayload(encodeTestAllTypesProto3(ctx, message))),
         }
     } else if (format(request) == WireFormat.JSON) {
-        let text = json.stringify(ctx, encodeTestAllTypesProto3Json(ctx, message));
-        ConformanceResponse {
-            ..defaultConformanceResponse(),
-            result: .Some(.JsonPayload(text)),
-        }
+        // A message proto3 JSON cannot write is a serialize error, which is
+        // what the runner expects of an out-of-range `Duration`.
+        let result = match (encodeTestAllTypesProto3Json(ctx, message)) {
+            .Ok(doc) => {
+                ConformanceResponse_Result.JsonPayload(json.stringify(ctx, doc))
+            },
+            .Err(e) => ConformanceResponse_Result.SerializeError(show(e)),
+        };
+        ConformanceResponse { ..defaultConformanceResponse(), result: .Some(result) }
     } else {
         skipped(ctx, "this testee writes protobuf and JSON only")
     }
@@ -205,5 +209,6 @@ fn show(e: ProtoError): Str {
         .BadFieldNumber(_at) => "field number zero",
         .BadUtf8(_at) => "a string field is not UTF-8",
         .BadJson { path: _p, wanted: w } => w,
+        .Unwritable { path: _p, reason: r } => r,
     }
 }

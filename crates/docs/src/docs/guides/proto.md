@@ -80,7 +80,10 @@ export fn dark(): Everything {
 }
 ```
 
-A failure is a `ProtoError` carrying a byte offset or a field number.
+A failure is a `ProtoError` carrying a byte offset, a field number or a path.
+Writing JSON can fail too: `encodePointJson` answers a `Result`, because proto3
+JSON has no way to write some values, such as a `Duration` past ten thousand
+years.
 
 ## Check and format it
 

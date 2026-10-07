@@ -4,17 +4,19 @@
 from "core/bytes" import * as bytes;
 from "core/json" import * as json;
 from "core/list" import * as list;
+from "core/orderedmap" import * as orderedmap;
 from "core/proto" import { ProtoError };
 from "core/proto/duration" import { Duration };
 from "core/proto/field_mask" import { FieldMask };
-from "core/proto/struct" import { NullValue, Value, Value_Kind };
+from "core/proto/struct" import { ListValue, NullValue, Struct, Value, Value_Kind };
 from "core/proto/timestamp" import { Timestamp };
 from "core/proto/wrappers" import { BoolValue, Int64Value, StringValue, UInt64Value };
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
 from "//lib/proto" import {
-    decodeKnown, decodeKnownJson, defaultKnown, encodeKnown, encodeKnownJson, Known,
+    decodeKnown, decodeKnownJson, defaultEnvelope, defaultKnown, encodeEnvelopeJson,
+    encodeKnown, encodeKnownJson, Envelope, Envelope_Pick, Known,
 };
 
 fn read<C: Allocator>(ctx: C, source: Str): Result<Known, ProtoError> {
@@ -25,7 +27,7 @@ fn read<C: Allocator>(ctx: C, source: Str): Result<Known, ProtoError> {
 }
 
 fn text<C: Allocator>(ctx: C, v: Known): Str {
-    json.stringify(ctx, encodeKnownJson(ctx, v))
+    json.stringify(ctx, assert.ok(encodeKnownJson(ctx, v)))
 }
 
 /// Writes `doc`, and reads it back to the same value.
@@ -343,4 +345,171 @@ test "Empty is an empty object, and the wire format is a message like any other"
     // field 1, wire 2, length 2: field 1 varint 1.
     assert.equal(bytes.toHex(ctx, encodeKnown(ctx, duration(1, 0))), "0a020801");
     assert.equal(decodeKnown(ctx, list.empty<U8>()), .Ok(defaultKnown()));
+}
+
+// --- what a writer refuses ------------------------------------------------------------
+
+test "every well-known type at once is written as it always was" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let doc =
+        "{\"duration\":\"-1.5s\",\"timestamp\":\"1970-01-01T00:00:10.5Z\",\"mask\":\"foo,barBaz\",\"object\":{\"a\":1,\"b\":[\"x\",true,null]},\"value\":1.5,\"list\":[{}],\"big\":\"7\",\"huge\":\"18446744073709551615\",\"flag\":false,\"text\":\"\",\"blob\":\"AQ==\",\"ratio\":\"NaN\",\"rough\":\"-Infinity\",\"small\":-1,\"count\":4294967295,\"nothing\":{},\"any\":{\"typeUrl\":\"t\",\"value\":\"AQ==\"},\"noneValue\":null,\"times\":[\"0001-01-01T00:00:00Z\"],\"values\":[null,2]}";
+    let out =
+        "{\"duration\":\"-1.500s\",\"timestamp\":\"1970-01-01T00:00:10.500Z\",\"mask\":\"foo,barBaz\",\"object\":{\"a\":1,\"b\":[\"x\",true,null]},\"value\":1.5,\"list\":[{}],\"big\":\"7\",\"huge\":\"18446744073709551615\",\"flag\":false,\"text\":\"\",\"blob\":\"AQ==\",\"ratio\":\"NaN\",\"rough\":\"-Infinity\",\"small\":-1,\"count\":4294967295,\"nothing\":{},\"any\":{\"typeUrl\":\"t\",\"value\":\"AQ==\"},\"noneValue\":null,\"times\":[\"0001-01-01T00:00:00Z\"],\"values\":[null,2]}";
+    rewrites(ctx, doc, out);
+}
+
+fn written<C: Allocator>(ctx: C, v: Known): Result<Str, ProtoError> {
+    encodeKnownJson(ctx, v).mapCtx(ctx, fn(c, d) => json.stringify(c, d))
+}
+
+fn unwritable<C: Allocator>(ctx: C, v: Known, path: Str, reason: Str): () {
+    assert.equal(written(ctx, v), .Err(.Unwritable { path: path, reason: reason }));
+}
+
+fn number(x: Float): Value {
+    Value { kind: .Some(Value_Kind.NumberValue(x)) }
+}
+
+fn mask(path: Str): Known {
+    Known { ..defaultKnown(), mask: .Some(FieldMask { paths: ["ok_path", path] }) }
+}
+
+test "a Duration past ten thousand years, or with nanos out of step, is not written" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let seconds = "seconds outside ±315576000000";
+    let nanos = "nanos outside ±999999999";
+    let signs = "seconds and nanos of opposite signs";
+    unwritable(ctx, duration(315576000001, 0), "$.duration", seconds);
+    unwritable(ctx, duration(-315576000001, 0), "$.duration", seconds);
+    unwritable(ctx, duration(0, 1000000000), "$.duration", nanos);
+    unwritable(ctx, duration(0, -1000000000), "$.duration", nanos);
+    unwritable(ctx, duration(1, -1), "$.duration", signs);
+    unwritable(ctx, duration(-1, 1), "$.duration", signs);
+}
+
+test "a Timestamp outside the years 1 to 9999, or with nanos out of range, is not written" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let years = "outside 0001-01-01T00:00:00Z to 9999-12-31T23:59:59Z";
+    let nanos = "nanos outside 0 to 999999999";
+    unwritable(ctx, timestamp(253402300800, 0), "$.timestamp", years);
+    unwritable(ctx, timestamp(-62135596801, 0), "$.timestamp", years);
+    unwritable(ctx, timestamp(0, 1000000000), "$.timestamp", nanos);
+    unwritable(ctx, timestamp(0, -1), "$.timestamp", nanos);
+    let times = [
+        Timestamp { seconds: 0, nanos: 0 },
+        Timestamp { seconds: 0, nanos: -1 },
+    ];
+    unwritable(ctx, Known { ..defaultKnown(), times: times }, "$.times[1]", nanos);
+}
+
+test "a FieldMask path with no lowerCamelCase form is not written" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    unwritable(ctx, mask("fooBar"), "$.mask", "`fooBar` has no lowerCamelCase form");
+    unwritable(
+        ctx,
+        mask("foo__bar"),
+        "$.mask",
+        "`foo__bar` has no lowerCamelCase form",
+    );
+    unwritable(
+        ctx,
+        mask("foo_3_bar"),
+        "$.mask",
+        "`foo_3_bar` has no lowerCamelCase form",
+    );
+    unwritable(ctx, mask("foo_"), "$.mask", "`foo_` has no lowerCamelCase form");
+}
+
+test "a Value holding NaN or an infinity is not written, wherever it is" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let nan = 0.0 / 0.0;
+    let inf = 1.0 / 0.0;
+    let reason = "a number JSON cannot hold";
+    unwritable(
+        ctx,
+        Known { ..defaultKnown(), value: .Some(number(nan)) },
+        "$.value",
+        reason,
+    );
+    unwritable(
+        ctx,
+        Known { ..defaultKnown(), value: .Some(number(inf)) },
+        "$.value",
+        reason,
+    );
+    unwritable(
+        ctx,
+        Known { ..defaultKnown(), value: .Some(number(0.0 - inf)) },
+        "$.value",
+        reason,
+    );
+    unwritable(
+        ctx,
+        Known { ..defaultKnown(), values: [number(1.0), number(nan)] },
+        "$.values[1]",
+        reason,
+    );
+    let inner = Struct { fields: orderedmap.of(ctx, [("a", number(inf))]) };
+    let list = ListValue {
+        values: [Value { kind: .Some(Value_Kind.StructValue(inner)) }],
+    };
+    unwritable(
+        ctx,
+        Known { ..defaultKnown(), list: .Some(list) },
+        "$.list[0].a",
+        reason,
+    );
+    // A `double` field, and a `DoubleValue`, spell the three as strings.
+    rewrites(ctx, "{\"ratio\":\"Infinity\"}", "{\"ratio\":\"Infinity\"}");
+}
+
+fn envelope<C: Allocator>(ctx: C, e: Envelope): Result<Str, ProtoError> {
+    encodeEnvelopeJson(ctx, e).mapCtx(ctx, fn(c, d) => json.stringify(c, d))
+}
+
+fn refusal(path: Str, reason: Str): Result<Str, ProtoError> {
+    .Err(.Unwritable { path: path, reason: reason })
+}
+
+test "a refusal one message down names the whole path" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let late = duration(315576000001, 0);
+    let seconds = "seconds outside ±315576000000";
+    assert.equal(
+        envelope(ctx, Envelope { ..defaultEnvelope(), known: .Some(late) }),
+        refusal("$.known.duration", seconds),
+    );
+    assert.equal(
+        envelope(ctx, Envelope { ..defaultEnvelope(), many: [defaultKnown(), late] }),
+        refusal("$.many[1].duration", seconds),
+    );
+    let spans = orderedmap.of(ctx, [
+        ("a", Duration { seconds: 1, nanos: 0 }),
+        ("b", Duration { seconds: 1, nanos: -1 }),
+    ]);
+    assert.equal(
+        envelope(ctx, Envelope { ..defaultEnvelope(), spans: spans }),
+        refusal("$.spans.b", "seconds and nanos of opposite signs"),
+    );
+    let at = Envelope_Pick.At(Timestamp { seconds: 0, nanos: -1 });
+    assert.equal(
+        envelope(ctx, Envelope { ..defaultEnvelope(), pick: .Some(at) }),
+        refusal("$.at", "nanos outside 0 to 999999999"),
+    );
+    assert.equal(
+        envelope(ctx, Envelope { ..defaultEnvelope(), known: .Some(defaultKnown()) }),
+        .Ok("{\"known\":{}}"),
+    );
 }

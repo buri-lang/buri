@@ -33,7 +33,8 @@ export fn main(host: NodeHost): Result<(), Str> {
     let _ = io
         .println(ctx, "${decodeErrorInfo(ctx, detail.value) == .Ok(info)}")
         .mapErr(fn(_e) => "could not write to standard output")?;
+    let doc = encodeStatusJson(ctx, status).mapErr(fn(_e) => "could not write JSON")?;
     io
-        .println(ctx, json.stringify(ctx, encodeStatusJson(ctx, status)))
+        .println(ctx, json.stringify(ctx, doc))
         .mapErr(fn(_e) => "could not write to standard output")
 }

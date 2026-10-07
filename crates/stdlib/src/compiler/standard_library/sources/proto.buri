@@ -31,9 +31,9 @@ from "core/str" import * as str;
 from "platform/effect" import { Allocator };
 
 derive Equal, Show for ProtoError;
-/// Where a message stopped being one.
+/// Where a message stopped being one, or could not be written.
 ///
-/// Every case carries a byte offset or a field number.
+/// Every case carries a byte offset, a field number or a path.
 export enum ProtoError {
     /// The input ended in the middle of a field.
     Truncated(Int),
@@ -47,6 +47,9 @@ export enum ProtoError {
     /// A JSON document that is not the message it was read as. `path` reads the
     /// way `core/json`'s does — `$` for the document, `.name` for a member.
     BadJson { path: Str, wanted: Str },
+    /// A message proto3 JSON has no way to write, such as a `Duration` past
+    /// ten thousand years. `path` reads the way `BadJson`'s does.
+    Unwritable { path: Str, reason: Str },
 }
 
 export let VARINT: Int = 0;
@@ -1027,12 +1030,52 @@ export fn index<C: Allocator>(ctx: C, path: Str, i: Int): Str {
 }
 
 // -----------------------------------------------------------------------------
+/// A writer's refusal, moved under the member `name`: `$.x` becomes `$.name.x`.
+/// A generated writer builds a path only once something has failed.
+export fn inMember<C: Allocator>(
+    ctx: C,
+    written: Result<Json, ProtoError>,
+    name: Str,
+): Result<Json, ProtoError> {
+    match (written) {
+        .Err(.Unwritable { path: p, reason: r }) => {
+            .Err(.Unwritable { path: under(ctx, at(ctx, "$", name), p), reason: r })
+        },
+        _ => written,
+    }
+}
+
+/// The same, under element `i` of an array: `$.x` becomes `$[i].x`.
+export fn inElement<C: Allocator>(
+    ctx: C,
+    written: Result<Json, ProtoError>,
+    i: Int,
+): Result<Json, ProtoError> {
+    match (written) {
+        .Err(.Unwritable { path: p, reason: r }) => {
+            .Err(.Unwritable { path: under(ctx, index(ctx, "$", i), p), reason: r })
+        },
+        _ => written,
+    }
+}
+
+/// `path`, which starts at `$`, starting at `prefix` instead.
+fn under<C: Allocator>(ctx: C, prefix: Str, path: Str): Str {
+    prefix.concat(ctx, path.slice(1, path.length()))
+}
+
+/// A refusal at `$`, which an enclosing writer moves to where the value is.
+fn unwritable(reason: Str): Result<Json, ProtoError> {
+    .Err(.Unwritable { path: "$", reason: reason })
+}
+
 // The well-known types' JSON
 // -----------------------------------------------------------------------------
 //
 // proto3 JSON writes six of `google/protobuf`'s messages as something other
 // than an object, and these are the forms. The generated `core/proto/duration`,
-// `core/proto/timestamp` and `core/proto/field_mask` call them.
+// `core/proto/timestamp`, `core/proto/field_mask` and `core/proto/struct` call
+// them. A writer refuses what its form cannot say, as protobuf's own do.
 
 /// The member of an object, `null` included. A `google.protobuf.Value` and a
 /// `NullValue` hold `null` as a value, so for those fields it is not absence.
@@ -1044,12 +1087,25 @@ export fn memberKeepingNull(doc: Json, name: Str, alternate: Str): Option<Json> 
 }
 
 /// A `Duration`, as `"1.5s"`: seconds, then a fraction of 3, 6 or 9 digits if
-/// there is one, then `s`.
-export fn jsonDuration<C: Allocator>(ctx: C, seconds: Int, nanos: Int): Json {
-    let sign = if (seconds < 0 || nanos < 0) { "-" } else { "" };
-    let s = if (seconds < 0) { 0 - seconds } else { seconds };
-    let n = if (nanos < 0) { 0 - nanos } else { nanos };
-    Json.Str(str.format(ctx, "${sign}${s}${fraction(ctx, n)}s"))
+/// there is one, then `s`. Refused past ten thousand years either way, or when
+/// `nanos` is not a fraction of a second with the sign `seconds` has.
+export fn jsonDuration<C: Allocator>(
+    ctx: C,
+    seconds: Int,
+    nanos: Int,
+): Result<Json, ProtoError> {
+    if (seconds > MAX_DURATION || seconds < 0 - MAX_DURATION) {
+        unwritable("seconds outside ±315576000000")
+    } else if (nanos > 999999999 || nanos < -999999999) {
+        unwritable("nanos outside ±999999999")
+    } else if (seconds > 0 && nanos < 0 || seconds < 0 && nanos > 0) {
+        unwritable("seconds and nanos of opposite signs")
+    } else {
+        let sign = if (seconds < 0 || nanos < 0) { "-" } else { "" };
+        let s = if (seconds < 0) { 0 - seconds } else { seconds };
+        let n = if (nanos < 0) { 0 - nanos } else { nanos };
+        .Ok(Json.Str(str.format(ctx, "${sign}${s}${fraction(ctx, n)}s")))
+    }
 }
 
 /// The largest duration proto3 JSON writes: ten thousand years of seconds.
@@ -1152,8 +1208,23 @@ let MIN_TIMESTAMP: Int = -62135596800;
 
 let MAX_TIMESTAMP: Int = 253402300799;
 
-/// A `Timestamp`, as RFC 3339 in UTC: `1970-01-01T00:00:10.500Z`.
-export fn jsonTimestamp<C: Allocator>(ctx: C, seconds: Int, nanos: Int): Json {
+/// A `Timestamp`, as RFC 3339 in UTC: `1970-01-01T00:00:10.500Z`. Refused
+/// outside the years 1 to 9999, or with `nanos` outside a second.
+export fn jsonTimestamp<C: Allocator>(
+    ctx: C,
+    seconds: Int,
+    nanos: Int,
+): Result<Json, ProtoError> {
+    if (seconds < MIN_TIMESTAMP || seconds > MAX_TIMESTAMP) {
+        unwritable("outside 0001-01-01T00:00:00Z to 9999-12-31T23:59:59Z")
+    } else if (nanos < 0 || nanos > 999999999) {
+        unwritable("nanos outside 0 to 999999999")
+    } else {
+        .Ok(rfc3339(ctx, seconds, nanos))
+    }
+}
+
+fn rfc3339<C: Allocator>(ctx: C, seconds: Int, nanos: Int): Json {
     let days = floorDiv(seconds, 86400);
     let rest = seconds - days * 86400;
     let (y, m, d) = civil(days);
@@ -1341,28 +1412,69 @@ fn digitsEnd(text: Str, i: Int): Int {
 }
 
 /// A `FieldMask`, as its paths in lowerCamelCase joined by commas.
-export fn jsonFieldMask<C: Allocator>(ctx: C, paths: [Str]): Json {
-    Json.Str(paths.mapCtx(ctx, fn(c, p) => camelPath(c, p)).join(ctx, ","))
-}
-
-fn camelPath<C: Allocator>(ctx: C, path: Str): Str {
-    let pieces = path.split(ctx, "_");
-    let first = pieces.first().withDefault("");
-    pieces
-        .drop(ctx, 1)
-        .foldCtx(
-            ctx,
-            fn(c, acc: Str, piece) => [acc, upperFirstChar(c, piece)].join(c, ""),
-            first,
-        )
-}
-
-fn upperFirstChar<C: Allocator>(ctx: C, s: Str): Str {
-    match (s.charAt(0)) {
-        .Some(c) => {
-            str.fromChars(ctx, [c.toUpper()]).concat(ctx, s.slice(1, s.length()))
+///
+/// A path that would not read back as itself is refused: one with a capital,
+/// or an `_` not followed by a lowercase letter.
+export fn jsonFieldMask<C: Allocator>(ctx: C, paths: [Str]): Result<Json, ProtoError> {
+    let camel = paths.foldResultCtx(
+        ctx,
+        fn(c, acc: [Str], p) => {
+            match (camelPath(c, p)) {
+                .Some(q) => .Ok(acc.push(c, q)),
+                .None => {
+                    .Err(ProtoError.Unwritable {
+                        path: "$",
+                        reason: str.format(c, "`${p}` has no lowerCamelCase form"),
+                    })
+                },
+            }
         },
-        .None => s,
+        list.empty<Str>(),
+    )?;
+    .Ok(Json.Str(camel.join(ctx, ",")))
+}
+
+/// protoc's rule: an `_` and the lowercase letter after it become that letter
+/// in capitals.
+fn camelPath<C: Allocator>(ctx: C, path: Str): Option<Str> {
+    camelFrom(ctx, path.chars(ctx), 0, false, list.empty<Char>())
+}
+
+/// `chars` from `i`, onto `out`. `up` is whether the last one was an `_`.
+fn camelFrom<C: Allocator>(
+    ctx: C,
+    chars: [Char],
+    i: Int,
+    up: Bool,
+    out: [Char],
+): Option<Str> {
+    match (chars.get(i)) {
+        .None => if (up) { .None } else { .Some(str.fromChars(ctx, out)) },
+        .Some(ch) => {
+            if (ch.isAscii() && ch.isUpper()) {
+                .None
+            } else if (up) {
+                if (ch.isAscii() && ch.isLower()) {
+                    camelFrom(ctx, chars, i + 1, false, out.push(ctx, ch.toUpper()))
+                } else {
+                    .None
+                }
+            } else if (ch == '_') {
+                camelFrom(ctx, chars, i + 1, true, out)
+            } else {
+                camelFrom(ctx, chars, i + 1, false, out.push(ctx, ch))
+            }
+        },
+    }
+}
+
+/// A `Value`'s number. JSON has none for NaN or the infinities, and a `Value`,
+/// unlike a `double` field, has no string to spell them as.
+export fn jsonNumber(x: Float): Result<Json, ProtoError> {
+    if (math.isNan(x) || x > number.maxValue<F64>() || x < number.minValue<F64>()) {
+        unwritable("a number JSON cannot hold")
+    } else {
+        .Ok(Json.Num(x))
     }
 }
 

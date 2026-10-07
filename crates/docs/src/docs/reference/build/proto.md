@@ -310,7 +310,7 @@ encodeM(ctx, M): [U8]                            the wire format
 writeM(ctx, [U8], M): [U8]                       the same, appended to a buffer
 sizeM(M): Int                                    how many bytes encodeM writes
 decodeM(ctx, [U8]): Result<M, ProtoError>
-encodeMJson(ctx, M): Json                        the proto3 JSON mapping
+encodeMJson(ctx, M): Result<Json, ProtoError>   the proto3 JSON mapping
 decodeMJson(ctx, Json): Result<M, ProtoError>
 decodeMJsonAt(ctx, Json, path): Result<M, ProtoError>
 ```
@@ -322,7 +322,7 @@ and `decodeEJson(Json, path): Result<E, ProtoError>`.
 [the guide](../../guides/proto.md#use-the-types) shows it in use.
 
 `ProtoError` comes from [`core/proto`](../standard-library.md). Every case
-carries a byte offset or a field number.
+carries a byte offset, a field number or a path.
 
 ### Why the codecs are generated Buri
 
@@ -383,6 +383,34 @@ conforming reader can tell.
 A failure names its path the way [`core/json`](../standard-library.md) does:
 `$.home.city`.
 
+The writer refuses what proto3 JSON can't say, as protobuf's own writers do:
+
+```text
+.Err(.Unwritable { path: "$.timeout", reason: "seconds outside ±315576000000" })
+```
+
+- a `Duration` past ten thousand years either way, or whose `nanos` is outside
+  ±999,999,999 or has the opposite sign to `seconds`;
+- a `Timestamp` before year 1 or after year 9999, or whose `nanos` is outside 0
+  to 999,999,999;
+- a `FieldMask` path with no lowerCamelCase form, such as `fooBar`, `foo__bar`
+  or `foo_3_bar`, because it wouldn't read back as itself;
+- a `Value` holding NaN or an infinity. A `double` field spells those as
+  strings, but a `Value` string is a string.
+
+An array element's path carries its index, `$.times[1]`, and a map value's its
+key, `$.spans.b`. The binary encoders can't fail and still answer `[U8]`.
+
+**Migrating:** `encodeMJson` used to answer a `Json`. Apply `?` where the caller
+returns a `Result`:
+
+```text
+let doc = encodePointJson(ctx, p)?;
+```
+
+Or handle `.Unwritable` with `match`. An enum's `encodeEJson` still answers a
+`Json`, since every value of an enum has a name or a number.
+
 ## Well-known types
 
 `google/protobuf`'s schemas come with the toolchain, so import one the way
@@ -430,10 +458,8 @@ only its own schema's. Decode `value` with the codec for the type you expect:
 let inner = decodeErrorInfo(ctx, detail.value)?;
 ```
 
-**`encodeMJson` cannot fail.** A `Duration` or `Timestamp` outside JSON's range
-is written as it is rather than refused.
-
-The binary format is exact for all of them.
+A value JSON can't hold is refused rather than written, as [the JSON
+mapping](#the-json-mapping) lists. The binary format is exact for all of them.
 
 ## What is not supported
 
@@ -475,12 +501,12 @@ wire-format and JSON edge cases. `cli/tests/proto/` holds the vendored schemas,
 a Buri testee, and a list of expected failures.
 
 ```text
-CONFORMANCE SUITE PASSED: 1445 successes, 1314 skipped, 36 expected failures, 0 unexpected failures.
+CONFORMANCE SUITE PASSED: 1460 successes, 1314 skipped, 26 expected failures, 0 unexpected failures.
 ```
 
 [`cli/tests/proto/README.md`](../../../../../../cli/tests/proto/README.md) files each
-expected failure under one of three reasons: `Any` in JSON, a JSON writer that
-cannot fail, and unknown fields, which a decoder drops rather than keeps.
+expected failure under one of two reasons: `Any` in JSON, and unknown fields,
+which a decoder drops rather than keeps.
 
 The runner is a C++ build of another project, so `nix build
 .#conformance-runner` builds it and CI runs it. `cli/tests/vectors/proto.rs`
