@@ -471,3 +471,25 @@ jobs:
       - run: nix flake check --all-systems --no-build
       - run: nix build .#from-source
       - run: ./result/bin/buri version
+
+  # protobuf's own conformance suite against the codecs the proto generator
+  # writes. The runner is a C++ test binary nixpkgs doesn't package, so the
+  # flake builds it from the pinned release (`packages.conformance-runner`), and
+  # `vectors::proto::the_conformance_runner_passes` runs it. Every other job
+  # defers that test here; they replay the recording of it instead.
+  proto-conformance:
+    name: protobuf conformance
+    timeout-minutes: 30
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
+      - run: nix build .#conformance-runner -o runner
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+      - run: cargo test -p buri --test vectors -- proto::the_conformance_runner_passes --nocapture
+        env:
+          CONFORMANCE_TEST_RUNNER: ${{ github.workspace }}/runner/bin/conformance_test_runner

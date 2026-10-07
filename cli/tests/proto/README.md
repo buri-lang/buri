@@ -26,23 +26,34 @@ cli/tests/proto/run.sh
 ```
 
 `conformance_test_runner` has to be on `PATH`, or `CONFORMANCE_TEST_RUNNER` has
-to point at one. **nixpkgs does not package it** — `protobuf` there is the
-library and `protoc`, and the runner is a test binary the release does not
-install — so you build it from the protobuf source. `run.sh` prints the recipe
-when it cannot find one: a CMake build against nixpkgs' abseil, about six
-minutes on a laptop. One wrinkle: nixpkgs' `jsoncpp` ships no static library and
-protobuf's CMake asks for `jsoncpp_static`, so the final link needs a
-`libjsoncpp_static.dylib` symlinked to `libjsoncpp.dylib` on the library path.
+to point at one. nixpkgs doesn't package it, so the flake builds it from the
+vendored release, in about a minute and a half on a laptop:
+
+```sh
+nix build .#conformance-runner
+CONFORMANCE_TEST_RUNNER=$PWD/result/bin/conformance_test_runner cli/tests/proto/run.sh
+```
+
+CI's `protobuf conformance` job does the same on every push, through
+`vectors::proto::the_conformance_runner_passes`.
 
 `./run.sh --update` writes any unexpected failure to `unexpected.txt` for
 classification. `./run.sh --record` re-records `vectors.txt`.
 
-**This stays out of `cargo test` on purpose**, for the same reason
-`editors/tree-sitter-buri/check.sh` does: a suite that cannot run without a C++
-build of another project is a suite that does not run.
-`cli/tests/vectors/proto.rs` is the half that does run under cargo. It replays
-`vectors.txt` through the same testee, and needs only a Buri toolchain and a
-JavaScript runtime.
+**This stays out of `cargo test`**: a suite that cannot run without a C++ build
+of another project is a suite that does not run. `cli/tests/vectors/proto.rs` is
+the half that does, with only a Buri toolchain and a JavaScript runtime:
+
+- `the_recorded_exchanges_still_hold` replays every request the runner sent
+  about `TestAllTypesProto3` and checks each answer byte for byte. A change to
+  any answer, a regression or a fix, fails it until `--record` is run again.
+- `the_failure_list_is_the_recorded_failures` checks that `failure_list.txt`
+  names exactly the tests recorded as failing, so the list can't drift.
+- `the_recording_covers_every_fixed_class_of_bug` checks that the recording
+  still reaches every class of bug the runner has found.
+
+`--record` refuses to write anything unless the runner passed, and it writes
+the runner's verdict beside each exchange.
 
 ## What was vendored, and from where
 
@@ -112,37 +123,25 @@ it cannot answer before the other side has finished speaking.
 ## Where it stands
 
 ```text
-CONFORMANCE SUITE FAILED: 1017 successes, 1314 skipped, 424 expected failures, 7 unexpected failures.
+CONFORMANCE SUITE PASSED: 1060 successes, 1314 skipped, 406 expected failures, 0 unexpected failures.
 ```
 
-The seven unexpected failures are bugs in the proto3 JSON mapping, and
-`failure_list.txt` doesn't list them: six write a NaN as a bare `NaN` rather than
-`"NaN"`, and one accepts an int64 below -2^63.
-
 The 1314 skips are the message types this testee does not implement — proto2 and
-the editions variants — plus the text-format and JSPB categories. The 424
+the editions variants — plus the text-format and JSPB categories. The 406
 expected failures are `failure_list.txt`, which files each one under one of
-seven reasons and leaves no entry unexplained.
+three reasons and leaves no entry unexplained:
 
-Fourteen are worth naming, because they are the only ones not about the pruned
-schema:
+- **258 are `map<K, V>` fields**, and **146 are the well-known types**: both
+  were pruned from the vendored schema, because the generator does not support
+  them yet.
+- **2 are unknown-field retention.** Decoding skips a field the schema doesn't
+  know rather than keeping its bytes, so it doesn't survive a re-encode.
+  Keeping them needs a field on every generated struct, and that breaks every
+  struct literal written without `..defaultM()`.
 
-- **8 are an unsigned 64-bit value past 2^63, in JSON.** A `uint64` or
-  `fixed64` field is an `Int`, which is signed, so such a value keeps its bits
-  on the wire and is written to JSON as a negative number.
-- **2 are build-unknown-field retention.** Decoding skips a field the schema does not
-  know rather than keeping the bytes, so they do not survive a re-encode.
-- **1 is explicit presence**, and it is not a gap. The schema under test is
-  edition 2026 and the reference is proto3, so the two disagree about whether a
-  field set to its zero value gets written. Both are right about their own
-  schema, and the same difference accounts for ~18 of the `Recommended`
-  warnings.
-- **2 are `core/json`'s number scanner**, which is deliberately generous and
-  accepts a leading zero JSON's own grammar does not.
-- **1 is duplicate keys in a JSON object**, which `core/json` does not reject.
-
-The runner also reports ~50 `Recommended` warnings, which do not fail the suite.
-They fall in the same buckets, plus one that does not: under
-`JSON_IGNORE_UNKNOWN_PARSING_TEST` an unrecognised enum *name* should be ignored
-rather than refused, and nothing can tell the generated decoder which mode it is
-in.
+The runner also reports 29 `Recommended` warnings, which do not fail the suite.
+Twenty-two are maps and well-known types. Three are a JSON object naming one
+field twice, which `core/json` keeps rather than refuses. Four are
+`JSON_IGNORE_UNKNOWN_PARSING_TEST`, where an unrecognised enum *name* should be
+ignored rather than refused, and nothing tells the generated decoder which mode
+it is in.

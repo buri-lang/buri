@@ -559,6 +559,41 @@
           meta = { inherit (cargoToml.package) description; };
         };
 
+        # protobuf's conformance runner, at the release `cli/tests/proto/`
+        # vendors its schemas from. nixpkgs packages protobuf's library and
+        # `protoc` and not this test binary, so it is built here from the
+        # release tarball. `cli/tests/proto/run.sh` runs it:
+        #
+        #   nix build .#conformance-runner
+        #   CONFORMANCE_TEST_RUNNER=result/bin/conformance_test_runner cli/tests/proto/run.sh
+        packages.conformance-runner = pkgs.stdenv.mkDerivation {
+          pname = "protobuf-conformance-runner";
+          version = "35.1";
+          src = pkgs.fetchurl {
+            url = "https://github.com/protocolbuffers/protobuf/releases/download/v35.1/protobuf-35.1.tar.gz";
+            hash = "sha256-8LaDjnUiqNqWEm1IcGjJWbxiSSY2jzAkrI/QOr0KGsQ=";
+          };
+          nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.pkg-config ];
+          buildInputs = [ pkgs.abseil-cpp pkgs.zlib pkgs.jsoncpp ];
+          # protobuf's CMake links `jsoncpp_static`, and nixpkgs' jsoncpp ships
+          # only the shared library, so that name points at it.
+          preConfigure = ''
+            mkdir -p "$TMPDIR/jsoncpp"
+            ln -s ${pkgs.jsoncpp}/lib/libjsoncpp${pkgs.stdenv.hostPlatform.extensions.sharedLibrary} \
+              "$TMPDIR/jsoncpp/libjsoncpp_static${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}"
+            cmakeFlagsArray+=("-DCMAKE_EXE_LINKER_FLAGS=-L$TMPDIR/jsoncpp")
+          '';
+          cmakeFlags = [
+            "-Dprotobuf_BUILD_TESTS=OFF"
+            "-Dprotobuf_BUILD_CONFORMANCE=ON"
+            "-Dprotobuf_ABSL_PROVIDER=package"
+          ];
+          ninjaFlags = [ "conformance_test_runner" ];
+          installPhase = ''
+            install -Dm755 conformance_test_runner $out/bin/conformance_test_runner
+          '';
+        };
+
         # `mkShell`, not `mkShellNoCC`. Two things in the native branch need a
         # C toolchain and neither is optional: `llvm-sys`'s build script wants
         # a C++ compiler, and the link step drives `cc` because the C driver is
