@@ -455,29 +455,31 @@ fn interleave<K: Ordered, V, C: Allocator>(
 // Splicing
 //
 // Free functions over an unbounded `T` rather than lambdas, because a lambda
-// may not capture a value whose type could be a context (SPEC 10.6).
+// may not capture a value whose type could be a context (SPEC 10.6). Each is
+// `core/list`'s splices, which copy a node once, or write into it where it is
+// unique, where `take`, `push`, `concat` and `drop` built it three times over.
 // -----------------------------------------------------------------------------
 
 fn insertAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, x: T): [T] {
-    xs.take(ctx, at).push(ctx, x).concat(ctx, xs.drop(ctx, at))
+    xs.insertAt(ctx, at, x)
 }
 
 fn replaceAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, x: T): [T] {
-    xs.take(ctx, at).push(ctx, x).concat(ctx, xs.drop(ctx, at + 1))
+    xs.replaceAt(ctx, at, x)
 }
 
 fn removeAt<T, C: Allocator>(ctx: C, xs: [T], at: Int): [T] {
-    xs.take(ctx, at).concat(ctx, xs.drop(ctx, at + 1))
+    xs.removeAt(ctx, at)
 }
 
 /// Replaces `xs[at]` with two, which is what a split hands its parent.
 fn splitAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, a: T, b: T): [T] {
-    xs.take(ctx, at).push(ctx, a).push(ctx, b).concat(ctx, xs.drop(ctx, at + 1))
+    xs.replaceAt(ctx, at, a).insertAt(ctx, at + 1, b)
 }
 
 /// Replaces `xs[at]` and `xs[at + 1]` with one, which is what a merge leaves.
 fn joinAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, x: T): [T] {
-    xs.take(ctx, at).push(ctx, x).concat(ctx, xs.drop(ctx, at + 2))
+    xs.replaceAt(ctx, at, x).removeAt(ctx, at + 1)
 }
 
 // -----------------------------------------------------------------------------
