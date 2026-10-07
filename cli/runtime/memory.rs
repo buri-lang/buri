@@ -5271,108 +5271,111 @@ mod tests {
     /// against the operating system rather than against a counter of this
     /// file's own: a deep excursion dirties 48 MiB, and after the release the
     /// process is holding tens of megabytes less. Both halves are asserted —
-    /// the counter, which is exact, and the resident set, with a margin wide
-    /// enough that no other test in this crate can close it.
+    /// the counter, which is exact, and the resident set. That one runs in a
+    /// process of its own: beside the crate's other tests it once saw a 48 MiB
+    /// release come out as 20 MiB.
     #[test]
     fn an_idle_thread_stack_gives_its_pages_back() {
-        const DIRTY: usize = 48 * 1024 * 1024;
+        alone_in_a_process("an_idle_thread_stack_gives_its_pages_back", || {
+            const DIRTY: usize = 48 * 1024 * 1024;
 
-        let mut before = BuriHeapStats {
-            live_blocks: 0,
-            live_bytes: 0,
-            total_blocks: 0,
-            total_bytes: 0,
-            retained_bytes: 0,
-            decommitted_bytes: 0,
-            arena_bytes: 0,
-            arena_released_bytes: 0,
-        };
-        // SAFETY: a writable, aligned destination.
-        unsafe { buri_rt_heap_stats(&raw mut before) };
+            let mut before = BuriHeapStats {
+                live_blocks: 0,
+                live_bytes: 0,
+                total_blocks: 0,
+                total_bytes: 0,
+                retained_bytes: 0,
+                decommitted_bytes: 0,
+                arena_bytes: 0,
+                arena_released_bytes: 0,
+            };
+            // SAFETY: a writable, aligned destination.
+            unsafe { buri_rt_heap_stats(&raw mut before) };
 
-        let base = buri_rt_stack_acquire();
-        // SAFETY: `base` names `BURI_RT_STACK_USABLE` writable bytes, and the
-        // range written is inside it.
-        unsafe {
-            let mut off = BURI_RT_STACK_WARM;
-            while off < BURI_RT_STACK_WARM + DIRTY {
-                base.add(off).write(0x5a);
-                off += 4096;
+            let base = buri_rt_stack_acquire();
+            // SAFETY: `base` names `BURI_RT_STACK_USABLE` writable bytes, and the
+            // range written is inside it.
+            unsafe {
+                let mut off = BURI_RT_STACK_WARM;
+                while off < BURI_RT_STACK_WARM + DIRTY {
+                    base.add(off).write(0x5a);
+                    off += 4096;
+                }
+                base.write(0xa5);
+                base.add(BURI_RT_STACK_WARM - 1).write(0xa5);
             }
-            base.write(0xa5);
-            base.add(BURI_RT_STACK_WARM - 1).write(0xa5);
-        }
-        let peak = rss_kib();
-        // SAFETY: a block this test acquired on this thread and is not inside.
-        unsafe { buri_rt_stack_release(base) };
-        let idle = rss_kib();
+            let peak = rss_kib();
+            // SAFETY: a block this test acquired on this thread and is not inside.
+            unsafe { buri_rt_stack_release(base) };
+            let idle = rss_kib();
 
-        let mut after = BuriHeapStats {
-            live_blocks: 0,
-            live_bytes: 0,
-            total_blocks: 0,
-            total_bytes: 0,
-            retained_bytes: 0,
-            decommitted_bytes: 0,
-            arena_bytes: 0,
-            arena_released_bytes: 0,
-        };
-        // SAFETY: as above.
-        unsafe { buri_rt_heap_stats(&raw mut after) };
-        let tail = (BURI_RT_STACK_USABLE - BURI_RT_STACK_WARM) as u64;
-        let decommitted = after.decommitted_bytes - before.decommitted_bytes;
-        assert!(
-            decommitted >= tail,
-            "a released stack did not report the range it gave back"
-        );
-        // Process-wide, so another test's release may be in the delta; what is
-        // exact is that every contribution to it is one whole tail.
-        assert_eq!(decommitted % tail, 0, "a release reported a partial range");
-
-        if let (Some(peak), Some(idle)) = (peak, idle) {
+            let mut after = BuriHeapStats {
+                live_blocks: 0,
+                live_bytes: 0,
+                total_blocks: 0,
+                total_bytes: 0,
+                retained_bytes: 0,
+                decommitted_bytes: 0,
+                arena_bytes: 0,
+                arena_released_bytes: 0,
+            };
+            // SAFETY: as above.
+            unsafe { buri_rt_heap_stats(&raw mut after) };
+            let tail = (BURI_RT_STACK_USABLE - BURI_RT_STACK_WARM) as u64;
+            let decommitted = after.decommitted_bytes - before.decommitted_bytes;
             assert!(
-                peak >= idle + 24 * 1024,
-                "the resident set went {peak} KiB -> {idle} KiB across a release of 48 MiB of \
-                 dirty stack; the pages were not given back"
+                decommitted >= tail,
+                "a released stack did not report the range it gave back"
             );
-        }
+            // Process-wide, so another test's release may be in the delta; what is
+            // exact is that every contribution to it is one whole tail.
+            assert_eq!(decommitted % tail, 0, "a release reported a partial range");
 
-        // The block is still usable, and the two halves of it read the way the
-        // policy says they should: the retained prefix kept what was written
-        // in it, and the decommitted tail came back zero-filled.
-        let again = buri_rt_stack_acquire();
-        assert_eq!(again, base, "a decommitted block was not the one handed back");
-        // SAFETY: `again` is the live block just acquired.
-        unsafe {
-            assert_eq!(again.read(), 0xa5, "the retained prefix lost its first byte");
-            assert_eq!(
-                again.add(BURI_RT_STACK_WARM - 1).read(),
-                0xa5,
-                "the retained prefix lost its last byte"
-            );
-            assert!(
-                watermark_intact(again),
-                "a decommitted block came back with its watermark unarmed"
-            );
-            assert_eq!(
-                again.add(BURI_RT_STACK_WARM + 4096).read(),
-                0,
-                "the decommitted tail kept its contents"
-            );
-            assert_eq!(
-                again.add(BURI_RT_STACK_USABLE - 1).read(),
-                0,
-                "the byte below the guard kept its contents"
-            );
-            again.add(BURI_RT_STACK_USABLE - 1).write(0xcd);
-            assert_eq!(
-                again.add(BURI_RT_STACK_USABLE - 1).read(),
-                0xcd,
-                "a decommitted block is no longer writable to its last usable byte"
-            );
-        }
-        // SAFETY: a block this test acquired on this thread and is not inside.
-        unsafe { buri_rt_stack_release(again) };
+            if let (Some(peak), Some(idle)) = (peak, idle) {
+                assert!(
+                    peak >= idle + 24 * 1024,
+                    "the resident set went {peak} KiB -> {idle} KiB across a release of 48 MiB of \
+                     dirty stack; the pages were not given back"
+                );
+            }
+
+            // The block is still usable, and the two halves of it read the way the
+            // policy says they should: the retained prefix kept what was written
+            // in it, and the decommitted tail came back zero-filled.
+            let again = buri_rt_stack_acquire();
+            assert_eq!(again, base, "a decommitted block was not the one handed back");
+            // SAFETY: `again` is the live block just acquired.
+            unsafe {
+                assert_eq!(again.read(), 0xa5, "the retained prefix lost its first byte");
+                assert_eq!(
+                    again.add(BURI_RT_STACK_WARM - 1).read(),
+                    0xa5,
+                    "the retained prefix lost its last byte"
+                );
+                assert!(
+                    watermark_intact(again),
+                    "a decommitted block came back with its watermark unarmed"
+                );
+                assert_eq!(
+                    again.add(BURI_RT_STACK_WARM + 4096).read(),
+                    0,
+                    "the decommitted tail kept its contents"
+                );
+                assert_eq!(
+                    again.add(BURI_RT_STACK_USABLE - 1).read(),
+                    0,
+                    "the byte below the guard kept its contents"
+                );
+                again.add(BURI_RT_STACK_USABLE - 1).write(0xcd);
+                assert_eq!(
+                    again.add(BURI_RT_STACK_USABLE - 1).read(),
+                    0xcd,
+                    "a decommitted block is no longer writable to its last usable byte"
+                );
+            }
+            // SAFETY: a block this test acquired on this thread and is not inside.
+            unsafe { buri_rt_stack_release(again) };
+        });
     }
 
     /// **A shallow entry costs a load and nothing else.**
