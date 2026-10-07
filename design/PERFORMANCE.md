@@ -5607,6 +5607,62 @@ pins the bytes and the error offsets on JavaScript and stencil.
 in after the body. §6.55's `replaceAt` writes in place natively, but
 JavaScript copies, and a body of 128 bytes or more needs a second byte anyway.
 
+### 6.58 A constant `ctx`, measured and left, 2026-10-06
+
+The idea: a program has one or two real contexts, so compiled code could treat
+a known one as a fixed address and stop passing `ctx`. There's nothing left to
+win. Monomorphization already did it, more strongly than a constant would.
+
+```text
+; release, spin<C: Random> at context { …, Random: Zero {} }
+spin:  subs x9, x1, x0        ; x0 = i, x1 = n, x2 = acc. No ctx.
+```
+
+- **Every effect call is a direct call.** `resolve_trait_call` reads the
+  implementation's type out of the context type, so a call through `ctx` is a
+  `GetField` and a direct call, never a table. JavaScript does the same: a
+  context is an array, and a call is `c[k]` passed to a known function.
+- **A host context isn't passed at all.** All twenty `Host*` implementations
+  are empty structs, so the context is zero-sized and the layout pass drops it
+  from every signature (VALUE-MODEL.md §8). That's every production `main` in
+  `cli/tests/example`: `server`, `web`, `basket` and `tools/report` build one
+  context each, and none of them weighs anything. `server.serve` hands each
+  request's handler the `ctx` it was given and builds none.
+- **A context with state is a register.** `Mul(k)`, a one-word `Random` built
+  at run time, keeps `k` in `x0` for the whole loop. The release loop is ten
+  instructions, the same ten as the hand-written one.
+- **Tests are the only contexts with state, and they aren't constants.** A
+  double is a handle the runner hands out (`TestStdout(I64)`), so each test's
+  context differs at run time. §6.12 already folds 126 test contexts into one
+  instance per list of bindings.
+
+A microbenchmark: a tail-recursive `spin<C: Random>` in a library, 300 M
+steps of `acc + random.int(ctx, i, acc)` against a hand-written
+`next(i, acc)`. Instructions retired per step, best of three. JavaScript runs
+30 M steps under bun.
+
+| `ctx` | native `--release` | native debug | bun `--release` |
+|---|---:|---:|---:|
+| none, hand-written | 10.1 | 18.1 | 1,886 |
+| `Zero {}`, zero-sized | 10.1 | 18.1 | 1,890 |
+| `Mul(31)`, constant | 10.1 | 21.1 | 1,893 |
+| `Mul(k)`, built at run time | 10.1 | 21.1 | 1,893 |
+
+Logging in a loop, 2 M `io.println`s through a host context: 789 instructions
+a line in release and 931 in debug, none of it `ctx`.
+
+**Debug's three extra instructions are copies, not passing.** Stencil copies
+`ctx.Random` to one slot and `.0` to another before the `mul`
+(`ldr/str/ldr/str/ldr`). A constant would trade the first load for `adrp` and
+a load. Passing a `{ alloc(), fs() }` test context costs a 32-byte frame
+copy per call in debug, four instructions: 21% of a call that does nothing
+else.
+
+**Not done:** context specialization. It would have nothing to remove in
+release and only stencil's copies to remove in debug. Two smaller changes would
+reach those, and neither is about contexts: forwarding a `GetField` out of a
+one-field struct, and passing a wide aggregate to a stencil callee by address.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
