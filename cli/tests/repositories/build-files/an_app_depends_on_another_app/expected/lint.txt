@@ -1,0 +1,51 @@
+error: //apps/web depends on //apps/api, which belongs to another app [cross-app-dependency]
+ --> apps/web/BUILD.buri:2:20
+  |
+2 |     dependencies: ["//apps/api"]
+  |                    ^^^^^^^^^^^^ another app
+  |
+  = code under apps/web/ reaches only that app and packages outside apps/
+  = fix: move the code both apps need out of //apps/api into a library under libs/, and depend on that instead
+
+      # apps/web/BUILD.buri
+      binary {
+          dependencies: ["//apps/api"]
+          outputs: [
+              { platform: "node" },
+          ]
+      }
+
+    Everything under apps/<name>/ is one app. An app's packages may depend on
+    each other, and on anything outside apps/, such as libs/ and tools/. They
+    may not reach another app's packages, whatever its visibility says.
+
+    A path through a shared library counts too. //apps/web -> //libs/bridge ->
+    //apps/api is refused at //apps/web's edge, and a note prints the path. An
+    import of another app's module is refused at the import.
+
+    Code two apps share belongs in a library under libs/:
+
+      # apps/web/BUILD.buri
+      binary {
+          dependencies: ["//libs/greeting"]
+          outputs: [
+              { platform: "node" },
+          ]
+      }
+
+error: //apps/web imports //apps/api, which belongs to another app [cross-app-dependency]
+ --> apps/web/main.buri:4:6
+  |
+4 | from "//apps/api" import { greeting };
+  |      ^^^^^^^^^^^^ another app
+  |
+  = code under apps/web/ reaches only that app and packages outside apps/
+  = fix: move the code both apps need out of //apps/api into a library under libs/, and depend on that instead
+error: //apps/web imports //apps/api, which belongs to another app [cross-app-dependency]
+ --> apps/web/test/main.buri:2:6
+  |
+2 | from "//apps/api" import { greeting };
+  |      ^^^^^^^^^^^^ another app
+  |
+  = code under apps/web/ reaches only that app and packages outside apps/
+  = fix: move the code both apps need out of //apps/api into a library under libs/, and depend on that instead

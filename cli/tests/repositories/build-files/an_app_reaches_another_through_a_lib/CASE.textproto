@@ -1,0 +1,28 @@
+# //apps/web depends only on //libs/bridge, and //libs/bridge depends on
+# //apps/api. Every edge is visible, and no edge joins two apps, yet
+# //apps/api's code would be linked into //apps/web. The edge that brings it in
+# is the one refused, with the path that gets there.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an app that reaches another app's library through a library in libs/: cross-app-dependency at the app's edge, naming the path"
+
+run {
+  args: ["build", "//apps/web"]
+  exit: 1
+  golden: "build.txt"
+}
+
+run {
+  args: ["lint", "//apps/web"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["test", "//apps/web"]
+  exit: 1
+  golden: "test.txt"
+  stream: ERR
+}

@@ -1,0 +1,5 @@
+library {
+    sources: ["relay.buri"]
+    dependencies: ["//apps/api"]
+    visibility: ["//visibility:public"]
+}

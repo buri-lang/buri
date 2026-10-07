@@ -1,0 +1,15 @@
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+from "//apps/shop/cart" import { items };
+from "//libs/money" import { price };
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    io
+        .println(ctx, "${items} items at ${price(items)}")
+        .mapErr(fn(_e) => "could not write to standard output")
+}

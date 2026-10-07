@@ -1086,6 +1086,17 @@ fn collect_package_sources(
     }
 }
 
+/// Whether `label`, a dependency label, names a package of an app other than
+/// the one `own` belongs to: `cross-app-dependency`, not a missing entry.
+fn crosses_apps(session: &Session, own: crate::build::workspace::PackageId, label: &str) -> bool {
+    use crate::build::workspace::app_of;
+    let path = label.trim_start_matches("//");
+    match (app_of(&session.workspace.package(own).path), app_of(path)) {
+        (Some(a), Some(b)) => a != b,
+        _ => false,
+    }
+}
+
 /// `missing-dependency`. Use is what requires a dep, and an import is not the only way
 /// to use: a method resolving into a library counts too.
 fn check_dependencies(
@@ -1121,6 +1132,11 @@ fn check_dependencies(
                 _ => continue,
             };
             let Some(wanted) = session.workspace.dependency_label(own, &path) else { continue };
+            // The loader already refused an import into another app, and
+            // declaring it would not make it legal.
+            if crosses_apps(session, own, &wanted) {
+                continue;
+            }
             if !declared.iter().any(|d| d.value == wanted)
                 && !in_test_deps(session, target, &wanted)
             {
@@ -1148,6 +1164,7 @@ fn check_dependencies(
         if declared.iter().any(|d| &d.value == wanted)
             || in_test_deps(session, target, wanted)
             || reported.contains(wanted)
+            || crosses_apps(session, own, wanted)
         {
             continue;
         }

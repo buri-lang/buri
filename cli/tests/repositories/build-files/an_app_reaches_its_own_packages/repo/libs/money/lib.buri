@@ -1,0 +1,1 @@
+from "//libs/money/price.buri" export { price };

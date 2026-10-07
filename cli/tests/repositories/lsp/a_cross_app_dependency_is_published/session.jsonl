@@ -1,0 +1,9 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The import into //apps/api, as the editor shows it on the line.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/apps/web/main.buri"}}}
+# And the edge that names it, on the build file.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/apps/web/BUILD.buri"}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -1,0 +1,12 @@
+# Public, so visibility lets anyone in. Belonging to another app is what keeps
+# //apps/web out.
+library {
+    sources: ["greet.buri"]
+    visibility: ["//visibility:public"]
+}
+
+binary {
+    outputs: [
+        { platform: "node" },
+    ]
+}

@@ -1,0 +1,4 @@
+library {
+    sources: ["price.buri"]
+    visibility: ["//visibility:public"]
+}

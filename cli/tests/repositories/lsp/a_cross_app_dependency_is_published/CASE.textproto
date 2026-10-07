@@ -1,0 +1,16 @@
+# //apps/web depends on and imports //apps/api. The editor shows the refusal
+# where each half of it is written: at the import, and at the build file's
+# edge.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an import into another app and the dependency that names it are each reported in the editor as cross-app-dependency"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

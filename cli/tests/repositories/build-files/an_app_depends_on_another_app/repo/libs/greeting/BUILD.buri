@@ -1,0 +1,5 @@
+# Where code two apps share belongs.
+library {
+    sources: ["greet.buri"]
+    visibility: ["//apps/..."]
+}

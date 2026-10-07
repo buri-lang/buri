@@ -81,6 +81,16 @@ fn is_tool_directory(package_path: &str) -> bool {
     package_path.split('/').next() == Some("tools")
 }
 
+/// The app a package belongs to: `web` for `apps/web` and everything below
+/// it. A package outside `apps/` belongs to none, and may be shared.
+pub fn app_of(package_path: &str) -> Option<&str> {
+    let mut segments = package_path.split('/');
+    if segments.next() != Some("apps") {
+        return None;
+    }
+    segments.next()
+}
+
 /// Where a misplaced tool package belongs. A package under the old `tool/`
 /// keeps its path below it, so `//tool/db/seed` moves to `//tools/db/seed`.
 fn tool_destination(package_path: &str, name: &str) -> String {
@@ -573,6 +583,41 @@ impl Workspace {
                 if seen.insert(dep) {
                     prev.insert(dep, (cur, span));
                     queue.push_back(dep);
+                }
+            }
+        }
+        None
+    }
+
+    /// The first package of an app other than `app` that depending on `dep`
+    /// brings in, with the path from `dep` to it, `dep` first.
+    ///
+    /// The walk passes through shared packages only. A package of `app`
+    /// itself is where it stops, because that package's own edges are
+    /// checked as edges of `app`.
+    pub fn other_app_reached(&self, app: &str, dep: TargetId) -> Option<Vec<TargetId>> {
+        let mut prev: HashMap<TargetId, TargetId> = HashMap::new();
+        let mut queue = std::collections::VecDeque::from([dep]);
+        let mut seen = BTreeSet::from([dep]);
+        while let Some(cur) = queue.pop_front() {
+            match app_of(&self.package(cur.package).path) {
+                Some(other) if other != app => {
+                    let mut path = vec![cur];
+                    let mut node = cur;
+                    while let Some(p) = prev.get(&node).copied() {
+                        path.push(p);
+                        node = p;
+                    }
+                    path.reverse();
+                    return Some(path);
+                }
+                Some(_) => continue,
+                None => {}
+            }
+            for &(next, _) in self.shared_dep_edges(cur).iter() {
+                if seen.insert(next) {
+                    prev.insert(next, cur);
+                    queue.push_back(next);
                 }
             }
         }

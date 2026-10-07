@@ -1,0 +1,10 @@
+binary {
+    dependencies: ["//apps/api"]
+    outputs: [
+        { platform: "node" },
+    ]
+
+    test {
+        sources: ["test/main.buri"]
+    }
+}

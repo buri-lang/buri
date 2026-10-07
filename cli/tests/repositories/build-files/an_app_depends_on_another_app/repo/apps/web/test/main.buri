@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//apps/api" import { greeting };
+
+test "the greeting" {
+    assert.equal(greeting(), "hello");
+}

@@ -1,0 +1,7 @@
+library {
+    generators: [
+        { tool: "//tools/gen", inputs: ["units.txt"] },
+    ]
+
+    visibility: ["//apps/shop/..."]
+}
