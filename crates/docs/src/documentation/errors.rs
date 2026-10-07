@@ -94,6 +94,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("context-not-called", "A context is built by calling it"),
     e!("context-parameters", "A context declaration takes no parameters"),
     e!("context-spread-operand", "A context spread takes another context"),
+    e!("cross-app-dependency", "An app reaches only its own packages and shared ones", &["build/build-files"]),
     e!("cryptography-unavailable", "Secure randomness needs a cryptography-enabled toolchain"),
     e!("ctx-not-first", "`ctx` comes first, or immediately after `self`"),
     e!("custom-effect-outside-js", "Only a `JS` entry offers an effect its platform implements", &["build/platforms"]),

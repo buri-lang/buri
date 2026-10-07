@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//apps/api"]
+    outputs: [
+        { platform: "node" },
+    ]
+}

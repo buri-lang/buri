@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//apps/shop/cart", "//libs/money"]
+    outputs: [
+        { platform: "node" },
+    ]
+}

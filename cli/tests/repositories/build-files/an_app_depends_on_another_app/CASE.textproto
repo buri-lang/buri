@@ -1,0 +1,108 @@
+# //apps/web names //apps/api in `dependencies` and imports it. The library is
+# public, so visibility has nothing to say. The edge is refused because the two
+# packages belong to different apps, and shared code belongs in libs/.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an app's binary that depends on and imports another app's library: cross-app-dependency at the edge and at the import, from every command that loads the graph"
+
+run {
+  args: ["build", "//apps/web"]
+  exit: 1
+  golden: "build.txt"
+}
+
+run {
+  args: ["build", "//apps/web", "--error-format=json"]
+  exit: 1
+  golden: "build.json"
+}
+
+run {
+  args: ["run", "//apps/web"]
+  exit: 1
+  golden: "run.txt"
+}
+
+run {
+  args: ["test", "//apps/web"]
+  exit: 1
+  golden: "test.txt"
+  stream: ERR
+}
+
+run {
+  args: ["lint", "//apps/web"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["gen", "//apps/web"]
+  exit: 1
+  golden: "gen.txt"
+}
+
+# //apps/api reaching its own library is no business of this rule.
+run {
+  args: ["build", "//apps/api"]
+  exit: 0
+}
+
+# The import alone is refused too, and the edge is not offered as the fix:
+# no missing-dependency, because declaring it would not make it legal.
+edit {
+  file: "apps/web/BUILD.buri"
+  replace: "dependencies: [\"//apps/api\"]"
+  with: "dependencies: []"
+}
+
+run {
+  args: ["lint", "//apps/web"]
+  exit: 1
+  golden: "import_only.txt"
+}
+
+run {
+  args: ["build", "//apps/web"]
+  exit: 1
+  golden: "import_only_build.txt"
+}
+
+# The fix the diagnostic printed: the shared code, from libs/.
+edit {
+  file: "apps/web/BUILD.buri"
+  replace: "dependencies: []"
+  with: "dependencies: [\"//libs/greeting\"]"
+}
+
+edit {
+  file: "apps/web/main.buri"
+  replace: "from \"//apps/api\""
+  with: "from \"//libs/greeting\""
+}
+
+edit {
+  file: "apps/web/test/main.buri"
+  replace: "from \"//apps/api\""
+  with: "from \"//libs/greeting\""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+run {
+  args: ["run", "//apps/web"]
+  exit: 0
+  golden: "fixed.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//apps/web"]
+  exit: 0
+}

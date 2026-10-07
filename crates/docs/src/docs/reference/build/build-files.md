@@ -52,6 +52,28 @@ A package declares **at most one library, one binary, one tool and one platform*
 entry-point filenames force that: one `lib.buri`, one `main.buri` and one
 `tool.buri` per directory. It is also what lets a label be a bare path.
 
+### Apps
+
+Each directory directly under `apps/` is one app, with every package below it:
+
+```
+apps/
+  shop/
+    web/      <- //apps/shop/web, app shop
+    cart/     <- //apps/shop/cart, app shop
+  admin/      <- //apps/admin, app admin
+libs/
+  money/      <- shared
+tools/
+  gen/        <- shared
+```
+
+An app's packages may depend on each other and on anything outside `apps/`.
+They may not reach another app's packages: not by a `dependencies` entry, not
+by an import, and not through a shared library in between
+([`cross-app-dependency`](../errors/cross-app-dependency.md)). `visibility`
+can't grant it. Code two apps share belongs in `libs/`.
+
 ## Labels
 
 A label is a package path. It never carries a target name:
@@ -482,6 +504,8 @@ closure.
   it, and the purity tiers in
   [`language/programs.md` §11.1](../../language/programs.md) already govern
   what any given import of it can do.
+- **An app never depends on another app**, directly or through a library in
+  between. See [apps](#apps).
 - **Cycles are an error**, at the package level exactly as at the module level.
   The diagnostic prints the cycle in the order you declared the edges.
 - **Every entry must be used, and every use must have an entry.** Using

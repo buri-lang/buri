@@ -55,6 +55,17 @@ fn generate_all(args: &arguments::Args) -> i32 {
     };
     let check = args.flags.check;
 
+    // A graph that reaches across apps is refused before `gen` restates it:
+    // its sources would only write the forbidden edge back in.
+    let mut refused = crate::diagnostics::Diagnostics::new();
+    for &target in &targets {
+        crate::build::actions::check_apps(&session, target, &mut refused);
+    }
+    refused.sort(&session.map);
+    if session.print(&refused) {
+        return 1;
+    }
+
     let mut packages: Vec<PackageId> = targets.iter().map(|t| t.package).collect();
     packages.sort();
     packages.dedup();
