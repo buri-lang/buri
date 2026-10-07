@@ -1,0 +1,977 @@
+//! Generated from google/protobuf/wrappers.proto. Not a file to edit: the schema is the source,
+//! and this module is rebuilt from it whenever the schema changes.
+//!
+//! What the mapping is, and why: `buri docs build/proto`.
+
+from "core/bytes" import * as bytes;
+from "core/json" import { Json };
+from "core/list" import * as list;
+from "core/proto" import * as proto;
+from "core/proto" import { ProtoError };
+from "platform/effect" import { Allocator };
+
+derive Equal, Show for DoubleValue;
+export struct DoubleValue {
+    export value: Float,
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultDoubleValue(): DoubleValue {
+    DoubleValue { value: 0.0 }
+}
+
+/// How many bytes `encodeDoubleValue` writes.
+export fn sizeDoubleValue(value: DoubleValue): Int {
+    let size = if (value.value == 0.0) { 0 } else { 1 + 8 };
+    size
+}
+
+/// `encodeDoubleValue`, appended to `out`.
+export fn writeDoubleValue<C: Allocator>(ctx: C, out: [U8], value: DoubleValue): [U8] {
+    if (value.value == 0.0) {
+        out
+    } else {
+        proto.writeF64(ctx, out.push(ctx, 9), value.value)
+    }
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeDoubleValue<C: Allocator>(ctx: C, value: DoubleValue): [U8] {
+    writeDoubleValue(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeDoubleValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+): Result<DoubleValue, ProtoError> {
+    readDoubleValue(ctx, b, 0, b.length(), 0, defaultDoubleValue())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeDoubleValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: DoubleValue,
+): Result<DoubleValue, ProtoError> {
+    readDoubleValue(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readDoubleValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: DoubleValue,
+): Result<DoubleValue, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.I64) {
+            let (raw, after) = proto.readF64(b, next, end, base)?;
+            let value = raw;
+            readDoubleValue(ctx, b, after, end, base, DoubleValue {
+                ..acc,
+                value: value,
+            })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readDoubleValue(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+/// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
+export fn encodeDoubleValueJson<C: Allocator>(ctx: C, value: DoubleValue): Json {
+    let _ = ctx;
+    proto.jsonFloat(value.value)
+}
+
+/// Reads a proto3 JSON document.
+export fn decodeDoubleValueJson<C: Allocator>(
+    ctx: C,
+    doc: Json,
+): Result<DoubleValue, ProtoError> {
+    decodeDoubleValueJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document.
+export fn decodeDoubleValueJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<DoubleValue, ProtoError> {
+    let _ = ctx;
+    .Ok(DoubleValue { value: proto.asFloat(doc, path)? })
+}
+
+derive Equal, Show for FloatValue;
+export struct FloatValue {
+    export value: Float,
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultFloatValue(): FloatValue {
+    FloatValue { value: 0.0 }
+}
+
+/// How many bytes `encodeFloatValue` writes.
+export fn sizeFloatValue(value: FloatValue): Int {
+    let size = if (value.value == 0.0) { 0 } else { 1 + 4 };
+    size
+}
+
+/// `encodeFloatValue`, appended to `out`.
+export fn writeFloatValue<C: Allocator>(ctx: C, out: [U8], value: FloatValue): [U8] {
+    if (value.value == 0.0) {
+        out
+    } else {
+        proto.writeF32(ctx, out.push(ctx, 13), value.value)
+    }
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeFloatValue<C: Allocator>(ctx: C, value: FloatValue): [U8] {
+    writeFloatValue(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeFloatValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+): Result<FloatValue, ProtoError> {
+    readFloatValue(ctx, b, 0, b.length(), 0, defaultFloatValue())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeFloatValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: FloatValue,
+): Result<FloatValue, ProtoError> {
+    readFloatValue(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readFloatValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: FloatValue,
+): Result<FloatValue, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.I32) {
+            let (raw, after) = proto.readF32(b, next, end, base)?;
+            let value = raw;
+            readFloatValue(ctx, b, after, end, base, FloatValue { ..acc, value: value })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readFloatValue(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+/// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
+export fn encodeFloatValueJson<C: Allocator>(ctx: C, value: FloatValue): Json {
+    let _ = ctx;
+    proto.jsonFloat(value.value)
+}
+
+/// Reads a proto3 JSON document.
+export fn decodeFloatValueJson<C: Allocator>(
+    ctx: C,
+    doc: Json,
+): Result<FloatValue, ProtoError> {
+    decodeFloatValueJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document.
+export fn decodeFloatValueJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<FloatValue, ProtoError> {
+    let _ = ctx;
+    .Ok(FloatValue { value: proto.asFloat32(doc, path)? })
+}
+
+derive Equal, Show for Int64Value;
+export struct Int64Value {
+    export value: Int,
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultInt64Value(): Int64Value {
+    Int64Value { value: 0 }
+}
+
+/// How many bytes `encodeInt64Value` writes.
+export fn sizeInt64Value(value: Int64Value): Int {
+    let size = if (value.value == 0) { 0 } else { 1 + proto.varintSize(value.value) };
+    size
+}
+
+/// `encodeInt64Value`, appended to `out`.
+export fn writeInt64Value<C: Allocator>(ctx: C, out: [U8], value: Int64Value): [U8] {
+    if (value.value == 0) {
+        out
+    } else {
+        proto.writeVarint(ctx, out.push(ctx, 8), value.value)
+    }
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeInt64Value<C: Allocator>(ctx: C, value: Int64Value): [U8] {
+    writeInt64Value(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeInt64Value<C: Allocator>(
+    ctx: C,
+    b: [U8],
+): Result<Int64Value, ProtoError> {
+    readInt64Value(ctx, b, 0, b.length(), 0, defaultInt64Value())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeInt64Value<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: Int64Value,
+): Result<Int64Value, ProtoError> {
+    readInt64Value(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readInt64Value<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: Int64Value,
+): Result<Int64Value, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.VARINT) {
+            let (raw, after) = proto.readVarint(b, next, end, base)?;
+            let value = raw;
+            readInt64Value(ctx, b, after, end, base, Int64Value { ..acc, value: value })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readInt64Value(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+/// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
+export fn encodeInt64ValueJson<C: Allocator>(ctx: C, value: Int64Value): Json {
+    proto.jsonInt64(ctx, value.value)
+}
+
+/// Reads a proto3 JSON document.
+export fn decodeInt64ValueJson<C: Allocator>(
+    ctx: C,
+    doc: Json,
+): Result<Int64Value, ProtoError> {
+    decodeInt64ValueJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document.
+export fn decodeInt64ValueJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<Int64Value, ProtoError> {
+    let _ = ctx;
+    .Ok(Int64Value { value: proto.asInt64(doc, path)? })
+}
+
+derive Equal, Show for UInt64Value;
+export struct UInt64Value {
+    export value: Int,
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultUInt64Value(): UInt64Value {
+    UInt64Value { value: 0 }
+}
+
+/// How many bytes `encodeUInt64Value` writes.
+export fn sizeUInt64Value(value: UInt64Value): Int {
+    let size = if (value.value == 0) { 0 } else { 1 + proto.varintSize(value.value) };
+    size
+}
+
+/// `encodeUInt64Value`, appended to `out`.
+export fn writeUInt64Value<C: Allocator>(ctx: C, out: [U8], value: UInt64Value): [U8] {
+    if (value.value == 0) {
+        out
+    } else {
+        proto.writeVarint(ctx, out.push(ctx, 8), value.value)
+    }
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeUInt64Value<C: Allocator>(ctx: C, value: UInt64Value): [U8] {
+    writeUInt64Value(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeUInt64Value<C: Allocator>(
+    ctx: C,
+    b: [U8],
+): Result<UInt64Value, ProtoError> {
+    readUInt64Value(ctx, b, 0, b.length(), 0, defaultUInt64Value())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeUInt64Value<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: UInt64Value,
+): Result<UInt64Value, ProtoError> {
+    readUInt64Value(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readUInt64Value<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: UInt64Value,
+): Result<UInt64Value, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.VARINT) {
+            let (raw, after) = proto.readVarint(b, next, end, base)?;
+            let value = raw;
+            readUInt64Value(ctx, b, after, end, base, UInt64Value {
+                ..acc,
+                value: value,
+            })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readUInt64Value(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+/// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
+export fn encodeUInt64ValueJson<C: Allocator>(ctx: C, value: UInt64Value): Json {
+    proto.jsonUint64(ctx, value.value)
+}
+
+/// Reads a proto3 JSON document.
+export fn decodeUInt64ValueJson<C: Allocator>(
+    ctx: C,
+    doc: Json,
+): Result<UInt64Value, ProtoError> {
+    decodeUInt64ValueJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document.
+export fn decodeUInt64ValueJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<UInt64Value, ProtoError> {
+    let _ = ctx;
+    .Ok(UInt64Value { value: proto.asUint64(doc, path)? })
+}
+
+derive Equal, Show for Int32Value;
+export struct Int32Value {
+    export value: Int,
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultInt32Value(): Int32Value {
+    Int32Value { value: 0 }
+}
+
+/// How many bytes `encodeInt32Value` writes.
+export fn sizeInt32Value(value: Int32Value): Int {
+    let size = if (value.value == 0) { 0 } else { 1 + proto.varintSize(value.value) };
+    size
+}
+
+/// `encodeInt32Value`, appended to `out`.
+export fn writeInt32Value<C: Allocator>(ctx: C, out: [U8], value: Int32Value): [U8] {
+    if (value.value == 0) {
+        out
+    } else {
+        proto.writeVarint(ctx, out.push(ctx, 8), value.value)
+    }
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeInt32Value<C: Allocator>(ctx: C, value: Int32Value): [U8] {
+    writeInt32Value(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeInt32Value<C: Allocator>(
+    ctx: C,
+    b: [U8],
+): Result<Int32Value, ProtoError> {
+    readInt32Value(ctx, b, 0, b.length(), 0, defaultInt32Value())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeInt32Value<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: Int32Value,
+): Result<Int32Value, ProtoError> {
+    readInt32Value(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readInt32Value<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: Int32Value,
+): Result<Int32Value, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.VARINT) {
+            let (raw, after) = proto.readVarint32(b, next, end, base)?;
+            let value = proto.signed32(raw);
+            readInt32Value(ctx, b, after, end, base, Int32Value { ..acc, value: value })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readInt32Value(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+/// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
+export fn encodeInt32ValueJson<C: Allocator>(ctx: C, value: Int32Value): Json {
+    let _ = ctx;
+    proto.jsonInt32(value.value)
+}
+
+/// Reads a proto3 JSON document.
+export fn decodeInt32ValueJson<C: Allocator>(
+    ctx: C,
+    doc: Json,
+): Result<Int32Value, ProtoError> {
+    decodeInt32ValueJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document.
+export fn decodeInt32ValueJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<Int32Value, ProtoError> {
+    let _ = ctx;
+    .Ok(Int32Value { value: proto.asInt(doc, path, -2147483648, 2147483647)? })
+}
+
+derive Equal, Show for UInt32Value;
+export struct UInt32Value {
+    export value: Int,
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultUInt32Value(): UInt32Value {
+    UInt32Value { value: 0 }
+}
+
+/// How many bytes `encodeUInt32Value` writes.
+export fn sizeUInt32Value(value: UInt32Value): Int {
+    let size = if (value.value == 0) { 0 } else { 1 + proto.varintSize(value.value) };
+    size
+}
+
+/// `encodeUInt32Value`, appended to `out`.
+export fn writeUInt32Value<C: Allocator>(ctx: C, out: [U8], value: UInt32Value): [U8] {
+    if (value.value == 0) {
+        out
+    } else {
+        proto.writeVarint(ctx, out.push(ctx, 8), value.value)
+    }
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeUInt32Value<C: Allocator>(ctx: C, value: UInt32Value): [U8] {
+    writeUInt32Value(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeUInt32Value<C: Allocator>(
+    ctx: C,
+    b: [U8],
+): Result<UInt32Value, ProtoError> {
+    readUInt32Value(ctx, b, 0, b.length(), 0, defaultUInt32Value())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeUInt32Value<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: UInt32Value,
+): Result<UInt32Value, ProtoError> {
+    readUInt32Value(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readUInt32Value<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: UInt32Value,
+): Result<UInt32Value, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.VARINT) {
+            let (raw, after) = proto.readVarint32(b, next, end, base)?;
+            let value = raw;
+            readUInt32Value(ctx, b, after, end, base, UInt32Value {
+                ..acc,
+                value: value,
+            })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readUInt32Value(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+/// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
+export fn encodeUInt32ValueJson<C: Allocator>(ctx: C, value: UInt32Value): Json {
+    let _ = ctx;
+    proto.jsonInt32(value.value)
+}
+
+/// Reads a proto3 JSON document.
+export fn decodeUInt32ValueJson<C: Allocator>(
+    ctx: C,
+    doc: Json,
+): Result<UInt32Value, ProtoError> {
+    decodeUInt32ValueJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document.
+export fn decodeUInt32ValueJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<UInt32Value, ProtoError> {
+    let _ = ctx;
+    .Ok(UInt32Value { value: proto.asInt(doc, path, 0, 4294967295)? })
+}
+
+derive Equal, Show for BoolValue;
+export struct BoolValue {
+    export value: Bool,
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultBoolValue(): BoolValue {
+    BoolValue { value: false }
+}
+
+/// How many bytes `encodeBoolValue` writes.
+export fn sizeBoolValue(value: BoolValue): Int {
+    let size = if (value.value == false) { 0 } else { 1 + 1 };
+    size
+}
+
+/// `encodeBoolValue`, appended to `out`.
+export fn writeBoolValue<C: Allocator>(ctx: C, out: [U8], value: BoolValue): [U8] {
+    if (value.value == false) {
+        out
+    } else {
+        proto.writeVarint(ctx, out.push(ctx, 8), if (value.value) { 1 } else { 0 })
+    }
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeBoolValue<C: Allocator>(ctx: C, value: BoolValue): [U8] {
+    writeBoolValue(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeBoolValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+): Result<BoolValue, ProtoError> {
+    readBoolValue(ctx, b, 0, b.length(), 0, defaultBoolValue())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeBoolValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: BoolValue,
+): Result<BoolValue, ProtoError> {
+    readBoolValue(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readBoolValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: BoolValue,
+): Result<BoolValue, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.VARINT) {
+            let (raw, after) = proto.readVarint(b, next, end, base)?;
+            let value = raw != 0;
+            readBoolValue(ctx, b, after, end, base, BoolValue { ..acc, value: value })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readBoolValue(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+/// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
+export fn encodeBoolValueJson<C: Allocator>(ctx: C, value: BoolValue): Json {
+    let _ = ctx;
+    Json.Bool(value.value)
+}
+
+/// Reads a proto3 JSON document.
+export fn decodeBoolValueJson<C: Allocator>(
+    ctx: C,
+    doc: Json,
+): Result<BoolValue, ProtoError> {
+    decodeBoolValueJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document.
+export fn decodeBoolValueJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<BoolValue, ProtoError> {
+    let _ = ctx;
+    .Ok(BoolValue { value: proto.asBool(doc, path)? })
+}
+
+derive Equal, Show for StringValue;
+export struct StringValue {
+    export value: Str,
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultStringValue(): StringValue {
+    StringValue { value: "" }
+}
+
+/// How many bytes `encodeStringValue` writes.
+export fn sizeStringValue(value: StringValue): Int {
+    let size = if (value.value == "") { 0 } else { 1 + proto.strSize(value.value) };
+    size
+}
+
+/// `encodeStringValue`, appended to `out`.
+export fn writeStringValue<C: Allocator>(ctx: C, out: [U8], value: StringValue): [U8] {
+    if (value.value == "") {
+        out
+    } else {
+        proto.writeStr(ctx, out.push(ctx, 10), value.value)
+    }
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeStringValue<C: Allocator>(ctx: C, value: StringValue): [U8] {
+    writeStringValue(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeStringValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+): Result<StringValue, ProtoError> {
+    readStringValue(ctx, b, 0, b.length(), 0, defaultStringValue())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeStringValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: StringValue,
+): Result<StringValue, ProtoError> {
+    readStringValue(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readStringValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: StringValue,
+): Result<StringValue, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.LEN) {
+            let (raw, after) = proto.readStr(ctx, b, next, end, base)?;
+            let value = raw;
+            readStringValue(ctx, b, after, end, base, StringValue {
+                ..acc,
+                value: value,
+            })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readStringValue(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+/// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
+export fn encodeStringValueJson<C: Allocator>(ctx: C, value: StringValue): Json {
+    let _ = ctx;
+    Json.Str(value.value)
+}
+
+/// Reads a proto3 JSON document.
+export fn decodeStringValueJson<C: Allocator>(
+    ctx: C,
+    doc: Json,
+): Result<StringValue, ProtoError> {
+    decodeStringValueJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document.
+export fn decodeStringValueJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<StringValue, ProtoError> {
+    let _ = ctx;
+    .Ok(StringValue { value: proto.asStr(doc, path)? })
+}
+
+derive Equal, Show for BytesValue;
+export struct BytesValue {
+    export value: [U8],
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultBytesValue(): BytesValue {
+    BytesValue { value: list.empty<U8>() }
+}
+
+/// How many bytes `encodeBytesValue` writes.
+export fn sizeBytesValue(value: BytesValue): Int {
+    let size = if (value.value.length() == 0) {
+        0
+    } else {
+        1 + proto.lenSize(value.value.length())
+    };
+    size
+}
+
+/// `encodeBytesValue`, appended to `out`.
+export fn writeBytesValue<C: Allocator>(ctx: C, out: [U8], value: BytesValue): [U8] {
+    if (value.value.length() == 0) {
+        out
+    } else {
+        proto.writeBytes(ctx, out.push(ctx, 10), value.value)
+    }
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeBytesValue<C: Allocator>(ctx: C, value: BytesValue): [U8] {
+    writeBytesValue(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeBytesValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+): Result<BytesValue, ProtoError> {
+    readBytesValue(ctx, b, 0, b.length(), 0, defaultBytesValue())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeBytesValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: BytesValue,
+): Result<BytesValue, ProtoError> {
+    readBytesValue(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readBytesValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: BytesValue,
+): Result<BytesValue, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.LEN) {
+            let (raw, after) = proto.readBytes(ctx, b, next, end, base)?;
+            let value = raw;
+            readBytesValue(ctx, b, after, end, base, BytesValue { ..acc, value: value })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readBytesValue(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+/// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
+export fn encodeBytesValueJson<C: Allocator>(ctx: C, value: BytesValue): Json {
+    proto.jsonBytes(ctx, value.value)
+}
+
+/// Reads a proto3 JSON document.
+export fn decodeBytesValueJson<C: Allocator>(
+    ctx: C,
+    doc: Json,
+): Result<BytesValue, ProtoError> {
+    decodeBytesValueJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document.
+export fn decodeBytesValueJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<BytesValue, ProtoError> {
+    .Ok(BytesValue { value: proto.asBytes(ctx, doc, path)? })
+}

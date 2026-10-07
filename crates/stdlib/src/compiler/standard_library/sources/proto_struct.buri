@@ -1,0 +1,599 @@
+//! Generated from google/protobuf/struct.proto. Not a file to edit: the schema is the source,
+//! and this module is rebuilt from it whenever the schema changes.
+//!
+//! What the mapping is, and why: `buri docs build/proto`.
+
+from "core/bytes" import * as bytes;
+from "core/json" import { Json };
+from "core/list" import * as list;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/proto" import * as proto;
+from "core/proto" import { ProtoError };
+from "platform/effect" import { Allocator };
+
+derive Equal, Show for NullValue;
+export enum NullValue {
+    NULL_VALUE,
+    /// A number this schema does not name.
+    ///
+    /// Editions enums are open, and an open enum keeps a value it does not
+    /// recognise rather than losing it — so a message written by a newer
+    /// schema survives being read and written again by this one.
+    Unrecognized(Int),
+}
+
+/// The number `NullValue` goes on the wire as.
+export fn encodeNullValue(value: NullValue): Int {
+    match (value) {
+        .NULL_VALUE => 0,
+        .Unrecognized(n) => n,
+    }
+}
+
+/// A number this schema does not name is kept as `Unrecognized`.
+///
+/// That is what `features.enum_type = OPEN` means, and it is edition 2026's
+/// default: adding a value to an enum does not break a reader built before
+/// it, and the number it did not know comes back out unchanged.
+export fn decodeNullValue(number: Int): NullValue {
+    if (number == 0) { NullValue.NULL_VALUE } else { NullValue.Unrecognized(number) }
+}
+
+/// proto3 JSON writes `NullValue` as `null`.
+export fn encodeNullValueJson(value: NullValue): Json {
+    let _ = value;
+    Json.Null
+}
+
+/// `null`, or the value's name.
+export fn decodeNullValueJson(doc: Json, path: Str): Result<NullValue, ProtoError> {
+    match (doc) {
+        .Null => .Ok(NullValue.NULL_VALUE),
+        .Str(s) => {
+            if (s == "NULL_VALUE") {
+                .Ok(NullValue.NULL_VALUE)
+            } else {
+                .Err(.BadJson { path: path, wanted: "null" })
+            }
+        },
+        _ => .Err(.BadJson { path: path, wanted: "null" }),
+    }
+}
+
+derive Equal, Show for Struct;
+export struct Struct {
+    export fields: OrderedMap<Str, Value>,
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultStruct(): Struct {
+    Struct { fields: orderedmap.empty<Str, Value>() }
+}
+
+/// How many bytes `encodeStruct` writes.
+export fn sizeStruct(value: Struct): Int {
+    let size = value
+        .fields
+        .fold(
+            fn(n, k, x) => {
+                n
+                    + (1
+                        + proto.lenSize(
+                            1 + proto.strSize(k) + (1 + proto.lenSize(sizeValue(x))),
+                        ))
+            },
+            0,
+        );
+    size
+}
+
+/// `encodeStruct`, appended to `out`.
+export fn writeStruct<C: Allocator>(ctx: C, out: [U8], value: Struct): [U8] {
+    value
+        .fields
+        .foldCtx(
+            ctx,
+            fn(c, acc: [U8], k, x) => {
+                writeValue(
+                    c,
+                    proto.writeVarint(
+                        c,
+                        proto
+                            .writeStr(
+                                c,
+                                proto
+                                    .writeVarint(
+                                        c,
+                                        acc.push(c, 10),
+                                        1
+                                            + proto.strSize(k)
+                                            + (1 + proto.lenSize(sizeValue(x))),
+                                    )
+                                    .push(c, 10),
+                                k,
+                            )
+                            .push(c, 18),
+                        sizeValue(x),
+                    ),
+                    x,
+                )
+            },
+            out,
+        )
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeStruct<C: Allocator>(ctx: C, value: Struct): [U8] {
+    writeStruct(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeStruct<C: Allocator>(ctx: C, b: [U8]): Result<Struct, ProtoError> {
+    readStruct(ctx, b, 0, b.length(), 0, defaultStruct())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeStruct<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: Struct,
+): Result<Struct, ProtoError> {
+    readStruct(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readStruct<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: Struct,
+): Result<Struct, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.LEN) {
+            let (raw, after) = proto.readLen(b, next, end, base)?;
+            let (key, item) = readStruct_fieldsEntry(
+                ctx,
+                b,
+                raw,
+                after,
+                raw,
+                "",
+                defaultValue(),
+            )?;
+            readStruct(ctx, b, after, end, base, Struct {
+                ..acc,
+                fields: acc.fields.insert(ctx, key, item),
+            })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readStruct(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+fn readStruct_fieldsEntry<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    key: Str,
+    value: Value,
+): Result<(Str, Value), ProtoError> {
+    if (at >= end) {
+        .Ok((key, value))
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.LEN) {
+            let (raw, after) = proto.readStr(ctx, b, next, end, base)?;
+            let got = raw;
+            readStruct_fieldsEntry(ctx, b, after, end, base, got, value)
+        } else if (field == 2 && wire == proto.LEN) {
+            let (raw, after) = proto.readLen(b, next, end, base)?;
+            let got = readValue(ctx, b, raw, after, raw, value)?;
+            readStruct_fieldsEntry(ctx, b, after, end, base, key, got)
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readStruct_fieldsEntry(ctx, b, after, end, base, key, value)
+        }
+    }
+}
+
+/// proto3 JSON writes a `Struct` as the object it is.
+export fn encodeStructJson<C: Allocator>(ctx: C, value: Struct): Json {
+    Json.Object(
+        value
+            .fields
+            .foldCtx(
+                ctx,
+                fn(c, acc: [(Str, Json)], k, v) => {
+                    acc.push(c, (k, encodeValueJson(c, v)))
+                },
+                list.empty<(Str, Json)>(),
+            ),
+    )
+}
+
+/// Reads a proto3 JSON document.
+export fn decodeStructJson<C: Allocator>(
+    ctx: C,
+    doc: Json,
+): Result<Struct, ProtoError> {
+    decodeStructJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document.
+export fn decodeStructJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<Struct, ProtoError> {
+    let members = proto.asObject(doc, path)?;
+    let fields = members.foldResultCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Str, Value>, item) => {
+            let (name, member) = item;
+            let one = decodeValueJsonAt(c, member, proto.at(c, path, name))?;
+            .Ok(acc.insert(c, name, one))
+        },
+        orderedmap.empty<Str, Value>(),
+    )?;
+    .Ok(Struct { fields: fields })
+}
+
+derive Equal, Show for Value_Kind;
+/// The cases of `Value`'s `kind`.
+export enum Value_Kind {
+    NullValue(NullValue),
+    NumberValue(Float),
+    StringValue(Str),
+    BoolValue(Bool),
+    StructValue(Struct),
+    ListValue(ListValue),
+}
+
+derive Equal, Show for Value;
+export struct Value {
+    export kind: Option<Value_Kind>,
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultValue(): Value {
+    Value { kind: .None }
+}
+
+/// How many bytes `encodeValue` writes.
+export fn sizeValue(value: Value): Int {
+    let size = match (value.kind) {
+        .Some(k) => {
+            match (k) {
+                .NullValue(x) => 1 + proto.varintSize(encodeNullValue(x)),
+                .NumberValue(x) => 1 + 8,
+                .StringValue(x) => 1 + proto.strSize(x),
+                .BoolValue(x) => 1 + 1,
+                .StructValue(x) => 1 + proto.lenSize(sizeStruct(x)),
+                .ListValue(x) => 1 + proto.lenSize(sizeListValue(x)),
+            }
+        },
+        .None => 0,
+    };
+    size
+}
+
+/// `encodeValue`, appended to `out`.
+export fn writeValue<C: Allocator>(ctx: C, out: [U8], value: Value): [U8] {
+    match (value.kind) {
+        .Some(k) => {
+            match (k) {
+                .NullValue(x) => {
+                    proto.writeVarint(ctx, out.push(ctx, 8), encodeNullValue(x))
+                },
+                .NumberValue(x) => proto.writeF64(ctx, out.push(ctx, 17), x),
+                .StringValue(x) => proto.writeStr(ctx, out.push(ctx, 26), x),
+                .BoolValue(x) => {
+                    proto.writeVarint(ctx, out.push(ctx, 32), if (x) { 1 } else { 0 })
+                },
+                .StructValue(x) => {
+                    writeStruct(
+                        ctx,
+                        proto.writeVarint(ctx, out.push(ctx, 42), sizeStruct(x)),
+                        x,
+                    )
+                },
+                .ListValue(x) => {
+                    writeListValue(
+                        ctx,
+                        proto.writeVarint(ctx, out.push(ctx, 50), sizeListValue(x)),
+                        x,
+                    )
+                },
+            }
+        },
+        .None => out,
+    }
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeValue<C: Allocator>(ctx: C, value: Value): [U8] {
+    writeValue(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeValue<C: Allocator>(ctx: C, b: [U8]): Result<Value, ProtoError> {
+    readValue(ctx, b, 0, b.length(), 0, defaultValue())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: Value,
+): Result<Value, ProtoError> {
+    readValue(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: Value,
+): Result<Value, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.VARINT) {
+            let (raw, after) = proto.readVarint32(b, next, end, base)?;
+            let value = decodeNullValue(proto.signed32(raw));
+            readValue(ctx, b, after, end, base, Value {
+                ..acc,
+                kind: .Some(Value_Kind.NullValue(value)),
+            })
+        } else if (field == 2 && wire == proto.I64) {
+            let (raw, after) = proto.readF64(b, next, end, base)?;
+            let value = raw;
+            readValue(ctx, b, after, end, base, Value {
+                ..acc,
+                kind: .Some(Value_Kind.NumberValue(value)),
+            })
+        } else if (field == 3 && wire == proto.LEN) {
+            let (raw, after) = proto.readStr(ctx, b, next, end, base)?;
+            let value = raw;
+            readValue(ctx, b, after, end, base, Value {
+                ..acc,
+                kind: .Some(Value_Kind.StringValue(value)),
+            })
+        } else if (field == 4 && wire == proto.VARINT) {
+            let (raw, after) = proto.readVarint(b, next, end, base)?;
+            let value = raw != 0;
+            readValue(ctx, b, after, end, base, Value {
+                ..acc,
+                kind: .Some(Value_Kind.BoolValue(value)),
+            })
+        } else if (field == 5 && wire == proto.LEN) {
+            let (raw, after) = proto.readLen(b, next, end, base)?;
+            let value = readStruct(ctx, b, raw, after, raw, match (acc.kind) {
+                .Some(.StructValue(prev)) => prev,
+                _ => defaultStruct(),
+            })?;
+            readValue(ctx, b, after, end, base, Value {
+                ..acc,
+                kind: .Some(Value_Kind.StructValue(value)),
+            })
+        } else if (field == 6 && wire == proto.LEN) {
+            let (raw, after) = proto.readLen(b, next, end, base)?;
+            let value = readListValue(ctx, b, raw, after, raw, match (acc.kind) {
+                .Some(.ListValue(prev)) => prev,
+                _ => defaultListValue(),
+            })?;
+            readValue(ctx, b, after, end, base, Value {
+                ..acc,
+                kind: .Some(Value_Kind.ListValue(value)),
+            })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readValue(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+/// proto3 JSON writes a `Value` as whichever JSON value it holds.
+export fn encodeValueJson<C: Allocator>(ctx: C, value: Value): Json {
+    match (value.kind) {
+        .Some(k) => {
+            match (k) {
+                .NullValue(_n) => Json.Null,
+                .NumberValue(x) => Json.Num(x),
+                .StringValue(s) => Json.Str(s),
+                .BoolValue(b) => Json.Bool(b),
+                .StructValue(s) => encodeStructJson(ctx, s),
+                .ListValue(l) => encodeListValueJson(ctx, l),
+            }
+        },
+        .None => Json.Null,
+    }
+}
+
+/// Reads a proto3 JSON document.
+export fn decodeValueJson<C: Allocator>(ctx: C, doc: Json): Result<Value, ProtoError> {
+    decodeValueJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document. Any JSON value is one.
+export fn decodeValueJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<Value, ProtoError> {
+    match (doc) {
+        .Null => .Ok(Value { kind: .Some(Value_Kind.NullValue(NullValue.NULL_VALUE)) }),
+        .Num(x) => .Ok(Value { kind: .Some(Value_Kind.NumberValue(x)) }),
+        .Str(s) => .Ok(Value { kind: .Some(Value_Kind.StringValue(s)) }),
+        .Bool(b) => .Ok(Value { kind: .Some(Value_Kind.BoolValue(b)) }),
+        .Object(_members) => {
+            .Ok(Value {
+                kind: .Some(
+                    Value_Kind.StructValue(decodeStructJsonAt(ctx, doc, path)?),
+                ),
+            })
+        },
+        .Array(_items) => {
+            .Ok(Value {
+                kind: .Some(
+                    Value_Kind.ListValue(decodeListValueJsonAt(ctx, doc, path)?),
+                ),
+            })
+        },
+    }
+}
+
+derive Equal, Show for ListValue;
+export struct ListValue {
+    export values: [Value],
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultListValue(): ListValue {
+    ListValue { values: list.empty<Value>() }
+}
+
+/// How many bytes `encodeListValue` writes.
+export fn sizeListValue(value: ListValue): Int {
+    let size = value.values.fold(fn(n, x) => n + (1 + proto.lenSize(sizeValue(x))), 0);
+    size
+}
+
+/// `encodeListValue`, appended to `out`.
+export fn writeListValue<C: Allocator>(ctx: C, out: [U8], value: ListValue): [U8] {
+    value
+        .values
+        .foldCtx(
+            ctx,
+            fn(c, acc: [U8], x) => {
+                writeValue(c, proto.writeVarint(c, acc.push(c, 10), sizeValue(x)), x)
+            },
+            out,
+        )
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeListValue<C: Allocator>(ctx: C, value: ListValue): [U8] {
+    writeListValue(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeListValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+): Result<ListValue, ProtoError> {
+    readListValue(ctx, b, 0, b.length(), 0, defaultListValue())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeListValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: ListValue,
+): Result<ListValue, ProtoError> {
+    readListValue(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readListValue<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: ListValue,
+): Result<ListValue, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.LEN) {
+            let (raw, after) = proto.readLen(b, next, end, base)?;
+            let value = readValue(ctx, b, raw, after, raw, defaultValue())?;
+            readListValue(ctx, b, after, end, base, ListValue {
+                ..acc,
+                values: acc.values.push(ctx, value),
+            })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readListValue(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+/// proto3 JSON writes a `ListValue` as the array it is.
+export fn encodeListValueJson<C: Allocator>(ctx: C, value: ListValue): Json {
+    Json.Array(value.values.mapCtx(ctx, fn(c, v) => encodeValueJson(c, v)))
+}
+
+/// Reads a proto3 JSON document.
+export fn decodeListValueJson<C: Allocator>(
+    ctx: C,
+    doc: Json,
+): Result<ListValue, ProtoError> {
+    decodeListValueJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document.
+export fn decodeListValueJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<ListValue, ProtoError> {
+    let items = proto.asArray(doc, path)?;
+    let values = items.foldResultCtx(
+        ctx,
+        fn(c, acc: [Value], item) => {
+            let one = decodeValueJsonAt(c, item, path)?;
+            .Ok(acc.push(c, one))
+        },
+        list.empty<Value>(),
+    )?;
+    .Ok(ListValue { values: values })
+}

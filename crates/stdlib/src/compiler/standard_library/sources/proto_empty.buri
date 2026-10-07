@@ -1,0 +1,108 @@
+//! Generated from google/protobuf/empty.proto. Not a file to edit: the schema is the source,
+//! and this module is rebuilt from it whenever the schema changes.
+//!
+//! What the mapping is, and why: `buri docs build/proto`.
+
+from "core/bytes" import * as bytes;
+from "core/json" import { Json };
+from "core/list" import * as list;
+from "core/proto" import * as proto;
+from "core/proto" import { ProtoError };
+from "platform/effect" import { Allocator };
+
+derive Equal, Show for Empty;
+export struct Empty {}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultEmpty(): Empty {
+    Empty { }
+}
+
+/// How many bytes `encodeEmpty` writes.
+export fn sizeEmpty(value: Empty): Int {
+    let _ = value;
+    0
+}
+
+/// `encodeEmpty`, appended to `out`.
+export fn writeEmpty<C: Allocator>(ctx: C, out: [U8], value: Empty): [U8] {
+    let _ = value;
+    let _ = ctx;
+    out
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeEmpty<C: Allocator>(ctx: C, value: Empty): [U8] {
+    writeEmpty(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeEmpty<C: Allocator>(ctx: C, b: [U8]): Result<Empty, ProtoError> {
+    readEmpty(ctx, b, 0, b.length(), 0, defaultEmpty())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeEmpty<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: Empty,
+): Result<Empty, ProtoError> {
+    readEmpty(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readEmpty<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: Empty,
+): Result<Empty, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        let after = proto.skip(b, next, end, base, wire)?;
+        readEmpty(ctx, b, after, end, base, acc)
+    }
+}
+
+/// The proto3 JSON mapping — which is *not* `derive ToJson`'s. A 64-bit
+/// integer is a string, `bytes` is base64, an enum is its value's name, and
+/// a oneof's case is an ordinary member of this object.
+export fn encodeEmptyJson<C: Allocator>(ctx: C, value: Empty): Json {
+    let _ = value;
+    let _ = ctx;
+    Json.Object(list.empty<(Str, Json)>())
+}
+
+/// Reads a proto3 JSON document. An absent member and a `null` one mean the
+/// same thing, which is what the mapping says.
+export fn decodeEmptyJson<C: Allocator>(ctx: C, doc: Json): Result<Empty, ProtoError> {
+    decodeEmptyJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document, so that an error names
+/// a place a reader can find.
+export fn decodeEmptyJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<Empty, ProtoError> {
+    match (doc) {
+        .Object(_entries) => { .Ok(Empty { }) },
+        _ => .Err(.BadJson { path: path, wanted: "an object" }),
+    }
+}

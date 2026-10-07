@@ -1,0 +1,385 @@
+//! std/codegen/proto/wellknown — `google/protobuf`'s well-known types.
+//!
+//! A schema imports one as protoc does, `import "google/protobuf/duration.proto";`,
+//! and nothing has to be vendored: the generator reads the schema here, and the
+//! types and their codecs are a standard-library module, `core/proto/duration`.
+//! Those modules are this generator's own output for the schemas below, checked
+//! in, and `build::generators` holds them to being byte for byte what it writes.
+//!
+//! The schemas are protobuf's, cut to their declarations and migrated to
+//! edition 2026 the way protoc migrates proto3: a singular scalar has no
+//! presence.
+//!
+//! Six of these have a JSON form of their own rather than an object, and
+//! [`json`] is that form, as the source the generator puts in their module in
+//! place of the generic codecs.
+
+from "platform/effect" import { Allocator };
+
+/// `(import path, module, schema)` for each file.
+export let FILES: [(Str, Str, Str)] = [
+    (
+        "google/protobuf/any.proto",
+        "core/proto/any",
+        "edition = \"2026\";\n\npackage google.protobuf;\n\noption features.field_presence = IMPLICIT;\n\nmessage Any {\n  string type_url = 1;\n  bytes value = 2;\n}\n",
+    ),
+    (
+        "google/protobuf/duration.proto",
+        "core/proto/duration",
+        "edition = \"2026\";\n\npackage google.protobuf;\n\noption features.field_presence = IMPLICIT;\n\nmessage Duration {\n  int64 seconds = 1;\n  int32 nanos = 2;\n}\n",
+    ),
+    (
+        "google/protobuf/empty.proto",
+        "core/proto/empty",
+        "edition = \"2026\";\n\npackage google.protobuf;\n\noption features.field_presence = IMPLICIT;\n\nmessage Empty {}\n",
+    ),
+    (
+        "google/protobuf/field_mask.proto",
+        "core/proto/field_mask",
+        "edition = \"2026\";\n\npackage google.protobuf;\n\noption features.field_presence = IMPLICIT;\n\nmessage FieldMask {\n  repeated string paths = 1;\n}\n",
+    ),
+    (
+        "google/protobuf/struct.proto",
+        "core/proto/struct",
+        "edition = \"2026\";\n\npackage google.protobuf;\n\noption features.field_presence = IMPLICIT;\n\nmessage Struct {\n  map<string, Value> fields = 1;\n}\n\nmessage Value {\n  oneof kind {\n    NullValue null_value = 1;\n    double number_value = 2;\n    string string_value = 3;\n    bool bool_value = 4;\n    Struct struct_value = 5;\n    ListValue list_value = 6;\n  }\n}\n\nenum NullValue {\n  NULL_VALUE = 0;\n}\n\nmessage ListValue {\n  repeated Value values = 1;\n}\n",
+    ),
+    (
+        "google/protobuf/timestamp.proto",
+        "core/proto/timestamp",
+        "edition = \"2026\";\n\npackage google.protobuf;\n\noption features.field_presence = IMPLICIT;\n\nmessage Timestamp {\n  int64 seconds = 1;\n  int32 nanos = 2;\n}\n",
+    ),
+    (
+        "google/protobuf/wrappers.proto",
+        "core/proto/wrappers",
+        "edition = \"2026\";\n\npackage google.protobuf;\n\noption features.field_presence = IMPLICIT;\n\nmessage DoubleValue {\n  double value = 1;\n}\n\nmessage FloatValue {\n  float value = 1;\n}\n\nmessage Int64Value {\n  int64 value = 1;\n}\n\nmessage UInt64Value {\n  uint64 value = 1;\n}\n\nmessage Int32Value {\n  int32 value = 1;\n}\n\nmessage UInt32Value {\n  uint32 value = 1;\n}\n\nmessage BoolValue {\n  bool value = 1;\n}\n\nmessage StringValue {\n  string value = 1;\n}\n\nmessage BytesValue {\n  bytes value = 1;\n}\n",
+    ),
+];
+
+/// A message whose JSON is one value: its codecs, given what writes and reads
+/// that value.
+fn single<C: Allocator>(ctx: C, name: Str, doc: Str, write: Str, read: Str): Str {
+    [
+        "/// ",
+        doc,
+        "\n",
+        "export fn encode",
+        name,
+        "Json<C: Allocator>(ctx: C, value: ",
+        name,
+        "): Json {\n",
+        unused(write),
+        "    ",
+        write,
+        "\n",
+        "}\n\n",
+        "/// Reads a proto3 JSON document.\n",
+        "export fn decode",
+        name,
+        "Json<C: Allocator>(ctx: C, doc: Json): Result<",
+        name,
+        ", ProtoError> {\n",
+        "    decode",
+        name,
+        "JsonAt(ctx, doc, \"$\")\n",
+        "}\n\n",
+        "/// The same, from somewhere inside a larger document.\n",
+        "export fn decode",
+        name,
+        "JsonAt<C: Allocator>(ctx: C, doc: Json, path: Str): Result<",
+        name,
+        ", ProtoError> {\n",
+        unused(read),
+        "    ",
+        read,
+        "\n",
+        "}\n",
+    ].join(ctx, "")
+}
+
+/// `let _ = ctx;` where the body does not use the context.
+fn unused(body: Str): Str {
+    if (body.contains("ctx")) { "" } else { "    let _ = ctx;\n" }
+}
+
+/// `seconds` and `nanos`, written and read by the two `core/proto` functions
+/// named for the type.
+fn instant<C: Allocator>(ctx: C, name: Str, form: Str, doc: Str): Str {
+    single(
+        ctx,
+        name,
+        doc,
+        ["proto.json", form, "(ctx, value.seconds, value.nanos)"].join(ctx, ""),
+        [
+            "let (seconds, nanos) = proto.as",
+            form,
+            "(ctx, doc, path)?;\n",
+            "    .Ok(",
+            name,
+            " { seconds: seconds, nanos: nanos })",
+        ].join(ctx, ""),
+    )
+}
+
+/// A wrapper: the value's own JSON.
+fn wrapper<C: Allocator>(ctx: C, name: Str, write: Str, read: Str): Str {
+    single(
+        ctx,
+        name,
+        "proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.",
+        write,
+        [".Ok(", name, " { value: ", read, "? })"].join(ctx, ""),
+    )
+}
+
+/// The JSON codecs of a well-known type whose JSON is not an object, as Buri
+/// source, by its full name; `.None` for every other type.
+export fn json<C: Allocator>(ctx: C, full: Str): Option<Str> {
+    if (full == "google.protobuf.Duration") {
+        .Some(
+            instant(
+                ctx,
+                "Duration",
+                "Duration",
+                "proto3 JSON writes a `Duration` as seconds in a string: `\"1.5s\"`.",
+            ),
+        )
+    } else if (full == "google.protobuf.Timestamp") {
+        .Some(
+            instant(
+                ctx,
+                "Timestamp",
+                "Timestamp",
+                "proto3 JSON writes a `Timestamp` as RFC 3339 in UTC: `\"1970-01-01T00:00:10.500Z\"`.",
+            ),
+        )
+    } else if (full == "google.protobuf.FieldMask") {
+        .Some(
+            single(
+                ctx,
+                "FieldMask",
+                "proto3 JSON writes a `FieldMask` as its paths in lowerCamelCase, joined by commas.",
+                "proto.jsonFieldMask(ctx, value.paths)",
+                ".Ok(FieldMask { paths: proto.asFieldMask(ctx, doc, path)? })",
+            ),
+        )
+    } else if (full == "google.protobuf.DoubleValue") {
+        .Some(
+            wrapper(
+                ctx,
+                "DoubleValue",
+                "proto.jsonFloat(value.value)",
+                "proto.asFloat(doc, path)",
+            ),
+        )
+    } else if (full == "google.protobuf.FloatValue") {
+        .Some(
+            wrapper(
+                ctx,
+                "FloatValue",
+                "proto.jsonFloat(value.value)",
+                "proto.asFloat32(doc, path)",
+            ),
+        )
+    } else if (full == "google.protobuf.Int64Value") {
+        .Some(
+            wrapper(
+                ctx,
+                "Int64Value",
+                "proto.jsonInt64(ctx, value.value)",
+                "proto.asInt64(doc, path)",
+            ),
+        )
+    } else if (full == "google.protobuf.UInt64Value") {
+        .Some(
+            wrapper(
+                ctx,
+                "UInt64Value",
+                "proto.jsonUint64(ctx, value.value)",
+                "proto.asUint64(doc, path)",
+            ),
+        )
+    } else if (full == "google.protobuf.Int32Value") {
+        .Some(
+            wrapper(
+                ctx,
+                "Int32Value",
+                "proto.jsonInt32(value.value)",
+                "proto.asInt(doc, path, -2147483648, 2147483647)",
+            ),
+        )
+    } else if (full == "google.protobuf.UInt32Value") {
+        .Some(
+            wrapper(
+                ctx,
+                "UInt32Value",
+                "proto.jsonInt32(value.value)",
+                "proto.asInt(doc, path, 0, 4294967295)",
+            ),
+        )
+    } else if (full == "google.protobuf.BoolValue") {
+        .Some(
+            wrapper(
+                ctx,
+                "BoolValue",
+                "Json.Bool(value.value)",
+                "proto.asBool(doc, path)",
+            ),
+        )
+    } else if (full == "google.protobuf.StringValue") {
+        .Some(
+            wrapper(
+                ctx,
+                "StringValue",
+                "Json.Str(value.value)",
+                "proto.asStr(doc, path)",
+            ),
+        )
+    } else if (full == "google.protobuf.BytesValue") {
+        .Some(
+            wrapper(
+                ctx,
+                "BytesValue",
+                "proto.jsonBytes(ctx, value.value)",
+                "proto.asBytes(ctx, doc, path)",
+            ),
+        )
+    } else if (full == "google.protobuf.Struct") {
+        .Some(STRUCT.join(ctx, "\n"))
+    } else if (full == "google.protobuf.Value") {
+        .Some(VALUE.join(ctx, "\n"))
+    } else if (full == "google.protobuf.ListValue") {
+        .Some(LIST_VALUE.join(ctx, "\n"))
+    } else if (full == "google.protobuf.NullValue") {
+        .Some(NULL_VALUE.join(ctx, "\n"))
+    } else {
+        .None
+    }
+}
+
+/// Whether a field of this type reads JSON `null` as a value rather than as
+/// absence: only `Value` and `NullValue` do.
+export fn holdsNull(full: Str): Bool {
+    full == "google.protobuf.Value" || full == "google.protobuf.NullValue"
+}
+
+let STRUCT: [Str] = [
+    "/// proto3 JSON writes a `Struct` as the object it is.",
+    "export fn encodeStructJson<C: Allocator>(ctx: C, value: Struct): Json {",
+    "    Json.Object(",
+    "        value.fields.foldCtx(",
+    "            ctx,",
+    "            fn(c, acc: [(Str, Json)], k, v) => acc.push(c, (k, encodeValueJson(c, v))),",
+    "            list.empty<(Str, Json)>(),",
+    "        ),",
+    "    )",
+    "}",
+    "",
+    "/// Reads a proto3 JSON document.",
+    "export fn decodeStructJson<C: Allocator>(ctx: C, doc: Json): Result<Struct, ProtoError> {",
+    "    decodeStructJsonAt(ctx, doc, \"$\")",
+    "}",
+    "",
+    "/// The same, from somewhere inside a larger document.",
+    "export fn decodeStructJsonAt<C: Allocator>(ctx: C, doc: Json, path: Str): Result<Struct, ProtoError> {",
+    "    let members = proto.asObject(doc, path)?;",
+    "    let fields = members.foldResultCtx(",
+    "        ctx,",
+    "        fn(c, acc: OrderedMap<Str, Value>, item) => {",
+    "            let (name, member) = item;",
+    "            let one = decodeValueJsonAt(c, member, proto.at(c, path, name))?;",
+    "            .Ok(acc.insert(c, name, one))",
+    "        },",
+    "        orderedmap.empty<Str, Value>(),",
+    "    )?;",
+    "    .Ok(Struct { fields: fields })",
+    "}",
+];
+
+let VALUE: [Str] = [
+    "/// proto3 JSON writes a `Value` as whichever JSON value it holds.",
+    "export fn encodeValueJson<C: Allocator>(ctx: C, value: Value): Json {",
+    "    match (value.kind) {",
+    "        .Some(k) => {",
+    "            match (k) {",
+    "                .NullValue(_n) => Json.Null,",
+    "                .NumberValue(x) => Json.Num(x),",
+    "                .StringValue(s) => Json.Str(s),",
+    "                .BoolValue(b) => Json.Bool(b),",
+    "                .StructValue(s) => encodeStructJson(ctx, s),",
+    "                .ListValue(l) => encodeListValueJson(ctx, l),",
+    "            }",
+    "        },",
+    "        .None => Json.Null,",
+    "    }",
+    "}",
+    "",
+    "/// Reads a proto3 JSON document.",
+    "export fn decodeValueJson<C: Allocator>(ctx: C, doc: Json): Result<Value, ProtoError> {",
+    "    decodeValueJsonAt(ctx, doc, \"$\")",
+    "}",
+    "",
+    "/// The same, from somewhere inside a larger document. Any JSON value is one.",
+    "export fn decodeValueJsonAt<C: Allocator>(ctx: C, doc: Json, path: Str): Result<Value, ProtoError> {",
+    "    match (doc) {",
+    "        .Null => .Ok(Value { kind: .Some(Value_Kind.NullValue(NullValue.NULL_VALUE)) }),",
+    "        .Num(x) => .Ok(Value { kind: .Some(Value_Kind.NumberValue(x)) }),",
+    "        .Str(s) => .Ok(Value { kind: .Some(Value_Kind.StringValue(s)) }),",
+    "        .Bool(b) => .Ok(Value { kind: .Some(Value_Kind.BoolValue(b)) }),",
+    "        .Object(_members) => {",
+    "            .Ok(Value { kind: .Some(Value_Kind.StructValue(decodeStructJsonAt(ctx, doc, path)?)) })",
+    "        },",
+    "        .Array(_items) => {",
+    "            .Ok(Value { kind: .Some(Value_Kind.ListValue(decodeListValueJsonAt(ctx, doc, path)?)) })",
+    "        },",
+    "    }",
+    "}",
+];
+
+let LIST_VALUE: [Str] = [
+    "/// proto3 JSON writes a `ListValue` as the array it is.",
+    "export fn encodeListValueJson<C: Allocator>(ctx: C, value: ListValue): Json {",
+    "    Json.Array(value.values.mapCtx(ctx, fn(c, v) => encodeValueJson(c, v)))",
+    "}",
+    "",
+    "/// Reads a proto3 JSON document.",
+    "export fn decodeListValueJson<C: Allocator>(ctx: C, doc: Json): Result<ListValue, ProtoError> {",
+    "    decodeListValueJsonAt(ctx, doc, \"$\")",
+    "}",
+    "",
+    "/// The same, from somewhere inside a larger document.",
+    "export fn decodeListValueJsonAt<C: Allocator>(ctx: C, doc: Json, path: Str): Result<ListValue, ProtoError> {",
+    "    let items = proto.asArray(doc, path)?;",
+    "    let values = items.foldResultCtx(",
+    "        ctx,",
+    "        fn(c, acc: [Value], item) => {",
+    "            let one = decodeValueJsonAt(c, item, path)?;",
+    "            .Ok(acc.push(c, one))",
+    "        },",
+    "        list.empty<Value>(),",
+    "    )?;",
+    "    .Ok(ListValue { values: values })",
+    "}",
+];
+
+let NULL_VALUE: [Str] = [
+    "/// proto3 JSON writes `NullValue` as `null`.",
+    "export fn encodeNullValueJson(value: NullValue): Json {",
+    "    let _ = value;",
+    "    Json.Null",
+    "}",
+    "",
+    "/// `null`, or the value's name.",
+    "export fn decodeNullValueJson(doc: Json, path: Str): Result<NullValue, ProtoError> {",
+    "    match (doc) {",
+    "        .Null => .Ok(NullValue.NULL_VALUE),",
+    "        .Str(s) => {",
+    "            if (s == \"NULL_VALUE\") {",
+    "                .Ok(NullValue.NULL_VALUE)",
+    "            } else {",
+    "                .Err(.BadJson { path: path, wanted: \"null\" })",
+    "            }",
+    "        },",
+    "        _ => .Err(.BadJson { path: path, wanted: \"null\" }),",
+    "    }",
+    "}",
+];

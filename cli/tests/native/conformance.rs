@@ -645,6 +645,8 @@ const PACKAGES: &[Case] = &[
     included("proto/json_numbers.buri"),
     // `map<K, V>` fields, as `OrderedMap<K, V>`.
     included("proto/maps.buri"),
+    // The well-known types and their JSON.
+    included("proto/wellknown.buri"),
     // `core/bytes`'s six intrinsics — the UTF-8 pair and the four IEEE 754
     // byte-pattern entries — are `cli/runtime/bytes.rs` now, which is the one
     // surface each of these two was waiting for.

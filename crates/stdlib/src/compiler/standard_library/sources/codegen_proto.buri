@@ -35,6 +35,7 @@ from "core/orderedmap" import { OrderedMap };
 from "core/str" import * as str;
 from "platform/effect" import { Allocator };
 from "std/codegen/proto/schema" import * as schema;
+from "std/codegen/proto/wellknown" import * as wellknown;
 
 // -----------------------------------------------------------------------------
 // Names
@@ -155,6 +156,9 @@ export struct Entry {
     /// Where it was declared. The file is what a diagnostic naming two of them
     /// prints; the span is only pointable for a type declared here.
     export origin: ast.Origin,
+    /// The name protobuf knows it by, `google.protobuf.Duration`: what marks a
+    /// well-known type.
+    export full: Str,
 }
 
 /// The file a diagnostic names when it says where a type was declared.
@@ -259,6 +263,16 @@ fn keysFor<C: Allocator>(ctx: C, scope: [Str], name: Str, package: Str): [(Str, 
     }
 }
 
+/// A declaration's fully qualified name.
+fn fullName<C: Allocator>(ctx: C, package: Str, path: [Str]): Str {
+    let relative = path.join(ctx, ".");
+    if (package.isEmpty()) {
+        relative
+    } else {
+        str.format(ctx, "${package}.${relative}")
+    }
+}
+
 fn addEnumTo<C: Allocator>(
     ctx: C,
     t: Table,
@@ -273,6 +287,7 @@ fn addEnumTo<C: Allocator>(
         inModule: inModule,
         zero: zeroValue(ctx, e),
         origin: e.origin,
+        full: fullName(ctx, package, scope.push(ctx, e.name)),
     };
     keysFor(ctx, scope, e.name, package).foldCtx(
         ctx,
@@ -296,6 +311,7 @@ fn addMessageTo<C: Allocator>(
         inModule: inModule,
         zero: .None,
         origin: m.origin,
+        full: fullName(ctx, package, path),
     };
     let keyed = keysFor(ctx, scope, m.name, package).foldCtx(
         ctx,
@@ -997,7 +1013,12 @@ struct Valued {
     origin: ast.Origin,
 }
 
-fn enumItems<C: Allocator>(ctx: C, e: schema.Enum, scope: [Str]): [ast.Item] {
+fn enumItems<C: Allocator>(
+    ctx: C,
+    e: schema.Enum,
+    scope: [Str],
+    full: Str,
+): [ast.Item] {
     let name = scope.push(ctx, e.name).join(ctx, "_");
     let here = e.origin;
     let zero = match (zeroValue(ctx, e)) {
@@ -1021,14 +1042,21 @@ fn enumItems<C: Allocator>(ctx: C, e: schema.Enum, scope: [Str]): [ast.Item] {
             })
     };
     let unknown = unrecognizedName(ctx, e);
+    let json = match (wellKnownJson(ctx, full)) {
+        .Some(items) => items,
+        .None => {
+            [
+                enumEncodeJson(ctx, name, values, unknown),
+                enumDecodeJson(ctx, name, values),
+            ]
+        },
+    };
     [
         enumDeclItem(ctx, name, here, values, unknown),
         deriveEqShow(name),
         enumEncode(ctx, name, values, unknown),
         enumDecode(ctx, name, values, unknown),
-        enumEncodeJson(ctx, name, values, unknown),
-        enumDecodeJson(ctx, name, values),
-    ]
+    ].concat(ctx, json)
 }
 
 fn enumDeclItem<C: Allocator>(
@@ -2853,7 +2881,17 @@ fn jsonRead<C: Allocator>(
 /// the schema wrote. A field whose schema name is already camel needs one
 /// lookup.
 fn memberCall(f: ResolvedField): ast.Expr {
-    if (f.json == f.declared) {
+    let keepsNull = match (f.ty) {
+        .Named(e) => wellknown.holdsNull(e.full),
+        _other => false,
+    };
+    if (keepsNull) {
+        nsCall("proto", "memberKeepingNull", [
+            id("doc"),
+            strE(f.json),
+            strE(f.declared),
+        ])
+    } else if (f.json == f.declared) {
         nsCall("proto", "member", [id("doc"), strE(f.json)])
     } else {
         nsCall("proto", "memberEither", [id("doc"), strE(f.json), strE(f.declared)])
@@ -3127,13 +3165,37 @@ fn jsonDecodeFns<C: Allocator>(
 // A message, whole
 // -----------------------------------------------------------------------------
 
+/// A well-known type's JSON codecs, parsed from the source
+/// `std/codegen/proto/wellknown` holds for it; `.None` for any other type.
+fn wellKnownJson<C: Allocator>(ctx: C, full: Str): Option<[ast.Item]> {
+    match (wellknown.json(ctx, full)) {
+        .Some(source) => {
+            match (ast.parse(ctx, full, source)) {
+                .Ok(m) => .Some(m.items),
+                .Err(_errors) => .None,
+            }
+        },
+        .None => .None,
+    }
+}
+
 fn messageItems<C: Allocator>(
     ctx: C,
     name: Str,
+    full: Str,
     here: ast.Origin,
     fields: [ResolvedField],
     oneofs: [ResolvedOneof],
 ): [ast.Item] {
+    let json = match (wellKnownJson(ctx, full)) {
+        .Some(items) => items,
+        .None => {
+            [jsonEncodeFn(ctx, name, fields, oneofs)].concat(
+                ctx,
+                jsonDecodeFns(ctx, name, fields, oneofs),
+            )
+        },
+    };
     oneofs
         .mapCtx(ctx, fn(c, o) => oneofItems(c, name, o))
         .flatten(ctx)
@@ -3144,8 +3206,7 @@ fn messageItems<C: Allocator>(
         .push(ctx, writeFn(ctx, name, fields, oneofs))
         .push(ctx, encodeFn(ctx, name))
         .concat(ctx, decodeFns(ctx, name, fields, oneofs))
-        .push(ctx, jsonEncodeFn(ctx, name, fields, oneofs))
-        .concat(ctx, jsonDecodeFns(ctx, name, fields, oneofs))
+        .concat(ctx, json)
 }
 
 // -----------------------------------------------------------------------------
@@ -3397,7 +3458,8 @@ fn resolveOneofs<C: Allocator>(
 }
 
 fn genEnum<C: Allocator>(ctx: C, g: Gen, e: schema.Enum, scope: [Str]): Gen {
-    Gen { ..g, items: g.items.concat(ctx, enumItems(ctx, e, scope)) }
+    let full = fullName(ctx, g.package, scope.push(ctx, e.name));
+    Gen { ..g, items: g.items.concat(ctx, enumItems(ctx, e, scope, full)) }
 }
 
 fn genMessage<C: Allocator>(
@@ -3413,7 +3475,14 @@ fn genMessage<C: Allocator>(
     let withFields = resolveFields(ctx, g, m, path, features);
     let withOneofs = resolveOneofs(ctx, withFields.0, m, path, name, features);
     let here = m.origin;
-    let items = messageItems(ctx, name, here, withFields.1, withOneofs.1);
+    let items = messageItems(
+        ctx,
+        name,
+        fullName(ctx, g.package, path),
+        here,
+        withFields.1,
+        withOneofs.1,
+    );
     let written = Gen { ..withOneofs.0, items: withOneofs.0.items.concat(ctx, items) };
     let withEnums = m
         .enums
@@ -3659,26 +3728,43 @@ fn resolveImports<C: Allocator>(
             match (available.find(fn(entry) => entry.0 == wanted)) {
                 .Some(entry) => Resolved { ..acc, deps: acc.deps.push(c, entry) },
                 .None => {
-                    let d = Diagnostic {
-                        code: "proto-unknown-import",
-                        message: str.format(
-                            c,
-                            "\"${i.path}\" names no schema in this repository",
-                        ),
-                        note: .Some(
-                            "an import inside a schema is written from the repository root, the way protoc resolves one against `-I.`",
-                        ),
-                        fix: .Some(
-                            "write the path from the repository root, as in `import \"proto/address.proto\";`",
-                        ),
-                        origin: .Some(i.origin),
-                    };
-                    Resolved { ..acc, diagnostics: acc.diagnostics.push(c, d) }
+                    match (bundled(c, i.path)) {
+                        .Some(entry) => {
+                            Resolved { ..acc, deps: acc.deps.push(c, entry) }
+                        },
+                        .None => {
+                            let d = Diagnostic {
+                                code: "proto-unknown-import",
+                                message: str.format(
+                                    c,
+                                    "\"${i.path}\" names no schema in this repository",
+                                ),
+                                note: .Some(
+                                    "an import inside a schema is written from the repository root, the way protoc resolves one against `-I.`",
+                                ),
+                                fix: .Some(
+                                    "write the path from the repository root, as in `import \"proto/address.proto\";`",
+                                ),
+                                origin: .Some(i.origin),
+                            };
+                            Resolved { ..acc, diagnostics: acc.diagnostics.push(c, d) }
+                        },
+                    }
                 },
             }
         },
         seed,
     )
+}
+
+/// A well-known type's schema, under the standard-library module that holds
+/// its types: an import of `google/protobuf/duration.proto` that the
+/// repository does not provide itself.
+fn bundled<C: Allocator>(ctx: C, path: Str): Option<(Str, schema.Schema)> {
+    match (wellknown.FILES.find(fn(f) => f.0 == path)) {
+        .Some(f) => .Some((f.1, schema.parse(ctx, f.2, f.0).schema)),
+        .None => .None,
+    }
 }
 
 /// The generator's entry point: hand this to `core/codegen`'s `run`.

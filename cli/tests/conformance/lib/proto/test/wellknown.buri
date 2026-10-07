@@ -1,0 +1,346 @@
+// The well-known types: `google/protobuf`'s schemas come with the toolchain,
+// and six of them have a JSON form of their own rather than an object.
+
+from "core/bytes" import * as bytes;
+from "core/json" import * as json;
+from "core/list" import * as list;
+from "core/proto" import { ProtoError };
+from "core/proto/duration" import { Duration };
+from "core/proto/field_mask" import { FieldMask };
+from "core/proto/struct" import { NullValue, Value, Value_Kind };
+from "core/proto/timestamp" import { Timestamp };
+from "core/proto/wrappers" import { BoolValue, Int64Value, StringValue, UInt64Value };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//lib/proto" import {
+    decodeKnown, decodeKnownJson, defaultKnown, encodeKnown, encodeKnownJson, Known,
+};
+
+fn read<C: Allocator>(ctx: C, source: Str): Result<Known, ProtoError> {
+    match (json.parse(ctx, source)) {
+        .Ok(d) => decodeKnownJson(ctx, d),
+        .Err(_e) => .Err(.BadJson { path: "", wanted: "JSON" }),
+    }
+}
+
+fn text<C: Allocator>(ctx: C, v: Known): Str {
+    json.stringify(ctx, encodeKnownJson(ctx, v))
+}
+
+/// Writes `doc`, and reads it back to the same value.
+fn document<C: Allocator>(ctx: C, v: Known, doc: Str): () {
+    assert.equal(text(ctx, v), doc);
+    assert.equal(read(ctx, doc), .Ok(v));
+}
+
+/// Reads `doc`, and writes it back as `written`.
+fn rewrites<C: Allocator>(ctx: C, doc: Str, written: Str): () {
+    match (read(ctx, doc)) {
+        .Ok(v) => assert.equal(text(ctx, v), written),
+        .Err(e) => {
+            let got: Result<Str, ProtoError> = .Err(e);
+            assert.equal(got, .Ok(written))
+        },
+    }
+}
+
+fn refused<C: Allocator>(ctx: C, doc: Str, path: Str, wanted: Str): () {
+    assert.equal(read(ctx, doc), .Err(.BadJson { path: path, wanted: wanted }));
+}
+
+fn duration(seconds: Int, nanos: Int): Known {
+    Known {
+        ..defaultKnown(),
+        duration: .Some(Duration { seconds: seconds, nanos: nanos }),
+    }
+}
+
+fn timestamp(seconds: Int, nanos: Int): Known {
+    Known {
+        ..defaultKnown(),
+        timestamp: .Some(Timestamp { seconds: seconds, nanos: nanos }),
+    }
+}
+
+// --- Duration ---------------------------------------------------------------------------
+
+test "a Duration is seconds in a string, with 0, 3, 6 or 9 digits of fraction" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    document(ctx, duration(0, 0), "{\"duration\":\"0s\"}");
+    document(ctx, duration(1, 500000000), "{\"duration\":\"1.500s\"}");
+    document(ctx, duration(-1, -500000000), "{\"duration\":\"-1.500s\"}");
+    document(ctx, duration(0, -500000000), "{\"duration\":\"-0.500s\"}");
+    document(ctx, duration(1, 10000), "{\"duration\":\"1.000010s\"}");
+    document(ctx, duration(1, 10), "{\"duration\":\"1.000000010s\"}");
+    document(
+        ctx,
+        duration(315576000000, 999999999),
+        "{\"duration\":\"315576000000.999999999s\"}",
+    );
+    document(
+        ctx,
+        duration(-315576000000, -999999999),
+        "{\"duration\":\"-315576000000.999999999s\"}",
+    );
+    rewrites(ctx, "{\"duration\":\"1.000000000s\"}", "{\"duration\":\"1s\"}");
+    rewrites(ctx, "{\"duration\":\"1.5s\"}", "{\"duration\":\"1.500s\"}");
+}
+
+test "a Duration that is not one is refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    refused(ctx, "{\"duration\":\"1\"}", "$.duration", "a duration");
+    refused(ctx, "{\"duration\":\"315576000001s\"}", "$.duration", "a duration");
+    refused(ctx, "{\"duration\":\"-315576000001s\"}", "$.duration", "a duration");
+    refused(ctx, "{\"duration\":\"1.0000000001s\"}", "$.duration", "a duration");
+    refused(ctx, "{\"duration\":\"1.s\"}", "$.duration", "a duration");
+    refused(ctx, "{\"duration\":1}", "$.duration", "a duration");
+}
+
+// --- Timestamp --------------------------------------------------------------------------
+
+test "a Timestamp is RFC 3339 in UTC" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    document(ctx, timestamp(0, 0), "{\"timestamp\":\"1970-01-01T00:00:00Z\"}");
+    document(
+        ctx,
+        timestamp(10, 500000000),
+        "{\"timestamp\":\"1970-01-01T00:00:10.500Z\"}",
+    );
+    document(
+        ctx,
+        timestamp(-1, 999999999),
+        "{\"timestamp\":\"1969-12-31T23:59:59.999999999Z\"}",
+    );
+    document(
+        ctx,
+        timestamp(-11, 500000000),
+        "{\"timestamp\":\"1969-12-31T23:59:49.500Z\"}",
+    );
+    document(ctx, timestamp(729302400, 0), "{\"timestamp\":\"1993-02-10T00:00:00Z\"}");
+    document(ctx, timestamp(951782400, 0), "{\"timestamp\":\"2000-02-29T00:00:00Z\"}");
+    document(
+        ctx,
+        timestamp(-62135596800, 0),
+        "{\"timestamp\":\"0001-01-01T00:00:00Z\"}",
+    );
+    document(
+        ctx,
+        timestamp(253402300799, 999999999),
+        "{\"timestamp\":\"9999-12-31T23:59:59.999999999Z\"}",
+    );
+}
+
+test "a Timestamp's offset is applied, and the written one is UTC" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    rewrites(
+        ctx,
+        "{\"timestamp\":\"1970-01-01T08:00:01+08:00\"}",
+        "{\"timestamp\":\"1970-01-01T00:00:01Z\"}",
+    );
+    rewrites(
+        ctx,
+        "{\"timestamp\":\"1969-12-31T16:00:01-08:00\"}",
+        "{\"timestamp\":\"1970-01-01T00:00:01Z\"}",
+    );
+    rewrites(
+        ctx,
+        "{\"timestamp\":\"1970-01-01T00:00:00.010000000Z\"}",
+        "{\"timestamp\":\"1970-01-01T00:00:00.010Z\"}",
+    );
+}
+
+test "a Timestamp that is not RFC 3339, or is outside the years 1 to 9999, is refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    refused(
+        ctx,
+        "{\"timestamp\":\"0000-01-01T00:00:00Z\"}",
+        "$.timestamp",
+        "a timestamp",
+    );
+    refused(
+        ctx,
+        "{\"timestamp\":\"10000-01-01T00:00:00Z\"}",
+        "$.timestamp",
+        "a timestamp",
+    );
+    refused(
+        ctx,
+        "{\"timestamp\":\"0001-01-01T00:00:00\"}",
+        "$.timestamp",
+        "a timestamp",
+    );
+    refused(
+        ctx,
+        "{\"timestamp\":\"0001-01-01 00:00:00Z\"}",
+        "$.timestamp",
+        "a timestamp",
+    );
+    refused(
+        ctx,
+        "{\"timestamp\":\"0001-01-01T00:00:00z\"}",
+        "$.timestamp",
+        "a timestamp",
+    );
+    refused(
+        ctx,
+        "{\"timestamp\":\"0001-01-01t00:00:00Z\"}",
+        "$.timestamp",
+        "a timestamp",
+    );
+    refused(
+        ctx,
+        "{\"timestamp\":\"1970-01-01T08:00:01+0800\"}",
+        "$.timestamp",
+        "a timestamp",
+    );
+    refused(
+        ctx,
+        "{\"timestamp\":\"1970-02-30T00:00:00Z\"}",
+        "$.timestamp",
+        "a timestamp",
+    );
+}
+
+test "repeated timestamps are an array of strings" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let v = Known {
+        ..defaultKnown(),
+        times: [Timestamp { seconds: 0, nanos: 1 }, Timestamp { seconds: 1, nanos: 0 }],
+    };
+    document(
+        ctx,
+        v,
+        "{\"times\":[\"1970-01-01T00:00:00.000000001Z\",\"1970-01-01T00:00:01Z\"]}",
+    );
+}
+
+// --- FieldMask --------------------------------------------------------------------------
+
+test "a FieldMask is its paths in lowerCamelCase, joined by commas" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    document(
+        ctx,
+        Known {
+            ..defaultKnown(),
+            mask: .Some(FieldMask { paths: ["foo", "bar_baz"] }),
+        },
+        "{\"mask\":\"foo,barBaz\"}",
+    );
+    document(
+        ctx,
+        Known { ..defaultKnown(), mask: .Some(FieldMask { paths: [] }) },
+        "{\"mask\":\"\"}",
+    );
+    refused(ctx, "{\"mask\":\"foo,bar_bar\"}", "$.mask", "a field mask");
+}
+
+// --- Struct, Value and ListValue --------------------------------------------------------
+
+test "a Value is whichever JSON value it holds, null included" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let none = Value { kind: .Some(Value_Kind.NullValue(NullValue.NULL_VALUE)) };
+    document(ctx, Known { ..defaultKnown(), value: .Some(none) }, "{\"value\":null}");
+    document(
+        ctx,
+        Known {
+            ..defaultKnown(),
+            value: .Some(Value { kind: .Some(Value_Kind.NumberValue(1.5)) }),
+        },
+        "{\"value\":1.5}",
+    );
+    document(
+        ctx,
+        Known {
+            ..defaultKnown(),
+            value: .Some(Value { kind: .Some(Value_Kind.StringValue("x")) }),
+        },
+        "{\"value\":\"x\"}",
+    );
+    document(
+        ctx,
+        Known { ..defaultKnown(), noneValue: .Some(NullValue.NULL_VALUE) },
+        "{\"noneValue\":null}",
+    );
+}
+
+test "a Struct and a ListValue are the object and the array, at any depth" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let doc =
+        "{\"object\":{\"a\":[1,\"x\",true,null,{\"b\":{}}],\"c\":{}},\"list\":[[],{}],\"values\":[null,2]}";
+    rewrites(ctx, doc, doc);
+    match (read(ctx, doc)) {
+        .Ok(v) => assert.equal(decodeKnown(ctx, encodeKnown(ctx, v)), .Ok(v)),
+        .Err(e) => {
+            let got: Result<Str, ProtoError> = .Err(e);
+            assert.equal(got, .Ok(doc))
+        },
+    };
+    refused(ctx, "{\"object\":[]}", "$.object", "an object");
+    refused(ctx, "{\"list\":{}}", "$.list", "an array");
+}
+
+// --- the wrappers -----------------------------------------------------------------------
+
+test "a wrapper is the value it wraps, written even at its default" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    document(
+        ctx,
+        Known { ..defaultKnown(), big: .Some(Int64Value { value: 7 }) },
+        "{\"big\":\"7\"}",
+    );
+    document(
+        ctx,
+        Known { ..defaultKnown(), huge: .Some(UInt64Value { value: -1 }) },
+        "{\"huge\":\"18446744073709551615\"}",
+    );
+    document(
+        ctx,
+        Known { ..defaultKnown(), flag: .Some(BoolValue { value: false }) },
+        "{\"flag\":false}",
+    );
+    document(
+        ctx,
+        Known { ..defaultKnown(), text: .Some(StringValue { value: "" }) },
+        "{\"text\":\"\"}",
+    );
+    rewrites(
+        ctx,
+        "{\"blob\":\"AQ==\",\"ratio\":\"NaN\",\"rough\":0.5,\"small\":-1,\"count\":4294967295}",
+        "{\"blob\":\"AQ==\",\"ratio\":\"NaN\",\"rough\":0.5,\"small\":-1,\"count\":4294967295}",
+    );
+    // `null` for a wrapper is absence.
+    assert.equal(read(ctx, "{\"big\":null}"), .Ok(defaultKnown()));
+}
+
+// --- the rest ------------------------------------------------------------------------------
+
+test "Empty is an empty object, and the wire format is a message like any other" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    rewrites(ctx, "{\"nothing\":{}}", "{\"nothing\":{}}");
+    // field 1, wire 2, length 2: field 1 varint 1.
+    assert.equal(bytes.toHex(ctx, encodeKnown(ctx, duration(1, 0))), "0a020801");
+    assert.equal(decodeKnown(ctx, list.empty<U8>()), .Ok(defaultKnown()));
+}

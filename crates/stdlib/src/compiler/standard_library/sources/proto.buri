@@ -1025,3 +1025,382 @@ export fn at<C: Allocator>(ctx: C, path: Str, name: Str): Str {
 export fn index<C: Allocator>(ctx: C, path: Str, i: Int): Str {
     str.format(ctx, "${path}[${i}]")
 }
+
+// -----------------------------------------------------------------------------
+// The well-known types' JSON
+// -----------------------------------------------------------------------------
+//
+// proto3 JSON writes six of `google/protobuf`'s messages as something other
+// than an object, and these are the forms. The generated `core/proto/duration`,
+// `core/proto/timestamp` and `core/proto/field_mask` call them.
+
+/// The member of an object, `null` included. A `google.protobuf.Value` and a
+/// `NullValue` hold `null` as a value, so for those fields it is not absence.
+export fn memberKeepingNull(doc: Json, name: Str, alternate: Str): Option<Json> {
+    match (doc.get(name)) {
+        .Some(v) => .Some(v),
+        .None => doc.get(alternate),
+    }
+}
+
+/// A `Duration`, as `"1.5s"`: seconds, then a fraction of 3, 6 or 9 digits if
+/// there is one, then `s`.
+export fn jsonDuration<C: Allocator>(ctx: C, seconds: Int, nanos: Int): Json {
+    let sign = if (seconds < 0 || nanos < 0) { "-" } else { "" };
+    let s = if (seconds < 0) { 0 - seconds } else { seconds };
+    let n = if (nanos < 0) { 0 - nanos } else { nanos };
+    Json.Str(str.format(ctx, "${sign}${s}${fraction(ctx, n)}s"))
+}
+
+/// The largest duration proto3 JSON writes: ten thousand years of seconds.
+let MAX_DURATION: Int = 315576000000;
+
+/// A `Duration` read from its string, as `(seconds, nanos)`, both with the
+/// duration's sign.
+export fn asDuration<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<(Int, Int), ProtoError> {
+    let bad: Result<(Int, Int), ProtoError> = .Err(.BadJson {
+        path: path,
+        wanted: "a duration",
+    });
+    match (doc) {
+        .Str(text) => {
+            if (!text.endsWith("s")) {
+                bad
+            } else {
+                let body = text.slice(0, text.length() - 1);
+                let negative = body.startsWith("-");
+                let unsigned = if (negative) {
+                    body.slice(1, body.length())
+                } else {
+                    body
+                };
+                match (decimal(ctx, unsigned)) {
+                    .Some((s, n)) => {
+                        if (s > MAX_DURATION) {
+                            bad
+                        } else if (negative) {
+                            .Ok((0 - s, 0 - n))
+                        } else {
+                            .Ok((s, n))
+                        }
+                    },
+                    .None => bad,
+                }
+            }
+        },
+        _ => bad,
+    }
+}
+
+/// `12.5` as `(12, 500000000)`: whole digits, then optionally a point and one
+/// to nine more. Twelve whole digits at most, which is past any range here.
+fn decimal<C: Allocator>(ctx: C, text: Str): Option<(Int, Int)> {
+    let (whole, part, pointed) = match (text.splitOnce(".")) {
+        .Some((a, b)) => (a, b, true),
+        .None => (text, "", false),
+    };
+    let wholeOk = whole.length() > 0 && whole.length() <= 12 && allDigits(whole, 0);
+    let partOk = !pointed
+        || part.length() > 0 && part.length() <= 9 && allDigits(part, 0);
+    if (wholeOk && partOk) {
+        let s = whole.toInt().withDefault(0);
+        let n = if (pointed) {
+            part.padEnd(ctx, 9, '0').toInt().withDefault(0)
+        } else {
+            0
+        };
+        .Some((s, n))
+    } else {
+        .None
+    }
+}
+
+/// A fraction of a second, as the shortest of 3, 6 or 9 digits that is exact,
+/// with its point; nothing for a whole number.
+fn fraction<C: Allocator>(ctx: C, n: Int): Str {
+    if (n == 0) {
+        ""
+    } else if (n % 1000000 == 0) {
+        str.format(ctx, ".${digits(ctx, n / 1000000, 3)}")
+    } else if (n % 1000 == 0) {
+        str.format(ctx, ".${digits(ctx, n / 1000, 6)}")
+    } else {
+        str.format(ctx, ".${digits(ctx, n, 9)}")
+    }
+}
+
+fn digits<C: Allocator>(ctx: C, n: Int, width: Int): Str {
+    str.fromInt(ctx, n).padStart(ctx, width, '0')
+}
+
+/// `a / b` rounded toward negative infinity, for a positive `b`.
+fn floorDiv(a: Int, b: Int): Int {
+    (a - floorMod(a, b)) / b
+}
+
+fn floorMod(a: Int, b: Int): Int {
+    (a % b + b) % b
+}
+
+/// The earliest and latest instants proto3 JSON writes: 0001-01-01T00:00:00Z
+/// and 9999-12-31T23:59:59Z, in seconds from the epoch.
+let MIN_TIMESTAMP: Int = -62135596800;
+
+let MAX_TIMESTAMP: Int = 253402300799;
+
+/// A `Timestamp`, as RFC 3339 in UTC: `1970-01-01T00:00:10.500Z`.
+export fn jsonTimestamp<C: Allocator>(ctx: C, seconds: Int, nanos: Int): Json {
+    let days = floorDiv(seconds, 86400);
+    let rest = seconds - days * 86400;
+    let (y, m, d) = civil(days);
+    let hh = rest / 3600;
+    let mm = rest % 3600 / 60;
+    let ss = rest % 60;
+    Json.Str(
+        str.format(
+            ctx,
+            "${digits(ctx, y, 4)}-${digits(ctx, m, 2)}-${digits(ctx, d, 2)}T${digits(
+                ctx,
+                hh,
+                2,
+            )}:${digits(ctx, mm, 2)}:${digits(ctx, ss, 2)}${fraction(ctx, nanos)}Z",
+        ),
+    )
+}
+
+/// A day number from the epoch as `(year, month, day)`, in the proleptic
+/// Gregorian calendar.
+fn civil(days: Int): (Int, Int, Int) {
+    let z = days + 719468;
+    let era = floorDiv(z, 146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if (mp < 10) { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400;
+    (if (m <= 2) { y + 1 } else { y }, m, d)
+}
+
+/// The inverse: a date's day number from the epoch.
+fn dayNumber(year: Int, month: Int, day: Int): Int {
+    let y = if (month <= 2) { year - 1 } else { year };
+    let era = floorDiv(y, 400);
+    let yoe = y - era * 400;
+    let mp = if (month > 2) { month - 3 } else { month + 9 };
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+fn daysIn(year: Int, month: Int): Int {
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    if (month == 2) {
+        if (leap) { 29 } else { 28 }
+    } else if (month == 4 || month == 6 || month == 9 || month == 11) {
+        30
+    } else {
+        31
+    }
+}
+
+/// A `Timestamp` read from RFC 3339, as `(seconds, nanos)` from the epoch in
+/// UTC. The `T` and the `Z` are capitals, an offset is `+hh:mm` or `-hh:mm`,
+/// and the instant has to fall between the years 1 and 9999.
+export fn asTimestamp<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<(Int, Int), ProtoError> {
+    let bad: Result<(Int, Int), ProtoError> = .Err(.BadJson {
+        path: path,
+        wanted: "a timestamp",
+    });
+    match (doc) {
+        .Str(text) => {
+            match (instant(ctx, text)) {
+                .Some((s, n)) => {
+                    if (s < MIN_TIMESTAMP || s > MAX_TIMESTAMP) {
+                        bad
+                    } else {
+                        .Ok((s, n))
+                    }
+                },
+                .None => bad,
+            }
+        },
+        _ => bad,
+    }
+}
+
+fn instant<C: Allocator>(ctx: C, text: Str): Option<(Int, Int)> {
+    // `YYYY-MM-DDThh:mm:ss` is nineteen characters, at fixed places.
+    let shape = text.length() >= 20
+        && text.charAt(4) == .Some('-')
+        && text.charAt(7) == .Some('-')
+        && text.charAt(10) == .Some('T')
+        && text.charAt(13) == .Some(':')
+        && text.charAt(16) == .Some(':');
+    if (!shape) {
+        .None
+    } else {
+        let year = number(text, 0, 4);
+        let month = number(text, 5, 7);
+        let day = number(text, 8, 10);
+        let hour = number(text, 11, 13);
+        let minute = number(text, 14, 16);
+        let second = number(text, 17, 19);
+        let rest = text.slice(19, text.length());
+        let (nanos, zone) = if (rest.startsWith(".")) {
+            let end = digitsEnd(rest, 1);
+            let part = rest.slice(1, end);
+            if (part.length() == 0 || part.length() > 9) {
+                (-1, "")
+            } else {
+                (
+                    part.padEnd(ctx, 9, '0').toInt().withDefault(-1),
+                    rest.slice(end, rest.length()),
+                )
+            }
+        } else {
+            (0, rest)
+        };
+        let offset = zoneSeconds(zone);
+        match ((year, month, day, hour, minute, second, offset)) {
+            (.Some(y), .Some(mo), .Some(d), .Some(h), .Some(mi), .Some(s), .Some(off)) => {
+                let valid = y >= 1
+                    && mo >= 1
+                    && mo <= 12
+                    && d >= 1
+                    && d <= daysIn(y, mo)
+                    && h <= 23
+                    && mi <= 59
+                    && s <= 59
+                    && nanos >= 0;
+                if (valid) {
+                    .Some(
+                        (
+                            dayNumber(y, mo, d) * 86400 + h * 3600 + mi * 60 + s - off,
+                            nanos,
+                        ),
+                    )
+                } else {
+                    .None
+                }
+            },
+            _ => .None,
+        }
+    }
+}
+
+/// `Z`, `+hh:mm` or `-hh:mm`, as seconds east of UTC.
+fn zoneSeconds(zone: Str): Option<Int> {
+    if (zone == "Z") {
+        .Some(0)
+    } else if (zone.length() == 6 && zone.charAt(3) == .Some(':')) {
+        let sign: Option<Int> = match (zone.charAt(0)) {
+            .Some('+') => .Some(1),
+            .Some('-') => .Some(-1),
+            _ => .None,
+        };
+        match ((sign, number(zone, 1, 3), number(zone, 4, 6))) {
+            (.Some(s), .Some(h), .Some(m)) => {
+                if (h <= 23 && m <= 59) {
+                    .Some(s * (h * 3600 + m * 60))
+                } else {
+                    .None
+                }
+            },
+            _ => .None,
+        }
+    } else {
+        .None
+    }
+}
+
+/// The digits from `start` to `end` as a number, if they are all digits.
+fn number(text: Str, start: Int, end: Int): Option<Int> {
+    let part = text.slice(start, end);
+    if (part.length() == end - start && allDigits(part, 0)) {
+        part.toInt()
+    } else {
+        .None
+    }
+}
+
+fn digitsEnd(text: Str, i: Int): Int {
+    match (text.charAt(i)) {
+        .Some(c) => if (c.isDigit()) { digitsEnd(text, i + 1) } else { i },
+        .None => i,
+    }
+}
+
+/// A `FieldMask`, as its paths in lowerCamelCase joined by commas.
+export fn jsonFieldMask<C: Allocator>(ctx: C, paths: [Str]): Json {
+    Json.Str(paths.mapCtx(ctx, fn(c, p) => camelPath(c, p)).join(ctx, ","))
+}
+
+fn camelPath<C: Allocator>(ctx: C, path: Str): Str {
+    let pieces = path.split(ctx, "_");
+    let first = pieces.first().withDefault("");
+    pieces
+        .drop(ctx, 1)
+        .foldCtx(
+            ctx,
+            fn(c, acc: Str, piece) => [acc, upperFirstChar(c, piece)].join(c, ""),
+            first,
+        )
+}
+
+fn upperFirstChar<C: Allocator>(ctx: C, s: Str): Str {
+    match (s.charAt(0)) {
+        .Some(c) => {
+            str.fromChars(ctx, [c.toUpper()]).concat(ctx, s.slice(1, s.length()))
+        },
+        .None => s,
+    }
+}
+
+/// A `FieldMask` read back: each comma-separated path from lowerCamelCase to
+/// the schema's snake_case. An underscore in a path is refused, because no
+/// field name writes one in this form.
+export fn asFieldMask<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<[Str], ProtoError> {
+    match (doc) {
+        .Str(text) => {
+            if (text == "") {
+                .Ok([])
+            } else if (text.contains("_")) {
+                .Err(.BadJson { path: path, wanted: "a field mask" })
+            } else {
+                .Ok(text.split(ctx, ",").mapCtx(ctx, fn(c, p) => snakePath(c, p)))
+            }
+        },
+        _ => .Err(.BadJson { path: path, wanted: "a field mask" }),
+    }
+}
+
+fn snakePath<C: Allocator>(ctx: C, path: Str): Str {
+    let out = path
+        .chars(ctx)
+        .foldCtx(
+            ctx,
+            fn(c, acc: [Char], ch) => {
+                if (ch.isUpper()) {
+                    acc.push(c, '_').push(c, ch.toLower())
+                } else {
+                    acc.push(c, ch)
+                }
+            },
+            list.empty<Char>(),
+        );
+    str.fromChars(ctx, out)
+}

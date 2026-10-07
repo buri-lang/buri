@@ -1,0 +1,153 @@
+//! Generated from google/protobuf/any.proto. Not a file to edit: the schema is the source,
+//! and this module is rebuilt from it whenever the schema changes.
+//!
+//! What the mapping is, and why: `buri docs build/proto`.
+
+from "core/bytes" import * as bytes;
+from "core/json" import { Json };
+from "core/list" import * as list;
+from "core/proto" import * as proto;
+from "core/proto" import { ProtoError };
+from "platform/effect" import { Allocator };
+
+derive Equal, Show for Any;
+export struct Any {
+    export typeUrl: Str,
+    export value: [U8],
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultAny(): Any {
+    Any { typeUrl: "", value: list.empty<U8>() }
+}
+
+/// How many bytes `encodeAny` writes.
+export fn sizeAny(value: Any): Int {
+    let size = if (value.typeUrl == "") { 0 } else { 1 + proto.strSize(value.typeUrl) };
+    let s = if (value.value.length() == 0) {
+        0
+    } else {
+        1 + proto.lenSize(value.value.length())
+    };
+    let size = size + s;
+    size
+}
+
+/// `encodeAny`, appended to `out`.
+export fn writeAny<C: Allocator>(ctx: C, out: [U8], value: Any): [U8] {
+    let out = if (value.typeUrl == "") {
+        out
+    } else {
+        proto.writeStr(ctx, out.push(ctx, 10), value.typeUrl)
+    };
+    if (value.value.length() == 0) {
+        out
+    } else {
+        proto.writeBytes(ctx, out.push(ctx, 18), value.value)
+    }
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeAny<C: Allocator>(ctx: C, value: Any): [U8] {
+    writeAny(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeAny<C: Allocator>(ctx: C, b: [U8]): Result<Any, ProtoError> {
+    readAny(ctx, b, 0, b.length(), 0, defaultAny())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeAny<C: Allocator>(ctx: C, b: [U8], into: Any): Result<Any, ProtoError> {
+    readAny(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readAny<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: Any,
+): Result<Any, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.LEN) {
+            let (raw, after) = proto.readStr(ctx, b, next, end, base)?;
+            let value = raw;
+            readAny(ctx, b, after, end, base, Any { ..acc, typeUrl: value })
+        } else if (field == 2 && wire == proto.LEN) {
+            let (raw, after) = proto.readBytes(ctx, b, next, end, base)?;
+            let value = raw;
+            readAny(ctx, b, after, end, base, Any { ..acc, value: value })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readAny(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+/// The proto3 JSON mapping — which is *not* `derive ToJson`'s. A 64-bit
+/// integer is a string, `bytes` is base64, an enum is its value's name, and
+/// a oneof's case is an ordinary member of this object.
+export fn encodeAnyJson<C: Allocator>(ctx: C, value: Any): Json {
+    Json.Object(
+        [
+            if (value.typeUrl == "") {
+                list.empty<(Str, Json)>()
+            } else {
+                [("typeUrl", Json.Str(value.typeUrl))]
+            },
+            if (value.value.length() == 0) {
+                list.empty<(Str, Json)>()
+            } else {
+                [("value", proto.jsonBytes(ctx, value.value))]
+            },
+        ].flatten(ctx),
+    )
+}
+
+/// Reads a proto3 JSON document. An absent member and a `null` one mean the
+/// same thing, which is what the mapping says.
+export fn decodeAnyJson<C: Allocator>(ctx: C, doc: Json): Result<Any, ProtoError> {
+    decodeAnyJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document, so that an error names
+/// a place a reader can find.
+export fn decodeAnyJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<Any, ProtoError> {
+    match (doc) {
+        .Object(_entries) => {
+            let f_typeUrl: Str = match (
+                proto.memberEither(doc, "typeUrl", "type_url")
+            ) {
+                .None => "",
+                .Some(v) => proto.asStr(v, proto.at(ctx, path, "typeUrl"))?,
+            };
+            let f_value: [U8] = match (proto.member(doc, "value")) {
+                .None => list.empty<U8>(),
+                .Some(v) => proto.asBytes(ctx, v, proto.at(ctx, path, "value"))?,
+            };
+            .Ok(Any { typeUrl: f_typeUrl, value: f_value })
+        },
+        _ => .Err(.BadJson { path: path, wanted: "an object" }),
+    }
+}

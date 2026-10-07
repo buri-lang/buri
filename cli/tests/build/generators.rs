@@ -645,3 +645,61 @@ fn a_tool_process_inherits_no_other_process_pipe() {
         noted.lines().filter(|line| line.split_whitespace().any(|fd| !alone.iter().any(|a| a == fd))).collect();
     assert!(extra.is_empty(), "a tool was started holding more than {alone:?}:\n{}", indent(&extra.join("\n")));
 }
+
+/// What prints each bundled well-known schema the way the generator writes it.
+const WELL_KNOWN_PRINTER: &str = r#"from "core/buri/ast" import * as ast;
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+from "std/codegen/proto" import * as gen;
+from "std/codegen/proto/schema" import * as schema;
+from "std/codegen/proto/wellknown" import * as wellknown;
+
+export fn main(host: NodeHost): Result<(), Str> {
+    run(context { Allocator: host.alloc, Stdout: host.stdout })
+}
+
+fn run<C: Allocator + Stdout>(ctx: C): Result<(), Str> {
+    wellknown.FILES.foldResultCtx(ctx, fn(c, _u: (), f) => {
+        let parsed = schema.parse(c, f.2, f.0);
+        let text = ast.print(c, gen.generate(c, f.0, parsed.schema, []).tree).text;
+        io.print(c, "=== ${f.1}\n${text}").mapErr(fn(_e) => "stdout")
+    }, ())
+}
+"#;
+
+/// **The well-known types' modules are what the generator writes**, formatted.
+///
+/// `core/proto/duration` and the six beside it are the generator's output for
+/// the schemas `std/codegen/proto/wellknown` bundles, checked in so that a
+/// program importing `google/protobuf/duration.proto` has a module to compile.
+/// A change to the generator that would change them fails here until they are
+/// written again, and the message is the text to write.
+#[test]
+fn the_well_known_modules_are_what_the_generator_writes() {
+    let scratch = Scratch::repo("generators-well-known");
+    scratch.write("cmd/print/BUILD.buri", "binary {}\n");
+    scratch.write("cmd/print/main.buri", WELL_KNOWN_PRINTER);
+    let run = scratch.run(&["run", "//cmd/print"]);
+    run.ok();
+    let sources =
+        crate::harness::repo_root().join("crates/stdlib/src/compiler/standard_library/sources");
+    let mut seen = 0;
+    for part in run.stdout.split("=== ").filter(|p| !p.is_empty()) {
+        let (module, text) = part.split_once('\n').expect("a module path, then its text");
+        let leaf = module.rsplit('/').next().expect("a module path");
+        let file = format!("proto_{leaf}.buri");
+        let written = buri::commands::format::file(&file, text)
+            .unwrap_or_else(|| panic!("the generated {module} does not format"));
+        let checked_in =
+            std::fs::read_to_string(sources.join(&file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+        assert!(
+            written == checked_in,
+            "{file} is not what the generator writes for {module}; write it again, the \
+             generated text through `buri format`:\n{}",
+            indent(&written)
+        );
+        seen += 1;
+    }
+    assert_eq!(seen, 7, "the generator printed {seen} modules:\n{}", run.all());
+}
