@@ -446,9 +446,9 @@ export fn codecNames<C: Allocator>(ctx: C, entry: Entry): [Str] {
         .Message => {
             [
                 str.format(ctx, "default${n}"),
-                str.format(ctx, "encode${n}"),
-                str.format(ctx, "decode${n}"),
-                str.format(ctx, "merge${n}"),
+                str.format(ctx, "size${n}"),
+                str.format(ctx, "write${n}"),
+                str.format(ctx, "read${n}"),
                 str.format(ctx, "encode${n}Json"),
                 str.format(ctx, "decode${n}JsonAt"),
             ]
@@ -1242,57 +1242,104 @@ fn defaultFn<C: Allocator>(
 // -----------------------------------------------------------------------------
 // A message: the binary encoder
 // -----------------------------------------------------------------------------
+//
+// `writeM` appends a message's fields to a buffer, and `sizeM` answers how many
+// bytes that is. A nested message's length prefix comes from its `size`
+// function, so its bytes are written once, straight into the buffer they end
+// up in. A header is a constant, so it is written as literal bytes.
 
-/// The bytes of one whole field — header included — given an expression
-/// holding its value.
-fn writeOne<C: Allocator>(
+/// The number `core/proto` gives this field's wire type.
+fn wireNumber(t: FieldType): Int {
+    let w = wireName(t);
+    if (w == "VARINT") {
+        0
+    } else if (w == "I64") {
+        1
+    } else if (w == "LEN") {
+        2
+    } else {
+        5
+    }
+}
+
+/// A header's bytes, as the varint of `number << 3 | wire`.
+fn tagBytes<C: Allocator>(ctx: C, f: ResolvedField, wire: Int): [Int] {
+    varintDigits(ctx, f.number * 8 + wire, [])
+}
+
+fn varintDigits<C: Allocator>(ctx: C, v: Int, acc: [Int]): [Int] {
+    if (v < 128) {
+        acc.push(ctx, v)
+    } else {
+        varintDigits(ctx, v / 128, acc.push(ctx, v % 128 + 128))
+    }
+}
+
+/// `out.push(c, byte)` for each byte of the header.
+fn pushTag<C: Allocator>(
+    ctx: C,
+    f: ResolvedField,
+    wire: Int,
+    out: ast.Expr,
+    c: ast.Expr,
+): ast.Expr {
+    tagBytes(ctx, f, wire).fold(
+        fn(acc, byte) => method(acc, "push", [c, intE(byte)]),
+        out,
+    )
+}
+
+/// One value with no header, appended to `out`: an element of a packed field,
+/// or the body of a scalar field.
+fn writeRaw<C: Allocator>(
     ctx: C,
     f: ResolvedField,
     value: ast.Expr,
+    out: ast.Expr,
     c: ast.Expr,
 ): ast.Expr {
-    let n = intE(f.number);
     match (f.ty) {
         .Scalar(s) => {
             let k = scalarName(s);
             if (k == "sint32" || k == "sint64") {
-                nsCall("proto", "varintField", [
+                nsCall("proto", "writeVarint", [
                     c,
-                    n,
+                    out,
                     nsCall("bytes", "zigzag", [value]),
                 ])
             } else if (k == "bool") {
-                nsCall("proto", "varintField", [c, n, ifE(value, intE(1), intE(0))])
+                nsCall("proto", "writeVarint", [c, out, ifE(value, intE(1), intE(0))])
             } else if (k == "fixed32" || k == "sfixed32") {
-                nsCall("proto", "fixed32Field", [c, n, value])
+                nsCall("proto", "writeFixed32", [c, out, value])
             } else if (k == "fixed64" || k == "sfixed64") {
-                nsCall("proto", "fixed64Field", [c, n, value])
+                nsCall("proto", "writeFixed64", [c, out, value])
             } else if (k == "double") {
-                nsCall("proto", "f64Field", [c, n, value])
+                nsCall("proto", "writeF64", [c, out, value])
             } else if (k == "float") {
-                nsCall("proto", "f32Field", [c, n, value])
+                nsCall("proto", "writeF32", [c, out, value])
             } else if (k == "string") {
-                nsCall("proto", "strField", [c, n, value])
+                nsCall("proto", "writeStr", [c, out, value])
             } else if (k == "bytes") {
-                nsCall("proto", "bytesField", [c, n, value])
+                nsCall("proto", "writeBytes", [c, out, value])
             } else {
-                nsCall("proto", "varintField", [c, n, value])
+                nsCall("proto", "writeVarint", [c, out, value])
             }
         },
         .Named(e) => {
             match (e.kind) {
                 .Enum => {
-                    nsCall("proto", "varintField", [
+                    nsCall("proto", "writeVarint", [
                         c,
-                        n,
+                        out,
                         callName(str.format(ctx, "encode${e.buri}"), [value]),
                     ])
                 },
                 .Message => {
-                    nsCall("proto", "bytesField", [
+                    let size = callName(str.format(ctx, "size${e.buri}"), [value]);
+                    callName(str.format(ctx, "write${e.buri}"), [
                         c,
-                        n,
-                        callName(str.format(ctx, "encode${e.buri}"), [c, value]),
+                        nsCall("proto", "writeVarint", [c, out, size]),
+                        value,
                     ])
                 },
             }
@@ -1300,38 +1347,77 @@ fn writeOne<C: Allocator>(
     }
 }
 
-/// One element of a packed repeated field: the value with no header.
-fn writeRaw<C: Allocator>(
+/// One whole field, header included, appended to `out`.
+fn writeOne<C: Allocator>(
     ctx: C,
     f: ResolvedField,
     value: ast.Expr,
+    out: ast.Expr,
     c: ast.Expr,
 ): ast.Expr {
+    writeRaw(ctx, f, value, pushTag(ctx, f, wireNumber(f.ty), out, c), c)
+}
+
+/// How many bytes [`writeRaw`] writes for `value`.
+fn rawSize<C: Allocator>(ctx: C, f: ResolvedField, value: ast.Expr): ast.Expr {
     match (f.ty) {
         .Scalar(s) => {
             let k = scalarName(s);
             if (k == "sint32" || k == "sint64") {
-                nsCall("bytes", "toVarint", [c, nsCall("bytes", "zigzag", [value])])
+                nsCall("proto", "varintSize", [nsCall("bytes", "zigzag", [value])])
             } else if (k == "bool") {
-                nsCall("bytes", "toVarint", [c, ifE(value, intE(1), intE(0))])
-            } else if (k == "fixed32" || k == "sfixed32") {
-                nsCall("proto", "le32", [value])
-            } else if (k == "fixed64" || k == "sfixed64") {
-                nsCall("proto", "le64", [c, value])
-            } else if (k == "double") {
-                nsCall("bytes", "f64ToBytes", [c, value])
-            } else if (k == "float") {
-                nsCall("bytes", "f32ToBytes", [c, value])
+                intE(1)
+            } else if (k == "fixed32" || k == "sfixed32" || k == "float") {
+                intE(4)
+            } else if (k == "fixed64" || k == "sfixed64" || k == "double") {
+                intE(8)
+            } else if (k == "string") {
+                nsCall("proto", "strSize", [value])
+            } else if (k == "bytes") {
+                nsCall("proto", "lenSize", [method(value, "length", [])])
             } else {
-                nsCall("bytes", "toVarint", [c, value])
+                nsCall("proto", "varintSize", [value])
             }
         },
         .Named(e) => {
-            nsCall("bytes", "toVarint", [
-                c,
-                callName(str.format(ctx, "encode${e.buri}"), [value]),
-            ])
+            match (e.kind) {
+                .Enum => {
+                    nsCall("proto", "varintSize", [
+                        callName(str.format(ctx, "encode${e.buri}"), [value]),
+                    ])
+                },
+                .Message => {
+                    nsCall("proto", "lenSize", [
+                        callName(str.format(ctx, "size${e.buri}"), [value]),
+                    ])
+                },
+            }
         },
+    }
+}
+
+/// How many bytes [`writeOne`] writes for `value`.
+fn oneSize<C: Allocator>(ctx: C, f: ResolvedField, value: ast.Expr): ast.Expr {
+    binE(
+        .Add,
+        intE(tagBytes(ctx, f, wireNumber(f.ty)).length()),
+        rawSize(ctx, f, value),
+    )
+}
+
+/// The body of a packed field: its elements, back to back.
+fn packedSize<C: Allocator>(ctx: C, f: ResolvedField, values: ast.Expr): ast.Expr {
+    let count = method(values, "length", []);
+    let w = wireName(f.ty);
+    if (w == "I32") {
+        binE(.Mul, count, intE(4))
+    } else if (w == "I64") {
+        binE(.Mul, count, intE(8))
+    } else {
+        method(values, "fold", [
+            lam2("n", "x", binE(.Add, id("n"), rawSize(ctx, f, id("x")))),
+            intE(0),
+        ])
     }
 }
 
@@ -1359,76 +1445,198 @@ fn isDefaultTest<C: Allocator>(ctx: C, f: ResolvedField, value: ast.Expr): ast.E
     }
 }
 
+/// One field appended to `out`, or `out` itself where the field writes nothing.
 fn encodePiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
     let v = dot(id("value"), f.name);
-    let none = emptyList(tyNamed("U8"));
+    let out = id("out");
+    let bytesTy = tyArray(tyNamed("U8"));
     if (isRepeated(f)) {
         if (packable(f.ty) && f.packed) {
-            let each = method(
-                method(v, "mapCtx", [
-                    id("ctx"),
-                    lam2("c", "x", writeRaw(ctx, f, id("x"), id("c"))),
-                ]),
-                "flatten",
-                [id("ctx")],
-            );
+            let header = nsCall("proto", "writeVarint", [
+                id("ctx"),
+                pushTag(ctx, f, 2, out, id("ctx")),
+                packedSize(ctx, f, v),
+            ]);
             ifE(
                 eqE(method(v, "length", []), intE(0)),
-                none,
-                nsCall("proto", "bytesField", [id("ctx"), intE(f.number), each]),
+                out,
+                method(v, "foldCtx", [
+                    id("ctx"),
+                    foldLambda(
+                        "c",
+                        "acc",
+                        bytesTy,
+                        "x",
+                        writeRaw(ctx, f, id("x"), id("acc"), id("c")),
+                    ),
+                    header,
+                ]),
             )
         } else {
-            method(
-                method(v, "mapCtx", [
-                    id("ctx"),
-                    lam2("c", "x", writeOne(ctx, f, id("x"), id("c"))),
-                ]),
-                "flatten",
-                [id("ctx")],
-            )
+            method(v, "foldCtx", [
+                id("ctx"),
+                foldLambda(
+                    "c",
+                    "acc",
+                    bytesTy,
+                    "x",
+                    writeOne(ctx, f, id("x"), id("acc"), id("c")),
+                ),
+                out,
+            ])
         }
     } else if (isOptional(f)) {
         matchE(v, [
-            armOf(dotP1("Some", "x"), writeOne(ctx, f, id("x"), id("ctx"))),
-            armOf(dotP0("None"), none),
+            armOf(dotP1("Some", "x"), writeOne(ctx, f, id("x"), out, id("ctx"))),
+            armOf(dotP0("None"), out),
         ])
     } else {
-        ifE(isDefaultTest(ctx, f, v), none, writeOne(ctx, f, v, id("ctx")))
+        ifE(isDefaultTest(ctx, f, v), out, writeOne(ctx, f, v, out, id("ctx")))
     }
 }
 
-fn encodeOneofPiece<C: Allocator>(ctx: C, o: ResolvedOneof): ast.Expr {
+/// How many bytes [`encodePiece`] appends.
+fn sizePiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
+    let v = dot(id("value"), f.name);
+    if (isRepeated(f)) {
+        if (packable(f.ty) && f.packed) {
+            ifE(
+                eqE(method(v, "length", []), intE(0)),
+                intE(0),
+                binE(
+                    .Add,
+                    intE(tagBytes(ctx, f, 2).length()),
+                    nsCall("proto", "lenSize", [packedSize(ctx, f, v)]),
+                ),
+            )
+        } else {
+            method(v, "fold", [
+                lam2("n", "x", binE(.Add, id("n"), oneSize(ctx, f, id("x")))),
+                intE(0),
+            ])
+        }
+    } else if (isOptional(f)) {
+        matchE(v, [
+            armOf(dotP1("Some", "x"), oneSize(ctx, f, id("x"))),
+            armOf(dotP0("None"), intE(0)),
+        ])
+    } else {
+        ifE(isDefaultTest(ctx, f, v), intE(0), oneSize(ctx, f, v))
+    }
+}
+
+/// A `oneof`: the case it holds, or nothing. `each` is what one case becomes.
+fn oneofPiece<C: Allocator>(
+    ctx: C,
+    o: ResolvedOneof,
+    each: fn(C, ResolvedField) => ast.Expr,
+    none: ast.Expr,
+): ast.Expr {
     let arms = o
         .cases
-        .mapCtx(ctx, fn(c, k) => {
-            armOf(dotP1(upperFirst(c, k.name), "x"), writeOne(c, k, id("x"), id("ctx")))
-        });
+        .mapCtx(ctx, fn(c, k) => armOf(dotP1(upperFirst(c, k.name), "x"), each(c, k)));
     matchE(dot(id("value"), o.field), [
         armOf(dotP1("Some", "k"), matchE(id("k"), arms)),
-        armOf(dotP0("None"), emptyList(tyNamed("U8"))),
+        armOf(dotP0("None"), none),
     ])
 }
 
-fn encodeFn<C: Allocator>(
+fn sizeFn<C: Allocator>(
     ctx: C,
     name: Str,
     fields: [ResolvedField],
     oneofs: [ResolvedOneof],
 ): ast.Item {
-    let body = if (fields.isEmpty() && oneofs.isEmpty()) {
-        blk([letWildS(id("value")), letWildS(id("ctx"))], [emptyList(tyNamed("U8"))])
-    } else {
-        let pieces = fields
-            .mapCtx(ctx, fn(c, f) => encodePiece(c, f))
-            .concat(ctx, oneofs.mapCtx(ctx, fn(c, o) => encodeOneofPiece(c, o)));
-        tailBlock(method(ex(.Array(pieces)), "flatten", [id("ctx")]))
+    let pieces = fields
+        .mapCtx(ctx, fn(c, f) => sizePiece(c, f))
+        .concat(
+            ctx,
+            oneofs.mapCtx(ctx, fn(c, o) => {
+                oneofPiece(c, o, fn(c2, k) => oneSize(c2, k, id("x")), intE(0))
+            }),
+        );
+    let names = list
+        .range(ctx, 0, pieces.length())
+        .mapCtx(ctx, fn(c, i) => str.format(c, "s${i}"));
+    let body = match (names.first()) {
+        .None => blk([letWildS(id("value"))], [intE(0)]),
+        .Some(head) => {
+            blk(names.zip(ctx, pieces).map(ctx, fn(p) => letS(p.0, [], p.1)), [
+                names.drop(ctx, 1).fold(fn(acc, n) => binE(.Add, acc, id(n)), id(head)),
+            ])
+        },
     };
+    fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "size${name}")),
+        generics: [],
+        params: [param("value", tyNamed(name))],
+        ret: tyNamed("Int"),
+        body: [body],
+        exported: true,
+        docs: [str.format(ctx, "How many bytes `encode${name}` writes.")],
+    })
+}
+
+fn writeFn<C: Allocator>(
+    ctx: C,
+    name: Str,
+    fields: [ResolvedField],
+    oneofs: [ResolvedOneof],
+): ast.Item {
+    let pieces = fields
+        .mapCtx(ctx, fn(c, f) => encodePiece(c, f))
+        .concat(
+            ctx,
+            oneofs.mapCtx(ctx, fn(c, o) => {
+                oneofPiece(
+                    c,
+                    o,
+                    fn(c2, k) => writeOne(c2, k, id("x"), id("out"), id("ctx")),
+                    id("out"),
+                )
+            }),
+        );
+    let body = match (pieces.last()) {
+        .None => blk([letWildS(id("value")), letWildS(id("ctx"))], [id("out")]),
+        .Some(tail) => {
+            blk(
+                pieces
+                    .take(ctx, pieces.length() - 1)
+                    .map(ctx, fn(p) => letS("out", [], p)),
+                [tail],
+            )
+        },
+    };
+    fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "write${name}")),
+        generics: allocGeneric(),
+        params: [
+            ctxParam(),
+            param("out", tyArray(tyNamed("U8"))),
+            param("value", tyNamed(name)),
+        ],
+        ret: tyArray(tyNamed("U8")),
+        body: [body],
+        exported: true,
+        docs: [str.format(ctx, "`encode${name}`, appended to `out`.")],
+    })
+}
+
+fn encodeFn<C: Allocator>(ctx: C, name: Str): ast.Item {
     fnItem(ast.FnDecl {
         name: nm(str.format(ctx, "encode${name}")),
         generics: allocGeneric(),
         params: [ctxParam(), param("value", tyNamed(name))],
         ret: tyArray(tyNamed("U8")),
-        body: [body],
+        body: [
+            tailBlock(
+                callName(str.format(ctx, "write${name}"), [
+                    id("ctx"),
+                    emptyList(tyNamed("U8")),
+                    id("value"),
+                ]),
+            ),
+        ],
         exported: true,
         docs: [
             "The protobuf wire encoding, fields in schema order.",
@@ -1458,30 +1666,104 @@ fn readOne(f: ResolvedField): ast.Expr {
         .Scalar(s) => {
             let k = scalarName(s);
             if (k == "string") {
-                tryE(nsCall("proto", "readStr", [id("ctx"), id("b"), id("next")]))
+                tryE(
+                    nsCall("proto", "readStr", [
+                        id("ctx"),
+                        id("b"),
+                        id("next"),
+                        id("end"),
+                        id("base"),
+                    ]),
+                )
             } else if (k == "bytes") {
-                tryE(nsCall("proto", "readBytes", [id("ctx"), id("b"), id("next")]))
+                tryE(
+                    nsCall("proto", "readBytes", [
+                        id("ctx"),
+                        id("b"),
+                        id("next"),
+                        id("end"),
+                        id("base"),
+                    ]),
+                )
             } else if (k == "double") {
-                tryE(nsCall("proto", "readF64", [id("b"), id("next")]))
+                tryE(
+                    nsCall("proto", "readF64", [
+                        id("b"),
+                        id("next"),
+                        id("end"),
+                        id("base"),
+                    ]),
+                )
             } else if (k == "float") {
-                tryE(nsCall("proto", "readF32", [id("b"), id("next")]))
+                tryE(
+                    nsCall("proto", "readF32", [
+                        id("b"),
+                        id("next"),
+                        id("end"),
+                        id("base"),
+                    ]),
+                )
             } else if (k == "fixed32" || k == "sfixed32") {
-                tryE(nsCall("proto", "readFixed32", [id("b"), id("next")]))
+                tryE(
+                    nsCall("proto", "readFixed32", [
+                        id("b"),
+                        id("next"),
+                        id("end"),
+                        id("base"),
+                    ]),
+                )
             } else if (k == "fixed64" || k == "sfixed64") {
-                tryE(nsCall("proto", "readFixed64", [id("b"), id("next")]))
+                tryE(
+                    nsCall("proto", "readFixed64", [
+                        id("b"),
+                        id("next"),
+                        id("end"),
+                        id("base"),
+                    ]),
+                )
             } else if (k == "int32" || k == "uint32" || k == "sint32") {
                 // A 32-bit field is the varint's low 32 bits, read as such
                 // rather than truncated afterwards.
-                tryE(nsCall("proto", "readVarint32", [id("b"), id("next")]))
+                tryE(
+                    nsCall("proto", "readVarint32", [
+                        id("b"),
+                        id("next"),
+                        id("end"),
+                        id("base"),
+                    ]),
+                )
             } else {
-                tryE(nsCall("proto", "readVarint", [id("b"), id("next")]))
+                tryE(
+                    nsCall("proto", "readVarint", [
+                        id("b"),
+                        id("next"),
+                        id("end"),
+                        id("base"),
+                    ]),
+                )
             }
         },
         .Named(e) => {
             match (e.kind) {
-                .Enum => tryE(nsCall("proto", "readVarint32", [id("b"), id("next")])),
+                .Enum => {
+                    tryE(
+                        nsCall("proto", "readVarint32", [
+                            id("b"),
+                            id("next"),
+                            id("end"),
+                            id("base"),
+                        ]),
+                    )
+                },
                 .Message => {
-                    tryE(nsCall("proto", "readBytes", [id("ctx"), id("b"), id("next")]))
+                    tryE(
+                        nsCall("proto", "readLen", [
+                            id("b"),
+                            id("next"),
+                            id("end"),
+                            id("base"),
+                        ]),
+                    )
                 },
             }
         },
@@ -1515,7 +1797,16 @@ fn adapt<C: Allocator>(ctx: C, f: ResolvedField, raw: ast.Expr): ast.Expr {
                     ])
                 },
                 .Message => {
-                    tryE(callName(str.format(ctx, "decode${e.buri}"), [id("ctx"), raw]))
+                    tryE(
+                        callName(str.format(ctx, "read${e.buri}"), [
+                            id("ctx"),
+                            id("b"),
+                            raw,
+                            id("after"),
+                            raw,
+                            callName(str.format(ctx, "default${e.buri}"), []),
+                        ]),
+                    )
                 },
             }
         },
@@ -1567,22 +1858,73 @@ fn packedReader(f: ResolvedField): ast.Expr {
         .Scalar(s) => {
             let k = scalarName(s);
             if (k == "int32" || k == "uint32" || k == "sint32") {
-                tryE(nsCall("proto", "packedVarints32", [id("ctx"), id("raw")]))
+                tryE(
+                    nsCall("proto", "packedVarints32", [
+                        id("ctx"),
+                        id("b"),
+                        id("raw"),
+                        id("after"),
+                    ]),
+                )
             } else if (k == "double") {
-                tryE(nsCall("proto", "packedF64", [id("ctx"), id("raw")]))
+                tryE(
+                    nsCall("proto", "packedF64", [
+                        id("ctx"),
+                        id("b"),
+                        id("raw"),
+                        id("after"),
+                    ]),
+                )
             } else if (k == "float") {
-                tryE(nsCall("proto", "packedF32", [id("ctx"), id("raw")]))
+                tryE(
+                    nsCall("proto", "packedF32", [
+                        id("ctx"),
+                        id("b"),
+                        id("raw"),
+                        id("after"),
+                    ]),
+                )
             } else if (k == "fixed32" || k == "sfixed32") {
-                tryE(nsCall("proto", "packedFixed32", [id("ctx"), id("raw")]))
+                tryE(
+                    nsCall("proto", "packedFixed32", [
+                        id("ctx"),
+                        id("b"),
+                        id("raw"),
+                        id("after"),
+                    ]),
+                )
             } else if (k == "fixed64" || k == "sfixed64") {
-                tryE(nsCall("proto", "packedFixed64", [id("ctx"), id("raw")]))
+                tryE(
+                    nsCall("proto", "packedFixed64", [
+                        id("ctx"),
+                        id("b"),
+                        id("raw"),
+                        id("after"),
+                    ]),
+                )
             } else {
-                tryE(nsCall("proto", "packedVarints", [id("ctx"), id("raw")]))
+                tryE(
+                    nsCall("proto", "packedVarints", [
+                        id("ctx"),
+                        id("b"),
+                        id("raw"),
+                        id("after"),
+                    ]),
+                )
             }
         },
         // Only an enum is both named and packable; a repeated message field is
         // length-delimited and never packed.
-        _other => tryE(nsCall("proto", "packedVarints32", [id("ctx"), id("raw")])),
+        _other => {
+            tryE(
+                nsCall("proto", "packedVarints32", [
+                    id("ctx"),
+                    id("b"),
+                    id("raw"),
+                    id("after"),
+                ]),
+            )
+        },
     }
 }
 
@@ -1612,7 +1954,16 @@ fn mergeSeed<C: Allocator>(
             ])
         },
     };
-    tryE(callName(str.format(ctx, "merge${e.buri}"), [id("ctx"), id("raw"), seed]))
+    tryE(
+        callName(str.format(ctx, "read${e.buri}"), [
+            id("ctx"),
+            id("b"),
+            id("raw"),
+            id("after"),
+            id("raw"),
+            seed,
+        ]),
+    )
 }
 
 /// Where a read value lands in the accumulator.
@@ -1643,6 +1994,11 @@ fn assignment<C: Allocator>(
             }
         },
     }
+}
+
+/// The read loop's next step: the rest of the message from `at`, on top of `acc`.
+fn recur(readName: Str, at: ast.Expr, acc: ast.Expr): ast.Expr {
+    callName(readName, [id("ctx"), id("b"), at, id("end"), id("base"), acc])
 }
 
 /// Every header case one field answers to: the packed reading of a repeated
@@ -1676,16 +2032,17 @@ fn fieldArms<C: Allocator>(
                         letPatS(
                             patOf(.Tuple([bindP("raw"), bindP("after")])),
                             tryE(
-                                nsCall("proto", "readBytes", [
-                                    id("ctx"),
+                                nsCall("proto", "readLen", [
                                     id("b"),
                                     id("next"),
+                                    id("end"),
+                                    id("base"),
                                 ]),
                             ),
                         ),
                         letS("values", [], packedReader(f)),
                     ],
-                    [callName(readName, [id("ctx"), id("b"), id("after"), grown])],
+                    [recur(readName, id("after"), grown)],
                 ),
             ),
         ]
@@ -1722,7 +2079,7 @@ fn fieldArms<C: Allocator>(
                 letPatS(patOf(.Tuple([bindP("raw"), bindP("after")])), readOne(f)),
                 letS("value", [], adapted),
             ],
-            [callName(readName, [id("ctx"), id("b"), id("after"), landed])],
+            [recur(readName, id("after"), landed)],
         ),
     );
     packedArms.push(ctx, main)
@@ -1747,6 +2104,8 @@ fn decodeFns<C: Allocator>(
                     id("ctx"),
                     id("b"),
                     intE(0),
+                    method(id("b"), "length", []),
+                    intE(0),
                     callName(str.format(ctx, "default${name}"), []),
                 ]),
             ),
@@ -1763,7 +2122,16 @@ fn decodeFns<C: Allocator>(
         params: [ctxParam(), param("b", bytesTy), param("into", tyNamed(name))],
         ret: resultOf(name),
         body: [
-            tailBlock(callName(readName, [id("ctx"), id("b"), intE(0), id("into")])),
+            tailBlock(
+                callName(readName, [
+                    id("ctx"),
+                    id("b"),
+                    intE(0),
+                    method(id("b"), "length", []),
+                    intE(0),
+                    id("into"),
+                ]),
+            ),
         ],
         exported: true,
         docs: [
@@ -1792,17 +2160,32 @@ fn decodeFns<C: Allocator>(
             letS(
                 "after",
                 [],
-                tryE(nsCall("proto", "skip", [id("b"), id("next"), id("wire")])),
+                tryE(
+                    nsCall("proto", "skip", [
+                        id("b"),
+                        id("next"),
+                        id("end"),
+                        id("base"),
+                        id("wire"),
+                    ]),
+                ),
             ),
         ],
-        [callName(readName, [id("ctx"), id("b"), id("after"), id("acc")])],
+        [recur(readName, id("after"), id("acc"))],
     );
     let inner = chainBlocks(ctx, arms, otherwise);
     let elseBlock = blk(
         [
             letPatS(
                 patOf(.Tuple([bindP("field"), bindP("wire"), bindP("next")])),
-                tryE(nsCall("proto", "readTag", [id("b"), id("at")])),
+                tryE(
+                    nsCall("proto", "readTag", [
+                        id("b"),
+                        id("at"),
+                        id("end"),
+                        id("base"),
+                    ]),
+                ),
             ),
         ].concat(ctx, inner.stmts),
         inner.tail,
@@ -1814,6 +2197,8 @@ fn decodeFns<C: Allocator>(
             ctxParam(),
             param("b", bytesTy),
             param("at", tyNamed("Int")),
+            param("end", tyNamed("Int")),
+            param("base", tyNamed("Int")),
             param("acc", tyNamed(name)),
         ],
         ret: resultOf(name),
@@ -1821,15 +2206,18 @@ fn decodeFns<C: Allocator>(
             tailBlock(
                 ex(
                     .If(
-                        [binE(.Ge, id("at"), method(id("b"), "length", []))],
+                        [binE(.Ge, id("at"), id("end"))],
                         [tailBlock(variantCall("Ok", [id("acc")]))],
                         [blockE(elseBlock)],
                     ),
                 ),
             ),
         ],
-        exported: false,
-        docs: [],
+        exported: true,
+        docs: [
+            "Reads the fields between `at` and `end` on top of `acc`, in place. An",
+            "error's offset counts from `base`, where the message starts.",
+        ],
     });
     [decodeItem, mergeItem, readItem]
 }
@@ -2253,7 +2641,9 @@ fn messageItems<C: Allocator>(
         .push(ctx, structItem(ctx, name, here, fields, oneofs))
         .push(ctx, deriveEqShow(name))
         .push(ctx, defaultFn(ctx, name, fields, oneofs))
-        .push(ctx, encodeFn(ctx, name, fields, oneofs))
+        .push(ctx, sizeFn(ctx, name, fields, oneofs))
+        .push(ctx, writeFn(ctx, name, fields, oneofs))
+        .push(ctx, encodeFn(ctx, name))
         .concat(ctx, decodeFns(ctx, name, fields, oneofs))
         .push(ctx, jsonEncodeFn(ctx, name, fields, oneofs))
         .concat(ctx, jsonDecodeFns(ctx, name, fields, oneofs))
