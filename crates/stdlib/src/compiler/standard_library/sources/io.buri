@@ -20,6 +20,10 @@
 //! }
 //! ```
 //!
+//! When stdout's reader goes away, as in `app | head -1`, a print answers
+//! `.Err(.Other(_))` on every backend and the program carries on. `SIGPIPE`
+//! doesn't end it.
+//!
 //! `platform/effect`'s `Stdout` argues that decision in full.
 
 from "platform/effect" import { Allocator, IoError, Stderr, Stdin, Stdout };

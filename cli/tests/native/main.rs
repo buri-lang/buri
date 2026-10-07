@@ -173,6 +173,9 @@ mod agreement;
 // its module doc is `cli/tests/README.md`'s "The trust ordering" applied.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod e2e;
+// A reader that goes away: a compiled program gets an `Err`, on every backend.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod closed_pipe;
 // Cross-compilation to Linux, end to end through the `buri` binary: a
 // linux/x86_64 executable built from whatever host runs this, proven to be a
 // real ELF and — where `podman` is present — to run in a Linux container.

@@ -3,7 +3,8 @@
 //! Every command dies the way a Unix tool does when its reader goes away: by
 //! `SIGPIPE`, with nothing on stderr. It used to panic, and `buri test
 //! --explain` then hung for ever with its workers waiting on a queue nobody
-//! would close. The programs `buri` builds end promptly too.
+//! would close. The programs `buri` builds end promptly too, through their own
+//! failed print rather than by `SIGPIPE`.
 //!
 //! The hang cap is only the safety net here. What each row asserts is the
 //! status and the silence.
@@ -206,8 +207,9 @@ export fn main(host: HOST): Result<(), Str> {
 }
 "#;
 
-/// A built program, either way its reader leaves: it ends promptly, by
-/// `SIGPIPE` natively or through its own failed print on JavaScript.
+/// A built program, either way its reader leaves: its print answers `Err` and
+/// it ends promptly, its own way, on every backend. Unlike `buri` itself, it is
+/// not killed by `SIGPIPE`.
 fn program_closes(artifact: impl Fn() -> Command, what: &str) {
     for early in [true, false] {
         let (status, stderr) = piped(artifact(), what, |r| {
@@ -215,13 +217,11 @@ fn program_closes(artifact: impl Fn() -> Command, what: &str) {
                 assert_eq!(one_line(r), "line 1000000\n");
             }
         });
-        let own_failure = status.code() == Some(1) && stderr.contains("could not write to standard output");
-        assert!(
-            status.signal() == Some(SIGPIPE) || own_failure,
-            "`{what}` ended {status} after its reader left:\n{}",
-            indent(&stderr)
+        assert_eq!(
+            (status.code(), stderr.as_str()),
+            (Some(1), "could not write to standard output\n"),
+            "`{what}` ended {status} after its reader left"
         );
-        quiet(what, &stderr);
     }
 }
 

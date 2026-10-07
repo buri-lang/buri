@@ -33,7 +33,8 @@ unknown flag, a build file that doesn't parse.
 
 When the reader of stdout goes away, as in `buri test | head -1`, the command
 stops at once and silently, killed by `SIGPIPE` like any Unix tool. Shells
-report that as `141`.
+report that as `141`. A program `buri` builds isn't killed: its print answers
+`.Err`, on every backend.
 
 ## Diagnostics
 
