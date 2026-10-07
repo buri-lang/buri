@@ -394,7 +394,31 @@ pub fn normalise(text: &str, root: &Path) -> String {
     // time does, and are normalised the same way.
     s = s.replace(env!("CARGO_PKG_VERSION"), "<version>");
     s = scrub_explain_keys(&s);
+    s = s.split('\n').map(blank_test_time).collect::<Vec<_>>().join("\n");
     s
+}
+
+/// One `buri test --verbose` line with its time replaced by `<time>`, or the
+/// line unchanged when it is not one. A suite line starts `//` and a test line
+/// `  ok  ` or `  FAIL`, and only a time the runner spells is replaced: whole
+/// microseconds, or milliseconds and seconds to one decimal. A time in any
+/// other shape stays, so the golden fails on it.
+pub fn blank_test_time(line: &str) -> String {
+    let listed = line.starts_with("//") || line.starts_with("  ok  ") || line.starts_with("  FAIL  ");
+    let Some((rest, unit)) = line.rsplit_once(' ') else { return line.to_string() };
+    let Some((head, number)) = rest.rsplit_once(' ') else { return line.to_string() };
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let spelled = match unit {
+        "µs" => digits(number),
+        "ms" | "s" => number.split_once('.').is_some_and(|(whole, tenth)| digits(whole) && tenth.len() == 1 && digits(tenth)),
+        _ => false,
+    };
+    // Two spaces before the time, and `head` holds the first of them.
+    if listed && spelled && head.ends_with(' ') {
+        format!("{head} <time>")
+    } else {
+        line.to_string()
+    }
 }
 
 /// Blanks the key column of every `--explain` line. The key folds the running

@@ -1,0 +1,7 @@
+export fn dollars(n: Int): Int {
+    n / 100
+}
+
+export fn cents(n: Int): Int {
+    n % 100
+}

@@ -1,0 +1,7 @@
+FAIL //lib/money  test/cents.buri  "the cents are what is left over"
+  assert.equal failed
+    actual:   5
+    expected: 25
+  --> lib/money/test/cents.buri:8:1
+
+7 passed, 1 failed, 0 skipped (0.0s, 5 cached)

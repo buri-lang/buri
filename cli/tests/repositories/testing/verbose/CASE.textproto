@@ -1,0 +1,97 @@
+# `buri test --verbose` lists every suite, in label order, and every test in
+# it, in the order it ran: its verdict, its file under the package's `test/`,
+# its name, and how long it took. A cached suite shows the times of the run
+# that cached it. Failure details stay where they always were, after the list.
+#
+# `//lib/money` and `//lib/shapes` are native and share one binary on a cold
+# run; `//apps/web` runs on JavaScript. Every time is replaced by `<time>` when
+# a golden is compared (`harness::normalise`), and only a time spelled the way
+# the runner spells one is: `412 µs`, `12.4 ms` or `2.5 s`.
+# `build::verbose` holds the units, an old cache record and `--watch`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "--verbose lists every suite and every test with its verdict and time; without it the output is unchanged"
+
+run {
+  args: ["test", "//...", "--verbose"]
+  exit: 0
+  golden: "cold.txt"
+  stream: OUT
+}
+
+# Served from the cache, with the times of the run that cached it.
+run {
+  args: ["test", "//...", "--verbose"]
+  exit: 0
+  golden: "cached.txt"
+  stream: OUT
+}
+
+# Without the flag, nothing about the output changes.
+run {
+  args: ["test", "//..."]
+  exit: 0
+  golden: "plain_cached.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//...", "--force"]
+  exit: 0
+  golden: "plain.txt"
+  stream: OUT
+}
+
+# What a filter leaves out is listed as skipped, with no time.
+run {
+  args: ["test", "//lib/money", "--verbose", "--filter=cents"]
+  exit: 0
+  golden: "filter.txt"
+  stream: OUT
+}
+
+# `--explain` lines come before the suite they are about.
+run {
+  args: ["test", "//lib/shapes", "--verbose", "--explain"]
+  exit: 0
+  golden: "explain.txt"
+  stream: OUT
+}
+
+# A suite that asked for native runs on JavaScript when told to.
+run {
+  args: ["test", "//lib/shapes", "--verbose", "--output=js"]
+  exit: 0
+  golden: "output_js.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//lib/shapes", "--verbose", "--coverage"]
+  exit: 0
+  golden: "coverage.txt"
+  stream: OUT
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "n % 100"
+  with: "n % 10"
+}
+
+# The edited suite runs and fails; the other two are served from the cache.
+run {
+  args: ["test", "//...", "--verbose"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//..."]
+  exit: 1
+  golden: "fail_plain.txt"
+  stream: OUT
+}

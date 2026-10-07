@@ -1,0 +1,10 @@
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { cents, dollars };
+
+test "adding cents carries into dollars" {
+    assert.equal(dollars(150 + 75), 2);
+}
+
+test "the cents are what is left over" {
+    assert.equal(cents(225), 25);
+}

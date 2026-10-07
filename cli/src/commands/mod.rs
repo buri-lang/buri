@@ -326,7 +326,7 @@ pub const FLAGS: &[Flag] = &[
         name: "verbose",
         value: Value::None,
         choices: &[],
-        blurb: "say more about what was skipped and why",
+        blurb: "say more; on `buri test`, every test with its verdict and how long it took",
         global: true,
         set: |f, _| {
             f.verbose = true;

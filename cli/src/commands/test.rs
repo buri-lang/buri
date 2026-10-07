@@ -89,7 +89,13 @@ struct Case {
     /// different thing from a location that is the empty string.
     location: Option<String>,
     verdict: Verdict,
+    /// How long the test took, in nanoseconds, as the runner timed it inside
+    /// its process. `None` in a record cached before tests were timed.
+    ns: Option<u64>,
 }
+
+/// The tests a `--filter` left out, by name and module, in block order.
+type Skipped = Vec<(String, String)>;
 
 /// What one suite produced: the cases that ran, and the ones a `--filter` left
 /// out. A skipped test is reported rather than silently absent, so a filter
@@ -97,7 +103,7 @@ struct Case {
 #[derive(Default)]
 struct Outcome {
     cases: Vec<Case>,
-    skipped: usize,
+    skipped: Skipped,
 }
 
 /// Where a run's platform came from.
@@ -335,7 +341,7 @@ fn one_pass(
         |job, held, queue, tell| work(job, held, queue, tell, &shared),
         |queue, done| drive(&mut session, args, &mut pre, &plans, &mut slots, queue, done, &mut out),
     );
-    let Tally { passed, failed, skipped, cached, uncompiled, printed, mut hard_error } = tally;
+    let Tally { passed, failed, skipped, cached, uncompiled, printed, mut hard_error, listed, held } = tally;
 
     // `check_during_build`: the catalogue runs over a test pass too, but only
     // one nothing already stopped — a suite that could not be built has an
@@ -377,6 +383,13 @@ fn one_pass(
     } else {
         String::new()
     };
+    // `--verbose` lists every suite first and the failures after it.
+    if listed {
+        out.blank();
+    }
+    if !held.is_empty() {
+        held.lines().for_each(|line| out.line(line));
+    }
     if printed {
         out.blank();
     }
@@ -648,6 +661,10 @@ struct Tally {
     uncompiled: usize,
     printed: bool,
     hard_error: bool,
+    /// `--verbose`: whether any suite was listed, and the failure reports held
+    /// back to print after the list.
+    listed: bool,
+    held: String,
 }
 
 /// Loads every suite the cache did not answer, on this thread, and queues it;
@@ -683,7 +700,7 @@ fn drive(
             if !ready {
                 break;
             }
-            report(session, plan, slots, &mut tally, out);
+            report(session, plan, slots, &args.flags, &mut tally, out);
             next += 1;
         }
         if next >= plans.len() {
@@ -772,20 +789,25 @@ fn drive(
     }
 }
 
-/// Prints one suite: its `--explain` lines, its notes and its failures.
-fn report(session: &Session, plan: &Plan, slots: &mut [Slot], tally: &mut Tally, out: &mut Out) {
+/// Prints one suite: its `--explain` lines, its notes and its failures, and
+/// under `--verbose` the list of its tests.
+fn report(
+    session: &Session,
+    plan: &Plan,
+    slots: &mut [Slot],
+    flags: &arguments::Flags,
+    tally: &mut Tally,
+    out: &mut Out,
+) {
     let target = plan.target;
     let mut diagnostics = plan.refused.clone();
-    let mut outcome = Outcome::default();
+    let mut runs: Vec<(Platform, Outcome)> = Vec::new();
     for &i in &plan.slots {
         let Some(slot) = slots.get_mut(i) else { continue };
         print!("{}", slot.explain);
         eprint!("{}", slot.notes);
         match slot.answer.take() {
-            Some(Ok(one)) => {
-                outcome.cases.extend(one.cases);
-                outcome.skipped += one.skipped;
-            }
+            Some(Ok(one)) => runs.push((slot.platform, one)),
             Some(Err(d)) => diagnostics.extend(d.items),
             None => {}
         }
@@ -797,20 +819,92 @@ fn report(session: &Session, plan: &Plan, slots: &mut [Slot], tally: &mut Tally,
         tally.hard_error |= session.print(&diagnostics);
         return;
     }
-    tally.skipped += outcome.skipped;
-    for c in &outcome.cases {
-        if c.provenance == Provenance::Cache {
-            tally.cached += 1;
+    for (platform, outcome) in &runs {
+        if flags.verbose {
+            list_suite(session, target, *platform, outcome, out);
+            tally.listed = true;
         }
-        match &c.verdict {
-            Verdict::Passed => tally.passed += 1,
-            Verdict::Failed { message, diff, order } => {
-                tally.failed += 1;
-                report_failure(session, target, c, message, diff.as_ref(), order.as_deref(), out);
-                tally.printed = true;
+        tally.skipped += outcome.skipped.len();
+        for c in &outcome.cases {
+            if c.provenance == Provenance::Cache {
+                tally.cached += 1;
+            }
+            match &c.verdict {
+                Verdict::Passed => tally.passed += 1,
+                Verdict::Failed { message, diff, order } => {
+                    tally.failed += 1;
+                    // Under `--verbose` a failure is told after the list,
+                    // where it would be found without it.
+                    let mut held = Out::Held(String::new());
+                    let to = if flags.verbose { &mut held } else { &mut *out };
+                    report_failure(session, target, c, message, diff.as_ref(), order.as_deref(), to);
+                    tally.held.push_str(&held.take());
+                    tally.printed = true;
+                }
             }
         }
     }
+}
+
+/// One suite's `--verbose` list: a line for the suite, then one per test in
+/// the order the tests ran, then the ones a `--filter` left out.
+///
+/// The suite's time is its tests' times added up, so it leaves out what the
+/// build and the processes cost. A cached suite shows the times of the run
+/// that cached it, and a record cached before tests were timed shows none.
+fn list_suite(session: &Session, target: TargetId, platform: Platform, outcome: &Outcome, out: &mut Out) {
+    let cases = &outcome.cases;
+    let count = cases.len();
+    let mut head = format!(
+        "{}  {}  {count} test{}",
+        session.workspace.label(target),
+        if platform.is_native() { "native" } else { "js" },
+        if count == 1 { "" } else { "s" },
+    );
+    if !cases.is_empty() && cases.iter().all(|c| c.provenance == Provenance::Cache) {
+        head.push_str("  cached");
+    }
+    let total = cases.iter().map(|c| c.ns).sum::<Option<u64>>();
+    if let Some(ns) = total.filter(|_| !cases.is_empty()) {
+        head.push_str("  ");
+        head.push_str(&duration(ns));
+    }
+    out.line(&head);
+    let file_of = |module: &str| {
+        let file = module.trim_start_matches("//");
+        let file = file.strip_prefix(&session.workspace.package(target.package).path).unwrap_or(file);
+        let file = file.trim_start_matches('/');
+        file.strip_prefix("test/").unwrap_or(file).to_string()
+    };
+    let rows: Vec<(&str, String, String, Option<u64>)> = cases
+        .iter()
+        .map(|c| {
+            let status = if matches!(c.verdict, Verdict::Passed) { "ok" } else { "FAIL" };
+            (status, file_of(&c.module), escaped(&c.name), c.ns)
+        })
+        .chain(outcome.skipped.iter().map(|(name, module)| ("skip", file_of(module), escaped(name), None)))
+        .collect();
+    let file_width = rows.iter().map(|r| r.1.chars().count()).max().unwrap_or(0);
+    let name_width = rows.iter().map(|r| r.2.chars().count()).max().unwrap_or(0);
+    for (status, file, name, ns) in rows {
+        let time = ns.map(|ns| format!("  {}", duration(ns))).unwrap_or_default();
+        let line = format!("  {status:<4}  {file:<file_width$}  {name:<name_width$}{time}");
+        out.line(line.trim_end());
+    }
+}
+
+/// A test's time: whole microseconds under a millisecond, milliseconds to one
+/// decimal under a second, then seconds to one decimal.
+fn duration(ns: u64) -> String {
+    if ns < 1_000_000 {
+        return format!("{} µs", ns / 1_000);
+    }
+    let tenths = ns.saturating_add(50_000) / 100_000;
+    if tenths < 10_000 {
+        return format!("{}.{} ms", tenths / 10, tenths % 10);
+    }
+    let tenths = ns.saturating_add(50_000_000) / 100_000_000;
+    format!("{}.{} s", tenths / 10, tenths % 10)
 }
 
 /// The pool's queue, of the jobs below.
@@ -926,7 +1020,7 @@ struct Root {
 /// What a run produced, before its cases are located in the source.
 struct Ran {
     cases: Vec<Case>,
-    skipped: usize,
+    skipped: Skipped,
     roots: Vec<Root>,
 }
 
@@ -1101,15 +1195,21 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         if keep {
             tell.tell(Done::Checked { target, analysis: Box::new(analysis) });
         }
-        let nothing = Built::Nothing { skipped: 0 };
-        return answer(Ok(Ran { cases: Vec::new(), skipped: 0, roots: Vec::new() }), Some(nothing));
+        let nothing = Built::Nothing { skipped: Vec::new() };
+        return answer(Ok(Ran { cases: Vec::new(), skipped: Vec::new(), roots: Vec::new() }), Some(nothing));
     }
     // Counted here rather than in the runner: the names are known before the
     // binary is built, so the summary can always print the count.
     let filter = filter.as_deref();
-    let skipped = match filter {
-        Some(f) => program.roots.tests().iter().filter(|t| !t.name.contains(f)).count(),
-        None => 0,
+    let skipped: Skipped = match filter {
+        Some(f) => program
+            .roots
+            .tests()
+            .iter()
+            .filter(|t| !t.name.contains(f))
+            .map(|t| (t.name.clone(), t.module.clone()))
+            .collect(),
+        None => Vec::new(),
     };
     // The gap, asked of the program before a second is spent on codegen, and
     // only for a platform nobody asked for.
@@ -1139,7 +1239,7 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
     let tests: Vec<(String, String)> =
         program.roots.tests().iter().map(|t| (t.name.clone(), t.module.clone())).collect();
     if tests.is_empty() {
-        let nothing = Built::Nothing { skipped };
+        let nothing = Built::Nothing { skipped: skipped.clone() };
         return answer(Ok(Ran { cases: Vec::new(), skipped, roots: Vec::new() }), Some(nothing));
     }
     let paints = program.funcs.iter().any(|f| f.intrinsic_key() == Some(PAINT_KEY));
@@ -1178,7 +1278,7 @@ struct SoloJob {
     /// Each block's title and module, in block order.
     tests: Vec<(String, String)>,
     roots: Vec<Root>,
-    skipped: usize,
+    skipped: Skipped,
 }
 
 /// One suite, executed as a native binary.
@@ -1238,7 +1338,7 @@ fn run_solo(job: SoloJob, held: Held, shared: &Shared) -> Done {
             link: link.clone(),
             sheet: sheet.clone(),
             paints,
-            skipped,
+            skipped: skipped.clone(),
             ranges: vec![(0, tests.len())],
             roots: roots.to_vec(),
         })))
@@ -1289,7 +1389,7 @@ struct JsJob {
     path: std::path::PathBuf,
     limit: Option<u32>,
     on_timeout: Diagnostics,
-    skipped: usize,
+    skipped: Skipped,
 }
 
 fn run_js(job: JsJob, held: Held, queue: &Queue, shared: &Shared) -> Done {
@@ -1349,7 +1449,7 @@ impl JsOrigin {
 struct JsSuite {
     slot: usize,
     origin: JsOrigin,
-    skipped: usize,
+    skipped: Skipped,
     /// The suite's tests, in the bundle's order.
     roots: Vec<Root>,
     run: JsRun,
@@ -1363,7 +1463,7 @@ struct JsSuite {
 /// build reports what went wrong.
 fn answer_js(suite: &JsSuite, ran: JsRan, shared: &Shared) -> Done {
     let slot = suite.slot;
-    let (skipped, roots) = (suite.skipped, suite.roots.clone());
+    let (skipped, roots) = (suite.skipped.clone(), suite.roots.clone());
     let answer =
         |answer, built| Done::Answer { slot, answer, explain: String::new(), notes: String::new(), built };
     match (&suite.origin, ran) {
@@ -1371,7 +1471,7 @@ fn answer_js(suite: &JsSuite, ran: JsRan, shared: &Shared) -> Done {
             let served = matches!(&ran, Ok(cases) if may_cache(cases, &shared.flags));
             let built = (!served).then(|| {
                 let bundle = actions::put_test_bundle(&shared.root, bundle);
-                Built::Bundled(Box::new(Bundled { bundle, skipped, roots: roots.clone() }))
+                Built::Bundled(Box::new(Bundled { bundle, skipped: skipped.clone(), roots: roots.clone() }))
             });
             answer(ran.map(|cases| Ran { cases, skipped, roots }), built)
         }
@@ -2033,7 +2133,7 @@ fn served(
         platform.slug(),
         key,
     );
-    Some(Outcome { cases, skipped: 0 })
+    Some(Outcome { cases, skipped: Vec::new() })
 }
 
 // ---------------------------------------------------------------------------
@@ -2071,7 +2171,7 @@ enum Built {
     /// The front end refused it, with the answer's diagnostics.
     Refused,
     /// It had no test to run.
-    Nothing { skipped: usize },
+    Nothing { skipped: Skipped },
     /// A binary in the link cache, and where the suite's tests are in it.
     Linked(Box<Linked>),
     /// A JavaScript bundle in the cache, and the suite's tests.
@@ -2083,7 +2183,7 @@ enum Built {
 struct Bundled {
     bundle: crate::build::cache::ActionKey,
     /// What the `--filter` left out.
-    skipped: usize,
+    skipped: Skipped,
     /// The suite's tests, in block order.
     roots: Vec<Root>,
 }
@@ -2101,7 +2201,7 @@ struct Linked {
     sheet: String,
     paints: bool,
     /// What the `--filter` left out.
-    skipped: usize,
+    skipped: Skipped,
     /// The suite's blocks, in the binary's numbering.
     ranges: Vec<(usize, usize)>,
     /// The suite's tests, in block order.
@@ -2111,14 +2211,14 @@ struct Linked {
 /// A record read back ([`recall`]).
 enum Recalled {
     Refused(Diagnostics),
-    Nothing { skipped: usize },
+    Nothing { skipped: Skipped },
     Linked(Box<Linked>),
     Bundled(Box<Bundled>),
 }
 
 /// The shape of a build record, so that a change to the encoding is a miss
 /// rather than a misreading.
-const BUILD_FORMAT: &[u8] = b"buri-test-build-2\n";
+const BUILD_FORMAT: &[u8] = b"buri-test-build-3\n";
 
 /// Writes down what a suite's build left, under `at`.
 ///
@@ -2146,14 +2246,14 @@ fn remember(
         }
         Built::Nothing { skipped } => {
             out.push(1);
-            put_u32(&mut out, count(*skipped));
+            put_skipped(&mut out, skipped);
         }
         Built::Linked(l) => {
             out.push(2);
             put_text(&mut out, l.link.as_str());
             put_text(&mut out, &l.sheet);
             out.push(u8::from(l.paints));
-            put_u32(&mut out, count(l.skipped));
+            put_skipped(&mut out, &l.skipped);
             put_u32(&mut out, count(l.ranges.len()));
             for &(from, to) in &l.ranges {
                 put_u32(&mut out, count(from));
@@ -2164,13 +2264,28 @@ fn remember(
         Built::Bundled(b) => {
             out.push(3);
             put_text(&mut out, b.bundle.as_str());
-            put_u32(&mut out, count(b.skipped));
+            put_skipped(&mut out, &b.skipped);
             put_roots(&mut out, &session.map, &mut anchors, &b.roots);
         }
     }
     // A build whose reads this run never noted is not recorded.
     let Some(reads) = noted_reads(key) else { return };
     crate::build::cache::Cache::open(&session.root).put(at, &actions::with_reads(&reads, &out));
+}
+
+/// What a `--filter` left out of a suite, in a build record.
+fn put_skipped(out: &mut Vec<u8>, skipped: &Skipped) {
+    use crate::commands::lint_cache::{put_text, put_u32};
+    put_u32(out, u32::try_from(skipped.len()).unwrap_or(u32::MAX));
+    for (name, module) in skipped {
+        put_text(out, name);
+        put_text(out, module);
+    }
+}
+
+/// The inverse of [`put_skipped`].
+fn read_skipped(r: &mut crate::commands::lint_cache::Reader) -> Option<Skipped> {
+    (0..r.u32()?).map(|_| Some((r.text()?, r.text()?))).collect()
 }
 
 /// A suite's tests, in a build record.
@@ -2380,12 +2495,12 @@ fn recall(
             }
             Some(Recalled::Refused(diagnostics))
         }
-        1 => Some(Recalled::Nothing { skipped: count(&mut r)? }),
+        1 => Some(Recalled::Nothing { skipped: read_skipped(&mut r)? }),
         2 => {
             let link = crate::build::cache::ActionKey::parse(&r.text()?)?;
             let sheet = r.text()?;
             let paints = r.byte()? == 1;
-            let skipped = count(&mut r)?;
+            let skipped = read_skipped(&mut r)?;
             let mut ranges = Vec::new();
             for _ in 0..r.u32()? {
                 ranges.push((count(&mut r)?, count(&mut r)?));
@@ -2395,7 +2510,7 @@ fn recall(
         }
         3 => {
             let bundle = crate::build::cache::ActionKey::parse(&r.text()?)?;
-            let skipped = count(&mut r)?;
+            let skipped = read_skipped(&mut r)?;
             let roots = read_roots(&mut r, &mut session.map, &mut anchors, &root)?;
             Some(Recalled::Bundled(Box::new(Bundled { bundle, skipped, roots })))
         }
@@ -2639,9 +2754,14 @@ fn seed_of(key: &crate::build::cache::ActionKey) -> u128 {
 /// binary holds one suite's tests or five: a block is a position in the entry
 /// point the backend generated, and who owns it is the caller's question rather
 /// than the runtime's.
+///
+/// `ns` is how long the block took, as the process timed it: `cli/runtime/testing.rs`
+/// puts it on the `left` line a block writes when it returns, and on the line
+/// an abort writes. `None` where the process said nothing, such as a block it
+/// died in.
 enum Block {
-    Passed,
-    Failed { message: String, diff: Option<Diff>, order: Option<String> },
+    Passed { ns: Option<u64> },
+    Failed { message: String, diff: Option<Diff>, order: Option<String>, ns: Option<u64> },
 }
 
 /// What running a test binary's blocks produced.
@@ -2733,16 +2853,18 @@ fn run_blocks(
             notes.push_str(line);
             notes.push('\n');
         }
+        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        let times = left_times(&stdout);
+        let passed = |at: usize| Block::Passed { ns: times.get(&at).copied() };
         // A run that ended without aborting is a verdict for **every** block
         // from here on, because every one of them ran and none of them stopped
         // the process. Those verdicts are real, not assumed.
         if out.status.success() {
             while first + blocks.len() < count {
-                blocks.push(Block::Passed);
+                blocks.push(passed(first + blocks.len()));
             }
             break;
         }
-        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         // A process that never reached a block is a verdict on none of them,
         // and the next process would never reach one either. A failed
         // assertion is not this: its process started and says which block
@@ -2768,16 +2890,25 @@ fn run_blocks(
             None => how_it_ended(&out.status, &stderr),
         };
         while first + blocks.len() < at {
-            blocks.push(Block::Passed);
+            blocks.push(passed(first + blocks.len()));
         }
-        let (diff, order) = match noted {
-            Some(n) => (n.diff, n.order),
-            None => (None, None),
+        let (diff, order, ns) = match noted {
+            Some(n) => (n.diff, n.order, n.ns),
+            None => (None, None, None),
         };
-        blocks.push(Block::Failed { message, diff, order });
+        blocks.push(Block::Failed { message, diff, order, ns });
         from = at + 1;
     }
     Ok(Verdicts::Blocks(blocks))
+}
+
+/// Each block's time, off the `left` line it wrote on returning. A block that
+/// ran more than once wrote one per run, and the last covers them all.
+fn left_times(stdout: &str) -> std::collections::HashMap<usize, u64> {
+    lines_of(stdout)
+        .filter(|line| line.get("left").is_some())
+        .filter_map(|line| Some((index_of(&line, "i")?, nanoseconds_of(&line)?)))
+        .collect()
 }
 
 /// Whether a process reached its first block, which it says with one line on
@@ -2797,6 +2928,15 @@ fn lines_of(stdout: &str) -> impl DoubleEndedIterator<Item = Value> + '_ {
 /// A field of a record that is a string.
 fn text_of(value: &Value, name: &str) -> Option<String> {
     value.get(name).and_then(Value::as_str).map(str::to_string)
+}
+
+/// How long a block or a test took, where its record says. A record cached
+/// before tests were timed has `ms` instead, which was always 0.
+fn nanoseconds_of(value: &Value) -> Option<u64> {
+    match value.get("ns") {
+        Some(Value::Int(n)) => u64::try_from(*n).ok(),
+        _ => None,
+    }
 }
 
 /// A field of a record that is a block index.
@@ -2857,11 +2997,16 @@ fn how_it_ended(status: &std::process::ExitStatus, stderr: &str) -> String {
 /// fact about the *run* and not about the throw. It is left out where there is
 /// none.
 fn record_of(name: &str, module: &str, block: &Block) -> Value {
-    let mut fields =
-        vec![("name", Value::str(name)), ("module", Value::str(module)), ("ms", Value::number(0))];
+    let mut fields = vec![("name", Value::str(name)), ("module", Value::str(module))];
+    let ns = match block {
+        Block::Passed { ns } | Block::Failed { ns, .. } => *ns,
+    };
+    if let Some(ns) = ns.and_then(|ns| i64::try_from(ns).ok()) {
+        fields.push(("ns", Value::Int(ns)));
+    }
     match block {
-        Block::Passed => fields.push(("ok", Value::Bool(true))),
-        Block::Failed { message, diff, order } => {
+        Block::Passed { .. } => fields.push(("ok", Value::Bool(true))),
+        Block::Failed { message, diff, order, .. } => {
             fields.push(("ok", Value::Bool(false)));
             let mut error = vec![("message", Value::str(message))];
             if let Some(d) = diff {
@@ -3292,12 +3437,12 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
     }
     // What a `--filter` leaves out, per suite, counted before the roots are
     // narrowed.
-    let mut skipped = vec![0usize; info.members.len()];
+    let mut skipped: Vec<Skipped> = vec![Vec::new(); info.members.len()];
     if let Some(f) = &shared.flags.filter {
         for test in program.roots.tests() {
             if !test.name.contains(f.as_str()) {
-                if let Some(n) = info.owner_of(&test.module).and_then(|i| skipped.get_mut(i)) {
-                    *n += 1;
+                if let Some(left) = info.owner_of(&test.module).and_then(|i| skipped.get_mut(i)) {
+                    left.push((test.name.clone(), test.module.clone()));
                 }
             }
         }
@@ -3353,7 +3498,7 @@ struct PartJob {
     analysis: std::sync::Arc<crate::compiler::driver::Analysis>,
     tables: std::sync::Arc<crate::compiler::semantics::types::Tables>,
     module_paths: Vec<String>,
-    skipped: std::sync::Arc<Vec<usize>>,
+    skipped: std::sync::Arc<Vec<Skipped>>,
     group: Group,
     /// The test modules of the group's members, which root its program.
     modules: Vec<String>,
@@ -3397,7 +3542,7 @@ fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -
 )]
 fn submit_group(
     info: &BatchInfo,
-    skipped: &[usize],
+    skipped: &[Skipped],
     group: &Group,
     selected: &[Selected],
     program: monomorphize::Program,
@@ -3407,7 +3552,7 @@ fn submit_group(
     tell: &Tell,
     shared: &Shared,
 ) -> Done {
-    let skipped_of = |i: usize| skipped.get(i).copied().unwrap_or(0);
+    let skipped_of = |i: usize| skipped.get(i).cloned().unwrap_or_default();
     let nothing = |i: usize| Done::Answer {
         slot: info.slot_of(i),
         answer: Ok(Ran { cases: Vec::new(), skipped: skipped_of(i), roots: Vec::new() }),
@@ -3523,7 +3668,7 @@ struct MemberSpec {
     /// Each block's title and module, in block order.
     tests: Vec<(String, String)>,
     roots: Vec<Root>,
-    skipped: usize,
+    skipped: Skipped,
     snapshot_dir: String,
     paints: bool,
     /// The suite's `timeout_seconds`. Only a binary run again has one: a
@@ -3777,7 +3922,7 @@ fn answer_member(gathered: &std::sync::Mutex<Gathered>, spec: &MemberSpec, share
     let cases = recorded(shared, &spec.key, &spec.tests, all.verdicts.iter().map(|(_, block)| block));
     Done::Answer {
         slot: spec.slot,
-        answer: Ok(Ran { cases, skipped: spec.skipped, roots: spec.roots.clone() }),
+        answer: Ok(Ran { cases, skipped: spec.skipped.clone(), roots: spec.roots.clone() }),
         explain: String::new(),
         notes,
         built: linked_of(spec),
@@ -3847,6 +3992,7 @@ fn run_pulled(
     let mut reached = false;
     let mut held: Option<usize> = None;
     let mut returned = false;
+    let mut took: Option<u64> = None;
     let mut noted: Option<Noted> = None;
     if let Some(output) = child.stdout.take() {
         for line in std::io::BufReader::new(output).lines() {
@@ -3856,7 +4002,7 @@ fn run_pulled(
                 reached = true;
             } else if value.get("next").is_some() {
                 if let Some(block) = held.take() {
-                    verdicts.push((block, Block::Passed));
+                    verdicts.push((block, Block::Passed { ns: took.take() }));
                 }
                 let next = if input.is_some() { gathered_of(gathered).claim() } else { None };
                 match (next, input.as_mut()) {
@@ -3867,6 +4013,7 @@ fn run_pulled(
                         let _ = pipe.flush();
                         held = Some(block);
                         returned = false;
+                        took = None;
                     }
                     _ => input = None,
                 }
@@ -3874,6 +4021,7 @@ fn run_pulled(
                 noted = noted_of(&value);
             } else if value.get("left").is_some() && held.is_some() && index_of(&value, "i") == held {
                 returned = true;
+                took = nanoseconds_of(&value);
             }
         }
     }
@@ -3891,7 +4039,7 @@ fn run_pulled(
         notes.push('\n');
     }
     if status.success() {
-        verdicts.extend(held.map(|block| (block, Block::Passed)));
+        verdicts.extend(held.map(|block| (block, Block::Passed { ns: took })));
         return Pulled::Ran { verdicts, notes };
     }
     if !reached {
@@ -3899,9 +4047,9 @@ fn run_pulled(
     }
     let Some(block) = held else { return Pulled::Broken };
     let failed = match noted {
-        Some(n) if n.at == block => Block::Failed { message: n.message, diff: n.diff, order: n.order },
+        Some(n) if n.at == block => Block::Failed { message: n.message, diff: n.diff, order: n.order, ns: n.ns },
         _ if !returned => {
-            Block::Failed { message: how_it_ended(&status, &stderr), diff: None, order: None }
+            Block::Failed { message: how_it_ended(&status, &stderr), diff: None, order: None, ns: None }
         }
         _ => return Pulled::Broken,
     };
@@ -3916,7 +4064,7 @@ fn linked_of(spec: &MemberSpec) -> Option<Built> {
         link: link.clone(),
         sheet: sheet.to_string(),
         paints: spec.paints,
-        skipped: spec.skipped,
+        skipped: spec.skipped.clone(),
         ranges: spec.ranges.clone(),
         roots: spec.roots.clone(),
     })))
@@ -4117,6 +4265,8 @@ struct Noted {
     /// anything. `cli/runtime/testing.rs`'s `task_order_note` writes it and
     /// `note_failure` puts it on the line; this is the field it arrives in.
     order: Option<String>,
+    /// How long the block ran before it aborted.
+    ns: Option<u64>,
 }
 
 /// The line a native test binary writes when a block aborts.
@@ -4141,6 +4291,7 @@ fn noted_of(line: &Value) -> Option<Noted> {
         message: text_of(line, "message").unwrap_or_default(),
         diff: diff_of(line),
         order: text_of(line, "order"),
+        ns: nanoseconds_of(line),
     })
 }
 
@@ -4366,6 +4517,7 @@ fn parse_results(text: &str) -> Vec<Case> {
                 module: text_of(record, "module").unwrap_or_default(),
                 verdict,
                 location: None,
+                ns: nanoseconds_of(record),
             }
         })
         .collect()
@@ -4379,11 +4531,15 @@ fn parse_results(text: &str) -> Vec<Case> {
 /// the rendering is the source syntax the title was written in. So is any
 /// other control character, which a terminal would act on rather than show.
 fn quote_title(name: &str) -> String {
-    let mut out = String::with_capacity(name.len() + 2);
-    out.push('"');
+    format!("\"{}\"", escaped(name).replace('"', "\\\""))
+}
+
+/// A test's title with its backslashes and control characters escaped, so it
+/// stays on one line and a terminal shows it rather than acts on it.
+fn escaped(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
     for c in name.chars() {
         match c {
-            '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
@@ -4392,7 +4548,6 @@ fn quote_title(name: &str) -> String {
             c => out.push(c),
         }
     }
-    out.push('"');
     out
 }
 
@@ -4638,9 +4793,10 @@ mod tests {
             message: String::from("assert.equal failed"),
             diff,
             order: order.map(str::to_string),
+            ns: None,
         };
         let record = Value::Array(vec![
-            record_of("a title", "//lib/x/test/x", &Block::Passed),
+            record_of("a title", "//lib/x/test/x", &Block::Passed { ns: Some(1_500) }),
             record_of("say \"hi\"", "//lib/x/test/x", &failed(Some(diff), None)),
             record_of("scheduled", "//lib/x/test/x", &failed(None, Some(note))),
         ])
@@ -4650,6 +4806,9 @@ mod tests {
         assert_eq!(cases[0].name, "a title");
         assert_eq!(cases[0].module, "//lib/x/test/x");
         assert!(matches!(cases[0].verdict, Verdict::Passed));
+        // A time travels with its verdict, and a block nobody timed has none.
+        assert_eq!(cases[0].ns, Some(1_500));
+        assert_eq!(cases[1].ns, None);
         // The title's quotes survive the record, and so do the escapes inside
         // a rendered value: `$show` already escaped them, and the record
         // escapes what it is handed.
@@ -4674,6 +4833,30 @@ mod tests {
         assert_eq!(order.as_deref(), Some(note));
     }
 
+    /// Each unit holds until rounding would carry it into the next one.
+    #[test]
+    fn a_time_is_spelled_in_the_unit_its_size_calls_for() {
+        assert_eq!(duration(0), "0 µs");
+        assert_eq!(duration(412_345), "412 µs");
+        assert_eq!(duration(999_999), "999 µs");
+        assert_eq!(duration(1_000_000), "1.0 ms");
+        assert_eq!(duration(12_449_999), "12.4 ms");
+        assert_eq!(duration(12_450_000), "12.5 ms");
+        assert_eq!(duration(999_949_999), "999.9 ms");
+        assert_eq!(duration(999_950_000), "1.0 s");
+        assert_eq!(duration(2_460_000_000), "2.5 s");
+        assert_eq!(duration(u64::MAX), "18446744073.7 s");
+    }
+
+    /// A verdict cached before tests were timed reads back with no time, and
+    /// `ms`, the field it had instead, is not taken for one.
+    #[test]
+    fn a_record_from_before_times_reads_back_without_them() {
+        let cases = parse_results("[{\"module\":\"//lib/x/test/x\",\"ms\":0,\"name\":\"old\",\"ok\":true}]");
+        assert_eq!(cases.len(), 1);
+        assert_eq!(cases[0].ns, None);
+    }
+
     /// The line a native test binary writes when a block aborts.
     ///
     /// The literal is the contract with `cli/runtime/testing.rs`, so it is
@@ -4681,9 +4864,16 @@ mod tests {
     /// and nothing but this test compares them.
     #[test]
     fn a_native_binary_says_which_block_aborted() {
-        let noted = noted_failure("{\"i\":3,\"message\":\"assert.equal failed\",\"actual\":\"1\",\"expected\":\"2\"}\n")
-            .expect("a record with an index is a record");
+        let noted = noted_failure(
+            "{\"i\":3,\"ns\":1234,\"message\":\"assert.equal failed\",\"actual\":\"1\",\"expected\":\"2\"}\n",
+        )
+        .expect("a record with an index is a record");
         assert_eq!(noted.at, 3);
+        assert_eq!(noted.ns, Some(1234));
+        // A block that returned says how long it took on its `left` line, once
+        // per run, and the last run's line covers them all.
+        let times = left_times("{\"i\":0,\"left\":1,\"ns\":7}\n{\"i\":1,\"left\":1,\"ns\":8}\n{\"i\":1,\"left\":1,\"ns\":9}\n");
+        assert_eq!((times.get(&0), times.get(&1), times.get(&2)), (Some(&7), Some(&9), None));
         assert_eq!(noted.message, "assert.equal failed");
         let diff = noted.diff.expect("both sides were there");
         assert_eq!((diff.actual.as_str(), diff.expected.as_str()), ("1", "2"));

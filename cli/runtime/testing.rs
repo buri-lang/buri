@@ -3565,14 +3565,26 @@ pub extern "C" fn buri_rt_test_enter(index: i64) -> i32 {
         if !handed_this(index) {
             return 0;
         }
-        runner().at = index;
-        return 1;
-    }
-    if index < from || stop_at().is_some_and(|to| index >= to) {
+    } else if index < from || stop_at().is_some_and(|to| index >= to) {
         return 0;
     }
     runner().at = index;
+    BLOCK_STARTED.store(now(), std::sync::atomic::Ordering::Relaxed);
     1
+}
+
+/// When the block being run started, on [`now`]'s clock. Taken once the
+/// runner has handed the block over, so a test's time is its own.
+static BLOCK_STARTED: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// The process's monotonic clock, in nanoseconds.
+fn now() -> i64 {
+    crate::host::buri_rt_host_clock_monotonic_nanoseconds()
+}
+
+/// How long the block being run has taken so far, in nanoseconds.
+fn block_time() -> i64 {
+    now().saturating_sub(BLOCK_STARTED.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 /// The handle table's length when the current block started.
@@ -3739,7 +3751,7 @@ fn note_left(index: i64) {
         return;
     }
     use std::io::Write;
-    let line = format!("{{\"i\":{index},\"left\":1}}\n");
+    let line = format!("{{\"i\":{index},\"left\":1,\"ns\":{}}}\n", block_time());
     let stream = std::io::stdout();
     let mut stream = stream.lock();
     let _ = stream.write_all(line.as_bytes());
@@ -3769,7 +3781,7 @@ pub(crate) fn note_failure(parts: &[&[u8]]) {
     for part in parts {
         message.push_str(&String::from_utf8_lossy(part));
     }
-    let mut line = format!("{{\"i\":{at},\"message\":");
+    let mut line = format!("{{\"i\":{at},\"ns\":{},\"message\":", block_time());
     quote_into(&message, &mut line);
     if let Some((actual, expected)) = shown {
         line.push_str(",\"actual\":");

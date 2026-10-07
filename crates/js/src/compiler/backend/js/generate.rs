@@ -3282,6 +3282,11 @@ impl<'a> Gen<'a> {
         // `JSON.stringify` drops the key, so the artifact a suite without
         // `tasks()` produces is the bytes it always produced.
         //
+        // `ns` is how long the test took, for `buri test --verbose`. It reads
+        // `performance.now()` because the action's clock freezes `Date.now()`
+        // (`build/spawn.rs`), and `cli/runtime/testing.rs` times a native
+        // block the same way, from the block's start to its end.
+        //
         // `$case` runs one test and answers its record, and `$run` runs every
         // test the filter keeps, in order. `$pull` is how one suite runs in
         // several processes (`commands/test.rs`'s `run_js_pulled`): it asks
@@ -3293,8 +3298,9 @@ impl<'a> Gen<'a> {
         Stmt::Raw(String::from(
             "async function $case(n,m,f){\
              $t.from=$t.h.length;$t.pass=0n;$t.total=1n;$t.note=null;\
-             const started=Date.now();try{await f();return{name:n,module:m,ok:true,ms:Date.now()-started};}\
-             catch(e){return{name:n,module:m,ok:false,ms:Date.now()-started,\
+             const s=performance.now(),ns=()=>Math.round((performance.now()-s)*1e6);\
+             try{await f();return{name:n,module:m,ok:true,ns:ns()};}\
+             catch(e){return{name:n,module:m,ok:false,ns:ns(),\
              error:e&&e.$assert?e.$assert:{message:String(e&&e.message||e)},\
              order:$taskOrderNote()||undefined,\
              stack:e&&e.stack||\"\"};}}\

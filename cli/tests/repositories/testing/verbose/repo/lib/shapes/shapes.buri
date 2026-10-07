@@ -1,0 +1,7 @@
+export fn square(side: Int): Int {
+    side * side
+}
+
+export fn perimeter(side: Int): Int {
+    4 * side
+}

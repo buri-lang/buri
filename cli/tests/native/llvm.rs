@@ -5269,6 +5269,76 @@ fn coverage_under_release_counts_the_lines_the_other_backends_count() {
     assert_eq!(lcov, expected);
 }
 
+/// **`--release --verbose` times every test LLVM built, a failing one too.**
+///
+/// The corpus case `testing/verbose` records the list on the development
+/// backend. Here the same repository runs under `--release`, with one test
+/// broken, and every line has to end in a time the runner spells.
+#[test]
+fn verbose_under_release_times_every_test() {
+    skip_unless_executable!();
+    fn copy(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let dest = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy(&entry.path(), &dest);
+            } else {
+                std::fs::copy(entry.path(), dest).unwrap();
+            }
+        }
+    }
+    /// A time as the runner spells one: whole microseconds, or milliseconds
+    /// or seconds to one decimal.
+    fn timed(line: &str) -> bool {
+        let mut words = line.rsplit(' ');
+        let (unit, number) = (words.next().unwrap_or_default(), words.next().unwrap_or_default());
+        let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+        match unit {
+            "µs" => digits(number),
+            "ms" | "s" => number.split_once('.').is_some_and(|(w, t)| digits(w) && t.len() == 1 && digits(t)),
+            _ => false,
+        }
+    }
+    let case = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/repositories/testing/verbose");
+    let repo = workspace().join("verbose-under-release");
+    let _ = std::fs::remove_dir_all(&repo);
+    copy(&case.join("repo"), &repo);
+    let cents = repo.join("lib/money/cents.buri");
+    let source = std::fs::read_to_string(&cents).unwrap().replace("n % 100", "n % 10");
+    std::fs::write(&cents, source).unwrap();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
+    cmd.current_dir(&repo).args(["test", "--release", "--verbose", "//lib/..."]);
+    let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
+    assert_eq!(ran.status, 1, "{}\n{}", ran.stdout, ran.stderr);
+    let listed: Vec<&str> = ran.stdout.lines().take_while(|l| !l.is_empty()).collect();
+    let shape: Vec<String> = listed
+        .iter()
+        .map(|l| {
+            assert!(timed(l), "not a time the runner spells: {l:?}\n{}", ran.stdout);
+            l.split("  ").filter(|w| !w.is_empty()).take(3).collect::<Vec<_>>().join("|")
+        })
+        .collect();
+    assert_eq!(
+        shape,
+        [
+            "//lib/money|native|3 tests",
+            "ok|cents.buri|adding cents carries into dollars",
+            "FAIL|cents.buri|the cents are what is left over",
+            "ok|rates.buri|a rate of zero keeps nothing",
+            "//lib/shapes|native|3 tests",
+            "ok|shapes.buri|a square has four equal sides",
+            "ok|shapes.buri|a square's area is its side squared",
+            "ok|solid/cube.buri|a cube has six square faces",
+        ],
+        "{}",
+        ran.stdout
+    );
+    assert!(ran.stdout.contains("FAIL //lib/money  test/cents.buri"), "{}", ran.stdout);
+}
+
 /// **A wide payload reaches LLVM as words, never as one wide integer.**
 /// PERFORMANCE.md §6.29.
 ///

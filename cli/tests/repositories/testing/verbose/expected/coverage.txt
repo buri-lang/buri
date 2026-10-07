@@ -1,0 +1,11 @@
+//lib/shapes  native  3 tests  <time>
+  ok    shapes.buri      a square has four equal sides        <time>
+  ok    shapes.buri      a square's area is its side squared  <time>
+  ok    solid/cube.buri  a cube has six square faces          <time>
+
+3 passed, 0 failed, 0 skipped (0.0s)
+
+coverage
+  lib/shapes/shapes.buri  4/4  100.0%
+  total                   4/4  100.0%
+lcov: .buri/coverage/lcov.info

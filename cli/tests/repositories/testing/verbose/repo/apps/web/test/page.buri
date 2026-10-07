@@ -1,0 +1,10 @@
+from "core/testing/assert" import * as assert;
+from "//apps/web" import { title };
+
+test "the title renders" {
+    assert.equal(title(), "Shop");
+}
+
+test "the title fits on a tab" {
+    assert.equal(title() == "", false);
+}

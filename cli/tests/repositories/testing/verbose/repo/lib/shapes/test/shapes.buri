@@ -1,0 +1,10 @@
+from "core/testing/assert" import * as assert;
+from "//lib/shapes" import { perimeter, square };
+
+test "a square has four equal sides" {
+    assert.equal(perimeter(3), 12);
+}
+
+test "a square's area is its side squared" {
+    assert.equal(square(3), 9);
+}

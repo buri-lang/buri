@@ -1,0 +1,8 @@
+library {
+    sources: ["page.buri"]
+
+    test {
+        sources: ["test/page.buri"]
+        backends: [JS]
+    }
+}
