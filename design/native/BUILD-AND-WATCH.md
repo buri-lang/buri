@@ -51,7 +51,9 @@ than a review comment.
 | `tokio` | `net` | The reactor and the timer wheel, and **linked**: `cli/runtime/rt.rs` is the thread runtime and every suspending host call parks on it. `epoll` and `kqueue` behind one readiness API, per platform; getting it subtly wrong presents as a hang. |
 | `hyper` | `net` | HTTP/1.1 and HTTP/2 framing, and **linked**: `cli/runtime/net.rs` serves HTTP/2 over TLS through it, chosen by ALPN, and frames HTTP/1.1 itself. `cli/runtime/http.rs` is a complete cleartext client, which is the easy half; HPACK, flow control and a correct server are not. |
 | `rustls` | `net` | TLS 1.2 and 1.3, and **linked**: `cli/runtime/tls.rs` builds its client configuration and `http.rs` reaches that for every `https://` URL. |
-| `ring` | `net` | `rustls`'s crypto provider. Reached only through `rustls::crypto::ring`, and declared directly anyway — see §1.1.2. |
+| `rustls-graviola` | `net` | `rustls`'s crypto provider since #225, with X25519MLKEM768 key exchange first — see §1.1.2. |
+| `graviola` | `net` | The cryptography under `rustls-graviola`, declared directly so the bar test sees it. |
+| `ring` | `crypto` | `core/crypto`'s sealing and signature checks, and `quinn`'s provider. TLS's provider until #225 — see §1.1.2. |
 | `tungstenite` | `net` | RFC 6455 framing and the handshake, and **linked**: every WebSocket message a server sends or reads is framed through it. A protocol with a specification and a conformance suite, not an algorithm. |
 | `quinn` | `net-h3` | QUIC, which is what HTTP/3 runs on: congestion control, loss recovery, stream multiplexing and connection migration over UDP. The only entry behind a feature that is **off by default** — §1.1.3. |
 
@@ -114,6 +116,13 @@ MiB on Linux after the first real Linux measurement came in 1.9 MB above the
 projection. Every `buri` binary is 1.72 MiB larger for having a TLS client in
 it.
 
+**`graviola` since #225.** TLS now offers X25519MLKEM768 first and falls back
+to X25519, as client and server. `ring` has no ML-KEM; `graviola` has it,
+builds with `rustc` alone, and takes a CPU floor in exchange (AVX2 and ADX on
+x86_64, the crypto extensions on aarch64). `net` no longer needs a C compiler;
+`crypto` and `net-h3` still do, for `ring`. DECISIONS.md has the argument. The
+two paragraphs below are the C7 history.
+
 **`ring` rather than `aws-lc-rs`**, the other provider `rustls` ships:
 `aws-lc-rs` wants `cmake` at build time, which is a second tool to require of
 `cargo install buri`. `ring` wants a C compiler, which the toolchain already
@@ -144,7 +153,7 @@ line growing a flag. Reading a PEM file is forty lines. What it does not do is
 read the macOS keychain, which is what `SSL_CERT_FILE` is for.
 
 `cli/tests/ci.rs::the_runtime_archive_is_real` holds all of it in CI: the size
-budget, a symbol table that **must** mention `tokio`, `rustls`, `ring`,
+budget, a symbol table that **must** mention `tokio`, `rustls`, `graviola`,
 `hyper` and `tungstenite` when the feature file says `net`, and one that must
 mention neither `quinn` — on any leg, `net-h3` included — nor `aws_lc`, a
 provider that was never a dependency.
@@ -227,9 +236,9 @@ that script's *absent* list, on every leg.
 
 **The provider is `ring`, by name.** `quinn`'s own defaults are
 `rustls-aws-lc-rs` and `platform-verifier`; both are off in
-`cli/runtime/manifest.toml` and `rustls-ring` is on, so an h3 binary carries
-one cryptography implementation rather than two. The `aws_lc` grep is what
-checks it.
+`cli/runtime/manifest.toml` and `rustls-ring` is on, because `graviola`'s
+suites carry no QUIC header protection. HTTP/3 keeps classical key exchange.
+The `aws_lc` grep keeps a third implementation out.
 
 **What a toolchain without it does is return, not refuse.** `Server`'s
 `protocols` field accepts `.Http3` on every toolchain; `serve` answers
