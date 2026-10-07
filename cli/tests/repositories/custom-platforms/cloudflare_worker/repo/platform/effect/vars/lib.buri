@@ -1,3 +1,7 @@
+from "core/secret" import * as secret;
+from "core/secret" import { Secret };
+from "platform/effect" import { Allocator };
+
 /// A worker's vars and secrets: the bindings its runtime hands each request
 /// whose value is a string.
 export effect Vars {
@@ -6,11 +10,12 @@ export effect Vars {
 }
 
 /// The variable called `name`, or `.None` where nothing by that name is bound.
-export fn get<C: Vars>(ctx: C, name: Str): Option<Str> {
-    ctx.get(name)
+/// A var and a secret arrive alike, so every value is a `Secret`.
+export fn get<C: Vars>(ctx: C, name: Str): Option<Secret<Str>> {
+    ctx.get(name).map(fn(value) => secret.of(value))
 }
 
 /// Every variable, as `(name, value)`, in no promised order.
-export fn all<C: Vars>(ctx: C): [(Str, Str)] {
-    ctx.all()
+export fn all<C: Allocator + Vars>(ctx: C): [(Str, Secret<Str>)] {
+    ctx.all().map(ctx, fn(pair) => (pair.0, secret.of(pair.1)))
 }

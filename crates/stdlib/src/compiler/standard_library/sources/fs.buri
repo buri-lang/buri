@@ -676,7 +676,7 @@ export fn makeTemporaryDirectory<C: Allocator + Entropy + Environment + FileSyst
     ctx: C,
     prefix: Str,
 ): Result<Path, IoError> {
-    let stamp = crypto.token(ctx, 8);
+    let stamp = crypto.token(ctx, 8).reveal();
     let at = env
         .temporaryDirectory(ctx)
         .join(ctx, str.format(ctx, "${prefix}${stamp}"));

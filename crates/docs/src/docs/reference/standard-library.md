@@ -728,7 +728,8 @@ has to *ask* for unguessability, and can be refused where it cannot be had.
 sets of octets apart by inspection — they differ only in whether an observer can
 predict the next one — so a program says which it meant by the module it
 imports. `token(ctx, 32)` is the spelling for a session's resume token: 32
-octets of entropy, written as lowercase hex.
+octets of entropy, written as lowercase hex, in a `Secret<Str>` that shows as
+`***` until `reveal()`.
 
 Every platform grants `Entropy`. What can be missing is the *toolchain*: a
 runtime archive built without its `crypto` feature refuses `randomBytes` by

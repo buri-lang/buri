@@ -1096,12 +1096,12 @@ test "an entropy seed answers a new generator at the start of its sequence" {
         Allocator: alloc(),
         Entropy: base.seed(7),
     };
-    assert.equal(crypto.token(ctx, 4), "e7074345");
+    assert.equal(crypto.token(ctx, 4).reveal(), "e7074345");
     let other = context {
         Allocator: alloc(),
         Entropy: base,
     };
-    assert.equal(crypto.token(other, 4), "2101c54f");
+    assert.equal(crypto.token(other, 4).reveal(), "2101c54f");
 }
 
 test "the entropy double and the rand double are one generator" {

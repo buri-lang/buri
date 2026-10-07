@@ -86,7 +86,7 @@ test "a token is hex, twice as long as the entropy it carries" {
         Allocator: alloc(),
         Entropy: entropy().seed(7),
     };
-    let t = crypto.token(ctx, 16);
+    let t = crypto.token(ctx, 16).reveal();
     assert.equal(t.length(), 32);
     assert.equal(t, "e7074345ff94ba57af0afde4a8fe4535");
     // Written down as hex and read back as the octets it was made of.
@@ -98,7 +98,7 @@ test "a token of no octets is the empty string" {
         Allocator: alloc(),
         Entropy: entropy(),
     };
-    assert.equal(crypto.token(ctx, 0), "");
+    assert.equal(crypto.token(ctx, 0).reveal(), "");
 }
 
 // --- the two generators are one generator ---------------------------------------
