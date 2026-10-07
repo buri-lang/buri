@@ -925,7 +925,11 @@ impl Golden {
             if let Some(p) = path.parent() {
                 let _ = std::fs::create_dir_all(p);
             }
-            std::fs::write(path, actual).unwrap();
+            // Only when it moved: a file rewritten in place reads as empty to
+            // a test in another thread that samples these files as sources.
+            if std::fs::read_to_string(path).ok().as_deref() != Some(actual) {
+                std::fs::write(path, actual).unwrap();
+            }
             self.blessed += 1;
             return;
         }
