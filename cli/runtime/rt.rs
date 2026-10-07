@@ -3755,6 +3755,18 @@ mod tests {
                 if shared.inside.fetch_add(1, Ordering::SeqCst) != 0 {
                     shared.overlaps.fetch_add(1, Ordering::SeqCst);
                 }
+                // The first step stays in until a second has come in beside
+                // it, or ten seconds. Two hundred short steps could otherwise
+                // all run on the first thread up on a loaded machine before
+                // a second got a core, and an overlap left to chance is a
+                // flaky test; the pool starts a thread for the queued steps
+                // while this one holds its own.
+                if index == 0 {
+                    let until = Instant::now() + Duration::from_secs(10);
+                    while shared.inside.load(Ordering::SeqCst) < 2 && Instant::now() < until {
+                        thread::yield_now();
+                    }
+                }
                 let p = shared.block as *mut u8;
                 for _ in 0..50 {
                     crate::memory::buri_rt_incref(p);
