@@ -24,3 +24,15 @@ struct Outer {
 
 Make the component's type satisfy the trait first, with a `derive` in its own
 module or an `impl`, or drop the trait from this `derive`.
+
+## A toolchain type
+
+```buri fail code=underivable-field
+# from "core/secret" import { Secret };
+
+derive Hash for Login;
+struct Login {
+    user: Str,
+    password: Secret<Str>,
+}
+```

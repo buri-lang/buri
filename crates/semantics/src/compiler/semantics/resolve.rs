@@ -3058,12 +3058,18 @@ impl<'a> Checker<'a> {
                 let t = self.tables.trait_(tr).name.clone();
                 let c = self.tables.tycon(con).name.clone();
                 let shown = show(&self.tables, None, &self.tables.tycon(con).generics, &ty);
+                let home = self.toolchain_home(&ty, tr);
                 self.templated("underivable-field", span)
                     .bind("type", c)
                     .bind("trait", t.clone())
                     .bind("field", name)
                     .bind("field_type", shown.clone())
-                .fix(if crate::compiler::semantics::types::is_derive_only(&t) {
+                .fix(if let Some(home) = home {
+                    format!(
+                        "drop `{t}` from this `derive`: `{shown}` comes from `{home}`, which \
+                         leaves it out, and `buri docs {home}` says what to use instead"
+                    )
+                } else if crate::compiler::semantics::types::is_derive_only(&t) {
                     format!(
                         "make `{shown}` satisfy `{t}` first — `derive {t} for {shown};` in \
                          its own module — or drop `{t}` from this `derive`"
@@ -3166,6 +3172,22 @@ impl<'a> Checker<'a> {
     /// Every trait a type is known to satisfy, for diagnostics.
     pub fn traits_of(&self, con: TyConId) -> BTreeSet<String> {
         crate::compiler::semantics::types::traits_of(&self.tables, con)
+    }
+
+    /// The toolchain module that declares `ty`'s constructor, when one does and
+    /// it has no `impl` of `tr` at all. Nobody else can add one, so a fix that
+    /// says "derive it in its own module" points at that module's page instead.
+    pub fn toolchain_home(&self, ty: &Ty, tr: TraitId) -> Option<String> {
+        let TyKind::Con(con, _) = ty.kind() else { return None };
+        if self.tables.impls.contains_key(&(tr, *con)) {
+            return None;
+        }
+        let info = self.tables.tycon(*con);
+        if let TyDef::Prim(p) = &info.def {
+            return Some(standard_library::defining_module(*p).to_string());
+        }
+        let module = self.module(info.module);
+        matches!(module.role, Role::Std | Role::Platform).then(|| module.path.clone())
     }
 }
 

@@ -4,8 +4,7 @@ error: `Secret<Str>` does not implement `Ordered` [missing-impl]
 15 |   let _ = io.println(ctx, "before: ${a < b}").ignore();
    |                                      ^^^^^
    |
-   = conformance is nominal: a type satisfies a trait only where a declaration says so
-   = fix: add `derive Ordered for Secret<Str>;` in that type's own module, or write `impl Ordered for Secret<Str> { ... }` there
+   = fix: `Secret<Str>` comes from `core/secret`, which leaves out `Ordered`: `buri docs core/secret` says what to use instead
 
      A context binding and a bound both ask for an impl. Having the right
      methods isn't enough: a type conforms only once an impl says so. That's why

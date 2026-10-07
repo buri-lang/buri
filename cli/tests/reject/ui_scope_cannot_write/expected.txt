@@ -5,7 +5,7 @@ error: `Scope` does not implement `Ui` [missing-impl]
    |           ^^^^^^^^^^^^^
    |
    = `Scope` implements `Allocator` and `Watch`, but not `Ui`
-   = fix: add `derive Ui for Scope;` in that type's own module, or write `impl Ui for Scope { ... }` there
+   = fix: `Scope` comes from `platform/effect`, which leaves out `Ui`: `buri docs platform/effect` says what to use instead
 
      A context binding and a bound both ask for an impl. Having the right
      methods isn't enough: a type conforms only once an impl says so. That's why

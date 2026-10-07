@@ -675,7 +675,8 @@ Bearer hunter2
   compile, `config.show(ctx)` does.
 - There's no `Equal`, `Ordered`, `Hash`, `ToJson` or `FromJson`, so a secret
   can't leak through a comparison report or a serializer, and a struct holding
-  one can't derive them. Build a body that carries it by hand, with `reveal()`.
+  one can't derive them. Build a body that carries it by hand, with `reveal()`,
+  and compare two with `crypto.equalsConstantTime` over their revealed bytes.
 
 A `Secret` is its value and nothing more, so wrapping and revealing are free.
 `env.get` and `env.all` answer secrets, and `core/crypto`'s keyed functions take

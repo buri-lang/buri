@@ -5,7 +5,7 @@ error: `Login` cannot derive `Hash`: `password` has type `Secret<Str>` [underiva
    | ^^^^^^^^^^^^^^^^^^^^^^
    |
    = a derived implementation is a fold over the type's components, and `Secret<Str>` does not satisfy `Hash`
-   = fix: make `Secret<Str>` satisfy `Hash` first — `derive Hash for Secret<Str>;` in its own module, or an `impl` — or drop `Hash` from this `derive`
+   = fix: drop `Hash` from this `derive`: `Secret<Str>` comes from `core/secret`, which leaves it out, and `buri docs core/secret` says what to use instead
 
      Make the component's type satisfy the trait first, with a derive in its own
      module or an impl, or drop the trait from this derive.
