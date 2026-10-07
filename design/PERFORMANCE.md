@@ -5396,6 +5396,74 @@ padding.
 - **A shorter `decref`.** The prologue is clang's. Moving the dying arm out of
   line would change every object that releases anything.
 
+### 6.57 Proto codecs write into one buffer, 2026-10-07
+
+[#254](https://github.com/buri-lang/buri/issues/254): a generated encoder built
+a list per field and per varint byte, and copied each nested message once per
+level. The decoder sliced every nested message out before reading it.
+
+The encoder appends to one `[U8]` now, and a message's `size` function gives
+the length prefix a parent writes before it:
+
+```buri
+export fn writeItem<C: Allocator>(ctx: C, out: [U8], value: Item): [U8] {
+    let out = match (value.id) {
+        .Some(x) => proto.writeVarint(ctx, out.push(ctx, 8), x),
+        .None => out,
+    };
+    …
+    match (value.tag) {
+        .Some(x) => writeTag(ctx, proto.writeVarint(ctx, out.push(ctx, 26), sizeTag(x)), x),
+        .None => out,
+    }
+}
+```
+
+A header is a constant, so it's pushed as literal bytes. The decoder reads
+between an offset and an end, `readItem(ctx, b, at, end, base, acc)`, and an
+error counts its offset from `base`, so it still names the offset inside the
+message it was found in.
+
+Sizing first exposed `str.utf8Length`, which walked a string one `charAt` at a
+time: half of a native encode. It's an intrinsic now. Natively it's the byte
+length a `Str` already carries, and JavaScript counts UTF-16 units.
+
+Instructions retired per message, for #254's 262-byte page, less a run that
+builds the page and stops. "Push" is #254's floor: 262 bytes pushed into one
+`[U8]`.
+
+| | before | after | push |
+|---|---:|---:|---:|
+| native `--release`, encode | 66,322 | 31,364 | 35,221 |
+| native `--release`, decode | 47,918 | 35,664 | |
+| native debug, encode | 107,734 | 42,716 | 44,981 |
+| native debug, decode | 96,186 | 72,394 | |
+| node `--release`, encode | 279,106 | 75,306 | 27,337 |
+| node `--release`, decode | 318,301 | 180,447 | |
+
+Encode is under the floor natively, because a string goes in as one `concat`
+rather than a push per byte. #254's own program, one run each at load 9:
+native `--release` encode 3.2 µs to 1.4 µs and decode 3.2 µs to 1.4 µs; node
+encode 16.2 µs to 3.3 µs and decode 15.1 µs to 8.2 µs. `cli/tests/conformance/lib/proto/test/wire.buri`
+pins the bytes and the error offsets on JavaScript and stencil.
+`build::generators` runs a nested page through stencil and LLVM.
+
+**What's left:**
+
+- **A string field.** Decode still slices its bytes out, and the native
+  `bytes.fromUtf8` builds the string one scalar at a time. That's most of a
+  native decode.
+- **`BigInt`.** On node, 35% of a decode is the collector, behind index
+  arithmetic and the struct update each field makes. 10% of an encode is
+  `$wrapTo`, which takes `wrapToU8` through `BigInt.asUintN`.
+- **A nested message is sized once per level above it.** The page sizes each
+  tag twice. A schema nested ten deep pays ten times; nobody's asked for that.
+
+**Considered and not built:** reserving a byte for the length and filling it
+in after the body. JavaScript has no in-place write to a list element,
+`replaceAt` copies, and a body of 128 bytes or more needs a second byte
+anyway.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
