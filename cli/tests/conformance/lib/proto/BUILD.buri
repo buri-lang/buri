@@ -9,6 +9,7 @@ library {
             "test/binary.buri",
             "test/failures.buri",
             "test/json.buri",
+            "test/json_numbers.buri",
             "test/wire.buri",
         ]
 

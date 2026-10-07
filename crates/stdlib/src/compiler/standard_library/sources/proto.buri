@@ -25,6 +25,7 @@ from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
 from "core/json" import { Json };
 from "core/list" import * as list;
+from "core/math" import * as math;
 from "core/number" import * as number;
 from "core/str" import * as str;
 from "platform/effect" import { Allocator };
@@ -637,7 +638,7 @@ export fn jsonInt32(x: Int): Json {
 ///
 /// JSON has no NaN and no infinities, so proto3 spells all three as strings.
 export fn jsonFloat(x: Float): Json {
-    if (x != x) {
+    if (math.isNan(x)) {
         Json.Str("NaN")
     } else if (x > number.maxValue<F64>()) {
         Json.Str("Infinity")
@@ -764,7 +765,7 @@ export fn asFloat32(doc: Json, path: Str): Result<Float, ProtoError> {
     let x = asFloat(doc, path)?;
     // NaN and the two infinities are values a `float` holds, so the range check
     // only concerns the finite ones.
-    if (x != x || x > number.maxValue<F64>() || x < number.minValue<F64>()) {
+    if (math.isNan(x) || x > number.maxValue<F64>() || x < number.minValue<F64>()) {
         .Ok(x)
     } else if (
         x > number.maxValue<F32>().toF64() || x < number.minValue<F32>().toF64()
@@ -778,7 +779,7 @@ export fn asFloat32(doc: Json, path: Str): Result<Float, ProtoError> {
 /// A written-out number that overflowed to an infinity is a number the type
 /// cannot hold, and proto3 JSON says so rather than rounding to infinity.
 fn finite(x: Float, path: Str): Result<Float, ProtoError> {
-    if (x != x) {
+    if (math.isNan(x)) {
         .Ok(x)
     } else if (x > number.maxValue<F64>() || x < number.minValue<F64>()) {
         .Err(.BadJson { path: path, wanted: "a number a double can hold" })
