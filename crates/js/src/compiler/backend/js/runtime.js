@@ -4587,6 +4587,29 @@ function $dom_outside(element, onDown) {
   };
 }
 
+// Every keydown on the document `element` is in, while it is mounted, and the
+// release that takes the listener away. A tooltip hears Escape this way
+// wherever the focus is, so a reader hovering one can dismiss it. Nothing
+// dispatches a key at the substitute, so it keeps nothing.
+function $dom_keys(element, onKey) {
+  if (element.$shim) return () => {};
+  const root = $dom_root(element);
+  root.addEventListener("keydown", onKey);
+  return () => root.removeEventListener("keydown", onKey);
+}
+
+// The `hidden` attribute, there or not. A browser's own `[hidden]` rule would
+// lose to the reset's `display`, so the sheet says `display:none` for it too.
+function $dom_hidden(element, on) {
+  if (element.$shim) {
+    if (on) element.attributes.hidden = "";
+    else delete element.attributes.hidden;
+    return;
+  }
+  if (on) element.setAttribute("hidden", "");
+  else element.removeAttribute("hidden");
+}
+
 // Where `mount` puts a tree. A program built for a browser and run under `bun`
 // mounts into the substitute rather than failing: what it is being asked is
 // whether the tree builds and reacts, and that question has an answer without
@@ -4657,7 +4680,7 @@ function $dom_markup(node) {
 //   0 Empty    1 Text    2 Heading  3 Stack   4 Region  5 Button  6 Link
 //   7 Image    8 Icon    9 Field   10 Slider 11 Toggle 12 Picker 13 Form
 //  14 Submit  15 Dialog 16 Disclosure 17 Progress 18 When 19 Computed 20 Each
-//  21 Raw     22 Fragment
+//  21 Raw     22 Fragment 23 FilePicker 24 Tooltip
 //
 // Every element-producing node ends with an `Events` struct — eight optional
 // listeners `$tree_events` wires on — and `Raw` and `Fragment` are the
@@ -4795,6 +4818,11 @@ let $tree_declare_hook = null;
 // and only a tree holding an `icon` ever reaches it. The backend assigns this
 // when `Program::icons` says the program can build one.
 let $tree_icon_hook = null;
+
+// The tooltip renderer, through the same kind of hole: its listeners and its
+// trigger walk ship only in an artifact that builds a tooltip. The backend
+// assigns this when `Program::tooltips` says the program can.
+let $tree_tooltip_hook = null;
 
 // The theme installer, through the same kind of hole and for the same reason:
 // `$ui_node_mount` installs themes before it renders, so the seven functions
@@ -5803,6 +5831,93 @@ function $tree_overRow(element, x, y) {
   return found;
 }
 
+// One `id` per tooltip rendered, for the trigger's `aria-describedby` to name.
+// Counted the way radio groups are, so a page resuming on what a worker wrote
+// numbers its tooltips as the worker did.
+let $tree_tips = 0;
+
+// The element a tooltip describes: the first thing inside it a reader can
+// focus, which is what a screen reader announces the description with. A
+// trigger with nothing focusable in it is described on the wrapper.
+const $TREE_FOCUSABLE = { a: true, button: true, input: true, select: true, textarea: true };
+
+function $tree_trigger(wrapper, bubble) {
+  const walk = (at) => {
+    const kids = at.$shim ? at.children : at.childNodes;
+    for (const child of kids) {
+      if (child === bubble) continue;
+      const element = child.$shim ? child.kind === 0 : child.nodeType === 1;
+      if (!element) continue;
+      const name = child.$shim ? child.name : child.nodeName.toLowerCase();
+      const tabbable = child.$shim
+        ? child.attributes.tabindex !== undefined
+        : child.getAttribute("tabindex") !== null;
+      if ($TREE_FOCUSABLE[name] === true || tabbable) return child;
+      const found = walk(child);
+      if (found !== null) return found;
+    }
+    return null;
+  };
+  const found = walk(wrapper);
+  return found === null ? wrapper : found;
+}
+
+// A tooltip, lowered, through the hole `$tree_tooltip_hook` names. The bubble
+// is a `role="tooltip"` the trigger names with `aria-describedby`, so a reader
+// hears the description with the trigger. A browser's own `title` shows on
+// hover only and never on focus, so it isn't used. The bubble holds text and
+// nothing else, so it can't be pressed or focused.
+function $tree_tooltip(ctx, node, parent, anchor) {
+  const wrapper = $tree_element(parent, "div", anchor);
+  for (const child of node[3]) $tree_render(ctx, child, wrapper, null);
+  const bubble = $tree_element(wrapper, "div", null);
+  const id = "buri-tip-" + $tree_tips++;
+  $dom_attribute(bubble, "role", "tooltip");
+  $dom_attribute(bubble, "id", id);
+  $dom_hidden(bubble, true);
+  $tree_styles(bubble, node[2]);
+  $tree_text(node[1], bubble, null);
+  $dom_attribute($tree_trigger(wrapper, bubble), "aria-describedby", id);
+  $tree_bubble(wrapper, bubble);
+  $tree_events(ctx, wrapper, node[4]);
+}
+
+// Shows the bubble while the pointer is over the tooltip or the focus is inside
+// it, and hides it on an Escape nothing claimed until both have left.
+function $tree_bubble(wrapper, bubble) {
+  let over = false;
+  let within = false;
+  let dismissed = false;
+  const sync = () => {
+    if (!over && !within) dismissed = false;
+    $dom_hidden(bubble, !((over || within) && !dismissed));
+  };
+  $dom_listen(wrapper, "pointerenter", () => {
+    over = true;
+    sync();
+  });
+  $dom_listen(wrapper, "pointerleave", () => {
+    over = false;
+    sync();
+  });
+  $dom_listen(wrapper, "focusin", () => {
+    within = true;
+    sync();
+  });
+  $dom_listen(wrapper, "focusout", () => {
+    within = false;
+    sync();
+  });
+  // An `onKey` that claimed the Escape has prevented its default, and hiding
+  // the bubble is the default.
+  const onKey = (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented || !(over || within)) return;
+    dismissed = true;
+    sync();
+  };
+  $ui_dispose_with($dom_keys(wrapper, onKey));
+}
+
 // Renders one node into `parent`, before `anchor` — or at the end of `parent`
 // when there is none.
 //
@@ -6323,6 +6438,15 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $tree_events(ctx, button, node[7]);
     return;
   }
+  if (tag === 24) {
+    if ($tree_tooltip_hook === null) {
+      // The compiler said no tree here holds a tooltip, so it left the
+      // listeners out of the artifact — the icon hole's reason and wording.
+      $abort("a tooltip was rendered in a program that was said to have none");
+    }
+    $tree_tooltip_hook(ctx, node, parent, anchor);
+    return;
+  }
   // Every tag the vocabulary has an arm above. Reaching here is a node carrying
   // one the renderer does not, which beats a `TypeError` about `node` shape.
   $abort("a node carried a tag the renderer has no arm for: " + tag);
@@ -6794,6 +6918,11 @@ function $scene_open(ctx) {
     // What the pointer handler being fired reads back: where the pointer is and
     // the row under it (undefined for none).
     pointer: { x: 0, y: 0, row: undefined },
+    // The element the pointer is over and the one with the focus, or -1.
+    hovered: -1,
+    focused: -1,
+    // What the key handler being fired reads back, and whether one claimed it.
+    key: { name: "", claimed: false },
     ctx,
   };
 }
@@ -6831,6 +6960,13 @@ function $scene_record(kind, name, body, text) {
     // and hidden from assistive technology with everything under it.
     current: false,
     decorative: false,
+    // A tooltip wrapper's shown cell (`-1` for every other element), the text a
+    // reader hears with its trigger, and whether Escape hid it.
+    tip: -1,
+    tipText: "",
+    tipDismissed: false,
+    // An `onKey`'s handler thunk, or null — `key` fires it.
+    key: null,
   };
 }
 
@@ -7160,6 +7296,38 @@ function $ui_node_markDecorative(builder) {
   if (record !== undefined) record.decorative = true;
 }
 
+// Makes the open element a tooltip's wrapper, and answers the `Bool` cell the
+// document writes as the pointer and the focus move.
+function $ui_node_openTip(builder) {
+  const doc = $scene_of(builder);
+  const cell = $ui_cell(0, false, null);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) record.tip = cell;
+  return BigInt(cell);
+}
+
+function $ui_node_describeTip(builder, at, text) {
+  const record = $scene_of(builder).records[Number(at)];
+  if (record !== undefined) record.tipText = text;
+}
+
+// An `onKey`'s handler, kept on the open element for `key` to fire.
+function $ui_node_registerKey(builder, handler) {
+  const doc = $scene_of(builder);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) {
+    record.key = () => $ui_flush(() => handler($taskApart(doc.ctx), [0n]));
+  }
+}
+
+function $ui_node_keyPressed(builder) {
+  return $scene_of(builder).key.name;
+}
+
+function $ui_node_claimKey(builder) {
+  $scene_of(builder).key.claimed = true;
+}
+
 // A file picker's handler, kept on the open element in a slot `press` never
 // reads, so only `pickFile` fires it.
 function $ui_node_registerPick(builder, onPick) {
@@ -7445,6 +7613,95 @@ function $host_testing_Rendered_isCurrent(self, name) {
   return doc.records[$scene_pointerTarget(doc, name)].current;
 }
 
+// Shows and hides every tooltip after the pointer, the focus or an Escape
+// moved — the native `sync_tips`. A tooltip shows while the hovered or the
+// focused element is inside it and Escape hasn't hidden it, and Escape's hiding
+// ends once neither is. An equal write is no write.
+function $scene_syncTips(doc) {
+  const wanted = [];
+  for (const [i] of $scene_ordered(doc)) {
+    const r = doc.records[i];
+    if (r.tip < 0) continue;
+    const over = doc.hovered >= 0 && $scene_within(doc, i, doc.hovered);
+    const focused = doc.focused >= 0 && $scene_within(doc, i, doc.focused);
+    if (!over && !focused) r.tipDismissed = false;
+    wanted.push([r.tip, (over || focused) && !r.tipDismissed]);
+  }
+  if (wanted.length === 0) return;
+  $ui_flush(() => {
+    for (const [cell, on] of wanted) $ui_write(cell, on);
+    return 0;
+  });
+}
+
+// The pointer is over `node` now — unless it passes through `node` or a dialog
+// has taken it out of reach, and then it is over nothing this document names.
+function $scene_hover(doc, node) {
+  doc.hovered = $scene_reachable(doc, node) && !$scene_inert(doc, node) ? node : -1;
+  $scene_syncTips(doc);
+}
+
+// Whether a reader can focus `node`: a control or a link, enabled, and not
+// behind an open dialog — the native `Document::focusable`.
+function $scene_focusable(doc, node) {
+  const r = doc.records[node];
+  return (
+    r.kind === 0 &&
+    ($SCENE_CONTROL[r.name] === true || r.name === "a") &&
+    !$scene_isDisabled(r.body) &&
+    !$scene_inert(doc, node)
+  );
+}
+
+// The focused element while it is still in the tree, or -1.
+function $scene_focusNow(doc) {
+  return doc.focused >= 0 && $scene_within(doc, 0, doc.focused) ? doc.focused : -1;
+}
+
+function $host_testing_Rendered_description(self, name) {
+  const doc = $scene_of(self);
+  for (let at = $scene_pointerTarget(doc, name); at !== null && at !== undefined; at = doc.records[at].parent) {
+    if (doc.records[at].tip >= 0) return doc.records[at].tipText;
+  }
+  return "";
+}
+
+function $host_testing_Rendered_focus(self, name) {
+  const doc = $scene_of(self);
+  let target = -1;
+  for (let at = $scene_named(doc, name); at !== null && at !== undefined && at >= 0; at = doc.records[at].parent) {
+    if ($scene_focusable(doc, at)) {
+      target = at;
+      break;
+    }
+  }
+  if (target < 0) $abort('this tree has nothing to focus named "' + name + '"');
+  doc.focused = target;
+  $scene_syncTips(doc);
+  return 0;
+}
+
+function $host_testing_Rendered_key(self, name) {
+  const doc = $scene_of(self);
+  doc.key = { name, claimed: false };
+  // The path is taken before any handler runs, the way a browser's is.
+  const path = [];
+  for (let at = $scene_focusNow(doc); at !== null && at !== undefined && at >= 0; at = doc.records[at].parent) {
+    if (doc.records[at].key !== null) path.push(doc.records[at].key);
+  }
+  for (const handler of path) handler();
+  if (doc.key.claimed || name !== "Escape") return 0;
+  for (const [i] of $scene_ordered(doc)) {
+    const r = doc.records[i];
+    if (r.tip < 0) continue;
+    const over = doc.hovered >= 0 && $scene_within(doc, i, doc.hovered);
+    const focused = doc.focused >= 0 && $scene_within(doc, i, doc.focused);
+    if (over || focused) r.tipDismissed = true;
+  }
+  $scene_syncTips(doc);
+  return 0;
+}
+
 function $host_testing_Rendered_press(self, label) {
   const doc = $scene_of(self);
   const button = $scene_labelled(doc, "button", label);
@@ -7452,6 +7709,8 @@ function $host_testing_Rendered_press(self, label) {
   // Out of reach when the pointer passes through it, or when a `dialog` has
   // taken it out of the page.
   if (!$scene_reachable(doc, button) || $scene_inert(doc, button)) return 0;
+  // A press is the pointer's, so the button is what the pointer is over.
+  $scene_hover(doc, button);
   // The press reaches the document before the button: an overlay watching for a
   // press outside itself sees this one and fires on it, unless it landed inside
   // its subtree. A pair whose subtree has gone is dead and fires nothing.
@@ -7691,6 +7950,7 @@ function $host_testing_Rendered_pointerDown(self, label, x, y) {
   const doc = $scene_of(self);
   const target = $scene_pointerTarget(doc, label);
   if (!$scene_reachable(doc, target) || $scene_inert(doc, target)) return 0;
+  $scene_hover(doc, target);
   // A press reaches an overlay watching for one outside itself, as `press` does.
   for (const entry of doc.outside) {
     if (entry.alive && !$scene_within(doc, entry.elem, target)) entry.fire();
@@ -7718,6 +7978,7 @@ function $scene_pointerRoute(doc, over) {
 function $host_testing_Rendered_pointerMove(self, label, x, y) {
   const doc = $scene_of(self);
   const over = $scene_pointerTarget(doc, label);
+  $scene_hover(doc, over);
   const target = $scene_pointerRoute(doc, over);
   if (target >= 0) $scene_firePointer(doc, 1, target, over, x, y);
   return 0;
@@ -7726,6 +7987,7 @@ function $host_testing_Rendered_pointerMove(self, label, x, y) {
 function $host_testing_Rendered_pointerUp(self, label, x, y) {
   const doc = $scene_of(self);
   const over = $scene_pointerTarget(doc, label);
+  $scene_hover(doc, over);
   const target = $scene_pointerRoute(doc, over);
   doc.capture = -1;
   if (target >= 0) $scene_firePointer(doc, 2, target, over, x, y);

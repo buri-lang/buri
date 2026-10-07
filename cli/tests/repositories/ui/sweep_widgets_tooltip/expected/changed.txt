@@ -1,0 +1,5 @@
+FAIL //lib/tips  test/pictures.buri  "a hovered trigger shows its tooltip over the line below"
+  the snapshot "tooltip-shown" changed: see test/__snapshots__/tooltip-shown.diff.png
+  --> lib/tips/test/pictures.buri:13:1
+
+1 passed, 1 failed, 0 skipped (0.0s)

@@ -115,6 +115,17 @@ struct Record {
     /// Whether this element and everything in it is hidden from assistive
     /// technology — the JavaScript `aria-hidden`. `spoken` skips it.
     decorative: bool,
+    /// A tooltip wrapper's shown cell, which the bubble's region reads, or `-1`
+    /// for every other element.
+    tip: i64,
+    /// What a reader hears with a tooltip wrapper's trigger — the JavaScript
+    /// `aria-describedby`'s text.
+    tip_text: String,
+    /// Whether Escape hid this tooltip while it showed. It stays hidden until
+    /// the pointer and the focus have both left it.
+    tip_dismissed: bool,
+    /// An `onKey`'s handler graph node, or `-1`. `key` fires it.
+    key: i64,
 }
 
 /// A record with no widget state — an element, a run or a marker before any
@@ -138,7 +149,19 @@ fn plain_record(identity: i64, kind: Kind, name: String, body: String, text: Str
         pointer: [-1; 3],
         current: false,
         decorative: false,
+        tip: -1,
+        tip_text: String::new(),
+        tip_dismissed: false,
+        key: -1,
     }
+}
+
+/// The key `key` is dispatching, read back by each handler it fires, and
+/// whether one of them claimed it.
+#[derive(Default)]
+struct KeyPress {
+    name: String,
+    claimed: bool,
 }
 
 /// The file `pickFile` last offered a document: its name, the type a browser
@@ -222,6 +245,12 @@ struct Document {
     capture: Option<usize>,
     /// What the pointer handler being fired reads back.
     pointer: Pointer,
+    /// The element the pointer is over: the last one a pointer method named.
+    hovered: Option<usize>,
+    /// The element that has the focus.
+    focused: Option<usize>,
+    /// What the key handler being fired reads back.
+    key: KeyPress,
     /// The context `render` was called with, handed to every walk and handler
     /// this document drives. `None` for one rendered with no context bytes.
     ctx: Option<Supplied>,
@@ -261,6 +290,9 @@ impl Document {
             offer: Offer::default(),
             capture: None,
             pointer: Pointer::default(),
+            hovered: None,
+            focused: None,
+            key: KeyPress::default(),
             ctx: None,
         }
     }
@@ -1146,6 +1178,86 @@ pub extern "C" fn buri_rt_ui_node_mark_decorative(handle: i64) {
     });
 }
 
+/// `openTip(builder)` — makes the open element a tooltip's wrapper and answers
+/// the `Bool` cell [`sync_tips`] writes. The cell belongs to whatever is
+/// running, so it goes with the subtree it was rendered in.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_open_tip(handle: i64) -> i64 {
+    let cell = crate::ui::new_bool_signal(false);
+    with_doc(handle, |doc| {
+        let open = open_element(doc);
+        if let Some(r) = doc.records.get_mut(open) {
+            r.tip = cell;
+        }
+    });
+    cell
+}
+
+/// `describeTip(builder, at, text)` — keeps the description a reader hears with
+/// the tooltip wrapper `at`.
+///
+/// # Safety
+/// `text` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_describe_tip(
+    handle: i64,
+    at: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let text = unsafe { text_of(ptr, len) };
+    with_doc(handle, |doc| {
+        if let Some(r) = usize::try_from(at).ok().and_then(|i| doc.records.get_mut(i)) {
+            r.tip_text = text;
+        }
+    });
+}
+
+/// `registerKey(builder, handler)` — keeps an `onKey`'s handler on a graph node
+/// and stores it on the open element, for `key` to fire.
+///
+/// # Safety
+/// `entry`/`state`/`bytes`/`frame_at`/`body` are the kept handler's trampoline
+/// arguments.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_register_key(
+    handle: i64,
+    entry: ComputeEntry,
+    state: *const u8,
+    bytes: usize,
+    frame_at: i64,
+    body: Release,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let node =
+        unsafe { crate::ui::buri_rt_ui_node_register_handler(entry, state, bytes, frame_at, body) };
+    with_doc(handle, |doc| {
+        let open = open_element(doc);
+        if let Some(r) = doc.records.get_mut(open) {
+            r.key = node;
+        }
+    });
+}
+
+/// `keyPressed(builder)` — the key the dispatch in flight carries.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_key_pressed(handle: i64, out: *mut BuriStr) {
+    let name = with_doc(handle, |doc| doc.key.name.clone()).unwrap_or_default();
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(str_of(&name)) };
+}
+
+/// `claimKey(builder)` — the handler being fired claimed its key.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_claim_key(handle: i64) {
+    with_doc(handle, |doc| doc.key.claimed = true);
+}
+
 /// `registerPick(builder, onPick)` — keeps a file picker's handler on a graph
 /// node and stores it on the open element, in a slot `press` never reads, so
 /// only `pickFile` fires it.
@@ -1566,6 +1678,8 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_press(
     if !reachable {
         return;
     }
+    // A press is the pointer's, so the button is what the pointer is over.
+    hover(handle, button);
     // The press reaches the document before the button, the way a browser's
     // `pointerdown` does: an overlay watching for a press outside itself sees
     // this one and fires on it, unless the press landed inside its subtree. A
@@ -1847,6 +1961,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_pointer_down(
     if !reached {
         return;
     }
+    hover(handle, target);
     let outside: Vec<i64> = with_doc(handle, |doc| {
         doc.outside.iter().filter(|(_, elem)| !doc.within(*elem, target)).map(|(n, _)| *n).collect()
     })
@@ -1893,6 +2008,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_pointer_move(
 ) {
     // SAFETY: forwarded to the caller's promise.
     let over = unsafe { pointer_target(handle, ptr, len) };
+    hover(handle, over);
     if let Some(target) = with_doc(handle, |doc| pointer_route(doc, over)).flatten() {
         fire_pointer(handle, 1, target, over, x, y);
     }
@@ -1914,6 +2030,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_pointer_up(
 ) {
     // SAFETY: forwarded to the caller's promise.
     let over = unsafe { pointer_target(handle, ptr, len) };
+    hover(handle, over);
     let target = with_doc(handle, |doc| {
         let target = pointer_route(doc, over);
         doc.capture = None;
@@ -1923,6 +2040,186 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_pointer_up(
     if let Some(target) = target {
         fire_pointer(handle, 2, target, over, x, y);
     }
+}
+
+/// Shows and hides every tooltip after the pointer, the focus or an Escape
+/// moved. A tooltip shows while the hovered or the focused element is inside
+/// it and Escape hasn't hidden it, and Escape's hiding ends once neither is.
+/// A cell that already holds what it should is written nothing, because an
+/// equal write is no write.
+fn sync_tips(handle: i64) {
+    let wanted = with_doc(handle, |doc| {
+        let tips: Vec<usize> = doc
+            .ordered()
+            .into_iter()
+            .map(|(i, _)| i)
+            .filter(|&i| doc.records[i].tip >= 0)
+            .collect();
+        let mut out = Vec::with_capacity(tips.len());
+        for i in tips {
+            let over = doc.hovered.is_some_and(|h| doc.within(i, h));
+            let focused = doc.focused.is_some_and(|f| doc.within(i, f));
+            let r = &mut doc.records[i];
+            if !over && !focused {
+                r.tip_dismissed = false;
+            }
+            out.push((r.tip, (over || focused) && !r.tip_dismissed));
+        }
+        out
+    })
+    .unwrap_or_default();
+    if wanted.is_empty() {
+        return;
+    }
+    crate::ui::buri_rt_ui_flush_begin();
+    for (cell, on) in wanted {
+        crate::ui::set_bool_signal(cell, on);
+    }
+    crate::ui::buri_rt_ui_flush_end();
+}
+
+/// The pointer is over `node` now, so a tooltip around it shows — unless the
+/// pointer passes through `node` or a dialog has taken it out of reach, and
+/// then it is over nothing this document can name.
+fn hover(handle: i64, node: usize) {
+    with_doc(handle, |doc| {
+        doc.hovered = (doc.reachable(node) && !doc.inert(node)).then_some(node);
+    });
+    sync_tips(handle);
+}
+
+impl Document {
+    /// Whether a reader can focus `node`: a control or a link, enabled, and not
+    /// behind an open dialog.
+    fn focusable(&self, node: usize) -> bool {
+        let r = &self.records[node];
+        r.kind == Kind::Element
+            && (is_control(&r.name) || r.name == "a")
+            && !is_disabled(&r.body)
+            && !self.inert(node)
+    }
+
+    /// The focused element, while it is still in the tree.
+    fn focus_now(&self) -> Option<usize> {
+        self.focused.filter(|&f| self.within(0, f))
+    }
+}
+
+/// `Rendered.description(name)` — the text of the tooltip around the element
+/// `name` names, or `""` for one in none.
+///
+/// # Safety
+/// `name` is a readable UTF-8 range, or null with a zero length; `out` is
+/// writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_description(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriStr,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let node = unsafe { pointer_target(handle, ptr, len) };
+    let text = with_doc(handle, |doc| {
+        let mut at = Some(node);
+        while let Some(i) = at {
+            if doc.records[i].tip >= 0 {
+                return doc.records[i].tip_text.clone();
+            }
+            at = doc.records[i].parent;
+        }
+        String::new()
+    })
+    .unwrap_or_default();
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(str_of(&text)) };
+}
+
+/// `Rendered.focus(name)` — move the focus to the element `name` names, or to
+/// the control it is part of.
+///
+/// # Safety
+/// `name` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_focus(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let label = unsafe { text_of(ptr, len) };
+    let target = with_doc(handle, |doc| {
+        let mut at = doc.named(&label);
+        while let Some(i) = at {
+            if doc.focusable(i) {
+                return Some(i);
+            }
+            at = doc.records[i].parent;
+        }
+        None
+    })
+    .flatten();
+    let Some(target) = target else {
+        crate::abort::die(&[b"this tree has nothing to focus named \"", label.as_bytes(), b"\""])
+    };
+    with_doc(handle, |doc| doc.focused = Some(target));
+    sync_tips(handle);
+}
+
+/// `Rendered.key(key)` — every `onKey` from the focused element out to the
+/// root hears `key`, innermost first, and an Escape none of them claimed hides
+/// the tooltip that is showing.
+///
+/// # Safety
+/// `key` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_key(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let name = unsafe { text_of(ptr, len) };
+    // The path is taken before any handler runs, the way a browser's is.
+    let path: Vec<i64> = with_doc(handle, |doc| {
+        doc.key = KeyPress { name: name.clone(), claimed: false };
+        let mut out = Vec::new();
+        let mut at = doc.focus_now();
+        while let Some(i) = at {
+            if doc.records[i].key >= 0 {
+                out.push(doc.records[i].key);
+            }
+            at = doc.records[i].parent;
+        }
+        out
+    })
+    .unwrap_or_default();
+    for handler in path {
+        crate::ui::fire(handler, handle);
+    }
+    let claimed = with_doc(handle, |doc| doc.key.claimed).unwrap_or(false);
+    if claimed || name != "Escape" {
+        return;
+    }
+    with_doc(handle, |doc| {
+        let tips: Vec<usize> = doc
+            .ordered()
+            .into_iter()
+            .map(|(i, _)| i)
+            .filter(|&i| doc.records[i].tip >= 0)
+            .collect();
+        for i in tips {
+            let over = doc.hovered.is_some_and(|h| doc.within(i, h));
+            let focused = doc.focused.is_some_and(|f| doc.within(i, f));
+            if over || focused {
+                doc.records[i].tip_dismissed = true;
+            }
+        }
+    });
+    sync_tips(handle);
 }
 
 /// `Rendered.submit(index)` — submit the `index`th form under the implicit-

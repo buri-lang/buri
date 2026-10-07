@@ -133,6 +133,9 @@ const NODE_DISCLOSURE: usize = 16;
 /// A file picker, whose control is a `<button>` like `button`'s and takes the
 /// same reset. Its `<input type="file">` is `hidden`, so it needs none.
 const NODE_FILE_PICKER: usize = 23;
+/// A tooltip, whose bubble a browser has to be told where to put and to hide:
+/// the reset's `display` beats a browser's own `[hidden]`.
+const NODE_TOOLTIP: usize = 24;
 
 /// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
 /// an element a browser paints something on by itself. A role is written at the
@@ -1119,6 +1122,7 @@ pub struct Reset {
     pub radiogroup: bool,
     pub disclosure: bool,
     pub table: bool,
+    pub tooltip: bool,
 }
 
 /// The declarations a control drops. `font` and `color` are inherited rather
@@ -1377,6 +1381,19 @@ impl Reset {
             out.push_str(":where(summary){list-style:none}\n");
             out.push_str(":where(summary)::-webkit-details-marker{display:none}\n");
         }
+        if self.tooltip {
+            // The bubble sits below its trigger at the start edge, out of the
+            // flow so it covers what follows rather than moving it, on one
+            // line — `ui/node`'s `bubbleScene` says the same to the painter.
+            // The wrapper is what it is placed against.
+            out.push_str(":where(:has(>[role=tooltip])){position:relative}\n");
+            out.push_str(
+                ":where([role=tooltip]){position:absolute;inset-block-start:100%;\
+                 inset-inline-start:0;text-wrap:nowrap;z-index:1}\n",
+            );
+            // Hidden is hidden whatever a class says its `display` is.
+            out.push_str("[role=tooltip][hidden]{display:none!important}\n");
+        }
         if self.table {
             // A browser's own sheet rules a table `border-collapse: separate`
             // with a 2px `border-spacing`, so a 1px border on each box sits two
@@ -1425,6 +1442,7 @@ fn reset_in(con: TyConId, variant: usize, node_con: TyConId, role_con: Option<Ty
             NODE_DIALOG => out.dialog = true,
             NODE_PICKER => out.radiogroup = true,
             NODE_DISCLOSURE => out.disclosure = true,
+            NODE_TOOLTIP => out.tooltip = true,
             _ => {}
         }
     }

@@ -17,6 +17,7 @@
 from "core/json" import * as json;
 from "core/json" import { DecodeError, FromJson, Json, ToJson };
 from "core/net/http" import * as http;
+from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator, Location, Ui, Watch };
 from "platform/effect/testing" import { address, alloc, headless, observer, render };
@@ -671,6 +672,63 @@ test "a route link keeps an onFollow of its own" {
     let _ = page.follow("go");
     assert.equal(followed.get(ctx), "/next");
     assert.equal(web.path(ctx), "/");
+}
+
+/// What follows `marker` in `html`, up to the next quote.
+fn quotedAfter(html: Str, marker: Str): Str {
+    match (html.splitOnce(marker)) {
+        .None => "",
+        .Some(pair) => {
+            match (pair.1.splitOnce("\"")) {
+                .None => "",
+                .Some(inner) => inner.0,
+            }
+        },
+    }
+}
+
+test "a tooltip the worker sends is hidden, and named by its trigger" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let html = web.render<()>(
+        ui.tooltip({
+            text: .Const("Copy to clipboard"),
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Copy"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+            ],
+        }),
+    );
+    // The trigger is described by the bubble, so a reader hears the text with
+    // the button; the bubble is hidden until the page shows it.
+    let id = quotedAfter(html, "aria-describedby=\"");
+    assert.startsWith(id, "buri-tip-");
+    assert.equal(
+        html,
+        str.format(
+            ctx,
+            "<div><button type=\"button\" aria-label=\"Copy\" aria-describedby=\"${id}\">Copy</button><div role=\"tooltip\" id=\"${id}\" hidden=\"\">Copy to clipboard</div></div>",
+        ),
+    );
+    // A trigger with nothing focusable in it is described on the wrapper.
+    let plain = web.render<()>(
+        ui.tooltip({
+            text: .Const("Three days left"),
+            styles: [],
+            children: [ui.text({ content: .Const("Trial") })],
+        }),
+    );
+    let other = quotedAfter(plain, "aria-describedby=\"");
+    assert.isFalse(other == id);
+    assert.startsWith(
+        plain,
+        str.format(ctx, "<div aria-describedby=\"${other}\">Trial"),
+    );
 }
 
 test "a breadcrumb the worker sends marks its last step and hides its separators" {

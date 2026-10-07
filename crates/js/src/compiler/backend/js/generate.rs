@@ -401,6 +401,7 @@ pub fn generate(
         (program.inline_styles, "$tree_declare_hook", "$tree_declare"),
         (program.themes, "$ui_theme_hook", "$ui_theme_install"),
         (program.icons, "$tree_icon_hook", "$tree_icon"),
+        (program.tooltips, "$tree_tooltip_hook", "$tree_tooltip"),
     ] {
         if flag {
             // An `Animation` in the inline tier needs the lowering that knows

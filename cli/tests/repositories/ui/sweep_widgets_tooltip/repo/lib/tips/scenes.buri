@@ -1,0 +1,69 @@
+//! A toolbar of two buttons, the first with a tooltip, over a line of text.
+//!
+//! The bubble is the widget's to place: under its trigger at the start edge,
+//! out of the flow, so it covers the line below rather than pushing it down.
+//! Its look is the caller's — a dark pill of small text.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+
+/// The toolbar, and the line under it the bubble covers.
+export fn toolbar<C>(): Node<C> {
+    ui.stack({
+        styles: [
+            .Padding(.Px(16)),
+            .Gap(.Px(8)),
+            .Width(.Px(320)),
+            .FontSize(.Px(13)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        children: [
+            ui.stack({
+                styles: [.Layout(.Row), .Gap(.Px(8))],
+                children: [
+                    ui.tooltip({
+                        text: .Const("Copy to clipboard"),
+                        styles: bubble(),
+                        children: [
+                            ui.button({
+                                label: .Const("Copy"),
+                                styles: button(),
+                                onPress: .Some(fn(_c) => ()),
+                            }),
+                        ],
+                    }),
+                    ui.button({
+                        label: .Const("Paste"),
+                        styles: button(),
+                        onPress: .Some(fn(_c) => ()),
+                    }),
+                ],
+            }),
+            ui.text({ content: .Const("The line a showing bubble covers.") }),
+        ],
+    })
+}
+
+fn button(): [Style] {
+    [
+        .PaddingX(.Px(10)),
+        .PaddingY(.Px(4)),
+        .Radius(.Px(6)),
+        .BorderWidth(.Px(1)),
+        .BorderColor(.Rgb(220, 224, 232)),
+    ]
+}
+
+/// The bubble's look, a few pixels below its trigger.
+fn bubble(): [Style] {
+    [
+        .Translate(.Px(0), .Px(4)),
+        .PaddingX(.Px(6)),
+        .PaddingY(.Px(2)),
+        .Radius(.Px(4)),
+        .FontSize(.Px(11)),
+        .Background(.Rgb(24, 24, 27)),
+        .Foreground(.Rgb(250, 250, 250)),
+    ]
+}

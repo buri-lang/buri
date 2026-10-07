@@ -494,7 +494,9 @@ fn serving_a_page() {
 /// whole of what the widget adds over the boxes that drew the same picture
 /// before. `disclosure` is one `<details>` card open and shut, so the pair is
 /// the summary alone against the summary and the body both, with the browser's
-/// marker and block layout taken away by the reset.
+/// marker and block layout taken away by the reset. `tooltip` is a toolbar whose
+/// first button has one, hovered and not, so the pair is the bubble under its
+/// trigger covering the line below against the toolbar alone.
 #[test]
 fn snapshots() {
     run_corpus(&tests_dir().join("repositories/ui"), "ui", 65);

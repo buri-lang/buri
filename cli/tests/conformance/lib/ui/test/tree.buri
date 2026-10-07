@@ -5421,6 +5421,226 @@ test "a button and a link say they are current the way a stack does" {
     assert.isFalse(page.isCurrent("Help"));
 }
 
+// --- a tooltip -------------------------------------------------------------------------
+
+/// A copy button with a description, and a paste button beside it the pointer
+/// and the focus can go to instead.
+fn copyRow<C>(): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Row)],
+        children: [
+            ui.tooltip({
+                text: .Const("Copy to clipboard"),
+                styles: [.Padding(.Px(4))],
+                children: [
+                    ui.button({
+                        label: .Const("Copy"),
+                        styles: [],
+                        onPress: .Some(fn(_c) => ()),
+                    }),
+                ],
+            }),
+            ui.button({
+                label: .Const("Paste"),
+                styles: [],
+                onPress: .Some(fn(_c) => ()),
+            }),
+        ],
+    })
+}
+
+test "a tooltip shows while its trigger is hovered" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(ctx, copyRow());
+    assert.equal(page.text(), "Copy Paste");
+    let _ = page.pointerMove("Copy", 0.0, 0.0);
+    assert.equal(page.text(), "Copy Copy to clipboard Paste");
+    let _ = page.pointerMove("Paste", 0.0, 0.0);
+    assert.equal(page.text(), "Copy Paste");
+}
+
+test "a tooltip shows while its trigger is focused, with no pointer over it" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(ctx, copyRow());
+    let _ = page.focus("Copy");
+    assert.equal(page.text(), "Copy Copy to clipboard Paste");
+    let _ = page.focus("Paste");
+    assert.equal(page.text(), "Copy Paste");
+}
+
+test "a tooltip's text is announced with its trigger, shown or not" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(ctx, copyRow());
+    assert.equal(page.description("Copy"), "Copy to clipboard");
+    assert.equal(page.description("Paste"), "");
+}
+
+test "Escape hides a tooltip until the pointer and the focus have both left it" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(ctx, copyRow());
+    let _ = page.pointerMove("Copy", 0.0, 0.0);
+    let _ = page.focus("Copy");
+    let _ = page.key("Escape");
+    assert.equal(page.text(), "Copy Paste");
+    // The pointer moving on the trigger doesn't bring it back.
+    let _ = page.pointerMove("Copy", 2.0, 2.0);
+    assert.equal(page.text(), "Copy Paste");
+    // The focus has left; the pointer hasn't yet, so it stays hidden.
+    let _ = page.focus("Paste");
+    assert.equal(page.text(), "Copy Paste");
+    // Both have left now, so the next hover shows it again.
+    let _ = page.pointerMove("Paste", 0.0, 0.0);
+    let _ = page.pointerMove("Copy", 0.0, 0.0);
+    assert.equal(page.text(), "Copy Copy to clipboard Paste");
+}
+
+test "an Escape an onKey claims leaves the tooltip showing" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let heard = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [copyRow()],
+            onKey: .Some(fn(_c, key) => {
+                let _ = heard.record(key);
+                key == "Escape"
+            }),
+        }),
+    );
+    let _ = page.focus("Copy");
+    let _ = page.key("Escape");
+    assert.equal(heard.recorded(), ["Escape"]);
+    assert.equal(page.text(), "Copy Copy to clipboard Paste");
+}
+
+test "a key reaches every onKey from the focused element out to the root" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let heard = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [
+                        ui.button({
+                            label: .Const("Inner"),
+                            styles: [],
+                            onPress: .Some(fn(_c) => ()),
+                            onKey: .Some(fn(_c, key) => {
+                                let _ = heard.record("button");
+                                false
+                            }),
+                        }),
+                    ],
+                    onKey: .Some(fn(_c, key) => {
+                        let _ = heard.record("menu");
+                        false
+                    }),
+                }),
+                ui.button({
+                    label: .Const("Outer"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+            ],
+            onKey: .Some(fn(_c, key) => {
+                let _ = heard.record(key);
+                false
+            }),
+        }),
+    );
+    let _ = page.focus("Inner");
+    let _ = page.key("ArrowDown");
+    assert.equal(heard.recorded(), ["button", "menu", "ArrowDown"]);
+    // From the other button, only what it is inside hears the key.
+    let _ = page.focus("Outer");
+    let _ = page.key("Home");
+    assert.equal(heard.recorded(), ["button", "menu", "ArrowDown", "Home"]);
+}
+
+test "a tooltip's bubble is text in the scene, placed under its trigger" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let tip = rooted(
+        ctx,
+        ui.tooltip({
+            text: .Const("Copy to clipboard"),
+            styles: [.Padding(.Px(4))],
+            children: [
+                ui.button({
+                    label: .Const("Copy"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+            ],
+        }),
+    );
+    let shown =
+        "e 0 \ne 1 \nt 2 Copy\ne 1 class:p-4;position:absolute;inset-block-start:100%;inset-inline-start:0;text-wrap:nowrap\nt 2 Copy to clipboard";
+    // A snapshot in a state that hovers or focuses the trigger draws the
+    // bubble, and one in any other state draws the trigger alone.
+    assert.equal(
+        ui.describe(ctx, tip, .Hover),
+        str.format(ctx, "buri-scene 1\nviewport 800 fit\n${shown}"),
+    );
+    assert.equal(
+        ui.describe(ctx, tip, .Focus),
+        str.format(ctx, "buri-scene 1\nviewport 800 fit\n${shown}"),
+    );
+    assert.equal(
+        ui.describe(ctx, tip, .Checked),
+        "buri-scene 1\nviewport 800 fit\ne 0 \ne 1 \nt 2 Copy",
+    );
+    // The document draws the bubble only while the trigger is hovered, and
+    // then it is the same lines.
+    let page = render(ctx, tip);
+    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 Copy");
+    let _ = page.pointerMove("Copy", 0.0, 0.0);
+    assert.equal(page.markup(), shown);
+}
+
+test "a tooltip's text may vary, and what a reader hears follows it" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let said = signal(ctx, "Copy");
+    let page = render(
+        ctx,
+        ui.tooltip({
+            text: .Cell(said),
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Copy"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+            ],
+        }),
+    );
+    let _ = page.pointerMove("Copy", 0.0, 0.0);
+    said.set(ctx, "Copied");
+    assert.equal(page.description("Copy"), "Copied");
+    assert.equal(page.text(), "Copy Copied");
+}
+
 // --- a progress bar --------------------------------------------------------------------
 
 test "a progress bar announces the role, the bounds and how far along it is" {

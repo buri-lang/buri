@@ -1,0 +1,9 @@
+# One library and one test source: a toolbar, and the tooltip on one of its
+# buttons showing or not.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}

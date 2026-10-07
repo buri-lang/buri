@@ -1,0 +1,29 @@
+// One picture with the tooltip showing and one without, over the same toolbar.
+//
+// A snapshot names one state for the whole page. Hovered or focused, the
+// trigger is too, so the bubble is drawn; checked says nothing about hover or
+// focus, so it isn't.
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+from "//lib/tips" import { toolbar };
+
+test "a hovered trigger shows its tooltip over the line below" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    assert.containsText(ui.describe(ctx, toolbar(), .Hover), "Copy to clipboard");
+    snapshot(ctx, "tooltip-shown", toolbar(), .Hover, []);
+}
+
+test "a trigger nothing hovers or focuses shows no tooltip" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    assert.isFalse(ui.describe(ctx, toolbar(), .Checked).contains("Copy to clipboard"));
+    snapshot(ctx, "tooltip-hidden", toolbar(), .Checked, []);
+}

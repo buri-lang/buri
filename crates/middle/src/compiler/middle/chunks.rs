@@ -277,6 +277,7 @@ mod tests {
             inline_styles: false,
             inline_animations: false,
             icons: false,
+            tooltips: false,
             themes: false,
         }
     }

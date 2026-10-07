@@ -2089,6 +2089,28 @@ impl Rendered {
     /// names one. Aborts when no element has that name.
     export fn isCurrent(self, name: Str): Bool;
 
+    /// The description a reader hears with the element named `name`: the text
+    /// of the `tooltip` around it, whether or not its bubble is showing, and
+    /// `""` for an element in none. Aborts when no element has that name.
+    export fn description(self, name: Str): Str;
+
+    /// Moves the focus to the element named `name`, the way a reader clicking
+    /// it or tabbing to it does. A part of a control that has no focus of its
+    /// own, like the text inside a button, focuses that control.
+    ///
+    /// A tooltip around the focused element shows its bubble. Aborts when no
+    /// element has that name, or when it is nothing a reader can focus: one
+    /// that is disabled, or that an open `dialog` has taken out of reach.
+    export fn focus(self, name: Str): ();
+
+    /// Presses `key` — `"Escape"`, `"ArrowDown"`, the name a browser gives one
+    /// — while the focus is where it is.
+    ///
+    /// Every `onKey` from the focused element out to the root hears it, the
+    /// innermost first. When none of them claims it, the platform's own
+    /// handling follows: Escape hides a tooltip that is showing.
+    export fn key(self, key: Str): ();
+
     /// Presses the button whose label is `label`.
     ///
     /// Addressed by label rather than by position, the way a reader addresses
@@ -2196,6 +2218,10 @@ impl Rendered {
     /// While a press is held the move reaches the element that captured it,
     /// not `over`. Otherwise it reaches `over`. Either way it bubbles, and
     /// `over` is what each handler's `overRow` is read from.
+    ///
+    /// `over` is what the pointer hovers now, so a tooltip around it shows and
+    /// one around what it left hides. `pointerDown`, `pointerUp` and `press`
+    /// hover what they name the same way.
     export fn pointerMove(self, over: Str, x: Float, y: Float): ();
 
     /// Releases the pointer over the element named `over`, at (`x`, `y`), and

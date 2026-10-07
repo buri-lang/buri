@@ -267,6 +267,10 @@ pub struct Program {
     /// parser and allow lists shipped in every user interface — including one
     /// with no artwork anywhere in it.
     pub icons: bool,
+    /// Whether this program can build a `ui/node` tooltip — the same shape as
+    /// `icons`: the listeners that show and hide a bubble ship only in an
+    /// artifact that has one.
+    pub tooltips: bool,
     /// The chunks `core/lazy`'s `load` split out of this artifact, numbered by
     /// their position here.
     ///
@@ -665,6 +669,7 @@ pub fn run(
         inline_animations: reached.inline_animations,
         themes: reached.themes,
         icons: reached.icons,
+        tooltips: reached.reset.tooltip,
         // `middle::chunks` is the only thing that fills this, and it runs after
         // inlining and dead-code elimination have settled which functions
         // there still are.
@@ -2805,6 +2810,9 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // its `C` dropped the same way a walk's is — the runtime fires it, never a
     // value that crosses.
     "ui_node.registerFollow",
+    // `registerKey` keeps an `onKey`'s `fn(C, Event) => ()`, its `C` dropped the
+    // same way `registerPress`'s is.
+    "ui_node.registerKey",
     // `registerOutside` keeps an `onPressOutside`'s `fn(C, Event) => ()` on the
     // document, its `C` dropped the same way `registerPress`'s is.
     "ui_node.registerOutside",
@@ -3314,7 +3322,7 @@ mod tests {
         tasks.scopeSpare tasks.scopeTaskAt tasks.timerStart tasks.timerStop \
         testing_assert.failExpected testing_assert.report \
         ui_node.mount ui_node.rebuildRegion \
-        ui_node.reconcile ui_node.registerFollow ui_node.registerOutside \
+        ui_node.reconcile ui_node.registerFollow ui_node.registerKey ui_node.registerOutside \
         ui_node.registerPick ui_node.registerPointer ui_node.registerPress \
         ui_web.render ui_web.resume ui_web.state";
 

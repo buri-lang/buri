@@ -232,9 +232,9 @@ export struct PointerAt {
 /// plain box is the "clickable div" anti-pattern), so it stays on those nodes.
 ///
 /// A snapshot has no pointer, keyboard or scroll, so every one of these is inert
-/// in `describe`. `platform/effect/testing`'s `render` registers `onPressOutside` and the
-/// three pointer handlers, which its `press` and `pointerDown` drive. In a
-/// browser all eight are wired.
+/// in `describe`. `platform/effect/testing`'s `render` registers `onPressOutside`,
+/// `onKey` and the three pointer handlers, which its `press`, `key` and
+/// `pointerDown` drive. In a browser all eight are wired.
 struct Events<C> {
     /// True as the pointer enters this element, false as it leaves.
     onHover: Option<fn(C, Bool) => ()>,
@@ -346,6 +346,10 @@ enum NodeKind<C> {
     // `onPick`). Both closures are built from the config in Buri, so every
     // backend applies one rule. Appended last, the order being append-only.
     FilePicker(Prop<Str>, [Style], Prop<Bool>, [Str], fn(Str, Str, Int) => Str, fn(C, Offer) => (), Events<C>),
+    // A description shown while what it wraps is hovered or focused: the text,
+    // the bubble's styles, the trigger, and the wrapper's events. Appended last,
+    // the order being append-only.
+    Tooltip(Prop<Str>, [Style], [Node<C>], Events<C>),
 }
 
 // --- Building the tree -------------------------------------------------------
@@ -1592,6 +1596,63 @@ export fn disclosure<C>(config: Disclosure<C>): Node<C> {
     )
 }
 
+/// A short description of what it wraps, shown while that is hovered or
+/// focused and announced with it.
+///
+/// A widget rather than a style, for `dialog`'s and `disclosure`'s reason: the
+/// description relationship and the show, hide and Escape behaviour are things
+/// no `Style` or `Role` can name. The platform shows it on hover and on focus,
+/// and Escape hides it until the pointer and the focus have both left. On the
+/// web the bubble is a `role="tooltip"` the trigger names with
+/// `aria-describedby`; a browser's own `title` shows on hover only and never
+/// on focus, so it isn't used.
+///
+/// **Text only.** The bubble holds a string, never nodes, so nothing in it can
+/// be pressed or focused. Interactive content belongs in a `dialog`.
+///
+/// `styles` land on the bubble, which the widget places below the trigger at
+/// its start edge, over what follows. A `Pin` moves it.
+struct Tooltip<C> {
+    /// The description: shown while the trigger is hovered or focused, and
+    /// announced with it.
+    export text: Prop<Str>,
+    /// The trigger the description belongs to.
+    export children: [Node<C>],
+    /// Applied to the bubble.
+    export styles: [Style],
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
+    export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
+    export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
+    export onKey: Option<fn(C, Key) => Bool>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
+    export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
+}
+
+export fn tooltip<C>(config: Tooltip<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
+    );
+    Node(.Tooltip(config.text, config.styles, config.children, events))
+}
+
 /// One subtree or the other, decided by a condition that may vary.
 ///
 /// When the condition changes, the showing subtree tears down — its
@@ -2273,6 +2334,65 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 endRegion(builder)
             })
         },
+        // The wrapper and the trigger are emitted once. The document knows what
+        // the pointer and the focus are on, so it is the one that says when the
+        // bubble shows: `openTip` mints the cell it writes, and the bubble is a
+        // region that follows it. The description is kept on the wrapper,
+        // whether or not the bubble is showing, because a reader hears it with
+        // the trigger either way.
+        .Tooltip(text, styles, children, events) => {
+            let at = openElement(builder, "div", widgetBody(mem, plain(state), [], []));
+            let shown = openTip(builder);
+            let _ = match (text) {
+                .Const(said) => describeTip(builder, at, said),
+                _ => reactive(fn(scope) => describeTip(builder, at, text.read(scope))),
+            };
+            let _ = registerEvents(builder, events);
+            let _ = emitChildren(ctx, builder, children, state, 0);
+            let region = enterDynamic(builder);
+            let _ = reactive(fn(scope) => {
+                let showing: Bool = scope.read(shown);
+                let _ = beginRegion(builder, region);
+                let _ = if (showing) {
+                    let _ = emitElement(
+                        builder,
+                        "div",
+                        widgetBodyUnder(scope, plain(state), bubbleScene(), styles),
+                    );
+                    let _ = emitText(builder, text.read(scope));
+                    exitElement(builder)
+                } else {
+                };
+                endRegion(builder)
+            });
+            exitElement(builder)
+        },
+    }
+}
+
+/// Where a tooltip's bubble sits: below its trigger at the start edge, out of
+/// the flow so it covers what follows rather than moving it, and on one line.
+/// The widget's own drawing, the way a dialog's scrim is. The sheet's reset
+/// says the same to a browser, and the caller's styles come after, so a `Pin`
+/// moves it.
+fn bubbleScene(): [Str] {
+    [
+        "position:absolute",
+        "inset-block-start:100%",
+        "inset-inline-start:0",
+        "text-wrap:nowrap",
+    ]
+}
+
+/// Whether a snapshot taken in `state` draws a tooltip's bubble: in every state
+/// where the trigger is hovered or focused, which a press is too.
+fn tipShows(state: State): Bool {
+    match (state) {
+        .Hover => true,
+        .Focus => true,
+        .FocusWithin => true,
+        .Active => true,
+        _ => false,
     }
 }
 
@@ -2563,14 +2683,25 @@ fn emitSliderControl(
 
 /// Registers the generic events a scene document can carry: `onPressOutside`, a
 /// document listener the runtime pairs with the open element, disposed with the
-/// subtree, and the three pointer handlers `platform/effect/testing`'s `pointerDown`,
-/// `pointerMove` and `pointerUp` drive. The other four (`onHover`, `onFocus`,
-/// `onScroll`, `onKey`) are the browser's alone, wired only in `runtime.js`'s
-/// `$tree_events`. Each public handler is adapted here to the intrinsic's
-/// `fn(C, Event)`; a pointer handler reads its `PointerAt` back off the document.
+/// subtree; `onKey`, which `platform/effect/testing`'s `key` fires; and the three
+/// pointer handlers its `pointerDown`, `pointerMove` and `pointerUp` drive. The
+/// other three (`onHover`, `onFocus`, `onScroll`) are the browser's alone, wired
+/// only in `runtime.js`'s `$tree_events`. Each public handler is adapted here to
+/// the intrinsic's `fn(C, Event)`: a pointer handler reads its `PointerAt` back
+/// off the document, and a key handler reads its key and writes back whether it
+/// claimed it.
 fn registerEvents<C>(builder: Builder, events: Events<C>): () {
     let _ = match (events.onPressOutside) {
         .Some(handler) => registerOutside(builder, fn(c, _event) => handler(c)),
+        .None => {
+        },
+    };
+    let _ = match (events.onKey) {
+        .Some(handler) => {
+            registerKey(builder, fn(c, _event) => {
+                if (handler(c, keyPressed(builder))) { claimKey(builder) } else {  }
+            })
+        },
         .None => {
         },
     };
@@ -3103,6 +3234,26 @@ fn markCurrent(builder: Builder, at: I64, on: Bool): ();
 /// the scene twin of `aria-hidden`. Not in the scene a painter reads.
 fn markDecorative(builder: Builder): ();
 
+/// Makes the open element a tooltip's wrapper and answers the `Bool` cell the
+/// document writes while what it wraps is hovered or focused, and Escape has
+/// not hidden it — the cell the bubble's region reads.
+fn openTip(builder: Builder): Int;
+
+/// Keeps `text` as the description a reader hears with the tooltip wrapper
+/// `openElement` answered `at`.
+fn describeTip(builder: Builder, at: I64, text: Str): ();
+
+/// Keeps an `onKey`'s `fn(C, Event) => ()` on the open element, for `key` to
+/// fire from the focused element out to the root.
+fn registerKey<C>(builder: Builder, handler: fn(C, Event) => ()): ();
+
+/// The key the dispatch in flight carries.
+fn keyPressed(builder: Builder): Str;
+
+/// Says the handler being fired claimed its key, so the platform's own
+/// handling of it is suppressed.
+fn claimKey(builder: Builder): ();
+
 /// Keeps a file picker's `fn(C, Event) => ()` on the open element, in a slot of
 /// its own so `press` never fires it and `pickFile` does. It lives in the
 /// graph, disposed with the subtree.
@@ -3339,6 +3490,22 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 styledLine(ctx, refusing(state, disabled.read(scope)), styles, depth),
                 textLine(ctx, depth + 1, label.read(scope)),
             ]
+        },
+        // The wrapper and its trigger, and the bubble after them while the
+        // snapshot's state hovers or focuses the trigger.
+        .Tooltip(text, styles, children, _events) => {
+            let head = [styledLine(ctx, plain(state), [], depth)].concat(
+                ctx,
+                childLines(ctx, state, children, depth + 1, 0, []),
+            );
+            if (tipShows(state)) {
+                head.concat(ctx, [
+                    widgetLine(ctx, plain(state), bubbleScene(), styles, depth + 1),
+                    textLine(ctx, depth + 2, text.read(scope)),
+                ])
+            } else {
+                head
+            }
         },
     }
 }

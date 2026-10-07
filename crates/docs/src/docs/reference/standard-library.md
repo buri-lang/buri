@@ -1068,6 +1068,15 @@ beside a `choose` announces a press that changes nothing. `isOpen` is a
 `Signal<Bool>`, not a `Prop`, because a reader opens and shuts it without asking,
 the rule `dialog`'s `isOpen` follows; an accordion is an `each` of these.
 
+`tooltip({ text, children, styles })` is a short description of what it wraps,
+shown while that is hovered or focused and announced with it — `role="tooltip"`
+named by the trigger's `aria-describedby` on the web. Escape hides it until the
+pointer and the focus have both left, unless an `onKey` claims the key. The
+bubble sits under the trigger at its start edge, out of the flow, and `styles`
+land on it. `text` is a `Prop<Str>`, so nothing in it can be pressed: a tooltip
+is never interactive. `platform/effect/testing`'s `description(name)` reads the
+text, `focus(name)` and `pointerMove` show it, and `key("Escape")` hides it.
+
 `onPressOutside` is one of the eight generic handlers every element node carries
 — `onHover`, `onFocus`, `onScroll`, `onKey`, it, and the three pointer handlers
 below — each an omittable `onX` field of the config. It fires when a press lands
