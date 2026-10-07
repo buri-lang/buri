@@ -534,6 +534,8 @@ derive Equal, Ordered, Show for Version;
 `derive` generates methods structurally, over fields and variants in declaration
 order. It works for `Equal`, `Ordered`, `Show`, `Hash`, `ToJson`, `FromJson`, and
 the operator traits, and fails if a field's type doesn't satisfy the trait.
+Each field goes through its own type's implementation, so a field whose `Show`
+is written by hand prints the way that `impl` says, inside any derived type.
 
 `ToJson` and `FromJson` can *only* be derived; a hand-written one would apply to
 the type alone but not where it's nested. `core/json` documents the JSON
