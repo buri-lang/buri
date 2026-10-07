@@ -383,33 +383,57 @@ conforming reader can tell.
 A failure names its path the way [`core/json`](../standard-library.md) does:
 `$.home.city`.
 
-## `google.protobuf.Any`, as its two fields
+## Well-known types
 
-Vendor the schema
-[googleapis publishes](https://github.com/protocolbuffers/protobuf/blob/main/src/google/protobuf/any.proto),
-declare it in a rule, and an `Any` field reads as a plain struct:
+`google/protobuf`'s schemas come with the toolchain, so import one the way
+protoc does and nothing has to be vendored:
 
-```text
-export struct Any {
-  export typeUrl: Str,
-  export value: [U8],
+```proto
+import "google/protobuf/duration.proto";
+
+message Job {
+  google.protobuf.Duration timeout = 1;
 }
 ```
 
-There's no unpacking, because that needs a runtime type registry and Buri has
-none. Decode `value` with the codec for the type you expect:
+Each file is a standard-library module of the generator's own output:
+
+| Import | Module | Types |
+|---|---|---|
+| `google/protobuf/any.proto` | `core/proto/any` | `Any` |
+| `google/protobuf/duration.proto` | `core/proto/duration` | `Duration` |
+| `google/protobuf/empty.proto` | `core/proto/empty` | `Empty` |
+| `google/protobuf/field_mask.proto` | `core/proto/field_mask` | `FieldMask` |
+| `google/protobuf/struct.proto` | `core/proto/struct` | `Struct`, `Value`, `Value_Kind`, `ListValue`, `NullValue` |
+| `google/protobuf/timestamp.proto` | `core/proto/timestamp` | `Timestamp` |
+| `google/protobuf/wrappers.proto` | `core/proto/wrappers` | `DoubleValue`, `FloatValue`, `Int64Value`, `UInt64Value`, `Int32Value`, `UInt32Value`, `BoolValue`, `StringValue`, `BytesValue` |
+
+A repository file at the same path wins over the bundled one.
+
+In JSON, six of them are not objects, as proto3 says:
+
+| Type | JSON |
+|---|---|
+| `Duration` | `"1.500s"`: seconds, and a fraction of 3, 6 or 9 digits if there is one |
+| `Timestamp` | `"1970-01-01T00:00:10.500Z"`: RFC 3339 in UTC. A reader takes an offset, `+08:00`, and refuses a lowercase `t` or `z` |
+| `FieldMask` | `"foo,barBaz"`: the paths in lowerCamelCase, joined by commas |
+| `Struct`, `ListValue` | the object and the array |
+| `Value` | whichever JSON value it holds. `null` is a `NullValue`, not absence |
+| a wrapper | the wrapped value, `"7"` for an `Int64Value`; `null` is absence |
+
+**`Any` is its two fields**, `{"typeUrl": "…", "value": "…"}` with `value` in
+base64. Canonical `Any` JSON inlines the message with an `@type` member, which
+needs a registry of every type a URL can name, and a generated module knows
+only its own schema's. Decode `value` with the codec for the type you expect:
 
 ```text
 let inner = decodeErrorInfo(ctx, detail.value)?;
 ```
 
-- **The JSON is the two-field object**, `{"typeUrl": "…", "value": "…"}`, with
-  `value` in base64. Canonical `Any` JSON inlines the message with an `@type`
-  member, which needs the registry, so a reader expecting that form won't read
-  this as an `Any`.
-- **Nothing checks `type_url`** against the bytes.
+**`encodeMJson` cannot fail.** A `Duration` or `Timestamp` outside JSON's range
+is written as it is rather than refused.
 
-The binary format is exact: an `Any` written here is an `Any` everywhere.
+The binary format is exact for all of them.
 
 ## What is not supported
 
@@ -451,17 +475,17 @@ wire-format and JSON edge cases. `cli/tests/proto/` holds the vendored schemas,
 a Buri testee, and a list of expected failures.
 
 ```text
-CONFORMANCE SUITE PASSED: 970 successes, 1314 skipped, 456 expected failures, 0 unexpected failures.
+CONFORMANCE SUITE PASSED: 1445 successes, 1314 skipped, 36 expected failures, 0 unexpected failures.
 ```
 
 [`cli/tests/proto/README.md`](../../../../../../cli/tests/proto/README.md) files each
-expected failure under one of seven reasons. One isn't a gap: the reference
-implementation is proto3 and the test schema is edition 2026, so they disagree
-about writing a field set to zero. Both are right for their own schema.
+expected failure under one of three reasons: `Any` in JSON, a JSON writer that
+cannot fail, and unknown fields, which a decoder drops rather than keeps.
 
-The suite needs a C++ build of another project, so it isn't part of
-`cargo test`. `cli/tests/vectors/proto.rs` replays recorded exchanges through the
-same testee under cargo.
+The runner is a C++ build of another project, so `nix build
+.#conformance-runner` builds it and CI runs it. `cli/tests/vectors/proto.rs`
+replays every recorded exchange through the same testee under cargo, with no
+runner.
 
 ## Caching
 

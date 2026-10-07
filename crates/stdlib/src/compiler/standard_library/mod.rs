@@ -128,6 +128,13 @@ pub const MODULES: &[StdModule] = &[
     m("core/json", include_str!("sources/json.buri")),
     m("core/csv", include_str!("sources/csv.buri")),
     m("core/proto", include_str!("sources/proto.buri")),
+    m("core/proto/any", include_str!("sources/proto_any.buri")),
+    m("core/proto/duration", include_str!("sources/proto_duration.buri")),
+    m("core/proto/empty", include_str!("sources/proto_empty.buri")),
+    m("core/proto/field_mask", include_str!("sources/proto_field_mask.buri")),
+    m("core/proto/struct", include_str!("sources/proto_struct.buri")),
+    m("core/proto/timestamp", include_str!("sources/proto_timestamp.buri")),
+    m("core/proto/wrappers", include_str!("sources/proto_wrappers.buri")),
     // The grammar as data, and the printer that turns it back into source. A
     // generator builds one of these rather than a string, so it cannot emit a
     // parse error, and every node carries the input span it came from.
@@ -140,6 +147,7 @@ pub const MODULES: &[StdModule] = &[
     // rule for every generator the toolchain ships: a user could have written
     // this one.
     m("std/codegen/proto/schema", include_str!("sources/codegen_proto_schema.buri")),
+    m("std/codegen/proto/wellknown", include_str!("sources/codegen_proto_wellknown.buri")),
     m("std/codegen/proto", include_str!("sources/codegen_proto.buri")),
     // What a `tool` rule's entry points are handed and answer, and the doc a
     // formatter returns. `std/proto` is the program behind the `proto` tool,

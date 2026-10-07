@@ -1,0 +1,116 @@
+//! Generated from google/protobuf/field_mask.proto. Not a file to edit: the schema is the source,
+//! and this module is rebuilt from it whenever the schema changes.
+//!
+//! What the mapping is, and why: `buri docs build/proto`.
+
+from "core/bytes" import * as bytes;
+from "core/json" import { Json };
+from "core/list" import * as list;
+from "core/proto" import * as proto;
+from "core/proto" import { ProtoError };
+from "platform/effect" import { Allocator };
+
+derive Equal, Show for FieldMask;
+export struct FieldMask {
+    export paths: [Str],
+}
+
+/// Every field at its proto3 default: what a message of no bytes decodes to.
+export fn defaultFieldMask(): FieldMask {
+    FieldMask { paths: list.empty<Str>() }
+}
+
+/// How many bytes `encodeFieldMask` writes.
+export fn sizeFieldMask(value: FieldMask): Int {
+    let size = value.paths.fold(fn(n, x) => n + (1 + proto.strSize(x)), 0);
+    size
+}
+
+/// `encodeFieldMask`, appended to `out`.
+export fn writeFieldMask<C: Allocator>(ctx: C, out: [U8], value: FieldMask): [U8] {
+    value
+        .paths
+        .foldCtx(ctx, fn(c, acc: [U8], x) => proto.writeStr(c, acc.push(c, 10), x), out)
+}
+
+/// The protobuf wire encoding, fields in schema order.
+///
+/// A singular field holding its default is omitted, which is what proto3
+/// calls the canonical encoding; a field that tracks presence and is set is
+/// written whatever it holds, because that is the difference presence buys.
+export fn encodeFieldMask<C: Allocator>(ctx: C, value: FieldMask): [U8] {
+    writeFieldMask(ctx, list.empty<U8>(), value)
+}
+
+/// Reads one message. A field this schema does not know is skipped, which is
+/// proto3's forward compatibility and the whole of it.
+export fn decodeFieldMask<C: Allocator>(
+    ctx: C,
+    b: [U8],
+): Result<FieldMask, ProtoError> {
+    readFieldMask(ctx, b, 0, b.length(), 0, defaultFieldMask())
+}
+
+/// Reads one message *on top of* another.
+///
+/// A singular message field that arrives twice is merged rather than
+/// replaced — the specification says so, and it is what makes a message
+/// splittable across two encodings of itself. Every other kind of field
+/// takes the later value, which merging also does.
+export fn mergeFieldMask<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    into: FieldMask,
+): Result<FieldMask, ProtoError> {
+    readFieldMask(ctx, b, 0, b.length(), 0, into)
+}
+
+/// Reads the fields between `at` and `end` on top of `acc`, in place. An
+/// error's offset counts from `base`, where the message starts.
+export fn readFieldMask<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    acc: FieldMask,
+): Result<FieldMask, ProtoError> {
+    if (at >= end) {
+        .Ok(acc)
+    } else {
+        let (field, wire, next) = proto.readTag(b, at, end, base)?;
+        if (field == 1 && wire == proto.LEN) {
+            let (raw, after) = proto.readStr(ctx, b, next, end, base)?;
+            let value = raw;
+            readFieldMask(ctx, b, after, end, base, FieldMask {
+                ..acc,
+                paths: acc.paths.push(ctx, value),
+            })
+        } else {
+            let after = proto.skip(b, next, end, base, wire)?;
+            readFieldMask(ctx, b, after, end, base, acc)
+        }
+    }
+}
+
+/// proto3 JSON writes a `FieldMask` as its paths in lowerCamelCase, joined by commas.
+export fn encodeFieldMaskJson<C: Allocator>(ctx: C, value: FieldMask): Json {
+    proto.jsonFieldMask(ctx, value.paths)
+}
+
+/// Reads a proto3 JSON document.
+export fn decodeFieldMaskJson<C: Allocator>(
+    ctx: C,
+    doc: Json,
+): Result<FieldMask, ProtoError> {
+    decodeFieldMaskJsonAt(ctx, doc, "$")
+}
+
+/// The same, from somewhere inside a larger document.
+export fn decodeFieldMaskJsonAt<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+): Result<FieldMask, ProtoError> {
+    .Ok(FieldMask { paths: proto.asFieldMask(ctx, doc, path)? })
+}

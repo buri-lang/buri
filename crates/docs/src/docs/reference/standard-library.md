@@ -96,12 +96,20 @@ unordered, so it answers `.Equal` for a pair it could not order.
 [`core/csv`](../../../../stdlib/src/compiler/standard_library/sources/csv.buri),
 [`core/compression`](../../../../stdlib/src/compiler/standard_library/sources/compression.buri),
 [`core/proto`](../../../../stdlib/src/compiler/standard_library/sources/proto.buri),
+[`core/proto/any`](../../../../stdlib/src/compiler/standard_library/sources/proto_any.buri),
+[`core/proto/duration`](../../../../stdlib/src/compiler/standard_library/sources/proto_duration.buri),
+[`core/proto/empty`](../../../../stdlib/src/compiler/standard_library/sources/proto_empty.buri),
+[`core/proto/field_mask`](../../../../stdlib/src/compiler/standard_library/sources/proto_field_mask.buri),
+[`core/proto/struct`](../../../../stdlib/src/compiler/standard_library/sources/proto_struct.buri),
+[`core/proto/timestamp`](../../../../stdlib/src/compiler/standard_library/sources/proto_timestamp.buri),
+[`core/proto/wrappers`](../../../../stdlib/src/compiler/standard_library/sources/proto_wrappers.buri),
 [`core/buri/ast`](../../../../stdlib/src/compiler/standard_library/sources/buri_ast.buri),
 [`core/tool`](../../../../stdlib/src/compiler/standard_library/sources/tool.buri),
 [`core/format`](../../../../stdlib/src/compiler/standard_library/sources/format.buri),
 [`core/codegen`](../../../../stdlib/src/compiler/standard_library/sources/codegen.buri),
 [`std/codegen/proto/schema`](../../../../stdlib/src/compiler/standard_library/sources/codegen_proto_schema.buri),
 [`std/codegen/proto`](../../../../stdlib/src/compiler/standard_library/sources/codegen_proto.buri),
+[`std/codegen/proto/wellknown`](../../../../stdlib/src/compiler/standard_library/sources/codegen_proto_wellknown.buri),
 [`std/proto`](../../../../stdlib/src/compiler/standard_library/sources/proto_tool.buri),
 [`std/textproto/read`](../../../../stdlib/src/compiler/standard_library/sources/textproto_read.buri),
 [`std/textproto`](../../../../stdlib/src/compiler/standard_library/sources/textproto_tool.buri).
@@ -261,6 +269,12 @@ unordered, so it answers `.Equal` for a pair it could not order.
   schema in a package *becomes* a module, and this module is the part of that
   generated code that stays the same for every schema. See [the proto
   reference](./build/proto.md) for the mapping.
+
+  `core/proto/any`, `core/proto/duration`, `core/proto/empty`,
+  `core/proto/field_mask`, `core/proto/struct`, `core/proto/timestamp` and
+  `core/proto/wrappers` are `google/protobuf`'s well-known types: what an import
+  of `google/protobuf/duration.proto` reaches. Each is the generator's own output
+  for the schema `std/codegen/proto/wellknown` bundles, checked in.
 
   `Stdin.readBytes` and `Stdout.writeBytes` are for reading a request and
   writing a reply over a pipe. `readLine` reads the stream to its end, so a

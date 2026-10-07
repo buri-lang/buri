@@ -2117,6 +2117,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "proto/json.buri",
     "proto/json_numbers.buri",
     "proto/maps.buri",
+    "proto/wellknown.buri",
     "proto/wire.buri",
     "proto_schema/reading.buri",
     "proto_schema/refusals.buri",
