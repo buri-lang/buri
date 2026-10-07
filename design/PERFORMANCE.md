@@ -5230,6 +5230,74 @@ that asks a length.
 - **`BigInt` to string through `Number`,** and **a scan instead of the
   surrogate regex:** slower on bun, or on both.
 
+### 6.56 Debug glue reads a wide struct where it is, 2026-10-06
+
+buri-lang/buri#255. A debug build's retain, release and copy glue copied the
+whole value into its frame before touching a field. For a struct of 64 `Str`s
+that was a 1536-byte `memcpy` into a 1840-byte frame, then 64 pointer
+operations. A list's element glue did the same per element.
+
+Now the glue copies a value whole only when one fixed-width `eload` covers it:
+64 bytes or less, at a width the library has. Anything wider is walked through
+its address (`stencil/glue.rs`):
+
+```text
+ldr  x10, [x0]          ; the value's address, from the glue frame
+ldr  x9,  [x10, #off]   ; one pointer, tag or niche word
+str  x9,  [x0, #0x20]   ; where the incref/decref stencil reads it
+```
+
+- **Retain and release** load only the words the walk counts or tests, by
+  `walk_rc`'s own rules. A deep, heavy field still goes to its type's glue, by
+  address now.
+- **Copy** loads each counted field on its own and writes it back. A field
+  wider than one load goes to its type's glue by address.
+- **A list's element glue** tests a wide element for headroom where it sits,
+  then hands its address to the element type's glue.
+
+So no glue frame holds more than 64 bytes of value. The 64-field struct's glue
+frames went from 1840 bytes to 320 or 336, and #246's frame limit can't be reached by
+glue any more.
+
+The issue's repro, `genbig.py`, best of five alternating runs at load 18–27.
+Debug before is `ecc3749fc`:
+
+| Struct | Debug before | Debug after | `--release` |
+|---|---:|---:|---:|
+| 4 `Str` fields | 18 ns | 17 ns | 8 ns |
+| 16 `Str` fields | 45 ns | 42 ns | 20 ns |
+| 64 `Str` fields | 195 ns | 187 ns | 87 ns |
+
+A 64-field step retires 2,893 instructions before and 2,635 after (−9%),
+against 1,438 in release. The whole repro retires 4.03 G before and 3.71 G
+after.
+
+**The copy wasn't most of the cost.** A 1536-byte `memcpy` from L1 takes a few
+dozen cycles, and the three loads per field that replace it give some of that
+back. In a profile of the 64-field loop, glue is now about 40% of the samples,
+and nearly all of it is the per-field `incref` and `decref` stencils: about 11
+and 20 instructions each, with a prologue and register zeroing the C compiler
+puts around `decref`'s call to `buri_rt_free`. The rest of the step is the
+list literal, which still copies the struct into the block, and the
+allocation.
+
+**The bytes didn't move except the glue.** All 270 objects of the eight saved
+corpora, emitted in-process for `macos-arm64`, `linux-arm64` and
+`linux-x86_64`, are identical. None of them has a value this wide. Of the
+18-binary repository's 172 objects, 156 are identical. In the other 16, every
+function but the glue disassembles the same once addresses are left out, and
+the constant pool differs only in where it starts and in 16 bytes of trailing
+padding.
+
+**Not done:**
+
+- **A stencil that counts through a pointer**, such as `incref` reading
+  `*(AT(A) + OFF(N))`. It would save the store and reload, two of about 14
+  instructions per field. It changes the stencil library, and with it every
+  build's identity, for about 10% of the glue.
+- **A shorter `decref`.** The prologue is clang's. Moving the dying arm out of
+  line would change every object that releases anything.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
