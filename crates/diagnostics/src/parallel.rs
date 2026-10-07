@@ -381,10 +381,19 @@ where
             }
         }
         drop(send);
-        let out = drive(&queue, &receive);
-        queue.close();
-        out
+        // Closed on the way out however `drive` leaves. If it panicked, the
+        // workers would otherwise wait on the queue and the scope on them.
+        let _closing = Closing(&queue);
+        drive(&queue, &receive)
     })
+}
+
+struct Closing<'q, J>(&'q Queue<J>);
+
+impl<J> Drop for Closing<'_, J> {
+    fn drop(&mut self) {
+        self.0.close();
+    }
 }
 
 /// How a job hands back a result before its last one.
@@ -425,5 +434,21 @@ mod tests {
         assert_eq!(width(0), 1);
         assert_eq!(width(1), 1);
         assert!(width(2) <= 2);
+    }
+
+    /// A `drive` that panics still closes the queue, so the workers stop and
+    /// the panic reaches the caller instead of the process waiting for ever.
+    #[test]
+    fn a_panicking_drive_stops_the_workers() {
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let outcome = std::panic::catch_unwind(|| {
+                pool(4, 0, |job: u8, _, _, _| job, |_: &Queue<u8>, _| panic!("drive failed"))
+            });
+            let _ = done.send(outcome.is_err());
+        });
+        // A safety net only: a pool that never closes never answers.
+        let panicked = finished.recv_timeout(std::time::Duration::from_secs(60));
+        assert_eq!(panicked, Ok(true));
     }
 }

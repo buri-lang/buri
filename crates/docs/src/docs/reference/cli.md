@@ -31,6 +31,10 @@ A lint finding, compile error, failing test or syntax error in a source exits
 `1`. `2` means the run never started: a target pattern that names nothing, an
 unknown flag, a build file that doesn't parse.
 
+When the reader of stdout goes away, as in `buri test | head -1`, the command
+stops at once and silently, killed by `SIGPIPE` like any Unix tool. Shells
+report that as `141`.
+
 ## Diagnostics
 
 Every diagnostic answers four questions in the same order:

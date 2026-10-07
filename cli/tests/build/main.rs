@@ -9,6 +9,7 @@
 //! | [`init`] | scratch | That `buri init` writes a repository that builds and tests, and that a second run refuses. |
 //! | [`repositories`] | `repositories/` | One repository per build-system rule, each with a manifest of what the CLI does in it and the output that produces. |
 //! | [`custom_platforms`] | `repositories/custom-platforms/` | That a repository platform's artifact answers when the host it was written for calls it, and that editing its `js` file rebuilds it. |
+//! | [`closed_stdout`] | `example/` | That a reader leaving early, as `head -1` does, ends every command by `SIGPIPE`, quietly, and that a pipe left open prints what a file would. |
 //! | [`example`] | `example/` | The worked monorepo — the largest body of Buri here — builds, tests, lints and formats clean. |
 //! | [`incrementality`] | scratch | What the cache may and may not do, read off the `--explain` transcript. |
 //! | [`hermeticity`] | scratch | That a spawn is deterministic, that a perturbed environment changes neither bytes nor verdicts, and that concurrent builds leave the cache intact. |
@@ -48,6 +49,7 @@
 #[path = "../harness/mod.rs"]
 mod harness;
 
+mod closed_stdout;
 mod custom_platforms;
 mod example;
 mod generators;

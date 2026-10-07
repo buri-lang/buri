@@ -25,6 +25,7 @@ cli/tests/
   build/     main.rs    THE BUILD SYSTEM, driven as a user drives it
     repositories.rs       one repository per build-system rule
     example.rs            the worked monorepo
+    closed_stdout.rs      `buri … | head -1`: SIGPIPE, quietly, and no hang
     incrementality.rs     what the cache may and may not do
     hermeticity.rs        spawn determinism, concurrency, reproducibility
     watch.rs              the input set, and what an edit re-runs

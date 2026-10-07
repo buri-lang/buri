@@ -37,6 +37,15 @@ use std::process::ExitCode;
 const STACK: usize = buri::parallel::STACK;
 
 fn main() -> ExitCode {
+    // A `println!` whose reader has gone ends the process, from whichever
+    // thread it ran on, before anything unwinds.
+    let report = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if info.payload().downcast_ref::<String>().is_some_and(|m| arguments::is_reader_gone(m)) {
+            arguments::reader_gone();
+        }
+        report(info);
+    }));
     // The work happens on a thread of our own, because the main thread's stack
     // is fixed by the process that started us and cannot be asked for more.
     match std::thread::Builder::new().name("buri".into()).stack_size(STACK).spawn(run) {
