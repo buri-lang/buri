@@ -107,10 +107,15 @@ fn disambiguate_unreached_symbols(program: &mut Program, reached: &[bool]) {
 
 /// The slots this program starts at: its entry, or every one of its tests.
 pub fn program_roots(program: &Program) -> Vec<usize> {
-    match &program.roots {
+    let mut roots: Vec<usize> = match &program.roots {
         ProgramRoots::Main(entry) => vec![entry.index()],
         ProgramRoots::Tests(tests) => tests.iter().map(|t| t.func.index()).collect(),
-    }
+    };
+    // A reactive cell's comparison is named by no call: a write is handed it.
+    let mut cells: Vec<usize> = program.cell_equal.values().map(|f| f.index()).collect();
+    cells.sort_unstable();
+    roots.extend(cells);
+    roots
 }
 
 /// Every function `roots` reaches, one row per [`Program::funcs`] slot.

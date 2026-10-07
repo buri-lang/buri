@@ -2471,7 +2471,9 @@ impl<'a> Checker<'a> {
             // platform that calls its entry fixes those two types, and the
             // check is a comparison against the ids rather than against a
             // spelling a program could shadow.
-            for name in ["Allocator", "IoError", "Region", "Request", "Response"] {
+            // `Scope` is the allocator that charges nothing, which a test
+            // report renders a hand-written `Show` with.
+            for name in ["Allocator", "IoError", "Region", "Request", "Response", "Scope"] {
                 self.know(m, name);
             }
         }

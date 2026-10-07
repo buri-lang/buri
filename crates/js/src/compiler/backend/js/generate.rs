@@ -2775,6 +2775,14 @@ impl<'a> Gen<'a> {
                     // `buri test --coverage`'s probe (`middle::coverage`). The
                     // runner appends `$coverage_hit` to a coverage build's bundle.
                     "coverage.hit" => Expr::call(Expr::ident("$coverage_hit"), a),
+                    // `report` and `failExpected` with their values already
+                    // rendered, by a hand-written `Show` the type reaches.
+                    "testing_assert.reportShown" => {
+                        Expr::call(Expr::ident("$testing_assert_reportShown"), a)
+                    }
+                    "testing_assert.failExpectedShown" => {
+                        Expr::call(Expr::ident("$testing_assert_failExpectedShown"), a)
+                    }
                     other => {
                         self.missing.push(other.to_string());
                         Expr::Num(0.0)

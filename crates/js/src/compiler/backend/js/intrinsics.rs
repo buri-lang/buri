@@ -26,6 +26,16 @@ impl<'a> Gen<'a> {
         args: &[Expr],
         f: &Func,
     ) -> Option<Expr> {
+        // A cell whose type reaches a hand-written `Equal` is written with it,
+        // rather than with `$eq`'s comparison by shape.
+        if crate::compiler::middle::monomorphize::CELL_WRITE_KEYS.contains(&key) {
+            let value = f.params.get(2).and_then(|p| f.locals.get(p.index())).map(|l| l.ty);
+            if let Some(eq) = value.and_then(|t| self.program.cell_equal.get(&t)) {
+                let (id, v) = (args.get(1)?.clone(), args.get(2)?.clone());
+                let eq = Expr::ident(self.program.funcs.get(eq.index())?.symbol.clone());
+                return Some(Expr::call(Expr::ident("$ui_write"), vec![id, v, eq]));
+            }
+        }
         if self.program.hosted.js_implemented.contains(key) {
             return self.js_implemented(key, args, f);
         }

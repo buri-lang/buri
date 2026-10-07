@@ -636,6 +636,16 @@ pub unsafe extern "C" fn buri_rt_ui_write(id: i64, value: *const u8, stride: usi
 /// # Safety
 /// As [`buri_rt_ui_write`].
 unsafe fn write_changed(id: i64, value: *const u8, stride: usize) -> bool {
+    // SAFETY: forwarded to the caller's promise.
+    unsafe { write_bytes(id, value, stride, false) }
+}
+
+/// [`write_changed`], storing even identical bytes when `differ` says the
+/// type's `Equal` already called the two different, as a hand-written one may.
+///
+/// # Safety
+/// As [`buri_rt_ui_write`].
+unsafe fn write_bytes(id: i64, value: *const u8, stride: usize, differ: bool) -> bool {
     let fresh = if value.is_null() || stride == 0 {
         Vec::new()
     } else {
@@ -645,7 +655,7 @@ unsafe fn write_changed(id: i64, value: *const u8, stride: usize) -> bool {
     {
         let mut g = lock();
         let Some(n) = g.get_mut(id) else { die(&[NO_SIGNAL.as_bytes()]) };
-        if n.value == fresh {
+        if !differ && n.value == fresh {
             return false;
         }
         n.value = fresh;
@@ -1532,18 +1542,19 @@ pub unsafe extern "C" fn buri_rt_host_testing_headless_write(
         let g = lock();
         g.get(id).map(|n| n.value.clone()).unwrap_or_default()
     };
-    if let Some(f) = same
-        && old.len() == stride
-        && stride > 0
-        && !value.is_null()
-        // SAFETY: `old` is a copy of one whole value of the cell's type and
-        // `value` is one the caller promises; `f` was generated for it.
-        && unsafe { equal_values(f, old.as_ptr(), value) }
-    {
+    let judged = match same {
+        Some(f) if old.len() == stride && stride > 0 && !value.is_null() => {
+            // SAFETY: `old` is a copy of one whole value of the cell's type and
+            // `value` is one the caller promises; `f` was generated for it.
+            Some(unsafe { equal_values(f, old.as_ptr(), value) })
+        }
+        _ => None,
+    };
+    if judged == Some(true) {
         return;
     }
     // SAFETY: forwarded to the caller's promise.
-    let changed = unsafe { write_changed(id, value, stride) };
+    let changed = unsafe { write_bytes(id, value, stride, judged == Some(false)) };
     if !changed {
         return;
     }

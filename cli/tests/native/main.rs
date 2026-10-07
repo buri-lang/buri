@@ -222,6 +222,11 @@ mod supplied_context;
 // backend built in and on JavaScript.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod headless_timers;
+// A failing assertion's report and a signal's write, through a type's own
+// `Show` and `Equal`, under the heap check, on every backend built in and on
+// JavaScript.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod hand_written_impls;
 // A region `ui.rebuild` keys on a heap value read from a signal, rebuilt by a
 // fill, under the heap check, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

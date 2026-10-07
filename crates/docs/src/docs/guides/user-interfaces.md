@@ -45,9 +45,10 @@ export fn addOne<C: Ui>(clicks: Signal<Int>): Node<C> {
 
 Tracking is automatic and exact: every run collects the dependencies afresh, so
 a read behind an `if` subscribes to the branch taken and not the other. Writing
-a value equal to the one already there re-runs nothing — equal being `==`, which
-is structural, so two lists of the same elements are one value however each was
-built.
+a value equal to the one already there re-runs nothing. Equal is the type's own
+`Equal`, hand-written or derived, so two lists of the same elements are one
+value however each was built. A type with no `Equal` is compared field by field,
+each field through its own `Equal` where it has one.
 
 ## Derived values
 
