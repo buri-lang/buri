@@ -298,6 +298,35 @@ everywhere else the engine's own `WebSocket` does, so how strictly it refuses a
 bad `101` is that engine's decision, and `onOpen`'s `Response` carries the
 negotiated subprotocol and extensions rather than the head the server sent.
 
+## Keys and passwords
+
+`env.get` answers a `Secret<Str>`, which shows as `***`. So a server can log its
+whole configuration and the key stays out of the log:
+
+```buri
+from "core/env" import * as env;
+from "core/secret" import { Secret };
+from "platform/effect" import { Environment };
+
+derive Show for Config;
+struct Config {
+    port: Int,
+    apiKey: Secret<Str>,
+}
+
+fn load<C: Environment>(ctx: C): Option<Config> {
+    let port = env.get(ctx, "PORT")?.reveal().toInt()?;
+    .Some(Config { port, apiKey: env.get(ctx, "API_KEY")? })
+}
+```
+
+`config.show(ctx)` is `Config { port: 3000, apiKey: *** }`. A port isn't
+secret, so it's revealed where it's parsed. The key is revealed only where it
+leaves, such as an `Authorization` header, and `core/crypto` takes it without
+revealing it at all. `"${config}"` doesn't compile, and a `Secret` has no
+`Equal` or `ToJson`, so it can't leak through a comparison or a JSON body either.
+[Secrets](../reference/standard-library.md#secrets) has the rest.
+
 ## Stopping
 
 `SIGTERM` and `SIGINT` do not kill a program holding a port. The platform stops

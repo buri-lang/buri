@@ -678,13 +678,33 @@ Bearer hunter2
   one can't derive them. Build a body that carries it by hand, with `reveal()`.
 
 A `Secret` is its value and nothing more, so wrapping and revealing are free.
-Nothing is protected after `reveal()`, and nothing zeroes the memory.
+`env.get` and `env.all` answer secrets, and `core/crypto`'s keyed functions take
+them. Nothing is protected after `reveal()`, and nothing zeroes the memory.
 
 ## Cryptography
 
 [`core/crypto`](../../../../stdlib/src/compiler/standard_library/sources/crypto.buri) — SHA-256,
 SHA-512, their HMACs, SHA-1, a constant-time comparison, the platform's
 cryptographic randomness, authenticated encryption and signature checks.
+
+`hmacSha256`, `hmacSha512`, `seal` and `open` take their key as a
+[`Secret<[U8]>`](#secrets), so a key goes from the environment to the primitive
+without being revealed:
+
+```buri
+from "core/bytes" import * as bytes;
+from "core/crypto" import * as crypto;
+from "core/crypto" import { Digest };
+from "core/env" import * as env;
+from "platform/effect" import { Allocator, Environment };
+
+export fn sign<C: Allocator + Environment>(ctx: C, body: [U8]): Option<Digest> {
+    let key = env
+        .get(ctx, "SIGNING_KEY")?
+        .mapCtx(ctx, fn(c, text) => bytes.toUtf8(c, text));
+    .Some(crypto.hmacSha256(ctx, key, body))
+}
+```
 
 The hashes are written in Buri rather than handed to the platform, because a
 dependency tree is a second thing to audit. The NIST vectors check them, RFC
@@ -722,11 +742,12 @@ merely uniform. See
 
 ```buri
 from "core/crypto" import * as crypto;
+from "core/secret" import { Secret };
 from "platform/effect" import { Allocator, Entropy };
 
 export fn roundTrip<C: Allocator + Entropy>(
     ctx: C,
-    key: [U8],
+    key: Secret<[U8]>,
     token: [U8],
 ): Result<[U8], Str> {
     let sealed = crypto.seal(ctx, key, token, []);
@@ -734,8 +755,9 @@ export fn roundTrip<C: Allocator + Entropy>(
 }
 ```
 
-- **The key is 32 bytes.** Make one with `crypto.randomBytes(ctx, 32)` and keep
-  it away from what it protects. `seal` aborts on any other size.
+- **The key is a 32-byte `Secret<[U8]>`.** Make one with
+  `secret.of(crypto.randomBytes(ctx, 32))` and keep it away from what it
+  protects. `seal` aborts on any other size.
 - **You never pick a nonce.** `Entropy` mints a fresh 12-byte one per call, and
   `sealed` is `nonce ++ ciphertext ++ tag`. Rotate the key well before 2^32
   seals, where random nonces start to repeat.
@@ -1246,8 +1268,12 @@ more than a pipe holds does not deadlock.
 `core/env` and `core/cli` are the two halves of a command line. `env.arguments(ctx)`
 is the raw `[Str]`. Both hosts drop the program's own name, so there is no
 `argv[0]`, and you have to *tell* a help page what to call the program.
-`env.all(ctx)` is every variable as `(name, value)` pairs, in the platform's own
-order. `env.currentDirectory(ctx)` is where the process is,
+`env.get(ctx, name)` is one variable and `env.all(ctx)` is every variable as
+`(name, value)` pairs, in the platform's own order. Every value is a
+[`Secret<Str>`](#secrets), because the environment is where most secrets enter a
+program. A value that isn't secret, like a port, is revealed where it's parsed:
+`env.get(ctx, "PORT").andThen(fn(text) => text.reveal().toInt())`.
+`env.currentDirectory(ctx)` is where the process is,
 `env.temporaryDirectory(ctx)` and `env.homeDirectory(ctx)` are `TMPDIR` and
 `HOME` as paths — `HOME` answers `.None` where nothing set it rather than
 guessing `/root`, and `HOME=` is one of those: an empty variable is how a
