@@ -1387,18 +1387,18 @@ const $math_isFinite = Number.isFinite;
 // `number` and give one back. Shifting by a count at or beyond the width of
 // the type aborts.
 function $shiftCount(n, bits) {
+  return $ints[$shiftBy(n, bits)];
+}
+
+// The count as a `number`, for the narrow widths, whose values are `number`s.
+function $shiftBy(n, bits) {
   const k = Number(n);
   if (k < 0 || k >= bits) $abort("shift out of range");
-  return $ints[k];
+  return k;
 }
 
-
-function $big(x) {
-  return BigInt(Math.trunc(x));
-}
-
-// `$big` for a value that may already be one: the `U64` entries below are handed
-// a `BigInt`, and `Math.trunc` throws on those.
+// A value as a `BigInt`, whether it is a `number` or already one: the `U64`
+// entries below are handed a `BigInt`, and `Math.trunc` throws on those.
 function $toBig(x) {
   return typeof x === "bigint" ? x : BigInt(Math.trunc(x));
 }
@@ -1474,17 +1474,19 @@ function $bits_rotateRight(x, n) {
 }
 
 // The narrow widths, where the value is a `number` and only the count is not.
+// JavaScript's own shifts are 32-bit, so they are the answer at both widths:
+// `<<` wraps the way the type does, and `>>> 0` reads the word unsigned.
 function $bits_shiftLeftU8(x, n) {
-  return Number(BigInt.asUintN(8, $big(x) << $shiftCount(n, 8)));
+  return (x << $shiftBy(n, 8)) & 0xff;
 }
 function $bits_shiftRightU8(x, n) {
-  return Number($big(x) >> $shiftCount(n, 8));
+  return x >>> $shiftBy(n, 8);
 }
 function $bits_shiftLeftU32(x, n) {
-  return Number(BigInt.asUintN(32, $big(x) << $shiftCount(n, 32)));
+  return (x << $shiftBy(n, 32)) >>> 0;
 }
 function $bits_shiftRightU32(x, n) {
-  return Number($big(x) >> $shiftCount(n, 32));
+  return x >>> $shiftBy(n, 32);
 }
 function $bits_shiftLeftU64(x, n) {
   return BigInt.asUintN(64, x << $shiftCount(n, 64));
@@ -1506,17 +1508,27 @@ function $rotate(x, n, bits, left) {
   return BigInt.asUintN(bits, spun);
 }
 
+// At eight and thirty-two bits the value is a `number`, and so is the rotate.
+// A count of zero is the value, because a shift by the full width is a shift
+// by zero to JavaScript.
+function $rotateNarrow(x, n, bits, left) {
+  const k = $shiftBy(n, bits);
+  if (k === 0) return x;
+  const spun = left ? (x << k) | (x >>> (bits - k)) : (x >>> k) | (x << (bits - k));
+  return bits === 32 ? spun >>> 0 : spun & ((1 << bits) - 1);
+}
+
 function $bits_rotateLeftU8(x, n) {
-  return Number($rotate(x, n, 8, true));
+  return $rotateNarrow(x, n, 8, true);
 }
 function $bits_rotateRightU8(x, n) {
-  return Number($rotate(x, n, 8, false));
+  return $rotateNarrow(x, n, 8, false);
 }
 function $bits_rotateLeftU32(x, n) {
-  return Number($rotate(x, n, 32, true));
+  return $rotateNarrow(x, n, 32, true);
 }
 function $bits_rotateRightU32(x, n) {
-  return Number($rotate(x, n, 32, false));
+  return $rotateNarrow(x, n, 32, false);
 }
 function $bits_rotateLeftU64(x, n) {
   return $rotate(x, n, 64, true);
