@@ -202,34 +202,58 @@ fn the_conformance_runner_passes() {
     let scratch = Scratch::copy_of("proto-runner", &proto_dir().join("repo"));
     scratch.run(&["build", "//cmd/testee"]).ok();
     let artifact = scratch.path(".buri/out/node/cmd/testee/testee.mjs");
-    let testee = scratch.path("testee.sh");
-    std::fs::write(
-        &testee,
-        format!("#!/bin/sh\nexec '{}' '{}'\n", js_runtime(), artifact.display()),
-    )
-    .expect("writing the testee's script");
-    std::fs::set_permissions(&testee, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .expect("making the testee's script executable");
-    let out = Command::new(&runner)
+    assert!(artifact.is_file(), "the testee did not build: {}", artifact.display());
+    // The runner `execv`s the program it is given, which searches no `PATH`, so
+    // the JavaScript runtime goes to it by absolute path and the artifact as its
+    // argument.
+    let runtime = on_path(&js_runtime());
+    let mut command = Command::new(&runner);
+    command
         .arg("--failure_list")
         .arg(proto_dir().join("failure_list.txt"))
         .arg("--output_dir")
         .arg(scratch.path(""))
-        .arg(&testee)
+        .arg(&runtime)
+        .arg(&artifact);
+    let out = command
         .output()
-        .unwrap_or_else(|e| panic!("cannot start the conformance runner: {e}"));
-    let report = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let summary: Vec<&str> = report.lines().filter(|l| l.contains("CONFORMANCE SUITE")).collect();
+        .unwrap_or_else(|e| panic!("cannot start the conformance runner: {e}\n  {command:?}"));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let summary: Vec<&str> = stdout
+        .lines()
+        .chain(stderr.lines())
+        .filter(|l| l.contains("CONFORMANCE SUITE"))
+        .collect();
     println!("{}", summary.join("\n"));
     assert!(
         out.status.success() && !summary.is_empty() && summary.iter().all(|l| l.contains("PASSED")),
-        "the conformance runner failed:\n{}",
-        indent(&report.lines().filter(|l| l.starts_with("ERROR")).collect::<Vec<_>>().join("\n"))
+        "the conformance runner failed ({}):\n  {command:?}\nstdout, last 60 lines:\n{}\nstderr, last 60 lines:\n{}",
+        out.status,
+        indent(&tail(&stdout, 60)),
+        indent(&tail(&stderr, 60))
     );
+}
+
+/// The last `n` lines of `text`.
+fn tail(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(n)..].join("\n")
+}
+
+/// `name` as an absolute path, by `PATH`, or `name` itself where it already
+/// names a file.
+fn on_path(name: &str) -> PathBuf {
+    let direct = PathBuf::from(name);
+    if direct.is_absolute() {
+        return direct;
+    }
+    std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
+        .map(|dir| dir.join(name))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| panic!("`{name}` is not on PATH"))
 }
 
 /// **`failure_list.txt` is the set of recorded failures, exactly.**
