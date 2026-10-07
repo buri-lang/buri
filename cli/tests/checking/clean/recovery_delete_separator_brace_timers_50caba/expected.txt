@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-semicolon]
+  --> main.buri:73:42
+   |
+73 |     assert.equal(hit.get(ctx), "waiting")
+   |                                          ^
+   |
+   = fix: write `;` here

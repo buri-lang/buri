@@ -1,0 +1,9 @@
+error: expected `;`, found `,` [unexpected-token]
+  --> main.buri:89:36
+   |
+89 |         let _ = hit.set(c, "fired"), ;
+   |                                    ^
+   |
+   = expected: `;`
+   = actual: `,`
+   = fix: write `;` here

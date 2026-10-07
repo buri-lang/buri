@@ -1,0 +1,28 @@
+error: expected an expression, found `)` [unexpected-token]
+  --> main.buri:90:5
+   |
+90 |     );
+   |     ^
+   |
+   = expected: an expression
+   = actual: `)`
+   = fix: write a value here
+error: a statement ends with `;` [missing-semicolon]
+  --> main.buri:95:2
+   |
+95 | }
+   |  ^
+   |
+   = fix: write `;` here
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:96:1
+   |
+96 | 
+   | ^
+   |
+  --> main.buri:88:22
+   |
+88 |     let timer = after(ctx, time.milliseconds(1000), fn(c) => {
+   |                      ^ opened here
+   |
+   = fix: write `)` here

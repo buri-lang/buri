@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:33:29
+   |
+33 |                     let _ = , after(c, time.milliseconds(3000), fn(c2) => {
+   |                             ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-semicolon]
+  --> main.buri:89:36
+   |
+89 |         let _ = hit.set(c, "fired")
+   |                                    ^
+   |
+   = fix: write `;` here

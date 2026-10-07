@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:90:6
+   |
+90 |     };
+   |      ^
+   |
+  --> main.buri:88:22
+   |
+88 |     let timer = after(ctx, time.milliseconds(1000), fn(c) => {
+   |                      ^ opened here
+   |
+   = fix: write `)` here

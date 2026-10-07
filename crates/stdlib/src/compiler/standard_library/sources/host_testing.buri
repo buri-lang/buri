@@ -129,6 +129,8 @@
 //! spells. That leaves `TestEnvironment.withArguments([Str])` as the builder, which is
 //! how the rest of this module names a method that answers a **new** double.
 
+from "core/alloc" import * as alloc;
+
 // The filesystem's two effects, declared in `core/fs` because their methods
 // name a `Path`.
 from "core/fs" import { FileSystemRead, FileSystemWrite, Metadata };
@@ -1952,10 +1954,18 @@ impl Ui for Headless {
 
     fn watch(self, run: fn(Scope) => ()): ();
 
-    fn schedule(self, millis: Int, run: fn(Self) => ()): Int;
+    // `core/tasks`'s `after`, on the virtual clock: the runtime keeps `run` as
+    // a handler with the double beside it, so it is copied out of every arena.
+    fn schedule(self, millis: Int, run: fn(Self) => ()): Int {
+        let fire: fn(Headless, Int) => () = alloc.copyAcross(fn(h, _handle) => run(h));
+        headlessTimerStart(self, millis, fire)
+    }
 
     fn unschedule(self, id: Int): ();
 }
+
+/// Queues `run` against the virtual clock `elapse` moves, and answers its handle.
+fn headlessTimerStart(ctx: Headless, millis: Int, run: fn(Headless, Int) => ()): Int;
 
 /// A headless `Ui`.
 export fn headless(): Headless;

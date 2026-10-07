@@ -1263,6 +1263,13 @@ pub const ENTRIES: &[Entry] = &[
     v(e("host_testing.Headless.write", &[Scalar, Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Void)),
     e("host_testing.Headless.memo", &[Scalar, Compute], Ret::Scalar),
     e("host_testing.Headless.watch", &[Scalar, Compute], Ret::Void),
+    // The virtual clock `after` schedules on under `headless()` (#256).
+    // `headlessTimerStart` is `tasks.timerStart`'s shape: a kept handler with
+    // the double written into the record beside it and the handle as the
+    // element. `elapse` fires what came due, each on the graph's own turn.
+    e("host_testing.headlessTimerStart", &[Dropped, Scalar, Press], Ret::Scalar),
+    e("host_testing.Headless.unschedule", &[Scalar, Scalar], Ret::Void),
+    e("host_testing.elapse", &[Scalar], Ret::Void),
     e("host_testing.installThemes", &[Str], Ret::Void),
     // `core/platforms/testing/state`: a whole `T` per handle, in the shape of
     // `Headless`'s `signal`, `read` and `write` above. `stateNew` and
@@ -1835,8 +1842,8 @@ mod tests {
             }
         }
         // Two steps, the graph's two deferred bodies and the renderer's
-        // `reactive`, three walks, five kept handlers and the timer's.
-        assert_eq!(checked, 14);
+        // `reactive`, three walks, five kept handlers and the two timers.
+        assert_eq!(checked, 15);
     }
 
     /// The module a key's first segment names, for the keys whose operations
@@ -1968,7 +1975,7 @@ mod tests {
         }
         // A scan that matched nothing would pass every assertion above.
         assert!(checked > 140, "only {checked} rows were read against a declaration");
-        assert_eq!(contexts, 52);
+        assert_eq!(contexts, 53);
     }
 
     /// The two places a context sits, by example, so that the indices are

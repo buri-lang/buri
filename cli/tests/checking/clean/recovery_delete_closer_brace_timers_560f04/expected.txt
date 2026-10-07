@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:23:33
+   |
+23 |     let message = signal(ctx, "";
+   |                                 ^
+   |
+  --> main.buri:23:25
+   |
+23 |     let message = signal(ctx, "";
+   |                         ^ opened here
+   |
+   = fix: write `)` here

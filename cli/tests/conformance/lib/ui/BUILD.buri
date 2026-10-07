@@ -8,6 +8,7 @@ library {
             "test/styling.buri",
             "test/tree.buri",
             "test/theme.buri",
+            "test/timers.buri",
         ]
 
         # Both backends, the way `lib/web`'s router is: `buri test` runs these on
