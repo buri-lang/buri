@@ -5663,6 +5663,72 @@ release and only stencil's copies to remove in debug. Two smaller changes would
 reach those, and neither is about contexts: forwarding a `GetField` out of a
 one-field struct, and passing a wide aggregate to a stencil callee by address.
 
+### 6.59 `gen --check`, 2026-10-06
+
+[#260](https://github.com/buri-lang/buri/issues/260): a no-op `buri gen --check`
+cost about 0.9 s per MB of source, on one core, every run. `gen` analysed
+each package over its whole closure, one package at a time, so a chain of 150
+libraries checked its first library 150 times. On #260's repository, `check`
+was 76.5 G of 97.6 G instructions.
+
+**One compilation.** The packages `gen` works out are checked together
+(`driver::shared`), as `buri lint` already does (§6.47). Each target reads its
+own share: the modules it holds, what it reported, and its own bodies. Where
+the shared check can't promise each target its own answer, it declines and
+each target is analysed alone, as before.
+
+**One record per package.** Whether a build file is out of date is kept in
+`.buri/cache`:
+
+```text
+key    = H("gen", toolchain, graph, package, its .buri and .proto files)
+record = stale or same
+         each generator rule it loaded, with the key it ran under
+         each file it read, with a digest
+```
+
+`graph` is `Sources::graph_key`: which files exist, and every build file's
+bytes. The files read are each target's closure (`sources::closure_over`)
+plus any file whose imports `gen` read off disk. A generator's key covers its
+tool's program, including the files no rule lists (§6.43). Each digest is
+taken once a run, on every core. A remembered "stale" that `gen` is going to
+write gets worked out again, because only the verdict is kept. Errors are
+never kept.
+
+#260's repository, 150 libraries and 8.8 MB, release, at load 30–57 on 12
+cores:
+
+| `gen --check` | Before | After |
+|---|---:|---:|
+| no-op | 6.00–18.47 s real, 5.66–8.04 s user | 0.04–0.06 s real, 0.02 s user |
+| nothing remembered | the same | 0.24–0.29 s real, 0.15–0.17 s user |
+| no-op, 0.8 MB | 0.77–1.68 s | 0.05–0.06 s |
+| no-op, `//libs/l150` | 0.14–0.53 s | 0.02 s |
+
+Instructions: 97.6 G before, 3.1 G with nothing remembered, 0.5 G for a no-op.
+
+Output is unchanged. On all 416 checked-in repositories, `gen --check` and
+`gen` print the same stdout and stderr, exit the same way and leave the same
+tree as before, with nothing remembered and after a remembered pass.
+`cli/gen_check_remembers` holds that through a dependency's body edited after
+a remembered pass, a new source, a hand-edited build file, a generator's tool
+edited, `buri clean` and `gen` after `--check`. Dropping the closure from the
+record fails its first edit. `profile::a_second_gen_check_works_out_no_build_file`
+holds a warm check to 0 `build files worked out`, a new `BURI_PROFILE` line,
+and 0 modules loaded. `a_cold_gen_check_of_a_chain_of_libraries_loads_each_once`
+holds a cold one linear in the chain: it loaded 5,050 modules at 100
+libraries and 20,100 at 200 before, and 100 and 200 after.
+
+**What's left:**
+
+- **Any build-file edit forgets every record**, because the graph is in the
+  key. The next check is a cold one: a quarter of a second here.
+- **A record lists its whole closure.** A chain of 150 writes about 2 MB of
+  records. §6.43's closure nodes would list each file once.
+- **A tree the shared check declines**, say one import of a module that
+  doesn't exist, is analysed a package at a time and is as slow as before
+  when nothing is remembered.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
