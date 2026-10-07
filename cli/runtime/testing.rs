@@ -3570,12 +3570,18 @@ pub extern "C" fn buri_rt_test_enter(index: i64) -> i32 {
     }
     runner().at = index;
     BLOCK_STARTED.store(now(), std::sync::atomic::Ordering::Relaxed);
+    BLOCK_TIMER.get_or_init(|| block_time);
     1
 }
 
 /// When the block being run started, on [`now`]'s clock. Taken once the
 /// runner has handed the block over, so a test's time is its own.
 static BLOCK_STARTED: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// [`block_time`], for [`note_failure`]. Reached through this rather than by
+/// name because every program links the abort path, and only a test binary
+/// needs the clock: a hello world stays the size it was.
+static BLOCK_TIMER: std::sync::OnceLock<fn() -> i64> = std::sync::OnceLock::new();
 
 /// The process's monotonic clock, in nanoseconds.
 fn now() -> i64 {
@@ -3781,7 +3787,11 @@ pub(crate) fn note_failure(parts: &[&[u8]]) {
     for part in parts {
         message.push_str(&String::from_utf8_lossy(part));
     }
-    let mut line = format!("{{\"i\":{at},\"ns\":{},\"message\":", block_time());
+    let mut line = format!("{{\"i\":{at},");
+    if let Some(time) = BLOCK_TIMER.get() {
+        line.push_str(&format!("\"ns\":{},", time()));
+    }
+    line.push_str("\"message\":");
     quote_into(&message, &mut line);
     if let Some((actual, expected)) = shown {
         line.push_str(",\"actual\":");
