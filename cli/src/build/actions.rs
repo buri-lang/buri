@@ -3056,6 +3056,17 @@ fn check_platform_visibility(session: &Session, platform: &OutputPlatform, diagn
         }
     }
     for (from, dep, span) in edges {
+        // A library the platform brings in is shared code, and reaches no
+        // app. The platform's own edges were refused with the graph.
+        if from != pid {
+            let refusal = crate::build::workspace::reach_refusal(
+                ws.package(from),
+                ws.package(dep.package),
+                "depends on",
+                span,
+            );
+            diagnostics.extend(refusal);
+        }
         if ws.visible(from, dep) {
             continue;
         }
@@ -3101,10 +3112,10 @@ pub fn check_visibility(session: &Session, target: TargetId, diagnostics: &mut D
     check_apps(session, target, diagnostics);
 }
 
-/// A package under `apps/<a>/` reaches its own app, and shared packages
-/// outside `apps/`, but never another app: not by an edge, and not through a
-/// shared library in between. Edges are checked across the closure and on the
-/// target's own suite, exactly as visibility is.
+/// A package under `apps/<a>/` reaches its own app and shared packages, and a
+/// shared package reaches no app. Every edge is checked across the closure and
+/// on the target's own suite, exactly as visibility is, so a path that crosses
+/// is refused at the edge that crosses.
 pub fn check_apps(session: &Session, target: TargetId, diagnostics: &mut Diagnostics) {
     let ws = &session.workspace;
     let closure = ws.shared_closure(target);
@@ -3113,24 +3124,11 @@ pub fn check_apps(session: &Session, target: TargetId, diagnostics: &mut Diagnos
         .map(|&m| (m, ws.shared_dep_edges(m)))
         .chain(std::iter::once((target, ws.test_dep_edges(target).into())));
     for (member, member_edges) in edges {
-        let from = ws.package(member.package);
-        let Some(app) = crate::build::workspace::app_of(&from.path) else { continue };
         for &(dep, span) in member_edges.iter() {
             let Some(span) = span else { continue };
-            let Some(path) = ws.other_app_reached(app, dep) else { continue };
-            let Some(&reached) = path.last() else { continue };
-            let to = ws.package(reached.package);
-            let mut d = Diagnostic::templated("cross-app-dependency", span)
-                .with_bind("from", from.label())
-                .with_bind("reaches", "depends on")
-                .with_bind("to", to.label())
-                .with_bind("app", app);
-            if path.len() > 1 {
-                let names: Vec<String> =
-                    std::iter::once(from.label()).chain(path.iter().map(|t| ws.label(*t))).collect();
-                d = d.with_note(format!("reached by: {}", names.join(" -> ")));
-            }
-            diagnostics.push(d);
+            let from = ws.package(member.package);
+            let to = ws.package(dep.package);
+            diagnostics.extend(crate::build::workspace::reach_refusal(from, to, "depends on", span));
         }
     }
 }

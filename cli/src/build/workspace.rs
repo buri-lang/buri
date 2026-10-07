@@ -91,6 +91,21 @@ pub fn app_of(package_path: &str) -> Option<&str> {
     segments.next()
 }
 
+/// Why a package at `from` may not reach the package at `to`, if it may not.
+///
+/// A package under `apps/<a>/` reaches its own app and shared packages. A
+/// shared package, anything outside `apps/`, reaches no app at all. `reaches`
+/// is the verb the message uses: "depends on" or "imports".
+pub fn reach_refusal(from: &Package, to: &Package, reaches: &str, span: Span) -> Option<Diagnostic> {
+    let other = app_of(&to.path)?;
+    let d = match app_of(&from.path) {
+        Some(app) if app == other => return None,
+        Some(app) => Diagnostic::templated("cross-app-dependency", span).with_bind("app", app),
+        None => Diagnostic::templated("shared-depends-on-app", span),
+    };
+    Some(d.with_bind("from", from.label()).with_bind("reaches", reaches).with_bind("to", to.label()))
+}
+
 /// Where a misplaced tool package belongs. A package under the old `tool/`
 /// keeps its path below it, so `//tool/db/seed` moves to `//tools/db/seed`.
 fn tool_destination(package_path: &str, name: &str) -> String {
@@ -231,6 +246,7 @@ impl Workspace {
         // reader.
         diagnostics.extend(crate::build::tools::validate(&workspace));
         diagnostics.extend(check_platform_labels(&workspace));
+        diagnostics.extend(check_platform_reach(&workspace));
         Ok(workspace)
     }
 
@@ -583,41 +599,6 @@ impl Workspace {
                 if seen.insert(dep) {
                     prev.insert(dep, (cur, span));
                     queue.push_back(dep);
-                }
-            }
-        }
-        None
-    }
-
-    /// The first package of an app other than `app` that depending on `dep`
-    /// brings in, with the path from `dep` to it, `dep` first.
-    ///
-    /// The walk passes through shared packages only. A package of `app`
-    /// itself is where it stops, because that package's own edges are
-    /// checked as edges of `app`.
-    pub fn other_app_reached(&self, app: &str, dep: TargetId) -> Option<Vec<TargetId>> {
-        let mut prev: HashMap<TargetId, TargetId> = HashMap::new();
-        let mut queue = std::collections::VecDeque::from([dep]);
-        let mut seen = BTreeSet::from([dep]);
-        while let Some(cur) = queue.pop_front() {
-            match app_of(&self.package(cur.package).path) {
-                Some(other) if other != app => {
-                    let mut path = vec![cur];
-                    let mut node = cur;
-                    while let Some(p) = prev.get(&node).copied() {
-                        path.push(p);
-                        node = p;
-                    }
-                    path.reverse();
-                    return Some(path);
-                }
-                Some(_) => continue,
-                None => {}
-            }
-            for &(next, _) in self.shared_dep_edges(cur).iter() {
-                if seen.insert(next) {
-                    prev.insert(next, cur);
-                    queue.push_back(next);
                 }
             }
         }
@@ -1318,6 +1299,21 @@ fn check_platform_labels(workspace: &Workspace) -> Vec<Diagnostic> {
             if !rules.contains(&path) {
                 out.push(no_such_platform(&Spanned::new(label.clone(), written.span), &rules));
             }
+        }
+    }
+    out
+}
+
+/// A platform is shared code, so its `dependencies` name no app's package.
+/// Checked with the graph, as the rule's other labels are, because a platform
+/// is no target a command could ask about.
+fn check_platform_reach(workspace: &Workspace) -> Vec<Diagnostic> {
+    let mut out = Vec::new();
+    for platform in &workspace.packages {
+        let Some(rule) = &platform.build.platform else { continue };
+        for dep in &rule.dependencies {
+            let Some(target) = workspace.dep_target(&dep.value) else { continue };
+            out.extend(reach_refusal(platform, workspace.package(target.package), "depends on", dep.span));
         }
     }
     out

@@ -1,0 +1,10 @@
+binary {
+    dependencies: ["//libs/bridge"]
+    outputs: [
+        { platform: "node" },
+    ]
+
+    test {
+        sources: ["test/main.buri"]
+    }
+}

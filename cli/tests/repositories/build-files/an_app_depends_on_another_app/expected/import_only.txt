@@ -19,9 +19,9 @@ error: //apps/web imports //apps/api, which belongs to another app [cross-app-de
     each other, and on anything outside apps/, such as libs/ and tools/. They
     may not reach another app's packages, whatever its visibility says.
 
-    A path through a shared library counts too. //apps/web -> //libs/bridge ->
-    //apps/api is refused at //apps/web's edge, and a note prints the path. An
-    import of another app's module is refused at the import.
+    An import of another app's module is refused at the import. Shared code
+    can't reach an app either (`shared-depends-on-app`
+    (./shared-depends-on-app.md)), so no path through libs/ gets there.
 
     Code two apps share belongs in a library under libs/:
 

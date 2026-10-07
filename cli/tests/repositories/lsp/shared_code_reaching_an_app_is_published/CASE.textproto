@@ -1,0 +1,15 @@
+# //libs/bridge reaches //apps/api. The editor shows the refusal where each
+# half of it is written: the library's import, and its edge.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a library reaching an app's package is reported in the editor as shared-depends-on-app, at the import and at the edge"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

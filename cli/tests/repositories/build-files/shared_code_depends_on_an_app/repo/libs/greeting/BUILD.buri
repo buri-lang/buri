@@ -1,0 +1,5 @@
+# Where code an app and shared code both need belongs.
+library {
+    sources: ["greet.buri"]
+    visibility: ["//visibility:public"]
+}

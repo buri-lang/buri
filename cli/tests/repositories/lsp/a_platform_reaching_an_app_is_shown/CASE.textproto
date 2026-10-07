@@ -1,0 +1,16 @@
+# //platform/kit names //apps/api in `dependencies`. A platform's edges are
+# read with the graph, so the repository does not load, and the editor is told
+# so, naming the refusal.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a platform whose dependencies name an app's package is shown in the editor as the reason the repository does not load"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

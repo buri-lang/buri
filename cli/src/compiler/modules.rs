@@ -904,25 +904,19 @@ impl<'a> Loader<'a> {
             return true;
         };
 
-        // An app's code reaches its own app and shared packages, never
-        // another app. Asked of every module, generated and test-only alike,
-        // because each one's package is the app it belongs to. The module
+        // An app's code reaches its own app and shared packages, and shared
+        // code reaches no app. Asked of every module, generated and test-only
+        // alike, because each one's package says where it belongs. The module
         // still loads, so the names it brings are not reported again as
         // unknown.
-        let app_of = |pkg: crate::build::workspace::PackageId| {
-            crate::build::workspace::app_of(&ws.package(pkg).path)
-        };
-        if let (Some(app), Some(other)) = (importer_pkg.and_then(app_of), app_of(loc.package)) {
-            if app != other {
-                let from = importer_pkg.map(|p| ws.package(p).label()).unwrap_or_default();
-                self.diags.push(
-                    Diagnostic::templated("cross-app-dependency", span)
-                        .with_bind("from", from)
-                        .with_bind("reaches", "imports")
-                        .with_bind("to", ws.package(loc.package).label())
-                        .with_bind("app", app),
-                );
-            }
+        if let Some(from) = importer_pkg {
+            let refusal = crate::build::workspace::reach_refusal(
+                ws.package(from),
+                ws.package(loc.package),
+                "imports",
+                span,
+            );
+            self.diags.extend(refusal);
         }
 
         // A test source is not a module anybody can name. Test sources are

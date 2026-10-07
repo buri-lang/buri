@@ -34,8 +34,9 @@ To learn it by writing a repository, start with
   tests import `//lib/money`, the same name a dependent writes. Fixtures a
   library offers *to other people's tests* live in `testing/`, and that path
   segment stops production code from importing them.
-- **Each directory under `apps/` is one app, and no app reaches another's
-  packages.** Code two apps share lives in `libs/`.
+- **Each directory under `apps/` is one app.** No app reaches another's
+  packages, and nothing outside `apps/` reaches an app's. Shared code lives in
+  `libs/`.
 - **Everything is declared**: sources, test sources, dependencies, outputs,
   visibility, tags. No globs, no discovery. A file on disk that no rule lists is
   an error.

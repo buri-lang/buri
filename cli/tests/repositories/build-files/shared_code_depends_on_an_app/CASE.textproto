@@ -1,0 +1,147 @@
+# Shared code reaching into an app. //libs/bridge names //apps/api in
+# `dependencies` and imports it, and //platform/kit imports it and, later,
+# names it too. //apps/api is public, so visibility has nothing to say. An
+# app's packages are for that app alone, so each is refused, and so is every
+# app that reaches them.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a library in libs/ or a platform that depends on or imports an app's package: shared-depends-on-app, from every command that loads the graph"
+
+run {
+  args: ["build", "//libs/bridge"]
+  exit: 1
+  golden: "lib_build.txt"
+}
+
+run {
+  args: ["lint", "//libs/bridge"]
+  exit: 1
+  golden: "lib_lint.txt"
+}
+
+run {
+  args: ["lint", "//libs/bridge", "--error-format=json"]
+  exit: 1
+  golden: "lib_lint.json"
+}
+
+run {
+  args: ["gen", "//libs/bridge"]
+  exit: 1
+  golden: "lib_gen.txt"
+}
+
+# An app reaching it through //libs/bridge is refused at the edge that is
+# wrong, which is the library's.
+run {
+  args: ["build", "//apps/web"]
+  exit: 1
+  golden: "indirect_build.txt"
+}
+
+run {
+  args: ["test", "//apps/web"]
+  exit: 1
+  golden: "indirect_test.txt"
+  stream: ERR
+}
+
+run {
+  args: ["run", "//apps/web"]
+  exit: 1
+  golden: "indirect_run.txt"
+}
+
+# The platform's import, through the binary built for it.
+run {
+  args: ["build", "//apps/kitted"]
+  exit: 1
+  golden: "platform_import_build.txt"
+}
+
+run {
+  args: ["lint", "//apps/kitted"]
+  exit: 1
+  golden: "platform_import_lint.txt"
+}
+
+# The library's import alone is refused too, and not offered as a missing
+# dependency.
+edit {
+  file: "libs/bridge/BUILD.buri"
+  replace: "    dependencies: [\"//apps/api\"]\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//libs/bridge"]
+  exit: 1
+  golden: "lib_import_only.txt"
+}
+
+# A platform's `dependencies` are read with the graph, so naming an app there
+# stops every command, whichever target it names.
+edit {
+  file: "platform/kit/BUILD.buri"
+  replace: "platform {\n"
+  with: "platform {\n    dependencies: [\"//apps/api\"]\n\n"
+}
+
+run {
+  args: ["build", "//apps/kitted"]
+  exit: 2
+  golden: "platform_dependency.txt"
+}
+
+run {
+  args: ["lint", "//libs/greeting"]
+  exit: 2
+  golden: "platform_dependency_lint.txt"
+}
+
+# The fix the diagnostics printed: the code both need, from libs/.
+edit {
+  file: "libs/bridge/BUILD.buri"
+  replace: "    sources: [\"relay.buri\"]\n"
+  with: "    sources: [\"relay.buri\"]\n    dependencies: [\"//libs/greeting\"]\n"
+}
+
+edit {
+  file: "libs/bridge/relay.buri"
+  replace: "from \"//apps/api\""
+  with: "from \"//libs/greeting\""
+}
+
+edit {
+  file: "platform/kit/BUILD.buri"
+  replace: "dependencies: [\"//apps/api\"]"
+  with: "dependencies: [\"//libs/greeting\"]"
+}
+
+edit {
+  file: "platform/kit/platform.buri"
+  replace: "from \"//apps/api\""
+  with: "from \"//libs/greeting\""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+run {
+  args: ["run", "//apps/web"]
+  exit: 0
+  golden: "fixed_web.txt"
+  stream: OUT
+}
+
+run {
+  args: ["run", "//apps/kitted"]
+  exit: 0
+  golden: "fixed_kitted.txt"
+  stream: OUT
+}
