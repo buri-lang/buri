@@ -4,6 +4,14 @@
 //! to the platform, and checked against the NIST vectors. SHA-1 is here too, for
 //! reading formats that already use it — see its own note.
 //!
+//! # Post-quantum by default
+//!
+//! `seal`, `open`, `sha256`, `sha512` and both HMACs stay secure against a
+//! quantum computer, and so does a native program's TLS: `core/net` negotiates
+//! hybrid X25519MLKEM768 key exchange by default. The `verify*` functions check
+//! classical signatures, because that is what identity providers send.
+//! Public-key encryption and signing come later, as a versioned post-quantum API.
+//!
 //! # Randomness that cannot be guessed
 //!
 //! `randomBytes` and `token` are **not** written in the language. They perform
@@ -28,7 +36,8 @@
 //!
 //! # What is not here
 //!
-//! - **No signing and no key generation.** Only checking.
+//! - **No signing and no key generation.** Only checking, until the
+//!   post-quantum API above.
 //! - **No RSA-PSS and no RSA encryption.** RS256 is the one RSA scheme.
 //! - **No key derivation and no password hashing.**
 //!
