@@ -316,6 +316,17 @@ fn the_recording_covers_every_fixed_class_of_bug() {
         "Required.Proto3.ProtobufInput.ValidDataMap.BOOL.BOOL.DuplicateKeyInMapEntry.ProtobufOutput",
         "Required.Proto3.JsonInput.Int64MapEscapedKey.JsonOutput",
         "Required.Proto3.JsonInput.BoolMapField.ProtobufOutput",
+        // The well-known types and their JSON.
+        "Required.Proto3.JsonInput.DurationMinValue.JsonOutput",
+        "Required.Proto3.JsonInput.DurationJsonInputTooLarge",
+        "Required.Proto3.JsonInput.TimestampWithNegativeOffset.JsonOutput",
+        "Required.Proto3.JsonInput.TimestampJsonInputLowercaseT",
+        "Required.Proto3.JsonInput.FieldMask.ProtobufOutput",
+        "Required.Proto3.JsonInput.Struct.JsonOutput",
+        "Required.Proto3.JsonInput.ValueAcceptNull.JsonOutput",
+        "Required.Proto3.JsonInput.RepeatedListValue.ProtobufOutput",
+        "Required.Proto3.JsonInput.OptionalUint64Wrapper.JsonOutput",
+        "Required.Proto3.JsonInput.OptionalWrapperTypesWithNonDefaultValue.JsonOutput",
     ];
     let missing: Vec<_> = wanted.iter().filter(|w| !names.contains(**w)).collect();
     assert!(missing.is_empty(), "vectors.txt does not record these passing: {missing:?}");
