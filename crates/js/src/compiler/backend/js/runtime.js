@@ -5918,6 +5918,100 @@ function $tree_bubble(wrapper, bubble) {
   $ui_dispose_with($dom_keys(wrapper, onKey));
 }
 
+// A focusable element's `hasFocus` and `isInFocusOrder`, wired. `focus` is the
+// `Focus` a node carries, `[signal, order]`, each `undefined` when left out, and
+// `natural` says the element takes the focus by itself, as a control and a link
+// do. The order is `tabindex`. The signal is written by `focus` and `blur`, and
+// writing it calls `focus()` or `blur()`, so it follows the focus both ways.
+// The substitute document has no focus, so it carries the attributes only.
+function $tree_focus(element, focus, natural) {
+  const signal = focus[0];
+  const order = focus[1];
+  if (order !== undefined) {
+    $tree_bind(order, (on) => $dom_attribute(element, "tabindex", on ? "0" : "-1"));
+  } else if (signal !== undefined && !natural) {
+    // A box the program moves the focus to takes it without joining the order.
+    $dom_attribute(element, "tabindex", "-1");
+  }
+  if (signal === undefined || element.$shim) return;
+  const cell = signal[0];
+  $dom_listen(element, "focus", () => $ui_flush(() => $ui_write(cell, true)));
+  $dom_listen(element, "blur", () => $ui_flush(() => $ui_write(cell, false)));
+  $tree_bind([1, signal], (on) => {
+    const document = element.ownerDocument;
+    if (on && document.activeElement !== element) {
+      element.focus();
+      $tree_refused(element, cell);
+    } else if (!on && document.activeElement === element) {
+      element.blur();
+    }
+  });
+  $tree_unmounted(cell);
+}
+
+// A radio group's `hasFocus`, true while any of its options has the focus, and
+// its `isInFocusOrder`, which takes every option out of the order or puts them
+// back. Writing `true` focuses the checked option, or the first enabled one.
+function $tree_focusWithin(group, radios, focus) {
+  const signal = focus[0];
+  const order = focus[1];
+  if (order !== undefined) {
+    $tree_bind(order, (on) => {
+      for (const radio of radios) {
+        if (!on) $dom_attribute(radio, "tabindex", "-1");
+        else if (radio.$shim) delete radio.attributes.tabindex;
+        else radio.removeAttribute("tabindex");
+      }
+    });
+  }
+  if (signal === undefined || group.$shim) return;
+  const cell = signal[0];
+  $dom_listen(group, "focusin", () => $ui_flush(() => $ui_write(cell, true)));
+  $dom_listen(group, "focusout", (event) => {
+    // Focus moving from one option to the next stays inside.
+    const next = event === undefined ? null : event.relatedTarget;
+    if (next !== null && next !== undefined && $dom_within(group, next)) return;
+    $ui_flush(() => $ui_write(cell, false));
+  });
+  $tree_bind([1, signal], (on) => {
+    const document = group.ownerDocument;
+    const inside = document.activeElement !== null && $dom_within(group, document.activeElement);
+    if (on && !inside) {
+      const target = radios.find((r) => r.checked) || radios.find((r) => !r.disabled);
+      if (target !== undefined) {
+        target.focus();
+        $tree_refused(target, cell);
+      }
+    } else if (!on && inside) {
+      document.activeElement.blur();
+    }
+  });
+  $tree_unmounted(cell);
+}
+
+// A `focus()` that didn't take — a disabled control, or one an open dialog has
+// made inert — writes the signal `false` back, so it never says an element
+// has the focus that doesn't. After the update the call came from, because a
+// watcher that wrote what it read would run again inside itself.
+function $tree_refused(element, cell) {
+  if (element.ownerDocument.activeElement === element) return;
+  queueMicrotask(() => {
+    if (element.ownerDocument.activeElement !== element && $ui_read(cell) === true) {
+      $ui_flush(() => $ui_write(cell, false));
+    }
+  });
+}
+
+// An element that goes while it has the focus fires no `blur` in every
+// browser, so the signal is written `false` when the subtree it is in is
+// disposed.
+function $tree_unmounted(cell) {
+  $ui_dispose_with(() => {
+    const n = $ui.nodes[cell];
+    if (n !== undefined && n.value === true) $ui_write(cell, false);
+  });
+}
+
 // Renders one node into `parent`, before `anchor` — or at the end of `parent`
 // when there is none.
 //
@@ -5954,7 +6048,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // glyph or a repeated caption is drawn and never read out.
     if (node[4]) $dom_attribute(element, "aria-hidden", "true");
     $tree_children(ctx, element, node[1], node[2]);
-    $tree_events(ctx, element, node[5]);
+    $tree_focus(element, node[5], false);
+    $tree_events(ctx, element, node[6]);
     return;
   }
   if (tag === 4) {
@@ -5963,7 +6058,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     for (let i = 1; i + 1 < role.length; i += 2) $dom_attribute(element, role[i], role[i + 1]);
     $tree_bind(node[4], (current) => $dom_flag(element, "aria-current", current));
     $tree_children(ctx, element, node[2], node[3]);
-    $tree_events(ctx, element, node[5]);
+    $tree_focus(element, node[5], false);
+    $tree_events(ctx, element, node[6]);
     return;
   }
   if (tag === 5) {
@@ -6000,7 +6096,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       // one pass over the watchers rather than three.
       $ui_flush(() => onPress($taskApart(ctx), [0])),
     );
-    $tree_events(ctx, element, node[8]);
+    $tree_focus(element, node[8], true);
+    $tree_events(ctx, element, node[9]);
     return;
   }
   if (tag === 6) {
@@ -6041,7 +6138,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $tree_children(ctx, element, node[2], node[3]);
     // The current page, written only when it is `true`, the way a button's is.
     $tree_bind(node[5], (current) => $dom_flag(element, "aria-current", current));
-    $tree_events(ctx, element, node[6]);
+    $tree_focus(element, node[6], true);
+    $tree_events(ctx, element, node[7]);
     return;
   }
   if (tag === 7) {
@@ -6136,7 +6234,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       $dom_listen(element, "mouseup", report);
       $dom_listen(element, "focus", report);
     }
-    $tree_events(ctx, wrapper, node[10]);
+    $tree_focus(element, node[10], true);
+    $tree_events(ctx, wrapper, node[11]);
     return;
   }
   if (tag === 10) {
@@ -6170,7 +6269,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       if (element.value !== text) element.value = text;
     });
     $dom_listen(element, "input", () => $ui_flush(() => $ui_write(cell, Number(element.value))));
-    $tree_events(ctx, wrapper, node[9]);
+    $tree_focus(element, node[9], true);
+    $tree_events(ctx, wrapper, node[10]);
     return;
   }
   if (tag === 11) {
@@ -6192,7 +6292,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       element.checked = value;
     });
     $dom_listen(element, "change", () => $ui_flush(() => $ui_write(cell, element.checked)));
-    $tree_events(ctx, wrapper, node[8]);
+    $tree_focus(element, node[8], true);
+    $tree_events(ctx, wrapper, node[9]);
     return;
   }
   if (tag === 12) {
@@ -6212,10 +6313,12 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     const name = "buri-radio-" + $tree_radio_groups++;
     const cell = node[4][0];
     const disabled = node[6];
+    const radios = [];
     for (const option of node[2]) {
       const key = option[0];
       const wrapper = $tree_element(group, "label", null);
       const input = $tree_element(wrapper, "input", null);
+      radios.push(input);
       $dom_attribute(input, "type", "radio");
       $dom_attribute(input, "name", name);
       // The key is the input's `value`, and what the signal holds when this is
@@ -6239,7 +6342,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
         if (input.checked) $ui_flush(() => $ui_write(cell, key));
       });
     }
-    $tree_events(ctx, group, node[7]);
+    $tree_focusWithin(group, radios, node[7]);
+    $tree_events(ctx, group, node[8]);
     return;
   }
   if (tag === 13) {
@@ -6270,7 +6374,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // disabled submit button, so the attribute is the whole of it.
     $tree_disabled(element, node[3]);
     $tree_text(node[1], element, null);
-    $tree_events(ctx, element, node[4]);
+    $tree_focus(element, node[4], true);
+    $tree_events(ctx, element, node[5]);
     return;
   }
   if (tag === 15) {
@@ -6918,9 +7023,11 @@ function $scene_open(ctx) {
     // What the pointer handler being fired reads back: where the pointer is and
     // the row under it (undefined for none).
     pointer: { x: 0, y: 0, row: undefined },
-    // The element the pointer is over and the one with the focus, or -1.
+    // The element the pointer is over, and the stop with the focus, or -1.
     hovered: -1,
     focused: -1,
+    // Every element the focus can land on, by the key `focusKey` minted.
+    stops: [],
     // What the key handler being fired reads back, and whether one claimed it.
     key: { name: "", claimed: false },
     ctx,
@@ -6967,6 +7074,8 @@ function $scene_record(kind, name, body, text) {
     tipDismissed: false,
     // An `onKey`'s handler thunk, or null — `key` fires it.
     key: null,
+    // The stop this element draws, or -1 for one the focus never lands on.
+    focusKey: -1,
   };
 }
 
@@ -7081,6 +7190,9 @@ function $ui_node_beginRegion(builder, region) {
 function $ui_node_endRegion(builder) {
   const doc = $scene_of(builder);
   if (doc.cursor.length > 1) doc.cursor.pop();
+  // A widget rebuilt in place has handed its focus to the record it drew, so
+  // the focus is lost only when what had it went for good.
+  $scene_checkFocus(doc);
 }
 
 // Clears a region and points the builder at the gap, the native
@@ -7110,6 +7222,7 @@ function $ui_node_rebuildRegion(builder, region, node, walk) {
   $scene_beginRegion(doc, Number(region));
   walk(doc.ctx, builder, node);
   if (doc.cursor.length > 1) doc.cursor.pop();
+  $scene_checkFocus(doc);
 }
 
 // A marker under `parent`, inserted before the child `anchor` — the positional
@@ -7210,6 +7323,8 @@ function $ui_node_reconcile(builder, region, keys, build) {
     $ui_forget(listOwner, row.owner);
   }
   reg.rows = next;
+  // A row that left with the focus took it with it.
+  $scene_checkFocus(doc);
 }
 
 // A button's or a form's handler, kept as a thunk on the open element so a
@@ -7618,14 +7733,15 @@ function $host_testing_Rendered_isCurrent(self, name) {
 // focused element is inside it and Escape hasn't hidden it, and Escape's hiding
 // ends once neither is. An equal write is no write.
 function $scene_syncTips(doc) {
+  const focused = $scene_focusedRecord(doc);
   const wanted = [];
   for (const [i] of $scene_ordered(doc)) {
     const r = doc.records[i];
     if (r.tip < 0) continue;
     const over = doc.hovered >= 0 && $scene_within(doc, i, doc.hovered);
-    const focused = doc.focused >= 0 && $scene_within(doc, i, doc.focused);
-    if (!over && !focused) r.tipDismissed = false;
-    wanted.push([r.tip, (over || focused) && !r.tipDismissed]);
+    const inside = focused >= 0 && $scene_within(doc, i, focused);
+    if (!over && !inside) r.tipDismissed = false;
+    wanted.push([r.tip, (over || inside) && !r.tipDismissed]);
   }
   if (wanted.length === 0) return;
   $ui_flush(() => {
@@ -7641,21 +7757,204 @@ function $scene_hover(doc, node) {
   $scene_syncTips(doc);
 }
 
-// Whether a reader can focus `node`: a control or a link, enabled, and not
-// behind an open dialog — the native `Document::focusable`.
-function $scene_focusable(doc, node) {
-  const r = doc.records[node];
+// --- The focus ----------------------------------------------------------------
+//
+// The native document's `Stop`s: one per element the focus can land on, minted
+// once by `focusKey` and handed to whichever record draws the element now, so a
+// widget that rebuilds its record keeps the focus. `doc.focused` is a stop.
+
+// The record that draws stop `key` now, while it is in the tree, or -1.
+function $scene_stopRecord(doc, key) {
+  const stop = doc.stops[key];
+  if (stop === undefined || stop.record < 0) return -1;
+  return $scene_within(doc, 0, stop.record) ? stop.record : -1;
+}
+
+function $scene_focusedRecord(doc) {
+  return doc.focused >= 0 ? $scene_stopRecord(doc, doc.focused) : -1;
+}
+
+// The stop with the focus, while what draws it is in the tree, or -1.
+function $scene_focusNow(doc) {
+  return doc.focused >= 0 && $scene_stopRecord(doc, doc.focused) >= 0 ? doc.focused : -1;
+}
+
+// Whether a reader can focus stop `key` — the native `Document::focusable`.
+function $scene_focusable(doc, key) {
+  const stop = doc.stops[key];
+  if (stop === undefined) return false;
+  const record = $scene_stopRecord(doc, key);
+  if (record < 0) return false;
+  const r = doc.records[record];
   return (
+    !stop.within &&
+    (stop.natural || stop.signal >= 0 || stop.order !== undefined) &&
     r.kind === 0 &&
-    ($SCENE_CONTROL[r.name] === true || r.name === "a") &&
     !$scene_isDisabled(r.body) &&
-    !$scene_inert(doc, node)
+    !$scene_inert(doc, record)
   );
 }
 
-// The focused element while it is still in the tree, or -1.
-function $scene_focusNow(doc) {
-  return doc.focused >= 0 && $scene_within(doc, 0, doc.focused) ? doc.focused : -1;
+function $scene_inOrder(doc, key) {
+  if (!$scene_focusable(doc, key)) return false;
+  const stop = doc.stops[key];
+  return stop.order === undefined ? stop.natural : stop.order;
+}
+
+// The stops in the focus order, in document order.
+function $scene_order(doc) {
+  const out = [];
+  for (const [i] of $scene_ordered(doc)) {
+    const key = doc.records[i].focusKey;
+    if (key >= 0 && $scene_inOrder(doc, key)) out.push(key);
+  }
+  return out;
+}
+
+// Where `focus(name)` lands — the native `Document::focus_target`.
+function $scene_focusTarget(doc, node) {
+  const take = (i) => {
+    const key = doc.records[i].focusKey;
+    return key >= 0 && $scene_focusable(doc, key) ? key : -1;
+  };
+  const inside = [node];
+  const walk = (at) => {
+    for (const child of doc.records[at].children) {
+      inside.push(child);
+      walk(child);
+    }
+  };
+  walk(node);
+  for (const i of inside) {
+    const key = take(i);
+    if (key >= 0) return key;
+  }
+  for (let at = doc.records[node].parent; at !== null && at !== undefined; at = doc.records[at].parent) {
+    const key = take(at);
+    if (key >= 0) return key;
+  }
+  return -1;
+}
+
+// The writes the focus moving from stop `old` to stop `fresh` makes — the
+// native `Document::moved`.
+function $scene_moved(doc, old, fresh) {
+  const oldAt = old >= 0 ? doc.stops[old].record : -1;
+  const freshAt = fresh >= 0 ? doc.stops[fresh].record : -1;
+  const out = [];
+  doc.stops.forEach((stop, key) => {
+    if (stop.signal < 0) return;
+    if (stop.within) {
+      if (stop.record < 0) return;
+      const had = oldAt >= 0 && $scene_within(doc, stop.record, oldAt);
+      const has = freshAt >= 0 && $scene_within(doc, stop.record, freshAt);
+      if (had || has) out.push([stop.signal, has]);
+    } else if (key === old || key === fresh) {
+      out.push([stop.signal, key === fresh]);
+    }
+  });
+  return out;
+}
+
+function $scene_writeFocus(writes) {
+  if (writes.length === 0) return;
+  $ui_flush(() => {
+    for (const [signal, on] of writes) $ui_write(signal, on);
+    return 0;
+  });
+}
+
+// Moves the focus to stop `fresh`, or off the page for -1 — the native
+// `set_focus`.
+function $scene_setFocus(doc, fresh) {
+  const old = $scene_focusNow(doc);
+  if (old === fresh) return;
+  doc.focused = fresh;
+  $scene_writeFocus($scene_moved(doc, old, fresh));
+  $scene_syncTips(doc);
+}
+
+// After a region or a row went — the native `check_focus`.
+function $scene_checkFocus(doc) {
+  const lost = doc.focused;
+  if (lost < 0 || $scene_stopRecord(doc, lost) >= 0) return;
+  doc.focused = -1;
+  const writes = [];
+  const stop = doc.stops[lost];
+  if (stop !== undefined && stop.signal >= 0 && !stop.within) writes.push([stop.signal, false]);
+  for (const other of doc.stops) {
+    if (other.within && other.signal >= 0) writes.push([other.signal, false]);
+  }
+  $scene_writeFocus(writes);
+  $scene_syncTips(doc);
+}
+
+function $ui_node_focusKey(builder) {
+  const doc = $scene_of(builder);
+  doc.stops.push({ record: -1, natural: false, order: undefined, signal: -1, within: false });
+  return BigInt(doc.stops.length - 1);
+}
+
+function $ui_node_attachFocus(builder, key, natural) {
+  const doc = $scene_of(builder);
+  const stop = doc.stops[Number(key)];
+  if (stop === undefined) return;
+  const open = $scene_openElement(doc);
+  stop.record = open;
+  stop.natural = natural;
+  if (doc.records[open] !== undefined) doc.records[open].focusKey = Number(key);
+}
+
+function $ui_node_setFocusOrder(builder, key, on) {
+  const stop = $scene_of(builder).stops[Number(key)];
+  if (stop !== undefined) stop.order = on;
+}
+
+function $ui_node_bindFocusSignal(builder, key, signal, within) {
+  const stop = $scene_of(builder).stops[Number(key)];
+  if (stop === undefined) return;
+  stop.signal = Number(signal);
+  stop.within = within;
+}
+
+// The program wrote stop `key`'s signal — the native `requestFocus`.
+function $ui_node_requestFocus(builder, key, on) {
+  const doc = $scene_of(builder);
+  const k = Number(key);
+  const stop = doc.stops[k];
+  if (stop === undefined) return;
+  const focused = $scene_focusedRecord(doc);
+  const here = stop.within
+    ? stop.record >= 0 && focused >= 0 && $scene_within(doc, stop.record, focused)
+    : $scene_focusNow(doc) === k;
+  if (!on) {
+    if (here) $scene_setFocus(doc, -1);
+    return;
+  }
+  if (here) return;
+  let target = -1;
+  const group = $scene_stopRecord(doc, k);
+  if (stop.within && group >= 0) {
+    const inside = [];
+    const walk = (at) => {
+      for (const child of doc.records[at].children) {
+        const sk = doc.records[child].focusKey;
+        if (sk >= 0) inside.push(sk);
+        walk(child);
+      }
+    };
+    walk(group);
+    target = inside.find((s) => $scene_inOrder(doc, s)) ?? inside.find((s) => $scene_focusable(doc, s)) ?? -1;
+  } else if (!stop.within && $scene_focusable(doc, k)) {
+    target = k;
+  }
+  if (target >= 0) $scene_setFocus(doc, target);
+  else $scene_writeFocus([[stop.signal, false]]);
+}
+
+function $ui_node_relabel(builder, at, label) {
+  const record = $scene_of(builder).records[Number(at)];
+  if (record !== undefined) record.label = label;
 }
 
 function $host_testing_Rendered_description(self, name) {
@@ -7668,35 +7967,75 @@ function $host_testing_Rendered_description(self, name) {
 
 function $host_testing_Rendered_focus(self, name) {
   const doc = $scene_of(self);
-  let target = -1;
-  for (let at = $scene_named(doc, name); at !== null && at !== undefined && at >= 0; at = doc.records[at].parent) {
-    if ($scene_focusable(doc, at)) {
-      target = at;
-      break;
-    }
-  }
+  const node = $scene_named(doc, name);
+  const target = node < 0 ? -1 : $scene_focusTarget(doc, node);
   if (target < 0) $abort('this tree has nothing to focus named "' + name + '"');
-  doc.focused = target;
-  $scene_syncTips(doc);
+  $scene_setFocus(doc, target);
+  return 0;
+}
+
+function $host_testing_Rendered_focused(self) {
+  const doc = $scene_of(self);
+  const record = $scene_focusedRecord(doc);
+  if (record < 0) return "";
+  const r = doc.records[record];
+  if (r.label !== "") return r.label;
+  // A field's control is named by the label around it, as a reader hears it.
+  if ((r.name === "input" || r.name === "textarea") && r.parent !== null) {
+    const label = $scene_enclosing(doc, r.parent, "label");
+    if (label >= 0) return $scene_accessibleName(doc, label);
+  }
+  return $scene_accessibleName(doc, record);
+}
+
+// Fires every `onKey` from the focused element out with `name` and answers
+// whether one claimed it — the native `dispatch_key`.
+function $scene_dispatchKey(doc, name) {
+  doc.key = { name, claimed: false };
+  const path = [];
+  for (let at = $scene_focusedRecord(doc); at !== null && at !== undefined && at >= 0; at = doc.records[at].parent) {
+    if (doc.records[at].key !== null) path.push(doc.records[at].key);
+  }
+  for (const handler of path) handler();
+  return doc.key.claimed;
+}
+
+// Tab and Shift+Tab — the native `tab`.
+function $scene_tab(doc, forward) {
+  if ($scene_dispatchKey(doc, "Tab")) return;
+  const order = $scene_order(doc);
+  if (order.length === 0) return;
+  const now = $scene_focusNow(doc);
+  const at = now < 0 ? -1 : order.indexOf(now);
+  const n = order.length;
+  const index = at < 0 ? (forward ? 0 : n - 1) : forward ? (at + 1) % n : (at + n - 1) % n;
+  $scene_setFocus(doc, order[index]);
+}
+
+function $host_testing_Rendered_tab(self) {
+  $scene_tab($scene_of(self), true);
+  return 0;
+}
+
+function $host_testing_Rendered_shiftTab(self) {
+  $scene_tab($scene_of(self), false);
   return 0;
 }
 
 function $host_testing_Rendered_key(self, name) {
   const doc = $scene_of(self);
-  doc.key = { name, claimed: false };
-  // The path is taken before any handler runs, the way a browser's is.
-  const path = [];
-  for (let at = $scene_focusNow(doc); at !== null && at !== undefined && at >= 0; at = doc.records[at].parent) {
-    if (doc.records[at].key !== null) path.push(doc.records[at].key);
+  if (name === "Tab") {
+    $scene_tab(doc, true);
+    return 0;
   }
-  for (const handler of path) handler();
-  if (doc.key.claimed || name !== "Escape") return 0;
+  if ($scene_dispatchKey(doc, name) || name !== "Escape") return 0;
+  const focused = $scene_focusedRecord(doc);
   for (const [i] of $scene_ordered(doc)) {
     const r = doc.records[i];
     if (r.tip < 0) continue;
     const over = doc.hovered >= 0 && $scene_within(doc, i, doc.hovered);
-    const focused = doc.focused >= 0 && $scene_within(doc, i, doc.focused);
-    if (over || focused) r.tipDismissed = true;
+    const inside = focused >= 0 && $scene_within(doc, i, focused);
+    if (over || inside) r.tipDismissed = true;
   }
   $scene_syncTips(doc);
   return 0;
@@ -7709,8 +8048,11 @@ function $host_testing_Rendered_press(self, label) {
   // Out of reach when the pointer passes through it, or when a `dialog` has
   // taken it out of the page.
   if (!$scene_reachable(doc, button) || $scene_inert(doc, button)) return 0;
-  // A press is the pointer's, so the button is what the pointer is over.
+  // A press is the pointer's, so the button is what the pointer is over, and
+  // it takes the focus before its handler runs, the way a browser's does.
   $scene_hover(doc, button);
+  const stop = doc.records[button].focusKey;
+  if (stop >= 0 && $scene_focusable(doc, stop)) $scene_setFocus(doc, stop);
   // The press reaches the document before the button: an overlay watching for a
   // press outside itself sees this one and fires on it, unless it landed inside
   // its subtree. A pair whose subtree has gone is dead and fires nothing.

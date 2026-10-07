@@ -1,0 +1,28 @@
+// The same form in two states. In either, the ring is on the field that has
+// the focus and on no other: hovered asks nothing about focus, and focused is
+// answered by each field's own signal rather than by the picture.
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+from "//lib/form" import { form };
+
+test "the field with the focus draws its ring in a hovered picture" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, form(ctx), .Hover);
+    assert.containsText(scene, "focused:true");
+    assert.containsText(scene, "focused:false");
+    snapshot(ctx, "focus-hovered", form(ctx), .Hover, []);
+}
+
+test "a focused picture draws the ring on that field alone" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "focus-focused", form(ctx), .Focus, []);
+}

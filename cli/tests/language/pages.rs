@@ -276,6 +276,115 @@ export fn main(host: WebHost): Result<(), Str> {
 }
 "#;
 
+/// A menu button and the menu it opens. Opening it puts the focus on its first
+/// item, and Escape shuts it and hands the focus back to the button. A line
+/// under them says what the three signals hold.
+const MENU_PAGE: &str = r#"from "core/str" import * as str;
+from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let open = signal(ctx, false);
+    let trigger = signal(ctx, false);
+    let first = signal(ctx, false);
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Actions"),
+                    styles: [],
+                    onPress: .Some(fn(c) => {
+                        let _ = open.set(c, true);
+                        first.set(c, true)
+                    }),
+                    hasFocus: .Some(trigger),
+                }),
+                ui.choose(
+                    .Cell(open),
+                    ui.stack({
+                        styles: [],
+                        children: [
+                            ui.button({
+                                label: .Const("Rename"),
+                                styles: [],
+                                onPress: .Some(fn(c) => open.set(c, false)),
+                                hasFocus: .Some(first),
+                            }),
+                            ui.button({
+                                label: .Const("Delete"),
+                                styles: [],
+                                onPress: .Some(fn(c) => open.set(c, false)),
+                                isInFocusOrder: .Some(.Const(false)),
+                            }),
+                        ],
+                        role: .Some(.Group),
+                        onKey: .Some(fn(c, key) => {
+                            if (key == "Escape") {
+                                let _ = open.set(c, false);
+                                let _ = trigger.set(c, true);
+                                true
+                            } else {
+                                false
+                            }
+                        }),
+                    }),
+                    ui.empty(),
+                ),
+                ui.text({
+                    content: .Computed(fn(s) => {
+                        str.format(s, "open:${open.get(s)} trigger:${trigger.get(s)} first:${first.get(s)}")
+                    }),
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_menu_takes_the_focus_and_escape_hands_it_back_to_its_trigger() {
+    let printed = drive(
+        "focus-page",
+        MENU_PAGE,
+        r#"
+const said = () => body.childNodes[0].childNodes.at(-1).data;
+const name = () => document.activeElement?.attributes["aria-label"] ?? "nothing";
+const actions = labelled("Actions");
+console.log(said());
+// A browser focuses what the pointer presses, then clicks it.
+actions.focus();
+console.log(`pressed ${name()} ${said()}`);
+fire(actions, "click");
+console.log(`opened ${name()} ${said()}`);
+console.log(`order ${labelled("Delete").attributes.tabindex}`);
+const escaped = press("Escape");
+console.log(`escaped ${name()} ${said()} claimed:${escaped.defaultPrevented}`);
+console.log(`menu ${labelled("Rename") === null ? "gone" : "there"}`);
+labelled("Actions").blur();
+console.log(`blurred ${name()} ${said()}`);
+"#,
+    );
+    assert_eq!(
+        printed,
+        "open:false trigger:false first:false\n\
+         pressed Actions open:false trigger:true first:false\n\
+         opened Rename open:true trigger:false first:true\n\
+         order -1\n\
+         escaped Actions open:false trigger:true first:false claimed:true\n\
+         menu gone\n\
+         blurred nothing open:false trigger:false first:false\n"
+    );
+}
+
 #[test]
 fn a_tooltip_shows_on_hover_and_on_focus_and_escape_hides_it() {
     let printed = drive(

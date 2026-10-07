@@ -731,6 +731,68 @@ test "a tooltip the worker sends is hidden, and named by its trigger" {
     );
 }
 
+test "a worker sends the focus order as tabindex" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A box the program moves the focus to takes it without joining the order.
+    assert.equal(
+        web.render<()>(
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("Panel") })],
+                hasFocus: .Some(signal(ctx, false)),
+            }),
+        ),
+        "<div tabindex=\"-1\">Panel</div>",
+    );
+    // One that says it is in the order is in it.
+    assert.equal(
+        web.render<()>(
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("Row") })],
+                role: .Some(.ListItem),
+                isInFocusOrder: .Some(.Const(true)),
+            }),
+        ),
+        "<li tabindex=\"0\">Row</li>",
+    );
+    // A control is in it until it says it isn't.
+    assert.equal(
+        web.render<()>(
+            ui.button({
+                label: .Const("Skip"),
+                styles: [],
+                onPress: .Some(fn(_c) => ()),
+                isInFocusOrder: .Some(.Const(false)),
+            }),
+        ),
+        "<button type=\"button\" aria-label=\"Skip\" tabindex=\"-1\">Skip</button>",
+    );
+    assert.equal(
+        web.render<()>(
+            ui.button({
+                label: .Const("Go"),
+                styles: [],
+                onPress: .Some(fn(_c) => ()),
+            }),
+        ),
+        "<button type=\"button\" aria-label=\"Go\">Go</button>",
+    );
+    // A radio group out of the order takes every option out of it.
+    let group = web.render<()>(
+        ui.picker({
+            label: .Const("Plan"),
+            options: [("free", ui.text({ content: .Const("Free") }))],
+            value: signal(ctx, "free"),
+            styles: [],
+            isInFocusOrder: .Some(.Const(false)),
+        }),
+    );
+    assert.containsText(group, "value=\"free\" tabindex=\"-1\"");
+}
+
 test "a breadcrumb the worker sends marks its last step and hides its separators" {
     // The last step isn't a link, so the stack says it is the current page; the
     // slash between two steps is drawn and never read out.
