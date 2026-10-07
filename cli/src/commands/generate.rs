@@ -198,7 +198,7 @@ impl Answers {
             .collect()
     }
 
-    /// Files each package's answer what it read, before anything is written.
+    /// Keeps each package's answer and what it read, before `gen` writes a build file.
     fn remember(
         &self,
         session: &Session,
