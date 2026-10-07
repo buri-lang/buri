@@ -1244,6 +1244,13 @@ pub unsafe extern "C" fn buri_rt_str_hash(base: *mut u8, ptr: *const u8, len: u6
     unsafe { crate::hash::buri_rt_hash_str(crate::hash::BURI_RT_HASH_SEED, base, ptr, len) }
 }
 
+/// `str.utf8Length(self) -> Int`. A `Str` is its UTF-8, so this is its byte
+/// length with the ASCII flag masked off.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_str_utf8_length(_base: *mut u8, _ptr: *const u8, len: u64) -> u64 {
+    len & BURI_RT_STR_LEN_MASK
+}
+
 /// `str.fromFloat(ctx, x) -> Str`.
 ///
 /// The mangling rule (`lib.rs` §1) names this symbol for the intrinsic key

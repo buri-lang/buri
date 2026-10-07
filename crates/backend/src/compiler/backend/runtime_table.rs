@@ -500,6 +500,7 @@ pub const ENTRIES: &[Entry] = &[
     e("str.hash", &[Str], Ret::Scalar),
     e("str.toInt", &[Str], Ret::Sum),
     e("str.toFloat", &[Str], Ret::Sum),
+    e("str.utf8Length", &[Str], Ret::Scalar),
     // -- core/str, `Allocator`-bounded ------------------------------------------
     e("str.split", &[Str, Dropped, Str], Ret::Out),
     e("str.splitAny", &[Str, Dropped, Str], Ret::Out),

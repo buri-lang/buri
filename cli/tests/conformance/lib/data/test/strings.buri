@@ -4,6 +4,7 @@
 // values, not UTF-8 bytes and not UTF-16 code units, so every length, index,
 // and slice test below uses a non-BMP character somewhere.
 
+from "core/bytes" import * as bytes;
 from "core/character" import * as character;
 from "core/list" import * as list;
 from "core/order" import * as order;
@@ -38,6 +39,22 @@ test "length of a mixed string counts scalar values" {
 
 test "length of a string of only non-BMP characters" {
     assert.equal("😀😁😂".length(), 3);
+}
+
+test "utf8Length counts UTF-8 bytes, the count toUtf8 makes" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal("".utf8Length(), 0);
+    assert.equal("hello".utf8Length(), 5);
+    // One, two, three and four bytes, and a string of all four.
+    assert.equal("é".utf8Length(), 2);
+    assert.equal("€".utf8Length(), 3);
+    assert.equal("😀".utf8Length(), 4);
+    let mixed = "aé€😀";
+    assert.equal(mixed.utf8Length(), 10);
+    assert.equal(mixed.slice(1, 3).utf8Length(), 5);
+    assert.equal(mixed.utf8Length(), bytes.toUtf8(ctx, mixed).length());
 }
 
 test "isEmpty is true only for the empty string" {
