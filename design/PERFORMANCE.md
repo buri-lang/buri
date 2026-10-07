@@ -5460,9 +5460,8 @@ pins the bytes and the error offsets on JavaScript and stencil.
   tag twice. A schema nested ten deep pays ten times; nobody's asked for that.
 
 **Considered and not built:** reserving a byte for the length and filling it
-in after the body. JavaScript has no in-place write to a list element,
-`replaceAt` copies, and a body of 128 bytes or more needs a second byte
-anyway.
+in after the body. §6.55's `replaceAt` writes in place natively, but
+JavaScript copies, and a body of 128 bytes or more needs a second byte anyway.
 
 ## 7. Profiling, on this platform
 
