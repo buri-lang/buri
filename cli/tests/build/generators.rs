@@ -44,9 +44,9 @@ fn host_platform() -> String {
     format!("\"native\", variant: \"{os}-{arch}\"")
 }
 
-const LIBRARY: &str = "library {\n    generators: [\n        { tool: \"proto\", inputs: [\"address.proto\", \"demo.proto\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n";
+const LIBRARY: &str = "library {\n    generators: [\n        { tool: \"proto\", inputs: [\"address.proto\", \"demo.proto\", \"wire.proto\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n";
 
-const SURFACE: &str = "from \"//lib/proto/demo.proto\" export {\n    decodeEverything, defaultEverything, encodeEverything, Everything, Shade,\n};\n";
+const SURFACE: &str = "from \"//lib/proto/demo.proto\" export {\n    decodeEverything, defaultEverything, encodeEverything, Everything, Shade,\n};\n\nfrom \"//lib/proto/wire.proto\" export { decodePage, defaultItem, encodePage, Item, Page, Tag };\n";
 
 /// A program whose whole answer comes out of the generated module: the codec
 /// encodes, the bytes are the wire format's, and the decoder reads them back
@@ -60,7 +60,8 @@ from "core/io" import * as io;
 from "native" import { NativeHost };
 from "platform/effect" import { Allocator, Stdout };
 from "//lib/proto" import {
-    decodeEverything, defaultEverything, encodeEverything, Everything, Shade,
+    decodeEverything, decodePage, defaultEverything, defaultItem, encodeEverything,
+    encodePage, Everything, Item, Page, Shade, Tag,
 };
 
 export fn main(host: NativeHost): Result<(), Str> {
@@ -76,8 +77,25 @@ fn run<C: Allocator + Stdout>(ctx: C): Result<(), Str> {
     };
     let wire = encodeEverything(ctx, v);
     let back = decodeEverything(ctx, wire) == .Ok(v);
-    io
+    let _ = io
         .println(ctx, "${bytes.toHex(ctx, wire)} ${back}")
+        .mapErr(fn(_e) => "could not write to standard output")?;
+    let p = Page {
+        number: .Some(128),
+        items: [
+            Item {
+                id: .Some(9223372036854775807),
+                name: .Some("x".repeat(ctx, 130)),
+                tag: .Some(Tag { label: .Some("t") }),
+                done: .Some(true),
+            },
+            Item { ..defaultItem(), id: .Some(-1) },
+        ],
+    };
+    let page = encodePage(ctx, p);
+    let again = decodePage(ctx, page) == .Ok(p);
+    io
+        .println(ctx, "${bytes.toHex(ctx, page)} ${again}")
         .mapErr(fn(_e) => "could not write to standard output")
 }
 "#;
@@ -110,7 +128,7 @@ fn repository(name: &str) -> Scratch {
     let scratch = Scratch::repo(name);
     let corpus = tests_dir().join("conformance/lib/proto");
     scratch.write("lib/proto/BUILD.buri", LIBRARY);
-    for schema in ["address.proto", "demo.proto"] {
+    for schema in ["address.proto", "demo.proto", "wire.proto"] {
         let text = std::fs::read_to_string(corpus.join(schema)).expect("the conformance schema");
         scratch.write(&format!("lib/proto/{schema}"), &text);
     }
@@ -134,6 +152,17 @@ fn repository(name: &str) -> Scratch {
 /// unset, and a field holding no value writes no bytes: what the other twenty-
 /// two are here for is the code the backend has to compile, not the bytes.
 const ENCODED: &str = "10ac02800102f20103010203 true";
+
+/// The page: `08 80 01` (number 128), then two items. The first is 150 bytes,
+/// so its length is two (`96 01`): an id of 2^63 - 1 (`08` and nine bytes), a
+/// 130-byte name with a two-byte length (`12 82 01`), a nested tag
+/// (`1a 03 0a 01 74`) and `20 01`. The second is an id of 2^64 - 1, ten bytes.
+fn page_encoded() -> String {
+    format!(
+        "08800112960108ffffffffffffffff7f128201{}1a030a01742001120b08ffffffffffffffffff01 true",
+        "78".repeat(130)
+    )
+}
 
 fn ran_natively(run: &Run) -> bool {
     !run.all().contains("native-artifact-unavailable")
@@ -159,7 +188,7 @@ fn a_generated_module_links_into_the_hosts_native_artifact() {
         );
         return;
     }
-    run.ok().says(ENCODED);
+    run.ok().says(ENCODED).says(&page_encoded());
 }
 
 /// The same through the optimizing pipeline, or a refusal that says why.
@@ -176,7 +205,7 @@ fn a_generated_module_links_into_a_release_artifact_or_is_refused_by_name() {
     let scratch = repository("generators-release");
     let run = scratch.run(&["run", "//cmd/point", "--release"]);
     if ran_natively(&run) {
-        run.ok().says(ENCODED);
+        run.ok().says(ENCODED).says(&page_encoded());
         return;
     }
     assert_ne!(

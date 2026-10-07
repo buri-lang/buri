@@ -1,0 +1,37 @@
+// Messages whose bytes `test/wire.buri` pins exactly: three levels of nesting
+// under a repeated field, and a varint or a packed list of every width.
+
+edition = "2026";
+
+package conformance.proto.v1;
+
+message Tag {
+  string label = 1;
+}
+
+message Item {
+  uint64 id = 1;
+  string name = 2;
+  Tag tag = 3;
+  bool done = 4;
+}
+
+message Page {
+  uint64 number = 1;
+  repeated Item items = 2;
+}
+
+message Varints {
+  int64 signed = 1;
+  uint64 unsigned = 2;
+  sint64 zigzagged = 3;
+  int32 narrow = 4;
+  repeated int64 many = 5;
+  repeated sint32 small = 6;
+  repeated fixed64 wide = 7;
+  repeated double ratios = 8;
+  repeated bool flags = 9;
+  repeated float roughs = 10;
+  repeated sfixed32 signed_small = 11;
+  repeated uint32 counts = 12;
+}

@@ -635,6 +635,9 @@ const PACKAGES: &[Case] = &[
     // `rc.rs`'s `x?.method(…)` leak: the list a `?` unwrapped and handed to a
     // borrowing loop had nobody to release it.
     included("proto/json.buri"),
+    // The exact bytes of nested, repeated and packed fields, and the offsets
+    // errors inside a nested message report (buri-lang/buri#254).
+    included("proto/wire.buri"),
     // `core/bytes`'s six intrinsics — the UTF-8 pair and the four IEEE 754
     // byte-pattern entries — are `cli/runtime/bytes.rs` now, which is the one
     // surface each of these two was waiting for.

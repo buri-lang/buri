@@ -1,0 +1,275 @@
+// The exact bytes of nested, repeated and packed fields, and of every varint
+// width, plus the offset each decoding error inside a nested message reports.
+//
+// The codecs write into one buffer and read nested messages in place, so these
+// pin what that must not change: the bytes on the wire, and the offset an error
+// names, which counts from the start of the message it was found in.
+
+from "core/bytes" import * as bytes;
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//lib/proto" import {
+    decodeItem, decodePage, decodeVarints, defaultItem, defaultPage, defaultVarints,
+    encodeItem, encodePage, encodeVarints, Item, Page, Tag, Varints,
+};
+
+fn raw<C: Allocator>(ctx: C, text: Str): [U8] {
+    match (bytes.fromHex(ctx, text)) {
+        .Ok(b) => b,
+        .Err(_e) => list.empty<U8>(),
+    }
+}
+
+/// The issue's benchmark page: ten items, each with a nested tag.
+fn page<C: Allocator>(ctx: C): Page {
+    let items = list
+        .range(ctx, 0, 10)
+        .mapCtx(ctx, fn(c, i) => {
+            Item {
+                id: .Some(1000 + i),
+                name: .Some(["item-", "0123456789".slice(i, i + 1)].join(c, "")),
+                tag: .Some(Tag {
+                    label: .Some(["label-", "0123456789".slice(i, i + 1)].join(c, "")),
+                }),
+                done: .Some(false),
+            }
+        });
+    Page { number: .Some(7), items: items }
+}
+
+fn varints<C: Allocator>(ctx: C, v: Varints): Str {
+    bytes.toHex(ctx, encodeVarints(ctx, v))
+}
+
+/// Encodes to `hex`, and decodes back to the same value.
+fn wire<C: Allocator>(ctx: C, v: Varints, hex: Str): () {
+    assert.equal(varints(ctx, v), hex);
+    assert.equal(decodeVarints(ctx, raw(ctx, hex)), .Ok(v));
+}
+
+// --- nesting ------------------------------------------------------------------
+
+test "a page of nested items is the bytes it always was" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // 08 07, then per item 12 18 and 24 bytes: 08 e8 07 (id), 12 06 "item-0",
+    // 1a 09 (tag) 0a 07 "label-0", 20 00 (done).
+    let expected =
+        "0807121808e80712066974656d2d301a090a076c6162656c2d302000121808e90712066974656d2d311a090a076c6162656c2d312000121808ea0712066974656d2d321a090a076c6162656c2d322000121808eb0712066974656d2d331a090a076c6162656c2d332000121808ec0712066974656d2d341a090a076c6162656c2d342000121808ed0712066974656d2d351a090a076c6162656c2d352000121808ee0712066974656d2d361a090a076c6162656c2d362000121808ef0712066974656d2d371a090a076c6162656c2d372000121808f00712066974656d2d381a090a076c6162656c2d382000121808f10712066974656d2d391a090a076c6162656c2d392000";
+    let encoded = encodePage(ctx, page(ctx));
+    assert.equal(encoded.length(), 262);
+    assert.equal(bytes.toHex(ctx, encoded), expected);
+    assert.equal(decodePage(ctx, encoded), .Ok(page(ctx)));
+}
+
+test "a nested message of 128 bytes or more has a two-byte length" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let long = "x".repeat(ctx, 200);
+    let v = Page {
+        ..defaultPage(),
+        items: [Item { ..defaultItem(), name: .Some(long) }],
+    };
+    // The item is 12 c8 01 and 200 bytes: 203 is cb 01.
+    let expected = ["12cb0112c801", "78".repeat(ctx, 200)].join(ctx, "");
+    assert.equal(bytes.toHex(ctx, encodePage(ctx, v)), expected);
+    assert.equal(decodePage(ctx, raw(ctx, expected)), .Ok(v));
+}
+
+test "an empty nested message is a tag and a zero length" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let tagged = Page {
+        ..defaultPage(),
+        items: [Item { ..defaultItem(), tag: .Some(Tag { label: .None }) }],
+    };
+    assert.equal(bytes.toHex(ctx, encodePage(ctx, tagged)), "12021a00");
+    assert.equal(decodePage(ctx, raw(ctx, "12021a00")), .Ok(tagged));
+    let bare = Page { ..defaultPage(), items: [defaultItem(), defaultItem()] };
+    assert.equal(bytes.toHex(ctx, encodePage(ctx, bare)), "12001200");
+    assert.equal(decodePage(ctx, raw(ctx, "12001200")), .Ok(bare));
+}
+
+test "a singular message field that arrives twice is merged" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let first = Item { ..defaultItem(), tag: .Some(Tag { label: .Some("a") }) };
+    assert.equal(decodeItem(ctx, raw(ctx, "1a030a01611a00")), .Ok(first));
+    let second = Item { ..defaultItem(), tag: .Some(Tag { label: .Some("b") }) };
+    assert.equal(decodeItem(ctx, raw(ctx, "1a030a01611a030a0162")), .Ok(second));
+    assert.equal(bytes.toHex(ctx, encodeItem(ctx, second)), "1a030a0162");
+}
+
+// --- varints ------------------------------------------------------------------
+
+test "an int64 varint at each width" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    wire(ctx, Varints { ..defaultVarints(), signed: .Some(0) }, "0800");
+    wire(ctx, Varints { ..defaultVarints(), signed: .Some(127) }, "087f");
+    wire(ctx, Varints { ..defaultVarints(), signed: .Some(128) }, "088001");
+    wire(ctx, Varints { ..defaultVarints(), signed: .Some(16384) }, "08808001");
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), signed: .Some(9223372036854775807) },
+        "08ffffffffffffffff7f",
+    );
+    // A negative int64 is ten bytes of two's complement.
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), signed: .Some(-1) },
+        "08ffffffffffffffffff01",
+    );
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), signed: .Some(-128) },
+        "0880ffffffffffffffff01",
+    );
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), signed: .Some(-9223372036854775807) },
+        "0881808080808080808001",
+    );
+}
+
+test "a uint64, a sint64 and an int32 varint" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), unsigned: .Some(9223372036854775807) },
+        "10ffffffffffffffff7f",
+    );
+    wire(ctx, Varints { ..defaultVarints(), zigzagged: .Some(-1) }, "1801");
+    wire(ctx, Varints { ..defaultVarints(), zigzagged: .Some(1) }, "1802");
+    wire(ctx, Varints { ..defaultVarints(), zigzagged: .Some(-64) }, "187f");
+    wire(ctx, Varints { ..defaultVarints(), zigzagged: .Some(64) }, "188001");
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), zigzagged: .Some(-1099511627776) },
+        "18ffffffffff3f",
+    );
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), narrow: .Some(-1) },
+        "20ffffffffffffffffff01",
+    );
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), narrow: .Some(2147483647) },
+        "20ffffffff07",
+    );
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), narrow: .Some(-2147483648) },
+        "2080808080f8ffffffff01",
+    );
+}
+
+test "every packed width" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), many: [0, 127, 128, -1, 9223372036854775807] },
+        "2a17007f8001ffffffffffffffffff01ffffffffffffffff7f",
+    );
+    wire(ctx, Varints { ..defaultVarints(), small: [-1, 1, 0] }, "3203010200");
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), wide: [1, -1] },
+        "3a100100000000000000ffffffffffffffff",
+    );
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), ratios: [0.25, -1.0] },
+        "4210000000000000d03f000000000000f0bf",
+    );
+    wire(ctx, Varints { ..defaultVarints(), flags: [true, false, true] }, "4a03010001");
+    wire(ctx, Varints { ..defaultVarints(), roughs: [0.5] }, "52040000003f");
+    wire(ctx, Varints { ..defaultVarints(), signedSmall: [-2] }, "5a04feffffff");
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), counts: [4294967295, 300] },
+        "6207ffffffff0fac02",
+    );
+    // An empty repeated field writes nothing at all.
+    wire(ctx, defaultVarints(), "");
+}
+
+// --- errors inside a nested message -------------------------------------------
+//
+// Each nested message below ends before the input does, so a reader that ran
+// past its end would find bytes there rather than the end of the input.
+
+test "a varint that runs past its nested message is truncated there" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(decodePage(ctx, raw(ctx, "1202088001")), .Err(.Truncated(1)));
+}
+
+test "a length that runs past its nested message is truncated there" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // Page -> item -> tag, where the tag's string claims five bytes.
+    assert.equal(
+        decodePage(ctx, raw(ctx, "12041a020a054142434445")),
+        .Err(.Truncated(1)),
+    );
+    // An unknown length-delimited field, field 5.
+    assert.equal(
+        decodePage(ctx, raw(ctx, "12032a05000000000000")),
+        .Err(.Truncated(1)),
+    );
+    // A nested length that runs past the input.
+    assert.equal(decodePage(ctx, raw(ctx, "12050801")), .Err(.Truncated(1)));
+}
+
+test "a fixed-width field that runs past its nested message is truncated there" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // Field 1 arriving as I64 is skipped, and eight bytes do not fit in three.
+    assert.equal(
+        decodePage(ctx, raw(ctx, "12030900000000000000000000")),
+        .Err(.Truncated(1)),
+    );
+}
+
+test "the other errors inside a nested message keep their own offsets" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(decodePage(ctx, raw(ctx, "12031201ff")), .Err(.BadUtf8(1)));
+    assert.equal(decodePage(ctx, raw(ctx, "120100")), .Err(.BadFieldNumber(0)));
+    assert.equal(
+        decodePage(ctx, raw(ctx, "12029b06")),
+        .Err(.BadWireType { field: 99, wire: 3 }),
+    );
+    // A second item, so the offset counts from the item and not the page.
+    assert.equal(decodePage(ctx, raw(ctx, "0807120012020880")), .Err(.Truncated(1)));
+}
+
+test "a packed field that ends mid-varint is truncated at the offset in its body" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(decodeVarints(ctx, raw(ctx, "2a02808001")), .Err(.Truncated(0)));
+    assert.equal(decodeVarints(ctx, raw(ctx, "2a03018080")), .Err(.Truncated(1)));
+    // A fixed64 short of eight bytes inside its packed body.
+    assert.equal(
+        decodeVarints(ctx, raw(ctx, "3a0401000000ffffffff")),
+        .Err(.Truncated(0)),
+    );
+}
