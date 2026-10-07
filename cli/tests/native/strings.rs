@@ -96,6 +96,76 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// [`ALLOC_PROBE`], plus a line with the bytes the program allocated in all.
+fn bytes_probe() -> String {
+    format!(
+        "{ALLOC_PROBE}
+__attribute__((destructor)) static void buri_bytes_probe(void) {{
+  Stats s; buri_rt_heap_stats(&s);
+  fprintf(stderr, \"allocated=%llu\\n\", (unsigned long long)s.total_bytes);
+}}
+"
+    )
+}
+
+/// `normalize`, `caseFold` and `graphemes` on short strings, a hundred times
+/// each. Their Unicode tables are about 86,000 characters of ASCII, and a call
+/// reads the few fields it needs with `charAt`. Decoding the tables into
+/// `[Char]`s on every call allocated over 150 KB a call, so this bound is the
+/// difference between a lookup and a pass over the tables.
+#[test]
+fn a_short_string_normalizes_without_copying_the_unicode_tables() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+fn one(right: Bool): Int {
+  if (right) { 1 } else { 0 }
+}
+
+fn round<C: Allocator>(ctx: C): Int {
+  one("e\u{301}".normalize(ctx, .Nfc) == "\u{e9}")
+    + one("\u{e9}".normalize(ctx, .Nfd) == "e\u{301}")
+    + one("\u{fb01}".normalize(ctx, .Nfkc) == "fi")
+    + one("\u{ac01}".normalize(ctx, .Nfkd) == "\u{1100}\u{1161}\u{11a8}")
+    + one("\u{1100}\u{1161}\u{11a8}".normalize(ctx, .Nfc) == "\u{ac01}")
+    + one("Stra\u{df}e".caseFold(ctx) == "strasse")
+    + one("\u{1f44d}\u{1f3fd}!".graphemes(ctx).length() == 2)
+}
+
+fn rounds<C: Allocator>(ctx: C, left: Int, right: Int): Int {
+  if (left == 0) { right } else { rounds(ctx, left - 1, right + round(ctx)) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc };
+  let _ = io.println(host.stdout, "${rounds(ctx, 100, 0)}").ignore();
+  .Ok(())
+}
+"#;
+    let Some(binary) = crate::e2e::built_probed("normalize-short", source, &bytes_probe()) else {
+        return;
+    };
+    let r = ran_checked(&binary);
+    assert_eq!(r.stdout, "700\n", "stderr: {}", r.stderr);
+    let (_, live) = probed(&r.stderr);
+    assert_eq!(live, 0, "blocks still live at exit");
+    let allocated: u64 = r
+        .stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("allocated="))
+        .unwrap_or_else(|| panic!("the probe printed nothing: {:?}", r.stderr))
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(
+        allocated < 1_000_000,
+        "seven hundred calls on strings of one to three scalars allocated {allocated} bytes, \
+         which is a copy of the Unicode tables per call"
+    );
+}
+
 /// MEMORY.md §5.3's in-place concatenation can write a short string's tail
 /// over bytes a longer, dead view of the same block was indexed over. The
 /// answers about the grown string must be about its own bytes.

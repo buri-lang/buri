@@ -797,18 +797,11 @@ fn renderFixed<C: Allocator>(ctx: C, digits: Str, point: Int, places: Int): Str 
 // tables, and `unicode_tables.py` writes them at the end of this file from
 // **Unicode 16.0**.
 //
-// Every table is ASCII, four base-36 digits to a code point, except the ones
-// holding characters — a decomposition, a folding, the Hangul syllables. There
-// is no way to turn a number into a `Char` without a `Result` the native
-// backends do not build, so an answer that is a character is *sliced out of a
-// string that already holds it*.
-//
-// The cost, stated once: everything here walks the string and probes a table
-// per scalar, and the allocating three turn each table into a `[Char]` first so
-// a probe is a list index. That is one pass over the tables per call, not per
-// scalar. `graphemeCount` is pure and cannot do it, so it reads the table as
-// text and is the slow one — `graphemes(ctx).length()` is the same answer for less
-// where a context is at hand.
+// Every table is ASCII, four base-36 digits to a code point, and a probe reads
+// its fields with `charAt`, which is an index into an ASCII string. So a call
+// costs a binary search per scalar and never a pass over a table. Turning each
+// table into a `[Char]` first cost a pass over about 86,000 characters per call,
+// which for the short strings most callers normalize was nearly all of it.
 
 derive Equal, Show for Normalization;
 /// The four normalization forms of UAX #15.
@@ -859,27 +852,14 @@ impl Str {
         if (cs.isEmpty()) {
             list.empty<Str>()
         } else {
-            // `classIn` answers the first 128 scalars without the table, so a
-            // line of ASCII does not pay to unpack fourteen thousand of them.
-            let table = if (allBelow(cs, 0x80)) {
-                list.empty<Char>()
-            } else {
-                GRAPHEME_CLASS.chars(ctx)
-            };
-            let first = advance(
-                freshBoundary(),
-                classIn(table, codePoint(cs, 0)),
-                true,
-            );
-            clustersFrom(ctx, self, cs, table, 1, 0, first, list.empty<Str>())
+            let first = advance(freshBoundary(), classOf(codePoint(cs, 0)), true);
+            clustersFrom(ctx, self, cs, 1, 0, first, list.empty<Str>())
         }
     }
 
     /// How many extended grapheme clusters there are, without building them.
     ///
-    /// The same count `graphemes(ctx).length()` gives. It is pure, so it reads the
-    /// break table as text rather than as a list, and that costs a walk of the
-    /// table per non-ASCII scalar — use `graphemes` where you have a context.
+    /// The same count `graphemes(ctx).length()` gives.
     export fn graphemeCount(self): Int {
         if (self.isEmpty()) {
             0
@@ -939,17 +919,17 @@ fn normalized<C: Allocator>(ctx: C, cs: [Char], form: Normalization): Str {
     };
     let table = if (compatible) {
         Mapping {
-            keys: NFKD_KEYS.chars(ctx),
-            offsets: NFKD_OFFSETS.chars(ctx),
-            lengths: NFKD_LENGTHS.chars(ctx),
-            values: NFKD_VALUES.chars(ctx),
+            keys: NFKD_KEYS,
+            offsets: NFKD_OFFSETS,
+            lengths: NFKD_LENGTHS,
+            values: NFKD_VALUES,
         }
     } else {
         Mapping {
-            keys: NFD_KEYS.chars(ctx),
-            offsets: NFD_OFFSETS.chars(ctx),
-            lengths: NFD_LENGTHS.chars(ctx),
-            values: NFD_VALUES.chars(ctx),
+            keys: NFD_KEYS,
+            offsets: NFD_OFFSETS,
+            lengths: NFD_LENGTHS,
+            values: NFD_VALUES,
         }
     };
     let composing = match (form) {
@@ -957,37 +937,10 @@ fn normalized<C: Allocator>(ctx: C, cs: [Char], form: Normalization): Str {
         .Nfkc => true,
         _ => false,
     };
-    let jamo = Hangul {
-        leading: HANGUL_LEADING.chars(ctx),
-        vowel: HANGUL_VOWEL.chars(ctx),
-        trailing: HANGUL_TRAILING.chars(ctx),
-        syllables: if (composing) {
-            HANGUL_SYLLABLES.chars(ctx)
-        } else {
-            list.empty<Char>()
-        },
-    };
-    // Only composition indexes the syllables; decomposition is the
-    // three jamo runs and arithmetic.
-    let classes = COMBINING_CLASS.chars(ctx);
-    let pulled = decomposeFrom(ctx, cs, table, jamo, 0, list.empty<Char>());
-    let sorted = reorder(ctx, pulled, classes, pulled.length());
+    let pulled = decomposeFrom(ctx, cs, table, 0, list.empty<Char>());
+    let sorted = reorder(ctx, pulled, pulled.length());
     if (composing) {
-        let pairs = Composition {
-            keys: COMPOSE_KEYS.chars(ctx),
-            values: COMPOSE_VALUES.chars(ctx),
-            jamo,
-        };
-        let joined = composeFrom(
-            ctx,
-            sorted,
-            classes,
-            pairs,
-            0,
-            list.empty<Char>(),
-            -1,
-            0,
-        );
+        let joined = composeFrom(ctx, sorted, 0, list.empty<Char>(), -1, 0);
         fromChars(ctx, joined)
     } else {
         fromChars(ctx, sorted)
@@ -1035,36 +988,20 @@ impl Str {
 /// `caseFold` once the ASCII answer is ruled out.
 fn folded<C: Allocator>(ctx: C, cs: [Char]): Str {
     let table = Mapping {
-        keys: FOLD_KEYS.chars(ctx),
-        offsets: FOLD_OFFSETS.chars(ctx),
-        lengths: FOLD_LENGTHS.chars(ctx),
-        values: FOLD_VALUES.chars(ctx),
+        keys: FOLD_KEYS,
+        offsets: FOLD_OFFSETS,
+        lengths: FOLD_LENGTHS,
+        values: FOLD_VALUES,
     };
     fromChars(ctx, foldFrom(ctx, cs, table, 0, list.empty<Char>()))
 }
 
-/// A key table and the characters its keys map to, all as `[Char]` so a lookup
-/// is a list index rather than a walk down a string.
+/// A key table and the code points its keys map to.
 struct Mapping {
-    keys: [Char],
-    offsets: [Char],
-    lengths: [Char],
-    values: [Char],
-}
-
-/// The jamo and the syllables, for the arithmetic in UAX #15 §3.12.
-struct Hangul {
-    leading: [Char],
-    vowel: [Char],
-    trailing: [Char],
-    syllables: [Char],
-}
-
-/// The primary composites, by the pair they are made of.
-struct Composition {
-    keys: [Char],
-    values: [Char],
-    jamo: Hangul,
+    keys: Str,
+    offsets: Str,
+    lengths: Str,
+    values: Str,
 }
 
 /// What the grapheme scan remembers about everything before the boundary it is
@@ -1167,7 +1104,6 @@ fn clustersFrom<C: Allocator>(
     ctx: C,
     text: Str,
     cs: [Char],
-    table: [Char],
     at: Int,
     start: Int,
     state: Boundary,
@@ -1176,7 +1112,7 @@ fn clustersFrom<C: Allocator>(
     if (at >= cs.length()) {
         acc.push(ctx, text.slice(start, at))
     } else {
-        let next = classIn(table, codePoint(cs, at));
+        let next = classOf(codePoint(cs, at));
         let broke = breaksBefore(state, next);
         let pieces = if (broke) { acc.push(ctx, text.slice(start, at)) } else { acc };
         let begin = if (broke) { at } else { start };
@@ -1184,7 +1120,6 @@ fn clustersFrom<C: Allocator>(
             ctx,
             text,
             cs,
-            table,
             at + 1,
             begin,
             advance(state, next, broke),
@@ -1239,58 +1174,36 @@ fn asciiClass(cp: Int): Option<Int> {
     }
 }
 
-fn classIn(table: [Char], cp: Int): Int {
-    match (asciiClass(cp)) {
-        .Some(known) => known,
-        .None => rangeValue(table, cp, 0, table.length() / 10),
-    }
-}
-
 fn classOf(cp: Int): Int {
     match (asciiClass(cp)) {
         .Some(known) => known,
-        .None => textRangeValue(GRAPHEME_CLASS, cp, 0, GRAPHEME_CLASS.length() / 10),
+        .None => rangeValue(GRAPHEME_CLASS, cp, 0, GRAPHEME_CLASS.length() / 10),
     }
 }
 
-fn combiningClass(classes: [Char], c: Char): Int {
+fn combiningClass(c: Char): Int {
     let cp = c.toU32().toI64();
     // Nothing below U+0300 combines, which is every character a Latin text is
     // made of.
-    if (cp < 0x300) { 0 } else { rangeValue(classes, cp, 0, classes.length() / 10) }
+    if (cp < 0x300) {
+        0
+    } else {
+        rangeValue(COMBINING_CLASS, cp, 0, COMBINING_CLASS.length() / 10)
+    }
 }
 
 /// The two-digit value of the range `cp` falls in, or zero. An entry is a
 /// four-digit first code point, a four-digit last one, and the value.
-fn rangeValue(table: [Char], cp: Int, lo: Int, hi: Int): Int {
-    if (lo >= hi) {
-        0
-    } else {
-        let mid = lo + (hi - lo) / 2;
-        let at = mid * 10;
-        if (cp < codeIn(table, at)) {
-            rangeValue(table, cp, lo, mid)
-        } else if (cp <= codeIn(table, at + 4)) {
-            digitIn(table, at + 8) * 36 + digitIn(table, at + 9)
-        } else {
-            rangeValue(table, cp, mid + 1, hi)
-        }
-    }
-}
-
-/// `rangeValue` over the table as text, for the one caller that may not
-/// allocate.
 ///
 /// It reads only each range's *first* code point while halving, and looks at a
-/// last one once: every read walks the string from the front, so the reads are
-/// the whole cost.
-fn textRangeValue(table: Str, cp: Int, lo: Int, hi: Int): Int {
+/// last one once.
+fn rangeValue(table: Str, cp: Int, lo: Int, hi: Int): Int {
     if (lo < hi) {
         let mid = lo + (hi - lo) / 2;
-        if (cp < textCodeAt(table, mid * 10)) {
-            textRangeValue(table, cp, lo, mid)
+        if (cp < codeAt(table, mid * 10)) {
+            rangeValue(table, cp, lo, mid)
         } else {
-            textRangeValue(table, cp, mid + 1, hi)
+            rangeValue(table, cp, mid + 1, hi)
         }
     } else if (lo == 0) {
         0
@@ -1298,49 +1211,44 @@ fn textRangeValue(table: Str, cp: Int, lo: Int, hi: Int): Int {
         // `lo` counts the ranges beginning at or below `cp`, so the last of
         // them is the only one that can hold it.
         let at = (lo - 1) * 10;
-        if (cp <= textCodeAt(table, at + 4)) {
-            textDigitAt(table, at + 8) * 36 + textDigitAt(table, at + 9)
+        if (cp <= codeAt(table, at + 4)) {
+            digitAt(table, at + 8) * 36 + digitAt(table, at + 9)
         } else {
             0
         }
     }
 }
 
-fn codeIn(table: [Char], at: Int): Int {
-    digitIn(table, at) * 46656
-        + digitIn(table, at + 1) * 1296
-        + digitIn(table, at + 2) * 36
-        + digitIn(table, at + 3)
+fn codeAt(table: Str, at: Int): Int {
+    digitAt(table, at) * 46656
+        + digitAt(table, at + 1) * 1296
+        + digitAt(table, at + 2) * 36
+        + digitAt(table, at + 3)
 }
 
-fn digitIn(table: [Char], at: Int): Int {
-    match (table.get(at)) {
-        .Some(c) => c.toDigit(36).withDefault(0),
-        .None => 0,
-    }
-}
-
-fn textCodeAt(table: Str, at: Int): Int {
-    textDigitAt(table, at) * 46656
-        + textDigitAt(table, at + 1) * 1296
-        + textDigitAt(table, at + 2) * 36
-        + textDigitAt(table, at + 3)
-}
-
-fn textDigitAt(table: Str, at: Int): Int {
+fn digitAt(table: Str, at: Int): Int {
     match (table.charAt(at)) {
         .Some(c) => c.toDigit(36).withDefault(0),
         .None => 0,
     }
 }
 
+/// The character at code point `cp`, or `.None` for a surrogate or a number
+/// past U+10FFFF, which no table holds.
+fn scalar(cp: Int): Option<Char> {
+    match (cp.wrapToU32().toChar()) {
+        .Ok(c) => .Some(c),
+        .Err(_) => .None,
+    }
+}
+
 /// Where `cp` sits in a table of four-digit keys, or `.None`.
-fn keyIndex(keys: [Char], cp: Int, lo: Int, hi: Int): Option<Int> {
+fn keyIndex(keys: Str, cp: Int, lo: Int, hi: Int): Option<Int> {
     if (lo >= hi) {
         .None
     } else {
         let mid = lo + (hi - lo) / 2;
-        let here = codeIn(keys, mid * 4);
+        let here = codeAt(keys, mid * 4);
         if (cp < here) {
             keyIndex(keys, cp, lo, mid)
         } else if (cp == here) {
@@ -1352,13 +1260,13 @@ fn keyIndex(keys: [Char], cp: Int, lo: Int, hi: Int): Option<Int> {
 }
 
 /// Where the pair `(a, b)` sits in a table of eight-digit keys, or `.None`.
-fn pairIndex(keys: [Char], a: Int, b: Int, lo: Int, hi: Int): Option<Int> {
+fn pairIndex(keys: Str, a: Int, b: Int, lo: Int, hi: Int): Option<Int> {
     if (lo >= hi) {
         .None
     } else {
         let mid = lo + (hi - lo) / 2;
-        let first = codeIn(keys, mid * 8);
-        let second = codeIn(keys, mid * 8 + 4);
+        let first = codeAt(keys, mid * 8);
+        let second = codeAt(keys, mid * 8 + 4);
         if (a < first || a == first && b < second) {
             pairIndex(keys, a, b, lo, mid)
         } else if (a == first && b == second) {
@@ -1369,14 +1277,28 @@ fn pairIndex(keys: [Char], a: Int, b: Int, lo: Int, hi: Int): Option<Int> {
     }
 }
 
-/// What `cp` maps to, or `.None` when the table says nothing about it.
-fn mapped<C: Allocator>(ctx: C, table: Mapping, cp: Int): Option<[Char]> {
+/// `acc` with what `cp` maps to on the end, or `.None` when the table says
+/// nothing about it.
+fn mapped<C: Allocator>(ctx: C, table: Mapping, cp: Int, acc: [Char]): Option<[Char]> {
     match (keyIndex(table.keys, cp, 0, table.keys.length() / 4)) {
         .None => .None,
         .Some(found) => {
-            let at = codeIn(table.offsets, found * 4);
-            .Some(table.values.slice(ctx, at, at + digitIn(table.lengths, found)))
+            let at = codeAt(table.offsets, found * 4);
+            .Some(valuesFrom(ctx, table.values, at, at + digitAt(table.lengths, found), acc))
         },
+    }
+}
+
+/// `acc` with the code points `at` to `end` of a value table on the end.
+fn valuesFrom<C: Allocator>(ctx: C, values: Str, at: Int, end: Int, acc: [Char]): [Char] {
+    if (at >= end) {
+        acc
+    } else {
+        let next = match (scalar(codeAt(values, at * 4))) {
+            .Some(c) => acc.push(ctx, c),
+            .None => acc,
+        };
+        valuesFrom(ctx, values, at + 1, end, next)
     }
 }
 
@@ -1390,9 +1312,9 @@ fn foldFrom<C: Allocator>(
     match (cs.get(at)) {
         .None => acc,
         .Some(c) => {
-            let next = match (mapped(ctx, table, c.toU32().toI64())) {
+            let next = match (mapped(ctx, table, c.toU32().toI64(), acc)) {
                 .None => acc.push(ctx, c),
-                .Some(parts) => acc.concat(ctx, parts),
+                .Some(grown) => grown,
             };
             foldFrom(ctx, cs, table, at + 1, next)
         },
@@ -1403,7 +1325,6 @@ fn decomposeFrom<C: Allocator>(
     ctx: C,
     cs: [Char],
     table: Mapping,
-    jamo: Hangul,
     at: Int,
     acc: [Char],
 ): [Char] {
@@ -1412,34 +1333,35 @@ fn decomposeFrom<C: Allocator>(
         .Some(c) => {
             let cp = c.toU32().toI64();
             let next = if (cp >= 0xac00 && cp <= 0xd7a3) {
-                acc.concat(ctx, hangulParts(ctx, jamo, c, cp - 0xac00))
+                hangulParts(ctx, acc, c, cp - 0xac00)
             } else {
-                match (mapped(ctx, table, cp)) {
+                match (mapped(ctx, table, cp, acc)) {
                     .None => acc.push(ctx, c),
-                    .Some(parts) => acc.concat(ctx, parts),
+                    .Some(grown) => grown,
                 }
             };
-            decomposeFrom(ctx, cs, table, jamo, at + 1, next)
+            decomposeFrom(ctx, cs, table, at + 1, next)
         },
     }
 }
 
-/// A Hangul syllable's two or three jamo, by the arithmetic in UAX #15 §3.12.
-fn hangulParts<C: Allocator>(ctx: C, jamo: Hangul, syllable: Char, index: Int): [Char] {
-    let none: [Char] = [];
-    match ((jamo.leading.get(index / 588), jamo.vowel.get(index % 588 / 28))) {
+/// `acc` with a Hangul syllable's two or three jamo on the end, by the
+/// arithmetic in UAX #15 §3.12.
+fn hangulParts<C: Allocator>(ctx: C, acc: [Char], syllable: Char, index: Int): [Char] {
+    let trailing = index % 28;
+    match ((scalar(0x1100 + index / 588), scalar(0x1161 + index % 588 / 28))) {
         (.Some(lead), .Some(vowel)) => {
-            let pair = none.push(ctx, lead).push(ctx, vowel);
-            if (index % 28 == 0) {
+            let pair = acc.push(ctx, lead).push(ctx, vowel);
+            if (trailing == 0) {
                 pair
             } else {
-                match (jamo.trailing.get(index % 28)) {
+                match (scalar(0x11a7 + trailing)) {
                     .Some(tail) => pair.push(ctx, tail),
                     .None => pair,
                 }
             }
         },
-        _ => none.push(ctx, syllable),
+        _ => acc.push(ctx, syllable),
     }
 }
 
@@ -1448,25 +1370,25 @@ fn hangulParts<C: Allocator>(ctx: C, jamo: Hangul, syllable: Char, index: Int): 
 ///
 /// Adjacent swaps until nothing moves, which is O(n²) on the run — and a run is
 /// two or three marks in real text.
-fn reorder<C: Allocator>(ctx: C, cs: [Char], classes: [Char], fuel: Int): [Char] {
+fn reorder<C: Allocator>(ctx: C, cs: [Char], fuel: Int): [Char] {
     if (fuel <= 0) {
         cs
     } else {
-        let once = swapPass(ctx, cs, classes, 0);
-        if (once == cs) { cs } else { reorder(ctx, once, classes, fuel - 1) }
+        let once = swapPass(ctx, cs, 0);
+        if (once == cs) { cs } else { reorder(ctx, once, fuel - 1) }
     }
 }
 
-fn swapPass<C: Allocator>(ctx: C, cs: [Char], classes: [Char], at: Int): [Char] {
+fn swapPass<C: Allocator>(ctx: C, cs: [Char], at: Int): [Char] {
     match ((cs.get(at), cs.get(at + 1))) {
         (.Some(a), .Some(b)) => {
-            let first = combiningClass(classes, a);
-            let second = combiningClass(classes, b);
+            let first = combiningClass(a);
+            let second = combiningClass(b);
             if (second > 0 && first > second) {
                 let swapped = cs.replaceAt(ctx, at, b).replaceAt(ctx, at + 1, a);
-                swapPass(ctx, swapped, classes, at + 1)
+                swapPass(ctx, swapped, at + 1)
             } else {
-                swapPass(ctx, cs, classes, at + 1)
+                swapPass(ctx, cs, at + 1)
             }
         },
         _ => cs,
@@ -1478,8 +1400,6 @@ fn swapPass<C: Allocator>(ctx: C, cs: [Char], classes: [Char], at: Int): [Char] 
 fn composeFrom<C: Allocator>(
     ctx: C,
     cs: [Char],
-    classes: [Char],
-    pairs: Composition,
     at: Int,
     acc: [Char],
     starter: Int,
@@ -1488,12 +1408,12 @@ fn composeFrom<C: Allocator>(
     match (cs.get(at)) {
         .None => acc,
         .Some(c) => {
-            let cc = combiningClass(classes, c);
+            let cc = combiningClass(c);
             let open = starter >= 0 && (lastClass == 0 || lastClass < cc);
             let made: Option<Char> = if (open) {
                 match (acc.get(starter)) {
                     .None => .None,
-                    .Some(base) => primaryComposite(pairs, base, c),
+                    .Some(base) => primaryComposite(base, c),
                 }
             } else {
                 .None
@@ -1501,29 +1421,11 @@ fn composeFrom<C: Allocator>(
             match (made) {
                 .Some(joined) => {
                     let merged = acc.replaceAt(ctx, starter, joined);
-                    composeFrom(
-                        ctx,
-                        cs,
-                        classes,
-                        pairs,
-                        at + 1,
-                        merged,
-                        starter,
-                        lastClass,
-                    )
+                    composeFrom(ctx, cs, at + 1, merged, starter, lastClass)
                 },
                 .None => {
                     let next = if (cc == 0) { acc.length() } else { starter };
-                    composeFrom(
-                        ctx,
-                        cs,
-                        classes,
-                        pairs,
-                        at + 1,
-                        acc.push(ctx, c),
-                        next,
-                        cc,
-                    )
+                    composeFrom(ctx, cs, at + 1, acc.push(ctx, c), next, cc)
                 },
             }
         },
@@ -1532,11 +1434,11 @@ fn composeFrom<C: Allocator>(
 
 /// The one character `a` and `b` compose to, or `.None`. Hangul is arithmetic
 /// and everything else is a lookup.
-fn primaryComposite(pairs: Composition, a: Char, b: Char): Option<Char> {
+fn primaryComposite(a: Char, b: Char): Option<Char> {
     let x = a.toU32().toI64();
     let y = b.toU32().toI64();
     if (x >= 0x1100 && x <= 0x1112 && y >= 0x1161 && y <= 0x1175) {
-        pairs.jamo.syllables.get(((x - 0x1100) * 21 + (y - 0x1161)) * 28)
+        scalar(0xac00 + ((x - 0x1100) * 21 + (y - 0x1161)) * 28)
     } else if (
         x >= 0xac00
             && x <= 0xd7a3
@@ -1544,11 +1446,11 @@ fn primaryComposite(pairs: Composition, a: Char, b: Char): Option<Char> {
             && y >= 0x11a8
             && y <= 0x11c2
     ) {
-        pairs.jamo.syllables.get(x - 0xac00 + (y - 0x11a7))
+        scalar(x + (y - 0x11a7))
     } else {
-        match (pairIndex(pairs.keys, x, y, 0, pairs.keys.length() / 8)) {
+        match (pairIndex(COMPOSE_KEYS, x, y, 0, COMPOSE_KEYS.length() / 8)) {
             .None => .None,
-            .Some(found) => pairs.values.get(found),
+            .Some(found) => scalar(codeAt(COMPOSE_VALUES, found * 4)),
         }
     }
 }
@@ -1580,7 +1482,7 @@ let NFD_LENGTHS: Str =
 
 /// The canonical decompositions, run together.
 let NFD_VALUES: Str =
-    "ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝàáâãäåçèéêëìíîïñòóôõöùúûüýÿĀāĂăĄąĆćĈĉĊċČčĎďĒēĔĕĖėĘęĚěĜĝĞğĠġĢģĤĥĨĩĪīĬĭĮįİĴĵĶķĹĺĻļĽľŃńŅņŇňŌōŎŏŐőŔŕŖŗŘřŚśŜŝŞşŠšŢţŤťŨũŪūŬŭŮůŰűŲųŴŵŶŷŸŹźŻżŽžƠơƯưǍǎǏǐǑǒǓǔǕǖǗǘǙǚǛǜǞǟǠǡǢǣǦǧǨǩǪǫǬǭǮǯǰǴǵǸǹǺǻǼǽǾǿȀȁȂȃȄȅȆȇȈȉȊȋȌȍȎȏȐȑȒȓȔȕȖȗȘșȚțȞȟȦȧȨȩȪȫȬȭȮȯȰȱȲȳ̀́̓̈́ʹ;΅Ά·ΈΉΊΌΎΏΐΪΫάέήίΰϊϋόύώϓϔЀЁЃЇЌЍЎЙйѐёѓїќѝўѶѷӁӂӐӑӒӓӖӗӚӛӜӝӞӟӢӣӤӥӦӧӪӫӬӭӮӯӰӱӲӳӴӵӸӹآأؤإئۀۂۓऩऱऴक़ख़ग़ज़ड़ढ़फ़य़োৌড়ঢ়য়ਲ਼ਸ਼ਖ਼ਗ਼ਜ਼ਫ਼ୈୋୌଡ଼ଢ଼ஔொோௌైೀೇೈೊೋൊോൌේොෝෞགྷཌྷདྷབྷཛྷཀྵཱཱིུྲྀླཱྀྀྒྷྜྷྡྷྦྷྫྷྐྵဦᬆᬈᬊᬌᬎᬒᬻᬽᭀᭁᭃḀḁḂḃḄḅḆḇḈḉḊḋḌḍḎḏḐḑḒḓḔḕḖḗḘḙḚḛḜḝḞḟḠḡḢḣḤḥḦḧḨḩḪḫḬḭḮḯḰḱḲḳḴḵḶḷḸḹḺḻḼḽḾḿṀṁṂṃṄṅṆṇṈṉṊṋṌṍṎṏṐṑṒṓṔṕṖṗṘṙṚṛṜṝṞṟṠṡṢṣṤṥṦṧṨṩṪṫṬṭṮṯṰṱṲṳṴṵṶṷṸṹṺṻṼṽṾṿẀẁẂẃẄẅẆẇẈẉẊẋẌẍẎẏẐẑẒẓẔẕẖẗẘẙẛẠạẢảẤấẦầẨẩẪẫẬậẮắẰằẲẳẴẵẶặẸẹẺẻẼẽẾếỀềỂểỄễỆệỈỉỊịỌọỎỏỐốỒồỔổỖỗỘộỚớỜờỞởỠỡỢợỤụỦủỨứỪừỬửỮữỰựỲỳỴỵỶỷỸỹἀἁἂἃἄἅἆἇἈἉἊἋἌἍἎἏἐἑἒἓἔἕἘἙἚἛἜἝἠἡἢἣἤἥἦἧἨἩἪἫἬἭἮἯἰἱἲἳἴἵἶἷἸἹἺἻἼἽἾἿὀὁὂὃὄὅὈὉὊὋὌὍὐὑὒὓὔὕὖὗὙὛὝὟὠὡὢὣὤὥὦὧὨὩὪὫὬὭὮὯὰάὲέὴήὶίὸόὺύὼώᾀᾁᾂᾃᾄᾅᾆᾇᾈᾉᾊᾋᾌᾍᾎᾏᾐᾑᾒᾓᾔᾕᾖᾗᾘᾙᾚᾛᾜᾝᾞᾟᾠᾡᾢᾣᾤᾥᾦᾧᾨᾩᾪᾫᾬᾭᾮᾯᾰᾱᾲᾳᾴᾶᾷᾸᾹᾺΆᾼι῁ῂῃῄῆῇῈΈῊΉῌ῍῎῏ῐῑῒΐῖῗῘῙῚΊ῝῞῟ῠῡῢΰῤῥῦῧῨῩῪΎῬ῭΅`ῲῳῴῶῷῸΌῺΏῼ´\u{2002}\u{2003}ΩKÅ↚↛↮⇍⇎⇏∄∉∌∤∦≁≄≇≉≠≢≭≮≯≰≱≴≵≸≹⊀⊁⊄⊅⊈⊉⊬⊭⊮⊯⋠⋡⋢⋣⋪⋫⋬⋭〈〉⫝̸がぎぐげござじずぜぞだぢづでどばぱびぴぶぷべぺぼぽゔゞガギグゲゴザジズゼゾダヂヅデドバパビピブプベペボポヴヷヸヹヺヾ豈更車賈滑串句龜龜契金喇奈懶癩羅蘿螺裸邏樂洛烙珞落酪駱亂卵欄爛蘭鸞嵐濫藍襤拉臘蠟廊朗浪狼郎來冷勞擄櫓爐盧老蘆虜路露魯鷺碌祿綠菉錄鹿論壟弄籠聾牢磊賂雷壘屢樓淚漏累縷陋勒肋凜凌稜綾菱陵讀拏樂諾丹寧怒率異北磻便復不泌數索參塞省葉說殺辰沈拾若掠略亮兩凉梁糧良諒量勵呂女廬旅濾礪閭驪麗黎力曆歷轢年憐戀撚漣煉璉秊練聯輦蓮連鍊列劣咽烈裂說廉念捻殮簾獵令囹寧嶺怜玲瑩羚聆鈴零靈領例禮醴隸惡了僚寮尿料樂燎療蓼遼龍暈阮劉杻柳流溜琉留硫紐類六戮陸倫崙淪輪律慄栗率隆利吏履易李梨泥理痢罹裏裡里離匿溺吝燐璘藺隣鱗麟林淋臨立笠粒狀炙識什茶刺切度拓糖宅洞暴輻行降見廓兀嗀塚晴凞猪益礼神祥福靖精羽蘒諸逸都飯飼館鶴郞隷侮僧免勉勤卑喝嘆器塀墨層屮悔慨憎懲敏既暑梅海渚漢煮爫琢碑社祉祈祐祖祝禍禎穀突節練縉繁署者臭艹艹著褐視謁謹賓贈辶逸難響頻恵𤋮舘並况全侀充冀勇勺喝啕喙嗢塚墳奄奔婢嬨廒廙彩徭惘慎愈憎慠懲戴揄搜摒敖晴朗望杖歹殺流滛滋漢瀞煮瞧爵犯猪瑱甆画瘝瘟益盛直睊着磌窱節类絛練缾者荒華蝹襁覆視調諸請謁諾諭謹變贈輸遲醙鉶陼難靖韛響頋頻鬒龜𢡊𢡄𣏕㮝䀘䀹𥉉𥳐𧻓齃龎יִײַשׁשׂשּׁשּׂאַאָאּבּגּדּהּוּזּטּיּךּכּלּמּנּסּףּפּצּקּרּשּתּוֹבֿכֿפֿ𐗉𐗤𑂚𑂜𑂫𑄮𑄯𑍋𑍌𑎃𑎅𑎎𑎑𑏅𑏇𑏈𑒻𑒼𑒾𑖺𑖻𑤸𖄡𖄢𖄣𖄤𖄥𖄦𖄧𖄨𖵨𖵩𖵪𝅗𝅥𝅘𝅥𝅘𝅥𝅮𝅘𝅥𝅯𝅘𝅥𝅰𝅘𝅥𝅱𝅘𝅥𝅲𝆹𝅥𝆺𝅥𝆹𝅥𝅮𝆺𝅥𝅮𝆹𝅥𝅯𝆺𝅥𝅯丽丸乁𠄢你侮侻倂偺備僧像㒞𠘺免兔兤具𠔜㒹內再𠕋冗冤仌冬况𩇟凵刃㓟刻剆割剷㔕勇勉勤勺包匆北卉卑博即卽卿卿卿𠨬灰及叟𠭣叫叱吆咞吸呈周咢哶唐啓啣善善喙喫喳嗂圖嘆圗噑噴切壮城埴堍型堲報墬𡓤売壷夆多夢奢𡚨𡛪姬娛娧姘婦㛮㛼嬈嬾嬾𡧈寃寘寧寳𡬘寿将当尢㞁屠屮峀岍𡷤嵃𡷦嵮嵫嵼巡巢㠯巽帨帽幩㡢𢆃㡼庰庳庶廊𪎒廾𢌱𢌱舁弢弢㣇𣊸𦇚形彫㣣徚忍志忹悁㤺㤜悔𢛔惇慈慌慎慌慺憎憲憤憯懞懲懶成戛扝抱拔捐𢬌挽拼捨掃揤𢯱搢揅掩㨮摩摾撝摷㩬敏敬𣀊旣書晉㬙暑㬈㫤冒冕最暜肭䏙朗望朡杞杓𣏃㭉柺枅桒梅𣑭梎栟椔㮝楂榣槪檨𣚣櫛㰘次𣢧歔㱎歲殟殺殻𣪍𡴋𣫺汎𣲼沿泍汧洖派海流浩浸涅𣴞洴港湮㴳滋滇𣻑淹潮𣽞𣾎濆瀹瀞瀛㶖灊災灷炭𠔥煅𤉣熜𤎫爨爵牐𤘈犀犕𤜵𤠔獺王㺬玥㺸㺸瑇瑜瑱璅瓊㼛甤𤰶甾𤲒異𢆟瘐𤾡𤾸𥁄㿼䀈直𥃳𥃲𥄙𥄳眞真真睊䀹瞋䁆䂖𥐝硎碌磌䃣𥘦祖𥚚𥛅福秫䄯穀穊穏𥥼𥪧𥪧竮䈂𥮫篆築䈧𥲀糒䊠糨糣紀𥾆絣䌁緇縂繅䌴𦈨𦉇䍙𦋙罺𦌾羕翺者𦓚𦔣聠𦖨聰𣍟䏕育脃䐋脾媵𦞧𦞵𣎓𣎜舁舄辞䑫芑芋芝劳花芳芽苦𦬼若茝荣莭茣莽菧著荓菊菌菜𦰶𦵫𦳕䔫蓱蓳蔖𧏊蕤𦼬䕝䕡𦾱𧃒䕫虐虜虧虩蚩蚈蜎蛢蝹蜨蝫螆䗗蟡蠁䗹衠衣𧙧裗裞䘵裺㒻𧢮𧥦䚾䛇誠諭變豕𧲨貫賁贛起𧼯𠠄跋趼跰𠣞軔輸𨗒𨗭邔郱鄑𨜮鄛鈸鋗鋘鉼鏹鐕𨯺開䦕閷𨵷䧦雃嶲霣𩅅𩈚䩮䩶韠𩐊䪲𩒖頋頋頩𩖶飢䬳餩馧駂駾䯎𩬰鬒鱀鳽䳎䳭鵧𪃎䳸𪄅𪈎𪊑麻䵖黹黾鼅鼏鼖鼻𪘀";
+    "001t00lc001t00ld001t00le001t00lf001t00lk001t00lm001v00mf001x00lc001x00ld001x00le001x00lk002100lc002100ld002100le002100lk002600lf002700lc002700ld002700le002700lf002700lk002d00lc002d00ld002d00le002d00lk002h00ld002p00lc002p00ld002p00le002p00lf002p00lk002p00lm002r00mf002t00lc002t00ld002t00le002t00lk002x00lc002x00ld002x00le002x00lk003200lf003300lc003300ld003300le003300lf003300lk003900lc003900ld003900le003900lk003d00ld003d00lk001t00lg002p00lg001t00li002p00li001t00mg002p00mg001v00ld002r00ld001v00le002r00le001v00lj002r00lj001v00lo002r00lo001w00lo002s00lo001x00lg002t00lg001x00li002t00li001x00lj002t00lj001x00mg002t00mg001x00lo002t00lo001z00le002v00le001z00li002v00li001z00lj002v00lj001z00mf002v00mf002000le002w00le002100lf002x00lf002100lg002x00lg002100li002x00li002100mg002x00mg002100lj002200le002y00le002300mf002z00mf002400ld003000ld002400mf003000mf002400lo003000lo002600ld003200ld002600mf003200mf002600lo003200lo002700lg003300lg002700li003300li002700ln003300ln002a00ld003600ld002a00mf003600mf002a00lo003600lo002b00ld003700ld002b00le003700le002b00mf003700mf002b00lo003700lo002c00mf003800mf002c00lo003800lo002d00lf003900lf002d00lg003900lg002d00li003900li002d00lm003900lm002d00ln003900ln002d00mg003900mg002f00le003b00le002h00le003d00le002h00lk002i00ld003e00ld002i00lj003e00lj002i00lo003e00lo002700m3003300m3002d00m3003900m3001t00lo002p00lo002100lo002x00lo002700lo003300lo002d00lo003900lo002d00lk00lg003900lk00lg002d00lk00ld003900lk00ld002d00lk00lo003900lk00lo002d00lk00lc003900lk00lc001t00lk00lg002p00lk00lg001t00lj00lg002p00lj00lg005i00lg006e00lg001z00lo002v00lo002300lo002z00lo002700mg003300mg002700mg00lg003300mg00lg00c700lo00ia00lo002y00lo001z00ld002v00ld002600lc003200lc001t00lm00ld002p00lm00ld005i00ld006e00ld006000ld006w00ld001t00lr002p00lr001t00lt002p00lt001x00lr002t00lr001x00lt002t00lt002100lr002x00lr002100lt002x00lt002700lr003300lr002700lt003300lt002a00lr003600lr002a00lt003600lt002d00lr003900lr002d00lt003900lt002b00me003700me002c00me003800me002000lo002w00lo001t00lj002p00lj001x00mf002t00mf002700lk00lg003300lk00lg002700lf00lg003300lf00lg002700lj003300lj002700lj00lg003300lj00lg002h00lg003d00lg00lc00ld00lv00lk00ld00jd001n004o00ld00pd00ld005300ph00ld00pj00ld00pl00ld00pr00ld00px00ld00q100ld00qh00lk00ld00pl00lk00px00lk00q900ld00qd00ld00qf00ld00qh00ld00qt00lk00ld00qh00lk00qt00lk00qn00ld00qt00ld00qx00ld00r600ld00r600lk00t100lc00t100lk00sz00ld00sm00lk00t600ld00t400lc00tf00li00t400li00u000li00tx00lc00tx00lk00tv00ld00uu00lk00u200ld00u000lc00ub00li00vo00lr00vp00lr00t200li00ty00li00sw00li00ts00li00sw00lk00ts00lk00t100li00tx00li00yg00lk00yh00lk00t200lk00ty00lk00t300lk00tz00lk00t400lg00u000lg00t400lk00u000lk00ta00lk00u600lk00yw00lk00yx00lk00tp00lk00ul00lk00tf00lg00ub00lg00tf00lk00ub00lk00tf00ln00ub00ln00tj00lk00uf00lk00tn00lk00uj00lk017r018z017r0190018o0190017r0191018q019001cl019001c1019001ci019001t401to01tc01to01tf01to01sl01to01sm01to01sn01to01ss01to01sx01to01sy01to01t701to01tb01to01xj01xa01xj01xz01wh01x801wi01x801wv01x8020i020s020o020s01zq020s01zr020s01zw020s020b020s0287028m0287027y0287028n0275027w0276027w02aa02c702bq02bi02br02bi02bq02c702fa02fq02in02j902iu02j902iu02ja02iu02iq02iu02iq02j902me02m602mf02m602me02mv02qh02q202qh02q702qh02q702q202qh02qn030i033r030s033r030x033r0312033r0317033r030g033p031t031u031t031w033m0328033n0328031t0328032q033r0330033r0335033r033a033r033f033r032o033p036t037205c505dh05c705dh05c905dh05cb05dh05cd05dh05ch05dh05dm05dh05do05dh05dq05dh05dr05dh05du05dh001t00md002p00md001u00lj002q00lj001u00mb002q00mb001u00mp002q00mp001v00mf00ld002r00mf00ld001w00lj002s00lj001w00mb002s00mb001w00mp002s00mp001w00mf002s00mf001w00ml002s00ml001x00lg00lc002t00lg00lc001x00lg00ld002t00lg00ld001x00ml002t00ml001x00mo002t00mo001x00mf00li002t00mf00li001y00lj002u00lj001z00lg002v00lg002000lj002w00lj002000mb002w00mb002000lk002w00lk002000mf002w00mf002000mm002w00mm002100mo002x00mo002100lk00ld002x00lk00ld002300ld002z00ld002300mb002z00mb002300mp002z00mp002400mb003000mb002400mb00lg003000mb00lg002400mp003000mp002400ml003000ml002500ld003100ld002500lj003100lj002500mb003100mb002600lj003200lj002600mb003200mb002600mp003200mp002600ml003200ml002700lf00ld003300lf00ld002700lf00lk003300lf00lk002700lg00lc003300lg00lc002700lg00ld003300lg00ld002800ld003400ld002800lj003400lj002a00lj003600lj002a00mb003600mb002a00mb00lg003600mb00lg002a00mp003600mp002b00lj003700lj002b00mb003700mb002b00ld00lj003700ld00lj002b00lo00lj003700lo00lj002b00mb00lj003700mb00lj002c00lj003800lj002c00mb003800mb002c00mp003800mp002c00ml003800ml002d00mc003900mc002d00mo003900mo002d00ml003900ml002d00lf00ld003900lf00ld002d00lg00lk003900lg00lk002e00lf003a00lf002e00mb003a00mb002f00lc003b00lc002f00ld003b00ld002f00lk003b00lk002f00lj003b00lj002f00mb003b00mb002g00lj003c00lj002g00lk003c00lk002h00lj003d00lj002i00le003e00le002i00mb003e00mb002i00mp003e00mp002w00mp003800lk003b00lm003d00lm00an00lj001t00mb002p00mb001t00ll002p00ll001t00le00ld002p00le00ld001t00le00lc002p00le00lc001t00le00ll002p00le00ll001t00le00lf002p00le00lf001t00mb00le002p00mb00le001t00li00ld002p00li00ld001t00li00lc002p00li00lc001t00li00ll002p00li00ll001t00li00lf002p00li00lf001t00mb00li002p00mb00li001x00mb002t00mb001x00ll002t00ll001x00lf002t00lf001x00le00ld002t00le00ld001x00le00lc002t00le00lc001x00le00ll002t00le00ll001x00le00lf002t00le00lf001x00mb00le002t00mb00le002100ll002x00ll002100mb002x00mb002700mb003300mb002700ll003300ll002700le00ld003300le00ld002700le00lc003300le00lc002700le00ll003300le00ll002700le00lf003300le00lf002700mb00le003300mb00le002700m300ld003300m300ld002700m300lc003300m300lc002700m300ll003300m300ll002700m300lf003300m300lf002700m300mb003300m300mb002d00mb003900mb002d00ll003900ll002d00m300ld003900m300ld002d00m300lc003900m300lc002d00m300ll003900m300ll002d00m300lf003900m300lf002d00m300mb003900m300mb002h00lc003d00lc002h00mb003d00mb002h00ll003d00ll002h00lf003d00lf00q900lv00q900lw00q900lv00lc00q900lw00lc00q900lv00ld00q900lw00ld00q900lv00n600q900lw00n600pd00lv00pd00lw00pd00lv00lc00pd00lw00lc00pd00lv00ld00pd00lw00ld00pd00lv00n600pd00lw00n600qd00lv00qd00lw00qd00lv00lc00qd00lw00lc00qd00lv00ld00qd00lw00ld00ph00lv00ph00lw00ph00lv00lc00ph00lw00lc00ph00lv00ld00ph00lw00ld00qf00lv00qf00lw00qf00lv00lc00qf00lw00lc00qf00lv00ld00qf00lw00ld00qf00lv00n600qf00lw00n600pj00lv00pj00lw00pj00lv00lc00pj00lw00lc00pj00lv00ld00pj00lw00ld00pj00lv00n600pj00lw00n600qh00lv00qh00lw00qh00lv00lc00qh00lw00lc00qh00lv00ld00qh00lw00ld00qh00lv00n600qh00lw00n600pl00lv00pl00lw00pl00lv00lc00pl00lw00lc00pl00lv00ld00pl00lw00ld00pl00lv00n600pl00lw00n600qn00lv00qn00lw00qn00lv00lc00qn00lw00lc00qn00lv00ld00qn00lw00ld00pr00lv00pr00lw00pr00lv00lc00pr00lw00lc00pr00lv00ld00pr00lw00ld00qt00lv00qt00lw00qt00lv00lc00qt00lw00lc00qt00lv00ld00qt00lw00ld00qt00lv00n600qt00lw00n600px00lw00px00lw00lc00px00lw00ld00px00lw00n600qx00lv00qx00lw00qx00lv00lc00qx00lw00lc00qx00lv00ld00qx00lw00ld00qx00lv00n600qx00lw00n600q100lv00q100lw00q100lv00lc00q100lw00lc00q100lv00ld00q100lw00ld00q100lv00n600q100lw00n600q900lc00q900ld00qd00lc00qd00ld00qf00lc00qf00ld00qh00lc00qh00ld00qn00lc00qn00ld00qt00lc00qt00ld00qx00lc00qx00ld00q900lv00n900q900lw00n900q900lv00lc00n900q900lw00lc00n900q900lv00ld00n900q900lw00ld00n900q900lv00n600n900q900lw00n600n900pd00lv00n900pd00lw00n900pd00lv00lc00n900pd00lw00lc00n900pd00lv00ld00n900pd00lw00ld00n900pd00lv00n600n900pd00lw00n600n900qf00lv00n900qf00lw00n900qf00lv00lc00n900qf00lw00lc00n900qf00lv00ld00n900qf00lw00ld00n900qf00lv00n600n900qf00lw00n600n900pj00lv00n900pj00lw00n900pj00lv00lc00n900pj00lw00lc00n900pj00lv00ld00n900pj00lw00ld00n900pj00lv00n600n900pj00lw00n600n900qx00lv00n900qx00lw00n900qx00lv00lc00n900qx00lw00lc00n900qx00lv00ld00n900qx00lw00ld00n900qx00lv00n600n900qx00lw00n600n900q100lv00n900q100lw00n900q100lv00lc00n900q100lw00lc00n900q100lv00ld00n900q100lw00ld00n900q100lv00n600n900q100lw00n600n900q900li00q900lg00q900lc00n900q900n900q900ld00n900q900n600q900n600n900pd00li00pd00lg00pd00lc00pd00ld00pd00n900qh004o00n600qf00lc00n900qf00n900qf00ld00n900qf00n600qf00n600n900ph00lc00ph00ld00pj00lc00pj00ld00pj00n9069r00lc069r00ld069r00n600qh00li00qh00lg00qh00lk00lc00qh00lk00ld00qh00n600qh00lk00n600pl00li00pl00lg00pl00lc00pl00ld06bi00lc06bi00ld06bi00n600qt00li00qt00lg00qt00lk00lc00qt00lk00ld00qp00lv00qp00lw00qt00n600qt00lk00n600px00li00px00lg00px00lc00px00ld00pt00lw004o00lc004o00ld002o00qx00lc00n900qx00n900qx00ld00n900qx00n600qx00n600n900pr00lc00pr00ld00q100lc00q100ld00q100n9005006bm06bn00q10023001t00lm06mo00mw06mq00mw06ms00mw06og00mw06ok00mw06oi00mw06pv00mw06q000mw06q300mw06qr00mw06qt00mw06rg00mw06rn00mw06rp00mw06rs00mw001p00mw06sh00mw06rx00mw001o00mw001q00mw06sk00mw06sl00mw06sy00mw06sz00mw06t200mw06t300mw06t600mw06t700mw06te00mw06tf00mw06ti00mw06tj00mw06ua00mw06ug00mw06uh00mw06uj00mw06t800mw06t900mw06tt00mw06tu00mw06uq00mw06ur00mw06us00mw06ut00mw09hk09hl08gt00mw09jf09ll09jh09ll09jj09ll09jl09ll09jn09ll09jp09ll09jr09ll09jt09ll09jv09ll09jx09ll09jz09ll09k109ll09k409ll09k609ll09k809ll09kf09ll09kf09lm09ki09ll09ki09lm09kl09ll09kl09lm09ko09ll09ko09lm09kr09ll09kr09lm09ja09ll09lp09ll09m309ll09m509ll09m709ll09m909ll09mb09ll09md09ll09mf09ll09mh09ll09mj09ll09ml09ll09mn09ll09mp09ll09ms09ll09mu09ll09mw09ll09n309ll09n309lm09n609ll09n609lm09n909ll09n909lm09nc09ll09nc09lm09nf09ll09nf09lm09ly09ll09nz09ll09o009ll09o109ll09o209ll09od09ll0rpk0kc40s7e0rt40lw10fg20gkl0vj00vj00hn50ssx0gw70hmw0jcm0ne10p6t0qin0qt60r200sjz0kxu0ljv0mah0mvy0q4d0sq20uep0fia0ghh0l500mjf0qi50v8e0ifk0m3v0qfh0r500jih0pnc0qvz0iq20kd30lm20mpo0slq0fpi0g530gda0jwk0l3n0mj40nhj0pa90qh20qjg0s1b0tv60upb0v7e0nt80nzz0otc0q150t1g0vb30rfa0hjz0iro0okg0pdq0mle0nuy0rsy0ttj0hjs0i8y0kyb0lp60lxr0oq70oxj0tor0gcy0pe30g640g5o0o4c0ou60q290tpx0rk00jin0kxu0rge0fg90i5j0iz60mtj0n740gev0nwb0fr30iw90ff10lho0k1k0opu0gjn0hge0ni90q4p0re20la20sds0lfs0jjy0put0jog0n6t0fji0g2x0g5l0kn50oo70prj0rf60ssv0gdx0gn60ho30ir00k3p0m4e0nxm0tkd0ui20vbr0vda0gbf0kau0l870sbm0ino0j9s0jcw0jve0lyb0mdl0n0p0o220ovo0pdb0s9y0q9a0sgz0t3e0g7r0gbn0gql0ma00r0i0re20iq10iyd0jnf0l9q0oji0mt10fl00h6h0i5j0iii0izg0muq0mzt0p7e0pc60svo0tti0tvs0u1k0fpn0o1a0ss40trs0j4x0fie0fyy0i5q0i7z0k2h0kxu0mha0ncy0q9o0sjg0vil0k940tny0gax0kfv0kj70lkx0luk0mx50n6h0nsb0opc0u3i0g310je60tq00fu30ie10lpm0sa20ivf0j7o0kk70mtj0tqe0g890glr0i910k5v0kem0ko80lid0mx20naa0p6h0r0v0r1d0sss0tsy0gfz0lve0gm50mhc0n140qgq0tr70uvr0vbz0kgn0lor0pns0o970obk0olu0mo00m8p0riw0fk00px20g8q0g7b0ip20jir0onq0i2t0ljy0kac0saj0qx80tot0r630iqb0g1s0gxs0hga0k8k0g660mqy0ngq0ny40nz20nz90o0f0tw60on20p8d0qhe0rg80shk0sn10u7j0u7w0u940v5g0sm60trr0fqm0fzb0g250gcp0gdg0ggh0gwt0gzq0h2g0hfk0hig0i900i9a0j2s0j8o0j9q0jci0k0f0k4i0k9d0kn90lmf0lqy0lya0mem0mjv0mxu0ntd0ny60nyh0nyg0nyo0nyu0nz10o0d0o0e0o5c0o750og00ovo0ow90oxt0p6a0pad0pnx0prt0prt0q530r2o0r6e0rgh0ri10rtf0ruw0sdy0shk0tsz0u0v0u2j0j1x36cu0pp40ffq0g510g2w0fpc0g1x0g3k0gcn0ge20gwt0gut0gwp0gyq0hga0hir0hms0hn80huq0i080iqa0iqh0iuh0iwd0j4o0j7y0j600j9q0j8g0jci0jec0jpg0jrw0jte0k0m0k8k0kd30kd70keu0l890la20lkx0lwb0lvv0lya0m5a0mem0nmv0mk50mnj0mqy0n010n460n5n0nbx0nbz0ngq0nh70nhw0nka0nk00nv00o8h0og00ol70orf0ovo0p4u0pad0pxu0q270qrd0r410r5y0r6e0ren0rg80rez0rgh0rge0rfx0ri10rka0ruw0sag0sj60srd0sxi0tq40tsz0tw60tzv0u0v0u170u2j0umq0vj0313e313833dh0brx0cns0cop39e13bgw3i6r0vgj0vim015l014k016a014n0161014x0161014y0161014s014x0161014s014y015c014n015c014o015c014s015d014s015e014s015f014s015g014s015h014s015i014s015k014s015l014s015m014s015n014s015o014s015q014s015s014s015t014s015v014s015w014s015y014s015z014s0160014s0161014s0162014s015h014p015d014v015n014v015w014v1fpu00lj1fq200lj1huh1hve1huj1hve1hut1hve1hyp1hyf1hyq1hyf1idj1ida1idj1idz1if61ih51if81igr1iff1igy1ifk1ih51igy1igy1igy1igo1igy1ih51int1inu1int1ink1int1inx1iuw1iun1iux1iun1jjp1jjk1xr21xr21xr21xrd1xr21xr31xrd1xr31xr21xr41xr21xr21xr31xr21xrd1xr31xr21xr21xr4206f206f206b206f206b206f206f2jx32jxh2jx42jxh2jx42jxh2jxq2jx42jxh2jxr2jx42jxh2jxs2jx42jxh2jxt2jx42jxh2jxu2jzt2jxh2jzu2jxh2jzt2jxh2jxq2jzu2jxh2jxq2jzt2jxh2jxr2jzu2jxh2jxr0fgd0fg80fgh2tcy0fog0fqm0fqz0fsy0fwa0fx50fzb0fyn0ae62ud60g250g2c0g2s0g3b2u580aex0g2v0g3x2u6j0g470g4k0fkc0g4s0g513ly70g6t0g770afz0g8r0g920gaa0gaf0ahh0gcn0gcp0gdg0ge20ged0gee0gev0gg90ggh0ggq0ghf0ghp0ghr0ghr0ghr2v580m7k0gju0gkf2vdv0gkr0gkx0gli0gpq0gmw0gnc0go80gpu0gs60gsw0gur0gv70gw40gw40gwp0gx70gxf0gxu0h7a0gzq0h7b0h1t0h2s0g7b0hke0hce0hdg0he50haj0hf60hf50hik2x9g0hki0hkn0hl20hlm0hlu0hnm2xm02xnu0hrg0hsr0ht30hqw0huu0aum0av00hzc0i0u0i0u2y880i4j0i540i5j0i5v2yhk0i670i6e0itv0i760ayp0i8w0i9a0ibk0ia52z1g0if72z1i0ige0igb0igs0ijl0ijm0b3j0ikd0ilk0im50ind0b4y2zr70b5o0ipc0ipf0ipi0iq23pg20iri303530350poh0isi0isi0b7r335k3cgq0iua0iuj0b8j0ivu0ix90ixj0iyh0j290bay0ba40j2s30t00j470j7s0j7w0j7y0j7w0j960j9q0jaq0jac0jan0jby0jci0jcm0jdc0jdn0jfh0jht0jis0jm831n00jlp0jjw0jmw0jnn0jqc31td0js20jph0jop0bhq0ju10jum0jvh0juf0bjg0k0f0k1832mi0k4j0kc80k7d0bo90k9d0bns0bms0g420g450kcg0k9o0pf10deh0kd30kd70kdd0kf20ker33cz0bpl0kje0kg50klu0kn933hp0kni0kkf0kr80brx0ksi0kv70kx60l2g33xf0l3v0bvc0l5t34br0l780bwu0l820l9b0la20la334p92yvf34sa0le6354s0lhb0lhp0lev0ljq0lku0lmf0lkx0lm10lmg0lmt357i0lkk0lrj0lta0c370lvv0lvr35jl0lq10m0e35ni35ou0m2u0m610m5a0m570c5y0m6i0m7x0m7r0m992u5h0mdh368z0mfw36i30mjs0mk50mkw36yw0mm80mmt377937dg0mt60mtn0cdo0mud0ce00ce00myv0mzg0n010n0l0n2i0cgr0n50386u0n5q389e0n742zrz0nbk38v538vs38zo0cn00cnc0nhw394j394i395l396b0nj20nj30nj30nka0cop0nm30cp20cra39r10nri0nt80nv00ctf3a5i0nyu3a8q3a9x0o0f0o2z0cvj0o5c0o5m0o5r3at83b1j3b1j0oa60d1e3b8r0og60og90d2f3beo0onm0d5s0oo80oo30oow3c060orn0d8h0ouf0ow20oxx0d9w3ciw3cjr0dax3cnt0p6i3cqm0p790pa20pad3d223d430pcw3d7s0pdc33a70ded0pf60phf0dfv0pj20hx13dlz3dmd33bn33bw0poh0pok0sda0dij0psh0psb0pst0gc30ptd0ptf0ptp0puu3ebg0put0pwd0pyb0q0d0pwj0q0t0q1z0q530pxv0q160q180q1o3eie3eqz3emt0dnv0q9d0q9f0qae3g0a0qck3f3g0dp90dpd3f753ff60dpn0qj40qjg0qjr0qjt0qll0qko0qoe0qn60qrd0qp40qqz0qrq0dsn0qu90qv50dtl0qxs0qxv3giv0r130r1a0dv90r220aez3gz23h460dz20dzb0rds0rfx0rka0rpx3hrc0rsb0rsx0rvf0rxz3i9b2upw0s0b0rzw0s1c2uvy0s7o0sag3jki3jl90sk40smp0snl3ju60snv0svs0t070t080sxo0t890t913ksa0tjf0ej90tkn3l2v0eli0ts30iia0tur3ltx3lzu0epa0epi0u003mdm0er63mhi0u170u170u213mpi0u760eur0u950ucn0ude0uf20ez23nsg0umq0uv40v0d0f660f710v3b3owe0f7c3oxx3p5a3p8x0vcr0f9y0veh0vem0vet0vf30vfa0vgb3pxc";
 
 /// Every character with a compatibility or canonical decomposition.
 let NFKD_KEYS: Str =
@@ -1596,7 +1498,7 @@ let NFKD_LENGTHS: Str =
 
 /// The compatibility decompositions, run together.
 let NFKD_VALUES: Str =
-    "  ̈a ̄23 ́μ ̧1o1⁄41⁄23⁄4ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝàáâãäåçèéêëìíîïñòóôõöùúûüýÿĀāĂăĄąĆćĈĉĊċČčĎďĒēĔĕĖėĘęĚěĜĝĞğĠġĢģĤĥĨĩĪīĬĭĮįİIJijĴĵĶķĹĺĻļĽľL·l·ŃńŅņŇňʼnŌōŎŏŐőŔŕŖŗŘřŚśŜŝŞşŠšŢţŤťŨũŪūŬŭŮůŰűŲųŴŵŶŷŸŹźŻżŽžsƠơƯưDŽDždžLJLjljNJNjnjǍǎǏǐǑǒǓǔǕǖǗǘǙǚǛǜǞǟǠǡǢǣǦǧǨǩǪǫǬǭǮǯǰDZDzdzǴǵǸǹǺǻǼǽǾǿȀȁȂȃȄȅȆȇȈȉȊȋȌȍȎȏȐȑȒȓȔȕȖȗȘșȚțȞȟȦȧȨȩȪȫȬȭȮȯȰȱȲȳhɦjrɹɻʁwy ̆ ̇ ̊ ̨ ̃ ̋ɣlsxʕ̀́̓̈́ʹ ͅ; ́ ̈́Ά·ΈΉΊΌΎΏΐΪΫάέήίΰϊϋόύώβθΥΎΫφπκρςΘεΣЀЁЃЇЌЍЎЙйѐёѓїќѝўѶѷӁӂӐӑӒӓӖӗӚӛӜӝӞӟӢӣӤӥӦӧӪӫӬӭӮӯӰӱӲӳӴӵӸӹեւآأؤإئاٴوٴۇٴيٴۀۂۓऩऱऴक़ख़ग़ज़ड़ढ़फ़य़োৌড়ঢ়য়ਲ਼ਸ਼ਖ਼ਗ਼ਜ਼ਫ਼ୈୋୌଡ଼ଢ଼ஔொோௌైೀೇೈೊೋൊോൌේොෝෞําໍາຫນຫມ་གྷཌྷདྷབྷཛྷཀྵཱཱིུྲྀྲཱྀླྀླཱཱྀྀྒྷྜྷྡྷྦྷྫྷྐྵဦნᬆᬈᬊᬌᬎᬒᬻᬽᭀᭁᭃAÆBDEƎGHIJKLMNOȢPRTUWaɐɑᴂbdeəɛɜgkmŋoɔᴖᴗptuᴝɯvᴥβγδφχiruvβγρφχнɒcɕðɜfɟɡɥɨɩɪᵻʝɭᶅʟɱɰɲɳɴɵɸʂʃƫʉʊᴜʋʌzʐʑʒθḀḁḂḃḄḅḆḇḈḉḊḋḌḍḎḏḐḑḒḓḔḕḖḗḘḙḚḛḜḝḞḟḠḡḢḣḤḥḦḧḨḩḪḫḬḭḮḯḰḱḲḳḴḵḶḷḸḹḺḻḼḽḾḿṀṁṂṃṄṅṆṇṈṉṊṋṌṍṎṏṐṑṒṓṔṕṖṗṘṙṚṛṜṝṞṟṠṡṢṣṤṥṦṧṨṩṪṫṬṭṮṯṰṱṲṳṴṵṶṷṸṹṺṻṼṽṾṿẀẁẂẃẄẅẆẇẈẉẊẋẌẍẎẏẐẑẒẓẔẕẖẗẘẙaʾṡẠạẢảẤấẦầẨẩẪẫẬậẮắẰằẲẳẴẵẶặẸẹẺẻẼẽẾếỀềỂểỄễỆệỈỉỊịỌọỎỏỐốỒồỔổỖỗỘộỚớỜờỞởỠỡỢợỤụỦủỨứỪừỬửỮữỰựỲỳỴỵỶỷỸỹἀἁἂἃἄἅἆἇἈἉἊἋἌἍἎἏἐἑἒἓἔἕἘἙἚἛἜἝἠἡἢἣἤἥἦἧἨἩἪἫἬἭἮἯἰἱἲἳἴἵἶἷἸἹἺἻἼἽἾἿὀὁὂὃὄὅὈὉὊὋὌὍὐὑὒὓὔὕὖὗὙὛὝὟὠὡὢὣὤὥὦὧὨὩὪὫὬὭὮὯὰάὲέὴήὶίὸόὺύὼώᾀᾁᾂᾃᾄᾅᾆᾇᾈᾉᾊᾋᾌᾍᾎᾏᾐᾑᾒᾓᾔᾕᾖᾗᾘᾙᾚᾛᾜᾝᾞᾟᾠᾡᾢᾣᾤᾥᾦᾧᾨᾩᾪᾫᾬᾭᾮᾯᾰᾱᾲᾳᾴᾶᾷᾸᾹᾺΆᾼ ̓ι ̓ ͂ ̈͂ῂῃῄῆῇῈΈῊΉῌ ̓̀ ̓́ ̓͂ῐῑῒΐῖῗῘῙῚΊ ̔̀ ̔́ ̔͂ῠῡῢΰῤῥῦῧῨῩῪΎῬ ̈̀ ̈́`ῲῳῴῶῷῸΌῺΏῼ ́ ̔           ‐ ̳...... ′′′′′‵‵‵‵‵!! ̅???!!?′′′′ 0i456789+−=()n0123456789+−=()aeoxəhklmnpstRsa/ca/sC°Cc/oc/uƐ°FgHHHhħIILlNNoPQRRRSMTELTMZΩZKÅBCeEFMoאבגדiFAXπγΓΠ∑Ddeij1⁄71⁄91⁄101⁄32⁄31⁄52⁄53⁄54⁄51⁄65⁄61⁄83⁄85⁄87⁄81⁄IIIIIIIVVVIVIIVIIIIXXXIXIILCDMiiiiiiivvviviiviiiixxxixiilcdm0⁄3↚↛↮⇍⇎⇏∄∉∌∤∦∫∫∫∫∫∮∮∮∮∮≁≄≇≉≠≢≭≮≯≰≱≴≵≸≹⊀⊁⊄⊅⊈⊉⊬⊭⊮⊯⋠⋡⋢⋣⋪⋫⋬⋭〈〉1234567891011121314151617181920(1)(2)(3)(4)(5)(6)(7)(8)(9)(10)(11)(12)(13)(14)(15)(16)(17)(18)(19)(20)1.2.3.4.5.6.7.8.9.10.11.12.13.14.15.16.17.18.19.20.(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(k)(l)(m)(n)(o)(p)(q)(r)(s)(t)(u)(v)(w)(x)(y)(z)ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0∫∫∫∫::======⫝̸jVⵡ母龟一丨丶丿乙亅二亠人儿入八冂冖冫几凵刀力勹匕匚匸十卜卩厂厶又口囗土士夂夊夕大女子宀寸小尢尸屮山巛工己巾干幺广廴廾弋弓彐彡彳心戈戶手支攴文斗斤方无日曰月木欠止歹殳毋比毛氏气水火爪父爻爿片牙牛犬玄玉瓜瓦甘生用田疋疒癶白皮皿目矛矢石示禸禾穴立竹米糸缶网羊羽老而耒耳聿肉臣自至臼舌舛舟艮色艸虍虫血行衣襾見角言谷豆豕豸貝赤走足身車辛辰辵邑酉釆里金長門阜隶隹雨靑非面革韋韭音頁風飛食首香馬骨高髟鬥鬯鬲鬼魚鳥鹵鹿麥麻黃黍黑黹黽鼎鼓鼠鼻齊齒龍龜龠 〒十卄卅がぎぐげござじずぜぞだぢづでどばぱびぴぶぷべぺぼぽゔ ゙ ゚ゞよりガギグゲゴザジズゼゾダヂヅデドバパビピブプベペボポヴヷヸヹヺヾコトᄀᄁᆪᄂᆬᆭᄃᄄᄅᆰᆱᆲᆳᆴᆵᄚᄆᄇᄈᄡᄉᄊᄋᄌᄍᄎᄏᄐᄑ하ᅢᅣᅤᅥᅦᅧᅨᅩᅪᅫᅬᅭᅮᅯᅰᅱᅲᅳᅴᅵᅠᄔᄕᇇᇈᇌᇎᇓᇗᇙᄜᇝᇟᄝᄞᄠᄢᄣᄧᄩᄫᄬᄭᄮᄯᄲᄶᅀᅇᅌᇱᇲᅗᅘᅙᆄᆅᆈᆑᆒᆔᆞᆡ一二三四上中下甲乙丙丁天地人(ᄀ)(ᄂ)(ᄃ)(ᄅ)(ᄆ)(ᄇ)(ᄉ)(ᄋ)(ᄌ)(ᄎ)(ᄏ)(ᄐ)(ᄑ)(ᄒ)(가)(나)(다)(라)(마)(바)(사)(아)(자)(차)(카)(타)(파)(하)(주)(오전)(오후)(一)(二)(三)(四)(五)(六)(七)(八)(九)(十)(月)(火)(水)(木)(金)(土)(日)(株)(有)(社)(名)(特)(財)(祝)(労)(代)(呼)(学)(監)(企)(資)(協)(祭)(休)(自)(至)問幼文箏PTE212223242526272829303132333435ᄀᄂᄃᄅᄆᄇᄉᄋᄌᄎᄏᄐᄑᄒ가나다라마바사아자차카타파하참고주의우一二三四五六七八九十月火水木金土日株有社名特財祝労秘男女適優印注項休写正上中下左右医宗学監企資協夜3637383940414243444546474849501月2月3月4月5月6月7月8月9月10月11月12月HgergeVLTDアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヰヱヲ令和アパートアルファアンペアアールイニングインチウォンエスクードエーカーオンスオームカイリカラットカロリーガロンガンマギガギニーキュリーギルダーキロキログラムキロメートルキロワットグラムグラムトンクルゼイロクローネケースコルナコーポサイクルサンチームシリングセンチセントダースデシドルトンナノノットハイツパーセントパーツバーレルピアストルピクルピコビルファラッドフィートブッシェルフランヘクタールペソペニヒヘルツペンスページベータポイントボルトホンポンドホールホーンマイクロマイルマッハマルクマンションミクロンミリミリバールメガメガトンメートルヤードヤールユアンリットルリラルピールーブルレムレントゲンワット0点1点2点3点4点5点6点7点8点9点10点11点12点13点14点15点16点17点18点19点20点21点22点23点24点hPadaAUbaroVpcdmdm2dm3IU平成昭和大正明治株式会社pAnAμAmAkAKBMBGBcalkcalpFnFμFμgmgkgHzkHzMHzGHzTHzμlmldlklfmnmμmmmcmkmmm2cm2m2km2mm3cm3m3km3m∕sm∕s2PakPaMPaGParadrad∕srad∕s2psnsμsmspVnVμVmVkVMVpWnWμWmWkWMWkΩMΩa.m.BqcccdC∕kgCo.dBGyhaHPinKKKMktlmlnloglxmbmilmolPHp.m.PPMPRsrSvWbV∕mA∕m1日2日3日4日5日6日7日8日9日10日11日12日13日14日15日16日17日18日19日20日21日22日23日24日25日26日27日28日29日30日31日galъьꝯCFQĦœꜧꬷɫꭒʍ豈更車賈滑串句龜龜契金喇奈懶癩羅蘿螺裸邏樂洛烙珞落酪駱亂卵欄爛蘭鸞嵐濫藍襤拉臘蠟廊朗浪狼郎來冷勞擄櫓爐盧老蘆虜路露魯鷺碌祿綠菉錄鹿論壟弄籠聾牢磊賂雷壘屢樓淚漏累縷陋勒肋凜凌稜綾菱陵讀拏樂諾丹寧怒率異北磻便復不泌數索參塞省葉說殺辰沈拾若掠略亮兩凉梁糧良諒量勵呂女廬旅濾礪閭驪麗黎力曆歷轢年憐戀撚漣煉璉秊練聯輦蓮連鍊列劣咽烈裂說廉念捻殮簾獵令囹寧嶺怜玲瑩羚聆鈴零靈領例禮醴隸惡了僚寮尿料樂燎療蓼遼龍暈阮劉杻柳流溜琉留硫紐類六戮陸倫崙淪輪律慄栗率隆利吏履易李梨泥理痢罹裏裡里離匿溺吝燐璘藺隣鱗麟林淋臨立笠粒狀炙識什茶刺切度拓糖宅洞暴輻行降見廓兀嗀塚晴凞猪益礼神祥福靖精羽蘒諸逸都飯飼館鶴郞隷侮僧免勉勤卑喝嘆器塀墨層屮悔慨憎懲敏既暑梅海渚漢煮爫琢碑社祉祈祐祖祝禍禎穀突節練縉繁署者臭艹艹著褐視謁謹賓贈辶逸難響頻恵𤋮舘並况全侀充冀勇勺喝啕喙嗢塚墳奄奔婢嬨廒廙彩徭惘慎愈憎慠懲戴揄搜摒敖晴朗望杖歹殺流滛滋漢瀞煮瞧爵犯猪瑱甆画瘝瘟益盛直睊着磌窱節类絛練缾者荒華蝹襁覆視調諸請謁諾諭謹變贈輸遲醙鉶陼難靖韛響頋頻鬒龜𢡊𢡄𣏕㮝䀘䀹𥉉𥳐𧻓齃龎fffiflffifflststմնմեմիվնմխיִײַעאדהכלםרת+שׁשׂשּׁשּׂאַאָאּבּגּדּהּוּזּטּיּךּכּלּמּנּסּףּפּצּקּרּשּתּוֹבֿכֿפֿאלٱٱٻٻٻٻپپپپڀڀڀڀٺٺٺٺٿٿٿٿٹٹٹٹڤڤڤڤڦڦڦڦڄڄڄڄڃڃڃڃچچچچڇڇڇڇڍڍڌڌڎڎڈڈژژڑڑککککگگگگڳڳڳڳڱڱڱڱںںڻڻڻڻۀۀہہہہھھھھےےۓۓڭڭڭڭۇۇۆۆۈۈۇٴۋۋۅۅۉۉېېېېىىئائائەئەئوئوئۇئۇئۆئۆئۈئۈئېئېئېئىئىئىییییئجئحئمئىئيبجبحبخبمبىبيتجتحتختمتىتيثجثمثىثيجحجمحجحمخجخحخمسجسحسخسمصحصمضجضحضخضمطحطمظمعجعمغجغمفجفحفخفمفىفيقحقمقىقيكاكجكحكخكلكمكىكيلجلحلخلملىليمجمحمخمممىمينجنحنخنمنىنيهجهمهىهييجيحيخيميىييذٰرٰىٰ ٌّ ٍّ َّ ُّ ِّ ّٰئرئزئمئنئىئيبربزبمبنبىبيترتزتمتنتىتيثرثزثمثنثىثيفىفيقىقيكاكلكمكىكيلملىليماممنرنزنمنننىنيىٰيريزيمينيىييئجئحئخئمئهبجبحبخبمبهتجتحتختمتهثمجحجمحجحمخجخمسجسحسخسمصحصخصمضجضحضخضمطحظمعجعمغجغمفجفحفخفمقحقمكجكحكخكلكملجلحلخلملهمجمحمخممنجنحنخنمنههجهمهٰيجيحيخيميهئمئهبمبهتمتهثمثهسمسهشمشهكلكملمنمنهيميهـَّـُّـِّطىطيعىعيغىغيسىسيشىشيحىحيجىجيخىخيصىصيضىضيشجشحشخشمشرسرصرضرطىطيعىعيغىغيسىسيشىشيحىحيجىجيخىخيصىصيضىضيشجشحشخشمشرسرصرضرشجشحشخشمسهشهطمسجسحسخشجشحشخطمظماًاًتجمتحجتحجتحمتخمتمجتمحتمخجمحجمححميحمىسحجسجحسجىسمحسمحسمجسممسممصححصححصممشحمشحمشجيشمخشمخشممشممضحىضخمضخمطمحطمحطممطميعجمعممعممعمىغممغميغمىفخمفخمقمحقمملحملحيلحىلججلججلخملخملمحلمحمحجمحممحيمجحمجممخجمخممجخهمجهممنحمنحىنجمنجمنجىنمينمىيمميممبخيتجيتجىتخيتخىتميتمىجميجحىجمىسخىصحيشحيضحيلجيلمييحييجييميمميقمينحيقمحلحمعميكمينجحمخيلجمكمملجمنجحجحيحجيمجيفميبحيكممعجمصممسخينجيصلےقلےاللهاكبرمحمدصلعمرسولعليهوسلمصلىصلى الله عليه وسلمجل جلالهریال,、。:;!?〖〗.....—–__(){}〔〕【】《》〈〉「」『』[] ̅ ̅ ̅ ̅___,、.;:?!—(){}〔〕#&*+-<>=\\$%@ ًـً ٌ ٍ َـَ ُـُ ِـِ ّـّ ْـْءآآأأؤؤإإئئئئااببببةةتتتتثثثثججججححححخخخخددذذررززسسسسششششصصصصضضضضططططظظظظععععغغغغففففققققككككللللممممننننههههووىىييييلآلآلألألإلإلالا!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~⦅⦆。「」、・ヲァィゥェォャュョッーアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン゙゚ᅠᄀᄁᆪᄂᆬᆭᄃᄄᄅᆰᆱᆲᆳᆴᆵᄚᄆᄇᄈᄡᄉᄊᄋᄌᄍᄎᄏᄐᄑ하ᅢᅣᅤᅥᅦᅧᅨᅩᅪᅫᅬᅭᅮᅯᅰᅱᅲᅳᅴᅵ¢£¬ ̄¦¥₩│←↑→↓■○𐗉𐗤ːˑæʙɓʣꭦʥʤɖɗᶑɘɞʩɤɢɠʛħʜɧʄʪʫɬ𝼄ꞎɮ𝼅ʎ𝼆øɶɷqɺ𝼈ɽɾʀʨʦꭧʧʈⱱʏʡʢʘǀǁǂ𝼊𝼞𑂚𑂜𑂫𑄮𑄯𑍋𑍌𑎃𑎅𑎎𑎑𑏅𑏇𑏈𑒻𑒼𑒾𑖺𑖻𑤸𖄡𖄢𖄣𖄤𖄥𖄦𖄧𖄨𖵨𖵩𖵪ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789𝅗𝅥𝅘𝅥𝅘𝅥𝅮𝅘𝅥𝅯𝅘𝅥𝅰𝅘𝅥𝅱𝅘𝅥𝅲𝆹𝅥𝆺𝅥𝆹𝅥𝅮𝆺𝅥𝅮𝆹𝅥𝅯𝆺𝅥𝅯ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzACDGJKNOPQSTUVWXYZabcdfhijklmnpqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzABDEFGJKLMNOPQSTUVWXYabcdefghijklmnopqrstuvwxyzABDEFGIJKLMOSTUVWXYabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzıȷΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΘΣΤΥΦΧΨΩ∇αβγδεζηθικλμνξοπρςστυφχψω∂εθκφρπΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΘΣΤΥΦΧΨΩ∇αβγδεζηθικλμνξοπρςστυφχψω∂εθκφρπΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΘΣΤΥΦΧΨΩ∇αβγδεζηθικλμνξοπρςστυφχψω∂εθκφρπΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΘΣΤΥΦΧΨΩ∇αβγδεζηθικλμνξοπρςστυφχψω∂εθκφρπΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΘΣΤΥΦΧΨΩ∇αβγδεζηθικλμνξοπρςστυφχψω∂εθκφρπϜϝ01234567890123456789012345678901234567890123456789абвгдежзиклмопрстуфхцчшыэюꚉәіјөүӏабвгдежзиклопсуфхцчшъыґіѕџҫꙑұابجدوزحطيكلمنسعفصقرشتثخذضظغٮںڡٯبجهحيكلمنسعفصقشتثخضغجحيلنسعصقشخضغںٯبجهحطيكمنسعفصقشتثخضظغٮڡابجدهوزحطيلمنسعفصقرشتثخذضظغبجدوزحطيلمنسعفصقرشتثخذضظغ0.0,1,2,3,4,5,6,7,8,9,(A)(B)(C)(D)(E)(F)(G)(H)(I)(J)(K)(L)(M)(N)(O)(P)(Q)(R)(S)(T)(U)(V)(W)(X)(Y)(Z)〔S〕CRCDWZABCDEFGHIJKLMNOPQRSTUVWXYZHVMVSDSSPPVWCMCMDMRDJほかココサ手字双デ二多解天交映無料前後再新初終生販声吹演投捕一三遊左中右指走打禁空合満有月申割営配〔本〕〔三〕〔二〕〔安〕〔点〕〔打〕〔盗〕〔勝〕〔敗〕得可0123456789丽丸乁𠄢你侮侻倂偺備僧像㒞𠘺免兔兤具𠔜㒹內再𠕋冗冤仌冬况𩇟凵刃㓟刻剆割剷㔕勇勉勤勺包匆北卉卑博即卽卿卿卿𠨬灰及叟𠭣叫叱吆咞吸呈周咢哶唐啓啣善善喙喫喳嗂圖嘆圗噑噴切壮城埴堍型堲報墬𡓤売壷夆多夢奢𡚨𡛪姬娛娧姘婦㛮㛼嬈嬾嬾𡧈寃寘寧寳𡬘寿将当尢㞁屠屮峀岍𡷤嵃𡷦嵮嵫嵼巡巢㠯巽帨帽幩㡢𢆃㡼庰庳庶廊𪎒廾𢌱𢌱舁弢弢㣇𣊸𦇚形彫㣣徚忍志忹悁㤺㤜悔𢛔惇慈慌慎慌慺憎憲憤憯懞懲懶成戛扝抱拔捐𢬌挽拼捨掃揤𢯱搢揅掩㨮摩摾撝摷㩬敏敬𣀊旣書晉㬙暑㬈㫤冒冕最暜肭䏙朗望朡杞杓𣏃㭉柺枅桒梅𣑭梎栟椔㮝楂榣槪檨𣚣櫛㰘次𣢧歔㱎歲殟殺殻𣪍𡴋𣫺汎𣲼沿泍汧洖派海流浩浸涅𣴞洴港湮㴳滋滇𣻑淹潮𣽞𣾎濆瀹瀞瀛㶖灊災灷炭𠔥煅𤉣熜𤎫爨爵牐𤘈犀犕𤜵𤠔獺王㺬玥㺸㺸瑇瑜瑱璅瓊㼛甤𤰶甾𤲒異𢆟瘐𤾡𤾸𥁄㿼䀈直𥃳𥃲𥄙𥄳眞真真睊䀹瞋䁆䂖𥐝硎碌磌䃣𥘦祖𥚚𥛅福秫䄯穀穊穏𥥼𥪧𥪧竮䈂𥮫篆築䈧𥲀糒䊠糨糣紀𥾆絣䌁緇縂繅䌴𦈨𦉇䍙𦋙罺𦌾羕翺者𦓚𦔣聠𦖨聰𣍟䏕育脃䐋脾媵𦞧𦞵𣎓𣎜舁舄辞䑫芑芋芝劳花芳芽苦𦬼若茝荣莭茣莽菧著荓菊菌菜𦰶𦵫𦳕䔫蓱蓳蔖𧏊蕤𦼬䕝䕡𦾱𧃒䕫虐虜虧虩蚩蚈蜎蛢蝹蜨蝫螆䗗蟡蠁䗹衠衣𧙧裗裞䘵裺㒻𧢮𧥦䚾䛇誠諭變豕𧲨貫賁贛起𧼯𠠄跋趼跰𠣞軔輸𨗒𨗭邔郱鄑𨜮鄛鈸鋗鋘鉼鏹鐕𨯺開䦕閷𨵷䧦雃嶲霣𩅅𩈚䩮䩶韠𩐊䪲𩒖頋頋頩𩖶飢䬳餩馧駂駾䯎𩬰鬒鱀鳽䳎䳭鵧𪃎䳸𪄅𪈎𪊑麻䵖黹黾鼅鼏鼖鼻𪘀";
+    "000w000w00lk002p000w00lg001e001f000w00ld00qk000w00mf001d0033001d06dg001g001d06dg001e001f06dg001g001t00lc001t00ld001t00le001t00lf001t00lk001t00lm001v00mf001x00lc001x00ld001x00le001x00lk002100lc002100ld002100le002100lk002600lf002700lc002700ld002700le002700lf002700lk002d00lc002d00ld002d00le002d00lk002h00ld002p00lc002p00ld002p00le002p00lf002p00lk002p00lm002r00mf002t00lc002t00ld002t00le002t00lk002x00lc002x00ld002x00le002x00lk003200lf003300lc003300ld003300le003300lf003300lk003900lc003900ld003900le003900lk003d00ld003d00lk001t00lg002p00lg001t00li002p00li001t00mg002p00mg001v00ld002r00ld001v00le002r00le001v00lj002r00lj001v00lo002r00lo001w00lo002s00lo001x00lg002t00lg001x00li002t00li001x00lj002t00lj001x00mg002t00mg001x00lo002t00lo001z00le002v00le001z00li002v00li001z00lj002v00lj001z00mf002v00mf002000le002w00le002100lf002x00lf002100lg002x00lg002100li002x00li002100mg002x00mg002100lj00210022002x002y002200le002y00le002300mf002z00mf002400ld003000ld002400mf003000mf002400lo003000lo0024005300300053002600ld003200ld002600mf003200mf002600lo003200lo00jg0032002700lg003300lg002700li003300li002700ln003300ln002a00ld003600ld002a00mf003600mf002a00lo003600lo002b00ld003700ld002b00le003700le002b00mf003700mf002b00lo003700lo002c00mf003800mf002c00lo003800lo002d00lf003900lf002d00lg003900lg002d00li003900li002d00lm003900lm002d00ln003900ln002d00mg003900mg002f00le003b00le002h00le003d00le002h00lk002i00ld003e00ld002i00lj003e00lj002i00lo003e00lo0037002700m3003300m3002d00m3003900m3001w002i00lo001w003e00lo002s003e00lo002400220024002y0030002y002600220026002y0032002y001t00lo002p00lo002100lo002x00lo002700lo003300lo002d00lo003900lo002d00lk00lg003900lk00lg002d00lk00ld003900lk00ld002d00lk00lo003900lk00lo002d00lk00lc003900lk00lc001t00lk00lg002p00lk00lg001t00lj00lg002p00lj00lg005i00lg006e00lg001z00lo002v00lo002300lo002z00lo002700mg003300mg002700mg00lg003300mg00lg00c700lo00ia00lo002y00lo001w002i001w003e002s003e001z00ld002v00ld002600lc003200lc001t00lm00ld002p00lm00ld005i00ld006e00ld006000ld006w00ld001t00lr002p00lr001t00lt002p00lt001x00lr002t00lr001x00lt002t00lt002100lr002x00lr002100lt002x00lt002700lr003300lr002700lt003300lt002a00lr003600lr002a00lt003600lt002d00lr003900lr002d00lt003900lt002b00me003700me002c00me003800me002000lo002w00lo001t00lj002p00lj001x00mf002t00mf002700lk00lg003300lk00lg002700lf00lg003300lf00lg002700lj003300lj002700lj00lg003300lj00lg002h00lg003d00lg002w00h2002y003600hl00hn00ht003b003d000w00li000w00lj000w00lm000w00mg000w00lf000w00ln00gz00300037003c00id00lc00ld00lv00lk00ld00jd000w00n9001n000w00ld000w00lk00ld00pd00ld005300ph00ld00pj00ld00pl00ld00pr00ld00px00ld00q100ld00qh00lk00ld00pl00lk00px00lk00q900ld00qd00ld00qf00ld00qh00ld00qt00lk00ld00qh00lk00qt00lk00qn00ld00qt00ld00qx00ld00qa00qg00px00px00ld00px00lk00qu00qo00qi00qp00qq00pk00qd00pv00t100lc00t100lk00sz00ld00sm00lk00t600ld00t400lc00tf00li00t400li00u000li00tx00lc00tx00lk00tv00ld00uu00lk00u200ld00u000lc00ub00li00vo00lr00vp00lr00t200li00ty00li00sw00li00ts00li00sw00lk00ts00lk00t100li00tx00li00yg00lk00yh00lk00t200lk00ty00lk00t300lk00tz00lk00t400lg00u000lg00t400lk00u000lk00ta00lk00u600lk00yw00lk00yx00lk00tp00lk00ul00lk00tf00lg00ub00lg00tf00lk00ub00lk00tf00ln00ub00ln00tj00lk00uf00lk00tn00lk00uj00lk012d0136017r018z017r0190018o0190017r0191018q0190017r019w018o019w01c7019w018q019w01cl019001c1019001ci019001t401to01tc01to01tf01to01sl01to01sm01to01sn01to01ss01to01sx01to01sy01to01t701to01tb01to01xj01xa01xj01xz01wh01x801wi01x801wv01x8020i020s020o020s01zq020s01zr020s01zw020s020b020s0287028m0287027y0287028n0275027w0276027w02aa02c702bq02bi02br02bi02bq02c702fa02fq02in02j902iu02j902iu02ja02iu02iq02iu02iq02j902me02m602mf02m602me02mv02qh02q202qh02q702qh02q702q202qh02qn02tp02sy02x902wi02wb02vt02wb02w102yz030i033r030s033r030x033r0312033r0317033r030g033p031t031u031t031w033m0328033m031t0328033n0328033n031t0328031t0328032q033r0330033r0335033r033a033r033f033r032o033p036t037203bw05c505dh05c705dh05c905dh05cb05dh05cd05dh05ch05dh05dm05dh05do05dh05dq05dh05dr05dh05du05dh001t005i001u001w001x00b2001z0020002100220023002400250026002700f60028002a002c002d002f002p00gg00gh05qa002q002s002t00gp00gr00gs002v002z00310097003300gk05qu05qv00340038003905r100hb003a05r900qa00qb00qc00qu00qv002x00360039003a00qa00qb00qp00qu00qv00u500gi002r00gl006o00gs002u00gv00gx00h100h400h500h605tn00il00h905tx00in00hd00hc00he00hf00hg00hh00hk00hu00hv00bv00i100i205r000i300i4003e00i800i900ia00qg001t00md002p00md001u00lj002q00lj001u00mb002q00mb001u00mp002q00mp001v00mf00ld002r00mf00ld001w00lj002s00lj001w00mb002s00mb001w00mp002s00mp001w00mf002s00mf001w00ml002s00ml001x00lg00lc002t00lg00lc001x00lg00ld002t00lg00ld001x00ml002t00ml001x00mo002t00mo001x00mf00li002t00mf00li001y00lj002u00lj001z00lg002v00lg002000lj002w00lj002000mb002w00mb002000lk002w00lk002000mf002w00mf002000mm002w00mm002100mo002x00mo002100lk00ld002x00lk00ld002300ld002z00ld002300mb002z00mb002300mp002z00mp002400mb003000mb002400mb00lg003000mb00lg002400mp003000mp002400ml003000ml002500ld003100ld002500lj003100lj002500mb003100mb002600lj003200lj002600mb003200mb002600mp003200mp002600ml003200ml002700lf00ld003300lf00ld002700lf00lk003300lf00lk002700lg00lc003300lg00lc002700lg00ld003300lg00ld002800ld003400ld002800lj003400lj002a00lj003600lj002a00mb003600mb002a00mb00lg003600mb00lg002a00mp003600mp002b00lj003700lj002b00mb003700mb002b00ld00lj003700ld00lj002b00lo00lj003700lo00lj002b00mb00lj003700mb00lj002c00lj003800lj002c00mb003800mb002c00mp003800mp002c00ml003800ml002d00mc003900mc002d00mo003900mo002d00ml003900ml002d00lf00ld003900lf00ld002d00lg00lk003900lg00lk002e00lf003a00lf002e00mb003a00mb002f00lc003b00lc002f00ld003b00ld002f00lk003b00lk002f00lj003b00lj002f00mb003b00mb002g00lj003c00lj002g00lk003c00lk002h00lj003d00lj002i00le003e00le002i00mb003e00mb002i00mp003e00mp002w00mp003800lk003b00lm003d00lm002p00ji003700lj001t00mb002p00mb001t00ll002p00ll001t00le00ld002p00le00ld001t00le00lc002p00le00lc001t00le00ll002p00le00ll001t00le00lf002p00le00lf001t00mb00le002p00mb00le001t00li00ld002p00li00ld001t00li00lc002p00li00lc001t00li00ll002p00li00ll001t00li00lf002p00li00lf001t00mb00li002p00mb00li001x00mb002t00mb001x00ll002t00ll001x00lf002t00lf001x00le00ld002t00le00ld001x00le00lc002t00le00lc001x00le00ll002t00le00ll001x00le00lf002t00le00lf001x00mb00le002t00mb00le002100ll002x00ll002100mb002x00mb002700mb003300mb002700ll003300ll002700le00ld003300le00ld002700le00lc003300le00lc002700le00ll003300le00ll002700le00lf003300le00lf002700mb00le003300mb00le002700m300ld003300m300ld002700m300lc003300m300lc002700m300ll003300m300ll002700m300lf003300m300lf002700m300mb003300m300mb002d00mb003900mb002d00ll003900ll002d00m300ld003900m300ld002d00m300lc003900m300lc002d00m300ll003900m300ll002d00m300lf003900m300lf002d00m300mb003900m300mb002h00lc003d00lc002h00mb003d00mb002h00ll003d00ll002h00lf003d00lf00q900lv00q900lw00q900lv00lc00q900lw00lc00q900lv00ld00q900lw00ld00q900lv00n600q900lw00n600pd00lv00pd00lw00pd00lv00lc00pd00lw00lc00pd00lv00ld00pd00lw00ld00pd00lv00n600pd00lw00n600qd00lv00qd00lw00qd00lv00lc00qd00lw00lc00qd00lv00ld00qd00lw00ld00ph00lv00ph00lw00ph00lv00lc00ph00lw00lc00ph00lv00ld00ph00lw00ld00qf00lv00qf00lw00qf00lv00lc00qf00lw00lc00qf00lv00ld00qf00lw00ld00qf00lv00n600qf00lw00n600pj00lv00pj00lw00pj00lv00lc00pj00lw00lc00pj00lv00ld00pj00lw00ld00pj00lv00n600pj00lw00n600qh00lv00qh00lw00qh00lv00lc00qh00lw00lc00qh00lv00ld00qh00lw00ld00qh00lv00n600qh00lw00n600pl00lv00pl00lw00pl00lv00lc00pl00lw00lc00pl00lv00ld00pl00lw00ld00pl00lv00n600pl00lw00n600qn00lv00qn00lw00qn00lv00lc00qn00lw00lc00qn00lv00ld00qn00lw00ld00pr00lv00pr00lw00pr00lv00lc00pr00lw00lc00pr00lv00ld00pr00lw00ld00qt00lv00qt00lw00qt00lv00lc00qt00lw00lc00qt00lv00ld00qt00lw00ld00qt00lv00n600qt00lw00n600px00lw00px00lw00lc00px00lw00ld00px00lw00n600qx00lv00qx00lw00qx00lv00lc00qx00lw00lc00qx00lv00ld00qx00lw00ld00qx00lv00n600qx00lw00n600q100lv00q100lw00q100lv00lc00q100lw00lc00q100lv00ld00q100lw00ld00q100lv00n600q100lw00n600q900lc00q900ld00qd00lc00qd00ld00qf00lc00qf00ld00qh00lc00qh00ld00qn00lc00qn00ld00qt00lc00qt00ld00qx00lc00qx00ld00q900lv00n900q900lw00n900q900lv00lc00n900q900lw00lc00n900q900lv00ld00n900q900lw00ld00n900q900lv00n600n900q900lw00n600n900pd00lv00n900pd00lw00n900pd00lv00lc00n900pd00lw00lc00n900pd00lv00ld00n900pd00lw00ld00n900pd00lv00n600n900pd00lw00n600n900qf00lv00n900qf00lw00n900qf00lv00lc00n900qf00lw00lc00n900qf00lv00ld00n900qf00lw00ld00n900qf00lv00n600n900qf00lw00n600n900pj00lv00n900pj00lw00n900pj00lv00lc00n900pj00lw00lc00n900pj00lv00ld00n900pj00lw00ld00n900pj00lv00n600n900pj00lw00n600n900qx00lv00n900qx00lw00n900qx00lv00lc00n900qx00lw00lc00n900qx00lv00ld00n900qx00lw00ld00n900qx00lv00n600n900qx00lw00n600n900q100lv00n900q100lw00n900q100lv00lc00n900q100lw00lc00n900q100lv00ld00n900q100lw00ld00n900q100lv00n600n900q100lw00n600n900q900li00q900lg00q900lc00n900q900n900q900ld00n900q900n600q900n600n900pd00li00pd00lg00pd00lc00pd00ld00pd00n9000w00lv00qh000w00lv000w00n6000w00lk00n600qf00lc00n900qf00n900qf00ld00n900qf00n600qf00n600n900ph00lc00ph00ld00pj00lc00pj00ld00pj00n9000w00lv00lc000w00lv00ld000w00lv00n600qh00li00qh00lg00qh00lk00lc00qh00lk00ld00qh00n600qh00lk00n600pl00li00pl00lg00pl00lc00pl00ld000w00lw00lc000w00lw00ld000w00lw00n600qt00li00qt00lg00qt00lk00lc00qt00lk00ld00qp00lv00qp00lw00qt00n600qt00lk00n600px00li00px00lg00px00lc00px00ld00pt00lw000w00lk00lc000w00lk00ld002o00qx00lc00n900qx00n900qx00ld00n900qx00n600qx00n600n900pr00lc00pr00ld00q100lc00q100ld00q100n9000w00ld000w00lw000w000w000w000w000w000w000w000w000w000w000w06c0000w00mr001a001a001a001a001a001a000w06cy06cy06cy06cy06cy06d106d106d106d106d1000x000x000w00lh001r001r001r000x000x001r06cy06cy06cy06cy000w001c002x001g001h001i001j001k001l001706qa001p001400150032001c001d001e001f001g001h001i001j001k001l001706qa001p00140015002p002t0033003c00gp002w002z003000310032003400370038002a0037002p001b002r002p001b0037001v004w001v002r001b0033002r001b003900b4004w001y002v002000200020002w0087002100210024003000260026003300280029002a002a002a002b0025002c001x0024002c0025002i00q1002i0023001t00lm001u001v002t001x001y00250033015c015d015e015f002x001y001t002g00qo00qb00pf00ps06q9001w002s002t002x002y001d06dg001j001d06dg001l001d06dg001d001c001d06dg001f001e06dg001f001d06dg001h001e06dg001h001f06dg001h001g06dg001h001d06dg001i001h06dg001i001d06dg001k001f06dg001k001h06dg001k001j06dg001k001d06dg0021002100210021002100210021002e002e002e0021002e00210021002e0021002100210021002g002g002g0021002g002100210024001v001w0025002x002x002x002x002x002x002x003a003a003a002x003a002x002x003a002x002x002x002x003c003c003c002x003c002x002x0030002r002s0031001c06dg001f06mo00mw06mq00mw06ms00mw06og00mw06ok00mw06oi00mw06pv00mw06q000mw06q300mw06qr00mw06qt00mw06qz06qz06qz06qz06qz06r206r206r206r206r206rg00mw06rn00mw06rp00mw06rs00mw001p00mw06sh00mw06rx00mw001o00mw001q00mw06sk00mw06sl00mw06sy00mw06sz00mw06t200mw06t300mw06t600mw06t700mw06te00mw06tf00mw06ti00mw06tj00mw06ua00mw06ug00mw06uh00mw06uj00mw06t800mw06t900mw06tt00mw06tu00mw06uq00mw06ur00mw06us00mw06ut00mw09hk09hl001d001e001f001g001h001i001j001k001l001d001c001d001d001d001e001d001f001d001g001d001h001d001i001d001j001d001k001d001l001e001c0014001d00150014001e00150014001f00150014001g00150014001h00150014001i00150014001j00150014001k00150014001l00150014001d001c00150014001d001d00150014001d001e00150014001d001f00150014001d001g00150014001d001h00150014001d001i00150014001d001j00150014001d001k00150014001d001l00150014001e001c0015001d001a001e001a001f001a001g001a001h001a001i001a001j001a001k001a001l001a001d001c001a001d001d001a001d001e001a001d001f001a001d001g001a001d001h001a001d001i001a001d001j001a001d001k001a001d001l001a001e001c001a0014002p00150014002q00150014002r00150014002s00150014002t00150014002u00150014002v00150014002w00150014002x00150014002y00150014002z00150014003000150014003100150014003200150014003300150014003400150014003500150014003600150014003700150014003800150014003900150014003a00150014003b00150014003c00150014003d00150014003e0015001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e001c06qz06qz06qz06qz001m001m001p001p001p001p001p001p08gt00mw002y002e08yp0lal0vj30feo0ffs0fg60fgf0fh50fid0fik0fj40fju0g1r0g2t0g2z0g3m0g460g4r0g680g6t0g740gbf0ge10get0gey0gfs0gg10ggs0gh50ghu0gja0gjs0gkj0h5j0h7j0hkb0hky0hl60hlh0hlz0ho30i1c0i2o0i600i6n0i760i7s0i9a0i9d0ijf0ijp0ik10ike0inm0inu0inz0ir80iri0irv0is30its0iu90iur0iwz0jd40jee0jez0jzj0jzo0k1z0k2f0k2s0k3d0k4g0k4l0kc00kco0kdk0l5s0l7m0l890l9v0laj0las0laz0lcf0lck0ldg0m7f0mju0mk60mkb0mkf0mkn0ml50ml70mng0mtg0mtl0n300n3a0n4o0n4v0n540n5c0n7v0n820nee0nel0nfy0ngf0nhq0nob0noi0noz0ny20o1k0o1q0o6s0o970oah0okz0ooo0p4m0p5d0p6y0p8d0pa90pak0paq0pbn0pdr0pe10pnn0pnu0po30poc0pos0pp70ppb0pri0prm0prs0qj10qjv0qww0qx80qxv0r5q0r630r820r9c0rp30rpi0rpx0rqw0rrx0rxg0rxs0rzn0s6j0s7e0sd70sds0sdx0sk10sp50ssm0sss0ssx0tiv0tj40tng0trq0trt0tt40tw10twe0twi0twp0tzf0u0d0u0j0u0x0u5k0u6z0u730uc60uc90ucs0ujs0ul40ulb0un90unj0unm0unw0uoq0uzp0vat0vb30vc50vcr0vcz0vd90vdd0veh0vel0vf20vf70vfk0vgb0vgq0vgy0vil0vj00vj4000w09hu0gg10gg40gg509jf09ll09jh09ll09jj09ll09jl09ll09jn09ll09jp09ll09jr09ll09jt09ll09jv09ll09jx09ll09jz09ll09k109ll09k409ll09k609ll09k809ll09kf09ll09kf09lm09ki09ll09ki09lm09kl09ll09kl09lm09ko09ll09ko09lm09kr09ll09kr09lm09ja09ll000w09ll000w09lm09lp09ll09l409l609m309ll09m509ll09m709ll09m909ll09mb09ll09md09ll09mf09ll09mh09ll09mj09ll09ml09ll09mn09ll09mp09ll09ms09ll09mu09ll09mw09ll09n309ll09n309lm09n609ll09n609lm09n909ll09n909lm09nc09ll09nc09lm09nf09ll09nf09lm09ly09ll09nz09ll09o009ll09o109ll09o209ll09od09ll09mb09mw03cw03cx03hm03cy03ho03hp03cz03d003d103hs03ht03hu03hv03hw03hx03dm03d203d303d403dt03d503d603d703d803d903da03db03dc03dd03de03fl03fm03fn03fo03fp03fq03fr03fs03ft03fu03fv03fw03fx03fy03fz03g003g103g203g303g403g503fk03dg03dh03if03ig03ik03im03ir03iv03ix03do03j103j303dp03dq03ds03du03dv03dz03e103e303e403e503e603e703ea03ee03eo03ev03f003jl03jm03fb03fc03fd03gk03gl03go03gx03gy03h003ha03hd0feo0fik0fex0h5n0fey0ffx0fez0n5e0fh50ffd0fep0hm10h800fju001403cw0015001403cy0015001403cz0015001403d10015001403d20015001403d30015001403d50015001403d70015001403d80015001403da0015001403db0015001403dc0015001403dd0015001403de0015001403cw03fl0015001403cy03fl0015001403cz03fl0015001403d103fl0015001403d203fl0015001403d303fl0015001403d503fl0015001403d703fl0015001403d803fl0015001403da03fl0015001403db03fl0015001403dc03fl0015001403dd03fl0015001403de03fl0015001403d803fy0015001403d703ft03d803fp03hn0015001403d703ft03de03fy001500140feo001500140fik001500140fex001500140h5n001500140fis001500140g31001500140fer001500140g2z001500140fh9001500140gg1001500140kco001500140m7f001500140ldg001500140kdk001500140ssx001500140h7j001500140k4l001500140kkq001500140kcp001500140ny6001500140glp001500140mm1001500140rs1001500140nz1001500140gc4001500140fkz001500140gos001500140i1y001500140nhf001500140flt001500140rt3001500140ggk001500140nzh001500140fm9001500140pnu001500140po300150gun0inw0k1z0oen0028002c001x001e001d001e001e001e001f001e001g001e001h001e001i001e001j001e001k001e001l001f001c001f001d001f001e001f001f001f001g001f001h03cw03cy03cz03d103d203d303d503d703d803da03db03dc03dd03de03cw03fl03cy03fl03cz03fl03d103fl03d203fl03d303fl03d503fl03d703fl03d803fl03da03fl03db03fl03dc03fl03dd03fl03de03fl03da03fl03hz03cw03ft03d803fy03d703g403d703fy0feo0fik0fex0h5n0fis0g310fer0g2z0fh90gg10kco0m7f0ldg0kdk0ssx0h7j0k4l0kkq0kcp0ny60glp0mm10rs10nz10gc40o2g0n5j0ho30six0g160ghc0lig0u110fm90g490l7n0fey0ffx0fez0ijq0gkz0gfv0i3b0i1y0nhf0flt0rt30ggk0hlo001f001i001f001j001f001k001f001l001g001c001g001d001g001e001g001f001g001g001g001h001g001i001g001j001g001k001g001l001h001c001d0kco001e0kco001f0kco001g0kco001h0kco001i0kco001j0kco001k0kco001l0kco001d001c0kco001d001d0kco001d001e0kco0020002v002t0036002v002t002e0024002c001w09lu09lw09ly09m009m209m309m509m709m909mb09md09mf09mh09mj09ml09mn09mp09ms09mu09mw09my09mz09n009n109n209n309n609n909nc09nf09ni09nj09nk09nl09nm09no09nq09ns09nt09nu09nv09nw09nx09nz09o009o109o20fl00gp809lu09n309lm09oc09mw09lu09nv09n909lt09lu09o309nc09lm09lu09lu09oc09nv09lw09mz09o309m709ll09lw09o309mp09ly09m109o309m009mh09m709oc09mw09ll09m009oc09m309oc09m209o309mh09m209oc09nk09m309lw09nu09m309nt09mr09mw09m309nx09nu09oc09m309ll09nx09o309m309ll09o309ni09m509ll09m309ll09m509ll09mz09oc09m509np09nu09oc09m509ll09nv09mn09ll09oc09m509nx09m509nx09m709ll09nt09nk09m509nx09nl09oc09mw09nv09m509nx09nz09mr09mw09m709ll09nt09nk09m709ll09nt09nk09mw09o309m709nv09mj09ll09lw09nx09m709nx09oc09n109m909oc09mh09mb09nv09my09mb09oc09nf09lm09md09lw09m709nv09md09o309mp09oc09nk09mf09nu09o309m709ll09mj09o309mp09mj09o309mw09mn09ll09oc09mh09mu09ll09mf09mw09ll09nv09mw09o309my09n209n209mr09mw09n309lw09ms09n309lm09oc09mj09o309mw09n309lm09oc09ms09n309ll09oc09nw09nv09n609lm09lu09mh09mw09nv09n609lm09m709nv09n609lm09mb09n609ll09nv09n909lt09nt09mr09mw09ll09n909lv09oc09mw09n909ll09mr09mf09lz09nv09n909nt09o309nc09m709mn09oc09nv09nc09lm09ml09nc09lm09mz09n609nc09nv09ms09nc09lm09o309mh09nc09lm09oc09mf09ll09nc09ll09oc09mn09nf09lm09lw09o309mw09nf09ll09nv09mw09nf09o309nf09lm09o309mw09ll09nf09oc09nv09nf09oc09o309ni09lw09m709nx09ni09lw09nv09ni09mr09n309ni09nv09m709ni09o309mf09nr09o309nj09m709nx09o309nj09nu09nj09nu09n309ll09oc09nv09nl09m309ll09nl09m309ll09mw09o309nl09oc09mw09nv09no09oc09mw09ll09no09oc09nv09nq09lu09o309nu09mr09mw09nv09nu09nt09nv09n609lm09oc09nv09oc09n909ll09nv09nw09nk09nw09o309mw09m909ll09o309nz09mr09mw001c0m9l001d0m9l001e0m9l001f0m9l001g0m9l001h0m9l001i0m9l001j0m9l001k0m9l001l0m9l001d001c0m9l001d001d0m9l001d001e0m9l001d001f0m9l001d001g0m9l001d001h0m9l001d001i0m9l001d001j0m9l001d001k0m9l001d001l0m9l001e001c0m9l001e001d0m9l001e001e0m9l001e001f0m9l001e001g0m9l002w0028002p002s002p001t002d002q002p00360033002e0034002r002s0031002s0031001e002s0031001f0021002d0inn0jdc0k6l0gp80hlz0l7n0k5q0lh70kkq0irz0fmi0ny60034001t0032001t00qk001t0031001t002z001t0023001u0025001u001z001u002r002p0030002z002r002p00300034001y0032001y00qk001y00qk002v0031002v002z002v0020003e002z0020003e00250020003e001z0020003e002c0020003e00qk003000310030002s0030002z0030002u00310032003100qk003100310031002r0031002z003100310031001e002r0031001e0031001e002z0031001e00310031001f002r0031001f0031001f002z0031001f003106qd0037003106qd0037001e0028002p002z0028002p00250028002p001z0028002p0036002p002s0036002p002s06qd00370036002p002s06qd0037001e003400370032003700qk0037003100370034002e0032002e00qk002e0031002e002z002e0025002e0034002f0032002f00qk002f0031002f002z002f0025002f002z00q1002500q1002p001a0031001a001u0035002r002r002r002s001v06qd002z002v001v0033001a002s001u001z003d002w002p00200028002x00320023002300230025002z0038003000310030003200300033002v0030003c0031002q0031002x0030003100330030002800200034001a0031001a0028002800250028002a00370036002b003a002f002q002e06qd0031001t06qd0031001d0k4l001e0k4l001f0k4l001g0k4l001h0k4l001i0k4l001j0k4l001k0k4l001l0k4l001d001c0k4l001d001d0k4l001d001e0k4l001d001f0k4l001d001g0k4l001d001h0k4l001d001i0k4l001d001j0k4l001d001k0k4l001d001l0k4l001e001c0k4l001e001d0k4l001e001e0k4l001e001f0k4l001e001g0k4l001e001h0k4l001e001i0k4l001e001j0k4l001e001k0k4l001e001l0k4l001f001c0k4l001f001d0k4l002v002p003000ui00uk0x2n001v001y00290086009f0x0n0xtj00h70xua00i50rpk0kc40s7e0rt40lw10fg20gkl0vj00vj00hn50ssx0gw70hmw0jcm0ne10p6t0qin0qt60r200sjz0kxu0ljv0mah0mvy0q4d0sq20uep0fia0ghh0l500mjf0qi50v8e0ifk0m3v0qfh0r500jih0pnc0qvz0iq20kd30lm20mpo0slq0fpi0g530gda0jwk0l3n0mj40nhj0pa90qh20qjg0s1b0tv60upb0v7e0nt80nzz0otc0q150t1g0vb30rfa0hjz0iro0okg0pdq0mle0nuy0rsy0ttj0hjs0i8y0kyb0lp60lxr0oq70oxj0tor0gcy0pe30g640g5o0o4c0ou60q290tpx0rk00jin0kxu0rge0fg90i5j0iz60mtj0n740gev0nwb0fr30iw90ff10lho0k1k0opu0gjn0hge0ni90q4p0re20la20sds0lfs0jjy0put0jog0n6t0fji0g2x0g5l0kn50oo70prj0rf60ssv0gdx0gn60ho30ir00k3p0m4e0nxm0tkd0ui20vbr0vda0gbf0kau0l870sbm0ino0j9s0jcw0jve0lyb0mdl0n0p0o220ovo0pdb0s9y0q9a0sgz0t3e0g7r0gbn0gql0ma00r0i0re20iq10iyd0jnf0l9q0oji0mt10fl00h6h0i5j0iii0izg0muq0mzt0p7e0pc60svo0tti0tvs0u1k0fpn0o1a0ss40trs0j4x0fie0fyy0i5q0i7z0k2h0kxu0mha0ncy0q9o0sjg0vil0k940tny0gax0kfv0kj70lkx0luk0mx50n6h0nsb0opc0u3i0g310je60tq00fu30ie10lpm0sa20ivf0j7o0kk70mtj0tqe0g890glr0i910k5v0kem0ko80lid0mx20naa0p6h0r0v0r1d0sss0tsy0gfz0lve0gm50mhc0n140qgq0tr70uvr0vbz0kgn0lor0pns0o970obk0olu0mo00m8p0riw0fk00px20g8q0g7b0ip20jir0onq0i2t0ljy0kac0saj0qx80tot0r630iqb0g1s0gxs0hga0k8k0g660mqy0ngq0ny40nz20nz90o0f0tw60on20p8d0qhe0rg80shk0sn10u7j0u7w0u940v5g0sm60trr0fqm0fzb0g250gcp0gdg0ggh0gwt0gzq0h2g0hfk0hig0i900i9a0j2s0j8o0j9q0jci0k0f0k4i0k9d0kn90lmf0lqy0lya0mem0mjv0mxu0ntd0ny60nyh0nyg0nyo0nyu0nz10o0d0o0e0o5c0o750og00ovo0ow90oxt0p6a0pad0pnx0prt0prt0q530r2o0r6e0rgh0ri10rtf0ruw0sdy0shk0tsz0u0v0u2j0j1x36cu0pp40ffq0g510g2w0fpc0g1x0g3k0gcn0ge20gwt0gut0gwp0gyq0hga0hir0hms0hn80huq0i080iqa0iqh0iuh0iwd0j4o0j7y0j600j9q0j8g0jci0jec0jpg0jrw0jte0k0m0k8k0kd30kd70keu0l890la20lkx0lwb0lvv0lya0m5a0mem0nmv0mk50mnj0mqy0n010n460n5n0nbx0nbz0ngq0nh70nhw0nka0nk00nv00o8h0og00ol70orf0ovo0p4u0pad0pxu0q270qrd0r410r5y0r6e0ren0rg80rez0rgh0rge0rfx0ri10rka0ruw0sag0sj60srd0sxi0tq40tsz0tw60tzv0u0v0u170u2j0umq0vj0313e313833dh0brx0cns0cop39e13bgw3i6r0vgj0vim002u002u002u002x002u0030002u002u002x002u002u00300037003800370038012s012u012s012d012s012j0132012u012s012l015l014k016a014n015u015c015f015g015n015o015p0160016200170161014x0161014y0161014s014x0161014s014y015c014n015c014o015c014s015d014s015e014s015f014s015g014s015h014s015i014s015k014s015l014s015m014s015n014s015o014s015q014s015s014s015t014s015v014s015w014s015y014s015z014s0160014s0161014s0162014s015h014p015d014v015n014v015w014v015c015o019t019t01a301a301a301a301a601a601a601a601a801a801a801a801a201a201a201a201a701a701a701a701a101a101a101a101b801b801b801b801ba01ba01ba01ba01ac01ac01ac01ac01ab01ab01ab01ab01ae01ae01ae01ae01af01af01af01af01al01al01ak01ak01am01am01ag01ag01aw01aw01ap01ap01bd01bd01bd01bd01bj01bj01bj01bj01bn01bn01bn01bn01bl01bl01bl01bl01bu01bu01bv01bv01bv01bv01cl019001cl019001c101c101c101c101by01by01by01by01ci01ci01ci019001ci019001bh01bh01bh01bh01c701c701c601c601c801c801c7019w01cb01cb01c501c501c901c901cg01cg01cg01cg018p018p018q0190017r018q0190017r018q019001cl018q019001cl018q0190018o018q0190018o018q019001c7018q019001c7018q019001c6018q019001c6018q019001c8018q019001c8018q019001cg018q019001cg018q019001cg018q0190018p018q0190018p018q0190018p01cc01cc01cc01cc018q0190017w018q0190017x018q0190018l018q0190018p018q0190018q017s017w017s017x017s017y017s018l017s018p017s018q017u017w017u017x017u017y017u018l017u018p017u018q017v017w017v018l017v018p017v018q017w017x017w018l017x017w017x018l017y017w017y017x017y018l0183017w0183017x0183017y0183018l0185017x0185018l0186017w0186017x0186017y0186018l0187017x0187018l0188018l0189017w0189018l018a017w018a018l018h017w018h017x018h017y018h018l018h018p018h018q018i017x018i018l018i018p018i018q018j017r018j017w018j017x018j017y018j018k018j018l018j018p018j018q018k017w018k017x018k017y018k018l018k018p018k018q018l017w018l017x018l017y018l018l018l018p018l018q018m017w018m017x018m017y018m018l018m018p018m018q018n017w018n018l018n018p018n018q018q017w018q017x018q017y018q018l018q018p018q018q0180019s0181019s018p019s000w018s018x000w018t018x000w018u018x000w018v018x000w018w018x000w018x019s018q01900181018q01900182018q0190018l018q0190018m018q0190018p018q0190018q017s0181017s0182017s018l017s018m017s018p017s018q017u0181017u0182017u018l017u018m017u018p017u018q017v0181017v0182017v018l017v018m017v018p017v018q018h018p018h018q018i018p018i018q018j017r018j018k018j018l018j018p018j018q018k018l018k018p018k018q018l017r018l018l018m0181018m0182018m018l018m018m018m018p018m018q018p019s018q0181018q0182018q018l018q018m018q018p018q018q018q0190017w018q0190017x018q0190017y018q0190018l018q0190018n017s017w017s017x017s017y017s018l017s018n017u017w017u017x017u017y017u018l017u018n017v018l017w017x017w018l017x017w017x018l017y017w017y018l0183017w0183017x0183017y0183018l0185017x0185017y0185018l0186017w0186017x0186017y0186018l0187017x0188018l0189017w0189018l018a017w018a018l018h017w018h017x018h017y018h018l018i017x018i018l018j017w018j017x018j017y018j018k018j018l018k017w018k017x018k017y018k018l018k018n018l017w018l017x018l017y018l018l018m017w018m017x018m017y018m018l018m018n018n017w018n018l018n019s018q017w018q017x018q017y018q018l018q018n018q0190018l018q0190018n017s018l017s018n017u018l017u018n017v018l017v018n0183018l0183018n0184018l0184018n018j018k018j018l018k018l018m018l018m018n018q018l018q018n018g018u018x018g018v018x018g018w018x0187018p0187018q0189018p0189018q018a018p018a018q0183018p0183018q0184018p0184018q017x018p017x018q017w018p017w018q017y018p017y018q0185018p0185018q0186018p0186018q0184017w0184017x0184017y0184018l018401810183018101850181018601810187018p0187018q0189018p0189018q018a018p018a018q0183018p0183018q0184018p0184018q017x018p017x018q017w018p017w018q017y018p017y018q0185018p0185018q0186018p0186018q0184017w0184017x0184017y0184018l018401810183018101850181018601810184017w0184017x0184017y0184018l0183018n0184018n0187018l0183017w0183017x0183017y0184017w0184017x0184017y0187018l0188018l017r018r017r018r017u017w018l017u017x017w017u017x017w017u017x018l017u017y018l017u018l017w017u018l017x017u018l017y017w018l017x017w018l017x017x018l018q017x018l018p0183017x017w0183017w017x0183017w018p0183018l017x0183018l017x0183018l017w0183018l018l0183018l018l0185017x017x0185017x017x0185018l018l0184017x018l0184017x018l0184017w018q0184018l017y0184018l017y0184018l018l0184018l018l0186017x018p0186017y018l0186017y018l0187018l017x0187018l017x0187018l018l0187018l018q0189017w018l0189018l018l0189018l018l0189018l018p018a018l018l018a018l018q018a018l018p018h017y018l018h017y018l018i018l017x018i018l018l018k017x018l018k017x018q018k017x018p018k017w017w018k017w017w018k017y018l018k017y018l018k018l017x018k018l017x018l017x017w018l017x018l018l017x018q018l017w017x018l017w018l018l017y017w018l017y018l018l017w017y018n018l017w018n018l018l018m017x018l018m017x018p018m017w018l018m017w018l018m017w018p018m018l018q018m018l018p018q018l018l018q018l018l017s017y018q017u017w018q017u017w018p017u017y018q017u017y018p017u018l018q017u018l018p017w018l018q017w017x018p017w018l018p0183017y018p0185017x018q0184017x018q0186017x018q018k017w018q018k018l018q018q017x018q018q017w018q018q018l018q018l018l018q018i018l018q018m017x018q018i018l017x018k017x018l0189018l018q018j018l018q018m017w017x018l017y018q018k017w018l018j018l018l018k017w018l018m017w017x017w017x018q017x017w018q018l017w018q018h018l018q017s017x018q018j018l018l0189017w018l0185018l018l0183017y018q018m017w018q0185018k01ci018i018k01ci017r018k018k018n017r018j017s0181018l017x018l017z0185018k0189018l01810183018o018k0189018k018q018n018o0183018k018l0185018k018p0185018k018p000w017r018k018k018n000w0189018k018q018n000w018o0183018k018l017w018k000w017w018k017r018k018n018101cc017r018k001809hd09he001m001n000x001r09hy09hz001a001a001a001a001a06c406c3002n002n00140015003f003h09hw09hx09hs09ht09hm09hn09hk09hl09ho09hp09hq09hr002j002l000w00lh000w00lh000w00lh000w00lh002n002n002n001809hd001a001n001m001r000x06c400140015003f003h09hw09hx000z0012001600170019001o001q001p002k00100011001s000w018r018g018r000w018s000w018t000w018u018g018u000w018v018g018v000w018w018g018w000w018x018g018x000w018y018g018y017l017r018z017r018z017r0190017r0190018o0190018o0190017r0191017r0191018q0190018q0190018q0190018q0190017r017r017s017s017s017s017t017t017u017u017u017u017v017v017v017v017w017w017w017w017x017x017x017x017y017y017y017y017z017z0180018001810181018201820183018301830183018401840184018401850185018501850186018601860186018701870187018701880188018801880189018901890189018a018a018a018a018h018h018h018h018i018i018i018i018j018j018j018j018k018k018k018k018l018l018l018l018m018m018m018m018n018n018n018n018o018o018p018p018q018q018q018q018k017r018z018k017r018z018k017r0190018k017r0190018k017r0191018k017r0191018k017r018k017r000x000y000z0010001100120013001400150016001700180019001a001b001c001d001e001f001g001h001i001j001k001l001m001n001o001p001q001r001s001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i002j002k002l002m002n002o002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e003f003g003h003i0879087a09he09ho09hp09hd09ob09o209lt09lv09lx09lz09m109nn09np09nr09mr09oc09lu09lw09ly09m009m209m309m509m709m909mb09md09mf09mh09mj09ml09mn09mp09ms09mu09mw09my09mz09n009n109n209n309n609n909nc09nf09ni09nj09nk09nl09nm09no09nq09ns09nt09nu09nv09nw09nx09nz09o309ll09lm03fk03cw03cx03hm03cy03ho03hp03cz03d003d103hs03ht03hu03hv03hw03hx03dm03d203d303d403dt03d503d603d703d803d903da03db03dc03dd03de03fl03fm03fn03fo03fp03fq03fr03fs03ft03fu03fv03fw03fx03fy03fz03g003g103g203g303g403g5004i004j004s000w00lg004m004l06g907b606mo06mp06mq06mr07fk07gr1fpu00lj1fq200lj00k000k1006e00ih00gj00ir0xuu00it00is00gm00gn05u900go00gu00ix00h000gy00gw00ij008700ik00h300hw00iy00iz00h82mmc0x3i00ha2mmd00i62mme006w00hi00hj003500hm2mmg00hp00hq00hs00iw00iu0xuv00iv00i008s100i700ip00iq00ig00cg00ch00ci2mmi2mn21huh1hve1huj1hve1hut1hve1hyp1hyf1hyq1hyf1idj1ida1idj1idz1if61ih51if81igr1iff1igy1ifk1ih51igy1igy1igy1igo1igy1ih51int1inu1int1ink1int1inx1iuw1iun1iux1iun1jjp1jjk1xr21xr21xr21xrd1xr21xr31xrd1xr31xr21xr41xr21xr21xr31xr21xrd1xr31xr21xr21xr4206f206f206b206f206b206f206f001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i001c001d001e001f001g001h001i001j001k001l2jx32jxh2jx42jxh2jx42jxh2jxq2jx42jxh2jxr2jx42jxh2jxs2jx42jxh2jxt2jx42jxh2jxu2jzt2jxh2jzu2jxh2jzt2jxh2jxq2jzu2jxh2jxq2jzt2jxh2jxr2jzu2jxh2jxr001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i002p002q002r002s002t002u002v002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e001t001v001w001z002200230026002700280029002b002c002d002e002f002g002h002i002p002q002r002s002u002w002x002y002z003000310032003400350036003700380039003a003b003c003d003e001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e001t001u001w001x001y001z00220023002400250026002700280029002b002c002d002e002f002g002h002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e001t001u001w001x001y001z002100220023002400250027002b002c002d002e002f002g002h002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e008h00fr00pd00pe00pf00pg00ph00pi00pj00pk00pl00pm00pn00po00pp00pq00pr00ps00pt00pk00pv00pw00px00py00pz00q000q106pz00q900qa00qb00qc00qd00qe00qf00qg00qh00qi00qj00qk00ql00qm00qn00qo00qp00qq00qr00qs00qt00qu00qv00qw00qx06pu00qd00qg00qi00qu00qp00qo00pd00pe00pf00pg00ph00pi00pj00pk00pl00pm00pn00po00pp00pq00pr00ps00pt00pk00pv00pw00px00py00pz00q000q106pz00q900qa00qb00qc00qd00qe00qf00qg00qh00qi00qj00qk00ql00qm00qn00qo00qp00qq00qr00qs00qt00qu00qv00qw00qx06pu00qd00qg00qi00qu00qp00qo00pd00pe00pf00pg00ph00pi00pj00pk00pl00pm00pn00po00pp00pq00pr00ps00pt00pk00pv00pw00px00py00pz00q000q106pz00q900qa00qb00qc00qd00qe00qf00qg00qh00qi00qj00qk00ql00qm00qn00qo00qp00qq00qr00qs00qt00qu00qv00qw00qx06pu00qd00qg00qi00qu00qp00qo00pd00pe00pf00pg00ph00pi00pj00pk00pl00pm00pn00po00pp00pq00pr00ps00pt00pk00pv00pw00px00py00pz00q000q106pz00q900qa00qb00qc00qd00qe00qf00qg00qh00qi00qj00qk00ql00qm00qn00qo00qp00qq00qr00qs00qt00qu00qv00qw00qx06pu00qd00qg00qi00qu00qp00qo00pd00pe00pf00pg00ph00pi00pj00pk00pl00pm00pn00po00pp00pq00pr00ps00pt00pk00pv00pw00px00py00pz00q000q106pz00q900qa00qb00qc00qd00qe00qf00qg00qh00qi00qj00qk00ql00qm00qn00qo00qp00qq00qr00qs00qt00qu00qv00qw00qx06pu00qd00qg00qi00qu00qp00qo00rg00rh001c001d001e001f001g001h001i001j001k001l001c001d001e001f001g001h001i001j001k001l001c001d001e001f001g001h001i001j001k001l001c001d001e001f001g001h001i001j001k001l001c001d001e001f001g001h001i001j001k001l00ts00tt00tu00tv00tw00tx00ty00tz00u000u200u300u400u600u700u800u900ua00ub00uc00ud00ue00uf00ug00uj00ul00um0ww900yh00uu00uw00yx00xb00y700ts00tt00tu00tv00tw00tx00ty00tz00u000u200u300u600u700u900ub00uc00ud00ue00uf00ug00ui00uj00wh00uu00ut00v300x70wup00xd017r017s017w017z018o0182017x0187018q018j018k018l018m01830189018h0185018i01810184017u017v017y018001860188018a019q01bu01b5019r017s017w018n017x018q018j018k018l018m01830189018h0185018i0184017u017v017y0186018a017w017x018q018k018m018301890185018i0184017y0186018a01bu019r017s017w018n017x0187018q018j018l018m01830189018h0185018i0184017u017v017y01860188018a019q01b5017r017s017w017z018n018o0182017x0187018q018k018l018m01830189018h0185018i01810184017u017v017y018001860188018a017s017w017z018o0182017x0187018q018k018l018m01830189018h0185018i01810184017u017v017y018001860188018a001c001a001c0018001d0018001e0018001f0018001g0018001h0018001i0018001j0018001k0018001l00180014001t00150014001u00150014001v00150014001w00150014001x00150014001y00150014001z00150014002000150014002100150014002200150014002300150014002400150014002500150014002600150014002700150014002800150014002900150014002a00150014002b00150014002c00150014002d00150014002e00150014002f00150014002g00150014002h00150014002i001509hw002b09hx001v002a001v001w002f002i001t001u001v001w001x001y001z0020002100220023002400250026002700280029002a002b002c002d002e002f002g002h002i0020002e0025002e002b001w002b002b00280028002e002f001v0025001v0025001w0025002a001w002209kr09jf09mb09mb09md0jez0i1j0gjw09mu09ll0fik0hlm0r8j0hm10fj80k680mch0k2h0g990ivg0g3x0k340g7x0oqq0n4v0rs90hkg0gmx0lxw0jh10jmd0feo0fex0si20ijq0ffx0gkz0jk70rxs0jf70o010o6y0glk0lts0kcp0kco0n5f0gaa0gxi0sp909hw0kdo09hx09hw0fex09hx09hw0fik09hx09hw0i2x09hx09hw0m9l09hx09hw0jf709hx09hw0nh309hx09hw0gd909hx09hw0k0n09hx0ivr0gkv001c001d001e001f001g001h001i001j001k001l0fgd0fg80fgh2tcy0fog0fqm0fqz0fsy0fwa0fx50fzb0fyn0ae62ud60g250g2c0g2s0g3b2u580aex0g2v0g3x2u6j0g470g4k0fkc0g4s0g513ly70g6t0g770afz0g8r0g920gaa0gaf0ahh0gcn0gcp0gdg0ge20ged0gee0gev0gg90ggh0ggq0ghf0ghp0ghr0ghr0ghr2v580m7k0gju0gkf2vdv0gkr0gkx0gli0gpq0gmw0gnc0go80gpu0gs60gsw0gur0gv70gw40gw40gwp0gx70gxf0gxu0h7a0gzq0h7b0h1t0h2s0g7b0hke0hce0hdg0he50haj0hf60hf50hik2x9g0hki0hkn0hl20hlm0hlu0hnm2xm02xnu0hrg0hsr0ht30hqw0huu0aum0av00hzc0i0u0i0u2y880i4j0i540i5j0i5v2yhk0i670i6e0itv0i760ayp0i8w0i9a0ibk0ia52z1g0if72z1i0ige0igb0igs0ijl0ijm0b3j0ikd0ilk0im50ind0b4y2zr70b5o0ipc0ipf0ipi0iq23pg20iri303530350poh0isi0isi0b7r335k3cgq0iua0iuj0b8j0ivu0ix90ixj0iyh0j290bay0ba40j2s30t00j470j7s0j7w0j7y0j7w0j960j9q0jaq0jac0jan0jby0jci0jcm0jdc0jdn0jfh0jht0jis0jm831n00jlp0jjw0jmw0jnn0jqc31td0js20jph0jop0bhq0ju10jum0jvh0juf0bjg0k0f0k1832mi0k4j0kc80k7d0bo90k9d0bns0bms0g420g450kcg0k9o0pf10deh0kd30kd70kdd0kf20ker33cz0bpl0kje0kg50klu0kn933hp0kni0kkf0kr80brx0ksi0kv70kx60l2g33xf0l3v0bvc0l5t34br0l780bwu0l820l9b0la20la334p92yvf34sa0le6354s0lhb0lhp0lev0ljq0lku0lmf0lkx0lm10lmg0lmt357i0lkk0lrj0lta0c370lvv0lvr35jl0lq10m0e35ni35ou0m2u0m610m5a0m570c5y0m6i0m7x0m7r0m992u5h0mdh368z0mfw36i30mjs0mk50mkw36yw0mm80mmt377937dg0mt60mtn0cdo0mud0ce00ce00myv0mzg0n010n0l0n2i0cgr0n50386u0n5q389e0n742zrz0nbk38v538vs38zo0cn00cnc0nhw394j394i395l396b0nj20nj30nj30nka0cop0nm30cp20cra39r10nri0nt80nv00ctf3a5i0nyu3a8q3a9x0o0f0o2z0cvj0o5c0o5m0o5r3at83b1j3b1j0oa60d1e3b8r0og60og90d2f3beo0onm0d5s0oo80oo30oow3c060orn0d8h0ouf0ow20oxx0d9w3ciw3cjr0dax3cnt0p6i3cqm0p790pa20pad3d223d430pcw3d7s0pdc33a70ded0pf60phf0dfv0pj20hx13dlz3dmd33bn33bw0poh0pok0sda0dij0psh0psb0pst0gc30ptd0ptf0ptp0puu3ebg0put0pwd0pyb0q0d0pwj0q0t0q1z0q530pxv0q160q180q1o3eie3eqz3emt0dnv0q9d0q9f0qae3g0a0qck3f3g0dp90dpd3f753ff60dpn0qj40qjg0qjr0qjt0qll0qko0qoe0qn60qrd0qp40qqz0qrq0dsn0qu90qv50dtl0qxs0qxv3giv0r130r1a0dv90r220aez3gz23h460dz20dzb0rds0rfx0rka0rpx3hrc0rsb0rsx0rvf0rxz3i9b2upw0s0b0rzw0s1c2uvy0s7o0sag3jki3jl90sk40smp0snl3ju60snv0svs0t070t080sxo0t890t913ksa0tjf0ej90tkn3l2v0eli0ts30iia0tur3ltx3lzu0epa0epi0u003mdm0er63mhi0u170u170u213mpi0u760eur0u950ucn0ude0uf20ez23nsg0umq0uv40v0d0f660f710v3b3owe0f7c3oxx3p5a3p8x0vcr0f9y0veh0vem0vet0vf30vfa0vgb3pxc";
 
 /// Each primary composite's two-character source.
 let COMPOSE_KEYS: Str =
@@ -1604,7 +1506,7 @@ let COMPOSE_KEYS: Str =
 
 /// The primary composites themselves.
 let COMPOSE_VALUES: Str =
-    "≮≠≯ÀÁÂÃĀĂȦÄẢÅǍȀȂẠḀĄḂḄḆĆĈĊČÇḊĎḌḐḒḎÈÉÊẼĒĔĖËẺĚȄȆẸȨĘḘḚḞǴĜḠĞĠǦĢĤḢḦȞḤḨḪÌÍÎĨĪĬİÏỈǏȈȊỊĮḬĴḰǨḲĶḴĹĽḶĻḼḺḾṀṂǸŃÑṄŇṆŅṊṈÒÓÔÕŌŎȮÖỎŐǑȌȎƠỌǪṔṖŔṘŘȐȒṚŖṞŚŜṠŠṢȘŞṪŤṬȚŢṰṮÙÚÛŨŪŬÜỦŮŰǓȔȖƯỤṲŲṶṴṼṾẀẂŴẆẄẈẊẌỲÝŶỸȲẎŸỶỴŹẐŻŽẒẔàáâãāăȧäảåǎȁȃạḁąḃḅḇćĉċčçḋďḍḑḓḏèéêẽēĕėëẻěȅȇẹȩęḙḛḟǵĝḡğġǧģĥḣḧȟḥḩḫẖìíîĩīĭïỉǐȉȋịįḭĵǰḱǩḳķḵĺľḷļḽḻḿṁṃǹńñṅňṇņṋṉòóôõōŏȯöỏőǒȍȏơọǫṕṗŕṙřȑȓṛŗṟśŝṡšṣșşṫẗťṭțţṱṯùúûũūŭüủůűǔȕȗưụṳųṷṵṽṿẁẃŵẇẅẘẉẋẍỳýŷỹȳẏÿỷẙỵźẑżžẓẕ῭΅῁ẦẤẪẨǞǺǼǢḈỀẾỄỂḮỒỐỖỔṌȬṎȪǾǛǗǕǙầấẫẩǟǻǽǣḉềếễểḯồốỗổṍȭṏȫǿǜǘǖǚẰẮẴẲằắẵẳḔḖḕḗṐṒṑṓṤṥṦṧṸṹṺṻẛỜỚỠỞỢờớỡởợỪỨỮỬỰừứữửựǮǬǭǠǡḜḝȰȱǯᾺΆᾹᾸἈἉᾼῈΈἘἙῊΉἨἩῌῚΊῙῘΪἸἹῸΌὈὉῬῪΎῩῨΫὙῺΏὨὩῼᾴῄὰάᾱᾰἀἁᾶᾳὲέἐἑὴήἠἡῆῃὶίῑῐϊἰἱῖὸόὀὁῤῥὺύῡῠϋὐὑῦὼώὠὡῶῳῒΐῗῢΰῧῴϓϔЇӐӒЃЀӖЁӁӜӞЍӢЙӤЌӦӮЎӰӲӴӸӬӑӓѓѐӗёӂӝӟѝӣйӥќӧӯўӱӳӵӹӭїѶѷӚӛӪӫآأإؤئۂۓۀऩऱऴোৌୋୈୌஔொௌோైೀೊೇೈೋൊൌോේොෞෝဦᬆᬈᬊᬌᬎᬒᬻᬽᭀᭁᭃḸḹṜṝṨṩẬẶậặỆệỘộἂἄἆᾀἃἅἇᾁᾂᾃᾄᾅᾆᾇἊἌἎᾈἋἍἏᾉᾊᾋᾌᾍᾎᾏἒἔἓἕἚἜἛἝἢἤἦᾐἣἥἧᾑᾒᾓᾔᾕᾖᾗἪἬἮᾘἫἭἯᾙᾚᾛᾜᾝᾞᾟἲἴἶἳἵἷἺἼἾἻἽἿὂὄὃὅὊὌὋὍὒὔὖὓὕὗὛὝὟὢὤὦᾠὣὥὧᾡᾢᾣᾤᾥᾦᾧὪὬὮᾨὫὭὯᾩᾪᾫᾬᾭᾮᾯᾲῂῲᾷ῍῎῏ῇῷ῝῞῟↚↛↮⇍⇏⇎∄∉∌∤∦≁≄≇≉≭≢≰≱≴≵≸≹⊀⊁⋠⋡⊄⊅⊈⊉⋢⋣⊬⊭⊮⊯⋪⋫⋬⋭ゔがぎぐげござじずぜぞだぢづでどばぱびぴぶぷべぺぼぽゞヴガギグゲゴザジズゼゾダヂヅデドバパビピブプベペボポヷヸヹヺヾ𐗉𐗤𑂚𑂜𑂫𑄮𑄯𑍋𑍌𑎃𑎅𑎎𑎑𑏇𑏅𑏈𑒼𑒻𑒾𑖺𑖻𑤸𖄡𖄣𖄥𖄢𖄦𖄨𖄧𖄤𖵪𖵧𖵪";
+    "06su06sg06sv005c005d005e005f0074007600fa005g061u005h00ct00e800ea061s05xc007805xe05xg05xi007a007c007e007g005j05xm007i05xo05xs05xu05xq005k005l005m062k007m007o007q005n062i007u00ec00ee062g00fc007s05y005y205y600dw007w05y8007y008000di0082008405ya05ye00f205yc05yg05yi005o005p005q0088008a008c008g005r062w00cv00eg00ei062y008e05yk008k05yo00dk05yq008m05ys008p008t05yu008r05z005yy05z205z405z600e0008z005t05z8009305za009105ze05zc005u005v005w005x0098009a00fi005y0632009c00cx00ek00em00bk063000dm05zo05zq009g05zs009k00eo00eq05zu009i05zy009m009o0600009s060200ew009q060a009w060c00ey009u060g060e00610062006300a000a200a40064063q00a600a800cz00es00eu00bz063o060i00aa060m060k060s060u060w060y00ac061206100614061606180642006500ae064800fm061a00ag0646064400ah061c00aj00al061e061g00680069006a006b0075007700fb006c061v006d00cu00e900eb061t05xd007905xf05xh05xj007b007d007f007h006f05xn007j05xp05xt05xv05xr006g006h006i062l007n007p007r006j062j007v00ed00ef062h00fd007t05y105y305y700dx007x05y9007z008100dj0083008505yb05yf00f305yd05yh05yj061i006k006l006m0089008b008d006n062x00cw00eh00ej062z008f05yl008l00ds05yp00dl05yr008n05yt008q008u05yv008s05z105yz05z305z505z700e10090006p05z9009405zb009205zf05zd006q006r006s006t0099009b00fj006u0633009d00cy00el00en00bl063100dn05zp05zr009h05zt009l00ep00er05zv009j05zz009n009p0601009t060300ex009r060b061j009x060d00ez009v060h060f006x006y006z00a100a300a50070063r00a700a900d000et00ev00c0063p060j00ab060n060l060t060v060x060z00ad06130611061k0615061706190643007100af064900fn061b00730647061l064500ai061d00ak00am061f061h06b100p1069t061y061w0622062000da00e200e400de05xk062o062m062s062q05ym06360634063a063805zg00fg05zi00fe00e600d700d300d100d5061z061x0623062100db00e300e500df05xl062p062n062t062r05yn06370635063b063905zh00fh05zj00ff00e700d800d400d200d606280626062c062a06290627062d062b05xw05xy05xx05xz05zk05zm05zl05zn0604060506060607060o060p060q060r061n063g063e063k063i063m063h063f063l063j063n063u063s063y063w0640063v063t063z063x064100dq00do00dp00dc00dd05y405y500fk00fl00dr069m00p2069l069k064o064p069o06a000p40654065506a200p5065k065l06a406ai00p606ah06ag00q20660066106bc00p8066g066h06b006ay00pa06ax06aw00q3066x06be00pb067c067d06bg069g069w067k00q4069d069c064g064h069i069f067m00q5064w064x067o00q6065c065d069y069v067q00q706a906a800qy065s065t06ae067s00r00668066906as06at067u00r106ap06ao00qz066o066p06au067w00r20674067506ba06b706aa00pc06af06aq00q806av06b800r700r800sn00y800ya00sj00sg00ye00sh00xt00yk00ym00st00yq00t500ys00ss00yu00z200su00z400z600z800zc00z000y900yb00ur00uo00yf00up00xu00yl00yn00v100yr00u100yt00v000yv00z300v200z500z700z900zd00z100uv00vq00vr00yi00yj00yy00yz017m017n017p017o017q01c201cj01c001t501td01tg01xn01xo028b0288028c02ac02bu02bw02bv02fc02io02iy02iv02iw02iz02mi02mk02mj02qi02qk02qm02ql036u05c605c805ca05cc05ce05ci05dn05dp05ds05dt05dv05yw05yx05zw05zx060806090624062e0625062f062u062v063c063d064i064k064m0680064j064l064n0681068206830684068506860687064q064s064u0688064r064t064v0689068a068b068c068d068e068f064y0650064z06510656065806570659065e065g065i068g065f065h065j068h068i068j068k068l068m068n065m065o065q068o065n065p065r068p068q068r068s068t068u068v065u065w065y065v065x065z066206640666066306650667066a066c066b066d066i066k066j066l066q066s066u066r066t066v066z0671067306760678067a068w06770679067b068x068y068z0690069106920693067e067g067i0694067f067h067j06950696069706980699069a069b069e069u06b6069j06a506a606a7069z06bb06al06am06an06my06mz06ni06od06of06oe06pw06q106q406qs06qu06rl06ro06rr06rt06st06si06sw06sx06t006t106t406t506tc06td06w006w106tg06th06tk06tl06w206w306uk06ul06um06un06wa06wb06wc06wd09lg09jg09ji09jk09jm09jo09jq09js09ju09jw09jy09k009k209k509k709k909kg09kh09kj09kk09km09kn09kp09kq09ks09kt09lq09o409m409m609m809ma09mc09me09mg09mi09mk09mm09mo09mq09mt09mv09mx09n409n509n709n809na09nb09nd09ne09ng09nh09o709o809o909oa09oe1fpl1fqc1hui1huk1huz1hym1hyn1idn1ido1if71if91ifi1ifl1ih31ih11ih41inw1inv1iny1iuy1iuz1jjs1xr51xr71xr91xr61xra1xrc1xrb1xr8206h206g206i";
 
 /// Every character full case folding changes.
 let FOLD_KEYS: Str =
@@ -1620,19 +1522,6 @@ let FOLD_LENGTHS: Str =
 
 /// The foldings, run together.
 let FOLD_VALUES: Str =
-    "abcdefghijklmnopqrstuvwxyzμàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþssāăąćĉċčďđēĕėęěĝğġģĥħĩīĭįi̇ĳĵķĺļľŀłńņňʼnŋōŏőœŕŗřśŝşšţťŧũūŭůűųŵŷÿźżžsɓƃƅɔƈɖɗƌǝəɛƒɠɣɩɨƙɯɲɵơƣƥʀƨʃƭʈưʊʋƴƶʒƹƽǆǆǉǉǌǌǎǐǒǔǖǘǚǜǟǡǣǥǧǩǫǭǯǰǳǳǵƕƿǹǻǽǿȁȃȅȇȉȋȍȏȑȓȕȗșțȝȟƞȣȥȧȩȫȭȯȱȳⱥȼƚⱦɂƀʉʌɇɉɋɍɏιͱͳͷϳάέήίόύώΐαβγδεζηθικλμνξοπρστυφχψωϊϋΰσϗβθφπϙϛϝϟϡϣϥϧϩϫϭϯκρθεϸϲϻͻͼͽѐёђѓєѕіїјљњћќѝўџабвгдежзийклмнопрстуфхцчшщъыьэюяѡѣѥѧѩѫѭѯѱѳѵѷѹѻѽѿҁҋҍҏґғҕҗҙқҝҟҡңҥҧҩҫҭүұҳҵҷҹһҽҿӏӂӄӆӈӊӌӎӑӓӕӗәӛӝӟӡӣӥӧөӫӭӯӱӳӵӷӹӻӽӿԁԃԅԇԉԋԍԏԑԓԕԗԙԛԝԟԡԣԥԧԩԫԭԯաբգդեզէըթժիլխծկհձղճմյնշոչպջռսվտրցւփքօֆեւⴀⴁⴂⴃⴄⴅⴆⴇⴈⴉⴊⴋⴌⴍⴎⴏⴐⴑⴒⴓⴔⴕⴖⴗⴘⴙⴚⴛⴜⴝⴞⴟⴠⴡⴢⴣⴤⴥⴧⴭᏰᏱᏲᏳᏴᏵвдосттъѣꙋᲊაბგდევზთიკლმნოპჟრსტუფქღყშჩცძწჭხჯჰჱჲჳჴჵჶჷჸჹჺჽჾჿḁḃḅḇḉḋḍḏḑḓḕḗḙḛḝḟḡḣḥḧḩḫḭḯḱḳḵḷḹḻḽḿṁṃṅṇṉṋṍṏṑṓṕṗṙṛṝṟṡṣṥṧṩṫṭṯṱṳṵṷṹṻṽṿẁẃẅẇẉẋẍẏẑẓẕẖẗẘẙaʾṡssạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹỻỽỿἀἁἂἃἄἅἆἇἐἑἒἓἔἕἠἡἢἣἤἥἦἧἰἱἲἳἴἵἶἷὀὁὂὃὄὅὐὒὔὖὑὓὕὗὠὡὢὣὤὥὦὧἀιἁιἂιἃιἄιἅιἆιἇιἀιἁιἂιἃιἄιἅιἆιἇιἠιἡιἢιἣιἤιἥιἦιἧιἠιἡιἢιἣιἤιἥιἦιἧιὠιὡιὢιὣιὤιὥιὦιὧιὠιὡιὢιὣιὤιὥιὦιὧιὰιαιάιᾶᾶιᾰᾱὰάαιιὴιηιήιῆῆιὲέὴήηιῒΐῖῗῐῑὶίῢΰῤῦῧῠῡὺύῥὼιωιώιῶῶιὸόὼώωιωkåⅎⅰⅱⅲⅳⅴⅵⅶⅷⅸⅹⅺⅻⅼⅽⅾⅿↄⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦⓧⓨⓩⰰⰱⰲⰳⰴⰵⰶⰷⰸⰹⰺⰻⰼⰽⰾⰿⱀⱁⱂⱃⱄⱅⱆⱇⱈⱉⱊⱋⱌⱍⱎⱏⱐⱑⱒⱓⱔⱕⱖⱗⱘⱙⱚⱛⱜⱝⱞⱟⱡɫᵽɽⱨⱪⱬɑɱɐɒⱳⱶȿɀⲁⲃⲅⲇⲉⲋⲍⲏⲑⲓⲕⲗⲙⲛⲝⲟⲡⲣⲥⲧⲩⲫⲭⲯⲱⲳⲵⲷⲹⲻⲽⲿⳁⳃⳅⳇⳉⳋⳍⳏⳑⳓⳕⳗⳙⳛⳝⳟⳡⳣⳬⳮⳳꙁꙃꙅꙇꙉꙋꙍꙏꙑꙓꙕꙗꙙꙛꙝꙟꙡꙣꙥꙧꙩꙫꙭꚁꚃꚅꚇꚉꚋꚍꚏꚑꚓꚕꚗꚙꚛꜣꜥꜧꜩꜫꜭꜯꜳꜵꜷꜹꜻꜽꜿꝁꝃꝅꝇꝉꝋꝍꝏꝑꝓꝕꝗꝙꝛꝝꝟꝡꝣꝥꝧꝩꝫꝭꝯꝺꝼᵹꝿꞁꞃꞅꞇꞌɥꞑꞓꞗꞙꞛꞝꞟꞡꞣꞥꞧꞩɦɜɡɬɪʞʇʝꭓꞵꞷꞹꞻꞽꞿꟁꟃꞔʂᶎꟈꟊɤꟍꟑꟗꟙꟛƛꟶᎠᎡᎢᎣᎤᎥᎦᎧᎨᎩᎪᎫᎬᎭᎮᎯᎰᎱᎲᎳᎴᎵᎶᎷᎸᎹᎺᎻᎼᎽᎾᎿᏀᏁᏂᏃᏄᏅᏆᏇᏈᏉᏊᏋᏌᏍᏎᏏᏐᏑᏒᏓᏔᏕᏖᏗᏘᏙᏚᏛᏜᏝᏞᏟᏠᏡᏢᏣᏤᏥᏦᏧᏨᏩᏪᏫᏬᏭᏮᏯfffiflffifflststմնմեմիվնմխａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ𐐨𐐩𐐪𐐫𐐬𐐭𐐮𐐯𐐰𐐱𐐲𐐳𐐴𐐵𐐶𐐷𐐸𐐹𐐺𐐻𐐼𐐽𐐾𐐿𐑀𐑁𐑂𐑃𐑄𐑅𐑆𐑇𐑈𐑉𐑊𐑋𐑌𐑍𐑎𐑏𐓘𐓙𐓚𐓛𐓜𐓝𐓞𐓟𐓠𐓡𐓢𐓣𐓤𐓥𐓦𐓧𐓨𐓩𐓪𐓫𐓬𐓭𐓮𐓯𐓰𐓱𐓲𐓳𐓴𐓵𐓶𐓷𐓸𐓹𐓺𐓻𐖗𐖘𐖙𐖚𐖛𐖜𐖝𐖞𐖟𐖠𐖡𐖣𐖤𐖥𐖦𐖧𐖨𐖩𐖪𐖫𐖬𐖭𐖮𐖯𐖰𐖱𐖳𐖴𐖵𐖶𐖷𐖸𐖹𐖻𐖼𐳀𐳁𐳂𐳃𐳄𐳅𐳆𐳇𐳈𐳉𐳊𐳋𐳌𐳍𐳎𐳏𐳐𐳑𐳒𐳓𐳔𐳕𐳖𐳗𐳘𐳙𐳚𐳛𐳜𐳝𐳞𐳟𐳠𐳡𐳢𐳣𐳤𐳥𐳦𐳧𐳨𐳩𐳪𐳫𐳬𐳭𐳮𐳯𐳰𐳱𐳲𐵰𐵱𐵲𐵳𐵴𐵵𐵶𐵷𐵸𐵹𐵺𐵻𐵼𐵽𐵾𐵿𐶀𐶁𐶂𐶃𐶄𐶅𑣀𑣁𑣂𑣃𑣄𑣅𑣆𑣇𑣈𑣉𑣊𑣋𑣌𑣍𑣎𑣏𑣐𑣑𑣒𑣓𑣔𑣕𑣖𑣗𑣘𑣙𑣚𑣛𑣜𑣝𑣞𑣟𖹠𖹡𖹢𖹣𖹤𖹥𖹦𖹧𖹨𖹩𖹪𖹫𖹬𖹭𖹮𖹯𖹰𖹱𖹲𖹳𖹴𖹵𖹶𖹷𖹸𖹹𖹺𖹻𖹼𖹽𖹾𖹿𞤢𞤣𞤤𞤥𞤦𞤧𞤨𞤩𞤪𞤫𞤬𞤭𞤮𞤯𞤰𞤱𞤲𞤳𞤴𞤵𞤶𞤷𞤸𞤹𞤺𞤻𞤼𞤽𞤾𞤿𞥀𞥁𞥂𞥃";
-
-/// U+AC00 to U+D7A3 in order, so composition can index them.
-let HANGUL_SYLLABLES: Str =
-    "가각갂갃간갅갆갇갈갉갊갋갌갍갎갏감갑값갓갔강갖갗갘같갚갛개객갞갟갠갡갢갣갤갥갦갧갨갩갪갫갬갭갮갯갰갱갲갳갴갵갶갷갸갹갺갻갼갽갾갿걀걁걂걃걄걅걆걇걈걉걊걋걌걍걎걏걐걑걒걓걔걕걖걗걘걙걚걛걜걝걞걟걠걡걢걣걤걥걦걧걨걩걪걫걬걭걮걯거걱걲걳건걵걶걷걸걹걺걻걼걽걾걿검겁겂것겄겅겆겇겈겉겊겋게겍겎겏겐겑겒겓겔겕겖겗겘겙겚겛겜겝겞겟겠겡겢겣겤겥겦겧겨격겪겫견겭겮겯결겱겲겳겴겵겶겷겸겹겺겻겼경겾겿곀곁곂곃계곅곆곇곈곉곊곋곌곍곎곏곐곑곒곓곔곕곖곗곘곙곚곛곜곝곞곟고곡곢곣곤곥곦곧골곩곪곫곬곭곮곯곰곱곲곳곴공곶곷곸곹곺곻과곽곾곿관괁괂괃괄괅괆괇괈괉괊괋괌괍괎괏괐광괒괓괔괕괖괗괘괙괚괛괜괝괞괟괠괡괢괣괤괥괦괧괨괩괪괫괬괭괮괯괰괱괲괳괴괵괶괷괸괹괺괻괼괽괾괿굀굁굂굃굄굅굆굇굈굉굊굋굌굍굎굏교굑굒굓굔굕굖굗굘굙굚굛굜굝굞굟굠굡굢굣굤굥굦굧굨굩굪굫구국굮굯군굱굲굳굴굵굶굷굸굹굺굻굼굽굾굿궀궁궂궃궄궅궆궇궈궉궊궋권궍궎궏궐궑궒궓궔궕궖궗궘궙궚궛궜궝궞궟궠궡궢궣궤궥궦궧궨궩궪궫궬궭궮궯궰궱궲궳궴궵궶궷궸궹궺궻궼궽궾궿귀귁귂귃귄귅귆귇귈귉귊귋귌귍귎귏귐귑귒귓귔귕귖귗귘귙귚귛규귝귞귟균귡귢귣귤귥귦귧귨귩귪귫귬귭귮귯귰귱귲귳귴귵귶귷그극귺귻근귽귾귿글긁긂긃긄긅긆긇금급긊긋긌긍긎긏긐긑긒긓긔긕긖긗긘긙긚긛긜긝긞긟긠긡긢긣긤긥긦긧긨긩긪긫긬긭긮긯기긱긲긳긴긵긶긷길긹긺긻긼긽긾긿김깁깂깃깄깅깆깇깈깉깊깋까깍깎깏깐깑깒깓깔깕깖깗깘깙깚깛깜깝깞깟깠깡깢깣깤깥깦깧깨깩깪깫깬깭깮깯깰깱깲깳깴깵깶깷깸깹깺깻깼깽깾깿꺀꺁꺂꺃꺄꺅꺆꺇꺈꺉꺊꺋꺌꺍꺎꺏꺐꺑꺒꺓꺔꺕꺖꺗꺘꺙꺚꺛꺜꺝꺞꺟꺠꺡꺢꺣꺤꺥꺦꺧꺨꺩꺪꺫꺬꺭꺮꺯꺰꺱꺲꺳꺴꺵꺶꺷꺸꺹꺺꺻꺼꺽꺾꺿껀껁껂껃껄껅껆껇껈껉껊껋껌껍껎껏껐껑껒껓껔껕껖껗께껙껚껛껜껝껞껟껠껡껢껣껤껥껦껧껨껩껪껫껬껭껮껯껰껱껲껳껴껵껶껷껸껹껺껻껼껽껾껿꼀꼁꼂꼃꼄꼅꼆꼇꼈꼉꼊꼋꼌꼍꼎꼏꼐꼑꼒꼓꼔꼕꼖꼗꼘꼙꼚꼛꼜꼝꼞꼟꼠꼡꼢꼣꼤꼥꼦꼧꼨꼩꼪꼫꼬꼭꼮꼯꼰꼱꼲꼳꼴꼵꼶꼷꼸꼹꼺꼻꼼꼽꼾꼿꽀꽁꽂꽃꽄꽅꽆꽇꽈꽉꽊꽋꽌꽍꽎꽏꽐꽑꽒꽓꽔꽕꽖꽗꽘꽙꽚꽛꽜꽝꽞꽟꽠꽡꽢꽣꽤꽥꽦꽧꽨꽩꽪꽫꽬꽭꽮꽯꽰꽱꽲꽳꽴꽵꽶꽷꽸꽹꽺꽻꽼꽽꽾꽿꾀꾁꾂꾃꾄꾅꾆꾇꾈꾉꾊꾋꾌꾍꾎꾏꾐꾑꾒꾓꾔꾕꾖꾗꾘꾙꾚꾛꾜꾝꾞꾟꾠꾡꾢꾣꾤꾥꾦꾧꾨꾩꾪꾫꾬꾭꾮꾯꾰꾱꾲꾳꾴꾵꾶꾷꾸꾹꾺꾻꾼꾽꾾꾿꿀꿁꿂꿃꿄꿅꿆꿇꿈꿉꿊꿋꿌꿍꿎꿏꿐꿑꿒꿓꿔꿕꿖꿗꿘꿙꿚꿛꿜꿝꿞꿟꿠꿡꿢꿣꿤꿥꿦꿧꿨꿩꿪꿫꿬꿭꿮꿯꿰꿱꿲꿳꿴꿵꿶꿷꿸꿹꿺꿻꿼꿽꿾꿿뀀뀁뀂뀃뀄뀅뀆뀇뀈뀉뀊뀋뀌뀍뀎뀏뀐뀑뀒뀓뀔뀕뀖뀗뀘뀙뀚뀛뀜뀝뀞뀟뀠뀡뀢뀣뀤뀥뀦뀧뀨뀩뀪뀫뀬뀭뀮뀯뀰뀱뀲뀳뀴뀵뀶뀷뀸뀹뀺뀻뀼뀽뀾뀿끀끁끂끃끄끅끆끇끈끉끊끋끌끍끎끏끐끑끒끓끔끕끖끗끘끙끚끛끜끝끞끟끠끡끢끣끤끥끦끧끨끩끪끫끬끭끮끯끰끱끲끳끴끵끶끷끸끹끺끻끼끽끾끿낀낁낂낃낄낅낆낇낈낉낊낋낌낍낎낏낐낑낒낓낔낕낖낗나낙낚낛난낝낞낟날낡낢낣낤낥낦낧남납낪낫났낭낮낯낰낱낲낳내낵낶낷낸낹낺낻낼낽낾낿냀냁냂냃냄냅냆냇냈냉냊냋냌냍냎냏냐냑냒냓냔냕냖냗냘냙냚냛냜냝냞냟냠냡냢냣냤냥냦냧냨냩냪냫냬냭냮냯냰냱냲냳냴냵냶냷냸냹냺냻냼냽냾냿넀넁넂넃넄넅넆넇너넉넊넋넌넍넎넏널넑넒넓넔넕넖넗넘넙넚넛넜넝넞넟넠넡넢넣네넥넦넧넨넩넪넫넬넭넮넯넰넱넲넳넴넵넶넷넸넹넺넻넼넽넾넿녀녁녂녃년녅녆녇녈녉녊녋녌녍녎녏념녑녒녓녔녕녖녗녘녙녚녛녜녝녞녟녠녡녢녣녤녥녦녧녨녩녪녫녬녭녮녯녰녱녲녳녴녵녶녷노녹녺녻논녽녾녿놀놁놂놃놄놅놆놇놈놉놊놋놌농놎놏놐놑높놓놔놕놖놗놘놙놚놛놜놝놞놟놠놡놢놣놤놥놦놧놨놩놪놫놬놭놮놯놰놱놲놳놴놵놶놷놸놹놺놻놼놽놾놿뇀뇁뇂뇃뇄뇅뇆뇇뇈뇉뇊뇋뇌뇍뇎뇏뇐뇑뇒뇓뇔뇕뇖뇗뇘뇙뇚뇛뇜뇝뇞뇟뇠뇡뇢뇣뇤뇥뇦뇧뇨뇩뇪뇫뇬뇭뇮뇯뇰뇱뇲뇳뇴뇵뇶뇷뇸뇹뇺뇻뇼뇽뇾뇿눀눁눂눃누눅눆눇눈눉눊눋눌눍눎눏눐눑눒눓눔눕눖눗눘눙눚눛눜눝눞눟눠눡눢눣눤눥눦눧눨눩눪눫눬눭눮눯눰눱눲눳눴눵눶눷눸눹눺눻눼눽눾눿뉀뉁뉂뉃뉄뉅뉆뉇뉈뉉뉊뉋뉌뉍뉎뉏뉐뉑뉒뉓뉔뉕뉖뉗뉘뉙뉚뉛뉜뉝뉞뉟뉠뉡뉢뉣뉤뉥뉦뉧뉨뉩뉪뉫뉬뉭뉮뉯뉰뉱뉲뉳뉴뉵뉶뉷뉸뉹뉺뉻뉼뉽뉾뉿늀늁늂늃늄늅늆늇늈늉늊늋늌늍늎늏느늑늒늓는늕늖늗늘늙늚늛늜늝늞늟늠늡늢늣늤능늦늧늨늩늪늫늬늭늮늯늰늱늲늳늴늵늶늷늸늹늺늻늼늽늾늿닀닁닂닃닄닅닆닇니닉닊닋닌닍닎닏닐닑닒닓닔닕닖닗님닙닚닛닜닝닞닟닠닡닢닣다닥닦닧단닩닪닫달닭닮닯닰닱닲닳담답닶닷닸당닺닻닼닽닾닿대댁댂댃댄댅댆댇댈댉댊댋댌댍댎댏댐댑댒댓댔댕댖댗댘댙댚댛댜댝댞댟댠댡댢댣댤댥댦댧댨댩댪댫댬댭댮댯댰댱댲댳댴댵댶댷댸댹댺댻댼댽댾댿덀덁덂덃덄덅덆덇덈덉덊덋덌덍덎덏덐덑덒덓더덕덖덗던덙덚덛덜덝덞덟덠덡덢덣덤덥덦덧덨덩덪덫덬덭덮덯데덱덲덳덴덵덶덷델덹덺덻덼덽덾덿뎀뎁뎂뎃뎄뎅뎆뎇뎈뎉뎊뎋뎌뎍뎎뎏뎐뎑뎒뎓뎔뎕뎖뎗뎘뎙뎚뎛뎜뎝뎞뎟뎠뎡뎢뎣뎤뎥뎦뎧뎨뎩뎪뎫뎬뎭뎮뎯뎰뎱뎲뎳뎴뎵뎶뎷뎸뎹뎺뎻뎼뎽뎾뎿돀돁돂돃도독돆돇돈돉돊돋돌돍돎돏돐돑돒돓돔돕돖돗돘동돚돛돜돝돞돟돠돡돢돣돤돥돦돧돨돩돪돫돬돭돮돯돰돱돲돳돴돵돶돷돸돹돺돻돼돽돾돿됀됁됂됃됄됅됆됇됈됉됊됋됌됍됎됏됐됑됒됓됔됕됖됗되됙됚됛된됝됞됟될됡됢됣됤됥됦됧됨됩됪됫됬됭됮됯됰됱됲됳됴됵됶됷됸됹됺됻됼됽됾됿둀둁둂둃둄둅둆둇둈둉둊둋둌둍둎둏두둑둒둓둔둕둖둗둘둙둚둛둜둝둞둟둠둡둢둣둤둥둦둧둨둩둪둫둬둭둮둯둰둱둲둳둴둵둶둷둸둹둺둻둼둽둾둿뒀뒁뒂뒃뒄뒅뒆뒇뒈뒉뒊뒋뒌뒍뒎뒏뒐뒑뒒뒓뒔뒕뒖뒗뒘뒙뒚뒛뒜뒝뒞뒟뒠뒡뒢뒣뒤뒥뒦뒧뒨뒩뒪뒫뒬뒭뒮뒯뒰뒱뒲뒳뒴뒵뒶뒷뒸뒹뒺뒻뒼뒽뒾뒿듀듁듂듃듄듅듆듇듈듉듊듋듌듍듎듏듐듑듒듓듔듕듖듗듘듙듚듛드득듞듟든듡듢듣들듥듦듧듨듩듪듫듬듭듮듯듰등듲듳듴듵듶듷듸듹듺듻듼듽듾듿딀딁딂딃딄딅딆딇딈딉딊딋딌딍딎딏딐딑딒딓디딕딖딗딘딙딚딛딜딝딞딟딠딡딢딣딤딥딦딧딨딩딪딫딬딭딮딯따딱딲딳딴딵딶딷딸딹딺딻딼딽딾딿땀땁땂땃땄땅땆땇땈땉땊땋때땍땎땏땐땑땒땓땔땕땖땗땘땙땚땛땜땝땞땟땠땡땢땣땤땥땦땧땨땩땪땫땬땭땮땯땰땱땲땳땴땵땶땷땸땹땺땻땼땽땾땿떀떁떂떃떄떅떆떇떈떉떊떋떌떍떎떏떐떑떒떓떔떕떖떗떘떙떚떛떜떝떞떟떠떡떢떣떤떥떦떧떨떩떪떫떬떭떮떯떰떱떲떳떴떵떶떷떸떹떺떻떼떽떾떿뗀뗁뗂뗃뗄뗅뗆뗇뗈뗉뗊뗋뗌뗍뗎뗏뗐뗑뗒뗓뗔뗕뗖뗗뗘뗙뗚뗛뗜뗝뗞뗟뗠뗡뗢뗣뗤뗥뗦뗧뗨뗩뗪뗫뗬뗭뗮뗯뗰뗱뗲뗳뗴뗵뗶뗷뗸뗹뗺뗻뗼뗽뗾뗿똀똁똂똃똄똅똆똇똈똉똊똋똌똍똎똏또똑똒똓똔똕똖똗똘똙똚똛똜똝똞똟똠똡똢똣똤똥똦똧똨똩똪똫똬똭똮똯똰똱똲똳똴똵똶똷똸똹똺똻똼똽똾똿뙀뙁뙂뙃뙄뙅뙆뙇뙈뙉뙊뙋뙌뙍뙎뙏뙐뙑뙒뙓뙔뙕뙖뙗뙘뙙뙚뙛뙜뙝뙞뙟뙠뙡뙢뙣뙤뙥뙦뙧뙨뙩뙪뙫뙬뙭뙮뙯뙰뙱뙲뙳뙴뙵뙶뙷뙸뙹뙺뙻뙼뙽뙾뙿뚀뚁뚂뚃뚄뚅뚆뚇뚈뚉뚊뚋뚌뚍뚎뚏뚐뚑뚒뚓뚔뚕뚖뚗뚘뚙뚚뚛뚜뚝뚞뚟뚠뚡뚢뚣뚤뚥뚦뚧뚨뚩뚪뚫뚬뚭뚮뚯뚰뚱뚲뚳뚴뚵뚶뚷뚸뚹뚺뚻뚼뚽뚾뚿뛀뛁뛂뛃뛄뛅뛆뛇뛈뛉뛊뛋뛌뛍뛎뛏뛐뛑뛒뛓뛔뛕뛖뛗뛘뛙뛚뛛뛜뛝뛞뛟뛠뛡뛢뛣뛤뛥뛦뛧뛨뛩뛪뛫뛬뛭뛮뛯뛰뛱뛲뛳뛴뛵뛶뛷뛸뛹뛺뛻뛼뛽뛾뛿뜀뜁뜂뜃뜄뜅뜆뜇뜈뜉뜊뜋뜌뜍뜎뜏뜐뜑뜒뜓뜔뜕뜖뜗뜘뜙뜚뜛뜜뜝뜞뜟뜠뜡뜢뜣뜤뜥뜦뜧뜨뜩뜪뜫뜬뜭뜮뜯뜰뜱뜲뜳뜴뜵뜶뜷뜸뜹뜺뜻뜼뜽뜾뜿띀띁띂띃띄띅띆띇띈띉띊띋띌띍띎띏띐띑띒띓띔띕띖띗띘띙띚띛띜띝띞띟띠띡띢띣띤띥띦띧띨띩띪띫띬띭띮띯띰띱띲띳띴띵띶띷띸띹띺띻라락띾띿란랁랂랃랄랅랆랇랈랉랊랋람랍랎랏랐랑랒랓랔랕랖랗래랙랚랛랜랝랞랟랠랡랢랣랤랥랦랧램랩랪랫랬랭랮랯랰랱랲랳랴략랶랷랸랹랺랻랼랽랾랿럀럁럂럃럄럅럆럇럈량럊럋럌럍럎럏럐럑럒럓럔럕럖럗럘럙럚럛럜럝럞럟럠럡럢럣럤럥럦럧럨럩럪럫러럭럮럯런럱럲럳럴럵럶럷럸럹럺럻럼럽럾럿렀렁렂렃렄렅렆렇레렉렊렋렌렍렎렏렐렑렒렓렔렕렖렗렘렙렚렛렜렝렞렟렠렡렢렣려력렦렧련렩렪렫렬렭렮렯렰렱렲렳렴렵렶렷렸령렺렻렼렽렾렿례롁롂롃롄롅롆롇롈롉롊롋롌롍롎롏롐롑롒롓롔롕롖롗롘롙롚롛로록롞롟론롡롢롣롤롥롦롧롨롩롪롫롬롭롮롯롰롱롲롳롴롵롶롷롸롹롺롻롼롽롾롿뢀뢁뢂뢃뢄뢅뢆뢇뢈뢉뢊뢋뢌뢍뢎뢏뢐뢑뢒뢓뢔뢕뢖뢗뢘뢙뢚뢛뢜뢝뢞뢟뢠뢡뢢뢣뢤뢥뢦뢧뢨뢩뢪뢫뢬뢭뢮뢯뢰뢱뢲뢳뢴뢵뢶뢷뢸뢹뢺뢻뢼뢽뢾뢿룀룁룂룃룄룅룆룇룈룉룊룋료룍룎룏룐룑룒룓룔룕룖룗룘룙룚룛룜룝룞룟룠룡룢룣룤룥룦룧루룩룪룫룬룭룮룯룰룱룲룳룴룵룶룷룸룹룺룻룼룽룾룿뤀뤁뤂뤃뤄뤅뤆뤇뤈뤉뤊뤋뤌뤍뤎뤏뤐뤑뤒뤓뤔뤕뤖뤗뤘뤙뤚뤛뤜뤝뤞뤟뤠뤡뤢뤣뤤뤥뤦뤧뤨뤩뤪뤫뤬뤭뤮뤯뤰뤱뤲뤳뤴뤵뤶뤷뤸뤹뤺뤻뤼뤽뤾뤿륀륁륂륃륄륅륆륇륈륉륊륋륌륍륎륏륐륑륒륓륔륕륖륗류륙륚륛륜륝륞륟률륡륢륣륤륥륦륧륨륩륪륫륬륭륮륯륰륱륲륳르륵륶륷른륹륺륻를륽륾륿릀릁릂릃름릅릆릇릈릉릊릋릌릍릎릏릐릑릒릓릔릕릖릗릘릙릚릛릜릝릞릟릠릡릢릣릤릥릦릧릨릩릪릫리릭릮릯린릱릲릳릴릵릶릷릸릹릺릻림립릾릿맀링맂맃맄맅맆맇마막맊맋만맍많맏말맑맒맓맔맕맖맗맘맙맚맛맜망맞맟맠맡맢맣매맥맦맧맨맩맪맫맬맭맮맯맰맱맲맳맴맵맶맷맸맹맺맻맼맽맾맿먀먁먂먃먄먅먆먇먈먉먊먋먌먍먎먏먐먑먒먓먔먕먖먗먘먙먚먛먜먝먞먟먠먡먢먣먤먥먦먧먨먩먪먫먬먭먮먯먰먱먲먳먴먵먶먷머먹먺먻먼먽먾먿멀멁멂멃멄멅멆멇멈멉멊멋멌멍멎멏멐멑멒멓메멕멖멗멘멙멚멛멜멝멞멟멠멡멢멣멤멥멦멧멨멩멪멫멬멭멮멯며멱멲멳면멵멶멷멸멹멺멻멼멽멾멿몀몁몂몃몄명몆몇몈몉몊몋몌몍몎몏몐몑몒몓몔몕몖몗몘몙몚몛몜몝몞몟몠몡몢몣몤몥몦몧모목몪몫몬몭몮몯몰몱몲몳몴몵몶몷몸몹몺못몼몽몾몿뫀뫁뫂뫃뫄뫅뫆뫇뫈뫉뫊뫋뫌뫍뫎뫏뫐뫑뫒뫓뫔뫕뫖뫗뫘뫙뫚뫛뫜뫝뫞뫟뫠뫡뫢뫣뫤뫥뫦뫧뫨뫩뫪뫫뫬뫭뫮뫯뫰뫱뫲뫳뫴뫵뫶뫷뫸뫹뫺뫻뫼뫽뫾뫿묀묁묂묃묄묅묆묇묈묉묊묋묌묍묎묏묐묑묒묓묔묕묖묗묘묙묚묛묜묝묞묟묠묡묢묣묤묥묦묧묨묩묪묫묬묭묮묯묰묱묲묳무묵묶묷문묹묺묻물묽묾묿뭀뭁뭂뭃뭄뭅뭆뭇뭈뭉뭊뭋뭌뭍뭎뭏뭐뭑뭒뭓뭔뭕뭖뭗뭘뭙뭚뭛뭜뭝뭞뭟뭠뭡뭢뭣뭤뭥뭦뭧뭨뭩뭪뭫뭬뭭뭮뭯뭰뭱뭲뭳뭴뭵뭶뭷뭸뭹뭺뭻뭼뭽뭾뭿뮀뮁뮂뮃뮄뮅뮆뮇뮈뮉뮊뮋뮌뮍뮎뮏뮐뮑뮒뮓뮔뮕뮖뮗뮘뮙뮚뮛뮜뮝뮞뮟뮠뮡뮢뮣뮤뮥뮦뮧뮨뮩뮪뮫뮬뮭뮮뮯뮰뮱뮲뮳뮴뮵뮶뮷뮸뮹뮺뮻뮼뮽뮾뮿므믁믂믃믄믅믆믇믈믉믊믋믌믍믎믏믐믑믒믓믔믕믖믗믘믙믚믛믜믝믞믟믠믡믢믣믤믥믦믧믨믩믪믫믬믭믮믯믰믱믲믳믴믵믶믷미믹믺믻민믽믾믿밀밁밂밃밄밅밆밇밈밉밊밋밌밍밎및밐밑밒밓바박밖밗반밙밚받발밝밞밟밠밡밢밣밤밥밦밧밨방밪밫밬밭밮밯배백밲밳밴밵밶밷밸밹밺밻밼밽밾밿뱀뱁뱂뱃뱄뱅뱆뱇뱈뱉뱊뱋뱌뱍뱎뱏뱐뱑뱒뱓뱔뱕뱖뱗뱘뱙뱚뱛뱜뱝뱞뱟뱠뱡뱢뱣뱤뱥뱦뱧뱨뱩뱪뱫뱬뱭뱮뱯뱰뱱뱲뱳뱴뱵뱶뱷뱸뱹뱺뱻뱼뱽뱾뱿벀벁벂벃버벅벆벇번벉벊벋벌벍벎벏벐벑벒벓범법벖벗벘벙벚벛벜벝벞벟베벡벢벣벤벥벦벧벨벩벪벫벬벭벮벯벰벱벲벳벴벵벶벷벸벹벺벻벼벽벾벿변볁볂볃별볅볆볇볈볉볊볋볌볍볎볏볐병볒볓볔볕볖볗볘볙볚볛볜볝볞볟볠볡볢볣볤볥볦볧볨볩볪볫볬볭볮볯볰볱볲볳보복볶볷본볹볺볻볼볽볾볿봀봁봂봃봄봅봆봇봈봉봊봋봌봍봎봏봐봑봒봓봔봕봖봗봘봙봚봛봜봝봞봟봠봡봢봣봤봥봦봧봨봩봪봫봬봭봮봯봰봱봲봳봴봵봶봷봸봹봺봻봼봽봾봿뵀뵁뵂뵃뵄뵅뵆뵇뵈뵉뵊뵋뵌뵍뵎뵏뵐뵑뵒뵓뵔뵕뵖뵗뵘뵙뵚뵛뵜뵝뵞뵟뵠뵡뵢뵣뵤뵥뵦뵧뵨뵩뵪뵫뵬뵭뵮뵯뵰뵱뵲뵳뵴뵵뵶뵷뵸뵹뵺뵻뵼뵽뵾뵿부북붂붃분붅붆붇불붉붊붋붌붍붎붏붐붑붒붓붔붕붖붗붘붙붚붛붜붝붞붟붠붡붢붣붤붥붦붧붨붩붪붫붬붭붮붯붰붱붲붳붴붵붶붷붸붹붺붻붼붽붾붿뷀뷁뷂뷃뷄뷅뷆뷇뷈뷉뷊뷋뷌뷍뷎뷏뷐뷑뷒뷓뷔뷕뷖뷗뷘뷙뷚뷛뷜뷝뷞뷟뷠뷡뷢뷣뷤뷥뷦뷧뷨뷩뷪뷫뷬뷭뷮뷯뷰뷱뷲뷳뷴뷵뷶뷷뷸뷹뷺뷻뷼뷽뷾뷿븀븁븂븃븄븅븆븇븈븉븊븋브븍븎븏븐븑븒븓블븕븖븗븘븙븚븛븜븝븞븟븠븡븢븣븤븥븦븧븨븩븪븫븬븭븮븯븰븱븲븳븴븵븶븷븸븹븺븻븼븽븾븿빀빁빂빃비빅빆빇빈빉빊빋빌빍빎빏빐빑빒빓빔빕빖빗빘빙빚빛빜빝빞빟빠빡빢빣빤빥빦빧빨빩빪빫빬빭빮빯빰빱빲빳빴빵빶빷빸빹빺빻빼빽빾빿뺀뺁뺂뺃뺄뺅뺆뺇뺈뺉뺊뺋뺌뺍뺎뺏뺐뺑뺒뺓뺔뺕뺖뺗뺘뺙뺚뺛뺜뺝뺞뺟뺠뺡뺢뺣뺤뺥뺦뺧뺨뺩뺪뺫뺬뺭뺮뺯뺰뺱뺲뺳뺴뺵뺶뺷뺸뺹뺺뺻뺼뺽뺾뺿뻀뻁뻂뻃뻄뻅뻆뻇뻈뻉뻊뻋뻌뻍뻎뻏뻐뻑뻒뻓뻔뻕뻖뻗뻘뻙뻚뻛뻜뻝뻞뻟뻠뻡뻢뻣뻤뻥뻦뻧뻨뻩뻪뻫뻬뻭뻮뻯뻰뻱뻲뻳뻴뻵뻶뻷뻸뻹뻺뻻뻼뻽뻾뻿뼀뼁뼂뼃뼄뼅뼆뼇뼈뼉뼊뼋뼌뼍뼎뼏뼐뼑뼒뼓뼔뼕뼖뼗뼘뼙뼚뼛뼜뼝뼞뼟뼠뼡뼢뼣뼤뼥뼦뼧뼨뼩뼪뼫뼬뼭뼮뼯뼰뼱뼲뼳뼴뼵뼶뼷뼸뼹뼺뼻뼼뼽뼾뼿뽀뽁뽂뽃뽄뽅뽆뽇뽈뽉뽊뽋뽌뽍뽎뽏뽐뽑뽒뽓뽔뽕뽖뽗뽘뽙뽚뽛뽜뽝뽞뽟뽠뽡뽢뽣뽤뽥뽦뽧뽨뽩뽪뽫뽬뽭뽮뽯뽰뽱뽲뽳뽴뽵뽶뽷뽸뽹뽺뽻뽼뽽뽾뽿뾀뾁뾂뾃뾄뾅뾆뾇뾈뾉뾊뾋뾌뾍뾎뾏뾐뾑뾒뾓뾔뾕뾖뾗뾘뾙뾚뾛뾜뾝뾞뾟뾠뾡뾢뾣뾤뾥뾦뾧뾨뾩뾪뾫뾬뾭뾮뾯뾰뾱뾲뾳뾴뾵뾶뾷뾸뾹뾺뾻뾼뾽뾾뾿뿀뿁뿂뿃뿄뿅뿆뿇뿈뿉뿊뿋뿌뿍뿎뿏뿐뿑뿒뿓뿔뿕뿖뿗뿘뿙뿚뿛뿜뿝뿞뿟뿠뿡뿢뿣뿤뿥뿦뿧뿨뿩뿪뿫뿬뿭뿮뿯뿰뿱뿲뿳뿴뿵뿶뿷뿸뿹뿺뿻뿼뿽뿾뿿쀀쀁쀂쀃쀄쀅쀆쀇쀈쀉쀊쀋쀌쀍쀎쀏쀐쀑쀒쀓쀔쀕쀖쀗쀘쀙쀚쀛쀜쀝쀞쀟쀠쀡쀢쀣쀤쀥쀦쀧쀨쀩쀪쀫쀬쀭쀮쀯쀰쀱쀲쀳쀴쀵쀶쀷쀸쀹쀺쀻쀼쀽쀾쀿쁀쁁쁂쁃쁄쁅쁆쁇쁈쁉쁊쁋쁌쁍쁎쁏쁐쁑쁒쁓쁔쁕쁖쁗쁘쁙쁚쁛쁜쁝쁞쁟쁠쁡쁢쁣쁤쁥쁦쁧쁨쁩쁪쁫쁬쁭쁮쁯쁰쁱쁲쁳쁴쁵쁶쁷쁸쁹쁺쁻쁼쁽쁾쁿삀삁삂삃삄삅삆삇삈삉삊삋삌삍삎삏삐삑삒삓삔삕삖삗삘삙삚삛삜삝삞삟삠삡삢삣삤삥삦삧삨삩삪삫사삭삮삯산삱삲삳살삵삶삷삸삹삺삻삼삽삾삿샀상샂샃샄샅샆샇새색샊샋샌샍샎샏샐샑샒샓샔샕샖샗샘샙샚샛샜생샞샟샠샡샢샣샤샥샦샧샨샩샪샫샬샭샮샯샰샱샲샳샴샵샶샷샸샹샺샻샼샽샾샿섀섁섂섃섄섅섆섇섈섉섊섋섌섍섎섏섐섑섒섓섔섕섖섗섘섙섚섛서석섞섟선섡섢섣설섥섦섧섨섩섪섫섬섭섮섯섰성섲섳섴섵섶섷세섹섺섻센섽섾섿셀셁셂셃셄셅셆셇셈셉셊셋셌셍셎셏셐셑셒셓셔셕셖셗션셙셚셛셜셝셞셟셠셡셢셣셤셥셦셧셨셩셪셫셬셭셮셯셰셱셲셳셴셵셶셷셸셹셺셻셼셽셾셿솀솁솂솃솄솅솆솇솈솉솊솋소속솎솏손솑솒솓솔솕솖솗솘솙솚솛솜솝솞솟솠송솢솣솤솥솦솧솨솩솪솫솬솭솮솯솰솱솲솳솴솵솶솷솸솹솺솻솼솽솾솿쇀쇁쇂쇃쇄쇅쇆쇇쇈쇉쇊쇋쇌쇍쇎쇏쇐쇑쇒쇓쇔쇕쇖쇗쇘쇙쇚쇛쇜쇝쇞쇟쇠쇡쇢쇣쇤쇥쇦쇧쇨쇩쇪쇫쇬쇭쇮쇯쇰쇱쇲쇳쇴쇵쇶쇷쇸쇹쇺쇻쇼쇽쇾쇿숀숁숂숃숄숅숆숇숈숉숊숋숌숍숎숏숐숑숒숓숔숕숖숗수숙숚숛순숝숞숟술숡숢숣숤숥숦숧숨숩숪숫숬숭숮숯숰숱숲숳숴숵숶숷숸숹숺숻숼숽숾숿쉀쉁쉂쉃쉄쉅쉆쉇쉈쉉쉊쉋쉌쉍쉎쉏쉐쉑쉒쉓쉔쉕쉖쉗쉘쉙쉚쉛쉜쉝쉞쉟쉠쉡쉢쉣쉤쉥쉦쉧쉨쉩쉪쉫쉬쉭쉮쉯쉰쉱쉲쉳쉴쉵쉶쉷쉸쉹쉺쉻쉼쉽쉾쉿슀슁슂슃슄슅슆슇슈슉슊슋슌슍슎슏슐슑슒슓슔슕슖슗슘슙슚슛슜슝슞슟슠슡슢슣스슥슦슧슨슩슪슫슬슭슮슯슰슱슲슳슴습슶슷슸승슺슻슼슽슾슿싀싁싂싃싄싅싆싇싈싉싊싋싌싍싎싏싐싑싒싓싔싕싖싗싘싙싚싛시식싞싟신싡싢싣실싥싦싧싨싩싪싫심십싮싯싰싱싲싳싴싵싶싷싸싹싺싻싼싽싾싿쌀쌁쌂쌃쌄쌅쌆쌇쌈쌉쌊쌋쌌쌍쌎쌏쌐쌑쌒쌓쌔쌕쌖쌗쌘쌙쌚쌛쌜쌝쌞쌟쌠쌡쌢쌣쌤쌥쌦쌧쌨쌩쌪쌫쌬쌭쌮쌯쌰쌱쌲쌳쌴쌵쌶쌷쌸쌹쌺쌻쌼쌽쌾쌿썀썁썂썃썄썅썆썇썈썉썊썋썌썍썎썏썐썑썒썓썔썕썖썗썘썙썚썛썜썝썞썟썠썡썢썣썤썥썦썧써썩썪썫썬썭썮썯썰썱썲썳썴썵썶썷썸썹썺썻썼썽썾썿쎀쎁쎂쎃쎄쎅쎆쎇쎈쎉쎊쎋쎌쎍쎎쎏쎐쎑쎒쎓쎔쎕쎖쎗쎘쎙쎚쎛쎜쎝쎞쎟쎠쎡쎢쎣쎤쎥쎦쎧쎨쎩쎪쎫쎬쎭쎮쎯쎰쎱쎲쎳쎴쎵쎶쎷쎸쎹쎺쎻쎼쎽쎾쎿쏀쏁쏂쏃쏄쏅쏆쏇쏈쏉쏊쏋쏌쏍쏎쏏쏐쏑쏒쏓쏔쏕쏖쏗쏘쏙쏚쏛쏜쏝쏞쏟쏠쏡쏢쏣쏤쏥쏦쏧쏨쏩쏪쏫쏬쏭쏮쏯쏰쏱쏲쏳쏴쏵쏶쏷쏸쏹쏺쏻쏼쏽쏾쏿쐀쐁쐂쐃쐄쐅쐆쐇쐈쐉쐊쐋쐌쐍쐎쐏쐐쐑쐒쐓쐔쐕쐖쐗쐘쐙쐚쐛쐜쐝쐞쐟쐠쐡쐢쐣쐤쐥쐦쐧쐨쐩쐪쐫쐬쐭쐮쐯쐰쐱쐲쐳쐴쐵쐶쐷쐸쐹쐺쐻쐼쐽쐾쐿쑀쑁쑂쑃쑄쑅쑆쑇쑈쑉쑊쑋쑌쑍쑎쑏쑐쑑쑒쑓쑔쑕쑖쑗쑘쑙쑚쑛쑜쑝쑞쑟쑠쑡쑢쑣쑤쑥쑦쑧쑨쑩쑪쑫쑬쑭쑮쑯쑰쑱쑲쑳쑴쑵쑶쑷쑸쑹쑺쑻쑼쑽쑾쑿쒀쒁쒂쒃쒄쒅쒆쒇쒈쒉쒊쒋쒌쒍쒎쒏쒐쒑쒒쒓쒔쒕쒖쒗쒘쒙쒚쒛쒜쒝쒞쒟쒠쒡쒢쒣쒤쒥쒦쒧쒨쒩쒪쒫쒬쒭쒮쒯쒰쒱쒲쒳쒴쒵쒶쒷쒸쒹쒺쒻쒼쒽쒾쒿쓀쓁쓂쓃쓄쓅쓆쓇쓈쓉쓊쓋쓌쓍쓎쓏쓐쓑쓒쓓쓔쓕쓖쓗쓘쓙쓚쓛쓜쓝쓞쓟쓠쓡쓢쓣쓤쓥쓦쓧쓨쓩쓪쓫쓬쓭쓮쓯쓰쓱쓲쓳쓴쓵쓶쓷쓸쓹쓺쓻쓼쓽쓾쓿씀씁씂씃씄씅씆씇씈씉씊씋씌씍씎씏씐씑씒씓씔씕씖씗씘씙씚씛씜씝씞씟씠씡씢씣씤씥씦씧씨씩씪씫씬씭씮씯씰씱씲씳씴씵씶씷씸씹씺씻씼씽씾씿앀앁앂앃아악앆앇안앉않앋알앍앎앏앐앑앒앓암압앖앗았앙앚앛앜앝앞앟애액앢앣앤앥앦앧앨앩앪앫앬앭앮앯앰앱앲앳앴앵앶앷앸앹앺앻야약앾앿얀얁얂얃얄얅얆얇얈얉얊얋얌얍얎얏얐양얒얓얔얕얖얗얘얙얚얛얜얝얞얟얠얡얢얣얤얥얦얧얨얩얪얫얬얭얮얯얰얱얲얳어억얶얷언얹얺얻얼얽얾얿엀엁엂엃엄업없엇었엉엊엋엌엍엎엏에엑엒엓엔엕엖엗엘엙엚엛엜엝엞엟엠엡엢엣엤엥엦엧엨엩엪엫여역엮엯연엱엲엳열엵엶엷엸엹엺엻염엽엾엿였영옂옃옄옅옆옇예옉옊옋옌옍옎옏옐옑옒옓옔옕옖옗옘옙옚옛옜옝옞옟옠옡옢옣오옥옦옧온옩옪옫올옭옮옯옰옱옲옳옴옵옶옷옸옹옺옻옼옽옾옿와왁왂왃완왅왆왇왈왉왊왋왌왍왎왏왐왑왒왓왔왕왖왗왘왙왚왛왜왝왞왟왠왡왢왣왤왥왦왧왨왩왪왫왬왭왮왯왰왱왲왳왴왵왶왷외왹왺왻왼왽왾왿욀욁욂욃욄욅욆욇욈욉욊욋욌욍욎욏욐욑욒욓요욕욖욗욘욙욚욛욜욝욞욟욠욡욢욣욤욥욦욧욨용욪욫욬욭욮욯우욱욲욳운욵욶욷울욹욺욻욼욽욾욿움웁웂웃웄웅웆웇웈웉웊웋워웍웎웏원웑웒웓월웕웖웗웘웙웚웛웜웝웞웟웠웡웢웣웤웥웦웧웨웩웪웫웬웭웮웯웰웱웲웳웴웵웶웷웸웹웺웻웼웽웾웿윀윁윂윃위윅윆윇윈윉윊윋윌윍윎윏윐윑윒윓윔윕윖윗윘윙윚윛윜윝윞윟유육윢윣윤윥윦윧율윩윪윫윬윭윮윯윰윱윲윳윴융윶윷윸윹윺윻으윽윾윿은읁읂읃을읅읆읇읈읉읊읋음읍읎읏읐응읒읓읔읕읖읗의읙읚읛읜읝읞읟읠읡읢읣읤읥읦읧읨읩읪읫읬읭읮읯읰읱읲읳이익읶읷인읹읺읻일읽읾읿잀잁잂잃임입잆잇있잉잊잋잌잍잎잏자작잒잓잔잕잖잗잘잙잚잛잜잝잞잟잠잡잢잣잤장잦잧잨잩잪잫재잭잮잯잰잱잲잳잴잵잶잷잸잹잺잻잼잽잾잿쟀쟁쟂쟃쟄쟅쟆쟇쟈쟉쟊쟋쟌쟍쟎쟏쟐쟑쟒쟓쟔쟕쟖쟗쟘쟙쟚쟛쟜쟝쟞쟟쟠쟡쟢쟣쟤쟥쟦쟧쟨쟩쟪쟫쟬쟭쟮쟯쟰쟱쟲쟳쟴쟵쟶쟷쟸쟹쟺쟻쟼쟽쟾쟿저적젂젃전젅젆젇절젉젊젋젌젍젎젏점접젒젓젔정젖젗젘젙젚젛제젝젞젟젠젡젢젣젤젥젦젧젨젩젪젫젬젭젮젯젰젱젲젳젴젵젶젷져젹젺젻젼젽젾젿졀졁졂졃졄졅졆졇졈졉졊졋졌졍졎졏졐졑졒졓졔졕졖졗졘졙졚졛졜졝졞졟졠졡졢졣졤졥졦졧졨졩졪졫졬졭졮졯조족졲졳존졵졶졷졸졹졺졻졼졽졾졿좀좁좂좃좄종좆좇좈좉좊좋좌좍좎좏좐좑좒좓좔좕좖좗좘좙좚좛좜좝좞좟좠좡좢좣좤좥좦좧좨좩좪좫좬좭좮좯좰좱좲좳좴좵좶좷좸좹좺좻좼좽좾좿죀죁죂죃죄죅죆죇죈죉죊죋죌죍죎죏죐죑죒죓죔죕죖죗죘죙죚죛죜죝죞죟죠죡죢죣죤죥죦죧죨죩죪죫죬죭죮죯죰죱죲죳죴죵죶죷죸죹죺죻주죽죾죿준줁줂줃줄줅줆줇줈줉줊줋줌줍줎줏줐중줒줓줔줕줖줗줘줙줚줛줜줝줞줟줠줡줢줣줤줥줦줧줨줩줪줫줬줭줮줯줰줱줲줳줴줵줶줷줸줹줺줻줼줽줾줿쥀쥁쥂쥃쥄쥅쥆쥇쥈쥉쥊쥋쥌쥍쥎쥏쥐쥑쥒쥓쥔쥕쥖쥗쥘쥙쥚쥛쥜쥝쥞쥟쥠쥡쥢쥣쥤쥥쥦쥧쥨쥩쥪쥫쥬쥭쥮쥯쥰쥱쥲쥳쥴쥵쥶쥷쥸쥹쥺쥻쥼쥽쥾쥿즀즁즂즃즄즅즆즇즈즉즊즋즌즍즎즏즐즑즒즓즔즕즖즗즘즙즚즛즜증즞즟즠즡즢즣즤즥즦즧즨즩즪즫즬즭즮즯즰즱즲즳즴즵즶즷즸즹즺즻즼즽즾즿지직짂짃진짅짆짇질짉짊짋짌짍짎짏짐집짒짓짔징짖짗짘짙짚짛짜짝짞짟짠짡짢짣짤짥짦짧짨짩짪짫짬짭짮짯짰짱짲짳짴짵짶짷째짹짺짻짼짽짾짿쨀쨁쨂쨃쨄쨅쨆쨇쨈쨉쨊쨋쨌쨍쨎쨏쨐쨑쨒쨓쨔쨕쨖쨗쨘쨙쨚쨛쨜쨝쨞쨟쨠쨡쨢쨣쨤쨥쨦쨧쨨쨩쨪쨫쨬쨭쨮쨯쨰쨱쨲쨳쨴쨵쨶쨷쨸쨹쨺쨻쨼쨽쨾쨿쩀쩁쩂쩃쩄쩅쩆쩇쩈쩉쩊쩋쩌쩍쩎쩏쩐쩑쩒쩓쩔쩕쩖쩗쩘쩙쩚쩛쩜쩝쩞쩟쩠쩡쩢쩣쩤쩥쩦쩧쩨쩩쩪쩫쩬쩭쩮쩯쩰쩱쩲쩳쩴쩵쩶쩷쩸쩹쩺쩻쩼쩽쩾쩿쪀쪁쪂쪃쪄쪅쪆쪇쪈쪉쪊쪋쪌쪍쪎쪏쪐쪑쪒쪓쪔쪕쪖쪗쪘쪙쪚쪛쪜쪝쪞쪟쪠쪡쪢쪣쪤쪥쪦쪧쪨쪩쪪쪫쪬쪭쪮쪯쪰쪱쪲쪳쪴쪵쪶쪷쪸쪹쪺쪻쪼쪽쪾쪿쫀쫁쫂쫃쫄쫅쫆쫇쫈쫉쫊쫋쫌쫍쫎쫏쫐쫑쫒쫓쫔쫕쫖쫗쫘쫙쫚쫛쫜쫝쫞쫟쫠쫡쫢쫣쫤쫥쫦쫧쫨쫩쫪쫫쫬쫭쫮쫯쫰쫱쫲쫳쫴쫵쫶쫷쫸쫹쫺쫻쫼쫽쫾쫿쬀쬁쬂쬃쬄쬅쬆쬇쬈쬉쬊쬋쬌쬍쬎쬏쬐쬑쬒쬓쬔쬕쬖쬗쬘쬙쬚쬛쬜쬝쬞쬟쬠쬡쬢쬣쬤쬥쬦쬧쬨쬩쬪쬫쬬쬭쬮쬯쬰쬱쬲쬳쬴쬵쬶쬷쬸쬹쬺쬻쬼쬽쬾쬿쭀쭁쭂쭃쭄쭅쭆쭇쭈쭉쭊쭋쭌쭍쭎쭏쭐쭑쭒쭓쭔쭕쭖쭗쭘쭙쭚쭛쭜쭝쭞쭟쭠쭡쭢쭣쭤쭥쭦쭧쭨쭩쭪쭫쭬쭭쭮쭯쭰쭱쭲쭳쭴쭵쭶쭷쭸쭹쭺쭻쭼쭽쭾쭿쮀쮁쮂쮃쮄쮅쮆쮇쮈쮉쮊쮋쮌쮍쮎쮏쮐쮑쮒쮓쮔쮕쮖쮗쮘쮙쮚쮛쮜쮝쮞쮟쮠쮡쮢쮣쮤쮥쮦쮧쮨쮩쮪쮫쮬쮭쮮쮯쮰쮱쮲쮳쮴쮵쮶쮷쮸쮹쮺쮻쮼쮽쮾쮿쯀쯁쯂쯃쯄쯅쯆쯇쯈쯉쯊쯋쯌쯍쯎쯏쯐쯑쯒쯓쯔쯕쯖쯗쯘쯙쯚쯛쯜쯝쯞쯟쯠쯡쯢쯣쯤쯥쯦쯧쯨쯩쯪쯫쯬쯭쯮쯯쯰쯱쯲쯳쯴쯵쯶쯷쯸쯹쯺쯻쯼쯽쯾쯿찀찁찂찃찄찅찆찇찈찉찊찋찌찍찎찏찐찑찒찓찔찕찖찗찘찙찚찛찜찝찞찟찠찡찢찣찤찥찦찧차착찪찫찬찭찮찯찰찱찲찳찴찵찶찷참찹찺찻찼창찾찿챀챁챂챃채책챆챇챈챉챊챋챌챍챎챏챐챑챒챓챔챕챖챗챘챙챚챛챜챝챞챟챠챡챢챣챤챥챦챧챨챩챪챫챬챭챮챯챰챱챲챳챴챵챶챷챸챹챺챻챼챽챾챿첀첁첂첃첄첅첆첇첈첉첊첋첌첍첎첏첐첑첒첓첔첕첖첗처척첚첛천첝첞첟철첡첢첣첤첥첦첧첨첩첪첫첬청첮첯첰첱첲첳체첵첶첷첸첹첺첻첼첽첾첿쳀쳁쳂쳃쳄쳅쳆쳇쳈쳉쳊쳋쳌쳍쳎쳏쳐쳑쳒쳓쳔쳕쳖쳗쳘쳙쳚쳛쳜쳝쳞쳟쳠쳡쳢쳣쳤쳥쳦쳧쳨쳩쳪쳫쳬쳭쳮쳯쳰쳱쳲쳳쳴쳵쳶쳷쳸쳹쳺쳻쳼쳽쳾쳿촀촁촂촃촄촅촆촇초촉촊촋촌촍촎촏촐촑촒촓촔촕촖촗촘촙촚촛촜총촞촟촠촡촢촣촤촥촦촧촨촩촪촫촬촭촮촯촰촱촲촳촴촵촶촷촸촹촺촻촼촽촾촿쵀쵁쵂쵃쵄쵅쵆쵇쵈쵉쵊쵋쵌쵍쵎쵏쵐쵑쵒쵓쵔쵕쵖쵗쵘쵙쵚쵛최쵝쵞쵟쵠쵡쵢쵣쵤쵥쵦쵧쵨쵩쵪쵫쵬쵭쵮쵯쵰쵱쵲쵳쵴쵵쵶쵷쵸쵹쵺쵻쵼쵽쵾쵿춀춁춂춃춄춅춆춇춈춉춊춋춌춍춎춏춐춑춒춓추축춖춗춘춙춚춛출춝춞춟춠춡춢춣춤춥춦춧춨충춪춫춬춭춮춯춰춱춲춳춴춵춶춷춸춹춺춻춼춽춾춿췀췁췂췃췄췅췆췇췈췉췊췋췌췍췎췏췐췑췒췓췔췕췖췗췘췙췚췛췜췝췞췟췠췡췢췣췤췥췦췧취췩췪췫췬췭췮췯췰췱췲췳췴췵췶췷췸췹췺췻췼췽췾췿츀츁츂츃츄츅츆츇츈츉츊츋츌츍츎츏츐츑츒츓츔츕츖츗츘츙츚츛츜츝츞츟츠측츢츣츤츥츦츧츨츩츪츫츬츭츮츯츰츱츲츳츴층츶츷츸츹츺츻츼츽츾츿칀칁칂칃칄칅칆칇칈칉칊칋칌칍칎칏칐칑칒칓칔칕칖칗치칙칚칛친칝칞칟칠칡칢칣칤칥칦칧침칩칪칫칬칭칮칯칰칱칲칳카칵칶칷칸칹칺칻칼칽칾칿캀캁캂캃캄캅캆캇캈캉캊캋캌캍캎캏캐캑캒캓캔캕캖캗캘캙캚캛캜캝캞캟캠캡캢캣캤캥캦캧캨캩캪캫캬캭캮캯캰캱캲캳캴캵캶캷캸캹캺캻캼캽캾캿컀컁컂컃컄컅컆컇컈컉컊컋컌컍컎컏컐컑컒컓컔컕컖컗컘컙컚컛컜컝컞컟컠컡컢컣커컥컦컧컨컩컪컫컬컭컮컯컰컱컲컳컴컵컶컷컸컹컺컻컼컽컾컿케켁켂켃켄켅켆켇켈켉켊켋켌켍켎켏켐켑켒켓켔켕켖켗켘켙켚켛켜켝켞켟켠켡켢켣켤켥켦켧켨켩켪켫켬켭켮켯켰켱켲켳켴켵켶켷켸켹켺켻켼켽켾켿콀콁콂콃콄콅콆콇콈콉콊콋콌콍콎콏콐콑콒콓코콕콖콗콘콙콚콛콜콝콞콟콠콡콢콣콤콥콦콧콨콩콪콫콬콭콮콯콰콱콲콳콴콵콶콷콸콹콺콻콼콽콾콿쾀쾁쾂쾃쾄쾅쾆쾇쾈쾉쾊쾋쾌쾍쾎쾏쾐쾑쾒쾓쾔쾕쾖쾗쾘쾙쾚쾛쾜쾝쾞쾟쾠쾡쾢쾣쾤쾥쾦쾧쾨쾩쾪쾫쾬쾭쾮쾯쾰쾱쾲쾳쾴쾵쾶쾷쾸쾹쾺쾻쾼쾽쾾쾿쿀쿁쿂쿃쿄쿅쿆쿇쿈쿉쿊쿋쿌쿍쿎쿏쿐쿑쿒쿓쿔쿕쿖쿗쿘쿙쿚쿛쿜쿝쿞쿟쿠쿡쿢쿣쿤쿥쿦쿧쿨쿩쿪쿫쿬쿭쿮쿯쿰쿱쿲쿳쿴쿵쿶쿷쿸쿹쿺쿻쿼쿽쿾쿿퀀퀁퀂퀃퀄퀅퀆퀇퀈퀉퀊퀋퀌퀍퀎퀏퀐퀑퀒퀓퀔퀕퀖퀗퀘퀙퀚퀛퀜퀝퀞퀟퀠퀡퀢퀣퀤퀥퀦퀧퀨퀩퀪퀫퀬퀭퀮퀯퀰퀱퀲퀳퀴퀵퀶퀷퀸퀹퀺퀻퀼퀽퀾퀿큀큁큂큃큄큅큆큇큈큉큊큋큌큍큎큏큐큑큒큓큔큕큖큗큘큙큚큛큜큝큞큟큠큡큢큣큤큥큦큧큨큩큪큫크큭큮큯큰큱큲큳클큵큶큷큸큹큺큻큼큽큾큿킀킁킂킃킄킅킆킇킈킉킊킋킌킍킎킏킐킑킒킓킔킕킖킗킘킙킚킛킜킝킞킟킠킡킢킣키킥킦킧킨킩킪킫킬킭킮킯킰킱킲킳킴킵킶킷킸킹킺킻킼킽킾킿타탁탂탃탄탅탆탇탈탉탊탋탌탍탎탏탐탑탒탓탔탕탖탗탘탙탚탛태택탞탟탠탡탢탣탤탥탦탧탨탩탪탫탬탭탮탯탰탱탲탳탴탵탶탷탸탹탺탻탼탽탾탿턀턁턂턃턄턅턆턇턈턉턊턋턌턍턎턏턐턑턒턓턔턕턖턗턘턙턚턛턜턝턞턟턠턡턢턣턤턥턦턧턨턩턪턫턬턭턮턯터턱턲턳턴턵턶턷털턹턺턻턼턽턾턿텀텁텂텃텄텅텆텇텈텉텊텋테텍텎텏텐텑텒텓텔텕텖텗텘텙텚텛템텝텞텟텠텡텢텣텤텥텦텧텨텩텪텫텬텭텮텯텰텱텲텳텴텵텶텷텸텹텺텻텼텽텾텿톀톁톂톃톄톅톆톇톈톉톊톋톌톍톎톏톐톑톒톓톔톕톖톗톘톙톚톛톜톝톞톟토톡톢톣톤톥톦톧톨톩톪톫톬톭톮톯톰톱톲톳톴통톶톷톸톹톺톻톼톽톾톿퇀퇁퇂퇃퇄퇅퇆퇇퇈퇉퇊퇋퇌퇍퇎퇏퇐퇑퇒퇓퇔퇕퇖퇗퇘퇙퇚퇛퇜퇝퇞퇟퇠퇡퇢퇣퇤퇥퇦퇧퇨퇩퇪퇫퇬퇭퇮퇯퇰퇱퇲퇳퇴퇵퇶퇷퇸퇹퇺퇻퇼퇽퇾퇿툀툁툂툃툄툅툆툇툈툉툊툋툌툍툎툏툐툑툒툓툔툕툖툗툘툙툚툛툜툝툞툟툠툡툢툣툤툥툦툧툨툩툪툫투툭툮툯툰툱툲툳툴툵툶툷툸툹툺툻툼툽툾툿퉀퉁퉂퉃퉄퉅퉆퉇퉈퉉퉊퉋퉌퉍퉎퉏퉐퉑퉒퉓퉔퉕퉖퉗퉘퉙퉚퉛퉜퉝퉞퉟퉠퉡퉢퉣퉤퉥퉦퉧퉨퉩퉪퉫퉬퉭퉮퉯퉰퉱퉲퉳퉴퉵퉶퉷퉸퉹퉺퉻퉼퉽퉾퉿튀튁튂튃튄튅튆튇튈튉튊튋튌튍튎튏튐튑튒튓튔튕튖튗튘튙튚튛튜튝튞튟튠튡튢튣튤튥튦튧튨튩튪튫튬튭튮튯튰튱튲튳튴튵튶튷트특튺튻튼튽튾튿틀틁틂틃틄틅틆틇틈틉틊틋틌틍틎틏틐틑틒틓틔틕틖틗틘틙틚틛틜틝틞틟틠틡틢틣틤틥틦틧틨틩틪틫틬틭틮틯티틱틲틳틴틵틶틷틸틹틺틻틼틽틾틿팀팁팂팃팄팅팆팇팈팉팊팋파팍팎팏판팑팒팓팔팕팖팗팘팙팚팛팜팝팞팟팠팡팢팣팤팥팦팧패팩팪팫팬팭팮팯팰팱팲팳팴팵팶팷팸팹팺팻팼팽팾팿퍀퍁퍂퍃퍄퍅퍆퍇퍈퍉퍊퍋퍌퍍퍎퍏퍐퍑퍒퍓퍔퍕퍖퍗퍘퍙퍚퍛퍜퍝퍞퍟퍠퍡퍢퍣퍤퍥퍦퍧퍨퍩퍪퍫퍬퍭퍮퍯퍰퍱퍲퍳퍴퍵퍶퍷퍸퍹퍺퍻퍼퍽퍾퍿펀펁펂펃펄펅펆펇펈펉펊펋펌펍펎펏펐펑펒펓펔펕펖펗페펙펚펛펜펝펞펟펠펡펢펣펤펥펦펧펨펩펪펫펬펭펮펯펰펱펲펳펴펵펶펷편펹펺펻펼펽펾펿폀폁폂폃폄폅폆폇폈평폊폋폌폍폎폏폐폑폒폓폔폕폖폗폘폙폚폛폜폝폞폟폠폡폢폣폤폥폦폧폨폩폪폫포폭폮폯폰폱폲폳폴폵폶폷폸폹폺폻폼폽폾폿퐀퐁퐂퐃퐄퐅퐆퐇퐈퐉퐊퐋퐌퐍퐎퐏퐐퐑퐒퐓퐔퐕퐖퐗퐘퐙퐚퐛퐜퐝퐞퐟퐠퐡퐢퐣퐤퐥퐦퐧퐨퐩퐪퐫퐬퐭퐮퐯퐰퐱퐲퐳퐴퐵퐶퐷퐸퐹퐺퐻퐼퐽퐾퐿푀푁푂푃푄푅푆푇푈푉푊푋푌푍푎푏푐푑푒푓푔푕푖푗푘푙푚푛표푝푞푟푠푡푢푣푤푥푦푧푨푩푪푫푬푭푮푯푰푱푲푳푴푵푶푷푸푹푺푻푼푽푾푿풀풁풂풃풄풅풆풇품풉풊풋풌풍풎풏풐풑풒풓풔풕풖풗풘풙풚풛풜풝풞풟풠풡풢풣풤풥풦풧풨풩풪풫풬풭풮풯풰풱풲풳풴풵풶풷풸풹풺풻풼풽풾풿퓀퓁퓂퓃퓄퓅퓆퓇퓈퓉퓊퓋퓌퓍퓎퓏퓐퓑퓒퓓퓔퓕퓖퓗퓘퓙퓚퓛퓜퓝퓞퓟퓠퓡퓢퓣퓤퓥퓦퓧퓨퓩퓪퓫퓬퓭퓮퓯퓰퓱퓲퓳퓴퓵퓶퓷퓸퓹퓺퓻퓼퓽퓾퓿픀픁픂픃프픅픆픇픈픉픊픋플픍픎픏픐픑픒픓픔픕픖픗픘픙픚픛픜픝픞픟픠픡픢픣픤픥픦픧픨픩픪픫픬픭픮픯픰픱픲픳픴픵픶픷픸픹픺픻피픽픾픿핀핁핂핃필핅핆핇핈핉핊핋핌핍핎핏핐핑핒핓핔핕핖핗하학핚핛한핝핞핟할핡핢핣핤핥핦핧함합핪핫핬항핮핯핰핱핲핳해핵핶핷핸핹핺핻핼핽핾핿햀햁햂햃햄햅햆햇했행햊햋햌햍햎햏햐햑햒햓햔햕햖햗햘햙햚햛햜햝햞햟햠햡햢햣햤향햦햧햨햩햪햫햬햭햮햯햰햱햲햳햴햵햶햷햸햹햺햻햼햽햾햿헀헁헂헃헄헅헆헇허헉헊헋헌헍헎헏헐헑헒헓헔헕헖헗험헙헚헛헜헝헞헟헠헡헢헣헤헥헦헧헨헩헪헫헬헭헮헯헰헱헲헳헴헵헶헷헸헹헺헻헼헽헾헿혀혁혂혃현혅혆혇혈혉혊혋혌혍혎혏혐협혒혓혔형혖혗혘혙혚혛혜혝혞혟혠혡혢혣혤혥혦혧혨혩혪혫혬혭혮혯혰혱혲혳혴혵혶혷호혹혺혻혼혽혾혿홀홁홂홃홄홅홆홇홈홉홊홋홌홍홎홏홐홑홒홓화확홖홗환홙홚홛활홝홞홟홠홡홢홣홤홥홦홧홨황홪홫홬홭홮홯홰홱홲홳홴홵홶홷홸홹홺홻홼홽홾홿횀횁횂횃횄횅횆횇횈횉횊횋회획횎횏횐횑횒횓횔횕횖횗횘횙횚횛횜횝횞횟횠횡횢횣횤횥횦횧효횩횪횫횬횭횮횯횰횱횲횳횴횵횶횷횸횹횺횻횼횽횾횿훀훁훂훃후훅훆훇훈훉훊훋훌훍훎훏훐훑훒훓훔훕훖훗훘훙훚훛훜훝훞훟훠훡훢훣훤훥훦훧훨훩훪훫훬훭훮훯훰훱훲훳훴훵훶훷훸훹훺훻훼훽훾훿휀휁휂휃휄휅휆휇휈휉휊휋휌휍휎휏휐휑휒휓휔휕휖휗휘휙휚휛휜휝휞휟휠휡휢휣휤휥휦휧휨휩휪휫휬휭휮휯휰휱휲휳휴휵휶휷휸휹휺휻휼휽휾휿흀흁흂흃흄흅흆흇흈흉흊흋흌흍흎흏흐흑흒흓흔흕흖흗흘흙흚흛흜흝흞흟흠흡흢흣흤흥흦흧흨흩흪흫희흭흮흯흰흱흲흳흴흵흶흷흸흹흺흻흼흽흾흿힀힁힂힃힄힅힆힇히힉힊힋힌힍힎힏힐힑힒힓힔힕힖힗힘힙힚힛힜힝힞힟힠힡힢힣";
-
-/// The nineteen leading jamo.
-let HANGUL_LEADING: Str = "ᄀᄁᄂᄃᄄᄅᄆᄇᄈᄉᄊᄋᄌᄍᄎᄏᄐᄑᄒ";
-
-/// The twenty-one vowel jamo.
-let HANGUL_VOWEL: Str = "ᅡᅢᅣᅤᅥᅦᅧᅨᅩᅪᅫᅬᅭᅮᅯᅰᅱᅲᅳᅴᅵ";
-
-/// The twenty-seven trailing jamo, after one place-holder for a syllable that has none.
-let HANGUL_TRAILING: Str = "ᆧᆨᆩᆪᆫᆬᆭᆮᆯᆰᆱᆲᆳᆴᆵᆶᆷᆸᆹᆺᆻᆼᆽᆾᆿᇀᇁᇂ";
+    "002p002q002r002s002t002u002v002w002x002y002z0030003100320033003400350036003700380039003a003b003c003d003e00qk00680069006a006b006c006d006e006f006g006h006i006j006k006l006m006n006o006p006q006r006s006t006u006w006x006y006z00700071007200370037007500770079007b007d007f007h007j007l007n007p007r007t007v007x007z00810083008500870089008b008d008f002x00lj008j008l008n008q008s008u008w008y00900092009400jg003200970099009b009d009f009h009j009l009n009p009r009t009v009x009z00a100a300a500a700a900ab00ad00af007300ai00ak00am003700gj00ar00at00gk00aw00gm00gn00b000d900gp00gr00b600gw00gz00h500h400bd00hb00he00hh00bl00bn00bp00hs00bs00hv00bx00i000c000i200i300c400c600ia00c900cd00cm00cm00cp00cp00cs00cs00cu00cw00cy00d000d200d400d600d800db00dd00df00dh00dj00dl00dn00dp00dr002y00lo00dv00dv00dx00b900cf00e100e300e500e700e900eb00ed00ef00eh00ej00el00en00ep00er00et00ev00ex00ez00f100f300bi00f700f900fb00fd00ff00fh00fj00fl00fn08rp00fw00be08rq00g200ao00i100i400g700g900gb00gd00gf00qh00oh00oj00on00s300q400q500q600q700r000r100r200qh00lk00ld00q900qa00qb00qc00qd00qe00qf00qg00qh00qi00qj00qk00ql00qm00qn00qo00qp00qr00qs00qt00qu00qv00qw00qx00qy00qz00qt00lk00ld00qr00rb00qa00qg00qu00qo00rd00rf00rh00rj00rl00rn00rp00rr00rt00rv00rx00rz00qi00qp00qg00qd00s800s200sb00or00os00ot00uo00up00uq00ur00us00ut00uu00uv00uw00ux00uy00uz00v000v100v200v300ts00tt00tu00tv00tw00tx00ty00tz00u000u100u200u300u400u500u600u700u800u900ua00ub00uc00ud00ue00uf00ug00uh00ui00uj00uk00ul00um00un00v500v700v900vb00vd00vf00vh00vj00vl00vn00vp00vr00vt00vv00vx00vz00w100wb00wd00wf00wh00wj00wl00wn00wp00wr00wt00wv00wx00wz00x100x300x500x700x900xb00xd00xf00xh00xj00xl00xn00xp00xr00y700xu00xw00xy00y000y200y400y600y900yb00yd00yf00yh00yj00yl00yn00yp00yr00yt00yv00yx00yz00z100z300z500z700z900zb00zd00zf00zh00zj00zl00zn00zp00zr00zt00zv00zx00zz01010103010501070109010b010d010f010h010j010l010n010p010r010t010v0129012a012b012c012d012e012f012g012h012i012j012k012l012m012n012o012p012q012r012s012t012u012v012w012x012y012z0130013101320133013401350136013701380139013a012d013608w008w108w208w308w408w508w608w708w808w908wa08wb08wc08wd08we08wf08wg08wh08wi08wj08wk08wl08wm08wn08wo08wp08wq08wr08ws08wt08wu08wv08ww08wx08wy08wz08x008x108x308x903xs03xt03xu03xv03xw03xx00tu00tw00u600u900ua00ua00ui00v70wuj05my03bk03bl03bm03bn03bo03bp03bq03br03bs03bt03bu03bv03bw03bx03by03bz03c003c103c203c303c403c503c603c703c803c903ca03cb03cc03cd03ce03cf03cg03ch03ci03cj03ck03cl03cm03cn03co03cp03cq03ct03cu03cv05xd05xf05xh05xj05xl05xn05xp05xr05xt05xv05xx05xz05y105y305y505y705y905yb05yd05yf05yh05yj05yl05yn05yp05yr05yt05yv05yx05yz05z105z305z505z705z905zb05zd05zf05zh05zj05zl05zn05zp05zr05zt05zv05zx05zz06010603060506070609060b060d060f060h060j060l060n060p060r060t060v060x060z06110613061506170619061b061d061f061h002w00mp003800lk003b00lm003d00lm002p00ji060100370037061t061v061x061z06210623062506270629062b062d062f062h062j062l062n062p062r062t062v062x062z06310633063506370639063b063d063f063h063j063l063n063p063r063t063v063x063z06410643064506470649064b064d064f064g064h064i064j064k064l064m064n064w064x064y064z06500651065c065d065e065f065g065h065i065j065s065t065u065v065w065x065y065z06680669066a066b066c066d00qt00lv00qt00lv00lc00qt00lv00ld00qt00lv00n6066p066r066t066v067406750676067706780679067a067b064g00qh064h00qh064i00qh064j00qh064k00qh064l00qh064m00qh064n00qh064g00qh064h00qh064i00qh064j00qh064k00qh064l00qh064m00qh064n00qh065c00qh065d00qh065e00qh065f00qh065g00qh065h00qh065i00qh065j00qh065c00qh065d00qh065e00qh065f00qh065g00qh065h00qh065i00qh065j00qh067400qh067500qh067600qh067700qh067800qh067900qh067a00qh067b00qh067400qh067500qh067600qh067700qh067800qh067900qh067a00qh067b00qh067k00qh00q900qh00q400qh00q900n600q900n600qh069c069d067k067l00q900qh00qh067o00qh00qf00qh00q600qh00qf00n600qf00n600qh067m067n067o067p00qf00qh00qh00lk00lc00qh00lk00ld00qh00n600qh00lk00n606a806a9067q067r00qt00lk00lc00qt00lk00ld00qp00lv00qt00n600qt00lk00n606ao06ap067u067v06at067w00qh00qx00qh00r200qh00qx00n600qx00n600qh067s067t067w067x00qx00qh00qx002z006d06ku06ls06lt06lu06lv06lw06lx06ly06lz06m006m106m206m306m406m506m606m706mc079s079t079u079v079w079x079y079z07a007a107a207a307a407a507a607a707a807a907aa07ab07ac07ad07ae07af07ag07ah08q808q908qa08qb08qc08qd08qe08qf08qg08qh08qi08qj08qk08ql08qm08qn08qo08qp08qq08qr08qs08qt08qu08qv08qw08qx08qy08qz08r008r108r208r308r408r508r608r708r808r908ra08rb08rc08rd08re08rf08rg08rh08ri08rj08rl00h705tp00hp08rs08ru08rw00gh00hd00gg00gi08s308s600fz00g008sh08sj08sl08sn08sp08sr08st08sv08sx08sz08t108t308t508t708t908tb08td08tf08th08tj08tl08tn08tp08tr08tt08tv08tx08tz08u108u308u508u708u908ub08ud08uf08uh08uj08ul08un08up08ur08ut08uv08ux08uz08v108v308v508v708vg08vi08vn0wu90wub0wud0wuf0wuh0wuj0wul0wun0wup0wur0wut0wuv0wux0wuz0wv10wv30wv50wv70wv90wvb0wvd0wvf0wvh0ww10ww30ww50ww70ww90wwb0wwd0wwf0wwh0wwj0wwl0wwn0wwp0wwr0x0j0x0l0x0n0x0p0x0r0x0t0x0v0x0z0x110x130x150x170x190x1b0x1d0x1f0x1h0x1j0x1l0x1n0x1p0x1r0x1t0x1v0x1x0x1z0x210x230x250x270x290x2b0x2d0x2f0x2h0x2j0x2l0x2n0x2y0x3005tl0x330x350x370x390x3b0x3g00h10x3l0x3n0x3r0x3t0x3v0x3x0x3z0x410x430x450x470x4900h200gs00gx00h800h600im00hz00il0xub0x4l0x4n0x4p0x4r0x4t0x4v0x4x0x4z0x3o00hu05u60x540x5600h00x590x5d0x5j0x5l0x5n00bf0x6e03vk03vl03vm03vn03vo03vp03vq03vr03vs03vt03vu03vv03vw03vx03vy03vz03w003w103w203w303w403w503w603w703w803w903wa03wb03wc03wd03we03wf03wg03wh03wi03wj03wk03wl03wm03wn03wo03wp03wq03wr03ws03wt03wu03wv03ww03wx03wy03wz03x003x103x203x303x403x503x603x703x803x903xa03xb03xc03xd03xe03xf03xg03xh03xi03xj03xk03xl03xm03xn03xo03xp03xq03xr002u002u002u002x002u0030002u002u002x002u002u00300037003800370038012s012u012s012d012s012j0132012u012s012l1ef51ef61ef71ef81ef91efa1efb1efc1efd1efe1eff1efg1efh1efi1efj1efk1efl1efm1efn1efo1efp1efq1efr1efs1eft1efu1fe01fe11fe21fe31fe41fe51fe61fe71fe81fe91fea1feb1fec1fed1fee1fef1feg1feh1fei1fej1fek1fel1fem1fen1feo1fep1feq1fer1fes1fet1feu1fev1few1fex1fey1fez1ff01ff11ff21ff31fiw1fix1fiy1fiz1fj01fj11fj21fj31fj41fj51fj61fj71fj81fj91fja1fjb1fjc1fjd1fje1fjf1fjg1fjh1fji1fjj1fjk1fjl1fjm1fjn1fjo1fjp1fjq1fjr1fjs1fjt1fju1fjv1fo71fo81fo91foa1fob1foc1fod1foe1fof1fog1foh1foj1fok1fol1fom1fon1foo1fop1foq1for1fos1fot1fou1fov1fow1fox1foz1fp01fp11fp21fp31fp41fp51fp71fp81h341h351h361h371h381h391h3a1h3b1h3c1h3d1h3e1h3f1h3g1h3h1h3i1h3j1h3k1h3l1h3m1h3n1h3o1h3p1h3q1h3r1h3s1h3t1h3u1h3v1h3w1h3x1h3y1h3z1h401h411h421h431h441h451h461h471h481h491h4a1h4b1h4c1h4d1h4e1h4f1h4g1h4h1h4i1h801h811h821h831h841h851h861h871h881h891h8a1h8b1h8c1h8d1h8e1h8f1h8g1h8h1h8i1h8j1h8k1h8l1jgg1jgh1jgi1jgj1jgk1jgl1jgm1jgn1jgo1jgp1jgq1jgr1jgs1jgt1jgu1jgv1jgw1jgx1jgy1jgz1jh01jh11jh21jh31jh41jh51jh61jh71jh81jh91jha1jhb20dc20dd20de20df20dg20dh20di20dj20dk20dl20dm20dn20do20dp20dq20dr20ds20dt20du20dv20dw20dx20dy20dz20e020e120e220e320e420e520e620e72oma2omb2omc2omd2ome2omf2omg2omh2omi2omj2omk2oml2omm2omn2omo2omp2omq2omr2oms2omt2omu2omv2omw2omx2omy2omz2on02on12on22on32on42on52on62on7";
 
 // --- End of the generated Unicode tables -------------------

@@ -19,10 +19,9 @@ about one set of characters.
 Every table is an ASCII string of fixed-width fields, and a code point is four
 base-36 digits -- 36^4 is 1679616, which covers U+10FFFF with room to spare, and
 the digits `0`-`9a`-`z` sort the way the numbers do, so a binary search may
-compare the text. The one exception is a *value* table (a decomposition, a case
-folding), which holds the characters themselves: there is no way to turn a
-number into a `Char` in Buri without a `Result`, and slicing a string that
-already holds the answer avoids needing one.
+compare the text. A *value* table (a decomposition, a case folding, a
+composite) is code points too, so every table is ASCII and `charAt` reads any
+field of it without decoding the rest.
 """
 
 import argparse
@@ -59,11 +58,6 @@ EXTENDED_PICTOGRAPHIC = 16
 INCB_LINKER = 32
 INCB_CONSONANT = 64
 INCB_EXTEND = 128
-
-# The first of each Hangul jamo run, and how many there are (UAX #15 §3.12).
-HANGUL_BASE, HANGUL_COUNT = 0xAC00, 11172
-LEADING, VOWEL, TRAILING = 0x1100, 0x1161, 0x11A7
-
 
 def b36(n, width):
     out = ""
@@ -177,7 +171,7 @@ def mapping_table(mapping):
         keys.append(b36(cp, 4))
         offsets.append(b36(at, 4))
         lengths.append(b36(len(target), 1))
-        values.append("".join(chr(c) for c in target))
+        values.append("".join(b36(c, 4) for c in target))
         at += len(target)
     return "".join(keys), "".join(offsets), "".join(lengths), "".join(values)
 
@@ -280,7 +274,7 @@ def build(ucd):
     compose_keys = "".join(
         b36(a, 4) + b36(b, 4) for a, b in sorted(composition)
     )
-    compose_values = "".join(chr(composition[pair]) for pair in sorted(composition))
+    compose_values = "".join(b36(composition[pair], 4) for pair in sorted(composition))
 
     return {
         CHAR_FILE: [
@@ -334,19 +328,6 @@ def build(ucd):
             ("FOLD_OFFSETS", "Where each folding starts.", fold_offsets),
             ("FOLD_LENGTHS", "How long each folding is.", fold_lengths),
             ("FOLD_VALUES", "The foldings, run together.", fold_values),
-            (
-                "HANGUL_SYLLABLES",
-                "U+AC00 to U+D7A3 in order, so composition can index them.",
-                "".join(chr(HANGUL_BASE + i) for i in range(HANGUL_COUNT)),
-            ),
-            ("HANGUL_LEADING", "The nineteen leading jamo.", "".join(chr(LEADING + i) for i in range(19))),
-            ("HANGUL_VOWEL", "The twenty-one vowel jamo.", "".join(chr(VOWEL + i) for i in range(21))),
-            (
-                "HANGUL_TRAILING",
-                "The twenty-seven trailing jamo, after one place-holder for a "
-                "syllable that has none.",
-                "".join(chr(TRAILING + i) for i in range(28)),
-            ),
         ],
     }
 
