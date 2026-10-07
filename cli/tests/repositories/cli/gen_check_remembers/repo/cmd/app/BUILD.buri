@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//lib/extra", "//lib/money"]
+    outputs: [
+        { platform: "node" },
+    ]
+}

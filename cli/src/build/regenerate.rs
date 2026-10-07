@@ -9,10 +9,14 @@
 
 use crate::build::session::Session;
 use crate::build::textproto::{Document, Field, Message, Value};
-use crate::build::workspace::{PackageId, RuleKind};
+use crate::build::workspace::{PackageId, RuleKind, TargetId};
+use crate::compiler::driver::Analysis;
+use crate::compiler::modules::ModuleData;
+use crate::compiler::semantics::typed;
+use crate::compiler::semantics::types::{FnId, ModuleId};
 use crate::diagnostics::{Diagnostic, Invariant as _, Span};
-use std::collections::BTreeSet;
-use std::path::Path;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 
 pub struct Update {
     pub text: String,
@@ -26,6 +30,47 @@ pub struct Update {
               all three call sites"
 )]
 pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Update>, Diagnostic> {
+    regenerate_in(session, package, None).map(|worked| worked.update)
+}
+
+/// What `gen` worked out for one package, and what it read to get there
+/// beyond the build graph, so `buri gen --check` can keep the answer.
+pub struct Worked {
+    pub update: Option<Update>,
+    /// In no order and perhaps repeated: each target's closure, and every
+    /// file of the package whose imports were read off disk.
+    pub reads: Vec<PathBuf>,
+    /// The rules whose generated code an analysis loaded.
+    pub generated: Vec<TargetId>,
+}
+
+/// [`regenerate`], reading each target's analysis from `batch` where it holds
+/// one, and saying what it read.
+#[expect(clippy::result_large_err, reason = "the same as `regenerate`'s")]
+pub fn regenerate_in(
+    session: &mut Session,
+    package: PackageId,
+    batch: Option<&Batch>,
+) -> Result<Worked, Diagnostic> {
+    let mut read = Read::default();
+    let update = regenerate_reading(session, package, batch, &mut read)?;
+    Ok(Worked { update, reads: read.files, generated: read.generated })
+}
+
+/// What one package's regeneration read.
+#[derive(Default)]
+struct Read {
+    files: Vec<PathBuf>,
+    generated: Vec<TargetId>,
+}
+
+#[expect(clippy::result_large_err, reason = "the same as `regenerate`'s")]
+fn regenerate_reading(
+    session: &mut Session,
+    package: PackageId,
+    batch: Option<&Batch>,
+    read: &mut Read,
+) -> Result<Option<Update>, Diagnostic> {
     let p = session.workspace.package(package);
     let build_path = p.build_path.clone();
     let dir = p.dir.clone();
@@ -96,7 +141,10 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
     // one answer, and asking would be work with nothing to decide.
     let main_module = format!("//{package_path}/main.buri");
     let (from_main, from_lib) = if has_library && has_binary {
-        (reachable(&dir, &package_path, "main.buri"), reachable(&dir, &package_path, "lib.buri"))
+        (
+            reachable(&dir, &package_path, "main.buri", &mut read.files),
+            reachable(&dir, &package_path, "lib.buri", &mut read.files),
+        )
     } else {
         (BTreeSet::new(), BTreeSet::new())
     };
@@ -116,7 +164,7 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
             } else if existing_lib_tests.contains(f) {
                 false
             } else {
-                imports_of(&dir, f).contains(&main_module)
+                imports_read(&dir, f, &mut read.files).contains(&main_module)
             };
             // A package with one rule has one suite, whichever the import
             // named, so the rule that exists takes it.
@@ -172,7 +220,7 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
             .with_bind("field", "sources"));
     }
 
-    let deps = derive_dependencies(session, package, &dir, &lib_tests, &bin_tests);
+    let deps = derive_dependencies(session, package, &dir, &lib_tests, &bin_tests, batch, read);
     let p = session.workspace.package(package);
     let mut summary = Vec::new();
 
@@ -329,6 +377,8 @@ fn derive_dependencies(
     dir: &Path,
     lib_tests: &[String],
     bin_tests: &[String],
+    batch: Option<&Batch>,
+    read: &mut Read,
 ) -> Option<Derived> {
     use crate::compiler::modules::Role;
     let mut out = Derived::default();
@@ -342,21 +392,29 @@ fn derive_dependencies(
             continue;
         }
         let target = crate::build::workspace::TargetId { package, kind };
-        let unit = crate::compiler::modules::Unit {
-            target: Some(target),
-            // Regeneration reads a target's imports; it builds nothing. See
-            // `Unit::platform`.
-            platform: None,
-            entry: None,
-            with_tests: true,
+        let alone;
+        let seen = match batch.and_then(|b| b.seen(target)) {
+            Some(seen) => seen,
+            None => {
+                let unit = crate::compiler::modules::Unit {
+                    target: Some(target),
+                    // Regeneration reads a target's imports; it builds nothing. See
+                    // `Unit::platform`.
+                    platform: None,
+                    entry: None,
+                    with_tests: true,
+                };
+                alone = Batch::whole(crate::compiler::driver::analyze(
+                    Some(&session.workspace),
+                    &mut session.map,
+                    &mut session.parsed,
+                    &unit,
+                ));
+                alone.whole_seen()
+            }
         };
-        let analysis = crate::compiler::driver::analyze(
-            Some(&session.workspace),
-            &mut session.map,
-            &mut session.parsed,
-            &unit,
-        );
-        if analysis.diagnostics.has_errors() {
+        seen.reads(&session.workspace, read);
+        if seen.reported.iter().any(Diagnostic::is_error) {
             // Without a clean check there is no method-resolution information,
             // so the imports alone would be an incomplete answer.
             return None;
@@ -369,11 +427,8 @@ fn derive_dependencies(
         // that lands in another library counts even though no import names it.
         // The role of the module the call sits in decides which field it
         // belongs to, exactly as the import loop below does.
-        resolved_by_role(session, &analysis, package, &mut production, &mut test, &mut testing);
-        for m in &analysis.loaded.modules {
-            if m.pkg != Some(package) {
-                continue;
-            }
+        resolved_by_role(session, &seen, package, &mut production, &mut test, &mut testing);
+        for m in seen.package_modules(package) {
             let into = match m.role {
                 Role::TestSource => &mut test,
                 Role::TestOnly => &mut testing,
@@ -400,7 +455,7 @@ fn derive_dependencies(
             RuleKind::Library => lib_tests,
             RuleKind::Binary | RuleKind::Tool => bin_tests,
         };
-        test.extend(imported_labels(session, package, dir, on_disk));
+        test.extend(imported_labels(session, package, dir, on_disk, &mut read.files));
         // `test.dependencies` is what the suite adds: the target under test is
         // this package and is already excluded, and its `dependencies` reach
         // the suite through it, so naming them again would be two claims about
@@ -431,20 +486,15 @@ fn derive_dependencies(
 /// to write one of them, so it needs the finer answer.
 fn resolved_by_role(
     session: &Session,
-    analysis: &crate::compiler::driver::Analysis,
+    seen: &Seen<'_>,
     own: PackageId,
     production: &mut BTreeSet<String>,
     test: &mut BTreeSet<String>,
     testing: &mut BTreeSet<String>,
 ) {
     use crate::compiler::modules::Role;
-    use crate::compiler::semantics::typed;
-    for (fid, body) in &analysis.checked.bodies {
-        let info = analysis.checked.tables.fn_info(fid);
-        let Some(from) = analysis.loaded.modules.get(info.module.index()) else { continue };
-        if from.pkg != Some(own) {
-            continue;
-        }
+    let analysis = seen.analysis;
+    for (from, body) in seen.package_bodies(own) {
         let role = from.role;
         let mut reached: Vec<String> = Vec::new();
         typed::walk(&body.expr, &mut |e| {
@@ -475,6 +525,135 @@ fn resolved_by_role(
     }
 }
 
+/// Analyses `gen` reads targets through: several targets checked as one
+/// compilation, where each one's share is what its own analysis gives
+/// ([`crate::compiler::driver::shared`]), or one target's own.
+///
+/// A chain of libraries analysed one package at a time checked its first
+/// library once per library after it.
+pub struct Batch {
+    analysis: Analysis,
+    shares: BTreeMap<TargetId, crate::compiler::driver::Share>,
+    /// By module index: the bodies declared there.
+    bodies: Vec<Vec<FnId>>,
+    /// Each package's modules, in load order.
+    by_package: BTreeMap<PackageId, Vec<ModuleId>>,
+}
+
+impl Batch {
+    /// `targets` as one compilation, or `None` where that wouldn't give each
+    /// one the answer its own analysis gives.
+    pub fn of(session: &mut Session, targets: &[TargetId]) -> Option<Batch> {
+        let units: Vec<crate::compiler::modules::Unit> = targets
+            .iter()
+            .map(|t| crate::compiler::modules::Unit { target: Some(*t), platform: None, entry: None, with_tests: true })
+            .collect();
+        let shared = crate::compiler::driver::shared(
+            &session.workspace,
+            &mut session.map,
+            &mut session.parsed,
+            &units,
+            crate::compiler::driver::Checking::All,
+        )?;
+        Some(Batch::new(shared.analysis, shared.shares))
+    }
+
+    fn whole(analysis: Analysis) -> Batch {
+        Batch::new(analysis, BTreeMap::new())
+    }
+
+    fn new(analysis: Analysis, shares: BTreeMap<TargetId, crate::compiler::driver::Share>) -> Batch {
+        let mut by_package: BTreeMap<PackageId, Vec<ModuleId>> = BTreeMap::new();
+        for m in &analysis.loaded.modules {
+            if let Some(pkg) = m.pkg {
+                by_package.entry(pkg).or_default().push(m.id);
+            }
+        }
+        let mut bodies = vec![Vec::new(); analysis.loaded.modules.len()];
+        for (fid, _) in &analysis.checked.bodies {
+            if let Some(list) = bodies.get_mut(analysis.checked.tables.fn_info(fid).module.index()) {
+                list.push(fid);
+            }
+        }
+        Batch { analysis, shares, bodies, by_package }
+    }
+
+    fn seen(&self, target: TargetId) -> Option<Seen<'_>> {
+        let share = self.shares.get(&target)?;
+        Some(Seen {
+            batch: self,
+            analysis: &self.analysis,
+            holds: Some(&share.holds),
+            reported: &share.reported,
+            generated_rules: &share.generated_rules,
+        })
+    }
+
+    fn whole_seen(&self) -> Seen<'_> {
+        Seen {
+            batch: self,
+            analysis: &self.analysis,
+            holds: None,
+            reported: &self.analysis.diagnostics.items,
+            generated_rules: &self.analysis.loaded.generated_rules,
+        }
+    }
+}
+
+/// One target's analysis: what its own compilation holds and reported.
+struct Seen<'a> {
+    batch: &'a Batch,
+    analysis: &'a Analysis,
+    /// By module index; `None` where the analysis is this target's alone.
+    holds: Option<&'a [bool]>,
+    reported: &'a [Diagnostic],
+    generated_rules: &'a [TargetId],
+}
+
+impl<'a> Seen<'a> {
+    fn holds(&self, module: ModuleId) -> bool {
+        self.holds.is_none_or(|holds| holds.get(module.index()).copied().unwrap_or(false))
+    }
+
+    /// The modules of `own` this target's compilation holds, in load order.
+    fn package_modules(&self, own: PackageId) -> impl Iterator<Item = &'a ModuleData> + '_ {
+        let analysis = self.analysis;
+        self.batch
+            .by_package
+            .get(&own)
+            .into_iter()
+            .flatten()
+            .filter(|m| self.holds(**m))
+            .map(move |m| analysis.loaded.module(*m))
+    }
+
+    /// The checked bodies declared in those modules, each with its module.
+    fn package_bodies(&self, own: PackageId) -> Vec<(&'a ModuleData, &'a std::sync::Arc<typed::Body>)> {
+        let analysis = self.analysis;
+        let mut out = Vec::new();
+        for m in self.package_modules(own) {
+            for fid in self.batch.bodies.get(m.id.index()).into_iter().flatten() {
+                if let Some(body) = analysis.checked.bodies.get(fid) {
+                    out.push((m, body));
+                }
+            }
+        }
+        out
+    }
+
+    /// Notes what this target's compilation read
+    /// ([`crate::build::sources::closure_over`]) and whose generated code it
+    /// loaded.
+    fn reads(&self, workspace: &crate::build::workspace::Workspace, read: &mut Read) {
+        let modules = self.analysis.loaded.modules.iter().filter(|m| self.holds(m.id));
+        read.files.extend(crate::build::sources::closure_over(workspace, self.generated_rules, modules.clone()));
+        read.generated.extend(self.generated_rules);
+        read.generated.extend(
+            modules.filter(|m| m.disk.is_none()).filter_map(|m| workspace.generated.owner(&m.path)),
+        );
+    }
+}
+
 /// The three package-relative names a rule names by its kind rather than by
 /// listing: a library's surface, a binary's entry point, and the `testing`
 /// block's surface. None of them is ever written in a `sources`, and none of
@@ -489,11 +668,11 @@ fn is_entry_point(rel: &str) -> bool {
 /// every other path is another target's business. Read off the syntax rather than
 /// off a checked analysis, because the file being placed is a file no rule
 /// lists yet — the loader would not have it, so there is nothing to ask.
-fn reachable(dir: &Path, package_path: &str, entry: &str) -> BTreeSet<String> {
+fn reachable(dir: &Path, package_path: &str, entry: &str, read: &mut Vec<PathBuf>) -> BTreeSet<String> {
     let mut seen = BTreeSet::new();
     let mut queue = vec![entry.to_string()];
     while let Some(f) = queue.pop() {
-        for path in imports_of(dir, &f) {
+        for path in imports_read(dir, &f, read) {
             let Some(rest) = path.strip_prefix("//") else { continue };
             let Some(rel) = rest.strip_prefix(package_path).and_then(|r| r.strip_prefix('/')) else {
                 continue;
@@ -512,6 +691,7 @@ fn reachable(dir: &Path, package_path: &str, entry: &str) -> BTreeSet<String> {
             if file != entry && is_entry_point(&file) {
                 continue;
             }
+            read.push(dir.join(&file));
             if dir.join(&file).is_file() && seen.insert(file.clone()) {
                 queue.push(file);
             }
@@ -529,16 +709,23 @@ fn imported_labels(
     package: PackageId,
     dir: &Path,
     files: &[String],
+    read: &mut Vec<PathBuf>,
 ) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for f in files {
-        for path in imports_of(dir, f) {
+        for path in imports_read(dir, f, read) {
             if let Some(label) = session.workspace.dependency_label(package, &path) {
                 out.insert(label);
             }
         }
     }
     out
+}
+
+/// [`imports_of`], noting the file in `read`.
+fn imports_read(dir: &Path, file: &str, read: &mut Vec<PathBuf>) -> Vec<String> {
+    read.push(dir.join(file));
+    imports_of(dir, file)
 }
 
 /// The module paths one file imports or re-exports, in source order.

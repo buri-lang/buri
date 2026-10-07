@@ -1,0 +1,4 @@
+updated cmd/app/BUILD.buri
+  - dependencies: //lib/extra
+updated lib/schemas/BUILD.buri
+  - dependencies: //lib/extra
