@@ -686,6 +686,25 @@ export fn memberEither(doc: Json, name: Str, alternate: Str): Option<Json> {
     }
 }
 
+/// A `oneof` holds one case, so a document setting two of them is not the
+/// message. `cases` is each case's two names, and a null member is unset.
+export fn atMostOne<C: Allocator>(
+    ctx: C,
+    doc: Json,
+    path: Str,
+    oneof: Str,
+    cases: [(Str, Str)],
+): Result<(), ProtoError> {
+    if (cases.count(fn(k) => memberEither(doc, k.0, k.1).isSome()) > 1) {
+        .Err(.BadJson {
+            path: path,
+            wanted: str.format(ctx, "at most one case of ${oneof}"),
+        })
+    } else {
+        .Ok(())
+    }
+}
+
 /// An integer field's value, checked against the field's own range. A JSON
 /// number, or the string proto3 writes a 64-bit one as.
 ///

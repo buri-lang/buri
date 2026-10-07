@@ -483,11 +483,3 @@ Required.Proto3.ProtobufInput.UnknownVarint.ProtobufOutput
 # (2 tests)
 Required.Proto3.JsonInput.Int32FieldLeadingZero
 Required.Proto3.JsonInput.Int32FieldNegativeWithLeadingZero
-
-# --- Duplicate keys in a JSON object ------------------------------------------
-#
-# A `Json` object is an ordered association list, and `core/json` does not
-# reject a repeated key -- so a document setting two cases of one `oneof` is
-# read rather than refused.
-# (1 tests)
-Required.Proto3.JsonInput.OneofFieldDuplicate

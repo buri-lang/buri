@@ -2461,6 +2461,14 @@ fn oneofJsonFn<C: Allocator>(ctx: C, o: ResolvedOneof): ast.Item {
             },
             seed,
         );
+    let names = o.cases.map(ctx, fn(k) => ex(.Tuple([strE(k.json), strE(k.declared)])));
+    let single = nsCall("proto", "atMostOne", [
+        id("ctx"),
+        id("doc"),
+        id("path"),
+        strE(o.field),
+        ex(.Array(names)),
+    ]);
     fnItem(ast.FnDecl {
         name: nm(str.format(ctx, "read${o.enumName}")),
         generics: allocGeneric(),
@@ -2473,7 +2481,7 @@ fn oneofJsonFn<C: Allocator>(ctx: C, o: ResolvedOneof): ast.Item {
             tyOf("Option", [tyNamed(o.enumName)]),
             tyNamed("ProtoError"),
         ]),
-        body: [tailBlock(body)],
+        body: [blk([letWildS(tryE(single))], [body])],
         exported: false,
         docs: [],
     })
