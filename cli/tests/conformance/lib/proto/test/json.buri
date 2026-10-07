@@ -156,6 +156,35 @@ test "a oneof case is an ordinary member of the object" {
     assert.equal(decodeEverythingJson(ctx, encodeEverythingJson(ctx, n)), .Ok(n));
 }
 
+test "a document setting two cases of one oneof is refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        decodeEverythingJson(
+            ctx,
+            doc(ctx, "{\"phone\":\"9\",\"extensionNumber\":\"5\"}"),
+        ),
+        .Err(.BadJson { path: "$", wanted: "at most one case of contact" }),
+    );
+    // Under the schema's own name too.
+    assert.equal(
+        decodeEverythingJson(ctx, doc(ctx, "{\"phone\":\"9\",\"extension_number\":5}")),
+        .Err(.BadJson { path: "$", wanted: "at most one case of contact" }),
+    );
+    // A null case is an unset one.
+    assert.equal(
+        decodeEverythingJson(
+            ctx,
+            doc(ctx, "{\"phone\":null,\"extensionNumber\":\"5\"}"),
+        ),
+        .Ok(Everything {
+            ..defaultEverything(),
+            contact: .Some(Everything_Contact.ExtensionNumber(5)),
+        }),
+    );
+}
+
 // --- presence ---------------------------------------------------------------------
 
 test "a field set to its own zero value is still written" {
