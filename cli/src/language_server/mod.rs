@@ -125,7 +125,17 @@ pub fn command_language_server(_args: &arguments::Args) -> i32 {
         // Nothing can be read, so there is nothing to serve.
         return 1;
     }
-    while let Ok(event) = events.recv() {
+    loop {
+        // Nothing waiting: the editor is idle, so give back what the last
+        // burst of requests freed.
+        let event = match events.try_recv() {
+            Ok(event) => event,
+            Err(_) => {
+                crate::allocator::trim();
+                let Ok(event) = events.recv() else { break };
+                event
+            }
+        };
         match event {
             Event::Message(text) => {
                 if let Some(code) = answered(&mut state, &mut output, &text) {

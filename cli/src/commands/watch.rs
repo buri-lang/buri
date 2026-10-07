@@ -396,6 +396,8 @@ impl Watch {
             if self.passes.is_some_and(|k| n >= k) || watched.is_empty() {
                 return result.code;
             }
+            // The loop waits for an edit now, so give back what the pass freed.
+            crate::allocator::trim();
             changed = self.settle(&mut watched);
             n += 1;
         }
