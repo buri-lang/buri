@@ -212,7 +212,8 @@ unordered, so it answers `.Equal` for a pair it could not order.
   ordered association list, not a map**, so key order round-trips, nothing needs
   a `Hash` bound, and `get` costs O(n). Every number is a `Float`, which is what
   JSON says a number is — `asInt` is the conversion an integer field pays either
-  way, done once and answering `.None` when the number was not whole.
+  way, done once and answering `.None` when the number was not whole. `parse`
+  takes a number only as RFC 8259 writes one, so `01` and `1.` are `BadNumber`.
   `MAX_DEPTH` caps nesting, because parsing recurses and the recursion is not in
   tail position.
 
