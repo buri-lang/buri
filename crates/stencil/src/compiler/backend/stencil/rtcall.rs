@@ -307,6 +307,29 @@ impl Jit<'_> {
         }
 
         let dslot = dest.map(|d| d.0).unwrap_or(0);
+        // The call reads the frame words it is handed when it runs, and the
+        // destination is zeroed before that. A value that dies at this call can
+        // share its slot with the destination, so each argument word that
+        // overlaps it is read into its own argument word first. Otherwise
+        // `xs.replaceAt(…)` handed straight to a tail call read a zeroed list.
+        if let (Some((_, dty)), Ret::Out | Ret::Res | Ret::ResMsg) = (dest, entry.ret) {
+            let end = dslot + round8(self.width_of(prog, dty));
+            let base = st.scratch + CARG_WORD * 8;
+            for (srcs, at) in [(&mut ints, base), (&mut floats, base + MAX_INT as u32 * 8)] {
+                for (i, src) in srcs.iter_mut().enumerate() {
+                    let (from, width) = match *src {
+                        Src::Word(from) => (from, 8),
+                        Src::Narrow(from, width) => (from, width),
+                        _ => continue,
+                    };
+                    if from < end && dslot < from + width {
+                        let to = at + i as u32 * 8;
+                        self.marshal(to, src);
+                        *src = Src::Word(to);
+                    }
+                }
+            }
+        }
         let opt = match entry.ret {
             Ret::Sum => {
                 let Some((_, dty)) = dest else {
