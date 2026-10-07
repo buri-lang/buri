@@ -90,8 +90,8 @@ reference to it goes, and there is no budget on a computation.
 ## The tree
 
 `ui/node` is what an interface *is*: `Node<C>`, eighteen `Role`s, and the
-nineteen functions that build one. `ui/style` is how a container arranges and
-paints what is inside it. `mount`, the twentieth function, puts a tree on the
+twenty functions that build one. `ui/style` is how a container arranges and
+paints what is inside it. `mount`, the twenty-first function, puts a tree on the
 screen. Two rules run through the vocabulary.
 
 **Meaning is the role and arrangement is the style.** A `stack` given a
@@ -927,6 +927,83 @@ reach for instead cannot do — it swallows the press and costs a focusable
 element in the tab order besides. It adds no element of its own, so a picture is
 a picture of the node's children, and a native painter, having no pointer to
 press with, leaves the handler inert.
+
+**A description that shows on hover is `tooltip`.** `onHover` and `onFocus`
+could draw a bubble, but nothing would tie its text to the trigger, so a screen
+reader would announce the trigger without it. A `tooltip` wraps the trigger, and
+its `text` is announced with it.
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+export fn copy<C>(onPress: fn(C) => ()): Node<C> {
+    ui.tooltip({
+        text: .Const("Copy to clipboard"),
+        styles: [
+            .PaddingX(.Px(6)),
+            .Radius(.Px(4)),
+            .Background(.Rgb(24, 24, 27)),
+            .Foreground(.Rgb(250, 250, 250)),
+        ],
+        children: [
+            ui.button({ label: .Const("Copy"), styles: [], onPress: .Some(onPress) }),
+        ],
+    })
+}
+```
+
+It shows while the trigger is hovered or focused, and Escape hides it until
+the pointer and the focus have both left. An `onKey` that claims the Escape
+keeps it showing. The bubble sits under the trigger at its start edge, covering
+what follows rather than pushing it down; `styles` land on it, so a `Pin`
+moves it. It holds text and nothing else, so nothing in it can be pressed or
+focused. Interactive content belongs in a `dialog`.
+
+On the web the bubble is a `role="tooltip"` the trigger names with
+`aria-describedby`. A browser's own `title` shows on hover only, never on
+focus, so it isn't used. A snapshot in `.Hover`, `.Focus`, `.FocusWithin` or
+`.Active` draws every bubble on the page, and one in any other state draws
+none.
+
+A test reads the description with `description(name)`, hovers with
+`pointerMove`, focuses with `focus(name)` and presses a key with `key(name)`:
+
+```buri role=test
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui };
+from "platform/effect/testing" import { headless, render };
+from "ui/node" import * as ui;
+
+test "the description shows on focus and Escape hides it" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.tooltip({
+            text: .Const("Copy to clipboard"),
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Copy"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+            ],
+        }),
+    );
+    assert.equal(page.description("Copy"), "Copy to clipboard");
+    let _ = page.focus("Copy");
+    assert.equal(page.text(), "Copy Copy to clipboard");
+    let _ = page.key("Escape");
+    assert.equal(page.text(), "Copy");
+}
+```
+
+The document the test renders knows what the pointer and the focus are on,
+so it draws the bubble only while they're on the trigger. That's the one place
+`markup()` differs from `describe` in `.Hover`.
 
 **Drag and drop is `onPointerDown`, `onPointerMove` and `onPointerUp`.** Each is
 an omittable `fn(C, PointerAt) => ()` on every element. Here a reader picks a

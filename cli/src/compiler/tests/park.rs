@@ -170,6 +170,7 @@ fn hand_built(funcs: Vec<Func>) -> Program {
         inline_styles: false,
         inline_animations: false,
         icons: false,
+        tooltips: false,
         themes: false,
         chunks: Vec::new(),
         hosted: Default::default(),

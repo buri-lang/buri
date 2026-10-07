@@ -1391,6 +1391,16 @@ pub const ENTRIES: &[Entry] = &[
     // read back by `isCurrent` and `spoken`.
     e("ui_node.markCurrent", &[Scalar, Scalar, Scalar], Ret::Void),
     e("ui_node.markDecorative", &[Scalar], Ret::Void),
+    // A tooltip: `openTip` mints the `Bool` cell the document writes as the
+    // pointer and the focus move, and `describeTip` keeps the text a reader
+    // hears with the trigger. `registerKey` keeps an `onKey` the way
+    // `registerPointer` keeps a pointer handler; the handler reads its key with
+    // `keyPressed` and says it claimed it with `claimKey`.
+    e("ui_node.openTip", &[Scalar], Ret::Scalar),
+    e("ui_node.describeTip", &[Scalar, Scalar, Str], Ret::Void),
+    e("ui_node.registerKey", &[Scalar, Press], Ret::Void),
+    e("ui_node.keyPressed", &[Scalar], Ret::Out),
+    e("ui_node.claimKey", &[Scalar], Ret::Void),
     // A file picker (#209). `registerPick` keeps its handler in a slot of its
     // own, an `ep` like `registerPress`, so `press` never fires it; the three
     // `offered` readers answer the file `pickFile` left on the document, and
@@ -1408,6 +1418,9 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.Rendered.text", &[Scalar], Ret::Out),
     e("host_testing.Rendered.spoken", &[Scalar], Ret::Out),
     e("host_testing.Rendered.isCurrent", &[Scalar, Str], Ret::Scalar),
+    e("host_testing.Rendered.description", &[Scalar, Str], Ret::Out),
+    e("host_testing.Rendered.focus", &[Scalar, Str], Ret::Void),
+    e("host_testing.Rendered.key", &[Scalar, Str], Ret::Void),
     e("host_testing.Rendered.count", &[Scalar, Str], Ret::Scalar),
     e("host_testing.Rendered.identity", &[Scalar, Str, Scalar], Ret::Scalar),
     // The event dispatch (#53 phase 4), each addressing the reconciled document
@@ -1865,8 +1878,8 @@ mod tests {
             }
         }
         // Two steps, the graph's two deferred bodies and the renderer's
-        // `reactive`, three walks, five kept handlers and the two timers.
-        assert_eq!(checked, 15);
+        // `reactive`, three walks, six kept handlers and the two timers.
+        assert_eq!(checked, 16);
     }
 
     /// The module a key's first segment names, for the keys whose operations

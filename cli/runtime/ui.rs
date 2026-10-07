@@ -1025,6 +1025,33 @@ pub(crate) fn flip_bool_signal(id: i64) {
     unsafe { write_changed(id, buf.as_ptr(), buf.len()) };
 }
 
+/// A fresh `Bool` cell holding `on`, made by the runtime rather than by a
+/// program — a tooltip's shown state, which the document writes and the
+/// bubble's region reads. It belongs to whatever is running, as a program's
+/// cell would.
+pub(crate) fn new_bool_signal(on: bool) -> i64 {
+    let mut g = lock();
+    g.make(Kind::Cell, vec![u8::from(on)], 1, None)
+}
+
+/// Writes `on` to the `Bool` signal `id`, at the width the signal already
+/// holds. Equal bytes are no write, as every write is.
+pub(crate) fn set_bool_signal(id: i64, on: bool) {
+    let width = {
+        let g = lock();
+        match g.get(id) {
+            Some(n) => n.value.len().max(1),
+            None => return,
+        }
+    };
+    let mut buf = vec![0u8; width];
+    if let Some(byte) = buf.first_mut() {
+        *byte = u8::from(on);
+    }
+    // SAFETY: `buf` is the signal's own width, one whole `Bool` value.
+    unsafe { write_changed(id, buf.as_ptr(), buf.len()) };
+}
+
 /// `renderInto(builder, node)` — the walk that builds the document, driven once.
 ///
 /// A fourth closure shape the native renderer crosses, beside the three above,

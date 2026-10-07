@@ -1,0 +1,42 @@
+# A toolbar with a tooltip on its first button, shown and not, as the two
+# pictures the difference between them is the whole subject of.
+#
+# The page is the same in both: two buttons over a line of text. A snapshot
+# names one state for the whole page, and hovered is the trigger hovered, so the
+# bubble is drawn under it at its start edge, out of the flow, covering the line
+# below rather than pushing it down. Checked says nothing about hover or focus,
+# so the second picture is the toolbar alone.
+#
+# What no picture can show is the half of a tooltip that is not pixels: the
+# description a reader hears with the trigger, and the hover, focus and Escape
+# that show and hide it. `conformance/lib/ui/test/tree.buri` asserts those
+# through the headless double, and `language::pages` through a browser.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a tooltip on a toolbar, shown and not, as 2 pictures, and an edit that moves the bubble fails the shown one"
+
+run {
+  args: ["test", "//lib/tips", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/tips/test/__snapshots__/tooltip-shown.diff.png"  exists: false }
+
+# The bubble four pixels lower moves the shown picture, and nothing in the one
+# where the bubble isn't drawn.
+edit {
+  file: "lib/tips/scenes.buri"
+  replace: ".Translate(.Px(0), .Px(4))"
+  with: ".Translate(.Px(0), .Px(8))"
+}
+
+run {
+  args: ["test", "//lib/tips", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/tips/test/__snapshots__/tooltip-shown.diff.png"  exists: true }
+path { path: "lib/tips/test/__snapshots__/tooltip-hidden.diff.png"  exists: false }

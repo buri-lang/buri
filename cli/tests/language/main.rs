@@ -14,6 +14,7 @@
 //! | [`corpus`] | every `.buri` in the repository | Does everything meant to compile parse, does every build file read, **is every source already what `buri format` writes**, is formatting a fixed point, is the tree-sitter grammar generated? |
 //! | [`golden_javascript`] | `golden_javascript/` | What does the backend *compile to*, construct by construct? |
 //! | [`js_streams`] | four generated programs | Does everything a program printed reach the stream, whichever of the three ways it ended and whether the stream is a pipe or a file? |
+//! | [`pages`] | pages built for `web` | Does a mounted page show, hide and move what the headless double says it does, when a browser drives it? |
 //! | [`round_trip`] | `conformance/`, `example/`'s generated modules | Does `core/buri/ast`'s `parse` read back what the compiler reads — the whole corpus rewritten by `parse` then `print`, and run — and is printing a fixed point? |
 //! | [`scoped_bodies`] | `repositories/lsp/*/repo`, `example/` | Does an analysis that checks one file's bodies answer what a whole-closure one answers, for that file? |
 //! | [`sharing`] | `runtime.js`, five generated programs | Is a list this backend did not allocate never written to, is growing one in a loop linear — beside another field as well as alone — and are `core/buri/ast`'s printer and lexer linear because of it? |
@@ -23,7 +24,7 @@
 //! conformance corpus that three of the tests above share.
 //!
 //! ```text
-//! cargo test -p buri --test language                       # all nine
+//! cargo test -p buri --test language                       # all ten
 //! cargo test -p buri --test language conformance::         # one of them
 //! ```
 
@@ -53,6 +54,7 @@ mod corpus;
 mod debug_suite;
 mod golden_javascript;
 mod js_streams;
+mod pages;
 mod round_trip;
 mod scoped_bodies;
 mod sharing;
