@@ -10,7 +10,7 @@
 use crate::harness::*;
 use std::io::BufRead;
 use std::os::unix::process::ExitStatusExt;
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 
 const SIGPIPE: i32 = 13;
 
@@ -33,14 +33,55 @@ fn buri_in(scratch: &Scratch, args: &[&str]) -> Command {
 /// Returns the status and stderr.
 fn piped(mut cmd: Command, what: &str, reader: impl FnOnce(std::io::PipeReader)) -> (ExitStatus, String) {
     let (read, write) = std::io::pipe().expect("a pipe");
-    let mut child =
-        cmd.stdin(Stdio::null()).stdout(write).stderr(Stdio::piped()).spawn().expect("the command runs");
+    let mut child = spawn(cmd.stdout(write));
     // The command holds the write end; ours has to go, or the reader never
     // sees the end of the stream.
     drop(cmd);
     reader(read);
-    let (_, err) = hang::drain(&mut child);
-    let status = hang::wait_capped(&mut child, what, hang::cap());
+    finish(&mut child, what)
+}
+
+// What `reader_gone` calls in the child, declared rather than depended on, as
+// in `serving.rs`.
+unsafe extern "C" {
+    fn pipe(fds: *mut i32) -> i32;
+    fn dup2(from: i32, to: i32) -> i32;
+    fn close(fd: i32) -> i32;
+}
+
+/// Runs `cmd` with stdout on a pipe that has no read end anywhere, so its first
+/// write fails.
+///
+/// The child makes the pipe itself, between fork and exec. A pipe made in the
+/// test process has a read end until it's dropped, and a short output fits in
+/// the buffer, so the write can succeed. On macOS, a test thread that spawns
+/// before close-on-exec is set even hands that read end to its own child.
+fn reader_gone(mut cmd: Command, what: &str) -> (ExitStatus, String) {
+    use std::os::unix::process::CommandExt as _;
+    // SAFETY: `pipe`, `dup2` and `close` are on POSIX's async-signal-safe list,
+    // the whole of what a `pre_exec` closure may call.
+    unsafe {
+        cmd.pre_exec(|| {
+            let mut fds = [0; 2];
+            if pipe(fds.as_mut_ptr()) == -1 || dup2(fds[1], 1) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            close(fds[0]);
+            close(fds[1]);
+            Ok(())
+        })
+    };
+    // Something on 1 to start with, so the pipe gets neither 0, 1 nor 2.
+    finish(&mut spawn(cmd.stdout(Stdio::null())), what)
+}
+
+fn spawn(cmd: &mut Command) -> Child {
+    cmd.stdin(Stdio::null()).stderr(Stdio::piped()).spawn().expect("the command runs")
+}
+
+fn finish(child: &mut Child, what: &str) -> (ExitStatus, String) {
+    let (_, err) = hang::drain(child);
+    let status = hang::wait_capped(child, what, hang::cap());
     (status, String::from_utf8_lossy(&err.take()).into_owned())
 }
 
@@ -62,8 +103,8 @@ fn closes_quietly(args: &[&str]) {
     let scratch = example();
     let what = format!("buri {}", args.join(" "));
 
-    // Gone before the first write, so the first write is the one that fails.
-    let (status, stderr) = piped(buri_in(&scratch, args), &what, drop);
+    // Gone before it starts, so the first write is the one that fails.
+    let (status, stderr) = reader_gone(buri_in(&scratch, args), &what);
     assert_eq!(status.signal(), Some(SIGPIPE), "`{what}` ended {status} rather than by SIGPIPE:\n{}", indent(&stderr));
     quiet(&what, &stderr);
 
