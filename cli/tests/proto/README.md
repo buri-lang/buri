@@ -112,20 +112,24 @@ it cannot answer before the other side has finished speaking.
 ## Where it stands
 
 ```text
-CONFORMANCE SUITE PASSED: 970 successes, 1314 skipped, 456 expected failures, 0 unexpected failures.
+CONFORMANCE SUITE FAILED: 1017 successes, 1314 skipped, 424 expected failures, 7 unexpected failures.
 ```
 
+The seven unexpected failures are bugs in the proto3 JSON mapping, and
+`failure_list.txt` doesn't list them: six write a NaN as a bare `NaN` rather than
+`"NaN"`, and one accepts an int64 below -2^63.
+
 The 1314 skips are the message types this testee does not implement — proto2 and
-the editions variants — plus the text-format and JSPB categories. The 456
+the editions variants — plus the text-format and JSPB categories. The 424
 expected failures are `failure_list.txt`, which files each one under one of
 seven reasons and leaves no entry unexplained.
 
-Forty are worth naming, because they are the only ones not about the pruned
+Fourteen are worth naming, because they are the only ones not about the pruned
 schema:
 
-- **34 are 64-bit precision.** An `Int` is an `I64` and an `I64` is a double, so
-  a value past 2^53 survives only to a double's precision and one at ±2^63 does
-  not survive at all. Closing this needs a real 64-bit integer in the language.
+- **8 are an unsigned 64-bit value past 2^63, in JSON.** A `uint64` or
+  `fixed64` field is an `Int`, which is signed, so such a value keeps its bits
+  on the wire and is written to JSON as a negative number.
 - **2 are build-unknown-field retention.** Decoding skips a field the schema does not
   know rather than keeping the bytes, so they do not survive a re-encode.
 - **1 is explicit presence**, and it is not a gap. The schema under test is
