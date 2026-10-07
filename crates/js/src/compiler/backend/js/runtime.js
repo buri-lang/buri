@@ -1091,6 +1091,23 @@ function $str_length(s) {
   return $int(t === null ? s.length : t.length - 1);
 }
 
+// The count `$bytes_toUtf8` would produce, read off the UTF-16 units without
+// building the bytes: a surrogate pair is four, and anything else in the
+// surrogate range is the three a lone one encodes to there.
+function $str_utf8Length(s) {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) {
+      n += 4;
+      i++;
+    } else n += 3;
+  }
+  return $int(n);
+}
+
 // A character is a string and an index a bigint, so neither is ever
 // `undefined`: each is its own `Some`, here and in `indexOf` and `findIndex`.
 function $str_charAt(s, i) {

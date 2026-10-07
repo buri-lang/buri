@@ -437,10 +437,9 @@ impl Str {
     /// How many bytes this string takes in UTF-8, which is what `core/bytes`'
     /// `toUtf8` produces and what a `Content-Length` counts.
     ///
-    /// `length` counts scalars, so the two agree only for ASCII.
-    export fn utf8Length(self): Int {
-        utf8From(self, 0, 0)
-    }
+    /// `length` counts scalars, so the two agree only for ASCII. Natively a
+    /// string already is its UTF-8, so this reads a length rather than a string.
+    export fn utf8Length(self): Int;
 
     /// How many UTF-16 code units this string takes — the unit a language
     /// server's positions and JavaScript's own `.length` are measured in.
@@ -563,13 +562,6 @@ fn spanWord(text: Str, at: Int): Int {
     match (text.charAt(at)) {
         .None => at,
         .Some(c) => if (c.isSpace()) { at } else { spanWord(text, at + 1) },
-    }
-}
-
-fn utf8From(text: Str, at: Int, acc: Int): Int {
-    match (text.charAt(at)) {
-        .None => acc,
-        .Some(c) => utf8From(text, at + 1, acc + c.utf8Length()),
     }
 }
 
