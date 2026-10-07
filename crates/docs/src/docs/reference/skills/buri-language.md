@@ -147,6 +147,8 @@ from "//lib/money" import { Cents };
 ## Declarations
 
 ```buri
+from "core/secret" import { Secret };
+
 type UserId = Str; // transparent alias
 
 derive Equal, Ordered, Show for Meters;
@@ -155,7 +157,7 @@ struct Meters(export F64); // tuple struct; `;`-terminated
 // record struct; no `;`
 struct User {
     export id: UserId,
-    secret: Str,
+    secret: Secret<Str>, // shows as `***`
 }
 
 enum Tree<T> {
@@ -175,7 +177,7 @@ impl Meters {
 - No overloading, no default arguments, no variadics.
 - Every `impl` function takes `self` first, and no other function may. An
   `impl` may appear only in its type's module.
-- Struct update: `User { ..u, secret: "new" }`. Field shorthand: `User { id }`.
+- Struct update: `User { ..u, secret: secret.of("new") }`. Field shorthand: `User { id }`.
 
 ## Expressions
 
