@@ -67,8 +67,10 @@ resolver = "2"
 # resolves nothing and the gates are still compiled both ways.
 #
 # **The runtime's set — what every *user* ships.** `cli/runtime/manifest.toml`,
-# and in full: `tokio`, `hyper`, `rustls` and `tungstenite`, all four behind the
-# `net` feature, which is on by default. `libburi_rt.a` is linked into every
+# and the networking half of it: `tokio`, `hyper`, `rustls`, its crypto provider
+# `rustls-graviola` with `graviola` under it, and `tungstenite`, behind the
+# `net` feature, which is on by default. The provider is `graviola` because it
+# brings post-quantum key exchange and needs only `rustc` (#225). `libburi_rt.a` is linked into every
 # native binary this compiler produces, so a crate admitted there is a crate
 # admitted into strangers' programs — which is why that set carries a **fourth**
 # clause the toolchain's does not: it is closed by an exact list, asserted as an

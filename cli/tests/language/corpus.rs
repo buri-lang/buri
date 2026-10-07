@@ -912,13 +912,11 @@ fn dependencies_stay_behind_the_bar() {
     // Pinned in full and compared as a set. Sorted, because the order in the
     // manifest is an argument's order and not a fact.
     //
-    // `ring` is on this list although no line of the runtime names it: it is
-    // `rustls`'s crypto provider and the code reaches it through
-    // `rustls::crypto::ring`. It is declared as a direct dependency anyway, and
-    // this is the reason — the crate ships inside every native binary this
-    // compiler produces, and a crate that ships must be visible to the test
-    // that guards what ships. A provider pulled in only by another crate's
-    // feature flag would be 845 KB of object code no assertion here could see.
+    // `rustls-graviola` and `graviola` are `rustls`'s crypto provider and the
+    // cryptography under it (#225). `graviola` is declared although the
+    // provider would pull it in, because a crate that ships must be visible
+    // to the test that guards what ships. `ring` is `core/crypto`'s, behind
+    // `crypto`.
     //
     // `quinn` is the sixth and the only one behind `net-h3`. It is on the same
     // list as the other five because the list is of what the runtime *may*
@@ -947,10 +945,12 @@ fn dependencies_stay_behind_the_bar() {
     const RUNTIME_ADMITTED: &[&str] = &[
         "cosmic-text",
         "getrandom",
+        "graviola",
         "hyper",
         "quinn",
         "ring",
         "rustls",
+        "rustls-graviola",
         "taffy",
         "tiny-skia",
         "tokio",

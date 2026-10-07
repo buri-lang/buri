@@ -79,13 +79,16 @@ crate-type = ["staticlib"]
 #   written that TLS is the shape of problem the bar exists for, and this is
 #   the crate it named. **Linked for real since C7**: `https://` goes through
 #   it, `tls.rs` is the seam, and the archive carries it.
-# * **`ring`** — the crypto provider underneath `rustls`, and the entry that
-#   costs the most. See "the provider" below; it is declared here, rather than
-#   left to `rustls`'s own feature to pull in, because
-#   `dependencies_stay_behind_the_bar` reads *this table* and a crate that
-#   ships inside every native binary this compiler produces must be visible to
-#   the test that guards what ships. `net.rs` names a type from it for the same
-#   reason it names one from each of the others.
+# * **`rustls-graviola`** and **`graviola`** — the crypto provider underneath
+#   `rustls`, and the cryptography it wraps. They give TLS its post-quantum
+#   key exchange, X25519MLKEM768, and build with `rustc` alone. "The provider"
+#   below argues them. `graviola` is declared rather than left to
+#   `rustls-graviola` to pull in, because `dependencies_stay_behind_the_bar`
+#   reads *this table*, and a crate that ships inside every native binary must
+#   be visible to the test that guards what ships.
+# * **`ring`** — `core/crypto`'s sealing and signature checks, behind
+#   `crypto`. It was TLS's provider until #225; "The provider" says why
+#   `core/crypto` kept it.
 # * **`tungstenite`** — RFC 6455 framing and the handshake, which is a
 #   protocol with a specification and a test suite rather than an algorithm.
 #   **Linked for real since F7**: `listenUpgrade` completes the handshake with
@@ -191,14 +194,33 @@ crate-type = ["staticlib"]
 # for the same code rather than anything failing to be stripped. 14 MiB is the
 # re-measurement.
 #
-# `ring` rather than `aws-lc-rs`, the other provider `rustls` ships: `aws-lc-rs`
-# needs `cmake` (and, on some hosts, `bindgen`) at build time, which is a second
-# tool to require of `cargo install buri` and a second way for the runtime build
-# to break. `ring` needs a C compiler, which the toolchain already requires for
-# the stencil library and which `build/link.rs` already shells out to for every
-# native artifact — and `cli/build.rs` probes for it and falls back to
-# `--no-default-features` with a warning when it is missing, so the third clause
-# of the bar ("degrades rather than breaks") still holds on a host with no `cc`.
+# **Since #225 the provider is `rustls-graviola`**, for post-quantum key
+# exchange: it offers X25519MLKEM768 first and falls back to X25519, as client
+# and server. `ring` has no ML-KEM, and `aws-lc-rs` needs `cmake`. `graviola`
+# builds with `rustc` alone and its field arithmetic is the formally verified
+# `s2n-bignum`, so `net` no longer needs a C compiler and `cli/build.rs` stops
+# probing for one on its behalf.
+#
+# What it costs:
+#
+# * **x86_64 and aarch64 only**, which is every target this runtime builds.
+# * **CPU features.** `graviola` asserts AES, PCLMULQDQ, AVX, AVX2, BMI1 and
+#   ADX on x86_64 (Broadwell, 2014, and later) and AES, PMULL, SHA-2 and NEON on aarch64.
+#   A CPU without them aborts at its first TLS handshake. Raspberry Pi 4 and
+#   earlier lack them; Apple silicon, Graviton and every x86_64 cloud host
+#   have them.
+# * **Bytes.** Each `ClientHello` grows by about 1.2 KB of ML-KEM key share,
+#   and the archive by 1.48 MB on aarch64-apple-darwin and 1.6 to 1.9 MB on
+#   Linux, because `ring` stays for `crypto`. A program that reaches neither
+#   provider, such as a hello world, does not grow.
+#
+# **`core/crypto` keeps `ring`**, behind `crypto`. `graviola` has the same
+# primitives but not the same answers: its RSA keys take a 32-bit exponent,
+# where `ring` and `sources/crypto.buri`'s `rsaPublicKey` accept odd exponents
+# up to 2^33, so moving would turn some valid RS256 checks into `false`. And
+# `seal` would inherit the CPU floor above, aborting a program that never
+# touched the network. ChaCha20-Poly1305, SHA-2 and HMAC are already
+# quantum-safe, so moving them buys nothing post-quantum.
 #
 # The pure-Rust providers were considered and are not here: `rustls-rustcrypto`
 # says of itself that it is unaudited and not for production use, and a TLS
@@ -251,7 +273,9 @@ crate-type = ["staticlib"]
 [dependencies]
 tokio = { version = "1", optional = true, default-features = false, features = ["rt-multi-thread", "net", "time", "io-util", "sync"] }
 hyper = { version = "1", optional = true, default-features = false, features = ["client", "server", "http1", "http2"] }
-rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "tls12", "ring"] }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "tls12"] }
+rustls-graviola = { version = "0.4", optional = true, default-features = false }
+graviola = { version = "0.4", optional = true, default-features = false }
 ring = { version = "0.17", optional = true, default-features = false }
 tungstenite = { version = "0.30", optional = true, default-features = false, features = ["handshake"] }
 quinn = { version = "0.11", optional = true, default-features = false, features = ["rustls-ring", "runtime-tokio"] }
@@ -307,10 +331,12 @@ tiny-skia = { version = "=0.12.0", optional = true, default-features = false, fe
 #
 # **The provider is `ring`, deliberately and by name.** `quinn`'s own defaults
 # are `rustls-aws-lc-rs` and `platform-verifier`; both are turned off here and
-# `rustls-ring` is turned on, so the h3 archive has exactly one cryptography
-# implementation in it rather than two. `the_runtime_archive_is_real` greps for
-# `aws_lc` on every leg, h3 included, which is what keeps that true when
-# `quinn`'s defaults next change.
+# `rustls-ring` is turned on, because `rustls-graviola`'s suites carry no QUIC
+# header protection and `ring` is already in the archive for `crypto`. So
+# HTTP/3 keeps classical key exchange, and `net-h3` needs the C compiler `net`
+# no longer does. `the_runtime_archive_is_real` greps for `aws_lc` on every
+# leg, h3 included, which keeps a third implementation out when `quinn`'s
+# defaults next change.
 #
 # ## `crypto`, which is on for `net`'s reason and is otherwise unlike it
 #
@@ -322,10 +348,8 @@ tiny-skia = { version = "=0.12.0", optional = true, default-features = false, fe
 #
 # It also turns on `ring`, for `core/crypto`'s `seal`, `open`, `verifyEs256`,
 # `verifyRs256` and `verifyEd25519` (`crypto.rs`), with `ring`'s `alloc`
-# feature, which is where its RSA lives. A default toolchain already carries
-# `ring` for `net`, so that costs nothing there; a `net`-off, `crypto`-on
-# archive pays `ring`'s object code, and `cli/build.rs` gives `crypto` the same
-# C-compiler probe `net` has. The interesting half of the decision is the
+# feature, which is where its RSA lives. `ring` compiles C, so `cli/build.rs`
+# probes for a C compiler before it turns `crypto` on. The interesting half of the decision is the
 # *other* direction — what a `crypto`-off toolchain owes a program.
 #
 # It owes it a refusal at compile time, and that is why the feature exists at
@@ -348,7 +372,7 @@ tiny-skia = { version = "=0.12.0", optional = true, default-features = false, fe
 # a missing capability is a refusal here exactly as it is under `crypto`.
 [features]
 default = ["net", "crypto", "paint"]
-net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:ring", "dep:tungstenite"]
+net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:rustls-graviola", "dep:graviola", "dep:tungstenite"]
 net-h3 = ["net", "dep:quinn"]
 crypto = ["dep:getrandom", "dep:ring", "ring/alloc"]
 paint = ["dep:taffy", "dep:cosmic-text", "dep:tiny-skia"]

@@ -1,7 +1,7 @@
 //! TLS for `Network.fetch`, and the trust decision that comes with it.
 //!
 //! `http.rs` owns HTTP. This file owns exactly one question — *may this
-//! connection be trusted* — and answers it with `rustls` over the `ring`
+//! connection be trusted* — and answers it with `rustls` over the `graviola`
 //! provider (`manifest.toml` argues both, and the price of the second one).
 //! What `http.rs` gets back is a [`TlsStream`], which is a `Read + Write` over
 //! the same `TcpStream` it opened, so the request writer, the response parser
@@ -81,6 +81,16 @@ use rustls::{
 
 use crate::http::NetFail;
 
+/// The one crypto provider both directions use: `rustls-graviola`'s, which
+/// offers X25519MLKEM768 first and falls back to X25519, then P-256 and P-384.
+///
+/// Passed to `builder_with_provider` rather than installed, because the plain
+/// builder reads a *process-global* default provider, which is state a library
+/// in a static archive has no business depending on.
+pub(crate) fn provider() -> Arc<rustls::crypto::CryptoProvider> {
+    Arc::new(rustls_graviola::default_provider())
+}
+
 /// A TLS connection, owned end to end: `rustls` state and the socket under it.
 ///
 /// `StreamOwned` rather than `rustls::Stream` because `http.rs` keeps the
@@ -152,12 +162,7 @@ struct Roots {
 pub fn connect(sock: TcpStream, host: &str) -> Result<TlsStream, NetFail> {
     let Roots { store, source } = trust_anchors().map_err(NetFail::Transport)?;
 
-    // `builder_with_provider` rather than `builder`: the latter reads a
-    // *process-global* default provider, which is state a library in a static
-    // archive has no business depending on. One provider is compiled in and it
-    // is named here.
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let config = ClientConfig::builder_with_provider(provider)
+    let config = ClientConfig::builder_with_provider(provider())
         .with_safe_default_protocol_versions()
         .map_err(|e| {
             NetFail::Transport(format!("tls: this runtime's TLS configuration is not usable: {e}"))
@@ -428,11 +433,7 @@ pub fn server_config(
         )
     })?;
 
-    // `builder_with_provider` rather than `builder`, for `connect`'s reason:
-    // the plain builder reads a process-global default provider, which is
-    // state a static archive has no business depending on.
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let mut config = ServerConfig::builder_with_provider(provider)
+    let mut config = ServerConfig::builder_with_provider(provider())
         .with_safe_default_protocol_versions()
         .map_err(|e| format!("tls: this runtime's TLS configuration is not usable: {e}"))?
         .with_no_client_auth()
@@ -900,11 +901,18 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     /// assertion — which is the whole difference between a test that reports a
     /// broken network and one that disappears into it.
     fn serve(response: &'static str) -> (u16, std::thread::JoinHandle<String>) {
+        serve_with(provider(), response)
+    }
+
+    /// [`serve`], with the server's crypto provider chosen by the case.
+    fn serve_with(
+        provider: Arc<rustls::crypto::CryptoProvider>,
+        response: &'static str,
+    ) -> (u16, std::thread::JoinHandle<String>) {
         let der = blocks_in(LEAF_KEY_PEM, "PRIVATE KEY").pop().expect("the fixture key");
         let key = rustls::pki_types::PrivateKeyDer::Pkcs8(der.into());
         let chain: Vec<CertificateDer<'static>> =
             certificates_in(LEAF_PEM).into_iter().map(CertificateDer::from).collect();
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
         let config = rustls::ServerConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
             .unwrap()
@@ -1147,6 +1155,85 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
              answered",
             started.elapsed()
         );
+    }
+
+    /// [`provider`] with X25519 as its only group: a peer that has no ML-KEM.
+    fn classical() -> Arc<rustls::crypto::CryptoProvider> {
+        let mut provider = rustls_graviola::default_provider();
+        provider.kx_groups.retain(|group| group.name() == rustls::NamedGroup::X25519);
+        Arc::new(provider)
+    }
+
+    /// The client settles on X25519MLKEM768 with a server that has it, and on
+    /// X25519 with one that does not.
+    #[test]
+    fn the_client_prefers_hybrid_key_exchange_and_falls_back_to_x25519() {
+        let _trusting = trust_lock();
+        let ours = bundle("ca-groups", CA_PEM);
+        trust(&ours);
+        for (server, expected) in [
+            (provider(), rustls::NamedGroup::X25519MLKEM768),
+            (classical(), rustls::NamedGroup::X25519),
+        ] {
+            let (port, served) = serve_with(server, RESPONSE);
+            let sock = TcpStream::connect(("127.0.0.1", port)).expect("the loopback server");
+            let mut stream = match connect(sock, "localhost") {
+                Ok(stream) => stream,
+                Err(e) => panic!("the handshake failed: tag {} {}", e.tag(), e.message()),
+            };
+            let group = stream.conn.negotiated_key_exchange_group().map(|g| g.name());
+            stream.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+            let mut answer = Vec::new();
+            let _ = stream.read_to_end(&mut answer);
+            let request = served.join().unwrap();
+            assert!(request.starts_with("GET / HTTP/1.1\r\n"), "the server saw:\n{request}");
+            assert_eq!(group, Some(expected));
+        }
+        unsafe { std::env::remove_var(CERT_FILE_ENV) };
+        let _ = std::fs::remove_file(ours);
+    }
+
+    /// The server settles on X25519MLKEM768 with a client that offers it, and
+    /// still answers a client that only offers X25519.
+    #[test]
+    fn the_server_prefers_hybrid_key_exchange_and_accepts_x25519() {
+        let certificate = bundle("leaf-groups", LEAF_PEM);
+        let key = bundle("leaf-key-groups", LEAF_KEY_PEM);
+        let config = Arc::new(server_config(&certificate, &key, Vec::new()).expect("a config"));
+        let mut roots = RootCertStore::empty();
+        for der in certificates_in(CA_PEM) {
+            roots.add(CertificateDer::from(der)).expect("the test CA");
+        }
+        for (client, expected) in [
+            (provider(), rustls::NamedGroup::X25519MLKEM768),
+            (classical(), rustls::NamedGroup::X25519),
+        ] {
+            let (port, listeners) = loopback();
+            let config = Arc::clone(&config);
+            let served = std::thread::spawn(move || {
+                let mut sock = accept_within(&listeners, PATIENCE)?;
+                let conn = accept(config, &mut sock).ok()?;
+                conn.negotiated_key_exchange_group().map(|g| g.name())
+            });
+            let config = ClientConfig::builder_with_provider(client)
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(roots.clone())
+                .with_no_client_auth();
+            let name = ServerName::try_from("localhost").unwrap();
+            let conn = ClientConnection::new(Arc::new(config), name).unwrap();
+            let sock = TcpStream::connect(("127.0.0.1", port)).expect("the loopback server");
+            sock.set_read_timeout(Some(PATIENCE)).unwrap();
+            let mut stream = StreamOwned::new(conn, sock);
+            while stream.conn.is_handshaking() {
+                stream.conn.complete_io(&mut stream.sock).expect("the handshake");
+            }
+            let group = stream.conn.negotiated_key_exchange_group().map(|g| g.name());
+            assert_eq!(group, Some(expected), "the client's view");
+            assert_eq!(served.join().unwrap(), Some(expected), "the server's view");
+        }
+        let _ = std::fs::remove_file(certificate);
+        let _ = std::fs::remove_file(key);
     }
 
     /// The PEM reader takes the certificates and leaves everything else.

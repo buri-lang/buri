@@ -6091,6 +6091,265 @@ fn a_native_binary_speaks_https_and_refuses_a_certificate_it_cannot_trust() {
 }
 
 // ---------------------------------------------------------------------------
+// Post-quantum key exchange
+// ---------------------------------------------------------------------------
+
+/// `X25519MLKEM768`, the hybrid group: ML-KEM-768 and X25519 together.
+const HYBRID_GROUP: u16 = 0x11ec;
+/// `x25519`, the classical group a peer without ML-KEM still speaks.
+const X25519_GROUP: u16 = 0x001d;
+
+/// The extensions of the first TLS handshake message in `bytes`, by id, when
+/// that message is a `ClientHello` (`0x01`) or a `ServerHello` (`0x02`).
+fn hello_extensions(bytes: &[u8], kind: u8) -> Option<Vec<(u16, Vec<u8>)>> {
+    let two = |at: usize| -> Option<usize> {
+        Some(usize::from(u16::from_be_bytes([*bytes.get(at)?, *bytes.get(at + 1)?])))
+    };
+    // The record header, then the handshake header.
+    if *bytes.first()? != 0x16 || *bytes.get(5)? != kind {
+        return None;
+    }
+    let mut at = 5 + 4 + 2 + 32;
+    at += 1 + usize::from(*bytes.get(at)?);
+    if kind == 0x01 {
+        at += 2 + two(at)?;
+        at += 1 + usize::from(*bytes.get(at)?);
+    } else {
+        at += 2 + 1;
+    }
+    let end = at + 2 + two(at)?;
+    at += 2;
+    let mut found = Vec::new();
+    while at + 4 <= end {
+        let id = u16::try_from(two(at)?).ok()?;
+        let length = two(at + 2)?;
+        found.push((id, bytes.get(at + 4..at + 4 + length)?.to_vec()));
+        at += 4 + length;
+    }
+    Some(found)
+}
+
+/// One extension's body out of [`hello_extensions`].
+fn extension_body(extensions: &[(u16, Vec<u8>)], id: u16) -> Option<&[u8]> {
+    extensions.iter().find(|(found, _)| *found == id).map(|(_, body)| body.as_slice())
+}
+
+/// What a `ClientHello` offers: its `supported_groups` in order, and the groups
+/// it sent a key share for.
+fn offered_groups(hello: &[u8]) -> Option<(Vec<u16>, Vec<u16>)> {
+    let extensions = hello_extensions(hello, 0x01)?;
+    let groups: Vec<u16> = extension_body(&extensions, 0x000a)?
+        .get(2..)?
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|g| u16::from_be_bytes(*g))
+        .collect();
+    let shares = extension_body(&extensions, 0x0033)?.get(2..)?;
+    let mut shared = Vec::new();
+    let mut at = 0;
+    while at + 4 <= shares.len() {
+        shared.push(u16::from_be_bytes([shares[at], shares[at + 1]]));
+        at += 4 + usize::from(u16::from_be_bytes([shares[at + 2], shares[at + 3]]));
+    }
+    Some((groups, shared))
+}
+
+/// The group a `ServerHello` settled on, from its `key_share`.
+///
+/// `None` for a `HelloRetryRequest`, which is a `ServerHello` with a fixed
+/// random: a server that asks again has not settled on anything yet.
+fn settled_group(back: &[u8]) -> Option<u16> {
+    const RETRY: [u8; 8] = [0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11];
+    if back.get(11..19)? == RETRY {
+        return None;
+    }
+    let extensions = hello_extensions(back, 0x02)?;
+    let share = extension_body(&extensions, 0x0033)?;
+    Some(u16::from_be_bytes([*share.first()?, *share.get(1)?]))
+}
+
+/// A TLS 1.3 `ClientHello` from a client that knows X25519 and nothing newer.
+///
+/// Its key share is X25519's base point, a valid public key, so the server has
+/// all it needs to answer with a `ServerHello` rather than ask again.
+fn classical_client_hello() -> Vec<u8> {
+    fn extension(id: u16, body: &[u8]) -> Vec<u8> {
+        let mut out = id.to_be_bytes().to_vec();
+        out.extend_from_slice(&u16::try_from(body.len()).unwrap().to_be_bytes());
+        out.extend_from_slice(body);
+        out
+    }
+    fn sized(body: &[u8]) -> Vec<u8> {
+        let mut out = u16::try_from(body.len()).unwrap().to_be_bytes().to_vec();
+        out.extend_from_slice(body);
+        out
+    }
+
+    let mut name = vec![0x00u8];
+    name.extend_from_slice(&sized(b"localhost"));
+    let mut share = X25519_GROUP.to_be_bytes().to_vec();
+    let mut base_point = [0u8; 32];
+    base_point[0] = 9;
+    share.extend_from_slice(&sized(&base_point));
+
+    let mut extensions = extension(0x0000, &sized(&name));
+    extensions.extend(extension(0x000a, &sized(&X25519_GROUP.to_be_bytes())));
+    // ecdsa_secp256r1_sha256, which is the fixture leaf's, and rsa_pss_rsae_sha256.
+    extensions.extend(extension(0x000d, &sized(&[0x04, 0x03, 0x08, 0x04])));
+    extensions.extend(extension(0x002b, &[0x02, 0x03, 0x04]));
+    extensions.extend(extension(0x0033, &sized(&share)));
+
+    let mut body = vec![0x03u8, 0x03];
+    body.extend_from_slice(&[0x5au8; 32]);
+    body.push(0x00);
+    body.extend_from_slice(&sized(&[0x13, 0x01, 0x13, 0x02, 0x13, 0x03]));
+    body.extend_from_slice(&[0x01, 0x00]);
+    body.extend_from_slice(&sized(&extensions));
+
+    let mut handshake = vec![0x01u8];
+    handshake.extend_from_slice(&u32::try_from(body.len()).unwrap().to_be_bytes()[1..]);
+    handshake.extend_from_slice(&body);
+    let mut record = vec![0x16u8, 0x03, 0x01];
+    record.extend_from_slice(&sized(&handshake));
+    record
+}
+
+/// What a [`relay`] heard: everything the client said, then everything the
+/// server said.
+type Heard = std::thread::JoinHandle<(Vec<u8>, Vec<u8>)>;
+
+/// A loopback relay to `port` for one connection.
+///
+/// Every read has `SERVER_DEADLINE` on it and the accept gives up at the same
+/// deadline, so the handle can always be joined.
+fn relay(port: u16) -> (u16, Heard) {
+    use std::io::{Read, Write};
+    let deadline = crate::shared::SERVER_DEADLINE;
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a loopback listener");
+    let relayed = listener.local_addr().expect("its port").port();
+    listener.set_nonblocking(true).expect("a non-blocking listener");
+    let handle = std::thread::spawn(move || {
+        let give_up_at = std::time::Instant::now() + deadline;
+        let client = loop {
+            match listener.accept() {
+                Ok((socket, _)) => break socket,
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        && std::time::Instant::now() < give_up_at =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                Err(_) => return (Vec::new(), Vec::new()),
+            }
+        };
+        let Ok(server) = std::net::TcpStream::connect(("127.0.0.1", port)) else {
+            return (Vec::new(), Vec::new());
+        };
+        for socket in [&client, &server] {
+            socket.set_nonblocking(false).expect("a blocking socket");
+            socket.set_read_timeout(Some(deadline)).expect("a read deadline");
+            socket.set_write_timeout(Some(deadline)).expect("a write deadline");
+        }
+        let pipe = |mut from: std::net::TcpStream, mut to: std::net::TcpStream| {
+            std::thread::spawn(move || {
+                let mut said = Vec::new();
+                let mut chunk = [0u8; 4096];
+                loop {
+                    match from.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            said.extend_from_slice(&chunk[..n]);
+                            if to.write_all(&chunk[..n]).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+                let _ = to.shutdown(std::net::Shutdown::Write);
+                said
+            })
+        };
+        let up = pipe(client.try_clone().expect("the client"), server.try_clone().expect("the server"));
+        let down = pipe(server, client);
+        (up.join().unwrap_or_default(), down.join().unwrap_or_default())
+    });
+    (relayed, handle)
+}
+
+/// **A Buri client and a Buri server agree on `X25519MLKEM768`**, and the
+/// client also sends an X25519 share, so a server without ML-KEM answers it
+/// in one round trip.
+///
+/// The relay in between reads the two hellos, which TLS 1.3 sends in the clear.
+#[test]
+fn a_buri_client_and_server_agree_on_hybrid_post_quantum_key_exchange() {
+    unless_ready!();
+    let (certificate, key, _absent) = crate::shared::tls_identity("e2e-hybrid");
+    let authority = certificate.with_file_name("ca.pem");
+    std::fs::write(&authority, crate::shared::TLS_CA_PEM).expect("the authority");
+
+    let server = built("e2e-hybrid-server", &tls_running_server(&certificate, &key));
+    let client = built("e2e-hybrid-client", &fetching_client());
+    crate::shared::admitted(&client);
+    let running = crate::shared::announced(&server);
+    let (port, relayed) = relay(running.2);
+    let url = format!("https://localhost:{port}/secure");
+    let authority_text = authority.display().to_string();
+    let fetched = fetched(&client, std::slice::from_ref(&url), &[("SSL_CERT_FILE", &authority_text)]);
+    let (said, answered) = relayed.join().expect("the relay");
+
+    crate::shared::signalling(&running.0, crate::shared::SIGTERM);
+    let served = crate::shared::finished(running);
+
+    assert_eq!(
+        fetched.stdout, "200 <none> /secure\n",
+        "the request through the relay was not answered.\nstderr:\n{}\nthe server said:\n{}\n{}",
+        fetched.stderr, served.stdout, served.stderr
+    );
+    let (groups, shares) = offered_groups(&said)
+        .unwrap_or_else(|| panic!("the client's first bytes are not a ClientHello: {said:?}"));
+    assert_eq!(
+        groups.first(),
+        Some(&HYBRID_GROUP),
+        "the client does not offer X25519MLKEM768 first: {groups:04x?}"
+    );
+    assert!(groups.contains(&X25519_GROUP), "the client cannot fall back to X25519: {groups:04x?}");
+    assert_eq!(
+        shares,
+        vec![HYBRID_GROUP, X25519_GROUP],
+        "the client should send a hybrid share and an X25519 share"
+    );
+    assert_eq!(
+        settled_group(&answered),
+        Some(HYBRID_GROUP),
+        "the server did not settle on X25519MLKEM768 with a client that offered it"
+    );
+    assert_eq!(served.status, 0, "stdout:\n{}\nstderr:\n{}", served.stdout, served.stderr);
+}
+
+/// **A Buri server answers a client that only knows X25519** with a
+/// `ServerHello` on X25519, rather than asking it for a share it cannot make.
+#[test]
+fn a_buri_server_answers_a_client_that_only_knows_classical_key_exchange() {
+    unless_ready!();
+    let (certificate, key, _absent) = crate::shared::tls_identity("e2e-classical");
+    let binary = built("e2e-classical-server", &tls_running_server(&certificate, &key));
+    let running = crate::shared::announced(&binary);
+
+    let back = dialled(running.2, &classical_client_hello(), Until::ARecord);
+
+    crate::shared::signalling(&running.0, crate::shared::SIGTERM);
+    let out = crate::shared::finished(running);
+    assert_eq!(
+        settled_group(&back),
+        Some(X25519_GROUP),
+        "the server did not settle on X25519 for a client that offered nothing else: {back:?}"
+    );
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+}
+
+// ---------------------------------------------------------------------------
 // `core/tasks`'s timers
 // ---------------------------------------------------------------------------
 

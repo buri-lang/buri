@@ -528,8 +528,8 @@
 //!
 //! ## 8. Features, and the manifest that is not called `Cargo.toml`
 //!
-//! Two features. `net` is on by default: `tokio`, `hyper`, `rustls`, `ring`
-//! and `tungstenite`. `net-h3` is **off** by default and adds `quinn`. Together
+//! Two features. `net` is on by default: `tokio`, `hyper`, `rustls`,
+//! `rustls-graviola`, `graviola` and `tungstenite`. `net-h3` is **off** by default and adds `quinn`. Together
 //! they are the runtime's whole admitted dependency set, closed by an exact
 //! list rather than by a habit (`manifest.toml` argues each entry, the root
 //! `Cargo.toml` states the bar, and `dependencies_stay_behind_the_bar` asserts
@@ -538,10 +538,8 @@
 //! **Three of the six are linked and three are not.** [`rt`] is the thread
 //! runtime — the reactor, the run baton, the thread pool and the task table —
 //! and `Clock::sleepMilliseconds` and `Network::fetch` wait on it, so the archive carries
-//! the reactor's code on purpose; `rustls` over `ring` is what [`tls`] uses for
-//! `https://`, and it is why the archive grew by about 1.72 MiB, most of it
-//! `ring`'s native object code, which a `staticlib` carries whether the linker
-//! wants it or not. `quinn` is the one crate still referenced only by [`net`],
+//! the reactor's code on purpose; `rustls` over `graviola` is what [`tls`]
+//! uses for `https://`, with X25519MLKEM768 key exchange first (#225). `quinn` is the one crate still referenced only by [`net`],
 //! which names a type from it and stops, so the LTO leaves it out of the
 //! archive entirely — measurably: an `net-h3` archive carries no quinn symbol
 //! at all and costs 4 544 bytes over one without it.
@@ -561,8 +559,8 @@
 //! program that has *asked for HTTP/3* needs, and the concurrency note gated h3
 //! behind configuration until the crate is trusted. `BURI_RUNTIME_NET_H3=1` is
 //! that configuration, `net-h3` implies `net` because QUIC carries TLS 1.3
-//! inside the transport, and the provider is pinned to `ring` by name so that
-//! an h3 archive has one cryptography implementation in it and not two.
+//! inside the transport, and its provider is `ring`, because `graviola`'s
+//! suites carry no QUIC header protection.
 //!
 //! What a toolchain without it owes a program that asked for `.Http3` is a
 //! **value**: [`net::serves`] answers `Err`, `serve` returns
@@ -601,11 +599,10 @@
 //! `Network.fetch`, including the ones that were only ever going to ask for
 //! `http://`.
 //!
-//! A host with no C compiler gets the same `net`-off runtime, and gets it
-//! automatically: `ring` builds C and assembly, so `cli/build.rs` probes for
-//! `cc` and falls back with a `cargo:warning` rather than failing the
-//! toolchain's build. That is the bar's third clause — degrade, do not break —
-//! reaching a tool rather than a crate.
+//! `net` needs only `rustc`. `crypto` and `net-h3` need a C compiler for
+//! `ring`, so `cli/build.rs` probes for `cc` and turns them off with a
+//! `cargo:warning` rather than failing the toolchain's build. That is the bar's
+//! third clause — degrade, do not break — reaching a tool rather than a crate.
 //!
 //! The package's manifest is `manifest.toml` and its lockfile is
 //! `manifest.lock`, neither named the way Cargo would name it, because a

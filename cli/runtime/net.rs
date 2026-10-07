@@ -11,9 +11,9 @@
 //!
 //! ## The crates, and what does or does not call them
 //!
-//! `manifest.toml`'s `net` feature brings `tokio`, `hyper`, `rustls`, `ring`
-//! and `tungstenite` into the runtime's dependency tree, and its `net-h3`
-//! feature brings `quinn`. This file names one type from each, which for two of
+//! `manifest.toml`'s `net` feature brings `tokio`, `hyper`, `rustls`,
+//! `rustls-graviola`, `graviola` and `tungstenite` into the runtime's
+//! dependency tree, and its `net-h3` feature brings `quinn`. This file names one type from each, which for two of
 //! them — `tungstenite` and `quinn` — is still the *whole* of what references
 //! them: no intrinsic key mangles to a symbol declared here
 //! (`runtime_native::symbol_for` is the rule, and
@@ -103,7 +103,7 @@
 //!
 //! `cli/tests/ci.rs::the_runtime_archive_is_real` holds the remaining claim in CI
 //! the direct way — it greps the archive's symbol table, requires `tokio`,
-//! `rustls`, `ring` and `hyper` to be **present** when the feature file says
+//! `rustls`, `graviola` and `hyper` to be **present** when the feature file says
 //! `net`, and requires `tungstenite` and `quinn` to be **absent** on every leg,
 //! h3 included. Each of the four linked crates crossed that line in the commit
 //! that linked it, which is the assertion being moved deliberately rather than
@@ -192,7 +192,7 @@ pub const BURI_NET_TOKIO: i64 = 1 << 0;
 /// crate: the acceptor below hands it every connection ALPN settled on `h2`.
 /// HTTP/1.1 is framed in this file and needs no crate at all.
 pub const BURI_NET_HYPER: i64 = 1 << 1;
-/// TLS 1.2 and 1.3 — `rustls` over the `ring` provider. Unlike its three
+/// TLS 1.2 and 1.3 — `rustls` over the `graviola` provider. Unlike its three
 /// neighbours this bit now means a working capability rather than a linked
 /// crate: `tls.rs` builds a client configuration from it and `http.rs` reaches
 /// that for every `https://` URL.
@@ -218,13 +218,10 @@ const LINKED: i64 = {
     let _reactor = size_of::<tokio::sync::Semaphore>();
     let _http = size_of::<hyper::Method>();
     let _tls = size_of::<rustls::ClientConfig>();
-    // `ring` is reached through `rustls::crypto::ring` and never named in
-    // `tls.rs`, so without this line the manifest could lose the entry and
-    // nothing would stop compiling — while every binary would go on carrying
-    // its object code through `rustls`'s own feature. It is declared directly
-    // for `dependencies_stay_behind_the_bar` to see, and it is named here for
-    // the same reason the other five are.
-    let _provider = size_of::<ring::digest::Context>();
+    // `graviola` is reached through `rustls-graviola` and, outside the
+    // WebSocket nonce, never named, so it is named here for the same reason
+    // the others are.
+    let _provider = size_of::<graviola::Error>();
     let _websocket = size_of::<tungstenite::protocol::Role>();
     BURI_NET_TOKIO | BURI_NET_HYPER | BURI_NET_TLS | BURI_NET_WEBSOCKET | H3
 };
@@ -4156,14 +4153,12 @@ mod client {
     /// The `sec-websocket-key`: sixteen octets from the platform's generator,
     /// base64'd, as RFC 6455 §4.1 requires.
     ///
-    /// **`ring`'s generator and not `getrandom`**, which is the one thing here
-    /// that is not `entropy.rs`'s answer to the same question. `entropy.rs` is
-    /// behind the `crypto` feature and this file is behind `net`, and the two
-    /// are independent: a toolchain built with `net` and without `crypto` has
-    /// no `getrandom` in it at all. `ring` is one of `net`'s own five crates,
-    /// its `SystemRandom` is `getrandom(2)`/`getentropy(2)` by another name,
-    /// and reaching it adds no dependency — which is what a runtime whose
-    /// admitted set is closed by an exact list needs.
+    /// **`graviola`'s generator and not `getrandom`**, which is the one thing
+    /// here that is not `entropy.rs`'s answer to the same question.
+    /// `entropy.rs` is behind the `crypto` feature and this file is behind
+    /// `net`, and the two are independent. `graviola` is one of `net`'s own
+    /// crates and its `random::fill` is `getrandom(2)`/`getentropy(2)` by
+    /// another name, so reaching it adds no dependency.
     ///
     /// A generator that will not answer is a refusal rather than an abort,
     /// unlike `Entropy`'s: this is a nonce that stops a cache answering the
@@ -4171,14 +4166,12 @@ mod client {
     /// told in.
     fn nonce() -> Result<String, ServeErr> {
         let mut key = [0u8; 16];
-        ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut key).map_err(
-            |_| {
-                ServeErr::new(
-                    ServeFail::Transport,
-                    "this platform's generator would not answer, so the handshake has no nonce",
-                )
-            },
-        )?;
+        graviola::random::fill(&mut key).map_err(|_| {
+            ServeErr::new(
+                ServeFail::Transport,
+                "this platform's generator would not answer, so the handshake has no nonce",
+            )
+        })?;
         Ok(encode(&key))
     }
 
@@ -5994,8 +5987,7 @@ mod tests {
                 .add(rustls::pki_types::CertificateDer::from(der))
                 .expect("the test CA is a certificate this verifier can use");
         }
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let mut config = rustls::ClientConfig::builder_with_provider(provider)
+        let mut config = rustls::ClientConfig::builder_with_provider(crate::tls::provider())
             .with_safe_default_protocol_versions()
             .expect("a usable configuration")
             .with_root_certificates(roots)

@@ -1404,7 +1404,17 @@ fn the_runtime_archive_is_real() {
     // is scaled from the Darwin delta at ELF's 1.43x — about +4.57 MB on the
     // ~23.2 MB the last container measured, so ~27.8 MB. 29 MiB is the derived
     // re-statement; a container measurement replaces it with one number.
-    let budget = if cfg!(target_os = "macos") { 17_825_792 } else { 30_408_704 };
+    //
+    // **Post-quantum TLS (#225) moved the provider from `ring` to `graviola`**,
+    // and `ring` stayed for `core/crypto`, so the archive carries both. On
+    // aarch64-apple-darwin it went from 17 467 736 to **18 945 968**,
+    // +1 478 232, over the 17 MiB line. 19.5 MiB is the re-statement and leaves
+    // 7.3 % of the margin. Linux was measured this time, by cross-building the
+    // runtime package from macOS with musl's headers: x86_64 went from
+    // 25 172 732 to 27 100 292 and aarch64 from 25 282 874 to 26 868 252. Both
+    // stay under 29 MiB, which therefore does not move. A hello world does not
+    // grow: it reaches neither provider.
+    let budget = if cfg!(target_os = "macos") { 20_447_232 } else { 30_408_704 };
     assert!(
         rt::ARCHIVE.len() <= budget,
         "libburi_rt.a is {} bytes, over the {budget}-byte budget for this platform. Every buri \
@@ -1443,7 +1453,7 @@ fn the_runtime_archive_is_real() {
     let symbols = archive_symbols().to_lowercase();
     let carries = |crate_name: &str| symbols.contains(crate_name);
     if rt::net() {
-        for wanted in ["tokio", "rustls", "ring_core", "hyper", "tungstenite"] {
+        for wanted in ["tokio", "rustls", "graviola", "hyper", "tungstenite"] {
             assert!(
                 carries(wanted),
                 "libburi_rt.a carries no symbol from `{wanted}`, and it was built with the \
@@ -1453,7 +1463,7 @@ fn the_runtime_archive_is_real() {
             );
         }
     } else {
-        for unwanted in ["tokio", "hyper", "rustls", "tungstenite", "ring_core"] {
+        for unwanted in ["tokio", "hyper", "rustls", "tungstenite", "graviola"] {
             assert!(
                 !carries(unwanted),
                 "libburi_rt.a was built without `net` and carries symbols from `{unwanted}`."
