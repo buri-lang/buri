@@ -217,6 +217,11 @@ mod matches;
 // in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod supplied_context;
+// `after` under `headless()`, fired by `elapse` on a virtual clock: the order,
+// ties, and timers scheduled from a timer, under the heap check, on every
+// backend built in and on JavaScript.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod headless_timers;
 // A region `ui.rebuild` keys on a heap value read from a signal, rebuilt by a
 // fill, under the heap check, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

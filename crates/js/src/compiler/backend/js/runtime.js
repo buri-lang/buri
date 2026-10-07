@@ -6592,7 +6592,7 @@ const $ui_fake_timers = [];
 let $ui_fake_timer_next = 1;
 let $ui_fake_now = 0;
 
-function $host_testing_Headless_schedule(self, millis, run) {
+function $host_testing_headlessTimerStart(self, millis, run) {
   const handle = $ui_fake_timer_next++;
   const ms = Number(millis);
   $ui_fake_timers.push({
@@ -6628,7 +6628,7 @@ function $host_testing_elapse(millis) {
     if (next === undefined) break;
     next.done = true;
     $ui_fake_now = next.due;
-    $ui_flush(() => next.run(next.self));
+    $ui_flush(() => next.run(next.self, BigInt(next.handle)));
   }
   $ui_fake_now = target;
   return 0;

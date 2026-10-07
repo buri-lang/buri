@@ -1,0 +1,9 @@
+error: expected `=`, found `after` [unexpected-token]
+  --> main.buri:69:11
+   |
+69 |     let _ after =(ctx, time.milliseconds(1000), fn(c) => {
+   |           ^^^^^
+   |
+   = expected: `=`
+   = actual: `after`
+   = fix: write `=` here

@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:45:1
+   |
+45 | }
+   | ^
+   |
+  --> main.buri:25:13
+   |
+25 |     ui.stack({
+   |             ^ opened here
+   |
+   = fix: write `)` here

@@ -1,0 +1,12 @@
+error: this block is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:26:15
+   |
+26 |         styles, : [.Layout(.Column), .Group([])],
+   |               ^
+   |
+  --> main.buri:25:14
+   |
+25 |     ui.stack({
+   |              ^ opened here
+   |
+   = fix: write `}` here

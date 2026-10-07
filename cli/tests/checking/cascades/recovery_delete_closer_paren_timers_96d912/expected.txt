@@ -1,0 +1,28 @@
+error: `choose` takes 3 arguments, but 1 was given [argument-count]
+  --> main.buri:38:13
+   |
+38 |             ui.choose(
+   |             ^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 1
+   = fix: pass `choose` the following arguments: choose<C>(cond: Prop<Bool>, then: Node<C>, otherwise: Node<C>)
+error: `.Computed` needs a known expected type [untyped-variant]
+  --> main.buri:39:17
+   |
+39 |                 .Computed(fn(scope) => message.get(scope != ""),
+   |                 ^^^^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.Computed(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:43:9
+   |
+43 |         ],
+   |         ^
+   |
+  --> main.buri:38:22
+   |
+38 |             ui.choose(
+   |                      ^ opened here
+   |
+   = fix: write `)` here

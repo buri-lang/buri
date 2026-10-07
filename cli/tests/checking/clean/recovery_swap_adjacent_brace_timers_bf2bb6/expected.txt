@@ -1,0 +1,9 @@
+error: expected an expression, found `_` [unexpected-token]
+  --> main.buri:89:9
+   |
+89 |         _ let = hit.set(c, "fired");
+   |         ^
+   |
+   = expected: an expression
+   = actual: `_`
+   = fix: write a value here

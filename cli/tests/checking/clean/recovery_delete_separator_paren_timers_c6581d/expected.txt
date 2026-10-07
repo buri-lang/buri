@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:68:25
+   |
+68 |     let hit = signal(ctx "waiting");
+   |                         ^
+   |
+   = fix: write `,` here

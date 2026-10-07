@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:47:1
+   |
+47 | test "a toast shows its message, then a timer takes it away" {
+   | ^^^^
+   |
+  --> main.buri:22:36
+   |
+22 | fn toaster<C: Ui>(ctx: C): Node<C> {
+   |                                    ^ opened here
+   |
+   = fix: write `}` here

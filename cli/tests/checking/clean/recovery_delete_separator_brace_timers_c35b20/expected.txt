@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-semicolon]
+  --> main.buri:32:52
+   |
+32 |                     let _ = message.set(c, "Saved")
+   |                                                    ^
+   |
+   = fix: write `;` here

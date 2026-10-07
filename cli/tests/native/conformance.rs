@@ -819,6 +819,10 @@ const PACKAGES: &[Case] = &[
     // HTML, so every block agrees. It runs on both — `BUILD.buri`'s `sources`
     // for the JavaScript run and this driver for the native one.
     included("ui/theme.buri"),
+    // `platform/effect`'s scheduler (#125) under `headless()`: `after` and
+    // `cancel` on the virtual clock `elapse` drives, which both backends have
+    // since #256.
+    included("ui/timers.buri"),
     excluded(
         "ui_mount/mount.buri",
         "`ui/node`'s `mount` — the real page mount, a live document a browser \
@@ -826,14 +830,6 @@ const PACKAGES: &[Case] = &[
              block of the render suite that reaches `mount` rather than the \
              test-only `render`; #53 phase 6 split it here so `ui/tree.buri` can \
              run on both backends, and it keeps `backends: [JS]`",
-    ),
-    excluded(
-        "ui_mount/effect.buri",
-        "`platform/effect`'s scheduler (#125): `after` runs a closure once a duration \
-             has passed, and a page's timers run on a real clock. The headless \
-             double queues them against a virtual one that `platform/effect/testing`'s \
-             `elapse` drives, which this side has; the native runtime carries no \
-             such scheduler, so this stays `backends: [JS]` beside its sibling",
     ),
     excluded(
         "web/document.buri",

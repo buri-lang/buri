@@ -1,7 +1,0 @@
-error: an import declaration ends with `;` [missing-semicolon]
-  --> main.buri:18:35
-   |
-18 | from "ui/signal" import { signal }
-   |                                   ^
-   |
-   = fix: write `;` here

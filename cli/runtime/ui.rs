@@ -1606,6 +1606,14 @@ unsafe extern "C" {
 /// (`memory::quiet_heap_audit`), because a program that stopped on its own
 /// terms is holding whatever it was holding.
 extern "C" fn give_back() {
+    // The timers `elapse` never reached, unfired.
+    if let Ok(mut c) = CLOCK.try_lock() {
+        let pending = std::mem::take(&mut c.due);
+        drop(c);
+        for (_, timer) in pending {
+            timer.give_back();
+        }
+    }
     let Ok(mut g) = GRAPH.try_lock() else { return };
     for n in &mut g.nodes {
         let release = n.release;
@@ -1657,6 +1665,154 @@ pub unsafe extern "C" fn buri_rt_host_testing_observer_read(
         read_into(id, stride, out);
         walk(glue, out);
     }
+}
+
+// ---------------------------------------------------------------------------
+// The headless double's timers, on a virtual clock (#256)
+// ---------------------------------------------------------------------------
+//
+// `runtime.js`'s `$ui_fake_timers`. A test has no wall clock to wait on, so what
+// `after` schedules waits here until `elapse` moves the clock past it. Keyed by
+// `(due, handle)`, so the first entry is the next to fire and a tie goes to the
+// one scheduled first. Each fires on the graph's own turn, as a handler does.
+
+/// One pending timer: the handler the backend handed over, with the double in
+/// the context slot of its record, and this file's copy of that record.
+struct FakeTimer {
+    entry: ComputeEntry,
+    state: *mut u8,
+    bytes: usize,
+    frame_at: i64,
+    body: Release,
+}
+
+// SAFETY: as `Compute`'s — the record is this file's own copy, reached by the
+// one thread that drives the graph.
+unsafe impl Send for FakeTimer {}
+
+impl FakeTimer {
+    /// Gives back the reference the call site took on the closure, and the
+    /// copy of the record.
+    fn give_back(self) {
+        // SAFETY: the record's first words are the closure `{ code, env }`,
+        // which is what `body` was generated for.
+        unsafe { walk(self.body, self.state) };
+        if !self.state.is_null() {
+            // SAFETY: `buri_rt_host_testing_headless_timer_start` leaked exactly
+            // this boxed slice.
+            drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(self.state, self.bytes)) });
+        }
+    }
+}
+
+/// The virtual clock. All zero to start with, so it costs a program that never
+/// schedules nothing but zeroed memory: `issued` counts handles, so the first
+/// is `1`, as on JavaScript.
+struct FakeClock {
+    now: i64,
+    issued: i64,
+    due: std::collections::BTreeMap<(i64, i64), FakeTimer>,
+}
+
+static CLOCK: Mutex<FakeClock> =
+    Mutex::new(FakeClock { now: 0, issued: 0, due: std::collections::BTreeMap::new() });
+
+fn clock() -> std::sync::MutexGuard<'static, FakeClock> {
+    match CLOCK.lock() {
+        Ok(c) => c,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// `Headless.schedule`'s runtime half: keeps `run` until `elapse` reaches
+/// `millis` from now, and answers its handle. A delay below zero is zero.
+///
+/// # Safety
+/// `entry` is the thunk the backend generated for the handler, `state` points
+/// at `bytes` readable bytes of the record it was generated against,
+/// `frame_at` is an offset inside that record or negative, and `body` is that
+/// record's release glue or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_headless_timer_start(
+    millis: i64,
+    entry: ComputeEntry,
+    state: *const u8,
+    bytes: usize,
+    frame_at: i64,
+    body: Release,
+) -> i64 {
+    give_back_at_exit();
+    let copy = if state.is_null() || bytes == 0 {
+        std::ptr::null_mut()
+    } else {
+        // SAFETY: the caller promises `bytes` readable bytes.
+        let record = unsafe { std::slice::from_raw_parts(state, bytes) }.to_vec();
+        Box::leak(record.into_boxed_slice()).as_mut_ptr()
+    };
+    let mut c = clock();
+    c.issued = c.issued.saturating_add(1);
+    let handle = c.issued;
+    let due = c.now.saturating_add(millis.max(0));
+    c.due.insert((due, handle), FakeTimer { entry, state: copy, bytes, frame_at, body });
+    handle
+}
+
+/// `Headless.unschedule(id)` — forgets a pending timer. One that has fired,
+/// been stopped already, or never existed is a no-op.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_headless_unschedule(_self: i64, id: i64) {
+    let taken = {
+        let mut c = clock();
+        let key = c.due.keys().find(|(_, h)| *h == id).copied();
+        key.and_then(|k| c.due.remove(&k))
+    };
+    if let Some(timer) = taken {
+        timer.give_back();
+    }
+}
+
+/// `elapse(millis)` — moves the clock and fires every timer due by then, in due
+/// order. A timer a firing one schedules joins this pass if it is due by then
+/// too, the way a page's clock would reach it. Nothing is locked while a body
+/// runs, so a body may schedule, cancel, or elapse in turn.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_elapse(millis: i64) {
+    let target = clock().now.saturating_add(millis);
+    loop {
+        let next = {
+            let mut c = clock();
+            match c.due.first_key_value().map(|(k, _)| *k) {
+                Some(key) if key.0 <= target => {
+                    c.now = key.0;
+                    c.due.remove(&key).map(|t| (key.1, t))
+                }
+                _ => None,
+            }
+        };
+        let Some((handle, timer)) = next else { break };
+        let frame =
+            if timer.frame_at >= 0 { buri_rt_stack_acquire() } else { std::ptr::null_mut() };
+        if let Ok(at) = usize::try_from(timer.frame_at) {
+            // SAFETY: the backend asked for the frame at this offset in a record
+            // of its own, and the start copied the whole of it.
+            unsafe { timer.state.add(at).cast::<*mut u8>().write(frame) };
+        }
+        let mut sink = [0u8; 8];
+        buri_rt_ui_flush_begin();
+        // SAFETY: `entry`/`state` are the handler's thunk and its kept record;
+        // `handle` is one live word crossing as the element, and `sink` a live
+        // destination a `()`-answering thunk writes nothing to.
+        unsafe {
+            (timer.entry)(timer.state, 0, std::ptr::addr_of!(handle).cast(), sink.as_mut_ptr());
+        }
+        if !frame.is_null() {
+            // SAFETY: this thread acquired it above and the thunk has returned.
+            unsafe { buri_rt_stack_release(frame) };
+        }
+        buri_rt_ui_flush_end();
+        timer.give_back();
+    }
+    clock().now = target;
 }
 
 /// `Headless.memo(compute)`.
