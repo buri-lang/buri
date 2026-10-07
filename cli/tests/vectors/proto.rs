@@ -26,9 +26,16 @@ fn proto_dir() -> PathBuf {
     tests_dir().join("proto")
 }
 
-/// `(request, response)` for each recorded exchange, bodies without the frame
-/// length.
-fn vectors() -> Vec<(Vec<u8>, Vec<u8>)> {
+/// One recorded exchange: whether `failure_list.txt` expected the test to fail,
+/// its name, and the request and response bodies without the frame length.
+struct Vector {
+    fails: bool,
+    name: String,
+    request: Vec<u8>,
+    response: Vec<u8>,
+}
+
+fn vectors() -> Vec<Vector> {
     let text = std::fs::read_to_string(proto_dir().join("vectors.txt"))
         .expect("cli/tests/proto/vectors.txt");
     let mut out = Vec::new();
@@ -37,10 +44,29 @@ fn vectors() -> Vec<(Vec<u8>, Vec<u8>)> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let (a, b) = line.split_once(' ').unwrap_or_else(|| panic!("malformed vector: {line}"));
-        out.push((unhex(a), unhex(b)));
+        let parts: Vec<&str> = line.split(' ').collect();
+        let [verdict, name, request, response] = parts[..] else {
+            panic!("malformed vector: {line}");
+        };
+        assert!(verdict == "pass" || verdict == "fail", "malformed verdict: {line}");
+        out.push(Vector {
+            fails: verdict == "fail",
+            name: name.to_string(),
+            request: unhex(request),
+            response: unhex(response),
+        });
     }
     out
+}
+
+/// The test names `failure_list.txt` expects to fail.
+fn listed() -> Vec<String> {
+    std::fs::read_to_string(proto_dir().join("failure_list.txt"))
+        .expect("cli/tests/proto/failure_list.txt")
+        .lines()
+        .map(|l| l.split('#').next().unwrap_or("").trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect()
 }
 
 fn unhex(s: &str) -> Vec<u8> {
@@ -107,8 +133,8 @@ fn replay(scratch: &Scratch) {
     assert!(artifact.is_file(), "the testee did not build");
 
     let mut stdin = Vec::new();
-    for (request, _) in &vectors {
-        frame(request, &mut stdin);
+    for v in &vectors {
+        frame(&v.request, &mut stdin);
     }
 
     let runtime = js_runtime();
@@ -133,13 +159,14 @@ fn replay(scratch: &Scratch) {
     );
 
     let mut wrong = Vec::new();
-    for (i, ((request, want), have)) in vectors.iter().zip(got.iter()).enumerate() {
-        if want != have {
+    for (v, have) in vectors.iter().zip(got.iter()) {
+        if &v.response != have {
             wrong.push(format!(
-                "vector {}:\n    request:  {}\n    recorded: {}\n    now:      {}",
-                i + 1,
-                hex(request),
-                hex(want),
+                "{} ({}):\n    request:  {}\n    recorded: {}\n    now:      {}",
+                v.name,
+                if v.fails { "listed as failing" } else { "passed the runner" },
+                hex(&v.request),
+                hex(&v.response),
                 hex(have)
             ));
         }
@@ -153,6 +180,115 @@ fn replay(scratch: &Scratch) {
         vectors.len(),
         wrong.join("\n")
     );
+}
+
+/// **protobuf's own runner passes, with `failure_list.txt` applied.**
+///
+/// The runner is the ground truth the recording comes from: it fails on a test
+/// that fails unlisted and on a listed test that passes. It is a C++ binary
+/// `nix build .#conformance-runner` makes, so this runs where
+/// `CONFORMANCE_TEST_RUNNER` names it, which CI's `protobuf conformance` job
+/// does.
+#[test]
+fn the_conformance_runner_passes() {
+    let Some(runner) = std::env::var_os("CONFORMANCE_TEST_RUNNER") else {
+        ci::deferred_to(
+            "vectors::proto",
+            "protobuf conformance",
+            "CONFORMANCE_TEST_RUNNER names no runner here",
+        );
+        return;
+    };
+    let scratch = Scratch::copy_of("proto-runner", &proto_dir().join("repo"));
+    scratch.run(&["build", "//cmd/testee"]).ok();
+    let artifact = scratch.path(".buri/out/node/cmd/testee/testee.mjs");
+    let testee = scratch.path("testee.sh");
+    std::fs::write(
+        &testee,
+        format!("#!/bin/sh\nexec '{}' '{}'\n", js_runtime(), artifact.display()),
+    )
+    .expect("writing the testee's script");
+    std::fs::set_permissions(&testee, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("making the testee's script executable");
+    let out = Command::new(&runner)
+        .arg("--failure_list")
+        .arg(proto_dir().join("failure_list.txt"))
+        .arg("--output_dir")
+        .arg(scratch.path(""))
+        .arg(&testee)
+        .output()
+        .unwrap_or_else(|e| panic!("cannot start the conformance runner: {e}"));
+    let report = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let summary: Vec<&str> = report.lines().filter(|l| l.contains("CONFORMANCE SUITE")).collect();
+    println!("{}", summary.join("\n"));
+    assert!(
+        out.status.success() && !summary.is_empty() && summary.iter().all(|l| l.contains("PASSED")),
+        "the conformance runner failed:\n{}",
+        indent(&report.lines().filter(|l| l.starts_with("ERROR")).collect::<Vec<_>>().join("\n"))
+    );
+}
+
+/// **`failure_list.txt` is the set of recorded failures, exactly.**
+///
+/// `run.sh --record` writes a verdict beside every exchange, and records only a
+/// run the runner passed with the list applied. So a name listed here and not
+/// recorded as failing, or recorded as failing and no longer listed, is a list
+/// edited without the runner. The replay above holds the answers; this holds
+/// the list.
+#[test]
+fn the_failure_list_is_the_recorded_failures() {
+    let recorded: std::collections::BTreeSet<String> =
+        vectors().into_iter().filter(|v| v.fails).map(|v| v.name).collect();
+    let listed: std::collections::BTreeSet<String> = listed().into_iter().collect();
+    let unrecorded: Vec<_> = listed.difference(&recorded).collect();
+    let unlisted: Vec<_> = recorded.difference(&listed).collect();
+    assert!(
+        unrecorded.is_empty() && unlisted.is_empty(),
+        "failure_list.txt and vectors.txt disagree. Run cli/tests/proto/run.sh, fix \
+         the list until the runner passes, then re-record with --record.\n  \
+         listed, not recorded as failing: {unrecorded:?}\n  \
+         recorded as failing, not listed: {unlisted:?}"
+    );
+}
+
+/// **Every class of bug the conformance runner has found is in the recording.**
+///
+/// The replay only guards what was recorded, so the recording must reach each
+/// of them: a recording narrowed by accident would pass every other test here.
+#[test]
+fn the_recording_covers_every_fixed_class_of_bug() {
+    let names: std::collections::BTreeSet<String> =
+        vectors().into_iter().filter(|v| !v.fails).map(|v| v.name).collect();
+    let wanted = [
+        // NaN and the infinities, as strings.
+        "Required.Proto3.JsonInput.DoubleFieldNan.JsonOutput",
+        "Required.Proto3.JsonInput.FloatFieldInfinity.JsonOutput",
+        "Required.Proto3.JsonInput.DoubleFieldNegativeInfinity.JsonOutput",
+        "Required.Proto3.ProtobufInput.DoubleFieldNormalizeSignalingNan.JsonOutput",
+        // int64 at and past both ends.
+        "Required.Proto3.JsonInput.Int64FieldMaxValue.JsonOutput",
+        "Required.Proto3.JsonInput.Int64FieldMinValue.JsonOutput",
+        "Required.Proto3.JsonInput.Int64FieldTooLarge",
+        "Required.Proto3.JsonInput.Int64FieldTooSmall",
+        "Required.Proto3.ProtobufInput.ValidDataScalar.INT64[2].ProtobufOutput",
+        "Required.Proto3.ProtobufInput.ValidDataScalar.SINT64[3].ProtobufOutput",
+        // uint64 and fixed64 past 2^63.
+        "Required.Proto3.JsonInput.Uint64FieldMaxValue.JsonOutput",
+        "Required.Proto3.JsonInput.Uint64FieldMaxValueNotQuoted.JsonOutput",
+        "Required.Proto3.JsonInput.Uint64FieldTooLarge",
+        "Required.Proto3.ProtobufInput.ValidDataScalar.UINT64[2].JsonOutput",
+        "Required.Proto3.ProtobufInput.ValidDataScalar.FIXED64[2].JsonOutput",
+        // A oneof set twice, a leading zero, and proto3's presence.
+        "Required.Proto3.JsonInput.OneofFieldDuplicate",
+        "Required.Proto3.JsonInput.Int32FieldLeadingZero",
+        "Required.Proto3.JsonInput.SkipsDefaultPrimitive.Validator",
+    ];
+    let missing: Vec<_> = wanted.iter().filter(|w| !names.contains(**w)).collect();
+    assert!(missing.is_empty(), "vectors.txt does not record these passing: {missing:?}");
 }
 
 fn hex(b: &[u8]) -> String {

@@ -1,6 +1,6 @@
 # Tests the Buri implementation is expected to fail, and why.
 #
-# Recorded from a run and then grouped: every entry belongs to one of the seven
+# Recorded from a run and then grouped: every entry belongs to one of the three
 # reasons below, and each reason is a decision written down somewhere else -- in
 # README.md for what was removed from the vendored schema and what edition it
 # was migrated to, in `buri docs build/proto` for the mapping, in `core/proto`
@@ -10,15 +10,11 @@
 # passes, so this file cannot rot in the direction of hiding a fix; and a test
 # that starts failing has to be classified before it can be added.
 #
-# The reference implementation is proto3 and the schema under test is edition
-# 2026, so one group below is not a gap at all: it is the two schemas disagreeing
-# about presence, correctly, in the way editions changed.
-#
-# Counts when this was recorded: 1017 succeeded, 1314 skipped, 424 expected to
-# fail, 7 unexpected. The seven are the proto3 JSON mapping: a NaN written as a
-# bare `NaN`, and an int64 below -2^63 accepted. They are bugs, so they are not
-# listed here. `./run.sh --update` rewrites the names, and leaves the
-# grouping to whoever reads the diff.
+# Counts when this was recorded: 1060 succeeded, 1314 skipped, 406 expected to
+# fail, 0 unexpected. `vectors.txt` records the same run, with `fail` beside
+# every test named here, and `cli/tests/vectors/proto.rs` holds the two to
+# agreeing. `./run.sh --update` writes the names of anything unexpected, and
+# leaves the grouping to whoever reads the diff.
 
 # --- `map<K, V>`, refused by the schema reader --------------------------------
 #
@@ -450,6 +446,10 @@ Required.Proto3.TimestampProtoNegativeNanos.JsonOutput
 # generated struct has nowhere to put them. A message decoded from a newer
 # schema and re-encoded therefore loses what that schema added. Stated in
 # `core/proto`.
+#
+# Keeping them would mean a field for the bytes on every generated struct, and
+# every struct literal written without `..defaultM()` would stop compiling.
+# That breaking change is a decision about the mapping, not a codec fix.
 #
 # Unrecognised *enum values* are no longer in this group: editions enums are
 # open, and the generated enum keeps one in an `Unrecognized` variant.

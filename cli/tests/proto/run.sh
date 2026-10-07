@@ -24,19 +24,11 @@ if ! command -v "$runner" >/dev/null 2>&1 && [ ! -x "$runner" ]; then
   cat >&2 <<'MSG'
 error: conformance_test_runner is not on PATH.
 
-It is protobuf's own C++ test driver, and nixpkgs does not package it — it is a
-test binary rather than a shipped one. Build it from the protobuf release this
-directory vendors (see README.md for the version), then put it on PATH or point
-CONFORMANCE_TEST_RUNNER at it:
+It is protobuf's own C++ test driver, and nixpkgs does not package it. The
+flake builds it from the protobuf release this directory vendors:
 
-  curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v35.1/protobuf-35.1.tar.gz
-  tar xzf protobuf-35.1.tar.gz && cd protobuf-35.1
-  nix-shell -p cmake ninja abseil-cpp zlib package-config --run '
-    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-      -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_CONFORMANCE=ON \
-      -Dprotobuf_ABSL_PROVIDER=package &&
-    cmake --build build --target conformance_test_runner -j8'
-  export CONFORMANCE_TEST_RUNNER=$PWD/build/conformance_test_runner
+  nix build .#conformance-runner
+  export CONFORMANCE_TEST_RUNNER=$PWD/result/bin/conformance_test_runner
 MSG
   exit 2
 fi
@@ -84,8 +76,13 @@ EOF
   testee="$work/record.sh"
 fi
 
+# `--verbose` names every test as it is sent, which is what lets a recording
+# say which test each exchange belongs to.
+verbose=""
+if [ "$mode" = "--record" ]; then verbose="--verbose"; fi
+
 set +e
-"$runner" --output_dir "$work" --failure_list "$here/failure_list.txt" "$testee" \
+"$runner" $verbose --output_dir "$work" --failure_list "$here/failure_list.txt" "$testee" 2>&1 \
   | tee "$work/report.txt"
 status=$?
 set -e
@@ -104,7 +101,14 @@ case "$mode" in
     fi
     ;;
   --record)
-    python3 "$here/record.py" "$work/frames.txt" "$here/vectors.txt"
+    # Only a passing run is recorded: the verdicts written beside each
+    # exchange are failure_list.txt's, and a failing run says they are wrong.
+    if [ "$status" -ne 0 ]; then
+      echo "the suite failed, so nothing was recorded" >&2
+      exit "$status"
+    fi
+    python3 "$here/record.py" "$work/frames.txt" "$work/report.txt" \
+      "$here/failure_list.txt" "$here/vectors.txt"
     echo "re-recorded $here/vectors.txt"
     ;;
 esac
