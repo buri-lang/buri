@@ -129,12 +129,19 @@ export fn strSize(s: Str): Int {
 
 /// Four little-endian bytes of a value read as unsigned at 32 bits.
 export fn writeFixed32<C: Allocator>(ctx: C, out: [U8], value: Int): [U8] {
+    out.concat(ctx, le32(value))
+}
+
+/// The same four bytes on their own. Pure: an array literal of a fixed size
+/// allocates nothing a context has to grant.
+export fn le32(value: Int): [U8] {
     let v = if (value < 0) { value + TWO32 } else { value };
-    out
-        .push(ctx, (v % 256).wrapToU8())
-        .push(ctx, (divide(v, 256) % 256).wrapToU8())
-        .push(ctx, (divide(v, 65536) % 256).wrapToU8())
-        .push(ctx, (divide(v, 16777216) % 256).wrapToU8())
+    [
+        (v % 256).wrapToU8(),
+        (divide(v, 256) % 256).wrapToU8(),
+        (divide(v, 65536) % 256).wrapToU8(),
+        (divide(v, 16777216) % 256).wrapToU8(),
+    ]
 }
 
 /// Eight little-endian bytes, as two halves, so that a negative `sfixed64`
