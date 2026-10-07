@@ -5663,6 +5663,66 @@ release and only stencil's copies to remove in debug. Two smaller changes would
 reach those, and neither is about contexts: forwarding a `GetField` out of a
 one-field struct, and passing a wide aggregate to a stencil callee by address.
 
+**Done since: a field is read where it is.** `jit.rs::forward_fields` gives a
+`GetField`'s result the bytes of the field inside its struct's slot, so the
+load and store that copied it out become the identity:
+
+```text
+; spin, debug, after
+ldr  x8, [x0, #0x8]     ; ctx.Random.0, read in place
+mul  x3, x8, x1
+```
+
+It needs the struct's bytes to keep still while the field is read. Either the
+struct is written once (a slot class of its own, not a block parameter, inside
+the frame), and the field may be read anywhere, or every read is a later
+instruction of the same block, within 32, and nothing up to the last one writes
+those bytes. That covers any struct, not only one field: a field of a record
+parameter is forwarded too.
+
+Instructions retired per step, best of alternating runs. The climbs are
+`random.int(ctx, n, 1) + climb(ctx, n - 1)`, 30 M calls:
+
+| Debug | Before | After | |
+|---|---:|---:|---:|
+| `spin`, `Mul(k)` built at run time | 21.1 | 17.2 | −18% |
+| `spin`, `Mul(31)` | 21.1 | 17.1 | −19% |
+| `spin`, `Zero {}`, and the hand-written loop | 18.1 | 18.1 | 0 |
+| climb, `Mul(k)` | 34.9 | 30.9 | −11% |
+| climb, a 24-byte `Random` | 42.9 | 34.8 | −19% |
+
+The workloads didn't move outside their noise. `cli/tests/example`'s
+`buri test //...` ran its tests in a median 895 M child instructions before and
+889 M after, over eight cold runs each with a spread of 10%. A generated repo of
+200 libraries and 400 tests read 3,432 M and 3,444 M, spread 1.5%. Neither
+`emit` moved. The 18-binary repository's `emit` stayed at 371–385 M, and its
+binaries, which are mostly startup, ran 300.3 M before and 299.2 M after.
+
+**The bytes moved only where a copy went.** Of the 270 objects of the eight
+saved corpora on all three targets, 120 are identical. In the other 150, every
+one of the 2,175 functions that differs is its old self with frame copies taken
+out (17,270 instructions) and offsets and branch targets changed. Nothing else
+changed and no function grew. The 18-binary repository is the same: 112 of
+172 objects identical, and 267 functions lose 14,332 instructions.
+
+**Measured and left: a wide context passed by address.** The prototype passed
+a context wider than 16 bytes to a function with a body as the address of the
+caller's slot. A callee that only hands it on keeps the address. Any other read
+copies the value into a home on entry. Per call, best of alternating runs:
+
+| Debug, on top of forwarding | By value | By address | |
+|---|---:|---:|---:|
+| `fan` over a 24-byte context, which only hands it on | 25.2 | 21.2 | −16% |
+| the `{ alloc(), fs() }` `fan` test, both tests' child instructions | 2.85 G | 2.71 G | −5% |
+| climb, a 24-byte `Random`: one effect call per call | 34.8 | 42.2 | +21% |
+
+A copy only moves. Where the callee reads the context, the caller's copy
+becomes the callee's, with a `lea` and an `eload` on top, and most callees read
+their context. Reading fields through the pointer instead needs a `pload`
+stencil the library doesn't have, and costs about three instructions per read
+against the two to four a call saves. That's even at one read and a loss past
+it. The example and the generated repo stayed inside their noise either way.
+
 ### 6.59 `gen --check`, 2026-10-06
 
 [#260](https://github.com/buri-lang/buri/issues/260): a no-op `buri gen --check`
