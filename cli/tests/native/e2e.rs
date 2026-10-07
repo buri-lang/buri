@@ -1851,7 +1851,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     let args = env.arguments(ctx);
     let _p3 = io.println(ctx, "args ${args.join(ctx, ",")}").mapErr(fn(_e) => "print")?;
     let seen = match (env.get(ctx, "BURI_E2E_VARIABLE")) {
-        .Some(value) => value,
+        .Some(value) => value.reveal(),
         .None => "absent",
     };
     let _p4 = io.println(ctx, "var ${seen}").mapErr(fn(_e) => "print")?;
@@ -2277,7 +2277,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         .println(ctx, "cwd ${here.fileName().withDefault("?")}")
         .mapErr(fn(_e) => "print")?;
     let _p2 = io.println(ctx, "os ${env.operatingSystem(ctx)}").mapErr(fn(_e) => "print")?;
-    let seen = env.all(ctx).any(fn(pair) => pair.0 == "BURI_E2E_VARIABLE" && pair.1 == "seen");
+    let seen = env.all(ctx).any(fn(pair) => pair.0 == "BURI_E2E_VARIABLE" && pair.1.reveal() == "seen");
     let _p3 = io.println(ctx, "inherited ${seen}").mapErr(fn(_e) => "print")?;
     let home = match (env.homeDirectory(ctx)) {
         .Some(_at) => "some",

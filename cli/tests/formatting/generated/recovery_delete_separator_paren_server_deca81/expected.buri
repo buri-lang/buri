@@ -37,7 +37,10 @@ export fn main(host: NativeHost): Result<(), Str> {
         Environment: host.env,
     };
 
-    let log = filepath.of(ctx, env.get(ctx, "LEDGER_LOG".withDefault("ledger.log"));
+    let log = filepath.of(
+        ctx,
+        env.get(ctx, "LEDGER_LOG").mapOr("ledger.log" fn(text) => text.reveal()),
+    );
     let path = log.text();
     let hit = route("/entries");
 

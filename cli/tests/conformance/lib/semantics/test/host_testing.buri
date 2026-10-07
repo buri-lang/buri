@@ -1139,8 +1139,8 @@ test "the two builders compose in either order" {
         Allocator: alloc(),
         Environment: two,
     };
-    assert.equal(assert.some(env.get(a, "HOME")), "/tmp");
-    assert.equal(assert.some(env.get(b, "HOME")), "/tmp");
+    assert.equal(assert.some(env.get(a, "HOME")).reveal(), "/tmp");
+    assert.equal(assert.some(env.get(b, "HOME")).reveal(), "/tmp");
     assert.equal(env.arguments(a).join(a, " "), "--verbose");
     assert.equal(env.arguments(b).join(b, " "), "--verbose");
 }
@@ -1155,7 +1155,7 @@ test "a builder answers a new environment and leaves its receiver empty" {
         Environment: filled,
     };
     assert.isTrue(env.get(a, "LANG").isNone());
-    assert.equal(assert.some(env.get(b, "LANG")), "C");
+    assert.equal(assert.some(env.get(b, "LANG")).reveal(), "C");
 }
 
 test "an environment holds what it was given and nothing else" {
@@ -1165,8 +1165,8 @@ test "an environment holds what it was given and nothing else" {
             .variables([("HOME", "/tmp"), ("LANG", "C")])
             .withArguments(["--verbose", "x"]),
     };
-    assert.equal(assert.some(env.get(ctx, "HOME")), "/tmp");
-    assert.equal(assert.some(env.get(ctx, "LANG")), "C");
+    assert.equal(assert.some(env.get(ctx, "HOME")).reveal(), "/tmp");
+    assert.equal(assert.some(env.get(ctx, "LANG")).reveal(), "C");
     assert.isTrue(env.get(ctx, "PATH").isNone());
     let args = env.arguments(ctx);
     assert.equal(args.length(), 2);

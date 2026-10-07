@@ -285,7 +285,7 @@ fn rolled<C: Random>(ctx: C): Int {
 }
 
 fn variable<C: Environment>(ctx: C, name: Str): Str {
-    env.get(ctx, name).withDefault("unset")
+    env.get(ctx, name).mapOr("unset", fn(value) => value.reveal())
 }
 
 fn firstArgument<C: Environment>(ctx: C): Str {
