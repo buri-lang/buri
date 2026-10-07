@@ -1,11 +1,16 @@
 library {
     generators: [
-        { tool: "proto", inputs: ["address.proto", "demo.proto"] },
+        { tool: "proto", inputs: ["address.proto", "demo.proto", "wire.proto"] },
     ]
     visibility: ["//visibility:public"]
 
     test {
-        sources: ["test/binary.buri", "test/failures.buri", "test/json.buri"]
+        sources: [
+            "test/binary.buri",
+            "test/failures.buri",
+            "test/json.buri",
+            "test/wire.buri",
+        ]
 
         # The reference run, on the reference backend: `native::conformance`
         # drives these same files through the stencil backend
