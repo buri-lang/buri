@@ -5230,6 +5230,104 @@ that asks a length.
 - **`BigInt` to string through `Number`,** and **a scan instead of the
   surrogate regex:** slower on bun, or on both.
 
+### 6.55 `format --check`, owned list splices, and two issues already fixed, 2026-10-06
+
+**`buri format --check` (#259).** A no-op check formatted every file, one
+after another, every run. Now each file is laid out on a worker, and its
+verdict is kept in `.buri/cache`:
+
+```text
+key     = H("format", toolchain, "in-process", settings, path, bytes)
+verdict = changed, has a syntax error, refused
+```
+
+`settings` is `buri` for sources and build files, `document` for markdown, and
+the language's kind for a referenced JSON, proto or textproto file. A
+repository's own language still goes to its tool, in order, on the main
+thread. `buri format` lays out again any file whose verdict says it changes,
+because only the verdict is kept. A build file that doesn't parse is never
+kept, so it stops the command every time.
+
+#259's repository, 150 libraries and 8.8 MB, release, at load 14–17 on 10
+cores:
+
+| `format --check` | Before | After |
+|---|---:|---:|
+| no-op | 0.29–0.39 s real, 0.27 s user | 0.03–0.04 s real, 0.01 s user |
+| nothing remembered | 0.32–0.34 s real | 0.10–0.11 s real, 0.49 s user |
+| one 50 KB path | 0.02 s | 0.01–0.02 s |
+
+The issue measured 1.3–1.5 s on 0.3.22. The formatter got faster since then.
+
+Output is unchanged. On all 416 checked-in repositories, `format --check` and
+`format` print the same stdout and stderr, exit the same way and leave the
+same tree as before, with nothing remembered and after a remembered pass.
+`cli/format_check_remembers` holds that through an edit after a clean pass, a
+file put back, `buri clean` and `format` after `--check`.
+`profile::a_second_format_check_formats_no_file` holds a warm check to 0
+`files formatted`, a new `BURI_PROFILE` line.
+
+`buri gen --check` has the same shape (the issue's comment) and is untouched.
+
+**Owned list splices (#251).** §6.48 made `core/map`'s splices runtime calls
+that own their list. `[T].replaceAt`, `insertAt` and `removeAt` still built
+three lists a call. They now run `core/map`'s bodies:
+
+```rust
+via("map.replaceAt", e("list.replaceAt", &[Elems, Dropped, Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Out)),
+```
+
+The list comes first instead of second, and `Dropped` takes no C argument, so
+both rows flatten to the same C call. `TAKEN_NATIVELY` hands them the receiver.
+JavaScript copies.
+
+#251's repro, ns per operation, two runs each at load 13–26:
+
+| | `main` | After |
+|---|---:|---:|
+| `--release`, owned `[Str]` len 32, `replaceAt` | 160–274 | 7 |
+| `--release`, owned `[Str]` len 1024, `replaceAt` | 4,583–7,595 | 8 |
+| `--release`, owned `[Int]` len 1024, `replaceAt` | 274–398 | 5–7 |
+| debug, owned `[Str]` len 1024, `replaceAt` | 9,413–11,990 | 11–52 |
+| `push` on the same list | 13–18 | 13–18 |
+| `--release`, `Map<Int,Int>` insert, 1M | 190–194 | 201–211 |
+
+The issue's 1.1–2.3 µs map insert was §6.48's.
+
+**A stencil miscompile on the way.** `rt_call` zeroes a `Ret::Out` destination
+before the call, and the call reads its arguments from the frame when it runs.
+A list that dies at the call can share its slot with the destination:
+
+```buri
+fn f<C: Allocator>(ctx: C, xs: [Str], n: Int): [Str] {
+    if (n == 0) { xs } else { f(ctx, xs.replaceAt(ctx, 16, "r"), n - 1) }
+}
+```
+
+The splice read an empty list, answered one, and leaked the original. Each
+argument word that overlaps the destination is now read into its argument word
+first. `core/map`'s rows had the same exposure but never met that slot reuse.
+The 208 objects of the eight saved corpora, the ten shapes, `cli/tests/example`
+and #251's repro are byte-identical with and without the fix.
+
+`native::ownership`'s `a_list_the_caller_owns_is_spliced_in_place` holds 6,000
+splices of an owned list under 50 blocks, down from 20,005. `native::agreement`'s
+`a_list_spliced_through_one_name_is_unchanged_through_another` runs shared lists,
+indices past either end and tail-call splices on JavaScript, stencil and LLVM
+under the heap check.
+
+**Already fixed:**
+
+- **#252, JavaScript `popCount`**, by §6.53 (`53d370bbd`). On the issue's
+  repro under node 22.23.3, best of three, a get on the 100k map went from
+  1,793 ns with the old bit loop to 535 ns, and an insert from 2,325 to 1,243.
+  `the_runtime_counts_bits_without_a_loop` now fails if a bit count loops.
+- **#253, native no-op builds**, by §6.43 (`d9f430860`). On the issue's
+  160-library repository a native no-op takes 0.02–0.04 s, against 0.41–0.43 s
+  in the issue. `--release` and `//libs/l159` are the same, the node no-op is
+  0.02 s, and no `cc` is spawned. `profile::a_warm_native_build_loads_no_module`
+  fails with the record lookup turned off, which loads 4 modules.
+
 ### 6.56 Debug glue reads a wide struct where it is, 2026-10-06
 
 buri-lang/buri#255. A debug build's retain, release and copy glue copied the
