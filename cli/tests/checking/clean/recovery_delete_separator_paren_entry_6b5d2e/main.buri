@@ -35,7 +35,7 @@ test "one module per input, named after the schema, reaching the others" {
     let text = ast.print(ctx person.1).text.lines(ctx);
     assert.contains(
         text,
-        "from \"//lib/proto/address.proto\" import { Address, decodeAddress, decodeAddressJsonAt, defaultAddress, encodeAddress, encodeAddressJson, mergeAddress };",
+        "from \"//lib/proto/address.proto\" import { Address, decodeAddressJsonAt, defaultAddress, encodeAddressJson, readAddress, sizeAddress, writeAddress };",
     );
     assert.contains(text, "    export home: Option<Address>,");
 }
