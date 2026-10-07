@@ -464,7 +464,11 @@ test "a route link the worker sends is a real anchor" {
     assert.equal(
         render(
             ctx,
-            web.routeLink(.Const("/next"), [], [ui.text({ content: .Const("go") })]),
+            web.routeLink({
+                dest: .Const("/next"),
+                styles: [],
+                children: [ui.text({ content: .Const("go") })],
+            }),
         ).markup(),
         "e 0 \nt 1 go",
     );
@@ -481,7 +485,11 @@ test "a plain click on a route link navigates in place, keeping the tree" {
     let kept = signal(ctx, "before");
     let page = render(
         ctx,
-        web.routeLink(.Const("/next"), [], [ui.text({ content: .Const("go") })]),
+        web.routeLink({
+            dest: .Const("/next"),
+            styles: [],
+            children: [ui.text({ content: .Const("go") })],
+        }),
     );
     // A plain left-click is the app's: the address changes, the signal is still
     // there, and the tree was left where it is.
@@ -503,22 +511,29 @@ test "a plain click follows a route link addressed by its joined text" {
     // addressed — the runs together are not it, so "OneTwo" would not find it.
     let page = render(
         ctx,
-        web.routeLink(.Const("/two"), [], [
-            ui.stack({
-                styles: [],
-                children: [
-                    ui.stack({
-                        styles: [],
-                        children: [ui.text({ content: .Const("One") })],
-                    }),
-                    ui.stack({
-                        styles: [],
-                        children: [ui.text({ content: .Const("Two") })],
-                    }),
-                ],
-            }),
-            ui.stack({ styles: [], children: [ui.text({ content: .Const("Three") })] }),
-        ]),
+        web.routeLink({
+            dest: .Const("/two"),
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const("One") })],
+                        }),
+                        ui.stack({
+                            styles: [],
+                            children: [ui.text({ content: .Const("Two") })],
+                        }),
+                    ],
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("Three") })],
+                }),
+            ],
+        }),
     );
     let _ = page.follow("One Two Three");
     assert.equal(web.path(ctx), "/two");
@@ -533,12 +548,16 @@ test "a route link of a single run, nested in a box, still follows" {
     // One run however deep it sits is addressed by that run, unchanged.
     let page = render(
         ctx,
-        web.routeLink(.Const("/nested"), [], [
-            ui.stack({
-                styles: [],
-                children: [ui.text({ content: .Const("Nested") })],
-            }),
-        ]),
+        web.routeLink({
+            dest: .Const("/nested"),
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("Nested") })],
+                }),
+            ],
+        }),
     );
     let _ = page.follow("Nested");
     assert.equal(web.path(ctx), "/nested");
@@ -552,13 +571,149 @@ test "a modified click on a route link is left to the browser" {
     };
     let page = render(
         ctx,
-        web.routeLink(.Const("/next"), [], [ui.text({ content: .Const("go") })]),
+        web.routeLink({
+            dest: .Const("/next"),
+            styles: [],
+            children: [ui.text({ content: .Const("go") })],
+        }),
     );
     // A ⌘/Ctrl-click, or the middle button, is how a reader opens a link beside
     // the page they are on. A route leaves that to the browser as an ordinary
     // anchor, so the address bar does not move.
     let _ = page.openInNewTab("go");
     assert.equal(web.path(ctx), "/");
+}
+
+/// A navigation rail's entry for one page, current while the address is that
+/// page's — the case a route link's `isCurrent` is for.
+fn railEntry<C: Location + Ui>(ctx: C, to: Str, name: Str): Node<C> {
+    let route = web.route(ctx);
+    web.routeLink({
+        dest: .Const(to),
+        styles: [],
+        children: [ui.text({ content: .Const(name) })],
+        isCurrent: .Some(.Computed(fn(s) => route.read(s) == to)),
+    })
+}
+
+test "a route link marks the page it is on, and follows the address" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                railEntry(ctx, "/", "Home"),
+                railEntry(ctx, "/reports", "Reports"),
+            ],
+            role: .Some(.Navigation),
+        }),
+    );
+    assert.isTrue(page.isCurrent("Home"));
+    assert.isFalse(page.isCurrent("Reports"));
+    // The plain click is still `navigate`, filled in because the config left
+    // `onFollow` out, so the mark moves with the address.
+    let _ = page.follow("Reports");
+    assert.equal(web.path(ctx), "/reports");
+    assert.isFalse(page.isCurrent("Home"));
+    assert.isTrue(page.isCurrent("Reports"));
+}
+
+test "a route link the worker sends says which page it is" {
+    assert.equal(
+        web.render<()>(
+            ui.link({
+                dest: .Const("/reports"),
+                styles: [],
+                children: [ui.text({ content: .Const("Reports") })],
+                isCurrent: .Some(.Const(true)),
+                onFollow: .Some(fn(_c, _to) => ()),
+            }),
+        ),
+        "<a href=\"/reports\" aria-current=\"true\">Reports</a>",
+    );
+    // Not current is no attribute at all, the way `aria-expanded` is.
+    assert.equal(
+        web.render<()>(
+            ui.link({
+                dest: .Const("/"),
+                styles: [],
+                children: [ui.text({ content: .Const("Home") })],
+                isCurrent: .Some(.Const(false)),
+            }),
+        ),
+        "<a href=\"/\">Home</a>",
+    );
+}
+
+test "a route link keeps an onFollow of its own" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    let followed = signal(ctx, "");
+    let page = render(
+        ctx,
+        web.routeLink({
+            dest: .Const("/next"),
+            styles: [],
+            children: [ui.text({ content: .Const("go") })],
+            onFollow: .Some(fn(c, to) => followed.set(c, to)),
+        }),
+    );
+    // A handler of its own replaces `navigate` rather than joining it, so the
+    // address stays where it was and the handler hears where the link goes.
+    let _ = page.follow("go");
+    assert.equal(followed.get(ctx), "/next");
+    assert.equal(web.path(ctx), "/");
+}
+
+test "a breadcrumb the worker sends marks its last step and hides its separators" {
+    // The last step isn't a link, so the stack says it is the current page; the
+    // slash between two steps is drawn and never read out.
+    assert.equal(
+        web.render<()>(
+            ui.stack({
+                styles: [],
+                children: [
+                    ui.link({
+                        dest: .Const("/"),
+                        styles: [],
+                        children: [ui.text({ content: .Const("Home") })],
+                    }),
+                    ui.stack({
+                        styles: [],
+                        children: [ui.text({ content: .Const("/") })],
+                        isDecorative: .Some(true),
+                    }),
+                    ui.stack({
+                        styles: [],
+                        children: [ui.text({ content: .Const("Reports") })],
+                        isCurrent: .Some(.Const(true)),
+                    }),
+                ],
+                role: .Some(.Navigation),
+            }),
+        ),
+        "<nav><a href=\"/\">Home</a><div aria-hidden=\"true\">/</div><div aria-current=\"true\">Reports</div></nav>",
+    );
+    // A stack with a role takes `isCurrent` too: a step in a list of steps.
+    assert.equal(
+        web.render<()>(
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("Reports") })],
+                role: .Some(.ListItem),
+                isCurrent: .Some(.Const(true)),
+            }),
+        ),
+        "<li aria-current=\"true\">Reports</li>",
+    );
 }
 
 test "a worker writes an icon's artwork into the page it sends" {

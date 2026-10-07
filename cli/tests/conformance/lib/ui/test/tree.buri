@@ -5310,6 +5310,117 @@ test "aria-expanded is announced and not painted, so the scene carries none of i
     );
 }
 
+// --- the current page, and what is never read out ----------------------------------------
+
+/// A breadcrumb: a link home, a slash between the steps, and the step the
+/// reader is on, which isn't a link.
+fn breadcrumb<C>(onReports: Prop<Bool>): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Row)],
+        children: [
+            ui.link({
+                dest: .Const("/"),
+                styles: [],
+                children: [ui.text({ content: .Const("Home") })],
+            }),
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("/") })],
+                isDecorative: .Some(true),
+            }),
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("Reports") })],
+                isCurrent: .Some(onReports),
+            }),
+        ],
+        role: .Some(.Navigation),
+    })
+}
+
+test "a stack is announced as the current page while its prop holds" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let here = signal(ctx, false);
+    let page = render(ctx, breadcrumb(.Cell(here)));
+    assert.isFalse(page.isCurrent("Reports"));
+    here.set(ctx, true);
+    assert.isTrue(page.isCurrent("Reports"));
+    // Nothing else is current, the link included.
+    assert.isFalse(page.isCurrent("Home"));
+}
+
+test "a decorative stack is drawn and never read out" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(ctx, breadcrumb(.Const(true)));
+    // The slash is on the page, and a screen reader never reaches it.
+    assert.equal(page.text(), "Home / Reports");
+    assert.equal(page.spoken(), "Home Reports");
+}
+
+test "being current and being decorative are announced, not painted" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let plain = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Padding(.Px(4))],
+            children: [ui.text({ content: .Const("/") })],
+        }),
+    );
+    let hidden = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Padding(.Px(4))],
+            children: [ui.text({ content: .Const("/") })],
+            isDecorative: .Some(true),
+            isCurrent: .Some(.Const(true)),
+        }),
+    );
+    // A snapshot of either draws the same box, so the scene is the same lines.
+    assert.equal(ui.describe(ctx, hidden, .Hover), ui.describe(ctx, plain, .Hover));
+    assert.equal(render(ctx, hidden).markup(), render(ctx, plain).markup());
+}
+
+test "a button and a link say they are current the way a stack does" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Overview"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    isCurrent: .Some(.Const(true)),
+                }),
+                ui.link({
+                    dest: .Const("/settings"),
+                    styles: [],
+                    children: [ui.text({ content: .Const("Settings") })],
+                    isCurrent: .Some(.Const(true)),
+                }),
+                ui.button({
+                    label: .Const("Help"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+            ],
+        }),
+    );
+    assert.isTrue(page.isCurrent("Overview"));
+    assert.isTrue(page.isCurrent("Settings"));
+    assert.isFalse(page.isCurrent("Help"));
+}
+
 // --- a progress bar --------------------------------------------------------------------
 
 test "a progress bar announces the role, the bounds and how far along it is" {

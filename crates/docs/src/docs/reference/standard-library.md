@@ -1043,6 +1043,14 @@ one in a set that is the current page. Each writes its `aria-*` attribute — li
 `isInvalid` — only when it is `true`, so an ordinary button carries none of them
 and a trigger announces whether the region it controls is open.
 
+`stack` takes the same `isCurrent`, for a breadcrumb's last step, which isn't a
+link, and an `isDecorative: Option<Bool>` that hides it and everything in it from
+a screen reader with `aria-hidden` — a separator glyph, a caption repeating a
+field's name. It's the subtree form of a `.Decorative` image. A decorative stack
+takes no `role` (`decorative-with-role`). `platform/effect/testing`'s `spoken()`
+is `text()` without what one hides, and `isCurrent(name)` asks whether the
+element with that name is the current page.
+
 `progress({ label, styles, value, children })` is a bar that announces how far along
 a task has come. Set `value` and it runs from `0.0` to `1.0` and lowers to
 `aria-valuenow` as a whole number of hundredths — `value` times a hundred,
@@ -1179,8 +1187,10 @@ its value, which a `ui.link` can't manage. `web.replace(ctx, path)` replaces the
 current entry instead, so Back doesn't return to it: that's a redirect. Both
 need `Location` and `Ui`, one for the address bar and one for the signal.
 
-`web.routeLink(dest, styles, children)` is that navigation as a link: it wraps
-`ui.link` with an `onFollow` that calls `navigate`. It renders a real `<a href>`, so a reader keeps middle-click, ⌘-click, "open in new tab",
+`web.routeLink({ dest, styles, children, isCurrent, onFollow })` is that
+navigation as a link: it takes `ui.link`'s config and fills an `onFollow` left
+out with one that calls `navigate`, so a rail marks the page it's on with
+`isCurrent`. It renders a real `<a href>`, so a reader keeps middle-click, ⌘-click, "open in new tab",
 the status bar and the "link" a screen reader announces — everything a
 `ui.button` calling `navigate` throws away. A plain left-click does what
 `navigate` does instead of loading the document; a middle-click or a ⌘/Ctrl-click

@@ -5833,16 +5833,22 @@ function $tree_render(ctx, wrapper, parent, anchor) {
   }
   if (tag === 3) {
     const element = $tree_element(parent, "div", anchor);
+    // The current page, written only when it is `true`, the way a button's is.
+    $tree_bind(node[3], (current) => $dom_flag(element, "aria-current", current));
+    // Decorative: the subtree form of an icon's `aria-hidden`, so a separator
+    // glyph or a repeated caption is drawn and never read out.
+    if (node[4]) $dom_attribute(element, "aria-hidden", "true");
     $tree_children(ctx, element, node[1], node[2]);
-    $tree_events(ctx, element, node[3]);
+    $tree_events(ctx, element, node[5]);
     return;
   }
   if (tag === 4) {
     const role = $TREE_ROLES[node[1]];
     const element = $tree_element(parent, role[0], anchor);
     for (let i = 1; i + 1 < role.length; i += 2) $dom_attribute(element, role[i], role[i + 1]);
+    $tree_bind(node[4], (current) => $dom_flag(element, "aria-current", current));
     $tree_children(ctx, element, node[2], node[3]);
-    $tree_events(ctx, element, node[4]);
+    $tree_events(ctx, element, node[5]);
     return;
   }
   if (tag === 5) {
@@ -6821,6 +6827,10 @@ function $scene_record(kind, name, body, text) {
     pick: null,
     // The pointer handler thunks, down/move/up, each null when unset.
     pointer: [null, null, null],
+    // `aria-current` and `aria-hidden`'s twins: announced as the current page,
+    // and hidden from assistive technology with everything under it.
+    current: false,
+    decorative: false,
   };
 }
 
@@ -7137,6 +7147,19 @@ function $ui_node_markSubmit(builder) {
   if (record !== undefined) record.submit = true;
 }
 
+// Whether the element `openElement` answered is announced as the current page.
+function $ui_node_markCurrent(builder, at, on) {
+  const record = $scene_of(builder).records[Number(at)];
+  if (record !== undefined) record.current = on;
+}
+
+// Hides the open element and everything in it from assistive technology.
+function $ui_node_markDecorative(builder) {
+  const doc = $scene_of(builder);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) record.decorative = true;
+}
+
 // A file picker's handler, kept on the open element in a slot `press` never
 // reads, so only `pickFile` fires it.
 function $ui_node_registerPick(builder, onPick) {
@@ -7399,6 +7422,27 @@ function $host_testing_Rendered_text(self) {
     if (doc.records[pair[0]].kind === 1) runs.push(doc.records[pair[0]].text);
   }
   return runs.join(" ");
+}
+
+// Every run a screen reader reaches: `text()` without what a decorative
+// element hides.
+function $host_testing_Rendered_spoken(self) {
+  const doc = $scene_of(self);
+  const runs = [];
+  const visit = (node) => {
+    for (const child of doc.records[node].children) {
+      const r = doc.records[child];
+      if (r.kind === 1) runs.push(r.text);
+      else if (!(r.kind === 0 && r.decorative)) visit(child);
+    }
+  };
+  visit(0);
+  return runs.join(" ");
+}
+
+function $host_testing_Rendered_isCurrent(self, name) {
+  const doc = $scene_of(self);
+  return doc.records[$scene_pointerTarget(doc, name)].current;
 }
 
 function $host_testing_Rendered_press(self, label) {

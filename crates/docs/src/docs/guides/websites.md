@@ -342,17 +342,26 @@ navigation *as* a link:
 # from "ui/node" import { Node };
 # from "ui/web" import * as web;
 
-/// A menu row that navigates without loading a document.
-fn about<C: Location + Ui>(): Node<C> {
-    web.routeLink(.Const("/about"), [], [ui.text({ content: .Const("about") })])
+/// A menu row that navigates without loading a document, and says so while
+/// the reader is on the page it goes to.
+fn about<C: Location + Ui>(ctx: C): Node<C> {
+    let route = web.route(ctx);
+    web.routeLink({
+        dest: .Const("/about"),
+        styles: [],
+        children: [ui.text({ content: .Const("about") })],
+        isCurrent: .Some(.Computed(fn(s) => route.read(s) == "/about")),
+    })
 }
 ```
 
-It renders a real `<a href="/about">`, so the reader gets everything an anchor
-is. A plain left-click does what `navigate` does, so the signals survive. A middle-click, or
-⌘/Ctrl/Shift/Alt with the left button, falls through to the browser, which opens
-the tab or the window the reader asked for. It needs `Location` and `Ui`, the
-same as `navigate`.
+It takes `ui.link`'s config and renders a real `<a href="/about">`, so the
+reader gets everything an anchor is, and `isCurrent` marks the page they're on
+with `aria-current`. A plain left-click does what `navigate` does, so the
+signals survive. A middle-click, or ⌘/Ctrl/Shift/Alt with the left button,
+falls through to the browser, which opens the tab or the window the reader
+asked for. An `onFollow` of your own replaces `navigate`. It needs `Location`
+and `Ui`, the same as `navigate`.
 
 Reach for `web.routeLink` for in-app navigation and `ui.link` for another site.
 
