@@ -481,9 +481,11 @@ enum Key {
     Test(usize),
     /// A derive at a type whose shape reaches a hand-written `impl` of the same
     /// trait, generated one level deep. `ctx` is `Show`'s context type.
-    Derived { trait_id: TraitId, ty: Ty, ctx: Option<Ty> },
+    /// `unbounded` walks a type with no `impl` of the trait too, for a `T` that
+    /// carries no bound (`hand_written::Deriving::unbounded`).
+    Derived { trait_id: TraitId, ty: Ty, ctx: Option<Ty>, unbounded: bool },
     /// The rest of a list after its first element, for `Derived` at `[elem]`.
-    DerivedItems { trait_id: TraitId, elem: Ty, ctx: Option<Ty> },
+    DerivedItems { trait_id: TraitId, elem: Ty, ctx: Option<Ty>, unbounded: bool },
 }
 
 pub struct Monomorphizer<'a> {
@@ -523,8 +525,12 @@ pub struct Monomorphizer<'a> {
     names: HashMap<FnId, (String, String)>,
     /// Each type argument's [`Mangled`] spelling, which a tag hashes.
     mangled: HashMap<Ty, String>,
-    /// Whether a derive at a type reaches a hand-written `impl` of its trait.
-    reaches: HashMap<(TraitId, Ty), bool>,
+    /// Whether a derive at a type reaches a hand-written `impl` of its trait,
+    /// and whether it may walk a type with no `impl` to get there.
+    reaches: HashMap<(TraitId, Ty, bool), bool>,
+    /// See [`Program::cell_equal`]: here, the cells whose type reaches a
+    /// hand-written `Equal`, which a descriptor cannot see.
+    cell_equal: HashMap<Ty, FuncIdx>,
 }
 
 pub fn run(
@@ -552,6 +558,7 @@ pub fn run(
         names: HashMap::default(),
         mangled: HashMap::default(),
         reaches: HashMap::default(),
+        cell_equal: HashMap::default(),
     };
 
     let program_roots = match roots {
@@ -639,7 +646,7 @@ pub fn run(
         descriptors: m.descriptors,
         desc_modules: m.desc_modules,
         desc_index: m.desc_index,
-        cell_equal: HashMap::default(),
+        cell_equal: m.cell_equal,
         ctx_layouts: m.ctx_layouts,
         shapes,
         // Merged here rather than by each caller, so that `buri build` and
@@ -955,9 +962,11 @@ impl<'a> Monomorphizer<'a> {
                     .unwrap_or_else(|| "core".into());
                 (format!("test${i}"), format!("{module}:{}", case.name), case.span)
             }
-            Key::Derived { trait_id, ty, ctx } => self.derived_name(*trait_id, *ty, *ctx, false),
-            Key::DerivedItems { trait_id, elem, ctx } => {
-                self.derived_name(*trait_id, *elem, *ctx, true)
+            Key::Derived { trait_id, ty, ctx, unbounded } => {
+                self.derived_name(*trait_id, *ty, *ctx, false, *unbounded)
+            }
+            Key::DerivedItems { trait_id, elem, ctx, unbounded } => {
+                self.derived_name(*trait_id, *elem, *ctx, true, *unbounded)
             }
         }
     }
@@ -1134,9 +1143,11 @@ impl Monomorphizer<'_> {
                 f.locals = b.locals;
                 f.set_body(b.expr);
             }
-            Key::Derived { trait_id, ty, ctx } => self.build_derived(trait_id, ty, ctx, slot),
-            Key::DerivedItems { trait_id, elem, ctx } => {
-                self.build_derived_items(trait_id, elem, ctx, slot)
+            Key::Derived { trait_id, ty, ctx, unbounded } => {
+                self.build_derived(trait_id, ty, ctx, unbounded, slot)
+            }
+            Key::DerivedItems { trait_id, elem, ctx, unbounded } => {
+                self.build_derived_items(trait_id, elem, ctx, unbounded, slot)
             }
         }
     }
@@ -1269,6 +1280,16 @@ impl Monomorphizer<'_> {
             f.locals = locals;
             f.params = (0..info.params.len()).map(|i| LocalId(i as u32)).collect();
             f.ret = ret;
+            // Rendered through a hand-written `Show` where the value's type
+            // reaches one, rather than walked by shape (#258).
+            if self.report_through_show(slot, &key, &param_types) {
+                return;
+            }
+            if CELL_WRITE_KEYS.contains(&key.as_str()) {
+                if let Some(t) = param_types.last().copied() {
+                    self.cell_through_equal(t);
+                }
+            }
             if key == "testing_assert.report" || key == "testing_assert.failExpected" {
                 if let Some(t) = param_types.get(2).or_else(|| param_types.get(1)).cloned() {
                     let desc = self.descriptor(&t);
@@ -2532,6 +2553,11 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 /// recomputed to the answer it had still runs what reads it).
 pub const CELL_VALUE_KEYS: &[&str] =
     &["host_testing.Headless.signal", "host_testing.Headless.write"];
+
+/// The intrinsic keys that write a reactive cell, on every platform that has
+/// one. Where the value's type reaches a hand-written `Equal`, the write is
+/// handed [`Program::cell_equal`]'s comparison rather than comparing by shape.
+pub const CELL_WRITE_KEYS: &[&str] = &["host.HostUi.write", "host_testing.Headless.write"];
 
 const GENERIC_INTRINSICS: &[&str] = &[
     // `core/actor`'s nine, and between them they are a **fifth** carrier

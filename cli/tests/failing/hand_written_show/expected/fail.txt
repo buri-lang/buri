@@ -1,12 +1,12 @@
-FAIL //lib/money  test/money.buri  "the report renders the value structurally"
+FAIL //lib/money  test/money.buri  "the report renders the value through its Show"
   assert.equal failed
-    actual:   Money { cents: 1 }
-    expected: Money { cents: 2 }
-  --> lib/money/test/money.buri:15:1
-FAIL //lib/money  test/money.buri  "the program's own Show says something else"
+    actual:   Money(hand written)
+    expected: Money(hand written)
+  --> lib/money/test/money.buri:9:1
+FAIL //lib/money  test/money.buri  "the program's own Show says the same"
   assert.equal failed
     actual:   "Money(hand written)"
     expected: "not this"
-  --> lib/money/test/money.buri:19:1
+  --> lib/money/test/money.buri:13:1
 
 0 passed, 2 failed, 0 skipped (0.0s)

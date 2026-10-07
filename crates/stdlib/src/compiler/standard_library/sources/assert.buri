@@ -29,8 +29,10 @@ from "platform/effect" import { Allocator };
 /// Fails unless `a == b`. Requires `Equal`, and nothing else.
 ///
 /// The comparison goes through `Equal`, so a hand-written implementation decides
-/// what equal means. The runner renders a failure structurally rather than
-/// calling `Show`, so a type is assertable as soon as it is comparable.
+/// what equal means. A failure prints each value through its `Show`, so a secret
+/// whose `Show` answers `"***"` prints `***`. A type with no `Show` prints field
+/// by field, each field through its own `Show`, so a type is assertable as soon
+/// as it is comparable.
 export fn equal<T: Equal>(actual: T, expected: T): () {
     report(actual == expected, "equal", actual, expected)
 }
@@ -68,7 +70,7 @@ export fn notEqual<T: Equal>(actual: T, expected: T): () {
 /// not reflexive fails a value against itself, and the report then shows two
 /// values that look alike.
 ///
-/// The runner renders both sides *structurally*, so a failure shows a map's
+/// A type with no `Show` prints field by field, so a failure shows a map's
 /// buckets rather than its entries — which is the layout the comparison just
 /// decided not to care about, and is still where the difference is.
 export fn equalWith<T, C: Allocator>(
@@ -284,7 +286,8 @@ export fn none<T>(option: Option<T>): () {
 }
 
 // The runner's side. `report` renders both values only when the assertion
-// failed, so a passing test costs one comparison and nothing else.
+// failed, so a passing test costs one comparison and nothing else. Rendering
+// goes through each type's `Show`, and field by field where it has none.
 fn report<T>(passed: Bool, kind: Str, actual: T, expected: T): ();
 
 fn failWith(message: Str): ();

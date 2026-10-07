@@ -4202,7 +4202,9 @@ function $ui_drain() {
   }
 }
 
-function $ui_write(cell, v) {
+// `eq` is the comparison a cell's type reaches a hand-written `Equal` with, and
+// absent where `$eq`'s comparison by shape is the type's own.
+function $ui_write(cell, v, eq) {
   const id = Number(cell);
   const n = $ui_at(id);
   // An equal write is not a change. This is what makes "wrote the same value,
@@ -4212,7 +4214,7 @@ function $ui_write(cell, v) {
   // and a cell holding one would re-render on every write of what it already
   // held. The native backends compare with the type's own generated `Equal`
   // (`cli/runtime/ui.rs`), which is the same answer at every type.
-  if ($eq(n.value, v)) return 0;
+  if (eq === undefined ? $eq(n.value, v) : eq(n.value, v)) return 0;
   n.value = $share(v);
   $ui_notify(n);
   if ($ui.depth === 0) $ui_drain();
@@ -8960,6 +8962,16 @@ function $testing_assert_report(passed, kind, actual, expected, d) {
     $fail("assert." + kind + " failed", $show(actual, d), $show(expected, d));
   }
   return 0;
+}
+
+// The two above, with each value already rendered by the `Show` its type
+// reaches (`middle::monomorphize::hand_written`).
+function $testing_assert_reportShown(kind, actual, expected) {
+  $fail("assert." + kind + " failed", actual, expected);
+}
+
+function $testing_assert_failExpectedShown(kind, got) {
+  $fail("assert." + kind + " failed", got, "." + kind[0].toUpperCase() + kind.slice(1));
 }
 
 function $testing_assert_failWith(m) {

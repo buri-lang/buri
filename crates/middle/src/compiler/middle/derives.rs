@@ -325,8 +325,10 @@ fn route_cells(program: &mut Program, routed: &HashMap<(Op, usize), FuncIdx>) {
             rows.push((*ty, func));
         }
     }
+    // A cell whose type reaches a hand-written `Equal` already has the
+    // comparison `monomorphize` generated for it, which this one would miss.
     for (ty, func) in rows {
-        program.cell_equal.insert(ty, func);
+        program.cell_equal.entry(ty).or_insert(func);
     }
 }
 

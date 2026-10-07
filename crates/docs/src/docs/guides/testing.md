@@ -94,8 +94,10 @@ test "the error says which text it choked on" {
 }
 ```
 
-A type an assertion compares needs `Equal`, and one a failure prints needs `Show`,
-so `derive Equal, Show for ParseError;` is what lets you write both lines above.
+A type an assertion compares needs `Equal`, so `derive Equal for ParseError;` is
+what lets you write both lines above. A failure prints each value through its
+`Show`, hand-written or derived, so a secret whose `Show` answers `"***"` prints
+`***`. A type with no `Show` prints field by field, each field through its own.
 `Result` is must-use in tests too, so a test cannot silently skip the check it
 looks like it makes.
 

@@ -1,21 +1,17 @@
-# A failure report is rendered structurally and a hand-written `impl Show` does
-# not reach one: `testing_assert.report` is handed a type descriptor and the
-# runtime's `$show` walks that. That is the decision, not an accident — the
-# report says what the value *is*, and a type's own `show` is free to say
-# something shorter, prettier or deliberately partial.
+# A failure report renders each value through its `Show`, and a hand-written
+# `impl Show` is the one it uses: a type whose `show` hides its value keeps it
+# hidden in a report too (#258's root cause, in the runner).
 #
-# So `assert.equal` no longer carries a `Show` bound. It named one "for the
-# message" and the message never used it, which made `Show` a tax on being
-# assertable; a type is assertable now as soon as it is comparable.
+# `assert.equal` still carries no `Show` bound. A type with none is rendered
+# field by field, so a type is assertable as soon as it is comparable.
 #
-# The two tests are the evidence — the first prints `Money { cents: 1 }` and the
-# second prints what the type's own `show` answers, from the same value in the
-# same suite.
+# The two tests print the same text: the first through the report, the second
+# through the program's own call to `show`.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a hand-written impl Show does not reach the failure report, which renders both sides structurally"
+doc: "a failure report renders both sides through a hand-written impl Show"
 
 run {
   args: ["test", "//lib/money", "--force", "--output=js"]
