@@ -94,3 +94,143 @@ test "NaN and the infinities are read from their strings and only from them" {
         .Err(.BadJson { path: "$.rough", wanted: "a number a float can hold" }),
     );
 }
+
+// --- int64 ----------------------------------------------------------------------
+
+test "an int64 is exact at both ends of its range" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), total: .Some(MAX) }),
+        "{\"total\":\"9223372036854775807\"}",
+    );
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), total: .Some(MIN) }),
+        "{\"total\":\"-9223372036854775808\"}",
+    );
+    assert.equal(
+        read(ctx, "{\"total\":\"9223372036854775807\"}"),
+        .Ok(Everything { ..defaultEverything(), total: .Some(MAX) }),
+    );
+    assert.equal(
+        read(ctx, "{\"total\":\"-9223372036854775808\"}"),
+        .Ok(Everything { ..defaultEverything(), total: .Some(MIN) }),
+    );
+    assert.equal(
+        read(ctx, "{\"total\":\"9223372036854775806\"}"),
+        .Ok(Everything { ..defaultEverything(), total: .Some(MAX - 1) }),
+    );
+    // Unquoted, as exact as a double is.
+    assert.equal(
+        read(ctx, "{\"total\":9223372036854774784}"),
+        .Ok(Everything { ..defaultEverything(), total: .Some(9223372036854774784) }),
+    );
+    assert.equal(
+        read(ctx, "{\"total\":-9223372036854775808}"),
+        .Ok(Everything { ..defaultEverything(), total: .Some(MIN) }),
+    );
+}
+
+test "an int64 one past either end is refused, not rounded" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        read(ctx, "{\"total\":\"9223372036854775808\"}"),
+        outOfRange("$.total"),
+    );
+    assert.equal(
+        read(ctx, "{\"total\":\"-9223372036854775809\"}"),
+        outOfRange("$.total"),
+    );
+    assert.equal(
+        read(ctx, "{\"signedBig\":\"-9223372036854775809\"}"),
+        outOfRange("$.signedBig"),
+    );
+    assert.equal(
+        read(ctx, "{\"offset\":\"9223372036854775808\"}"),
+        outOfRange("$.offset"),
+    );
+    assert.equal(
+        read(ctx, "{\"total\":\"18446744073709551615\"}"),
+        outOfRange("$.total"),
+    );
+}
+
+// --- uint64 and fixed64 ------------------------------------------------------------
+
+test "a uint64 past 2^63 is written as its unsigned decimal" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), large: .Some(MAX) }),
+        "{\"large\":\"9223372036854775807\"}",
+    );
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), large: .Some(MIN) }),
+        "{\"large\":\"9223372036854775808\"}",
+    );
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), large: .Some(-1) }),
+        "{\"large\":\"18446744073709551615\"}",
+    );
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), large: .Some(-2) }),
+        "{\"large\":\"18446744073709551614\"}",
+    );
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), serial: .Some(-10) }),
+        "{\"serial\":\"18446744073709551606\"}",
+    );
+    assert.equal(
+        text(ctx, Everything { ..defaultEverything(), serial: .Some(-1) }),
+        "{\"serial\":\"18446744073709551615\"}",
+    );
+}
+
+test "a uint64 reads its whole range back to the same bits" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        read(ctx, "{\"large\":\"18446744073709551615\"}"),
+        .Ok(Everything { ..defaultEverything(), large: .Some(-1) }),
+    );
+    assert.equal(
+        read(ctx, "{\"large\":\"9223372036854775808\"}"),
+        .Ok(Everything { ..defaultEverything(), large: .Some(MIN) }),
+    );
+    assert.equal(
+        read(ctx, "{\"large\":\"9223372036854775807\"}"),
+        .Ok(Everything { ..defaultEverything(), large: .Some(MAX) }),
+    );
+    assert.equal(
+        read(ctx, "{\"serial\":\"18446744073709551606\"}"),
+        .Ok(Everything { ..defaultEverything(), serial: .Some(-10) }),
+    );
+    // Unquoted, as exact as a double is: 2^64 - 2048.
+    assert.equal(
+        read(ctx, "{\"large\":18446744073709549568}"),
+        .Ok(Everything { ..defaultEverything(), large: .Some(-2048) }),
+    );
+    let v = Everything { ..defaultEverything(), large: .Some(-7), serial: .Some(MIN) };
+    assert.equal(decodeEverythingJson(ctx, encodeEverythingJson(ctx, v)), .Ok(v));
+}
+
+test "a uint64 past 2^64 - 1 or below zero is refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        read(ctx, "{\"large\":\"18446744073709551616\"}"),
+        outOfRange("$.large"),
+    );
+    assert.equal(
+        read(ctx, "{\"serial\":\"18446744073709551616\"}"),
+        outOfRange("$.serial"),
+    );
+    assert.equal(read(ctx, "{\"large\":\"-1\"}"), outOfRange("$.large"));
+    assert.equal(read(ctx, "{\"large\":\"1e536870000\"}"), outOfRange("$.large"));
+}

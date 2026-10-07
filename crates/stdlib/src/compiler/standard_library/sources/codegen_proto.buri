@@ -2247,10 +2247,12 @@ fn jsonOf<C: Allocator>(
     match (f.ty) {
         .Scalar(s) => {
             let k = scalarName(s);
-            if (k == "int64" || k == "uint64" || k == "sint64") {
+            if (k == "int64" || k == "sint64" || k == "sfixed64") {
                 nsCall("proto", "jsonInt64", [c, value])
-            } else if (k == "fixed64" || k == "sfixed64") {
-                nsCall("proto", "jsonInt64", [c, value])
+            } else if (k == "uint64" || k == "fixed64") {
+                // The `Int` holds the bits, so a value past 2^63 - 1 is negative
+                // here and its unsigned decimal in the document.
+                nsCall("proto", "jsonUint64", [c, value])
             } else if (k == "bool") {
                 callOf(dot(id("Json"), "Bool"), [value])
             } else if (k == "string") {
@@ -2359,22 +2361,14 @@ fn jsonEncodeFn<C: Allocator>(
     })
 }
 
-/// The range a JSON reader holds an integer field to.
-///
-/// The 64-bit bounds are `Int`'s own, which is `I64`'s: a `uint64` above 2^63
-/// has no `Int` to be, and the reader says so rather than wrapping.
+/// The range a JSON reader holds a 32-bit field to. The 64-bit fields have
+/// readers of their own in `core/proto`, exact to the last digit.
 fn jsonRange(s: schema.Scalar): (Int, Int) {
     let k = scalarName(s);
-    let top = 9223372036854775807;
-    let bottom = -9223372036854775807 - 1;
-    if (k == "int32" || k == "sint32" || k == "sfixed32") {
-        (-2147483648, 2147483647)
-    } else if (k == "uint32" || k == "fixed32") {
+    if (k == "uint32" || k == "fixed32") {
         (0, 4294967295)
-    } else if (k == "uint64" || k == "fixed64") {
-        (0, top)
     } else {
-        (bottom, top)
+        (-2147483648, 2147483647)
     }
 }
 
@@ -2403,6 +2397,10 @@ fn jsonRead<C: Allocator>(
                 nsCall("proto", "asFloat", [doc, path])
             } else if (k == "float") {
                 nsCall("proto", "asFloat32", [doc, path])
+            } else if (k == "int64" || k == "sint64" || k == "sfixed64") {
+                nsCall("proto", "asInt64", [doc, path])
+            } else if (k == "uint64" || k == "fixed64") {
+                nsCall("proto", "asUint64", [doc, path])
             } else {
                 // proto3 JSON rejects a value the field cannot hold rather than
                 // truncating it, so the field's own range travels to the reader.
