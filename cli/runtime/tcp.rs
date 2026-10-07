@@ -421,14 +421,12 @@ mod tests {
         assert!(message.contains("70000"), "{message} does not name the port");
     }
 
-    /// Nothing is listening on a port nothing bound, so the dial is refused
+    /// Nothing listens on a port this test holds, so the dial is refused
     /// rather than hanging.
     #[test]
     fn a_dial_nobody_answers_is_refused() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
-        let port = listener.local_addr().expect("the bound address").port();
-        drop(listener);
-        let (tag, _, _) = dial("127.0.0.1", i64::from(port));
+        let held = crate::RefusedPort::hold();
+        let (tag, _, _) = dial("127.0.0.1", i64::from(held.port));
         assert_eq!(tag, 1, "a dial to a closed port was not refused");
     }
 

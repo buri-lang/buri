@@ -7004,35 +7004,19 @@ mod tests {
         assert_eq!(heard, "ping", "the client's frame reached the far side masked and whole");
     }
 
-    /// A dial to a port nobody holds is a `Transport` failure with a sentence.
-    ///
-    /// The port is one the kernel just handed out and this test then let go of,
-    /// which is how a loopback address that certainly refuses a connection is
-    /// come by without hard-coding a number some other process may hold.
+    /// A dial to a port nobody holds is a `Transport` failure with a sentence
+    /// naming the port.
     #[cfg(feature = "net")]
     #[test]
     fn a_dial_to_a_port_nobody_holds_is_refused() {
-        let port = {
-            let listener = TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
-            listener.local_addr().expect("the bound port").port()
-        };
+        let held = crate::RefusedPort::hold();
+        let port = held.port;
         let refused = client::connect(&format!("ws://127.0.0.1:{port}/socket"))
             .expect_err("nobody is listening");
         assert_eq!(refused.cause, ServeFail::Transport);
-        // The freed ephemeral port almost always refuses the connect, and the
-        // detail then names it. But on a busy host — the CI leg runs many tests
-        // at once — another bind can reclaim that exact port in the window
-        // between the `drop` above and this dial, so the dial reaches a listener
-        // that resets it mid-handshake instead. That is still a `Transport`
-        // failure (asserted above); its detail names the reset rather than the
-        // port. Both are the one thing this checks: a dial that could not
-        // usefully reach the endpoint fails as a transport error with a
-        // sentence, not a panic or a silent success.
         assert!(
-            refused.detail.contains(&port.to_string())
-                || refused.detail.to_lowercase().contains("reset"),
-            "a dead port is a Transport failure naming the port, or a reset if \
-             the port was transiently reclaimed by another bind: {}",
+            refused.detail.contains(&port.to_string()) && refused.detail.to_lowercase().contains("refused"),
+            "a dead port is a Transport failure saying it was refused, naming the port: {}",
             refused.detail
         );
     }

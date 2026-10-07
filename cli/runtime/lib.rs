@@ -987,3 +987,33 @@ pub unsafe extern "C" fn buri_rt_i128_saturating(
         out.add(1).write((v >> 64) as u64);
     }
 }
+
+/// A loopback port nothing listens on and nothing else can take, for a test
+/// of a refused dial, held for as long as this value lives.
+///
+/// The port is the source port of a loopback connection this holds open.
+/// The kernel refuses a dial to it, because nothing listens there, and won't
+/// hand it to a bind of port 0, because the connection uses it.
+///
+/// Binding port 0 and dropping the listener, as the dial tests once did, let
+/// the port go before the dial: about one run in two hundred under the heap
+/// check, another test's server was handed it and answered. A free port picked
+/// below the ephemeral range wasn't enough either: a process on the machine
+/// listening on that port's wildcard address answered the dial.
+#[cfg(test)]
+pub(crate) struct RefusedPort {
+    pub(crate) port: u16,
+    _held: (std::net::TcpListener, std::net::TcpStream, std::net::TcpStream),
+}
+
+#[cfg(test)]
+impl RefusedPort {
+    pub(crate) fn hold() -> RefusedPort {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a loopback listener");
+        let client = std::net::TcpStream::connect(listener.local_addr().expect("its address"))
+            .expect("a loopback connection");
+        let (server, _) = listener.accept().expect("the connection accepted");
+        let port = client.local_addr().expect("the connection's source port").port();
+        RefusedPort { port, _held: (listener, client, server) }
+    }
+}
