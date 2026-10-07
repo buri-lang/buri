@@ -1,0 +1,24 @@
+// EXPECT: decorative-with-role
+//
+// A decorative stack is hidden from assistive technology, and a role is what
+// assistive technology is told. A breadcrumb list that hid itself would be a
+// list nobody hears, so the pair is refused where it is written.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(
+    ctx,
+    ui.stack({
+      styles: [],
+      children: [ui.text({ content: .Const("/") })],
+      role: .Some(.List),
+      isDecorative: .Some(true),
+    }),
+    [],
+  )
+}

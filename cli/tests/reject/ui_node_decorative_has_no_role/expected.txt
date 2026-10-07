@@ -1,0 +1,32 @@
+error: a `stack` that is decorative takes no `role`, because a hidden element has nothing to announce [decorative-with-role]
+  --> cmd/ui_node_decorative_has_no_role/main.buri:20:21
+   |
+20 |       isDecorative: .Some(true),
+   |                     ^^^^^^^^^^^
+   |
+   = fix: drop the `role`, or the `isDecorative`
+
+     isDecorative hides a stack and everything in it from assistive technology.
+     A role is what assistive technology is told, so the two can't both hold.
+
+     Wrap the decorative part in a stack of its own inside the one with the
+     role:
+
+       fn crumb<C>(name: Str): Node<C> {
+           ui.stack({
+               styles: [.Layout(.Row)],
+               children: [
+                   ui.text({ content: .Const(name) }),
+                   ui.stack({
+                       styles: [],
+                       children: [ui.text({ content: .Const("/") })],
+                       isDecorative: .Some(true),
+                   }),
+               ],
+               role: .Some(.ListItem),
+           })
+       }
+
+     The compiler reads both fields at the call site. A pair it can't read is
+     refused too, because it can't tell that they don't hold together.
+

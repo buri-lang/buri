@@ -109,6 +109,12 @@ struct Record {
     pick: i64,
     /// The pointer handler graph nodes, down/move/up, each `-1` when unset.
     pointer: [i64; 3],
+    /// Whether this element is announced as the current page — the
+    /// JavaScript `aria-current`. `isCurrent` reads it.
+    current: bool,
+    /// Whether this element and everything in it is hidden from assistive
+    /// technology — the JavaScript `aria-hidden`. `spoken` skips it.
+    decorative: bool,
 }
 
 /// A record with no widget state — an element, a run or a marker before any
@@ -130,6 +136,8 @@ fn plain_record(identity: i64, kind: Kind, name: String, body: String, text: Str
         follow: -1,
         pick: -1,
         pointer: [-1; 3],
+        current: false,
+        decorative: false,
     }
 }
 
@@ -1115,6 +1123,29 @@ pub extern "C" fn buri_rt_ui_node_mark_submit(handle: i64) {
     });
 }
 
+/// `markCurrent(builder, at, on)` — says whether the element `openElement`
+/// answered `at` is announced as the current page.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_mark_current(handle: i64, at: i64, on: u8) {
+    with_doc(handle, |doc| {
+        if let Some(r) = usize::try_from(at).ok().and_then(|i| doc.records.get_mut(i)) {
+            r.current = on != 0;
+        }
+    });
+}
+
+/// `markDecorative(builder)` — hides the open element and everything in it from
+/// assistive technology.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_mark_decorative(handle: i64) {
+    with_doc(handle, |doc| {
+        let open = open_element(doc);
+        if let Some(r) = doc.records.get_mut(open) {
+            r.decorative = true;
+        }
+    });
+}
+
 /// `registerPick(builder, onPick)` — keeps a file picker's handler on a graph
 /// node and stores it on the open element, in a slot `press` never reads, so
 /// only `pickFile` fires it.
@@ -2037,6 +2068,60 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_text(handle: i64, out: *m
     let answer = str_of(&text);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(answer) };
+}
+
+/// `Rendered.spoken()` — every run of text a screen reader reaches, in order,
+/// joined by a space: `text()` without what a decorative element hides.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_spoken(handle: i64, out: *mut BuriStr) {
+    let all = documents();
+    let text = usize::try_from(handle)
+        .ok()
+        .and_then(|i| all.get(i))
+        .map(|doc| {
+            let mut runs: Vec<&str> = Vec::new();
+            doc.spoken_runs(0, &mut runs);
+            runs.join(" ")
+        })
+        .unwrap_or_default();
+    let answer = str_of(&text);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(answer) };
+}
+
+impl Document {
+    /// The runs under `node` a screen reader reaches, in document order: every
+    /// one, except under an element that is decorative.
+    fn spoken_runs<'a>(&'a self, node: usize, out: &mut Vec<&'a str>) {
+        for &child in &self.records[node].children {
+            let r = &self.records[child];
+            match r.kind {
+                Kind::Text => out.push(r.text.as_str()),
+                Kind::Element if r.decorative => {}
+                _ => self.spoken_runs(child, out),
+            }
+        }
+    }
+}
+
+/// `Rendered.isCurrent(name)` — whether the element `name` names is announced
+/// as the current page.
+///
+/// # Safety
+/// `name` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_is_current(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) -> u8 {
+    // SAFETY: forwarded to the caller's promise.
+    let node = unsafe { pointer_target(handle, ptr, len) };
+    u8::from(with_doc(handle, |doc| doc.records[node].current).unwrap_or(false))
 }
 
 /// `Rendered.count(name)` — how many elements of this name the tree holds.

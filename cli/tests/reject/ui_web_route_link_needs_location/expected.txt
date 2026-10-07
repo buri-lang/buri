@@ -1,8 +1,8 @@
 error: `a context` does not implement `Location` [missing-impl]
   --> cmd/ui_web_route_link_needs_location/main.buri:17:17
    |
-17 |   ui.mount(ctx, web.routeLink(.Const("/next"), [], [ui.text({ content: .Const("go") })]), [])
-   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17 |   ui.mount(ctx, web.routeLink({ dest: .Const("/next"), styles: [], children: [ui.text({ content: .Const("go") })] }), [])
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: bound the type parameter with `Location`, or use a type that has one
 

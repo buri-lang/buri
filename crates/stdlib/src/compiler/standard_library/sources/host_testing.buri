@@ -2040,8 +2040,8 @@ export fn address<C: Ui>(ctx: C, at: Str): Address {
 ///   keypress.
 /// - **Focus and selection.** That a moved row keeps the focus and the caret.
 ///   What a test asserts here is the identity that makes it possible.
-/// - **What assistive technology announces.** A test asserts a role as the
-///   element it became.
+/// - **What assistive technology announces**, past what `spoken` and
+///   `isCurrent` answer. A test asserts a role as the element it became.
 export struct Rendered(I64);
 
 /// Renders `root` into a document of its own.
@@ -2077,6 +2077,17 @@ impl Rendered {
 
     /// Every run of text in the tree, in order, separated by a space.
     export fn text(self): Str;
+
+    /// Every run of text a screen reader reaches, in order, separated by a
+    /// space: `text()` without what an `isDecorative` stack hides.
+    export fn spoken(self): Str;
+
+    /// Whether the element named `name` is announced as the current page — a
+    /// `button`, a `link` or a `stack` whose `isCurrent` holds.
+    ///
+    /// An element's name is its label, or else its text, the way `pointerDown`
+    /// names one. Aborts when no element has that name.
+    export fn isCurrent(self, name: Str): Bool;
 
     /// Presses the button whose label is `label`.
     ///

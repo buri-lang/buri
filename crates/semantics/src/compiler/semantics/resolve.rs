@@ -681,6 +681,15 @@ impl<'a> Checker<'a> {
             self.diags,
             walked,
         );
+        crate::compiler::semantics::decorative::run(
+            self.loaded,
+            &self.tables,
+            &self.scopes,
+            &self.bodies,
+            &self.const_values,
+            self.diags,
+            walked,
+        );
         // A `load` reached synchronously from a reactive builder answers a
         // promise the renderer cannot render (#152), so it is refused here where
         // the builder's body is still a lambda in the typed tree.

@@ -1386,6 +1386,11 @@ pub const ENTRIES: &[Entry] = &[
     // a children-button by the label a reader hears rather than its glyphs.
     e("ui_node.registerLabel", &[Scalar, Str], Ret::Void),
     e("ui_node.markSubmit", &[Scalar], Ret::Void),
+    // What a reader is told about an element and a painter never draws:
+    // `aria-current` and `aria-hidden`'s scene twins, kept on the record and
+    // read back by `isCurrent` and `spoken`.
+    e("ui_node.markCurrent", &[Scalar, Scalar, Scalar], Ret::Void),
+    e("ui_node.markDecorative", &[Scalar], Ret::Void),
     // A file picker (#209). `registerPick` keeps its handler in a slot of its
     // own, an `ep` like `registerPress`, so `press` never fires it; the three
     // `offered` readers answer the file `pickFile` left on the document, and
@@ -1401,6 +1406,8 @@ pub const ENTRIES: &[Entry] = &[
     // `identity` an `Int`.
     e("host_testing.Rendered.markup", &[Scalar], Ret::Out),
     e("host_testing.Rendered.text", &[Scalar], Ret::Out),
+    e("host_testing.Rendered.spoken", &[Scalar], Ret::Out),
+    e("host_testing.Rendered.isCurrent", &[Scalar, Str], Ret::Scalar),
     e("host_testing.Rendered.count", &[Scalar, Str], Ret::Scalar),
     e("host_testing.Rendered.identity", &[Scalar, Str, Scalar], Ret::Scalar),
     // The event dispatch (#53 phase 4), each addressing the reconciled document

@@ -72,9 +72,8 @@ from "core/json" import * as json;
 from "core/json" import { Json };
 from "platform/effect" import { Allocator, Location, Ui, Watch };
 from "ui/node" import * as node;
-from "ui/node" import { Node };
+from "ui/node" import { Link, Node };
 from "ui/prop" import { Prop };
-from "ui/style" import { Style };
 
 // --- The server's half ---------------------------------------------------------
 
@@ -337,19 +336,35 @@ export fn replace<C: Location + Ui>(ctx: C, path: Str): () {
 /// to another origin is an ordinary `ui.link`: it *is* a document load, and a
 /// reader following one is leaving.
 ///
+/// It takes `ui.link`'s own config, so a navigation rail marks the page it is
+/// on with `isCurrent`. An `onFollow` left `.None` is filled with `navigate`;
+/// one given is kept, for a page that wants to do something first.
+///
+/// ```buri role=std
+/// # from "platform/effect" import { Location, Ui };
+/// # from "ui/node" import * as ui;
+/// # from "ui/node" import { Node };
+/// # from "ui/prop" import { Prop };
+/// # from "ui/web" import * as web;
+///
+/// export fn rail<C: Location + Ui>(onReports: Prop<Bool>): Node<C> {
+///     web.routeLink({
+///         dest: .Const("/reports"),
+///         styles: [],
+///         children: [ui.text({ content: .Const("Reports") })],
+///         isCurrent: .Some(onReports),
+///     })
+/// }
+/// ```
+///
 /// It wants `Location` and `Ui` because a plain click navigates, and that is
 /// what navigating needs. A `native` build has no document to click in, so one
 /// that mounts a `routeLink` renders the anchor and its plain click does
 /// nothing there.
-export fn routeLink<C: Location + Ui>(
-    dest: Prop<Str>,
-    styles: [Style],
-    children: [Node<C>],
-): Node<C> {
-    node.link({
-        dest: dest,
-        children: children,
-        styles: styles,
-        onFollow: .Some(fn(c, to) => navigate(c, to)),
-    })
+export fn routeLink<C: Location + Ui>(config: Link<C>): Node<C> {
+    let onFollow: fn(C, Str) => () = match (config.onFollow) {
+        .Some(follow) => follow,
+        .None => fn(c, to) => navigate(c, to),
+    };
+    node.link(Link { ..config, onFollow: .Some(onFollow) })
 }

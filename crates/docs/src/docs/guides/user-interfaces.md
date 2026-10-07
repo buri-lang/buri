@@ -135,6 +135,85 @@ written out at the call site because the compiler reads it: an `<svg>` and the
 shapes inside it, and a script or a reference to somewhere else is
 `icon-not-drawable` rather than something the renderer quietly drops.
 
+**A box can be decorative too, and it can be the current page.** A `stack`'s
+`isDecorative` hides it and everything in it from a screen reader: the slash
+between two breadcrumb steps, or a caption that repeats a field's name. It's
+the subtree form of a `.Decorative` image, so text can be decorative as well.
+`isCurrent` is the field `button` and `link` already take, for the step the
+reader is on, which isn't a link.
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+export fn breadcrumb<C>(): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Row), .Gap(.Px(6))],
+        children: [
+            ui.link({
+                dest: .Const("/"),
+                styles: [],
+                children: [ui.text({ content: .Const("Home") })],
+            }),
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("/") })],
+                isDecorative: .Some(true),
+            }),
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("Reports") })],
+                isCurrent: .Some(.Const(true)),
+            }),
+        ],
+        role: .Some(.Navigation),
+    })
+}
+```
+
+On the web they're `aria-hidden` and `aria-current`, the second written only
+while it's `true`. A picture is the same either way. A decorative stack takes
+no `role`, because a hidden element has nothing to announce
+([`decorative-with-role`](../reference/errors/decorative-with-role.md)).
+
+A test reads both off the rendered tree. `spoken()` is `text()` without what a
+decorative stack hides, and `isCurrent(name)` asks about the element with that
+name:
+
+```buri role=test
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui };
+from "platform/effect/testing" import { headless, render };
+from "ui/node" import * as ui;
+
+test "the separator is drawn and never read out" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("/") })],
+                    isDecorative: .Some(true),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("Reports") })],
+                    isCurrent: .Some(.Const(true)),
+                }),
+            ],
+        }),
+    );
+    assert.equal(page.text(), "/ Reports");
+    assert.equal(page.spoken(), "Reports");
+    assert.isTrue(page.isCurrent("Reports"));
+}
+```
+
 A component is an ordinary function and it runs **once**. Three constructors
 put reactivity in the tree, and each re-runs the smallest thing it can:
 

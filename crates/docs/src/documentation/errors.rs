@@ -98,6 +98,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("cryptography-unavailable", "Secure randomness needs a cryptography-enabled toolchain"),
     e!("ctx-not-first", "`ctx` comes first, or immediately after `self`"),
     e!("custom-effect-outside-js", "Only a `JS` entry offers an effect its platform implements", &["build/platforms"]),
+    e!("decorative-with-role", "A decorative stack has no role", &["guides/user-interfaces"]),
     e!("derive-missing-traits", "A `derive` clause names at least one trait"),
     e!("derive-not-trait", "A `derive` names a declared trait"),
     e!("derive-only-trait", "Some traits are derived, never implemented", &["reference/standard-library"]),

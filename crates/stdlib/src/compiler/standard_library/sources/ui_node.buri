@@ -289,8 +289,11 @@ enum NodeKind<C> {
     Empty,
     Text(Prop<Str>),
     Heading(Int, [Style], Prop<Str>),
-    Stack([Style], [Node<C>], Events<C>),
-    Region(Role, [Style], [Node<C>], Events<C>),
+    // Styles, children, `isCurrent` and `isDecorative`.
+    Stack([Style], [Node<C>], Prop<Bool>, Bool, Events<C>),
+    // A role, styles, children and `isCurrent`. A region is never decorative:
+    // `decorative-with-role` refuses the pair.
+    Region(Role, [Style], [Node<C>], Prop<Bool>, Events<C>),
     Button(Prop<Str>, [Style], [Node<C>], fn(C, Event) => (), Prop<Bool>, Prop<Bool>, Prop<Bool>, Events<C>),
     // A `<a href>`. `onFollow` set makes a same-origin dest route client-side
     // (what used to be `routeLink`); left `.None` it is a plain anchor.
@@ -450,6 +453,14 @@ struct Stack<C> {
     /// What the container *means* — a landmark, a list, a table row, a labelled
     /// group. Left out, it is a plain box.
     export role: Option<Role>,
+    /// Written only when `true`: announced as the current page, the field
+    /// `Button` and `Link` have. A breadcrumb's last step isn't a link.
+    export isCurrent: Option<Prop<Bool>>,
+    /// Hides the stack and everything in it from assistive technology: a
+    /// separator glyph, a caption that repeats a field's name. The subtree form
+    /// of `Image.alt: .Decorative`. A stack with a `role` takes none, because a
+    /// hidden element has nothing to announce (`decorative-with-role`).
+    export isDecorative: Option<Bool>,
     /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
     /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
@@ -480,9 +491,18 @@ export fn stack<C>(config: Stack<C>): Node<C> {
         config.onPointerMove,
         config.onPointerUp,
     );
+    let current = orFalse(config.isCurrent);
     match (config.role) {
-        .Some(role) => Node(.Region(role, config.styles, config.children, events)),
-        .None => Node(.Stack(config.styles, config.children, events)),
+        .Some(role) => {
+            Node(.Region(role, config.styles, config.children, current, events))
+        },
+        .None => {
+            let decorative = match (config.isDecorative) {
+                .Some(hidden) => hidden,
+                .None => false,
+            };
+            Node(.Stack(config.styles, config.children, current, decorative, events))
+        },
     }
 }
 
@@ -501,9 +521,17 @@ struct Spacer {
 export fn spacer<C>(config: Spacer): Node<C> {
     match (config.size) {
         .Some(length) => {
-            Node(.Stack([.Width(length), .Height(length), .Shrink(0)], [], noEvents()))
+            Node(
+                .Stack(
+                    [.Width(length), .Height(length), .Shrink(0)],
+                    [],
+                    .Const(false),
+                    false,
+                    noEvents(),
+                ),
+            )
         },
-        .None => Node(.Stack([.Grow(1)], [], noEvents())),
+        .None => Node(.Stack([.Grow(1)], [], .Const(false), false, noEvents())),
     }
 }
 
@@ -662,10 +690,10 @@ fn pressHandler<C>(onPress: Option<fn(C) => ()>): fn(C, Event) => () {
 /// preview all work), but a plain left-click runs `onFollow` in place of the
 /// browser's own navigation, and every modified click is left to the browser.
 /// Left out, it is a plain anchor. This absorbs the old `routeLink`; `ui/web`'s
-/// `routeLink` is the wrapper that fills `onFollow` with a client-side
+/// `routeLink` takes this same config and fills `onFollow` with a client-side
 /// `navigate`. `isCurrent` carries `aria-current` for the link to the page you
 /// are on.
-struct Link<C> {
+export struct Link<C> {
     /// Where the link goes — the `href`.
     export dest: Prop<Str>,
     /// Drawn inside the link.
@@ -1873,11 +1901,23 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = emitReactiveText(builder, content);
             exitElement(builder)
         },
-        .Stack(styles, children, events) => {
-            emitBox(ctx, builder, "div", plain(state), styles, children, state, events)
+        .Stack(styles, children, current, decorative, events) => {
+            emitAnnounced(
+                ctx,
+                builder,
+                "div",
+                plain(state),
+                [],
+                styles,
+                children,
+                state,
+                events,
+                current,
+                decorative,
+            )
         },
-        .Region(role, styles, children, events) => {
-            emitBoxWith(
+        .Region(role, styles, children, current, events) => {
+            emitAnnounced(
                 ctx,
                 builder,
                 roleName(role),
@@ -1887,6 +1927,8 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 children,
                 state,
                 events,
+                current,
+                false,
             )
         },
         // A reactive `disabled` (or, for a label-only button, a reactive label)
@@ -1905,6 +1947,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     children,
                     onPress,
                     disabled,
+                    current,
                     events,
                     state,
                 )
@@ -1931,18 +1974,21 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // unbounded walk); the runtime fires it with the destination on a
         // `follow`. A plain link with no handler is a box like any other, so it
         // keeps `emitBox`'s reactive-style path.
-        .Link(dest, styles, children, onFollow, _current, events) => {
+        .Link(dest, styles, children, onFollow, current, events) => {
             match (onFollow) {
                 .None => {
-                    emitBox(
+                    emitAnnounced(
                         ctx,
                         builder,
                         "a",
                         plain(state),
+                        [],
                         styles,
                         children,
                         state,
                         events,
+                        current,
+                        false,
                     )
                 },
                 .Some(handler) => {
@@ -1950,22 +1996,24 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     // plain link's (`emitBox`) are: a `.When`/`.Computed` swap —
                     // how a nav rail marks the current row — re-serialises in
                     // place rather than being frozen at first render.
-                    let _ = if (stylesReactive(styles)) {
-                        let at = openElement(builder, "a", "");
-                        reactive(fn(scope) => {
+                    let at = if (stylesReactive(styles)) {
+                        let opened = openElement(builder, "a", "");
+                        let _ = reactive(fn(scope) => {
                             patchBody(
                                 builder,
-                                at,
+                                opened,
                                 widgetBodyUnder(scope, plain(state), [], styles),
                             )
-                        })
+                        });
+                        opened
                     } else {
-                        emitElement(
+                        openElement(
                             builder,
                             "a",
                             widgetBody(mem, plain(state), [], styles),
                         )
                     };
+                    let _ = announce(builder, at, current, false);
                     let _ = registerFollow(builder, dest.read(scope), handler);
                     let _ = registerEvents(builder, events);
                     let _ = emitChildren(ctx, builder, children, state, 0);
@@ -2273,6 +2321,7 @@ fn emitButton<C>(
     children: [Node<C>],
     onPress: fn(C, Event) => (),
     disabled: Prop<Bool>,
+    current: Prop<Bool>,
     events: Events<C>,
     state: State,
 ): () {
@@ -2283,14 +2332,16 @@ fn emitButton<C>(
     // — the same reactive-style bind `emitBox` gives a plain box. A button of
     // constant styles registers nothing. (Its `disabled` is constant here: the
     // reactive arm of `emitNode`'s `Button` wraps a non-const one in a rebuild.)
-    let _ = if (stylesReactive(styles)) {
-        let at = openElement(builder, "button", "");
-        reactive(fn(scope) => {
-            patchBody(builder, at, widgetBodyUnder(scope, painted, [], styles))
-        })
+    let at = if (stylesReactive(styles)) {
+        let opened = openElement(builder, "button", "");
+        let _ = reactive(fn(scope) => {
+            patchBody(builder, opened, widgetBodyUnder(scope, painted, [], styles))
+        });
+        opened
     } else {
-        emitElement(builder, "button", widgetBody(mem, painted, [], styles))
+        openElement(builder, "button", widgetBody(mem, painted, [], styles))
     };
+    let _ = announce(builder, at, current, false);
     let _ = registerPress(builder, onPress);
     let _ = registerLabel(builder, label.read(rootScope()));
     let _ = registerEvents(builder, events);
@@ -2587,25 +2638,66 @@ fn emitBoxWith<C>(
     state: State,
     events: Events<C>,
 ): () {
+    emitAnnounced(
+        ctx,
+        builder,
+        name,
+        painted,
+        leading,
+        styles,
+        children,
+        state,
+        events,
+        .Const(false),
+        false,
+    )
+}
+
+/// `emitBoxWith`, with what a reader is told about the box beside what it
+/// paints: whether it is the current page, and whether it is hidden from
+/// assistive technology. Neither is in the scene a painter reads.
+fn emitAnnounced<C>(
+    ctx: C,
+    builder: Builder,
+    name: Str,
+    painted: Painted,
+    leading: [Str],
+    styles: [Style],
+    children: [Node<C>],
+    state: State,
+    events: Events<C>,
+    current: Prop<Bool>,
+    decorative: Bool,
+): () {
     let mem = alloc.generalPurpose();
     // A box whose styles hold a computation opens the element once and patches
     // its body from a watcher, so a write to what a `Computed`/`When` style
     // reads re-serialises the line in place — the scene's `$tree_styles` bind.
     // Its children are emitted once and kept, as are the element and its
     // identity. A box of constant styles registers nothing.
-    if (stylesReactive(styles)) {
-        let at = openElement(builder, name, "");
+    let at = if (stylesReactive(styles)) {
+        let opened = openElement(builder, name, "");
         let _ = reactive(fn(scope) => {
-            patchBody(builder, at, widgetBodyUnder(scope, painted, leading, styles))
+            patchBody(builder, opened, widgetBodyUnder(scope, painted, leading, styles))
         });
-        let _ = registerEvents(builder, events);
-        let _ = emitChildren(ctx, builder, children, state, 0);
-        exitElement(builder)
+        opened
     } else {
-        let _ = emitElement(builder, name, widgetBody(mem, painted, leading, styles));
-        let _ = registerEvents(builder, events);
-        let _ = emitChildren(ctx, builder, children, state, 0);
-        exitElement(builder)
+        openElement(builder, name, widgetBody(mem, painted, leading, styles))
+    };
+    let _ = announce(builder, at, current, decorative);
+    let _ = registerEvents(builder, events);
+    let _ = emitChildren(ctx, builder, children, state, 0);
+    exitElement(builder)
+}
+
+/// Tells the document what a reader hears about the element `at`: that it is
+/// the current page while `current` holds, and that it and everything in it
+/// is hidden when it is decorative. A constant registers no watcher.
+fn announce(builder: Builder, at: I64, current: Prop<Bool>, decorative: Bool): () {
+    let _ = if (decorative) { markDecorative(builder) } else {  };
+    match (current) {
+        .Const(on) => { if (on) { markCurrent(builder, at, true) } else {  } },
+        _ => reactive(fn(scope) => markCurrent(builder, at, current.read(scope))),
     }
 }
 
@@ -3002,6 +3094,15 @@ fn registerFollow<C>(builder: Builder, dest: Str, onFollow: fn(C, Str) => ()): (
 /// `type="submit"`, the whole of what makes a press or Enter submit.
 fn markSubmit(builder: Builder): ();
 
+/// Says whether the element `openElement` answered `at` is announced as the
+/// current page — the scene twin of `aria-current`. Not in the scene a painter
+/// reads, so it moves no line.
+fn markCurrent(builder: Builder, at: I64, on: Bool): ();
+
+/// Hides the open element and everything in it from assistive technology —
+/// the scene twin of `aria-hidden`. Not in the scene a painter reads.
+fn markDecorative(builder: Builder): ();
+
 /// Keeps a file picker's `fn(C, Event) => ()` on the open element, in a slot of
 /// its own so `press` never fires it and `pickFile` does. It lives in the
 /// graph, disposed with the subtree.
@@ -3032,13 +3133,15 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                 textLine(ctx, depth + 1, content.read(scope)),
             ]
         },
-        .Stack(styles, children, _events) => {
+        // Being the current page and being decorative are what a reader is
+        // told, not what a painter draws, so neither is in the scene.
+        .Stack(styles, children, _current, _decorative, _events) => {
             container(ctx, state, styles, children, depth)
         },
         // A role paints nothing — it is what a reader is told, not what a
         // painter draws — except the table roles, whose whole point is a
         // two-dimensional arrangement a browser gives them for free.
-        .Region(role, styles, children, _events) => {
+        .Region(role, styles, children, _current, _events) => {
             let line = widgetLine(
                 ctx,
                 plain(state),
