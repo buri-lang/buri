@@ -5140,7 +5140,7 @@ mimalloc cut instructions by 28–36%, but wall time barely moved: about 8% on
 sema and flat on parallel lowering. The in-tree prototype made parallel
 lowering two to three times slower in wall time. Counts can't see contention
 or cache behaviour (§8, "What counts can't see"), so the allocator needs a
-wall-time comparison on a quiet machine first.
+wall-time comparison on a quiet machine first. §6.54 has it.
 
 ### 6.53 The JavaScript runtime's helpers, 2026-10-06
 
@@ -5229,6 +5229,105 @@ that asks a length.
   representation, so it wasn't tried.
 - **`BigInt` to string through `Number`,** and **a scan instead of the
   surrogate regex:** slower on bun, or on both.
+
+### 6.54 A size-class allocator for the compiler, 2026-10-06
+
+`buri` and the bench now install `buri::allocator` (`cli/src/allocator.rs`)
+in place of the system allocator. It answers §6.52's open question.
+
+**The ceiling came first.** mimalloc 3.5.3 from nixpkgs, through
+`DYLD_INSERT_LIBRARIES`, against the system allocator. The machine was quiet,
+with load 1–6 from these runs alone. Eleven alternating rounds, `buri clean`
+before each run. "Large" is `mixed-100k` laid out as a repository twice, once
+for node and once for native: 200,000 lines.
+
+| Workload | system, best of 11 | mimalloc | in-tree | max RSS, system | in-tree |
+|---|---:|---:|---:|---:|---:|
+| example, `build //...` | 0.444 s | −0.9% | +0.5% | 80 MB | +4.7% |
+| example, `build --release //...` | 0.567 s | −2.1% | −0.9% | 93 MB | +6.0% |
+| example, `test //...` | 0.237 s | +0.4% | −2.1% | 82 MB | +8.5% |
+| example, `lint //...` | 14 ms | −7% | −7% | 35 MB | −0.8% |
+| large, `build //...` | 0.581 s | −10.9% | **−11.9%** | 356 MB | −4.2% |
+| large, `build --release //...` | 2.593 s | −6.9% | −3.4% | 387 MB | −4.6% |
+| large, `lint //...` | 0.247 s | −9.3% | −8.5% | 192 MB | −0.6% |
+
+- **The compiler's share decides it.** The example's wall is mostly `bun`,
+  the linker and its tests, so no allocator moves it. The large repository is
+  mostly compiler, and there the ceiling cleared the 5% bar.
+- **`--release` gains less in-tree** because LLVM allocates through C++
+  `malloc`. mimalloc replaces that too; a Rust global allocator can't.
+- **The example's lint is 14 ms,** mostly process start, so its 7% is one
+  millisecond of rounding.
+
+**How it works.** Blocks up to 1 KiB come from 32 KiB pages, one size class
+per page, owned by one thread's heap. Larger and over-aligned blocks go to the
+system.
+
+- A thread allocates from its first page for the class until it's spent, and
+  frees onto the block's page. Neither touches an atomic.
+- A free on another thread pushes onto the page's remote stack with a
+  compare-and-swap. The owner takes the whole stack with one swap, so there's
+  no ABA. That free also counts itself and queues the page on its heap, which
+  is how a spent page comes back.
+- A page with no block out goes to a shared pool, for any heap and class.
+- An exiting thread leaves its heap for the next new thread to adopt.
+  `parallel::map` starts fresh workers for every pass, so this is how their
+  pages come back.
+- No `Mutex`: the pool and the abandoned list sit behind spin locks. A thread
+  that's starting or exiting allocates from the system, and `dealloc` tells
+  those blocks apart by address, outside the reserved range.
+
+Per phase on the large `build //...`, CPU seconds, three runs each:
+
+| Phase | system | mimalloc | in-tree |
+|---|---:|---:|---:|
+| check | 0.052 | 0.044 | 0.044 |
+| middle, parallel `lower` and `rc` included | 0.134–0.137 | 0.096–0.099 | 0.095–0.097 |
+| emit | 0.471 | 0.317–0.322 | 0.302–0.309 |
+
+**Parallel lowering is faster now, not slower.** The research prototype sent
+a block freed on another thread to the freeing thread's list, and `lower` ran
+35% more instructions on it. Here it goes back to the page it came from.
+
+**Getting there took three tries:**
+
+- **One free list per class, per thread, and one remote stack per class.** The
+  large build was only 5% faster. The middle end ran a third fewer
+  instructions than on the system allocator, in the same CPU time. Leaking every remote free
+  changed nothing. A variant that never reused a block matched mimalloc. So
+  the cost was where reused blocks sat: one list per class scatters a new
+  pass's nodes over everything earlier passes freed. Pages fixed it, since a
+  page is used up before the next one starts.
+- **Pages tied to their class for life.** At exit 241 MB of 252 MB was free,
+  pinned to classes nothing still asked for, and max RSS was 28% over the
+  system's. The pool brought it under.
+- **64 KiB pages.** Same speed as 32 KiB, with 2–4% more RSS.
+
+Also tried and dropped:
+
+- **Classes up to 32 KiB,** on the first design, made no difference to wall
+  time.
+- **`MADV_FREE_REUSABLE` on pooled pages.** Peak footprint dropped from 320 to
+  228 MB, but only because the reused pages went uncounted. With the
+  `MADV_FREE_REUSE` that libmalloc pairs it with, footprint was back at 312 MB.
+
+**Peak footprint is up, and RSS isn't.** macOS's peak memory footprint on the
+large build is 199 MB on the system allocator, 299 MB in-tree and 289 MB on
+mimalloc. Max RSS is level or lower. The system allocator marks freed pages
+reusable: they stay resident but drop out of the footprint, and here a free
+page stays dirty in the pool. Pages also never return to the system, so
+`buri lsp` keeps its small-block memory at its high-water mark.
+
+**The bench installs it too,** so its timed rows from here on measure the
+allocator `buri` ships with. Expect a step in every series: 20–30% fewer
+instructions in check, the middle end and emit. `--features alloc-counter`
+still swaps in the counting allocator over the system's.
+
+**Validation:** the workspace suite (2,480 tests, 234 s with the build),
+`--features backend-llvm --test native`, CI's heap-check step, clippy, and two
+hundred runs of the allocator's own tests. Those run 16 threads that hand
+blocks to each other to free, realloc across classes, and adopt each other's
+heaps, plus a check that pages emptied by remote frees serve another class.
 
 ### 6.55 `format --check`, owned list splices, and two issues already fixed, 2026-10-06
 
