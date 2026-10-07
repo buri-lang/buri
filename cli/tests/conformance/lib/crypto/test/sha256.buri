@@ -10,6 +10,7 @@
 from "core/bytes" import * as bytes;
 from "core/crypto" import * as crypto;
 from "core/list" import * as list;
+from "core/secret" import * as secret;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
@@ -122,7 +123,7 @@ test "the RFC 4231 short-key vector" {
     let key = bytes.toUtf8(ctx, "Jefe");
     let message = bytes.toUtf8(ctx, "what do ya want for nothing?");
     assert.equal(
-        crypto.hmacSha256(ctx, key, message).toHex(ctx),
+        crypto.hmacSha256(ctx, secret.of(key), message).toHex(ctx),
         "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
     );
 }
@@ -135,7 +136,7 @@ test "the RFC 4231 twenty-byte-key vector" {
     let key = list.repeat(ctx, 11, 20);
     let message = bytes.toUtf8(ctx, "Hi There");
     assert.equal(
-        crypto.hmacSha256(ctx, key, message).toHex(ctx),
+        crypto.hmacSha256(ctx, secret.of(key), message).toHex(ctx),
         "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
     );
 }
@@ -152,7 +153,7 @@ test "the RFC 4231 long-key vector" {
         "Test Using Larger Than Block-Size Key - Hash Key First",
     );
     assert.equal(
-        crypto.hmacSha256(ctx, key, message).toHex(ctx),
+        crypto.hmacSha256(ctx, secret.of(key), message).toHex(ctx),
         "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54",
     );
 }
@@ -162,8 +163,8 @@ test "hmac depends on the key" {
         Allocator: alloc(),
     };
     let m = bytes.toUtf8(ctx, "message");
-    let a = crypto.hmacSha256(ctx, bytes.toUtf8(ctx, "k1"), m);
-    let b = crypto.hmacSha256(ctx, bytes.toUtf8(ctx, "k2"), m);
+    let a = crypto.hmacSha256(ctx, secret.of(bytes.toUtf8(ctx, "k1")), m);
+    let b = crypto.hmacSha256(ctx, secret.of(bytes.toUtf8(ctx, "k2")), m);
     assert.notEqual(a, b);
 }
 

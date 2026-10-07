@@ -14,6 +14,7 @@
 from "core/bytes" import * as bytes;
 from "core/crypto" import * as crypto;
 from "core/list" import * as list;
+from "core/secret" import * as secret;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
@@ -111,7 +112,7 @@ fn mac(key: [U8], message: [U8]): Str {
     let ctx = context {
         Allocator: alloc(),
     };
-    crypto.hmacSha512(ctx, key, message).toHex(ctx)
+    crypto.hmacSha512(ctx, secret.of(key), message).toHex(ctx)
 }
 
 test "RFC 4231 case 1: a twenty-byte key" {
@@ -167,7 +168,10 @@ test "an empty key and an empty message still make a digest" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.length(crypto.hmacSha512(ctx, list.empty<U8>(), list.empty<U8>()).0, 64);
+    assert.length(
+        crypto.hmacSha512(ctx, secret.of(list.empty<U8>()), list.empty<U8>()).0,
+        64,
+    );
 }
 
 test "HMAC-SHA-512 is not SHA-512 of the same bytes" {
@@ -177,7 +181,7 @@ test "HMAC-SHA-512 is not SHA-512 of the same bytes" {
     let key = bytes.toUtf8(ctx, "k");
     let message = bytes.toUtf8(ctx, "m");
     assert.notEqual(
-        crypto.hmacSha512(ctx, key, message),
+        crypto.hmacSha512(ctx, secret.of(key), message),
         crypto.sha512(ctx, key.concat(ctx, message)),
     );
 }
@@ -322,7 +326,7 @@ test "RFC 4231 case 5: the digest a truncating caller would cut down" {
         "415fad6271580a531d4179bc891d87a650188707922a4fbb36663a1eb16da008711c5b50ddd0fc235084eb9d3364a1454fb2ef67cd1d29fe6773068ea266e96b",
     );
     assert.equal(
-        crypto.hmacSha512(ctx, key, message).0.take(ctx, 16),
+        crypto.hmacSha512(ctx, secret.of(key), message).0.take(ctx, 16),
         assert.ok(bytes.fromHex(ctx, "415fad6271580a531d4179bc891d87a6")),
     );
 }
