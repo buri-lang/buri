@@ -30,12 +30,12 @@ tail_mutual: 2702 bytes artifact, 937 generated
 tail_self: 2968 bytes artifact, 1608 generated
 tail_short_circuit: 3272 bytes artifact, 2060 generated
 traits: 2560 bytes artifact, 629 generated
-ui_counter: 37160 bytes artifact, 10036 generated
-ui_signals: 10574 bytes artifact, 6319 generated
-ui_styles: 43895 bytes artifact, 8498 generated
-ui_styles_dynamic: 43013 bytes artifact, 7060 generated
-ui_theme: 40449 bytes artifact, 12279 generated
-ui_theme_and_computed: 44646 bytes artifact, 6649 generated
+ui_counter: 37169 bytes artifact, 10036 generated
+ui_signals: 10583 bytes artifact, 6319 generated
+ui_styles: 43904 bytes artifact, 8498 generated
+ui_styles_dynamic: 43022 bytes artifact, 7060 generated
+ui_theme: 40458 bytes artifact, 12279 generated
+ui_theme_and_computed: 44655 bytes artifact, 6649 generated
 
-total: 333735 bytes artifact, 104397 generated
+total: 333789 bytes artifact, 104397 generated
 largest function: 9971 bytes, ui_counter/$tree_render

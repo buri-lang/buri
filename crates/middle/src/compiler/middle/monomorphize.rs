@@ -210,9 +210,10 @@ pub struct Program {
     ///
     /// Filled by `middle::derives` and read by both native backends, which wrap
     /// each function in the C-ABI thunk the graph compares through
-    /// (`cli/runtime/ui.rs`'s `Equal`). Empty on the JavaScript path, which
-    /// does not run that pass — `runtime.js` compares with `$eq` and needs no
-    /// generated function.
+    /// (`cli/runtime/ui.rs`'s `Equal`). Monomorphization fills it first for a
+    /// type that reaches a hand-written `Equal`, on every backend, and the
+    /// JavaScript one hands that function to `$ui_write`. Every other type is
+    /// compared with `$eq` there.
     ///
     /// [`Monomorphizer::build_fn`] is what puts a descriptor in
     /// [`Program::desc_index`] for these types in the first place: a cell's `T`
