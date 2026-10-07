@@ -41,3 +41,13 @@ fn check(p: Point): Bool {
 A context binding and a bound both ask for an `impl`. Having the right methods
 isn't enough: a type conforms only once an `impl` says so. That's why a test
 double is a struct plus an `impl` block.
+
+## A toolchain type
+
+```buri fail code=missing-impl
+# from "core/secret" import * as secret;
+
+fn same(): Bool {
+    secret.of("a") == secret.of("a")
+}
+```

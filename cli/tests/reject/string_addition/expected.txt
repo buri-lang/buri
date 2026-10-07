@@ -4,8 +4,7 @@ error: `Str` does not implement `Add` [missing-impl]
 7 |   a + b
   |   ^^^^^
   |
-  = conformance is nominal: a type satisfies a trait only where a declaration says so
-  = fix: add `derive Add for Str;` in that type's own module, or write `impl Add for Str { ... }` there
+  = fix: `Str` comes from `core/str`, which leaves out `Add`: `buri docs core/str` says what to use instead
 
     A context binding and a bound both ask for an impl. Having the right methods
     isn't enough: a type conforms only once an impl says so. That's why a test

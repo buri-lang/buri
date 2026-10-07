@@ -2936,7 +2936,9 @@ impl<'a, 'b> Infer<'a, 'b> {
             let mut d = Diagnostic::templated("missing-impl", span)
                 .with_bind("type", shown.clone())
                 .with_bind("trait", trait_name);
-            if ty.head().is_some() {
+            if let Some(home) = self.c.toolchain_home(&ty, tid) {
+                d = d.with_fix(toolchain_conformance_fix(trait_name, &shown, &home));
+            } else if ty.head().is_some() {
                 d = d
                     .with_note("conformance is nominal: a type satisfies a trait only where a declaration says so")
                     .with_fix(format!(

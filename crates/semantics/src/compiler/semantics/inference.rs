@@ -1027,13 +1027,20 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // over is what fails, and naming it is the useful part.
                     let culprit = self.failing_component(con, &ty, tr);
                     match culprit {
-                        Some(c) => {
+                        Some((c, home)) => {
                             note = Some(format!(
                                 "`{shown}` derives `{trait_name}`, but `{c}` does not satisfy \
                                  it, and a derived implementation is a fold over the type's \
                                  components"
                             ));
-                            fix = Some(format!("make `{c}` satisfy `{trait_name}` first"));
+                            fix = Some(match home {
+                                Some(home) => crate::compiler::semantics::types::toolchain_conformance_fix(
+                                    &trait_name,
+                                    &c,
+                                    &home,
+                                ),
+                                None => format!("make `{c}` satisfy `{trait_name}` first"),
+                            });
                         }
                         None => {
                             note = Some(format!(
@@ -1094,10 +1101,14 @@ impl<'a, 'b> Infer<'a, 'b> {
                             crate::diagnostics::names(&has.into_iter().collect::<Vec<_>>())
                         ));
                     }
-                    fix = Some(crate::compiler::semantics::types::conformance_fix(
-                        &trait_name,
-                        &shown,
-                    ));
+                    fix = Some(match self.c.toolchain_home(&ty, tr) {
+                        Some(home) => crate::compiler::semantics::types::toolchain_conformance_fix(
+                            &trait_name,
+                            &shown,
+                            &home,
+                        ),
+                        None => crate::compiler::semantics::types::conformance_fix(&trait_name, &shown),
+                    });
                 }
             }
             let fix = fix.unwrap_or_else(|| {
@@ -1223,7 +1234,9 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     /// The first field or payload type of a derived type that does not itself
     /// satisfy the trait.
-    fn failing_component(&self, con: TyConId, ty: &Ty, tr: TraitId) -> Option<String> {
+    /// The first component that fails, shown, with its toolchain home when it
+    /// has one (see `Checker::toolchain_home`).
+    fn failing_component(&self, con: TyConId, ty: &Ty, tr: TraitId) -> Option<(String, Option<String>)> {
         let args = match ty.kind() {
             TyKind::Con(_, a) => a.to_vec(),
             _ => Vec::new(),
@@ -1242,7 +1255,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             if t.head() == Some(con) || self.satisfies(&t, tr) {
                 None
             } else {
-                Some(self.show_ty(&t))
+                Some((self.show_ty(&t), self.c.toolchain_home(&t, tr)))
             }
         })
     }

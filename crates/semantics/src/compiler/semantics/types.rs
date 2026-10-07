@@ -419,6 +419,15 @@ pub fn conformance_fix(trait_name: &str, shown: &str) -> String {
     }
 }
 
+/// The fix for a toolchain type that lacks a trait. Only the toolchain can add
+/// one, so the fix points at the page that says what to use instead.
+pub fn toolchain_conformance_fix(trait_name: &str, shown: &str, home: &str) -> String {
+    format!(
+        "`{shown}` comes from `{home}`, which leaves out `{trait_name}`: `buri docs {home}` \
+         says what to use instead"
+    )
+}
+
 #[derive(Clone, Debug)]
 pub struct TraitMethod {
     pub name: String,
