@@ -21,6 +21,7 @@
 //! understand to get past, so treating one as an unknown field would read the
 //! rest of the message at the wrong offset.
 
+from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
 from "core/json" import { Json };
 from "core/list" import * as list;
@@ -61,72 +62,106 @@ let TWO32: Int = 4294967296;
 // Writing
 // -----------------------------------------------------------------------------
 //
-// Every writer returns the bytes of one complete field — header included — so a
-// message is the concatenation of its fields. proto3's canonical encoding writes
-// fields in ascending field number, and the generated code emits them in schema
-// order.
+// Every writer appends to `out` and hands it back, so a message is written into
+// one buffer. A generated encoder writes each header as literal bytes, and a
+// nested message's length from its `size` function before its fields. proto3's
+// canonical encoding writes fields in ascending field number, and the generated
+// code emits them in schema order.
 
-/// The header of one field: its number and its wire type, as a varint.
-export fn tag<C: Allocator>(ctx: C, field: Int, wire: Int): [U8] {
-    bytes.toVarint(ctx, field * 8 + wire)
+/// `value` as a varint, appended to `out`: the bytes `bytes.toVarint` makes,
+/// ten of them for a negative number.
+export fn writeVarint<C: Allocator>(ctx: C, out: [U8], value: Int): [U8] {
+    if (value < 0) {
+        // The low seven bits, then the other 57 of the 64-bit two's complement.
+        let low = (value % 128 + 128) % 128;
+        writeUnsigned(
+            ctx,
+            out.push(ctx, (low + 128).wrapToU8()),
+            bits.shiftRight(value, 7),
+        )
+    } else {
+        writeUnsigned(ctx, out, value)
+    }
 }
 
-/// A varint field: `int32`, `int64`, `uint32`, `uint64`, `bool`, and an enum.
-/// A `sint*` field is this with `bytes.zigzag` applied first.
-export fn varintField<C: Allocator>(ctx: C, field: Int, value: Int): [U8] {
-    tag(ctx, field, VARINT).concat(ctx, bytes.toVarint(ctx, value))
+fn writeUnsigned<C: Allocator>(ctx: C, out: [U8], value: Int): [U8] {
+    if (value < 128) {
+        out.push(ctx, value.wrapToU8())
+    } else {
+        writeUnsigned(ctx, out.push(ctx, (value % 128 + 128).wrapToU8()), value / 128)
+    }
 }
 
-/// A `fixed64` or `sfixed64` field: eight little-endian bytes.
-export fn fixed64Field<C: Allocator>(ctx: C, field: Int, value: Int): [U8] {
-    tag(ctx, field, I64).concat(ctx, le64(ctx, value))
+/// How many bytes `writeVarint` writes for `value`.
+export fn varintSize(value: Int): Int {
+    if (value < 0) {
+        10
+    } else if (value < 128) {
+        1
+    } else if (value < 16384) {
+        2
+    } else if (value < 2097152) {
+        3
+    } else if (value < 268435456) {
+        4
+    } else if (value < 34359738368) {
+        5
+    } else if (value < 4398046511104) {
+        6
+    } else if (value < 562949953421312) {
+        7
+    } else if (value < 72057594037927936) {
+        8
+    } else {
+        9
+    }
 }
 
-/// A `fixed32` or `sfixed32` field: four little-endian bytes.
-export fn fixed32Field<C: Allocator>(ctx: C, field: Int, value: Int): [U8] {
-    tag(ctx, field, I32).concat(ctx, le32(value))
+/// The size of a length-delimited body of `length` bytes, its length included.
+export fn lenSize(length: Int): Int {
+    varintSize(length) + length
 }
 
-/// A `double` field.
-export fn f64Field<C: Allocator>(ctx: C, field: Int, x: Float): [U8] {
-    tag(ctx, field, I64).concat(ctx, bytes.f64ToBytes(ctx, x))
+/// The size of a `string` body: its UTF-8, and the length before it.
+export fn strSize(s: Str): Int {
+    lenSize(s.utf8Length())
 }
 
-/// A `float` field.
-export fn f32Field<C: Allocator>(ctx: C, field: Int, x: Float): [U8] {
-    tag(ctx, field, I32).concat(ctx, bytes.f32ToBytes(ctx, x))
-}
-
-/// A length-delimited field: `bytes`, an embedded message, and a packed
-/// repeated field, which are one encoding wearing three names.
-export fn bytesField<C: Allocator>(ctx: C, field: Int, body: [U8]): [U8] {
-    tag(ctx, field, LEN)
-        .concat(ctx, bytes.toVarint(ctx, body.length()))
-        .concat(ctx, body)
-}
-
-/// A `string` field. UTF-8 is what the format says a string is.
-export fn strField<C: Allocator>(ctx: C, field: Int, s: Str): [U8] {
-    bytesField(ctx, field, bytes.toUtf8(ctx, s))
-}
-
-/// Four little-endian bytes of a value read as unsigned at 32 bits. Pure: an
-/// array literal of a fixed size allocates nothing a context has to grant.
-export fn le32(value: Int): [U8] {
+/// Four little-endian bytes of a value read as unsigned at 32 bits.
+export fn writeFixed32<C: Allocator>(ctx: C, out: [U8], value: Int): [U8] {
     let v = if (value < 0) { value + TWO32 } else { value };
-    [
-        (v % 256).wrapToU8(),
-        (divide(v, 256) % 256).wrapToU8(),
-        (divide(v, 65536) % 256).wrapToU8(),
-        (divide(v, 16777216) % 256).wrapToU8(),
-    ]
+    out
+        .push(ctx, (v % 256).wrapToU8())
+        .push(ctx, (divide(v, 256) % 256).wrapToU8())
+        .push(ctx, (divide(v, 65536) % 256).wrapToU8())
+        .push(ctx, (divide(v, 16777216) % 256).wrapToU8())
 }
 
 /// Eight little-endian bytes, as two halves, so that a negative `sfixed64`
-/// writes its two's complement exactly rather than through a double.
-export fn le64<C: Allocator>(ctx: C, value: Int): [U8] {
+/// writes its two's complement exactly.
+export fn writeFixed64<C: Allocator>(ctx: C, out: [U8], value: Int): [U8] {
     let (hi, lo) = halves(value);
-    le32(lo).concat(ctx, le32(hi))
+    writeFixed32(ctx, writeFixed32(ctx, out, lo), hi)
+}
+
+/// A `double`'s eight bytes.
+export fn writeF64<C: Allocator>(ctx: C, out: [U8], x: Float): [U8] {
+    out.concat(ctx, bytes.f64ToBytes(ctx, x))
+}
+
+/// A `float`'s four bytes.
+export fn writeF32<C: Allocator>(ctx: C, out: [U8], x: Float): [U8] {
+    out.concat(ctx, bytes.f32ToBytes(ctx, x))
+}
+
+/// A `bytes` body: its length, then the bytes.
+export fn writeBytes<C: Allocator>(ctx: C, out: [U8], body: [U8]): [U8] {
+    writeVarint(ctx, out, body.length()).concat(ctx, body)
+}
+
+/// A `string` body. UTF-8 is what the format says a string is.
+export fn writeStr<C: Allocator>(ctx: C, out: [U8], s: Str): [U8] {
+    writeBytes(ctx, out, bytes.toUtf8(ctx, s))
 }
 
 fn divide(a: Int, b: Int): Int {
@@ -150,6 +185,11 @@ fn halves(value: Int): (Int, Int) {
 // -----------------------------------------------------------------------------
 // Reading
 // -----------------------------------------------------------------------------
+//
+// A nested message is read in place rather than sliced out, so every reader
+// takes the index its message ends at, `end`, and the index it starts at,
+// `base`. A read that would pass `end` is truncated, and an error names its
+// offset from `base`: the offset inside the message it was found in.
 
 /// One field header: the field number, the wire type, and the index just past
 /// the header.
@@ -157,16 +197,21 @@ fn halves(value: Int): (Int, Int) {
 /// A *known* field arriving with a wire type it cannot have is not an error.
 /// The generated decoder matches on the pair, so such a field does not match and
 /// gets skipped as an unknown one.
-export fn readTag(b: [U8], at: Int): Result<(Int, Int, Int), ProtoError> {
-    let (key, next) = readVarint(b, at)?;
+export fn readTag(
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+): Result<(Int, Int, Int), ProtoError> {
+    let (key, next) = readVarint(b, at, end, base)?;
     let wire = key % 8;
     let field = divide(key - wire, 8);
     // A tag is a `uint32` and a five-byte varint carries more than 32 bits, so
     // this checks the value too rather than reading the low 32 bits.
     if (next - at > 5 || key < 0 || key > 4294967295) {
-        .Err(.BadFieldNumber(at))
+        .Err(.BadFieldNumber(at - base))
     } else if (field <= 0 || field > 536870911) {
-        .Err(.BadFieldNumber(at))
+        .Err(.BadFieldNumber(at - base))
     } else if (wire == 3 || wire == 4 || wire == 6 || wire == 7) {
         .Err(.BadWireType { field: field, wire: wire })
     } else {
@@ -174,55 +219,108 @@ export fn readTag(b: [U8], at: Int): Result<(Int, Int, Int), ProtoError> {
     }
 }
 
-/// One varint, as a `ProtoError` rather than a `bytes.DecodeError`: a varint
-/// that does not end is a truncated message.
-export fn readVarint(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
-    match (bytes.readVarint(b, at)) {
-        .Ok(pair) => .Ok(pair),
-        .Err(_e) => .Err(.Truncated(at)),
+/// One varint, read as a signed 64-bit number, and the index just past it. A
+/// varint that does not end before `end`, or within ten bytes, is a truncated
+/// message.
+export fn readVarint(
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+): Result<(Int, Int), ProtoError> {
+    if (at < end) {
+        let first = byteAt(b, at);
+        if (first < 128) {
+            .Ok((first, at + 1))
+        } else {
+            varintFrom(b, at, at + 1, end, base, 7, first - 128)
+        }
+    } else {
+        .Err(.Truncated(at - base))
+    }
+}
+
+/// The groups past the first, each shifted into place. The tenth byte's shift
+/// is 63, which keeps its lowest bit as the sign and drops the rest.
+fn varintFrom(
+    b: [U8],
+    start: Int,
+    i: Int,
+    end: Int,
+    base: Int,
+    shift: Int,
+    acc: Int,
+): Result<(Int, Int), ProtoError> {
+    if (i >= end || shift > 63) {
+        .Err(.Truncated(start - base))
+    } else {
+        let x = byteAt(b, i);
+        if (x < 128) {
+            .Ok((acc + bits.shiftLeft(x, shift), i + 1))
+        } else {
+            varintFrom(
+                b,
+                start,
+                i + 1,
+                end,
+                base,
+                shift + 7,
+                acc + bits.shiftLeft(x - 128, shift),
+            )
+        }
     }
 }
 
 /// The same varint, read as its low 32 bits — which is what a 32-bit field is.
-export fn readVarint32(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
-    match (bytes.readVarint32(b, at)) {
-        .Ok(pair) => .Ok(pair),
-        .Err(_e) => .Err(.Truncated(at)),
-    }
+export fn readVarint32(
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+): Result<(Int, Int), ProtoError> {
+    let (v, next) = readVarint(b, at, end, base)?;
+    .Ok(((v % TWO32 + TWO32) % TWO32, next))
 }
 
 /// Four little-endian bytes, read as unsigned.
-export fn readFixed32(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
-    if (at + 4 > b.length()) {
-        .Err(.Truncated(at))
+export fn readFixed32(
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+): Result<(Int, Int), ProtoError> {
+    if (at + 4 > end) {
+        .Err(.Truncated(at - base))
     } else {
-        .Ok(
-            (
-                byteAt(b, at)
-                    + byteAt(b, at + 1) * 256
-                    + byteAt(b, at + 2) * 65536
-                    + byteAt(b, at + 3) * 16777216,
-                at + 4,
-            ),
-        )
+        .Ok((fixed32At(b, at), at + 4))
     }
+}
+
+fn fixed32At(b: [U8], at: Int): Int {
+    byteAt(b, at)
+        + byteAt(b, at + 1) * 256
+        + byteAt(b, at + 2) * 65536
+        + byteAt(b, at + 3) * 16777216
 }
 
 /// Eight little-endian bytes, read as a signed 64-bit number. `fixed64` and
 /// `sfixed64` are the same eight bytes; a `fixed64` above 2^63 comes back
 /// negative, which is what a signed reading of those bits is.
-export fn readFixed64(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
-    // This checks the length once, up front, so a short input reports at the
-    // byte the field began rather than four bytes into it.
-    if (at + 8 > b.length()) {
-        .Err(.Truncated(at))
+export fn readFixed64(
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+): Result<(Int, Int), ProtoError> {
+    if (at + 8 > end) {
+        .Err(.Truncated(at - base))
     } else {
-        let (lo, mid) = readFixed32(b, at)?;
-        let (hi, next) = readFixed32(b, mid)?;
+        let lo = fixed32At(b, at);
+        let hi = fixed32At(b, at + 4);
         if (hi >= 2147483648) {
-            .Ok(((hi - TWO32) * TWO32 + lo, next))
+            .Ok(((hi - TWO32) * TWO32 + lo, at + 8))
         } else {
-            .Ok((hi * TWO32 + lo, next))
+            .Ok((hi * TWO32 + lo, at + 8))
         }
     }
 }
@@ -233,32 +331,64 @@ export fn signed32(v: Int): Int {
     if (v >= 2147483648) { v - TWO32 } else { v }
 }
 
-export fn readF64(b: [U8], at: Int): Result<(Float, Int), ProtoError> {
-    match (bytes.f64FromBytes(b, at)) {
-        .Some(x) => .Ok((x, at + 8)),
-        .None => .Err(.Truncated(at)),
+export fn readF64(
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+): Result<(Float, Int), ProtoError> {
+    if (at + 8 > end) {
+        .Err(.Truncated(at - base))
+    } else {
+        match (bytes.f64FromBytes(b, at)) {
+            .Some(x) => .Ok((x, at + 8)),
+            .None => .Err(.Truncated(at - base)),
+        }
     }
 }
 
-export fn readF32(b: [U8], at: Int): Result<(Float, Int), ProtoError> {
-    match (bytes.f32FromBytes(b, at)) {
-        .Some(x) => .Ok((x, at + 4)),
-        .None => .Err(.Truncated(at)),
+export fn readF32(
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+): Result<(Float, Int), ProtoError> {
+    if (at + 4 > end) {
+        .Err(.Truncated(at - base))
+    } else {
+        match (bytes.f32FromBytes(b, at)) {
+            .Some(x) => .Ok((x, at + 4)),
+            .None => .Err(.Truncated(at - base)),
+        }
     }
 }
 
-/// The body of a length-delimited field, and the index just past it.
+/// Where the body of a length-delimited field starts and ends. A nested message
+/// is read between the two, in place.
+export fn readLen(
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+): Result<(Int, Int), ProtoError> {
+    let (length, next) = readVarint(b, at, end, base)?;
+    if (length < 0 || length > end - next) {
+        .Err(.Truncated(at - base))
+    } else {
+        .Ok((next, next + length))
+    }
+}
+
+/// The body of a `bytes` field, copied out, and the index just past it.
 export fn readBytes<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
+    end: Int,
+    base: Int,
 ): Result<([U8], Int), ProtoError> {
-    let (length, next) = readVarint(b, at)?;
-    if (length < 0 || next + length > b.length()) {
-        .Err(.Truncated(at))
-    } else {
-        .Ok((b.slice(ctx, next, next + length), next + length))
-    }
+    let (start, stop) = readLen(b, at, end, base)?;
+    .Ok((b.slice(ctx, start, stop), stop))
 }
 
 /// The same, decoded as UTF-8. A `string` field whose bytes are not text is an
@@ -267,11 +397,13 @@ export fn readStr<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
+    end: Int,
+    base: Int,
 ): Result<(Str, Int), ProtoError> {
-    let (raw, next) = readBytes(ctx, b, at)?;
+    let (raw, next) = readBytes(ctx, b, at, end, base)?;
     match (bytes.fromUtf8(ctx, raw)) {
         .Ok(s) => .Ok((s, next)),
-        .Err(_e) => .Err(.BadUtf8(at)),
+        .Err(_e) => .Err(.BadUtf8(at - base)),
     }
 }
 
@@ -281,21 +413,23 @@ export fn readStr<C: Allocator>(
 /// walks over a field a newer writer added and carries on. It *drops* the bytes,
 /// so re-encoding a message decoded from a newer schema loses the fields that
 /// schema added.
-export fn skip(b: [U8], at: Int, wire: Int): Result<Int, ProtoError> {
+export fn skip(
+    b: [U8],
+    at: Int,
+    end: Int,
+    base: Int,
+    wire: Int,
+): Result<Int, ProtoError> {
     if (wire == VARINT) {
-        let (_v, next) = readVarint(b, at)?;
+        let (_v, next) = readVarint(b, at, end, base)?;
         .Ok(next)
     } else if (wire == I64) {
-        if (at + 8 > b.length()) { .Err(.Truncated(at)) } else { .Ok(at + 8) }
+        if (at + 8 > end) { .Err(.Truncated(at - base)) } else { .Ok(at + 8) }
     } else if (wire == I32) {
-        if (at + 4 > b.length()) { .Err(.Truncated(at)) } else { .Ok(at + 4) }
+        if (at + 4 > end) { .Err(.Truncated(at - base)) } else { .Ok(at + 4) }
     } else if (wire == LEN) {
-        let (length, next) = readVarint(b, at)?;
-        if (length < 0 || next + length > b.length()) {
-            .Err(.Truncated(at))
-        } else {
-            .Ok(next + length)
-        }
+        let (_start, stop) = readLen(b, at, end, base)?;
+        .Ok(stop)
     } else {
         .Err(.BadWireType { field: 0, wire: wire })
     }
@@ -311,114 +445,157 @@ fn byteAt(b: [U8], i: Int): Int {
 // length-delimited field holding the values back to back with no headers. A
 // reader must still accept the unpacked form, because a writer is allowed to
 // send it — so the generated decoder takes both, and these read the packed
-// half.
+// half: the values between `at` and `end`, with an error's offset counted from
+// `at`.
 
-export fn packedVarints<C: Allocator>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
-    packedVarintsAt(ctx, b, 0, list.empty<Int>())
+export fn packedVarints<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+): Result<[Int], ProtoError> {
+    packedVarintsAt(ctx, b, at, end, at, list.empty<Int>())
 }
 
 fn packedVarintsAt<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
+    end: Int,
+    base: Int,
     acc: [Int],
 ): Result<[Int], ProtoError> {
-    if (at >= b.length()) {
+    if (at >= end) {
         .Ok(acc)
     } else {
-        let (v, next) = readVarint(b, at)?;
-        packedVarintsAt(ctx, b, next, acc.push(ctx, v))
+        let (v, next) = readVarint(b, at, end, base)?;
+        packedVarintsAt(ctx, b, next, end, base, acc.push(ctx, v))
     }
 }
 
 /// The same, keeping each value's low 32 bits.
-export fn packedVarints32<C: Allocator>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
-    packedVarints32At(ctx, b, 0, list.empty<Int>())
+export fn packedVarints32<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+): Result<[Int], ProtoError> {
+    packedVarints32At(ctx, b, at, end, at, list.empty<Int>())
 }
 
 fn packedVarints32At<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
+    end: Int,
+    base: Int,
     acc: [Int],
 ): Result<[Int], ProtoError> {
-    if (at >= b.length()) {
+    if (at >= end) {
         .Ok(acc)
     } else {
-        let (v, next) = readVarint32(b, at)?;
-        packedVarints32At(ctx, b, next, acc.push(ctx, v))
+        let (v, next) = readVarint32(b, at, end, base)?;
+        packedVarints32At(ctx, b, next, end, base, acc.push(ctx, v))
     }
 }
 
-export fn packedFixed32<C: Allocator>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
-    packedFixed32At(ctx, b, 0, list.empty<Int>())
+export fn packedFixed32<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+): Result<[Int], ProtoError> {
+    packedFixed32At(ctx, b, at, end, at, list.empty<Int>())
 }
 
 fn packedFixed32At<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
+    end: Int,
+    base: Int,
     acc: [Int],
 ): Result<[Int], ProtoError> {
-    if (at >= b.length()) {
+    if (at >= end) {
         .Ok(acc)
     } else {
-        let (v, next) = readFixed32(b, at)?;
-        packedFixed32At(ctx, b, next, acc.push(ctx, v))
+        let (v, next) = readFixed32(b, at, end, base)?;
+        packedFixed32At(ctx, b, next, end, base, acc.push(ctx, v))
     }
 }
 
-export fn packedFixed64<C: Allocator>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
-    packedFixed64At(ctx, b, 0, list.empty<Int>())
+export fn packedFixed64<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+): Result<[Int], ProtoError> {
+    packedFixed64At(ctx, b, at, end, at, list.empty<Int>())
 }
 
 fn packedFixed64At<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
+    end: Int,
+    base: Int,
     acc: [Int],
 ): Result<[Int], ProtoError> {
-    if (at >= b.length()) {
+    if (at >= end) {
         .Ok(acc)
     } else {
-        let (v, next) = readFixed64(b, at)?;
-        packedFixed64At(ctx, b, next, acc.push(ctx, v))
+        let (v, next) = readFixed64(b, at, end, base)?;
+        packedFixed64At(ctx, b, next, end, base, acc.push(ctx, v))
     }
 }
 
-export fn packedF64<C: Allocator>(ctx: C, b: [U8]): Result<[Float], ProtoError> {
-    packedF64At(ctx, b, 0, list.empty<Float>())
+export fn packedF64<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+): Result<[Float], ProtoError> {
+    packedF64At(ctx, b, at, end, at, list.empty<Float>())
 }
 
 fn packedF64At<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
+    end: Int,
+    base: Int,
     acc: [Float],
 ): Result<[Float], ProtoError> {
-    if (at >= b.length()) {
+    if (at >= end) {
         .Ok(acc)
     } else {
-        let (v, next) = readF64(b, at)?;
-        packedF64At(ctx, b, next, acc.push(ctx, v))
+        let (v, next) = readF64(b, at, end, base)?;
+        packedF64At(ctx, b, next, end, base, acc.push(ctx, v))
     }
 }
 
-export fn packedF32<C: Allocator>(ctx: C, b: [U8]): Result<[Float], ProtoError> {
-    packedF32At(ctx, b, 0, list.empty<Float>())
+export fn packedF32<C: Allocator>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+    end: Int,
+): Result<[Float], ProtoError> {
+    packedF32At(ctx, b, at, end, at, list.empty<Float>())
 }
 
 fn packedF32At<C: Allocator>(
     ctx: C,
     b: [U8],
     at: Int,
+    end: Int,
+    base: Int,
     acc: [Float],
 ): Result<[Float], ProtoError> {
-    if (at >= b.length()) {
+    if (at >= end) {
         .Ok(acc)
     } else {
-        let (v, next) = readF32(b, at)?;
-        packedF32At(ctx, b, next, acc.push(ctx, v))
+        let (v, next) = readF32(b, at, end, base)?;
+        packedF32At(ctx, b, next, end, base, acc.push(ctx, v))
     }
 }
 

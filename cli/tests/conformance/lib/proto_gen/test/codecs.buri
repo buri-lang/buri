@@ -59,14 +59,22 @@ test "a message brings five exported functions, and the two the rest of them sha
         "export fn decodeMJsonAt<C: Allocator>(ctx: C, doc: Json, path: Str): Result<M, ProtoError> {",
     );
     // `mergeM` is the reader a repeated encoding of one message folds through,
-    // and `readM` is the loop under both of them.
+    // and `readM` is the loop under both of them, which a nested message is
+    // read with in place.
     assert.contains(
         out,
         "export fn mergeM<C: Allocator>(ctx: C, b: [U8], into: M): Result<M, ProtoError> {",
     );
     assert.contains(
         out,
-        "fn readM<C: Allocator>(ctx: C, b: [U8], at: Int, acc: M): Result<M, ProtoError> {",
+        "export fn readM<C: Allocator>(ctx: C, b: [U8], at: Int, end: Int, base: Int, acc: M): Result<M, ProtoError> {",
+    );
+    // `encodeM` is `writeM` into an empty buffer, and `sizeM` is what a parent
+    // writes as the length before it.
+    assert.contains(out, "export fn sizeM(value: M): Int {");
+    assert.contains(
+        out,
+        "export fn writeM<C: Allocator>(ctx: C, out: [U8], value: M): [U8] {",
     );
 }
 
@@ -100,7 +108,7 @@ test "a type from another schema arrives with its codecs" {
         .lines(ctx);
     assert.contains(
         out,
-        "from \"//lib/proto/address.proto\" import { Address, decodeAddress, decodeAddressJsonAt, defaultAddress, encodeAddress, encodeAddressJson, mergeAddress };",
+        "from \"//lib/proto/address.proto\" import { Address, decodeAddressJsonAt, defaultAddress, encodeAddressJson, readAddress, sizeAddress, writeAddress };",
     );
     assert.contains(out, "    export home: Option<Address>,");
 }
@@ -112,6 +120,6 @@ test "a message with no fields still round-trips" {
     let out = lines(ctx, [HEAD, "message Empty {}\n"].join(ctx, ""));
     assert.contains(out, "export struct Empty {}");
     assert.contains(out, "    Empty { }");
-    assert.contains(out, "    list.empty<U8>()");
+    assert.contains(out, "    writeEmpty(ctx, list.empty<U8>(), value)");
     assert.contains(out, "        .Object(_entries) => { .Ok(Empty { }) },");
 }

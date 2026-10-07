@@ -271,6 +271,8 @@ For a message `M`, all exported:
 ```text
 defaultM(): M                                    every field at its proto3 default
 encodeM(ctx, M): [U8]                            the wire format
+writeM(ctx, [U8], M): [U8]                       the same, appended to a buffer
+sizeM(M): Int                                    how many bytes encodeM writes
 decodeM(ctx, [U8]): Result<M, ProtoError>
 encodeMJson(ctx, M): Json                        the proto3 JSON mapping
 decodeMJson(ctx, Json): Result<M, ProtoError>
