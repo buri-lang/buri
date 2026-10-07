@@ -3231,6 +3231,16 @@ export fn main(host: NativeHost): Result<(), Str> {
                  stopped stripping measured about 300 KB more than one that did"
             );
         }
+        // A thread-local that starts all zeros costs the file nothing. One
+        // non-zero word stores the whole initialiser in every program: the
+        // block cache's was 16 552 bytes, 56 once it started zeroed.
+        if let Some(bytes) = thread_local_initialiser_size(&out) {
+            assert!(
+                bytes < 1024,
+                "`{name}` carries {bytes} bytes of thread-local initialiser: a runtime \
+                 thread-local no longer starts all zeros, so every program stores it"
+            );
+        }
         linked.push((name, size));
         // And it is a program, not an empty file the linker was talked into.
         let ran = shared::run_artifact(&out);
@@ -3301,6 +3311,37 @@ fn debug_stripped_size(artifact: &Path, to: &Path) -> Option<u64> {
         return None;
     }
     std::fs::metadata(to).ok().map(|m| m.len())
+}
+
+/// The bytes of initialised thread-local data `artifact` stores: Mach-O's
+/// `__thread_data`, ELF's `.tdata`. `None` where this host has no `otool` or
+/// `readelf` to ask.
+fn thread_local_initialiser_size(artifact: &Path) -> Option<u64> {
+    let (tool, args, section): (&str, &[&str], &str) = if cfg!(target_os = "macos") {
+        ("otool", &["-l"], "__thread_data")
+    } else {
+        ("readelf", &["-SW"], ".tdata")
+    };
+    let Ok(ran) = Command::new(tool).args(args).arg(artifact).output() else {
+        eprintln!("no `{tool}` on this host, so the thread-local initialiser goes unmeasured");
+        return None;
+    };
+    assert!(ran.status.success(), "`{tool}` refused {}", artifact.display());
+    let listing = String::from_utf8_lossy(&ran.stdout).into_owned();
+    let hex = |s: &str| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok();
+    if cfg!(target_os = "macos") {
+        // `sectname __thread_data`, then `segname`, `addr` and `size 0x…`.
+        let mut lines = listing.lines().skip_while(|l| l.split_whitespace().ne(["sectname", section]));
+        let Some(_) = lines.next() else { return Some(0) };
+        lines.find_map(|l| l.trim().strip_prefix("size ").and_then(hex))
+    } else {
+        // `[17] .tdata  PROGBITS  <addr> <offset> <size> …`.
+        let Some(line) = listing.lines().find(|l| l.split_whitespace().any(|w| w == section)) else {
+            return Some(0);
+        };
+        let after = line.split_once(section)?.1;
+        after.split_whitespace().nth(3).and_then(hex)
+    }
 }
 
 /// What an artifact for `target` may weigh, linked and debug-stripped, in
