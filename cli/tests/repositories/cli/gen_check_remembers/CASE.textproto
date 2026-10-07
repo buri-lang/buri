@@ -1,0 +1,175 @@
+# `buri gen --check` remembers each package's answer (#260). A remembered
+# answer is only worth having if it's the answer a fresh run gives, so each
+# step here changes one thing the answer depends on, after a pass that
+# remembered it:
+#
+# - a dependency's source: `cents.buri` has a type error, and `gen` leaves the
+#   `dependencies` of anything that reaches an error alone;
+# - a source appearing in a package;
+# - a build file edited by hand;
+# - the tool behind a generator, whose module `schemas.buri` imports from.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "gen --check reports a build file that goes out of date after a remembered pass, and says what a run with nothing remembered says"
+
+run {
+  args: ["gen", "--check"]
+  exit: 0
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 0
+}
+
+# A dependency's body checks again, so `cmd/app`'s extra dependency is now
+# `gen`'s to drop.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "value: \"n\""
+  with: "value: n"
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 1
+  golden: "app.txt"
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 1
+  golden: "app.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "value: n"
+  with: "value: \"n\""
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 0
+}
+
+# A new source on disk.
+move {
+  from: "lib/money/spare.txt"
+  to: "lib/money/spare.buri"
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 1
+  golden: "money.txt"
+}
+
+move {
+  from: "lib/money/spare.buri"
+  to: "lib/money/spare.txt"
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 0
+}
+
+# A build file edited by hand, and put back.
+edit {
+  file: "lib/money/BUILD.buri"
+  replace: "    sources: [\"cents.buri\"]\n"
+  with: ""
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 1
+  golden: "money.txt"
+}
+
+edit {
+  file: "lib/money/BUILD.buri"
+  replace: "library {\n"
+  with: "library {\n    sources: [\"cents.buri\"]\n"
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 0
+}
+
+# The generator's tool now writes the name `schemas.buri` imports, so
+# `lib/schemas` checks and its extra dependency is `gen`'s to drop.
+edit {
+  file: "tools/embed/tool.buri"
+  replace: "file.toLower(c)"
+  with: "file.toUpper(c)"
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 1
+  golden: "schemas.txt"
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 1
+  golden: "schemas.txt"
+}
+
+# Two at once, in order.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "value: \"n\""
+  with: "value: n"
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 1
+  golden: "two.txt"
+}
+
+# And the same with nothing remembered.
+run {
+  args: ["clean"]
+  exit: 0
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 1
+  golden: "two.txt"
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 1
+  golden: "two.txt"
+}
+
+# `gen` writes what `--check` reported, whatever `--check` remembered.
+run {
+  args: ["gen"]
+  exit: 0
+  golden: "gen.txt"
+}
+
+file {
+  path: "cmd/app/BUILD.buri"
+  golden: "app.buri"
+}
+
+file {
+  path: "lib/schemas/BUILD.buri"
+  golden: "schemas.buri"
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 0
+}

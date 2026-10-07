@@ -448,7 +448,7 @@ pub const COMMANDS: &[Command] = &[
         blurb: "regenerate sources/deps in existing BUILD.buri files",
         doc: crate::documentation::embedded::cli::GEN,
         flags: &["check"],
-        run: generate::command_generate,
+        run: |args| counted(args, generate::command_generate),
         subcommands: &[],
         hidden: false,
     },

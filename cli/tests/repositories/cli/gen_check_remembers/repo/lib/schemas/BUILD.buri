@@ -1,0 +1,7 @@
+library {
+    sources: ["schemas.buri"]
+    generators: [
+        { tool: "//tools/embed", inputs: ["a.txt"] },
+    ]
+    dependencies: ["//lib/extra"]
+}

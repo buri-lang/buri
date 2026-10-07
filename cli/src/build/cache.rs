@@ -138,6 +138,10 @@ pub enum Action {
     /// and on the bytes of the files the target's analysis read, which is the
     /// whole of what a finding depends on.
     Lint,
+    /// Whether `buri gen` would rewrite one package's build file. Keyed on
+    /// the build graph and the package's files; the record lists what else
+    /// the answer read (`commands::generate`).
+    Regenerate,
 }
 
 impl Action {
@@ -152,6 +156,7 @@ impl Action {
             Action::Test => "test",
             Action::Build => "build",
             Action::Lint => "lint",
+            Action::Regenerate => "gen",
         }
     }
 }

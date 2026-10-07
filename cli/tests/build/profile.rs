@@ -665,3 +665,44 @@ fn a_warm_native_build_loads_no_module() {
     warm.ok().says("cached");
     assert_eq!(modules_loaded(&warm.all()), Some(0), "{}", indent(&warm.all()));
 }
+
+/// The build files a `BURI_PROFILE=1` run of `buri gen` worked out rather than
+/// recalled (`build files worked out` in the report).
+fn build_files_worked_out(all: &str) -> Option<u64> {
+    let line = all.lines().find(|l| l.starts_with("build files worked out "))?;
+    line.trim_start_matches("build files worked out ").trim().parse().ok()
+}
+
+/// **A `gen --check` of an unchanged tree works out no build file.** It
+/// checked every package again, on one core, every run: 7–9 s for #260's
+/// 8 MB. Each package's answer is kept under what it read. PERFORMANCE.md
+/// §6.59.
+#[test]
+fn a_second_gen_check_works_out_no_build_file() {
+    let scratch = Scratch::repo("profile-gen-check");
+    library_chain(&scratch, 20);
+    let check = || scratch.run_with_env(&["gen", "--check"], &[("BURI_PROFILE", "1")]);
+    let cold = check();
+    cold.ok();
+    assert_eq!(build_files_worked_out(&cold.all()), Some(20), "{}", indent(&cold.all()));
+    assert!(modules_loaded(&cold.all()).is_some_and(|n| n > 0), "{}", indent(&cold.all()));
+    let warm = check();
+    warm.ok();
+    assert_eq!(build_files_worked_out(&warm.all()), Some(0), "{}", indent(&warm.all()));
+    assert_eq!(modules_loaded(&warm.all()), Some(0), "{}", indent(&warm.all()));
+}
+
+/// **A cold `gen --check` loads each library once.** It analysed every
+/// package over its whole closure, so a chain loaded its first library once
+/// per library after it. PERFORMANCE.md §6.59.
+#[test]
+fn a_cold_gen_check_of_a_chain_of_libraries_loads_each_once() {
+    let loaded = |n: usize| {
+        let scratch = Scratch::repo("profile-gen-chain");
+        library_chain(&scratch, n);
+        let run = scratch.run_with_env(&["gen", "--check"], &[("BURI_PROFILE", "1")]);
+        run.ok();
+        modules_loaded(&run.all()).map(|m| m as f64)
+    };
+    grows_linearly("a cold gen --check of a chain of libraries, loading", loaded, 100);
+}
