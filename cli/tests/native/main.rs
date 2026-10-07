@@ -208,6 +208,11 @@ mod strings;
 // backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod fields;
+// An ordered map edited a node at a time: the splices counted rather than
+// timed, and every other name for the map left as it was, on every backend
+// built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod collections;
 // What a value taken apart by a pattern, handed on by a fold's step, or read by
 // a match arm's guard owes: the pushes counted rather than timed, and the heap
 // checked, on every backend built in.
