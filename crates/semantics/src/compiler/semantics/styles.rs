@@ -87,6 +87,9 @@ const STYLE_SHADOWS: usize = 41;
 const STYLE_LIST_MARKER: usize = 54;
 /// `Bleed(Edge, Length)`, declared last because nothing else writes a margin.
 const STYLE_BLEED: usize = 55;
+/// `Animation`: the one property whose rules are guarded by the reader's motion
+/// preference, and the one that needs keyframes beside its rules.
+const STYLE_ANIMATION: usize = 62;
 
 /// `ui/style`'s `State::Focus`, which is `:focus-visible`. The one state the
 /// sheet says anything about beyond the class that names it.
@@ -292,6 +295,7 @@ fn variable_property(variant: usize) -> Option<(&'static str, &'static str)> {
         47 => ("ls", "letter-spacing"),
         59 => ("bdblur", "backdrop-filter"),
         60 => ("caret", "caret-color"),
+        STYLE_ANIMATION => ("anim", "animation"),
         _ => return None,
     };
     Some(pair)
@@ -967,6 +971,7 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
     let mut out = reset.rules();
     out.push_str(&focus_ring(&unique));
     out.push_str(&marker_anchor(&unique));
+    out.push_str(&keyframes(&unique));
     let mut open: Option<Option<u8>> = None;
     for rule in unique {
         if open != Some(rule.screen) {
@@ -981,7 +986,15 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
         }
         let state = rule.state.and_then(|s| STATES.get(s as usize)).map_or("", |s| s.1);
         for (suffix, declarations) in &rule.blocks {
-            out.push_str(&format!(".{}{state}{suffix}{{{declarations}}}\n", rule.class));
+            let text = format!(".{}{state}{suffix}{{{declarations}}}", rule.class);
+            // An animation runs only for a reader who has not asked for less
+            // motion. One line, so the painter skips it whole.
+            if rule.property as usize == STYLE_ANIMATION {
+                out.push_str(&format!("{MOTION_ALLOWED}{{{text}}}\n"));
+            } else {
+                out.push_str(&text);
+                out.push('\n');
+            }
         }
     }
     if open.is_some_and(|s| s.is_some()) {
@@ -1048,6 +1061,25 @@ fn marker_anchor(rules: &[&StyleRule]) -> String {
     let selectors =
         classes.iter().map(|c| format!(".{c}")).collect::<Vec<_>>().join(",");
     format!(":where({selectors})>*{{position:relative}}\n")
+}
+
+/// The keyframes the sheet's animations name, each once, and only those a rule
+/// runs. A variable-backed rule (`anim-var`) can run either, so it asks for both.
+fn keyframes(rules: &[&StyleRule]) -> String {
+    let animated: Vec<&str> = rules
+        .iter()
+        .filter(|r| r.property as usize == STYLE_ANIMATION)
+        .map(|r| r.class.as_str())
+        .collect();
+    ANIMATIONS
+        .iter()
+        .filter(|(key, _, _)| {
+            animated
+                .iter()
+                .any(|class| class.ends_with("anim-var") || class.ends_with(&format!("anim-{key}")))
+        })
+        .map(|(_, _, frames)| format!("{frames}\n"))
+        .collect()
 }
 
 /// Everything a browser paints on an element by itself that no atomic class
@@ -1842,9 +1874,36 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
                     .to_owned(),
             )],
         )),
+        // How the element moves. The keyframes are not here: `stylesheet`
+        // writes each one once, beside the rules that run it, and guards those
+        // rules by the reader's motion preference.
+        STYLE_ANIMATION => {
+            let (which, _) = first?.as_variant()?;
+            let (key, css, _) = *ANIMATIONS.get(which)?;
+            Some(("anim", key.into(), one("animation", css)))
+        }
         _ => None,
     }
 }
+
+/// Each `Animation`, in declaration order: its class key, the `animation` it
+/// lowers to, and the keyframes that animation names. `ui/node`'s `declare` and
+/// `runtime.js`'s `$TREE_MOTION` write the same values.
+///
+/// `Pulse` is Tailwind's `animate-pulse`. `Spin` turns with `rotate` rather than
+/// `transform`, so it composes with a `Translate` instead of replacing it.
+const ANIMATIONS: [(&str, &str, &str); 2] = [
+    (
+        "pulse",
+        "buri-pulse 2s cubic-bezier(0.4,0,0.6,1) infinite",
+        "@keyframes buri-pulse{50%{opacity:0.5}}",
+    ),
+    ("spin", "buri-spin 1s linear infinite", "@keyframes buri-spin{to{rotate:360deg}}"),
+];
+
+/// The query an animation rule sits inside, so a reader whose platform asks for
+/// reduced motion sees the element still.
+const MOTION_ALLOWED: &str = "@media (prefers-reduced-motion:no-preference)";
 
 /// A bleed's length, as the margin it writes.
 ///
@@ -2168,6 +2227,9 @@ pub struct Reached {
     /// but an enum literal — a value reaching a `Computed` from anywhere at all
     /// was written down somewhere in the program.
     pub inline: bool,
+    /// Whether an `Animation` is among those, asked the same way. Only then
+    /// does the inline lowering need to know one.
+    pub inline_animations: bool,
     /// Whether the program builds a `ui/theme` `Theme`.
     ///
     /// Asked the way [`Reached::inline`] is: a `Theme` is an opaque struct
@@ -2246,6 +2308,7 @@ fn collect(variant: usize, args: &[typed::Expr], out: &mut Reached) {
         STYLE_GROUP | STYLE_WHEN | STYLE_ON | STYLE_AT => {}
         other => {
             out.inline = true;
+            out.inline_animations |= other == STYLE_ANIMATION;
             // A dynamic value that lowers to a variable-backed rule
             // (#195) names that rule's class here, so the sheet keeps it
             // the way it keeps a class an `Extracted` pair names.

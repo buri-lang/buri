@@ -1,36 +1,43 @@
 const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
-const $k1=[1200n,'lay-col'];
-const $k2=[6200n,'bg-t_both_bg'];
+const $k1=[1200n,'lay-row'];
+const $k2=[3400n,'gap-8'];
 const $k3=[$k1,$k2];
 const $k4=[$k3];
 const $k5=[5,$k4];
 const $k6=[$k5];
-const $k7=[1200n,'lay-row'];
-const $k8=[$k7];
-const $k9=[$k8];
-const $k10=[5,$k9];
-const $k11=[0,255n,255n,255n];
-$ui_sheet='*,*::before,*::after{box-sizing:border-box}\n*,*::before,*::after{border-width:0}\n*{overflow-wrap:break-word}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.w-var{width:var(--buri-w)}\n.bg-t_both_bg{background-color:var(--both-bg)}\n';
-$tree_declare_hook=$tree_declare;
-$ui_theme_hook=$ui_theme_install;
+const $k7=[0,'Loading'];
+const $k8=[4800n,'w-20'];
+const $k9=[5000n,'h-20'];
+const $k10=[12400n,'anim-spin'];
+const $k11=[$k8,$k9,$k10];
+const $k12=[$k11];
+const $k13=[5,$k12];
+const $k14=[$k13];
+const $k15=[$k7,$k14,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
+const $k16=[12405n,'hover_anim-spin'];
+const $k17=[12402n,'md_anim-spin'];
+const $k18=[$k8,$k16,$k17];
+const $k19=[$k18];
+const $k20=[5,$k19];
+const $k21=[$k20];
+const $k22=[$k21,[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
+$ui_sheet='*,*::before,*::after{box-sizing:border-box}\n*,*::before,*::after{border-width:0}\n*{overflow-wrap:break-word}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n@keyframes buri-spin{to{rotate:360deg}}\n.lay-row{display:flex;flex-direction:row}\n.gap-8{gap:8px}\n.w-20{width:20px}\n.h-20{height:20px}\n@media (prefers-reduced-motion:no-preference){.anim-spin{animation:buri-spin 1s linear infinite}}\n@media (prefers-reduced-motion:no-preference){.hover_anim-spin:hover{animation:buri-spin 1s linear infinite}}\n@media (min-width:48rem){\n@media (prefers-reduced-motion:no-preference){.md_anim-spin{animation:buri-spin 1s linear infinite}}\n}\n';
 function __cmd_x_main_buri$main(){
   const ctx_1=[$k0[0],$k0[1],$k0[10],$k0[11]];
-  const width_2=[$host_HostUi_signal(ctx_1[2],40n)];
-  const self_8=$host_HostStdout_println(ctx_1[1],'both');
+  const self_4=$host_HostStdout_println(ctx_1[1],'spinning');
   let $t1;
-  if(self_8[0]===0){
+  if(self_4[0]===0){
     $t1=0;
-  }else if(self_8[0]===1){
+  }else if(self_4[0]===1){
     $t1=0;
   }else{
     $abort('no arm matched');
   }
-  const $t3=ui_node$stack$hf1axu([$k6,[ui_node$stack$hf1axu([[$k10,[4,scope_3=>[[24,[0,$effect_Scope_read(scope_3,width_2[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
-  const bindings_14=[[__cmd_x_main_buri$Token_color(0),__cmd_x_main_buri$light(0)]];
-  return $ui_node_mount(ctx_1,$t3,[[[0,bindings_14]]]);
+  const events_8=ui_node$listen$b1px4q(void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0);
+  return $ui_node_mount(ctx_1,ui_node$stack$b1px4q([$k6,[[[17,$k7,void 0,$share($k14),ui_node$orNoChildren$b1px4q($fromShared($k15,void 0)),events_8]],ui_node$stack$b1px4q($k22)],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
-function ui_node$stack$hf1axu(config_0){
-  const events_1=[config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]];
+function ui_node$stack$b1px4q(config_0){
+  const events_1=ui_node$listen$b1px4q(config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]);
   const $t1=config_0[2];
   if($t1!==void 0){
     return [[4,$t1,$share(config_0[0]),$share(config_0[1]),events_1]];
@@ -40,11 +47,17 @@ function ui_node$stack$hf1axu(config_0){
     $abort('no arm matched');
   }
 }
-function __cmd_x_main_buri$light(t_0){
-  return $k11;
+function ui_node$listen$b1px4q(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
+  return [onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7];
 }
-function __cmd_x_main_buri$Token_color(self_0){
-  return [2,['both','bg']];
+function ui_node$orNoChildren$b1px4q(children_0){
+  if(children_0!==void 0){
+    return $share(children_0);
+  }else if(children_0===void 0){
+    return [];
+  }else{
+    $abort('no arm matched');
+  }
 }
 const $buri$program={main:async ()=>{
   const $r=await __cmd_x_main_buri$main();

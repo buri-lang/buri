@@ -1,0 +1,10 @@
+*,*::before,*::after{box-sizing:border-box}
+*,*::before,*::after{border-width:0}
+*{overflow-wrap:break-word}
+:where(body){margin:0}
+:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}
+@keyframes buri-pulse{50%{opacity:0.5}}
+@keyframes buri-spin{to{rotate:360deg}}
+.w-20{width:20px}
+.h-20{height:20px}
+@media (prefers-reduced-motion:no-preference){.anim-var{animation:var(--buri-anim)}}

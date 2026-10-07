@@ -1060,6 +1060,12 @@ fn parse_stylesheet(source: &str) -> Vec<Rule> {
             min_width = 0.0;
             continue;
         }
+        // A snapshot is one deterministic frame, so what moves is drawn still:
+        // the frame a reader with reduced motion sees, and where each
+        // `Animation` starts. Its rule and its keyframes are one line each.
+        if line.starts_with("@media (prefers-reduced-motion:") || line.starts_with("@keyframes ") {
+            continue;
+        }
         if let Some(query) = line.strip_prefix("@media (min-width:") {
             if let Some(width) = query.strip_suffix("rem){").and_then(|n| n.parse::<f32>().ok()) {
                 min_width = width * REM;

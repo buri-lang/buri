@@ -200,7 +200,7 @@ export fn contact<C: Ui>(
 
 ## Styling, and the two tiers a style can be in
 
-`ui/style` is 54 properties and five ways of composing them. Every property is
+`ui/style` is 57 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
 there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
 logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
@@ -295,6 +295,41 @@ export fn toast<C>(text: Node<C>): Node<C> {
 }
 ```
 
+`Animation(Animation)` moves an element forever. `.Pulse` fades it out and back,
+and `.Spin` turns it a full circle.
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+/// A line of text that hasn't loaded yet.
+export fn placeholder<C>(): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(240)),
+            .Height(.Px(16)),
+            .Background(.Rgb(228, 232, 240)),
+            .Animation(.Pulse),
+        ],
+        children: [],
+    })
+}
+
+/// A spinner is an indeterminate `progress`; the animation is only how it's drawn.
+export fn spinner<C>(): Node<C> {
+    ui.progress({
+        label: .Const("Loading"),
+        styles: [.Width(.Px(20)), .Height(.Px(20)), .Animation(.Spin)],
+    })
+}
+```
+
+Each variant is a class plus keyframes in the stylesheet, so nothing runs per
+frame in your program. When the platform's reduce-motion setting is on, the
+element is drawn still, and a snapshot draws it still too. It works inside `On`
+and `At`, and the last `Animation` on an element wins. The set is closed: a
+variant is added when a component needs one.
+
 **Static — everything except `Computed`.** The compiler evaluates it, turns each
 distinct property value into one atomic class, and writes the classes into a
 stylesheet that ships with the artifact. `.Padding(.Px(8))` is `.p-8` wherever it
@@ -325,7 +360,7 @@ stylesheet, and when `cond` changes the runtime picks one of two precomputed
 class strings.
 
 **Computed — `Computed(fn(Scope) => [Style])`.** For a value a signal drives: a
-drag, a cursor-follow, an animation. It is applied inline and re-serialised on
+drag or a cursor-follow. It is applied inline and re-serialised on
 every change, and never reaches the stylesheet. Reach for it last.
 
 A style the compiler cannot evaluate — one built out of a function's parameters,

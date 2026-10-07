@@ -1,0 +1,5 @@
+FAIL //lib/motion  test/pictures.buri  "a spinner and a placeholder are drawn still"
+  the snapshot "motion-still" changed: see test/__snapshots__/motion-still.diff.png
+  --> lib/motion/test/pictures.buri:8:1
+
+0 passed, 1 failed, 0 skipped (0.0s)

@@ -1,0 +1,100 @@
+//! A spinner and a loading placeholder, the two things `Animation` names.
+//!
+//! The spinner is an indeterminate `progress`: a ring with one dark edge, so a
+//! turned frame would put the dark arc somewhere other than the top. The
+//! placeholder is a muted bar, so a faded frame would be paler than the still
+//! one beside it. A snapshot draws neither frame: it draws the element still,
+//! the way a reader with reduced motion sees it.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+
+/// The page: a spinner, a placeholder, and a placeholder that pulses only
+/// under the pointer, each beside the same element drawn without motion.
+export fn page<C>(): Node<C> {
+    ui.stack({
+        styles: [
+            .Layout(.Column),
+            .Group([
+                .Padding(.Px(16)),
+                .Gap(.Px(12)),
+                .Width(.Px(240)),
+                .FontSize(.Px(12)),
+                .Background(.Rgb(255, 255, 255)),
+            ]),
+        ],
+        children: [
+            ui.text({ content: .Const("Loading — drawn still") }),
+            pair(spinner(spin()), spinner([])),
+            pair(placeholder(pulse()), placeholder([])),
+            pair(placeholder(hovered()), placeholder([])),
+        ],
+    })
+}
+
+/// The turn a spinner makes.
+fn spin(): [Style] {
+    [.Animation(.Spin)]
+}
+
+/// The fade a placeholder makes.
+fn pulse(): [Style] {
+    [.Animation(.Pulse)]
+}
+
+/// The fade, only while the pointer is over it. The snapshot is taken in the
+/// hover state, so this is the rule a painter would reach.
+fn hovered(): [Style] {
+    [.On(.Hover, [.Animation(.Pulse)])]
+}
+
+/// The moving element on the start side, its still twin on the end side.
+fn pair<C>(moving: Node<C>, still: Node<C>): Node<C> {
+    ui.stack({ styles: [.Layout(.Row), .Gap(.Px(16))], children: [moving, still] })
+}
+
+/// A pale ring with a dark dot at the top: the mark a turn would carry round.
+fn spinner<C>(motion: [Style]): Node<C> {
+    ui.progress({
+        label: .Const("Loading"),
+        styles: [
+            .Group([
+                .Width(.Px(24)),
+                .Height(.Px(24)),
+                .Radius(.Full),
+                .BorderWidth(.Px(3)),
+                .BorderColor(.Rgb(228, 232, 240)),
+                .AlignCross(.Center),
+            ]),
+            .Group(motion),
+        ],
+        children: .Some([
+            ui.stack({
+                styles: [
+                    .Width(.Px(6)),
+                    .Height(.Px(6)),
+                    .Radius(.Full),
+                    .Background(.Rgb(48, 120, 240)),
+                ],
+                children: [],
+            }),
+        ]),
+    })
+}
+
+/// A muted bar, the shape of a line of text that has not loaded yet.
+fn placeholder<C>(motion: [Style]): Node<C> {
+    ui.stack({
+        styles: [
+            .Group([
+                .Width(.Px(96)),
+                .Height(.Px(12)),
+                .Radius(.Px(4)),
+                .Background(.Rgb(203, 213, 225)),
+            ]),
+            .Group(motion),
+        ],
+        children: [],
+    })
+}

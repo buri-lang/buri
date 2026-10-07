@@ -468,6 +468,7 @@ mod tests {
             shapes: Default::default(),
             stylesheet: String::new(),
             inline_styles: false,
+            inline_animations: false,
             icons: false,
             themes: false,
             chunks: Vec::new(),

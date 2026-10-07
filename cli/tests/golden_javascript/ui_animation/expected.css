@@ -1,0 +1,15 @@
+*,*::before,*::after{box-sizing:border-box}
+*,*::before,*::after{border-width:0}
+*{overflow-wrap:break-word}
+:where(body){margin:0}
+:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}
+@keyframes buri-spin{to{rotate:360deg}}
+.lay-row{display:flex;flex-direction:row}
+.gap-8{gap:8px}
+.w-20{width:20px}
+.h-20{height:20px}
+@media (prefers-reduced-motion:no-preference){.anim-spin{animation:buri-spin 1s linear infinite}}
+@media (prefers-reduced-motion:no-preference){.hover_anim-spin:hover{animation:buri-spin 1s linear infinite}}
+@media (min-width:48rem){
+@media (prefers-reduced-motion:no-preference){.md_anim-spin{animation:buri-spin 1s linear infinite}}
+}
