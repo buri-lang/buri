@@ -4,6 +4,7 @@ library {
     test {
         sources: [
             "test/allocators.buri",
+            "test/boxes.buri",
             "test/captures.buri",
             "test/copyout.buri",
             "test/discards.buri",

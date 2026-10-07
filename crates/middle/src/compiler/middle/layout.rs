@@ -390,24 +390,70 @@ pub struct Cycles {
 }
 
 impl Cycles {
+    /// [`Layouts::boxes`], which is this analysis's answer alone: a pass with
+    /// no layout table asks it here.
+    pub fn boxes(&self, owner: &Ty, field: &Ty) -> bool {
+        let Some(con) = owner.head() else { return false };
+        if !self.knows(con) {
+            return false;
+        }
+        let group = self.group(con);
+        if !self.recursive.get(group).copied().unwrap_or(false) {
+            return false;
+        }
+        let mut mentioned = Vec::new();
+        inline_cons(field, &mut mentioned);
+        mentioned.into_iter().any(|c| self.knows(c) && self.group(c) == group)
+    }
+
+    fn group(&self, con: TyConId) -> usize {
+        *self
+            .groups
+            .get(con.index())
+            .or_ice("every TyConId was minted by add_tycon on this table")
+    }
+
+    /// Whether a group is a cycle, without the panic a constructor this
+    /// analysis never saw would raise: [`Cycles::from_shapes`] over a
+    /// hand-built `Program` may know no constructors at all.
+    fn knows(&self, con: TyConId) -> bool {
+        con.index() < self.groups.len()
+    }
+
     pub fn new(tables: &Tables) -> Cycles {
-        let mut edges: Vec<Vec<usize>> = Vec::with_capacity(tables.tycons.len());
-        for con in &tables.tycons {
+        Cycles::from_fields(tables.tycons.iter().map(|con| {
+            con.fields()
+                .iter()
+                .map(|f| f.ty)
+                .chain(con.variants().iter().flat_map(|v| v.fields.iter().map(|f| f.ty)))
+                .collect::<Vec<Ty>>()
+        }))
+    }
+
+    /// The same analysis from the declared field types `monomorphize::Shapes`
+    /// records, for a pass that holds a `Program` and no `Tables`.
+    pub fn from_shapes(shapes: &crate::compiler::middle::monomorphize::Shapes) -> Cycles {
+        use crate::compiler::middle::monomorphize::ConShape;
+        Cycles::from_fields(shapes.cons.iter().map(|con| match con {
+            ConShape::Fields(tys) => tys.clone(),
+            ConShape::Prim(_) => Vec::new(),
+        }))
+    }
+
+    /// Every constructor's declared field types, in `TyConId` order.
+    fn from_fields(cons: impl Iterator<Item = Vec<Ty>>) -> Cycles {
+        let mut edges: Vec<Vec<usize>> = Vec::new();
+        for fields in cons {
             let mut mentioned = Vec::new();
-            for field in con.fields() {
-                inline_cons(&field.ty, &mut mentioned);
-            }
-            for variant in con.variants() {
-                for field in &variant.fields {
-                    inline_cons(&field.ty, &mut mentioned);
-                }
+            for ty in &fields {
+                inline_cons(ty, &mut mentioned);
             }
             let mut out: Vec<usize> = mentioned.into_iter().map(TyConId::index).collect();
             out.sort_unstable();
             out.dedup();
             edges.push(out);
         }
-        let mut groups = vec![0usize; tables.tycons.len()];
+        let mut groups = vec![0usize; edges.len()];
         let mut recursive = Vec::new();
         for (id, group) in super::strongly_connected(&edges).iter().enumerate() {
             // One constructor that mentions itself is a cycle; one that does
@@ -539,22 +585,7 @@ impl<'a> Layouts<'a> {
     /// pointer and a length, and laying one out never asks for its element's
     /// layout.
     pub fn boxes(&self, owner: &Ty, field: &Ty) -> bool {
-        let Some(con) = owner.head() else { return false };
-        let group = self.group(con);
-        if !self.cycles.recursive.get(group).copied().unwrap_or(false) {
-            return false;
-        }
-        let mut mentioned = Vec::new();
-        inline_cons(field, &mut mentioned);
-        mentioned.into_iter().any(|c| self.group(c) == group)
-    }
-
-    fn group(&self, con: TyConId) -> usize {
-        *self
-            .cycles
-            .groups
-            .get(con.index())
-            .or_ice("every TyConId was minted by add_tycon on this table")
+        self.cycles.boxes(owner, field)
     }
 
     fn at(&self, id: usize) -> &Layout {
