@@ -5,6 +5,7 @@
 // pin what that must not change: the bytes on the wire, and the offset an error
 // names, which counts from the start of the message it was found in.
 
+from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
@@ -157,6 +158,17 @@ test "a uint64, a sint64 and an int32 varint" {
         Varints { ..defaultVarints(), zigzagged: .Some(-1099511627776) },
         "18ffffffffff3f",
     );
+    // The zigzag of 2^63 - 1 and of -2^63 have the top bit set: ten bytes.
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), zigzagged: .Some(9223372036854775807) },
+        "18feffffffffffffffff01",
+    );
+    wire(
+        ctx,
+        Varints { ..defaultVarints(), zigzagged: .Some(-9223372036854775807 - 1) },
+        "18ffffffffffffffffff01",
+    );
     wire(
         ctx,
         Varints { ..defaultVarints(), narrow: .Some(-1) },
@@ -171,6 +183,41 @@ test "a uint64, a sint64 and an int32 varint" {
         ctx,
         Varints { ..defaultVarints(), narrow: .Some(-2147483648) },
         "2080808080f8ffffffff01",
+    );
+}
+
+/// Either side of every power of two, its negation, and both ends of `Int`.
+fn edges<C: Allocator>(ctx: C): [Int] {
+    list
+        .range(ctx, 0, 63)
+        .mapCtx(ctx, fn(c, k) => {
+            let p = bits.shiftLeft(1, k);
+            [p - 1, p, p + 1, 0 - p]
+        })
+        .flatten(ctx)
+        .push(ctx, 9223372036854775807)
+        .push(ctx, -9223372036854775807 - 1)
+}
+
+test "every varint is the bytes core/bytes writes for it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    edges(ctx).foldCtx(
+        ctx,
+        fn(c, _u: (), v) => {
+            wire(
+                c,
+                Varints { ..defaultVarints(), signed: .Some(v) },
+                ["08", bytes.toHex(c, bytes.toVarint(c, v))].join(c, ""),
+            );
+            wire(
+                c,
+                Varints { ..defaultVarints(), zigzagged: .Some(v) },
+                ["18", bytes.toHex(c, bytes.toVarint(c, bytes.zigzag(v)))].join(c, ""),
+            )
+        },
+        (),
     );
 }
 
