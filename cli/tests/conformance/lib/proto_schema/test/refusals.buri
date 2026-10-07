@@ -116,14 +116,38 @@ test "a group is refused at the word" {
     );
 }
 
-test "a map field is refused at its type" {
+test "a map key that is not an integer, bool or string is refused at the key" {
     let ctx = context {
         Allocator: alloc(),
     };
     refuses(
         ctx,
-        withEdition(ctx, "message M { map<string, int32> m = 1; }\n"),
-        "proto-unsupported",
+        withEdition(ctx, "message M { map<double, int32> m = 1; }\n"),
+        "proto-syntax",
+        "double",
+    );
+    refuses(
+        ctx,
+        withEdition(ctx, "message M { map<bytes, int32> m = 1; }\n"),
+        "proto-syntax",
+        "bytes",
+    );
+    refuses(
+        ctx,
+        withEdition(ctx, "message N {}\nmessage M { map<N, int32> m = 1; }\n"),
+        "proto-syntax",
+        "N",
+    );
+}
+
+test "a repeated map is refused at its type" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    refuses(
+        ctx,
+        withEdition(ctx, "message M { repeated map<string, int32> m = 1; }\n"),
+        "proto-syntax",
         "map",
     );
 }

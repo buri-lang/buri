@@ -1,0 +1,110 @@
+// A recursive struct keeps the field that makes it recursive behind a box, and
+// a box is a block of its own: copied out on a read, allocated anew on a write.
+// These read and rebuild such structs the ways a generated protobuf message
+// does, and the native heap check holds every block to being freed once and
+// read only while it is alive.
+
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+/// Recursive through an `Option`, which boxes it.
+derive Equal, Show for Chain;
+struct Chain {
+    v: [Int],
+    next: Option<Chain>,
+}
+
+/// Recursive through a map, whose value type puts it in its own cycle.
+derive Equal, Show for Tree;
+struct Tree {
+    names: OrderedMap<Str, Int>,
+    kids: OrderedMap<Int, Tree>,
+}
+
+fn link<C: Allocator>(ctx: C, n: Int): Chain {
+    Chain { v: [n].push(ctx, n), next: .None }
+}
+
+fn bare(): Tree {
+    Tree { names: orderedmap.empty<Str, Int>(), kids: orderedmap.empty<Int, Tree>() }
+}
+
+fn lengthen<C: Allocator>(ctx: C, c: Chain, n: Int): Chain {
+    if (n == 0) { c } else { lengthen(ctx, Chain { ..c, v: c.v.push(ctx, n) }n , - 1) }
+}
+
+fn rename<C: Allocator>(ctx: C, t: Tree, n: Int): Tree {
+    if (n == 0) {
+        t
+    } else {
+        rename(
+            ctx,
+            Tree { ..t, names: t.names.insert(ctx, str.fromInt(ctx, n), n) },
+            n - 1,
+        )
+    }
+}
+
+test "an update keeps the boxed field and frees the old box" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let base = Chain { v: [1].push(ctx, 2), next: .Some(link(ctx, 3)) };
+    let one = Chain { ..base, v: [5].push(ctx, 6) };
+    assert.equal(one.next, .Some(link(ctx, 3)));
+    // The base is still whole, and a second update shares its box.
+    let two = Chain { ..base, next: .None };
+    assert.equal(base.v, [1, 2]);
+    assert.notEqual(one, two);
+}
+
+test "an update replaces the boxed field itself" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let base = Chain { v: [1], next: .Some(link(ctx, 3)) };
+    let one = Chain { ..base, next: .Some(link(ctx, 4)) };
+    assert.equal(one, Chain { v: [1], next: .Some(link(ctx, 4)) });
+}
+
+test "a field moved into its own replacement, fifty times over" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let c = lengthen(ctx, Chain { v: [], next: .Some(link(ctx, 9)) }, 50);
+    assert.equal(c.v.length(), 50);
+    assert.equal(c.next, .Some(link(ctx, 9)));
+}
+
+test "a word read out of a boxed field outlives nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // `kids.length()` is a word inside the box, and the box is `mid`'s: the
+    // read has to happen before `mid` is released.
+    let mid = Tree { ..bare(), kids: orderedmap.of(ctx, [(1, bare())]) };
+    assert.equal(mid.kids.length(), 1);
+    let whole = Tree {
+        names: orderedmap.empty<Str, Int>(),
+        kids: orderedmap.of(ctx, [(2, mid)]),
+    };
+    assert.equal(whole.kids.length(), 1);
+}
+
+test "a map-recursive struct updated in a loop" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let inner = Tree { ..bare(), names: orderedmap.of(ctx, [("a", 1)]) };
+    let top = rename(
+        ctx,
+        Tree { ..bare(), kids: orderedmap.of(ctx, [(1, inner)]) },
+        20,
+    );
+    assert.equal(top.names.length(), 20);
+    assert.equal(top.kids.get(1), .Some(inner));
+}

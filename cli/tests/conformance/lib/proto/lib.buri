@@ -19,6 +19,10 @@ from "//lib/proto/address.proto" export {
     encodeAddress, encodeAddressJson, encodeCountry,
 };
 
+from "//lib/proto/maps.proto" export {
+    decodeMaps, decodeMapsJson, defaultMaps, encodeMaps, encodeMapsJson, Maps, Mood,
+};
+
 from "//lib/proto/wire.proto" export {
     decodeItem, decodePage, decodeVarints, defaultItem, defaultPage, defaultTag,
     defaultVarints, encodeItem, encodePage, encodeVarints, Item, Page, Tag, Varints,

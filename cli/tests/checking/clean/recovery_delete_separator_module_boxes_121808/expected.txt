@@ -1,0 +1,7 @@
+error: a `derive` declaration ends with `;` [missing-semicolon]
+  --> main.buri:22:28
+   |
+22 | derive Equal, Show for Tree
+   |                            ^
+   |
+   = fix: write `;` here

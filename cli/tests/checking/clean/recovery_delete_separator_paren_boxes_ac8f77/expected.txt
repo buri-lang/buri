@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:70:51
+   |
+70 |     let one = Chain { ..base, next: .Some(link(ctx 4)) };
+   |                                                   ^
+   |
+   = fix: write `,` here

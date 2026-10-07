@@ -1,0 +1,18 @@
+error: expected an expression, found `?` [unexpected-token]
+   --> main.buri:105:52
+    |
+105 |         Tree { ..bare(), kids: orderedmap.of(ctx, [? (1, inner)]) },
+    |                                                    ^
+    |
+    = expected: an expression
+    = actual: `?`
+    = fix: write a value here
+error: expected `_6`, found a variant `.Some` [type-mismatch]
+   --> main.buri:109:35
+    |
+109 |     assert.equal(top.kids.get(1), .Some(inner));
+    |                                   ^^^^^
+    |
+    = expected: `_6`
+    = actual: a variant `.Some`
+    = a value written with a leading dot names a variant of the enum the position expects, and this position expects `_6`

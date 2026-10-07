@@ -1,0 +1,18 @@
+error: expected an identifier, found `:` [unexpected-token]
+  --> main.buri:57:32
+   |
+57 |     let one = Chain { ..basev ,: [5].push(ctx, 6) };
+   |                                ^
+   |
+   = expected: an identifier
+   = actual: `:`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: expected `_7`, found a variant `.Some` [type-mismatch]
+  --> main.buri:58:28
+   |
+58 |     assert.equal(one.next, .Some(link(ctx, 3)));
+   |                            ^^^^^
+   |
+   = expected: `_7`
+   = actual: a variant `.Some`
+   = a value written with a leading dot names a variant of the enum the position expects, and this position expects `_7`

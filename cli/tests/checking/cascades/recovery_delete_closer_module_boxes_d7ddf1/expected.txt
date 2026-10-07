@@ -1,0 +1,16 @@
+error: there is no type `Chain` [unknown-type]
+  --> main.buri:15:24
+   |
+15 | derive Equal, Show for Chain;
+   |                        ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling
+error: expected an identifier, found `derive` [unexpected-token]
+  --> main.buri:22:1
+   |
+22 | derive Equal, Show for Tree;
+   | ^^^^^^
+   |
+   = expected: an identifier
+   = actual: `derive`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

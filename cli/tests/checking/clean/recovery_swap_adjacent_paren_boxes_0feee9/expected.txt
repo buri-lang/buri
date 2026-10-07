@@ -1,0 +1,7 @@
+error: a tuple element ends with `,` [missing-comma]
+  --> main.buri:93:37
+   |
+93 |         kids: orderedmap.of(ctx, [(2mid ,)]),
+   |                                     ^
+   |
+   = fix: write `,` here

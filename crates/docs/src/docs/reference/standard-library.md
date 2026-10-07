@@ -330,7 +330,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   that a `codegen.Diagnostic` points at. **One edition**: a schema says
   `edition = "2026";`, and `syntax = "proto3"`, proto2 and older editions are
   refused rather than read loosely. So is everything the mapping cannot express
-  — `service`, `extend`, `group`, `map<>`, the removed labels, `import public`,
+  — `service`, `extend`, `group`, the removed labels, `import public`,
   and each unimplementable `features` value — refused *by name*, because a
   construct silently ignored makes a file mean something other than what it
   says. `option` and `reserved` are skipped. Costs one pass over the text, O(n),
@@ -393,7 +393,9 @@ and looks one key up faster. `OrderedMap` compares, and answers "every key betwe
 these two" or "every key starting with this" without visiting the rest. Its keys
 need `Ordered` rather than `Hash + Equal`. A compound key is a struct with `derive
 Ordered`, and a derived `Ordered` compares fields in declaration order, which is what a
-multi-column index wants.
+multi-column index wants. Two `OrderedMap`s are `==` when they hold the same
+entries, whatever order built them, so a struct holding one can `derive Equal,
+Show`. `fold` walks the entries in key order without building a list.
 
 **A fallible step is a traversal, not a fold.** `xs.mapResult(ctx, f)` and
 `mapOption` map every element, or stop at the first that fails. `filterMap` maps

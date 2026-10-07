@@ -1,0 +1,9 @@
+error: expected an expression, found `==` [unexpected-token]
+  --> main.buri:37:9
+   |
+37 |     if (== n 0) { c } else { lengthen(ctx, Chain { ..c, v: c.v.push(ctx, n) }, n - 1) }
+   |         ^^
+   |
+   = expected: an expression
+   = actual: `==`
+   = fix: write a value here
