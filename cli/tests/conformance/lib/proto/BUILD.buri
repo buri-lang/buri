@@ -1,6 +1,6 @@
 library {
     generators: [
-        { tool: "proto", inputs: ["address.proto", "demo.proto", "wire.proto"] },
+        { tool: "proto", inputs: ["address.proto", "demo.proto", "maps.proto", "wire.proto"] },
     ]
     visibility: ["//visibility:public"]
 
@@ -10,6 +10,7 @@ library {
             "test/failures.buri",
             "test/json.buri",
             "test/json_numbers.buri",
+            "test/maps.buri",
             "test/wire.buri",
         ]
 

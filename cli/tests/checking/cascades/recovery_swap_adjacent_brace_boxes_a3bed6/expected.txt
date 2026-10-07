@@ -1,0 +1,19 @@
+error: there is nothing named `next` in scope [unknown-name]
+  --> main.buri:29:34
+   |
+29 |     Chain { v: [n].push(ctx, n), next. :None }
+   |                                  ^^^^
+   |
+   = fix: declare `next`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:29:38
+   |
+29 |     Chain { v: [n].push(ctx, n), next. :None }
+   |                                      ^
+   |
+  --> main.buri:29:11
+   |
+29 |     Chain { v: [n].push(ctx, n), next. :None }
+   |           ^ opened here
+   |
+   = fix: write `}` here

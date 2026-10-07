@@ -146,6 +146,7 @@ derive Equal, Show for Person;
 | singular `T` with `features.field_presence = IMPLICIT` | `T` |
 | singular message field | `Option<T>`, whatever the feature says |
 | `repeated T` | `[T]` |
+| `map<K, V>` | `OrderedMap<K, V>` |
 | `oneof pick { ... }` | `enum Person_Pick`, held as `Option<Person_Pick>` |
 | `message Outer { message Inner { } }` | `Outer` and `Outer_Inner`, side by side |
 | `enum Colour` | `enum Colour`, value names verbatim, plus `Unrecognized(Int)` |
@@ -265,6 +266,39 @@ export struct Everything {
 
 A `oneof` tracks presence: `.Some(.Phone(""))` writes an empty string and reads
 back as itself. `.None` writes nothing.
+
+## Maps
+
+```proto
+message Inventory {
+  map<string, int32> counts = 1;
+  map<uint64, Address> sites = 2;
+}
+```
+
+becomes
+
+```text
+export struct Inventory {
+  export counts: OrderedMap<Str, Int>,
+  export sites: OrderedMap<Int, Address>,
+}
+```
+
+A key is any integer type, `bool` or `string`, as in protoc. The value is any
+type but another map.
+
+- **On the wire**, each entry is a length-delimited message `{1: key, 2: value}`,
+  written in key order. A reader takes the entry's two fields in either order,
+  a default for one that's missing, and the later value for a key that arrives
+  twice.
+- **In JSON** a map is an object, keyed by the key's text: `{"counts":{"a":1}}`,
+  `{"sites":{"18446744073709551615":{}}}`, `true` and `false` for a `bool` key.
+  An empty map is left out.
+
+[`core/orderedmap`](../standard-library.md) iterates in key order, so the same
+map is always the same bytes. Two maps with the same entries are `==` however
+they were built.
 
 ## What comes with each type
 
@@ -387,7 +421,6 @@ Buri refuses each of these by name, with the reason and the edit, under
 | `service`, `rpc` | This reader turns a schema into data types. There is no RPC transport to generate a stub against. |
 | `extend`, `extensions` | An extension adds fields to a message from outside it, so the generated type would not be the whole of the message. |
 | `group` | proto2's inline nesting, whose wire encoding was removed from proto3. Declare a nested `message`. |
-| `map<K, V>` | Sugar for a repeated entry message with its own wire layout, and Buri's `Map` is not ordered the way a decoded map would have to be. Declare the entry message. |
 | the `optional` and `required` labels | Editions removed both; presence is `features.field_presence` now. protoc refuses them in the same words. |
 | `import public` | Re-exports another file's declarations, which would make one module's surface depend on a second file's. |
 | `syntax = "proto2"`, `syntax = "proto3"`, editions before 2026 | See [Editions, and only one](#editions-and-only-one). |

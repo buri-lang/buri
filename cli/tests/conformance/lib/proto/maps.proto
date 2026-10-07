@@ -1,0 +1,25 @@
+// Map fields: a key of every kind a key may be, and a value of every kind,
+// one of them the message itself.
+
+edition = "2026";
+
+package conformance.proto.v1;
+
+import "lib/proto/address.proto";
+
+enum Mood {
+  MOOD_UNSPECIFIED = 0;
+  HAPPY = 1;
+}
+
+message Maps {
+  map<string, int32> counts = 1;
+  map<int64, string> names = 2;
+  map<uint64, bool> flags = 3;
+  map<sint32, double> ratios = 4;
+  map<fixed64, bytes> blobs = 5;
+  map<bool, Mood> moods = 6;
+  map<string, Address> places = 7;
+  map<int32, Maps> nested = 8;
+  map<string, int64> totals = 9;
+}

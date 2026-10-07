@@ -1,0 +1,9 @@
+error: expected `;`, found `@` [unexpected-token]
+  --> main.buri:95:41
+   |
+95 |     assert.equal(whole.kids.length(), 1)@ ;
+   |                                         ^
+   |
+   = expected: `;`
+   = actual: `@`
+   = fix: write `;` here

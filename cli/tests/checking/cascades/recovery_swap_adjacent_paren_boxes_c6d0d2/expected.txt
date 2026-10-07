@@ -1,0 +1,16 @@
+error: `lengthen` takes 3 arguments, but 4 were given [argument-count]
+  --> main.buri:37:30
+   |
+37 |     if (n == 0) { c } else { lengthen(ctx, Chain { ..c, v: c.v.push(ctx, n) }n , - 1) }
+   |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 4
+   = fix: pass `lengthen` the following arguments: lengthen<C: Allocator>(ctx: C, c: Chain, n: Int)
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:37:78
+   |
+37 |     if (n == 0) { c } else { lengthen(ctx, Chain { ..c, v: c.v.push(ctx, n) }n , - 1) }
+   |                                                                              ^
+   |
+   = fix: write `,` here

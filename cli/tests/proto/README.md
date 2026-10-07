@@ -79,7 +79,7 @@ defaults that changed after 2023 are `enforce_naming_style` and
 ### What was pruned
 
 `test_messages_proto3.proto` is built out of every construct the format has,
-including three Buri's schema reader
+including two Buri's schema reader
 [refuses](../../../crates/docs/src/docs/reference/build/proto.md):
 
 - **`import "google/protobuf/..."`** — nine imports of the well-known types. No
@@ -88,11 +88,7 @@ including three Buri's schema reader
 - **Every field of a well-known type** — `Any`, `Duration`, `Timestamp`,
   `FieldMask`, `Struct`, `Value`, `ListValue`, `Empty`, `NullValue`, and the
   nine scalar wrappers. 46 fields.
-- **Every `map<K, V>` field** — 19 of them. A map is sugar for a repeated entry
-  message with a wire layout of its own, and `core/map` does not order itself
-  the way a decoded one would have to.
-
-61 lines came out. The file carries a banner saying so. The migration keeps
+42 lines came out. The file carries a banner saying so. The migration keeps
 proto3's semantics the way protoc's own does: the file sets
 `features.field_presence = IMPLICIT`, because a proto3 singular scalar has no
 presence, and the reference message the runner compares against is proto3.
@@ -123,25 +119,24 @@ it cannot answer before the other side has finished speaking.
 ## Where it stands
 
 ```text
-CONFORMANCE SUITE PASSED: 1060 successes, 1314 skipped, 406 expected failures, 0 unexpected failures.
+CONFORMANCE SUITE PASSED: 1321 successes, 1314 skipped, 148 expected failures, 0 unexpected failures.
 ```
 
 The 1314 skips are the message types this testee does not implement — proto2 and
-the editions variants — plus the text-format and JSPB categories. The 406
+the editions variants — plus the text-format and JSPB categories. The 148
 expected failures are `failure_list.txt`, which files each one under one of
-three reasons and leaves no entry unexplained:
+two reasons and leaves no entry unexplained:
 
-- **258 are `map<K, V>` fields**, and **146 are the well-known types**: both
-  were pruned from the vendored schema, because the generator does not support
-  them yet.
+- **146 are the well-known types**, pruned from the vendored schema because
+  the generator does not support them yet.
 - **2 are unknown-field retention.** Decoding skips a field the schema doesn't
   know rather than keeping its bytes, so it doesn't survive a re-encode.
   Keeping them needs a field on every generated struct, and that breaks every
   struct literal written without `..defaultM()`.
 
-The runner also reports 29 `Recommended` warnings, which do not fail the suite.
-Twenty-two are maps and well-known types. Three are a JSON object naming one
-field twice, which `core/json` keeps rather than refuses. Four are
+The runner also reports 25 `Recommended` warnings, which do not fail the suite.
+Seventeen are the well-known types. Three are a JSON object naming one field
+twice, which `core/json` keeps rather than refuses. Five are
 `JSON_IGNORE_UNKNOWN_PARSING_TEST`, where an unrecognised enum *name* should be
 ignored rather than refused, and nothing tells the generated decoder which mode
 it is in.

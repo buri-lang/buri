@@ -652,14 +652,24 @@ export fn jsonFloat(x: Float): Json {
 /// A `uint64` or `fixed64`, whose bits a negative `Int` holds when the value
 /// is past 2^63 - 1: written as the unsigned decimal of those bits.
 export fn jsonUint64<C: Allocator>(ctx: C, x: Int): Json {
+    Json.Str(unsignedText(ctx, x))
+}
+
+/// An integer as decimal text: a map key of a signed type, in JSON.
+export fn intText<C: Allocator>(ctx: C, x: Int): Str {
+    str.fromInt(ctx, x)
+}
+
+/// The unsigned decimal of an `Int`'s 64 bits: a `uint64` or `fixed64`.
+export fn unsignedText<C: Allocator>(ctx: C, x: Int): Str {
     if (x >= 0) {
-        jsonInt64(ctx, x)
+        str.fromInt(ctx, x)
     } else {
         // The value is 2^64 + x. Its last digit is (6 + x mod 10) mod 10, since
         // 2^64 ends in 6, and the rest is a logical halving then a fifth.
         let rest = bits.shiftRight(x, 1) / 5;
         let last = ((x % 10 + 10) % 10 + 6) % 10;
-        Json.Str(str.format(ctx, "${rest}${last}"))
+        str.format(ctx, "${rest}${last}")
     }
 }
 
@@ -979,6 +989,25 @@ export fn asBytes<C: Allocator>(
 }
 
 let PAD: Str = "===";
+
+/// A map field's object, as its members.
+export fn asObject(doc: Json, path: Str): Result<[(Str, Json)], ProtoError> {
+    match (doc) {
+        .Object(members) => .Ok(members),
+        _ => .Err(.BadJson { path: path, wanted: "an object" }),
+    }
+}
+
+/// A `bool` map key, which JSON writes as the text `true` or `false`.
+export fn asBoolKey(name: Str, path: Str): Result<Bool, ProtoError> {
+    if (name == "true") {
+        .Ok(true)
+    } else if (name == "false") {
+        .Ok(false)
+    } else {
+        .Err(.BadJson { path: path, wanted: "true or false" })
+    }
+}
 
 export fn asArray(doc: Json, path: Str): Result<[Json], ProtoError> {
     match (doc.asArray()) {

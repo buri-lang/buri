@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-comma]
+  --> main.buri:61:28
+   |
+61 |     assert.equal(base.v, [1 2]);
+   |                            ^
+   |
+   = fix: write `,` here

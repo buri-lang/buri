@@ -602,6 +602,74 @@ export fn isRepeated(f: ResolvedField): Bool {
     }
 }
 
+/// The key's scalar, for a `map<K, V>` field. `f.ty` is then `V`.
+fn mapKey(f: ResolvedField): Option<schema.Scalar> {
+    match (f.label) {
+        .Map(k) => .Some(k),
+        _other => .None,
+    }
+}
+
+/// One of the two fields of a map's entry message: the key, numbered 1, or the
+/// value, numbered 2. Both are always written, so neither tracks presence.
+fn entryField(f: ResolvedField, number: Int, t: FieldType): ResolvedField {
+    ResolvedField {
+        ..f,
+        number: number,
+        label: .Single,
+        ty: t,
+        presence: .Implicit,
+        packed: false,
+    }
+}
+
+/// What an entry holds when the wire leaves a key or a value out.
+fn zeroOf<C: Allocator>(ctx: C, f: ResolvedField, t: FieldType): ast.Expr {
+    match (t) {
+        .Named(e) => {
+            match (e.kind) {
+                .Message => callName(str.format(ctx, "default${e.buri}"), []),
+                .Enum => defaultOf(entryField(f, 2, t)),
+            }
+        },
+        _other => defaultOf(entryField(f, 2, t)),
+    }
+}
+
+fn mapType(f: ResolvedField, k: schema.Scalar): ast.Type {
+    tyOf("OrderedMap", [baseType(.Scalar(k)), baseType(f.ty)])
+}
+
+fn emptyMap(f: ResolvedField, k: schema.Scalar): ast.Expr {
+    callOf(
+        genericE(dot(id("orderedmap"), "empty"), [
+            baseType(.Scalar(k)),
+            baseType(f.ty),
+        ]),
+        [],
+    )
+}
+
+/// A four-parameter lambda whose accumulator carries a written type.
+fn lam4(c: Str, acc: Str, accTy: ast.Type, a: Str, b: Str, body: ast.Expr): ast.Expr {
+    ex(
+        .Lambda(
+            [
+                lambdaP(c),
+                ast.LambdaParam { name: nm(acc), ty: [accTy] },
+                lambdaP(a),
+                lambdaP(b),
+            ],
+            [],
+            [body],
+        ),
+    )
+}
+
+fn lam3(a: Str, b: Str, c: Str, body: ast.Expr): ast.Expr {
+    ex(.Lambda([lambdaP(a), lambdaP(b), lambdaP(c)], [], [body]))
+}
+
 fn isMessageField(f: ResolvedField): Bool {
     match (f.ty) {
         .Named(e) => {
@@ -624,12 +692,17 @@ export fn isOptional(f: ResolvedField): Bool {
         .Explicit => true,
         _other => false,
     };
-    !isRepeated(f) && (isMessageField(f) || explicit)
+    !isRepeated(f) && mapKey(f).isNone() && (isMessageField(f) || explicit)
 }
 
 fn fieldType(f: ResolvedField): ast.Type {
     let base = baseType(f.ty);
-    if (isRepeated(f)) {
+    if (mapKey(f).isSome()) {
+        match (mapKey(f)) {
+            .Some(k) => mapType(f, k),
+            .None => base,
+        }
+    } else if (isRepeated(f)) {
         tyArray(base)
     } else if (isOptional(f)) {
         tyOf("Option", [base])
@@ -1186,7 +1259,12 @@ fn structItem<C: Allocator>(
 // -----------------------------------------------------------------------------
 
 export fn defaultOf(f: ResolvedField): ast.Expr {
-    if (isRepeated(f)) {
+    if (mapKey(f).isSome()) {
+        match (mapKey(f)) {
+            .Some(k) => emptyMap(f, k),
+            .None => variantE("None"),
+        }
+    } else if (isRepeated(f)) {
         emptyList(baseType(f.ty))
     } else if (isOptional(f)) {
         variantE("None")
@@ -1446,7 +1524,55 @@ fn isDefaultTest<C: Allocator>(ctx: C, f: ResolvedField, value: ast.Expr): ast.E
 }
 
 /// One field appended to `out`, or `out` itself where the field writes nothing.
+/// A map field: per entry, in key order, a length-delimited entry message of
+/// the key and the value.
+fn encodeMapPiece<C: Allocator>(ctx: C, f: ResolvedField, k: schema.Scalar): ast.Expr {
+    let keyF = entryField(f, 1, .Scalar(k));
+    let valF = entryField(f, 2, f.ty);
+    let size = binE(.Add, oneSize(ctx, keyF, id("k")), oneSize(ctx, valF, id("x")));
+    let header = nsCall("proto", "writeVarint", [
+        id("c"),
+        pushTag(ctx, f, 2, id("acc"), id("c")),
+        size,
+    ]);
+    let body = writeOne(
+        ctx,
+        valF,
+        id("x"),
+        writeOne(ctx, keyF, id("k"), header, id("c")),
+        id("c"),
+    );
+    method(dot(id("value"), f.name), "foldCtx", [
+        id("ctx"),
+        lam4("c", "acc", tyArray(tyNamed("U8")), "k", "x", body),
+        id("out"),
+    ])
+}
+
+/// How many bytes [`encodeMapPiece`] appends.
+fn sizeMapPiece<C: Allocator>(ctx: C, f: ResolvedField, k: schema.Scalar): ast.Expr {
+    let keyF = entryField(f, 1, .Scalar(k));
+    let valF = entryField(f, 2, f.ty);
+    let size = binE(.Add, oneSize(ctx, keyF, id("k")), oneSize(ctx, valF, id("x")));
+    let one = binE(
+        .Add,
+        intE(tagBytes(ctx, f, 2).length()),
+        nsCall("proto", "lenSize", [size]),
+    );
+    method(dot(id("value"), f.name), "fold", [
+        lam3("n", "k", "x", binE(.Add, id("n"), one)),
+        intE(0),
+    ])
+}
+
 fn encodePiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
+    match (mapKey(f)) {
+        .Some(k) => encodeMapPiece(ctx, f, k),
+        .None => encodeOtherPiece(ctx, f),
+    }
+}
+
+fn encodeOtherPiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
     let v = dot(id("value"), f.name);
     let out = id("out");
     let bytesTy = tyArray(tyNamed("U8"));
@@ -1497,6 +1623,13 @@ fn encodePiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
 
 /// How many bytes [`encodePiece`] appends.
 fn sizePiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
+    match (mapKey(f)) {
+        .Some(k) => sizeMapPiece(ctx, f, k),
+        .None => sizeOtherPiece(ctx, f),
+    }
+}
+
+fn sizeOtherPiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
     let v = dot(id("value"), f.name);
     if (isRepeated(f)) {
         if (packable(f.ty) && f.packed) {
@@ -2011,7 +2144,229 @@ fn recur(readName: Str, at: ast.Expr, acc: ast.Expr): ast.Expr {
 /// Every header case one field answers to: the packed reading of a repeated
 /// numeric field, and the field itself. A writer may send either form, so a
 /// reader takes both.
+/// The reader of one map field's entry messages.
+fn entryName<C: Allocator>(ctx: C, name: Str, f: ResolvedField): Str {
+    str.format(ctx, "read${name}_${f.name}Entry")
+}
+
+/// A map field arrives one entry at a time; each is read in place and inserted,
+/// so a key that arrives twice keeps the later value.
+fn mapArm<C: Allocator>(
+    ctx: C,
+    name: Str,
+    f: ResolvedField,
+    k: schema.Scalar,
+): (ast.Expr, ast.Block) {
+    let readName = str.format(ctx, "read${name}");
+    let read = callName(entryName(ctx, name, f), [
+        id("ctx"),
+        id("b"),
+        id("raw"),
+        id("after"),
+        id("raw"),
+        zeroOf(ctx, f, .Scalar(k)),
+        zeroOf(ctx, f, f.ty),
+    ]);
+    let landed = structOver(name, id("acc"), [
+        initOf(
+            f.name,
+            method(dot(id("acc"), f.name), "insert", [
+                id("ctx"),
+                id("key"),
+                id("item"),
+            ]),
+        ),
+    ]);
+    (
+        andE(
+            eqE(id("field"), intE(f.number)),
+            eqE(id("wire"), dot(id("proto"), "LEN")),
+        ),
+        blk(
+            [
+                letPatS(
+                    patOf(.Tuple([bindP("raw"), bindP("after")])),
+                    tryE(
+                        nsCall("proto", "readLen", [
+                            id("b"),
+                            id("next"),
+                            id("end"),
+                            id("base"),
+                        ]),
+                    ),
+                ),
+                letPatS(patOf(.Tuple([bindP("key"), bindP("item")])), tryE(read)),
+            ],
+            [recur(readName, id("after"), landed)],
+        ),
+    )
+}
+
+/// `readM_fEntry`: the fields of one entry, between `at` and `end`, on top of
+/// the key and the value read so far. A field this entry does not know is
+/// skipped, the way a message's is.
+fn entryFn<C: Allocator>(
+    ctx: C,
+    name: Str,
+    f: ResolvedField,
+    k: schema.Scalar,
+): ast.Item {
+    let fnName = entryName(ctx, name, f);
+    let keyF = entryField(f, 1, .Scalar(k));
+    let valF = entryField(f, 2, f.ty);
+    let again = fn(key: ast.Expr, value: ast.Expr) => {
+        callName(fnName, [
+            id("ctx"),
+            id("b"),
+            id("after"),
+            id("end"),
+            id("base"),
+            key,
+            value,
+        ])
+    };
+    let gotValue = match (namedEntry(f.ty)) {
+        .Some(e) => {
+            match (e.kind) {
+                .Message => {
+                    tryE(
+                        callName(str.format(ctx, "read${e.buri}"), [
+                            id("ctx"),
+                            id("b"),
+                            id("raw"),
+                            id("after"),
+                            id("raw"),
+                            id("value"),
+                        ]),
+                    )
+                },
+                .Enum => adapt(ctx, valF, id("raw")),
+            }
+        },
+        .None => adapt(ctx, valF, id("raw")),
+    };
+    let arms = [
+        (
+            andE(
+                eqE(id("field"), intE(1)),
+                eqE(id("wire"), dot(id("proto"), wireName(keyF.ty))),
+            ),
+            blk(
+                [
+                    letPatS(
+                        patOf(.Tuple([bindP("raw"), bindP("after")])),
+                        readOne(keyF),
+                    ),
+                    letS("got", [], adapt(ctx, keyF, id("raw"))),
+                ],
+                [again(id("got"), id("value"))],
+            ),
+        ),
+        (
+            andE(
+                eqE(id("field"), intE(2)),
+                eqE(id("wire"), dot(id("proto"), wireName(valF.ty))),
+            ),
+            blk(
+                [
+                    letPatS(
+                        patOf(.Tuple([bindP("raw"), bindP("after")])),
+                        readOne(valF),
+                    ),
+                    letS("got", [], gotValue),
+                ],
+                [again(id("key"), id("got"))],
+            ),
+        ),
+    ];
+    let otherwise = blk(
+        [
+            letS(
+                "after",
+                [],
+                tryE(
+                    nsCall("proto", "skip", [
+                        id("b"),
+                        id("next"),
+                        id("end"),
+                        id("base"),
+                        id("wire"),
+                    ]),
+                ),
+            ),
+        ],
+        [again(id("key"), id("value"))],
+    );
+    let inner = chainBlocks(ctx, arms, otherwise);
+    let elseBlock = blk(
+        [
+            letPatS(
+                patOf(.Tuple([bindP("field"), bindP("wire"), bindP("next")])),
+                tryE(
+                    nsCall("proto", "readTag", [
+                        id("b"),
+                        id("at"),
+                        id("end"),
+                        id("base"),
+                    ]),
+                ),
+            ),
+        ].concat(ctx, inner.stmts),
+        inner.tail,
+    );
+    let keyTy = baseType(.Scalar(k));
+    let valTy = baseType(f.ty);
+    fnItem(ast.FnDecl {
+        name: nm(fnName),
+        generics: allocGeneric(),
+        params: [
+            ctxParam(),
+            param("b", tyArray(tyNamed("U8"))),
+            param("at", tyNamed("Int")),
+            param("end", tyNamed("Int")),
+            param("base", tyNamed("Int")),
+            param("key", keyTy),
+            param("value", valTy),
+        ],
+        ret: tyOf("Result", [
+            ast.Type { kind: .Tuple([keyTy, valTy]), origin: ast.nowhere() },
+            tyNamed("ProtoError"),
+        ]),
+        body: [
+            tailBlock(
+                ex(
+                    .If(
+                        [binE(.Ge, id("at"), id("end"))],
+                        [
+                            tailBlock(
+                                variantCall("Ok", [
+                                    ex(.Tuple([id("key"), id("value")])),
+                                ]),
+                            ),
+                        ],
+                        [blockE(elseBlock)],
+                    ),
+                ),
+            ),
+        ],
+        exported: false,
+        docs: [],
+    })
+}
+
 fn fieldArms<C: Allocator>(
+    ctx: C,
+    name: Str,
+    f: ResolvedField,
+    seat: Option<ResolvedOneof>,
+): [(ast.Expr, ast.Block)] {
+    match (mapKey(f)) {
+        .Some(k) => [mapArm(ctx, name, f, k)],
+        .None => otherArms(ctx, name, f, seat),
+    }
+}
+
+fn otherArms<C: Allocator>(
     ctx: C,
     name: Str,
     f: ResolvedField,
@@ -2226,7 +2581,13 @@ fn decodeFns<C: Allocator>(
             "error's offset counts from `base`, where the message starts.",
         ],
     });
-    [decodeItem, mergeItem, readItem]
+    let entries = fields.flatMapCtx(ctx, fn(c, f) => {
+        match (mapKey(f)) {
+            .Some(k) => [entryFn(c, name, f, k)],
+            .None => [],
+        }
+    });
+    [decodeItem, mergeItem, readItem].concat(ctx, entries)
 }
 
 // -----------------------------------------------------------------------------
@@ -2281,7 +2642,72 @@ fn oneMember(name: Str, value: ast.Expr): ast.Expr {
     ex(.Array([ex(.Tuple([strE(name), value]))]))
 }
 
+/// A map key as the text a JSON object's member name is.
+fn keyText(k: schema.Scalar, key: ast.Expr, c: ast.Expr): ast.Expr {
+    let n = scalarName(k);
+    if (n == "string") {
+        key
+    } else if (n == "bool") {
+        ifE(key, strE("true"), strE("false"))
+    } else if (n == "uint64" || n == "fixed64") {
+        nsCall("proto", "unsignedText", [c, key])
+    } else {
+        nsCall("proto", "intText", [c, key])
+    }
+}
+
+/// A map key read back from a member name, `?` applied where it can fail.
+fn keyRead(k: schema.Scalar, name: ast.Expr, path: ast.Expr): ast.Expr {
+    let n = scalarName(k);
+    let doc = callOf(dot(id("Json"), "Str"), [name]);
+    if (n == "string") {
+        name
+    } else if (n == "bool") {
+        tryE(nsCall("proto", "asBoolKey", [name, path]))
+    } else if (n == "uint64" || n == "fixed64") {
+        tryE(nsCall("proto", "asUint64", [doc, path]))
+    } else if (n == "int64" || n == "sint64" || n == "sfixed64") {
+        tryE(nsCall("proto", "asInt64", [doc, path]))
+    } else {
+        let bounds = jsonRange(k);
+        tryE(nsCall("proto", "asInt", [doc, path, intE(bounds.0), intE(bounds.1)]))
+    }
+}
+
+/// A map field: an object, its members in key order. An empty map is left out.
+fn jsonMapPiece<C: Allocator>(ctx: C, f: ResolvedField, k: schema.Scalar): ast.Expr {
+    let v = dot(id("value"), f.name);
+    let valF = entryField(f, 2, f.ty);
+    let member = ex(
+        .Tuple([keyText(k, id("k"), id("c")), jsonOf(ctx, valF, id("x"), id("c"))]),
+    );
+    let members = method(v, "foldCtx", [
+        id("ctx"),
+        lam4(
+            "c",
+            "acc",
+            tyArray(memberTy()),
+            "k",
+            "x",
+            method(id("acc"), "push", [id("c"), member]),
+        ),
+        emptyList(memberTy()),
+    ]);
+    ifE(
+        method(v, "isEmpty", []),
+        emptyList(memberTy()),
+        oneMember(f.json, callOf(dot(id("Json"), "Object"), [members])),
+    )
+}
+
 fn jsonPiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
+    match (mapKey(f)) {
+        .Some(k) => jsonMapPiece(ctx, f, k),
+        .None => jsonOtherPiece(ctx, f),
+    }
+}
+
+fn jsonOtherPiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
     let v = dot(id("value"), f.name);
     let none = emptyList(memberTy());
     if (isRepeated(f)) {
@@ -2497,7 +2923,67 @@ fn local<C: Allocator>(ctx: C, field: Str): Str {
 /// The bindings one field contributes to `decodeMJsonAt`.
 ///
 /// Every binding is annotated: a `.None` arm has no type to infer from.
+/// A map field read from an object, member by member.
+fn mapLets<C: Allocator>(ctx: C, f: ResolvedField, k: schema.Scalar): [ast.Stmt] {
+    let held = local(ctx, f.name);
+    let pathName = str.format(ctx, "p_${f.name}");
+    let at = nsCall("proto", "at", [id("ctx"), id("path"), strE(f.json)]);
+    let valF = entryField(f, 2, f.ty);
+    let step = blockE(
+        blk(
+            [
+                letPatS(patOf(.Tuple([bindP("name"), bindP("member")])), id("item")),
+                letS(
+                    "here",
+                    [],
+                    nsCall("proto", "at", [id("c"), id(pathName), id("name")]),
+                ),
+                letS("key", [], keyRead(k, id("name"), id("here"))),
+                letS(
+                    "one",
+                    [],
+                    tryE(jsonRead(ctx, valF, id("member"), id("here"), id("c"))),
+                ),
+            ],
+            [
+                variantCall("Ok", [
+                    method(id("acc"), "insert", [id("c"), id("key"), id("one")]),
+                ]),
+            ],
+        ),
+    );
+    let folded = tryE(
+        method(
+            tryE(nsCall("proto", "asObject", [id("v"), id(pathName)])),
+            "foldResultCtx",
+            [
+                id("ctx"),
+                foldLambda("c", "acc", mapType(f, k), "item", step),
+                emptyMap(f, k),
+            ],
+        ),
+    );
+    [
+        letS(pathName, [tyNamed("Str")], at),
+        letS(
+            held,
+            [mapType(f, k)],
+            matchE(memberCall(f), [
+                armOf(dotP0("None"), emptyMap(f, k)),
+                armOf(dotP1("Some", "v"), folded),
+            ]),
+        ),
+    ]
+}
+
 fn fieldLets<C: Allocator>(ctx: C, f: ResolvedField): [ast.Stmt] {
+    match (mapKey(f)) {
+        .Some(k) => mapLets(ctx, f, k),
+        .None => otherLets(ctx, f),
+    }
+}
+
+fn otherLets<C: Allocator>(ctx: C, f: ResolvedField): [ast.Stmt] {
     let held = local(ctx, f.name);
     let at = nsCall("proto", "at", [id("ctx"), id("path"), strE(f.json)]);
     if (isRepeated(f)) {
@@ -3027,15 +3513,43 @@ fn foreignImports<C: Allocator>(ctx: C, used: OrderedMap<Str, Entry>): [ast.Item
     grouped.entries(ctx).mapCtx(ctx, fn(c, pair) => namedImport(c, pair.0, pair.1))
 }
 
-fn importItems<C: Allocator>(ctx: C, used: OrderedMap<Str, Entry>): [ast.Item] {
-    [
+fn importItems<C: Allocator>(
+    ctx: C,
+    used: OrderedMap<Str, Entry>,
+    maps: Bool,
+): [ast.Item] {
+    let always = [
         namedImport(ctx, "platform/effect", ["Allocator"]),
         namespaceImport("core/bytes", "bytes"),
         namedImport(ctx, "core/json", ["Json"]),
         namespaceImport("core/list", "list"),
         namedImport(ctx, "core/proto", ["ProtoError"]),
         namespaceImport("core/proto", "proto"),
-    ].concat(ctx, foreignImports(ctx, used))
+    ];
+    let forMaps = if (maps) {
+        [
+            namedImport(ctx, "core/orderedmap", ["OrderedMap"]),
+            namespaceImport("core/orderedmap", "orderedmap"),
+        ]
+    } else {
+        []
+    };
+    always.concat(ctx, forMaps).concat(ctx, foreignImports(ctx, used))
+}
+
+/// Whether any message here, at any depth, has a map field.
+fn hasMaps(messages: [schema.Message]): Bool {
+    messages.any(fn(m) => {
+        m
+            .fields
+            .any(fn(f) => {
+                match (f.label) {
+                    .Map(_k) => true,
+                    _other => false,
+                }
+            })
+            || hasMaps(m.messages)
+    })
 }
 
 // -----------------------------------------------------------------------------
@@ -3091,7 +3605,10 @@ export fn generate<C: Allocator>(
         );
     Generated {
         tree: ast.Module {
-            items: importItems(ctx, done.used).concat(ctx, done.items),
+            items: importItems(ctx, done.used, hasMaps(s.messages)).concat(
+                ctx,
+                done.items,
+            ),
             docs: [
                 str.format(
                     ctx,

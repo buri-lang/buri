@@ -110,6 +110,25 @@ test "a message keeps the fields that are not in a oneof, in order" {
     );
 }
 
+test "a map field's label carries its key, and its type is the value's" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = withEdition(
+        ctx,
+        "message M { map<string, int32> counts = 1; map<uint64, M> next = 2; }\n",
+    );
+    let parsed = read(ctx, text);
+    assert.isTrue(parsed.errors.isEmpty());
+    let m = assert.some(parsed.schema.messages.get(0));
+    let counts = assert.some(m.fields.get(0));
+    assert.equal(counts.label, Label.Map(Scalar.Str));
+    assert.equal(counts.ty, TypeRef.Scalar(Scalar.Int32));
+    let next = assert.some(m.fields.get(1));
+    assert.equal(next.label, Label.Map(Scalar.Uint64));
+    assert.equal(next.ty, TypeRef.Named("M"));
+}
+
 test "a oneof keeps its cases, and a case carries no label" {
     let ctx = context {
         Allocator: alloc(),

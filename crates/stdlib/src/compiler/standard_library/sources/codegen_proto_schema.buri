@@ -30,7 +30,7 @@
 //! `Option<T>` or `T`. See `crates/docs/src/docs/reference/build/proto.md`.
 //!
 //! What is *not* here is refused by name rather than ignored: `service`,
-//! `extend`, `extensions`, groups, `map<>`, the two removed labels, and every
+//! `extend`, `extensions`, groups, the two removed labels, and every
 //! feature value this mapping cannot express. Each would change what a message
 //! means on the wire. An `option` that is not a `features.` one is skipped
 //! instead, and `reserved` is kept only to check that no field uses it.
@@ -113,6 +113,8 @@ export enum Label {
     /// `features.field_presence`, not the label — editions removed `optional`.
     Single,
     Repeated,
+    /// `map<K, V>`, keyed by this scalar. The field's `ty` is `V`.
+    Map(Scalar),
 }
 
 /// The edition this reader implements, and the only one it accepts.
@@ -1751,18 +1753,8 @@ fn fieldRest<C: Allocator>(
         .Some(pair) => {
             let (tyWord, tyOrigin) = pair;
             let (p1, ahead) = peekToken(ctx, p);
-            if (tyWord == "map" || ahead == Token.Punctuation("<")) {
-                (
-                    unsupported(
-                        ctx,
-                        p1,
-                        tyOrigin,
-                        "`map<>`",
-                        "a map field is sugar for a repeated entry message with its own wire layout, and Buri's `Map` is not ordered the way a decoded map would have to be",
-                        "declare `repeated Entry entries = N;` with an explicit `message Entry { ... }`",
-                    ),
-                    .None,
-                )
+            if (tyWord == "map" && ahead == Token.Punctuation("<")) {
+                mapField(ctx, p1, start, label, tyOrigin)
             } else {
                 let ty = match (scalar(tyWord)) {
                     .Some(s) => TypeRef.Scalar(s),
@@ -1771,6 +1763,70 @@ fn fieldRest<C: Allocator>(
                 fieldNumbered(ctx, p1, start, label, ty)
             }
         },
+    }
+}
+
+/// `map<K, V> name = N;`, from the `<`. A key is a scalar that is not a
+/// floating-point number or `bytes`, which is protobuf's own rule, and a map is
+/// never `repeated`: it already holds many.
+fn mapField<C: Allocator>(
+    ctx: C,
+    p: P,
+    start: Int,
+    label: Label,
+    origin: ast.Origin,
+): (P, Option<Field>) {
+    let (p1, _) = expect(ctx, p, "<", "`map`");
+    let (p2, key) = word(ctx, p1, "a map key type");
+    let (p3, _) = expect(ctx, p2, ",", "a map key type");
+    let (p4, value) = word(ctx, p3, "a map value type");
+    let (p5, _) = expect(ctx, p4, ">", "a map value type");
+    match ((key, value)) {
+        (.Some((k, kOrigin)), .Some((v, _))) => {
+            let ty = match (scalar(v)) {
+                .Some(sv) => TypeRef.Scalar(sv),
+                .None => TypeRef.Named(v),
+            };
+            match (mapKey(k)) {
+                .None => {
+                    (
+                        err(
+                            ctx,
+                            p5,
+                            kOrigin,
+                            str.format(ctx, "`${k}` cannot be a map key"),
+                            "a map key is an integer type, `bool` or `string`",
+                        ),
+                        .None,
+                    )
+                },
+                .Some(ks) => {
+                    if (label == Label.Repeated) {
+                        (
+                            err(
+                                ctx,
+                                p5,
+                                origin,
+                                "a map field cannot be `repeated`",
+                                "drop `repeated`; a map already holds many entries",
+                            ),
+                            .None,
+                        )
+                    } else {
+                        fieldNumbered(ctx, p5, start, Label.Map(ks), ty)
+                    }
+                },
+            }
+        },
+        _ => (p5, .None),
+    }
+}
+
+fn mapKey(word: Str): Option<Scalar> {
+    if (word == "float" || word == "double" || word == "bytes") {
+        .None
+    } else {
+        scalar(word)
     }
 }
 

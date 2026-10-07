@@ -310,6 +310,12 @@ fn the_recording_covers_every_fixed_class_of_bug() {
         "Required.Proto3.JsonInput.OneofFieldDuplicate",
         "Required.Proto3.JsonInput.Int32FieldLeadingZero",
         "Required.Proto3.JsonInput.SkipsDefaultPrimitive.Validator",
+        // Map fields, on the wire and in JSON.
+        "Required.Proto3.ProtobufInput.ValidDataMap.STRING.MESSAGE.MergeValue.ProtobufOutput",
+        "Required.Proto3.ProtobufInput.ValidDataMap.UINT64.UINT64.Unordered.JsonOutput",
+        "Required.Proto3.ProtobufInput.ValidDataMap.BOOL.BOOL.DuplicateKeyInMapEntry.ProtobufOutput",
+        "Required.Proto3.JsonInput.Int64MapEscapedKey.JsonOutput",
+        "Required.Proto3.JsonInput.BoolMapField.ProtobufOutput",
     ];
     let missing: Vec<_> = wanted.iter().filter(|w| !names.contains(**w)).collect();
     assert!(missing.is_empty(), "vectors.txt does not record these passing: {missing:?}");

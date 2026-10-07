@@ -643,6 +643,8 @@ const PACKAGES: &[Case] = &[
     included("proto/wire.buri"),
     // NaN, the infinities and the 64-bit extremes in proto3 JSON.
     included("proto/json_numbers.buri"),
+    // `map<K, V>` fields, as `OrderedMap<K, V>`.
+    included("proto/maps.buri"),
     // `core/bytes`'s six intrinsics — the UTF-8 pair and the four IEEE 754
     // byte-pattern entries — are `cli/runtime/bytes.rs` now, which is the one
     // surface each of these two was waiting for.

@@ -1,0 +1,284 @@
+// A `map<K, V>` field is an `OrderedMap<K, V>`: on the wire one entry message
+// per key, `{1: key, 2: value}`, and in JSON an object keyed by the key's text.
+// Every hex string below was checked by hand against the protobuf encoding
+// rules.
+
+from "core/bytes" import * as bytes;
+from "core/json" import * as json;
+from "core/list" import * as list;
+from "core/orderedmap" import * as orderedmap;
+from "core/proto" import { ProtoError };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//lib/proto" import {
+    Address, decodeMaps, decodeMapsJson, defaultAddress, defaultMaps, encodeMaps,
+    encodeMapsJson, Maps, Mood,
+};
+
+fn hex<C: Allocator>(ctx: C, v: Maps): Str {
+    bytes.toHex(ctx, encodeMaps(ctx, v))
+}
+
+fn raw<C: Allocator>(ctx: C, text: Str): [U8] {
+    match (bytes.fromHex(ctx, text)) {
+        .Ok(b) => b,
+        .Err(_e) => list.empty<U8>(),
+    }
+}
+
+fn text<C: Allocator>(ctx: C, v: Maps): Str {
+    json.stringify(ctx, encodeMapsJson(ctx, v))
+}
+
+fn read<C: Allocator>(ctx: C, source: Str): Result<Maps, ProtoError> {
+    match (json.parse(ctx, source)) {
+        .Ok(d) => decodeMapsJson(ctx, d),
+        .Err(_e) => .Err(.BadJson { path: "", wanted: "JSON" }),
+    }
+}
+
+/// Encodes to `hex`, and decodes back to the same value.
+fn wire<C: Allocator>(ctx: C, v: Maps, hex: Str): () {
+    assert.equal(bytes.toHex(ctx, encodeMaps(ctx, v)), hex);
+    assert.equal(decodeMaps(ctx, raw(ctx, hex)), .Ok(v));
+}
+
+/// Writes `doc`, and reads it back to the same value.
+fn document<C: Allocator>(ctx: C, v: Maps, doc: Str): () {
+    assert.equal(text(ctx, v), doc);
+    assert.equal(read(ctx, doc), .Ok(v));
+}
+
+// --- the wire format ------------------------------------------------------------
+
+test "an empty map writes nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(hex(ctx, defaultMaps()), "");
+    assert.equal(decodeMaps(ctx, list.empty<U8>()), .Ok(defaultMaps()));
+}
+
+test "each entry is a message of its key and its value, in key order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // field 1, wire 2; the entry is 0a 01 "a" (key) and 10 01 (value).
+    let counts = orderedmap.of(ctx, [("b", 2), ("a", 1)]);
+    wire(ctx, Maps { ..defaultMaps(), counts: counts }, "0a050a016110010a050a01621002");
+    // A key and a value at their defaults are still written.
+    wire(
+        ctx,
+        Maps { ..defaultMaps(), counts: orderedmap.of(ctx, [("", 0)]) },
+        "0a040a001000",
+    );
+}
+
+test "every kind of key and value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // An int64 key of -1 is ten bytes of two's complement.
+    wire(
+        ctx,
+        Maps { ..defaultMaps(), names: orderedmap.of(ctx, [(-1, "x")]) },
+        "120e08ffffffffffffffffff01120178",
+    );
+    // A uint64 key of 2^64 - 1 is the Int -1.
+    wire(
+        ctx,
+        Maps { ..defaultMaps(), flags: orderedmap.of(ctx, [(-1, true)]) },
+        "1a0d08ffffffffffffffffff011001",
+    );
+    // A sint32 key zigzags; a double value is eight little-endian bytes.
+    wire(
+        ctx,
+        Maps { ..defaultMaps(), ratios: orderedmap.of(ctx, [(-1, 0.5)]) },
+        "220b080111000000000000e03f",
+    );
+    // A fixed64 key is eight bytes; a bytes value is length-delimited.
+    wire(
+        ctx,
+        Maps {
+            ..defaultMaps(),
+            blobs: orderedmap.of(ctx, [(1, [1.wrapToU8(), 255.wrapToU8()])]),
+        },
+        "2a0d090100000000000000120201ff",
+    );
+    wire(
+        ctx,
+        Maps { ..defaultMaps(), moods: orderedmap.of(ctx, [(true, Mood.HAPPY)]) },
+        "320408011001",
+    );
+    // A message value, and a map of the message itself.
+    wire(
+        ctx,
+        Maps {
+            ..defaultMaps(),
+            places: orderedmap.of(ctx, [
+                ("k", Address { ..defaultAddress(), city: .Some("L") }),
+            ]),
+        },
+        "3a080a016b12030a014c",
+    );
+    let inner = Maps { ..defaultMaps(), counts: orderedmap.of(ctx, [("a", 1)]) };
+    wire(
+        ctx,
+        Maps { ..defaultMaps(), nested: orderedmap.of(ctx, [(3, inner)]) },
+        "420b080312070a050a01611001",
+    );
+}
+
+test "an entry missing its key or its value reads it as the default" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        decodeMaps(ctx, raw(ctx, "0a021005")),
+        .Ok(Maps { ..defaultMaps(), counts: orderedmap.of(ctx, [("", 5)]) }),
+    );
+    assert.equal(
+        decodeMaps(ctx, raw(ctx, "0a030a0161")),
+        .Ok(Maps { ..defaultMaps(), counts: orderedmap.of(ctx, [("a", 0)]) }),
+    );
+    assert.equal(
+        decodeMaps(ctx, raw(ctx, "3a030a016b")),
+        .Ok(Maps {
+            ..defaultMaps(),
+            places: orderedmap.of(ctx, [("k", defaultAddress())]),
+        }),
+    );
+}
+
+test "an entry's fields may come in any order, and an unknown one is skipped" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let a = Maps { ..defaultMaps(), counts: orderedmap.of(ctx, [("a", 1)]) };
+    assert.equal(decodeMaps(ctx, raw(ctx, "0a0510010a0161")), .Ok(a));
+    assert.equal(decodeMaps(ctx, raw(ctx, "0a070a016118091001")), .Ok(a));
+}
+
+test "a key that arrives twice keeps the later value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        decodeMaps(ctx, raw(ctx, "0a050a016110010a050a01611002")),
+        .Ok(Maps { ..defaultMaps(), counts: orderedmap.of(ctx, [("a", 2)]) }),
+    );
+}
+
+test "an error inside an entry counts its offset from the entry" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // The entry is three bytes, and its key claims five.
+    assert.equal(decodeMaps(ctx, raw(ctx, "0a030a05610000")), .Err(.Truncated(1)));
+}
+
+test "two maps holding the same entries are equal however they were built" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let one = Maps {
+        ..defaultMaps(),
+        counts: orderedmap.of(ctx, [("a", 1), ("b", 2)]),
+    };
+    let two = Maps {
+        ..defaultMaps(),
+        counts: orderedmap.of(ctx, [("b", 2), ("a", 1)]),
+    };
+    assert.equal(one, two);
+    assert.notEqual(one, Maps {
+        ..defaultMaps(),
+        counts: orderedmap.of(ctx, [("a", 1)]),
+    });
+}
+
+// --- JSON ----------------------------------------------------------------------------
+
+test "a map is an object keyed by the key's text" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    document(
+        ctx,
+        Maps { ..defaultMaps(), counts: orderedmap.of(ctx, [("b", 2), ("a", 1)]) },
+        "{\"counts\":{\"a\":1,\"b\":2}}",
+    );
+    document(
+        ctx,
+        Maps { ..defaultMaps(), names: orderedmap.of(ctx, [(-1, "x")]) },
+        "{\"names\":{\"-1\":\"x\"}}",
+    );
+    document(
+        ctx,
+        Maps { ..defaultMaps(), flags: orderedmap.of(ctx, [(-1, true)]) },
+        "{\"flags\":{\"18446744073709551615\":true}}",
+    );
+    document(
+        ctx,
+        Maps {
+            ..defaultMaps(),
+            moods: orderedmap.of(ctx, [
+                (true, Mood.HAPPY),
+                (false, Mood.MOOD_UNSPECIFIED),
+            ]),
+        },
+        "{\"moods\":{\"false\":\"MOOD_UNSPECIFIED\",\"true\":\"HAPPY\"}}",
+    );
+    document(
+        ctx,
+        Maps {
+            ..defaultMaps(),
+            blobs: orderedmap.of(ctx, [(1, [1.wrapToU8(), 255.wrapToU8()])]),
+        },
+        "{\"blobs\":{\"1\":\"Af8=\"}}",
+    );
+    document(
+        ctx,
+        Maps { ..defaultMaps(), totals: orderedmap.of(ctx, [("t", 7)]) },
+        "{\"totals\":{\"t\":\"7\"}}",
+    );
+    document(
+        ctx,
+        Maps {
+            ..defaultMaps(),
+            places: orderedmap.of(ctx, [
+                ("k", Address { ..defaultAddress(), city: .Some("L") }),
+            ]),
+        },
+        "{\"places\":{\"k\":{\"city\":\"L\"}}}",
+    );
+}
+
+test "a key that is not its type's text, and a null value, are refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        read(ctx, "{\"names\":{\"x\":\"m\"}}"),
+        .Err(.BadJson { path: "$.names.x", wanted: "an integer" }),
+    );
+    assert.equal(
+        read(ctx, "{\"names\":{\"9223372036854775808\":\"m\"}}"),
+        .Err(.BadJson {
+            path: "$.names.9223372036854775808",
+            wanted: "an integer in range",
+        }),
+    );
+    assert.equal(
+        read(ctx, "{\"moods\":{\"yes\":\"HAPPY\"}}"),
+        .Err(.BadJson { path: "$.moods.yes", wanted: "true or false" }),
+    );
+    assert.equal(
+        read(ctx, "{\"counts\":{\"a\":null}}"),
+        .Err(.BadJson { path: "$.counts.a", wanted: "an integer" }),
+    );
+    assert.equal(
+        read(ctx, "{\"counts\":[]}"),
+        .Err(.BadJson { path: "$.counts", wanted: "an object" }),
+    );
+}
