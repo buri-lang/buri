@@ -649,6 +649,20 @@ export fn jsonFloat(x: Float): Json {
     }
 }
 
+/// A `uint64` or `fixed64`, whose bits a negative `Int` holds when the value
+/// is past 2^63 - 1: written as the unsigned decimal of those bits.
+export fn jsonUint64<C: Allocator>(ctx: C, x: Int): Json {
+    if (x >= 0) {
+        jsonInt64(ctx, x)
+    } else {
+        // The value is 2^64 + x. Its last digit is (6 + x mod 10) mod 10, since
+        // 2^64 ends in 6, and the rest is a logical halving then a fifth.
+        let rest = bits.shiftRight(x, 1) / 5;
+        let last = ((x % 10 + 10) % 10 + 6) % 10;
+        Json.Str(str.format(ctx, "${rest}${last}"))
+    }
+}
+
 /// `bytes`, base64 with padding.
 export fn jsonBytes<C: Allocator>(ctx: C, b: [U8]): Json {
     Json.Str(bytes.toBase64(ctx, b))
@@ -695,7 +709,13 @@ export fn asInt(doc: Json, path: Str, lo: Int, hi: Int): Result<Int, ProtoError>
 
 fn inRange(x: Float, path: Str, lo: Int, hi: Int): Result<Int, ProtoError> {
     match (x.toI64()) {
-        .Err(_e) => .Err(.BadJson { path: path, wanted: "an integer" }),
+        .Err(_e) => {
+            if (math.isFinite(x) && math.truncate(x) != x) {
+                .Err(.BadJson { path: path, wanted: "an integer" })
+            } else {
+                .Err(.BadJson { path: path, wanted: "an integer in range" })
+            }
+        },
         .Ok(n) => {
             if (n < lo || n > hi) {
                 .Err(.BadJson { path: path, wanted: "an integer in range" })
@@ -704,6 +724,109 @@ fn inRange(x: Float, path: Str, lo: Int, hi: Int): Result<Int, ProtoError> {
             }
         },
     }
+}
+
+/// An `int64`, `sint64` or `sfixed64` field's value.
+///
+/// A quoted integer is read digit by digit, so a value past 2^53 is exact and
+/// one past either end of the range is refused rather than rounded into it. A
+/// JSON number, or a quoted one with a fraction or an exponent, is as exact as
+/// the double it is.
+export fn asInt64(doc: Json, path: Str): Result<Int, ProtoError> {
+    match (plainDigits(doc)) {
+        .Some((negative, digits)) => {
+            if (negative && digits == "9223372036854775808") {
+                .Ok(-9223372036854775807 - 1)
+            } else if (atMost(digits, "9223372036854775807")) {
+                let n = digits.toInt().withDefault(0);
+                .Ok(if (negative) { 0 - n } else { n })
+            } else {
+                .Err(.BadJson { path: path, wanted: "an integer in range" })
+            }
+        },
+        .None => asInt(doc, path, -9223372036854775807 - 1, 9223372036854775807),
+    }
+}
+
+/// A `uint64` or `fixed64` field's value, 0 to 2^64 - 1, as the `Int` holding
+/// its bits: a value past 2^63 - 1 comes back negative, and `jsonUint64` and the
+/// binary encoder write it back as the same value.
+export fn asUint64(doc: Json, path: Str): Result<Int, ProtoError> {
+    match (plainDigits(doc)) {
+        .Some((negative, digits)) => {
+            if (negative) {
+                if (digits == "0") {
+                    .Ok(0)
+                } else {
+                    .Err(.BadJson { path: path, wanted: "an integer in range" })
+                }
+            } else if (atMost(digits, "9223372036854775807")) {
+                .Ok(digits.toInt().withDefault(0))
+            } else if (atMost(digits, "18446744073709551615")) {
+                // 2^64 is 1844674407370955161 * 10 + 6, and the value less 2^64
+                // is negative. The sum below is in this order so no step of it
+                // leaves the range of an `Int`.
+                let n = digits.length();
+                let q = digits.slice(0, n - 1).toInt().withDefault(0);
+                let d = digits.slice(n - 1, n).toInt().withDefault(0);
+                .Ok((q - 1844674407370955161 + 1) * 10 + (d - 16))
+            } else {
+                .Err(.BadJson { path: path, wanted: "an integer in range" })
+            }
+        },
+        .None => {
+            match (doc) {
+                .Num(x) => unsignedFloat(x, path),
+                .Str(s) => {
+                    match (numericText(s)) {
+                        .Some(x) => unsignedFloat(x, path),
+                        .None => .Err(.BadJson { path: path, wanted: "an integer" }),
+                    }
+                },
+                _ => .Err(.BadJson { path: path, wanted: "an integer" }),
+            }
+        },
+    }
+}
+
+/// A double from 2^63 to 2^64 is an integer, and less 2^64 it is the negative
+/// `Int` with the same bits — exactly, because the two are in one binade.
+fn unsignedFloat(x: Float, path: Str): Result<Int, ProtoError> {
+    if (x >= 9223372036854775808.0 && x < 18446744073709551616.0) {
+        inRange(x - 18446744073709551616.0, path, -9223372036854775807 - 1, -1)
+    } else {
+        inRange(x, path, 0, 9223372036854775807)
+    }
+}
+
+/// A quoted integer with nothing but digits, as its sign and its digits. JSON's
+/// grammar already refuses a leading zero, so equal values are equal text.
+fn plainDigits(doc: Json): Option<(Bool, Str)> {
+    match (doc) {
+        .Str(s) => {
+            let negative = s.startsWith("-");
+            let digits = if (negative) { s.slice(1, s.length()) } else { s };
+            if (wellFormedNumber(s) && digits.length() > 0 && allDigits(digits, 0)) {
+                .Some((negative, digits))
+            } else {
+                .None
+            }
+        },
+        _ => .None,
+    }
+}
+
+fn allDigits(s: Str, i: Int): Bool {
+    match (s.charAt(i)) {
+        .None => true,
+        .Some(c) => c.isDigit() && allDigits(s, i + 1),
+    }
+}
+
+/// Whether one decimal is at most another, both without leading zeros.
+fn atMost(digits: Str, bound: Str): Bool {
+    digits.length() < bound.length()
+        || digits.length() == bound.length() && digits <= bound
 }
 
 /// A quoted number, as proto3 JSON admits one: a JSON number and nothing else.
