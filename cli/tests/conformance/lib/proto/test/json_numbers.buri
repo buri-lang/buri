@@ -22,7 +22,7 @@ let MIN: Int = -9223372036854775807 - 1;
 let MAX: Int = 9223372036854775807;
 
 fn text<C: Allocator>(ctx: C, v: Everything): Str {
-    json.stringify(ctx, encodeEverythingJson(ctx, v))
+    json.stringify(ctx, assert.ok(encodeEverythingJson(ctx, v)))
 }
 
 fn read<C: Allocator>(ctx: C, source: Str): Result<Everything, ProtoError> {
@@ -216,7 +216,10 @@ test "a uint64 reads its whole range back to the same bits" {
         .Ok(Everything { ..defaultEverything(), large: .Some(-2048) }),
     );
     let v = Everything { ..defaultEverything(), large: .Some(-7), serial: .Some(MIN) };
-    assert.equal(decodeEverythingJson(ctx, encodeEverythingJson(ctx, v)), .Ok(v));
+    assert.equal(
+        decodeEverythingJson(ctx, assert.ok(encodeEverythingJson(ctx, v))),
+        .Ok(v),
+    );
 }
 
 test "a uint64 past 2^64 - 1 or below zero is refused" {

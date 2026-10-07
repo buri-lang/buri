@@ -82,10 +82,16 @@ export fn readEmpty<C: Allocator>(
 /// The proto3 JSON mapping — which is *not* `derive ToJson`'s. A 64-bit
 /// integer is a string, `bytes` is base64, an enum is its value's name, and
 /// a oneof's case is an ordinary member of this object.
-export fn encodeEmptyJson<C: Allocator>(ctx: C, value: Empty): Json {
+///
+/// A value proto3 JSON cannot write, such as a `Duration` past ten
+/// thousand years, is an `.Unwritable` naming where it is.
+export fn encodeEmptyJson<C: Allocator>(
+    ctx: C,
+    value: Empty,
+): Result<Json, ProtoError> {
     let _ = value;
     let _ = ctx;
-    Json.Object(list.empty<(Str, Json)>())
+    .Ok(Json.Object(list.empty<(Str, Json)>()))
 }
 
 /// Reads a proto3 JSON document. An absent member and a `null` one mean the

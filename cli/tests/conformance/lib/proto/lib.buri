@@ -24,7 +24,8 @@ from "//lib/proto/maps.proto" export {
 };
 
 from "//lib/proto/wellknown.proto" export {
-    decodeKnown, decodeKnownJson, defaultKnown, encodeKnown, encodeKnownJson, Known,
+    decodeKnown, decodeKnownJson, defaultEnvelope, defaultKnown, encodeEnvelopeJson,
+    encodeKnown, encodeKnownJson, Envelope, Envelope_Pick, Known,
 };
 
 from "//lib/proto/wire.proto" export {

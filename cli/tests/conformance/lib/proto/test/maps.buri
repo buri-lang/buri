@@ -28,7 +28,7 @@ fn raw<C: Allocator>(ctx: C, text: Str): [U8] {
 }
 
 fn text<C: Allocator>(ctx: C, v: Maps): Str {
-    json.stringify(ctx, encodeMapsJson(ctx, v))
+    json.stringify(ctx, assert.ok(encodeMapsJson(ctx, v)))
 }
 
 fn read<C: Allocator>(ctx: C, source: Str): Result<Maps, ProtoError> {

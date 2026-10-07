@@ -96,9 +96,12 @@ export fn readDoubleValue<C: Allocator>(
 }
 
 /// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
-export fn encodeDoubleValueJson<C: Allocator>(ctx: C, value: DoubleValue): Json {
+export fn encodeDoubleValueJson<C: Allocator>(
+    ctx: C,
+    value: DoubleValue,
+): Result<Json, ProtoError> {
     let _ = ctx;
-    proto.jsonFloat(value.value)
+    .Ok(proto.jsonFloat(value.value))
 }
 
 /// Reads a proto3 JSON document.
@@ -202,9 +205,12 @@ export fn readFloatValue<C: Allocator>(
 }
 
 /// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
-export fn encodeFloatValueJson<C: Allocator>(ctx: C, value: FloatValue): Json {
+export fn encodeFloatValueJson<C: Allocator>(
+    ctx: C,
+    value: FloatValue,
+): Result<Json, ProtoError> {
     let _ = ctx;
-    proto.jsonFloat(value.value)
+    .Ok(proto.jsonFloat(value.value))
 }
 
 /// Reads a proto3 JSON document.
@@ -308,8 +314,11 @@ export fn readInt64Value<C: Allocator>(
 }
 
 /// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
-export fn encodeInt64ValueJson<C: Allocator>(ctx: C, value: Int64Value): Json {
-    proto.jsonInt64(ctx, value.value)
+export fn encodeInt64ValueJson<C: Allocator>(
+    ctx: C,
+    value: Int64Value,
+): Result<Json, ProtoError> {
+    .Ok(proto.jsonInt64(ctx, value.value))
 }
 
 /// Reads a proto3 JSON document.
@@ -416,8 +425,11 @@ export fn readUInt64Value<C: Allocator>(
 }
 
 /// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
-export fn encodeUInt64ValueJson<C: Allocator>(ctx: C, value: UInt64Value): Json {
-    proto.jsonUint64(ctx, value.value)
+export fn encodeUInt64ValueJson<C: Allocator>(
+    ctx: C,
+    value: UInt64Value,
+): Result<Json, ProtoError> {
+    .Ok(proto.jsonUint64(ctx, value.value))
 }
 
 /// Reads a proto3 JSON document.
@@ -521,9 +533,12 @@ export fn readInt32Value<C: Allocator>(
 }
 
 /// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
-export fn encodeInt32ValueJson<C: Allocator>(ctx: C, value: Int32Value): Json {
+export fn encodeInt32ValueJson<C: Allocator>(
+    ctx: C,
+    value: Int32Value,
+): Result<Json, ProtoError> {
     let _ = ctx;
-    proto.jsonInt32(value.value)
+    .Ok(proto.jsonInt32(value.value))
 }
 
 /// Reads a proto3 JSON document.
@@ -630,9 +645,12 @@ export fn readUInt32Value<C: Allocator>(
 }
 
 /// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
-export fn encodeUInt32ValueJson<C: Allocator>(ctx: C, value: UInt32Value): Json {
+export fn encodeUInt32ValueJson<C: Allocator>(
+    ctx: C,
+    value: UInt32Value,
+): Result<Json, ProtoError> {
     let _ = ctx;
-    proto.jsonInt32(value.value)
+    .Ok(proto.jsonInt32(value.value))
 }
 
 /// Reads a proto3 JSON document.
@@ -736,9 +754,12 @@ export fn readBoolValue<C: Allocator>(
 }
 
 /// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
-export fn encodeBoolValueJson<C: Allocator>(ctx: C, value: BoolValue): Json {
+export fn encodeBoolValueJson<C: Allocator>(
+    ctx: C,
+    value: BoolValue,
+): Result<Json, ProtoError> {
     let _ = ctx;
-    Json.Bool(value.value)
+    .Ok(Json.Bool(value.value))
 }
 
 /// Reads a proto3 JSON document.
@@ -845,9 +866,12 @@ export fn readStringValue<C: Allocator>(
 }
 
 /// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
-export fn encodeStringValueJson<C: Allocator>(ctx: C, value: StringValue): Json {
+export fn encodeStringValueJson<C: Allocator>(
+    ctx: C,
+    value: StringValue,
+): Result<Json, ProtoError> {
     let _ = ctx;
-    Json.Str(value.value)
+    .Ok(Json.Str(value.value))
 }
 
 /// Reads a proto3 JSON document.
@@ -955,8 +979,11 @@ export fn readBytesValue<C: Allocator>(
 }
 
 /// proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.
-export fn encodeBytesValueJson<C: Allocator>(ctx: C, value: BytesValue): Json {
-    proto.jsonBytes(ctx, value.value)
+export fn encodeBytesValueJson<C: Allocator>(
+    ctx: C,
+    value: BytesValue,
+): Result<Json, ProtoError> {
+    .Ok(proto.jsonBytes(ctx, value.value))
 }
 
 /// Reads a proto3 JSON document.

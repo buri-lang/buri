@@ -104,20 +104,25 @@ export fn readAny<C: Allocator>(
 /// The proto3 JSON mapping — which is *not* `derive ToJson`'s. A 64-bit
 /// integer is a string, `bytes` is base64, an enum is its value's name, and
 /// a oneof's case is an ordinary member of this object.
-export fn encodeAnyJson<C: Allocator>(ctx: C, value: Any): Json {
-    Json.Object(
-        [
-            if (value.typeUrl == "") {
-                list.empty<(Str, Json)>()
-            } else {
-                [("typeUrl", Json.Str(value.typeUrl))]
-            },
-            if (value.value.length() == 0) {
-                list.empty<(Str, Json)>()
-            } else {
-                [("value", proto.jsonBytes(ctx, value.value))]
-            },
-        ].flatten(ctx),
+///
+/// A value proto3 JSON cannot write, such as a `Duration` past ten
+/// thousand years, is an `.Unwritable` naming where it is.
+export fn encodeAnyJson<C: Allocator>(ctx: C, value: Any): Result<Json, ProtoError> {
+    .Ok(
+        Json.Object(
+            [
+                if (value.typeUrl == "") {
+                    list.empty<(Str, Json)>()
+                } else {
+                    [("typeUrl", Json.Str(value.typeUrl))]
+                },
+                if (value.value.length() == 0) {
+                    list.empty<(Str, Json)>()
+                } else {
+                    [("value", proto.jsonBytes(ctx, value.value))]
+                },
+            ].flatten(ctx),
+        ),
     )
 }
 

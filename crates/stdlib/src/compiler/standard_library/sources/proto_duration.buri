@@ -106,7 +106,10 @@ export fn readDuration<C: Allocator>(
 }
 
 /// proto3 JSON writes a `Duration` as seconds in a string: `"1.5s"`.
-export fn encodeDurationJson<C: Allocator>(ctx: C, value: Duration): Json {
+export fn encodeDurationJson<C: Allocator>(
+    ctx: C,
+    value: Duration,
+): Result<Json, ProtoError> {
     proto.jsonDuration(ctx, value.seconds, value.nanos)
 }
 

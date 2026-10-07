@@ -327,6 +327,13 @@ fn the_recording_covers_every_fixed_class_of_bug() {
         "Required.Proto3.JsonInput.RepeatedListValue.ProtobufOutput",
         "Required.Proto3.JsonInput.OptionalUint64Wrapper.JsonOutput",
         "Required.Proto3.JsonInput.OptionalWrapperTypesWithNonDefaultValue.JsonOutput",
+        // A JSON writer refuses what proto3 JSON cannot say.
+        "Required.Proto3.DurationProtoInputTooLarge.JsonOutput",
+        "Required.Proto3.DurationProtoNanosWrongSign.JsonOutput",
+        "Required.Proto3.TimestampProtoInputTooSmall.JsonOutput",
+        "Required.Proto3.TimestampProtoNegativeNanos.JsonOutput",
+        "Recommended.Proto3.FieldMaskNumbersDontRoundTrip.JsonOutput",
+        "Recommended.Proto3.ValueRejectNanNumberValue.JsonOutput",
     ];
     let missing: Vec<_> = wanted.iter().filter(|w| !names.contains(**w)).collect();
     assert!(missing.is_empty(), "vectors.txt does not record these passing: {missing:?}");

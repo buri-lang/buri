@@ -48,7 +48,7 @@ test "a message brings five exported functions, and the two the rest of them sha
     );
     assert.contains(
         out,
-        "export fn encodeMJson<C: Allocator>(ctx: C, value: M): Json {",
+        "export fn encodeMJson<C: Allocator>(ctx: C, value: M): Result<Json, ProtoError> {",
     );
     assert.contains(
         out,

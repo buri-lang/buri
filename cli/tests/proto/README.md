@@ -111,29 +111,25 @@ it cannot answer before the other side has finished speaking.
 ## Where it stands
 
 ```text
-CONFORMANCE SUITE PASSED: 1445 successes, 1314 skipped, 36 expected failures, 0 unexpected failures.
+CONFORMANCE SUITE PASSED: 1460 successes, 1314 skipped, 26 expected failures, 0 unexpected failures.
 ```
 
 The 1314 skips are the message types this testee does not implement — proto2 and
-the editions variants — plus the text-format and JSPB categories. The 36
+the editions variants — plus the text-format and JSPB categories. The 26
 expected failures are `failure_list.txt`, which files each one under one of
-three reasons and leaves no entry unexplained:
+two reasons and leaves no entry unexplained:
 
 - **24 are `Any` in JSON.** proto3 JSON writes an `Any` as the message inside
   it, which needs a registry of every type a URL can name; a generated module
   has only its own schema's types, so `Any` goes out as its two fields.
-- **10 are a JSON writer that cannot fail.** A `Duration` or `Timestamp` out of
-  JSON's range should fail to serialize, and `encodeMJson` answers a `Json`
-  rather than a `Result`.
 - **2 are unknown-field retention.** Decoding skips a field the schema doesn't
   know rather than keeping its bytes, so it doesn't survive a re-encode.
   Keeping them needs a field on every generated struct, and that breaks every
   struct literal written without `..defaultM()`.
 
-The runner also reports 13 `Recommended` warnings, which do not fail the suite.
-Five are a JSON writer that cannot fail: a `FieldMask` path with no camelCase
-form, and a `Value` holding NaN or an infinity. Three are a JSON object naming
-one field twice, which `core/json` keeps rather than refuses. Five are
+The runner also reports 8 `Recommended` warnings, which do not fail the suite.
+Three are a JSON object naming one field twice, which `core/json` keeps rather
+than refuses. Five are
 `JSON_IGNORE_UNKNOWN_PARSING_TEST`, where an unrecognised enum *name* should be
 ignored rather than refused, and nothing tells the generated decoder which mode
 it is in.

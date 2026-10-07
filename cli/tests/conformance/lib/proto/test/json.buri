@@ -18,7 +18,7 @@ from "//lib/proto" import {
 };
 
 fn text<C: Allocator>(ctx: C, v: Everything): Str {
-    json.stringify(ctx, encodeEverythingJson(ctx, v))
+    json.stringify(ctx, assert.ok(encodeEverythingJson(ctx, v)))
 }
 
 /// The document a piece of text describes. Every text below is a literal here,
@@ -37,7 +37,10 @@ test "a default-valued field is omitted, so an empty message is an empty object"
         Allocator: alloc(),
     };
     assert.equal(text(ctx, defaultEverything()), "{}");
-    assert.equal(json.stringify(ctx, encodeEmptyJson(ctx, defaultEmpty())), "{}");
+    assert.equal(
+        json.stringify(ctx, assert.ok(encodeEmptyJson(ctx, defaultEmpty()))),
+        "{}",
+    );
 }
 
 test "an omitted member and a null member mean the same thing" {
@@ -64,7 +67,10 @@ test "a field name is lowerCamelCase, and a keyword does not rename it" {
         type_: .Some("t"),
     };
     assert.equal(text(ctx, v), "{\"type\":\"t\",\"userName\":\"ada\"}");
-    assert.equal(decodeEverythingJson(ctx, encodeEverythingJson(ctx, v)), .Ok(v));
+    assert.equal(
+        decodeEverythingJson(ctx, assert.ok(encodeEverythingJson(ctx, v))),
+        .Ok(v),
+    );
 }
 
 // --- the four differences from `derive ToJson` ------------------------------------
@@ -113,7 +119,10 @@ test "bytes are base64 with padding" {
         blob: .Some([1.wrapToU8(), 255.wrapToU8()]),
     };
     assert.equal(text(ctx, v), "{\"blob\":\"Af8=\"}");
-    assert.equal(decodeEverythingJson(ctx, encodeEverythingJson(ctx, v)), .Ok(v));
+    assert.equal(
+        decodeEverythingJson(ctx, assert.ok(encodeEverythingJson(ctx, v))),
+        .Ok(v),
+    );
 }
 
 test "an enum is the name of its value" {
@@ -145,7 +154,10 @@ test "a oneof case is an ordinary member of the object" {
         contact: .Some(Everything_Contact.Phone("9")),
     };
     assert.equal(text(ctx, v), "{\"phone\":\"9\"}");
-    assert.equal(decodeEverythingJson(ctx, encodeEverythingJson(ctx, v)), .Ok(v));
+    assert.equal(
+        decodeEverythingJson(ctx, assert.ok(encodeEverythingJson(ctx, v))),
+        .Ok(v),
+    );
 
     // A 64-bit oneof case is a string, like any other 64-bit field.
     let n = Everything {
@@ -153,7 +165,10 @@ test "a oneof case is an ordinary member of the object" {
         contact: .Some(Everything_Contact.ExtensionNumber(5)),
     };
     assert.equal(text(ctx, n), "{\"extensionNumber\":\"5\"}");
-    assert.equal(decodeEverythingJson(ctx, encodeEverythingJson(ctx, n)), .Ok(n));
+    assert.equal(
+        decodeEverythingJson(ctx, assert.ok(encodeEverythingJson(ctx, n))),
+        .Ok(n),
+    );
 }
 
 test "a document setting two cases of one oneof is refused" {
@@ -221,7 +236,10 @@ test "a message field is written when it is present, empty or not" {
     };
     let v = Everything { ..defaultEverything(), home: .Some(defaultAddress()) };
     assert.equal(text(ctx, v), "{\"home\":{}}");
-    assert.equal(decodeEverythingJson(ctx, encodeEverythingJson(ctx, v)), .Ok(v));
+    assert.equal(
+        decodeEverythingJson(ctx, assert.ok(encodeEverythingJson(ctx, v))),
+        .Ok(v),
+    );
 }
 
 test "an empty repeated field is omitted rather than written as []" {
@@ -269,7 +287,10 @@ test "a nested message and an imported one are objects" {
         text(ctx, v),
         "{\"places\":[{\"city\":\"London\",\"zip\":1,\"country\":\"UK\"}],\"home\":{\"city\":\"Kyoto\",\"zip\":600,\"country\":\"JP\"},\"note\":{\"text\":\"hi\"}}",
     );
-    assert.equal(decodeEverythingJson(ctx, encodeEverythingJson(ctx, v)), .Ok(v));
+    assert.equal(
+        decodeEverythingJson(ctx, assert.ok(encodeEverythingJson(ctx, v))),
+        .Ok(v),
+    );
 }
 
 test "every field kind at once round-trips through JSON" {
@@ -316,7 +337,10 @@ test "every field kind at once round-trips through JSON" {
         userName: .Some("ada"),
         contact: .Some(Everything_Contact.Office(defaultAddress())),
     };
-    assert.equal(decodeEverythingJson(ctx, encodeEverythingJson(ctx, v)), .Ok(v));
+    assert.equal(
+        decodeEverythingJson(ctx, assert.ok(encodeEverythingJson(ctx, v))),
+        .Ok(v),
+    );
 }
 
 // --- a document that is not the message ----------------------------------------

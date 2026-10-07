@@ -35,3 +35,13 @@ message Known {
   repeated google.protobuf.Timestamp times = 19;
   repeated google.protobuf.Value values = 20;
 }
+
+// `Known` again, one level down, so a refusal names where it was.
+message Envelope {
+  Known known = 1;
+  repeated Known many = 2;
+  map<string, google.protobuf.Duration> spans = 3;
+  oneof pick {
+    google.protobuf.Timestamp at = 4;
+  }
+}
