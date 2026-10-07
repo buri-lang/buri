@@ -4214,7 +4214,7 @@ function $ui_write(cell, v, eq) {
   // and a cell holding one would re-render on every write of what it already
   // held. The native backends compare with the type's own generated `Equal`
   // (`cli/runtime/ui.rs`), which is the same answer at every type.
-  if (eq === undefined ? $eq(n.value, v) : eq(n.value, v)) return 0;
+  if ((eq || $eq)(n.value, v)) return 0;
   n.value = $share(v);
   $ui_notify(n);
   if ($ui.depth === 0) $ui_drain();
