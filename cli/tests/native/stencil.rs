@@ -4876,3 +4876,87 @@ fn a_match_over_many_counted_variants_is_linear_in_its_arms() {
     }
     grows_linearly("a match over an enum's variants", |n| main_unit_bytes(&many_arms(n)), 64);
 }
+
+/// A struct of `n` `Str` fields, shared into a list, copied out and dropped,
+/// so its retain, release and copy glue and the list's element glue all run.
+fn shared_wide_struct(n: usize) -> String {
+    let fields: String = (0..n).map(|i| format!("    f{i}: Str,\n")).collect();
+    let inits: Vec<String> = (0..n).map(|i| format!("f{i}: s")).collect();
+    format!(
+        r#"
+from "core/alloc" import * as alloc;
+from "core/io" import * as io;
+from "native" import {{ NativeHost }};
+from "platform/effect" import {{ Allocator, Stdout }};
+
+struct Wide {{
+{fields}}}
+
+fn make(s: Str): Wide {{ Wide {{ {inits} }} }}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+    let v = make("x".repeat(ctx, 3));
+    let xs = [v, v];
+    let kept = alloc.copyOut(v);
+    let _ = io.println(ctx, "${{xs.length()}} ${{kept.f{last}.length()}}").ignore();
+    .Ok(())
+}}
+"#,
+        inits = inits.join(", "),
+        last = n - 1,
+    )
+}
+
+/// Every glue stub's machine frame in `bytes`.
+///
+/// A stub is the fixed sequence `glue.rs::glue_stub` writes in front of every
+/// glue body: on arm64 `str x30, [sp, #-16]!`, `sub sp, sp, #frame`,
+/// `str x0, [sp]`, `mov x0, sp`; on x86-64 `push rbp`, `sub rsp, frame`, and a
+/// `call` nine bytes ahead.
+fn glue_frames(bytes: &[u8]) -> Vec<u32> {
+    let word = |at: usize| {
+        bytes.get(at..at + 4).map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+    };
+    let mut frames = Vec::new();
+    for at in 0..bytes.len() {
+        if cfg!(target_arch = "aarch64") {
+            let (Some(a), Some(b), Some(c), Some(d)) =
+                (word(at), word(at + 4), word(at + 8), word(at + 12))
+            else {
+                break;
+            };
+            if a == 0xf81f_0ffe && b & 0xffc0_03ff == 0xd100_03ff && c == 0xf900_03e0 && d == 0x9100_03e0
+            {
+                frames.push((b >> 10) & 0xfff);
+            }
+        } else if bytes[at..].starts_with(&[0x55, 0x48, 0x81, 0xec]) {
+            let tail = &bytes[(at + 8).min(bytes.len())..bytes.len().min(at + 24)];
+            if tail.windows(5).any(|w| w == [0xe8, 9, 0, 0, 0]) {
+                frames.extend(word(at + 4));
+            }
+        }
+    }
+    frames
+}
+
+/// **No glue copies a wide struct into its frame before walking it**
+/// (buri-lang/buri#255). A struct of 64 `Str`s is 1536 bytes, and its glue
+/// used to `memcpy` all of it into a frame that size before touching 64 words.
+#[test]
+fn glue_for_a_wide_struct_frames_less_than_the_struct() {
+    if !supported() {
+        return;
+    }
+    let width = 64 * 24;
+    let frames: Vec<u32> = emitted("wide-struct-glue", &shared_wide_struct(64))
+        .iter()
+        .flat_map(|(_, bytes)| glue_frames(bytes))
+        .collect();
+    assert!(frames.len() >= 3, "found {} glue stubs, so this test checks nothing", frames.len());
+    let widest = frames.iter().copied().max().unwrap_or(0);
+    assert!(
+        widest < width,
+        "a glue frame of {widest} bytes holds the whole {width}-byte struct: {frames:?}"
+    );
+}

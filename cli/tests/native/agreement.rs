@@ -5792,6 +5792,94 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// **A struct of 64 `Str`s is shared, copied and dropped the same way on
+/// every backend, and gives every block back** (buri-lang/buri#255).
+///
+/// It is 1536 bytes, so the debug backend's retain, release and copy glue
+/// read its fields through its address rather than out of a copy. The shapes
+/// around it reach that glue every way a field can be found: a list of them,
+/// a struct holding one, enum arms carrying both, an `Option` of one, and a
+/// copy of each.
+#[test]
+fn a_wide_struct_is_shared_and_dropped_on_every_backend() {
+    rows_or_skip!();
+    let fields: String = (0..64).map(|i| format!("    f{i}: Str,\n")).collect();
+    let inits: Vec<String> = (0..64).map(|i| format!("f{i}: s")).collect();
+    let source = format!(
+        r#"
+from "core/alloc" import * as alloc;
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+
+struct Wide {{
+{fields}}}
+
+struct Outer {{
+    inner: Wide,
+    name: Str,
+}}
+
+enum Slot {{ Empty, Full(Wide), Pair(Str, Outer) }}
+
+fn make(s: Str): Wide {{ Wide {{ {inits} }} }}
+
+fn share(v: Wide, i: Int, n: Int, acc: Int): Int {{
+    if (i >= n) {{ acc }} else {{
+        let xs = [v];
+        share(v, i + 1, n, acc + xs.length())
+    }}
+}}
+
+fn shareOuter(o: Outer, i: Int, n: Int, acc: Int): Int {{
+    if (i >= n) {{ acc }} else {{
+        let xs = [o, o];
+        shareOuter(o, i + 1, n, acc + xs.length())
+    }}
+}}
+
+fn weight(s: Slot): Int {{
+    match (s) {{
+        .Empty => 0,
+        .Full(w) => w.f0.length(),
+        .Pair(t, o) => t.length() + o.inner.f63.length() + o.name.length(),
+    }}
+}}
+
+fn held(o: Option<Wide>): Int {{
+    match (o) {{
+        .Some(w) => w.f31.length(),
+        .None => 0 - 1,
+    }}
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let v = make("ab".repeat(host.alloc, 2));
+    let o = Outer {{ inner: v, name: "n".repeat(host.alloc, 3) }};
+    let _ = io.println(host.stdout, "shared ${{share(v, 0, 100, 0)}} ${{shareOuter(o, 0, 100, 0)}}").ignore();
+    let xs: [Wide] = [v, v, v];
+    let grown = xs.push(host.alloc, make("c".repeat(host.alloc, 5)));
+    let copies = alloc.copyOut(grown);
+    let total = copies.fold(fn(acc, w) => acc + w.f63.length(), 0);
+    let _ = io.println(host.stdout, "lists ${{grown.length()}} ${{total}}").ignore();
+    let kept = alloc.copyOut(o);
+    let _ = io.println(host.stdout, "copied ${{kept.inner.f63.length()}} ${{kept.name.length()}}").ignore();
+    let slots: [Slot] = [.Empty, .Full(v), .Pair("t".repeat(host.alloc, 2), o)];
+    let again = alloc.copyOut(slots);
+    let sum = again.fold(fn(acc, s) => acc + weight(s), 0);
+    let _ = io.println(host.stdout, "slots ${{sum}}").ignore();
+    let _ = io.println(host.stdout, "held ${{held(.Some(v))}} ${{held(.None)}}").ignore();
+    .Ok(())
+}}
+"#,
+        inits = inits.join(", "),
+    );
+    agree(
+        "a wide struct shared and dropped",
+        &source,
+        "shared 100 200\nlists 4 17\ncopied 4 3\nslots 13\nheld 4 -1\n",
+    );
+}
+
 /// `every_conformance_file_is_accounted_for` has to its own list, and it
 /// needs no backend, so it runs on every host.
 #[test]
