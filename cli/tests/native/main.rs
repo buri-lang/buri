@@ -245,3 +245,7 @@ mod actor_scoped;
 // backend, and the blocks it allocates bounded, from `cli/tests/growth/`.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod growth;
+// `core/secret`: what a `Secret` shows, what `reveal` and `map` answer, the
+// keyed `core/crypto` functions over one, and buri-lang/buri#226's example.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod secret;

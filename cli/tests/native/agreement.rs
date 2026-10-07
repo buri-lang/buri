@@ -541,7 +541,7 @@ pub(crate) fn javascript(row: &str, source: &str) -> Option<(i32, String, String
 /// the permission went with them: a row that leaks now fails here, and a row
 /// that leaks *on purpose* would have to say so in a function somebody writes
 /// again and argues for.
-fn agree(row: &str, source: &str, expected: &str) {
+pub(crate) fn agree(row: &str, source: &str, expected: &str) {
     let (js, natives) = both(row, source);
     assert_eq!(js.stderr, "", "{row}: JavaScript printed to standard error");
     assert_eq!(js.status, 0, "{row}: JavaScript exited {}", js.status);

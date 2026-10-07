@@ -1,0 +1,13 @@
+error: `Secret<Str>` does not implement `Equal` [missing-impl]
+  --> cmd/secret_compared_with_equals/main.buri:16:36
+   |
+16 |   let _ = io.println(ctx, "same: ${a == b}").ignore();
+   |                                    ^^^^^^
+   |
+   = conformance is nominal: a type satisfies a trait only where a declaration says so
+   = fix: add `derive Equal for Secret<Str>;` in that type's own module, or write `impl Equal for Secret<Str> { ... }` there
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

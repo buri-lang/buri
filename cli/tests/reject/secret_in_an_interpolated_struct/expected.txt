@@ -1,0 +1,21 @@
+error: `Config` cannot be interpolated [not-interpolatable]
+  --> cmd/secret_in_an_interpolated_struct/main.buri:21:37
+   |
+21 |   let _ = io.println(ctx, "loaded ${config}").ignore();
+   |                                     ^^^^^^
+   |
+   = a hole holds a primitive — `Int`, `Float`, `Bool`, `Char`, `Str` — or a value whose `Show` is derived
+   = `Secret<Str>`'s `Show` is written by hand, and `show<C: Allocator>(self, ctx: C)` names a context a hole has no way to reach
+   = fix: render it first, for instance with `.show(ctx)`
+
+     Add derive Show for Point; to Point's own module and this compiles,
+     printing what p.show(ctx) produces.
+
+     A Template names no context, so a hole holds only what the runtime can
+     render from the type's shape. A hand-written impl Show needs a context the
+     hole can't reach, so call it yourself:
+
+       fn describe<C: Allocator>(ctx: C, suit: Suit): Str {
+           str.format(ctx, "the suit is ${suit.show(ctx)}")
+       }
+

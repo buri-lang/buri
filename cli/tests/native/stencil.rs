@@ -2128,6 +2128,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "proto_gen/origins.buri",
     "random/draws.buri",
     "random/gen.buri",
+    "secret/secret.buri",
     "semantics/anonymous.buri",
     "semantics/effects.buri",
     "semantics/elision.buri",

@@ -1,0 +1,25 @@
+error: `Config` cannot derive `ToJson`: `apiKey` has type `Secret<Str>` [underivable-field]
+  --> cmd/secret_in_a_derived_to_json/main.buri:12:1
+   |
+12 | derive ToJson for Config;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a derived implementation is a fold over the type's components, and `Secret<Str>` does not satisfy `ToJson`
+   = fix: make `Secret<Str>` satisfy `ToJson` first — `derive ToJson for Secret<Str>;` in its own module — or drop `ToJson` from this `derive`
+
+     Make the component's type satisfy the trait first, with a derive in its own
+     module or an impl, or drop the trait from this derive.
+
+error: `Config` does not implement `ToJson` [missing-impl]
+  --> cmd/secret_in_a_derived_to_json/main.buri:21:47
+   |
+21 |   let _ = io.println(ctx, json.stringify(ctx, json.encode(ctx, config))).ignore();
+   |                                               ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `Config` derives `ToJson`, but `Secret<Str>` does not satisfy it, and a derived implementation is a fold over the type's components
+   = fix: make `Secret<Str>` satisfy `ToJson` first
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

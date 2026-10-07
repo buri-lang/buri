@@ -1,0 +1,12 @@
+error: `Login` cannot derive `Hash`: `password` has type `Secret<Str>` [underivable-field]
+  --> cmd/secret_in_a_derived_hash/main.buri:11:1
+   |
+11 | derive Hash for Login;
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a derived implementation is a fold over the type's components, and `Secret<Str>` does not satisfy `Hash`
+   = fix: make `Secret<Str>` satisfy `Hash` first — `derive Hash for Secret<Str>;` in its own module, or an `impl` — or drop `Hash` from this `derive`
+
+     Make the component's type satisfy the trait first, with a derive in its own
+     module or an impl, or drop the trait from this derive.
+
