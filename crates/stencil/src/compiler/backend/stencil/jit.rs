@@ -420,6 +420,8 @@ struct Bufs {
     param: Vec<bool>,
     def_in: Vec<(u32, u32)>,
     aliased: Vec<bool>,
+    fixed: Vec<bool>,
+    quiet: Vec<bool>,
     last: Vec<(u32, u32)>,
     touched: Vec<Option<usize>>,
     opnd: Operands,
@@ -2116,7 +2118,8 @@ impl<'a> Jit<'a> {
             };
             *s = off;
         }
-        self.alias_parts(prog, code, &uf, &pin, slot, uses, opnd);
+        let parts = self.alias_parts(prog, code, &uf, &pin, slot, uses, opnd);
+        self.forward_fields(prog, code, &uf, &pin, &width, slot, uses, opnd, parts, at);
         self.bufs.pin = pin;
         self.bufs.width = width;
         self.bufs.uf = uf;
@@ -2140,6 +2143,9 @@ impl<'a> Jit<'a> {
     ///    aggregate's class, with nothing in between touching that class. The
     ///    field is whole frame words wide, because a slot write is a whole
     ///    word, and not behind a pointer.
+    ///
+    /// Answers whether it ran, which is whether `bufs.aliased` is this
+    /// function's.
     #[allow(clippy::too_many_arguments, reason = "the tables `slots` already built")]
     fn alias_parts(
         &mut self,
@@ -2150,12 +2156,12 @@ impl<'a> Jit<'a> {
         slot: &mut [u32],
         uses: &[u32],
         opnd: &Operands,
-    ) {
+    ) -> bool {
         let part = |i: &ir::Inst| {
             matches!(i, ir::Inst::ArrayLen { .. } | ir::Inst::MakeStruct { .. } | ir::Inst::MakeEnum { .. })
         };
         if !code.blocks.iter().any(|b| b.insts.iter().any(part)) {
-            return;
+            return false;
         }
         let n = code.values();
         let mut members = table(&mut self.bufs.members, n, 0);
@@ -2301,6 +2307,139 @@ impl<'a> Jit<'a> {
         self.bufs.aliased = aliased;
         self.bufs.last = last;
         self.bufs.touched = touched_before;
+        true
+    }
+
+    /// (i.f) A field read out of a struct is read **where it is**: the
+    /// `GetField`'s result takes the bytes of the field inside its struct's
+    /// slot, and the load and store that would have copied it out become the
+    /// identity. `ctx.Random.0` inside an effect call was two such copies.
+    ///
+    /// Only where the struct's bytes keep still for as long as the field is
+    /// read:
+    ///
+    ///  * a struct **written once**: a slot class of its own, never a block's
+    ///    parameter, and not pinned past the frame — the field may then be read
+    ///    anywhere, and so may a field forwarded out of it in turn;
+    ///  * otherwise, a field read only by later instructions of its own block,
+    ///    with nothing up to the last of them writing any of the field's
+    ///    bytes. An edge writes a block parameter, so a terminator's read
+    ///    never qualifies.
+    ///
+    /// The field is whole frame words wide and not boxed, the result is a
+    /// class of its own, and the struct lives inside this frame, below `end`:
+    /// past it is the callee's frame, which every call rewrites.
+    #[allow(clippy::too_many_arguments, reason = "the tables `slots` already built")]
+    fn forward_fields(
+        &mut self,
+        prog: &ir::Program,
+        code: &ir::Code,
+        uf: &[u32],
+        pin: &[Option<u32>],
+        width: &[u32],
+        slot: &mut [u32],
+        uses: &[u32],
+        opnd: &Operands,
+        parts: bool,
+        end: u32,
+    ) {
+        // How far a read inside one block may be from the field it reads.
+        // Bounds the scan below, so a long block stays linear.
+        const WINDOW: usize = 32;
+        let get = |i: &ir::Inst| matches!(i, ir::Inst::GetField { .. });
+        if !code.blocks.iter().any(|b| b.insts.iter().any(get)) {
+            return;
+        }
+        let n = code.values();
+        let mut members = table(&mut self.bufs.members, n, 0);
+        let mut param = table(&mut self.bufs.param, n, false);
+        for v in 0..n {
+            bump(&mut members, find(uf, v as u32) as usize);
+        }
+        for b in code.blocks.iter().skip(1) {
+            for p in &b.params {
+                put(&mut param, p.index(), true);
+            }
+        }
+        let held_parts = std::mem::take(&mut self.bufs.aliased);
+        let aliased: &[bool] = if parts { &held_parts } else { &[] };
+        let entry: &[ir::ValueId] = &code.get(ir::BlockId(0)).params;
+        let alone = |v: ir::ValueId| {
+            find(uf, v.0) == v.0
+                && ent(&members, v.index(), 0) == 1
+                && ent(pin, v.index(), None).is_none()
+                && !ent(aliased, v.index(), false)
+        };
+        // Written once, by its definition or by the caller, and never again.
+        let mut fixed = table(&mut self.bufs.fixed, n, false);
+        for (v, f) in fixed.iter_mut().enumerate() {
+            let v = ir::ValueId(v as u32);
+            *f = find(uf, v.0) == v.0
+                && ent(&members, v.index(), 0) == 1
+                && !ent(&param, v.index(), true)
+                && !ent(aliased, v.index(), false)
+                && (ent(pin, v.index(), None).is_none() || entry.contains(&v));
+        }
+        // A forwarded `GetField` writes nothing.
+        let mut quiet = table(&mut self.bufs.quiet, n, false);
+        for (bi, b) in code.blocks.iter().enumerate() {
+            for (j, i) in b.insts.iter().enumerate() {
+                let ir::Inst::GetField { dest, agg, index } = i else { continue };
+                let ir::Type::Agg(id) = code.ty_of(*agg) else { continue };
+                let l = self.layout_of(prog, id);
+                let Some(&off) = l.fields.get(*index as usize) else { continue };
+                let w = self.width(prog, code.ty_of(*dest));
+                let owner = prog.type_info(id).ty;
+                if w == 0
+                    || !w.is_multiple_of(8)
+                    || !alone(*dest)
+                    || self.field_ty(&owner, None, *index as usize).is_some_and(|t| self.boxes(&owner, &t))
+                {
+                    continue;
+                }
+                let src = ent(slot, agg.index(), 0) + off;
+                if src + w > end {
+                    continue;
+                }
+                let held = if ent(&fixed, agg.index(), false) {
+                    true
+                } else {
+                    // Every read is a later instruction of this block, and
+                    // nothing up to the last one writes the field's bytes.
+                    let mut seen = 0u32;
+                    let mut last = j;
+                    for k in j + 1..b.insts.len().min(j + 1 + WINDOW) {
+                        let reads = opnd.inst(bi, k).iter().filter(|o| **o == *dest).count() as u32;
+                        if reads > 0 {
+                            seen += reads;
+                            last = k;
+                        }
+                    }
+                    let writes = |k: usize| {
+                        b.insts.get(k).is_some_and(|x| {
+                            x.results().iter().any(|r| {
+                                let at = ent(slot, r.index(), 0);
+                                let rw = ent(width, r.index(), 8);
+                                !ent(&quiet, r.index(), false) && at < src + w && src < at + rw
+                            })
+                        })
+                    };
+                    seen == ent(uses, dest.index(), 0) && seen > 0 && !(j + 1..=last).any(writes)
+                };
+                if !held {
+                    continue;
+                }
+                put(slot, dest.index(), src);
+                put(&mut quiet, dest.index(), true);
+                let still = ent(&fixed, agg.index(), false);
+                put(&mut fixed, dest.index(), still);
+            }
+        }
+        self.bufs.members = members;
+        self.bufs.param = param;
+        self.bufs.fixed = fixed;
+        self.bufs.quiet = quiet;
+        self.bufs.aliased = held_parts;
     }
 
     /// The merges themselves. See [`Jit::slots`].
