@@ -23,9 +23,13 @@
 //! because more than one of the above depends on them and none of them owns
 //! them.
 //!
+//! `allocator` is the binary's global allocator. It lives here so the bench
+//! installs the same one.
+//!
 //! Most of these live in crates of their own under `crates/` and are
 //! re-exported here at their old paths. `design/CRATES.md` has the graph.
 
+pub mod allocator;
 pub mod build;
 pub mod commands;
 pub mod compiler;
