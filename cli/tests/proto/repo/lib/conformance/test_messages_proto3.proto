@@ -19,12 +19,10 @@
 // reason.
 //
 // Migrated: from `syntax = "proto3"` to edition 2026, which is the only thing
-// the reader accepts. The migration deliberately does *not* preserve proto3's
-// semantics — a faithful one would put `features.field_presence = IMPLICIT` on
-// every singular field, and this takes the edition's own default instead. That
-// is the point: the suite is here to run the mapping the toolchain actually
-// implements, and under editions a singular scalar has presence. See
-// ../../README.md.
+// the reader accepts. The migration keeps proto3's semantics, the way protoc's
+// own does: a proto3 singular scalar has no presence, so the file sets
+// `features.field_presence = IMPLICIT`. A message field and a oneof case
+// still track presence, as they did in proto3. See ../../README.md.
 
 edition = "2026";
 
@@ -32,6 +30,9 @@ edition = "2026";
 // are not lower_snake_case. From edition 2024 on protoc lints for that, so the
 // file opts out of the lint the way protoc itself suggests.
 option features.enforce_naming_style = STYLE_LEGACY;
+
+// proto3 had no presence on a singular scalar.
+option features.field_presence = IMPLICIT;
 
 package protobuf_test_messages.proto3;
 
