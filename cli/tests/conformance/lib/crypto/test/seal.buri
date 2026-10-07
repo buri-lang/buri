@@ -5,6 +5,7 @@
 
 from "core/bytes" import * as bytes;
 from "core/crypto" import * as crypto;
+from "core/secret" import * as secret;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator, Entropy };
@@ -68,7 +69,12 @@ test "sealing section 2.8.2's input gives its nonce, ciphertext and tag" {
         Allocator: alloc(),
         Entropy: FixedNonce(hex(NONCE)),
     };
-    let sealed = crypto.seal(ctx, hex(KEY), bytes.toUtf8(ctx, PLAINTEXT), hex(AAD));
+    let sealed = crypto.seal(
+        ctx,
+        secret.of(hex(KEY)),
+        bytes.toUtf8(ctx, PLAINTEXT),
+        hex(AAD),
+    );
     assert.equal(show(sealed), show(rfcSealed()));
 }
 
@@ -76,7 +82,7 @@ test "opening section 2.8.2's output gives its plaintext" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let opened = crypto.open(ctx, hex(KEY), rfcSealed(), hex(AAD));
+    let opened = crypto.open(ctx, secret.of(hex(KEY)), rfcSealed(), hex(AAD));
     assert.equal(opened.map(fn(b) => show(b)), .Ok(show(bytes.toUtf8(ctx, PLAINTEXT))));
 }
 
@@ -91,7 +97,7 @@ test "opening appendix A.5's message gives its plaintext" {
     let tag = "eead9d67890cbb22392336fea1851f38";
     let opened = crypto.open(
         ctx,
-        key,
+        secret.of(key),
         hex("${nonce}${ciphertext}${tag}"),
         hex("f33388860000000000004e91"),
     );
@@ -110,7 +116,7 @@ test "a changed ciphertext byte does not open" {
         Allocator: alloc(),
     };
     assert.equal(
-        crypto.open(ctx, hex(KEY), flip(rfcSealed(), 20), hex(AAD)),
+        crypto.open(ctx, secret.of(hex(KEY)), flip(rfcSealed(), 20), hex(AAD)),
         .Err("the sealed value does not authenticate"),
     );
 }
@@ -121,7 +127,12 @@ test "a changed tag does not open" {
     };
     let sealed = rfcSealed();
     assert.equal(
-        crypto.open(ctx, hex(KEY), flip(sealed, sealed.length() - 1), hex(AAD)),
+        crypto.open(
+            ctx,
+            secret.of(hex(KEY)),
+            flip(sealed, sealed.length() - 1),
+            hex(AAD),
+        ),
         .Err("the sealed value does not authenticate"),
     );
 }
@@ -131,7 +142,7 @@ test "a changed nonce does not open" {
         Allocator: alloc(),
     };
     assert.equal(
-        crypto.open(ctx, hex(KEY), flip(rfcSealed(), 0), hex(AAD)),
+        crypto.open(ctx, secret.of(hex(KEY)), flip(rfcSealed(), 0), hex(AAD)),
         .Err("the sealed value does not authenticate"),
     );
 }
@@ -141,7 +152,7 @@ test "the wrong key does not open" {
         Allocator: alloc(),
     };
     assert.equal(
-        crypto.open(ctx, flip(hex(KEY), 31), rfcSealed(), hex(AAD)),
+        crypto.open(ctx, secret.of(flip(hex(KEY), 31)), rfcSealed(), hex(AAD)),
         .Err("the sealed value does not authenticate"),
     );
 }
@@ -151,7 +162,7 @@ test "different associated data does not open" {
         Allocator: alloc(),
     };
     assert.equal(
-        crypto.open(ctx, hex(KEY), rfcSealed(), []),
+        crypto.open(ctx, secret.of(hex(KEY)), rfcSealed(), []),
         .Err("the sealed value does not authenticate"),
     );
 }
@@ -162,7 +173,7 @@ test "a value shorter than a nonce and a tag does not open" {
     };
     let sealed = rfcSealed();
     assert.equal(
-        crypto.open(ctx, hex(KEY), sealed.slice(ctx, 0, 27), hex(AAD)),
+        crypto.open(ctx, secret.of(hex(KEY)), sealed.slice(ctx, 0, 27), hex(AAD)),
         .Err("too short to be a sealed value"),
     );
 }
@@ -172,7 +183,7 @@ test "a key that is not 32 bytes does not open" {
         Allocator: alloc(),
     };
     assert.equal(
-        crypto.open(ctx, hex("00"), rfcSealed(), hex(AAD)),
+        crypto.open(ctx, secret.of(hex("00")), rfcSealed(), hex(AAD)),
         .Err("a sealing key is 32 bytes"),
     );
 }
@@ -184,7 +195,7 @@ test "an empty plaintext seals to a nonce and a tag, and opens to nothing" {
         Allocator: alloc(),
         Entropy: entropy(),
     };
-    let key = crypto.randomBytes(ctx, 32);
+    let key = secret.of(crypto.randomBytes(ctx, 32));
     let sealed = crypto.seal(ctx, key, [], []);
     assert.equal(sealed.length(), 28);
     assert.equal(crypto.open(ctx, key, sealed, []).map(fn(b) => b.length()), .Ok(0));
@@ -195,7 +206,7 @@ test "sealing twice draws two nonces, and both open" {
         Allocator: alloc(),
         Entropy: entropy(),
     };
-    let key = crypto.randomBytes(ctx, 32);
+    let key = secret.of(crypto.randomBytes(ctx, 32));
     let message = bytes.toUtf8(ctx, "refresh-token");
     let first = crypto.seal(ctx, key, message, []);
     let second = crypto.seal(ctx, key, message, []);
@@ -215,7 +226,7 @@ test "a long plaintext crosses many ChaCha20 blocks and comes back" {
         Allocator: alloc(),
         Entropy: entropy().seed(3),
     };
-    let key = crypto.randomBytes(ctx, 32);
+    let key = secret.of(crypto.randomBytes(ctx, 32));
     let message = crypto.randomBytes(ctx, 1000);
     let sealed = crypto.seal(ctx, key, message, bytes.toUtf8(ctx, "column:token"));
     assert.equal(sealed.length(), 1028);
