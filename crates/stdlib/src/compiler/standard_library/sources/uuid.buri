@@ -3,7 +3,7 @@
 //! Sixteen octets with two fields fixed by RFC 9562: a version nibble and two
 //! variant bits. Everything else is whatever made it.
 //!
-//! **A `Str` is not a `Uuid`.** `crypto.token` answers hex, and hex proves
+//! **A `Str` is not a `Uuid`.** `crypto.token` reveals hex, and hex proves
 //! nothing about length, version or shape. A `Uuid` is proof the octets are well
 //! formed, `parse` is the only way in from text, and `text` is the way back out.
 //!

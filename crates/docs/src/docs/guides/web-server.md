@@ -325,6 +325,10 @@ secret, so it's revealed where it's parsed. The key is revealed only where it
 leaves, such as an `Authorization` header, and `core/crypto` takes it without
 revealing it at all. `"${config}"` doesn't compile, and a `Secret` has no
 `Equal` or `ToJson`, so it can't leak through a comparison or a JSON body either.
+
+A key or token the server makes itself is a `Secret` too.
+`crypto.token(ctx, 32)` answers one, and a sealing key is
+`secret.of(crypto.randomBytes(ctx, 32))`.
 [Secrets](../reference/standard-library.md#secrets) has the rest.
 
 ## Stopping

@@ -167,6 +167,40 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// `crypto.token` answers a `Secret<Str>`: it shows as `***`, and `reveal`
+/// gives the hex.
+#[test]
+fn a_token_is_a_secret() {
+    rows_or_skip!();
+    agree(
+        "secret token",
+        r#"
+from "native" import { NativeHost };
+from "core/crypto" import * as crypto;
+from "core/io" import * as io;
+from "platform/effect" import { Allocator, Entropy, Stdout };
+
+struct Fixed([U8]);
+
+impl Entropy for Fixed {
+    fn bytes(self, count: Int): [U8] {
+        self.0
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context { Allocator: host.alloc, Entropy: Fixed([0, 1, 171, 255]), Stdout: host.stdout };
+    let t = crypto.token(ctx, 4);
+    let _ = io.println(ctx, "${t.show(ctx)}").ignore();
+    let _ = io.println(ctx, "Bearer ${t.reveal()}").ignore();
+    .Ok(())
+}
+"#,
+        "***\n\
+         Bearer 0001abff\n",
+    );
+}
+
 /// The example in `core/secret`'s proposal (buri-lang/buri#226), whole: a key
 /// read from the environment goes to `hmacSha256` without being revealed, a
 /// derived `Show` masks the one in `Config`, and `reveal` is the way out.

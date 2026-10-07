@@ -258,6 +258,10 @@ A worker's vars and secrets arrive in the `env` the runtime passes beside each
 request. Reading them is one more effect, `Vars`:
 
 ```buri repo=cli/tests/repositories/custom-platforms/cloudflare_worker/repo package=//platform/effect/vars
+from "core/secret" import * as secret;
+from "core/secret" import { Secret };
+from "platform/effect" import { Allocator };
+
 /// A worker's vars and secrets: the bindings its runtime hands each request
 /// whose value is a string.
 export effect Vars {
@@ -265,14 +269,18 @@ export effect Vars {
     fn all(self): [(Str, Str)];
 }
 
-export fn get<C: Vars>(ctx: C, name: Str): Option<Str> {
-    ctx.get(name)
+export fn get<C: Vars>(ctx: C, name: Str): Option<Secret<Str>> {
+    ctx.get(name).map(fn(value) => secret.of(value))
 }
 
-export fn all<C: Vars>(ctx: C): [(Str, Str)] {
-    ctx.all()
+export fn all<C: Allocator + Vars>(ctx: C): [(Str, Secret<Str>)] {
+    ctx.all().map(ctx, fn(pair) => (pair.0, secret.of(pair.1)))
 }
 ```
+
+Every value is a `Secret<Str>`, the way `env.get`'s is. A var and a secret
+arrive in `env` as the same kind of string, so `Vars` can't tell them apart.
+Reveal a var where you use it, such as `vars.get(ctx, "GREETING")?.reveal()`.
 
 The platform adds `vars: HostVars` to `CloudflareHost`, and `fetch.mjs` keeps
 the `env` and implements it. A KV namespace is a binding too, but not a string,

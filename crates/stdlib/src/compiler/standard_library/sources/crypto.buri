@@ -71,20 +71,22 @@
 //!         Stdout: host.stdout,
 //!     };
 //!     let resume = crypto.token(ctx, 32);
+//!     let octets = crypto.randomBytes(ctx, 32).length();
 //!     let _ = io
-//!         .println(ctx, "${crypto.randomBytes(ctx, 32).length()} ${resume.length()}")
+//!         .println(ctx, "${octets} ${resume.reveal().length()} ${resume.show(ctx)}")
 //!         .ignore();
 //!     .Ok(())
 //! }
 //! ```
 //!
 //! ```stdout
-//! 32 64
+//! 32 64 ***
 //! ```
 
 from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
 from "core/list" import * as list;
+from "core/secret" import * as secret;
 from "core/secret" import { Secret };
 from "platform/effect" import { Allocator, Entropy };
 
@@ -812,9 +814,10 @@ export fn randomBytes<C: Entropy>(ctx: C, count: Int): [U8] {
     ctx.bytes(count)
 }
 
-/// A bearer token: `octets` octets of entropy, written as lowercase hex.
+/// A bearer token: `octets` octets of entropy, written as lowercase hex. It's a
+/// `Secret`, so it shows as `***` until `reveal()`.
 ///
-/// **`octets`, not characters** — the string comes out twice as long. 16 is a
+/// **`octets`, not characters** — the text comes out twice as long. 16 is a
 /// reasonable floor, and 32 is what a session's resume token should be.
 ///
 /// Hex rather than base64url: a hex token is URL-safe, filename-safe,
@@ -823,8 +826,8 @@ export fn randomBytes<C: Entropy>(ctx: C, count: Int): [U8] {
 ///
 /// Compare two of these with `equalsConstantTime` over their bytes, not with
 /// `==` over their text.
-export fn token<C: Allocator + Entropy>(ctx: C, octets: Int): Str {
-    bytes.toHex(ctx, randomBytes(ctx, octets))
+export fn token<C: Allocator + Entropy>(ctx: C, octets: Int): Secret<Str> {
+    secret.of(bytes.toHex(ctx, randomBytes(ctx, octets)))
 }
 
 // --- Comparison ------------------------------------------------------------------

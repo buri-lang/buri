@@ -3,6 +3,7 @@ from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator, Request };
 from "platform/effect/testing" import { alloc };
 from "//cmd/vars/main.buri" import { handle };
+from "//platform/effect/vars" import * as variables;
 from "//platform/effect/vars" import { Vars };
 from "//platform/effect/vars/testing" import { vars };
 
@@ -18,6 +19,19 @@ test "a bound variable is answered" {
     let answer = handle(ctx, request("https://site.example/GREETING"));
     assert.equal(answer.status, 200);
     assert.equal(http.bodyText(ctx, answer.body), .Ok("hello"));
+}
+
+test "a variable's value is a secret" {
+    let ctx = context {
+        Allocator: alloc(),
+        Vars: vars([("API_KEY", "s3cret")]),
+    };
+    let key = assert.some(variables.get(ctx, "API_KEY"));
+    assert.equal(key.show(ctx), "***");
+    assert.equal(key.reveal(), "s3cret");
+    let pair = assert.some(variables.all(ctx).get(0));
+    assert.equal(pair.0, "API_KEY");
+    assert.equal(pair.1.show(ctx), "***");
 }
 
 test "an unbound variable is 404" {
