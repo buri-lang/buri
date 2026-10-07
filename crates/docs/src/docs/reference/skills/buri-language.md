@@ -19,6 +19,9 @@ The full rules ship in the binary: `buri docs language/lexical`,
 grouping, checksums, dates, argument parsing and a CLI already exist. A
 hand-rolled one compiles and gives the wrong answer.
 
+**Post-quantum by default**: `seal`, `open`, SHA-2, the HMACs and native TLS.
+Public-key encryption and signing come later as a versioned post-quantum API.
+
 ## The twelve things that will trip you up
 
 - **No mutation.** Every binding is final. No assignment, no `mut`, no

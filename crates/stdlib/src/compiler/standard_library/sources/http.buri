@@ -19,6 +19,10 @@
 //! keychain) unless `SSL_CERT_FILE` names another. JavaScript's `fetch`
 //! follows redirects.
 //!
+//! Native TLS offers X25519MLKEM768 first, a hybrid post-quantum key exchange,
+//! and falls back to X25519 for a server without it. On JavaScript, TLS
+//! belongs to the host.
+//!
 //! ```buri
 //! from "core/io" import * as io;
 //! from "core/net/http" import * as http;

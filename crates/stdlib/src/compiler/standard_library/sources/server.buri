@@ -99,6 +99,9 @@
 //! ways. A handler never learns which transport its request arrived over,
 //! because nothing about a `Request` depends on it.
 //!
+//! The handshake prefers X25519MLKEM768, a hybrid post-quantum key exchange,
+//! and still accepts a client that only speaks X25519.
+//!
 //! **HTTP/2 comes with TLS and only with TLS.** ALPN chooses it inside the
 //! handshake (RFC 7540 §3.3), so a `Server` asking for `.Http2` without a
 //! certificate gets `.Err(.Unsupported)` from `bind` with a message saying so,

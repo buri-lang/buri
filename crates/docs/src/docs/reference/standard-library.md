@@ -688,6 +688,12 @@ them. Nothing is protected after `reveal()`, and nothing zeroes the memory.
 SHA-512, their HMACs, SHA-1, a constant-time comparison, the platform's
 cryptographic randomness, authenticated encryption and signature checks.
 
+**Post-quantum by default.** `seal`, `open`, `sha256`, `sha512` and both HMACs
+stay secure against a quantum computer, and so does a native program's TLS,
+which negotiates hybrid X25519MLKEM768 key exchange. The `verify*` functions
+check classical signatures, because that is what identity providers send.
+Public-key encryption and signing come later, as a versioned post-quantum API.
+
 `hmacSha256`, `hmacSha512`, `seal` and `open` take their key as a
 [`Secret<[U8]>`](#secrets), so a key goes from the environment to the primitive
 without being revealed:
@@ -836,7 +842,7 @@ without its `crypto` feature refuses them by name, as it does `randomBytes`.
 
 Deliberately absent, and not by oversight:
 
-- **No signing and no key generation.**
+- **No signing and no key generation**, until the post-quantum API.
 - **No RSA-PSS and no RSA encryption.** RS256 is the one RSA scheme.
 - **No key derivation and no password hashing.**
 
@@ -1732,6 +1738,11 @@ uses the platform's `fetch`. A native binary differs from it in three ways:
 - **Certificates are checked against the system's PEM bundle**, which on macOS
   is `/etc/ssl/cert.pem` and not the keychain. Set `SSL_CERT_FILE` to a PEM
   file to trust its roots instead.
+
+Native TLS, client and server, offers X25519MLKEM768 first: a hybrid of
+ML-KEM-768 and X25519, so a recording of today's traffic stays private from a
+future quantum computer. A peer without ML-KEM gets plain X25519. Certificates
+are still ECDSA or RSA. On JavaScript, TLS belongs to the host.
 
 `platform/effect/testing` names its test implementations after the host's
 fields — `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`,
