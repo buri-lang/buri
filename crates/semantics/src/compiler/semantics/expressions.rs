@@ -1660,6 +1660,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         // *implementing* type supplies `Self`, which is the receiver everywhere
         // except through a context.
         let self_ty = self.implementing_ty(&recv_ty, tid);
+        // A method call needs the trait as much as an operator does: a derived
+        // `impl` holds only where its components satisfy it (#270).
+        if !self.c.tables.trait_(tid).is_effect {
+            self.obligations.push((self_ty, tid, span));
+        }
         let explicit = self.trait_method_targs(tid, &method.generics, explicit, span);
         let targs = self.instantiate(&method.generics, explicit, span);
         let params: Vec<Ty> = method

@@ -10,3 +10,16 @@ error: `Login` cannot derive `Hash`: `password` has type `Secret<Str>` [underiva
      Make the component's type satisfy the trait first, with a derive in its own
      module or an impl, or drop the trait from this derive.
 
+error: `Login` does not implement `Hash` [missing-impl]
+  --> cmd/secret_in_a_derived_hash/main.buri:20:36
+   |
+20 |   let _ = io.println(ctx, "hash: ${a.hash()}").ignore();
+   |                                    ^^^^^^^^
+   |
+   = `Login` derives `Hash`, but `Secret<Str>` does not satisfy it, and a derived implementation is a fold over the type's components
+   = fix: `Secret<Str>` comes from `core/secret`, which leaves out `Hash`: `buri docs core/secret` says what to use instead
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+
