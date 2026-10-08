@@ -167,6 +167,74 @@ test "NaN is an ordinary key" {
     assert.equal(again.length(), 2);
 }
 
+// --- keys that differ only in their high bits ------------------------------------
+//
+// An integer's hash mixed only its low 32 bits, so `i * 2^32` all hashed alike
+// and a map of them was one long collision list (buri-lang/buri#273).
+
+fn hashOf<K: Hash>(key: K): U64 {
+    key.hash()
+}
+
+/// Whether no two of these hashes are the same.
+fn distinct<C: Allocator>(ctx: C, hashes: [U64]): Bool {
+    let sorted = hashes.sort(ctx);
+    list.range(ctx, 1, sorted.length()).all(fn(i) => sorted.get(i) != sorted.get(i - 1))
+}
+
+test "Int keys that differ only above bit 32 hash apart" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let keys = list.range(ctx, 0 - 32, 32);
+    // 2^32, 2^40 and 2^48: the low half is zero, and so are some of the high.
+    assert.isTrue(distinct(ctx, keys.map(ctx, fn(i) => (i * 4_294_967_296).hash())));
+    assert.isTrue(
+        distinct(ctx, keys.map(ctx, fn(i) => (i * 1_099_511_627_776).hash())),
+    );
+    assert.isTrue(
+        distinct(ctx, keys.map(ctx, fn(i) => (i * 281_474_976_710_656).hash())),
+    );
+}
+
+test "U64 keys that differ only above bit 32 hash apart" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let step: U64 = 4_294_967_296;
+    let keys = list.range(ctx, 0, 64).map(ctx, fn(i) => i.wrapToU64() * step);
+    assert.isTrue(distinct(ctx, keys.map(ctx, fn(k) => k.hash())));
+}
+
+test "tuple keys that differ only above bit 32 hash apart" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let keys = list.range(ctx, 0, 64);
+    assert.isTrue(
+        distinct(ctx, keys.map(ctx, fn(i) => hashOf((i * 4_294_967_296, "k")))),
+    );
+}
+
+test "a map of keys that differ only above bit 32 keeps every entry" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let n = 2000;
+    let step = 4_294_967_296;
+    let m = list
+        .range(ctx, 0, n)
+        .foldCtx(
+            ctx,
+            fn(c, acc: Map<Int, Int>, i) => acc.insert(c, i * step, i),
+            map.empty<Int, Int>(),
+        );
+    assert.equal(m.length(), n);
+    assert.isTrue(list.range(ctx, 0, n).all(fn(i) => m.get(i * step) == .Some(i)));
+    assert.isTrue(m.get(0 - step).isNone());
+    assert.equal(m.remove(ctx, step).length(), n - 1);
+}
+
 // --- groupBy / indexBy ---------------------------------------------------------------
 
 test "groupBy collects the elements that answer the same key" {

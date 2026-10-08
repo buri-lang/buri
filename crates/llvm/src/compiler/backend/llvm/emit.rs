@@ -6788,8 +6788,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// `derivePrimHash.<T>(h, x)`.
     ///
-    /// `cli/runtime/hash.rs`'s table, which is `$hashInto`'s three shapes: an
-    /// integer or a `Bool` mixes `ToUint32(x)`, a float goes through
+    /// `cli/runtime/hash.rs`'s table, which is `$hashInto`'s shapes: an
+    /// integer up to 32 bits or a `Bool` mixes `ToUint32(x)`, a wider integer
+    /// mixes each of its fewest 32-bit words, a float goes through
     /// `ToUint32(Math.trunc(x))`, and a `Char` or a `Str` mixes one **UTF-16
     /// code unit** at a time. The last is the one that cannot be guessed — an
     /// astral scalar is two mixes of its surrogate halves — and is why hashing
@@ -6837,13 +6838,22 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 (runtime::HASH_F64, vec![wide.into()])
             }
             Prim::F64 => (runtime::HASH_F64, vec![value.into()]),
+            // Wider than 32 bits, every word goes across, so every bit is mixed.
+            Prim::I64 | Prim::U64 => {
+                let symbol = if prim == Prim::I64 { runtime::HASH_I64 } else { runtime::HASH_U64 };
+                (symbol, vec![value.into()])
+            }
+            Prim::I128 | Prim::U128 => {
+                let BasicValueEnum::IntValue(v) = value else { return false };
+                let (lo, hi) = self.halves(v);
+                let symbol = if prim == Prim::I128 { runtime::HASH_I128 } else { runtime::HASH_U128 };
+                (symbol, vec![lo.into(), hi.into()])
+            }
             p if p.is_integer() || matches!(p, Prim::Bool) => {
                 let BasicValueEnum::IntValue(v) = value else { return false };
                 let bits = v.get_type().get_bit_width();
                 let narrowed = if bits == 32 {
                     v
-                } else if bits > 32 {
-                    self.builder.build_int_truncate(v, i32t, "hash.n").unwrap_or(v)
                 } else if p.is_signed() {
                     self.builder.build_int_s_extend(v, i32t, "hash.s").unwrap_or(v)
                 } else {

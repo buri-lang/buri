@@ -95,6 +95,19 @@ pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
     })
 }
 
+/// The runtime hash of an integer or a `Bool` in the frame slot at `v`, and
+/// the words it is handed. Up to 32 bits, `$mix` reads the low word, which a
+/// slot holds zero-extended at its own width; wider, every word goes across.
+fn int_hash(prim: Prim, v: u32) -> (&'static str, Vec<Src>) {
+    match prim {
+        Prim::I64 => (runtime::HASH_I64, vec![Src::Word(v)]),
+        Prim::U64 => (runtime::HASH_U64, vec![Src::Word(v)]),
+        Prim::I128 => (runtime::HASH_I128, vec![Src::Word(v), Src::Word(v + 8)]),
+        Prim::U128 => (runtime::HASH_U128, vec![Src::Word(v), Src::Word(v + 8)]),
+        _ => (runtime::MIX, vec![Src::Word(v)]),
+    }
+}
+
 /// The stencil table's name for an arithmetic operation, given the method's.
 ///
 /// The two spellings are deliberately different. A stencil is named after the
@@ -2363,7 +2376,8 @@ impl<'a> Jit<'a> {
                     let (symbol, ints, floats): (&str, Vec<Src>, Vec<Src>) = if prim.is_float() {
                         (runtime::HASH_F64, vec![Src::Word(seed)], vec![Src::Word(p(0))])
                     } else {
-                        (runtime::MIX, vec![Src::Word(seed), Src::Word(p(0))], Vec::new())
+                        let (symbol, value) = int_hash(prim, p(0));
+                        (symbol, [vec![Src::Word(seed)], value].concat(), Vec::new())
                     };
                     if prim == Prim::F32 {
                         self.unsupported(format!("Body::Runtime {key}"));
@@ -3585,18 +3599,10 @@ impl Jit<'_> {
                     "i",
                 )
             }
-            // `$mix` is handed `ToUint32` of a value that is already an
-            // integer, and a frame slot holds one zero-extended at its own
-            // width — so the low word is already what the `u32` parameter
-            // reads out of `w1`.
-            _ => self.c_call(
-                runtime::MIX,
-                st,
-                &[Src::Word(acc), Src::Word(v)],
-                &[],
-                dest,
-                "i",
-            ),
+            _ => {
+                let (symbol, value) = int_hash(prim, v);
+                self.c_call(symbol, st, &[vec![Src::Word(acc)], value].concat(), &[], dest, "i")
+            }
         };
         if let Err(why) = r {
             self.unsupported(why);

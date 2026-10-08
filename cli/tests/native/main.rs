@@ -213,6 +213,10 @@ mod fields;
 // built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod collections;
+// What a `core/map` of `Int` keys costs against the bits its keys differ in:
+// bytes and instructions counted rather than timed, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod map_keys;
 // What a value taken apart by a pattern, handed on by a fold's step, or read by
 // a match arm's guard owes: the pushes counted rather than timed, and the heap
 // checked, on every backend built in.

@@ -1579,6 +1579,53 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// **Every bit of a wide integer reaches its hash, and every backend answers
+/// the same number** (buri-lang/buri#273). Only the low 32 bits were mixed, so
+/// `2^32` hashed as `0` and a `Map` of keys that differ only above bit 32 kept
+/// them all in one collision list.
+///
+/// The first value is `0.hash()`, which a value that fits an `I32` still
+/// hashes as. The rest are, in order, `Int` at `2^32`, `-2^32`, `2^31` and
+/// `-2^31 - 1`; `U64` at `2^32` and its maximum; `I128` and `U128` at `2^64`;
+/// a derived struct holding `2^32`, then `0`; and
+/// one holding an `I128` and a `U64`.
+#[test]
+fn wide_integers_hash_every_bit() {
+    rows_or_skip!();
+    agree(
+        "wide hash",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+export struct P { a: Int }
+derive Hash for P;
+export struct W { a: I128, b: U64 }
+derive Hash for W;
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let big: Int = 4294967296;
+  let u: U64 = 4294967296;
+  let umax: U64 = 18446744073709551615;
+  let i: I128 = 18446744073709551616;
+  let v: U128 = 18446744073709551616;
+  let a = (0).hash();
+  let b = big.hash();
+  let c = (0 - big).hash();
+  let d = (2147483648).hash();
+  let e = (0 - 2147483649).hash();
+  let _ = io.println(host.stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
+  let _ = io.println(host.stdout, "${u.hash()} ${umax.hash()} ${i.hash()} ${v.hash()}").ignore();
+  let _ = io.println(host.stdout, "${P { a: big }.hash()} ${P { a: 0 }.hash()} ${W { a: i, b: umax }.hash()}").ignore();
+  .Ok(())
+}
+"#,
+        "84696351 276207162 3985204896 2440468429 3061387427\n\
+         276207162 1670721689 1236334116 1236334116\n\
+         214582783 3950255460 2005741550\n",
+    );
+}
+
 /// A `[T]` inside a derived `Show`, which used to be a named gap.
 ///
 /// It was `row_09_derived_show_of_a_list_is_a_gap` beside an `#[ignore]`d
