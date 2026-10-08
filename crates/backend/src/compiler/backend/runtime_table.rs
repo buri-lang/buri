@@ -1698,8 +1698,16 @@ pub const SHOW_STR: &str = "buri_rt_show_str";
 // backends must answer the same number as `runtime.js` (`cli/runtime/hash.rs`).
 
 /// `buri_rt_mix(h: u64, x: u32) -> u64` — one 32-bit word into the
-/// accumulator. Every `Bool` and every integer goes through this, truncated.
+/// accumulator. Every `Bool` and every integer up to 32 bits goes through this.
 pub const MIX: &str = "buri_rt_mix";
+/// `buri_rt_hash_i64(h: u64, x: i64) -> u64` and `buri_rt_hash_u64` — a
+/// 64-bit integer as its fewest 32-bit words, so every bit is mixed.
+pub const HASH_I64: &str = "buri_rt_hash_i64";
+pub const HASH_U64: &str = "buri_rt_hash_u64";
+/// `buri_rt_hash_i128(h: u64, lo: u64, hi: u64) -> u64` and
+/// `buri_rt_hash_u128`, the same over two halves.
+pub const HASH_I128: &str = "buri_rt_hash_i128";
+pub const HASH_U128: &str = "buri_rt_hash_u128";
 /// `buri_rt_hash_f64(h: u64, x: f64) -> u64`. An `F32` is promoted first, so
 /// that `1.5f32` and `1.5f64` hash alike as they do on JavaScript, where there
 /// is one number type.

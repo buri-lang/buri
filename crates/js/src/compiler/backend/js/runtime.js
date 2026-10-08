@@ -263,9 +263,20 @@ function $hashInto(h, x) {
     return h;
   }
   if (typeof x === "boolean") return $mix(h, x ? 1 : 0);
-  // The low 32 bits either way: `>>> 0` on a double and `asUintN` on a
-  // `BigInt` are the same reduction, so a value that fits both hashes the same.
-  if (typeof x === "bigint") return $mix(h, Number(BigInt.asUintN(32, x)));
+  // A `BigInt` mixes its fewest two's-complement 32-bit words, low first, so
+  // every bit counts. One that fits an `I32` is one word, as a `number` is,
+  // and one a double holds exactly is two, split without `BigInt` arithmetic.
+  if (typeof x === "bigint") {
+    const n = Number(x);
+    if (n >= -0x80000000 && n <= 0x7fffffff) return $mix(h, n >>> 0);
+    if (Number.isSafeInteger(n)) return $mix($mix(h, n >>> 0), Math.floor(n / 4294967296) >>> 0);
+    for (;;) {
+      const w = Number(BigInt.asUintN(32, x));
+      h = $mix(h, w);
+      x >>= 32n;
+      if (x === (w >= 0x80000000 ? -1n : 0n)) return h;
+    }
+  }
   return $mix(h, Math.trunc(x) || 0);
 }
 

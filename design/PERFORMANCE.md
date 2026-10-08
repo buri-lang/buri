@@ -6096,6 +6096,59 @@ whatever the load. `a_suite_named_alone_reports_as_it_did_one_process_at_a_time`
 pins the report, the `--verbose` list and the `--filter` list as the old runner
 printed them, apart from the `--filter` time it used to drop.
 
+### 6.64 Wide integers hash every bit, 2026-10-08
+
+A `core/map` of 16,000 `Int` keys `i * 2^32` took 4.1 s to build on
+JavaScript, against 27 ms for keys `i` (#273). Every integer mixed only its
+low 32 bits into the hash, so all of them hashed alike:
+
+```js
+if (typeof x === "bigint") return $mix(h, Number(BigInt.asUintN(32, x)));
+```
+
+The trie can't branch on equal hashes, so they shared one collision list,
+which every insert walked and every lookup scanned. Both native backends
+truncated the same way, to give the same number.
+
+An `I64`, `U64`, `I128` or `U128` now mixes its fewest two's-complement 32-bit
+words, low first, through the same FNV-1a step. Anything that fits an `I32`
+is still one word, so it hashes as before, and so do every narrower integer,
+`Str`, `Char`, `Bool` and float. Natively the wide ones call
+`buri_rt_hash_i64` and its three siblings in `cli/runtime/hash.rs`. On
+JavaScript a value a double holds exactly is split with `Math.floor`, without
+`BigInt` arithmetic.
+
+The hash stays 32 bits wide on every backend, as `runtime.js` needs.
+
+Visible change: `x.hash()` answers a new number for a wide integer outside
+the `I32` range, and a `Map` or `Set` keyed by those iterates in a new order.
+
+The issue's suite, 16,000 keys, at load 4–10:
+
+| | low bits, before | after | above bit 32, before | after |
+|---|---:|---:|---:|---:|
+| JavaScript, build | 27 ms | 27 ms | 4.1 s | 26 ms |
+| JavaScript, 200k lookups | 170 ms | 168 ms | 64 s | 183 ms |
+| stencil, build | 4.4 ms | 4.3 ms | 325 ms | 4.2 ms |
+| LLVM `--release`, build | 2.0 ms | 2.5 ms | 72 ms | 2.3 ms |
+| LLVM `--release`, 200k lookups | 4.0 ms | 4.8 ms | 936 ms | 4.8 ms |
+
+The native times are within this machine's noise. Instructions are steadier
+(`native::map_keys`, 8,000 keys, per operation):
+
+| | insert, low bits | after | insert, above bit 32 | after | lookup, low bits | after | lookup, above bit 32 | after |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| stencil | 2,938 | 2,943 | 209,461 | 2,957 | 1,061 | 1,061 | 205,607 | 1,078 |
+| LLVM | 1,863 | 1,862 | 48,873 | 1,875 | 206 | 208 | 47,442 | 224 |
+
+`native::map_keys` bounds those instructions where the kernel counts them.
+`agreement::wide_integers_hash_every_bit` pins the hash values on all three
+backends, and `collections/test/map.buri` checks that keys differing only
+above bit 32 hash apart, which holds on any host.
+
+**Still open:** a float mixes `ToUint32(Math.trunc(x))`, so `0.1` and `0.2`
+hash alike, and so does every float past `2^32` that agrees mod `2^32`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

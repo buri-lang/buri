@@ -7,12 +7,13 @@
 //! number on both backends, and `x.hash()` is a number a program can print, so
 //! the width has to be JavaScript's rather than the machine's.
 //!
-//! Three arms, because `$hashInto` has three shapes for a primitive:
+//! One arm per shape `$hashInto` has for a primitive:
 //!
 //! | Buri type | JavaScript value | What is mixed |
 //! |---|---|---|
-//! | `Bool`, every integer | `number` | `ToUint32(Math.trunc(x) \|\| 0)` — the low 32 bits |
-//! | `F32`, `F64` | `number` | the same, so `1.9` and `1.0` collide, and `NaN` hashes as `0` |
+//! | `Bool`, an integer up to 32 bits | `number` | `ToUint32(Math.trunc(x) \|\| 0)` — every bit |
+//! | `I64`, `U64`, `I128`, `U128` | `bigint` | its fewest two's-complement 32-bit words, low first |
+//! | `F32`, `F64` | `number` | `ToUint32(Math.trunc(x) \|\| 0)`, so `1.9` and `1.0` collide, and `NaN` hashes as `0` |
 //!
 //! The float row is what keeps `Equal` and `Hash` agreeing. SPEC 7.2 makes
 //! `NaN == NaN` true, so every `NaN` has to hash alike — and it does, on both
@@ -47,6 +48,63 @@ const PRIME: u32 = 0x0100_0193;
 pub extern "C" fn buri_rt_mix(h: u64, x: u32) -> u64 {
     let mixed = (h as u32) ^ x;
     u64::from(mixed.wrapping_mul(PRIME))
+}
+
+/// `$hashInto` at an `I64`: one mix when it fits an `I32`, which is what a
+/// narrower integer holding the same value mixes, and two when it does not.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_hash_i64(h: u64, x: i64) -> u64 {
+    match i32::try_from(x) {
+        Ok(narrow) => buri_rt_mix(h, narrow as u32),
+        Err(_) => signed_words(h, i128::from(x)),
+    }
+}
+
+/// `$hashInto` at a `U64`. From `2^63` up a third word of zeros keeps it
+/// apart from the negative `I64` with the same bits, as the `bigint` loop does.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_hash_u64(h: u64, x: u64) -> u64 {
+    match i32::try_from(x) {
+        Ok(narrow) => buri_rt_mix(h, narrow as u32),
+        Err(_) => unsigned_words(h, u128::from(x)),
+    }
+}
+
+/// `$hashInto` at an `I128`, from its low and high halves.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_hash_i128(h: u64, lo: u64, hi: u64) -> u64 {
+    signed_words(h, ((u128::from(hi) << 64) | u128::from(lo)) as i128)
+}
+
+/// `$hashInto` at a `U128`, from its low and high halves.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_hash_u128(h: u64, lo: u64, hi: u64) -> u64 {
+    unsigned_words(h, (u128::from(hi) << 64) | u128::from(lo))
+}
+
+/// `$hashInto`'s `bigint` loop: mix the low 32-bit word and shift it out,
+/// until what is left is the sign that word already carries.
+fn signed_words(mut h: u64, mut x: i128) -> u64 {
+    loop {
+        let w = x as u32;
+        h = buri_rt_mix(h, w);
+        x >>= 32;
+        if x == if w >> 31 == 1 { -1 } else { 0 } {
+            return h;
+        }
+    }
+}
+
+/// The same loop over a value no `i128` holds, such as `U128`'s maximum.
+fn unsigned_words(mut h: u64, mut x: u128) -> u64 {
+    loop {
+        let w = x as u32;
+        h = buri_rt_mix(h, w);
+        x >>= 32;
+        if x == 0 && w >> 31 == 0 {
+            return h;
+        }
+    }
 }
 
 /// `$hashInto` at a float: `Math.trunc(x) || 0`, then `ToUint32`.
@@ -153,6 +211,24 @@ mod tests {
         assert_eq!(buri_rt_mix(BURI_RT_HASH_SEED | (1 << 40), 0), want);
         // And the answer never has one.
         assert_eq!(buri_rt_mix(BURI_RT_HASH_SEED, u32::MAX) >> 32, 0);
+    }
+
+    /// A wide integer mixes its fewest 32-bit words, low first, and one that
+    /// fits an `I32` mixes as a narrower integer holding it does.
+    #[test]
+    fn a_wide_integer_mixes_every_word() {
+        let s = BURI_RT_HASH_SEED;
+        let mix = buri_rt_mix;
+        assert_eq!(buri_rt_hash_i64(s, -1), mix(s, u32::MAX));
+        assert_eq!(buri_rt_hash_i64(s, 1 << 32), mix(mix(s, 0), 1));
+        assert_eq!(buri_rt_hash_i64(s, 1 << 31), mix(mix(s, 1 << 31), 0));
+        assert_eq!(buri_rt_hash_i64(s, -(1 << 31) - 1), mix(mix(s, i32::MAX as u32), u32::MAX));
+        assert_eq!(buri_rt_hash_u64(s, 7), mix(s, 7));
+        assert_eq!(buri_rt_hash_u64(s, u64::MAX), mix(mix(mix(s, u32::MAX), u32::MAX), 0));
+        assert_eq!(buri_rt_hash_i128(s, u64::MAX, u64::MAX), mix(s, u32::MAX));
+        assert_eq!(buri_rt_hash_i128(s, 0, 1), mix(mix(mix(s, 0), 0), 1));
+        let all = (0..4).fold(s, |h, _| mix(h, u32::MAX));
+        assert_eq!(buri_rt_hash_u128(s, u64::MAX, u64::MAX), mix(all, 0));
     }
 
     /// `Math.trunc(x) || 0` collapses three values to zero, and a negative
