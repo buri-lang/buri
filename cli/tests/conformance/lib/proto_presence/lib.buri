@@ -1,0 +1,22 @@
+// The well-known types declared in a schema of one's own, with explicit
+// presence (buri-lang/buri#268). Their singular scalars are `Option`s here,
+// where the toolchain's own copies in `core/proto` hold bare values.
+
+from "//lib/proto_presence/timestamp.proto" export {
+    decodeTimestamp, decodeTimestampJson, encodeTimestamp, encodeTimestampJson,
+    Timestamp,
+};
+
+from "//lib/proto_presence/wellknown.proto" export {
+    Any, BoolValue, BytesValue, decodeAny, decodeBoolValue, decodeBoolValueJson,
+    decodeBytesValueJson, decodeDoubleValueJson, decodeDuration, decodeDurationJson,
+    decodeFieldMaskJson, decodeFloatValueJson, decodeInt32ValueJson, decodeInt64Value,
+    decodeInt64ValueJson, decodeStringValue, decodeStringValueJson, decodeStructJson,
+    decodeUInt32ValueJson, decodeUInt64ValueJson, DoubleValue, Duration, encodeAny,
+    encodeBoolValue, encodeBoolValueJson, encodeBytesValueJson, encodeDoubleValueJson,
+    encodeDuration, encodeDurationJson, encodeFieldMaskJson, encodeFloatValueJson,
+    encodeInt32ValueJson, encodeInt64Value, encodeInt64ValueJson, encodeStringValue,
+    encodeStringValueJson, encodeStructJson, encodeUInt32ValueJson,
+    encodeUInt64ValueJson, FieldMask, FloatValue, Int32Value, Int64Value, StringValue,
+    UInt32Value, UInt64Value,
+};

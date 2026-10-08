@@ -1,0 +1,9 @@
+edition = "2026";
+
+package google.protobuf;
+
+// The well-known Timestamp, with edition 2026's default (explicit) presence.
+message Timestamp {
+    int64 seconds = 1;
+    int32 nanos = 2;
+}

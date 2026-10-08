@@ -1042,7 +1042,7 @@ fn enumItems<C: Allocator>(
             })
     };
     let unknown = unrecognizedName(ctx, e);
-    let json = match (wellKnownJson(ctx, full)) {
+    let json = match (wellKnownJson(ctx, full, list.empty<ResolvedField>())) {
         .Some(items) => items,
         .None => {
             [
@@ -3283,8 +3283,16 @@ fn jsonDecodeFns<C: Allocator>(
 
 /// A well-known type's JSON codecs, parsed from the source
 /// `std/codegen/proto/wellknown` holds for it; `.None` for any other type.
-fn wellKnownJson<C: Allocator>(ctx: C, full: Str): Option<[ast.Item]> {
-    match (wellknown.json(ctx, full)) {
+/// The source reads a field that is an `Option` as one (#268).
+fn wellKnownJson<C: Allocator>(
+    ctx: C,
+    full: Str,
+    fields: [ResolvedField],
+): Option<[ast.Item]> {
+    let optional = fields.filterMap(ctx, fn(f) => {
+        if (isOptional(f)) { .Some(f.name) } else { .None }
+    });
+    match (wellknown.json(ctx, full, optional)) {
         .Some(source) => {
             match (ast.parse(ctx, full, source)) {
                 .Ok(m) => .Some(m.items),
@@ -3303,7 +3311,7 @@ fn messageItems<C: Allocator>(
     fields: [ResolvedField],
     oneofs: [ResolvedOneof],
 ): [ast.Item] {
-    let json = match (wellKnownJson(ctx, full)) {
+    let json = match (wellKnownJson(ctx, full, fields)) {
         .Some(items) => items,
         .None => {
             [jsonEncodeFn(ctx, name, fields, oneofs)].concat(

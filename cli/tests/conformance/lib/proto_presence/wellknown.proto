@@ -1,0 +1,84 @@
+// The rest of the well-known types, declared here rather than imported, with
+// every singular scalar tracking presence: some by the edition's default, some
+// by a message's feature, and some by a field's.
+
+edition = "2026";
+
+package google.protobuf;
+
+message Any {
+  string type_url = 1;
+  bytes value = 2;
+}
+
+message Duration {
+  option features.field_presence = EXPLICIT;
+
+  int64 seconds = 1;
+  int32 nanos = 2;
+}
+
+message Empty {}
+
+message FieldMask {
+  repeated string paths = 1;
+}
+
+message Struct {
+  map<string, Value> fields = 1;
+}
+
+message Value {
+  oneof kind {
+    NullValue null_value = 1;
+    double number_value = 2;
+    string string_value = 3;
+    bool bool_value = 4;
+    Struct struct_value = 5;
+    ListValue list_value = 6;
+  }
+}
+
+enum NullValue {
+  NULL_VALUE = 0;
+}
+
+message ListValue {
+  repeated Value values = 1;
+}
+
+message DoubleValue {
+  double value = 1 [features.field_presence = EXPLICIT];
+}
+
+message FloatValue {
+  float value = 1 [features.field_presence = EXPLICIT];
+}
+
+message Int64Value {
+  int64 value = 1;
+}
+
+message UInt64Value {
+  uint64 value = 1;
+}
+
+message Int32Value {
+  int32 value = 1;
+}
+
+message UInt32Value {
+  uint32 value = 1;
+}
+
+message BoolValue {
+  bool value = 1;
+}
+
+message StringValue {
+  string value = 1;
+}
+
+message BytesValue {
+  bytes value = 1;
+}
