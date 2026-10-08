@@ -2702,6 +2702,8 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "list.empty",
     "list.filter",
     "list.filterCtx",
+    "list.filterMap",
+    "list.filterMapCtx",
     "list.find",
     "list.findIndex",
     "list.flatten",
@@ -3305,7 +3307,8 @@ mod tests {
         json.decode \
         lazy.load \
         list.all list.any list.concat list.count list.drop list.empty \
-        list.filter list.filterCtx list.find list.findIndex list.flatten \
+        list.filter list.filterCtx list.filterMap list.filterMapCtx list.find \
+        list.findIndex list.flatten \
         list.fold list.foldCtx list.foldResult list.foldResultCtx list.get \
         list.insertAt list.join list.length list.map list.mapCtx list.push \
         list.range list.removeAt \

@@ -1394,6 +1394,20 @@ test "filterMap of a list with nothing to keep is empty" {
     assert.equal(list.empty<Int>().filterMap(ctx, evenHalf), list.empty<Int>());
 }
 
+test "filterMap keeps a Some of None, and payloads that own lists" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let nested: [Option<Int>] = [1, 2, 3].filterMap(ctx, fn(x) => {
+        if (x == 1) { .Some(.None) } else if (x == 2) { .None } else { .Some(.Some(x)) }
+    });
+    assert.equal(nested, [.None, .Some(3)]);
+    let pairs = ["a", "bb", "ccc"].filterMap(ctx, fn(w) => {
+        if (w.length() == 2) { .None } else { .Some([w, w]) }
+    });
+    assert.equal(pairs, [["a", "a"], ["ccc", "ccc"]]);
+}
+
 // --- the *Ctx traversals ---------------------------------------------------------
 //
 // The step that needs the context is the one a validation actually has: it

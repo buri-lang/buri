@@ -308,6 +308,9 @@ pub fn numeric_key(key: &str) -> bool {
 pub enum Step {
     Map,
     Filter,
+    /// `filterMap`: `map` keeping only the `.Some` payloads, written into one
+    /// block the length of the list.
+    FilterMap,
     Fold,
     /// `foldResult` and `foldResultCtx`: a fold that stops at the first `.Err`.
     FoldResult,
@@ -351,6 +354,8 @@ pub fn list_call(key: &str) -> Option<ListCall> {
         "list.mapCtx" => call(Step::Map, Some(1), 2, None),
         "list.filter" => call(Step::Filter, None, 2, None),
         "list.filterCtx" => call(Step::Filter, Some(1), 2, None),
+        "list.filterMap" => call(Step::FilterMap, None, 2, None),
+        "list.filterMapCtx" => call(Step::FilterMap, Some(1), 2, None),
         // `sortBy(self, ctx, order)`: the `C: Allocator` bound is for the block the
         // sort builds, and the comparator never sees it — so `ctx` is `None`
         // here for the same reason it is on `map`.
@@ -624,6 +629,7 @@ mod tests {
             "list.foldResultCtx",
             "list.mapCtx",
             "list.filterCtx",
+            "list.filterMapCtx",
             "host.HostTasks.parallel",
             "host_testing.TestTasks.parallel",
         ] {
