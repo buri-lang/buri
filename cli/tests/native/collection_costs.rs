@@ -1,0 +1,168 @@
+//! What `core/orderedmap`'s lookups cost against the width of the value type,
+//! natively, on every native backend this toolchain has built in.
+//!
+//! Each program runs once doing nothing past its setup and once doing the work,
+//! so the difference is the work alone. The work is counted rather than timed:
+//! instructions retired where the kernel counts them (macOS on hardware), and
+//! blocks through the allocation probe everywhere. Every run is under the heap
+//! check.
+
+use crate::shared::{exited_instructions, heap_checked, probed, Ran};
+use std::path::Path;
+
+/// One run, with the fewer instructions of two, because a short process's
+/// count only ever gains noise (`design/PERFORMANCE.md` §8). `None` where the
+/// kernel counts nothing, such as CI's virtual machines.
+fn measured(binary: &Path, args: &[&str]) -> (Ran, Option<u64>) {
+    let once = || {
+        let mut cmd = std::process::Command::new(binary);
+        heap_checked(&mut cmd)
+            .args(args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let child = cmd.spawn().unwrap();
+        let instructions = exited_instructions(child.id());
+        let out = child.wait_with_output().unwrap();
+        let ran = Ran {
+            status: out.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+        };
+        (ran, instructions)
+    };
+    let (ran, first) = once();
+    let (_, second) = once();
+    (ran, first.zip(second).map(|(a, b)| a.min(b)).filter(|&n| n > 0))
+}
+
+/// The instructions one operation costs, from `ops` of them against none, and
+/// the blocks all of them allocated. `args` are the program's after its mode.
+fn per_op(backend: &str, binary: &Path, mode: &str, args: &[&str], ops: u64, expected: &str) -> (Option<u64>, u64) {
+    let (idle, idle_n) = measured(binary, &[&["none"], args].concat());
+    let (busy, busy_n) = measured(binary, &[&[mode], args].concat());
+    for (r, want) in [(&idle, "0\n"), (&busy, expected)] {
+        assert_eq!(r.status, 0, "{backend} {mode} {args:?}: {}", r.stderr);
+        assert_eq!(r.stdout, want, "{backend} {mode} {args:?}: {}", r.stderr);
+    }
+    let (idle_blocks, idle_live) = probed(&idle.stderr);
+    let (busy_blocks, busy_live) = probed(&busy.stderr);
+    assert_eq!((idle_live, busy_live), (0, 0), "{backend} {mode}: blocks still live at exit");
+    let instructions = idle_n.zip(busy_n).map(|(a, b)| b.saturating_sub(a) / ops);
+    (instructions, busy_blocks.saturating_sub(idle_blocks))
+}
+
+const LOOKUPS: u64 = 100_000;
+
+/// A map of `size` `Int` keys to values of type `Value`, and `mode` asked of it
+/// 100,000 times: `get` reads one field of what it finds, and `has` asks only
+/// whether there is anything. `main` takes the mode and the size.
+fn lookups(value: &str, make: &str, read: &str) -> String {
+    format!(
+        r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import {{ OrderedMap }};
+from "core/str" import * as str;
+from "native" import {{ NativeHost }};
+from "platform/effect" import {{ Allocator, Environment, Stdout }};
+
+{value}
+
+fn make<C: Allocator>(ctx: C, i: Int): Value {{
+  {make}
+}}
+
+fn gets(m: OrderedMap<Int, Value>, i: Int, n: Int, acc: Int): Int {{
+  if (i >= n) {{ acc }} else {{ gets(m, i + 1, n, acc + m.get(i * 3 % m.size).map(fn(v) => {read}).withDefault(0)) }}
+}}
+
+fn hases(m: OrderedMap<Int, Value>, i: Int, n: Int, acc: Int): Int {{
+  if (i >= n) {{ acc }} else {{ hases(m, i + 1, n, acc + (if (m.has(i * 3 % m.size)) {{ 1 }} else {{ 0 }})) }}
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{ Allocator: host.alloc, Environment: host.env, Stdout: host.stdout }};
+  let args = env.arguments(ctx);
+  let size = args.get(1).andThen(fn(s) => s.toInt()).withDefault(1);
+  let m = orderedmap.of(ctx, list.range(ctx, 0, size).mapCtx(ctx, fn(c, i) => (i, make(c, i))));
+  let answer = match (args.first()) {{
+    .Some("get") => gets(m, 0, {LOOKUPS}, 0),
+    .Some("has") => hases(m, 0, {LOOKUPS}, 0),
+    _ => 0,
+  }};
+  io.println(ctx, "${{answer}}").mapErr(fn(_e) => "stdout")
+}}
+"#
+    )
+}
+
+/// **A key-only lookup costs the same whatever the value type is**
+/// (buri-lang/buri#267). Each node held its entries as one list of `(K, V)`,
+/// so the search copied every entry it compared a key against, value and all,
+/// and retained each counted field in it.
+///
+/// Keys sit in a list of their own now, so `has` reads no value. `get` copies
+/// the one it answers, and that copy is the same however deep the key sits.
+#[test]
+fn an_ordered_map_lookup_costs_the_same_for_any_value_type() {
+    let fields = |n: usize, f: &dyn Fn(usize) -> String| (0..n).map(f).collect::<Vec<_>>().join(", ");
+    let shapes = [
+        ("one Int", fields(1, &|i| format!("f{i}: Int")), fields(1, &|i| format!("f{i}: i")), "v.f0"),
+        ("64 Ints", fields(64, &|i| format!("f{i}: Int")), fields(64, &|i| format!("f{i}: i")), "v.f0"),
+        (
+            "eight Strs",
+            fields(8, &|i| format!("f{i}: Str")),
+            fields(8, &|i| format!("f{i}: str.format(ctx, \"x${{i}}\")")),
+            "v.f0.length()",
+        ),
+    ];
+    // One leaf, and a tree three levels deep.
+    let sizes = [7u64, 2000];
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        // (shape, size) -> (get, has)
+        let mut costs = std::collections::BTreeMap::new();
+        for (i, (name, value, make, read)) in shapes.iter().enumerate() {
+            let source = lookups(&format!("struct Value {{ {value} }}"), &format!("Value {{ {make} }}"), read);
+            let binary = build(&format!("orderedmap-lookup-{i}"), &source);
+            for size in sizes {
+                let keys = (0..LOOKUPS).map(|j| j * 3 % size);
+                let got: u64 = if i == 2 { keys.map(|k| 1 + k.to_string().len() as u64).sum() } else { keys.sum() };
+                let at = size.to_string();
+                let (get, get_blocks) = per_op(backend, &binary, "get", &[&at], LOOKUPS, &format!("{got}\n"));
+                let (has, has_blocks) = per_op(backend, &binary, "has", &[&at], LOOKUPS, &format!("{LOOKUPS}\n"));
+                assert_eq!((get_blocks, has_blocks), (0, 0), "{backend}, {name}: a lookup allocated");
+                eprintln!("{backend}, {name}, {size} keys: get {get:?}, has {has:?} instructions");
+                costs.insert((i, size), (get, has));
+            }
+        }
+        for size in sizes {
+            let Some((_, Some(has1))) = costs.get(&(0, size)).copied() else { continue };
+            for (i, (name, ..)) in shapes.iter().enumerate().skip(1) {
+                let Some((_, Some(has))) = costs.get(&(i, size)).copied() else { continue };
+                if has * 10 > has1 * 12 {
+                    failures.push(format!(
+                        "{backend}, {size} keys: `has` on {name} is {has} instructions against {has1} on one Int"
+                    ));
+                }
+            }
+        }
+        // What `get` adds over `has` is the copy of the value it answers, once.
+        for (i, (name, ..)) in shapes.iter().enumerate() {
+            let value = |size| match costs.get(&(i, size)).copied() {
+                Some((Some(get), Some(has))) => Some(get.saturating_sub(has)),
+                _ => None,
+            };
+            let (Some(shallow), Some(deep)) = (value(7), value(2000)) else { continue };
+            if deep * 10 > shallow * 12 + 500 {
+                failures.push(format!(
+                    "{backend}: `get` on {name} adds {deep} instructions over `has` three levels deep, \
+                     and {shallow} in one leaf"
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
