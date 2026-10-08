@@ -240,3 +240,180 @@ fn suites_linked_and_run_side_by_side_all_start() {
         assert_eq!(run.tests_passed(), count, "round {round}:\n{}", indent(&run.all()));
     }
 }
+
+/// A suite named on its own spreads its tests over several processes, as a
+/// suite named beside another one does.
+///
+/// The test binary is wrapped by a C driver that links the real one and puts a
+/// script in its place. The script writes `start` and `end` around the real
+/// binary, and holds back everything after its first line until a second
+/// process has started. Run one process at a time, the first waits alone and
+/// no two ever overlap.
+#[cfg(unix)]
+#[test]
+fn a_suite_named_alone_runs_its_tests_side_by_side() {
+    use std::os::unix::fs::PermissionsExt;
+    let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
+    let scratch = Scratch::repo("alone-side-by-side");
+    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
+    let names: Vec<String> = (0..8).map(|i| format!("test {i}")).collect();
+    let tests: String =
+        names.iter().map(|name| format!("\ntest \"{name}\" {{\n  assert.equal(one(), 1);\n}}\n")).collect();
+    scratch.write(
+        "lib/a/test/a.buri",
+        &format!("from \"//lib/a\" import {{ one }};\nfrom \"core/testing/assert\" import * as assert;\n{tests}"),
+    );
+    let log = scratch.path("processes");
+    let real = scratch.path("real-binary");
+    let wrapper = scratch.write(
+        "wrapper.sh",
+        &format!(
+            "#!/bin/sh\n\
+             echo \"start $$\" >> '{log}'\n\
+             starts() {{ c=0; while read -r l; do case \"$l\" in start*) c=$((c+1)) ;; esac; done < '{log}'; echo $c; }}\n\
+             '{real}' \"$@\" | {{\n  \
+               IFS= read -r first; printf '%s\\n' \"$first\"\n  \
+               n=0\n  \
+               until [ \"$(starts)\" -ge 2 ]; do\n    \
+                 n=$((n+1)); if [ \"$n\" -gt 400 ]; then break; fi\n    \
+                 /bin/sleep 0.05\n  \
+               done\n  \
+               while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n\
+             }}\n\
+             echo \"end $$\" >> '{log}'\n",
+            log = log.display(),
+            real = real.display(),
+        ),
+    );
+    let driver = scratch.write(
+        "fake-cc",
+        &format!(
+            "#!/bin/sh\n\
+             case \"$1\" in -###) exit 1 ;; esac\n\
+             '{real_cc}' \"$@\" || exit $?\n\
+             prev=\"\"\n\
+             for a in \"$@\"; do\n  \
+               if [ \"$prev\" = \"-o\" ] && [ \"$a\" = \"artifact\" ]; then\n    \
+                 cp artifact '{real}' && cp '{wrapper}' artifact && chmod +x artifact\n  \
+               fi\n  \
+               prev=\"$a\"\n\
+             done\n",
+            real = real.display(),
+            wrapper = wrapper.display(),
+        ),
+    );
+    for script in [&wrapper, &driver] {
+        std::fs::set_permissions(script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let run = scratch.run_with_env(
+        &["test", "//lib/a", "--verbose", "--jobs=4"],
+        &[("CC", &driver.display().to_string())],
+    );
+    if run.stderr.contains("native-run-not-available") {
+        run.exits(1);
+        return;
+    }
+    run.heap_ok().ok();
+    // Listed in the order they're declared, each with its own time.
+    let listed: Vec<String> = run
+        .stdout
+        .lines()
+        .filter(|l| l.starts_with("  ok  "))
+        .map(|l| {
+            let blanked = blank_test_time(l);
+            assert!(blanked.ends_with("<time>"), "an untimed test: {l:?}\n{}", indent(&run.stdout));
+            blanked.trim_end_matches("<time>").split_whitespace().skip(2).collect::<Vec<_>>().join(" ")
+        })
+        .collect();
+    assert_eq!(listed, names, "{}", indent(&run.stdout));
+    // Some process started while another was still running.
+    let events = std::fs::read_to_string(&log).unwrap_or_default();
+    let mut running = 0;
+    let mut overlapped = false;
+    for event in events.lines() {
+        if event.starts_with("start") {
+            overlapped |= running > 0;
+            running += 1;
+        } else {
+            running -= 1;
+        }
+    }
+    assert!(overlapped, "no two test processes ran at once:\n{}\n{}", indent(&events), indent(&run.all()));
+}
+
+/// A suite named on its own reports exactly what it reported when its tests
+/// ran one process at a time: the failures in block order, each with its
+/// diff, the `--verbose` list, what `--filter` skips, and the status.
+#[test]
+fn a_suite_named_alone_reports_as_it_did_one_process_at_a_time() {
+    let scratch = Scratch::repo("alone-report");
+    scratch.write("lib/mixed/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\", \"test/b.buri\"] }\n}\n");
+    scratch.write("lib/mixed/lib.buri", "export fn answer(): I64 { 1 }\n");
+    scratch.write(
+        "lib/mixed/test/a.buri",
+        "from \"//lib/mixed\" import { answer };\nfrom \"core/testing/assert\" import * as assert;\n\n\
+         test \"a passes\" {\n  assert.equal(answer(), 1);\n}\n\n\
+         test \"a compares wrong\" {\n  assert.equal(answer(), 2);\n}\n\n\
+         test \"a passes after a failure\" {\n  assert.equal(answer() + 1, 2);\n}\n\n\
+         test \"a fails again\" {\n  assert.isTrue(answer() > 1);\n}\n",
+    );
+    scratch.write(
+        "lib/mixed/test/b.buri",
+        "from \"core/testing/assert\" import * as assert;\n\n\
+         test \"b passes\" {\n  assert.equal(\"x\", \"x\");\n}\n\n\
+         test \"b fails\" {\n  assert.equal(\"x\", \"y\");\n}\n",
+    );
+    let report = |args: &[&str]| {
+        let run = scratch.run(args);
+        run.heap_ok();
+        let lines: Vec<String> =
+            run.stdout.lines().map(|l| if l.contains(" passed, ") { l.split(" (").next().unwrap_or(l).to_string() } else { blank_test_time(l) }).collect();
+        (run.code, lines.join("\n"), run.stderr.clone())
+    };
+    let first = report(&["test", "//lib/mixed", "--force"]);
+    if first.2.contains("test-run-unavailable") {
+        return;
+    }
+    let failures = "\
+FAIL //lib/mixed  test/a.buri  \"a compares wrong\"
+  assert.equal failed
+    actual:   1
+    expected: 2
+  --> lib/mixed/test/a.buri:8:1
+FAIL //lib/mixed  test/a.buri  \"a fails again\"
+  assert.isTrue failed
+    actual:   false
+    expected: true
+  --> lib/mixed/test/a.buri:16:1
+FAIL //lib/mixed  test/b.buri  \"b fails\"
+  assert.equal failed
+    actual:   \"x\"
+    expected: \"y\"
+  --> lib/mixed/test/b.buri:7:1
+";
+    assert_eq!(first, (1, format!("{failures}\n3 passed, 3 failed, 0 skipped"), String::new()));
+    let verbose = report(&["test", "//lib/mixed", "--force", "--verbose"]);
+    let list = "\
+//lib/mixed  native  6 tests  <time>
+  ok    a.buri  a passes                  <time>
+  FAIL  a.buri  a compares wrong          <time>
+  ok    a.buri  a passes after a failure  <time>
+  FAIL  a.buri  a fails again             <time>
+  ok    b.buri  b passes                  <time>
+  FAIL  b.buri  b fails                   <time>
+";
+    assert_eq!(verbose, (1, format!("{list}\n{failures}\n3 passed, 3 failed, 0 skipped"), String::new()));
+    // A filtered binary holds only the tests it runs, and each is timed as itself.
+    let filtered = report(&["test", "//lib/mixed", "--force", "--verbose", "--filter=passes"]);
+    let list = "\
+//lib/mixed  native  3 tests  <time>
+  ok    a.buri  a passes                  <time>
+  ok    a.buri  a passes after a failure  <time>
+  ok    b.buri  b passes                  <time>
+  skip  a.buri  a compares wrong
+  skip  a.buri  a fails again
+  skip  b.buri  b fails
+";
+    assert_eq!(filtered, (0, format!("{list}\n3 passed, 0 failed, 3 skipped"), String::new()));
+}

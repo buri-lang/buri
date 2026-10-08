@@ -10,8 +10,9 @@ methods, bound in a context the way `main` binds the platform's implementations.
 Exit status is `0` when every test passed and `1` when any did not, so you can
 use `buri test` directly as a gate.
 
-Suites build and run side by side, and print in label order. `--jobs` caps how
-many at once:
+Suites build and run side by side, and print in label order. A suite's own tests
+run side by side too, even when you name only that suite. `--jobs` caps how many
+run at once:
 
 ```sh
 buri test --jobs=2
@@ -53,9 +54,10 @@ FAIL //lib/money  test/cents.buri  "formatting pads the cents to two digits"
 6 passed, 1 failed, 0 skipped (0.4s, 2 cached)
 ```
 
-Suites print in label order, and tests in the order they ran. The test process
-times each test itself, so building and starting it isn't counted, and a
-suite's time is its tests' times added up. A cached suite shows the times from
+Suites print in label order, and tests in the order they're declared, whichever
+finished first. The test process times each test itself, so building and
+starting it isn't counted, and a suite's time is its tests' times added up.
+Tests run side by side, so that can be longer than the whole run. A cached suite shows the times from
 the run that cached it. A test `--filter` leaves out shows as `skip`, with no
 time. Failures print after the list, where they print without the flag.
 

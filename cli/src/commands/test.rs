@@ -919,7 +919,8 @@ struct Shared {
     flags: arguments::Flags,
     /// Which suite is painting into each snapshot directory, and how many of
     /// its processes are. Two suites never write one directory's goldens at
-    /// once; one suite's processes write different files, so they may.
+    /// once, and a suite that paints runs one process at a time
+    /// ([`queue_members`]).
     painting: std::sync::Mutex<Vec<Painter>>,
     /// The graph a front end is checked against.
     workspace: std::sync::Arc<crate::build::workspace::Workspace>,
@@ -1259,7 +1260,7 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         tests,
         skipped,
     };
-    run_solo(job, held, shared)
+    run_solo(job, held, queue, tell, shared)
 }
 
 /// One suite's own native binary: link it, then run every block.
@@ -1288,9 +1289,13 @@ struct SoloJob {
 /// [`report_failure`] states the format once for both backends.
 ///
 /// **A failed assertion is still an abort.** SPEC 6.9 leaves nothing to catch,
-/// so one process reports one failure, and [`run_blocks`] starts another at the
-/// next block. A suite costs one process plus one per failure.
-fn run_solo(job: SoloJob, held: Held, shared: &Shared) -> Done {
+/// so one process reports one failure, and the next block runs in another.
+///
+/// The blocks are spread over the pool the way a batch member's are
+/// ([`queue_members`]), so a suite named alone runs as fast as one named beside
+/// another. A suite with a `timeout_seconds` keeps its one process
+/// ([`run_alone`]), for the reason a batch refuses it.
+fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
     let SoloJob { slot, label, private, output, mut program, tables, key, limit, on_timeout, snapshot_dir, paints, tests, roots, skipped } = job;
     // Taken before the link, which changes the program.
     let sheet = program.stylesheet.clone();
@@ -1301,7 +1306,7 @@ fn run_solo(job: SoloJob, held: Held, shared: &Shared) -> Done {
     drop(program);
     drop(tables);
     drop(held);
-    let answer = |answer, notes| Done::Answer { slot, answer, explain: explain.clone(), notes, built: None };
+    let answer = |answer| Done::Answer { slot, answer, explain: explain.clone(), notes: String::new(), built: None };
     let (binary, link) = match built {
         Ok(built) => built,
         // The gaps `missing_intrinsics` cannot see are named by the backend
@@ -1311,48 +1316,81 @@ fn run_solo(job: SoloJob, held: Held, shared: &Shared) -> Done {
             for (i, d) in d.items.into_iter().enumerate() {
                 out.push(if i == 0 { d.with_fix(GAP_FIX) } else { d });
             }
-            return answer(Err(out), String::new());
+            return answer(Err(out));
         }
-        Err(d) => return answer(Err(d), String::new()),
+        Err(d) => return answer(Err(d)),
     };
-    let snapshots = snapshot_env(&snapshot_dir, shared.flags.update, write_stylesheet(binary.path(), &sheet));
+    let written = write_stylesheet(binary.path(), &sheet);
+    let seeds = std::sync::Arc::new(seeds_at(&[(0, tests.len())], seed_of(&key)));
+    let spec = MemberSpec {
+        slot,
+        key,
+        ranges: vec![(0, tests.len())],
+        tests,
+        roots,
+        skipped,
+        snapshot_dir,
+        paints,
+        limit,
+        on_timeout,
+        remember: Some((link, std::sync::Arc::new(sheet))),
+        alone: Some(label),
+    };
+    if spec.limit.is_some() {
+        let program = binary.path().display().to_string();
+        let snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, written);
+        let done = run_alone(&program, &spec, &seeds, &snapshots, shared);
+        drop(binary);
+        return match done {
+            Done::Answer { slot, answer, notes, built, .. } => Done::Answer { slot, answer, explain, notes, built },
+            other => other,
+        };
+    }
+    // Told before any process starts, so the report waits for the link's
+    // `--explain` lines however soon an answer arrives.
+    tell.tell(Done::Linking { slot });
+    queue_members(binary, written, vec![(spec, seeds)], queue, jobs_of(&shared.flags));
+    Done::Built { slot, explain }
+}
+
+/// Runs every block of a suite in a binary of its own, one process after
+/// another, and answers for it.
+///
+/// One process plus one per failure ([`run_blocks`]). A suite with a
+/// `timeout_seconds` runs this way, and so does a suite whose blocks were
+/// spread over several processes when one of them ended without a verdict:
+/// one process at a time is what lets a heap check, or a death after the last
+/// block, be reported against the suite.
+fn run_alone(
+    program: &str,
+    spec: &MemberSpec,
+    seeds: &str,
+    snapshots: &[(&str, String)],
+    shared: &Shared,
+) -> Done {
+    let MemberSpec { slot, ref tests, ref roots, ref skipped, ref snapshot_dir, paints, limit, .. } = *spec;
+    let label = spec.alone.as_deref().unwrap_or_default();
     if paints {
-        shared.claim_waiting(&snapshot_dir, slot);
+        shared.claim_waiting(snapshot_dir, slot);
     }
     let mut notes = String::new();
-    let ran = run_blocks(
-        &binary.path().display().to_string(),
-        limit,
-        (0, tests.len()),
-        &seed_of(&key).to_string(),
-        &snapshots,
-        &mut notes,
-    );
+    let ran = run_blocks(program, limit, (0, tests.len()), seeds, snapshots, &mut notes);
     if paints {
-        shared.release(&snapshot_dir, slot);
+        shared.release(snapshot_dir, slot);
     }
+    let answer = |answer, notes| Done::Answer { slot, answer, explain: String::new(), notes, built: None };
     // A binary that ran to a verdict, or out of time, is worth running again
     // next time. One that died is built again, where the death is reported.
-    let linked = |roots: &[Root]| {
-        Some(Built::Linked(Box::new(Linked {
-            link: link.clone(),
-            sheet: sheet.clone(),
-            paints,
-            skipped: skipped.clone(),
-            ranges: vec![(0, tests.len())],
-            roots: roots.to_vec(),
-        })))
-    };
     let blocks = match ran {
         Ok(Verdicts::Blocks(blocks)) => blocks,
         Ok(Verdicts::TimedOut) => {
-            let built = linked(&roots);
-            return Done::Answer { slot, answer: Err(on_timeout), explain, notes, built };
+            let answer = Err(spec.on_timeout.clone());
+            return Done::Answer { slot, answer, explain: String::new(), notes, built: linked_of(spec) };
         }
-        Ok(Verdicts::HeapCheck(line)) => return answer(Err(heap_check_failed(&label, &line)), notes),
-        Ok(Verdicts::Died(how)) => return answer(Err(the_binary_died(&label, &how)), notes),
+        Ok(Verdicts::HeapCheck(line)) => return answer(Err(heap_check_failed(label, &line)), notes),
+        Ok(Verdicts::Died(how)) => return answer(Err(the_binary_died(label, &how)), notes),
         Ok(Verdicts::NotStarted(how)) => {
-            return answer(Err(the_binary_did_not_start(&label, &how)), notes)
+            return answer(Err(the_binary_did_not_start(label, &how)), notes)
         }
         Err(e) => {
             let mut d = Diagnostics::new();
@@ -1363,9 +1401,9 @@ fn run_solo(job: SoloJob, held: Held, shared: &Shared) -> Done {
             return answer(Err(d), notes);
         }
     };
-    let cases = recorded(shared, &key, &tests, blocks.iter());
-    let built = linked(&roots);
-    Done::Answer { slot, answer: Ok(Ran { cases, skipped, roots }), explain, notes, built }
+    let cases = recorded(shared, &spec.key, tests, blocks.iter());
+    let ran = Ran { cases, skipped: skipped.clone(), roots: roots.clone() };
+    Done::Answer { slot, answer: Ok(ran), explain: String::new(), notes, built: linked_of(spec) }
 }
 
 /// The environment that tells a test binary where its goldens are.
@@ -2559,6 +2597,7 @@ fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue) {
             limit,
             on_timeout: timed_out(session, target, limit),
             remember: None,
+            alone: None,
         };
         match jobs.iter_mut().find(|j| j.link == link) {
             Some(job) => job.members.push((spec, seeds)),
@@ -3601,6 +3640,7 @@ fn submit_group(
                     limit: None,
                     on_timeout: Diagnostics::new(),
                     remember: None,
+                    alone: None,
                 },
             ))
         })
@@ -3678,6 +3718,11 @@ struct MemberSpec {
     /// The `link` key and stylesheet of a binary this run linked, so the
     /// member's answer can record it. `None` for a binary run again.
     remember: Option<(crate::build::cache::ActionKey, std::sync::Arc<String>)>,
+    /// The suite's label, when the binary is its own and was just linked
+    /// ([`run_solo`]). A process that ends without a verdict then runs the
+    /// suite again one process at a time ([`run_alone`]), rather than sending
+    /// it back to be built alone, which is where it already is.
+    alone: Option<String>,
 }
 
 /// Links a group's binary and queues a process per member, ahead of any new
@@ -3726,7 +3771,10 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, shared: &Shared) -> Don
 /// launch per few blocks.
 ///
 /// A suite with a `timeout_seconds` has one job: a limit bounds the suite's
-/// one process, so it is not divided between several.
+/// one process, so it is not divided between several. So does a suite that
+/// paints: two blocks that name one snapshot share its file, and the later
+/// block's picture is the one `--update` keeps (the user-interfaces guide),
+/// which needs an order between them.
 fn queue_members(
     binary: actions::TestBinary,
     sheet: Option<String>,
@@ -3739,7 +3787,8 @@ fn queue_members(
     // runs first.
     for (spec, seeds) in members.into_iter().rev() {
         let blocks: Vec<usize> = spec.ranges.iter().flat_map(|&(from, to)| from..to).collect();
-        let helpers = if spec.limit.is_some() { 1 } else { blocks.len().clamp(1, width.max(1)) };
+        let helpers =
+            if spec.limit.is_some() || spec.paints { 1 } else { blocks.len().clamp(1, width.max(1)) };
         let spec = std::sync::Arc::new(spec);
         let gathered =
             std::sync::Arc::new(std::sync::Mutex::new(Gathered { blocks, ..Gathered::default() }));
@@ -3787,6 +3836,12 @@ struct Gathered {
     timed_out: bool,
     /// The member's answer has been given.
     answered: bool,
+    /// A process has been launched, and one has reached a block. Helpers
+    /// launch only once one has, so a binary that cannot start is started once.
+    launched: bool,
+    started: bool,
+    /// How a process that never reached a block ended.
+    not_started: Option<String>,
 }
 
 impl Gathered {
@@ -3815,6 +3870,10 @@ impl Gathered {
                 self.notes.push((first, notes));
             }
             Pulled::Broken => self.failed = true,
+            Pulled::NotStarted(how) => {
+                self.failed = true;
+                self.not_started = Some(how);
+            }
         }
     }
 }
@@ -3829,7 +3888,8 @@ fn gathered_of(gathered: &std::sync::Mutex<Gathered>) -> std::sync::MutexGuard<'
 /// A process that ends any way but with a verdict per block it was handed — a
 /// heap check that failed, a death after its last block, a binary that did not
 /// start — sends the member back to run alone, where the same binary is built
-/// for it and the problem is reported against it.
+/// for it and the problem is reported against it. A suite already in a binary
+/// of its own runs again in it, one process at a time ([`run_alone`]).
 fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
     if !gathered_of(&job.gathered).waiting() {
         return Done::Progress;
@@ -3840,6 +3900,17 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
         std::thread::sleep(Duration::from_millis(20));
         queue.push_later(Job::Member(job), false);
         return Done::Progress;
+    }
+    // Until the first process reaches a block, or shows the binary cannot
+    // start. That takes milliseconds, and the wait ends with the process.
+    loop {
+        let mut all = gathered_of(&job.gathered);
+        if !(all.launched && !all.started && all.waiting()) {
+            all.launched = true;
+            break;
+        }
+        drop(all);
+        std::thread::sleep(Duration::from_millis(1));
     }
     let MemberJob { binary, seeds, sheet, spec, gathered } = job;
     let snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, sheet);
@@ -3862,7 +3933,23 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
     if spec.paints {
         shared.release(&spec.snapshot_dir, spec.slot);
     }
-    answer_member(&gathered, &spec, shared)
+    match answer_member(&gathered, &spec, shared) {
+        Done::Abandoned { .. } if spec.alone.is_some() => {
+            // A binary that could not start once would not start again.
+            let not_started = gathered_of(&gathered).not_started.take();
+            match not_started {
+                Some(how) => Done::Answer {
+                    slot: spec.slot,
+                    answer: Err(the_binary_did_not_start(spec.alone.as_deref().unwrap_or_default(), &how)),
+                    explain: String::new(),
+                    notes: String::new(),
+                    built: None,
+                },
+                None => run_alone(&program, &spec, &seeds, &snapshots, shared),
+            }
+        }
+        done => done,
+    }
 }
 
 /// Runs the blocks of a member with a `timeout_seconds`, a range at a time,
@@ -3940,6 +4027,8 @@ enum Pulled {
     Ran { verdicts: Vec<(usize, Block)>, notes: String },
     /// It ended in a way that is no verdict on a block: see [`Verdicts`].
     Broken,
+    /// It ended before reaching a block, and this is how.
+    NotStarted(String),
 }
 
 /// Runs one process of a member's binary, handing it the member's waiting
@@ -4000,6 +4089,7 @@ fn run_pulled(
             let Ok(value) = crate::json::parse(&line) else { continue };
             if value.get("started").is_some() {
                 reached = true;
+                gathered_of(gathered).started = true;
             } else if value.get("next").is_some() {
                 if let Some(block) = held.take() {
                     verdicts.push((block, Block::Passed { ns: took.take() }));
@@ -4043,7 +4133,7 @@ fn run_pulled(
         return Pulled::Ran { verdicts, notes };
     }
     if !reached {
-        return Pulled::Broken;
+        return Pulled::NotStarted(how_it_ended(&status, &stderr));
     }
     let Some(block) = held else { return Pulled::Broken };
     let failed = match noted {
