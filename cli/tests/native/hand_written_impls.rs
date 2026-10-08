@@ -409,3 +409,96 @@ fn a_map_whose_values_lack_show_or_equal_is_walked_on_every_backend() {
         assert!(!stdout.contains("hunter2"), "{context}");
     }
 }
+
+const UNMET_BOUNDS: &str = r#"from "core/actor" import { Address };
+from "core/orderedmap" import * as ordmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, recorder };
+from "ui/signal" import { signal, watch };
+
+derive Equal, Show for Wrap;
+struct Wrap<T> {
+    weight: Int,
+    inner: T,
+}
+
+// No `Show` or `Equal`, and an address holds functions.
+struct Plain<C> {
+    to: Address<C, Int, Int, Int>,
+}
+
+struct Bag<C> {
+    items: OrderedMap<Int, Wrap<Plain<C>>>,
+}
+
+fn empty<C>(): Bag<C> {
+    Bag { items: ordmap.empty() }
+}
+
+fn weight<C>(bag: Bag<C>, key: Int): Int {
+    bag.items.get(key).map(fn(item) => item.weight).withDefault(0)
+}
+
+fn weighOne<C>(ctx: C): Int {
+    let bag: Option<Bag<C>> = .Some(empty());
+    weight(assert.some(bag), 1)
+}
+
+// No `Show` either, and nothing in it is a function.
+struct Count {
+    n: Int,
+}
+
+struct Tally {
+    counts: OrderedMap<Str, Count>,
+}
+
+test "a bag of addresses weighs nothing" {
+    assert.equal(weighOne(alloc()), 0);
+}
+
+test "a signal of addresses" {
+    let ctx = context { Ui: headless(), Watch: observer() };
+    let cell = signal(ctx, empty());
+    let seen = recorder();
+    watch(ctx, fn(s) => {
+        let _ = seen.note(weight(cell.get(s), 1));
+    });
+    cell.set(ctx, empty());
+    assert.equal(seen.noted().length() > 0, true);
+}
+
+test "a map whose values have no Show" {
+    let tally: Option<Tally> = .None;
+    let _ = assert.some(tally);
+}
+
+test "a map of them that fails" {
+    let tally = Tally { counts: ordmap.empty().insert(alloc(), "a", Count { n: 1 }) };
+    assert.none(.Some(tally));
+}
+"#;
+
+/// A failure report and a signal reach a hand-written `impl` whose bounds the
+/// type does not meet, such as `OrderedMap`'s `Show` over values with none.
+/// Each compiles on every backend and agrees on what it prints (#270).
+#[test]
+fn a_hand_written_impl_whose_bounds_fail_is_walked_by_shape_on_every_backend() {
+    let repo = repository("unmet-bounds", UNMET_BOUNDS);
+    let mut printed = Vec::new();
+    for (backend, status, stdout, stderr) in every_backend(&repo) {
+        let context = format!("{backend}:\n{stdout}\n{stderr}");
+        assert_eq!(status, 1, "{context}");
+        assert!(stdout.contains("2 passed, 2 failed"), "{context}");
+        assert!(stdout.contains("assert.some failed\n    actual:   .None\n"), "{context}");
+        let failure = stdout.split("assert.none failed").nth(1).unwrap_or_default();
+        let shown = failure.lines().nth(1).unwrap_or_default().to_string();
+        assert!(shown.contains("Count { n: 1 }"), "{context}");
+        printed.push((backend, shown));
+    }
+    for (backend, shown) in &printed {
+        assert_eq!(shown, &printed[0].1, "{backend} disagrees with {}", printed[0].0);
+    }
+}

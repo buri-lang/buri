@@ -256,7 +256,7 @@ impl Monomorphizer<'_> {
     /// Whether `ty`'s own `impl` of the trait is written by hand, and applies
     /// at `ty`. `impl<K, V: Show> Show for OrderedMap<K, V>` is no `Show` for
     /// a map whose values have none, so that map is walked like a type with
-    /// no `impl` at all (#269).
+    /// no `impl` at all (#269, #270).
     fn hand_written(&self, trait_id: TraitId, ty: &Ty) -> bool {
         let TyKind::Con(con, _) = ty.kind() else { return false };
         self.tables().as_prim(ty).is_none()
@@ -285,7 +285,10 @@ impl Monomorphizer<'_> {
     /// derive where its components do, and a hand-written `impl` where its
     /// bounds hold. `seen` stops a recursive derive, as it does in checking.
     fn satisfies(&self, trait_id: TraitId, ty: &Ty, seen: &mut Vec<TyConId>) -> bool {
-        let structural = Op::of(&self.tables().trait_(trait_id).name).is_some();
+        let structural = matches!(
+            self.tables().trait_(trait_id).name.as_str(),
+            "Equal" | "Ordered" | "Show" | "Hash" | "ToJson" | "FromJson"
+        );
         match ty.kind() {
             TyKind::Unit => structural,
             TyKind::Array(e) => structural && self.satisfies(trait_id, e, seen),
