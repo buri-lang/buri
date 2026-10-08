@@ -338,3 +338,74 @@ fn a_signal_compares_with_the_types_equal_on_every_backend() {
         );
     }
 }
+
+const MAPS: &str = r#"from "core/testing/assert" import * as assert;
+from "core/orderedmap" import * as ordmap;
+from "core/orderedmap" import { OrderedMap };
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, recorder };
+from "ui/signal" import { signal, watch };
+
+// No `Show` and no `Equal`, so neither of the map's own applies to a map of it.
+struct Item {
+    weight: Int,
+}
+
+struct Bag {
+    items: OrderedMap<Int, Item>,
+}
+
+struct Secret {
+    value: Str,
+}
+
+impl Show for Secret {
+    fn show<C: Allocator>(self, ctx: C): Str {
+        "***"
+    }
+}
+
+struct Vault {
+    secrets: OrderedMap<Int, Secret>,
+}
+
+fn weight(bag: Bag, key: Int): Int {
+    bag.items.get(key).map(fn(item) => item.weight).withDefault(0)
+}
+
+test "some unwraps a bag" {
+    let held: Option<Bag> = .Some(Bag { items: ordmap.empty() });
+    assert.equal(weight(assert.some(held), 1), 0);
+}
+
+test "a bag in a signal" {
+    let ctx = context { Ui: headless(), Watch: observer() };
+    let cell = signal(ctx, Bag { items: ordmap.empty() });
+    let seen = recorder();
+    watch(ctx, fn(s) => {
+        let _ = seen.note(weight(cell.get(s), 1));
+    });
+    cell.set(ctx, Bag { items: ordmap.empty().insert(alloc(), 1, Item { weight: 4 }) });
+    assert.equal(seen.noted(), [0, 4]);
+}
+
+test "a map whose values show renders through the map's Show" {
+    assert.none(.Some(Vault { secrets: ordmap.empty().insert(alloc(), 1, Secret { value: "hunter2" }) }));
+}
+"#;
+
+/// A map's `Show` and `Equal` need its values' (#269). Where the values have
+/// none, a report or a signal walks the map as it walks any type with no
+/// `impl`, rather than calling one that does not apply. Where they have one,
+/// the map's own renders it.
+#[test]
+fn a_map_whose_values_lack_show_or_equal_is_walked_on_every_backend() {
+    let repo = repository("maps", MAPS);
+    for (backend, status, stdout, stderr) in every_backend(&repo) {
+        let context = format!("{backend}:\n{stdout}\n{stderr}");
+        assert_eq!(status, 1, "{context}");
+        assert!(stdout.contains("2 passed, 1 failed"), "{context}");
+        assert!(stdout.contains("actual:   .Some(Vault { secrets: {1: ***} })\n"), "{context}");
+        assert!(!stdout.contains("hunter2"), "{context}");
+    }
+}
