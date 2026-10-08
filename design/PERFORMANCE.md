@@ -5910,6 +5910,108 @@ core/bytes writes for it`), and `every_shape_and_state_is_painted` (71%).
 - JavaScript's `$starts` keeps one string's scalar table, and `normalize`
   alternates between four tables. That miss is 8.7% of `//lib/data` on bun.
 
+### 6.61 Ordered-map lookups, `filterMap` and `values`, 2026-10-07
+
+Three issues, one cause each.
+
+**A lookup copied every entry it passed (#267).** A node held its entries as
+one `[(K, V)]`, and the search read each entry it compared a key against:
+
+```buri
+match (entries.get(at)) {         // the whole (K, V), into an Option
+    .Some(e) => {
+        let (k, _v) = e;          // every counted field in V retained, then released
+        …
+```
+
+So `has` on a map of 64-`Int` values cost three times `has` on one `Int`. A
+node keeps its keys apart from its values now, and only a leaf has values:
+
+```buri
+struct Node<K, V> {
+    keys: [K],               // a leaf's keys, or a branch's separators
+    values: [V],             // a leaf's values; a branch's are empty
+    children: [Node<K, V>],  // a leaf's are empty
+}
+```
+
+It's a B+ tree: a separator is a copy of the first key to its right. A search
+reads keys alone and always ends in a leaf, `has` reads no value, and `get`
+copies the one it answers.
+
+**`filterMap` grew its answer a push at a time (#266).** It was a `foldCtx`
+through a lambda that captured `transform`. A capturing lambda runs through its
+thunk, which owns each element it's handed, and the fold pushed each payload it
+kept. When a push outgrows its block, `append_dest` (`cli/runtime/list.rs`)
+copies into a bigger one and retains every element, and the old block releases
+them when it dies. `filterMap` and `filterMapCtx` are list loops now, like
+`filter` (`lower/lists.rs`, `Step::FilterMap`): one block the length of the
+list, each `.Some` payload moved in with the count the step gave it, and the
+block cut to what was kept. JavaScript runs the same loop in `runtime.js`.
+
+**`values` mapped the entries (#266).** It built `entries` and mapped them,
+which retained each value twice. With every value in a leaf, `values` and `keys`
+`flatten` the leaves' own lists, which sizes the answer once.
+
+Instructions a lookup on a map of 2,000 `Int` keys, from
+`native::collection_costs`:
+
+| Value | stencil `has` | stencil `get` | LLVM `has` | LLVM `get` |
+|---|---:|---:|---:|---:|
+| one `Int` | 2,249 → 2,009 | 2,286 → 2,090 | 526 → 428 | 528 → 435 |
+| 64 `Int`s | 6,238 → 2,009 | 6,402 → 2,768 | 807 → 428 | 809 → 680 |
+| eight `Str`s | 8,396 → 2,010 | 8,791 → 2,919 | 3,363 → 425 | 3,324 → 628 |
+
+#267's program on a map of 100,000 entries, ns a lookup, best of three at load
+3–7:
+
+| Value | debug `get` | debug `has` | `--release` `get` | `--release` `has` |
+|---|---:|---:|---:|---:|
+| one `Int` | 237 → 220 | 229 → 201 | 44 → 43 | 45 → 43 |
+| 64 `Int`s | 675 → 280 | 654 → 225 | 59 → 58 | 61 → 48 |
+| eight `Str`s | 582 → 254 | 567 → 216 | 171 → 48 | 173 → 46 |
+
+Instructions an element over 2,000 records of four `Str`s, four `Int`s and a
+`[Str]`, #266's shape:
+
+| | debug | `--release` |
+|---|---:|---:|
+| `map` | 426 → 425 | 144 → 143 |
+| `filterMap` | 1,260 → 497 | 737 → 171 |
+| `values` | 1,374 → 456 | 730 → 189 |
+
+#266's program at n = 100,000, ns an element, best of three:
+
+| Element | Operation | debug | `--release` |
+|---|---|---:|---:|
+| `Wide` (4 `Str`, 1 `[Str]`, 4 `Int`) | `list.map` | 17 → 17 | 6 → 6 |
+| | `list.filterMap` | 63 → 23 | 30 → 9 |
+| | `OrderedMap.values` | 48 → 17 | 27 → 9 |
+| `Flat` (9 `Int`) | `list.map` | 7 → 7 | 1 → 1 |
+| | `list.filterMap` | 25 → 11 | 10 → 2 |
+| | `OrderedMap.values` | 13 → 10 | 6 → 3 |
+| `Int` | `list.map` | 1 → 1 | 0 → 0 |
+| | `list.filterMap` | 10 → 2 | 5 → 0 |
+| | `OrderedMap.values` | 4 → 4 | 2 → 2 |
+
+**What an edit pays.** A node is two lists where it was one, so a copied path
+allocates more. `native::collections`' four thousand edits allocate 26,444
+blocks rather than 22,317, and retire 36.1 M instructions rather than 33.7 M in
+`--release`. Two thousand inserts, two thousand removes and two thousand
+persistent inserts: 40,599 blocks rather than 34,496, and 54.6 M instructions
+rather than 50.2 M.
+
+`native::collection_costs` holds `has` on 64 `Int`s and on eight `Str`s within
+1.2 times `has` on one `Int`, and what `get` adds over `has` to the same in one
+leaf and three levels down. It holds `filterMap` and `values` within 1.3 times
+`map`. Each bound failed before its fix. The kernel counts the instructions, and
+CI's virtual machines have no counter, so there the test checks only the answers
+and that no lookup allocates.
+
+**What's left:** a push that outgrows its block still retains every element it
+moves. Moving them needs the push to own its receiver when the receiver dies,
+which is a change to `middle::rc`'s plan.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
