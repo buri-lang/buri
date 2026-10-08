@@ -253,11 +253,59 @@ impl Monomorphizer<'_> {
         }
     }
 
-    /// Whether `ty`'s own `impl` of the trait is written by hand.
+    /// Whether `ty`'s own `impl` of the trait is written by hand, and applies
+    /// at `ty`. `impl<K, V: Show> Show for OrderedMap<K, V>` is no `Show` for
+    /// a map whose values have none, so that map is walked like a type with
+    /// no `impl` at all (#269).
     fn hand_written(&self, trait_id: TraitId, ty: &Ty) -> bool {
         let TyKind::Con(con, _) = ty.kind() else { return false };
         self.tables().as_prim(ty).is_none()
-            && self.tables().impls.get(&(trait_id, *con)).is_some_and(|i| !i.is_derived())
+            && self
+                .tables()
+                .impls
+                .get(&(trait_id, *con))
+                .is_some_and(|i| !i.is_derived() && self.bounds_hold(i, ty, &mut Vec::new()))
+    }
+
+    /// Whether a hand-written `impl`'s own bounds hold at `ty`.
+    fn bounds_hold(&self, imp: &ImplInfo, ty: &Ty, seen: &mut Vec<TyConId>) -> bool {
+        if imp.generics.iter().all(|g| g.bounds.is_empty()) {
+            return true;
+        }
+        let mut bound = vec![None; imp.generics.len()];
+        if !super::match_head(&imp.head, ty, &mut bound) {
+            return false;
+        }
+        imp.generics.iter().zip(bound).all(|(g, arg)| {
+            arg.is_none_or(|arg| g.bounds.iter().all(|b| self.satisfies(*b, &arg, seen)))
+        })
+    }
+
+    /// Whether the concrete `ty` has the trait, as checking decides it: a
+    /// derive where its components do, and a hand-written `impl` where its
+    /// bounds hold. `seen` stops a recursive derive, as it does in checking.
+    fn satisfies(&self, trait_id: TraitId, ty: &Ty, seen: &mut Vec<TyConId>) -> bool {
+        let structural = Op::of(&self.tables().trait_(trait_id).name).is_some();
+        match ty.kind() {
+            TyKind::Unit => structural,
+            TyKind::Array(e) => structural && self.satisfies(trait_id, e, seen),
+            TyKind::Tuple(es) => structural && es.iter().all(|e| self.satisfies(trait_id, e, seen)),
+            TyKind::Ctx(id) => self.tables().ctx_type(*id).has(trait_id),
+            TyKind::Con(con, _) => match self.tables().impls.get(&(trait_id, *con)) {
+                None => false,
+                Some(imp) if !imp.is_derived() => self.bounds_hold(imp, ty, seen),
+                Some(_) if seen.contains(con) || self.tables().as_prim(ty).is_some() => true,
+                Some(_) => {
+                    seen.push(*con);
+                    let parts = self.parts_of(ty);
+                    let ok = parts.iter().flatten().all(|p| self.satisfies(trait_id, &p.ty, seen));
+                    seen.pop();
+                    ok
+                }
+            },
+            TyKind::Fn(..) => false,
+            _ => true,
+        }
     }
 
     /// `unbounded` walks through a type with no `impl` of the trait, as well as
@@ -282,7 +330,10 @@ impl Monomorphizer<'_> {
                     return false;
                 }
                 match self.tables().impls.get(&(trait_id, *con)) {
-                    Some(imp) if !imp.is_derived() => true,
+                    Some(imp) if !imp.is_derived() => {
+                        self.hand_written(trait_id, ty)
+                            || (unbounded && self.parts_reach(trait_id, ty, unbounded, seen))
+                    }
                     Some(_) => self.parts_reach(trait_id, ty, unbounded, seen),
                     None if unbounded => self.parts_reach(trait_id, ty, unbounded, seen),
                     None => false,
