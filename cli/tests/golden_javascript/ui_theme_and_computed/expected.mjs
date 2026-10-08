@@ -9,7 +9,8 @@ const $k7=[1200n,'lay-row'];
 const $k8=[$k7];
 const $k9=[$k8];
 const $k10=[5,$k9];
-const $k11=[0,255n,255n,255n];
+const $k11=[0,false];
+const $k12=[0,255n,255n,255n];
 $ui_sheet='*,*::before,*::after{box-sizing:border-box}\n*,*::before,*::after{border-width:0}\n*{overflow-wrap:break-word}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.w-var{width:var(--buri-w)}\n.bg-t_both_bg{background-color:var(--both-bg)}\n';
 $tree_declare_hook=$tree_declare;
 $ui_theme_hook=$ui_theme_install;
@@ -25,23 +26,44 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const $t3=ui_node$stack$hf1axu([$k6,[ui_node$stack$hf1axu([[$k10,[4,scope_3=>[[24,[0,$effect_Scope_read(scope_3,width_2[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  const $t3=ui_node$stack$hf1axu([$k6,[ui_node$stack$hf1axu([[$k10,[4,scope_3=>[[24,[0,$effect_Scope_read(scope_3,width_2[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
   const bindings_14=[[__cmd_x_main_buri$Token_color(0),__cmd_x_main_buri$light(0)]];
   return $ui_node_mount(ctx_1,$t3,[[[0,bindings_14]]]);
 }
 function ui_node$stack$hf1axu(config_0){
-  const events_1=[config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]];
-  const $t1=config_0[2];
-  if($t1!==void 0){
-    return [[4,$t1,$share(config_0[0]),$share(config_0[1]),events_1]];
-  }else if($t1===void 0){
-    return [[3,$share(config_0[0]),$share(config_0[1]),events_1]];
+  const events_1=[config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]];
+  let $t1;
+  const $t2=config_0[3];
+  if($t2!==void 0){
+    $t1=$t2;
+  }else if($t2===void 0){
+    $t1=$k11;
+  }else{
+    $abort('no arm matched');
+  }
+  const current_2=$t1;
+  const focus_3=[config_0[5],config_0[6]];
+  const $t3=config_0[2];
+  if($t3!==void 0){
+    return [[4,$t3,$share(config_0[0]),$share(config_0[1]),current_2,focus_3,events_1]];
+  }else if($t3===void 0){
+    let $t4;
+    const $t5=config_0[4];
+    if($t5!==void 0){
+      $t4=$t5;
+    }else if($t5===void 0){
+      $t4=false;
+    }else{
+      $abort('no arm matched');
+    }
+    const decorative_6=$t4;
+    return [[3,$share(config_0[0]),$share(config_0[1]),current_2,decorative_6,focus_3,events_1]];
   }else{
     $abort('no arm matched');
   }
 }
 function __cmd_x_main_buri$light(t_0){
-  return $k11;
+  return $k12;
 }
 function __cmd_x_main_buri$Token_color(self_0){
   return [2,['both','bg']];

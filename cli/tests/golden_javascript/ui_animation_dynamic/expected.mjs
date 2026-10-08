@@ -7,6 +7,7 @@ const $k5=[5000n,'h-20'];
 const $k6=[$k5];
 const $k7=[$k6];
 const $k8=[5,$k7];
+const $k9=[0,false];
 $ui_sheet='*,*::before,*::after{box-sizing:border-box}\n*,*::before,*::after{border-width:0}\n*{overflow-wrap:break-word}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n@keyframes buri-pulse{50%{opacity:0.5}}\n@keyframes buri-spin{to{rotate:360deg}}\n.w-20{width:20px}\n.h-20{height:20px}\n@media (prefers-reduced-motion:no-preference){.anim-var{animation:var(--buri-anim)}}\n';
 $tree_declare_hook=$tree_motion();
 function __cmd_x_main_buri$main(){
@@ -21,14 +22,26 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const config_12=[[$k4,$k8,[62,$host_HostWatch_read(ctx_1[3],busy_2[0])?1:0]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
-  const events_13=ui_node$listen$b1px4q(config_12[3],config_12[4],config_12[5],config_12[6],config_12[7],config_12[8],config_12[9],config_12[10]);
+  const config_12=[[$k4,$k8,[62,$host_HostWatch_read(ctx_1[3],busy_2[0])?1:0]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
+  const events_13=ui_node$listen$b1px4q(config_12[7],config_12[8],config_12[9],config_12[10],config_12[11],config_12[12],config_12[13],config_12[14]);
+  const current_14=ui_node$orFalse(config_12[3]);
+  const focus_15=[config_12[5],config_12[6]];
   let $t3;
   const $t4=config_12[2];
   if($t4!==void 0){
-    $t3=[[4,$t4,$share(config_12[0]),$share(config_12[1]),events_13]];
+    $t3=[[4,$t4,$share(config_12[0]),$share(config_12[1]),current_14,focus_15,events_13]];
   }else if($t4===void 0){
-    $t3=[[3,$share(config_12[0]),$share(config_12[1]),events_13]];
+    let $t5;
+    const $t6=config_12[4];
+    if($t6!==void 0){
+      $t5=$t6;
+    }else if($t6===void 0){
+      $t5=false;
+    }else{
+      $abort('no arm matched');
+    }
+    const decorative_18=$t5;
+    $t3=[[3,$share(config_12[0]),$share(config_12[1]),current_14,decorative_18,focus_15,events_13]];
   }else{
     $abort('no arm matched');
   }
@@ -36,6 +49,15 @@ function __cmd_x_main_buri$main(){
 }
 function ui_node$listen$b1px4q(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
   return [onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7];
+}
+function ui_node$orFalse(flag_0){
+  if(flag_0!==void 0){
+    return flag_0;
+  }else if(flag_0===void 0){
+    return $k9;
+  }else{
+    $abort('no arm matched');
+  }
 }
 const $buri$program={main:async ()=>{
   const $r=await __cmd_x_main_buri$main();
