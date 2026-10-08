@@ -41,8 +41,9 @@ fn total(m: OrderedMap<Int, Int>, i: Int, n: Int, acc: Int): Int {
 /// Two thousand inserts and two thousand removes, each a walk down a tree of
 /// seven-entry nodes. A splice that built its node with `take`, `push`,
 /// `concat` and `drop` allocated three lists for the one it kept, which put
-/// this at 58,289 blocks on the copy-and-patch backend. It is 22,317 with one
-/// list a splice.
+/// this at 58,289 blocks on the copy-and-patch backend. It was 22,317 with one
+/// list a splice, and is 28,442 since a node keeps its keys and values in two
+/// lists (#267).
 #[test]
 fn an_ordered_map_edits_a_node_with_one_splice() {
     let source = format!(
