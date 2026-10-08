@@ -48,6 +48,8 @@ pub mod link;
 /// runtime archive was built against. Bytes and accessors only — the flags and
 /// the staging are `link`'s.
 pub mod musl;
+/// Test runners kept by their bytes, so macOS checks each program once.
+pub mod programs;
 pub mod regenerate;
 /// Building and caching the runtime archive and musl sysroot for a **cross**
 /// target, at `buri build` time, from the sources `runtime_src` embeds.

@@ -6096,6 +6096,39 @@ whatever the load. `a_suite_named_alone_reports_as_it_did_one_process_at_a_time`
 pins the report, the `--verbose` list and the `--filter` list as the old runner
 printed them, apart from the `--filter` time it used to drop.
 
+### 6.63 A test runner runs from the first file that held its bytes, 2026-10-07
+
+`repositories::snapshots` took 332 s of a 7-minute suite. It isn't a
+regression. Alone, `origin/main` took 50–224 s and `c2e568faa`, before the
+#261–#264 cases, 51–124 s, at load 5–20. CPU stayed at about 58 s in every run;
+the spread is the wait. The three new cases add 7 of the corpus's 303 runs.
+
+The wait is §6.39's check. `sample` found the runners at `_dyld_start` for 14 s
+while `syspolicyd` checked them. A run links 189 runners, each one distinct,
+and the next run links the same 189 bytes again into fresh scratch
+repositories. `buri test` alone in a copy of `sweep_animation` took 3.0 s with
+0.2 s of CPU, and 0.12 s again in the same copy.
+
+`build/programs.rs` keeps the first file to hold a runner's bytes in
+`~/.buri/programs/<sha256>/program` and makes the runner a symbolic link to
+it, the same as the harness's `kept::settle` does for the programs it links.
+macOS only, best effort, and entries go after two hours unused.
+
+| | `origin/main` | After |
+|---|---:|---:|
+| `repositories::snapshots` alone, store warm | 50–224 s | 10 s, 13 s |
+| Workspace suite, first run | 300 s, load 49 → 6 | 226 s, load 7 → 13 |
+| Workspace suite, rerun | 218 s, load 6 → 7 | 67 s, load 13 → 58 |
+
+The first run after a change that moves codegen, the runtime or the standard
+library still links new bytes and pays every check.
+
+`work_counts::a_runner_an_earlier_run_started_is_not_a_new_executable` pins it:
+the same tree in a second repository, and again after `buri clean`, launches
+no new executable. The other scenarios each get a `BURI_HOME` of their own, so
+what an earlier test kept can't move their counts. A runner that is now a
+symbolic link is one regular file fewer written per link.
+
 ### 6.64 Wide integers hash every bit, 2026-10-08
 
 A `core/map` of 16,000 `Int` keys `i * 2^32` took 4.1 s to build on
