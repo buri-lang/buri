@@ -3066,8 +3066,13 @@ impl<'a> Checker<'a> {
             if let Some((name, ty)) = failing {
                 let t = self.tables.trait_(tr).name.clone();
                 let c = self.tables.tycon(con).name.clone();
-                let shown = show(&self.tables, None, &self.tables.tycon(con).generics, &ty);
-                let home = self.toolchain_home(&ty, tr);
+                let generics = &self.tables.tycon(con).generics;
+                let shown = show(&self.tables, None, generics, &ty);
+                // The fix names the type that lacks the trait, which is `Item`
+                // in `OrderedMap<Int, Item>` rather than the map (#269).
+                let lacking_ty = self.lacking(&ty, tr, con);
+                let lacking = show(&self.tables, None, generics, &lacking_ty);
+                let home = self.toolchain_home(&lacking_ty, tr);
                 self.templated("underivable-field", span)
                     .bind("type", c)
                     .bind("trait", t.clone())
@@ -3075,22 +3080,36 @@ impl<'a> Checker<'a> {
                     .bind("field_type", shown.clone())
                 .fix(if let Some(home) = home {
                     format!(
-                        "drop `{t}` from this `derive`: `{shown}` comes from `{home}`, which \
+                        "drop `{t}` from this `derive`: `{lacking}` comes from `{home}`, which \
                          leaves it out, and `buri docs {home}` says what to use instead"
                     )
                 } else if crate::compiler::semantics::types::is_derive_only(&t) {
                     format!(
-                        "make `{shown}` satisfy `{t}` first — `derive {t} for {shown};` in \
+                        "make `{lacking}` satisfy `{t}` first — `derive {t} for {lacking};` in \
                          its own module — or drop `{t}` from this `derive`"
                     )
                 } else {
                     format!(
-                        "make `{shown}` satisfy `{t}` first — `derive {t} for {shown};` in \
+                        "make `{lacking}` satisfy `{t}` first — `derive {t} for {lacking};` in \
                          its own module, or an `impl` — or drop `{t}` from this `derive`"
                     )
                 });
             }
         }
+    }
+
+    /// The innermost part of a component that cannot satisfy the trait: an
+    /// argument of a type that has the trait, or the component itself.
+    fn lacking(&self, ty: &Ty, tr: TraitId, owner: TyConId) -> Ty {
+        let inner = match ty.kind() {
+            TyKind::Array(e) => Some(*e),
+            TyKind::Tuple(es) => es.iter().find(|e| !self.component_can_satisfy(e, tr, owner)).copied(),
+            TyKind::Con(id, args) if self.tables.impls.contains_key(&(tr, *id)) => {
+                args.iter().find(|a| !self.component_can_satisfy(a, tr, owner)).copied()
+            }
+            _ => None,
+        };
+        inner.map_or(*ty, |t| self.lacking(&t, tr, owner))
     }
 
     /// Whether a component could satisfy the trait for some instantiation. A

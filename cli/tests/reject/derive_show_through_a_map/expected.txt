@@ -1,0 +1,12 @@
+error: `Bag` cannot derive `Show`: `items` has type `OrderedMap<I64, Item>` [underivable-field]
+  --> cmd/derive_show_through_a_map/main.buri:14:1
+   |
+14 | derive Show for Bag;
+   | ^^^^^^^^^^^^^^^^^^^^
+   |
+   = a derived implementation is a fold over the type's components, and `OrderedMap<I64, Item>` does not satisfy `Show`
+   = fix: make `Item` satisfy `Show` first — `derive Show for Item;` in its own module, or an `impl` — or drop `Show` from this `derive`
+
+     Make the component's type satisfy the trait first, with a derive in its own
+     module or an impl, or drop the trait from this derive.
+
