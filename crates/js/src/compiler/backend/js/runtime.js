@@ -181,9 +181,60 @@ function $cmp(a, b) {
   // to answer what `Str.compare` answers, or an `[Str]` and an `[(Str, Int)]`
   // would sort differently.
   if (typeof a === "string") return $str_compare(a, b);
-  // Floats order -0.0 equal to 0.0 and report NaN as unordered, which falls
-  // out of the comparisons below.
+  // A float never reaches here: a shape holding one goes through `$cmpd`.
   return a < b ? 0 : a > b ? 2 : 1;
+}
+
+// `compare` at a float: -inf < ... < -0.0 < 0.0 < ... < inf < NaN, with every
+// NaN equal to every other whatever its sign (SPEC 6.2).
+function $fcmp(a, b) {
+  if (a < b) return 0;
+  if (a > b) return 2;
+  if (a === b) {
+    if (a !== 0) return 1;
+    // `1 / -0` is `-Infinity`, which is how a zero's sign is read.
+    const x = 1 / a;
+    const y = 1 / b;
+    return x === y ? 1 : x < y ? 0 : 2;
+  }
+  // Exactly one side is NaN, or both are.
+  return a === a ? 0 : b === b ? 2 : 1;
+}
+
+// `$cmp` for a shape with a float somewhere in it, which only the descriptor
+// can tell apart from an integer that JavaScript also holds as a `number`.
+function $cmpd(a, b, d) {
+  const k = d[0];
+  if (k === 0) return d[1] === "f" ? $fcmp(a, b) : $cmp(a, b);
+  if (k === 2) return $cmpEach(a, b, d[4], 0);
+  if (k === 3) {
+    if (d[3]) return $cmp(a, b);
+    if (a[0] !== b[0]) return a[0] < b[0] ? 0 : 2;
+    return $cmpEach(a, b, d[2][a[0]][3], 1);
+  }
+  if (k === 4) {
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+      const c = $cmpd(a[i], b[i], d[1]);
+      if (c !== 1) return c;
+    }
+    return a.length < b.length ? 0 : a.length > b.length ? 2 : 1;
+  }
+  if (k === 5) return $cmpEach(a, b, d[1], 0);
+  if (k === 7) {
+    if (a === undefined || b === undefined) return a === b ? 1 : a === undefined ? 0 : 2;
+    return $cmpd($val(a), $val(b), d[1]);
+  }
+  return $cmp(a, b);
+}
+
+// Components `from..` of two values, one descriptor per component.
+function $cmpEach(a, b, types, from) {
+  for (let i = 0; i < types.length; i++) {
+    const c = $cmpd(a[i + from], b[i + from], types[i]);
+    if (c !== 1) return c;
+  }
+  return 1;
 }
 
 // FNV-1a over 32 bits, which a double holds exactly. `Hash` returns a `U64`,

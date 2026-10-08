@@ -480,7 +480,9 @@ impl<T: Ordered> [T] {
             fn(best, x) => {
                 match (best) {
                     .None => .Some(x),
-                    .Some(b) => if (x > b) { .Some(x) } else { .Some(b) },
+                    .Some(b) => {
+                        if (x.compare(b) == .Greater) { .Some(x) } else { .Some(b) }
+                    },
                 }
             },
             .None,
@@ -492,7 +494,9 @@ impl<T: Ordered> [T] {
             fn(best, x) => {
                 match (best) {
                     .None => .Some(x),
-                    .Some(b) => if (x < b) { .Some(x) } else { .Some(b) },
+                    .Some(b) => {
+                        if (x.compare(b) == .Less) { .Some(x) } else { .Some(b) }
+                    },
                 }
             },
             .None,

@@ -3427,6 +3427,9 @@ impl Jit<'_> {
         let Some((tag, _, _)) = prim_tag(prim) else {
             return self.unsupported(format!("Ordered::compare at `{}`", prim.name()));
         };
+        if prim.is_float() {
+            return self.compare_float(st, prim, a, b, dest, w);
+        }
         let raw = st.scratch + super::rtcall::RAW_WORD * 8;
         self.imm_to(raw, EQUAL);
         for (op, v) in [("lt", LESS), ("gt", GREATER)] {
@@ -3451,6 +3454,76 @@ impl Jit<'_> {
                 ],
             );
             self.imm_to(raw, v);
+            let here = self.region.code_addr();
+            st.place(skip, here);
+        }
+        self.store_w(dest, raw, w);
+    }
+
+    /// [`Self::compare_prim`] at a float: `-inf < … < -0.0 < 0.0 < … < inf <
+    /// NaN`, every NaN equal to every other. `llvm/emit.rs`'s `float_order` is
+    /// the twin.
+    ///
+    /// A run of guarded stores into the answer, each later one overriding the
+    /// earlier. `eq` at a float is SPEC 7.2's, where every NaN equals every
+    /// other, so `x == NaN` is how a NaN is found, and `1 / x` is how a zero's
+    /// sign is read.
+    fn compare_float(&mut self, st: &mut Fn2, prim: Prim, a: u32, b: u32, dest: u32, w: u32) {
+        let Some((tag, _, _)) = prim_tag(prim) else { return };
+        let word = |k: u32| st.scratch + (super::rtcall::RAW_WORD + k) * 8;
+        let (raw, constant, ia, ib) = (word(0), word(1), word(2), word(3));
+        let (one, nan) = if prim == Prim::F32 {
+            (u64::from(1.0f32.to_bits()), u64::from(f32::NAN.to_bits()))
+        } else {
+            (1.0f64.to_bits(), f64::NAN.to_bits())
+        };
+        let bin = |op: &str| key!["bin/", op, "/", tag, "/ff/f"];
+        self.imm_to(constant, one);
+        for (from, to) in [(a, ia), (b, ib)] {
+            self.emit(
+                &bin("div"),
+                &[
+                    ("JIT_D", V::I(u64::from(to))),
+                    ("JIT_A", V::I(u64::from(constant))),
+                    ("JIT_B", V::I(u64::from(from))),
+                    ("JIT_CONT", V::Fall),
+                ],
+            );
+        }
+        self.imm_to(constant, nan);
+        self.imm_to(raw, EQUAL);
+        // Each row's tests, all of which must hold, then the answer it stores.
+        type Test<'t> = (&'t str, u32, u32);
+        let rows: [(&[Test<'_>], u64); 7] = [
+            (&[("lt", a, b)], LESS),
+            (&[("gt", a, b)], GREATER),
+            // Equal by `==`: a zero against a zero is told apart by its sign.
+            (&[("eq", a, b), ("lt", ia, ib)], LESS),
+            (&[("eq", a, b), ("gt", ia, ib)], GREATER),
+            (&[("eq", b, constant)], LESS),
+            (&[("eq", a, constant)], GREATER),
+            (&[("eq", a, constant), ("eq", b, constant)], EQUAL),
+        ];
+        for (tests, value) in rows {
+            let skip = st.label();
+            for &(op, x, y) in tests {
+                let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
+                self.emit(
+                    &bin(op),
+                    &[
+                        ("JIT_D", V::I(u64::from(scr))),
+                        ("JIT_A", V::I(u64::from(x))),
+                        ("JIT_B", V::I(u64::from(y))),
+                        ("JIT_CONT", V::Fall),
+                    ],
+                );
+                let brkey = self.arm_key("br/f", "JIT_T");
+                self.emit(
+                    brkey,
+                    &[("JIT_A", V::I(u64::from(scr))), ("JIT_T", V::Fall), ("JIT_F", V::Blk(skip))],
+                );
+            }
+            self.imm_to(raw, value);
             let here = self.region.code_addr();
             st.place(skip, here);
         }

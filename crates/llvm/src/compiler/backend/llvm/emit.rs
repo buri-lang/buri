@@ -8777,8 +8777,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// The ordered float predicates (`OGT`, `OLT`) rather than the unordered
     /// ones, so that every comparison with a `NaN` is false — which is what
-    /// makes `signum(NaN)` fall through to zero and `compare(NaN, x)` to
-    /// `Equal`, both of which are `js/intrinsics.rs`'s answers.
+    /// makes `signum(NaN)` fall through to zero, `js/intrinsics.rs`'s answer.
+    /// A float's `compare` is [`Self::float_order`] instead.
     fn cmp_pair(
         &self,
         x: BasicValueEnum<'ctx>,
@@ -8808,6 +8808,41 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             (Ok(above), Ok(below)) => Some((above, below)),
             _ => None,
         }
+    }
+
+    /// `(x > y, x < y)` in `compare`'s order at a float: `-inf < … < -0.0 <
+    /// 0.0 < … < inf < NaN`, every NaN equal to every other. `runtime.js`'s
+    /// `$fcmp` and `stencil/emit.rs`'s `compare_float` are the twins.
+    ///
+    /// Rust's `total_cmp` on the bits, after every NaN becomes the one
+    /// positive quiet NaN: flipping every bit but the sign of a negative float
+    /// makes the signed integer order the float order.
+    fn float_order(
+        &self,
+        x: FloatValue<'ctx>,
+        y: FloatValue<'ctx>,
+    ) -> Option<(IntValue<'ctx>, IntValue<'ctx>)> {
+        let (bits, sign_at, nan) = if x.get_type() == self.ctx.f32_type() {
+            (32, 31, u64::from(f32::NAN.to_bits()))
+        } else {
+            (64, 63, f64::NAN.to_bits())
+        };
+        let int = self.int_of_width(bits);
+        let b = &self.builder;
+        let key = |v: FloatValue<'ctx>| -> Option<IntValue<'ctx>> {
+            let is_nan = b.build_float_compare(FloatPredicate::UNO, v, v, "ord.nan").ok()?;
+            let raw = b.build_bit_cast(v, int, "ord.bits").ok()?.into_int_value();
+            let canon = b.build_select(is_nan, int.const_int(nan, false), raw, "ord.canon").ok()?;
+            let canon = canon.into_int_value();
+            let at = int.const_int(sign_at, false);
+            let sign = b.build_right_shift(canon, at, true, "ord.sign").ok()?;
+            let mask = b.build_right_shift(sign, int.const_int(1, false), false, "ord.mask").ok()?;
+            b.build_xor(canon, mask, "ord.key").ok()
+        };
+        let (l, r) = (key(x)?, key(y)?);
+        let above = b.build_int_compare(IntPredicate::SGT, l, r, "gt").ok()?;
+        let below = b.build_int_compare(IntPredicate::SLT, l, r, "lt").ok()?;
+        Some((above, below))
     }
 
     /// `x < 0 ? -1 : (x > 0 ? 1 : 0)`, which is `js/intrinsics.rs`'s spelling
@@ -8863,7 +8898,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         signed: bool,
         tag: IntType<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let Some((above, below)) = self.cmp_pair(x, y, float, signed) else {
+        let pair = match (x, y) {
+            (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) if float => {
+                self.float_order(l, r)
+            }
+            _ => self.cmp_pair(x, y, float, signed),
+        };
+        let Some((above, below)) = pair else {
             self.ice(format_args!("ordered a {} and a {}", x.get_type(), y.get_type()));
             return x;
         };

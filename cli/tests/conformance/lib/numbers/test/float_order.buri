@@ -1,0 +1,267 @@
+// `compare` on a float is a total order (#272):
+//
+//   -inf < ... < -0.0 < 0.0 < ... < inf < NaN
+//
+// Every NaN equals every other, whatever its sign or payload, because the sign
+// of a NaN that arithmetic makes depends on the CPU. `==` and the ordering
+// operators stay as SPEC 6.2 has them.
+
+from "core/math" import * as math;
+from "core/number" import * as number;
+from "core/order" import { Order, Ordered, Show };
+from "core/orderedmap" import * as ordmap;
+from "core/orderedset" import * as orderedset;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+fn shown<C: Allocator, T: Show>(ctx: C, value: T): Str {
+    value.show(ctx)
+}
+
+fn compareOf<T: Ordered>(a: T, b: T): Order {
+    a.compare(b)
+}
+
+// --- The four from the issue --------------------------------------------------------
+
+test "NaN does not compare equal to 1.0" {
+    let nan: F64 = math.NAN;
+    assert.isTrue(nan.compare(1.0) != .Equal);
+}
+
+test "an ordered map keyed on F64 keeps NaN and 1.0 as two keys" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let map = ordmap.empty().insert(ctx, 1.0, 1).insert(ctx, math.NAN, 2);
+    assert.equal(map.size, 2);
+}
+
+test "sorting floats does not depend on their input order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let order = fn(a: F64, b: F64) => a.compare(b);
+    let first = [2.0, math.NAN, 1.0].sortBy(ctx, order);
+    let second = [math.NAN, 2.0, 1.0].sortBy(ctx, order);
+    assert.isTrue(first.get(0) == second.get(0));
+}
+
+test "an ordered map keyed on F64 keeps -0.0 and 0.0 as two keys" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let map = ordmap.empty().insert(ctx, 0.0, 1).insert(ctx, -0.0, 2);
+    assert.equal(map.size, 2);
+}
+
+// --- The order ---------------------------------------------------------------------
+
+/// A NaN made at run time rather than by `math.NAN`'s division.
+fn madeNan(): F64 {
+    math.INFINITY - math.INFINITY
+}
+
+test "every NaN compares equal to every other" {
+    assert.equal(math.NAN.compare(math.NAN), Order.Equal);
+    assert.equal(math.NAN.compare(-math.NAN), Order.Equal);
+    assert.equal((-math.NAN).compare(math.NAN), Order.Equal);
+    assert.equal(madeNan().compare(math.NAN), Order.Equal);
+    assert.equal((-madeNan()).compare(math.NAN), Order.Equal);
+}
+
+test "NaN sorts after every other float, whatever its sign" {
+    assert.equal(math.NAN.compare(math.INFINITY), Order.Greater);
+    assert.equal(math.INFINITY.compare(math.NAN), Order.Less);
+    assert.equal((-math.NAN).compare(math.INFINITY), Order.Greater);
+    assert.equal((-math.NAN).compare(math.NEG_INFINITY), Order.Greater);
+    assert.equal(math.NEG_INFINITY.compare(-math.NAN), Order.Less);
+    assert.equal(madeNan().compare(1.0), Order.Greater);
+}
+
+test "a NaN made at run time sorts where math.NAN does" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sorted = [madeNan(), 1.0, math.NAN, -madeNan(), -1.0, -math.NAN].sort(ctx);
+    assert.equal(shown(ctx, sorted), "[-1.0, 1.0, NaN, NaN, NaN, NaN]");
+}
+
+test "the infinities bound every finite float" {
+    assert.equal(math.NEG_INFINITY.compare(-1.7976931348623157e308), Order.Less);
+    assert.equal(math.INFINITY.compare(1.7976931348623157e308), Order.Greater);
+    assert.equal(math.NEG_INFINITY.compare(math.INFINITY), Order.Less);
+    assert.equal(math.INFINITY.compare(math.INFINITY), Order.Equal);
+    assert.equal(math.NEG_INFINITY.compare(math.NEG_INFINITY), Order.Equal);
+}
+
+test "-0.0 sorts before 0.0" {
+    assert.equal((-0.0).compare(0.0), Order.Less);
+    assert.equal(0.0.compare(-0.0), Order.Greater);
+    assert.equal((-0.0).compare(-0.0), Order.Equal);
+    assert.equal(0.0.compare(0.0), Order.Equal);
+    // Each zero still sits between the smallest floats either side of it.
+    assert.equal((-5.0e-324).compare(-0.0), Order.Less);
+    assert.equal(0.0.compare(5.0e-324), Order.Less);
+}
+
+test "an ordered map keyed on F64 iterates in compare's order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let map = ordmap.of(ctx, [
+        (math.NAN, "nan"),
+        (1.0, "one"),
+        (math.NEG_INFINITY, "-inf"),
+        (0.0, "zero"),
+        (-0.0, "-zero"),
+        (math.INFINITY, "inf"),
+        (-1.0, "-one"),
+        (madeNan(), "made nan"),
+    ]);
+    assert.equal(map.size, 7);
+    assert.equal(shown(ctx, map.keys(ctx)), "[-inf, -1.0, -0.0, 0.0, 1.0, inf, NaN]");
+    assert.equal(map.get(math.NAN), .Some("made nan"));
+    assert.equal(map.get(-0.0), .Some("-zero"));
+}
+
+test "F32 compares in the same order" {
+    let zero: F32 = 0.0;
+    let one: F32 = 1.0;
+    let nan = zero / zero;
+    let inf = one / zero;
+    assert.equal((-zero).compare(zero), Order.Less);
+    assert.equal(nan.compare(inf), Order.Greater);
+    assert.equal(nan.compare(-nan), Order.Equal);
+    assert.equal((-inf).compare(-one), Order.Less);
+    assert.equal(one.compare(one), Order.Equal);
+}
+
+// --- What does not change ----------------------------------------------------------
+
+test "== on floats is unchanged" {
+    assert.isTrue(math.NAN == math.NAN);
+    assert.isTrue(math.NAN == -math.NAN);
+    assert.isTrue(madeNan() == math.NAN);
+    assert.isTrue(-0.0 == 0.0);
+    assert.isFalse(math.NAN == 1.0);
+}
+
+test "the ordering operators stay IEEE's" {
+    assert.isFalse(math.NAN < 1.0);
+    assert.isFalse(1.0 < math.NAN);
+    assert.isFalse(math.NAN > math.INFINITY);
+    assert.isFalse(math.NAN >= math.NAN);
+    assert.isFalse(-0.0 < 0.0);
+    assert.isTrue(-0.0 <= 0.0);
+    assert.isTrue(0.0 >= -0.0);
+}
+
+fn below<T: Ordered>(a: T, b: T): Bool {
+    a < b
+}
+
+fn atMost<T: Ordered>(a: T, b: T): Bool {
+    a <= b
+}
+
+fn above<T: Ordered>(a: T, b: T): Bool {
+    a > b
+}
+
+fn atLeast<T: Ordered>(a: T, b: T): Bool {
+    a >= b
+}
+
+test "the ordering operators stay IEEE's at a float behind an Ordered bound" {
+    assert.isFalse(below(1.0, math.NAN));
+    assert.isFalse(below(math.NAN, 1.0));
+    assert.isFalse(below(-0.0, 0.0));
+    assert.isFalse(above(math.NAN, 1.0));
+    assert.isFalse(atMost(math.NAN, 1.0));
+    assert.isFalse(atLeast(math.NAN, 1.0));
+    assert.isFalse(atLeast(1.0, math.NAN));
+    assert.isTrue(atMost(-0.0, 0.0));
+    assert.isTrue(atLeast(0.0, -0.0));
+    assert.isTrue(below(1.0, 2.0));
+    // Every other type still goes through `compare`.
+    assert.isTrue(below("a", "b"));
+    assert.isTrue(atLeast(3, 3));
+}
+
+// --- What follows compare ----------------------------------------------------------
+
+test "number.min, max and clamp follow compare" {
+    assert.equal(number.min(math.NAN, 1.0), 1.0);
+    assert.equal(number.min(1.0, math.NAN), 1.0);
+    assert.isTrue(math.isNan(number.max(math.NAN, 1.0)));
+    assert.isTrue(math.isNan(number.max(1.0, math.NAN)));
+    assert.equal(number.clamp(0.0, 1.0, math.NAN), 1.0);
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(number.min(0.0, -0.0).show(ctx), "-0.0");
+    assert.equal(number.min(-0.0, 0.0).show(ctx), "-0.0");
+    assert.equal(number.max(0.0, -0.0).show(ctx), "0.0");
+    assert.equal(number.max(-0.0, 0.0).show(ctx), "0.0");
+}
+
+test "a list's maximum and minimum don't depend on its order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.isTrue(math.isNan(assert.some([1.0, math.NAN].maximum())));
+    assert.isTrue(math.isNan(assert.some([math.NAN, 1.0].maximum())));
+    assert.equal([1.0, math.NAN].minimum(), .Some(1.0));
+    assert.equal([math.NAN, 1.0].minimum(), .Some(1.0));
+    assert.equal(assert.some([0.0, -0.0].minimum()).show(ctx), "-0.0");
+    assert.equal(assert.some([-0.0, 0.0].maximum()).show(ctx), "0.0");
+}
+
+test "sort, binarySearch and distinct follow compare" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sorted = [math.NAN, 2.0, 0.0, -0.0, math.NEG_INFINITY].sort(ctx);
+    assert.equal(shown(ctx, sorted), "[-inf, -0.0, 0.0, 2.0, NaN]");
+    assert.equal(sorted.binarySearch(math.NAN), .Ok(4));
+    assert.equal(sorted.binarySearch(0.0), .Ok(2));
+    let kept = orderedset.distinct(ctx, [math.NAN, 1.0, math.NAN, -0.0, 0.0]);
+    assert.equal(shown(ctx, kept), "[NaN, 1.0, -0.0, 0.0]");
+}
+
+derive Equal, Ordered, Show for Reading;
+struct Reading {
+    value: F64,
+    at: Int,
+}
+
+test "a derived Ordered orders a float field by compare" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let nan = Reading { value: math.NAN, at: 1 };
+    let one = Reading { value: 1.0, at: 1 };
+    assert.equal(nan.compare(one), Order.Greater);
+    assert.equal(nan.compare(Reading { value: madeNan(), at: 1 }), Order.Equal);
+    assert.equal(
+        Reading { value: -0.0, at: 2 }.compare(Reading { value: 0.0, at: 1 }),
+        Order.Less,
+    );
+    let map = ordmap.empty().insert(ctx, one, "one").insert(ctx, nan, "nan");
+    assert.equal(map.size, 2);
+}
+
+test "tuples, options and lists of floats order by compare" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(compareOf((math.NAN, 1), (1.0, 1)), Order.Greater);
+    assert.equal(compareOf((-0.0, 1), (0.0, 1)), Order.Less);
+    assert.equal(Option.Some(-0.0).compare(.Some(0.0)), Order.Less);
+    assert.equal(Option.Some(math.NAN).compare(.Some(math.INFINITY)), Order.Greater);
+    assert.equal([1.0, -0.0].compare([1.0, 0.0]), Order.Less);
+    let map = ordmap.empty().insert(ctx, (0.0, 1), "a").insert(ctx, (-0.0, 1), "b");
+    assert.equal(map.size, 2);
+}

@@ -27,9 +27,9 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Ninety-eight of the hundred and six files are in it** — the number the
-//! harness prints, re-derived from it rather than incremented by hand, and one
-//! the prose has drifted from more than once. The seventeen newest are
+//! **A hundred and fifteen of the hundred and twenty-three files are in it** — the
+//! number the harness prints, re-derived from it rather than incremented by hand,
+//! and one the prose has drifted from more than once. Seventeen that joined together are
 //! `core/buri/ast` and everything downstream of it — the five `buri_ast/`
 //! files, the two `generators/` and the five `proto_gen/` — plus the five the
 //! inexact conversions were holding: `numbers/conversions.buri`,
@@ -786,6 +786,10 @@ const PACKAGES: &[Case] = &[
     // transcendental: it is division by zero, `signum`, the three classifiers,
     // `squareRoot`, `floor`, `ceiling`, `absoluteFloat` and rendering, each of them exact.
     included("numbers/special_floats.buri"),
+    // `compare`'s total order at a float (#272), which each backend spells on
+    // its own: the method, a derived `Ordered` over a float field, and an
+    // operator behind an `Ordered` bound. All of it is exact.
+    included("numbers/float_order.buri"),
     // `core/json`'s unescaping reaches `number.U32.toChar` — an *inexact*
     // conversion, because not every `U32` is a Unicode scalar value — and that
     // one call was the whole of what held this file out.

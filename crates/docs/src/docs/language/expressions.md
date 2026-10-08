@@ -53,6 +53,11 @@ members, `list.contains` and `derive Equal` all need that.
 The **ordering** operators stay IEEE-754's: any `<`, `<=`, `>` or `>=` with a
 `NaN` operand is false, including `NaN < NaN`. So neither `a <= b && b <= a` nor
 `!(a < b) && !(a > b)` implies `a == b`. Use `math.isNan(x)` to test for `NaN`.
+That holds behind an `Ordered` bound too: `a < b` at a `T` that is a float is
+IEEE's, not `compare`'s.
+
+`compare` is the total order (Section 5.11): `-0.0` before `0.0`, and every
+`NaN` after `inf` and `.Equal` to every other `NaN`.
 
 A `NaN`'s payload isn't part of its value, so nothing preserves one:
 `bytes.f64FromBytes` answers the canonical quiet NaN for every NaN pattern, which

@@ -275,8 +275,8 @@ Lambdas capture by value. The one exception is the effect capture rule in the
 - Integer `/` truncates toward zero and `%` takes the dividend's sign. Division
   by zero aborts, and overflow is **undefined behaviour**, so use
   `checkedAdd`/`wrappingAdd`/`saturatingAdd` or `core/bits` when it matters.
-- Float `==` is an equivalence relation, so `NaN == NaN` is true. `<` and
-  friends stay IEEE-754, so they disagree with `==` at `NaN`.
+- Float `==` is an equivalence, so `NaN == NaN`; `<` and friends stay IEEE-754.
+  `compare` is a total order: `-0.0` before `0.0`, and every `NaN` last.
 
 ## Conventions
 
