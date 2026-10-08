@@ -2373,20 +2373,8 @@ impl<'a> Jit<'a> {
                 if op == "hash" {
                     let seed = fs.param_end;
                     self.imm_to(seed, runtime::HASH_SEED);
-                    let (symbol, ints, floats): (&str, Vec<Src>, Vec<Src>) = if prim.is_float() {
-                        (runtime::HASH_F64, vec![Src::Word(seed)], vec![Src::Word(p(0))])
-                    } else {
-                        let (symbol, value) = int_hash(prim, p(0));
-                        (symbol, [vec![Src::Word(seed)], value].concat(), Vec::new())
-                    };
-                    if prim == Prim::F32 {
-                        self.unsupported(format!("Body::Runtime {key}"));
-                        return;
-                    }
-                    match self.c_call(symbol, st, &ints, &floats, ret0, "i") {
-                        Ok(()) => self.emit("ret", &[]),
-                        Err(why) => self.unsupported(why),
-                    }
+                    self.hash_prim(st, prim, seed, p(0), ret0);
+                    self.emit("ret", &[]);
                     return;
                 }
                 // `Checked`, `Saturating`, `Wrapping`, `abs` and `signum`,

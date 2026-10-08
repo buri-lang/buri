@@ -513,7 +513,7 @@ fn the_rendering_contract_matches_javascript() {
             "hash-int 34363494\n",
             "hash-str 1294271946\n",
             "hash-char 3826002220\n",
-            "hash-nan 84696351",
+            "hash-nan 3428180608",
         ),
         "stderr:\n{}",
         stderr(&out)

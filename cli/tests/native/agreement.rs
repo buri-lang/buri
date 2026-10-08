@@ -1626,6 +1626,56 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// **Every bit of a float reaches its hash, and every backend answers the same
+/// number** (follows buri-lang/buri#273). A float mixed `ToUint32(trunc(x))`,
+/// so `0.1` and `0.2` both hashed as `0.hash()`.
+///
+/// The first line is `0.1`, `0.2`, `0.5`, `-2.75`, `2^32`, `2^33 + 0.5` and
+/// the infinities. The second is NaN, `-0.0`, then `3.0`, `3e9` and `-2^31`,
+/// which hash as the integers they hold, then an `F32` `0.1` and `1.5`. The
+/// last is a derived struct, a tuple and an `Option`.
+#[test]
+fn floats_hash_every_bit() {
+    rows_or_skip!();
+    agree(
+        "float hash",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/math" import * as math;
+from "core/order" import { Hash };
+
+export struct P { a: F64 }
+derive Hash for P;
+
+fn hashOf<K: Hash>(key: K): U64 {
+  key.hash()
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let a: F64 = 0.1;
+  let b: F64 = 0.2;
+  let c: F64 = 0.5;
+  let d: F64 = -2.75;
+  let e: F64 = 4294967296.0;
+  let f: F64 = 8589934592.5;
+  let g: F32 = 0.1;
+  let k: F32 = 1.5;
+  let three: F64 = 3.0;
+  let wide: F64 = 3000000000.0;
+  let low: F64 = -2147483648.0;
+  let _ = io.println(host.stdout, "${a.hash()} ${b.hash()} ${c.hash()} ${d.hash()} ${e.hash()} ${f.hash()} ${math.INFINITY.hash()} ${math.NEG_INFINITY.hash()}").ignore();
+  let _ = io.println(host.stdout, "${math.NAN.hash()} ${(-0.0).hash()} ${three.hash()} ${wide.hash()} ${low.hash()} ${g.hash()} ${k.hash()}").ignore();
+  let _ = io.println(host.stdout, "${P { a: a }.hash()} ${hashOf((a, 1))} ${hashOf(Option.Some(a))}").ignore();
+  .Ok(())
+}
+"#,
+        "51662052 2186191668 210923880 266185427 3127566562 3901354779 3429563704 1282028472\n\
+         3428180608 84696351 101473970 1347956511 2232179999 3745142943 206980928\n\
+         3725239745 2205798143 51662052\n",
+    );
+}
+
 /// A `[T]` inside a derived `Show`, which used to be a named gap.
 ///
 /// It was `row_09_derived_show_of_a_list_is_a_gap` beside an `#[ignore]`d
