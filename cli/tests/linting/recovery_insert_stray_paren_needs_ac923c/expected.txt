@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+ --> lib/recovery_insert_stray_paren_needs_ac923c/lib.buri:5:34
+  |
+5 |     [1, 2].map(ctx, fn(x) => x + @ 1).length()
+  |                                  ^
+  |
+  = expected: an expression
+  = actual: `@`
+  = fix: write a value here

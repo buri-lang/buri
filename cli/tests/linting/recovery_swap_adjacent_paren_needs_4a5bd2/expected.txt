@@ -1,0 +1,36 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+ --> lib/recovery_swap_adjacent_paren_needs_4a5bd2/lib.buri:4:31
+  |
+4 | export fn needs<A: Allocator>(ctx: A): Int {
+  |                               ^^^^^^
+  |
+  = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+  = fix: remove the `ctx` parameter, and the context argument at every call site
+error: there is nothing named `ctxfn` in scope [unknown-name]
+ --> lib/recovery_swap_adjacent_paren_needs_4a5bd2/lib.buri:5:16
+  |
+5 |     [1, 2].map(ctxfn ,(x) => x + 1).length()
+  |                ^^^^^
+  |
+  = did you mean `ctx`?
+  = fix: if you meant `ctx`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `x` in scope [unknown-name]
+ --> lib/recovery_swap_adjacent_paren_needs_4a5bd2/lib.buri:5:24
+  |
+5 |     [1, 2].map(ctxfn ,(x) => x + 1).length()
+  |                        ^
+  |
+  = did you mean `ctx`?
+  = fix: if you meant `ctx`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: this call is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_swap_adjacent_paren_needs_4a5bd2/lib.buri:5:27
+  |
+5 |     [1, 2].map(ctxfn ,(x) => x + 1).length()
+  |                           ^^
+  |
+ --> lib/recovery_swap_adjacent_paren_needs_4a5bd2/lib.buri:5:15
+  |
+5 |     [1, 2].map(ctxfn ,(x) => x + 1).length()
+  |               ^ opened here
+  |
+  = fix: write `)` here

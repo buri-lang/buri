@@ -1,0 +1,9 @@
+error: expected an identifier, found `export` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_needs_1647f0/lib.buri:4:4
+  |
+4 | fn export needs<A: Allocator>(ctx: A): Int {
+  |    ^^^^^^
+  |
+  = expected: an identifier
+  = actual: `export`
+  = fix: write `export` before `fn`

@@ -316,12 +316,16 @@ warning: bound `Allocator` on `C` is not used by this function [unused-context-b
      files, and every caller must hold a context that can do both. A dead bound
      spreads, because each caller's signature has to carry it too.
 
-     A body uses a bound in exactly two ways, both calls:
+     A body uses a bound in three ways:
 
      - A callee that asks for it. io.println(ctx, x) makes its own bounds
      demands on C, so the bounds it names are used and the rest are not. This is
      the only way an effect gets used: you call an effect through the module
      that wraps it, not on the context (SPEC 10.2).
+
+     - An `impl` that asks for it. Given
+     impl<C: Allocator + Clock> Allocator for Wrap<C>, needs(Wrap { inner: ctx
+     }) uses Clock, because Wrap<C> is an Allocator only where C is a Clock.
 
      - A function-typed parameter. render(ctx, label), where
      render: fn(C, Str) => Str, hands the whole context to unseen code, so it

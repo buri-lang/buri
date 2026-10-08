@@ -1,0 +1,47 @@
+// A bound is used when an `impl` the body leans on asks for it. `Wrap<C>` is
+// an `Allocator` only where `C` is also a `Clock`, so handing a `Wrap` of the
+// context to `needs` uses `Clock`, though no line here names a clock.
+
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Clock, Region };
+from "//lib/needs" import { needs };
+
+struct Wrap<C> {
+    inner: C,
+}
+
+// Wrap allocates only when what it wraps also tells the time.
+impl<C: Allocator + Clock> Allocator for Wrap<C> {
+    fn allocate(self, size: Int): Region {
+        self.inner.allocate(size)
+    }
+}
+
+struct Masked<C> {
+    inner: C,
+}
+
+impl<C: Allocator> Allocator for Masked<C> {
+    fn allocate(self, size: Int): Region {
+        self.inner.allocate(size)
+    }
+}
+
+/// `needs` asks `Wrap<C>: Allocator`, and the `impl` asks `C: Clock`.
+fn count<C: Allocator + Clock>(ctx: C): Int {
+    needs(Wrap { inner: ctx })
+}
+
+/// The same demand, one `impl` further away: `Masked<Wrap<C>>` asks
+/// `Wrap<C>`, which asks `C`.
+fn layered<C: Allocator + Clock>(ctx: C): Int {
+    needs(Masked { inner: Wrap { inner: ctx } })
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Clock: host.clock,
+    };
+    if (count(ctx) + layered(ctx) == 4) { .Ok(()) } else { .Err("miscounted") }
+}

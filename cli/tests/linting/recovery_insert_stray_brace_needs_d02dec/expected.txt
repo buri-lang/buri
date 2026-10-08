@@ -1,0 +1,35 @@
+error: there is nothing named `extra` in scope [unknown-name]
+ --> lib/recovery_insert_stray_brace_needs_d02dec/lib.buri:5:5
+  |
+5 |     extra [1, 2].map(ctx, fn(x) => x + 1).length()
+  |     ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: `map` takes 1 argument, but 2 were given [argument-count]
+ --> lib/recovery_insert_stray_brace_needs_d02dec/lib.buri:5:5
+  |
+5 |     extra [1, 2].map(ctx, fn(x) => x + 1).length()
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = expected: 1
+  = actual: 2
+  = fix: pass `map` the following arguments: map<U>(self, transform: fn(T) => U)
+error: this index is missing its closing `]` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_brace_needs_d02dec/lib.buri:5:13
+  |
+5 |     extra [1, 2].map(ctx, fn(x) => x + 1).length()
+  |             ^
+  |
+ --> lib/recovery_insert_stray_brace_needs_d02dec/lib.buri:5:11
+  |
+5 |     extra [1, 2].map(ctx, fn(x) => x + 1).length()
+  |           ^ opened here
+  |
+  = fix: write `]` here
+error: `Option<_2>` has no method `length` [unknown-method]
+ --> lib/recovery_insert_stray_brace_needs_d02dec/lib.buri:5:43
+  |
+5 |     extra [1, 2].map(ctx, fn(x) => x + 1).length()
+  |                                           ^^^^^^
+  |
+  = fix: check the spelling — `buri docs core/option` lists every method `Option<_2>` has

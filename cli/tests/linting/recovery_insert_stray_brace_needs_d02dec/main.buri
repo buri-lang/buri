@@ -1,0 +1,6 @@
+from "platform/effect" import { Allocator };
+
+/// Asks for an `Allocator`, and nothing else.
+export fn needs<A: Allocator>(ctx: A): Int {
+    extra [1, 2].map(ctx, fn(x) => x + 1).length()
+}

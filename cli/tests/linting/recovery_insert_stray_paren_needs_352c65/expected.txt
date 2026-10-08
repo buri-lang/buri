@@ -1,0 +1,21 @@
+error: `map` takes 2 arguments, but 1 was given [argument-count]
+ --> lib/recovery_insert_stray_paren_needs_352c65/lib.buri:5:5
+  |
+5 |     [1, 2].map(ctx@ , fn(x) => x + 1).length()
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = expected: 2
+  = actual: 1
+  = fix: `map` requires a `transform` parameter: map<B, C: Allocator>(self, ctx: C, transform: fn(A) => B)
+error: this call is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_paren_needs_352c65/lib.buri:5:19
+  |
+5 |     [1, 2].map(ctx@ , fn(x) => x + 1).length()
+  |                   ^
+  |
+ --> lib/recovery_insert_stray_paren_needs_352c65/lib.buri:5:15
+  |
+5 |     [1, 2].map(ctx@ , fn(x) => x + 1).length()
+  |               ^ opened here
+  |
+  = fix: write `)` here

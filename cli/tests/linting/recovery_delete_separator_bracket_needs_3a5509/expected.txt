@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-comma]
+ --> lib/recovery_delete_separator_bracket_needs_3a5509/lib.buri:5:7
+  |
+5 |     [1 2].map(ctx, fn(x) => x + 1).length()
+  |       ^
+  |
+  = fix: write `,` here
