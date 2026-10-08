@@ -5442,6 +5442,126 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// The key of element `i` of `n` in each input shape [`sorting_agrees_on_every_input_shape`]
+/// sorts: ascending, descending, all equal, both directions with ties, a
+/// sawtooth, an organ pipe, scattered ties, a sorted list with one more element
+/// on the end, and two ascending runs.
+fn sort_key(shape: i64, n: i64, i: i64) -> i64 {
+    match shape {
+        0 => i,
+        1 => n - i,
+        2 => 0,
+        3 => (n - i) / 3,
+        4 => i / 3,
+        5 => i % 5,
+        6 => if i < n / 2 { i } else { n - i },
+        7 => (i * 7919) % 13,
+        8 => if i == n - 1 { 0 } else { i },
+        _ => i % (n / 2 + 1),
+    }
+}
+
+/// **`sortBy` is stable on every input shape, and every backend gives back
+/// what it sorted.** Each shape is sorted up and down by an `Int` key, the
+/// second through a function value, and its `Str` tags and `Int` keys are
+/// sorted on their own. Each line prints a positional digest of each answer,
+/// which Rust's stable sort works out here. Lengths straddle the short runs
+/// a sort may treat on their own, and every element holds a `Str`, so the heap
+/// check sees a lost or doubled count.
+#[test]
+fn sorting_agrees_on_every_input_shape() {
+    rows_or_skip!();
+    let lens: [i64; 19] = [0, 1, 2, 3, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 100, 257];
+    let digest = |xs: &mut dyn Iterator<Item = i64>| xs.fold(0i64, |acc, x| (acc * 1_000_003 + x + 1) % 1_000_000_007);
+    let mut expected = String::new();
+    for shape in 0..10 {
+        for n in lens {
+            let items: Vec<(i64, i64)> = (0..n).map(|i| (sort_key(shape, n, i), i)).collect();
+            let width = |at: i64| at.to_string().len() as i64;
+            let mut up = items.clone();
+            up.sort_by_key(|&(k, _)| k);
+            let mut down = items.clone();
+            down.sort_by_key(|&(k, _)| std::cmp::Reverse(k));
+            let mut tags: Vec<String> = (0..n).map(|i| i.to_string()).collect();
+            tags.sort();
+            let mut keys: Vec<i64> = items.iter().map(|&(k, _)| k).collect();
+            keys.sort();
+            expected += &format!(
+                "s{shape} n{n}: {} {} {} {}\n",
+                digest(&mut up.iter().map(|&(_, at)| at + width(at))),
+                digest(&mut down.iter().map(|&(_, at)| at + width(at))),
+                digest(&mut tags.iter().map(|t| t.parse::<i64>().unwrap())),
+                digest(&mut keys.into_iter()),
+            );
+        }
+    }
+    let lens = lens.map(|n| n.to_string()).join(", ");
+    agree(
+        "sortBy on every input shape",
+        &r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "platform/effect" import { Allocator };
+
+struct Item { key: Int, at: Int, tag: Str }
+
+fn keyOf(shape: Int, n: Int, i: Int): Int {
+  match (shape) {
+    0 => i,
+    1 => n - i,
+    2 => 0,
+    3 => (n - i) / 3,
+    4 => i / 3,
+    5 => i % 5,
+    6 => if (i < n / 2) { i } else { n - i },
+    7 => (i * 7919) % 13,
+    8 => if (i == n - 1) { 0 } else { i },
+    _ => i % (n / 2 + 1),
+  }
+}
+
+fn mix(acc: Int, x: Int): Int { (acc * 1000003 + x + 1) % 1000000007 }
+
+fn items(xs: [Item]): Int { xs.fold(fn(acc, it) => mix(acc, it.at + it.tag.length()), 0) }
+
+fn strs(xs: [Str]): Int { xs.fold(fn(acc, s) => mix(acc, s.toInt().withDefault(-1)), 0) }
+
+fn ints(xs: [Int]): Int { xs.fold(fn(acc, k) => mix(acc, k), 0) }
+
+fn through<C: Allocator>(ctx: C, xs: [Item], order: fn(Item, Item) => Order): [Item] { xs.sortBy(ctx, order) }
+
+fn line(host: NativeHost, shape: Int, n: Int): Str {
+  let a = host.alloc;
+  let xs = list.range(a, 0, n).mapCtx(a, fn(c, i) => Item { key: keyOf(shape, n, i), at: i, tag: str.fromInt(c, i) });
+  let up = xs.sortBy(a, fn(p, q) => p.key.compare(q.key));
+  let down = through(a, xs, fn(p, q) => q.key.compare(p.key));
+  let tags = xs.map(a, fn(it) => it.tag).sort(a);
+  let keys = xs.map(a, fn(it) => it.key).sort(a);
+  str.format(a, "s${shape} n${n}: ${items(up)} ${items(down)} ${strs(tags)} ${ints(keys)}")
+}
+
+fn run(host: NativeHost, k: Int, lens: [Int]): Int {
+  let count = lens.length();
+  if (k < 10 * count) {
+    let _ = io.println(host.stdout, line(host, k / count, lens.get(k % count).withDefault(0))).ignore();
+    run(host, k + 1, lens)
+  } else {
+    k
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = run(host, 0, [LENS]);
+  .Ok(())
+}
+"#
+        .replace("LENS", &lens),
+        &expected,
+    );
+}
+
 /// **A WebSocket client refuses a scheme it cannot speak, the same way on every
 /// backend.**
 ///

@@ -6231,6 +6231,103 @@ together, which holds on any host.
 **Still open:** a `[T]` doesn't hash natively at all (`deriveArrayHash` is a
 named gap), so a list of floats is covered on JavaScript only.
 
+### 6.66 `sortBy` uses the order it's given, 2026-10-08
+
+The run-time programs of §6.44 and §6.45, built `--release` and set beside
+the same work in Rust at `-O2`, gave one gap far wider than the rest. 24,000
+sorts of 2,000 `Int`s:
+
+| Input | Buri | Rust `sort_by` |
+|---|---:|---:|
+| ascending | 281 ms | 18 ms |
+| descending | 332 ms | 21 ms |
+| 100 sorts of 100,000 shuffled | 122 ms | 79 ms |
+
+`sortBy` was a bottom-up merge from runs of one, so every input took
+`log2 n` full passes, whatever its order. It was a third of the samples of
+`a_plists`, the slowest single-threaded program. The other candidates were
+narrower: `a_pstrings`' loop retires half the instructions Rust's does, a
+2¹⁶-node tree retires 1.36 times Rust's, mostly in macOS's `malloc` and `free`,
+and tiny tasks wait on the kernel (§6.44). A sort is in the standard library's
+own hands, lowered in one place (`lower/lists.rs`, `list_sort`), and every
+backend runs that one loop.
+
+```text
+scan          in order: copy it; strictly descending: copy it from the end
+runs of 4     insertion, in place
+each pass     two runs in order: copy them
+              the right run's last before the left run's first: copy them swapped
+              otherwise merge, and copy the rest once one side runs out
+```
+
+Every step keeps the left element unless the comparator answers `Greater`, so
+the sort stays stable. A swap needs the right run's largest strictly before the
+left run's smallest, so no tie ever crosses.
+
+`z_sorts`, 100 sorts of 20,000 elements, fewest of five alternating runs at
+load 1.3–2.1:
+
+| Input | `Int` before | after | | `Str` before | after | |
+|---|---:|---:|---:|---:|---:|---:|
+| shuffled | 435 M, 25.0 ms | 332 M, 22.8 ms | −24% | 2,351 M, 155 ms | 2,204 M, 148 ms | −6% |
+| ascending | 367 M, 18.6 ms | 34 M, 4.3 ms | −91% | 1,719 M, 81 ms | 293 M, 20 ms | −83% |
+| descending | 407 M, 21.4 ms | 38 M, 4.6 ms | −91% | 1,652 M, 85 ms | 304 M, 20 ms | −82% |
+| ascending, one more on the end | 367 M, 18.8 ms | 146 M, 10.9 ms | −60% | 1,719 M, 81 ms | 759 M, 47 ms | −56% |
+| descending in threes | 407 M, 22.9 ms | 211 M, 14.0 ms | −48% | 1,737 M, 94 ms | 1,238 M, 74 ms | −29% |
+| 20 ascending runs | 399 M, 20.4 ms | 224 M, 14.5 ms | −44% | 2,131 M, 114 ms | 1,455 M, 86 ms | −32% |
+
+The run-time programs that sort, same runs:
+
+| Program | Instructions before | after | Wall before | after |
+|---|---:|---:|---:|---:|
+| `a_plists` | 23,120 M | 16,467 M | 1,064 ms | 765 ms |
+| `a_lists` | 2,904 M | 2,072 M | 136 ms | 99 ms |
+| `lists`, 100,000 shuffled | 407 M | 359 M | 23.7 ms | 23.1 ms |
+| 24,000 sorts of 2,000, ascending | 6,354 M | 457 M | 281 ms | 24 ms |
+| the same, descending | 7,167 M | 529 M | 333 ms | 31 ms |
+| 100 sorts of 100,000 shuffled | 2,423 M | 1,929 M | 123 ms | 115 ms |
+
+The nineteen that don't sort link to the same bytes. Against Rust that leaves
+24 ms to 18, 31 to 21, and 115 to 79.
+
+A debug build gains on order the same way: 86% off the ascending and
+descending programs, 46% off `a_lists`. A shuffled list retires 1% fewer
+instructions and takes 1–4% longer.
+
+**What it costs to compile.** A `sortBy` call is a loop at its call site, and
+the loop is bigger now. `--release` `emit` of a program with one `Int` sort went
+from 183 M instructions to 292 M, and a debug build's from 15.5 M to 16.5 M.
+The stripped hello world is unchanged at 322,464 bytes.
+
+`agreement::sorting_agrees_on_every_input_shape` sorts ten shapes at nineteen
+lengths, up and down, through a lambda and through a function value, on all
+three backends under the heap check, against Rust's stable sort.
+`native::collection_costs` bounds an ascending and a descending list under a
+quarter of a shuffled one. Before, they were 0.83 and 0.94 of it on LLVM, and
+0.73 and 0.77 on the copy-and-patch backend. Now they're under a tenth.
+
+A comparator that isn't an order now gets a different permutation than before.
+JavaScript's `Array.prototype.sort` already gave a third one.
+
+**Tried and dropped:**
+
+- **Insertion runs of 1, 2, 8 and 16.** On the first draft, 4 was fewest on
+  both backends: 147 and 801 instructions an element on a shuffled list,
+  against 172 and 858 for no insertion and 164 and 991 for 16.
+- **One move loop that wraps at a cut**, for the copied and swapped runs.
+  `emit` was 90 M lower per site, but LLVM spilled around the merge's
+  comparator call, and shuffled `Str`s retired 11% more instructions than
+  before.
+- **A copy loop per case.** Three of them cost 200 M of `emit` per site, and
+  one shared loop with a second leg costs 109 M.
+- **Keeping the merged element across the comparator call.** The
+  copy-and-patch backend keeps it in its frame, and a shuffled list took 7–11%
+  longer than before. Reading it again costs LLVM nothing: it folds the two
+  loads.
+- **One back edge for the merge**, through a latch that checks both sides:
+  12% slower in debug than two back edges, and 17% more instructions in
+  `--release`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
