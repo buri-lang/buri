@@ -81,6 +81,21 @@ pub fn placed(path: &Path) {
     }
 }
 
+/// Notes that the executable [`placed`] noted at `from` now starts as `to`, or,
+/// with no `to`, as a file an earlier run already started.
+pub fn moved(from: &Path, to: Option<&Path>) {
+    if !crate::profile::enabled() {
+        return;
+    }
+    let Ok(from) = std::fs::canonicalize(from) else { return };
+    let mut fresh = FRESH.lock().unwrap_or_else(PoisonError::into_inner);
+    let Some(at) = fresh.iter().position(|p| *p == from) else { return };
+    fresh.swap_remove(at);
+    if let Some(to) = to.and_then(|to| std::fs::canonicalize(to).ok()) {
+        fresh.push(to);
+    }
+}
+
 /// Counts a start of `program` that is the first since [`placed`] noted it.
 pub fn started(program: &std::ffi::OsStr) {
     if !crate::profile::enabled() {

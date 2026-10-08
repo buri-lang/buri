@@ -61,7 +61,7 @@ fn repo(name: &str) -> Scratch {
     scratch
 }
 
-/// Every regular file under `root`, by inode, with its modification time and
+/// Every regular file under `root` but the home, by inode, with its modification time and
 /// size. By inode, so a directory renamed whole is not its files written again.
 fn files(root: &Path) -> HashMap<(u64, u64), (i64, i64, u64)> {
     let mut out = HashMap::new();
@@ -70,7 +70,7 @@ fn files(root: &Path) -> HashMap<(u64, u64), (i64, i64, u64)> {
         let Ok(entries) = std::fs::read_dir(&dir) else { continue };
         for entry in entries.filter_map(Result::ok) {
             let Ok(meta) = entry.path().symlink_metadata() else { continue };
-            if meta.is_dir() {
+            if meta.is_dir() && entry.file_name() != HOME {
                 dirs.push(entry.path());
             } else if meta.is_file() {
                 out.insert((meta.dev(), meta.ino()), (meta.mtime(), meta.mtime_nsec(), meta.len()));
@@ -102,10 +102,21 @@ fn holds(scratch: &Scratch, scenario: &str, args: &[&str], spec: &str) {
     holds_exiting(scratch, scenario, args, &[], 0, spec);
 }
 
+/// A `BURI_HOME` of the repository's own, which [`files`] doesn't count: `buri`
+/// keeps the runners it has started there (`build/programs.rs`), and a home
+/// another test shares would make a first start depend on what ran before.
+fn home_of(scratch: &Scratch) -> String {
+    scratch.path(HOME).display().to_string()
+}
+
+const HOME: &str = ".home";
+
 /// [`holds`], with more of the environment and the exit code it expects.
 fn holds_exiting(scratch: &Scratch, scenario: &str, args: &[&str], env: &[(&str, &str)], exit: i32, spec: &str) {
     let before = files(&scratch.root);
-    let env: Vec<(&str, &str)> = [("BURI_PROFILE", "1")].into_iter().chain(env.iter().copied()).collect();
+    let home = home_of(scratch);
+    let env: Vec<(&str, &str)> =
+        [("BURI_PROFILE", "1"), ("BURI_HOME", home.as_str())].into_iter().chain(env.iter().copied()).collect();
     let run = scratch.run_with_env(args, &env);
     run.exits(exit);
     let after = files(&scratch.root);
@@ -159,11 +170,11 @@ const NATIVE: [&str; 8] = [
     "suites built 3, objects compiled 10, links 1, new executables launched 1, test processes 3",
     "suites reused 3, files written 0",
     "suites built 1, suites reused 2, objects compiled 2, objects restored 4, links 1, \
-     new executables launched 1, test processes 1, files written 7",
+     new executables launched 1, test processes 1, files written 6",
     "suites built 2, suites reused 1, objects compiled 3, objects restored 5, links 1, \
-     new executables launched 1, test processes 2, files written 10",
+     new executables launched 1, test processes 2, files written 9",
     "suites built 1, objects compiled 1, objects restored 4, links 1, new executables launched 1, \
-     test processes 1, files written 5",
+     test processes 1, files written 4",
     "suites restored 1, test processes 1, files written 0",
     // The runner's bytes match the filtered run's, so it isn't a new file.
     "suites built 1, objects compiled 1, objects restored 4, links 1, test processes 1, files written 5",
@@ -263,4 +274,20 @@ fn a_failing_suites_runner_stays_put_while_another_suite_is_edited() {
              new executables launched 1, test processes 2",
         );
     }
+}
+
+/// A runner whose bytes an earlier run already started runs from that file, in
+/// another repository or after `buri clean`, so macOS doesn't check it again.
+#[test]
+fn a_runner_an_earlier_run_started_is_not_a_new_executable() {
+    let first = repo("counted-kept-first");
+    let second = repo("counted-kept-second");
+    let home = home_of(&first);
+    let env = [("BURI_HOME", home.as_str())];
+    let args = ["test", "//..."];
+    let cold = "suites built 3, objects compiled 10, links 1, test processes 3";
+    holds_exiting(&first, "a cold run", &args, &env, 0, &format!("{cold}, new executables launched 1"));
+    holds_exiting(&second, "the same tree in another repository", &args, &env, 0, cold);
+    first.run(&["clean"]).ok();
+    holds_exiting(&first, "a run after buri clean", &args, &env, 0, cold);
 }

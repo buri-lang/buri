@@ -2707,7 +2707,9 @@ const CLAIM_STALE: std::time::Duration = std::time::Duration::from_secs(900);
 /// `link::place_from` leaves a file whose bytes already match alone, so a rerun
 /// whose binary did not change skips that charge. New bytes always get a new
 /// file, because rewriting an executable in place can get it killed by code
-/// signing (see `link::place_from`).
+/// signing (see `link::place_from`). `programs::settle` then points the file at
+/// the first one to hold those bytes, which skips the charge in a fresh
+/// repository too.
 ///
 /// The file is shared, so it is claimed: a lock file beside it, taken with
 /// `create_new`, held for as long as the caller holds the [`TestBinary`], and
@@ -2794,7 +2796,10 @@ pub fn link_test_binary(
     // that fails to compile never takes the shared file at all.
     let binary = claim_runner(&root.join(".buri/out").join(output.dir()), private);
     match link_cached(root, label, output, flags, linker, &objects, binary.path(), prefix) {
-        Ok((key, _)) => Ok((binary, key)),
+        Ok((key, _)) => {
+            super::programs::settle(binary.path());
+            Ok((binary, key))
+        }
         Err(errors) => {
             diagnostics.extend(errors.items);
             Err(std::mem::take(diagnostics))
@@ -2830,6 +2835,7 @@ pub fn restored_test_binary(
 pub fn place_test_binary(root: &std::path::Path, link: &ActionKey, binary: TestBinary) -> Option<TestBinary> {
     let entry = Cache::open(root).entry(link)?;
     write_executable(&entry, binary.path()).ok()?;
+    super::programs::settle(binary.path());
     Some(binary)
 }
 
