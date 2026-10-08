@@ -122,6 +122,18 @@ enum Via {
     Thunk(ValueId),
 }
 
+/// How many elements `sortBy` sorts by insertion before it merges: a power of
+/// two, so a run starts where an index's low bits are zero.
+const SORT_RUN: usize = 4;
+
+/// A `sortBy`'s comparator, and the tag of the `Greater` it answers.
+struct Order<'a> {
+    callee: &'a Via,
+    elem: Ty,
+    order_t: Type,
+    greater: ValueId,
+}
+
 /// One argument to a step: the value, its source type, and whether this loop
 /// owns the count it holds.
 struct Arg {
@@ -690,17 +702,24 @@ impl FnLower<'_> {
         Some(joined)
     }
 
-    /// `sortBy`: a **stable bottom-up merge** over two blocks, which take turns
-    /// being read and written. The merge takes the left run's element unless
-    /// the comparator answers `Greater`, which is what makes it stable.
+    /// `sortBy`: a scan for a list already in order, then runs of [`SORT_RUN`]
+    /// sorted by insertion, then a **stable bottom-up merge** over two blocks,
+    /// which take turns being read and written. Every step keeps the left
+    /// element unless the comparator answers `Greater`, which is what makes the
+    /// sort stable.
+    ///
+    /// - A list in order is its copy, and a strictly descending one its copy
+    ///   from the end, so the scan's comparisons are the whole cost.
+    /// - Two runs in order are copied rather than merged, and two whose right
+    ///   run sorts wholly before the left are copied swapped.
     ///
     /// Both blocks start as a copy of the source, each a second owner of every
-    /// element, and a pass *moves* elements between them; so each holds every
-    /// element exactly once after every pass, the block read last is the answer,
-    /// and the other goes back with its own release of each. An empty or
-    /// one-element list makes no pass at all, and the two copies are why the
-    /// block that goes back is never one nothing wrote. An element with no
-    /// counts needs neither the second copy nor the release's walk.
+    /// element. Insertion permutes the first in place, and a pass *moves*
+    /// elements between them, so each holds every element exactly once after
+    /// every pass, the block read last is the answer, and the other goes back
+    /// with its own release of each. The two copies are why the block that goes
+    /// back is never one nothing wrote. An element with no counts needs neither
+    /// the second copy nor the release's walk.
     fn list_sort(
         &mut self,
         xs: ValueId,
@@ -712,55 +731,151 @@ impl FnLower<'_> {
     ) -> Option<ValueId> {
         let elem_t = self.type_of(elem);
         let order_t = self.type_of(order_ty);
+        let greater = self.variant_of(order_ty, "Greater", 2);
+        let greater = self.int(Type::I32, greater as usize);
+        let order = Order { callee, elem: *elem, order_t, greater };
         let counted = self.counts.counted(elem);
+        let zero = self.int(Type::I64, 0);
+        let one = self.int(Type::I64, 1);
+        let two = self.int(Type::I64, 2);
+        let get = |l: &mut Self, array: ValueId, index: ValueId| {
+            l.emit(elem_t, |dest| Inst::ArrayGet { dest, array, index })
+        };
+
+        // The scan answers `1` for a list in order, `2` for one strictly
+        // descending, and `0` at the first pair that is neither. `up` goes on
+        // while no pair falls and `down` while every pair does, and a first
+        // pair that falls turns `up` into `down`.
+        let scanned = self.block(&[Type::I64]);
+        let up = self.block(&[Type::I64]);
+        let down = self.block(&[Type::I64]);
+        self.set_term(Term::Jump(Target::new(up, vec![one])));
+        for (scan, done, keeps_on) in [(up, one, BinOp::Ne), (down, two, BinOp::Eq)] {
+            self.cur = scan;
+            let at = *self.code.get(scan).params.first()?;
+            let ended = self.bin(BinOp::Ge, Prim::U64, at, n);
+            let next = self.block(&[]);
+            self.set_term(Term::Branch {
+                cond: ended,
+                then: Target::new(scanned, vec![done]),
+                else_: Target::to(next),
+            });
+            self.cur = next;
+            let before = self.bin(BinOp::Sub, Prim::I64, at, one);
+            let x = get(self, xs, before);
+            let y = get(self, xs, at);
+            let more = self.order(&order, keeps_on, x, y);
+            let again = self.block(&[]);
+            let stopped = self.block(&[]);
+            self.set_term(Term::Branch { cond: more, then: Target::to(again), else_: Target::to(stopped) });
+            self.cur = again;
+            let at1 = self.add_one(at);
+            self.set_term(Term::Jump(Target::new(scan, vec![at1])));
+            self.cur = stopped;
+            let neither = Target::new(scanned, vec![zero]);
+            if scan == up {
+                let first = self.bin(BinOp::Eq, Prim::I64, at, one);
+                let falls = Target::new(down, vec![two]);
+                self.set_term(Term::Branch { cond: first, then: falls, else_: neither });
+            } else {
+                self.set_term(Term::Jump(neither));
+            }
+        }
+        self.cur = scanned;
+        let shape = *self.code.get(scanned).params.first()?;
+
         let a0 = self.emit(list_t, |dest| Inst::ArrayAlloc { dest, len: n });
         let b0 = self.emit(list_t, |dest| Inst::ArrayAlloc { dest, len: n });
-        let copy = self.walk(n, &[]);
-        let e = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: copy.i });
-        self.push(Inst::ArraySet { array: a0, index: copy.i, value: e });
-        // The second copy is only for the release at the end to walk, and a
-        // release walks nothing in a block of uncounted elements.
-        if counted {
-            self.push(Inst::IncRef { value: e });
-            self.push(Inst::IncRef { value: e });
-            self.push(Inst::ArraySet { array: b0, index: copy.i, value: e });
+        // A descending list is copied from its end.
+        let descending = self.bin(BinOp::Eq, Prim::I64, shape, two);
+        let last = self.bin(BinOp::Sub, Prim::I64, n, one);
+        let copied = self.block(&[]);
+        let (backwards, forwards) = self.fork(descending);
+        for (side, from_end) in [(backwards, true), (forwards, false)] {
+            self.cur = side;
+            let copy = self.walk(n, &[]);
+            let to = if from_end { self.bin(BinOp::Sub, Prim::I64, last, copy.i) } else { copy.i };
+            let e = get(self, xs, copy.i);
+            self.push(Inst::ArraySet { array: a0, index: to, value: e });
+            // The second copy is only for the release at the end to walk, and a
+            // release walks nothing in a block of uncounted elements.
+            if counted {
+                self.push(Inst::IncRef { value: e });
+                self.push(Inst::IncRef { value: e });
+                self.push(Inst::ArraySet { array: b0, index: to, value: e });
+            }
+            self.again(&copy, Vec::new());
+            self.end(&copy);
+            self.set_term(Term::Jump(Target::to(copied)));
         }
-        self.again(&copy, Vec::new());
-        self.end(&copy);
-
-        // `w = 1, 2, 4, ...`, reading `a` and writing `b`.
-        let one = self.int(Type::I64, 1);
+        self.cur = copied;
         let widths = self.block(&[Type::I64, list_t, list_t]);
-        self.set_term(Term::Jump(Target::new(widths, vec![one, a0, b0])));
+        let unsorted = self.bin(BinOp::Eq, Prim::I64, shape, zero);
+        let runs_start = self.block(&[]);
+        self.set_term(Term::Branch {
+            cond: unsorted,
+            then: Target::to(runs_start),
+            else_: Target::new(widths, vec![n, a0, b0]),
+        });
+        self.cur = runs_start;
+
+        // Each run of `SORT_RUN` in `a0`, by insertion: `a0[i]` moves left
+        // past every element of its run that is `Greater`.
+        let run_mask = self.int(Type::I64, SORT_RUN - 1);
+        let ins = self.walk(n, &[]);
+        let i = ins.i;
+        let into_run = self.bin(BinOp::BitAnd, Prim::I64, i, run_mask);
+        let run_lo = self.bin(BinOp::Sub, Prim::I64, i, into_run);
+        let first = self.bin(BinOp::Eq, Prim::I64, into_run, zero);
+        let inserted = self.block(&[]);
+        let insert = self.block(&[]);
+        self.set_term(Term::Branch { cond: first, then: Target::to(inserted), else_: Target::to(insert) });
+        self.cur = insert;
+        let x = get(self, a0, i);
+        let shift = self.block(&[Type::I64]);
+        self.set_term(Term::Jump(Target::new(shift, vec![i])));
+        self.cur = shift;
+        let j = *self.code.get(shift).params.first()?;
+        let at_lo = self.bin(BinOp::Ge, Prim::U64, run_lo, j);
+        let place = self.block(&[Type::I64]);
+        let look = self.block(&[]);
+        self.set_term(Term::Branch { cond: at_lo, then: Target::new(place, vec![j]), else_: Target::to(look) });
+        self.cur = look;
+        let j1 = self.bin(BinOp::Sub, Prim::I64, j, one);
+        let y = get(self, a0, j1);
+        let stays = self.order(&order, BinOp::Ne, y, x);
+        let moved = self.block(&[]);
+        self.set_term(Term::Branch { cond: stays, then: Target::new(place, vec![j]), else_: Target::to(moved) });
+        self.cur = moved;
+        self.push(Inst::ArraySet { array: a0, index: j, value: y });
+        self.set_term(Term::Jump(Target::new(shift, vec![j1])));
+        self.cur = place;
+        let k = *self.code.get(place).params.first()?;
+        self.push(Inst::ArraySet { array: a0, index: k, value: x });
+        self.set_term(Term::Jump(Target::to(inserted)));
+        self.cur = inserted;
+        self.again(&ins, Vec::new());
+        self.end(&ins);
+
+        // `w = SORT_RUN, 2 * SORT_RUN, ...`, reading `a` and writing `b`.
+        let run_len = self.int(Type::I64, SORT_RUN);
+        self.set_term(Term::Jump(Target::new(widths, vec![run_len, a0, b0])));
         self.cur = widths;
         let [w, a, b] = self.code.get(widths).params.as_slice() else { return None };
         let (w, a, b) = (*w, *a, *b);
-        let sorted = self.emit(Type::I1, |dest| Inst::Binary {
-            dest,
-            op: BinOp::Ge,
-            prim: Prim::U64,
-            lhs: w,
-            rhs: n,
-        });
+        let sorted = self.bin(BinOp::Ge, Prim::U64, w, n);
         let exit = self.block(&[]);
         let pass = self.block(&[]);
         self.set_term(Term::Branch { cond: sorted, then: Target::to(exit), else_: Target::to(pass) });
         self.cur = pass;
         let span = self.add(w, w);
-        let zero = self.int(Type::I64, 0);
 
         // One pass: `lo = 0, 2w, 4w, ...`.
         let runs = self.block(&[Type::I64]);
         self.set_term(Term::Jump(Target::new(runs, vec![zero])));
         self.cur = runs;
         let lo = *self.code.get(runs).params.first()?;
-        let passed = self.emit(Type::I1, |dest| Inst::Binary {
-            dest,
-            op: BinOp::Ge,
-            prim: Prim::U64,
-            lhs: lo,
-            rhs: n,
-        });
+        let passed = self.bin(BinOp::Ge, Prim::U64, lo, n);
         let swap = self.block(&[]);
         let run = self.block(&[]);
         self.set_term(Term::Branch { cond: passed, then: Target::to(swap), else_: Target::to(run) });
@@ -771,77 +886,112 @@ impl FnLower<'_> {
         let mid = self.shorter(lo_w, n);
         let lo_span = self.add(lo, span);
         let hi = self.shorter(lo_span, n);
+        let next_run = self.block(&[]);
+        let copied = self.block(&[]);
+        let paired = self.block(&[]);
+        let crossed = self.block(&[]);
+        let swapped = self.block(&[]);
+        let merging = self.block(&[]);
+        // A run with no partner to its right, or two in order, is copied.
+        let lone = self.bin(BinOp::Ge, Prim::U64, mid, hi);
+        self.set_term(Term::Branch { cond: lone, then: Target::to(copied), else_: Target::to(paired) });
+        self.cur = paired;
+        let mid1 = self.bin(BinOp::Sub, Prim::I64, mid, one);
+        let left_last = get(self, a, mid1);
+        let right_first = get(self, a, mid);
+        let in_order = self.order(&order, BinOp::Ne, left_last, right_first);
+        self.set_term(Term::Branch { cond: in_order, then: Target::to(copied), else_: Target::to(crossed) });
+        // The right run's last sorts before the left run's first, so every
+        // right element sorts strictly before every left one.
+        self.cur = crossed;
+        let hi1 = self.bin(BinOp::Sub, Prim::I64, hi, one);
+        let left_first = get(self, a, lo);
+        let right_last = get(self, a, hi1);
+        let reversed = self.order(&order, BinOp::Eq, left_first, right_last);
+        self.set_term(Term::Branch { cond: reversed, then: Target::to(swapped), else_: Target::to(merging) });
 
-        // One merge: `a[lo..mid)` and `a[mid..hi)` into `b[lo..hi)`.
-        let merge = self.block(&[Type::I64, Type::I64, Type::I64]);
+        // One copy loop serves every run moved whole: `len` elements from
+        // `a[from..]` to `b[to..]`, then `rest` more from `a[rest_from..]`.
+        let copy = self.block(&[Type::I64; 5]);
+        self.cur = copied;
+        let len = self.bin(BinOp::Sub, Prim::I64, hi, lo);
+        self.set_term(Term::Jump(Target::new(copy, vec![lo, lo, len, zero, zero])));
+        self.cur = swapped;
+        let right_len = self.bin(BinOp::Sub, Prim::I64, hi, mid);
+        let left_len = self.bin(BinOp::Sub, Prim::I64, mid, lo);
+        self.set_term(Term::Jump(Target::new(copy, vec![mid, lo, right_len, left_len, lo])));
+        self.cur = copy;
+        let [from, to, len, rest, rest_from] = self.code.get(copy).params.as_slice() else { return None };
+        let (from, to, len, rest, rest_from) = (*from, *to, *len, *rest, *rest_from);
+        let moving = self.walk(len, &[]);
+        let at = self.add(from, moving.i);
+        let e = get(self, a, at);
+        let dest_at = self.add(to, moving.i);
+        self.push(Inst::ArraySet { array: b, index: dest_at, value: e });
+        self.again(&moving, Vec::new());
+        self.end(&moving);
+        let after = self.add(to, len);
+        let done = self.bin(BinOp::Eq, Prim::I64, rest, zero);
+        self.set_term(Term::Branch {
+            cond: done,
+            then: Target::to(next_run),
+            else_: Target::new(copy, vec![rest_from, after, rest, zero, zero]),
+        });
+        self.cur = next_run;
+        self.set_term(Term::Jump(Target::new(runs, vec![lo_span])));
+        self.cur = merging;
+
+        // One merge: `a[lo..mid)` and `a[mid..hi)` into `b[lo..hi)`, both
+        // non-empty. Once one side runs out, the copy loop moves the other.
+        let merge = self.block(&[Type::I64; 3]);
         self.set_term(Term::Jump(Target::new(merge, vec![lo, mid, lo])));
         self.cur = merge;
         let [li, ri, out] = self.code.get(merge).params.as_slice() else { return None };
         let (li, ri, out) = (*li, *ri, *out);
-        let ge = |l: &mut Self, x: ValueId, y: ValueId| {
-            l.emit(Type::I1, |dest| Inst::Binary { dest, op: BinOp::Ge, prim: Prim::U64, lhs: x, rhs: y })
-        };
-        let merged = ge(self, out, hi);
-        let next_run = self.block(&[]);
-        let pick = self.block(&[]);
-        self.set_term(Term::Branch { cond: merged, then: Target::to(next_run), else_: Target::to(pick) });
-        self.cur = next_run;
-        self.set_term(Term::Jump(Target::new(runs, vec![lo_span])));
-        self.cur = pick;
-        let take_left = self.block(&[]);
-        let take_right = self.block(&[]);
-        let left_done = ge(self, li, mid);
-        let both = self.block(&[]);
-        self.set_term(Term::Branch {
-            cond: left_done,
-            then: Target::to(take_right),
-            else_: Target::to(both),
-        });
-        self.cur = both;
-        let right_done = ge(self, ri, hi);
-        let compare = self.block(&[]);
-        self.set_term(Term::Branch {
-            cond: right_done,
-            then: Target::to(take_left),
-            else_: Target::to(compare),
-        });
-        self.cur = compare;
-        let x = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: a, index: li });
-        let y = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: a, index: ri });
-        let args = vec![
-            Arg { value: x, ty: *elem, owned: false },
-            Arg { value: y, ty: *elem, owned: false },
-        ];
-        let o = self.step(callee, args, order_t);
-        let greater = self.variant_of(order_ty, "Greater", 2);
-        let greater_tag = self.int(Type::I32, greater as usize);
-        let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: o });
-        let right_first = self.emit(Type::I1, |dest| Inst::Binary {
-            dest,
-            op: BinOp::Eq,
-            prim: Prim::I32,
-            lhs: tag,
-            rhs: greater_tag,
-        });
-        self.set_term(Term::Branch {
-            cond: right_first,
-            then: Target::to(take_right),
-            else_: Target::to(take_left),
-        });
-        let out1 = |l: &mut Self| l.add_one(out);
-        for (side, from) in [(take_left, li), (take_right, ri)] {
+        let x = get(self, a, li);
+        let y = get(self, a, ri);
+        let right_first = self.order(&order, BinOp::Eq, x, y);
+        let (take_right, take_left) = self.fork(right_first);
+        let out1 = self.add_one(out);
+        for (side, from, end) in [(take_left, li, mid), (take_right, ri, hi)] {
             self.cur = side;
-            let e = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: a, index: from });
+            // Read again rather than kept across the call: the copy-and-patch
+            // backend runs about 5% faster on a shuffled list.
+            let e = get(self, a, from);
             self.push(Inst::ArraySet { array: b, index: out, value: e });
             let from1 = self.add_one(from);
-            let o1 = out1(self);
-            let args = if side == take_left { vec![from1, ri, o1] } else { vec![li, from1, o1] };
-            self.set_term(Term::Jump(Target::new(merge, args)));
+            let ran_out = self.bin(BinOp::Ge, Prim::U64, from1, end);
+            let more = if side == take_left { vec![from1, ri, out1] } else { vec![li, from1, out1] };
+            let tail = self.block(&[]);
+            self.set_term(Term::Branch { cond: ran_out, then: Target::to(tail), else_: Target::new(merge, more) });
+            // The other side's rest, copied.
+            self.cur = tail;
+            let (other, other_end) = if side == take_left { (ri, hi) } else { (li, mid) };
+            let rest = self.bin(BinOp::Sub, Prim::I64, other_end, other);
+            self.set_term(Term::Jump(Target::new(copy, vec![other, out1, rest, zero, zero])));
         }
 
         self.cur = exit;
         self.push(Inst::DecRef { value: b, drop: None });
         Some(a)
+    }
+
+    /// `order(x, y)`'s tag `op` `Greater`: [`BinOp::Eq`] asks whether `y` sorts
+    /// strictly before `x`, and [`BinOp::Ne`] whether it doesn't.
+    fn order(&mut self, order: &Order<'_>, op: BinOp, x: ValueId, y: ValueId) -> ValueId {
+        let args = vec![
+            Arg { value: x, ty: order.elem, owned: false },
+            Arg { value: y, ty: order.elem, owned: false },
+        ];
+        let o = self.step(order.callee, args, order.order_t);
+        let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: o });
+        self.bin(op, Prim::I32, tag, order.greater)
+    }
+
+    /// `lhs op rhs`: a `Bool` for a comparison, and an `I64` otherwise.
+    fn bin(&mut self, op: BinOp, prim: Prim, lhs: ValueId, rhs: ValueId) -> ValueId {
+        let ty = if op.is_comparison() { Type::I1 } else { Type::I64 };
+        self.emit(ty, |dest| Inst::Binary { dest, op, prim, lhs, rhs })
     }
 
     /// The shorter of two lengths, as a join.

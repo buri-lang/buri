@@ -250,3 +250,57 @@ fn filter_map_and_values_cost_about_what_map_costs() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// 2,000 `Int`s in `mode`'s order, sorted 50 times. `main` takes the mode.
+const SORTS: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+fn times<C: Allocator>(ctx: C, xs: [Int], k: Int, acc: Int): Int {
+  if (k == 0) { acc } else { times(ctx, xs, k - 1, acc + xs.sort(ctx).first().withDefault(0) + 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let mode = env.arguments(ctx).first().withDefault("none");
+  let xs = list.range(ctx, 0, 2000).map(ctx, fn(i) => match (mode) {
+    "ascending" => i,
+    "descending" => 2000 - i,
+    _ => (i * 7919) % 2003,
+  });
+  let answer = if (mode == "none") { 0 } else { times(ctx, xs, 50, 0) };
+  io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **Sorting a list that is already in order, either way, costs a fraction of
+/// sorting a shuffled one.** `sortBy` was a bottom-up merge from runs of one,
+/// so it made the same eleven passes over 2,000 elements whatever their order.
+/// An ascending list cost 0.83 times a shuffled one on LLVM and 0.73 on the
+/// copy-and-patch backend, and a descending one 0.94 and 0.77. Now a scan
+/// finds both, and they cost under a tenth.
+#[test]
+fn sorting_an_ordered_list_costs_a_fraction_of_a_shuffled_one() {
+    let elems = 2000 * 50;
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("list-sorts", SORTS);
+        let mut cost = std::collections::BTreeMap::new();
+        for (mode, answer) in [("shuffled", "50\n"), ("ascending", "50\n"), ("descending", "100\n")] {
+            let (n, _blocks) = per_op(backend, &binary, mode, &[], elems, answer);
+            eprintln!("{backend}, {mode}: {n:?} instructions an element");
+            cost.insert(mode, n);
+        }
+        let Some(Some(shuffled)) = cost.get("shuffled").copied() else { continue };
+        for mode in ["ascending", "descending"] {
+            let Some(Some(n)) = cost.get(mode).copied() else { continue };
+            if n * 4 > shuffled {
+                failures.push(format!("{backend}: {mode} is {n} instructions an element against shuffled's {shuffled}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
