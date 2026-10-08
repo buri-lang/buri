@@ -1,0 +1,61 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "unused-context-bound counts a bound an impl on a wrapper of the context asks for, directly and through another wrapper, and still reports one nothing asks for"
+
+# `needs` sits in a library so that `main.buri`, which imports it, is not a
+# seed of `cli/tests/linting.rs`.
+#
+# `Clock` is used by both functions: `Wrap<C>` is an `Allocator` only where `C`
+# is a `Clock`.
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# Which the compiler agrees with: take the bound away and the build fails.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "fn count<C: Allocator + Clock>(ctx: C): Int {"
+  with: "fn count<C: Allocator>(ctx: C): Int {"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "needed.txt"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "fn count<C: Allocator>(ctx: C): Int {"
+  with: "fn count<C: Allocator + Clock>(ctx: C): Int {"
+}
+
+# The negative twin: once the `impl` stops asking, nothing does, and both
+# bounds are reported.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "impl<C: Allocator + Clock> Allocator for Wrap<C> {"
+  with: "impl<C: Allocator> Allocator for Wrap<C> {"
+}
+
+run {
+  args: ["lint", "//...", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+run {
+  args: ["lint", "//...", "--fix"]
+  exit: 0
+  golden: "fix.txt"
+}
+
+# What the fix wrote is still a program.
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "build.txt"
+}

@@ -3256,36 +3256,22 @@ fn deletion(at: Span, from: usize, to: usize) -> crate::diagnostics::Edit {
 /// spreads, because a caller's own signature has to carry the bound to satisfy
 /// it.
 ///
-/// **Two uses, and the reason there is no third.** The checker consults a
-/// type parameter's bound list in exactly two places, and both of them are a
-/// call that is written down in the checked tree:
+/// **What counts as a use.** The checker records every bound of the
+/// signature's type parameters it relied on while checking the body, in
+/// [`typed::Body::bounds_used`]: each `satisfies` answered at a `Ty::Param`,
+/// and each method `resolve_method` found in a parameter's bounds. That is the
+/// lint asking the compiler rather than guessing, so removing a bound this
+/// rule reports cannot break the build. It covers the call that asks for a
+/// bound directly (`io.println(ctx, x)` instantiates `println<C2: Stdout>` at
+/// `C`), and the one that asks for it through an `impl`:
+/// `impl<C: Allocator + Clock> Allocator for Wrap<C>` makes
+/// `needs(Wrap { inner: ctx })` use `Clock`, at any depth of wrapping.
 ///
-/// * `inference.rs`'s `satisfies` at a `Ty::Param`, reached from the
-///   obligations `expressions.rs`'s `instantiate` raises. `instantiate` has
-///   three callers — `fn_ref`, `call_fn` and `call_trait_method` — and each
-///   writes the type arguments it produced into the node it built, so a
-///   callee's bound landing on `C` is a `targs` entry that mentions
-///   `Ty::Param(i)`. That is `str.format(ctx, …)` — **and it is where an
-///   effect is used**, because an effect is performed by handing the context
-///   to a function (SPEC 10.2): `io.println(ctx, x)` instantiates
-///   `println<C2: Stdout>` at `C` and raises the `Stdout` obligation this
-///   reads.
-/// * `expressions.rs`'s `resolve_method` at a `Ty::Param` receiver — a method
-///   on a type parameter can only come from its bounds — which becomes a
-///   [`typed::ExprKind::CallTrait`] whose `recv` is that parameter and whose
-///   `trait_id` is the bound. **This arm is now unreachable for the code this
-///   rule reads**: `mine` excludes `core/*`, an `impl`-supplied body is
-///   skipped below, and `report_effect_method` refuses the shape everywhere
-///   else. It stays because deleting it would make the rule depend on that
-///   gate staying perfect, and because an ordinary `trait` bound on a context
-///   parameter would still land here.
-///
-/// The third use in the note's list is not a bound demand at all, which is why
-/// it has to be stated rather than derived: handing the context to a
-/// **function-typed parameter** ([`typed::ExprKind::CallValue`]) gives the
-/// whole of `C` to code this function cannot see, so it uses *every* bound.
-/// The callback was written against `C` as declared and nothing here can say
-/// which parts of it the callback reaches.
+/// On top of that, two uses the checker never needs are stated by policy. A
+/// **function-typed parameter** ([`typed::ExprKind::CallValue`]) handed the
+/// context gets the whole of `C`, written against `C` as declared, so it uses
+/// *every* bound. And a type argument that merely *mentions* the parameter
+/// counts every bound its generic asks for (see [`note_targs`]).
 ///
 /// A struct or enum literal carries type arguments too, and nothing today
 /// raises an obligation for them — a `TyCon`'s generics are never instantiated
@@ -3404,9 +3390,8 @@ fn reads_ctx(body: &typed::Body, ctx_local: crate::compiler::semantics::types::L
 
 /// Which of a context parameter's bounds the body exercises.
 ///
-/// The three arms are the note's three uses, in the same order, and each is
-/// read off the node the checker wrote its own answer into — see
-/// [`check_unused_context_bounds`] for why there is no fourth.
+/// What the checker relied on, plus the uses [`check_unused_context_bounds`]
+/// states by policy, read off the nodes the checker built.
 fn bounds_used(
     analysis: &crate::compiler::driver::Analysis,
     body: &typed::Body,
@@ -3415,7 +3400,9 @@ fn bounds_used(
 ) -> BTreeSet<crate::compiler::semantics::types::TraitId> {
     use crate::compiler::semantics::types::TyKind;
     let tables = &analysis.checked.tables;
-    let mut used = BTreeSet::new();
+    // What the checker relied on, which is what removing a bound would break.
+    let mut used: BTreeSet<_> =
+        body.bounds_used.iter().filter(|(i, _)| *i == gi).map(|(_, t)| *t).collect();
     typed::walk(&body.expr, &mut |e| match &e.kind {
         // A method the bound declares, called on the context.
         typed::ExprKind::CallTrait { trait_id, method, recv, targs, .. } => {

@@ -1,0 +1,13 @@
+error: `Wrap<C>` does not implement `Allocator` [missing-impl]
+  --> cmd/app/main.buri:32:5
+   |
+32 |     needs(Wrap { inner: ctx })
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `Wrap<C>` implements `Allocator` only when `C` satisfies `Clock`, and here `C` is `C`
+   = fix: make `C` satisfy `Clock`
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

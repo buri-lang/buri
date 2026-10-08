@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//lib/needs"]
+    outputs: [
+        { platform: "node" },
+    ]
+}

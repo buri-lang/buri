@@ -1,0 +1,9 @@
+error: expected `(`, found `extra` [unexpected-token]
+ --> lib/recovery_insert_stray_module_needs_9ead5a/lib.buri:4:30
+  |
+4 | export fn needs<A: Allocator>extra (ctx: A): Int {
+  |                              ^^^^^
+  |
+  = expected: `(`
+  = actual: `extra`
+  = fix: write `(` here

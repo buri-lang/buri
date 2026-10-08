@@ -1427,7 +1427,11 @@ impl<'a, 'b> Infer<'a, 'b> {
             // methods.
             TyKind::Param(i) => {
                 let bounds = self.generics.get(*i as usize)?.bounds.clone();
-                self.find_in_bounds(&bounds, name, span)
+                let found = self.find_in_bounds(&bounds, name, span);
+                if let Some(MethodTarget::Bound(tid, _)) = found {
+                    self.note_bound_used(*i, tid);
+                }
+                found
             }
             // A context value satisfies exactly the effects it binds.
             TyKind::Ctx(id) => {

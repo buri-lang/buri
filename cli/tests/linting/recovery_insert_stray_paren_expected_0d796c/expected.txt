@@ -1,9 +1,0 @@
-error: expected an expression, found `?` [unexpected-token]
-  --> lib/recovery_insert_stray_paren_expected_0d796c/main.buri:51:23
-   |
-51 |         .println(ctx, ? rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label))
-   |                       ^
-   |
-   = expected: an expression
-   = actual: `?`
-   = fix: write a value here

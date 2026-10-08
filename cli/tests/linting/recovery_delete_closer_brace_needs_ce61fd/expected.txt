@@ -1,0 +1,27 @@
+error: expected `I64`, found `[Int]` [type-mismatch]
+ --> lib/recovery_delete_closer_brace_needs_ce61fd/lib.buri:4:44
+  |
+4 | export fn needs<A: Allocator>(ctx: A): Int {
+  |                                            ^ the declared return type is `I64`
+  |
+  = expected: `I64`
+  = actual: `[Int]`
+error: `I64` has no method `map` [unknown-method]
+ --> lib/recovery_delete_closer_brace_needs_ce61fd/lib.buri:5:11
+  |
+5 |     [1, 2.map(ctx, fn(x) => x + 1).length()
+  |           ^^^
+  |
+  = fix: check the spelling — `buri docs core/number` lists every method `I64` has
+error: this array is missing its closing `]` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_brace_needs_ce61fd/lib.buri:6:1
+  |
+6 | }
+  | ^
+  |
+ --> lib/recovery_delete_closer_brace_needs_ce61fd/lib.buri:5:5
+  |
+5 |     [1, 2.map(ctx, fn(x) => x + 1).length()
+  |     ^ opened here
+  |
+  = fix: write `]` here

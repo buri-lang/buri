@@ -1,0 +1,23 @@
+error: `map` takes 2 arguments, but 3 were given [argument-count]
+ --> lib/recovery_insert_stray_paren_needs_ee0fd9/lib.buri:5:5
+  |
+5 |     [1, 2].map(ctx, fn(x) => x extra + 1).length()
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = expected: 2
+  = actual: 3
+  = fix: pass `map` the following arguments: map<B, C: Allocator>(self, ctx: C, transform: fn(A) => B)
+error: a call argument ends with `,` [missing-comma]
+ --> lib/recovery_insert_stray_paren_needs_ee0fd9/lib.buri:5:31
+  |
+5 |     [1, 2].map(ctx, fn(x) => x extra + 1).length()
+  |                               ^
+  |
+  = fix: write `,` here
+error: there is nothing named `extra` in scope [unknown-name]
+ --> lib/recovery_insert_stray_paren_needs_ee0fd9/lib.buri:5:32
+  |
+5 |     [1, 2].map(ctx, fn(x) => x extra + 1).length()
+  |                                ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

@@ -1,0 +1,16 @@
+error: a call argument ends with `,` [missing-comma]
+ --> lib/recovery_swap_adjacent_paren_needs_5bde5e/lib.buri:5:31
+  |
+5 |     [1, 2].map(ctx, fn(x) => x 1 +).length()
+  |                               ^
+  |
+  = fix: write `,` here
+error: expected an expression, found `)` [unexpected-token]
+ --> lib/recovery_swap_adjacent_paren_needs_5bde5e/lib.buri:5:35
+  |
+5 |     [1, 2].map(ctx, fn(x) => x 1 +).length()
+  |                                   ^
+  |
+  = expected: an expression
+  = actual: `)`
+  = fix: write a value here

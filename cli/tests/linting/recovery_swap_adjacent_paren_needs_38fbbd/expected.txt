@@ -1,0 +1,21 @@
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_swap_adjacent_paren_needs_38fbbd/lib.buri:5:25
+  |
+5 |     [1, 2].map(ctx, fn(x=> ) x + 1).length()
+  |                         ^^
+  |
+ --> lib/recovery_swap_adjacent_paren_needs_38fbbd/lib.buri:5:23
+  |
+5 |     [1, 2].map(ctx, fn(x=> ) x + 1).length()
+  |                       ^ opened here
+  |
+  = fix: write `)` here
+error: expected `=>`, found `x` [unexpected-token]
+ --> lib/recovery_swap_adjacent_paren_needs_38fbbd/lib.buri:5:30
+  |
+5 |     [1, 2].map(ctx, fn(x=> ) x + 1).length()
+  |                              ^
+  |
+  = expected: `=>`
+  = actual: `x`
+  = fix: write `=>` here

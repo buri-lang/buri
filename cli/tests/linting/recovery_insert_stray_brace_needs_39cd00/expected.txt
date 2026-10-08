@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_brace_needs_39cd00/lib.buri:5:11
+  |
+5 |     [1, 2]@ .map(ctx, fn(x) => x + 1).length()
+  |           ^
+  |
+ --> lib/recovery_insert_stray_brace_needs_39cd00/lib.buri:4:44
+  |
+4 | export fn needs<A: Allocator>(ctx: A): Int {
+  |                                            ^ opened here
+  |
+  = fix: write `}` here

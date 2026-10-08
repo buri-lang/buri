@@ -1,0 +1,7 @@
+error: a generic parameter ends with `,` [missing-comma]
+ --> lib/recovery_insert_stray_module_needs_274ed7/lib.buri:4:22
+  |
+4 | export fn needs<extra A: Allocator>(ctx: A): Int {
+  |                      ^
+  |
+  = fix: write `,` here

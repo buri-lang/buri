@@ -48,6 +48,11 @@ pub struct Body {
     /// Locals holding the parameters, in declaration order.
     pub params: Vec<LocalId>,
     pub expr: Expr,
+    /// Every bound of the signature's own type parameters that checking this
+    /// body relied on, as `(parameter index, trait)`, sorted and deduplicated.
+    /// It includes a bound reached through an `impl`'s own bounds, as in
+    /// `impl<C: Clock> Allocator for Wrap<C>`.
+    pub bounds_used: Vec<(u32, TraitId)>,
 }
 
 #[derive(Clone, Debug)]

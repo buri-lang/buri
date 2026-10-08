@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-semicolon]
+ --> lib/recovery_delete_separator_module_needs_f01e6a/lib.buri:1:44
+  |
+1 | from "platform/effect" import { Allocator }
+  |                                            ^
+  |
+  = fix: write `;` here

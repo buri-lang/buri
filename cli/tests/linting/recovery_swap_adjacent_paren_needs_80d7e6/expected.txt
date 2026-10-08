@@ -1,0 +1,9 @@
+error: expected a type, found `)` [unexpected-token]
+ --> lib/recovery_swap_adjacent_paren_needs_80d7e6/lib.buri:4:37
+  |
+4 | export fn needs<A: Allocator>(ctxA :): Int {
+  |                                     ^
+  |
+  = expected: a type
+  = actual: `)`
+  = fix: name a type here, as in `Int` or `[Str]`

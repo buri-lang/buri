@@ -1,0 +1,9 @@
+error: expected an identifier, found `?` [unexpected-token]
+ --> lib/recovery_insert_stray_module_needs_5a23ea/lib.buri:4:20
+  |
+4 | export fn needs<A: ? Allocator>(ctx: A): Int {
+  |                    ^
+  |
+  = expected: an identifier
+  = actual: `?`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

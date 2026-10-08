@@ -1,0 +1,15 @@
+error: expected `fn(Int) => _4`, found `fn(_6, Int) => Int` [type-mismatch]
+ --> lib/recovery_insert_stray_paren_needs_c51261/lib.buri:5:21
+  |
+5 |     [1, 2].map(ctx, fn(extra x) => x + 1).length()
+  |                     ^^^^^^^^^^^^^^^^^^^^ the parameter type is `fn(Int) => _4`
+  |
+  = expected: `fn(Int) => _4`
+  = actual: `fn(_6, Int) => Int`
+error: a lambda parameter ends with `,` [missing-comma]
+ --> lib/recovery_insert_stray_paren_needs_c51261/lib.buri:5:29
+  |
+5 |     [1, 2].map(ctx, fn(extra x) => x + 1).length()
+  |                             ^
+  |
+  = fix: write `,` here

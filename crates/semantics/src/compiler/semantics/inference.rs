@@ -399,6 +399,10 @@ pub struct Infer<'a, 'b> {
     pub(crate) poly_locals: std::collections::HashSet<LocalId>,
     pub(crate) lambda_depth: u32,
     pub(crate) obligations: Vec<(Ty, TraitId, Span)>,
+    /// The bounds of `generics` this body has relied on, as
+    /// [`typed::Body::bounds_used`] reports them. A cell because
+    /// [`Infer::satisfies`] answers through `&self`.
+    pub(crate) bounds_used: std::cell::RefCell<Vec<(u32, TraitId)>>,
     pub(crate) lit_checks: Vec<LitCheck<'b>>,
     /// Template holes, checked after defaulting so `"${1 + 1}"` is fine.
     pub(crate) hole_checks: Vec<(Ty, Span)>,
@@ -517,6 +521,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             poly_locals: std::collections::HashSet::default(),
             lambda_depth: 0,
             obligations,
+            bounds_used: Default::default(),
             lit_checks,
             hole_checks: Vec::new(),
             erased_calls: Vec::new(),
@@ -588,7 +593,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.resolve_expr(&mut expr);
         let mut locals = std::mem::take(&mut self.locals);
         locals.iter_mut().for_each(|l| self.subst.resolve_in_place(&mut l.ty));
-        typed::Body { locals, params: std::mem::take(&mut self.params), expr }
+        let mut bounds_used = self.bounds_used.take();
+        bounds_used.sort_unstable();
+        bounds_used.dedup();
+        typed::Body { locals, params: std::mem::take(&mut self.params), expr, bounds_used }
     }
 
     /// Takes back everything this body reported from inside a block whose `}`
@@ -1127,6 +1135,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
     }
 
+    /// Records that this body relied on `Ty::Param(param): tr`.
+    pub(crate) fn note_bound_used(&self, param: u32, tr: TraitId) {
+        self.bounds_used.borrow_mut().push((param, tr));
+    }
+
     pub(crate) fn satisfies(&self, ty: &Ty, tr: TraitId) -> bool {
         self.satisfies_seen(ty, tr, &mut Vec::new())
     }
@@ -1164,10 +1177,13 @@ impl<'a, 'b> Infer<'a, 'b> {
             return false;
         }
         match ty.kind() {
-            TyKind::Param(i) => self
-                .generics
-                .get(*i as usize)
-                .is_some_and(|g| g.bounds.contains(&tr)),
+            TyKind::Param(i) => {
+                let held = self.generics.get(*i as usize).is_some_and(|g| g.bounds.contains(&tr));
+                if held {
+                    self.note_bound_used(*i, tr);
+                }
+                held
+            }
             TyKind::Error | TyKind::Var(_) => true,
             TyKind::Ctx(id) => self.c.tables.ctx_type(*id).has(tr),
             TyKind::SelfTy => true,

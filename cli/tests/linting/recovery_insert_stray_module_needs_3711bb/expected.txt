@@ -1,0 +1,9 @@
+error: expected a function body, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_module_needs_3711bb/lib.buri:4:44
+  |
+4 | export fn needs<A: Allocator>(ctx: A): Int , {
+  |                                            ^
+  |
+  = expected: a function body
+  = actual: `,`
+  = fix: write `{ ... }` after the return type

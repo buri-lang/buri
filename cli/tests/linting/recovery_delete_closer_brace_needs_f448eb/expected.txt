@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_brace_needs_f448eb/lib.buri:6:1
+  |
+6 | }
+  | ^
+  |
+ --> lib/recovery_delete_closer_brace_needs_f448eb/lib.buri:5:43
+  |
+5 |     [1, 2].map(ctx, fn(x) => x + 1).length(
+  |                                           ^ opened here
+  |
+  = fix: write `)` here

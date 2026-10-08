@@ -1,0 +1,33 @@
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_paren_needs_52e7fc/lib.buri:5:26
+  |
+5 |     [1, 2].map(ctx, fn(x => x + 1).length()
+  |                          ^^
+  |
+ --> lib/recovery_delete_closer_paren_needs_52e7fc/lib.buri:5:23
+  |
+5 |     [1, 2].map(ctx, fn(x => x + 1).length()
+  |                       ^ opened here
+  |
+  = fix: write `)` here
+error: expected `=>`, found `.` [unexpected-token]
+ --> lib/recovery_delete_closer_paren_needs_52e7fc/lib.buri:5:35
+  |
+5 |     [1, 2].map(ctx, fn(x => x + 1).length()
+  |                                   ^
+  |
+  = expected: `=>`
+  = actual: `.`
+  = fix: write `=>` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_paren_needs_52e7fc/lib.buri:7:1
+  |
+7 | 
+  | ^
+  |
+ --> lib/recovery_delete_closer_paren_needs_52e7fc/lib.buri:4:44
+  |
+4 | export fn needs<A: Allocator>(ctx: A): Int {
+  |                                            ^ opened here
+  |
+  = fix: write `}` here

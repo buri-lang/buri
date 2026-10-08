@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+ --> lib/recovery_delete_separator_paren_needs_16bdb2/lib.buri:5:19
+  |
+5 |     [1, 2].map(ctx fn(x) => x + 1).length()
+  |                   ^
+  |
+  = fix: write `,` here

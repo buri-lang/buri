@@ -1,0 +1,24 @@
+error: expected `;`, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_module_needs_6b7f6c/lib.buri:1:44
+  |
+1 | from "platform/effect" import { Allocator }, ;
+  |                                            ^
+  |
+  = expected: `;`
+  = actual: `,`
+  = fix: write `;` here
+error: `Allocator` is not a trait or effect [bound-not-trait]
+ --> lib/recovery_insert_stray_module_needs_6b7f6c/lib.buri:4:20
+  |
+4 | export fn needs<A: Allocator>(ctx: A): Int {
+  |                    ^^^^^^^^^
+  |
+  = a bound names a declared trait; there are no where clauses
+  = fix: name a declared trait or effect, or declare `Allocator` as one
+error: `A` does not implement `Allocator` [missing-impl]
+ --> lib/recovery_insert_stray_module_needs_6b7f6c/lib.buri:5:5
+  |
+5 |     [1, 2].map(ctx, fn(x) => x + 1).length()
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: bound the type parameter with `Allocator`, or use a type that has one
