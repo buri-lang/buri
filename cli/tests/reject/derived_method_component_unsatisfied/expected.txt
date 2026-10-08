@@ -1,0 +1,13 @@
+error: `Wrap<Plain>` does not implement `Hash` [missing-impl]
+  --> cmd/derived_method_component_unsatisfied/main.buri:22:32
+   |
+22 |     let _ = io.println(ctx, "${w.hash()}").ignore();
+   |                                ^^^^^^^^
+   |
+   = `Wrap<Plain>` derives `Hash`, but `Plain` does not satisfy it, and a derived implementation is a fold over the type's components
+   = fix: make `Plain` satisfy `Hash` first
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+
