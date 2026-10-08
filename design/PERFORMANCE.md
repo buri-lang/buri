@@ -6146,8 +6146,90 @@ The native times are within this machine's noise. Instructions are steadier
 backends, and `collections/test/map.buri` checks that keys differing only
 above bit 32 hash apart, which holds on any host.
 
-**Still open:** a float mixes `ToUint32(Math.trunc(x))`, so `0.1` and `0.2`
-hash alike, and so does every float past `2^32` that agrees mod `2^32`.
+A float mixed `ToUint32(Math.trunc(x))`, so `0.1` and `0.2` hashed alike;
+§6.65 fixes it.
+
+### 6.65 Floats hash every bit, 2026-10-08
+
+A `core/map` of 16,000 `F64` keys `i / 16000.0` took 2.5 s to build on
+JavaScript, against 26 ms for keys `0.0, 1.0, 2.0, ...`. A float hashed as
+`ToUint32(Math.trunc(x))`, so every key in `(0, 1)` hashed as `0`, and so did
+every multiple of `2^32`:
+
+```js
+return $mix(h, Math.trunc(x) || 0);
+```
+
+Same collision list as §6.64, and both native backends matched it.
+
+Now a float an `I32` or a `U32` holds hashes as that integer, as before. Any
+other float mixes its eight bytes, low first, through the same FNV-1a step:
+
+```js
+if ((x | 0) === x || x >>> 0 === x) return $mix(h, x >>> 0);
+if (typeof x !== "number") return $mix(h, 0);
+if (x !== x) return $mixBytes($mixBytes(h, 0), 0x7ff80000);
+$hashF64[0] = x;
+return $mixBytes($mixBytes(h, $hashWords[$hashLo]), $hashWords[$hashHi]);
+```
+
+- **The integer case is forced.** JavaScript holds an `I32`, a `U32` and a
+  float in one `number`, so `$hashInto` can't tell `3` from `3.0`. Nothing
+  else needs it: `Hash` promises nothing across types.
+- **`==` still pairs with `Hash`.** `-0.0 == 0.0`, and both are the integer
+  `0`. Every NaN is `==` every other, so every NaN mixes the quiet NaN's
+  bytes, whatever its sign and payload.
+- **Bytes, not words.** FNV-1a's multiply only carries bits upward, so a mixed
+  word reaches the hash's low bits through its own low bits only, and the trie
+  branches on the low bits first. A float's sign, exponent and leading
+  mantissa sit at the top of its high word. Mixed as two words, 8,000
+  millisecond timestamps shared 8 values in their low 15 bits, and
+  `native::map_keys` measured fractional keys 1.5x the cost of whole ones.
+  Bytes bring that to 1.05x.
+- **`F32`** is widened first, as before, so `1.5f32` and `1.5` hash alike.
+  `x.hash()` on an `F32` used to be refused by the stencil backend; it now
+  takes the derived path.
+
+Natively all of it is `buri_rt_hash_f64` in `cli/runtime/hash.rs`.
+
+Visible change: `x.hash()` answers a new number for a float that isn't an
+integer in `[-2^31, 2^32)`, including NaN and the infinities. A `Map` or `Set`
+keyed by those iterates in a new order. Whole floats in that range keep their
+hash and their order.
+
+16,000 keys, 200,000 lookups, fewest of five runs at load 1–2. The key is
+built in the timed loop, so a float key's time includes making it:
+
+| | `Int` | `Str` | whole `F64` | `i / 16000.0`, before | after | `i * 2^32`, before | after |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| JavaScript, build | 26 ms | 30 ms | 26 ms | 2.52 s | 31 ms | 2.55 s | 29 ms |
+| JavaScript, lookups | 136 ms | 162 ms | 135 ms | 30.7 s | 155 ms | 31.1 s | 150 ms |
+| stencil, build | 4.5 ms | 5.9 ms | 4.5 ms | 308 ms | 6.3 ms | 308 ms | 6.2 ms |
+| stencil, lookups | 21 ms | 36 ms | 23 ms | 3.89 s | 36 ms | 3.85 s | 36 ms |
+| LLVM `--release`, build | 1.8 ms | 3.0 ms | 1.8 ms | 70 ms | 2.9 ms | 69 ms | 2.5 ms |
+| LLVM `--release`, lookups | 2.1 ms | 7.7 ms | 2.7 ms | 902 ms | 4.3 ms | 904 ms | 4.3 ms |
+
+`Int`, `Str` and whole `F64` keys cost what they did, within noise; the
+columns show the after run. JavaScript was the same with `--release`.
+
+Instructions per operation (`native::map_keys`, 8,000 keys), with the
+two-word hash this replaced for comparison:
+
+| | whole | `i / 16000.0`, before | words | bytes | `i * 2^32`, before | bytes | timestamps, words | bytes |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| stencil, insert | 2,975 | 225,484 | 4,359 | 3,135 | 225,496 | 3,006 | 4,680 | 3,129 |
+| stencil, lookup | 1,097 | 223,970 | 1,620 | 1,183 | 223,983 | 1,120 | 1,705 | 1,177 |
+| LLVM, insert | 1,887 | 72,879 | 2,686 | 1,963 | 72,893 | 1,893 | 2,898 | 1,962 |
+| LLVM, lookup | 237 | 71,933 | 319 | 263 | 71,946 | 253 | 332 | 262 |
+
+`native::map_keys` bounds fractional, `2^32` and timestamp keys within 1.25x
+of whole ones. `agreement::floats_hash_every_bit` pins the hash values on all
+three backends. `collections/test/map.buri` checks that fractional keys and
+ones that agree mod `2^32` hash apart, and that `±0.0` and every NaN hash
+together, which holds on any host.
+
+**Still open:** a `[T]` doesn't hash natively at all (`deriveArrayHash` is a
+named gap), so a list of floats is covered on JavaScript only.
 
 ## 7. Profiling, on this platform
 

@@ -6790,8 +6790,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// `cli/runtime/hash.rs`'s table, which is `$hashInto`'s shapes: an
     /// integer up to 32 bits or a `Bool` mixes `ToUint32(x)`, a wider integer
-    /// mixes each of its fewest 32-bit words, a float goes through
-    /// `ToUint32(Math.trunc(x))`, and a `Char` or a `Str` mixes one **UTF-16
+    /// mixes each of its fewest 32-bit words, a float mixes as the integer it
+    /// holds or else its eight bytes, and a `Char` or a `Str` mixes one **UTF-16
     /// code unit** at a time. The last is the one that cannot be guessed — an
     /// astral scalar is two mixes of its surrogate halves — and is why hashing
     /// is a shared runtime body rather than open-coded here.

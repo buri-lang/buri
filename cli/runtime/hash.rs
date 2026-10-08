@@ -13,13 +13,11 @@
 //! |---|---|---|
 //! | `Bool`, an integer up to 32 bits | `number` | `ToUint32(Math.trunc(x) \|\| 0)` — every bit |
 //! | `I64`, `U64`, `I128`, `U128` | `bigint` | its fewest two's-complement 32-bit words, low first |
-//! | `F32`, `F64` | `number` | `ToUint32(Math.trunc(x) \|\| 0)`, so `1.9` and `1.0` collide, and `NaN` hashes as `0` |
+//! | `F32`, `F64` | `number` | as the integer, when an `I32` or a `U32` holds it; else its eight bytes, low first |
 //!
-//! The float row is what keeps `Equal` and `Hash` agreeing. SPEC 7.2 makes
-//! `NaN == NaN` true, so every `NaN` has to hash alike — and it does, on both
-//! backends, because `|| 0` maps every payload and both signs to zero before
-//! anything is mixed. A hasher that mixed the bit pattern would give two equal
-//! values two hashes, and a `Map` key would be lost the moment it collided.
+//! The float row keeps `Equal` and `Hash` agreeing. `-0.0 == 0.0`, and both
+//! are the integer `0`. SPEC 7.2 makes `NaN == NaN` true, so every NaN, of
+//! either sign and any payload, mixes the quiet NaN's bytes.
 //! | `Char`, `Str` | `string` | one mix per **UTF-16 code unit** |
 //!
 //! The last row is the one that cannot be guessed. `$hashInto` walks a string
@@ -107,28 +105,18 @@ fn unsigned_words(mut h: u64, mut x: u128) -> u64 {
     }
 }
 
-/// `$hashInto` at a float: `Math.trunc(x) || 0`, then `ToUint32`.
-///
-/// `|| 0` is JavaScript's falsiness, and it catches three values: `NaN`, `+0`
-/// and `-0` all mix as zero. `ToUint32` of a non-finite is zero as well
-/// (ECMA-262 §7.1.7 step 3), so an infinity mixes as zero rather than
-/// saturating.
+/// `$hashInto` at a float. One that an `I32` or a `U32` holds is one word, as
+/// that integer is, because JavaScript can't tell the two apart. Any other
+/// float mixes its eight bytes, low first, so that every bit reaches the low
+/// bits `core/map` branches on first. Every NaN mixes the quiet NaN's.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_hash_f64(h: u64, x: f64) -> u64 {
-    buri_rt_mix(h, to_uint32(x))
-}
-
-/// `ToUint32` — ECMA-262 §7.1.7, applied to the truncated value.
-fn to_uint32(x: f64) -> u32 {
-    let t = x.trunc();
-    if !t.is_finite() || t == 0.0 {
-        return 0;
+    // `-0.0` passes, and is the integer `0`.
+    if x.trunc() == x && (-2_147_483_648.0..4_294_967_296.0).contains(&x) {
+        return buri_rt_mix(h, x as i64 as u32);
     }
-    // `rem_euclid` on a value that is already integral is exact for every
-    // magnitude a double can hold, so this is the modulo the specification
-    // asks for and not an approximation of it.
-    let m = t.rem_euclid(4_294_967_296.0);
-    m as u32
+    let bits = if x.is_nan() { 0x7ff8_0000_0000_0000 } else { x.to_bits() };
+    bits.to_le_bytes().iter().fold(h, |h, &b| buri_rt_mix(h, u32::from(b)))
 }
 
 /// `$hashInto` at a `Str`: one mix per UTF-16 code unit.
@@ -231,18 +219,32 @@ mod tests {
         assert_eq!(buri_rt_hash_u128(s, u64::MAX, u64::MAX), mix(all, 0));
     }
 
-    /// `Math.trunc(x) || 0` collapses three values to zero, and a negative
-    /// number's `ToUint32` is its two's complement.
+    /// A float an `I32` or a `U32` holds mixes as that integer, through
+    /// `ToUint32`, and `-0.0` is `0`.
     #[test]
     fn a_float_hashes_through_to_uint32() {
-        assert_eq!(to_uint32(f64::NAN), 0);
-        assert_eq!(to_uint32(0.0), 0);
-        assert_eq!(to_uint32(-0.0), 0);
-        assert_eq!(to_uint32(f64::INFINITY), 0);
-        assert_eq!(to_uint32(1.9), 1);
-        assert_eq!(to_uint32(-1.0), u32::MAX);
-        // Past 32 bits it wraps rather than saturating.
-        assert_eq!(to_uint32(4_294_967_297.0), 1);
+        let s = BURI_RT_HASH_SEED;
+        assert_eq!(buri_rt_hash_f64(s, 0.0), buri_rt_mix(s, 0));
+        assert_eq!(buri_rt_hash_f64(s, -0.0), buri_rt_mix(s, 0));
+        assert_eq!(buri_rt_hash_f64(s, -1.0), buri_rt_mix(s, u32::MAX));
+        assert_eq!(buri_rt_hash_f64(s, -2_147_483_648.0), buri_rt_mix(s, 1 << 31));
+        assert_eq!(buri_rt_hash_f64(s, 4_294_967_295.0), buri_rt_mix(s, u32::MAX));
+    }
+
+    /// Any other float mixes its eight bytes, low first, and every NaN mixes
+    /// the quiet NaN's.
+    #[test]
+    fn a_float_mixes_every_bit() {
+        let s = BURI_RT_HASH_SEED;
+        let bytes = |x: f64| (0..8).fold(s, |h, i| buri_rt_mix(h, (x.to_bits() >> (8 * i)) as u32 & 255));
+        for x in [0.5, 1.9, -2.75, 4_294_967_296.0, -2_147_483_649.0, f64::INFINITY, f64::MIN_POSITIVE] {
+            assert_eq!(buri_rt_hash_f64(s, x), bytes(x), "{x}");
+        }
+        let nan = bytes(f64::from_bits(0x7ff8_0000_0000_0000));
+        for bits in [0x7ff8_0000_0000_0000u64, 0xfff8_0000_0000_0000, 0x7ff0_0000_0000_0001, u64::MAX] {
+            assert_eq!(buri_rt_hash_f64(s, f64::from_bits(bits)), nan, "{bits:#x}");
+        }
+        assert_ne!(buri_rt_hash_f64(s, 0.1), buri_rt_hash_f64(s, 0.2));
     }
 
     /// An astral character is two mixes, because JavaScript sees two code

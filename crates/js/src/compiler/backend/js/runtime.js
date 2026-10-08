@@ -250,6 +250,22 @@ function $mix(h, x) {
   return Math.imul(h, 0x01000193) >>> 0;
 }
 
+// A float's two 32-bit words, read through one shared buffer. The high word
+// is at index 1 on a little-endian host and 0 on a big-endian one.
+const $hashF64 = new Float64Array(1);
+const $hashWords = new Uint32Array($hashF64.buffer);
+const $hashHi = new Uint8Array(new Uint16Array([1]).buffer)[0];
+const $hashLo = 1 - $hashHi;
+
+// One word a byte at a time, low first, so that every bit reaches the hash's
+// low bits, which `core/map` branches on first.
+function $mixBytes(h, w) {
+  h = $mix(h, w & 255);
+  h = $mix(h, (w >>> 8) & 255);
+  h = $mix(h, (w >>> 16) & 255);
+  return $mix(h, w >>> 24);
+}
+
 function $hashInto(h, x) {
   if (Array.isArray(x)) {
     h = $mix(h, x.length);
@@ -277,7 +293,15 @@ function $hashInto(h, x) {
       if (x === (w >= 0x80000000 ? -1n : 0n)) return h;
     }
   }
-  return $mix(h, Math.trunc(x) || 0);
+  // Any number an `I32` or a `U32` holds is one word, so a float holding one
+  // hashes as that integer: JavaScript can't tell them apart. `-0` is `0`
+  // here. Any other float mixes its eight bytes, low first, and every NaN
+  // mixes the quiet NaN's.
+  if ((x | 0) === x || x >>> 0 === x) return $mix(h, x >>> 0);
+  if (typeof x !== "number") return $mix(h, 0);
+  if (x !== x) return $mixBytes($mixBytes(h, 0), 0x7ff80000);
+  $hashF64[0] = x;
+  return $mixBytes($mixBytes(h, $hashWords[$hashLo]), $hashWords[$hashHi]);
 }
 
 // `Hash` answers a `U64`, which is a `BigInt`. The mixing above stays on

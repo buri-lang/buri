@@ -743,10 +743,11 @@ changed:
   `PrimOp::Eq` at a float field, which lowers to the leaf above. On JavaScript
   `eq_kind` answered `Identity` — bare `===` — for every primitive, so the float
   field is now its own `EqKind::Float` and `runtime.js`'s `$eq` gained a line.
-- **`Hash` was already right and is now load-bearing.** `buri_rt_hash_f64` and
-  `$hashInto` both mix `ToUint32(Math.trunc(x) || 0)`, and `|| 0` catches every
-  `NaN` regardless of payload, so equal values hash equally, which is what a `Map`
-  key needs.
+- **`Hash` is load-bearing.** `buri_rt_hash_f64` and `$hashInto` hash a float
+  an `I32` or a `U32` holds as that integer, so `-0.0` hashes as `0`, and every
+  `NaN`, whatever its sign and payload, as the quiet NaN. So equal values hash
+  equally, which is what a `Map` key needs. Any other float mixes its eight bytes
+  (PERFORMANCE.md §6.65).
 
 Row 9's reason for grouping `Equal` with `Show` — "they are the same generator" — is
 false and is worth knowing: `derives.rs` runs from `middle::native` and nowhere

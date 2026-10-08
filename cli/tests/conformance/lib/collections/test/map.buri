@@ -8,6 +8,7 @@
 from "core/list" import * as list;
 from "core/map" import * as map;
 from "core/map" import { Map };
+from "core/math" import * as math;
 from "core/order" import { Equal, Hash };
 from "core/set" import * as set;
 from "core/testing/assert" import * as assert;
@@ -233,6 +234,93 @@ test "a map of keys that differ only above bit 32 keeps every entry" {
     assert.isTrue(list.range(ctx, 0, n).all(fn(i) => m.get(i * step) == .Some(i)));
     assert.isTrue(m.get(0 - step).isNone());
     assert.equal(m.remove(ctx, step).length(), n - 1);
+}
+
+// --- float keys ---------------------------------------------------------------------
+//
+// A float's hash mixed `ToUint32(Math.trunc(x))`, so every fraction in (0, 1)
+// hashed as 0, and so did floats that agree mod 2^32 (follows #273).
+
+test "F64 keys with fractions hash apart" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let keys = list.range(ctx, 0 - 500, 500).map(ctx, fn(i) => i.toF64() / 1000.0);
+    assert.isTrue(distinct(ctx, keys.map(ctx, fn(k) => k.hash())));
+}
+
+test "F64 keys that agree mod 2^32 hash apart" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let keys = list.range(ctx, 1, 64).map(ctx, fn(i) => i.toF64() * 4_294_967_296.0);
+    assert.isTrue(distinct(ctx, keys.map(ctx, fn(k) => k.hash())));
+    assert.isTrue(distinct(ctx, keys.map(ctx, fn(k) => (k + 0.5).hash())));
+}
+
+test "F32 keys with fractions hash apart" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let keys = list
+        .range(ctx, 0 - 64, 64)
+        .map(ctx, fn(i) => assert.ok((i.toF64() / 64.0).toF32()));
+    assert.isTrue(distinct(ctx, keys.map(ctx, fn(k) => k.hash())));
+}
+
+test "tuple and Option keys with fractions hash apart" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let keys = list.range(ctx, 0, 64).map(ctx, fn(i) => i.toF64() / 64.0);
+    assert.isTrue(distinct(ctx, keys.map(ctx, fn(k) => hashOf((k, "k")))));
+    assert.isTrue(distinct(ctx, keys.map(ctx, fn(k) => hashOf(Option.Some(k)))));
+}
+
+test "0.0 and -0.0 hash alike, as == says they are equal" {
+    let zero: F32 = 0.0;
+    assert.equal((-0.0).hash(), 0.0.hash());
+    assert.equal((-zero).hash(), zero.hash());
+    assert.equal(hashOf((-0.0, 1)), hashOf((0.0, 1)));
+    assert.equal(hashOf(Option.Some(-0.0)), hashOf(Option.Some(0.0)));
+}
+
+/// A NaN made at run time rather than by `math.NAN`'s division.
+fn madeNan(): F64 {
+    math.INFINITY - math.INFINITY
+}
+
+test "every NaN hashes alike, as == says they are equal" {
+    let zero: F32 = 0.0;
+    let h = math.NAN.hash();
+    assert.equal((-math.NAN).hash(), h);
+    assert.equal(madeNan().hash(), h);
+    assert.equal((-madeNan()).hash(), h);
+    assert.equal((zero / zero).hash(), h);
+    assert.equal((-(zero / zero)).hash(), h);
+    assert.equal(hashOf((-madeNan(), 1)), hashOf((math.NAN, 1)));
+}
+
+test "a map of fractional keys keeps every entry, and -0.0 finds 0.0" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let n = 2000;
+    let m = list
+        .range(ctx, 0, n)
+        .foldCtx(
+            ctx,
+            fn(c, acc: Map<F64, Int>, i) => acc.insert(c, i.toF64() / 2000.0, i),
+            map.empty<F64, Int>(),
+        );
+    assert.equal(m.length(), n);
+    assert.isTrue(
+        list.range(ctx, 0, n).all(fn(i) => m.get(i.toF64() / 2000.0) == .Some(i)),
+    );
+    assert.equal(m.get(-0.0), .Some(0));
+    assert.isTrue(m.get(1.0).isNone());
+    let s = set.of(ctx, [0.0, -0.0, math.NAN, -madeNan(), 0.5]);
+    assert.equal(s.length(), 3);
 }
 
 // --- groupBy / indexBy ---------------------------------------------------------------
