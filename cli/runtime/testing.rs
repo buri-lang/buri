@@ -3622,14 +3622,15 @@ static WATERMARK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsiz
 /// watermark up before the next one — which is the question this comment used to
 /// leave open, answered in the direction that keeps each run's promise its own.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_test_leave(index: i64) {
+pub extern "C" fn buri_rt_test_leave(_test: i64) {
+    // The block as [`buri_rt_test_enter`] numbered it, which is the runner's
+    // numbering. The argument is the test's place in the checked program,
+    // which differs once `--filter` leaves tests out of the binary.
+    let index = runner().at;
     note_left(index);
     let unconsumed = unconsumed_since(WATERMARK.load(std::sync::atomic::Ordering::Relaxed));
     if unconsumed.is_empty() {
         return;
-    }
-    if resume_at().is_some() {
-        runner().at = index;
     }
     let listed = unconsumed.join("; ");
     crate::abort::die(&[b"a fault was planned and never happened: ", listed.as_bytes()])

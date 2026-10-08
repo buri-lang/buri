@@ -6012,6 +6012,90 @@ and that no lookup allocates.
 moves. Moving them needs the push to own its receiver when the receiver dies,
 which is a change to `middle::rc`'s plan.
 
+### 6.62 A suite named alone runs its tests side by side, 2026-10-07
+
+Issue #265. Eight tests of about a second each, from the issue:
+
+```sh
+buri test --force //libs/burn                    # 9.2 s wall, 9.2 s CPU
+buri test --force //libs/burn //libs/greeting    # 1.5 s wall, 10.2 s CPU
+```
+
+`--verbose` showed every test of the lone run taking its full second, one after
+another. The cause was in `cli/src/commands/test.rs`. Two or more uncached
+suites go to `batch`, and a batch member's blocks are handed to several
+processes that pull them one at a time (`queue_members`, `run_pulled`). A
+single suite skipped `batch` and went to `run_solo`, which ran every block in
+one process with `run_blocks`. A `--filter` that narrowed the run to one suite
+took the same path.
+
+`run_solo` now links as before and hands the binary to `queue_members`, as a
+batch member gets. That keeps everything a member already has:
+
+- `--jobs` caps the processes, and a run holds no memory budget.
+- Verdicts gather by block index, so the report keeps declaration order
+  whichever process finished first.
+- A suite with `timeout_seconds` keeps one process, the same rule that keeps
+  it out of a batch, so its limit still bounds the whole suite.
+- Two suites never paint into one snapshot directory at once.
+
+The one difference is a process that ends without a verdict: a failed heap
+check, or a death after the last block. A batch member goes back to be built
+alone, and a suite on its own already is. So it runs again in the same binary,
+one process at a time (`run_alone`), and the diagnostic names the suite exactly
+as before.
+
+Tests may run in any order and share nothing (the header of `test.rs`,
+TESTING.md "Running"). Each builds its own context, so running them side by side can't
+change a verdict. The batch path has always run them that way.
+
+**A `left` line named the wrong block under `--filter`.** The runtime's
+`buri_rt_test_leave` gets the test's index in the checked program, and wrote
+that into the `left` line. `enter` and the runner number blocks by position in
+the binary, and a filtered binary leaves gaps. So `--verbose --filter` showed
+one test with no time and another with its neighbour's. `leave` now writes the
+index `enter` recorded. The pulled runner also reads `left` to tell a death
+after a block from one inside it, so that attribution was off under
+`--filter` too.
+
+**Painting stays in order.** Two blocks that name one snapshot share its file,
+and the later block's picture is the one `--update` keeps
+(`ui/a_snapshot_that_cannot_be_compared` holds this). Processes painting side
+by side made that a race. The batch path had the same race, on a premise that
+one suite's processes write different files. So a suite that paints runs one
+process at a time, batched or alone, as a suite with a limit does.
+
+**A binary that cannot start is started once.** Helpers launch only after a
+process has reached its first block, so an unloadable binary isn't launched by
+every helper at once. A lone suite whose process never started reports that
+without launching again.
+
+The issue's repository, debug `buri`, `--force` after a warm build, on a
+10-core machine shared with other agents at load averages of 10 to 45. Best of
+three to six runs:
+
+| Command | Before wall | After wall | User CPU |
+|---|---:|---:|---:|
+| `buri test //libs/burn` | 14.7 s | 3.9 s | 8–10 s either way |
+| `buri test --filter=spin //libs/burn` | 7.7 s | 1.4 s | 8–10 s |
+| `buri test //libs/burn //libs/greeting` | 2.6 s | 3.9 s | 10 s |
+
+The lone run now matches the two-target one. The two-target row didn't change
+in code, so its spread is the machine's.
+
+The repository's own `repositories::` tests took 52–59 s of user CPU before and
+after. Their wall time swung from 51 s to 288 s between back-to-back runs of
+one binary, so no wall-time change could be read from them. Their suites
+mostly hold tests of microseconds, where one process was already enough.
+
+The tests are in `cli/tests/build/scheduling.rs`.
+`a_suite_named_alone_runs_its_tests_side_by_side` wraps the test binary in a
+script that writes `start` and `end` around it and holds the binary's output
+until a second process starts, so it fails with one process at a time
+whatever the load. `a_suite_named_alone_reports_as_it_did_one_process_at_a_time`
+pins the report, the `--verbose` list and the `--filter` list as the old runner
+printed them, apart from the `--filter` time it used to drop.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
