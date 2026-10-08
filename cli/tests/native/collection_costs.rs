@@ -216,18 +216,18 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
 
-/// **`filterMap` costs about what `map` costs, and `values` stays within two
-/// `map`s** (buri-lang/buri#266). `filterMap` was a fold through a closure
-/// that owned each element it was handed and pushed what it kept. The push
-/// outgrew its block again and again, and each move to a bigger block
-/// retained every element already there. `values` appended each node's values
-/// to one list the same way. Against `map`, in instructions an element,
-/// `filterMap` was 3 and 5 times on the copy-and-patch and LLVM backends, and
-/// `values` 2.2 and 4 times.
+/// **`filterMap` and `OrderedMap.values` cost about what `map` costs**
+/// (buri-lang/buri#266). `filterMap` was a fold through a closure that owned
+/// each element it was handed and pushed what it kept. The push outgrew its
+/// block again and again, and each move to a bigger block retained every
+/// element already there. `values` appended each node's values to one list
+/// the same way. Against `map`, in instructions an element, `filterMap` was 3
+/// and 5 times on the copy-and-patch and LLVM backends, and `values` 2.2 and 4
+/// times.
 ///
 /// `filterMap` is a loop like `filter` now, writing into a block the length of
-/// the list. `values` flattens the leaves' own lists and each separator into
-/// one block sized once; the separators are what it pays over `map`.
+/// the list. Every value sits in a leaf, and `values` flattens the leaves' own
+/// lists into one block sized once.
 #[test]
 fn filter_map_and_values_cost_about_what_map_costs() {
     let elems = 2000 * 50;
@@ -241,7 +241,7 @@ fn filter_map_and_values_cost_about_what_map_costs() {
             cost.insert(mode, n);
         }
         let Some(Some(map)) = cost.get("map").copied() else { continue };
-        for (mode, times) in [("filterMap", 13), ("values", 20)] {
+        for (mode, times) in [("filterMap", 13), ("values", 13)] {
             let Some(Some(n)) = cost.get(mode).copied() else { continue };
             if n * 10 > map * times + 200 {
                 failures.push(format!("{backend}: {mode} is {n} instructions an element against map's {map}"));

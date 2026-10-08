@@ -75,13 +75,16 @@ let MAX_ENTRIES: Int = 7;
 /// and a separator fits.
 let MIN_ENTRIES: Int = MAX_ENTRIES / 2;
 
-/// A node: its keys in order, the value under each, and either no children at
-/// all or exactly one more child than it has keys. The functions that split,
-/// borrow and merge maintain that invariant, which the type cannot express.
+/// A node. A leaf holds entries: its keys in order and the value under each,
+/// and no children. A branch holds no values: its keys are separators, and it
+/// has one more child than it has keys. Every key under child `i` is at least
+/// separator `i - 1` and below separator `i`. The functions that split, borrow
+/// and merge maintain that, which the type cannot express.
 ///
 /// Keys and values are two lists rather than one list of pairs, so a search
-/// reads keys alone. A lookup copies no value but the one it answers, and
-/// `has` copies none.
+/// reads keys alone: a lookup copies no value but the one it answers, and
+/// `has` copies none. Every value sits in a leaf, so `values` and `keys` are
+/// the leaves' own lists end to end.
 struct Node<K, V> {
     keys: [K],
     values: [V],
@@ -100,15 +103,19 @@ export struct OrderedMap<K, V> {
 /// The empty map. Pure: a context type has no name, so a `<K, V, C>` here could
 /// not be written at a call site.
 export fn empty<K, V>(): OrderedMap<K, V> {
-    OrderedMap { root: emptyNode(), size: 0 }
+    OrderedMap { root: leaf(list.empty<K>(), list.empty<V>()), size: 0 }
 }
 
-fn emptyNode<K, V>(): Node<K, V> {
-    Node {
-        keys: list.empty<K>(),
-        values: list.empty<V>(),
-        children: list.empty<Node<K, V>>(),
-    }
+fn leaf<K, V>(keys: [K], values: [V]): Node<K, V> {
+    Node { keys: keys, values: values, children: list.empty<Node<K, V>>() }
+}
+
+fn branch<K, V>(keys: [K], children: [Node<K, V>]): Node<K, V> {
+    Node { keys: keys, values: list.empty<V>(), children: children }
+}
+
+fn isLeaf<K, V>(n: Node<K, V>): Bool {
+    n.children.isEmpty()
 }
 
 /// The elements of `items` collected under `key(x)`, each group in the order the
@@ -304,16 +311,18 @@ fn unsortedAfter<K: Ordered, V>(entries: [(K, V)], before: K, at: Int): Option<I
 // -----------------------------------------------------------------------------
 // Building bottom-up
 //
-// Each level is built from the one below it. The leaves come from the entries,
-// with one entry held back between each pair of neighbours. The entries held
-// back are the next level's entries, and the nodes just built are its
-// children. A level that fits in one node is the root.
+// The leaves come from the entries, `ceil(n / MAX_ENTRIES)` of them with the
+// entries spread evenly, so no two differ by more than one. Each leaf's first
+// key but the first leaf's is a separator in the level above. Each branch
+// level is built from the one below it, with one separator held back between
+// each pair of neighbouring nodes: the separators held back are the next
+// level's, and the nodes just built are its children. A level that fits in one
+// node is the root.
 //
-// A level of n entries makes `ceil((n + 1) / (MAX_ENTRIES + 1))` nodes: the
-// fewest that hold n once the separators between them are taken out. The
-// entries left are spread evenly, so no two nodes on a level differ by more
-// than one, the last included. For n above `MAX_ENTRIES` that is at least
-// `MIN_ENTRIES` a node, so every node but the root starts at or above its
+// A branch level of n separators makes `ceil((n + 1) / (MAX_ENTRIES + 1))`
+// nodes, the fewest that hold n once the separators between them are taken
+// out. For n above `MAX_ENTRIES` that is at least `MIN_ENTRIES` a node, as it
+// is for the leaves, so every node but the root starts at or above its
 // minimum, and every leaf sits at the same depth. That is all insert and
 // remove ask of a tree. The nodes are nearly full, which keeps the tree
 // shallow and its node count low; an insert into a full one splits it the way
@@ -322,17 +331,52 @@ fn unsortedAfter<K: Ordered, V>(entries: [(K, V)], before: K, at: Int): Option<I
 
 /// A map of `entries`, which the caller knows are strictly increasing by key.
 fn sorted<K, V, C: Allocator>(ctx: C, entries: [(K, V)]): OrderedMap<K, V> {
-    let leaves = Node {
-        keys: entries.map(ctx, fn(e) => e.0),
-        values: entries.map(ctx, fn(e) => e.1),
-        children: list.empty<Node<K, V>>(),
+    let keys = entries.map(ctx, fn(e) => e.0);
+    let values = entries.map(ctx, fn(e) => e.1);
+    let n = entries.length();
+    let root = if (n <= MAX_ENTRIES) {
+        leaf(keys, values)
+    } else {
+        let count = (n + MAX_ENTRIES - 1) / MAX_ENTRIES;
+        let none = branch(list.empty<K>(), list.empty<Node<K, V>>());
+        level(ctx, leaves(ctx, keys, values, n / count, n % count, 0, none))
     };
-    OrderedMap { root: level(ctx, leaves), size: entries.length() }
+    OrderedMap { root: root, size: n }
 }
 
-/// The tree over one level: `flat`'s keys and values, and the `children`
-/// between them, none for the leaves and one more than there are keys above
-/// them. A level that fits in one node is that node.
+/// The leaves over `keys` and `values` from entry `at`, as the children of the
+/// level above, each first key but the first leaf's its separator. The first
+/// `extra` leaves take one entry more than `base`.
+fn leaves<K, V, C: Allocator>(
+    ctx: C,
+    keys: [K],
+    values: [V],
+    base: Int,
+    extra: Int,
+    at: Int,
+    above: Node<K, V>,
+): Node<K, V> {
+    match (keys.get(at)) {
+        .None => above,
+        .Some(first) => {
+            let size = if (above.children.length() < extra) { base + 1 } else { base };
+            let built = leaf(
+                keys.slice(ctx, at, at + size),
+                values.slice(ctx, at, at + size),
+            );
+            let separators = if (at == 0) {
+                above.keys
+            } else {
+                above.keys.push(ctx, first)
+            };
+            let next = branch(separators, above.children.push(ctx, built));
+            leaves(ctx, keys, values, base, extra, at + size, next)
+        },
+    }
+}
+
+/// The tree over one branch level: `flat`'s separators and the children
+/// between them. A level that fits in one node is that node.
 fn level<K, V, C: Allocator>(ctx: C, flat: Node<K, V>): Node<K, V> {
     let n = flat.keys.length();
     if (n <= MAX_ENTRIES) {
@@ -340,13 +384,14 @@ fn level<K, V, C: Allocator>(ctx: C, flat: Node<K, V>): Node<K, V> {
     } else {
         let count = (n + MAX_ENTRIES + 1) / (MAX_ENTRIES + 1);
         let held = n - (count - 1);
-        level(ctx, group(ctx, flat, held / count, held % count, 0, emptyNode()))
+        let none = branch(list.empty<K>(), list.empty<Node<K, V>>());
+        level(ctx, group(ctx, flat, held / count, held % count, 0, none))
     }
 }
 
-/// The nodes of one level, starting at entry `at`, as the children of the
-/// level above, with the entries between them as its keys and values. The
-/// first `extra` nodes take one entry more than `base`.
+/// The nodes of one branch level, starting at separator `at`, as the children
+/// of the level above, with the separators between them as its own. The first
+/// `extra` nodes take one separator more than `base`.
 fn group<K, V, C: Allocator>(
     ctx: C,
     flat: Node<K, V>,
@@ -357,27 +402,22 @@ fn group<K, V, C: Allocator>(
 ): Node<K, V> {
     let size = if (above.children.length() < extra) { base + 1 } else { base };
     let end = at + size;
-    let below = if (flat.children.isEmpty()) {
-        flat.children
-    } else {
-        flat.children.slice(ctx, at, end + 1)
-    };
-    let built = Node {
-        keys: flat.keys.slice(ctx, at, end),
-        values: flat.values.slice(ctx, at, end),
-        children: below,
-    };
+    let built = branch(
+        flat.keys.slice(ctx, at, end),
+        flat.children.slice(ctx, at, end + 1),
+    );
     let nodes = above.children.push(ctx, built);
-    match (entryAt(flat, end)) {
-        .None => Node { keys: above.keys, values: above.values, children: nodes },
-        .Some(separator) => {
-            let (k, v) = separator;
-            let next = Node {
-                keys: above.keys.push(ctx, k),
-                values: above.values.push(ctx, v),
-                children: nodes,
-            };
-            group(ctx, flat, base, extra, end + 1, next)
+    match (flat.keys.get(end)) {
+        .None => branch(above.keys, nodes),
+        .Some(k) => {
+            group(
+                ctx,
+                flat,
+                base,
+                extra,
+                end + 1,
+                branch(above.keys.push(ctx, k), nodes),
+            )
         },
     }
 }
@@ -490,7 +530,7 @@ fn joinAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, x: T): [T] {
 // The shape of a node
 // -----------------------------------------------------------------------------
 
-/// The entry at `at`, if there is one.
+/// A leaf's entry at `at`, if there is one.
 fn entryAt<K, V>(n: Node<K, V>, at: Int): Option<(K, V)> {
     match (n.keys.get(at)) {
         .None => .None,
@@ -520,16 +560,23 @@ fn seek<K: Ordered>(keys: [K], key: K, at: Int): (Int, Bool) {
     }
 }
 
+/// The child of a branch that `key` belongs under: one past every separator
+/// at or below it.
+fn route<K: Ordered, V>(n: Node<K, V>, key: K): Int {
+    let (at, found) = seek(n.keys, key, 0);
+    if (found) { at + 1 } else { at }
+}
+
 // -----------------------------------------------------------------------------
 // Reading
 // -----------------------------------------------------------------------------
 
 fn lookup<K: Ordered, V>(n: Node<K, V>, key: K): Option<V> {
-    let (at, found) = seek(n.keys, key, 0);
-    if (found) {
-        n.values.get(at)
+    if (isLeaf(n)) {
+        let (at, found) = seek(n.keys, key, 0);
+        if (found) { n.values.get(at) } else { .None }
     } else {
-        match (n.children.get(at)) {
+        match (n.children.get(route(n, key))) {
             .None => .None,
             .Some(child) => lookup(child, key),
         }
@@ -538,11 +585,11 @@ fn lookup<K: Ordered, V>(n: Node<K, V>, key: K): Option<V> {
 
 /// `lookup` without the value.
 fn holds<K: Ordered, V>(n: Node<K, V>, key: K): Bool {
-    let (at, found) = seek(n.keys, key, 0);
-    if (found) {
-        true
+    if (isLeaf(n)) {
+        let (_at, found) = seek(n.keys, key, 0);
+        found
     } else {
-        match (n.children.get(at)) {
+        match (n.children.get(route(n, key))) {
             .None => false,
             .Some(child) => holds(child, key),
         }
@@ -568,39 +615,42 @@ fn rightmost<K, V>(n: Node<K, V>): Option<(K, V)> {
 // -----------------------------------------------------------------------------
 
 /// What a subtree answers an insert with: itself, or the two halves it broke
-/// into and the entry that has to move up between them.
+/// into and the separator between them.
 enum Grown<K, V> {
     Fit(Node<K, V>),
-    Split(Node<K, V>, K, V, Node<K, V>),
+    Split(Node<K, V>, K, Node<K, V>),
 }
 
-/// A node that may be holding one entry too many, split if it is.
+/// A node that may be holding one key too many, split if it is.
 ///
-/// The median moves up and the two halves become the new siblings, so the tree
-/// grows at the root and every leaf stays the same distance from it.
+/// A leaf splits in two and its right half's first key goes up as a copy. A
+/// branch's middle separator moves up and leaves it. Either way the tree grows
+/// at the root and every leaf stays the same distance from it.
 fn overfull<K, V, C: Allocator>(ctx: C, n: Node<K, V>): Grown<K, V> {
     let count = n.keys.length();
+    let half = count / 2;
     if (count <= MAX_ENTRIES) {
         .Fit(n)
-    } else {
-        let half = count / 2;
-        match (entryAt(n, half)) {
+    } else if (isLeaf(n)) {
+        let right = leaf(n.keys.drop(ctx, half), n.values.drop(ctx, half));
+        match (right.keys.get(0)) {
             .None => .Fit(n),
-            .Some(mid) => {
-                let (k, v) = mid;
+            .Some(up) => {
                 .Split(
-                    Node {
-                        keys: n.keys.take(ctx, half),
-                        values: n.values.take(ctx, half),
-                        children: n.children.take(ctx, half + 1),
-                    },
-                    k,
-                    v,
-                    Node {
-                        keys: n.keys.drop(ctx, half + 1),
-                        values: n.values.drop(ctx, half + 1),
-                        children: n.children.drop(ctx, half + 1),
-                    },
+                    leaf(n.keys.take(ctx, half), n.values.take(ctx, half)),
+                    up,
+                    right,
+                )
+            },
+        }
+    } else {
+        match (n.keys.get(half)) {
+            .None => .Fit(n),
+            .Some(up) => {
+                .Split(
+                    branch(n.keys.take(ctx, half), n.children.take(ctx, half + 1)),
+                    up,
+                    branch(n.keys.drop(ctx, half + 1), n.children.drop(ctx, half + 1)),
                 )
             },
         }
@@ -616,43 +666,34 @@ fn insertInto<K: Ordered, V, C: Allocator>(
     key: K,
     value: V,
 ): (Grown<K, V>, Bool) {
-    let (at, found) = seek(n.keys, key, 0);
-    if (found) {
-        let replaced = Node {
-            keys: replaceAt(ctx, n.keys, at, key),
-            values: replaceAt(ctx, n.values, at, value),
-            children: n.children,
-        };
-        (.Fit(replaced), false)
+    if (isLeaf(n)) {
+        let (at, found) = seek(n.keys, key, 0);
+        if (found) {
+            let replaced = leaf(
+                replaceAt(ctx, n.keys, at, key),
+                replaceAt(ctx, n.values, at, value),
+            );
+            (.Fit(replaced), false)
+        } else {
+            let added = leaf(
+                insertAt(ctx, n.keys, at, key),
+                insertAt(ctx, n.values, at, value),
+            );
+            (overfull(ctx, added), true)
+        }
     } else {
+        let at = route(n, key);
         match (n.children.get(at)) {
-            // A leaf: the entry goes in where it belongs, and the node may now be
-            // one too long.
-            .None => {
-                let added = Node {
-                    keys: insertAt(ctx, n.keys, at, key),
-                    values: insertAt(ctx, n.values, at, value),
-                    children: n.children,
-                };
-                (overfull(ctx, added), true)
-            },
+            .None => (.Fit(n), false),
             .Some(child) => {
                 let (grown, added) = insertInto(ctx, child, key, value);
                 match (grown) {
-                    .Fit(one) => {
-                        let placed = Node {
-                            keys: n.keys,
-                            values: n.values,
-                            children: replaceAt(ctx, n.children, at, one),
-                        };
-                        (.Fit(placed), added)
-                    },
-                    .Split(left, k, v, right) => {
-                        let wider = Node {
-                            keys: insertAt(ctx, n.keys, at, k),
-                            values: insertAt(ctx, n.values, at, v),
-                            children: splitAt(ctx, n.children, at, left, right),
-                        };
+                    .Fit(one) => (.Fit(placed(ctx, n, at, one)), added),
+                    .Split(left, up, right) => {
+                        let wider = branch(
+                            insertAt(ctx, n.keys, at, up),
+                            splitAt(ctx, n.children, at, left, right),
+                        );
                         (overfull(ctx, wider), added)
                     },
                 }
@@ -665,22 +706,18 @@ fn insertInto<K: Ordered, V, C: Allocator>(
 // Remove
 // -----------------------------------------------------------------------------
 
-/// `n` with `child` put back at `at`.
+/// The branch `n` with `child` put back at `at`.
 fn placed<K, V, C: Allocator>(
     ctx: C,
     n: Node<K, V>,
     at: Int,
     child: Node<K, V>,
 ): Node<K, V> {
-    Node {
-        keys: n.keys,
-        values: n.values,
-        children: replaceAt(ctx, n.children, at, child),
-    }
+    branch(n.keys, replaceAt(ctx, n.children, at, child))
 }
 
 /// Puts `child` back at `at`, restoring the minimum occupancy if it fell short
-/// — by borrowing one entry from a sibling, or by merging with one.
+/// — by borrowing one key from a sibling, or by merging with one.
 ///
 /// The result may itself be short, which is what the caller's own `fixChild`
 /// handles; at the root, `shrinkRoot` handles it instead.
@@ -695,59 +732,65 @@ fn fixChild<K: Ordered, V, C: Allocator>(
     } else if (at > 0) {
         match (n.children.get(at - 1)) {
             .None => placed(ctx, n, at, child),
-            .Some(left) => {
-                match (entryAt(n, at - 1)) {
-                    .None => placed(ctx, n, at, child),
-                    .Some(separator) => fixWithLeft(ctx, n, at, child, left, separator),
-                }
-            },
+            .Some(left) => fixWithLeft(ctx, n, at, child, left),
         }
     } else {
         match (n.children.get(at + 1)) {
             .None => placed(ctx, n, at, child),
-            .Some(right) => {
-                match (entryAt(n, at)) {
-                    .None => placed(ctx, n, at, child),
-                    .Some(separator) => {
-                        fixWithRight(ctx, n, at, child, right, separator)
-                    },
-                }
-            },
+            .Some(right) => fixWithRight(ctx, n, at, child, right),
         }
     }
 }
 
-/// The short child and the sibling before it: rotate one entry across, or fuse
-/// the two around the separator that sat between them.
+/// The short child and the sibling before it: move one key across, or fuse
+/// the two. Separator `at - 1` sits between them.
 fn fixWithLeft<K: Ordered, V, C: Allocator>(
     ctx: C,
     n: Node<K, V>,
     at: Int,
     child: Node<K, V>,
     left: Node<K, V>,
-    separator: (K, V),
 ): Node<K, V> {
-    let (sk, sv) = separator;
     let last = left.keys.length() - 1;
-    if (left.keys.length() > MIN_ENTRIES) {
-        match (entryAt(left, last)) {
-            .None => placed(ctx, n, at, child),
-            .Some(up) => {
-                // The separator comes down into the short child and the sibling's last
-                // entry goes up to replace it, along with the subtree between them.
-                let (uk, uv) = up;
-                let grownChild = Node {
-                    keys: insertAt(ctx, child.keys, 0, sk),
-                    values: insertAt(ctx, child.values, 0, sv),
-                    children: left
-                        .children
-                        .drop(ctx, last + 1)
-                        .concat(ctx, child.children),
-                };
-                let shrunkLeft = Node {
-                    keys: left.keys.take(ctx, last),
-                    values: left.values.take(ctx, last),
-                    children: left.children.take(ctx, last + 1),
+    match ((n.keys.get(at - 1), left.keys.get(last))) {
+        (.Some(separator), .Some(up)) => {
+            if (left.keys.length() > MIN_ENTRIES) {
+                // The sibling's last entry moves into the short child, and its
+                // key is the separator between them now.
+                let (grownChild, shrunkLeft, between) = if (isLeaf(child)) {
+                    match (left.values.get(last)) {
+                        .None => (child, left, separator),
+                        .Some(v) => {
+                            (
+                                leaf(
+                                    insertAt(ctx, child.keys, 0, up),
+                                    insertAt(ctx, child.values, 0, v),
+                                ),
+                                leaf(
+                                    left.keys.take(ctx, last),
+                                    left.values.take(ctx, last),
+                                ),
+                                up,
+                            )
+                        },
+                    }
+                } else {
+                    // A branch's separator comes down into the short child and the
+                    // sibling's last goes up, with the subtree between them.
+                    (
+                        branch(
+                            insertAt(ctx, child.keys, 0, separator),
+                            left
+                                .children
+                                .drop(ctx, last + 1)
+                                .concat(ctx, child.children),
+                        ),
+                        branch(
+                            left.keys.take(ctx, last),
+                            left.children.take(ctx, last + 1),
+                        ),
+                        up,
+                    )
                 };
                 let children = replaceAt(
                     ctx,
@@ -755,53 +798,70 @@ fn fixWithLeft<K: Ordered, V, C: Allocator>(
                     at - 1,
                     shrunkLeft,
                 );
-                Node {
-                    keys: replaceAt(ctx, n.keys, at - 1, uk),
-                    values: replaceAt(ctx, n.values, at - 1, uv),
-                    children: children,
-                }
-            },
-        }
-    } else {
-        // At most `MIN_ENTRIES` each side plus the separator, so the fused node
-        // is never overfull.
-        let merged = Node {
-            keys: left.keys.push(ctx, sk).concat(ctx, child.keys),
-            values: left.values.push(ctx, sv).concat(ctx, child.values),
-            children: left.children.concat(ctx, child.children),
-        };
-        Node {
-            keys: removeAt(ctx, n.keys, at - 1),
-            values: removeAt(ctx, n.values, at - 1),
-            children: joinAt(ctx, n.children, at - 1, merged),
-        }
+                branch(replaceAt(ctx, n.keys, at - 1, between), children)
+            } else {
+                // At most `MIN_ENTRIES` each side, plus a branch's separator, so
+                // the fused node is never overfull.
+                let merged = if (isLeaf(child)) {
+                    leaf(
+                        left.keys.concat(ctx, child.keys),
+                        left.values.concat(ctx, child.values),
+                    )
+                } else {
+                    branch(
+                        left.keys.push(ctx, separator).concat(ctx, child.keys),
+                        left.children.concat(ctx, child.children),
+                    )
+                };
+                branch(
+                    removeAt(ctx, n.keys, at - 1),
+                    joinAt(ctx, n.children, at - 1, merged),
+                )
+            }
+        },
+        _ => placed(ctx, n, at, child),
     }
 }
 
 /// The mirror of [`fixWithLeft`], for the child that has no sibling before it.
+/// Separator `at` sits between them.
 fn fixWithRight<K: Ordered, V, C: Allocator>(
     ctx: C,
     n: Node<K, V>,
     at: Int,
     child: Node<K, V>,
     right: Node<K, V>,
-    separator: (K, V),
 ): Node<K, V> {
-    let (sk, sv) = separator;
-    if (right.keys.length() > MIN_ENTRIES) {
-        match (entryAt(right, 0)) {
-            .None => placed(ctx, n, at, child),
-            .Some(up) => {
-                let (uk, uv) = up;
-                let grownChild = Node {
-                    keys: child.keys.push(ctx, sk),
-                    values: child.values.push(ctx, sv),
-                    children: child.children.concat(ctx, right.children.take(ctx, 1)),
-                };
-                let shrunkRight = Node {
-                    keys: right.keys.drop(ctx, 1),
-                    values: right.values.drop(ctx, 1),
-                    children: right.children.drop(ctx, 1),
+    match ((n.keys.get(at), right.keys.get(0))) {
+        (.Some(separator), .Some(up)) => {
+            if (right.keys.length() > MIN_ENTRIES) {
+                let (grownChild, shrunkRight, between) = if (isLeaf(child)) {
+                    let shrunk = leaf(
+                        right.keys.drop(ctx, 1),
+                        right.values.drop(ctx, 1),
+                    );
+                    match ((right.values.get(0), shrunk.keys.get(0))) {
+                        (.Some(v), .Some(next)) => {
+                            (
+                                leaf(
+                                    child.keys.push(ctx, up),
+                                    child.values.push(ctx, v),
+                                ),
+                                shrunk,
+                                next,
+                            )
+                        },
+                        _ => (child, right, separator),
+                    }
+                } else {
+                    (
+                        branch(
+                            child.keys.push(ctx, separator),
+                            child.children.concat(ctx, right.children.take(ctx, 1)),
+                        ),
+                        branch(right.keys.drop(ctx, 1), right.children.drop(ctx, 1)),
+                        up,
+                    )
                 };
                 let children = replaceAt(
                     ctx,
@@ -809,74 +869,57 @@ fn fixWithRight<K: Ordered, V, C: Allocator>(
                     at + 1,
                     shrunkRight,
                 );
-                Node {
-                    keys: replaceAt(ctx, n.keys, at, uk),
-                    values: replaceAt(ctx, n.values, at, uv),
-                    children: children,
-                }
-            },
-        }
-    } else {
-        let merged = Node {
-            keys: child.keys.push(ctx, sk).concat(ctx, right.keys),
-            values: child.values.push(ctx, sv).concat(ctx, right.values),
-            children: child.children.concat(ctx, right.children),
-        };
-        Node {
-            keys: removeAt(ctx, n.keys, at),
-            values: removeAt(ctx, n.values, at),
-            children: joinAt(ctx, n.children, at, merged),
-        }
+                branch(replaceAt(ctx, n.keys, at, between), children)
+            } else {
+                let merged = if (isLeaf(child)) {
+                    leaf(
+                        child.keys.concat(ctx, right.keys),
+                        child.values.concat(ctx, right.values),
+                    )
+                } else {
+                    branch(
+                        child.keys.push(ctx, separator).concat(ctx, right.keys),
+                        child.children.concat(ctx, right.children),
+                    )
+                };
+                branch(removeAt(ctx, n.keys, at), joinAt(ctx, n.children, at, merged))
+            }
+        },
+        _ => placed(ctx, n, at, child),
     }
 }
 
-/// `n` without the entry at `at`, which must be a leaf's.
+/// The leaf `n` without its entry at `at`.
 fn without<K, V, C: Allocator>(ctx: C, n: Node<K, V>, at: Int): Node<K, V> {
-    Node {
-        keys: removeAt(ctx, n.keys, at),
-        values: removeAt(ctx, n.values, at),
-        children: n.children,
-    }
+    leaf(removeAt(ctx, n.keys, at), removeAt(ctx, n.values, at))
 }
 
 /// Answers the subtree after the removal, and whether a key actually went.
 ///
-/// A key found in a branch does not go where it sits: the entry before it in
-/// key order takes its place, and *that* one comes out of a leaf. So every
-/// removal ends up a removal from a leaf.
+/// Every entry sits in a leaf, so every removal is a removal from a leaf. A
+/// separator equal to the key it removed still routes as it did.
 fn removeFrom<K: Ordered, V, C: Allocator>(
     ctx: C,
     n: Node<K, V>,
     key: K,
 ): (Node<K, V>, Bool) {
-    let (at, found) = seek(n.keys, key, 0);
-    match (n.children.get(at)) {
-        .None => { if (found) { (without(ctx, n, at), true) } else { (n, false) } },
-        .Some(child) => {
-            if (found) {
-                match (rightmost(child)) {
-                    .None => (n, false),
-                    .Some(predecessor) => {
-                        let (pk, pv) = predecessor;
-                        let (shrunk, _gone) = removeFrom(ctx, child, pk);
-                        let promoted = Node {
-                            keys: replaceAt(ctx, n.keys, at, pk),
-                            values: replaceAt(ctx, n.values, at, pv),
-                            children: n.children,
-                        };
-                        (fixChild(ctx, promoted, at, shrunk), true)
-                    },
-                }
-            } else {
+    if (isLeaf(n)) {
+        let (at, found) = seek(n.keys, key, 0);
+        if (found) { (without(ctx, n, at), true) } else { (n, false) }
+    } else {
+        let at = route(n, key);
+        match (n.children.get(at)) {
+            .None => (n, false),
+            .Some(child) => {
                 let (shrunk, gone) = removeFrom(ctx, child, key);
                 if (gone) { (fixChild(ctx, n, at, shrunk), true) } else { (n, false) }
-            }
-        },
+            },
+        }
     }
 }
 
-/// A root branch left with no entries has exactly one child, and that child is
-/// the tree. This is the only place the tree gets shallower.
+/// A root branch left with no separators has exactly one child, and that child
+/// is the tree. This is the only place the tree gets shallower.
 fn shrinkRoot<K, V>(n: Node<K, V>): Node<K, V> {
     if (n.keys.isEmpty()) {
         match (n.children.get(0)) {
@@ -944,20 +987,33 @@ fn takeLast<K: Ordered, V, C: Allocator>(
     }
 }
 
-/// The largest entry whose key is at most `key`, carrying the best answer found
-/// above down with it. One descent, and pure.
-fn floorIn<K: Ordered, V>(n: Node<K, V>, key: K, best: Option<(K, V)>): Option<(K, V)> {
-    let (at, found) = seek(n.keys, key, 0);
-    if (found) {
-        entryAt(n, at)
+/// The largest entry whose key is at most `key`. `before` is the nearest
+/// subtree to the left of the path down, whose last entry answers when the
+/// leaf holds nothing at or below `key`. One descent, and one more down
+/// `before` at most. Pure.
+fn floorIn<K: Ordered, V>(
+    n: Node<K, V>,
+    key: K,
+    before: Option<Node<K, V>>,
+): Option<(K, V)> {
+    if (isLeaf(n)) {
+        let (at, found) = seek(n.keys, key, 0);
+        if (found) {
+            entryAt(n, at)
+        } else if (at > 0) {
+            entryAt(n, at - 1)
+        } else {
+            match (before) {
+                .None => .None,
+                .Some(b) => rightmost(b),
+            }
+        }
     } else {
-        // `seek` puts `at` at the first key above `key`, so the entry before it
-        // is this node's best candidate. At `at == 0` there is none and the
-        // ancestors' stands.
-        let here = entryAt(n, at - 1).or(best);
+        let at = route(n, key);
+        let nearer = if (at > 0) { n.children.get(at - 1) } else { before };
         match (n.children.get(at)) {
-            .None => here,
-            .Some(child) => floorIn(child, key, here),
+            .None => .None,
+            .Some(child) => floorIn(child, key, nearer),
         }
     }
 }
@@ -966,16 +1022,29 @@ fn floorIn<K: Ordered, V>(n: Node<K, V>, key: K, best: Option<(K, V)>): Option<(
 fn ceilingIn<K: Ordered, V>(
     n: Node<K, V>,
     key: K,
-    best: Option<(K, V)>,
+    after: Option<Node<K, V>>,
 ): Option<(K, V)> {
-    let (at, found) = seek(n.keys, key, 0);
-    if (found) {
-        entryAt(n, at)
+    if (isLeaf(n)) {
+        let (at, _found) = seek(n.keys, key, 0);
+        match (entryAt(n, at)) {
+            .Some(e) => .Some(e),
+            .None => {
+                match (after) {
+                    .None => .None,
+                    .Some(a) => leftmost(a),
+                }
+            },
+        }
     } else {
-        let here = entryAt(n, at).or(best);
+        let at = route(n, key);
+        let nearer = if (at + 1 < n.children.length()) {
+            n.children.get(at + 1)
+        } else {
+            after
+        };
         match (n.children.get(at)) {
-            .None => here,
-            .Some(child) => ceilingIn(child, key, here),
+            .None => .None,
+            .Some(child) => ceilingIn(child, key, nearer),
         }
     }
 }
@@ -983,24 +1052,26 @@ fn ceilingIn<K: Ordered, V>(
 // -----------------------------------------------------------------------------
 // Walking
 //
-// Each of these threads the answer through as an accumulator rather than
-// concatenating sublists: a `push` onto a list nothing else holds grows it in
-// place (MEMORY.md §5.3), so the whole walk is linear.
+// Every entry is in a leaf, so a walk visits the leaves in order. The answers
+// are threaded through as accumulators rather than concatenated sublists: a
+// `push` onto a list nothing else holds grows it in place (MEMORY.md §5.3), so
+// the whole walk is linear. `keys` and `values` gather the leaves' own lists
+// and `flatten` them, which sizes the answer once.
 // -----------------------------------------------------------------------------
 
-/// A node's entries and children in key order: child `i`, then entry `i`.
+/// The entries under `n`, in key order.
 fn foldNode<K, V, B>(n: Node<K, V>, step: fn(B, K, V) => B, acc: B): B {
-    foldFrom(n, 0, step, acc)
+    if (isLeaf(n)) {
+        foldLeaf(n, 0, step, acc)
+    } else {
+        n.children.fold(fn(a, child) => foldNode(child, step, a), acc)
+    }
 }
 
-fn foldFrom<K, V, B>(n: Node<K, V>, i: Int, step: fn(B, K, V) => B, acc: B): B {
-    let below = match (n.children.get(i)) {
-        .Some(child) => foldNode(child, step, acc),
-        .None => acc,
-    };
+fn foldLeaf<K, V, B>(n: Node<K, V>, i: Int, step: fn(B, K, V) => B, acc: B): B {
     match (entryAt(n, i)) {
-        .Some(kv) => foldFrom(n, i + 1, step, step(below, kv.0, kv.1)),
-        .None => below,
+        .Some(kv) => foldLeaf(n, i + 1, step, step(acc, kv.0, kv.1)),
+        .None => acc,
     }
 }
 
@@ -1010,100 +1081,74 @@ fn foldNodeCtx<K, V, B, C>(
     step: fn(C, B, K, V) => B,
     acc: B,
 ): B {
-    foldFromCtx(ctx, n, 0, step, acc)
+    if (isLeaf(n)) {
+        foldLeafCtx(ctx, n, 0, step, acc)
+    } else {
+        n.children.foldCtx(ctx, fn(c, a, child) => foldNodeCtx(c, child, step, a), acc)
+    }
 }
 
-fn foldFromCtx<K, V, B, C>(
+fn foldLeafCtx<K, V, B, C>(
     ctx: C,
     n: Node<K, V>,
     i: Int,
     step: fn(C, B, K, V) => B,
     acc: B,
 ): B {
-    let below = match (n.children.get(i)) {
-        .Some(child) => foldNodeCtx(ctx, child, step, acc),
-        .None => acc,
-    };
     match (entryAt(n, i)) {
-        .Some(kv) => foldFromCtx(ctx, n, i + 1, step, step(ctx, below, kv.0, kv.1)),
-        .None => below,
+        .Some(kv) => foldLeafCtx(ctx, n, i + 1, step, step(ctx, acc, kv.0, kv.1)),
+        .None => acc,
+    }
+}
+
+/// The leaves' key lists under `n`, in key order, for `flatten`.
+fn keyRuns<K, V, C: Allocator>(ctx: C, n: Node<K, V>, acc: [[K]]): [[K]] {
+    if (isLeaf(n)) {
+        acc.push(ctx, n.keys)
+    } else {
+        n.children.foldCtx(ctx, fn(c, a, child) => keyRuns(c, child, a), acc)
+    }
+}
+
+/// The leaves' value lists under `n`, in key order, for `flatten`.
+fn valueRuns<K, V, C: Allocator>(ctx: C, n: Node<K, V>, acc: [[V]]): [[V]] {
+    if (isLeaf(n)) {
+        acc.push(ctx, n.values)
+    } else {
+        n.children.foldCtx(ctx, fn(c, a, child) => valueRuns(c, child, a), acc)
+    }
+}
+
+/// The leaves under `n`, in key order, pushed onto `acc`.
+fn leavesOf<K, V, C: Allocator>(
+    ctx: C,
+    n: Node<K, V>,
+    acc: [Node<K, V>],
+): [Node<K, V>] {
+    if (isLeaf(n)) {
+        acc.push(ctx, n)
+    } else {
+        n.children.foldCtx(ctx, fn(c, a, child) => leavesOf(c, child, a), acc)
     }
 }
 
 fn walk<K, V, C: Allocator>(ctx: C, n: Node<K, V>, acc: [(K, V)]): [(K, V)] {
-    walkFrom(ctx, n, 0, acc)
+    leavesOf(ctx, n, list.empty<Node<K, V>>()).foldCtx(
+        ctx,
+        fn(c, a, l) => walkLeaf(c, l, 0, a),
+        acc,
+    )
 }
 
-fn walkFrom<K, V, C: Allocator>(
+fn walkLeaf<K, V, C: Allocator>(
     ctx: C,
     n: Node<K, V>,
     at: Int,
     acc: [(K, V)],
 ): [(K, V)] {
-    let below = match (n.children.get(at)) {
-        .None => acc,
-        .Some(child) => walk(ctx, child, acc),
-    };
     match (entryAt(n, at)) {
-        .None => below,
-        .Some(e) => walkFrom(ctx, n, at + 1, below.push(ctx, e)),
-    }
-}
-
-/// The keys alone, a leaf's appended whole.
-fn keysOf<K, V, C: Allocator>(ctx: C, n: Node<K, V>, acc: [K]): [K] {
-    if (n.children.isEmpty()) {
-        acc.concat(ctx, n.keys)
-    } else {
-        keysFrom(ctx, n, 0, acc)
-    }
-}
-
-fn keysFrom<K, V, C: Allocator>(ctx: C, n: Node<K, V>, at: Int, acc: [K]): [K] {
-    match (n.children.get(at)) {
         .None => acc,
-        .Some(child) => {
-            let below = keysOf(ctx, child, acc);
-            match (n.keys.get(at)) {
-                .None => below,
-                .Some(k) => keysFrom(ctx, n, at + 1, below.push(ctx, k)),
-            }
-        },
-    }
-}
-
-/// The values in key order as runs to `flatten`: each leaf's own list, and
-/// each separator alone. `flatten` sizes its block once, where appending to
-/// one list outgrows it again and again and retains every value at each move.
-fn valueRuns<K, V, C: Allocator>(ctx: C, n: Node<K, V>, acc: [[V]]): [[V]] {
-    if (n.children.isEmpty()) {
-        acc.push(ctx, n.values)
-    } else {
-        valueRunsFrom(ctx, n, 0, acc)
-    }
-}
-
-fn valueRunsFrom<K, V, C: Allocator>(
-    ctx: C,
-    n: Node<K, V>,
-    at: Int,
-    acc: [[V]],
-): [[V]] {
-    match (n.children.get(at)) {
-        .None => acc,
-        .Some(child) => {
-            let below = valueRuns(ctx, child, acc);
-            if (at < n.values.length()) {
-                valueRunsFrom(
-                    ctx,
-                    n,
-                    at + 1,
-                    below.push(ctx, n.values.slice(ctx, at, at + 1)),
-                )
-            } else {
-                below
-            }
-        },
+        .Some(e) => walkLeaf(ctx, n, at + 1, acc.push(ctx, e)),
     }
 }
 
@@ -1120,8 +1165,8 @@ fn mapNode<K, V, W, C: Allocator>(
     }
 }
 
-/// The half-open scan. The seek at each node is what makes this visit only the
-/// subtrees that can hold an answer, rather than the whole tree.
+/// The half-open scan. Routing at each branch is what makes this visit only
+/// the subtrees that can hold an answer, rather than the whole tree.
 fn walkRange<K: Ordered, V, C: Allocator>(
     ctx: C,
     n: Node<K, V>,
@@ -1129,10 +1174,15 @@ fn walkRange<K: Ordered, V, C: Allocator>(
     end: K,
     acc: [(K, V)],
 ): [(K, V)] {
-    let (at, _found) = seek(n.keys, start, 0);
-    rangeFrom(ctx, n, start, end, at, acc)
+    if (isLeaf(n)) {
+        let (at, _found) = seek(n.keys, start, 0);
+        rangeLeaf(ctx, n, end, at, acc)
+    } else {
+        rangeFrom(ctx, n, start, end, route(n, start), acc)
+    }
 }
 
+/// Child `at` and every one after it that can hold a key below `end`.
 fn rangeFrom<K: Ordered, V, C: Allocator>(
     ctx: C,
     n: Node<K, V>,
@@ -1141,23 +1191,33 @@ fn rangeFrom<K: Ordered, V, C: Allocator>(
     at: Int,
     acc: [(K, V)],
 ): [(K, V)] {
-    // Visit the child before entry `at` before testing the entry: it can hold
-    // keys below `end` even when that entry does not.
-    let below = match (n.children.get(at)) {
+    match (n.children.get(at)) {
         .None => acc,
-        .Some(child) => walkRange(ctx, child, start, end, acc),
-    };
-    match (entryAt(n, at)) {
-        .None => below,
-        .Some(e) => {
-            if (e.0.compare(end).isLess()) {
-                rangeFrom(ctx, n, start, end, at + 1, below.push(ctx, e))
-            } else {
-                // Everything after this entry is at least as large, so the scan is
-                // over — for this node and for every subtree to its right.
-                below
+        .Some(child) => {
+            let below = walkRange(ctx, child, start, end, acc);
+            // The next child holds nothing below separator `at`.
+            match (n.keys.get(at)) {
+                .Some(k) if k.compare(end).isLess() => {
+                    rangeFrom(ctx, n, start, end, at + 1, below)
+                },
+                _ => below,
             }
         },
+    }
+}
+
+fn rangeLeaf<K: Ordered, V, C: Allocator>(
+    ctx: C,
+    n: Node<K, V>,
+    end: K,
+    at: Int,
+    acc: [(K, V)],
+): [(K, V)] {
+    match (entryAt(n, at)) {
+        .Some(e) if e.0.compare(end).isLess() => {
+            rangeLeaf(ctx, n, end, at + 1, acc.push(ctx, e))
+        },
+        _ => acc,
     }
 }
 
@@ -1193,9 +1253,7 @@ impl<K: Ordered, V> OrderedMap<K, V> {
         let root = match (grown) {
             .Fit(one) => one,
             // The tree gets taller only here, and by one level all at once.
-            .Split(left, k, v, right) => {
-                Node { keys: [k], values: [v], children: [left, right] }
-            },
+            .Split(left, up, right) => branch([up], [left, right]),
         };
         OrderedMap { root: root, size: if (added) { self.size + 1 } else { self.size } }
     }
@@ -1500,11 +1558,11 @@ impl<K: Ordered, V> OrderedMap<K, V> {
     }
 
     export fn keys<C: Allocator>(self, ctx: C): [K] {
-        keysOf(ctx, self.root, list.empty<K>())
+        keyRuns(ctx, self.root, list.empty<[K]>()).flatten(ctx)
     }
 
-    /// Every value, in key order. One pass, which appends each leaf's values
-    /// whole rather than building the entries first.
+    /// Every value, in key order: the leaves' own lists, flattened into one
+    /// block sized once.
     export fn values<C: Allocator>(self, ctx: C): [V] {
         valueRuns(ctx, self.root, list.empty<[V]>()).flatten(ctx)
     }
@@ -1537,7 +1595,11 @@ impl<K: Ordered, V: Equal> Equal for OrderedMap<K, V> {
 }
 
 fn allIn<K: Ordered, V: Equal>(n: Node<K, V>, other: OrderedMap<K, V>): Bool {
-    sameFrom(n, 0, other) && n.children.all(fn(child) => allIn(child, other))
+    if (isLeaf(n)) {
+        sameFrom(n, 0, other)
+    } else {
+        n.children.all(fn(child) => allIn(child, other))
+    }
 }
 
 fn sameFrom<K: Ordered, V: Equal>(
@@ -1585,11 +1647,16 @@ fn prefixFrom<V, C: Allocator>(
     prefix: Str,
     acc: [(Str, V)],
 ): [(Str, V)] {
-    // The first key that is at least the prefix is the first that can match it.
-    let (at, _found) = seek(n.keys, prefix, 0);
-    prefixAt(ctx, n, prefix, at, acc)
+    if (isLeaf(n)) {
+        // The first key that is at least the prefix is the first that can match it.
+        let (at, _found) = seek(n.keys, prefix, 0);
+        prefixLeaf(ctx, n, prefix, at, acc)
+    } else {
+        prefixAt(ctx, n, prefix, route(n, prefix), acc)
+    }
 }
 
+/// Child `at` and every one after it whose separator still matches.
 fn prefixAt<V, C: Allocator>(
     ctx: C,
     n: Node<Str, V>,
@@ -1597,18 +1664,31 @@ fn prefixAt<V, C: Allocator>(
     at: Int,
     acc: [(Str, V)],
 ): [(Str, V)] {
-    let below = match (n.children.get(at)) {
+    match (n.children.get(at)) {
         .None => acc,
-        .Some(child) => prefixFrom(ctx, child, prefix, acc),
-    };
-    match (entryAt(n, at)) {
-        .None => below,
-        .Some(e) => {
-            if (e.0.startsWith(prefix)) {
-                prefixAt(ctx, n, prefix, at + 1, below.push(ctx, e))
-            } else {
-                below
+        .Some(child) => {
+            let below = prefixFrom(ctx, child, prefix, acc);
+            match (n.keys.get(at)) {
+                .Some(k) if k.startsWith(prefix) => {
+                    prefixAt(ctx, n, prefix, at + 1, below)
+                },
+                _ => below,
             }
         },
+    }
+}
+
+fn prefixLeaf<V, C: Allocator>(
+    ctx: C,
+    n: Node<Str, V>,
+    prefix: Str,
+    at: Int,
+    acc: [(Str, V)],
+): [(Str, V)] {
+    match (entryAt(n, at)) {
+        .Some(e) if e.0.startsWith(prefix) => {
+            prefixLeaf(ctx, n, prefix, at + 1, acc.push(ctx, e))
+        },
+        _ => acc,
     }
 }
