@@ -20,7 +20,7 @@ doctest = false
 [dependencies]
 tokio = { version = "1", optional = true, default-features = false, features = ["rt-multi-thread", "net", "time", "io-util", "sync"] }
 hyper = { version = "1", optional = true, default-features = false, features = ["client", "server", "http1", "http2"] }
-rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "tls12"] }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "tls12", "ring"] }
 rustls-graviola = { version = "0.4", optional = true, default-features = false }
 graviola = { version = "0.4", optional = true, default-features = false }
 ring = { version = "0.17", optional = true, default-features = false }
@@ -33,7 +33,7 @@ tiny-skia = { version = "=0.12.0", optional = true, default-features = false, fe
 
 [features]
 default = ["net", "crypto", "paint"]
-net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:rustls-graviola", "dep:graviola", "dep:tungstenite"]
+net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:rustls-graviola", "dep:graviola", "dep:ring", "dep:tungstenite"]
 net-h3 = ["net", "dep:quinn"]
 crypto = ["dep:getrandom", "dep:ring", "ring/alloc"]
 paint = ["dep:taffy", "dep:cosmic-text", "dep:tiny-skia"]

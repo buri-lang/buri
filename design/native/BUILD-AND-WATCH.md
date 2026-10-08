@@ -53,7 +53,7 @@ than a review comment.
 | `rustls` | `net` | TLS 1.2 and 1.3, and **linked**: `cli/runtime/tls.rs` builds its client configuration and `http.rs` reaches that for every `https://` URL. |
 | `rustls-graviola` | `net` | `rustls`'s crypto provider since #225, with X25519MLKEM768 key exchange first — see §1.1.2. |
 | `graviola` | `net` | The cryptography under `rustls-graviola`, declared directly so the bar test sees it. |
-| `ring` | `crypto` | `core/crypto`'s sealing and signature checks, and `quinn`'s provider. TLS's provider until #225 — see §1.1.2. |
+| `ring` | `net`, `crypto` | TLS's provider on a CPU `graviola` cannot run on, `core/crypto`'s sealing and signature checks, and `quinn`'s provider. TLS's only provider until #225 — see §1.1.2. |
 | `tungstenite` | `net` | RFC 6455 framing and the handshake, and **linked**: every WebSocket message a server sends or reads is framed through it. A protocol with a specification and a conformance suite, not an algorithm. |
 | `quinn` | `net-h3` | QUIC, which is what HTTP/3 runs on: congestion control, loss recovery, stream multiplexing and connection migration over UDP. The only entry behind a feature that is **off by default** — §1.1.3. |
 
@@ -119,8 +119,9 @@ it.
 **`graviola` since #225.** TLS now offers X25519MLKEM768 first and falls back
 to X25519, as client and server. `ring` has no ML-KEM; `graviola` has it,
 builds with `rustc` alone, and takes a CPU floor in exchange (AVX2 and ADX on
-x86_64, the crypto extensions on aarch64). `net` no longer needs a C compiler;
-`crypto` and `net-h3` still do, for `ring`. DECISIONS.md has the argument. The
+x86_64, the crypto extensions on aarch64). Below the floor, `tls.rs` picks
+`rustls`'s `ring` provider once per process, so TLS there is classical X25519
+rather than an abort. DECISIONS.md has the argument. The
 two paragraphs below are the C7 history.
 
 **`ring` rather than `aws-lc-rs`**, the other provider `rustls` ships:
@@ -154,7 +155,7 @@ read the macOS keychain, which is what `SSL_CERT_FILE` is for.
 
 `cli/tests/ci.rs::the_runtime_archive_is_real` holds all of it in CI: the size
 budget, a symbol table that **must** mention `tokio`, `rustls`, `graviola`,
-`hyper` and `tungstenite` when the feature file says `net`, and one that must
+`ring`, `hyper` and `tungstenite` when the feature file says `net`, and one that must
 mention neither `quinn` — on any leg, `net-h3` included — nor `aws_lc`, a
 provider that was never a dependency.
 

@@ -82,13 +82,14 @@ crate-type = ["staticlib"]
 # * **`rustls-graviola`** and **`graviola`** — the crypto provider underneath
 #   `rustls`, and the cryptography it wraps. They give TLS its post-quantum
 #   key exchange, X25519MLKEM768, and build with `rustc` alone. "The provider"
-#   below argues them. `graviola` is declared rather than left to
+#   below argues them, and the `ring` fallback beside them. `graviola` is
+#   declared rather than left to
 #   `rustls-graviola` to pull in, because `dependencies_stay_behind_the_bar`
 #   reads *this table*, and a crate that ships inside every native binary must
 #   be visible to the test that guards what ships.
-# * **`ring`** — `core/crypto`'s sealing and signature checks, behind
-#   `crypto`. It was TLS's provider until #225; "The provider" says why
-#   `core/crypto` kept it.
+# * **`ring`** — TLS's provider on a CPU `graviola` cannot run on, and
+#   `core/crypto`'s sealing and signature checks behind `crypto`. It was TLS's
+#   only provider until #225; "The provider" says why it stayed.
 # * **`tungstenite`** — RFC 6455 framing and the handshake, which is a
 #   protocol with a specification and a test suite rather than an algorithm.
 #   **Linked for real since F7**: `listenUpgrade` completes the handshake with
@@ -198,20 +199,22 @@ crate-type = ["staticlib"]
 # exchange: it offers X25519MLKEM768 first and falls back to X25519, as client
 # and server. `ring` has no ML-KEM, and `aws-lc-rs` needs `cmake`. `graviola`
 # builds with `rustc` alone and its field arithmetic is the formally verified
-# `s2n-bignum`, so `net` no longer needs a C compiler and `cli/build.rs` stops
-# probing for one on its behalf.
+# `s2n-bignum`.
 #
 # What it costs:
 #
 # * **x86_64 and aarch64 only**, which is every target this runtime builds.
 # * **CPU features.** `graviola` asserts AES, PCLMULQDQ, AVX, AVX2, BMI1 and
 #   ADX on x86_64 (Broadwell, 2014, and later) and AES, PMULL, SHA-2 and NEON on aarch64.
-#   A CPU without them aborts at its first TLS handshake. Raspberry Pi 4 and
-#   earlier lack them; Apple silicon, Graviton and every x86_64 cloud host
-#   have them.
+#   Raspberry Pi 4 and earlier lack them; Apple silicon, Graviton and every
+#   x86_64 cloud host have them. **On a CPU without them, `tls.rs` uses
+#   `rustls`'s `ring` provider instead**, chosen once per process: classical
+#   X25519, but a program that connects rather than aborts. So `net` still
+#   carries `ring` and still needs the C compiler `cli/build.rs` probes for.
 # * **Bytes.** Each `ClientHello` grows by about 1.2 KB of ML-KEM key share,
-#   and the archive by 1.48 MB on aarch64-apple-darwin and 1.6 to 1.9 MB on
-#   Linux, because `ring` stays for `crypto`. A program that reaches neither
+#   and the archive by 1.48 MB on aarch64-apple-darwin and 2.0 to 2.3 MB on
+#   Linux musl, about 0.41 MB of that the `ring` fallback, because `ring` stays
+#   beside `graviola`. A program that reaches neither
 #   provider, such as a hello world, does not grow.
 #
 # **`core/crypto` keeps `ring`**, behind `crypto`. `graviola` has the same
@@ -273,7 +276,7 @@ crate-type = ["staticlib"]
 [dependencies]
 tokio = { version = "1", optional = true, default-features = false, features = ["rt-multi-thread", "net", "time", "io-util", "sync"] }
 hyper = { version = "1", optional = true, default-features = false, features = ["client", "server", "http1", "http2"] }
-rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "tls12"] }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "tls12", "ring"] }
 rustls-graviola = { version = "0.4", optional = true, default-features = false }
 graviola = { version = "0.4", optional = true, default-features = false }
 ring = { version = "0.17", optional = true, default-features = false }
@@ -372,7 +375,7 @@ tiny-skia = { version = "=0.12.0", optional = true, default-features = false, fe
 # a missing capability is a refusal here exactly as it is under `crypto`.
 [features]
 default = ["net", "crypto", "paint"]
-net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:rustls-graviola", "dep:graviola", "dep:tungstenite"]
+net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:rustls-graviola", "dep:graviola", "dep:ring", "dep:tungstenite"]
 net-h3 = ["net", "dep:quinn"]
 crypto = ["dep:getrandom", "dep:ring", "ring/alloc"]
 paint = ["dep:taffy", "dep:cosmic-text", "dep:tiny-skia"]

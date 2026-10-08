@@ -81,14 +81,68 @@ use rustls::{
 
 use crate::http::NetFail;
 
-/// The one crypto provider both directions use: `rustls-graviola`'s, which
-/// offers X25519MLKEM768 first and falls back to X25519, then P-256 and P-384.
+/// The crypto provider both directions use, chosen once per process.
+///
+/// `rustls-graviola`'s offers X25519MLKEM768 first, then X25519, P-256 and
+/// P-384. `graviola` aborts on a CPU without the features in
+/// [`GRAVIOLA_NEEDS`], so on such a CPU this is `rustls`'s `ring` provider
+/// instead: classical key exchange, but a program that connects.
 ///
 /// Passed to `builder_with_provider` rather than installed, because the plain
 /// builder reads a *process-global* default provider, which is state a library
 /// in a static archive has no business depending on.
 pub(crate) fn provider() -> Arc<rustls::crypto::CryptoProvider> {
-    Arc::new(rustls_graviola::default_provider())
+    #[cfg(test)]
+    if let Some(runs) = tests::GRAVIOLA_RUNS.with(std::cell::Cell::get) {
+        return chosen(runs);
+    }
+    static CHOSEN: std::sync::OnceLock<Arc<rustls::crypto::CryptoProvider>> =
+        std::sync::OnceLock::new();
+    Arc::clone(CHOSEN.get_or_init(|| chosen(graviola_runs_here())))
+}
+
+fn chosen(graviola_runs: bool) -> Arc<rustls::crypto::CryptoProvider> {
+    Arc::new(if graviola_runs {
+        rustls_graviola::default_provider()
+    } else {
+        rustls::crypto::ring::default_provider()
+    })
+}
+
+/// The CPU features `graviola` asserts before it computes anything, as
+/// `std::arch`'s feature detection spells them.
+#[cfg(target_arch = "x86_64")]
+const GRAVIOLA_NEEDS: &[&str] = &["aes", "pclmulqdq", "avx", "avx2", "bmi1", "adx"];
+#[cfg(target_arch = "aarch64")]
+const GRAVIOLA_NEEDS: &[&str] = &["aes", "pmull", "sha2", "neon"];
+
+/// Whether this CPU has every feature in [`GRAVIOLA_NEEDS`].
+fn graviola_runs_here() -> bool {
+    GRAVIOLA_NEEDS.iter().all(|feature| detected(feature))
+}
+
+#[cfg(target_arch = "x86_64")]
+fn detected(feature: &str) -> bool {
+    match feature {
+        "aes" => std::arch::is_x86_feature_detected!("aes"),
+        "pclmulqdq" => std::arch::is_x86_feature_detected!("pclmulqdq"),
+        "avx" => std::arch::is_x86_feature_detected!("avx"),
+        "avx2" => std::arch::is_x86_feature_detected!("avx2"),
+        "bmi1" => std::arch::is_x86_feature_detected!("bmi1"),
+        "adx" => std::arch::is_x86_feature_detected!("adx"),
+        _ => false,
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+fn detected(feature: &str) -> bool {
+    match feature {
+        "aes" => std::arch::is_aarch64_feature_detected!("aes"),
+        "pmull" => std::arch::is_aarch64_feature_detected!("pmull"),
+        "sha2" => std::arch::is_aarch64_feature_detected!("sha2"),
+        "neon" => std::arch::is_aarch64_feature_detected!("neon"),
+        _ => false,
+    }
 }
 
 /// A TLS connection, owned end to end: `rustls` state and the socket under it.
@@ -1234,6 +1288,122 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         }
         let _ = std::fs::remove_file(certificate);
         let _ = std::fs::remove_file(key);
+    }
+
+    thread_local! {
+        /// The answer [`provider`] uses on this thread in place of
+        /// [`graviola_runs_here`], so a case can take the fallback path on a
+        /// CPU that does not need it.
+        pub(crate) static GRAVIOLA_RUNS: std::cell::Cell<Option<bool>> =
+            const { std::cell::Cell::new(None) };
+    }
+
+    /// On a CPU `graviola` cannot run on, the client and the server still
+    /// meet a hybrid-preferring peer, on X25519.
+    #[test]
+    fn without_graviola_the_runtime_falls_back_to_x25519_through_ring() {
+        GRAVIOLA_RUNS.with(|runs| runs.set(Some(false)));
+        let groups: Vec<_> = provider().kx_groups.iter().map(|g| g.name()).collect();
+        assert!(!groups.contains(&rustls::NamedGroup::X25519MLKEM768), "{groups:?}");
+
+        // The client, against a server that prefers the hybrid group.
+        {
+            let _trusting = trust_lock();
+            let ours = bundle("ca-fallback", CA_PEM);
+            trust(&ours);
+            let (port, served) = serve_with(chosen(true), RESPONSE);
+            let sock = TcpStream::connect(("127.0.0.1", port)).expect("the loopback server");
+            let mut stream = match connect(sock, "localhost") {
+                Ok(stream) => stream,
+                Err(e) => panic!("the handshake failed: tag {} {}", e.tag(), e.message()),
+            };
+            let group = stream.conn.negotiated_key_exchange_group().map(|g| g.name());
+            stream.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+            let mut answer = Vec::new();
+            let _ = stream.read_to_end(&mut answer);
+            let _ = served.join();
+            unsafe { std::env::remove_var(CERT_FILE_ENV) };
+            let _ = std::fs::remove_file(ours);
+            assert_eq!(group, Some(rustls::NamedGroup::X25519));
+        }
+
+        // The server, against a client that offers the hybrid group first.
+        let certificate = bundle("leaf-fallback", LEAF_PEM);
+        let key = bundle("leaf-key-fallback", LEAF_KEY_PEM);
+        let config = Arc::new(server_config(&certificate, &key, Vec::new()).expect("a config"));
+        let mut roots = RootCertStore::empty();
+        for der in certificates_in(CA_PEM) {
+            roots.add(CertificateDer::from(der)).expect("the test CA");
+        }
+        let (port, listeners) = loopback();
+        let served = std::thread::spawn(move || {
+            let mut sock = accept_within(&listeners, PATIENCE)?;
+            let conn = accept(config, &mut sock).ok()?;
+            conn.negotiated_key_exchange_group().map(|g| g.name())
+        });
+        let client = ClientConfig::builder_with_provider(chosen(true))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let name = ServerName::try_from("localhost").unwrap();
+        let conn = ClientConnection::new(Arc::new(client), name).unwrap();
+        let sock = TcpStream::connect(("127.0.0.1", port)).expect("the loopback server");
+        sock.set_read_timeout(Some(PATIENCE)).unwrap();
+        let mut stream = StreamOwned::new(conn, sock);
+        while stream.conn.is_handshaking() {
+            stream.conn.complete_io(&mut stream.sock).expect("the handshake");
+        }
+        assert_eq!(served.join().unwrap(), Some(rustls::NamedGroup::X25519));
+        let _ = std::fs::remove_file(certificate);
+        let _ = std::fs::remove_file(key);
+        GRAVIOLA_RUNS.with(|runs| runs.set(None));
+    }
+
+    /// [`GRAVIOLA_NEEDS`] is exactly the set `graviola` asserts in its own
+    /// `verify_cpu_features`, read out of the source cargo resolved.
+    #[test]
+    fn the_feature_check_matches_what_graviola_asserts() {
+        let cargo = std::env::var("CARGO").unwrap_or_else(|_| String::from("cargo"));
+        // Filtered to this host, so `--offline` needs no other platform's crates.
+        let host = if cfg!(target_os = "macos") {
+            format!("{}-apple-darwin", std::env::consts::ARCH)
+        } else {
+            format!("{}-unknown-linux-gnu", std::env::consts::ARCH)
+        };
+        let out = std::process::Command::new(cargo)
+            .args(["metadata", "--format-version", "1", "--offline", "--filter-platform", &host])
+            .arg("--manifest-path")
+            .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+            .output()
+            .expect("cargo metadata runs");
+        let metadata = String::from_utf8_lossy(&out.stdout);
+        let manifest = metadata
+            .split('"')
+            .find(|field| {
+                field.ends_with("Cargo.toml")
+                    && field.contains("/graviola-")
+                    && !field.contains("rustls-graviola")
+            })
+            .expect("cargo resolved graviola");
+        let arch = if cfg!(target_arch = "x86_64") { "x86_64" } else { "aarch64" };
+        let cpu = Path::new(manifest).with_file_name(format!("src/low/{arch}/cpu.rs"));
+        let source = std::fs::read_to_string(&cpu).expect("graviola's cpu.rs");
+        let body = source
+            .split("fn verify_cpu_features()")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("graviola's verify_cpu_features");
+        // `have_cpu_feature!("aes")` and `is_x86_feature_detected!("avx")`.
+        let mut asserted: Vec<&str> = ["feature!(\"", "feature_detected!(\""]
+            .iter()
+            .flat_map(|opener| body.split(opener).skip(1))
+            .filter_map(|rest| rest.split('"').next())
+            .collect();
+        let mut ours = GRAVIOLA_NEEDS.to_vec();
+        asserted.sort_unstable();
+        ours.sort_unstable();
+        assert_eq!(ours, asserted, "graviola asserts a different set in {}", cpu.display());
     }
 
     /// The PEM reader takes the certificates and leaves everything else.

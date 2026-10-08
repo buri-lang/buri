@@ -17,17 +17,15 @@ The full rules ship in the binary: `buri docs language/lexical`,
 `core/*` and `ui/*` module, `buri docs core/str` renders one, and
 `buri docs core/str.padStart` one item. Comparators, hex, base64, varints,
 grouping, checksums, dates, argument parsing and a CLI already exist. A
-hand-rolled one compiles and gives the wrong answer.
-
-**Post-quantum by default**: `seal`, `open`, SHA-2, the HMACs and native TLS.
-Public-key encryption and signing come later as a versioned post-quantum API.
+hand-rolled one compiles and gives the wrong answer. Crypto is post-quantum by
+default: `seal`, `open`, SHA-2, the HMACs and native TLS. Public-key encryption
+and signing come later as a versioned post-quantum API.
 
 ## The twelve things that will trip you up
 
 - **No mutation.** Every binding is final. No assignment, no `mut`, no
   interior mutability, no references, no borrow checker, no lifetimes.
-- **No loops.** Use recursion or a fold. Tail calls are eliminated, mutual ones
-  included.
+- **No loops.** Use recursion or a fold. Tail calls are eliminated, mutual ones included.
 - **No `return`.** Postfix `?` is the only early exit.
 - **No `null` or `undefined`.** Absence is `Option<T>`, and indexing an array
   yields `Option<T>`.

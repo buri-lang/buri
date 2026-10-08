@@ -28,8 +28,7 @@
 //!
 //!   The *runtime* is a different set and a different bar, and since the `net`
 //!   feature it is no longer empty: `tokio`, `hyper`, `rustls`,
-//!   `rustls-graviola`, `graviola` and `tungstenite` behind `net`, `quinn`
-//!   behind `net-h3`, and `ring` behind `crypto`, closed by an
+//!   `rustls-graviola`, `graviola`, `ring` and `tungstenite` behind `net`, and `quinn` behind `net-h3`, closed by an
 //!   exact list. The root `Cargo.toml` states both
 //!   halves of the bar, `cli/runtime/manifest.toml` argues each entry, and
 //!   `dependencies_stay_behind_the_bar` asserts the equality — so a seventh crate
@@ -200,12 +199,13 @@
 //!   contributor on a plane, not for a release.
 //!
 //!   There is a third answer beside those two, and it is a **probe** for the
-//!   same reason: `ring`, behind `crypto` and `net-h3`, compiles C and
-//!   assembly, so a host with no C compiler cannot build those features. That
-//!   host gets a runtime without them and a `cargo:warning` rather than a
-//!   failed build or an empty archive. `net` needs only `rustc` since #225.
-//!   `can_compile` is asked *before* the build so that a compile failure still
-//!   means what it means.
+//!   same reason: `ring`, the TLS fallback provider, compiles C and
+//!   assembly, so a host with no C compiler cannot build the runtime with `net`
+//!   on. That host gets the `net`-off runtime and a `cargo:warning` — a real
+//!   archive, a working toolchain, cleartext HTTP, and an `https://` that
+//!   refuses at run time naming the feature — rather than a failed build or an
+//!   empty archive. `can_compile` is asked *before* the build so that a compile
+//!   failure still means what it means.
 //!
 //! * **The archive says which features it was built with.** `libburi_rt.a.features`
 //!   is written beside the archive and beside its digest, holding the feature
@@ -575,7 +575,7 @@ fn accepts_target(cc: &str, triple: &str) -> bool {
 /// Points `cc-rs` at a C compiler that will produce musl objects, for the one
 /// dependency that compiles C.
 ///
-/// `ring` — behind `crypto` and `net-h3` — builds C and assembly through
+/// `ring` — `rustls`'s fallback crypto provider — builds C and assembly through
 /// `cc-rs`, and `cc-rs` cross-compiling to `<arch>-unknown-linux-musl` goes
 /// looking for `musl-gcc` and friends by name. On the hosts this actually runs
 /// on there is no such binary and there does not need to be: the clang that is
@@ -587,8 +587,8 @@ fn accepts_target(cc: &str, triple: &str) -> bool {
 /// when the compiler is not a clang: the fallback is the host compiler
 /// unmodified, and its failure mode is undefined symbols at link time with the
 /// names of the C functions in them, which is loud and points at the cause.
-/// Silently dropping `crypto` here would be quieter and worse — it would turn a
-/// missing clang into a toolchain that refuses `core/crypto`.
+/// Silently dropping `net` here would be quieter and worse — it would turn a
+/// missing clang into a toolchain whose `https://` refuses at run time.
 ///
 /// The `-isystem` is Debian's musl-dev layout, where musl's headers live under
 /// `/usr/include/<arch>-linux-musl` rather than where clang would look for
@@ -1044,7 +1044,7 @@ fn stamp_of(
     h.text(&tool_version(cargo, &["-V"])?);
     // And the C compiler, for `ring`'s C and assembly. `unwrap_or_default` is
     // right here and nowhere else in this function: a `cc` that cannot answer
-    // is a `cc` that failed `can_compile`, which took `crypto` out of the feature
+    // is a `cc` that failed `can_compile`, which took `net` out of the feature
     // list above — so the empty string is not a missing input, it is the input
     // saying there is no C to compile.
     h.text(&tool_version(cc, &["--version"]).unwrap_or_default());
@@ -1351,18 +1351,32 @@ fn runtime_archive(manifest: &Path) {
     // the feature existed. It is how the twenty-four-byte figure in
     // `manifest.toml` was measured and what a host with an unreachable registry
     // can fall back to by hand.
-    // `net` needs only `rustc` since its TLS provider became `graviola` (#225).
     let net = !matches!(std::env::var("BURI_RUNTIME_NET").as_deref(), Ok("0"));
-    // `ring`, behind `crypto` and `net-h3`, compiles C and assembly with a host
-    // C compiler. A machine without one cannot build those features, and the
-    // third clause of the dependency bar says that must **degrade** rather than
-    // break: the features go off with a warning. A probe rather than a
-    // retry-on-failure, deliberately: retrying a failed compile with a feature
-    // off would also mask a genuine bug in the runtime as a silently smaller
-    // toolchain, which is the exact silent-green
-    // `cli/tests/ci.rs::the_runtime_archive_is_real` exists to refuse.
+    // And the second way `net` can be off, which is not a choice anybody made.
+    //
+    // `ring` — `rustls`'s provider on a CPU `graviola` cannot run on —
+    // compiles C and assembly with a host C compiler. A machine without one
+    // cannot build the runtime with the feature on, and the third clause of the
+    // dependency bar says that must **degrade** rather than break: this host
+    // gets the same runtime `BURI_RUNTIME_NET=0` produces, cleartext HTTP still
+    // works, and `https://` refuses at run time with a message naming the
+    // feature. A probe rather than a retry-on-failure, deliberately: retrying a
+    // failed compile with the feature off would also mask a genuine bug in the
+    // runtime's own TLS code as a silently net-less toolchain, which is the
+    // exact silent-green `cli/tests/ci.rs::the_runtime_archive_is_real` exists to
+    // refuse. This asks a question whose answer is known before the build.
     println!("cargo:rerun-if-env-changed=CC");
     let cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
+    let net = net
+        && (can_compile(&cc) || {
+            println!(
+                "cargo:warning=no C compiler was found ({cc}), so the runtime is built without \
+                 its `net` feature: `ring`, the TLS fallback, compiles C and assembly. The \
+                 toolchain works and `http://` works; `https://` will refuse at run time naming \
+                 the feature. Set CC, or install the platform's compiler, and rebuild."
+            );
+            false
+        });
     // `net-h3` — `quinn`, QUIC, and therefore HTTP/3 — is the **opt-in** half,
     // and the asymmetry with `net` above is the point. `net`'s five crates are
     // what a program that speaks the network at all needs, so they are on
@@ -1382,17 +1396,10 @@ fn runtime_archive(manifest: &Path) {
     let h3 = h3
         && (net || {
             println!(
-                "cargo:warning=`BURI_RUNTIME_NET_H3=1` was asked for and BURI_RUNTIME_NET=0 is \
-                 set, so HTTP/3 is off too: `net-h3` implies `net` because QUIC carries TLS \
-                 inside the transport."
-            );
-            false
-        })
-        && (can_compile(&cc) || {
-            println!(
-                "cargo:warning=no C compiler was found ({cc}), so the runtime is built without \
-                 `net-h3`: QUIC's TLS provider, `ring`, compiles C and assembly. Set CC, or \
-                 install the platform's compiler, and rebuild."
+                "cargo:warning=`BURI_RUNTIME_NET_H3=1` was asked for and the runtime's `net` \
+                 feature is off, so HTTP/3 is off too: `net-h3` implies `net` because QUIC \
+                 carries TLS inside the transport. Either BURI_RUNTIME_NET=0 is set or no C \
+                 compiler was found."
             );
             false
         });

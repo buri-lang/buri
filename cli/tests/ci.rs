@@ -1411,9 +1411,13 @@ fn the_runtime_archive_is_real() {
     // +1 478 232, over the 17 MiB line. 19.5 MiB is the re-statement and leaves
     // 7.3 % of the margin. Linux was measured this time, by cross-building the
     // runtime package from macOS with musl's headers: x86_64 went from
-    // 25 172 732 to 27 100 292 and aarch64 from 25 282 874 to 26 868 252. Both
-    // stay under 29 MiB, which therefore does not move. A hello world does not
-    // grow: it reaches neither provider.
+    // 25 172 732 to 27 100 292 and aarch64 from 25 282 874 to 26 868 252.
+    //
+    // **And `ring` came back as TLS's provider on CPUs `graviola` cannot run
+    // on.** Measured the same way: +232 bytes on aarch64-apple-darwin, +411 862
+    // on x86_64 musl (27 508 858) and +415 268 on aarch64 musl (27 281 056).
+    // Linux stays under 29 MiB, which therefore does not move. A hello world
+    // does not grow: it reaches neither provider.
     let budget = if cfg!(target_os = "macos") { 20_447_232 } else { 30_408_704 };
     assert!(
         rt::ARCHIVE.len() <= budget,
@@ -1453,7 +1457,7 @@ fn the_runtime_archive_is_real() {
     let symbols = archive_symbols().to_lowercase();
     let carries = |crate_name: &str| symbols.contains(crate_name);
     if rt::net() {
-        for wanted in ["tokio", "rustls", "graviola", "hyper", "tungstenite"] {
+        for wanted in ["tokio", "rustls", "graviola", "ring_core", "hyper", "tungstenite"] {
             assert!(
                 carries(wanted),
                 "libburi_rt.a carries no symbol from `{wanted}`, and it was built with the \
