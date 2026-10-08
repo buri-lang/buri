@@ -647,6 +647,9 @@ const PACKAGES: &[Case] = &[
     included("proto/maps.buri"),
     // The well-known types and their JSON.
     included("proto/wellknown.buri"),
+    // The same types declared in a schema of one's own, with explicit presence
+    // (buri-lang/buri#268).
+    included("proto_presence/explicit.buri"),
     // `core/bytes`'s six intrinsics — the UTF-8 pair and the four IEEE 754
     // byte-pattern entries — are `cli/runtime/bytes.rs` now, which is the one
     // surface each of these two was waiting for.

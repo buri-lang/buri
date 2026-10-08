@@ -1,0 +1,14 @@
+library {
+    generators: [
+        { tool: "proto", inputs: ["timestamp.proto", "wellknown.proto"] },
+    ]
+
+    test {
+        sources: ["test/explicit.buri"]
+
+        # The reference run, on the reference backend: `native::conformance`
+        # drives these same files through the stencil backend
+        # (cli/tests/README.md).
+        backends: [JS]
+    }
+}

@@ -12,7 +12,8 @@
 //!
 //! Six of these have a JSON form of their own rather than an object, and
 //! [`json`] is that form, as the source the generator puts in their module in
-//! place of the generic codecs.
+//! place of the generic codecs. A schema may declare one itself with explicit
+//! presence, so that source reads each field as its message declared it.
 
 from "platform/effect" import { Allocator };
 
@@ -101,43 +102,86 @@ fn unused(body: Str): Str {
     if (body.contains("ctx")) { "" } else { "    let _ = ctx;\n" }
 }
 
+/// `value.<field>` as a bare value. An absent `optional` field reads as `zero`,
+/// which is what the JSON mapping makes of it.
+fn get<C: Allocator>(ctx: C, optional: [Str], field: Str, zero: Str): Str {
+    if (optional.contains(field)) {
+        ["value.", field, ".withDefault(", zero, ")"].join(ctx, "")
+    } else {
+        ["value.", field].join(ctx, "")
+    }
+}
+
+/// `read` as the value of `field`, present.
+fn put<C: Allocator>(ctx: C, optional: [Str], field: Str, read: Str): Str {
+    if (optional.contains(field)) { [".Some(", read, ")"].join(ctx, "") } else { read }
+}
+
 /// `seconds` and `nanos`, written and read by the two `core/proto` functions
 /// named for the type.
-fn instant<C: Allocator>(ctx: C, name: Str, form: Str, doc: Str): Str {
+fn instant<C: Allocator>(ctx: C, optional: [Str], name: Str, form: Str, doc: Str): Str {
     single(
         ctx,
         name,
         doc,
-        ["proto.json", form, "(ctx, value.seconds, value.nanos)"].join(ctx, ""),
+        [
+            "proto.json",
+            form,
+            "(ctx, ",
+            get(ctx, optional, "seconds", "0"),
+            ", ",
+            get(ctx, optional, "nanos", "0"),
+            ")",
+        ].join(ctx, ""),
         [
             "let (seconds, nanos) = proto.as",
             form,
             "(ctx, doc, path)?;\n",
             "    .Ok(",
             name,
-            " { seconds: seconds, nanos: nanos })",
+            " { seconds: ",
+            put(ctx, optional, "seconds", "seconds"),
+            ", nanos: ",
+            put(ctx, optional, "nanos", "nanos"),
+            " })",
         ].join(ctx, ""),
     )
 }
 
-/// A wrapper: the value's own JSON, which always writes.
-fn wrapper<C: Allocator>(ctx: C, name: Str, write: Str, read: Str): Str {
+/// A wrapper: the value's own JSON, `write` with the value in place of `$`,
+/// which always writes. An absent value writes as `zero`.
+fn wrapper<C: Allocator>(
+    ctx: C,
+    optional: [Str],
+    name: Str,
+    zero: Str,
+    write: Str,
+    read: Str,
+): Str {
+    let value = get(ctx, optional, "value", zero);
     single(
         ctx,
         name,
         "proto3 JSON writes a wrapper as the value it wraps, and `null` as absence.",
-        [".Ok(", write, ")"].join(ctx, ""),
-        [".Ok(", name, " { value: ", read, "? })"].join(ctx, ""),
+        [".Ok(", write.replace(ctx, "$", value), ")"].join(ctx, ""),
+        [
+            ".Ok(",
+            name,
+            " { value: ",
+            put(ctx, optional, "value", [read, "?"].join(ctx, "")),
+            " })",
+        ].join(ctx, ""),
     )
 }
 
 /// The JSON codecs of a well-known type whose JSON is not an object, as Buri
 /// source, by its full name; `.None` for every other type.
-export fn json<C: Allocator>(ctx: C, full: Str): Option<Str> {
+export fn json<C: Allocator>(ctx: C, full: Str, optional: [Str]): Option<Str> {
     if (full == "google.protobuf.Duration") {
         .Some(
             instant(
                 ctx,
+                optional,
                 "Duration",
                 "Duration",
                 "proto3 JSON writes a `Duration` as seconds in a string: `\"1.5s\"`.",
@@ -147,6 +191,7 @@ export fn json<C: Allocator>(ctx: C, full: Str): Option<Str> {
         .Some(
             instant(
                 ctx,
+                optional,
                 "Timestamp",
                 "Timestamp",
                 "proto3 JSON writes a `Timestamp` as RFC 3339 in UTC: `\"1970-01-01T00:00:10.500Z\"`.",
@@ -166,8 +211,10 @@ export fn json<C: Allocator>(ctx: C, full: Str): Option<Str> {
         .Some(
             wrapper(
                 ctx,
+                optional,
                 "DoubleValue",
-                "proto.jsonFloat(value.value)",
+                "0.0",
+                "proto.jsonFloat($)",
                 "proto.asFloat(doc, path)",
             ),
         )
@@ -175,8 +222,10 @@ export fn json<C: Allocator>(ctx: C, full: Str): Option<Str> {
         .Some(
             wrapper(
                 ctx,
+                optional,
                 "FloatValue",
-                "proto.jsonFloat(value.value)",
+                "0.0",
+                "proto.jsonFloat($)",
                 "proto.asFloat32(doc, path)",
             ),
         )
@@ -184,8 +233,10 @@ export fn json<C: Allocator>(ctx: C, full: Str): Option<Str> {
         .Some(
             wrapper(
                 ctx,
+                optional,
                 "Int64Value",
-                "proto.jsonInt64(ctx, value.value)",
+                "0",
+                "proto.jsonInt64(ctx, $)",
                 "proto.asInt64(doc, path)",
             ),
         )
@@ -193,8 +244,10 @@ export fn json<C: Allocator>(ctx: C, full: Str): Option<Str> {
         .Some(
             wrapper(
                 ctx,
+                optional,
                 "UInt64Value",
-                "proto.jsonUint64(ctx, value.value)",
+                "0",
+                "proto.jsonUint64(ctx, $)",
                 "proto.asUint64(doc, path)",
             ),
         )
@@ -202,8 +255,10 @@ export fn json<C: Allocator>(ctx: C, full: Str): Option<Str> {
         .Some(
             wrapper(
                 ctx,
+                optional,
                 "Int32Value",
-                "proto.jsonInt32(value.value)",
+                "0",
+                "proto.jsonInt32($)",
                 "proto.asInt(doc, path, -2147483648, 2147483647)",
             ),
         )
@@ -211,8 +266,10 @@ export fn json<C: Allocator>(ctx: C, full: Str): Option<Str> {
         .Some(
             wrapper(
                 ctx,
+                optional,
                 "UInt32Value",
-                "proto.jsonInt32(value.value)",
+                "0",
+                "proto.jsonInt32($)",
                 "proto.asInt(doc, path, 0, 4294967295)",
             ),
         )
@@ -220,8 +277,10 @@ export fn json<C: Allocator>(ctx: C, full: Str): Option<Str> {
         .Some(
             wrapper(
                 ctx,
+                optional,
                 "BoolValue",
-                "Json.Bool(value.value)",
+                "false",
+                "Json.Bool($)",
                 "proto.asBool(doc, path)",
             ),
         )
@@ -229,8 +288,10 @@ export fn json<C: Allocator>(ctx: C, full: Str): Option<Str> {
         .Some(
             wrapper(
                 ctx,
+                optional,
                 "StringValue",
-                "Json.Str(value.value)",
+                "\"\"",
+                "Json.Str($)",
                 "proto.asStr(doc, path)",
             ),
         )
@@ -238,8 +299,10 @@ export fn json<C: Allocator>(ctx: C, full: Str): Option<Str> {
         .Some(
             wrapper(
                 ctx,
+                optional,
                 "BytesValue",
-                "proto.jsonBytes(ctx, value.value)",
+                "list.empty<U8>()",
+                "proto.jsonBytes(ctx, $)",
                 "proto.asBytes(ctx, doc, path)",
             ),
         )

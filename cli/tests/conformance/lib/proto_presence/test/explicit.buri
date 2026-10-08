@@ -1,0 +1,284 @@
+// The well-known types under explicit presence (buri-lang/buri#268): each
+// singular scalar is an `Option`, the JSON form is still the type's own, and an
+// absent field writes as its zero, as the JSON mapping requires.
+
+from "core/bytes" import * as bytes;
+from "core/json" import * as json;
+from "core/json" import { Json };
+from "core/list" import * as list;
+from "core/proto" import { ProtoError };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//lib/proto_presence" import {
+    Any, BoolValue, BytesValue, decodeAny, decodeBoolValue, decodeBoolValueJson,
+    decodeBytesValueJson, decodeDoubleValueJson, decodeDuration, decodeDurationJson,
+    decodeFieldMaskJson, decodeFloatValueJson, decodeInt32ValueJson, decodeInt64Value,
+    decodeInt64ValueJson, decodeStringValue, decodeStringValueJson, decodeStructJson,
+    decodeTimestamp, decodeTimestampJson, decodeUInt32ValueJson, decodeUInt64ValueJson,
+    DoubleValue, Duration, encodeAny, encodeBoolValue, encodeBoolValueJson,
+    encodeBytesValueJson, encodeDoubleValueJson, encodeDuration, encodeDurationJson,
+    encodeFieldMaskJson, encodeFloatValueJson, encodeInt32ValueJson, encodeInt64Value,
+    encodeInt64ValueJson, encodeStringValue, encodeStringValueJson, encodeStructJson,
+    encodeTimestamp, encodeTimestampJson, encodeUInt32ValueJson, encodeUInt64ValueJson,
+    FieldMask, FloatValue, Int32Value, Int64Value, StringValue, Timestamp, UInt32Value,
+    UInt64Value,
+};
+
+fn text<C: Allocator>(ctx: C, written: Result<Json, ProtoError>): Str {
+    json.stringify(ctx, assert.ok(written))
+}
+
+fn doc<C: Allocator>(ctx: C, source: Str): Json {
+    assert.ok(json.parse(ctx, source))
+}
+
+fn raw<C: Allocator>(ctx: C, hex: Str): [U8] {
+    match (bytes.fromHex(ctx, hex)) {
+        .Ok(b) => b,
+        .Err(_e) => list.empty<U8>(),
+    }
+}
+
+// --- Timestamp and Duration -------------------------------------------------------------
+
+test "a Timestamp with presence writes and reads RFC 3339" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let t = Timestamp { seconds: .Some(10), nanos: .Some(500000000) };
+    assert.equal(
+        text(ctx, encodeTimestampJson(ctx, t)),
+        "\"1970-01-01T00:00:10.500Z\"",
+    );
+    assert.equal(
+        decodeTimestampJson(ctx, doc(ctx, "\"1970-01-01T00:00:10.500Z\"")),
+        .Ok(t),
+    );
+}
+
+test "an absent Timestamp field writes as zero, and reads back present" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let none = Timestamp { seconds: .None, nanos: .None };
+    assert.equal(text(ctx, encodeTimestampJson(ctx, none)), "\"1970-01-01T00:00:00Z\"");
+    let half = Timestamp { seconds: .None, nanos: .Some(500000000) };
+    assert.equal(
+        text(ctx, encodeTimestampJson(ctx, half)),
+        "\"1970-01-01T00:00:00.500Z\"",
+    );
+    assert.equal(
+        decodeTimestampJson(ctx, doc(ctx, "\"1970-01-01T00:00:00Z\"")),
+        .Ok(Timestamp { seconds: .Some(0), nanos: .Some(0) }),
+    );
+}
+
+test "a Timestamp field set to zero is on the wire, and an absent one is not" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // field 1, varint -> 0x08; the value 0.
+    let zero = Timestamp { seconds: .Some(0), nanos: .None };
+    assert.equal(bytes.toHex(ctx, encodeTimestamp(ctx, zero)), "0800");
+    assert.equal(decodeTimestamp(ctx, raw(ctx, "0800")), .Ok(zero));
+    let none = Timestamp { seconds: .None, nanos: .None };
+    assert.equal(bytes.toHex(ctx, encodeTimestamp(ctx, none)), "");
+    assert.equal(decodeTimestamp(ctx, list.empty<U8>()), .Ok(none));
+}
+
+test "a Duration with presence writes and reads seconds in a string" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let d = Duration { seconds: .Some(-1), nanos: .Some(-500000000) };
+    assert.equal(text(ctx, encodeDurationJson(ctx, d)), "\"-1.500s\"");
+    assert.equal(decodeDurationJson(ctx, doc(ctx, "\"-1.5s\"")), .Ok(d));
+    let none = Duration { seconds: .None, nanos: .None };
+    assert.equal(text(ctx, encodeDurationJson(ctx, none)), "\"0s\"");
+    // field 2, varint -> 0x10; the value 0.
+    let zero = Duration { seconds: .None, nanos: .Some(0) };
+    assert.equal(bytes.toHex(ctx, encodeDuration(ctx, zero)), "1000");
+    assert.equal(decodeDuration(ctx, raw(ctx, "1000")), .Ok(zero));
+}
+
+// --- the wrappers -----------------------------------------------------------------------
+
+test "a wrapper with presence writes the value it wraps" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        text(ctx, encodeDoubleValueJson(ctx, DoubleValue { value: .Some(1.5) })),
+        "1.5",
+    );
+    assert.equal(
+        text(ctx, encodeFloatValueJson(ctx, FloatValue { value: .Some(0.5) })),
+        "0.5",
+    );
+    assert.equal(
+        text(ctx, encodeInt64ValueJson(ctx, Int64Value { value: .Some(-7) })),
+        "\"-7\"",
+    );
+    assert.equal(
+        text(ctx, encodeUInt64ValueJson(ctx, UInt64Value { value: .Some(-1) })),
+        "\"18446744073709551615\"",
+    );
+    assert.equal(
+        text(ctx, encodeInt32ValueJson(ctx, Int32Value { value: .Some(-1) })),
+        "-1",
+    );
+    assert.equal(
+        text(ctx, encodeUInt32ValueJson(ctx, UInt32Value { value: .Some(4294967295) })),
+        "4294967295",
+    );
+    assert.equal(
+        text(ctx, encodeBoolValueJson(ctx, BoolValue { value: .Some(true) })),
+        "true",
+    );
+    assert.equal(
+        text(ctx, encodeStringValueJson(ctx, StringValue { value: .Some("hi") })),
+        "\"hi\"",
+    );
+    assert.equal(
+        text(ctx, encodeBytesValueJson(ctx, BytesValue { value: .Some([1]) })),
+        "\"AQ==\"",
+    );
+}
+
+test "a wrapper whose value is absent writes the zero of its type" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        text(ctx, encodeDoubleValueJson(ctx, DoubleValue { value: .None })),
+        "0",
+    );
+    assert.equal(
+        text(ctx, encodeFloatValueJson(ctx, FloatValue { value: .None })),
+        "0",
+    );
+    assert.equal(
+        text(ctx, encodeInt64ValueJson(ctx, Int64Value { value: .None })),
+        "\"0\"",
+    );
+    assert.equal(
+        text(ctx, encodeUInt64ValueJson(ctx, UInt64Value { value: .None })),
+        "\"0\"",
+    );
+    assert.equal(
+        text(ctx, encodeInt32ValueJson(ctx, Int32Value { value: .None })),
+        "0",
+    );
+    assert.equal(
+        text(ctx, encodeUInt32ValueJson(ctx, UInt32Value { value: .None })),
+        "0",
+    );
+    assert.equal(
+        text(ctx, encodeBoolValueJson(ctx, BoolValue { value: .None })),
+        "false",
+    );
+    assert.equal(
+        text(ctx, encodeStringValueJson(ctx, StringValue { value: .None })),
+        "\"\"",
+    );
+    assert.equal(
+        text(ctx, encodeBytesValueJson(ctx, BytesValue { value: .None })),
+        "\"\"",
+    );
+}
+
+test "a wrapper with presence reads the value it wraps as present" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        decodeDoubleValueJson(ctx, doc(ctx, "1.5")),
+        .Ok(DoubleValue { value: .Some(1.5) }),
+    );
+    assert.equal(
+        decodeFloatValueJson(ctx, doc(ctx, "0.5")),
+        .Ok(FloatValue { value: .Some(0.5) }),
+    );
+    assert.equal(
+        decodeInt64ValueJson(ctx, doc(ctx, "\"-7\"")),
+        .Ok(Int64Value { value: .Some(-7) }),
+    );
+    assert.equal(
+        decodeUInt64ValueJson(ctx, doc(ctx, "\"18446744073709551615\"")),
+        .Ok(UInt64Value { value: .Some(-1) }),
+    );
+    assert.equal(
+        decodeInt32ValueJson(ctx, doc(ctx, "0")),
+        .Ok(Int32Value { value: .Some(0) }),
+    );
+    assert.equal(
+        decodeUInt32ValueJson(ctx, doc(ctx, "4294967295")),
+        .Ok(UInt32Value { value: .Some(4294967295) }),
+    );
+    assert.equal(
+        decodeBoolValueJson(ctx, doc(ctx, "false")),
+        .Ok(BoolValue { value: .Some(false) }),
+    );
+    assert.equal(
+        decodeStringValueJson(ctx, doc(ctx, "\"\"")),
+        .Ok(StringValue { value: .Some("") }),
+    );
+    assert.equal(
+        decodeBytesValueJson(ctx, doc(ctx, "\"AQ==\"")),
+        .Ok(BytesValue { value: .Some([1]) }),
+    );
+}
+
+test "a wrapper set to its zero is on the wire" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // field 1, varint -> 0x08; the value 0.
+    let zero = Int64Value { value: .Some(0) };
+    assert.equal(bytes.toHex(ctx, encodeInt64Value(ctx, zero)), "0800");
+    assert.equal(decodeInt64Value(ctx, raw(ctx, "0800")), .Ok(zero));
+    assert.equal(
+        bytes.toHex(ctx, encodeBoolValue(ctx, BoolValue { value: .Some(false) })),
+        "0800",
+    );
+    assert.equal(
+        decodeBoolValue(ctx, raw(ctx, "0800")),
+        .Ok(BoolValue { value: .Some(false) }),
+    );
+    // field 1, length-delimited -> 0x0a; length 0.
+    let empty = StringValue { value: .Some("") };
+    assert.equal(bytes.toHex(ctx, encodeStringValue(ctx, empty)), "0a00");
+    assert.equal(decodeStringValue(ctx, raw(ctx, "0a00")), .Ok(empty));
+    let none = StringValue { value: .None };
+    assert.equal(bytes.toHex(ctx, encodeStringValue(ctx, none)), "");
+    assert.equal(decodeStringValue(ctx, list.empty<U8>()), .Ok(none));
+}
+
+// --- the rest ---------------------------------------------------------------------------
+
+test "the well-known types with no singular scalar keep their JSON form" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let mask = FieldMask { paths: ["foo", "bar_baz"] };
+    assert.equal(text(ctx, encodeFieldMaskJson(ctx, mask)), "\"foo,barBaz\"");
+    assert.equal(decodeFieldMaskJson(ctx, doc(ctx, "\"foo,barBaz\"")), .Ok(mask));
+    let object = assert.ok(
+        decodeStructJson(ctx, doc(ctx, "{\"a\":1,\"b\":[\"x\",true,null]}")),
+    );
+    assert.equal(
+        text(ctx, encodeStructJson(ctx, object)),
+        "{\"a\":1,\"b\":[\"x\",true,null]}",
+    );
+}
+
+test "an Any with presence round-trips its two fields" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // field 1, length-delimited -> 0x0a; length 0. field 2 is absent.
+    let any = Any { typeUrl: .Some(""), value: .None };
+    assert.equal(bytes.toHex(ctx, encodeAny(ctx, any)), "0a00");
+    assert.equal(decodeAny(ctx, raw(ctx, "0a00")), .Ok(any));
+}
