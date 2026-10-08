@@ -20,10 +20,13 @@ export trait Equal {
     fn equal(self, other: Self): Bool;
 }
 
-/// `<` `<=` `>` `>=` are `Ordered.compare`. The built-in orders are the same on
-/// every backend: numbers by value, `Bool` with `false` below `true`, `Char` by
-/// scalar value, and `Str` lexicographically by scalar value. `core/str` states
-/// that last one in full.
+/// `<` `<=` `>` `>=` are `Ordered.compare`, except at a float, where they stay
+/// IEEE-754's. The built-in orders are the same on every backend: numbers by
+/// value, `Bool` with `false` below `true`, `Char` by scalar value, and `Str`
+/// lexicographically by scalar value. `core/str` states that last one in full.
+///
+/// A float's is a total order: `-inf < … < -0.0 < 0.0 < … < inf < NaN`, with
+/// every `NaN` `.Equal` to every other whatever its sign.
 export trait Ordered {
     fn compare(self, other: Self): Order;
 }
@@ -171,7 +174,7 @@ export fn float(a: Float, b: Float): Order {
 /// **`-0.0` and `0.0` compare `.Equal`, and so do any two `NaN`s.** This is the
 /// total order Buri's `==` describes, not IEEE's `totalOrder` predicate: `==` is
 /// an equivalence relation here, and `-0.0 == 0.0` and `NaN == NaN` are both
-/// true (SPEC 6.2).
+/// true (SPEC 6.2). A float's own `compare` is the same order with `-0.0` first.
 export fn totalFloat(a: Float, b: Float): Order {
     if (a < b) {
         .Less

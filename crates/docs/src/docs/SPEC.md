@@ -857,7 +857,7 @@ share or copy equal values freely (Section 8.1). Carry identity as data:
 `struct NodeId(U64)`.
 
 `==` and `!=` call `Equal.equal`; `<` `<=` `>` `>=` call `Ordered.compare`
-(Section 5.12.4). Primitives, and arrays and tuples of types that have them,
+(Section 5.12.4), except at a float. Primitives, and arrays and tuples of types that have them,
 satisfy both. Your structs and enums opt in:
 
 ```buri
@@ -878,8 +878,13 @@ error.
 
 - **A derived `Equal` is an equivalence relation, as is float `==`.** Since
   `NaN == NaN` (Section 6.2), a struct holding a `NaN` equals any copy of itself.
-  Float `Ordered` stays IEEE-754's: `-0.0` orders equal to `0.0` and `NaN` is
-  unordered, so `<` and `compare` disagree with `==` at `NaN`.
+- **A float's `compare` is a total order**, `-inf < … < -0.0 < 0.0 < … < inf <
+  NaN`, so sorts and `OrderedMap` keys don't depend on input order. Every `NaN` is `.Equal` to every other, whatever its sign or payload. That's
+  where it parts from IEEE-754's `totalOrder`, which orders `NaN`s by sign: the
+  sign of a `NaN` that arithmetic makes depends on the CPU. A derived `Ordered`
+  orders a float field the same way. `compare` and `==` disagree only at zero:
+  `-0.0 == 0.0`, but `-0.0` sorts first. The operators `<` `<=` `>` `>=` stay
+  IEEE-754's at a float, behind an `Ordered` bound too (Section 6.2).
 - **A hand-written `impl Equal` need not be structural.** Nothing checks it's an
   equivalence, so a case-insensitive `Str` wrapper is possible, and so is a
   broken one.
@@ -1059,6 +1064,11 @@ members, `list.contains` and `derive Equal` all need that.
 The **ordering** operators stay IEEE-754's: any `<`, `<=`, `>` or `>=` with a
 `NaN` operand is false, including `NaN < NaN`. So neither `a <= b && b <= a` nor
 `!(a < b) && !(a > b)` implies `a == b`. Use `math.isNan(x)` to test for `NaN`.
+That holds behind an `Ordered` bound too: `a < b` at a `T` that is a float is
+IEEE's, not `compare`'s.
+
+`compare` is the total order (Section 5.11): `-0.0` before `0.0`, and every
+`NaN` after `inf` and `.Equal` to every other `NaN`.
 
 A `NaN`'s payload isn't part of its value, so nothing preserves one:
 `bytes.f64FromBytes` answers the canonical quiet NaN for every NaN pattern, which

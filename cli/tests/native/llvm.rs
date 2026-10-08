@@ -320,6 +320,11 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
 
 /// [`build_tests`], with the source standing at module path `file`.
 fn build_tests_as(name: &str, file: &str, source: &str) -> PathBuf {
+    build_tests_at(name, file, source, Profile::Release)
+}
+
+/// [`build_tests_as`], at a chosen pipeline.
+fn build_tests_at(name: &str, file: &str, source: &str, profile: Profile) -> PathBuf {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, file, source, Role::TestSource);
     assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
@@ -336,7 +341,7 @@ fn build_tests_as(name: &str, file: &str, source: &str) -> PathBuf {
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
 
-    let opts = options(Profile::Release);
+    let opts = options(profile);
     let sheet = program.stylesheet.clone();
     let units = expect(llvm::Llvm::default().emit(&program, &analysis.checked.tables, &opts));
     assert!(!units.is_empty(), "the backend emitted no codegen unit");
@@ -848,6 +853,36 @@ export fn main(host: NativeHost): Result<(), Str> {
         let (out, err, code) = build_and_run_at(&name, &source, None, profile);
         assert_eq!(out, "depth 10000\n", "at {}, stderr was: {err}", profile.name());
         assert_eq!(code, Some(0), "at {}, stderr was: {err}", profile.name());
+    }
+}
+
+/// **`compare`'s total order at a float holds at both pipelines** (#272).
+///
+/// The conformance file the other two backends run, as one linked test binary
+/// under the heap check. `default<O2>` is the one that matters: a folded
+/// `fcmp`, or a NaN it treated as one sign, would show here and not at
+/// `default<O0>`.
+#[test]
+fn the_float_order_holds_at_both_profiles() {
+    skip_unless_executable!();
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/conformance/lib/numbers/test/float_order.buri");
+    let source = std::fs::read_to_string(path).unwrap();
+    let declared = source.matches("\ntest \"").count();
+    for profile in [Profile::Release, Profile::Debug] {
+        let name = format!("float-order-{}", profile.name());
+        let binary = build_tests_at(&name, "main.buri", &source, profile);
+        let mut cmd = Command::new(&binary);
+        cmd.env("BURI_TEST_FROM", "0");
+        let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
+        let returned = ran.stdout.lines().filter(|l| l.contains("\"left\":1")).count();
+        assert!(
+            ran.status == 0 && returned == declared,
+            "at {}, {returned} of {declared} blocks returned:\n{}\n{}",
+            profile.name(),
+            ran.stdout,
+            ran.stderr
+        );
     }
 }
 

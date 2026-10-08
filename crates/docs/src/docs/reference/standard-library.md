@@ -84,8 +84,27 @@ key. `order.chain` takes the tie-breaks in priority order. `order.reverseIf`
 takes the direction from the data. So a sort key with three columns and a `DESC`
 is a value rather than a `match` written out. `order.int`, `float`, `str`,
 `bool` and `char` are the primitives underneath them. Sort `Float` data with
-`order.totalFloat`: `order.float` follows IEEE, and IEEE leaves a `NaN`
-unordered, so it answers `.Equal` for a pair it could not order.
+`order.totalFloat` or a float's own `compare`: `order.float` follows IEEE, and
+IEEE leaves a `NaN` unordered, so it answers `.Equal` for a pair it could not
+order.
+
+`compare` on `F64` and `F32` is a total order, and `number.min`, `max`, `clamp`,
+a list's `sort`, `maximum`, `minimum` and `binarySearch`, and `OrderedMap` and
+`OrderedSet` keys all follow it:
+
+```buri
+from "core/math" import * as math;
+
+fn ordered(): Bool {
+    // -inf < ... < -0.0 < 0.0 < ... < inf < NaN
+    (-0.0).compare(0.0) == .Less && math.NAN.compare(math.INFINITY) == .Greater
+}
+```
+
+Every `NaN` is `.Equal` to every other, whatever its sign. That's the one place
+it differs from IEEE-754's `totalOrder`, because the sign of a `NaN` that
+arithmetic makes depends on the CPU. `order.totalFloat` is the same order except
+at zero, where it keeps `-0.0` and `0.0` `.Equal`, as `==` does.
 
 ## Text
 

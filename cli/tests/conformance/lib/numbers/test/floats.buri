@@ -384,7 +384,7 @@ test "signum on floats" {
     assert.equal(z.signum(), 0.0);
 }
 
-test "compare on floats orders minus zero with zero" {
+test "compare on floats orders minus zero below zero" {
     let a: F64 = 1.5;
     let b: F64 = 2.5;
     assert.equal(a.compare(b), Order.Less);
@@ -392,7 +392,7 @@ test "compare on floats orders minus zero with zero" {
     assert.equal(a.compare(a), Order.Equal);
     let z: F64 = -0.0;
     let p: F64 = 0.0;
-    assert.equal(z.compare(p), Order.Equal);
+    assert.equal(z.compare(p), Order.Less);
 }
 
 test "Float is F64, not a type of its own" {

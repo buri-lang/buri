@@ -2651,8 +2651,11 @@ impl<'a> Gen<'a> {
                 }
             }
             ExprKind::StructuralCmp { args, .. } => {
+                let desc = args
+                    .first()
+                    .and_then(|a| self.program.desc_index.get(&a.ty).copied());
                 let a = self.exprs(args, out);
-                Expr::call(Expr::ident("$cmp"), a)
+                self.cmp_call(desc, a)
             }
             ExprKind::Template { parts } => {
                 // Every part is rendered to a string from its static type, so
@@ -2745,8 +2748,11 @@ impl<'a> Gen<'a> {
                     }
                     "structuralCompare" => {
                         let mut a = a;
-                        a.pop();
-                        Expr::call(Expr::ident("$cmp"), a)
+                        let desc = match a.pop() {
+                            Some(Expr::Num(d)) => Some(d as usize),
+                            _ => None,
+                        };
+                        self.cmp_call(desc, a)
                     }
                     "structuralHash" => {
                         let mut a = a;
@@ -3136,6 +3142,42 @@ impl<'a> Gen<'a> {
             // compile. Both answer correctly through `$eq` already.
             _ => EqKind::Generic,
         }
+    }
+
+    /// The ordering of two values of the described type. A shape with a float
+    /// in it needs the descriptor, because `$cmp` cannot tell a float from an
+    /// integer and only a float orders `-0.0` below `0.0`.
+    fn cmp_call(&self, desc: Option<usize>, mut args: Vec<Expr>) -> Expr {
+        match desc {
+            Some(d) if self.holds_float(d) => {
+                args.push(Expr::ident(descriptor_name(d)));
+                Expr::call(Expr::ident("$cmpd"), args)
+            }
+            _ => Expr::call(Expr::ident("$cmp"), args),
+        }
+    }
+
+    /// Whether a float is anywhere in the shape descriptor `root` describes.
+    fn holds_float(&self, root: usize) -> bool {
+        let mut seen = vec![false; self.program.descriptors.len()];
+        let mut todo = vec![root];
+        while let Some(i) = todo.pop() {
+            match seen.get_mut(i) {
+                Some(s) if !*s => *s = true,
+                _ => continue,
+            }
+            match self.program.descriptors.get(i) {
+                Some(Desc::Prim(p)) if p.is_float() => return true,
+                Some(Desc::Struct { fields, .. }) => todo.extend(fields.iter().map(|f| f.ty)),
+                Some(Desc::Enum { variants, .. }) => {
+                    todo.extend(variants.iter().flat_map(|v| v.fields.iter().map(|f| f.ty)));
+                }
+                Some(Desc::Array(t) | Desc::Option(t)) => todo.push(*t),
+                Some(Desc::Tuple(ts)) => todo.extend(ts.iter().copied()),
+                _ => {}
+            }
+        }
+        false
     }
 
     /// The expression that compares two values of the described type.

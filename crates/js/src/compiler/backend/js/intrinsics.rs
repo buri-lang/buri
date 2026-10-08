@@ -199,6 +199,12 @@ impl<'a> Gen<'a> {
                     Expr::bin(BinOp::StrictEq, x, y)
                 })
             }
+            // A float's order separates `-0.0` from `0.0` and puts NaN last,
+            // which `<` and `>` alone cannot say.
+            "compare" if from.is_float() => {
+                let (x, y) = two()?;
+                Some(Expr::call(Expr::ident("$fcmp"), vec![x, y]))
+            }
             "compare" => {
                 let (x, y) = two()?;
                 Some(

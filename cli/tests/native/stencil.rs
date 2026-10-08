@@ -2109,6 +2109,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "memory/scoped.buri",
     "numbers/bits.buri",
     "numbers/conversions.buri",
+    "numbers/float_order.buri",
     "numbers/integers.buri",
     "numbers/special_floats.buri",
     "process/process.buri",

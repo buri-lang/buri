@@ -1291,40 +1291,61 @@ impl Generator {
         self.enum_lit(&ty, which, Vec::new())
     }
 
+    /// `a < b` as `Less`, `a > b` as `Greater`, and `otherwise` for the rest.
+    fn compare_prim(&self, p: Prim, a: Expr, b: Expr, otherwise: Expr) -> Option<Expr> {
+        let order = self.result_ty(Op::Compare);
+        let gt = self.prim_test(PrimOp::Gt, p, a.clone(), b.clone());
+        let inner = self.choose(gt, self.order_lit(ORDER_GREATER)?, otherwise, order);
+        let lt = self.prim_test(PrimOp::Lt, p, a, b);
+        Some(self.choose(lt, self.order_lit(ORDER_LESS)?, inner, order))
+    }
+
+    /// A float's `compare`: `-inf < … < -0.0 < 0.0 < … < inf < NaN`, every NaN
+    /// equal to every other. `==` at a float is SPEC 7.2's, where every NaN
+    /// equals every other, so `x == NaN` is how a NaN is found, and `1 / x` is
+    /// how a zero's sign is read. `stencil/emit.rs`'s `compare_float` is the
+    /// same steps.
+    fn compare_float(&self, desc: usize, p: Prim, a: Expr, b: Expr) -> Option<Expr> {
+        let order = self.result_ty(Op::Compare);
+        let ty = self.ty_of(desc);
+        let float = |v: f64| Expr::new(ExprKind::Float(v), ty, Span::NONE);
+        let reciprocal = |x: Expr| {
+            let args = vec![float(1.0), x];
+            Expr::new(ExprKind::Prim { op: PrimOp::Div, prim: p, args }, ty, Span::NONE)
+        };
+        let equal = self.order_lit(ORDER_EQUAL)?;
+        let zeros = self.compare_prim(p, reciprocal(a.clone()), reciprocal(b.clone()), equal)?;
+        let one_nan = self.choose(
+            self.prim_test(PrimOp::Eq, p, a.clone(), float(f64::NAN)),
+            self.order_lit(ORDER_GREATER)?,
+            self.order_lit(ORDER_LESS)?,
+            order,
+        );
+        let same = self.prim_test(PrimOp::Eq, p, a.clone(), b.clone());
+        let rest = self.choose(same, zeros, one_nan, order);
+        self.compare_prim(p, a, b, rest)
+    }
+
+    fn prim_test(&self, op: PrimOp, p: Prim, a: Expr, b: Expr) -> Expr {
+        Expr::new(ExprKind::Prim { op, prim: p, args: vec![a, b] }, self.bool_ty(), Span::NONE)
+    }
+
+    fn choose(&self, cond: Expr, then: Expr, else_: Expr, ty: Ty) -> Expr {
+        Expr::new(
+            ExprKind::If { cond: Box::new(cond), then: Box::new(then), else_: Box::new(else_) },
+            ty,
+            Span::NONE,
+        )
+    }
+
     fn compare(&mut self, desc: usize, a: Expr, b: Expr, frame: &mut Frame) -> Option<Expr> {
         let order = self.result_ty(Op::Compare);
         let descs = std::rc::Rc::clone(&self.descs);
         match descs.get(desc)? {
+            Desc::Prim(p) if p.is_float() => self.compare_float(desc, *p, a, b),
             Desc::Prim(p) => {
-                let bool_ty = self.bool_ty();
-                let lt = Expr::new(
-                    ExprKind::Prim { op: PrimOp::Lt, prim: *p, args: vec![a.clone(), b.clone()] },
-                    bool_ty,
-                    Span::NONE,
-                );
-                let gt = Expr::new(
-                    ExprKind::Prim { op: PrimOp::Gt, prim: *p, args: vec![a, b] },
-                    bool_ty,
-                    Span::NONE,
-                );
-                let inner = Expr::new(
-                    ExprKind::If {
-                        cond: Box::new(gt),
-                        then: Box::new(self.order_lit(ORDER_GREATER)?),
-                        else_: Box::new(self.order_lit(ORDER_EQUAL)?),
-                    },
-                    order,
-                    Span::NONE,
-                );
-                Some(Expr::new(
-                    ExprKind::If {
-                        cond: Box::new(lt),
-                        then: Box::new(self.order_lit(ORDER_LESS)?),
-                        else_: Box::new(inner),
-                    },
-                    order,
-                    Span::NONE,
-                ))
+                let otherwise = self.order_lit(ORDER_EQUAL)?;
+                self.compare_prim(*p, a, b, otherwise)
             }
             Desc::Unit => self.order_lit(ORDER_EQUAL),
             Desc::Struct { fields, .. } => {

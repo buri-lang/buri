@@ -2991,6 +2991,10 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     /// Lowers `a < b` and friends to a test on the `Order` a comparison
     /// produced.
+    ///
+    /// The match, both arms and the call all carry the operator's span:
+    /// `monomorphize`'s `float_operator` reads that to turn the test back into
+    /// IEEE's operator where `T` is a float.
     fn order_test(&mut self, cmp: typed::Expr, op: tree::BinOp, span: Span) -> typed::Expr {
         use tree::BinOp as B;
         let Some(order) = self.c.order_con else {

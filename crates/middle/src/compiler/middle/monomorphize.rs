@@ -1689,8 +1689,64 @@ impl Monomorphizer<'_> {
         (out, Some(prelude))
     }
 
+    /// `a < b` behind an `Ordered` bound, at a `T` that turned out to be a float.
+    ///
+    /// The operator is IEEE's at a float wherever it is written (SPEC 6.2), and
+    /// `compare` is not: it orders `-0.0` below `0.0` and NaN last. So the test
+    /// on the `Order` that `semantics`'s `order_test` built becomes the
+    /// primitive operator it stands for. Its match, its arms and its call all
+    /// carry the operator's span, which a `match` someone wrote cannot.
+    fn float_operator(&self, e: &typed::Expr, targs: &[Ty]) -> Option<(typed::PrimOp, Prim)> {
+        let ExprKind::Match { scrutinee, arms } = &e.kind else { return None };
+        let ExprKind::CallTrait { trait_id, method, recv, args, .. } = &scrutinee.kind else {
+            return None;
+        };
+        let [tested, rest] = arms.as_slice() else { return None };
+        let spans = [scrutinee.span, tested.span, rest.span];
+        if args.len() != 2 || spans.iter().any(|s| *s != e.span) {
+            return None;
+        }
+        let info = self.tables().trait_(*trait_id);
+        let name = info.methods.get(*method).map(|m| m.name.as_str());
+        if info.name != "Ordered" || name != Some("compare") {
+            return None;
+        }
+        let prim = self.tables().as_prim(&self.sub(recv, targs)).filter(|p| p.is_float())?;
+        let (PatKind::Variant { variant, .. }, PatKind::Wild) =
+            (&tested.pattern.kind, &rest.pattern.kind)
+        else {
+            return None;
+        };
+        let (ExprKind::Bool(when), ExprKind::Bool(otherwise)) =
+            (&tested.body.kind, &rest.body.kind)
+        else {
+            return None;
+        };
+        if when == otherwise {
+            return None;
+        }
+        // `Order`'s variants in declaration order: `Less`, `Equal`, `Greater`.
+        let op = match (*variant, *when) {
+            (0, true) => typed::PrimOp::Lt,
+            (0, false) => typed::PrimOp::Ge,
+            (2, true) => typed::PrimOp::Gt,
+            (2, false) => typed::PrimOp::Le,
+            _ => return None,
+        };
+        Some((op, prim))
+    }
+
     fn rewrite(&mut self, mut e: typed::Expr, targs: &[Ty]) -> typed::Expr {
         e.ty = self.sub(&e.ty, targs);
+        if let Some((op, prim)) = self.float_operator(&e, targs) {
+            if let ExprKind::Match { scrutinee, .. } = e.kind {
+                if let ExprKind::CallTrait { args, .. } = scrutinee.kind {
+                    let args = self.rewrite_all(args, targs);
+                    return typed::Expr::new(ExprKind::Prim { op, prim, args }, e.ty, e.span);
+                }
+            }
+            crate::ice!("`float_operator` answers only for a match on a `compare` call");
+        }
         e.kind = match e.kind {
             ExprKind::CallFn { func, args } => {
                 // The one place the two index spaces meet: a declaration and
