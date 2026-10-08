@@ -1744,6 +1744,10 @@ ML-KEM-768 and X25519, so a recording of today's traffic stays private from a
 future quantum computer. A peer without ML-KEM gets plain X25519. Certificates
 are still ECDSA or RSA. On JavaScript, TLS belongs to the host.
 
+A CPU without AES, AVX2 and ADX on x86_64, or the crypto extensions on aarch64,
+such as a Raspberry Pi 4, gets classical X25519 only. The program still
+connects.
+
 `platform/effect/testing` names its test implementations after the host's
 fields — `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`,
 `entropy`, `env`, `proc`, `sockets`, `tcp` — but you **call** them rather than

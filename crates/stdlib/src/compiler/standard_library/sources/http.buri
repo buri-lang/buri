@@ -20,8 +20,9 @@
 //! follows redirects.
 //!
 //! Native TLS offers X25519MLKEM768 first, a hybrid post-quantum key exchange,
-//! and falls back to X25519 for a server without it. On JavaScript, TLS
-//! belongs to the host.
+//! and falls back to X25519 for a server without it. A CPU without AVX2 or
+//! the aarch64 crypto extensions, such as a Raspberry Pi 4, offers X25519
+//! only. On JavaScript, TLS belongs to the host.
 //!
 //! ```buri
 //! from "core/io" import * as io;

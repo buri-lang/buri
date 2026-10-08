@@ -529,7 +529,8 @@
 //! ## 8. Features, and the manifest that is not called `Cargo.toml`
 //!
 //! Two features. `net` is on by default: `tokio`, `hyper`, `rustls`,
-//! `rustls-graviola`, `graviola` and `tungstenite`. `net-h3` is **off** by default and adds `quinn`. Together
+//! `rustls-graviola`, `graviola`, `ring` and `tungstenite`. `net-h3` is
+//! **off** by default and adds `quinn`. Together
 //! they are the runtime's whole admitted dependency set, closed by an exact
 //! list rather than by a habit (`manifest.toml` argues each entry, the root
 //! `Cargo.toml` states the bar, and `dependencies_stay_behind_the_bar` asserts
@@ -599,9 +600,9 @@
 //! `Network.fetch`, including the ones that were only ever going to ask for
 //! `http://`.
 //!
-//! `net` needs only `rustc`. `crypto` and `net-h3` need a C compiler for
-//! `ring`, so `cli/build.rs` probes for `cc` and turns them off with a
-//! `cargo:warning` rather than failing the toolchain's build. That is the bar's
+//! `net` and `crypto` need a C compiler for `ring`, TLS's fallback provider
+//! and `core/crypto`'s, so `cli/build.rs` probes for `cc` and turns them off
+//! with a `cargo:warning` rather than failing the toolchain's build. That is the bar's
 //! third clause — degrade, do not break — reaching a tool rather than a crate.
 //!
 //! The package's manifest is `manifest.toml` and its lockfile is
