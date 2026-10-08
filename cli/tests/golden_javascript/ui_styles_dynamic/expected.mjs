@@ -18,6 +18,7 @@ const $k16=[$k15];
 const $k17=[5,$k16];
 const $k18=[$k17];
 const $k19=[[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
+const $k20=[0,false];
 $ui_sheet='*,*::before,*::after{box-sizing:border-box}\n*,*::before,*::after{border-width:0}\n*{overflow-wrap:break-word}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.grow-var{flex-grow:var(--buri-grow)}\n.w-var{width:var(--buri-w)}\n.bg-16a34a{background-color:rgb(22,163,74)}\n.bg-dc2626{background-color:rgb(220,38,38)}\n';
 $tree_declare_hook=$tree_declare;
 function __cmd_x_main_buri$main$withHost(host_0){
@@ -33,20 +34,41 @@ function __cmd_x_main_buri$main$withHost(host_0){
   }else{
     $abort('no arm matched');
   }
-  const $t3=ui_node$stack$b1px4q([[$k8,[3,[1,lit_2],$k13,$k18]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
-  const $t4=ui_node$stack$b1px4q([[$k8,[4,scope_4=>[[24,[0,$effect_Scope_read(scope_4,width_3[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
-  return $ui_node_mount(ctx_1,ui_node$stack$b1px4q([$k4,[$t3,$t4,ui_node$stack$b1px4q([[$k8,[12,$host_HostWatch_read(ctx_1[3],width_3[0])]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  const $t3=ui_node$stack$b1px4q([[$k8,[3,[1,lit_2],$k13,$k18]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  const $t4=ui_node$stack$b1px4q([[$k8,[4,scope_4=>[[24,[0,$effect_Scope_read(scope_4,width_3[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  return $ui_node_mount(ctx_1,ui_node$stack$b1px4q([$k4,[$t3,$t4,ui_node$stack$b1px4q([[$k8,[12,$host_HostWatch_read(ctx_1[3],width_3[0])]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
 function __cmd_x_main_buri$main(){
   return __cmd_x_main_buri$main$withHost($k19);
 }
 function ui_node$stack$b1px4q(config_0){
-  const events_1=[config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]];
-  const $t1=config_0[2];
-  if($t1!==void 0){
-    return [[4,$t1,$share(config_0[0]),$share(config_0[1]),events_1]];
-  }else if($t1===void 0){
-    return [[3,$share(config_0[0]),$share(config_0[1]),events_1]];
+  const events_1=[config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]];
+  let $t1;
+  const $t2=config_0[3];
+  if($t2!==void 0){
+    $t1=$t2;
+  }else if($t2===void 0){
+    $t1=$k20;
+  }else{
+    $abort('no arm matched');
+  }
+  const current_2=$t1;
+  const focus_3=[config_0[5],config_0[6]];
+  const $t3=config_0[2];
+  if($t3!==void 0){
+    return [[4,$t3,$share(config_0[0]),$share(config_0[1]),current_2,focus_3,events_1]];
+  }else if($t3===void 0){
+    let $t4;
+    const $t5=config_0[4];
+    if($t5!==void 0){
+      $t4=$t5;
+    }else if($t5===void 0){
+      $t4=false;
+    }else{
+      $abort('no arm matched');
+    }
+    const decorative_6=$t4;
+    return [[3,$share(config_0[0]),$share(config_0[1]),current_2,decorative_6,focus_3,events_1]];
   }else{
     $abort('no arm matched');
   }

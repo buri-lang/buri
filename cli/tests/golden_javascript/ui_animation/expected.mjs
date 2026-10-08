@@ -1,29 +1,30 @@
-const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
-const $k1=[1200n,'lay-row'];
-const $k2=[3400n,'gap-8'];
-const $k3=[$k1,$k2];
-const $k4=[$k3];
-const $k5=[5,$k4];
-const $k6=[$k5];
-const $k7=[0,'Loading'];
-const $k8=[4800n,'w-20'];
-const $k9=[5000n,'h-20'];
-const $k10=[12400n,'anim-spin'];
-const $k11=[$k8,$k9,$k10];
-const $k12=[$k11];
-const $k13=[5,$k12];
-const $k14=[$k13];
-const $k15=[$k7,$k14,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
-const $k16=[12405n,'hover_anim-spin'];
-const $k17=[12402n,'md_anim-spin'];
-const $k18=[$k8,$k16,$k17];
-const $k19=[$k18];
-const $k20=[5,$k19];
-const $k21=[$k20];
-const $k22=[$k21,[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
+const $k0=[1200n,'lay-row'];
+const $k1=[3400n,'gap-8'];
+const $k2=[$k0,$k1];
+const $k3=[$k2];
+const $k4=[5,$k3];
+const $k5=[$k4];
+const $k6=[0,'Loading'];
+const $k7=[4800n,'w-20'];
+const $k8=[5000n,'h-20'];
+const $k9=[12400n,'anim-spin'];
+const $k10=[$k7,$k8,$k9];
+const $k11=[$k10];
+const $k12=[5,$k11];
+const $k13=[$k12];
+const $k14=[$k6,$k13,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
+const $k15=[12405n,'hover_anim-spin'];
+const $k16=[12402n,'md_anim-spin'];
+const $k17=[$k7,$k15,$k16];
+const $k18=[$k17];
+const $k19=[5,$k18];
+const $k20=[$k19];
+const $k21=[$k20,[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
+const $k22=[[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
+const $k23=[0,false];
 $ui_sheet='*,*::before,*::after{box-sizing:border-box}\n*,*::before,*::after{border-width:0}\n*{overflow-wrap:break-word}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n@keyframes buri-spin{to{rotate:360deg}}\n.lay-row{display:flex;flex-direction:row}\n.gap-8{gap:8px}\n.w-20{width:20px}\n.h-20{height:20px}\n@media (prefers-reduced-motion:no-preference){.anim-spin{animation:buri-spin 1s linear infinite}}\n@media (prefers-reduced-motion:no-preference){.hover_anim-spin:hover{animation:buri-spin 1s linear infinite}}\n@media (min-width:48rem){\n@media (prefers-reduced-motion:no-preference){.md_anim-spin{animation:buri-spin 1s linear infinite}}\n}\n';
-function __cmd_x_main_buri$main(){
-  const ctx_1=[$k0[0],$k0[1],$k0[10],$k0[11]];
+function __cmd_x_main_buri$main$withHost(host_0){
+  const ctx_1=[host_0[0],host_0[1],host_0[10],host_0[11]];
   const self_4=$host_HostStdout_println(ctx_1[1],'spinning');
   let $t1;
   if(self_4[0]===0){
@@ -34,30 +35,55 @@ function __cmd_x_main_buri$main(){
     $abort('no arm matched');
   }
   const events_8=ui_node$listen$b1px4q(void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0);
-  return $ui_node_mount(ctx_1,ui_node$stack$b1px4q([$k6,[[[17,$k7,void 0,$share($k14),ui_node$orNoChildren$b1px4q($fromShared($k15,void 0)),events_8]],ui_node$stack$b1px4q($k22)],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  const $t7=$share($k13);
+  const children_9=$fromShared($k14,void 0);
+  let $t3;
+  if(children_9!==void 0){
+    $t3=$share(children_9);
+  }else if(children_9===void 0){
+    $t3=[];
+  }else{
+    $abort('no arm matched');
+  }
+  return $ui_node_mount(ctx_1,ui_node$stack$b1px4q([$k5,[[[17,$k6,void 0,$t7,$t3,events_8]],ui_node$stack$b1px4q($k21)],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+}
+function __cmd_x_main_buri$main(){
+  return __cmd_x_main_buri$main$withHost($k22);
 }
 function ui_node$stack$b1px4q(config_0){
-  const events_1=ui_node$listen$b1px4q(config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]);
-  const $t1=config_0[2];
-  if($t1!==void 0){
-    return [[4,$t1,$share(config_0[0]),$share(config_0[1]),events_1]];
-  }else if($t1===void 0){
-    return [[3,$share(config_0[0]),$share(config_0[1]),events_1]];
+  const events_1=ui_node$listen$b1px4q(config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]);
+  let $t1;
+  const $t2=config_0[3];
+  if($t2!==void 0){
+    $t1=$t2;
+  }else if($t2===void 0){
+    $t1=$k23;
+  }else{
+    $abort('no arm matched');
+  }
+  const current_2=$t1;
+  const focus_3=[config_0[5],config_0[6]];
+  const $t3=config_0[2];
+  if($t3!==void 0){
+    return [[4,$t3,$share(config_0[0]),$share(config_0[1]),current_2,focus_3,events_1]];
+  }else if($t3===void 0){
+    let $t4;
+    const $t5=config_0[4];
+    if($t5!==void 0){
+      $t4=$t5;
+    }else if($t5===void 0){
+      $t4=false;
+    }else{
+      $abort('no arm matched');
+    }
+    const decorative_6=$t4;
+    return [[3,$share(config_0[0]),$share(config_0[1]),current_2,decorative_6,focus_3,events_1]];
   }else{
     $abort('no arm matched');
   }
 }
 function ui_node$listen$b1px4q(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
   return [onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7];
-}
-function ui_node$orNoChildren$b1px4q(children_0){
-  if(children_0!==void 0){
-    return $share(children_0);
-  }else if(children_0===void 0){
-    return [];
-  }else{
-    $abort('no arm matched');
-  }
 }
 const $buri$program={main:async ()=>{
   const $r=await __cmd_x_main_buri$main();
