@@ -1072,23 +1072,36 @@ fn keysFrom<K, V, C: Allocator>(ctx: C, n: Node<K, V>, at: Int, acc: [K]): [K] {
     }
 }
 
-/// The values alone, a leaf's appended whole.
-fn valuesOf<K, V, C: Allocator>(ctx: C, n: Node<K, V>, acc: [V]): [V] {
+/// The values in key order as runs to `flatten`: each leaf's own list, and
+/// each separator alone. `flatten` sizes its block once, where appending to
+/// one list outgrows it again and again and retains every value at each move.
+fn valueRuns<K, V, C: Allocator>(ctx: C, n: Node<K, V>, acc: [[V]]): [[V]] {
     if (n.children.isEmpty()) {
-        acc.concat(ctx, n.values)
+        acc.push(ctx, n.values)
     } else {
-        valuesFrom(ctx, n, 0, acc)
+        valueRunsFrom(ctx, n, 0, acc)
     }
 }
 
-fn valuesFrom<K, V, C: Allocator>(ctx: C, n: Node<K, V>, at: Int, acc: [V]): [V] {
+fn valueRunsFrom<K, V, C: Allocator>(
+    ctx: C,
+    n: Node<K, V>,
+    at: Int,
+    acc: [[V]],
+): [[V]] {
     match (n.children.get(at)) {
         .None => acc,
         .Some(child) => {
-            let below = valuesOf(ctx, child, acc);
-            match (n.values.get(at)) {
-                .None => below,
-                .Some(v) => valuesFrom(ctx, n, at + 1, below.push(ctx, v)),
+            let below = valueRuns(ctx, child, acc);
+            if (at < n.values.length()) {
+                valueRunsFrom(
+                    ctx,
+                    n,
+                    at + 1,
+                    below.push(ctx, n.values.slice(ctx, at, at + 1)),
+                )
+            } else {
+                below
             }
         },
     }
@@ -1493,7 +1506,7 @@ impl<K: Ordered, V> OrderedMap<K, V> {
     /// Every value, in key order. One pass, which appends each leaf's values
     /// whole rather than building the entries first.
     export fn values<C: Allocator>(self, ctx: C): [V] {
-        valuesOf(ctx, self.root, list.empty<V>())
+        valueRuns(ctx, self.root, list.empty<[V]>()).flatten(ctx)
     }
 }
 

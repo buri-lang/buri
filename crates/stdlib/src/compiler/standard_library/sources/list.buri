@@ -308,36 +308,14 @@ impl<A> [A] {
         self,
         ctx: C,
         transform: fn(A) => Option<B>,
-    ): [B] {
-        self.foldCtx(
-            ctx,
-            fn(c, acc: [B], x) => {
-                match (transform(x)) {
-                    .Some(b) => acc.push(c, b),
-                    .None => acc,
-                }
-            },
-            empty<B>(),
-        )
-    }
+    ): [B];
 
     /// `filterMap`, but the step takes the context instead of capturing it.
     export fn filterMapCtx<B, C: Allocator>(
         self,
         ctx: C,
         f: fn(C, A) => Option<B>,
-    ): [B] {
-        self.foldCtx(
-            ctx,
-            fn(c, acc: [B], x) => {
-                match (f(c, x)) {
-                    .Some(b) => acc.push(c, b),
-                    .None => acc,
-                }
-            },
-            empty<B>(),
-        )
-    }
+    ): [B];
 }
 
 impl<T> [T] {

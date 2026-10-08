@@ -803,7 +803,28 @@ function $list_filterCtx(xs, c, p) {
   return $own(out);
 }
 
-// --- the same four, awaiting their step --------------------------------------
+// A step's `.None` is `undefined`, and `$val` unwraps a `.Some` of an `Option`.
+function $list_filterMap(xs, c, f) {
+  $shareEach(xs);
+  const out = [];
+  for (let i = 0; i < xs.length; i++) {
+    const r = f(xs[i]);
+    if (r !== undefined) out.push($val(r));
+  }
+  return $own(out);
+}
+
+function $list_filterMapCtx(xs, c, f) {
+  $shareEach(xs);
+  const out = [];
+  for (let i = 0; i < xs.length; i++) {
+    const r = f(c, xs[i]);
+    if (r !== undefined) out.push($val(r));
+  }
+  return $own(out);
+}
+
+// --- the same five, awaiting their step --------------------------------------
 //
 // A `*Ctx` combinator hands its step the caller's **whole context**, so the
 // step may do anything the caller may: dial a socket, sleep on a clock, ask an
@@ -811,7 +832,7 @@ function $list_filterCtx(xs, c, p) {
 // arrow, and calling one returns a promise rather than an answer — so
 // `xs.mapCtx(ctx, fn(c, x) => …)` over a body that parks produced a list of
 // promises, `main` returned before any of them settled, and the work the step
-// was written to do silently did not happen. That is the bug these four exist
+// was written to do silently did not happen. That is the bug these five exist
 // to fix, and `$list_mapCtx` above is why the plain loop still exists: a step
 // that never waits must stay synchronous, because an `async` combinator makes
 // its caller `async`, and this compiler hands function values to JavaScript
@@ -855,6 +876,16 @@ async function $list_filterCtxAwait(xs, c, p) {
   $shareEach(xs);
   const out = [];
   for (let i = 0; i < xs.length; i++) if (await p(c, xs[i])) out.push(xs[i]);
+  return $own(out);
+}
+
+async function $list_filterMapCtxAwait(xs, c, f) {
+  $shareEach(xs);
+  const out = [];
+  for (let i = 0; i < xs.length; i++) {
+    const r = await f(c, xs[i]);
+    if (r !== undefined) out.push($val(r));
+  }
   return $own(out);
 }
 

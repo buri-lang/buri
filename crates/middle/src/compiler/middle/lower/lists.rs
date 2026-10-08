@@ -274,6 +274,43 @@ impl FnLower<'_> {
                 self.end(&w);
                 self.emit(ret_t, |dest| Inst::ArrayPrefix { dest, array: out, len: k })
             }
+            // `map` and `filter` in one loop. The step's `Option` is this loop's,
+            // so a `.Some` payload moves into the block with the count it already
+            // holds, and a `.None` holds nothing to give back.
+            Step::FilterMap => {
+                let some = self.variant_of(&step_ret, "Some", 0);
+                let some_tag = self.int(Type::I32, some as usize);
+                let TyKind::Array(b) = ret.kind() else { return None };
+                let b_t = self.type_of(b);
+                let out = self.emit(ret_t, |dest| Inst::ArrayAlloc { dest, len: n });
+                let zero = self.int(Type::I64, 0);
+                let w = self.walk(n, &[zero]);
+                let k = *w.vars.first()?;
+                let e = element(self, w.i);
+                let r = self.step(&callee, with_ctx(&ctx, vec![e]), step_t);
+                let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: r });
+                let held = self.emit(Type::I1, |dest| Inst::Binary {
+                    dest,
+                    op: BinOp::Eq,
+                    prim: Prim::I32,
+                    lhs: tag,
+                    rhs: some_tag,
+                });
+                let (kept, skip) = self.fork(held);
+                self.cur = kept;
+                let x = self.emit(b_t, |dest| Inst::GetPayload { dest, agg: r, variant: some, index: 0 });
+                self.push(Inst::ArraySet { array: out, index: k, value: x });
+                let k1 = self.add_one(k);
+                let latch = self.block(&[Type::I64]);
+                self.set_term(Term::Jump(Target::new(latch, vec![k1])));
+                self.cur = skip;
+                self.set_term(Term::Jump(Target::new(latch, vec![k])));
+                self.cur = latch;
+                let k2 = *self.code.get(latch).params.first()?;
+                self.again(&w, vec![k2]);
+                self.end(&w);
+                self.emit(ret_t, |dest| Inst::ArrayPrefix { dest, array: out, len: k })
+            }
             Step::Fold => {
                 let init = *vals.get(call.init?)?;
                 let init_ty = *tys.get(call.init?)?;

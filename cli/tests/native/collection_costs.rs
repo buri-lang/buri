@@ -1,13 +1,14 @@
-//! What `core/orderedmap`'s lookups cost against the width of the value type,
-//! natively, on every native backend this toolchain has built in.
+//! What `core/orderedmap`'s lookups and `values`, and `core/list`'s
+//! `filterMap`, cost against the shape of what they hold, natively, on every
+//! native backend this toolchain has built in.
 //!
 //! Each program runs once doing nothing past its setup and once doing the work,
 //! so the difference is the work alone. The work is counted rather than timed:
 //! instructions retired where the kernel counts them (macOS on hardware), and
-//! blocks through the allocation probe everywhere. Every run is under the heap
-//! check.
+//! blocks through the allocation probe everywhere. The counted runs are the
+//! program as it ships, and one more of each runs under the heap check.
 
-use crate::shared::{exited_instructions, heap_checked, probed, Ran};
+use crate::shared::{exited_instructions, heap_checked, probed, ran_command, Ran};
 use std::path::Path;
 
 /// One run, with the fewer instructions of two, because a short process's
@@ -16,8 +17,7 @@ use std::path::Path;
 fn measured(binary: &Path, args: &[&str]) -> (Ran, Option<u64>) {
     let once = || {
         let mut cmd = std::process::Command::new(binary);
-        heap_checked(&mut cmd)
-            .args(args)
+        cmd.args(args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         let child = cmd.spawn().unwrap();
@@ -40,7 +40,8 @@ fn measured(binary: &Path, args: &[&str]) -> (Ran, Option<u64>) {
 fn per_op(backend: &str, binary: &Path, mode: &str, args: &[&str], ops: u64, expected: &str) -> (Option<u64>, u64) {
     let (idle, idle_n) = measured(binary, &[&["none"], args].concat());
     let (busy, busy_n) = measured(binary, &[&[mode], args].concat());
-    for (r, want) in [(&idle, "0\n"), (&busy, expected)] {
+    let checked = ran_command(heap_checked(std::process::Command::new(binary).args([&[mode], args].concat())));
+    for (r, want) in [(&idle, "0\n"), (&busy, expected), (&checked, expected)] {
         assert_eq!(r.status, 0, "{backend} {mode} {args:?}: {}", r.stderr);
         assert_eq!(r.stdout, want, "{backend} {mode} {args:?}: {}", r.stderr);
     }
@@ -161,6 +162,89 @@ fn an_ordered_map_lookup_costs_the_same_for_any_value_type() {
                     "{backend}: `get` on {name} adds {deep} instructions over `has` three levels deep, \
                      and {shallow} in one leaf"
                 ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// 2,000 records of four `Str`s, four `Int`s and a `[Str]`, #266's shape, and
+/// `mode` run over them 50 times: `map` and `filterMap` copy the list through
+/// a lambda that keeps every element, and `values` reads them back out of a
+/// map.
+const PROJECTIONS: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/orderedmap" import * as orderedmap;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+struct Wide {
+  a: Str,
+  b: Str,
+  c: Str,
+  d: Str,
+  e: Int,
+  f: Int,
+  g: Int,
+  h: Int,
+  tags: [Str],
+}
+
+fn wide<C: Allocator>(ctx: C, i: Int): Wide {
+  let s = str.format(ctx, "w${i}");
+  Wide { a: s, b: s, c: s, d: s, e: i, f: i, g: i, h: i, tags: [s] }
+}
+
+fn times<C: Allocator>(ctx: C, k: Int, acc: Int, f: fn(C) => Int): Int {
+  if (k == 0) { acc } else { times(ctx, k - 1, acc + f(ctx), f) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let xs = list.range(ctx, 0, 2000).mapCtx(ctx, fn(c, i) => wide(c, i));
+  let m = orderedmap.of(ctx, xs.map(ctx, fn(w) => (w.e, w)));
+  let answer = match (env.arguments(ctx).first()) {
+    .Some("map") => times(ctx, 50, 0, fn(c) => xs.map(c, fn(w) => w).length()),
+    .Some("filterMap") => times(ctx, 50, 0, fn(c) => xs.filterMap(c, fn(w) => .Some(w)).length()),
+    .Some("values") => times(ctx, 50, 0, fn(c) => m.values(c).length()),
+    _ => 0,
+  };
+  io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **`filterMap` costs about what `map` costs, and `values` stays within two
+/// `map`s** (buri-lang/buri#266). `filterMap` was a fold through a closure
+/// that owned each element it was handed and pushed what it kept. The push
+/// outgrew its block again and again, and each move to a bigger block
+/// retained every element already there. `values` appended each node's values
+/// to one list the same way. Against `map`, in instructions an element,
+/// `filterMap` was 3 and 5 times on the copy-and-patch and LLVM backends, and
+/// `values` 2.2 and 4 times.
+///
+/// `filterMap` is a loop like `filter` now, writing into a block the length of
+/// the list. `values` flattens the leaves' own lists and each separator into
+/// one block sized once; the separators are what it pays over `map`.
+#[test]
+fn filter_map_and_values_cost_about_what_map_costs() {
+    let elems = 2000 * 50;
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("list-projections", PROJECTIONS);
+        let mut cost = std::collections::BTreeMap::new();
+        for mode in ["map", "filterMap", "values"] {
+            let (n, _blocks) = per_op(backend, &binary, mode, &[], elems, "100000\n");
+            eprintln!("{backend}, {mode}: {n:?} instructions an element");
+            cost.insert(mode, n);
+        }
+        let Some(Some(map)) = cost.get("map").copied() else { continue };
+        for (mode, times) in [("filterMap", 13), ("values", 20)] {
+            let Some(Some(n)) = cost.get(mode).copied() else { continue };
+            if n * 10 > map * times + 200 {
+                failures.push(format!("{backend}: {mode} is {n} instructions an element against map's {map}"));
             }
         }
     }

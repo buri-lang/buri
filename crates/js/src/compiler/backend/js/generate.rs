@@ -3444,6 +3444,7 @@ mod tests {
             "list.foldResultCtx",
             "list.mapCtx",
             "list.filterCtx",
+            "list.filterMapCtx",
         ] {
             assert!(crate::compiler::backend::intrinsic_keys::ctx_step_key(key));
             let name = format!("${}Await", key.replace('.', "_"));
