@@ -902,6 +902,7 @@ fn set_task_arena(task: &Task, slot: crate::memory::ArenaSlot) {
 /// or finishes, and either way it is back here with a thread to spend on
 /// something else.
 fn thread_loop() {
+    crate::host::no_pointer_prefetch();
     let mut armed = false;
     let mut fresh = true;
     loop {
@@ -3227,6 +3228,17 @@ mod tests {
     #[test]
     fn a_thread_stack_is_the_stated_size() {
         assert_eq!(THREAD_STACK_BYTES, 512 * 1024);
+    }
+
+    /// A scheduler thread runs with `PSTATE.DIT` set, which keeps an M3's
+    /// pointer prefetcher off (PERFORMANCE.md §6.68). A plain thread starts
+    /// with it clear, so the bit has to be set on each one.
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[test]
+    fn a_scheduler_thread_runs_with_dit_set() {
+        let _alone = alone();
+        assert!(!thread::spawn(crate::host::dit_is_set).join().unwrap(), "a new thread started with DIT set");
+        assert!(on_thread(crate::host::dit_is_set).join().unwrap(), "a scheduler thread ran with DIT clear");
     }
 
     /// `Clock.sleepMilliseconds` still waits and still answers nothing, having gone

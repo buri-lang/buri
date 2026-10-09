@@ -113,6 +113,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// `argv` must be an array of `argc` NUL-terminated pointers, or null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_argv_init(argc: i32, argv: *const *const u8) {
+    no_pointer_prefetch();
     ignore_sigpipe();
     std::panic::set_hook(Box::new(|info| {
         let mut err = lock(&ERR);
@@ -143,6 +144,29 @@ pub unsafe extern "C" fn buri_rt_argv_init(argc: i32, argv: *const *const u8) {
         args.remove(0);
     }
     *lock(&ARGS) = Some(args);
+}
+
+/// Sets `PSTATE.DIT` on the calling thread. On an M3 or later Mac that also
+/// turns off the prefetcher that follows pointers it finds in loaded data,
+/// which cost the string programs up to 19% (PERFORMANCE.md §6.68).
+///
+/// A new thread starts with the bit clear, so every thread that runs Buri code
+/// calls this: the main thread here, and each scheduler thread in `rt.rs`.
+pub(crate) fn no_pointer_prefetch() {
+    // SAFETY: every arm64 Mac has FEAT_DIT, and the bit changes timing, not results.
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    unsafe {
+        std::arch::asm!("msr dit, #1", options(nomem, nostack, preserves_flags));
+    }
+}
+
+/// Whether the calling thread has `PSTATE.DIT` set.
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
+pub(crate) fn dit_is_set() -> bool {
+    let dit: u64;
+    // SAFETY: a read of the calling thread's own state.
+    unsafe { std::arch::asm!("mrs {}, dit", out(reg) dit, options(nomem, nostack, preserves_flags)) };
+    dit != 0
 }
 
 /// A write to a closed pipe or socket fails with `EPIPE` rather than ending the
