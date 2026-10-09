@@ -519,14 +519,13 @@ fn js_path() -> String {
 fn counting_runtime(scratch: &Scratch) -> String {
     let js = js_path();
     let log = scratch.path("starts.txt");
-    let path = scratch.write(
+    let path = scratch.write_executable(
         "runtime.sh",
         &format!(
             "#!/bin/sh\ncase \"$1\" in\n*/.buri/out/tools/*) echo \"$1\" >> '{}' ;;\nesac\nexec '{js}' \"$@\"\n",
             log.display()
         ),
     );
-    std::process::Command::new("/bin/chmod").arg("+x").arg(&path).status().expect("chmod runs");
     path.display().to_string()
 }
 
@@ -597,14 +596,13 @@ fn many_rules(name: &str, rules: usize) -> Scratch {
 fn descriptor_noting_runtime(scratch: &Scratch) -> String {
     let js = js_path();
     let log = scratch.path("descriptors.txt");
-    let path = scratch.write(
+    let path = scratch.write_executable(
         "runtime.sh",
         &format!(
             "#!/bin/sh\ncase \"$1\" in\n--descriptors) echo $(ls /dev/fd/) ; exit 0 ;;\n*/.buri/out/tools/*) echo $(ls /dev/fd/) >> '{}' ;;\nesac\nexec '{js}' \"$@\"\n",
             log.display()
         ),
     );
-    std::process::Command::new("/bin/chmod").arg("+x").arg(&path).status().expect("chmod runs");
     path.display().to_string()
 }
 

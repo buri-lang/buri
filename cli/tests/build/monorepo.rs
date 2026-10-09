@@ -339,7 +339,6 @@ fn an_edit_to_a_generators_input_re_runs_only_the_suite_that_reads_it() {
 #[cfg(unix)]
 #[test]
 fn links_after_the_first_do_not_start_the_c_driver() {
-    use std::os::unix::fs::PermissionsExt;
     let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
     let banner = std::process::Command::new(&real_cc).arg("--version").output();
     if !banner.is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("clang"))
@@ -354,14 +353,13 @@ fn links_after_the_first_do_not_start_the_c_driver() {
         package(&scratch, name, "", 21);
     }
     let calls = scratch.path("driver-calls");
-    let driver = scratch.write(
+    let driver = scratch.write_executable(
         "fake-cc",
         &format!(
             "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{calls}'\nexec '{real_cc}' \"$@\"\n",
             calls = calls.display()
         ),
     );
-    std::fs::set_permissions(&driver, std::fs::Permissions::from_mode(0o755)).unwrap();
     let driver = driver.display().to_string();
     // A batch limit of one byte puts every suite in a binary of its own.
     let env = [("CC", driver.as_str()), ("BURI_TEST_BATCH_BYTES", "1")];

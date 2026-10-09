@@ -432,8 +432,7 @@ fn real_c_driver() -> String {
 /// it is given to `log`, plus `padding`, then runs the real one.
 #[cfg(unix)]
 fn counting_driver(scratch: &Scratch, log: &Path, padding: &str) {
-    use std::os::unix::fs::PermissionsExt;
-    let driver = scratch.write(
+    scratch.write_executable(
         "bin/cc",
         &format!(
             "#!/bin/sh\n{padding}printf '%s\\n' \"$*\" >> '{log}'\nexec '{real}' \"$@\"\n",
@@ -441,7 +440,6 @@ fn counting_driver(scratch: &Scratch, log: &Path, padding: &str) {
             real = real_c_driver(),
         ),
     );
-    std::fs::set_permissions(&driver, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 /// The environment that puts `bin/cc` first on `PATH` as the driver, with a

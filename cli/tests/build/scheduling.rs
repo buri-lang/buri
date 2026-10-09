@@ -32,8 +32,7 @@ fn js_path() -> String {
 /// Writes an executable script standing in for the JavaScript runtime, and
 /// answers its path for `BURI_JS`.
 fn runtime_script(scratch: &Scratch, body: &str) -> String {
-    let path = scratch.write("runtime.sh", &format!("#!/bin/sh\n{body}"));
-    std::process::Command::new("/bin/chmod").arg("+x").arg(&path).status().expect("chmod runs");
+    let path = scratch.write_executable("runtime.sh", &format!("#!/bin/sh\n{body}"));
     path.display().to_string()
 }
 
@@ -252,7 +251,6 @@ fn suites_linked_and_run_side_by_side_all_start() {
 #[cfg(unix)]
 #[test]
 fn a_suite_named_alone_runs_its_tests_side_by_side() {
-    use std::os::unix::fs::PermissionsExt;
     let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
     let scratch = Scratch::repo("alone-side-by-side");
     scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
@@ -266,7 +264,7 @@ fn a_suite_named_alone_runs_its_tests_side_by_side() {
     );
     let log = scratch.path("processes");
     let real = scratch.path("real-binary");
-    let wrapper = scratch.write(
+    let wrapper = scratch.write_executable(
         "wrapper.sh",
         &format!(
             "#!/bin/sh\n\
@@ -286,7 +284,7 @@ fn a_suite_named_alone_runs_its_tests_side_by_side() {
             real = real.display(),
         ),
     );
-    let driver = scratch.write(
+    let driver = scratch.write_executable(
         "fake-cc",
         &format!(
             "#!/bin/sh\n\
@@ -303,9 +301,6 @@ fn a_suite_named_alone_runs_its_tests_side_by_side() {
             wrapper = wrapper.display(),
         ),
     );
-    for script in [&wrapper, &driver] {
-        std::fs::set_permissions(script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
     let run = scratch.run_with_env(
         &["test", "//lib/a", "--verbose", "--jobs=4"],
         &[("CC", &driver.display().to_string())],

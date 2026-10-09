@@ -91,9 +91,11 @@ fn built_natively(name: &str, source: &str) -> Vec<Built> {
         let mut args = vec!["//cmd/native"];
         args.extend_from_slice(mode);
         build(&root, &args);
-        // Both backends write the same path, so each keeps a copy of its own.
+        // Both backends write the same path, so each moves its own out. A move,
+        // not a copy: a child another test forks mid-copy inherits the open file,
+        // and Linux refuses to run a file open for writing (`ETXTBSY`).
         let kept = root.join(backend);
-        std::fs::copy(root.join(format!(".buri/out/native/{}/cmd/native/native", host_variant())), &kept).unwrap();
+        std::fs::rename(root.join(format!(".buri/out/native/{}/cmd/native/native", host_variant())), &kept).unwrap();
         crate::shared::admitted(&kept);
         out.push(Built { backend, program: vec![kept.display().to_string()] });
     }
