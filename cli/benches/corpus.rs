@@ -548,6 +548,63 @@ fn dir_bytes(dir: &Path) -> u64 {
         .sum()
 }
 
+/// What `main.buri` imports for a JavaScript entry point, and for a native one.
+const NODE_HOST: [&str; 2] = ["from \"node\" import { NodeHost };", "host: NodeHost"];
+const NATIVE_HOST: [&str; 2] = ["from \"native\" import { NativeHost };", "host: NativeHost"];
+
+fn swap_host(text: &str, from: [&str; 2], to: [&str; 2]) -> String {
+    text.replace(from[0], to[0]).replace(from[1], to[1])
+}
+
+/// Writes `program` as a repository that `buri build //bench` compiles to a
+/// native binary: `REPO.buri`, then `bench/` with a `BUILD.buri` and the
+/// modules.
+///
+/// The generator's `main` takes `NodeHost` and a native binary's takes
+/// `NativeHost`, so `main.buri` swaps one for the other. Neither adds a line.
+pub fn write_repository(dir: &Path, program: &Program) -> Result<(), String> {
+    let bench = dir.join("bench");
+    if dir.exists() {
+        std::fs::remove_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    std::fs::create_dir_all(&bench).map_err(|e| format!("{}: {e}", bench.display()))?;
+    let write = |path: PathBuf, text: &str| {
+        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+    };
+    write(dir.join("REPO.buri"), "# A benchmark corpus, written by cli/benches/corpus.rs.\n")?;
+    write(bench.join("BUILD.buri"), "binary {\n    outputs: [\n        { platform: \"native\" },\n    ]\n}\n")?;
+    for m in &program.modules {
+        let name = m.path.rsplit('/').next().unwrap_or("module.buri");
+        let text =
+            if name == "main.buri" { swap_host(&m.text, NODE_HOST, NATIVE_HOST) } else { m.text.clone() };
+        write(bench.join(name), &text)?;
+    }
+    Ok(())
+}
+
+/// Reads back what [`write_repository`] wrote, as the generator produced it.
+/// `main.buri` takes `NodeHost` again, so [`digest`] matches the pinned
+/// manifest's.
+pub fn load_repository(dir: &Path) -> Result<Program, String> {
+    let bench = dir.join("bench");
+    let entries = std::fs::read_dir(&bench).map_err(|e| format!("{}: {e}", bench.display()))?;
+    let mut names: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".buri") && n != "BUILD.buri")
+        .collect();
+    // Imports load before importers: the generated modules in name order, `main` last.
+    names.sort_by_key(|n| (n == "main.buri", n.clone()));
+    let mut modules = Vec::new();
+    for name in names {
+        let path = bench.join(&name);
+        let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let text = if name == "main.buri" { swap_host(&text, NATIVE_HOST, NODE_HOST) } else { text };
+        modules.push(Module { path: format!("//bench/{name}"), text });
+    }
+    Ok(Program { modules })
+}
+
 /// Today, as `YYYY-MM-DD`.
 ///
 /// Hinnant's civil-from-days, which is fifteen lines and exact, rather than a
