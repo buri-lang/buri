@@ -2367,12 +2367,12 @@ fn check_unused_declarations(
 struct Names {
     /// Every name written down somewhere that is not the declaration of a type
     /// of that name, nor an `impl` or `derive` block about one.
-    written: BTreeSet<String>,
+    written: crate::hash::Set<String>,
     /// Every name written down inside text the checker or the parser could not
     /// read: a body that did not check, or a run of declarations the parser
     /// skipped. Nothing is reported about one of these, because the use that
     /// would have answered for it may be exactly what went missing.
-    doubted: BTreeSet<String>,
+    doubted: crate::hash::Set<String>,
 }
 
 impl Names {
@@ -2383,7 +2383,7 @@ impl Names {
         unchecked: &Unchecked,
     ) -> Names {
         use crate::parsing::tree::Item;
-        let mut names = Names { written: BTreeSet::new(), doubted: BTreeSet::new() };
+        let mut names = Names { written: crate::hash::Set::default(), doubted: crate::hash::Set::default() };
         // The bodies whose typed tree is short, by file. The *expression* and
         // not [`Unchecked`]'s declaration extent: a signature is text the
         // parser read whole and it holds no reads, so a type named in the
