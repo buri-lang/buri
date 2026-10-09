@@ -1,0 +1,5 @@
+from "core/str" import * as str;
+
+export fn total(n: I64): I64 {
+    n * 2
+}

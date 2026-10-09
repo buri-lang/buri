@@ -1,0 +1,9 @@
+// `Ledger` is written down only by `describe`'s parameter.
+
+struct Ledger {
+    entries: I64,
+}
+
+export fn describe(l: Ledger): I64 {
+    l.entries
+}

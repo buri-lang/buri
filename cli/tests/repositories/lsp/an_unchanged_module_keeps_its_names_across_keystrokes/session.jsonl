@@ -1,0 +1,38 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# `unused-type` and `unused-import` read each module's names from the text the
+# server keeps for it, so a module a keystroke did not touch answers from
+# what its last read kept. `cents.buri` writes its own `Ledger` down once, and
+# `routes.buri` imports `str` and never uses it.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Both open as they are on disk: `Ledger` is used, and `str` is not.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "// `Ledger` is written down only by `describe`'s parameter.\n\nstruct Ledger {\n    entries: I64,\n}\n\nexport fn describe(l: Ledger): I64 {\n    l.entries\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/routes.buri", "languageId": "buri", "version": 1, "text": "from \"core/str\" import * as str;\n\nexport fn total(n: I64): I64 {\n    n * 2\n}\n"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/routes.buri"}}}
+# A keystroke in `routes.buri`. `cents.buri` did not move, and still uses
+# `Ledger`.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/routes.buri", "version": 2}, "contentChanges": [{"text": "from \"core/str\" import * as str;\n\nexport fn total(n: I64): I64 {\n    n * 2\n}\n\n// A keystroke.\n"}]}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/routes.buri"}}}
+# `describe` stops naming `Ledger`, so nothing uses it. `routes.buri` did not
+# move, and still never uses `str`.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 2}, "contentChanges": [{"text": "// `Ledger` is written down only by `describe`'s parameter.\n\nstruct Ledger {\n    entries: I64,\n}\n\nexport fn describe(n: I64): I64 {\n    n\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/routes.buri"}}}
+# The import goes. `cents.buri` did not move, and its finding stays.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/routes.buri", "version": 3}, "contentChanges": [{"text": "export fn total(n: I64): I64 {\n    n * 2\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/routes.buri"}}}
+# `Ledger` written again, in a body that does not check: the name still
+# counts, and only the type error is reported.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 3}, "contentChanges": [{"text": "// `Ledger` is written down only by `describe`'s parameter.\n\nstruct Ledger {\n    entries: I64,\n}\n\nexport fn describe(l: Ledger): I64 {\n    l.entries + \"x\"\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/routes.buri"}}}
+# And back as it is on disk.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 4}, "contentChanges": [{"text": "// `Ledger` is written down only by `describe`'s parameter.\n\nstruct Ledger {\n    entries: I64,\n}\n\nexport fn describe(l: Ledger): I64 {\n    l.entries\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+{"jsonrpc": "2.0", "id": 13, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/routes.buri"}}}
+{"jsonrpc": "2.0", "id": 14, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
