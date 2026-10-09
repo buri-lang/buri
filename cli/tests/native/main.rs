@@ -194,6 +194,10 @@ mod conformance;
 mod differential;
 mod float_parity;
 mod link;
+// The threads a fan-out wakes, counted rather than timed, under the heap check,
+// on the release backend: the only one that fans out.
+#[cfg(feature = "backend-llvm")]
+mod fan_out;
 #[cfg(feature = "backend-llvm")]
 mod llvm;
 mod runtime;

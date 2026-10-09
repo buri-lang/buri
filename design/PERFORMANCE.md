@@ -6802,6 +6802,133 @@ about 1,100 samples, a fifth of a pull. The bodies are rebuilt on every
 keystroke, so there's nothing stable to key a cache on. Fusing the walks into
 one visitor is the lever left, and it touches every rule.
 
+### 6.73 A fan-out wakes one thread, and its joiner runs steps, 2026-10-09
+
+§6.66 left `a_tiny` waiting on the kernel: 20,000 rounds of a 64-step
+`tasks.parallel` of `x * 2 + i` took 1.34 s of wall, 1.2 s of user time and
+8.6 s of system time. `/usr/bin/time -l` counted 716 K involuntary context
+switches, 36 a round. `sample` showed where they came from:
+
+- **The dispatching thread** spent 31% of its samples in
+  `pthread_cond_broadcast` and 57% waiting for the latch.
+- **22 `buri-thread`s on 12 cores** sat in `__psynch_cvwait` and
+  `__psynch_mutexwait`.
+
+`push_all` broadcast `READY` once per fan-out. Every sleeping worker woke and
+fought for the run queue's lock. Most found it empty, since 64 steps of one
+multiply are gone in microseconds, and went back to sleep. That cost a
+syscall and a context switch per thread per round.
+
+The ceiling is the same program on rayon at `-O2`, with
+`par_iter().with_max_len(1)` so each item is a job: 599 ms of wall and 5.75 s
+of CPU. Rayon pays the kernel too.
+
+The fix has two halves. First, a wake-up goes to one sleeping thread, and only
+when nothing else will take the work:
+
+```rust
+// cli/runtime/rt.rs, Sched::wake: push_all asks once, take asks after each pop
+let wake = !self.queue.is_empty()
+    && self.sleeping > 0
+    && self.waking == 0
+    && self.idle == self.sleeping;
+```
+
+`waking` counts wake-ups no thread has come back from. `idle == sleeping`
+means no idle thread is awake, since one that has just finished a step is
+already on its way to the queue. A backlog wakes the pool one thread after
+another, and work that's gone before the next thread arrives wakes no more.
+
+Second, the thread that joins a fan-out runs its own queued steps while it
+waits (`help`). It pops from the back while workers take from the front,
+switches to each step's stack the way a worker does, and stops at the first
+task that isn't one of its own. A task that fans out still parks instead,
+because its own stack is the one a step would switch away from. The joiner
+also stops while a timer is pending, because timers fire on that thread while
+it waits, and a step it ran would hold one back.
+
+Each half alone, behind a switch in a test build, fewest of three to five:
+
+| `a_tiny` | wall | CPU |
+|---|---:|---:|
+| before | 1,338 ms | 8.64 s |
+| joiner runs steps | 1,316 ms | 8.52 s |
+| one wake-up at a time | 367 ms | 0.55 s |
+| both | 181 ms | 0.21 s |
+
+Six more fan-out programs joined the corpus. Each has 64 steps a round unless
+noted: `f_heavy` steps make 4,000 `fromInt`s, `f_mid` 20, `f_uneven` one
+step makes 20,000 and the rest 20, `f_nested` is 8 steps of 8 steps,
+`f_sleep` is 16 steps that sleep 1 ms, and `f_wide` is 3,000 steps, past the
+1,024-step window.
+
+`--release`, fewest of seven alternating runs, load 6–11, no sleep in
+`pmset -g log`. Cycles, then wall, then user + system time:
+
+| Program | before | after | wall |
+|---|---:|---:|---:|
+| `a_tiny` | 26,866 M, 1,345 ms, 8.77 s | 673 M, 183 ms, 0.22 s | −86% |
+| `f_mid` | 17,090 M, 808 ms, 5.54 s | 1,870 M, 283 ms, 0.62 s | −65% |
+| `f_nested` | 5,355 M, 243 ms, 1.69 s | 1,629 M, 144 ms, 0.50 s | −41% |
+| `a_tasks` | 4,063 M, 188 ms, 1.30 s | 1,329 M, 116 ms, 0.41 s | −38% |
+| `f_wide` | 33,336 M, 1,598 ms, 10.64 s | 29,147 M, 1,252 ms, 9.25 s | −22% |
+| `f_uneven` | 178 M, 24.0 ms, 0.04 s | 90 M, 23.2 ms, 0.02 s | −3% |
+| `f_sleep` | 206 M, 550 ms, 0.19 s | 110 M, 539 ms, 0.10 s | −2% |
+| `f_heavy` | 1,220 M, 43.9 ms, 0.38 s | 1,171 M, 43.7 ms, 0.36 s | 0% |
+
+The 25 programs that don't fan out are within ±3.5% at the same
+instructions. The pool shrank with the wake-ups: `a_tiny` ended with 4 threads
+instead of 21, and `a_tasks` with 9 instead of 22. Nothing spins, so a
+program that waits burns nothing more; `f_sleep`'s CPU halved. The stripped
+hello world is unchanged at 339,184 bytes in `--release` and 373,248 in debug.
+
+Against rayon, fewest of five:
+
+| Program | Buri | rayon | rayon, one thread |
+|---|---:|---:|---:|
+| `a_tiny` | 183 ms | 599 ms | |
+| `a_tasks` | 116 ms | 119 ms | 506 ms |
+
+Buri's `a_tasks` runs one thread's work in 216 ms (`a_seqwork`), so its fan-out
+is 1.9 times faster than one thread, where rayon's is 4.3 times. Rayon's
+`to_string` is the slower half there.
+
+`fan_out::a_fan_out_of_trivial_steps_wakes_at_most_one_thread` runs 500
+fan-outs of `a_tiny`'s steps under the heap check and reads
+`buri_rt_tasks_dispatch_wakes` through a linked probe: at most 500, one per
+fan-out. The broadcast woke 6,349. It runs on the release backend only,
+because the copy-and-patch backend runs a fan-out's steps in order on the
+calling thread. `rt::tests::a_batch_wakes_one_thread_and_each_arrival_the_next`
+and `a_batch_wakes_nobody_while_an_idle_thread_is_awake` walk `Sched::wake`'s
+rule. `the_artifact_says_whether_the_steps_may_fan_out` now tells a fan-out
+apart by whether each step ran as a task, since the joiner may run all four
+itself. The new test passed 200 runs in a row and 6 × 60 at once, and the
+scheduler's 54 unit tests 4 × 30 at once under the heap check at load 50.
+
+**Linux.** The change is `std`'s `Mutex` and `Condvar`, which are futexes
+there, and no platform code. It wasn't run on Linux here; CI runs the unit
+tests and the release-backend test there.
+
+**Tried and dropped:**
+
+- **Spinning before sleeping**, again (§6.44.1). 1,000, 10,000 and 100,000
+  `spin_loop` turns took `a_tiny` from 182 ms to 519, 1,279 and 1,575 ms, and
+  `a_tasks` from 121 ms to 124, 234 and 781 ms. Spinning workers took steps
+  the joiner runs more cheaply.
+- **Two or three wake-ups in flight**: `a_tiny` and `a_tasks` within 1%,
+  `f_nested` 148 ms to 160 and 170 ms.
+- **A wake-up per pop while work is left**: `a_tasks` 163 ms, `f_mid` 429 ms.
+- **The first thread to arrive broadcasts**: `a_tasks` 180 ms, `f_mid` 488 ms.
+
+**What's left:**
+
+- **Task stacks.** 14% of `a_tiny`'s joining thread is `mmap` under
+  `new_task`.
+- **Nested fan-outs.** A task that fans out parks rather than helping. Helping
+  there means switching from one task's stack to another's.
+- **Past the window.** A fan-out wider than 1,024 steps joins each step through
+  its own `Handoff`, and `f_wide` still takes 9.3 s of CPU for 1.25 s of wall.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
