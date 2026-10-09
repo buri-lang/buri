@@ -657,6 +657,13 @@ fn plan(
         let (cached, mut explain) =
             crate::build::cache::holding_explain(|| served(session, target, platform, &key, args));
         let mut answer = cached.map(Ok);
+        if answer.is_none() {
+            // A suite the filter leaves no test in is answered unbuilt.
+            let filter = args.flags.filter.as_deref();
+            answer = filter.and_then(|f| left_out(session, target, f)).map(|skipped| {
+                Ok(Outcome { cases: Vec::new(), skipped, build: None })
+            });
+        }
         let mut build = None;
         let mut linked = None;
         if answer.is_none() {
@@ -3490,6 +3497,36 @@ fn test_modules_of(session: &Session, target: TargetId) -> Vec<String> {
     let Some(suite) = suite(session, target) else { return Vec::new() };
     let pkg = session.workspace.package(target.package);
     suite.sources.iter().map(|src| pkg.module_path(&src.value)).collect()
+}
+
+/// Every test in `target`'s suite, in block order, when `filter` matches none
+/// of them: read off the parsed sources, so the suite needn't be compiled.
+/// `None` when one matches, or a source doesn't parse, and the suite is built.
+fn left_out(session: &mut Session, target: TargetId, filter: &str) -> Option<Skipped> {
+    use crate::build::workspace::{ModuleKind, ModuleLocation};
+    let mut skipped = Vec::new();
+    for module in test_modules_of(session, target) {
+        let Ok(ModuleLocation::InPackage(found)) = session.workspace.resolve_module(&module) else {
+            return None;
+        };
+        if matches!(found.kind, ModuleKind::Generated) {
+            return None;
+        }
+        let file = session.map.load(&found.rel, &found.file).ok()?;
+        let (ast, errors) = session.parsed.parse(session.map.text(file), file, false);
+        if !errors.is_empty() {
+            return None;
+        }
+        for item in &ast.items {
+            if let crate::parsing::tree::Item::Test(test) = item {
+                if test.name.contains(filter) {
+                    return None;
+                }
+                skipped.push((test.name.clone(), module.clone()));
+            }
+        }
+    }
+    Some(skipped)
 }
 
 /// Loads one batch as one compilation and queues its [`Job::Batch`].

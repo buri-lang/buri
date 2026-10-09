@@ -156,11 +156,11 @@ const NATIVE: [&str; 8] = [
      new executables launched 1, test processes 1, files written 7",
     "suites built 2, suites reused 1, objects compiled 3, objects restored 5, links 1, \
      new executables launched 1, test processes 2, files written 10",
-    "suites built 3, objects compiled 4, objects restored 6, links 1, new executables launched 1, \
-     test processes 1, files written 10",
-    "suites restored 3, test processes 1, files written 0",
     "suites built 1, objects compiled 1, objects restored 4, links 1, new executables launched 1, \
-     test processes 1, files written 6",
+     test processes 1, files written 5",
+    "suites restored 1, test processes 1, files written 0",
+    // The runner's bytes match the filtered run's, so it isn't a new file.
+    "suites built 1, objects compiled 1, objects restored 4, links 1, test processes 1, files written 5",
     "suites reused 1, files written 0",
 ];
 
@@ -170,8 +170,8 @@ const JAVASCRIPT: [&str; 8] = [
     "suites reused 3, files written 0",
     "suites built 1, suites reused 2, test processes 1, files written 2",
     "suites built 2, suites reused 1, test processes 2, files written 4",
-    "suites built 3, test processes 3, files written 9",
-    "suites restored 3, test processes 3, files written 3",
+    "suites built 1, test processes 1, files written 3",
+    "suites restored 1, test processes 1, files written 1",
     "suites built 1, test processes 1, files written 2",
     "suites reused 1, files written 0",
 ];

@@ -7398,15 +7398,45 @@ still waiting, which does depend on scheduling.
   `core_testing_assert` with the test. A second edit to the same test
   recompiles only the test's unit.
 - **An edit that leaves a library's object unchanged still recompiles its
-  dependents.** `40` to `40 + 0` to `40 + 1 - 1` in the shared library: its
-  unit is cached each time, yet both suites' test units and `core_number`
-  compile again.
+  dependents.** Withdrawn in §6.81: the library's body is inlined into them.
 - **`--filter` builds every suite.** Two of the three hold no matching test,
   yet each is compiled into the runner. On JavaScript each also gets a
   process.
 - **JavaScript rewrites a restored bundle.** The same `--filter` again writes
   all three bundles, though their bytes match. Native `place_from` leaves an
   identical runner alone.
+
+### 6.81 §6.80's leads, 2026-10-09
+
+The `validate` profile, stencil, on a 12-core M3 Pro at load 11–20. Each
+figure is five edit-and-reruns, each giving a test in
+`//lib/calendar/test/date.buri` a new name. Conformance is
+`cli/tests/conformance`, 39 suites; ×10 copies every package under ten names,
+390 suites.
+
+**An unchanged library object doesn't mean unchanged dependents.** The lead
+was wrong. Every function in §6.80's fixture is inlined into the test that
+calls it, so the library's own object is a stub that never moves, and an edit
+to its body really does change both tests' objects. A comment edit reuses
+every verdict. An edit to a recursive helper, which isn't inlined, recompiles
+only the library's object and the runner's entry (the third lead).
+
+**`--filter` no longer builds a suite it leaves no test in.** The plan reads
+the test names off the suite's parsed sources. When none matches, the suite is
+answered with its tests listed as skipped, before anything is checked,
+linked or started. A source that doesn't parse is built as before, so its
+error is still reported. A library that doesn't check, in a suite the filter
+leaves nothing in, is skipped rather than reported.
+
+| `--filter=leap year`, after an edit | Before | After |
+|---|---:|---:|
+| conformance, wall | 0.31–0.38 s | 0.11 s |
+| conformance, suites restored, test processes | 38, 39 | 0, 1 |
+| ×10, wall | 1.77–2.05 s | 0.33–0.45 s |
+| ×10, suites restored, test processes | 389, 380 | 9, 10 |
+
+`--verbose` lists the skipped tests as before, and a suite left with none
+shows no build time, since it wasn't built.
 
 ## 7. Profiling, on this platform
 

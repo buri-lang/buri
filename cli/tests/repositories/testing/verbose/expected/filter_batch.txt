@@ -2,10 +2,9 @@
   ok    cents.buri  adding cents carries into dollars  <time>
   ok    cents.buri  the cents are what is left over    <time>
   skip  rates.buri  a rate of zero keeps nothing
-//lib/shapes  native  0 tests  built in <time>
+//lib/shapes  native  0 tests
   skip  shapes.buri      a square has four equal sides
   skip  shapes.buri      a square's area is its side squared
   skip  solid/cube.buri  a cube has six square faces
-shared build  <time>
 
 2 passed, 0 failed, 4 skipped (0.0s)

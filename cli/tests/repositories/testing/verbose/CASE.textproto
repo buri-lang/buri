@@ -55,7 +55,7 @@ run {
   stream: OUT
 }
 
-# A suite the filter leaves no test in still shows its build, and
+# A suite the filter leaves no test in isn't built, so it shows no build.
 # `//lib/money`'s is putting back the binary the last filter left.
 run {
   args: ["test", "//lib/...", "--verbose", "--filter=cents"]

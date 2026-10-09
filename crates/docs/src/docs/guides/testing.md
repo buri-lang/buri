@@ -371,7 +371,8 @@ buri test //... --coverage           count the lines the tests reach
 ```
 
 `--filter` is a substring match on the test's title, which is the other reason
-to write titles carefully. `--watch` re-runs the same invocation whenever a
+to write titles carefully. A suite with no matching title isn't compiled at
+all, so a filter keeps a large repository's run small. `--watch` re-runs the same invocation whenever a
 declared input changes. A file you have just created is an input of nothing, so
 run `buri gen` and the loop picks it up with the build file.
 
