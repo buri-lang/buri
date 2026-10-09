@@ -142,6 +142,12 @@ pub fn reaped(pid: u32) {
     }
 }
 
+/// This thread's instructions retired so far: macOS only, and 0 elsewhere or
+/// where the kernel won't say, such as in a virtual machine.
+pub fn thread_instructions() -> u64 {
+    os::thread_instructions()
+}
+
 /// The phase this thread is in, for a worker to start in.
 pub fn current() -> Option<Phase> {
     if !enabled() {
