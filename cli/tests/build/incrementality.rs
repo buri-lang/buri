@@ -801,6 +801,29 @@ fn a_filter_skips_a_suite_it_leaves_no_test_in_without_compiling_it() {
     scratch.run(&["test", "//...", "--filter=good"]).exits(1).says("error");
 }
 
+/// A JavaScript suite run again from its cached build leaves a bundle that
+/// already holds the right bytes alone, and rewrites one that doesn't.
+#[test]
+fn a_rerun_bundle_is_left_alone_only_when_it_holds_the_same_bytes() {
+    let scratch = Scratch::repo("bundle-left-alone");
+    scratch.write("lib/n/BUILD.buri", "library {\n    test {\n        sources: [\"test/n.buri\"]\n    }\n}\n");
+    scratch.write("lib/n/lib.buri", "export fn one(): Int {\n    1\n}\n");
+    scratch.write(
+        "lib/n/test/n.buri",
+        "from \"//lib/n\" import { one };\nfrom \"core/testing/assert\" import * as assert;\n\n\
+         test \"one is one\" {\n    assert.equal(one(), 1);\n}\n",
+    );
+    let args = ["test", "//lib/n", "--output=js", "--filter=one"];
+    scratch.run(&args).ok();
+    let bundle = scratch.path(".buri/out/node/lib/n/test-library.mjs");
+    let written = std::fs::metadata(&bundle).unwrap().modified().unwrap();
+    scratch.run(&args).ok().says("1 passed");
+    assert_eq!(std::fs::metadata(&bundle).unwrap().modified().unwrap(), written, "an identical bundle was rewritten");
+
+    std::fs::write(&bundle, "throw new Error(\"stale\");\n").unwrap();
+    scratch.run(&args).ok().says("1 passed");
+}
+
 // ---------------------------------------------------------------------------
 // The native row
 // ---------------------------------------------------------------------------

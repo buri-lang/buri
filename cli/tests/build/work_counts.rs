@@ -171,7 +171,7 @@ const JAVASCRIPT: [&str; 8] = [
     "suites built 1, suites reused 2, test processes 1, files written 2",
     "suites built 2, suites reused 1, test processes 2, files written 4",
     "suites built 1, test processes 1, files written 3",
-    "suites restored 1, test processes 1, files written 1",
+    "suites restored 1, test processes 1, files written 0",
     "suites built 1, test processes 1, files written 2",
     "suites reused 1, files written 0",
 ];

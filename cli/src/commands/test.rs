@@ -1877,6 +1877,12 @@ fn write_bundle(bundle: &str, run: &JsRun, driver: &str) -> Result<(), Diagnosti
     source.push_str(&format!("\n$t.seed={}n;\n", seed_of(&run.key)));
     source.push_str(crate::build::spawn::FIXED_CLOCK_JS);
     source.push_str(driver);
+    // A file already holding these bytes is left alone, as `place_from` leaves a runner.
+    let holds = std::fs::metadata(&run.path).is_ok_and(|m| m.len() == source.len() as u64)
+        && std::fs::read(&run.path).is_ok_and(|on_disk| on_disk == source.as_bytes());
+    if holds {
+        return Ok(());
+    }
     if let Some(dir) = run.path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
