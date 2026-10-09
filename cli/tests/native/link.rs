@@ -449,6 +449,40 @@ fn a_run_never_empties_the_cache_under_its_own_links() {
     assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=5\n");
 }
 
+/// The linker reads the cache's objects where they are, and writes the bytes
+/// it writes from copies in the link directory. A cold link used to hard-link
+/// every object into that directory first, about 0.3 ms each on APFS.
+#[test]
+fn a_link_reads_the_caches_objects_where_they_are() {
+    let Some(target) = linkable() else {
+        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        return;
+    };
+    let dir = workspace("in-place");
+    let units = vec![emit(&dir, "lib_answer", &library(8)), emit(&dir, "main", MAIN)];
+    let copied = dir.join("app-copied");
+    let linker = link::select(target).unwrap().in_dir(link::dir(&dir, "copied"));
+    drop(ok(link::run(&units, &rows(&units, &[false, false]), &linker, &copied, &options(target))));
+
+    let cache = Cache::open(&dir);
+    for unit in &units {
+        cache.put(unit.key.as_ref().unwrap(), &unit.bytes);
+    }
+    let read = dir.join("app-read");
+    let linker = link::select(target).unwrap().in_dir(link::dir(&dir, "read")).from_cache(cache);
+    drop(ok(link::run(&units, &rows(&units, &[true, true]), &linker, &read, &options(target))));
+
+    let ran = crate::shared::run_artifact(&read);
+    assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=8\n");
+    assert_eq!(std::fs::read(&read).unwrap(), std::fs::read(&copied).unwrap(), "naming the cache's files moved the bytes");
+    let staged: Vec<String> = std::fs::read_dir(link::dir(&dir, "read"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".o"))
+        .collect();
+    assert!(staged.is_empty(), "the link copied the cache's objects: {staged:?}");
+}
+
 /// An unchanged unit's object is not rewritten. "Swap only the object files
 /// that changed" is delivered above the linker rather than inside it — no
 /// shipping linker links incrementally — and this is the whole of what the
