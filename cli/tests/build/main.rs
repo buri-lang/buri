@@ -15,6 +15,7 @@
 //! | [`hermeticity`] | scratch | That a spawn is deterministic, that a perturbed environment changes neither bytes nor verdicts, and that concurrent builds leave the cache intact. |
 //! | [`generators`] | scratch | That a generated module reaches the host's native backend and its linker, and that the generator the toolchain ships is compiled once per repository. |
 //! | [`heap`] | scratch | That the heap check every suite here runs under is really on — in a `buri run` artifact and in the binary `buri test` spawns — and that a program which really leaks is really reported. |
+//! | [`many_findings`] | scratch | That a file with thousands of findings publishes each once, where it is, across edits, and that `lint --fix` over a thousand of them leaves the program printing what it printed. |
 //! | [`monorepo`] | scratch | A large repository's shape, scaled down: what a warm run, a comment edit and a generator's input edit may not redo, and that a link does not start the C driver. |
 //! | [`profile`] | scratch | That `BURI_PROFILE=1` reports each phase a run went through, that a run without it prints nothing extra, and that checking and emitting large shapes is linear in their size. |
 //! | [`scheduling`] | scratch | That suites build and run side by side, report in suite order, and are reused across an edit that cannot change them. |
@@ -58,6 +59,7 @@ mod hermeticity;
 mod incrementality;
 mod init;
 mod instances;
+mod many_findings;
 mod monorepo;
 mod profile;
 mod repositories;
