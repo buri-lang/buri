@@ -6418,6 +6418,8 @@ byte, was as slow as the paged build. With no allocator change, 16 bytes of
 thread-local ahead of the cache moved `a_pstrings` 5.6% and `a_strings` 4.2%,
 and aligning every runtime function to 64 bytes moved `a_strings` 5%.
 Ordering the runtime's hot functions is the lead if those few percent matter.
+§6.68 found otherwise: nine random layouts kept the gap, and turning off the
+M3's pointer prefetcher closed it.
 
 `native::collection_costs::a_big_tree_costs_about_what_a_small_one_does_a_node`
 bounds a 2¹⁶-node tree under 1.8 times a 63-node one, a node. It was 2.71 on
@@ -6433,6 +6435,93 @@ heap check, with no block live at exit.
   as the global allocator, less `strs`' 11%.
 - **The cache's counters ahead of its slots**: 0.5% fewer instructions in the
   string programs, and wall within noise.
+
+### 6.68 Buri's threads turn off the pointer prefetcher, 2026-10-09
+
+§6.67 left `st_churn`, `a_pstrings`, `a_strings` and `a_pfloats` 3–8% slower
+at the same instructions, and blamed code layout. Layout isn't it. Nine
+relinks of `a_strings`, each with every text symbol in a random order through
+`-order_file`, cycles fewest of five:
+
+| Runtime | nine layouts |
+|---|---:|
+| before §6.67 | 368–385 M |
+| §6.67 | 405–419 M |
+
+The rest of the program held still too:
+
+- **Each call retires the same instructions.** Single-stepped under `lldb`,
+  every runtime call in `st_churn`'s loop took the same count on both
+  runtimes, `buri_rt_free`'s 67 included.
+- **`buri_rt_free` and `buri_rt_alloc` at nine alignments**, through an order
+  file: all 3–6% over the old runtime.
+- **The thread-local cache moved** across a 16 KiB stretch, by a `malloc`
+  interposed for the thread-local block: no change on either runtime.
+- **The stack moved**, by environment size, across 4 KiB: no change.
+- **The block addresses did move it.** Routing `memory.rs`'s blocks to the
+  system allocator, with the pages kept for Rust's own, gave the old cycles
+  back. Spreading the size classes over different cache lines, one block a
+  line, a 256 MB range and a range without `MAP_NORESERVE` didn't.
+
+That pointed at the M3's data memory-dependent prefetcher, which fetches what
+a loaded value looks like it points to. Setting `PSTATE.DIT` turns it off on an
+M3 and later. Through an injected library that set it on the main thread,
+`st_churn` took 2,589 M cycles on the old runtime and 2,627 M on §6.67's,
+against 2,935 M and 3,130 M without it. So the runtime sets it on every
+thread that runs Buri code:
+
+```rust
+// cli/runtime/host.rs, called by buri_rt_argv_init and rt.rs's thread_loop
+pub(crate) fn no_pointer_prefetch() {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    unsafe {
+        std::arch::asm!("msr dit, #1", options(nomem, nostack, preserves_flags));
+    }
+}
+```
+
+A new thread starts with the bit clear, which is why `thread_loop` sets it
+too. `rt::tests::a_scheduler_thread_runs_with_dit_set` checks both halves.
+
+`--release`, fewest of seven alternating runs, load 2.9–6.1, no sleep in
+`pmset -g log`:
+
+| Program | before §6.67 | §6.67 | now | |
+|---|---:|---:|---:|---:|
+| `st_churn` | 2,962 M, 790 ms | 3,202 M, 854 ms | 2,608 M, 695 ms | −19% |
+| `a_pstrings` | 3,090 M, 824 ms | 3,304 M, 881 ms | 2,768 M, 739 ms | −16% |
+| `a_strings` | 373 M, 102 ms | 401 M, 109 ms | 355 M, 97 ms | −11% |
+| `strs` | 160 M, 44.6 ms | 154 M, 43.5 ms | 137 M, 38.6 ms | −11% |
+| `b_tree` | 5,113 M, 1,360 ms | 3,138 M, 836 ms | 2,987 M, 796 ms | −5% |
+| `tree` | 261 M, 71.6 ms | 162 M, 45.2 ms | 155 M, 43.4 ms | −4% |
+| `st_build` | 163 M, 46.0 ms | 159 M, 44.9 ms | 155 M, 43.7 ms | −3% |
+| `a_pfloats` | 1,242 M, 333 ms | 1,309 M, 351 ms | 1,283 M, 345 ms | −2% |
+| `a_pmaps` | 1,384 M, 370 ms | 1,392 M, 373 ms | 1,405 M, 376 ms | +1% |
+
+Cycles, then wall; the last column is cycles against §6.67. `a_pmaps` read
++0.9% to +1.3% on three passes. The other 18 are within ±2.5% at the same
+instructions, except `a_tiny`, which waits on the kernel and read +3.8% on
+one pass and −3.3% on the next. A debug build moved −7% on `a_pmaps` and
+within ±4% elsewhere. The stripped hello world is unchanged at 339,120 bytes.
+
+**What DIT costs.** It makes the instructions the Arm spec lists take the same
+time for any data. A C loop of 64-bit divides, multiplies, float divides,
+pointer chasing and `memcpy` ran no slower with it set.
+
+**Where it does nothing.** Linux compiles the function empty. An M1 or M2's
+prefetcher doesn't answer to DIT, by the GoFetch paper's account, so those
+Macs see no change. Nobody has measured an M4.
+
+There are no hardware counters to confirm this with. The Command Line Tools
+have no `xctrace`, and the configurable counters need root.
+
+The compiler runs on the same allocator (§6.54), and its threads don't set the
+bit. That's the next thing to measure.
+
+**Tried and dropped:**
+
+- **A linker order file for the hot runtime functions**, §6.67's lead. The
+  shuffled layouts above put a bound on what any order could win.
 
 ## 7. Profiling, on this platform
 
