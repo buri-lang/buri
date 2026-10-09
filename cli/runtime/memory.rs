@@ -13,7 +13,7 @@
 
 use crate::abort::{buri_rt_abort_alloc_budget, buri_rt_abort_oom};
 use std::alloc::{alloc, alloc_zeroed, dealloc, realloc, Layout};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 /// A reference count that is never decremented and never freed.
@@ -3814,7 +3814,7 @@ static POOL: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 /// that is warm and 4 GiB that is not. A cap is needed at all because a burst
 /// of ten thousand tasks would otherwise leave ten thousand mappings behind
 /// for a process that has gone quiet.
-const STACK_POOL_MAX: usize = 64;
+pub(crate) const STACK_POOL_MAX: usize = 64;
 
 fn pool() -> MutexGuard<'static, Vec<usize>> {
     match POOL.lock() {
@@ -4267,12 +4267,29 @@ fn task_pool() -> MutexGuard<'static, Vec<usize>> {
     }
 }
 
+/// Task machine stacks handed out and not yet given back.
+static TASK_STACKS_LIVE: AtomicUsize = AtomicUsize::new(0);
+/// The most [`TASK_STACKS_LIVE`] has been, over the run.
+static TASK_STACKS_PEAK: AtomicUsize = AtomicUsize::new(0);
+
+/// The most task machine stacks this run has had out at once.
+///
+/// A probe: `cli/tests/native/fan_out.rs` links a destructor that prints it,
+/// so a test can say a wide fan-out maps stacks for the steps that run rather
+/// than for every step it queues.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_task_stacks_peak() -> u64 {
+    TASK_STACKS_PEAK.load(Ordering::Relaxed) as u64
+}
+
 /// A machine stack for a task, and the address of its **top** — the high end,
 /// which is where a downward-growing stack starts.
 ///
 /// The pair `(base, top)`: `base` is what [`buri_rt_task_stack_release`] takes
 /// back, and `top` is what `switch::prepare` builds a frame at.
 pub(crate) fn buri_rt_task_stack_acquire() -> (*mut u8, *mut u8) {
+    let live = TASK_STACKS_LIVE.fetch_add(1, Ordering::Relaxed) + 1;
+    TASK_STACKS_PEAK.fetch_max(live, Ordering::Relaxed);
     let base = map_task_stack();
     (base, base.wrapping_add(BURI_RT_STACK_BYTES))
 }
@@ -4295,6 +4312,7 @@ pub(crate) unsafe fn buri_rt_task_stack_release(base: *mut u8) {
     if base.is_null() {
         return;
     }
+    TASK_STACKS_LIVE.fetch_sub(1, Ordering::Relaxed);
     let low = base.wrapping_add(BURI_RT_STACK_GUARD);
     let len = BURI_RT_STACK_USABLE - BURI_RT_STACK_WARM;
     // A task that stayed inside the retained prefix left nothing below it to

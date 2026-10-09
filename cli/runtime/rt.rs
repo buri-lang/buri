@@ -429,9 +429,14 @@ pub(crate) struct Task {
     /// on — which is what makes an `UnsafeCell` right and a lock wrong: a lock
     /// would have to be released *after* the stack it protects had gone.
     sp: UnsafeCell<*mut u8>,
-    /// The base of the mapping `stack` is the top of, for the thread to give
-    /// back when the task ends.
-    stack: *mut u8,
+    /// The base of the task's machine stack, for the thread to give back when
+    /// the task ends. Null until the task's first turn maps it ([`turn`]), so
+    /// a step still waiting in the queue holds no stack: a 3,000-step fan-out
+    /// queues 1,024 and runs a dozen at a time.
+    ///
+    /// An `UnsafeCell` for `sp`'s reason: only the thread running the task's
+    /// turn touches it, and the run queue orders one turn before the next.
+    stack: UnsafeCell<*mut u8>,
     /// The task's Buri data stacks: B7's free list, keyed by task rather than
     /// by thread. `memory::stack_list` is what reaches it.
     blocks: UnsafeCell<Blocks>,
@@ -537,7 +542,7 @@ fn lineage_here() -> Arc<[Who]> {
 // touched only by the single thread the task is running on — and a task runs
 // on one thread at a time by construction, because it is on the run queue or
 // on a thread and never both (the state machine above is what enforces it).
-// `stack` is a mapping nobody but the reaping thread touches.
+// `stack` is touched only by the thread running or reaping the task.
 unsafe impl Send for Task {}
 // SAFETY: as above; sharing a `&Task` is what a `Waker` does, and every field
 // a waker reaches is atomic or locked.
@@ -758,6 +763,19 @@ pub extern "C" fn buri_rt_tasks_dispatch_wakes() -> u64 {
     DISPATCH_WAKES.load(Ordering::Relaxed)
 }
 
+/// How many batches fan-outs have queued, over the whole run. A count for a
+/// test to read through [`buri_rt_tasks_batches`].
+static BATCHES: AtomicU64 = AtomicU64::new(0);
+
+/// How many batches of steps fan-outs have queued so far in this run.
+///
+/// A probe, like [`buri_rt_tasks_dispatch_wakes`]: a fan-out wider than its
+/// window queues a batch per [`REFILL`] steps, not per step.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_batches() -> u64 {
+    BATCHES.load(Ordering::Relaxed)
+}
+
 /// How many threads exist.
 #[must_use]
 pub fn threads() -> usize {
@@ -784,6 +802,7 @@ fn push(task: Arc<Task>) {
 /// task ([`Sched::wake`]), and the dispatcher runs steps itself meanwhile
 /// ([`help`]).
 fn push_all(tasks: impl IntoIterator<Item = Arc<Task>>) {
+    BATCHES.fetch_add(1, Ordering::Relaxed);
     let (start, wake) = {
         let mut s = sched();
         s.queue.extend(tasks);
@@ -966,7 +985,7 @@ fn thread_loop() {
             // SAFETY: `task.stack` came from `buri_rt_task_stack_acquire` and
             // nothing is running on it — the task's last act was to switch off
             // it, and its state is `FINISHED`, so no waker will queue it.
-            unsafe { crate::memory::buri_rt_task_stack_release(task.stack) };
+            unsafe { crate::memory::buri_rt_task_stack_release(*task.stack.get()) };
             // Available *before* anybody is told the answer is ready, so a
             // caller that dispatches again immediately finds this thread.
             arm();
@@ -975,7 +994,7 @@ fn thread_loop() {
             // A fan-out's step is waited for through its latch and nothing
             // else, so its waiter list, a boxed lock, is never made.
             match &task.latch {
-                Some(latch) => latch.arrive(),
+                Some(latch) => latch.arrive(task.ok.load(Ordering::Acquire)),
                 None => wake_waiters(&task),
             }
         } else {
@@ -987,6 +1006,12 @@ fn thread_loop() {
 /// One turn of `task` on this thread, until it parks or finishes. Answers
 /// whether it finished.
 fn turn(task: &Arc<Task>) -> bool {
+    // SAFETY: only the thread running this turn touches `stack` and `sp`.
+    unsafe {
+        if (*task.stack.get()).is_null() {
+            give_stack(task);
+        }
+    }
     set_running(Arc::as_ptr(task));
     task.state.store(RUNNING, Ordering::Release);
     // G5: the arena belongs to the task, not to the thread it is on this
@@ -1050,9 +1075,9 @@ fn help(latch: &Arc<Latch>) {
         if turn(&task) {
             // SAFETY: as in `thread_loop`'s finishing arm: the task switched
             // off its stack for the last time.
-            unsafe { crate::memory::buri_rt_task_stack_release(task.stack) };
+            unsafe { crate::memory::buri_rt_task_stack_release(*task.stack.get()) };
             task.done.store(true, Ordering::Release);
-            latch.arrive();
+            latch.arrive(task.ok.load(Ordering::Acquire));
         } else {
             parked(task);
         }
@@ -1118,15 +1143,37 @@ fn wake_waiters(task: &Task) {
     }
 }
 
-/// Map a task's machine stack and build the frame it starts from. The caller
-/// queues it.
-fn new_task(body: Box<dyn FnOnce() + Send>, latch: Option<Arc<Latch>>, lineage: Arc<[Who]>) -> Arc<Task> {
+/// Map a task's machine stack and build the frame it starts from.
+///
+/// # Safety
+/// Nothing else is touching the task's `stack` and `sp`: it isn't queued
+/// yet, or this thread is running its turn.
+unsafe fn give_stack(task: &Arc<Task>) {
     let (base, top) = crate::memory::buri_rt_task_stack_acquire();
+    // SAFETY: the caller's promise.
+    unsafe {
+        *task.stack.get() = base;
+        // The task's *own* address travels in the frame, and the `Arc` that
+        // keeps it alive travels with it: the launch pad hands the address
+        // back and `buri_rt_task_main` borrows it.
+        *task.sp.get() = switch::prepare(top, Arc::as_ptr(task).cast_mut().cast::<u8>());
+    }
+}
+
+/// A task the caller queues. `mapped` maps its machine stack now; otherwise
+/// its first turn does, so it holds none while it waits.
+///
+/// Mapping now is cheaper for a fan-out the stack pool holds whole: the work
+/// is done before the batch wakes anybody, and the dispatcher, which runs most
+/// of a fan-out of trivial steps itself, then runs each one sooner. Mapping
+/// later is what a wider one needs, or its queued steps hold every pooled
+/// stack and the running ones map and unmap fresh ones.
+fn new_task(body: Box<dyn FnOnce() + Send>, latch: Option<Arc<Latch>>, lineage: Arc<[Who]>, mapped: bool) -> Arc<Task> {
     let task = Arc::new(Task {
         state: AtomicU8::new(QUEUED),
         why: AtomicU8::new(WHY_PARK),
         sp: UnsafeCell::new(std::ptr::null_mut()),
-        stack: base,
+        stack: UnsafeCell::new(std::ptr::null_mut()),
         blocks: UnsafeCell::new(Blocks::new()),
         body: UnsafeCell::new(Some(body)),
         done: AtomicBool::new(false),
@@ -1136,14 +1183,10 @@ fn new_task(body: Box<dyn FnOnce() + Send>, latch: Option<Arc<Latch>>, lineage: 
         arena: UnsafeCell::new(crate::memory::ArenaSlot::NONE),
         lineage,
     });
-    // The task's *own* address travels in the frame, and the `Arc` that keeps
-    // it alive travels on the queue: the launch pad hands the address back and
-    // `buri_rt_task_main` borrows it.
-    let arg = Arc::as_ptr(&task).cast_mut().cast::<u8>();
-    // SAFETY: `top` is the high end of a mapping just made, nothing is running
-    // on it, and `task.sp` is written before the task is queued, so no thread
-    // can read it half-built.
-    unsafe { *task.sp.get() = switch::prepare(top, arg) };
+    if mapped {
+        // SAFETY: the task was made on the line above and isn't queued yet.
+        unsafe { give_stack(&task) };
+    }
     task
 }
 
@@ -1234,6 +1277,7 @@ fn unqueued<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Handof
         }),
         None,
         lineage_here(),
+        true,
     );
     Handoff { task, answer }
 }
@@ -1376,9 +1420,8 @@ pub fn task_is_live(handle: i64) -> bool {
 /// raised sixteen-fold instead, and the reason is the sentence above: the
 /// thing being spent stopped being a thread and started being a reservation,
 /// which is cheap but not free, and a `parallel` over a million items should
-/// slide a window rather than ask for 130 TiB. The window's behaviour is
-/// unchanged — the (n + 1)-th step starts when the first has finished, and the
-/// answer and its order are the same either way.
+/// slide a window rather than ask for 130 TiB. The window slides in steps of
+/// [`REFILL`], and the answer and its order are the same either way.
 const IN_FLIGHT: usize = 1024;
 
 /// One `parallel` call's boundary, in a shape a thread can be handed.
@@ -1479,24 +1522,39 @@ unsafe fn in_order(steps: Steps, n: usize) {
 /// # Safety
 /// As [`in_order`].
 unsafe fn fan_out(steps: Steps, n: usize) {
-    if n <= IN_FLIGHT {
-        // The whole list fits the window: one batch, and one wait for all of
-        // it rather than a join per step, each of which was a flush, a look at
-        // the timers and a trip into the reactor.
-        let latch = Arc::new(Latch::new(n));
-        let lineage = lineage_here();
-        let tasks: Vec<Arc<Task>> = (0..n)
-            .map(|j| {
-                new_task(
-                    // SAFETY: `j < n`, each index dispatched once, and `Steps`
-                    // is `Send` for the reason stated at its `unsafe impl`.
-                    Box::new(move || unsafe { steps.run(j) }),
-                    Some(Arc::clone(&latch)),
-                    Arc::clone(&lineage),
-                )
-            })
-            .collect();
-        push_all(tasks.iter().cloned());
+    // One latch for every step, however many windows they take: a join per
+    // step was a flush, a look at the timers and a trip into the reactor.
+    let latch = Arc::new(Latch::new(n));
+    let lineage = lineage_here();
+    let mut started = 0;
+    let mut kept: Vec<Arc<Task>> = Vec::new();
+    loop {
+        // In flight is what started less what finished: `left - (n - started)`.
+        let in_flight = latch.left.load(Ordering::Acquire) - (n - started);
+        let end = n.min(started + (IN_FLIGHT - in_flight));
+        if end > started {
+            // Made before the queue's lock is taken, not under it.
+            let batch: Vec<Arc<Task>> = (started..end)
+                .map(|j| {
+                    new_task(
+                        // SAFETY: `j < n`, each index dispatched once, and
+                        // `Steps` is `Send` for the reason stated at its
+                        // `unsafe impl`.
+                        Box::new(move || unsafe { steps.run(j) }),
+                        Some(Arc::clone(&latch)),
+                        Arc::clone(&lineage),
+                        n <= crate::memory::STACK_POOL_MAX,
+                    )
+                })
+                .collect();
+            // Finished steps are dropped here, on the thread that made them,
+            // rather than by whichever thread finished them: freed across
+            // threads, they took `a_tiny` from 160 ms to 250.
+            kept.retain(|t| !t.done.load(Ordering::Acquire));
+            kept.extend(batch.iter().cloned());
+            push_all(batch);
+            started = end;
+        }
         // A task that fans out parks instead: its own stack is the one a step
         // would need to switch away from.
         if running().is_null() {
@@ -1505,45 +1563,49 @@ unsafe fn fan_out(steps: Steps, n: usize) {
             crate::host::about_to_block();
             help(&latch);
         }
-        park_on(AllArrived(&latch));
-        assert!(tasks.iter().all(|t| t.ok.load(Ordering::Acquire)), "a buri task did not finish");
-        return;
-    }
-    let mut window: VecDeque<Handoff<()>> = VecDeque::with_capacity(n.min(IN_FLIGHT));
-    let mut i = 0;
-    while i < n {
-        if window.len() == IN_FLIGHT {
-            finish(window.pop_front());
+        if started == n {
+            break;
         }
-        // Every step the window has room for, queued as one batch.
-        let queued = window.len();
-        let end = n.min(i + (IN_FLIGHT - queued));
-        for j in i..end {
-            // SAFETY: `j < n`, each index dispatched once, and `Steps` is
-            // `Send` for the reason stated at its `unsafe impl`.
-            window.push_back(unqueued(move || unsafe { steps.run(j) }));
-        }
-        push_all(window.iter().skip(queued).map(|h| Arc::clone(&h.task)));
-        i = end;
+        // Room for a batch, so a window refills in batches rather than a step
+        // at a time.
+        let batch = REFILL.min(n - started);
+        park_on(Arrived { latch: &latch, left: n - started + IN_FLIGHT - batch });
     }
-    while let Some(handoff) = window.pop_front() {
-        finish(Some(handoff));
-    }
+    park_on(Arrived { latch: &latch, left: 0 });
+    assert!(!latch.failed.load(Ordering::Acquire), "a buri task did not finish");
+    drop(kept);
 }
 
-/// A count of a fan-out's steps still to finish, and whoever waits for none.
+/// How many steps of a window finish before the next ones are queued.
+///
+/// One lock and one wake-up for 64 steps rather than each. It makes the window
+/// slide in steps of 64, so the 1,025th step starts once 64 of the first 1,024
+/// have finished rather than one.
+const REFILL: usize = 64;
+
+/// A count of a fan-out's steps still to finish, and whoever waits for it to
+/// fall to a mark.
 ///
 /// [`thread_loop`] tells it after a step's `done`, at the same point it wakes
 /// the step's joiners, so a step's thread is counted idle before the
 /// dispatcher can go on.
 struct Latch {
     left: AtomicUsize,
+    /// The count the waiter is waiting for, or 0 when none waits.
+    want: AtomicUsize,
+    /// A step whose body didn't return.
+    failed: AtomicBool,
     waiter: Mutex<Option<Waker>>,
 }
 
 impl Latch {
     fn new(n: usize) -> Latch {
-        Latch { left: AtomicUsize::new(n), waiter: Mutex::new(None) }
+        Latch {
+            left: AtomicUsize::new(n),
+            want: AtomicUsize::new(0),
+            failed: AtomicBool::new(false),
+            waiter: Mutex::new(None),
+        }
     }
 
     fn waiter(&self) -> std::sync::MutexGuard<'_, Option<Waker>> {
@@ -1553,10 +1615,21 @@ impl Latch {
         }
     }
 
-    /// One step has finished; the last one wakes the waiter.
-    fn arrive(&self) {
-        if self.left.fetch_sub(1, Ordering::AcqRel) == 1 {
-            let waker = self.waiter().take();
+    /// One step has finished, its body having returned if `ok`. The one that
+    /// brings the count to the waiter's mark wakes it.
+    fn arrive(&self, ok: bool) {
+        if !ok {
+            self.failed.store(true, Ordering::Release);
+        }
+        // Sequentially consistent with `Arrived::poll`'s store and load, so
+        // either this sees the new mark or the poll sees this count.
+        let left = self.left.fetch_sub(1, Ordering::SeqCst) - 1;
+        if left <= self.want.load(Ordering::SeqCst) {
+            let waker = {
+                let mut waiter = self.waiter();
+                self.want.store(0, Ordering::SeqCst);
+                waiter.take()
+            };
             if let Some(waker) = waker {
                 waker.wake();
             }
@@ -1564,37 +1637,27 @@ impl Latch {
     }
 }
 
-/// Ready once every step of a [`Latch`] has arrived.
-struct AllArrived<'a>(&'a Latch);
+/// Ready once a [`Latch`]'s count is at most `left`.
+struct Arrived<'a> {
+    latch: &'a Latch,
+    left: usize,
+}
 
-impl Future for AllArrived<'_> {
+impl Future for Arrived<'_> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        if self.0.left.load(Ordering::Acquire) == 0 {
+        if self.latch.left.load(Ordering::Acquire) <= self.left {
             return Poll::Ready(());
         }
-        let mut waiter = self.0.waiter();
-        // Under the lock `arrive` takes after its decrement, so the last
-        // arrival either sees this waker or this check sees it.
-        if self.0.left.load(Ordering::Acquire) == 0 {
+        let mut waiter = self.latch.waiter();
+        self.latch.want.store(self.left, Ordering::SeqCst);
+        if self.latch.left.load(Ordering::SeqCst) <= self.left {
+            self.latch.want.store(0, Ordering::SeqCst);
             return Poll::Ready(());
         }
         *waiter = Some(cx.waker().clone());
         Poll::Pending
-    }
-}
-
-/// Wait for one dispatched step.
-///
-/// A thread that did not finish leaves its slot of the answer unwritten, and
-/// handing that back would be a `[B]` with a hole in it — so it is named here
-/// instead. Under `panic = "abort"`, which is how the runtime archive is built,
-/// it cannot happen at all; under a test harness that unwinds it can, and this
-/// is the difference between a failed test and a garbage answer.
-fn finish(handoff: Option<Handoff<()>>) {
-    if let Some(handoff) = handoff {
-        assert!(handoff.join().is_some(), "a buri task did not finish");
     }
 }
 
@@ -3274,6 +3337,33 @@ mod tests {
     /// that is exact: `arm` counts a finishing thread as available before its
     /// joiner is told the answer is ready, which is the same ordering the
     /// vector gave and the reason it is written that way round.
+    /// **A latch wakes its waiter at the mark it's waiting for**, once, and
+    /// a step that didn't finish is remembered for the end.
+    #[test]
+    fn a_latch_wakes_its_waiter_at_the_mark() {
+        struct Count(AtomicUsize);
+        impl std::task::Wake for Count {
+            fn wake(self: Arc<Self>) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let woken = Arc::new(Count(AtomicUsize::new(0)));
+        let waker = Waker::from(Arc::clone(&woken));
+        let mut cx = Context::from_waker(&waker);
+        let latch = Latch::new(10);
+        let mut at_seven = std::pin::pin!(Arrived { latch: &latch, left: 7 });
+        assert!(at_seven.as_mut().poll(&mut cx).is_pending());
+        latch.arrive(true);
+        latch.arrive(true);
+        assert_eq!(woken.0.load(Ordering::SeqCst), 0, "woken before the mark");
+        latch.arrive(false);
+        assert_eq!(woken.0.load(Ordering::SeqCst), 1, "not woken at the mark");
+        assert!(at_seven.as_mut().poll(&mut cx).is_ready());
+        latch.arrive(true);
+        assert_eq!(woken.0.load(Ordering::SeqCst), 1, "woken again with nobody waiting");
+        assert!(latch.failed.load(Ordering::SeqCst), "a failed step was forgotten");
+    }
+
     #[test]
     fn a_thread_runs_the_job_and_is_reused() {
         let _alone = alone();
