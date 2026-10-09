@@ -1080,15 +1080,17 @@ impl Cache {
             }
         }
         self.publish();
+        // The pages under the blocks just released, past the pool's 8 MB.
+        crate::allocator::trim();
     }
 
-    /// Return up to `n` blocks of slot `idx` to the system allocator.
+    /// Return up to `n` blocks of slot `idx` to the global allocator.
     ///
     /// **`dealloc`, not `madvise`** — and that is the stated rule for a
     /// cached-but-empty chunk. A cached block's pages are not this file's to
-    /// decommit: it came out of `std::alloc::alloc`, so the system allocator
-    /// owns the chunk it was carved from and is the only thing that can decide
-    /// whether that chunk is now empty. Handing the block back is therefore
+    /// decommit: it came out of `std::alloc::alloc`, so the global allocator
+    /// (`allocator.rs`) owns the page it was carved from and is the only thing
+    /// that can decide whether that page is now empty. Handing the block back is therefore
     /// the whole of what this runtime can honestly do, and it is what puts the
     /// allocator in a position to do the rest. (The pages this file *does* own
     /// are the thread stacks, and those are decommitted for real: see

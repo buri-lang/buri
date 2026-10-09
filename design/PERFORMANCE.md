@@ -6328,6 +6328,112 @@ JavaScript's `Array.prototype.sort` already gave a third one.
   12% slower in debug than two back edges, and 17% more instructions in
   `--release`.
 
+### 6.67 Compiled programs allocate from the compiler's pages, 2026-10-09
+
+The 27 programs of §6.66, profiled again in `--release`. One had a hotspot
+the rest didn't share: `b_tree`, 400 builds and drops of a 2¹⁶-node tree,
+spent 54% of its samples in `libsystem_malloc`, in `_xzm_free`, its zeroing
+`memset` and `_xzm_xzone_malloc`. Every node is two blocks, and the block
+cache doesn't hold a tree: a thread's share is 419 KB on ten cores, and a
+drain gives a slot back two sweeps after its last pop. So each block was a
+`malloc` and a zeroing `free`. In every other single-threaded program the
+cache already caught them, and `libsystem_malloc` wasn't a top frame.
+
+The ceiling first. mimalloc through `DYLD_INSERT_LIBRARIES`, set by
+`/usr/bin/env` because SIP strips it on the way through `/usr/bin/time`:
+
+| Program | system | mimalloc |
+|---|---:|---:|
+| `b_tree` | 30,498 M, 1,351 ms | 15,874 M, 773 ms |
+| `tree` | 1,550 M, 71.6 ms | 852 M, 45.9 ms |
+| five others | | within 1% |
+
+§6.54's allocator already does what mimalloc does here, for the compiler.
+So the runtime installs it too:
+
+```rust
+// cli/runtime/lib.rs
+pub(crate) mod allocator;
+#[cfg(not(test))]
+#[global_allocator]
+static ALLOCATOR: allocator::Allocator = allocator::Allocator;
+```
+
+- **One source.** `cli/src/allocator.rs` moved to `cli/runtime/allocator.rs`,
+  and `cli/src/lib.rs` includes it by `#[path]`. Not under `cfg(test)`,
+  because its own tests count pages nothing else may take.
+- **A drained program gives pages back.** Each cache sweep calls `trim`, which
+  returns empty pages past the pool's 8 MB. `trim` now checks the pool's size
+  before taking the lock.
+- **`mmap` and `munmap`** are declared with `c_void`, as `memory.rs` declares
+  them, or the two clash in `buri-rt-tests`.
+
+`--release`, fewest of five alternating runs, load 1.2–3.7, no sleep in
+`pmset -g log`:
+
+| Program | Instructions before | after | Wall before | after |
+|---|---:|---:|---:|---:|
+| `b_tree` | 30,489 M | 16,898 M | 1,362 ms | 835 ms |
+| `tree` | 1,540 M | 861 M | 71.5 ms | 45.3 ms |
+| `strs` | 829 M | 741 M | 44.8 ms | 43.5 ms |
+| `a_tiny` | 13,213 M | 12,061 M | 1,387 ms | 1,361 ms |
+| `a_mapk` | 2,676 M | 2,631 M | 219 ms | 216 ms |
+| `a_maps` | 1,513 M | 1,494 M | 100 ms | 99 ms |
+
+The other 21 retire within ±0.5%. `strs` gains from the Rust side of the
+runtime, whose own `Vec`s now come from pages too. Against Rust at `-O2`,
+`tree` was 1.36 times its instructions and is now 0.76: 861 M and 45 ms
+against 1,131 M and 61 ms.
+
+A debug build, fewest of three: `b_tree` and `tree` −35%, `strs` −7.5%,
+nothing else past ±1.8%.
+
+Instructions a node, built and dropped until 2²⁰ nodes have been:
+
+| Depth | before, `--release` | after | before, debug | after |
+|---|---:|---:|---:|---:|
+| 6 | 412 | 412 | 584 | 585 |
+| 13 | 1,095 | 601 | 1,230 | 789 |
+| 16 | 1,132 | 613 | 1,265 | 801 |
+| 18 | 1,152 | 650 | 1,284 | 838 |
+
+Depth 18 is 25 MB of blocks, past the pool's 8 MB, so each drop releases
+pages the next build takes back.
+
+**Memory.** Peak footprint is about 140 KB higher in a single-threaded
+program, one partly used page per size class, and 1.3–1.6 MB higher in the
+fan-out programs, one set per worker. `a_mapk`'s is 18% lower. After dropping
+a 2²¹-node tree, about 200 MB of blocks, an idle program's footprint was
+83 MB on the system allocator and is 9.6 MB now.
+
+The stripped hello world went from 322,464 to 339,120 bytes in `--release`,
+and 356,544 to 373,200 in debug: 5.7 KB of `__text` crossed a 16 KiB page.
+The released-page stack's 4 MB is `__bss`.
+
+**Four string programs take 3–8% longer at the same instructions**:
+`st_churn`, `a_pstrings`, `a_strings` and `a_pfloats`. It's layout, not the
+allocator. Their cache hits never reach it, and a build whose one data byte
+sent every allocation to the system, with the paged build's code byte for
+byte, was as slow as the paged build. With no allocator change, 16 bytes of
+thread-local ahead of the cache moved `a_pstrings` 5.6% and `a_strings` 4.2%,
+and aligning every runtime function to 64 bytes moved `a_strings` 5%.
+Ordering the runtime's hot functions is the lead if those few percent matter.
+
+`native::collection_costs::a_big_tree_costs_about_what_a_small_one_does_a_node`
+bounds a 2¹⁶-node tree under 1.8 times a 63-node one, a node. It was 2.71 on
+LLVM and 2.16 on the copy-and-patch backend, and is 1.47 and 1.37. The same
+program checks trees built in a fan-out and dropped by the caller, under the
+heap check, with no block live at exit.
+
+**Tried and dropped:**
+
+- **Colouring pages**, the first block offset by the page's index times 64,
+  in case the hot blocks shared cache sets: no change.
+- **Pages for Buri's blocks only**, through `memory.rs`'s four calls: the same
+  as the global allocator, less `strs`' 11%.
+- **The cache's counters ahead of its slots**: 0.5% fewer instructions in the
+  string programs, and wall within noise.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

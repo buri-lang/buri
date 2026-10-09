@@ -1,10 +1,12 @@
-//! The toolchain's global allocator: blocks of up to 1 KiB come from per-thread
-//! pages of one size class each, everything else from the system allocator.
+//! The global allocator of the toolchain and of every program it compiles:
+//! blocks of up to 1 KiB come from per-thread pages of one size class each,
+//! everything else from the system allocator.
 //!
-//! The compiler is millions of small allocations. Here a thread allocates and
-//! frees its own blocks with no atomic operation at all, and successive
-//! allocations of a size sit next to each other in one page.
-//! `design/PERFORMANCE.md` §6.54 has the measurements.
+//! The compiler is millions of small allocations, and so is a program that
+//! builds a tree. Here a thread allocates and frees its own blocks with no
+//! atomic operation at all, and successive allocations of a size sit next to
+//! each other in one page. `design/PERFORMANCE.md` §6.54 and §6.67 have the
+//! measurements.
 //!
 //! - **Size classes** are 16-byte steps to 128 bytes, then four to each
 //!   doubling. Rust's `dealloc` passes the layout, so a block needs no header:
@@ -30,7 +32,8 @@
 //!   up) its small blocks come from the system. Those lie outside the range,
 //!   which is how `dealloc` tells them apart.
 //! - **`trim`** gives all but 8 MB of the pool back to the system. `buri lsp`
-//!   calls it whenever no request is waiting, and the watch loops after each pass.
+//!   calls it whenever no request is waiting, the watch loops after each pass,
+//!   and a compiled program on each sweep of its block cache.
 //!
 //! Nothing here allocates or takes a `Mutex`: the pool and the abandoned list
 //! are behind spin locks, and a heap is never freed.
@@ -219,9 +222,11 @@ fn page_of(p: *mut u8) -> Option<*mut Page> {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn reserve() -> *mut u8 {
+    use std::ffi::c_void;
+    // `c_void`, as `memory.rs` declares them in the runtime.
     unsafe extern "C" {
-        fn mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, offset: i64) -> *mut u8;
-        fn munmap(addr: *mut u8, len: usize) -> i32;
+        fn mmap(addr: *mut c_void, len: usize, prot: i32, flags: i32, fd: i32, offset: i64) -> *mut c_void;
+        fn munmap(addr: *mut c_void, len: usize) -> i32;
     }
     const PROT_READ_WRITE: i32 = 1 | 2;
     #[cfg(target_os = "macos")]
@@ -231,7 +236,7 @@ fn reserve() -> *mut u8 {
 
     // One page more than the range, so the range can start on a page boundary.
     // SAFETY: a fresh anonymous mapping, at an address of the kernel's choosing.
-    let p = unsafe { mmap(null_mut(), RANGE + PAGE, PROT_READ_WRITE, FLAGS, -1, 0) };
+    let p = unsafe { mmap(null_mut(), RANGE + PAGE, PROT_READ_WRITE, FLAGS, -1, 0) }.cast::<u8>();
     let base = if p.addr() == usize::MAX {
         ptr::without_provenance_mut(NO_RANGE)
     } else {
@@ -243,7 +248,7 @@ fn reserve() -> *mut u8 {
         Err(theirs) => {
             if base.addr() != NO_RANGE {
                 // SAFETY: the mapping made above, which nothing else has seen.
-                unsafe { munmap(p, RANGE + PAGE) };
+                unsafe { munmap(p.cast(), RANGE + PAGE) };
             }
             theirs
         }
@@ -444,7 +449,7 @@ unsafe fn retire(heap: *mut Heap, page: *mut Page) {
 /// build doesn't call it: its pages are about to be reused or the process is
 /// about to exit, and releasing them cost it 1–2%.
 pub fn trim() {
-    if !os::RELEASES {
+    if !os::RELEASES || POOLED.load(Relaxed) <= KEEP {
         return;
     }
     let mut excess = {
