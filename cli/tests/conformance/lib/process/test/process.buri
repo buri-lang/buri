@@ -154,7 +154,7 @@ test "a run that failed is still a run the log has, and the next one runs" {
     assert.equal(runner.calls(), [spawned("first", []), spawned("second", [])]);
 }
 
-test "the three optional fields reach the effect without changing what is logged" {
+test "the optional fields reach the effect without changing what is logged" {
     let runner = spawn().answers(Output { code: 0, stdout: [], stderr: [] });
     let ctx = context {
         Allocator: alloc(),
@@ -166,9 +166,145 @@ test "the three optional fields reach the effect without changing what is logged
         workingDirectory: .Some(path.of(ctx, "/srv/app")),
         environment: .Some([("CC", "clang")]),
         stdin: .Some([1, 2]),
+        stdout: .Some(path.of(ctx, "/tmp/out.log")),
+        stderr: .Some(path.of(ctx, "/tmp/err.log")),
     };
     let _ = assert.ok(process.run(ctx, full));
     assert.equal(runner.calls(), [spawned("make", ["-j", "4"])]);
+}
+
+// -----------------------------------------------------------------------------
+// Starting one
+// -----------------------------------------------------------------------------
+
+test "a command's output files start empty, and a spread fills them" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let bare = process.command("server", []);
+    assert.none(bare.stdout);
+    assert.none(bare.stderr);
+    let logged = Command { ..bare, stdout: .Some(path.of(ctx, "out.log")) };
+    assert.equal(logged.stdout, .Some(path.of(ctx, "out.log")));
+    assert.none(logged.stderr);
+}
+
+test "a double that was told nothing refuses to start, and logs the try" {
+    let runner = spawn();
+    let ctx = context {
+        Allocator: alloc(),
+        Spawn: runner,
+    };
+    assert.equal(
+        assert.err(process.start(ctx, process.command("./server", ["--port", "9001"]))),
+        .NotFound,
+    );
+    assert.equal(runner.calls(), [spawned("./server", ["--port", "9001"])]);
+}
+
+test "a scripted failure fails a start too" {
+    let runner = spawn().fails(.PermissionDenied);
+    let ctx = context {
+        Allocator: alloc(),
+        Spawn: runner,
+    };
+    assert.equal(
+        assert.err(process.start(ctx, process.command("sh", []))),
+        .PermissionDenied,
+    );
+}
+
+test "a started child runs until it is waited on, and exits with the scripted code" {
+    let runner = spawn().answers(Output { code: 7, stdout: [], stderr: [] });
+    let ctx = context {
+        Allocator: alloc(),
+        Spawn: runner,
+    };
+    let child = assert.ok(process.start(ctx, process.command("server", [])));
+    assert.equal(assert.ok(child.tryWait(ctx)), .None);
+    assert.equal(assert.ok(child.wait(ctx)), .Exited(7));
+    assert.equal(assert.ok(child.wait(ctx)), .Exited(7));
+    assert.equal(assert.ok(child.tryWait(ctx)), .Some(.Exited(7)));
+}
+
+test "a signal that ends a process ends a started child" {
+    let runner = spawn().answers(Output { code: 0, stdout: [], stderr: [] });
+    let ctx = context {
+        Allocator: alloc(),
+        Spawn: runner,
+    };
+    let killed = assert.ok(process.start(ctx, process.command("a", [])));
+    let terminated = assert.ok(process.start(ctx, process.command("b", [])));
+    let interrupted = assert.ok(process.start(ctx, process.command("c", [])));
+    let hungUp = assert.ok(process.start(ctx, process.command("d", [])));
+    assert.ok(killed.signal(ctx, .Kill));
+    assert.ok(terminated.signal(ctx, .Terminate));
+    assert.ok(interrupted.signal(ctx, .Interrupt));
+    assert.ok(hungUp.signal(ctx, .Other(1)));
+    assert.equal(assert.ok(killed.tryWait(ctx)), .Some(.Signaled(.Kill)));
+    assert.equal(assert.ok(terminated.wait(ctx)), .Signaled(.Terminate));
+    assert.equal(assert.ok(interrupted.wait(ctx)), .Signaled(.Interrupt));
+    assert.equal(assert.ok(hungUp.wait(ctx)), .Signaled(.Other(1)));
+}
+
+test "stop and continue leave a started child running" {
+    let runner = spawn().answers(Output { code: 2, stdout: [], stderr: [] });
+    let ctx = context {
+        Allocator: alloc(),
+        Spawn: runner,
+    };
+    let child = assert.ok(process.start(ctx, process.command("server", [])));
+    assert.ok(child.signal(ctx, .Stop));
+    assert.equal(assert.ok(child.tryWait(ctx)), .None);
+    assert.ok(child.signal(ctx, .Continue));
+    assert.equal(assert.ok(child.wait(ctx)), .Exited(2));
+}
+
+test "every signal is logged with the child it went to, in order" {
+    let runner = spawn().answers(Output { code: 0, stdout: [], stderr: [] });
+    let ctx = context {
+        Allocator: alloc(),
+        Spawn: runner,
+    };
+    let first = assert.ok(process.start(ctx, process.command("a", [])));
+    let second = assert.ok(process.start(ctx, process.command("b", [])));
+    assert.notEqual(first.id(), second.id());
+    assert.ok(second.signal(ctx, .Stop));
+    assert.ok(first.signal(ctx, .Kill));
+    assert.ok(second.signal(ctx, .Continue));
+    assert.equal(runner.signals(ctx), [
+        (second.id(), .Stop),
+        (first.id(), .Kill),
+        (second.id(), .Continue),
+    ]);
+    assert.equal(runner.calls(), [spawned("a", []), spawned("b", [])]);
+}
+
+test "a signal to a child that has exited is logged and changes nothing" {
+    let runner = spawn().answers(Output { code: 0, stdout: [], stderr: [] });
+    let ctx = context {
+        Allocator: alloc(),
+        Spawn: runner,
+    };
+    let child = assert.ok(process.start(ctx, process.command("a", [])));
+    assert.equal(assert.ok(child.wait(ctx)), .Exited(0));
+    assert.ok(child.signal(ctx, .Kill));
+    assert.equal(assert.ok(child.wait(ctx)), .Exited(0));
+    assert.equal(runner.signals(ctx), [(child.id(), .Kill)]);
+}
+
+test "a signal reaches only the child it was sent to" {
+    let runner = spawn().answers(Output { code: 1, stdout: [], stderr: [] });
+    let ctx = context {
+        Allocator: alloc(),
+        Spawn: runner,
+    };
+    let killed = assert.ok(process.start(ctx, process.command("a", [])));
+    let spared = assert.ok(process.start(ctx, process.command("b", [])));
+    assert.ok(killed.signal(ctx, .Kill));
+    assert.equal(assert.ok(killed.wait(ctx)), .Signaled(.Kill));
+    assert.equal(assert.ok(spared.tryWait(ctx)), .None);
+    assert.equal(assert.ok(spared.wait(ctx)), .Exited(1));
 }
 
 // -----------------------------------------------------------------------------

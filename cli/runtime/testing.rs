@@ -111,7 +111,7 @@ enum Slot {
     Env { vars: Vec<(String, String)>, args: Vec<String> },
     /// `TestSpawn` — the log, and nothing else. The scripted answer stays in
     /// the program, because `IoError::Other` carries a `Str`.
-    Spawn { calls: Vec<SpawnLog> },
+    Spawn { calls: Vec<SpawnLog>, children: Vec<TestChild>, signals: Vec<(i64, i64)> },
     /// `platform/effect/testing`'s `TestFileSystem` — a **view**: the handle of the
     /// [`Slot::Files`] store its files live in, and whether writes through this
     /// view are refused.
@@ -295,6 +295,13 @@ struct StdinLog {
 struct SpawnLog {
     program: String,
     arguments: Vec<String>,
+}
+
+/// One child a `TestSpawn` started: the code a wait ends it with, and its
+/// status, in `core/process`'s numbering, once something has ended it.
+struct TestChild {
+    code: i64,
+    status: Option<i64>,
 }
 
 /// One entry of a fault plan, as the runner sees it: the sentence a failure
@@ -2474,6 +2481,13 @@ struct BuriSpawnCall {
     arguments: BuriList,
 }
 
+/// `SignalSent` — `struct { child: Int, signal: Int }`.
+#[repr(C)]
+struct BuriSignalSent {
+    child: i64,
+    signal: i64,
+}
+
 /// A `[T]` of one of the four records this file writes — the three above and
 /// [`BuriSent`]: one block of `size_of::<T>()` strides, each written in place.
 ///
@@ -2767,7 +2781,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_environment_operating_system_
 /// `lib.rs` §2.1 cannot hand one back across a row.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_new_spawn() -> i64 {
-    install(Slot::Spawn { calls: Vec::new() })
+    install(Slot::Spawn { calls: Vec::new(), children: Vec::new(), signals: Vec::new() })
 }
 
 /// `recordSpawn(handle, plan)` — one command, recorded.
@@ -2785,14 +2799,14 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_spawn(
 ) {
     // SAFETY: forwarded to the caller.
     let plan = unsafe { strings(xs, count) };
-    // The plan is the program, the working directory and then the arguments,
-    // which is `spawnProcess`'s own encoding: the split happens here because a
-    // Buri body would need an `Allocator` to make the two lists and an effect
-    // method takes only `self`.
+    // The plan is the program, the working directory, the two output files and
+    // then the arguments, which is `spawnProcess`'s own encoding: the split
+    // happens here because a Buri body would need an `Allocator` to make the
+    // two lists and an effect method takes only `self`.
     let program = plan.first().cloned().unwrap_or_default();
-    let arguments: Vec<String> = plan.iter().skip(2).cloned().collect();
+    let arguments: Vec<String> = plan.iter().skip(4).cloned().collect();
     with(handle, (), |slot| {
-        if let Slot::Spawn { calls } = slot {
+        if let Slot::Spawn { calls, .. } = slot {
             calls.push(SpawnLog { program, arguments });
         }
     });
@@ -2805,7 +2819,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_spawn(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_spawn_calls(handle: i64, out: *mut BuriList) {
     let calls = with(handle, Vec::new(), |slot| match slot {
-        Slot::Spawn { calls } => {
+        Slot::Spawn { calls, .. } => {
             calls.iter().map(|c| (c.program.clone(), c.arguments.clone())).collect()
         }
         _ => Vec::new(),
@@ -2816,6 +2830,87 @@ pub unsafe extern "C" fn buri_rt_host_testing_spawn_calls(handle: i64, out: *mut
     });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
+}
+
+/// `spawnStart(handle, code)` — a running child that exits with `code` when
+/// waited on. Its id is its place in the list, from one.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_spawn_start(handle: i64, code: i64) -> i64 {
+    with(handle, 0, |slot| match slot {
+        Slot::Spawn { children, .. } => {
+            children.push(TestChild { code, status: None });
+            children.len() as i64
+        }
+        _ => 0,
+    })
+}
+
+/// `spawnSignal(handle, child, signal)` — logged, and a running child ended
+/// unless it is `core/process`'s stop (`-4`) or continue (`-5`).
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_spawn_signal(handle: i64, child: i64, signal: i64) {
+    with(handle, (), |slot| {
+        if let Slot::Spawn { children, signals, .. } = slot {
+            signals.push((child, signal));
+            let ended = match signal {
+                -1 => Some(-2),
+                -2 => Some(-15),
+                -3 => Some(-9),
+                -4 | -5 => None,
+                n => Some(-n),
+            };
+            if let (Some(status), Some(it)) = (ended, test_child(children, child))
+                && it.status.is_none()
+            {
+                it.status = Some(status);
+            }
+        }
+    });
+}
+
+/// `spawnExited(handle, child)` — whether a signal or a wait has ended it.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_spawn_exited(handle: i64, child: i64) -> u8 {
+    with(handle, 1, |slot| match slot {
+        Slot::Spawn { children, .. } => {
+            test_child(children, child).map_or(1, |it| u8::from(it.status.is_some()))
+        }
+        _ => 1,
+    })
+}
+
+/// `spawnWait(handle, child)` — its status, ending a running child with its
+/// code first.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_spawn_wait(handle: i64, child: i64) -> i64 {
+    with(handle, 0, |slot| match slot {
+        Slot::Spawn { children, .. } => test_child(children, child).map_or(0, |it| {
+            let code = it.code;
+            *it.status.get_or_insert(code)
+        }),
+        _ => 0,
+    })
+}
+
+/// `spawnSignals(handle)` — every signal sent, in order.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_spawn_signals(handle: i64, out: *mut BuriList) {
+    let signals = with(handle, Vec::new(), |slot| match slot {
+        Slot::Spawn { signals, .. } => signals.clone(),
+        _ => Vec::new(),
+    });
+    let value = list_of(&signals, |&(child, signal): &(i64, i64)| BuriSignalSent { child, signal });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// The child a double's id names: one more than its index.
+fn test_child(children: &mut [TestChild], id: i64) -> Option<&mut TestChild> {
+    let index = usize::try_from(id.checked_sub(1)?).ok()?;
+    children.get_mut(index)
 }
 
 /// `TestFileSystem::calls` — every call through this view, in completion order.

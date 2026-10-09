@@ -23,7 +23,7 @@ function __cmd_x_main_buri$main(){
     $abort('no arm matched');
   }
   const config_12=[[$k4,$k8,[62,$host_HostWatch_read(ctx_1[3],busy_2[0])?1:0]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
-  const events_13=ui_node$listen$b1px4q(config_12[7],config_12[8],config_12[9],config_12[10],config_12[11],config_12[12],config_12[13],config_12[14]);
+  const events_13=ui_node$listen$1dndy7(config_12[7],config_12[8],config_12[9],config_12[10],config_12[11],config_12[12],config_12[13],config_12[14]);
   const current_14=ui_node$orFalse(config_12[3]);
   const focus_15=[config_12[5],config_12[6]];
   let $t3;
@@ -47,7 +47,7 @@ function __cmd_x_main_buri$main(){
   }
   return $ui_node_mount(ctx_1,$t3,[]);
 }
-function ui_node$listen$b1px4q(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
+function ui_node$listen$1dndy7(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
   return [onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7];
 }
 function ui_node$orFalse(flag_0){

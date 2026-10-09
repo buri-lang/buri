@@ -1340,6 +1340,44 @@ so a value with a space or a `;` in it is one argument and never a second
 command. `run` reads both streams while the child runs, so a child that writes
 more than a pipe holds does not deadlock.
 
+`process.start(ctx, command)` starts a child without waiting for it:
+
+```buri sig
+from "core/path" import * as path;
+from "core/process" import * as process;
+from "core/process" import { Command, Spawn, Status };
+from "platform/effect" import { Allocator, IoError };
+
+export fn restarted<C: Allocator + Spawn>(ctx: C): Result<Status, IoError> {
+    let server = process.command("./server", ["--port", "9001"]);
+    let child = process.start(ctx, Command {
+        ..server,
+        stdout: .Some(path.of(ctx, "server.log")),
+    })?;
+    let _ = child.signal(ctx, .Terminate)?;
+    child.wait(ctx)
+}
+```
+
+- `child.id()` is the pid, for logs.
+- `child.signal(ctx, signal)` sends `.Interrupt`, `.Terminate`, `.Kill`, `.Stop`,
+  `.Continue` or `.Other(n)`, the platform's own number. A child that has exited
+  is sent nothing and the answer is `.Ok`, so a reused pid is never signalled.
+- `child.wait(ctx)` answers a `Status`: `.Exited(code)`, or `.Signaled(signal)`
+  for the signal that ended it. Waiting again answers the same status. A wait
+  doesn't hold up the program's other tasks.
+- `child.tryWait(ctx)` answers `.None` while the child runs, and never waits.
+- `stdout` and `stderr` on a `Command` name files the child writes to. Without
+  one, `start` hands the child this program's own stream and `run` captures it.
+  With one, `run`'s `Output` holds nothing for that stream.
+
+A child outlives the program that started it, as in Rust's `std`: send `.Kill`
+and wait if you want it gone. Wait for every child you start, because one that
+exited stays in the process table until something waits for it.
+`platform/effect/testing`'s `spawn()` double starts children too:
+`answers(output)` makes a `wait` end one with `output.code`, any signal but
+`.Stop` and `.Continue` ends one, and `signals(ctx)` reads back what was sent.
+
 `core/env` and `core/cli` are the two halves of a command line. `env.arguments(ctx)`
 is the raw `[Str]`. Both hosts drop the program's own name, so there is no
 `argv[0]`, and you have to *tell* a help page what to call the program.

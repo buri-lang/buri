@@ -335,7 +335,7 @@ fn push(buffer: &Mutex<Vec<u8>>, bytes: &[u8], newline: bool) {
 /// # Safety
 /// `ptr` must be readable for the byte length in `len`, or null with a zero
 /// length.
-unsafe fn view<'a>(ptr: *const u8, len: u64) -> &'a [u8] {
+pub(crate) unsafe fn view<'a>(ptr: *const u8, len: u64) -> &'a [u8] {
     let n = (len & crate::value::BURI_RT_STR_LEN_MASK) as usize;
     if ptr.is_null() || n == 0 {
         return &[];
@@ -511,7 +511,7 @@ fn io_error(e: &std::io::Error) -> (i32, String) {
 ///
 /// # Safety
 /// `out_err` must be writable and aligned for a [`BuriStr`].
-unsafe fn fail(e: &std::io::Error, out_err: *mut BuriStr) -> i32 {
+pub(crate) unsafe fn fail(e: &std::io::Error, out_err: *mut BuriStr) -> i32 {
     let (tag, message) = io_error(e);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out_err.write(str_of(&message)) };
@@ -1405,23 +1405,12 @@ pub unsafe extern "C" fn buri_rt_host_spawn_process(
     // SAFETY: forwarded.
     let input = unsafe { view(iptr, ilen) }.to_vec();
 
-    let program = plan.first().cloned().unwrap_or_default();
-    let working = plan.get(1).cloned().unwrap_or_default();
-    let mut command = std::process::Command::new(&program);
-    command.args(plan.iter().skip(2));
-    if !working.is_empty() {
-        command.current_dir(&working);
-    }
-    if replaces != 0 {
-        command.env_clear();
-        for pair in variables.as_chunks::<2>().0 {
-            command.env(&pair[0], &pair[1]);
-        }
-    }
-    command
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+    let mut command = match command_of(&plan, &variables, replaces != 0, true) {
+        Ok(command) => command,
+        // SAFETY: the caller promises a writable destination.
+        Err(e) => return unsafe { fail(&e, out_err) },
+    };
+    command.stdin(std::process::Stdio::piped());
 
     // [`about_to_block`]'s rule: `run` does not answer until the child has, so
     // whatever this program said about the child is said before it waits.
@@ -1470,6 +1459,52 @@ pub unsafe extern "C" fn buri_rt_host_spawn_process(
     // SAFETY: the caller promises a writable destination.
     unsafe { out_ok.write(value) };
     BURI_OK
+}
+
+/// A `Command` out of `effect Spawn`'s encoding: `plan` is the program, the
+/// working directory, the standard output file and the standard error file,
+/// each empty for none, then the arguments.
+///
+/// A stream with no file is piped where `capture` says so, for `run`, and
+/// inherited otherwise, for `start`. A file is created or truncated here, so a
+/// file that cannot be opened is the error, before anything runs. Standard
+/// input is the caller's.
+pub(crate) fn command_of(
+    plan: &[String],
+    variables: &[String],
+    replaces: bool,
+    capture: bool,
+) -> std::io::Result<std::process::Command> {
+    let field = |i: usize| plan.get(i).map_or("", String::as_str);
+    let mut command = std::process::Command::new(field(0));
+    command.args(plan.iter().skip(4));
+    if !field(1).is_empty() {
+        command.current_dir(field(1));
+    }
+    if replaces {
+        command.env_clear();
+        for pair in variables.as_chunks::<2>().0 {
+            command.env(&pair[0], &pair[1]);
+        }
+    }
+    let stream = |at: &str| -> std::io::Result<std::process::Stdio> {
+        Ok(if !at.is_empty() {
+            std::fs::File::create(at)?.into()
+        } else if capture {
+            std::process::Stdio::piped()
+        } else {
+            std::process::Stdio::inherit()
+        })
+    };
+    // One file for both is opened once, so the two streams share an offset
+    // rather than writing over each other.
+    if !field(2).is_empty() && field(2) == field(3) {
+        let file = std::fs::File::create(field(2))?;
+        command.stderr(file.try_clone()?).stdout(file);
+    } else {
+        command.stdout(stream(field(2))?).stderr(stream(field(3))?);
+    }
+    Ok(command)
 }
 
 /// The status a shell would report: the code, or `128 + signal`.

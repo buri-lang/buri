@@ -625,6 +625,7 @@ pub(crate) mod allocator;
 static ALLOCATOR: allocator::Allocator = allocator::Allocator;
 mod bytes;
 mod character;
+mod child;
 /// `buri test --coverage`'s counts.
 mod coverage;
 /// `core/crypto`'s sealing and signature checks, through `ring`. Behind

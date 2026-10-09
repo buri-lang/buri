@@ -1,0 +1,506 @@
+// `process.start`, end to end: real children, real signals, real waits.
+//
+// The first argument picks a scenario and the second is a directory this run
+// owns. Nothing here sleeps to wait for anything: a child says it is ready by
+// writing its pid into a FIFO, which the program's read blocks on, and a child
+// that should exit on cue reads a FIFO the program writes.
+
+from "core/bytes" import * as bytes;
+from "core/env" import * as env;
+from "core/fs" import * as fs;
+from "core/fs" import { FileSystemRead, FileSystemWrite };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/path" import * as path;
+from "core/path" import { Path };
+from "core/process" import * as process;
+from "core/process" import { Child, Command, Signal, Spawn, Status };
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, IoError, Stdout, Tasks };
+
+fn why(error: IoError): Str {
+    match (error) {
+        .NotFound => "NotFound",
+        .PermissionDenied => "PermissionDenied",
+        .ReadOnly => "ReadOnly",
+        .AlreadyExists => "AlreadyExists",
+        .NotADirectory => "NotADirectory",
+        .CrossDevice => "CrossDevice",
+        .Other(_message) => "Other",
+    }
+}
+
+fn signalName<C: Allocator>(ctx: C, signal: Signal): Str {
+    match (signal) {
+        .Interrupt => "Interrupt",
+        .Terminate => "Terminate",
+        .Kill => "Kill",
+        .Stop => "Stop",
+        .Continue => "Continue",
+        .Other(n) => str.format(ctx, "Other(${n})"),
+    }
+}
+
+fn shown<C: Allocator>(ctx: C, status: Status): Str {
+    match (status) {
+        .Exited(code) => str.format(ctx, "Exited(${code})"),
+        .Signaled(signal) => str.format(ctx, "Signaled(${signalName(ctx, signal)})"),
+    }
+}
+
+fn polled<C: Allocator>(ctx: C, answer: Option<Status>): Str {
+    match (answer) {
+        .None => "None",
+        .Some(status) => str.format(ctx, "Some(${shown(ctx, status)})"),
+    }
+}
+
+fn say<C: Stdout>(ctx: C, line: Template): Result<(), Str> {
+    io.println(ctx, line).mapErr(fn(_e) => "print")
+}
+
+fn found<C: Allocator + Environment + FileSystemRead>(
+    ctx: C,
+    program: Str,
+): Result<Str, Str> {
+    match (process.which(ctx, program)) {
+        .Some(at) => .Ok(at.text()),
+        .None => .Err(str.format(ctx, "no `${program}` on PATH")),
+    }
+}
+
+fn fifo<C: Allocator + Environment + FileSystemRead + Spawn>(
+    ctx: C,
+    dir: Path,
+    name: Str,
+): Result<Path, Str> {
+    let at = dir.join(ctx, name);
+    let made = process
+        .run(ctx, process.command(found(ctx, "mkfifo")?, [at.text()]))
+        .mapErr(fn(e) => why(e))?;
+    if (made.code == 0) { .Ok(at) } else { .Err("mkfifo failed") }
+}
+
+/// A child that writes its pid into the FIFO `ready`, then becomes `sleep`.
+/// `prelude` runs first, in the shell. Its streams go to a file, so a sleeper
+/// left behind by a failure holds no pipe of the harness's open.
+fn sleeper<C: Allocator + Environment + FileSystemRead>(
+    ctx: C,
+    ready: Path,
+    prelude: Str,
+): Result<Command, Str> {
+    let script = str.format(ctx, "${prelude} echo \$\$ > \"\$0\"; exec sleep 600");
+    let log = path.of(ctx, str.format(ctx, "${ready.text()}.log"));
+    let command = process.command(found(ctx, "sh")?, ["-c", script, ready.text()]);
+    .Ok(Command { ..command, stdout: .Some(log), stderr: .Some(log) })
+}
+
+/// Starts `command` and blocks until it has written its pid into `ready`.
+fn started<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
+    ctx: C,
+    name: Str,
+    command: Command,
+    ready: Path,
+): Result<Child, Str> {
+    let child = process.start(ctx, command).mapErr(fn(e) => why(e))?;
+    let said = fs.readText(ctx, ready).mapErr(fn(e) => why(e))?;
+    let matches = said.trim().toInt() == .Some(child.id());
+    let _ = say(ctx, "${name} started, id matches ${matches}")?;
+    .Ok(child)
+}
+
+fn waited<C: Allocator + Spawn + Stdout>(
+    ctx: C,
+    name: Str,
+    child: Child,
+): Result<Status, Str> {
+    let status = child.wait(ctx).mapErr(fn(e) => why(e))?;
+    let _ = say(ctx, "${name} wait ${shown(ctx, status)}")?;
+    .Ok(status)
+}
+
+fn tried<C: Allocator + Spawn + Stdout>(
+    ctx: C,
+    name: Str,
+    child: Child,
+): Result<(), Str> {
+    let answer = child.tryWait(ctx).mapErr(fn(e) => why(e))?;
+    say(ctx, "${name} tryWait ${polled(ctx, answer)}")
+}
+
+fn signalled<C: Allocator + Spawn + Stdout>(
+    ctx: C,
+    name: Str,
+    child: Child,
+    signal: Signal,
+): Result<(), Str> {
+    let _ = child.signal(ctx, signal).mapErr(fn(e) => why(e))?;
+    say(ctx, "${name} signal ${signalName(ctx, signal)} ok")
+}
+
+/// Asks `ps` for the child's state until its first letter is or is not `T`.
+/// It does not sleep: a signal lands in microseconds, and `ps` is the wait.
+fn untilStopped<C: Allocator + Environment + FileSystemRead + Spawn>(
+    ctx: C,
+    child: Child,
+    stopped: Bool,
+): Result<(), Str> {
+    let ps = found(ctx, "ps")?;
+    let asked = process
+        .run(
+            ctx,
+            process.command(ps, [
+                "-o",
+                "state=",
+                "-p",
+                str.format(ctx, "${child.id()}"),
+            ]),
+        )
+        .mapErr(fn(e) => why(e))?;
+    let state = match (bytes.fromUtf8(ctx, asked.stdout)) {
+        .Ok(text) => text.trim(),
+        .Err(_e) => "",
+    };
+    if (state.startsWith("T") == stopped) {
+        .Ok(())
+    } else {
+        untilStopped(ctx, child, stopped)
+    }
+}
+
+/// Calls `tryWait` until it answers, without sleeping between calls.
+fn polledUntilDone<C: Allocator + Spawn>(ctx: C, child: Child): Result<Status, Str> {
+    match (child.tryWait(ctx)) {
+        .Err(e) => .Err(why(e)),
+        .Ok(.Some(status)) => .Ok(status),
+        .Ok(.None) => polledUntilDone(ctx, child),
+    }
+}
+
+/// The issue's harness: three servers, signalled, waited on one at a time
+/// while the others run, and one restarted.
+fn harness<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
+    ctx: C,
+    dir: Path,
+): Result<(), Str> {
+    let readyA = fifo(ctx, dir, "a")?;
+    let readyB = fifo(ctx, dir, "b")?;
+    let readyC = fifo(ctx, dir, "c")?;
+    let a = started(ctx, "a", sleeper(ctx, readyA, "")?, readyA)?;
+    let b = started(ctx, "b", sleeper(ctx, readyB, "")?, readyB)?;
+    let c = started(ctx, "c", sleeper(ctx, readyC, "")?, readyC)?;
+    let _ = tried(ctx, "a", a)?;
+    let _ = tried(ctx, "b", b)?;
+    let _ = tried(ctx, "c", c)?;
+
+    let _ = signalled(ctx, "b", b, .Stop)?;
+    let _ = untilStopped(ctx, b, true)?;
+    let _ = say(ctx, "b is stopped")?;
+    let _ = tried(ctx, "b", b)?;
+    let _ = signalled(ctx, "b", b, .Continue)?;
+    let _ = untilStopped(ctx, b, false)?;
+    let _ = say(ctx, "b is running")?;
+
+    let _ = signalled(ctx, "a", a, .Kill)?;
+    let _ = waited(ctx, "a", a)?;
+    let _ = tried(ctx, "b", b)?;
+    let _ = tried(ctx, "c", c)?;
+
+    let _ = signalled(ctx, "b", b, .Terminate)?;
+    let _ = waited(ctx, "b", b)?;
+    let _ = tried(ctx, "c", c)?;
+
+    let againReady = fifo(ctx, dir, "a2")?;
+    let again = started(ctx, "a again", sleeper(ctx, againReady, "")?, againReady)?;
+    let _ = say(ctx, "a again has a new handle ${again != a}")?;
+    let _ = tried(ctx, "a again", again)?;
+
+    let _ = signalled(ctx, "c", c, .Interrupt)?;
+    let _ = waited(ctx, "c", c)?;
+    let _ = signalled(ctx, "a again", again, .Other(1))?;
+    let _ = waited(ctx, "a again", again)?;
+
+    // Twice, and after: the status is kept, and a signal to a child that has
+    // been waited on is sent nowhere.
+    let _ = waited(ctx, "a", a)?;
+    let _ = tried(ctx, "a", a)?;
+    signalled(ctx, "a", a, .Kill)
+}
+
+/// A child that ignores `SIGTERM` survives it, and `SIGKILL` ends it.
+fn stubborn<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
+    ctx: C,
+    dir: Path,
+): Result<(), Str> {
+    let ready = fifo(ctx, dir, "ready")?;
+    let child = started(ctx, "stubborn", sleeper(ctx, ready, "trap '' TERM;")?, ready)?;
+    let _ = signalled(ctx, "stubborn", child, .Terminate)?;
+    let _ = tried(ctx, "stubborn", child)?;
+    let _ = signalled(ctx, "stubborn", child, .Kill)?;
+    let _ = waited(ctx, "stubborn", child)?;
+    .Ok(())
+}
+
+/// Stopped, continued, and then left to finish on its own.
+fn paused<C: Allocator + Environment + FileSystemRead + FileSystemWrite + Spawn + Stdout>(
+    ctx: C,
+    dir: Path,
+): Result<(), Str> {
+    let ready = fifo(ctx, dir, "ready")?;
+    let go = fifo(ctx, dir, "go")?;
+    let script = "echo $$ > \"$0\"; read line < \"$1\"; exit 5";
+    let command = process.command(found(ctx, "sh")?, [
+        "-c",
+        script,
+        ready.text(),
+        go.text(),
+    ]);
+    let child = started(ctx, "paused", command, ready)?;
+    let _ = signalled(ctx, "paused", child, .Stop)?;
+    let _ = untilStopped(ctx, child, true)?;
+    let _ = tried(ctx, "paused", child)?;
+    let _ = signalled(ctx, "paused", child, .Continue)?;
+    let _ = untilStopped(ctx, child, false)?;
+    let _ = fs.writeText(ctx, go, "go\n").mapErr(fn(e) => why(e))?;
+    let _ = waited(ctx, "paused", child)?;
+    .Ok(())
+}
+
+/// Children that exit by themselves.
+fn exits<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
+    ctx: C,
+    dir: Path,
+): Result<(), Str> {
+    let sh = found(ctx, "sh")?;
+    let three = process
+        .start(ctx, process.command(sh, ["-c", "exit 3"]))
+        .mapErr(fn(e) => why(e))?;
+    let _ = waited(ctx, "three", three)?;
+    let _ = waited(ctx, "three", three)?;
+    let _ = tried(ctx, "three", three)?;
+
+    // Never waited on until later: its status is still there.
+    let four = process
+        .start(ctx, process.command(sh, ["-c", "exit 4"]))
+        .mapErr(fn(e) => why(e))?;
+    let other = process
+        .start(ctx, process.command(found(ctx, "true")?, []))
+        .mapErr(fn(e) => why(e))?;
+    let _ = waited(ctx, "true", other)?;
+    let late = polledUntilDone(ctx, four)?;
+    let _ = say(ctx, "four polled ${shown(ctx, late)}")?;
+    let _ = waited(ctx, "four", four)?;
+    let _ = dir;
+    .Ok(())
+}
+
+/// Output to files, input from the command, and where the child runs.
+fn files<C: Allocator + Environment + FileSystemRead + FileSystemWrite + Spawn + Stdout>(
+    ctx: C,
+    dir: Path,
+): Result<(), Str> {
+    let sh = found(ctx, "sh")?;
+    let out = dir.join(ctx, "out.txt");
+    let err = dir.join(ctx, "err.txt");
+    let both = process.command(sh, ["-c", "echo out; echo err >&2"]);
+    let child = process
+        .start(ctx, Command { ..both, stdout: .Some(out), stderr: .Some(err) })
+        .mapErr(fn(e) => why(e))?;
+    let _ = waited(ctx, "both", child)?;
+    let _ = say(ctx, "stdout file ${fs.readText(ctx, out).withDefault("?").trim()}")?;
+    let _ = say(ctx, "stderr file ${fs.readText(ctx, err).withDefault("?").trim()}")?;
+
+    // One file for both streams holds both, in order.
+    let mixed = process.command(sh, ["-c", "echo one; echo two >&2; echo three"]);
+    let shared = process
+        .start(ctx, Command { ..mixed, stdout: .Some(out), stderr: .Some(out) })
+        .mapErr(fn(e) => why(e))?;
+    let _ = waited(ctx, "shared", shared)?;
+    let _ = say(
+        ctx,
+        "shared file ${fs
+            .readText(ctx, out)
+            .withDefault("?")
+            .trim()
+            .replace(ctx, "\n", " ")}",
+    )?;
+
+    // `run` with a file: that stream lands there and the other is captured.
+    let ran = process
+        .run(ctx, Command {
+            ..process.command(sh, ["-c", "echo ran; echo said >&2"]),
+            stdout: .Some(out),
+        })
+        .mapErr(fn(e) => why(e))?;
+    let _ = say(
+        ctx,
+        "run captured ${ran.stdout.length()} ${bytes
+            .fromUtf8Lossy(ctx, ran.stderr)
+            .trim()} file ${fs.readText(ctx, out).withDefault("?").trim()}",
+    )?;
+
+    let cat = process.command(found(ctx, "cat")?, []);
+    let fed = process
+        .start(ctx, Command {
+            ..cat,
+            stdin: .Some([104, 101, 108, 108, 111]),
+            stdout: .Some(out),
+        })
+        .mapErr(fn(e) => why(e))?;
+    let _ = waited(ctx, "cat", fed)?;
+    let _ = say(ctx, "cat wrote ${fs.readText(ctx, out).withDefault("?").trim()}")?;
+
+    let sub = dir.join(ctx, "sub");
+    let _ = fs.makeDir(ctx, sub).mapErr(fn(e) => why(e))?;
+    let placed = process.command(sh, ["-c", "pwd; echo \"$BURI_X\""]);
+    let there = process
+        .start(ctx, Command {
+            ..placed,
+            workingDirectory: .Some(sub),
+            environment: .Some([("BURI_X", "y z")]),
+            stdout: .Some(out),
+        })
+        .mapErr(fn(e) => why(e))?;
+    let _ = waited(ctx, "placed", there)?;
+    let said = fs.readText(ctx, out).withDefault("?");
+    say(ctx, "placed ${said.contains("/sub\n")} ${said.trim().endsWith("\ny z")}")
+}
+
+/// A child with no file writes to this process's own standard output, after
+/// everything this program printed before starting it.
+fn inherits<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
+    ctx: C,
+    dir: Path,
+): Result<(), Str> {
+    let _ = say(ctx, "before")?;
+    let echo = process.command(found(ctx, "sh")?, ["-c", "echo inherited"]);
+    let child = process.start(ctx, echo).mapErr(fn(e) => why(e))?;
+    let _ = child.wait(ctx).mapErr(fn(e) => why(e))?;
+    let _ = dir;
+    say(ctx, "after")
+}
+
+/// What never started.
+fn refusals<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
+    ctx: C,
+    dir: Path,
+): Result<(), Str> {
+    let missing = process.start(ctx, process.command("buri-no-such-program", []));
+    let nowhere = process.start(ctx, Command {
+        ..process.command(found(ctx, "true")?, []),
+        workingDirectory: .Some(dir.join(ctx, "absent")),
+    });
+    let unwritable = process.start(ctx, Command {
+        ..process.command(found(ctx, "true")?, []),
+        stdout: .Some(dir.join(ctx, "absent/out.txt")),
+    });
+    say(ctx, "refused ${outcome(missing)} ${outcome(nowhere)} ${outcome(unwritable)}")
+}
+
+fn outcome(started: Result<Child, IoError>): Str {
+    match (started) {
+        .Ok(_child) => "started",
+        .Err(e) => why(e),
+    }
+}
+
+/// Many children waited on at once, from many tasks, while another task lets
+/// them go. A wait that held the scheduler would never let the releaser run.
+fn concurrent<C: Allocator + Environment + FileSystemRead + FileSystemWrite + Spawn + Stdout + Tasks>(
+    ctx: C,
+    dir: Path,
+): Result<(), Str> {
+    let count = 16;
+    let sh = found(ctx, "sh")?;
+    let mkfifo = found(ctx, "mkfifo")?;
+    let gates = list
+        .range(ctx, 0, count)
+        .mapCtx(ctx, fn(c, i) => {
+            let at = dir.join(c, str.format(c, "gate${i}"));
+            let _made = process.run(c, process.command(mkfifo, [at.text()]));
+            at
+        });
+    let children = list
+        .range(ctx, 0, count)
+        .mapCtx(ctx, fn(c, i) => {
+            let script = "read line < \"$0\"; exit $1";
+            let gate = gates.get(i).withDefault(dir);
+            process.start(
+                c,
+                process.command(sh, ["-c", script, gate.text(), str.format(c, "${i}")]),
+            )
+        });
+    let answers = tasks.parallel(
+        ctx,
+        list.range(ctx, 0, count + 1),
+        fn(c, i, _item) => {
+            if (i == 0) {
+                let opened = gates.mapCtx(c, fn(c2, gate) => {
+                    fs.writeText(c2, gate, "go\n").isOk()
+                });
+                str.format(c, "released ${opened.all(fn(ok) => ok)}")
+            } else {
+                match (children.get(i - 1)) {
+                    .None => "no child",
+                    .Some(.Err(e)) => why(e),
+                    .Some(.Ok(child)) => {
+                        match (child.wait(c)) {
+                            .Err(e) => why(e),
+                            .Ok(status) => shown(c, status),
+                        }
+                    },
+                }
+            }
+        },
+    );
+    say(ctx, answers.join(ctx, " "))
+}
+
+/// A child still running when this program ends is left running.
+fn outlives<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
+    ctx: C,
+    dir: Path,
+): Result<(), Str> {
+    let ready = fifo(ctx, dir, "ready")?;
+    let child = process.start(ctx, sleeper(ctx, ready, "")?).mapErr(fn(e) => why(e))?;
+    let _ = fs.readText(ctx, ready).mapErr(fn(e) => why(e))?;
+    say(ctx, "pid ${child.id()}")
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Environment: host.env,
+        FileSystemRead: host.fs,
+        FileSystemWrite: host.fs,
+        Spawn: host.spawn,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let arguments = env.arguments(ctx);
+    let mode = arguments.get(0).withDefault("");
+    let dir = path.of(ctx, arguments.get(1).withDefault("."));
+    if (mode == "harness") {
+        harness(ctx, dir)
+    } else if (mode == "stubborn") {
+        stubborn(ctx, dir)
+    } else if (mode == "paused") {
+        paused(ctx, dir)
+    } else if (mode == "exits") {
+        exits(ctx, dir)
+    } else if (mode == "files") {
+        files(ctx, dir)
+    } else if (mode == "inherits") {
+        inherits(ctx, dir)
+    } else if (mode == "refusals") {
+        refusals(ctx, dir)
+    } else if (mode == "concurrent") {
+        concurrent(ctx, dir)
+    } else if (mode == "outlives") {
+        outlives(ctx, dir)
+    } else {
+        .Err(str.format(ctx, "unknown mode ${mode}"))
+    }
+}

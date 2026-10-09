@@ -3341,32 +3341,27 @@ function $signalNumber(name) {
 //
 // Draining while it runs is what keeps a child that writes more than a pipe
 // holds from deadlocking, and it is why this is `spawn` and a promise rather
-// than `spawnSync`. `plan` is the program, the working directory — empty for
-// this process's own — and then the arguments, and `environment` is name and
-// value alternating and used only when `replace` says so: the encoding
-// `core/proc`'s `run` writes and `effect Spawn` argues for.
+// than `spawnSync`. The encoding is `$spawnOptions`'.
 async function $host_HostSpawn_spawnProcess(self, plan, environment, replace, input) {
   $aboutToBlock();
   const cp = $childProcessOrNull();
   if (cp === null) return $err([6, "this platform cannot start a process"]);
-  const program = plan.length > 0 ? plan[0] : "";
-  const at = plan.length > 1 ? plan[1] : "";
-  const args = plan.slice(2);
-  const options = {};
-  if (at !== "") options.cwd = at;
-  if (replace) {
-    const env = {};
-    for (let i = 0; i + 1 < environment.length; i += 2) env[environment[i]] = environment[i + 1];
-    options.env = env;
+  let spawning;
+  try {
+    spawning = $spawnOptions(plan, environment, replace, "pipe", "pipe");
+  } catch (e) {
+    return $err($ioErr(e));
   }
   return await new Promise(function (resolve) {
     let child;
     try {
-      child = cp.spawn(program, args, options);
+      child = cp.spawn(spawning.program, spawning.args, spawning.options);
     } catch (e) {
+      $closeFiles(spawning.files);
       resolve($err($ioErr(e)));
       return;
     }
+    $closeFiles(spawning.files);
     const out = [];
     const err = [];
     let settled = false;
@@ -3376,12 +3371,16 @@ async function $host_HostSpawn_spawnProcess(self, plan, environment, replace, in
         resolve(v);
       }
     };
-    child.stdout.on("data", function (c) {
-      out.push(c);
-    });
-    child.stderr.on("data", function (c) {
-      err.push(c);
-    });
+    if (child.stdout) {
+      child.stdout.on("data", function (c) {
+        out.push(c);
+      });
+    }
+    if (child.stderr) {
+      child.stderr.on("data", function (c) {
+        err.push(c);
+      });
+    }
     child.on("error", function (e) {
       answer($err($ioErr(e)));
     });
@@ -3400,6 +3399,160 @@ async function $host_HostSpawn_spawnProcess(self, plan, environment, replace, in
     child.stdin.on("error", function () {});
     child.stdin.end(Uint8Array.from(input));
   });
+}
+
+// `effect Spawn`'s encoding as `child_process.spawn`'s arguments. `plan` is the
+// program, the working directory, the standard output file and the standard
+// error file — each empty for none — and then the arguments, and `environment`
+// is name and value alternating, used only when `replace` says so. A stream
+// with no file is `out` or `err`. A file is opened here, so one that cannot be
+// is the error before anything runs, and the caller closes `files` once the
+// child has its own copies.
+function $spawnOptions(plan, environment, replace, out, err) {
+  const field = function (i) {
+    return plan.length > i ? plan[i] : "";
+  };
+  const options = {};
+  if (field(1) !== "") options.cwd = field(1);
+  if (replace) {
+    const env = {};
+    for (let i = 0; i + 1 < environment.length; i += 2) env[environment[i]] = environment[i + 1];
+    options.env = env;
+  }
+  const files = [];
+  const open = function (at, otherwise) {
+    if (at === "") return otherwise;
+    const fd = $fs().openSync(at, "w");
+    files.push(fd);
+    return fd;
+  };
+  try {
+    const stdout = open(field(2), out);
+    // One file for both shares one descriptor, so the streams share an offset.
+    const stderr = field(3) !== "" && field(3) === field(2) ? stdout : open(field(3), err);
+    options.stdio = ["pipe", stdout, stderr];
+  } catch (e) {
+    $closeFiles(files);
+    throw e;
+  }
+  return { program: field(0), args: plan.slice(4), options, files };
+}
+
+function $closeFiles(files) {
+  for (const fd of files) {
+    try {
+      $fs().closeSync(fd);
+    } catch {}
+  }
+}
+
+// Started children, by handle. A handle is never reused, and an entry stays
+// once its child has exited, so a second wait finds the first's status.
+const $children = new Map();
+let $nextChild = 1;
+
+// A child's status in `core/process`'s numbering: the exit code, or the
+// signal's number negated.
+function $childStatus(code, signal) {
+  return BigInt(code === null ? -$signalNumber(signal) : code);
+}
+
+// `Spawn.startProcess` — the child, running, and a handle to it.
+//
+// **The child does not keep this program alive**: it is `unref`ed, and only a
+// wait refs it, so a program that ends while a child runs ends, and the child
+// keeps running, as it does natively. Its input is `$host_HostSpawn_spawnProcess`'s.
+async function $host_HostSpawn_startProcess(self, plan, environment, replace, input) {
+  $aboutToBlock();
+  const cp = $childProcessOrNull();
+  if (cp === null) return $err([6, "this platform cannot start a process"]);
+  let spawning;
+  try {
+    spawning = $spawnOptions(plan, environment, replace, "inherit", "inherit");
+  } catch (e) {
+    return $err($ioErr(e));
+  }
+  if (input.length === 0) spawning.options.stdio[0] = "ignore";
+  return await new Promise(function (resolve) {
+    let child;
+    try {
+      child = cp.spawn(spawning.program, spawning.args, spawning.options);
+    } catch (e) {
+      $closeFiles(spawning.files);
+      resolve($err($ioErr(e)));
+      return;
+    }
+    $closeFiles(spawning.files);
+    const entry = { child, status: null, exited: null };
+    entry.exited = new Promise(function (done) {
+      child.on("exit", function (code, signal) {
+        entry.status = $childStatus(code, signal);
+        done();
+      });
+    });
+    child.on("error", function (e) {
+      resolve($err($ioErr(e)));
+    });
+    child.on("spawn", function () {
+      const handle = $nextChild++;
+      $children.set(handle, entry);
+      child.unref();
+      if (child.stdin) {
+        child.stdin.on("error", function () {});
+        child.stdin.end(Uint8Array.from(input));
+        if (child.stdin.unref) child.stdin.unref();
+      }
+      resolve($ok(BigInt(handle)));
+    });
+  });
+}
+
+async function $host_HostSpawn_processId(self, handle) {
+  const entry = $children.get(Number(handle));
+  return BigInt(entry ? entry.child.pid : 0);
+}
+
+const $namedSignals = [null, "SIGINT", "SIGTERM", "SIGKILL", "SIGSTOP", "SIGCONT"];
+
+// `Spawn.signalProcess` — nothing is sent to a child that has exited: node
+// records the exit in the same turn it collects the child, so a pid it has
+// handed back is never signalled.
+async function $host_HostSpawn_signalProcess(self, handle, signal) {
+  const entry = $children.get(Number(handle));
+  if (!entry) return $err([0]);
+  if (entry.status !== null) return $ok(0);
+  const n = Number(signal);
+  try {
+    entry.child.kill(n < 0 ? $namedSignals[-n] : n);
+  } catch (e) {
+    return $err($ioErr(e));
+  }
+  return $ok(0);
+}
+
+// `Spawn.pollProcess` — one turn of the event loop first, so an exit the
+// operating system has already reported is seen.
+async function $host_HostSpawn_pollProcess(self, handle) {
+  const entry = $children.get(Number(handle));
+  if (!entry) return true;
+  await new Promise(function (r) {
+    setImmediate(r);
+  });
+  return entry.status !== null;
+}
+
+// `Spawn.waitProcess` — the child keeps the program alive only while
+// something waits on it.
+async function $host_HostSpawn_waitProcess(self, handle) {
+  const entry = $children.get(Number(handle));
+  if (!entry) return $err([0]);
+  if (entry.status === null) {
+    $aboutToBlock();
+    entry.child.ref();
+    await entry.exited;
+    entry.child.unref();
+  }
+  return $ok(entry.status);
 }
 
 // `Tasks.parallel(self, ctx, items, f)` — every task started, then every task
@@ -9792,15 +9945,61 @@ function $host_testing_TestEnvironment_operatingSystemName(self) {
 // `IoError.Other` carries a `Str` and §2.1 cannot hand one back across a row.
 
 function $host_testing_newSpawn() {
-  return $tmint({ calls: [] });
+  return $tmint({ calls: [], children: [], signals: [] });
 }
 
-// The plan is the program, the working directory and then the arguments, and
-// the split happens here for the reason `host_testing.buri` gives: a Buri body
-// would need an `Allocator` and an effect method takes only `self`.
+// The plan is the program, the working directory, the two output files and
+// then the arguments, and the split happens here for the reason
+// `host_testing.buri` gives: a Buri body would need an `Allocator` and an
+// effect method takes only `self`.
 function $host_testing_recordSpawn(h, plan) {
-  $tslot(h).calls.push([plan.length > 0 ? plan[0] : "", plan.slice(2)]);
+  $tslot(h).calls.push([plan.length > 0 ? plan[0] : "", plan.slice(4)]);
   return 0;
+}
+
+// Started children: a running child exits with `code` when waited on. Its id is
+// its place in the list, from one. Statuses are `core/process`'s numbering.
+function $host_testing_spawnStart(h, code) {
+  const children = $tslot(h).children;
+  children.push({ code, status: null });
+  return BigInt(children.length);
+}
+
+function $spawnChild(h, id) {
+  return $tslot(h).children[Number(id) - 1];
+}
+
+// Logged, and a running child ended unless it is a stop (`-4`) or a continue
+// (`-5`).
+function $host_testing_spawnSignal(h, id, signal) {
+  $tslot(h).signals.push([id, signal]);
+  const n = Number(signal);
+  let ended = -n;
+  if (n === -1) ended = -2;
+  if (n === -2) ended = -15;
+  if (n === -3) ended = -9;
+  if (n === -4 || n === -5) ended = null;
+  const child = $spawnChild(h, id);
+  if (ended !== null && child && child.status === null) child.status = BigInt(ended);
+  return 0;
+}
+
+function $host_testing_spawnExited(h, id) {
+  const child = $spawnChild(h, id);
+  return !child || child.status !== null;
+}
+
+function $host_testing_spawnWait(h, id) {
+  const child = $spawnChild(h, id);
+  if (!child) return 0n;
+  if (child.status === null) child.status = child.code;
+  return child.status;
+}
+
+function $host_testing_spawnSignals(h) {
+  return $tslot(h).signals.map(function (s) {
+    return [s[0], s[1]];
+  });
 }
 
 function $host_testing_spawnCalls(h) {

@@ -629,6 +629,11 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Environment", "operatingSystemName", "core/env", "env.operatingSystem(ctx)"),
     w("Process", "exitWith", "core/process", "process.exit(ctx, code)"),
     w("Spawn", "spawnProcess", "core/process", "process.run(ctx, command)"),
+    w("Spawn", "startProcess", "core/process", "process.start(ctx, command)"),
+    w("Spawn", "processId", "core/process", "aChild.id()"),
+    w("Spawn", "signalProcess", "core/process", "aChild.signal(ctx, signal)"),
+    w("Spawn", "pollProcess", "core/process", "aChild.tryWait(ctx)"),
+    w("Spawn", "waitProcess", "core/process", "aChild.wait(ctx)"),
     w("Tasks", "parallel", "core/tasks", "tasks.parallel(ctx, items, f)"),
     w("Listen", "listenBind", "core/net/server", "server.bind(ctx, aServer)"),
     w("Listen", "listenAccept", "core/net/server", "server.serve(ctx, aServer)"),
@@ -872,11 +877,12 @@ mod tests {
     /// it is the same arrangement — an effect that speaks in integer handles,
     /// and a value with methods that wraps one: `ui/signal`'s `Signal<T>` over
     /// `Ui`'s signal ids, `core/net/server`'s `Socket` over `Sockets`' socket
-    /// ids, `Listener` over `Listen`'s listener handles, and `core/net/tcp`'s
+    /// ids, `Listener` over `Listen`'s listener handles, `core/process`'s `Child`
+    /// over `Spawn`'s child handles, and `core/net/tcp`'s
     /// `Stream` over `Tcp`'s stream handles.
     #[test]
     fn every_wrapper_call_leads_with_its_module_or_a_handle() {
-        const HANDLES: &[&str] = &["aListener.", "aSignal.", "aSocket.", "aStream."];
+        const HANDLES: &[&str] = &["aChild.", "aListener.", "aSignal.", "aSocket.", "aStream."];
         for row in WRAPPERS {
             let alias = row.module.rsplit('/').next().expect("a path has a segment");
             let leads = row.call.starts_with(&format!("{alias}."));

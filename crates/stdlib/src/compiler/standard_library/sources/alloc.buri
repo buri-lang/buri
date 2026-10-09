@@ -664,6 +664,32 @@ impl<C: Spawn> Spawn for Scoped<C> {
     ): Result<Output, IoError> {
         self.0.spawnProcess(plan, environment, replaceEnvironment, stdin)
     }
+
+    fn startProcess(
+        self,
+        plan: [Str],
+        environment: [Str],
+        replaceEnvironment: Bool,
+        stdin: [U8],
+    ): Result<Int, IoError> {
+        self.0.startProcess(plan, environment, replaceEnvironment, stdin)
+    }
+
+    fn processId(self, child: Int): Int {
+        self.0.processId(child)
+    }
+
+    fn signalProcess(self, child: Int, signal: Int): Result<(), IoError> {
+        self.0.signalProcess(child, signal)
+    }
+
+    fn pollProcess(self, child: Int): Bool {
+        self.0.pollProcess(child)
+    }
+
+    fn waitProcess(self, child: Int): Result<Int, IoError> {
+        self.0.waitProcess(child)
+    }
 }
 
 // The step is handed `ctx` — the caller's whole context — and not `self`, so a

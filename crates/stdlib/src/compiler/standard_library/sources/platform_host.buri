@@ -203,6 +203,22 @@ impl Spawn for HostSpawn {
         replaceEnvironment: Bool,
         stdin: [U8],
     ): Result<Output, IoError>;
+
+    fn startProcess(
+        self,
+        plan: [Str],
+        environment: [Str],
+        replaceEnvironment: Bool,
+        stdin: [U8],
+    ): Result<Int, IoError>;
+
+    fn processId(self, child: Int): Int;
+
+    fn signalProcess(self, child: Int, signal: Int): Result<(), IoError>;
+
+    fn pollProcess(self, child: Int): Bool;
+
+    fn waitProcess(self, child: Int): Result<Int, IoError>;
 }
 
 /// Running the program's own work concurrently.

@@ -142,7 +142,7 @@ from "core/path" import { Path };
 
 // And `Spawn`, which `core/proc` declares for the same reason: it answers that
 // module's own `Output`.
-from "core/process" import { Output, Spawn };
+from "core/process" import { Output, Signal, Spawn };
 from "platform/effect" import {
     Allocator, Clock, Connected, Entropy, Environment, Frame, Header, IoError, Location,
     Method, NetError, Network, Process, Random, Received, Region, Request, Response,
@@ -1099,6 +1099,12 @@ export fn proc(): TestProcess {
 /// **One answer for every command.** A double that answered differently per
 /// program would be a second scripting language; a test that needs two answers
 /// runs two blocks.
+///
+/// **A started child** is `start`ed under the same answer: `.Err` refuses it,
+/// and `.Ok` starts one that runs until something ends it. `wait` ends it with
+/// the answer's `code`, as if it had finished on its own. `.Stop` and
+/// `.Continue` change nothing, and any other signal ends a running child as
+/// `.Signaled` by that signal. `signals` reads back every signal sent.
 export struct TestSpawn {
     handle: I64,
     answer: Result<Output, IoError>,
@@ -1121,6 +1127,39 @@ impl Spawn for TestSpawn {
         let _recorded = recordSpawn(self.handle, plan);
         self.answer
     }
+
+    fn startProcess(
+        self,
+        plan: [Str],
+        environment: [Str],
+        replaceEnvironment: Bool,
+        stdin: [U8],
+    ): Result<Int, IoError> {
+        let _variables = environment;
+        let _replaces = replaceEnvironment;
+        let _input = stdin;
+        let _recorded = recordSpawn(self.handle, plan);
+        match (self.answer) {
+            .Err(e) => .Err(e),
+            .Ok(output) => .Ok(spawnStart(self.handle, output.code)),
+        }
+    }
+
+    fn processId(self, child: Int): Int {
+        child
+    }
+
+    fn signalProcess(self, child: Int, signal: Int): Result<(), IoError> {
+        .Ok(spawnSignal(self.handle, child, signal))
+    }
+
+    fn pollProcess(self, child: Int): Bool {
+        spawnExited(self.handle, child)
+    }
+
+    fn waitProcess(self, child: Int): Result<Int, IoError> {
+        .Ok(spawnWait(self.handle, child))
+    }
 }
 
 export fn spawn(): TestSpawn {
@@ -1140,20 +1179,67 @@ impl TestSpawn {
         TestSpawn { handle: self.handle, answer: .Err(error) }
     }
 
-    /// Every command run through this double, in order.
+    /// Every command run or started through this double, in order.
     export fn calls(self): [SpawnCall] {
         spawnCalls(self.handle)
+    }
+
+    /// Every signal sent to a child this double started, in order, with the
+    /// `id` of the child it went to.
+    export fn signals<C: Allocator>(self, ctx: C): [(Int, Signal)] {
+        spawnSignals(self.handle).mapCtx(ctx, fn(_c, sent) => {
+            (sent.child, signalOf(sent.signal))
+        })
+    }
+}
+
+/// `core/process`'s numbering of a signal, read back.
+fn signalOf(code: Int): Signal {
+    if (code == -1) {
+        .Interrupt
+    } else if (code == -2) {
+        .Terminate
+    } else if (code == -3) {
+        .Kill
+    } else if (code == -4) {
+        .Stop
+    } else if (code == -5) {
+        .Continue
+    } else {
+        .Other(code)
     }
 }
 
 /// A fresh, empty log, and the handle that names it.
 fn newSpawn(): I64;
 
-/// The plan as `spawnProcess` takes it: the program, the working directory, and
-/// then the arguments. The runner splits it into a `SpawnCall`.
+/// The plan as `spawnProcess` takes it: the program, the working directory, the
+/// two output files, and then the arguments. The runner splits it into a
+/// `SpawnCall`.
 fn recordSpawn(handle: I64, plan: [Str]): ();
 
 fn spawnCalls(handle: I64): [SpawnCall];
+
+/// A new running child that exits with `code` when waited on, and its id.
+fn spawnStart(handle: I64, code: Int): Int;
+
+/// Logs a signal, and ends a running child unless it is a stop or a continue.
+fn spawnSignal(handle: I64, child: Int, signal: Int): ();
+
+/// Whether the child has exited.
+fn spawnExited(handle: I64, child: Int): Bool;
+
+/// The child's status as `waitProcess` answers it, ending it with its code
+/// first if it is still running.
+fn spawnWait(handle: I64, child: Int): Int;
+
+fn spawnSignals(handle: I64): [SignalSent];
+
+/// One signal, as the runner logs it: `core/process`'s numbering.
+struct SignalSent {
+    child: Int,
+    signal: Int,
+}
 
 derive Equal, Show for SpawnCall;
 /// One command run through a `TestSpawn`.
