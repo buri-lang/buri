@@ -683,6 +683,13 @@ impl Scratch {
         path
     }
 
+    /// [`write`](Self::write), for a file a child process will run.
+    pub fn write_executable(&self, rel: &str, contents: &str) -> PathBuf {
+        let path = self.path(rel);
+        write_executable(&path, contents);
+        path
+    }
+
     pub fn read(&self, rel: &str) -> String {
         let path = self.path(rel);
         std::fs::read_to_string(&path)
@@ -803,6 +810,29 @@ impl Drop for Scratch {
         }
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+/// Writes `contents` to `path` as an executable, without this process ever
+/// opening `path` for writing.
+///
+/// Linux refuses to run a file any process holds open for writing
+/// (`ETXTBSY`). A child that another test's thread forks while this one writes
+/// inherits the open file and holds it until its own `exec`. So the bytes go
+/// to a staging file here, and `cp` writes `path` from its own process.
+pub fn write_executable(path: &Path, contents: &str) {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let staged = path.with_file_name(format!(".{name}.{}.{n}.staged", std::process::id()));
+    std::fs::write(&staged, contents).unwrap_or_else(|e| panic!("cannot write {}: {e}", staged.display()));
+    let copied = Command::new("cp").arg(&staged).arg(path).status();
+    let _ = std::fs::remove_file(&staged);
+    assert!(copied.is_ok_and(|s| s.success()), "`cp` could not write {}", path.display());
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 /// Copies a source tree, leaving behind the named entries — anything a

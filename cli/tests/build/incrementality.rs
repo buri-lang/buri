@@ -2029,7 +2029,6 @@ fn a_batch_too_large_for_one_binary_is_split() {
 #[cfg(unix)]
 #[test]
 fn a_test_binary_that_cannot_start_is_reported_once() {
-    use std::os::unix::fs::PermissionsExt;
     let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
     let scratch = Scratch::repo("binary-cannot-start");
     scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
@@ -2043,7 +2042,7 @@ fn a_test_binary_that_cannot_start_is_reported_once() {
          test \"third\" { assert.equal(one(), 1); }\n",
     );
     let launches = scratch.path("launches");
-    let driver = scratch.write(
+    let driver = scratch.write_executable(
         "fake-cc",
         &format!(
             "#!/bin/sh\n\
@@ -2061,7 +2060,6 @@ echo \"dyld[1]: Library not loaded: /usr/lib/libSystem.B.dylib\" >&2\\nkill -ABR
             launches = launches.display()
         ),
     );
-    std::fs::set_permissions(&driver, std::fs::Permissions::from_mode(0o755)).unwrap();
 
     let run = scratch.run_with_env(&["test", "//lib/a"], &[("CC", &driver.display().to_string())]);
     if run.stderr.contains("native-run-not-available") {

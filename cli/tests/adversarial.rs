@@ -33,7 +33,6 @@
 )]
 mod harness;
 use harness::*;
-use std::os::unix::fs::PermissionsExt;
 
 /// Asserts the toolchain stopped the way a program stops, rather than the way
 /// one dies.
@@ -348,8 +347,7 @@ fn small_stack_runtime(bytes: usize) -> Option<String> {
     };
     let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("small-stack-{runtime}-{}.sh", std::process::id()));
-    std::fs::write(&path, format!("#!/bin/sh\n{body}")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    write_executable(&path, &format!("#!/bin/sh\n{body}"));
     Some(path.display().to_string())
 }
 
