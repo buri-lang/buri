@@ -6521,12 +6521,60 @@ There are no hardware counters to confirm this with. The Command Line Tools
 have no `xctrace`, and the configurable counters need root.
 
 The compiler runs on the same allocator (§6.54), and its threads don't set the
-bit. That's the next thing to measure.
+bit. §6.69 measured that: it doesn't help the compiler.
 
 **Tried and dropped:**
 
 - **A linker order file for the hot runtime functions**, §6.67's lead. The
   shuffled layouts above put a bound on what any order could win.
+
+### 6.69 The compiler keeps the pointer prefetcher, 2026-10-09
+
+§6.68's lead: `buri` allocates from the same pages as compiled programs, so
+might its threads gain from `PSTATE.DIT` too? No. It's 0–2% slower with it,
+so the compiler doesn't set it.
+
+The measurement needed no code change. A library injected through
+`DYLD_INSERT_LIBRARIES` sets DIT in its constructor and wraps
+`pthread_create` so every new thread sets it before it runs:
+
+```c
+static void *start(void *p) {
+  struct tramp t = *(struct tramp *)p; free(p);
+  __asm__ volatile(".inst 0xd503415f");  // msr dit, #1
+  return t.f(t.a);
+}
+```
+
+The baseline injects the same library without the `msr`, so both pay for the
+wrapper. Both drop the variable from the environment, so the linker, `bun` and
+the test binaries run as usual. A counting copy confirmed it on a large build:
+159 of 159 threads ran with DIT set.
+
+A release `buri` built with `--features backend-llvm`, on an M3 Pro with
+FEAT_DIT. 22 alternating runs per arm, `buri clean` before each, load 2.3–5.0
+on 12 cores, no sleep in `pmset -g log`. "Large" is §6.54's `mixed-100k`
+twice, node and native. Fewest of 22, cycles from `/usr/bin/time -l` for the
+`buri` process alone:
+
+| Workload | wall, base | DIT | cycles, base | DIT | |
+|---|---:|---:|---:|---:|---:|
+| large, `build //...` | 0.51 s | 0.52 s | 5.88 G | 5.98 G | +1.6% |
+| large, `build --release //...` | 2.52 s | 2.53 s | 74.8 G | 75.0 G | +0.3% |
+| large, `lint //...` | 0.24 s | 0.24 s | 0.904 G | 0.907 G | +0.3% |
+| example, `build //...` | 0.46 s | 0.46 s | 0.918 G | 0.934 G | +1.8% |
+| example, `test //...` | 0.21 s | 0.21 s | 0.471 G | 0.487 G | +3.5% |
+| conformance, `test //...`, 4,205 tests | 2.12 s | 2.12 s | 3.23 G | 3.24 G | +0.6% |
+| `buri lsp`, 40 edits with a diagnostic pull each | 3.89 s | 3.91 s | 15.30 G | 15.37 G | +0.4% |
+
+Instructions match within 0.2%. Medians agree in sign, except the
+conformance run at +0.1%. The example's test, at 0.2 s, is mostly process
+start. `BURI_PROFILE` on the large build, 11 runs per arm, found no phase that
+gains: lex and parse level, check, middle and emit 0–2% more CPU.
+
+So whatever the prefetcher costs the string programs, it doesn't cost the
+compiler. The runtime keeps §6.68's change, and `buri`'s threads leave the
+bit alone.
 
 ## 7. Profiling, on this platform
 
