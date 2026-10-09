@@ -99,9 +99,15 @@ fn wanted(spec: &str) -> Vec<(&'static str, u64)> {
 /// Runs `buri test <args>` under `BURI_PROFILE=1` and holds what it did to
 /// `spec`, naming each count that moved.
 fn holds(scratch: &Scratch, scenario: &str, args: &[&str], spec: &str) {
+    holds_exiting(scratch, scenario, args, &[], 0, spec);
+}
+
+/// [`holds`], with more of the environment and the exit code it expects.
+fn holds_exiting(scratch: &Scratch, scenario: &str, args: &[&str], env: &[(&str, &str)], exit: i32, spec: &str) {
     let before = files(&scratch.root);
-    let run = scratch.run_with_env(args, &[("BURI_PROFILE", "1")]);
-    run.ok();
+    let env: Vec<(&str, &str)> = [("BURI_PROFILE", "1")].into_iter().chain(env.iter().copied()).collect();
+    let run = scratch.run_with_env(args, &env);
+    run.exits(exit);
     let after = files(&scratch.root);
     let written = after.iter().filter(|(file, now)| before.get(file) != Some(now)).count() as u64;
     let count = |name: &str| -> u64 {
@@ -205,4 +211,56 @@ fn a_javascript_test_run_does_the_pinned_work() {
 #[test]
 fn a_javascript_release_test_run_does_the_pinned_work() {
     scenarios(&repo("counted-js-release"), &["--output=js", "--release"], JAVASCRIPT);
+}
+
+/// Suite `s`, whose one test asserts `same(k)` is `want`.
+fn suite_asserting(scratch: &Scratch, s: &str, k: u32, want: u32) {
+    scratch.write(
+        &format!("lib/{s}/test/{s}.buri"),
+        &format!(
+            "from \"//lib/{s}\" import {{ same }};\nfrom \"core/testing/assert\" import * as assert;\n\n\
+             test \"{s}\" {{\n    assert.equal(same({k}), {want});\n}}\n"
+        ),
+    );
+}
+
+/// A failing suite's verdict isn't cached, so every run starts its runner
+/// again from the cached build. An edit to another suite links that one a
+/// runner of its own, and the failing suite's runner stays where it already
+/// is rather than being written, and checked by macOS, again.
+#[test]
+fn a_failing_suites_runner_stays_put_while_another_suite_is_edited() {
+    let scratch = Scratch::repo("counted-failing");
+    for s in ["e", "f"] {
+        scratch.write(
+            &format!("lib/{s}/BUILD.buri"),
+            &format!("library {{\n    test {{\n        sources: [\"test/{s}.buri\"]\n    }}\n}}\n"),
+        );
+        scratch.write(&format!("lib/{s}/lib.buri"), "export fn same(k: Int): Int {\n    k\n}\n");
+    }
+    suite_asserting(&scratch, "e", 0, 0);
+    suite_asserting(&scratch, "f", 0, 1);
+    // A runner per suite, so the cold run leaves `//lib/f`'s at its own path.
+    let env = [("BURI_TEST_BATCH_BYTES", "1")];
+    let args = ["test", "//..."];
+    holds_exiting(
+        &scratch,
+        "a cold run",
+        &args,
+        &env,
+        1,
+        "suites built 2, objects compiled 10, links 2, new executables launched 2, test processes 2",
+    );
+    for k in 1..=3 {
+        suite_asserting(&scratch, "e", k, k);
+        holds_exiting(
+            &scratch,
+            &format!("edit {k}"),
+            &args,
+            &env,
+            1,
+            "suites built 1, suites restored 1, objects compiled 1, objects restored 4, links 1, \
+             new executables launched 1, test processes 2",
+        );
+    }
 }

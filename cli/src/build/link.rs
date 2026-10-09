@@ -2561,6 +2561,15 @@ fn same_contents(a: &mut std::fs::File, b: &mut std::fs::File) -> std::io::Resul
     }
 }
 
+/// Whether `dest` already holds `src`'s bytes, so [`place_from`] would leave it alone.
+pub fn holds_same(src: &Path, dest: &Path) -> bool {
+    let (Ok(mut source), Ok(mut existing)) = (std::fs::File::open(src), std::fs::File::open(dest)) else {
+        return false;
+    };
+    let len = |f: &std::fs::File| f.metadata().map(|m| m.len()).ok();
+    len(&source).is_some() && len(&source) == len(&existing) && same_contents(&mut source, &mut existing).unwrap_or(false)
+}
+
 /// Puts `src`'s bytes at `dest` as an executable. Answers how many bytes it is.
 ///
 /// **New bytes go in a new file, renamed over `dest`.** Never truncate and

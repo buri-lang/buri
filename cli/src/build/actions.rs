@@ -2665,17 +2665,23 @@ fn link_cached(
 /// Holding this is what says "this file is mine until I drop it".
 pub struct TestBinary {
     path: PathBuf,
-    _claim: Option<Claim>,
+    claim: Option<std::sync::Arc<Claim>>,
 }
 
 impl TestBinary {
     pub fn path(&self) -> &std::path::Path {
         &self.path
     }
+
+    /// Its hold on the shared runner file, for a caller that keeps the file
+    /// past the binary's last process.
+    pub fn claim(&self) -> Option<std::sync::Arc<Claim>> {
+        self.claim.clone()
+    }
 }
 
 /// One process's hold on the shared runner file.
-struct Claim {
+pub struct Claim {
     lock: PathBuf,
 }
 
@@ -2740,12 +2746,12 @@ fn claim_runner_after(
         let _ = std::fs::remove_file(&lock);
     }
     match std::fs::OpenOptions::new().create_new(true).write(true).open(&lock) {
-        Ok(_) => TestBinary { path: dir.join("test-runner"), _claim: Some(Claim { lock }) },
+        Ok(_) => TestBinary { path: dir.join("test-runner"), claim: Some(std::sync::Arc::new(Claim { lock })) },
         Err(_) => {
             if let Some(parent) = private.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            TestBinary { path: private, _claim: None }
+            TestBinary { path: private, claim: None }
         }
     }
 }
@@ -2796,20 +2802,33 @@ pub fn link_test_binary(
     }
 }
 
-/// The test binary a run before this one linked under `link`, put where it
-/// runs from: the shared runner file where this process can take it, and
-/// `private` where it cannot ([`claim_runner`]).
+/// Where the test binary a run before this one linked under `link` will run
+/// from: `private` when it already holds the bytes, so starting it isn't a new
+/// file, and otherwise the shared runner file where this process can take it
+/// ([`claim_runner`]).
 ///
-/// `None` when the cache no longer holds it, after `buri clean` or a toolchain
-/// change, and the suite is then compiled again.
-pub fn place_test_binary(
+/// Asked before any of this run's links claim the shared file, so which binary
+/// gets it doesn't depend on which thread is first. `None` when the cache no
+/// longer holds it, after `buri clean` or a toolchain change, and the suite is
+/// then compiled again.
+pub fn restored_test_binary(
     root: &std::path::Path,
     output: &Output,
     private: PathBuf,
     link: &ActionKey,
 ) -> Option<TestBinary> {
     let entry = Cache::open(root).entry(link)?;
-    let binary = claim_runner(&root.join(".buri/out").join(output.dir()), private);
+    if link::holds_same(&entry, &private) {
+        return Some(TestBinary { path: private, claim: None });
+    }
+    Some(claim_runner(&root.join(".buri/out").join(output.dir()), private))
+}
+
+/// Puts the test binary a run before this one linked under `link` at
+/// `binary`, from [`restored_test_binary`]. `None` when the cache no longer
+/// holds it.
+pub fn place_test_binary(root: &std::path::Path, link: &ActionKey, binary: TestBinary) -> Option<TestBinary> {
+    let entry = Cache::open(root).entry(link)?;
     write_executable(&entry, binary.path()).ok()?;
     Some(binary)
 }
