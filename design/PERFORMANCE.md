@@ -7257,6 +7257,94 @@ unchanged.
 `ld64.lld` itself is now most of the link: 143 M of the 542 M instructions are
 its start-up, before it reads an input.
 
+### 6.79 A cold `buri test`: what can overlap, and a link that reads the cache in place, 2026-10-09
+
+§6.76's fourth lever. Cold conformance, `buri clean` first, 1.36 s at load 6,
+from a local timestamp probe:
+
+| Step | Starts | Wall |
+|---|---:|---:|
+| compile the proto tool | 3 ms | 45 ms |
+| 6 `bun` processes run it, side by side | 48 ms | 125–130 ms |
+| key and look up all suites | 183 ms | 23 ms |
+| parse the batch program | 212 ms | 18 ms |
+| check it, one thread | 230 ms | 59 ms |
+| monomorphize, one thread | 289 ms | 39 ms |
+| middle end, one thread | 340 ms | 131 ms |
+| lower (already per function) and key the units | 486 ms | 26 ms |
+| emit, 12 threads | 492 ms | 37 ms |
+| write 180 objects to the cache | 529 ms | 31 ms |
+| hard-link them into the link directory, 12 threads | 568 ms | 46 ms |
+| `ld64.lld` | 616 ms | 90 ms |
+| launch check, then the tests | 711 ms | ~620 ms |
+
+The middle end, pass by pass: `inline` 37 ms, `rc::analyze` 33 (already per
+function inside), `derives` 15, `chunks` 7.6, `closures` 6.3, `fuse` 5.8, `dce`
+5.1, `forward` 4.7, `decision` 4.4, `rc::Syntactic::new` 4.3,
+`rc::name_discards` 3.9, `tail_calls` 3.6.
+
+**Measured and left:**
+
+- **Starting suites before the generators finish.** Only the two proto suites
+  read generated code, but the rest share their batch program and its runner.
+  A second batch would start ~185 ms sooner and cost a second runner, whose
+  launch check queues behind the first one system-wide. That's 0.2 s at
+  least, and seconds under load. Keys alone could overlap, 23 ms at most.
+- **The generators themselves.** Loading the tool's 485 KB bundle takes 20–30
+  ms of each `bun` process. The rest is the tool's own work.
+- **Writing the cache entries side by side.** The store took 30–37 ms against
+  30–53 ms, alternating, three each: the file system is the limit, as §6.43
+  found for staging.
+- **Per-function middle passes.** `fold_round`, `fuse`, `forward` and
+  `decision` touch one body each and would parallelize, for ~17 ms. `inline`
+  doesn't: a caller reads callees this round already rewrote, so another order
+  gives other code. Checking bodies in parallel needs the checker's shared
+  tables split, which is a redesign.
+
+**What changed: the linker reads the cache's objects where they are.** A link
+hard-linked each object from `.buri/cache` into its directory, and the
+linker read the copies. Each hard link costs ~0.37 ms on APFS (180 serially
+took 68 ms) and more when twelve threads share one directory: the link
+phase's own CPU was 0.40–0.52 s for 180 objects. Now an object the cache holds
+is passed to the linker by its absolute path. Only objects the cache doesn't
+hold, and the runtime archive, are written into the directory.
+
+The runtime archive stays staged under its relative name because it's the
+one input with debug information. It's what the runner's 18 `N_OSO` stabs
+name, and `-oso_prefix .` keeps those paths machine-independent (§6.24). The
+backends write no debug information, so no stab names a Buri object. The
+debug map is the same bytes, and evicting a cache entry or `buri clean`
+changes nothing a debugger reads. `lldb` resolves Buri functions by symbol,
+as before, and has no line table for them on either side. For the record,
+`ld.lld` (ELF) gave identical outputs for absolute and relative inputs too,
+with and without `-g`. Linux links name no `--whole-archive` or rpath; the
+musl sysroot and crt objects are still staged.
+
+**Identical output.** Base and new linked byte-identical conformance runners,
+stencil and `--release`, and identical example artifacts, debug and release,
+and printed the same results.
+`native::link::a_link_reads_the_caches_objects_where_they_are` links one
+program twice, from staged copies and from the cache. It asserts the same
+bytes and no object in the link directory, and it fails on the old code.
+`two_checkouts_of_one_tree_build_identical_bytes` catches the day a backend
+adds debug information and a cache path reaches a stab.
+
+Cold `buri test //...`, alternating, base `01600a72f`, load 4–7:
+
+| Workload | Before | After |
+|---|---:|---:|
+| conformance, six each, median wall | 1.332 s | 1.271 s (−4.6%) |
+| the same, `link` phase CPU in `buri` | 0.40–0.52 s | 0.006–0.008 s |
+| conformance ×10, three each, median wall | 7.03 s | 6.25 s (−11%) |
+| the same, `link` phase CPU | 1.6–2.2 s | 0.02 s |
+| conformance, one-test edit, six each | 0.31–0.38 s | 0.30–0.50 s, within noise |
+
+An edit already linked mostly from the last link's directory, so it doesn't
+move.
+
+**What's left** is the one-thread chain, check through middle, ~230 ms of a
+cold run, and the launch check.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

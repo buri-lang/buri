@@ -139,7 +139,8 @@
 //!
 //! ```text
 //! .buri/link/<link-key>/manifest        unit name -> codegen key -> cached|run
-//! .buri/link/<link-key>/<unit>.o        the object, from the cache
+//! .buri/link/<link-key>/<unit>.o        an object the cache doesn't hold; the
+//!                                       linker reads the cache's files in place
 //! .buri/link/<link-key>/libburi_rt.a    the embedded runtime archive, when
 //!                                       these objects reference it
 //! .buri/link/<link-key>/musl/lib/*      the baked musl sysroot, on the Linux
@@ -1957,11 +1958,12 @@ impl CDriver {
                     format!("internal error: {:?} is not a codegen unit filename", unit.name),
                 ));
             };
-            // The cache's own file, where it holds these bytes: hard-linked
-            // rather than written, so a link directory costs the disk nothing
-            // the cache has not already paid for. The length is checked
-            // because the entry is named by the unit's key, and the bytes in
-            // hand are what this link is of.
+            // The cache's own file, where it holds these bytes: the linker
+            // reads it where it is, so a link directory costs the disk nothing
+            // the cache has not already paid for, and a cold link makes no
+            // hard link per object (about 0.3 ms each on APFS). The length is
+            // checked because the entry is named by the unit's key, and the
+            // bytes in hand are what this link is of.
             let entry = self
                 .store
                 .as_ref()
@@ -1969,13 +1971,7 @@ impl CDriver {
                 .and_then(|(cache, key)| cache.entry(key))
                 .filter(|e| std::fs::metadata(e).is_ok_and(|m| m.len() == unit.bytes.len() as u64));
             if let Some(entry) = entry {
-                return match stage_from(&entry, &path) {
-                    Ok(()) => Ok(path),
-                    Err(e) => Err(Diagnostic::error(
-                        Span::NONE,
-                        format!("cannot write {}: {e}", path.display()),
-                    )),
-                };
+                return Ok(entry);
             }
             // An unchanged unit's bytes came from the cache, so the file on
             // disk — if there is one — already holds them. Everything else is
@@ -2086,9 +2082,20 @@ impl CDriver {
         // the same reason. Relative names make the recorded path
         // `libburi_rt.a(...)`, which is a fact about the link and not about the
         // machine.
+        //
+        // An object read from the cache is named by its absolute path. No
+        // backend writes debug information, so no `N_OSO` names it and the
+        // bytes are the ones a staged copy links to.
+        // `two_checkouts_of_one_tree_build_identical_bytes` fails the day one does.
         let names: Vec<String> = objects
             .iter()
-            .map(|path| path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned())
+            .map(|path| {
+                if path.parent() == Some(self.dir.as_path()) {
+                    path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned()
+                } else {
+                    std::path::absolute(path).unwrap_or_else(|_| path.clone()).to_string_lossy().into_owned()
+                }
+            })
             .collect();
         let args = self.driver_args(&names, runtime);
 
