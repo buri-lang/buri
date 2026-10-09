@@ -205,7 +205,12 @@ fn start_holding(command: &mut Command, alone: bool) -> std::io::Result<Child> {
                 wait = wait.saturating_mul(2);
                 retries = retries.saturating_sub(1);
             }
-            started => return started,
+            started => {
+                if started.is_ok() {
+                    crate::build::counted::started(command.get_program());
+                }
+                return started;
+            }
         }
     }
 }

@@ -1914,6 +1914,7 @@ impl CDriver {
         _opts: &LinkOptions<'_>,
     ) -> Result<(), Diagnostics> {
         let _phase = crate::profile::enter(crate::profile::Phase::Link);
+        crate::build::counted::add(crate::build::counted::Count::Links);
         let mut diagnostics = Diagnostics::new();
         if units.is_empty() {
             diagnostics.push(Diagnostic::error(
@@ -2609,6 +2610,8 @@ pub fn place_from(src: &Path, dest: &Path) -> std::io::Result<u64> {
     let placed = copy_fresh(src, &fresh).and_then(|()| std::fs::rename(&fresh, dest));
     if placed.is_err() {
         let _ = std::fs::remove_file(&fresh);
+    } else {
+        crate::build::counted::placed(dest);
     }
     placed.map(|()| len)
 }

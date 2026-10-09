@@ -27,6 +27,8 @@
 
 pub mod actions;
 pub mod cache;
+/// What a run spent its build on, counted: `BURI_PROFILE`'s work counts.
+pub mod counted;
 /// `buri test --coverage`: where the counts go, the lines they count, and the
 /// report (`design/COVERAGE.md`).
 pub mod coverage;

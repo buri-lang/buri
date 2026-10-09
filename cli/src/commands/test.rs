@@ -1801,6 +1801,7 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
     let started =
         crate::build::spawn::start(cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()));
     let mut child = started.map_err(|e| cannot_run(&e.to_string()))?;
+    crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let mut input = child.stdin.take();
     let errors = child.stderr.take();
     // On a thread of its own, so a process that fills the pipe never waits
@@ -4251,6 +4252,7 @@ fn run_pulled(
     let started =
         crate::build::spawn::start(cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()));
     let Ok(mut child) = started else { return Pulled::Broken };
+    crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let mut input = child.stdin.take();
     let errors = child.stderr.take();
     // On a thread of its own, so a process that fills the pipe never waits
@@ -4740,6 +4742,7 @@ fn execute(
         }
     }
     let mut child = crate::build::spawn::start(cmd.stdout(Stdio::piped()).stderr(Stdio::piped()))?;
+    crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let Some(limit) = limit else {
         return Ok(Execution::Finished(crate::build::spawn::finish(child)?));
     };

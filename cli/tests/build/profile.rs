@@ -29,7 +29,7 @@ fn a_profiled_test_run_names_every_phase_it_went_through() {
 #[test]
 fn an_unprofiled_run_prints_no_profile() {
     let scratch = repo();
-    scratch.run(&["test", "//..."]).ok().silent_about("buri profile");
+    scratch.run(&["test", "//..."]).ok().silent_about("buri profile").silent_about("suites built");
     scratch.run_with_env(&["test", "//..."], &[("BURI_PROFILE", "0")]).ok().silent_about("buri profile");
 }
 
