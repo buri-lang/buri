@@ -616,6 +616,13 @@
 #![allow(clippy::missing_safety_doc)]
 
 mod abort;
+/// Blocks up to 1 KiB from per-thread pages, the rest from the system: the
+/// compiler's own allocator (`design/PERFORMANCE.md` §6.54, §6.67). Not under
+/// `cfg(test)`, where its tests count pages nothing else may take.
+pub(crate) mod allocator;
+#[cfg(not(test))]
+#[global_allocator]
+static ALLOCATOR: allocator::Allocator = allocator::Allocator;
 mod bytes;
 mod character;
 /// `buri test --coverage`'s counts.

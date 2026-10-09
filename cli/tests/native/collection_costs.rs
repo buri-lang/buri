@@ -304,3 +304,91 @@ fn sorting_an_ordered_list_costs_a_fraction_of_a_shuffled_one() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// Trees built and dropped until about a million nodes have been, `depth`
+/// levels each. `parallel` builds eight a round in a fan-out and drops them in
+/// the caller, so most blocks are freed on a thread that didn't allocate them.
+const TREES: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/tasks" import * as tasks;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout, Tasks };
+
+enum Tree { Leaf, Node(Tree, Int, Tree) }
+
+fn build<C: Allocator>(ctx: C, d: Int, v: Int): Tree {
+  if (d == 0) { .Leaf } else { .Node(build(ctx, d - 1, v * 2), v, build(ctx, d - 1, v * 2 + 1)) }
+}
+
+fn sum(t: Tree): Int {
+  match (t) { .Leaf => 0, .Node(l, v, r) => sum(l) + v % 7 + sum(r) }
+}
+
+fn pow2(d: Int): Int {
+  if (d == 0) { 1 } else { 2 * pow2(d - 1) }
+}
+
+fn rounds<C: Allocator>(ctx: C, d: Int, k: Int, acc: Int): Int {
+  if (k == 0) { acc } else { rounds(ctx, d, k - 1, acc + sum(build(ctx, d, 1))) }
+}
+
+fn fanned<C: Allocator + Tasks>(ctx: C, d: Int, k: Int, acc: Int): Int {
+  if (k == 0) {
+    acc
+  } else {
+    let trees = tasks.parallel(ctx, list.range(ctx, 0, 8), fn(c, _i, _x) => build(c, d, 1));
+    fanned(ctx, d, k - 1, acc + trees.fold(fn(a, t) => a + sum(t), 0))
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout, Tasks: host.tasks };
+  let args = env.arguments(ctx);
+  let depth = args.get(1).andThen(fn(s) => s.toInt()).withDefault(1);
+  let answer = match (args.first()) {
+    .Some("trees") => rounds(ctx, depth, 1048576 / pow2(depth), 0),
+    .Some("parallel") => fanned(ctx, depth, 131072 / pow2(depth), 0),
+    _ => 0,
+  };
+  io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **A tree too big for the block cache costs about what a small one does, a
+/// node.** Every node is two blocks, and once a tree outgrew the cache each
+/// was a `malloc` and a `free` from the system allocator. A 2¹⁶-node tree cost
+/// 2.71 times a 63-node one a node on LLVM, and 2.16 times on the
+/// copy-and-patch backend. Blocks up to 1 KiB now come from the runtime's own
+/// pages, and that's 1.47 and 1.37.
+#[test]
+fn a_big_tree_costs_about_what_a_small_one_does_a_node() {
+    let total = |depth: u32| {
+        let nodes = (1u64 << depth) - 1;
+        let one: u64 = (1..=nodes).map(|i| i % 7).sum();
+        (nodes, one)
+    };
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("trees", TREES);
+        let mut cost = std::collections::BTreeMap::new();
+        for depth in [6u32, 16] {
+            let (nodes, one) = total(depth);
+            let trees = (1u64 << 20) >> depth;
+            let at = depth.to_string();
+            let (n, _blocks) = per_op(backend, &binary, "trees", &[&at], trees * nodes, &format!("{}\n", one * trees));
+            eprintln!("{backend}, depth {depth}: {n:?} instructions a node");
+            cost.insert(depth, n);
+        }
+        // Blocks freed on threads that didn't allocate them.
+        let (nodes, one) = total(12);
+        let rounds = (1u64 << 17) >> 12;
+        per_op(backend, &binary, "parallel", &["12"], rounds * 8 * nodes, &format!("{}\n", one * 8 * rounds));
+        let (Some(Some(small)), Some(Some(big))) = (cost.get(&6).copied(), cost.get(&16).copied()) else { continue };
+        if big * 10 > small * 18 {
+            failures.push(format!("{backend}: a 2^16-node tree is {big} instructions a node against {small} for 63 nodes"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

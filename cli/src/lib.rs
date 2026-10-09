@@ -24,11 +24,13 @@
 //! them.
 //!
 //! `allocator` is the binary's global allocator. It lives here so the bench
-//! installs the same one.
+//! installs the same one, and its source sits in `cli/runtime/` because every
+//! compiled program installs it too.
 //!
 //! Most of these live in crates of their own under `crates/` and are
 //! re-exported here at their old paths. `design/CRATES.md` has the graph.
 
+#[path = "../runtime/allocator.rs"]
 pub mod allocator;
 pub mod build;
 pub mod commands;
