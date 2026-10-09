@@ -6660,11 +6660,11 @@ the second cost 3.14 times the first.
   for call sites, once per finding. One file of `n` functions whose `ctx` is
   never read: `lint //...` is 1.05, 3.7 and 14.8 G at 1,000, 2,000 and 4,000,
   and a keystroke still 1.0, 3.8 and 15.1 G after this change.
-- **`Names::of` looks every identifier up in a `BTreeSet<String>`.** That's
+- **`Names::of` looks every identifier up in a `BTreeSet<String>`** (§6.71 hashes it). That's
   14% of a `mixed-100k` keystroke in `memcmp`. A set of the module's distinct
   names first would make it a lookup per name rather than per token.
 
-### 6.71 `unused-context` walks the package once, 2026-10-09
+### 6.71 `unused-context` walks the package once, and `Names::of` hashes, 2026-10-09
 
 §6.70's first lead. `context_edits` built the fix for one `unused-context`
 finding at a time. For each one it rebuilt the package's published names and
@@ -6710,6 +6710,24 @@ are byte-identical too.
 
 `build::profile`'s `unused_context_is_linear_in_its_findings` guards it: the
 calls shape at 500 and 1,000. Before, the second cost 3.09 times the first.
+
+**`Names::of` hashes.** §6.70's second lead. `unused-type` and its siblings
+look every identifier token in the package up in the set of names written so
+far. That set was a `BTreeSet<String>`, so each token cost a dozen string
+compares, and a keystroke in `mixed-100k` spent 14% of its time in `memcmp`.
+Both sets are now `crate::hash::Set<String>`, and nothing iterates them.
+
+Keystrokes are the fewest of eight alternating runs and lints the fewer of two, at load 1.2–2.4:
+
+| Workload | before | after | Δ |
+|---|---:|---:|---:|
+| `mixed-100k` keystroke ×40, wall | 3.66 s | 3.22 s | −12% |
+| the same, cycles | 14.78 G | 12.88 G | −13% |
+| the same, instructions | 50.76 G | 45.22 G | −11% |
+| `mixed-100k`, `lint //...` | 3.35 G | 3.08 G | −8% |
+| conformance, `lint //...` | 2.31 G | 2.27 G | −2% |
+
+The same ten repositories and five LSP sessions hash identically.
 
 ## 7. Profiling, on this platform
 
