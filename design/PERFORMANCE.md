@@ -7433,6 +7433,16 @@ Instructions aren't exact, for two reasons:
 - **Parallel runs wobble both ways**, by about ±0.4%, likely from lock
   spinning, the allocator and how the pool divides work, which all move with
   scheduling. The median of two runs is the reading there.
+- **A compiled program's large blocks used to move with the machine.** macOS's
+  `malloc` keeps a freed block past a few KB until the kernel reclaims it, on
+  the kernel's schedule. A loop that dropped and remade a 288 KB list then got
+  it back for nothing on one run and paid two Mach calls a turn on the next:
+  `collection_costs`' `map` over 2,000 records retired 19.6 M instructions or
+  30.7 M, and `filterMap` read 342 instructions an element instead of 171 in
+  a full suite run. Holding memory short with `memory_pressure -p 15` made it
+  happen on most runs. The runtime now keeps a thread's last few large blocks
+  itself (`memory.rs`'s large blocks, at most 16 MB a process), so the counts
+  hold still under that pressure.
 
 Allocations are exact wherever one thread does the work, which makes them the
 sharpest signal for a front-end change.

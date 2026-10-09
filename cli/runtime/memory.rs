@@ -676,7 +676,10 @@ pub extern "C" fn buri_rt_alloc(payload: u64) -> *mut u8 {
         // visit to the thread-local. A hit is a block of exactly `payload`
         // usable bytes, so `finish` writes the same header it would have
         // written over a fresh one.
-        let hit = cache_pop_counted(payload);
+        let hit = match cache_pop_counted(payload) {
+            None if payload > CACHE_MAX_PAYLOAD => big_take(payload),
+            hit => hit,
+        };
         let raw = match hit {
             // SAFETY: `p` is a payload pointer, so `p - 16` is its block.
             Some(p) => unsafe { p.sub(BURI_RT_HEADER) },
@@ -686,9 +689,19 @@ pub extern "C" fn buri_rt_alloc(payload: u64) -> *mut u8 {
         return finish_uncounted(raw, payload, 0);
     }
     let layout = layout_for(payload);
-    // SAFETY: `layout` has a non-zero size — the header alone is 16 bytes.
-    let raw = unsafe { alloc(layout) };
+    let raw = match big_take_beside_scopes(payload) {
+        // SAFETY: `p` is a payload pointer, so `p - 16` is its block.
+        Some(p) => unsafe { p.sub(BURI_RT_HEADER) },
+        // SAFETY: `layout` has a non-zero size — the header alone is 16 bytes.
+        None => unsafe { alloc(layout) },
+    };
     finish(raw, payload)
+}
+
+/// A kept large block for a platform allocation in a process that has opened
+/// a scope: the arm [`scoped_alloc`] falls through to, outside any arena.
+fn big_take_beside_scopes(payload: u64) -> Option<*mut u8> {
+    if payload > CACHE_MAX_PAYLOAD { big_take(payload) } else { None }
 }
 
 /// [`buri_rt_alloc`], with the payload zeroed.
@@ -703,7 +716,11 @@ pub extern "C" fn buri_rt_alloc_zeroed(payload: u64) -> *mut u8 {
             return p;
         }
     } else {
-        let raw = match cache_pop_counted(payload) {
+        let hit = match cache_pop_counted(payload) {
+            None if payload > CACHE_MAX_PAYLOAD => big_take(payload),
+            hit => hit,
+        };
+        let raw = match hit {
             // G2: a cached block holds whatever the last value in it held, so
             // this one zeroes what `alloc_zeroed` would have got from the
             // allocator.
@@ -720,8 +737,16 @@ pub extern "C" fn buri_rt_alloc_zeroed(payload: u64) -> *mut u8 {
         return finish_uncounted(raw, payload, 0);
     }
     let layout = layout_for(payload);
-    // SAFETY: as above.
-    let raw = unsafe { alloc_zeroed(layout) };
+    let raw = match big_take_beside_scopes(payload) {
+        // SAFETY: `p` is a payload pointer to a block with `payload` usable
+        // bytes, which is exactly the range written.
+        Some(p) => unsafe {
+            std::ptr::write_bytes(p, 0, payload as usize);
+            p.sub(BURI_RT_HEADER)
+        },
+        // SAFETY: as above.
+        None => unsafe { alloc_zeroed(layout) },
+    };
     finish(raw, payload)
 }
 
@@ -1026,6 +1051,7 @@ impl Cache {
         for idx in 0..CACHE_SLOTS {
             self.release_slot(idx);
         }
+        big_close();
         self.publish();
         self.armed = true;
         self.limit = 0;
@@ -1080,6 +1106,7 @@ impl Cache {
             }
         }
         self.publish();
+        big_sweep();
         // The pages under the blocks just released, past the pool's 8 MB. Not
         // in a test build: there the pool isn't the global allocator's, and
         // its own tests count every page in it.
@@ -1162,6 +1189,9 @@ impl Drop for CacheDrain {
 struct ThreadHeap {
     cache: std::cell::UnsafeCell<Cache>,
     tally: Tally,
+    /// Last, so the two fields above keep the offsets every allocation
+    /// reads them at.
+    big: std::cell::UnsafeCell<BigCache>,
 }
 
 thread_local! {
@@ -1183,6 +1213,11 @@ thread_local! {
                 words: [const { AtomicU64::new(0) }; TALLY_WORDS],
                 state: std::cell::Cell::new(TALLY_NEW),
             },
+            big: std::cell::UnsafeCell::new(BigCache {
+                slots: [Big { p: std::ptr::null_mut(), cap: 0, idle: 0 }; BIG_SLOTS],
+                held: 0,
+                published: 0,
+            }),
         }
     };
 
@@ -1395,8 +1430,7 @@ unsafe fn cache_push_counted(p: *mut u8, cap: u64) -> bool {
 #[inline(never)]
 unsafe fn cache_push_slow(t: &ThreadHeap, p: *mut u8, cap: u64) -> bool {
     if cap > CACHE_MAX_PAYLOAD {
-        t.tally.seen(&freed(cap));
-        return false;
+        return big_keep(t, p, cap);
     }
     // SAFETY: this thread's own cell, and the caller's reference to it has
     // ended.
@@ -1431,6 +1465,190 @@ unsafe fn cache_push_slow(t: &ThreadHeap, p: *mut u8, cap: u64) -> bool {
 }
 
 // === G2 end ================================================================
+
+// ---------------------------------------------------------------------------
+// Large blocks
+// ---------------------------------------------------------------------------
+//
+// **A block past `CACHE_MAX_PAYLOAD` was the system's, and that made a
+// program's work depend on the machine.** macOS's `malloc` keeps a freed large
+// block for reuse until the kernel reclaims it, on the kernel's schedule. A loop
+// that made and dropped a 288 KB list each turn took it back from `malloc` for
+// nothing on one run, and on the next, with memory short elsewhere, paid two
+// Mach calls a turn for a new one: `map` over 2,000 records retired 19.6 M
+// instructions or 30.7 M, run to run. A thread now keeps a few of them itself,
+// so the same program makes the same calls every time.
+//
+// **After the tally in `ThreadHeap`**, not in `Cache` or a thread-local of its
+// own: either of those moved the cache or the tally that every allocation
+// reads, and the string programs' cycles moved by up to 9%
+// (`design/PERFORMANCE.md` §6.67's layout effect).
+
+/// How many blocks past [`CACHE_MAX_PAYLOAD`] a thread keeps.
+const BIG_SLOTS: usize = 8;
+
+/// The process's budget for kept large blocks, divided between threads as
+/// [`CACHE_BYTES`] is, with a floor of [`BIG_BYTES_FLOOR`] a thread.
+const BIG_BYTES: u64 = 16 << 20;
+
+/// The least a thread may keep of [`BIG_BYTES`].
+const BIG_BYTES_FLOOR: u64 = 1 << 20;
+
+/// How many of `CACHE`'s sweeps a kept large block waits to be taken before it
+/// goes back. Longer than [`CACHE_GRACE_SWEEPS`], because sweeps count small
+/// blocks, and a loop turn that frees a few thousand of them between taking its
+/// large ones spans several.
+const BIG_GRACE_SWEEPS: u8 = 16;
+
+/// One thread's share of [`BIG_BYTES`].
+fn big_budget() -> u64 {
+    static BUDGET: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *BUDGET.get_or_init(|| {
+        let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+        (BIG_BYTES / (threads as u64).max(1)).max(BIG_BYTES_FLOOR)
+    })
+}
+
+/// One kept large block, or none where `p` is null.
+#[derive(Clone, Copy)]
+struct Big {
+    /// The payload pointer.
+    p: *mut u8,
+    cap: u64,
+    /// Sweeps since it was kept.
+    idle: u8,
+}
+
+/// A thread's kept large blocks.
+struct BigCache {
+    slots: [Big; BIG_SLOTS],
+    held: u64,
+    /// What this thread last told [`RETAINED_BYTES`] these held.
+    published: u64,
+}
+
+impl BigCache {
+    /// The kept block of exactly `payload` usable bytes, if there is one.
+    fn take(&mut self, payload: u64) -> Option<*mut u8> {
+        let big = self.slots.iter_mut().find(|b| !b.p.is_null() && b.cap == payload)?;
+        let p = big.p;
+        big.p = std::ptr::null_mut();
+        self.held = self.held.saturating_sub(slot_bytes(payload));
+        Some(p)
+    }
+
+    /// Keep dead block `p` of `cap` usable bytes, giving back the longest idle
+    /// ones to make room. A block past the whole budget isn't kept.
+    fn keep(&mut self, p: *mut u8, cap: u64) -> bool {
+        let bytes = slot_bytes(cap);
+        if bytes > big_budget() {
+            return false;
+        }
+        while self.slots.iter().all(|b| !b.p.is_null()) || self.held + bytes > big_budget() {
+            // The first of the longest idle, so the choice depends on nothing
+            // but this thread's own frees.
+            let mut oldest: Option<(usize, u8)> = None;
+            for (i, b) in self.slots.iter().enumerate() {
+                if !b.p.is_null() && oldest.is_none_or(|(_, idle)| b.idle > idle) {
+                    oldest = Some((i, b.idle));
+                }
+            }
+            let Some((i, _)) = oldest else { return false };
+            self.release(i);
+        }
+        let Some(big) = self.slots.iter_mut().find(|b| b.p.is_null()) else { return false };
+        *big = Big { p, cap, idle: 0 };
+        self.held += bytes;
+        true
+    }
+
+    /// Give kept block `i` back to the global allocator.
+    fn release(&mut self, i: usize) {
+        let Some(big) = self.slots.get_mut(i) else { return };
+        let (p, cap) = (big.p, big.cap);
+        if p.is_null() {
+            return;
+        }
+        big.p = std::ptr::null_mut();
+        self.held = self.held.saturating_sub(slot_bytes(cap));
+        // SAFETY: a dead block this file kept, of exactly `cap` usable bytes,
+        // so `p - 16` is the allocation and `layout_for(cap)` its layout.
+        unsafe { dealloc(p.sub(BURI_RT_HEADER), layout_for(cap)) }
+    }
+
+    /// Age every kept block one sweep, and give back those past the grace.
+    fn sweep(&mut self) {
+        for i in 0..BIG_SLOTS {
+            let Some(big) = self.slots.get_mut(i) else { break };
+            if big.p.is_null() {
+                continue;
+            }
+            if big.idle < BIG_GRACE_SWEEPS {
+                big.idle += 1;
+            } else {
+                self.release(i);
+            }
+        }
+        self.publish();
+    }
+
+    /// Tell [`RETAINED_BYTES`] what this thread holds here now.
+    fn publish(&mut self) {
+        if self.held >= self.published {
+            RETAINED_BYTES.fetch_add(self.held - self.published, Ordering::Relaxed);
+        } else {
+            RETAINED_BYTES.fetch_sub(self.published - self.held, Ordering::Relaxed);
+        }
+        self.published = self.held;
+    }
+}
+
+/// A kept block of exactly `payload` usable bytes, for an allocation
+/// [`cache_pop_counted`] has already counted and missed.
+#[cold]
+#[inline(never)]
+fn big_take(payload: u64) -> Option<*mut u8> {
+    // SAFETY: this thread's own cell; no reference to it outlives the closure.
+    CACHE.try_with(|t| unsafe { &mut *t.big.get() }.take(payload)).ok().flatten()
+}
+
+/// [`cache_push_slow`] for a block past [`CACHE_MAX_PAYLOAD`]: kept if this
+/// thread's cache is open. The free is already in the tally.
+#[cold]
+#[inline(never)]
+fn big_keep(t: &ThreadHeap, p: *mut u8, cap: u64) -> bool {
+    t.tally.seen(&freed(cap));
+    // SAFETY: this thread's own cell, and the caller's reference to it has
+    // ended.
+    let cache = unsafe { &mut *t.cache.get() };
+    if !cache.armed {
+        cache.arm();
+    }
+    // A closed or unarmable cache keeps nothing, so nothing outlives the
+    // drain that would give it back.
+    // SAFETY: this thread's own cell, as above.
+    let kept = cache.limit != 0 && unsafe { &mut *t.big.get() }.keep(p, cap);
+    cache.tick();
+    kept
+}
+
+/// [`BigCache::sweep`], from `CACHE`'s sweep.
+fn big_sweep() {
+    // SAFETY: this thread's own cell; no reference to it outlives the closure.
+    let _ = CACHE.try_with(|t| unsafe { &mut *t.big.get() }.sweep());
+}
+
+/// Give every kept large block back, from `CACHE`'s close at thread exit.
+fn big_close() {
+    let _ = CACHE.try_with(|t| {
+        // SAFETY: this thread's own cell; no reference to it outlives the closure.
+        let big = unsafe { &mut *t.big.get() };
+        for i in 0..BIG_SLOTS {
+            big.release(i);
+        }
+        big.publish();
+    });
+}
 
 /// Grow or shrink a block in place where the allocator can, preserving `rc`.
 ///
@@ -4374,6 +4592,34 @@ fn task_pool_keep(base: *mut u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A thread keeps the large blocks it frees and hands them back**, so a
+    /// loop that makes and drops two big lists a turn asks the system
+    /// allocator for none after the first.
+    #[test]
+    fn a_thread_reuses_the_large_blocks_it_freed() {
+        if heap_check().quarantines() {
+            return;
+        }
+        std::thread::spawn(|| {
+            const PAYLOAD: u64 = 288_000;
+            let first = [buri_rt_alloc(PAYLOAD), buri_rt_alloc(PAYLOAD)];
+            for p in first {
+                // SAFETY: a live block nothing else holds.
+                unsafe { buri_rt_free(p) };
+            }
+            let second = [buri_rt_alloc(PAYLOAD), buri_rt_alloc(PAYLOAD)];
+            for p in second {
+                assert!(first.contains(&p), "a large block wasn't reused: {first:?} then {second:?}");
+            }
+            for p in second {
+                // SAFETY: as above.
+                unsafe { buri_rt_free(p) };
+            }
+        })
+        .join()
+        .unwrap();
+    }
 
     /// **The two stack constants are the ones `backend/stencil/asm.rs` emits
     /// against.**
