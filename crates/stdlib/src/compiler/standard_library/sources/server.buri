@@ -444,7 +444,8 @@ export struct Tls {
 /// `.Ok(())` means the server stopped the way it was asked to — its request
 /// limit spent, its listener closed, or the platform asked it to stop and it
 /// finished draining. An error is a reason it could not go on, and it gives the
-/// port back on that path too.
+/// port back on that path too. A client that hangs up is not one: it ends only
+/// its own connection.
 ///
 /// A program that needs the port *while* the server runs — anything binding
 /// `port: 0` — wants this function's two halves, `bind` and `run`. So does a
@@ -635,6 +636,10 @@ fn together<C: Allocator + Listen + Tasks, S>(
 /// module has to know that a listener signs off by failing. It is read from
 /// **either** call, because an acceptor may notice it is done when it takes the
 /// last response as easily as when it is next asked for a request.
+///
+/// **Only an accept that fails is the listener failing.** A request that
+/// cannot be read or an answer that cannot be written — a client that hung up
+/// — ends that connection, and the loop goes round (buri-lang/buri#274).
 fn answering<C: Listen, S>(
     ctx: C,
     handle: Int,
@@ -645,16 +650,38 @@ fn answering<C: Listen, S>(
     match (ctx.listenAccept(handle)) {
         .Err(e) => ending(ctx, handle, e, last),
         .Ok(connection) => {
-            match (ctx.listenRequest(connection)) {
+            match (alone(connected(ctx, connection, onRequest, websocket))) {
                 .Err(e) => ending(ctx, handle, e, last),
-                .Ok(request) => {
-                    match (taking(ctx, connection, request, onRequest, websocket)) {
-                        .Err(e) => ending(ctx, handle, e, last),
-                        .Ok(ended) => {
-                            answering(ctx, handle, onRequest, websocket, ended.or(last))
-                        },
-                    }
+                .Ok(ended) => {
+                    answering(ctx, handle, onRequest, websocket, ended.or(last))
                 },
+            }
+        },
+    }
+}
+
+/// One accepted connection: its request read, then answered or upgraded.
+fn connected<C: Listen, S>(
+    ctx: C,
+    connection: Int,
+    onRequest: fn(C, Request) => Response,
+    websocket: Option<WebSocket<C, S>>,
+): Result<Option<S>, ServeError> {
+    match (ctx.listenRequest(connection)) {
+        .Err(e) => .Err(e),
+        .Ok(request) => taking(ctx, connection, request, onRequest, websocket),
+    }
+}
+
+/// A connection's own failure as the end of that connection. `.Closed` passes
+/// through, because it is the listener signing off.
+fn alone<S>(outcome: Result<Option<S>, ServeError>): Result<Option<S>, ServeError> {
+    match (outcome) {
+        .Ok(ended) => .Ok(ended),
+        .Err(e) => {
+            match (e.cause) {
+                .Closed => .Err(e),
+                _ => .Ok(.None),
             }
         },
     }

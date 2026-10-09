@@ -1960,8 +1960,8 @@ fn write_response(
 /// `Listen::listenClose`. Closing twice has nothing to do, which is what lets a
 /// loop unwinding out of a failure tidy up without remembering how far it got.
 ///
-/// **It is also how one worker stops the others.** A worker whose accept or
-/// respond failed calls this before it returns its error, so the workers waiting
+/// **It is also how one worker stops the others.** A worker whose accept
+/// failed calls this before it returns its error, so the workers waiting
 /// beside it are woken and answered `.Closed` rather than waiting out a server
 /// that has already failed. What makes it safe to call while the acceptor thread
 /// is inside an `accept(2)` is [`ACCEPTORS`]'s `Arc`: the entry leaves the table

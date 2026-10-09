@@ -1561,6 +1561,274 @@ fn closing_a_listener_ends_run_on_it() {
 }
 
 // ---------------------------------------------------------------------------
+// One connection's failure is that connection's alone (buri-lang/buri#274)
+// ---------------------------------------------------------------------------
+
+/// A server that holds `/held` in its handler until a byte arrives on stdin,
+/// then answers it with more than a socket buffer holds.
+///
+/// The first argument, when positive, is how many workers `run` starts. One
+/// worker answers connections in order, so the next request is answered only
+/// after the one before it was written or failed.
+fn resetting_server() -> String {
+    String::from(
+        r#"from "platform/effect" import {
+    Allocator, Environment, Listen, Sockets, Stdin, Stdout, Tasks,
+};
+from "native" import { NativeHost };
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/str" import * as str;
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Environment: host.env,
+        Listen: host.listen,
+        Sockets: host.sockets,
+        Stdin: host.stdin,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let workers = env.arguments(ctx).first().andThen(fn(a) => a.toInt()).withDefault(0);
+    let plan = server.Server {
+        port: 0,
+        onRequest: fn(c, request) => {
+            match (request.path()) {
+                "/held" => {
+                    let _handling = io.println(c, "handling").ignore();
+                    let _released = io.readBytes(c, 1);
+                    http.text(c, "x".repeat(c, 8388608))
+                },
+                path => http.text(c, path),
+            }
+        },
+        websocket: .Some(server.WebSocket {
+            path: "/socket",
+            onOpen: fn(c, _socket, _request) => {
+                let _opened = io.println(c, "opened").ignore();
+                0
+            },
+            onMessage: fn(_c, _socket, seen, _message) => seen,
+            onClose: fn(c, _socket, seen, reason) => {
+                let _closed = io.println(c, "closed ${reason.show(c)}").ignore();
+                seen
+            },
+        }),
+    };
+    let bound = server.bind(ctx, plan).mapErr(server.errorText)?;
+    let listener = if (workers > 0) {
+        server.Listener { handle: bound.handle, port: bound.port, handlers: workers }
+    } else {
+        bound
+    };
+    let _announced = io.println(ctx, "port ${listener.port}").ignore();
+    match (server.run(ctx, listener, plan)) {
+        .Err(e) => .Err(str.format(ctx, "${server.errorText(e)}: ${e.detail}")),
+        .Ok(_last) => {
+            let _done = io.println(ctx, "served").ignore();
+            .Ok(())
+        },
+    }
+}
+"#,
+    )
+}
+
+/// [`resetting_server`], running, with its stdin held open and each line it
+/// says on a channel.
+struct Resetting {
+    child: std::process::Child,
+    stdin: std::process::ChildStdin,
+    saying: std::sync::mpsc::Receiver<String>,
+    reader: std::thread::JoinHandle<Vec<String>>,
+    port: u16,
+}
+
+impl Resetting {
+    fn start(binary: &std::path::Path, workers: usize) -> Resetting {
+        use std::io::BufRead;
+        let mut child = crate::shared::started(
+            std::process::Command::new(binary)
+                .arg(workers.to_string())
+                .env("BURI_RT_HEAP_CHECK", "1")
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped()),
+        );
+        let stdin = child.stdin.take().expect("a piped stdin");
+        let stdout = child.stdout.take().expect("a piped stdout");
+        let (says, saying) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let mut lines = Vec::new();
+            for line in std::io::BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                let _ = says.send(line.clone());
+                lines.push(line);
+            }
+            lines
+        });
+        let port = crate::shared::saying_until(&saying, crate::shared::SERVER_DEADLINE, |line| {
+            line.strip_prefix("port ").and_then(|p| p.parse::<u16>().ok())
+        });
+        let Some(port) = port else {
+            let _ = child.kill();
+            panic!("the server announced no port");
+        };
+        Resetting { child, stdin, saying, reader, port }
+    }
+
+    /// Wait until the server says `line`.
+    fn said(&mut self, line: &str) {
+        let heard = crate::shared::saying_until(&self.saying, crate::shared::SERVER_DEADLINE, |l| {
+            (l == line).then_some(())
+        });
+        if heard.is_none() {
+            let _ = self.child.kill();
+            panic!("the server never said `{line}`");
+        }
+    }
+
+    /// Let the handler holding `/held` answer.
+    fn release(&mut self) {
+        use std::io::Write;
+        self.stdin.write_all(b"g").expect("the release reached the server");
+        self.stdin.flush().expect("flush");
+    }
+
+    /// `GET target` on a fresh connection, and the reply.
+    fn asked(&self, target: &str) -> String {
+        let request = format!("GET {target} HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n");
+        let back = dialled(self.port, request.as_bytes(), Until::Closed);
+        String::from_utf8_lossy(&back).to_string()
+    }
+
+    /// A connection that has sent `GET /held` and is inside the handler.
+    fn held(&mut self) -> std::net::TcpStream {
+        use std::io::Write;
+        let mut socket = std::net::TcpStream::connect(("127.0.0.1", self.port))
+            .expect("could not reach the server");
+        socket.write_all(b"GET /held HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").unwrap();
+        socket.flush().unwrap();
+        self.said("handling");
+        socket
+    }
+
+    /// `SIGTERM`, then how the server exited, what it said, and its stderr.
+    fn stopped(mut self) -> (Option<i32>, String, String) {
+        use std::io::Read;
+        crate::shared::signalling(&self.child, crate::shared::SIGTERM);
+        let status = crate::shared::waited(&mut self.child, crate::shared::SERVER_DEADLINE);
+        let lines = self.reader.join().expect("the reader thread finished");
+        let mut stderr = String::new();
+        if let Some(mut err) = self.child.stderr.take() {
+            let _ = err.read_to_string(&mut stderr);
+        }
+        (status.code(), lines.join("\n"), stderr)
+    }
+}
+
+/// `run` answered `.Ok` once signalled, so nothing ended the listener early.
+fn served_to_the_end(stopped: (Option<i32>, String, String)) {
+    let (code, said, stderr) = stopped;
+    assert_eq!(code, Some(0), "the server failed.\nstdout:\n{said}\nstderr:\n{stderr}");
+    assert!(said.ends_with("served"), "`run` did not answer `.Ok`:\n{said}");
+}
+
+/// **A client that resets before its answer is written ends only its own
+/// connection.** buri-lang/buri#274.
+///
+/// The write fails with `EPIPE` or `ECONNRESET`, the process survives it, the
+/// listener answers the next client, and `run` answers `.Ok` when signalled.
+/// Once with one worker and once with as many as the listener hosts.
+#[test]
+fn a_client_that_resets_before_its_answer_leaves_the_listener_serving() {
+    unless_ready!();
+    let binary = built("e2e-reset-answer", &resetting_server());
+    for workers in [1, 0] {
+        let mut server = Resetting::start(&binary, workers);
+        let held = server.held();
+        crate::shared::reset(held);
+        server.release();
+        let reply = server.asked("/after");
+        assert_eq!(body_of(&reply), Some("/after"), "workers {workers}, the next client:\n{reply}");
+        served_to_the_end(server.stopped());
+    }
+}
+
+/// **A connection that breaks before its request is whole, or sends nonsense,
+/// ends only itself.** A reset mid-head is a failed read, and a malformed head
+/// is answered `400`; the listener answers the next client either way.
+#[test]
+fn a_connection_that_breaks_before_its_request_is_whole_leaves_the_listener_serving() {
+    use std::io::Write;
+    unless_ready!();
+    let binary = built("e2e-reset-request", &resetting_server());
+    let server = Resetting::start(&binary, 1);
+
+    let mut half = std::net::TcpStream::connect(("127.0.0.1", server.port)).unwrap();
+    half.write_all(b"GET /half HTTP/1.1\r\nhost: 127").unwrap();
+    half.flush().unwrap();
+    crate::shared::reset(half);
+
+    let nonsense = dialled(server.port, b"nonsense\r\n\r\n", Until::Closed);
+    let nonsense = String::from_utf8_lossy(&nonsense).to_string();
+    assert!(nonsense.starts_with("HTTP/1.1 400 "), "a malformed request:\n{nonsense}");
+
+    let reply = server.asked("/after");
+    assert_eq!(body_of(&reply), Some("/after"), "the next client:\n{reply}");
+    served_to_the_end(server.stopped());
+}
+
+/// **A WebSocket client that resets ends only its socket.** `onClose` is told
+/// `.Abnormal`, and the worker goes back to accepting.
+#[test]
+fn a_websocket_client_that_resets_ends_only_its_socket() {
+    unless_ready!();
+    let binary = built("e2e-reset-socket", &resetting_server());
+    let mut server = Resetting::start(&binary, 1);
+    let talking = crate::shared::Talking::to(server.port);
+    server.said("opened");
+    talking.reset();
+    server.said("closed .Abnormal");
+    let reply = server.asked("/after");
+    assert_eq!(body_of(&reply), Some("/after"), "the next client:\n{reply}");
+    served_to_the_end(server.stopped());
+}
+
+/// **A TLS client that resets mid-handshake ends only its connection.** The
+/// next `ClientHello` on the same port is answered, and the listener drains to
+/// `.Ok`.
+#[test]
+fn a_tls_client_that_resets_mid_handshake_leaves_the_listener_serving() {
+    use std::io::{Read, Write};
+    unless_ready!();
+    let (certificate, key, _absent) = crate::shared::tls_identity("e2e-reset");
+    let binary = built("e2e-tls-reset", &tls_running_server(&certificate, &key));
+    let running = crate::shared::announced(&binary);
+    let port = running.2;
+    let hello = client_hello(&["h2", "http/1.1"]);
+
+    let mut first = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    first.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).unwrap();
+    first.write_all(&hello).unwrap();
+    first.flush().unwrap();
+    let mut record = [0u8; 1];
+    first.read_exact(&mut record).expect("the server began its handshake");
+    crate::shared::reset(first);
+
+    let back = dialled(port, &hello, Until::ARecord);
+    assert_eq!(chose(&back).as_deref(), Some("h2"), "the next ClientHello: {back:?}");
+
+    crate::shared::signalling(&running.0, crate::shared::SIGTERM);
+    let out = crate::shared::finished(running);
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert!(out.stdout.ends_with("served\n"), "`run` did not answer `.Ok`:\n{}", out.stdout);
+}
+
+// ---------------------------------------------------------------------------
 // C3's refusal, over real source
 // ---------------------------------------------------------------------------
 

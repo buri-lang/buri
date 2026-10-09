@@ -2195,21 +2195,26 @@ test "a handler reached through the wrapper is handed the caller's context" {
         }),
     );
     assert.equal(sink.captured(), "hit 10.0.0.1\n");
-    // The negation: the acceptor hands out a request naming *its own* address,
-    // so a handler comparing the two answers 500 when they disagree, and
-    // `OneShotListen` refuses anything outside 200..599 — a listener that
-    // answered `.Ok` whatever it was handed would pass the block above too.
-    let _ = assert.err(
-        server.serve(ctx, server.Server {
+    // The negation: the acceptor is handed what the handler answered, so a
+    // loop that answered something of its own would fail here.
+    let heard = stdout();
+    let recorded = context {
+        Allocator: alloc(),
+        Listen: Faulting { sink: heard, failing: "" },
+        Stdout: sink,
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    assert.ok(
+        server.serve(recorded, server.Server {
             port: 0,
-            address: .Some("10.0.0.1"),
             onRequest: fn(c, request) => {
                 io.println(c, "hit ${request.url}").ignore();
                 Response { status: 42, headers: [], body: [] }
             },
         }),
     );
-    assert.equal(sink.captured(), "hit 10.0.0.1\nhit 10.0.0.1\n");
+    assert.equal(sink.captured(), "hit 10.0.0.1\nhit /\n");
+    assert.equal(heard.captured(), "read\nanswered 42\n");
 }
 
 test "a context binding two effects reaches both through bounds" {
@@ -2775,6 +2780,109 @@ test "a server with no hooks never upgrades, so an upgrade is an ordinary reques
         },
     });
     assert.equal(sink.captured(), "handled /socket\n");
+}
+
+/// A `Listen` with one connection, where the call `failing` names answers
+/// `.Transport`: `"accept"`, `"request"` or `"respond"`.
+///
+/// It records each read and answer in `sink`, and counts through it for
+/// `Scripted`'s reason: the second accept is `.Closed` once the first
+/// connection has been read.
+struct Faulting {
+    sink: TestStdout,
+    failing: Str,
+}
+
+fn broken(what: Str): ServeError {
+    ServeError { cause: .Transport, detail: what }
+}
+
+impl Listen for Faulting {
+    fn listenBind(
+        self,
+        address: Str,
+        port: Int,
+        plan: [Serve],
+        requestLimit: Int,
+        idleTimeoutMilliseconds: Int,
+    ): Result<Listener, ServeError> {
+        .Ok(Listener { handle: 1, port: 8080, handlers: 1 })
+    }
+
+    fn listenAccept(self, handle: Int): Result<Int, ServeError> {
+        match ((self.failing, self.sink.captured())) {
+            ("accept", _) => .Err(broken("accepting")),
+            (_, "") => .Ok(7),
+            _ => .Err(ServeError { cause: .Closed, detail: "" }),
+        }
+    }
+
+    fn listenRequest(self, connection: Int): Result<Request, ServeError> {
+        let _read = self.sink.println("read");
+        match (self.failing) {
+            "request" => .Err(broken("reading the request")),
+            _ => {
+                .Ok(Request {
+                    method: .Get,
+                    url: "/",
+                    headers: [],
+                    body: [],
+                    timeoutMillis: 0,
+                })
+            },
+        }
+    }
+
+    fn listenRespond(
+        self,
+        connection: Int,
+        status: Int,
+        headers: [Header],
+        body: [U8],
+    ): Result<(), ServeError> {
+        let _answered = self.sink.println("answered ${status}");
+        match (self.failing) {
+            "respond" => .Err(broken("writing the response")),
+            _ => .Ok(()),
+        }
+    }
+
+    fn listenClose(self, handle: Int): () {
+        ()
+    }
+
+    fn listenUpgrade(self, connection: Int): Result<Int, ServeError> {
+        .Err(ServeError { cause: .Unsupported, detail: "not an upgrade" })
+    }
+
+    fn listenReceive(self, socket: Int): Result<Received, ServeError> {
+        .Err(ServeError { cause: .Closed, detail: "" })
+    }
+}
+
+fn servedWhile(failing: Str): Result<(), ServeError> {
+    let ctx = context {
+        Allocator: alloc(),
+        Listen: Faulting { sink: stdout(), failing: failing },
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    server.serve(ctx, server.Server {
+        port: 0,
+        onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+    })
+}
+
+test "a connection that fails ends alone, and the server goes on accepting" {
+    // buri-lang/buri#274: a client that hung up made the failed write end `run`.
+    assert.ok(servedWhile("respond"));
+    assert.ok(servedWhile("request"));
+    assert.ok(servedWhile(""));
+}
+
+test "an accept that fails is the listener failing, and run answers it" {
+    let failed = assert.err(servedWhile("accept"));
+    assert.equal(failed.cause, .Transport);
+    assert.equal(failed.detail, "accepting");
 }
 
 test "a socket handle a program wrote for itself is one that has already gone" {

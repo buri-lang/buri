@@ -760,6 +760,24 @@ pub const SIGINT: i32 = 2;
 // dependency.
 unsafe extern "C" {
     fn kill(pid: i32, sig: i32) -> i32;
+    fn setsockopt(fd: i32, level: i32, name: i32, value: *const core::ffi::c_void, len: u32) -> i32;
+}
+
+/// Close a socket with a reset rather than a FIN: `SO_LINGER` on, for zero
+/// seconds.
+pub fn reset(socket: std::net::TcpStream) {
+    use std::os::fd::AsRawFd;
+    #[cfg(target_os = "macos")]
+    const LINGER: (i32, i32) = (0xffff, 0x80);
+    #[cfg(not(target_os = "macos"))]
+    const LINGER: (i32, i32) = (1, 13);
+    let linger = [1i32, 0i32];
+    // SAFETY: `linger` is the C `struct linger`, two `int`s, and outlives the call.
+    let set = unsafe {
+        setsockopt(socket.as_raw_fd(), LINGER.0, LINGER.1, linger.as_ptr().cast(), 8)
+    };
+    assert_eq!(set, 0, "could not set SO_LINGER: {}", std::io::Error::last_os_error());
+    drop(socket);
 }
 
 /// A Buri server that **cannot stop on its own**, so that the only thing that
@@ -1052,7 +1070,7 @@ pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
 
 /// The first line the child says that `read` makes something of, within one
 /// deadline for the whole wait.
-fn saying_until<T>(
+pub fn saying_until<T>(
     saying: &std::sync::mpsc::Receiver<String>,
     within: std::time::Duration,
     read: impl Fn(&str) -> Option<T>,
@@ -1728,6 +1746,11 @@ impl Talking {
     /// One masked text frame.
     pub fn say(&mut self, text: &str) {
         self.frame(0x1, text.as_bytes());
+    }
+
+    /// Hang up with a reset, sending no close frame.
+    pub fn reset(self) {
+        reset(self.socket);
     }
 
     /// A masked close, code 1000.
