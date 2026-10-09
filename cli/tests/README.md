@@ -585,6 +585,9 @@ adds a native `--release` test owes this paragraph a second look —
 `compiler::backend::a_release_refusal_names_the_profile_rather_than_the_platform`
 takes it today, asking `build::actions::native_gap` for the host's own target
 under `Profile::Release` and asserting both answers.
+`build::work_counts::a_native_release_test_run_does_the_pinned_work` is one
+such test: without the feature it holds the refusal, so only a feature build of
+`--test build` runs its scenarios.
 
 **CI is not this.** CI runs everything under both feature sets, on both hosts.
 The sequence above is the local edit loop. One line of it *is* CI's: the

@@ -236,6 +236,7 @@ pub fn explain_without_platform(
               than a diagnostic, which still leaves through Session::emit"
 )]
 fn line(on: bool, status: Status, action: Action, label: &str, platform: &str, key: &ActionKey) {
+    crate::build::counted::explained(status, action);
     if !on {
         return;
     }

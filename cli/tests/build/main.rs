@@ -23,6 +23,7 @@
 //! | [`watch`] | scratch | What `buri watch` declares as its input set, and what it re-runs when one of them moves. |
 //! | [`serving`] | `repositories/serving/` | That `buri run` on a page builds the artifact and serves it — the shell for every route, the files beside it as themselves, and `--watch` rebuilding into the next request. |
 //! | [`web_storage`] | `repositories/platform/storage_on_a_page/` | That a page's `Storage` reaches IndexedDB through `web`'s `main.mjs`, survives a reload, and turns a full quota or a refusal into an error. |
+//! | [`work_counts`] | scratch | The work `buri test` does per scenario — suites built and reused, objects compiled, links, new executables, test processes, files written — pinned exactly on each backend. |
 //!
 //! ```text
 //! cargo test -p buri --test build                          # all nine
@@ -68,3 +69,4 @@ mod serving;
 mod verbose;
 mod watch;
 mod web_storage;
+mod work_counts;

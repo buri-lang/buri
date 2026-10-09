@@ -7345,6 +7345,69 @@ move.
 **What's left** is the one-thread chain, check through middle, ~230 ms of a
 cold run, and the launch check.
 
+### 6.80 `buri test`'s work, counted and pinned, 2026-10-09
+
+§6.76 and §6.79 put an edit-and-rerun's time in the launch check of each new
+runner, then the link. No instruction count sees either, so a run now counts
+the operations:
+
+```text
+$ BURI_PROFILE=1 buri test //...      # after editing one test
+suites built 1
+suites restored 0
+suites reused 2
+objects compiled 2
+objects restored 4
+links 1
+new executables launched 1
+test processes 1
+```
+
+- **suites built, restored, reused**: `--explain`'s `run build`,
+  `cached build` and `cached test` lines.
+- **objects compiled, restored**: its `run codegen` and `cached codegen` lines.
+- **links**: linker runs (`CDriver::link`).
+- **new executables launched**: first starts of a file `place_from` wrote as a
+  new inode, which is what macOS checks.
+- **test processes**: native runners and JavaScript runtimes started for tests.
+
+Load and thread scheduling can't move any of them. `build::work_counts` pins
+them, plus the files a run wrote (new inodes or changed ones under the
+repository), on three suites where two share a library:
+
+| Scenario | Stencil, LLVM `--release` | JavaScript, `--release` too |
+|---|---|---|
+| cold `//...` | 3 built, 10 objects, 1 link, 1 new exe, 3 processes | 3 built, 3 processes, 7 files |
+| rerun | 3 reused, nothing else | the same |
+| edit one test | 1 built, 2 objects (4 restored), 1 link, 1 new exe, 1 process, 7 files | 1 built, 1 process, 2 files |
+| edit the shared library | 2 built, 3 objects (5 restored), 1 link, 1 new exe, 2 processes, 10 files | 2 built, 2 processes, 4 files |
+| `--filter` matching one suite | 3 built, 4 objects (6 restored), 1 link, 1 new exe, 1 process, 10 files | 3 built, 3 processes, 9 files |
+| the same `--filter` again | 3 restored, 1 process | 3 restored, 3 processes, 3 files |
+| one edited suite named alone | 1 built, 1 object (4 restored), 1 link, 1 new exe, 1 process, 6 files | 1 built, 1 process, 2 files |
+| that suite alone again | 1 reused, nothing else | the same |
+
+A cold native run's files written aren't pinned: Linux also writes the musl
+sysroot into the cache. Test processes are exact because each suite holds one
+test. A suite with more blocks starts helper processes only while blocks are
+still waiting, which does depend on scheduling.
+
+**Leads, measured and left:**
+
+- **A runner's members decide some units' code.** The first edit after a cold
+  run links `{a}` where the cold run linked `{a, b, c}`, and recompiles
+  `core_testing_assert` with the test. A second edit to the same test
+  recompiles only the test's unit.
+- **An edit that leaves a library's object unchanged still recompiles its
+  dependents.** `40` to `40 + 0` to `40 + 1 - 1` in the shared library: its
+  unit is cached each time, yet both suites' test units and `core_number`
+  compile again.
+- **`--filter` builds every suite.** Two of the three hold no matching test,
+  yet each is compiled into the runner. On JavaScript each also gets a
+  process.
+- **JavaScript rewrites a restored bundle.** The same `--filter` again writes
+  all three bundles, though their bytes match. Native `place_from` leaves an
+  identical runner alone.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
