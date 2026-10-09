@@ -7438,6 +7438,27 @@ leaves nothing in, is skipped rather than reported.
 `--verbose` lists the skipped tests as before, and a suite left with none
 shows no build time, since it wasn't built.
 
+**The first edit's extra objects, measured and left.** Conformance, after a
+cold run, with `backends: [JS]` dropped from the 32 suites stencil compiles:
+
+| Edit after a cold run | Wall | Objects compiled | `emit` | `run` |
+|---|---:|---:|---:|---:|
+| first | 0.26–0.27 s | 15 | 11 ms | 182 ms |
+| second | 0.11–0.21 s | 1 | 3 ms | 3 ms |
+
+The edited suite's runner holds one suite where the cold run's held 32.
+Different instantiations, and an inliner that pastes a body called once
+(`assert.equal` from one test, rather than from 32), change 14 library objects.
+Reusing them would save 8 ms of `emit`. The rest of the gap is the launch
+check of a runner with new bytes, which a first edit always pays, so this is
+left.
+
+**A rerun leaves a bundle that holds the same bytes alone.** `write_bundle`
+compared nothing and rewrote every bundle it ran, while native `place_from`
+skips an identical runner. The same `--filter=JSON` run again now writes 0
+files where it wrote 2 on conformance and 20 on ×10. Wall time doesn't move:
+0.084 s and 0.33–0.37 s, either way.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
