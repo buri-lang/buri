@@ -42,6 +42,9 @@ pub struct Loader<'a> {
     test_sources: Vec<ModuleId>,
     /// See [`Loaded::custom`].
     custom: Option<crate::build::buildfile::CustomPlatform>,
+    /// What each module path an import wrote resolved to. Resolving asks the
+    /// disk whether the file is there, and one import line asked three times.
+    resolved: HashMap<String, std::rc::Rc<Result<ModuleLocation, String>>>,
 }
 
 impl<'a> Loader<'a> {
@@ -65,6 +68,7 @@ impl<'a> Loader<'a> {
             platform: None,
             entry: None,
             custom: None,
+            resolved: HashMap::default(),
         }
     }
 
@@ -601,6 +605,16 @@ impl<'a> Loader<'a> {
     /// resolver looks a module up by the string in the import line, and both
     /// strings have to land on the same module or the types they carry are
     /// not the same types.
+    /// [`Workspace::resolve_module`], once per path for this load.
+    fn resolve(&mut self, ws: &Workspace, path: &str) -> std::rc::Rc<Result<ModuleLocation, String>> {
+        if let Some(hit) = self.resolved.get(path) {
+            return std::rc::Rc::clone(hit);
+        }
+        let found = std::rc::Rc::new(ws.resolve_module(path));
+        self.resolved.insert(path.to_string(), std::rc::Rc::clone(&found));
+        found
+    }
+
     fn alias(&mut self, written: &str, id: ModuleId) {
         if !self.by_path.contains_key(written) {
             self.by_path.insert(written.to_string(), id);
@@ -625,9 +639,10 @@ impl<'a> Loader<'a> {
         // is `//lib/money` from outside and `//lib/money/lib.buri` from inside
         // — and the module is keyed by the file, so the two cannot become two
         // copies of everything the file declares.
-        match ws.resolve_module(path) {
+        let resolved = self.resolve(ws, path);
+        match &*resolved {
             Ok(ModuleLocation::InPackage(m)) => {
-                let (canonical, kind, file) = (m.path, m.kind, m.file);
+                let (canonical, kind, file) = (m.path.clone(), m.kind, m.file.clone());
                 let id = match kind {
                     ModuleKind::Generated => self.load_generated(&canonical, role),
                     _ => self.load_file(&canonical, file, role, span),
@@ -646,7 +661,7 @@ impl<'a> Loader<'a> {
                 if msg != crate::build::workspace::SCHEMA_HAS_ERRORS {
                     self.diags.push(
                         Diagnostic::templated("unknown-module", span)
-                            .with_bind("problem", msg)
+                            .with_bind("problem", msg.clone())
                             .with_fix(
                                 "create the file the path names, or correct the path — a module \
                                  path maps to exactly one file, with no search",
@@ -784,7 +799,7 @@ impl<'a> Loader<'a> {
     /// entry point as `Role::Entry` before anything can import it. A test
     /// binary compiled on its own, or a documentation example standing in the
     /// package, reaches it here first.
-    fn role_for(&self, path: &str) -> Role {
+    fn role_for(&mut self, path: &str) -> Role {
         if standard_library::is_std_path(path) {
             return if standard_library::is_platform_module(path) { Role::Platform } else { Role::Std };
         }
@@ -792,9 +807,9 @@ impl<'a> Loader<'a> {
             return Role::TestOnly;
         }
         if let Some(ws) = self.ws {
-            let resolved = ws.resolve_module(path);
+            let resolved = self.resolve(ws, path);
             let entry = matches!(
-                resolved,
+                &*resolved,
                 Ok(ModuleLocation::InPackage(m)) if m.kind == ModuleKind::BinaryEntry
             );
             if entry {
@@ -812,11 +827,11 @@ impl<'a> Loader<'a> {
     }
 
     /// Whether a module path is a repository platform's `platform.buri`.
-    fn is_platform_surface(&self, path: &str) -> bool {
+    fn is_platform_surface(&mut self, path: &str) -> bool {
         let Some(ws) = self.ws else { return false };
         path.ends_with("/platform.buri")
             && matches!(
-                ws.resolve_module(path),
+                &*self.resolve(ws, path),
                 Ok(ModuleLocation::InPackage(m)) if m.kind == ModuleKind::PlatformSurface
             )
     }
@@ -899,7 +914,8 @@ impl<'a> Loader<'a> {
 
         // A `//...` path always resolves inside this repository, so there is no
         // `core/` case to skip past here.
-        let Ok(ModuleLocation::InPackage(loc)) = ws.resolve_module(path) else {
+        let resolved = self.resolve(ws, path);
+        let Ok(ModuleLocation::InPackage(loc)) = &*resolved else {
             // `load_path` reports the resolution failure itself.
             return true;
         };
