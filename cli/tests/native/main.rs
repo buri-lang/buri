@@ -247,6 +247,11 @@ mod headless_timers;
 // JavaScript.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod hand_written_impls;
+// A `?` whose payload goes straight to a reader (#276): a method's receiver, a
+// field, an index, an argument, a scrutinee, under the heap check, on every
+// backend built in and on JavaScript.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod lent_try;
 // A region `ui.rebuild` keys on a heap value read from a signal, rebuilt by a
 // fill, under the heap check, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
