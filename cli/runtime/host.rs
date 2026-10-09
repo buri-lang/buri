@@ -153,18 +153,52 @@ pub unsafe extern "C" fn buri_rt_argv_init(argc: i32, argv: *const *const u8) {
 /// A new thread starts with the bit clear, so every thread that runs Buri code
 /// calls this: the main thread here, and each scheduler thread in `rt.rs`.
 pub(crate) fn no_pointer_prefetch() {
-    // SAFETY: every arm64 Mac has FEAT_DIT, and the bit changes timing, not results.
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    unsafe {
-        std::arch::asm!("msr dit, #1", options(nomem, nostack, preserves_flags));
+    if has_dit() {
+        // SAFETY: the CPU has FEAT_DIT, and the bit changes timing, not results.
+        unsafe { std::arch::asm!("msr dit, #1", options(nomem, nostack, preserves_flags)) };
     }
 }
 
-/// Whether the calling thread has `PSTATE.DIT` set.
+/// Whether the CPU has FEAT_DIT; without it `msr dit` is an illegal instruction.
+/// Asked of `sysctl` once. Zero means not asked yet, so the static is `__bss`.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub(crate) fn has_dit() -> bool {
+    use std::sync::atomic::{AtomicU8, Ordering::Relaxed};
+    const NO: u8 = 1;
+    const YES: u8 = 2;
+    static ANSWER: AtomicU8 = AtomicU8::new(0);
+    match ANSWER.load(Relaxed) {
+        NO => false,
+        YES => true,
+        _ => {
+            unsafe extern "C" {
+                fn sysctlbyname(
+                    name: *const std::ffi::c_char,
+                    oldp: *mut std::ffi::c_void,
+                    oldlenp: *mut usize,
+                    newp: *mut std::ffi::c_void,
+                    newlen: usize,
+                ) -> i32;
+            }
+            let mut value: i32 = 0;
+            let mut len = size_of::<i32>();
+            // SAFETY: a NUL-terminated name, and `value` holds the `len` bytes asked for.
+            let rc = unsafe {
+                sysctlbyname(c"hw.optional.arm.FEAT_DIT".as_ptr(), (&raw mut value).cast(), &raw mut len, std::ptr::null_mut(), 0)
+            };
+            let yes = rc == 0 && value == 1;
+            ANSWER.store(if yes { YES } else { NO }, Relaxed);
+            yes
+        }
+    }
+}
+
+/// Whether the calling thread has `PSTATE.DIT` set. Only asked when [`has_dit`].
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn dit_is_set() -> bool {
     let dit: u64;
-    // SAFETY: a read of the calling thread's own state.
+    // SAFETY: a read of the calling thread's own state, on a CPU with FEAT_DIT.
     unsafe { std::arch::asm!("mrs {}, dit", out(reg) dit, options(nomem, nostack, preserves_flags)) };
     dit != 0
 }

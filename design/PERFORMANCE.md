@@ -6474,14 +6474,18 @@ thread that runs Buri code:
 // cli/runtime/host.rs, called by buri_rt_argv_init and rt.rs's thread_loop
 pub(crate) fn no_pointer_prefetch() {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    unsafe {
-        std::arch::asm!("msr dit, #1", options(nomem, nostack, preserves_flags));
+    if has_dit() {
+        unsafe { std::arch::asm!("msr dit, #1", options(nomem, nostack, preserves_flags)) };
     }
 }
 ```
 
-A new thread starts with the bit clear, which is why `thread_loop` sets it
-too. `rt::tests::a_scheduler_thread_runs_with_dit_set` checks both halves.
+`has_dit` asks `sysctlbyname("hw.optional.arm.FEAT_DIT")` once and keeps the
+answer in a zero-initialised static, because `msr dit` is an illegal
+instruction on a CPU without the feature. A new thread starts with the bit
+clear, which is why `thread_loop` sets it too.
+`rt::tests::a_scheduler_thread_runs_with_dit_set` checks both halves where
+the CPU has DIT.
 
 `--release`, fewest of seven alternating runs, load 2.9–6.1, no sleep in
 `pmset -g log`:
@@ -6502,7 +6506,8 @@ Cycles, then wall; the last column is cycles against §6.67. `a_pmaps` read
 +0.9% to +1.3% on three passes. The other 18 are within ±2.5% at the same
 instructions, except `a_tiny`, which waits on the kernel and read +3.8% on
 one pass and −3.3% on the next. A debug build moved −7% on `a_pmaps` and
-within ±4% elsewhere. The stripped hello world is unchanged at 339,120 bytes.
+within ±4% elsewhere. The `sysctl` check grew the stripped hello world from
+339,120 to 339,184 bytes in `--release`, and 373,200 to 373,248 in debug.
 
 **What DIT costs.** It makes the instructions the Arm spec lists take the same
 time for any data. A C loop of 64-bit divides, multiplies, float divides,
