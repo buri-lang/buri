@@ -505,10 +505,10 @@ const IO_ALREADY_EXISTS: i32 = 3;
 /// file.
 const IO_NOT_A_DIRECTORY: i32 = 4;
 /// `IoError::Other`, whose payload is the one an entry writes through §2.1's
-/// message out-pointer. This double reaches it for exactly one reason — a
-/// directory that still holds something — and writes the sentence the
-/// JavaScript double writes, so a conformance block asserting on it reads the
-/// same on both backends.
+/// message out-pointer. This double reaches it where a real filesystem answers
+/// an `errno` `IoError` has no variant for — `ENOTEMPTY`, `EISDIR`, `EINVAL` —
+/// and writes the sentence the JavaScript double writes, so a conformance block
+/// asserting on it reads the same on both backends.
 const IO_OTHER: i32 = 6;
 
 /// The bytes a store holds at `path`, or `None` where there is no file there.
@@ -1284,11 +1284,14 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_append_file(
     BURI_OK
 }
 
-/// `TestFileSystem.renameFile(self, from, to) -> Result<(), IoError>` — replaces `to`,
-/// and `.Err(.NotFound)` where `from` names nothing.
+/// `TestFileSystem.renameFile(self, from, to) -> Result<(), IoError>` — `rename(2)`
+/// over a flat map: a file or a whole directory moves, replacing what `to` named.
+///
+/// [`fs_rename`] says what is refused and why. A refusal `IoError` has no variant
+/// for is `.Other`, carrying the sentence the JavaScript double writes.
 ///
 /// # Safety
-/// Both ranges are readable.
+/// Both ranges are readable; `out_err` is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_fs_rename_file(
     handle: i64,
@@ -1298,6 +1301,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_rename_file(
     _tbase: *mut u8,
     tptr: *const u8,
     tlen: u64,
+    out_err: *mut BuriStr,
 ) -> i32 {
     let (store, read_only) = fs_view(handle);
     // SAFETY: the caller promises both ranges.
@@ -1311,18 +1315,122 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_rename_file(
     if read_only {
         return IO_READ_ONLY;
     }
-    with(store, IO_NOT_FOUND, |slot| {
-        let Slot::Files { entries, .. } = slot else { return IO_NOT_FOUND };
-        let Some(at) = entries.iter().position(|(k, _)| *k == from) else {
-            return IO_NOT_FOUND;
-        };
-        let (_, body) = entries.remove(at);
-        match entries.iter_mut().find(|(k, _)| *k == to) {
-            Some(entry) => entry.1 = body,
-            None => entries.push((to, body)),
+    let answer = with(store, Err((IO_NOT_FOUND, "")), |slot| match slot {
+        Slot::Files { entries, dirs } => fs_rename(entries, dirs, fs_clean(&from), fs_clean(&to)),
+        _ => Err((IO_NOT_FOUND, "")),
+    });
+    match answer {
+        Ok(()) => BURI_OK,
+        Err((tag, message)) => {
+            if tag == IO_OTHER {
+                // SAFETY: the caller promises a writable, aligned destination.
+                unsafe { out_err.write(str_of(message)) };
+            }
+            tag
         }
-        BURI_OK
-    })
+    }
+}
+
+/// What a path names in a file store. A directory is one `makeDir` recorded or
+/// one something is stored under, and the root (`""`) always is one.
+#[derive(Clone, Copy, PartialEq)]
+enum Named {
+    File,
+    Directory,
+    Nothing,
+}
+
+fn fs_named(entries: &[(String, Vec<u8>)], dirs: &[String], path: &str) -> Named {
+    if path.is_empty() {
+        Named::Directory
+    } else if entries.iter().any(|(k, _)| k == path) {
+        Named::File
+    } else if dirs.iter().any(|d| d == path) || fs_holds(entries, dirs, path) {
+        Named::Directory
+    } else {
+        Named::Nothing
+    }
+}
+
+/// Whether anything is stored under the directory `dir`.
+fn fs_holds(entries: &[(String, Vec<u8>)], dirs: &[String], dir: &str) -> bool {
+    entries.iter().map(|(k, _)| k).chain(dirs).any(|k| fs_inside(k, dir))
+}
+
+/// Whether `path` is strictly under the directory `dir`; everything is under the root.
+fn fs_inside(path: &str, dir: &str) -> bool {
+    (dir.is_empty() && !path.is_empty())
+        || path.strip_prefix(dir).is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// `rename(2)` on a store, with both paths [`fs_clean`]ed. The refusals are the
+/// ones macOS and Linux both give, found in the order the kernel finds them:
+///
+/// * `from` naming nothing, or a directory on the way to `to` missing — `ENOENT`, `.NotFound`;
+/// * a file on the way to `to` — `ENOTDIR`, `.NotADirectory`;
+/// * a directory into itself or below itself — `EINVAL`;
+/// * a directory onto a file — `ENOTDIR`, `.NotADirectory`;
+/// * a file onto a directory — `EISDIR`;
+/// * a directory onto one that holds something — `ENOTEMPTY`.
+///
+/// `from` and `to` naming one thing is `.Ok` and changes nothing.
+fn fs_rename(
+    entries: &mut Vec<(String, Vec<u8>)>,
+    dirs: &mut Vec<String>,
+    from: &str,
+    to: &str,
+) -> Result<(), (i32, &'static str)> {
+    let source = fs_named(entries, dirs, from);
+    if source == Named::Nothing {
+        return Err((IO_NOT_FOUND, ""));
+    }
+    for (end, _) in to.match_indices('/') {
+        match fs_named(entries, dirs, to.get(..end).unwrap_or_default()) {
+            Named::Directory => {}
+            Named::File => return Err((IO_NOT_A_DIRECTORY, "")),
+            Named::Nothing => return Err((IO_NOT_FOUND, "")),
+        }
+    }
+    if from == to {
+        return Ok(());
+    }
+    if source == Named::Directory && fs_inside(to, from) {
+        return Err((IO_OTHER, "invalid argument"));
+    }
+    match (source, fs_named(entries, dirs, to)) {
+        (Named::Directory, Named::File) => Err((IO_NOT_A_DIRECTORY, "")),
+        (Named::File, Named::Directory) => Err((IO_OTHER, "is a directory")),
+        (Named::Directory, Named::Directory) if fs_holds(entries, dirs, to) => {
+            Err((IO_OTHER, "directory not empty"))
+        }
+        (Named::Directory, _) => {
+            dirs.retain(|d| d != to);
+            let moved = |k: &str| {
+                let rest = if k == from { Some("") } else { k.strip_prefix(from) };
+                rest.filter(|r| r.is_empty() || r.starts_with('/')).map(|r| format!("{to}{r}"))
+            };
+            let (going, staying): (Vec<_>, Vec<_>) =
+                entries.drain(..).partition(|(k, _)| moved(k).is_some());
+            entries.extend(staying);
+            entries.extend(going.into_iter().filter_map(|(k, v)| Some((moved(&k)?, v))));
+            let (going, staying): (Vec<_>, Vec<_>) =
+                dirs.drain(..).partition(|d| moved(d).is_some());
+            dirs.extend(staying);
+            dirs.extend(going.iter().filter_map(|d| moved(d)));
+            Ok(())
+        }
+        (_, _) => {
+            let Some(at) = entries.iter().position(|(k, _)| k == from) else {
+                return Err((IO_NOT_FOUND, ""));
+            };
+            let (_, body) = entries.remove(at);
+            match entries.iter_mut().find(|(k, _)| k == to) {
+                Some(entry) => entry.1 = body,
+                None => entries.push((to.to_string(), body)),
+            }
+            Ok(())
+        }
+    }
 }
 
 /// `TestFileSystem.removeFile(self, path) -> Result<(), IoError>` — `.Err(.NotFound)`

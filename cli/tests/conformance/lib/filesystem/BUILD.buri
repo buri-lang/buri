@@ -2,7 +2,7 @@ library {
     sources: []
 
     test {
-        sources: ["test/fs.buri"]
+        sources: ["test/fs.buri", "test/rename.buri"]
 
         # The reference run, on the reference backend: `native::conformance`
         # drives these same files through the stencil backend

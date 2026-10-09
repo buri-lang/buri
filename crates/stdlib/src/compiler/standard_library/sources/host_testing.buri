@@ -266,6 +266,10 @@ impl TestStdin {
 /// rename replacing one, removing what is not there — answers exactly what a real
 /// filesystem answers.
 ///
+/// `rename` is `rename(2)`: a directory moves with everything under it, and it
+/// refuses what macOS and Linux both refuse. A rename counts a path something is
+/// stored under as a directory, so a fixture's `("t/a", "A")` moves with `t`.
+///
 /// ## Two fields, for `TestNetwork`'s reason
 ///
 /// `handle` names the runner-side state — the files, the attenuation, the log,

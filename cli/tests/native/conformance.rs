@@ -769,6 +769,7 @@ const PACKAGES: &[Case] = &[
     // `native::e2e` is where those are, and it is where the answers that vary
     // by machine belong.
     included("filesystem/fs.buri"),
+    included("filesystem/rename.buri"),
     included("environment/env.buri"),
     included("process/process.buri"),
     included("streams/io.buri"),
