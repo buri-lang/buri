@@ -6576,6 +6576,94 @@ So whatever the prefetcher costs the string programs, it doesn't cost the
 compiler. The runtime keeps §6.68's change, and `buri`'s threads leave the
 bit alone.
 
+### 6.70 The language server publishes findings in linear time, 2026-10-09
+
+A file with a finding on every function cost the language server time
+quadratic in the file. One file of `n` functions, each with a bound its body
+never uses, instructions per keystroke (a `didChange` and a pull):
+
+| `n` | before | after |
+|---:|---:|---:|
+| 1,000 | 1,814 M | 246 M |
+| 2,000 | 6,672 M | 491 M |
+| 4,000 | 26,058 M | 983 M |
+
+At 4,000 a keystroke took 1.67 s and takes 0.074 s.
+
+**Where the compiler's time goes.** §6.69's workloads, profiled with
+`BURI_PROFILE` and `sample`, at load 1–4 on 12 cores:
+
+- `mixed-100k`, `build //...`: 0.52 s. Emission is 2.4 of 7.9 G
+  instructions and linking 1.7 G.
+- The same with `--release`: 174 of 180 G is LLVM's, under emission.
+- `lint //...`: 3.3 G. The rules cost 1.8 G, more than lexing and checking
+  together.
+- Conformance, `buri test //...`: 2.2 s, of which the compiler is 1.0 s of
+  CPU. The rest is the test processes.
+- `buri lsp`, a keystroke in `mixed-100k`: 1.3 G. Lint rules 44%, analysis
+  30%, `Sources` reading every file 12%, publishing the findings 8%.
+
+None of the cold phases grew faster than its input. Sweeping one file's count
+of findings found the language server's publishing did.
+
+**Two scans per finding.** `convert::diagnostic` turned each span into a
+position by walking the file from the top, so each finding cost the file's
+length. `filed` and `merge_findings` then compared each finding with every one
+already in its file's bucket. Both are `O(findings × file)`.
+
+The fix reads positions off the line starts the source map already keeps, and
+deduplicates through a set:
+
+```rust
+let line = self.starts.partition_point(|s| *s as usize <= offset).saturating_sub(1);
+```
+
+```rust
+fn dedup_findings(published: &mut Published) {
+    for bucket in published.values_mut() {
+        let mut seen = std::collections::HashSet::new();
+        bucket.retain(|item| seen.insert(finding_key(item)));
+    }
+}
+```
+
+`filed` now only pushes, and a bucket is deduplicated once it's full, keeping
+each finding's first copy in the order it was filed. That's what checking at
+each push kept. The key is the message and the range written as JSON, which is
+equal exactly when the values are: objects write their keys in order, and
+neither holds a float.
+
+On `mixed-100k`, 40 keystrokes with a pull each, eight alternating runs per
+arm, load 2.2–4.3, no sleep in `pmset -g log`, fewest of eight:
+
+| | before | after | Δ |
+|---|---:|---:|---:|
+| wall | 3.86 s | 3.74 s | −3.2% |
+| cycles | 15.26 G | 14.71 G | −3.6% |
+| instructions | 53.08 G | 50.76 G | −4.4% |
+
+**Output is identical.** Whole LSP sessions — opens, keystrokes, pulls, a parse
+error, a type error and a `workspace/diagnostic` — are byte-identical on
+`mixed-100k`, the conformance repository and both one-file shapes. Nothing
+outside the language server changed, and the cold `build //...`,
+`build --release //...`, `lint //...` and conformance `test //...` hash the
+same before and after.
+
+`build::profile`'s `publishing_a_files_findings_is_linear_in_how_many_it_has`
+guards it: an open and a pull over a file of 200 and of 400 findings. Before,
+the second cost 3.14 times the first.
+
+**What's left.**
+
+- **`unused-context` is quadratic in the findings in a package.**
+  `context_edits` rebuilds the package's published names, and walks every body
+  for call sites, once per finding. One file of `n` functions whose `ctx` is
+  never read: `lint //...` is 1.05, 3.7 and 14.8 G at 1,000, 2,000 and 4,000,
+  and a keystroke still 1.0, 3.8 and 15.1 G after this change.
+- **`Names::of` looks every identifier up in a `BTreeSet<String>`.** That's
+  14% of a `mixed-100k` keystroke in `memcmp`. A set of the module's distinct
+  names first would make it a lookup per name rather than per token.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

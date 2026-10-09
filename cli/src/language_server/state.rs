@@ -1295,6 +1295,7 @@ impl State {
                     super::add_finding_rendering(&mut found, &mut rendered, &session, d);
                 }
             }
+            super::dedup_findings(&mut found);
             let closure = Rc::new(report.closure);
             let key = self.closure_key(root, &closure);
             self.target_findings.insert(
@@ -1550,13 +1551,14 @@ struct TargetFindings {
 /// Two targets in one closure both report what the shared library said, and
 /// the package rules are asked once per target rather than once per package —
 /// so the same words at the same place arrive several times, and they are one
-/// squiggle. The rule is [`super::same_finding`]'s, the same one a publish
+/// squiggle. The rule is [`super::finding_key`]'s, the same one a publish
 /// merges by.
 pub(super) fn merge_findings(into: &mut super::Published, from: &super::Published) {
     for (uri, items) in from {
         let bucket = into.entry(uri.clone()).or_default();
+        let mut seen: std::collections::HashSet<_> = bucket.iter().map(super::finding_key).collect();
         for item in items {
-            if !bucket.iter().any(|existing| super::same_finding(existing, item)) {
+            if seen.insert(super::finding_key(item)) {
                 bucket.push(item.clone());
             }
         }

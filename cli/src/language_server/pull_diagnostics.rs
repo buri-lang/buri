@@ -185,9 +185,10 @@ fn build_file_findings(state: &State, path: &std::path::Path, uri: &str) -> Vec<
         return Vec::new();
     }
     let Some(text) = state.text_of(path) else { return Vec::new() };
+    let lines = convert::Lines::new(&text);
     super::build_files::diagnostics(path, &text)
         .iter()
-        .map(|d| convert::diagnostic(&text, d, uri))
+        .map(|d| convert::diagnostic(&lines, d, uri))
         .collect()
 }
 

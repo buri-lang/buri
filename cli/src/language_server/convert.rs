@@ -51,6 +51,11 @@ pub fn position_of(text: &str, offset: u32) -> Position {
     let above = text.as_bytes().get(..offset).unwrap_or_default();
     let line = u32::try_from(above.iter().filter(|b| **b == b'\n').count()).unwrap_or(u32::MAX);
     let start = above.iter().rposition(|b| *b == b'\n').map_or(0, |at| at.saturating_add(1));
+    Position { line, character: units_before(text, start, offset) }
+}
+
+/// The UTF-16 units of the characters that start in `start..offset`.
+fn units_before(text: &str, start: usize, offset: usize) -> u32 {
     let mut character = 0u32;
     for (i, c) in text.get(start..).unwrap_or_default().char_indices() {
         if start.saturating_add(i) >= offset {
@@ -58,7 +63,53 @@ pub fn position_of(text: &str, offset: u32) -> Position {
         }
         character = character.saturating_add(c.len_utf16() as u32);
     }
-    Position { line, character }
+    character
+}
+
+/// A file's text with the offset each of its lines starts at, so a position is
+/// a binary search and a walk along one line.
+///
+/// [`position_of`] walks from the top of the file, and a file with a finding on
+/// every function made publishing its findings quadratic in the file's length.
+pub struct Lines<'t> {
+    text: &'t str,
+    starts: std::borrow::Cow<'t, [u32]>,
+}
+
+impl<'t> Lines<'t> {
+    pub fn new(text: &'t str) -> Lines<'t> {
+        let mut starts = vec![0u32];
+        starts.extend(
+            text.match_indices('\n')
+                .map(|(i, _)| u32::try_from(i.saturating_add(1)).unwrap_or(u32::MAX)),
+        );
+        Lines { text, starts: std::borrow::Cow::Owned(starts) }
+    }
+
+    /// The lines the source map already counted.
+    pub fn of(file: &'t crate::diagnostics::SourceFile) -> Lines<'t> {
+        Lines { text: &file.text, starts: std::borrow::Cow::Borrowed(file.line_starts()) }
+    }
+
+    /// [`position_of`], answered from the line starts.
+    pub fn position(&self, offset: u32) -> Position {
+        let offset = (offset as usize).min(self.text.len());
+        // The lines whose newline is above `offset`; the first line starts at 0,
+        // so there is always one.
+        let line = self.starts.partition_point(|s| *s as usize <= offset).saturating_sub(1);
+        let start = self.starts.get(line).map_or(0, |s| *s as usize);
+        Position {
+            line: u32::try_from(line).unwrap_or(u32::MAX),
+            character: units_before(self.text, start, offset),
+        }
+    }
+
+    pub fn range(&self, span: Span) -> Value {
+        Value::object(vec![
+            ("start", self.position(span.start).to_json()),
+            ("end", self.position(span.end).to_json()),
+        ])
+    }
 }
 
 /// The positions of a run of **ascending** byte offsets, in one pass.
@@ -189,13 +240,13 @@ fn severity(s: Severity) -> i64 {
     }
 }
 
-/// One diagnostic, for a file whose text is `text`.
+/// One diagnostic, for the file `lines` holds.
 ///
 /// The `fix` becomes the first piece of `relatedInformation` rather than being
 /// appended to the message, because every diagnostic this compiler emits has
 /// one and a message with the fix glued on is a message that scrolls. Notes
 /// follow it.
-pub fn diagnostic(text: &str, d: &Diagnostic, uri: &str) -> Value {
+pub fn diagnostic(lines: &Lines<'_>, d: &Diagnostic, uri: &str) -> Value {
     let mut related = Vec::new();
     let mut add = |span: Span, message: String| {
         related.push(Value::object(vec![
@@ -203,7 +254,7 @@ pub fn diagnostic(text: &str, d: &Diagnostic, uri: &str) -> Value {
                 "location",
                 Value::object(vec![
                     ("uri", Value::str(uri)),
-                    ("range", range(text, span)),
+                    ("range", lines.range(span)),
                 ]),
             ),
             ("message", Value::str(message)),
@@ -224,7 +275,7 @@ pub fn diagnostic(text: &str, d: &Diagnostic, uri: &str) -> Value {
     }
 
     let mut fields = vec![
-        ("range", range(text, d.span)),
+        ("range", lines.range(d.span)),
         ("severity", Value::number(severity(d.severity))),
         ("message", Value::str(&d.message)),
         ("source", Value::str("buri")),
@@ -294,6 +345,17 @@ mod tests {
         // And past the end, where there is no character left to count.
         assert_eq!(positions_of(text, &[u32::MAX]), vec![position_of(text, u32::MAX)]);
         assert_eq!(positions_of("", &[0, 9]).len(), 2);
+    }
+
+    /// The line starts answer what the walk from the top answers.
+    #[test]
+    fn lines_agree_with_one_position_at_a_time() {
+        for text in ["let x = 1;\nlet é = 2;\n😀 // a\nlast", "", "\n", "a\n\n", "é\r\n😀\n"] {
+            let lines = Lines::new(text);
+            for offset in (0..=text.len() as u32 + 1).chain([u32::MAX]) {
+                assert_eq!(lines.position(offset), position_of(text, offset), "{text:?} at {offset}");
+            }
+        }
     }
 
     #[test]

@@ -733,6 +733,11 @@ impl Scratch {
         run_in_with_env(&self.root, args, env)
     }
 
+    /// Both: bytes on standard input and variables in the environment.
+    pub fn run_with_stdin_and_env(&self, args: &[&str], stdin: &[u8], env: &[(&str, &str)]) -> Run {
+        run_in_full(&self.root, args, Some(stdin), env, None)
+    }
+
     /// The artifact `//<package_path>` builds to, under the JS runtime.
     pub fn artifact(&self, package_path: &str) -> PathBuf {
         self.artifact_in("node", package_path)

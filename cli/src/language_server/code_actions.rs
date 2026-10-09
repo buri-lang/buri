@@ -109,7 +109,7 @@ fn in_range(state: &mut State, path: &Path, params: &Value) -> Vec<Value> {
         if file.abs_path != path {
             continue;
         }
-        out.push(convert::diagnostic(&file.text, d, &uri));
+        out.push(convert::diagnostic(&convert::Lines::of(file), d, &uri));
     }
     out
 }
