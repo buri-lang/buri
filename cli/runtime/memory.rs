@@ -1080,7 +1080,10 @@ impl Cache {
             }
         }
         self.publish();
-        // The pages under the blocks just released, past the pool's 8 MB.
+        // The pages under the blocks just released, past the pool's 8 MB. Not
+        // in a test build: there the pool isn't the global allocator's, and
+        // its own tests count every page in it.
+        #[cfg(not(test))]
         crate::allocator::trim();
     }
 
