@@ -18,21 +18,34 @@ fn test_line<'a>(stdout: &'a str, name: &str) -> &'a str {
         .unwrap_or_else(|| panic!("no test line names {name:?}:\n{}", indent(stdout)))
 }
 
-/// The unit a listed line ends in, once the line passes the golden's check
-/// that its time is spelled the runner's way.
-fn unit_of(line: &str) -> &str {
+/// A listed line's time in nanoseconds, once the line passes the golden's check
+/// that its time is spelled the runner's way, and how far the spelling may be
+/// from the time it rounds: whole microseconds drop the rest, and tenths of a
+/// millisecond or a second round to the nearest.
+fn time_of(line: &str) -> (u64, u64) {
     assert!(blank_test_time(line).ends_with("<time>"), "not a time the runner spells: {line:?}");
-    line.rsplit(' ').next().unwrap_or_default()
+    let mut words = line.rsplit(' ');
+    let unit = words.next().unwrap_or_default();
+    let number = words.next().unwrap_or_default();
+    let tenths = || -> u64 { number.replace('.', "").parse().unwrap() };
+    match unit {
+        "µs" => (number.parse::<u64>().unwrap() * 1_000, 1_000),
+        "ms" => (tenths() * 100_000, 50_000),
+        _ => (tenths() * 100_000_000, 50_000_000),
+    }
 }
 
-/// A tail-recursive loop the native backend runs at a few nanoseconds a turn.
+/// A tail-recursive loop: a turn is a call, an add and a remainder.
 const SPIN: &str = "export fn spin(n: Int, acc: Int): Int {\n    \
                     if (n == 0) { acc } else { spin(n - 1, (acc + n) % 1000) }\n}\n";
 
-/// Microseconds under a millisecond, milliseconds under a second, then seconds.
+/// Each test's time is its own, and the suite's is theirs added up.
 ///
-/// Each loop sits well inside its unit on the machine this was measured on:
-/// ten million turns took 30 ms, and six hundred million about 1.8 s.
+/// Which unit a time is spelled in is `commands::test`'s unit test of the same
+/// name, on fixed durations. A run's real times move with the machine's load,
+/// so this holds only what load can't change: a hundred million turns can't
+/// take under 10 ms, which would be ten billion a second, and a sum of times
+/// doesn't depend on how long any of them took.
 #[test]
 fn a_time_is_spelled_in_the_unit_its_size_calls_for() {
     let scratch = Scratch::repo("verbose-units");
@@ -45,18 +58,19 @@ fn a_time_is_spelled_in_the_unit_its_size_calls_for() {
          \n\
          test \"nothing at all\" {\n    assert.equal(1, 1);\n}\n\
          \n\
-         test \"ten million turns\" {\n    assert.equal(spin(10000000, 0) >= 0, true);\n}\n\
-         \n\
-         test \"six hundred million turns\" {\n    assert.equal(spin(600000000, 0) >= 0, true);\n}\n",
+         test \"a hundred million turns\" {\n    assert.equal(spin(100000000, 0) >= 0, true);\n}\n",
     );
     let run = scratch.run(&["test", "//lib/spin", "--verbose"]);
     run.heap_ok();
     assert_eq!(run.code, 0, "{}", indent(&run.all()));
-    assert_eq!(unit_of(test_line(&run.stdout, "nothing at all")), "µs");
-    assert_eq!(unit_of(test_line(&run.stdout, "ten million turns")), "ms");
-    assert_eq!(unit_of(test_line(&run.stdout, "six hundred million turns")), "s");
+    let tests = ["nothing at all", "a hundred million turns"].map(|name| time_of(test_line(&run.stdout, name)));
+    let (spun, _) = tests[1];
+    assert!(spun >= 10_000_000, "a hundred million turns took {spun} ns:\n{}", indent(&run.stdout));
     let suite = run.stdout.lines().find(|l| l.starts_with("//lib/spin")).unwrap_or_default();
-    assert_eq!(unit_of(suite), "s", "the suite's time is not its tests' time:\n{}", indent(&run.stdout));
+    let (total, slack) = time_of(suite);
+    let sum: u64 = tests.iter().map(|t| t.0).sum();
+    let slack = slack + tests.iter().map(|t| t.1).sum::<u64>();
+    assert!(total.abs_diff(sum) <= slack, "the suite's time is not its tests' added up:\n{}", indent(&run.stdout));
 }
 
 /// The lines of a `--verbose` list, without the word `cached`.
