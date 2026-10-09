@@ -103,7 +103,10 @@ fn a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container() {
         return;
     }
 
-    let scratch = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("cross-e2e");
+    // This process's own, so two runs of the suite in one checkout don't
+    // delete each other's repository mid-build. `sweep` takes old ones.
+    let scratch = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("cross-e2e-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
     let repo = scratch.join("repo");
     write_repo(&repo);
