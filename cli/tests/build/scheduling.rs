@@ -414,3 +414,91 @@ shared build  <time>
 ";
     assert_eq!(filtered, (0, format!("{list}\n3 passed, 0 failed, 3 skipped"), String::new()));
 }
+
+/// Every `test` line `--explain` printed, as `(label, platform)` and its status.
+fn test_statuses(run: &Run) -> std::collections::BTreeMap<(String, String), String> {
+    run.stdout
+        .lines()
+        .map(|l| l.split_whitespace().collect::<Vec<_>>())
+        .filter(|f| f.len() == 5 && f[1] == "test")
+        .map(|f| ((f[2].to_string(), f[3].to_string()), f[0].to_string()))
+        .collect()
+}
+
+/// **Each of many suites is reused or re-run on its own key** (PERFORMANCE.md
+/// §6.76). `buri test` keys every suite on all cores before it looks any up.
+/// Thirty-six suites, a third native, a third on JavaScript and a third on
+/// both, run, then run again with nothing changed, then with three of them
+/// broken, then fixed. A key handed to the wrong suite would serve one suite
+/// another's verdict, or re-run one nobody touched.
+#[test]
+fn many_suites_are_each_reused_or_re_run_on_their_own_key() {
+    let scratch = Scratch::repo("many-suites-keyed");
+    let count = 36;
+    for i in 0..count {
+        let backends = match i % 3 {
+            0 => "",
+            1 => "\n    backends: [JS]",
+            _ => "\n    backends: [JS, NATIVE]",
+        };
+        scratch.write(
+            &format!("lib/s{i}/BUILD.buri"),
+            &format!("library {{\n  test {{\n    sources: [\"test/s{i}.buri\"]{backends}\n  }}\n}}\n"),
+        );
+        scratch.write(&format!("lib/s{i}/lib.buri"), &format!("export fn answer(): I64 {{ {i} }}\n"));
+        scratch.write(
+            &format!("lib/s{i}/test/s{i}.buri"),
+            &format!(
+                "from \"//lib/s{i}\" import {{ answer }};\n\
+                 from \"core/testing/assert\" import * as assert;\n\
+                 \ntest \"s{i} answers\" {{\n  assert.equal(answer(), {i});\n}}\n"
+            ),
+        );
+    }
+    let runs = count + count / 3;
+    let explain = || scratch.run(&["test", "//...", "--explain"]);
+    let first = explain();
+    if first.stderr.contains("test-run-unavailable") {
+        first.exits(1);
+        return;
+    }
+    first.ok();
+    assert_eq!(first.tests_passed(), runs, "{}", indent(&first.all()));
+    let statuses = test_statuses(&first);
+    assert_eq!(statuses.len(), runs, "{}", indent(&first.all()));
+    assert!(statuses.values().all(|s| s == "run"), "{}", indent(&first.all()));
+
+    let again = explain();
+    again.ok();
+    assert!(test_statuses(&again).values().all(|s| s == "cached"), "{}", indent(&again.all()));
+    assert!(again.stdout.contains(&format!("{runs} passed, 0 failed, 0 skipped")), "{}", indent(&again.all()));
+    assert!(again.stdout.contains(&format!("{runs} cached)")), "{}", indent(&again.all()));
+
+    // 12 is native, 22 is on JavaScript, and 35 on both.
+    let broken = [12, 22, 35];
+    for i in broken {
+        scratch.edit(&format!("lib/s{i}/test/s{i}.buri"), &format!("answer(), {i})"), &format!("answer(), {})", i + 1));
+    }
+    let failing = explain();
+    failing.exits(1);
+    for ((label, platform), status) in test_statuses(&failing) {
+        let touched = broken.iter().any(|i| label == format!("//lib/s{i}"));
+        let want = if touched { "run" } else { "cached" };
+        assert_eq!(status, want, "{label} on {platform}:\n{}", indent(&failing.all()));
+    }
+    assert!(
+        failing.stdout.contains(&format!("{} passed, 4 failed, 0 skipped", runs - 4)),
+        "{}",
+        indent(&failing.all())
+    );
+    let failed: Vec<&str> =
+        failing.stdout.lines().filter_map(|l| l.strip_prefix("FAIL ")).filter_map(|l| l.split_whitespace().next()).collect();
+    assert_eq!(failed, ["//lib/s12", "//lib/s22", "//lib/s35", "//lib/s35"], "{}", indent(&failing.all()));
+
+    for i in broken {
+        scratch.edit(&format!("lib/s{i}/test/s{i}.buri"), &format!("answer(), {})", i + 1), &format!("answer(), {i})"));
+    }
+    let fixed = explain();
+    fixed.ok();
+    assert!(fixed.stdout.contains(&format!("{runs} passed, 0 failed, 0 skipped")), "{}", indent(&fixed.all()));
+}
