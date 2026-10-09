@@ -795,7 +795,9 @@ fn drive(
 ) -> Tally {
     RULE_PATHS.with(|paths| paths.borrow_mut().clear());
     let mut tally = Tally::default();
-    rerun(session, slots, queue);
+    // Held for the pass, so no link this pass writes over a restored binary
+    // the next pass will start again.
+    let _restored = rerun(session, slots, queue);
     batch(session, args, slots, queue, &mut tally.shared_build);
     for i in 0..slots.len() {
         solo(session, args, pre, slots, i, queue, &mut tally.shared_build);
@@ -2706,8 +2708,9 @@ fn recall(
 
 /// Queues every slot whose binary or bundle is to be run again: one
 /// [`Job::Served`] per binary, so members of one batch share one copy of it
-/// again, and one [`Job::Bundled`] per bundle.
-fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue) {
+/// again, and one [`Job::Bundled`] per bundle. Answers the binaries' holds on
+/// the shared runner file.
+fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue) -> Vec<std::sync::Arc<actions::Claim>> {
     let mut jobs: Vec<ServedJob> = Vec::new();
     for (i, slot) in slots.iter_mut().enumerate() {
         if slot.answer.is_some() || slot.queued {
@@ -2751,18 +2754,22 @@ fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue) {
         };
         match jobs.iter_mut().find(|j| j.link == link) {
             Some(job) => job.members.push((spec, seeds)),
-            None => jobs.push(ServedJob {
-                private: actions::private_test_binary(session, target, &output),
-                link,
-                sheet,
-                output,
-                members: vec![(spec, seeds)],
-            }),
+            None => {
+                let private = actions::private_test_binary(session, target, &output);
+                jobs.push(ServedJob {
+                    binary: actions::restored_test_binary(&session.root, &output, private, &link),
+                    link,
+                    sheet,
+                    members: vec![(spec, seeds)],
+                });
+            }
         }
     }
+    let claims = jobs.iter().filter_map(|job| job.binary.as_ref()?.claim()).collect();
     for job in jobs {
         queue.push(Job::Served(Box::new(job)), 0);
     }
+    claims
 }
 
 /// The seeds a suite's processes are handed when its blocks are `ranges` of a
@@ -2783,10 +2790,9 @@ fn seeds_at(ranges: &[(usize, usize)], seed: u128) -> String {
 struct ServedJob {
     link: crate::build::cache::ActionKey,
     sheet: String,
-    output: crate::build::buildfile::Output,
-    /// Where the binary goes when the shared runner file is taken: the first
-    /// member's own.
-    private: std::path::PathBuf,
+    /// Where the binary goes ([`actions::restored_test_binary`]), or `None`
+    /// when the cache no longer holds it.
+    binary: Option<actions::TestBinary>,
     members: Vec<(MemberSpec, std::sync::Arc<String>)>,
 }
 
@@ -2796,9 +2802,9 @@ struct ServedJob {
 /// Putting it back is the build of every suite in it: its own when it holds
 /// one suite, and shared when it holds several.
 fn serve(job: ServedJob, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
-    let ServedJob { link, sheet, output, private, mut members } = job;
+    let ServedJob { link, sheet, binary, mut members } = job;
     let began = Instant::now();
-    let Some(binary) = actions::place_test_binary(&shared.root, &output, private, &link) else {
+    let Some(binary) = binary.and_then(|binary| actions::place_test_binary(&shared.root, &link, binary)) else {
         let slots = members.iter().map(|(m, _)| m.slot).collect();
         return Done::Abandoned { slots, explain: String::new() };
     };

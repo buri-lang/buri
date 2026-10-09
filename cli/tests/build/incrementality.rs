@@ -824,6 +824,40 @@ fn a_rerun_bundle_is_left_alone_only_when_it_holds_the_same_bytes() {
     scratch.run(&args).ok().says("1 passed");
 }
 
+/// A failing suite runs again from its cached runner on every pass, beside a
+/// suite whose edits link new runners. Each pass runs each suite's own code:
+/// the failure stays reported, and each edit's verdict is the edit's.
+#[test]
+fn a_failing_suite_and_an_edited_one_each_run_their_own_runner() {
+    let scratch = Scratch::repo("failing-beside-edits");
+    for s in ["e", "f"] {
+        scratch.write(
+            &format!("lib/{s}/BUILD.buri"),
+            &format!("library {{\n    test {{\n        sources: [\"test/{s}.buri\"]\n    }}\n}}\n"),
+        );
+        scratch.write(&format!("lib/{s}/lib.buri"), "export fn same(k: Int): Int {\n    k\n}\n");
+    }
+    let asserting = |s: &str, k: u32, want: u32| {
+        scratch.write(
+            &format!("lib/{s}/test/{s}.buri"),
+            &format!(
+                "from \"//lib/{s}\" import {{ same }};\nfrom \"core/testing/assert\" import * as assert;\n\n\
+                 test \"{s} holds\" {{\n    assert.equal(same({k}), {want});\n}}\n"
+            ),
+        );
+    };
+    asserting("f", 0, 1);
+    // A runner per suite, as a repository too large for one has.
+    let env = [("BURI_TEST_BATCH_BYTES", "1")];
+    for (k, want) in [(0, 0), (1, 1), (2, 3), (3, 3)] {
+        asserting("e", k, want);
+        let run = scratch.run_with_env(&["test", "//..."], &env);
+        run.exits(1).says("FAIL //lib/f");
+        let e_fails = run.stdout.contains("FAIL //lib/e");
+        assert_eq!(e_fails, k != want, "edit {k} of //lib/e reported the wrong verdict:\n{}", indent(&run.all()));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The native row
 // ---------------------------------------------------------------------------

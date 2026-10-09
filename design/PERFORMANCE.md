@@ -7459,6 +7459,31 @@ skips an identical runner. The same `--filter=JSON` run again now writes 0
 files where it wrote 2 on conformance and 20 on ×10. Wall time doesn't move:
 0.084 s and 0.33–0.37 s, either way.
 
+**A failing suite's runner stays put while another suite is edited.** A
+failing verdict isn't cached, so every pass starts the failing suite's runner
+again from its build record. That restore always claimed the shared
+`test-runner` file, and an edit's new link claimed it too, first come first
+served. Whichever lost was written to its own path, and the next pass moved it
+back: a new file, so another launch check, of a batch runner that can be large.
+×10 has ten failing suites (its copies of `proto_gen` fail), so an edit there
+paid it on five passes of six, at random.
+
+Now a restored runner stays at its own path when that already holds its bytes.
+Otherwise it claims the shared file before any link of the pass does, and
+keeps it for the whole pass, so no link writes over it. Each pass after the
+first edit, three each:
+
+| ×10, edit after edit | Before | After |
+|---|---:|---:|
+| wall | 0.24–1.27 s | 0.24–0.25 s |
+| new executables launched | 0 or 2 | 0 |
+
+The first edit after a cold run still launches two. The cold run left the
+failing suite's runner at its group's first member's path, and the restore
+looks at the first failing member's.
+`work_counts::a_failing_suites_runner_stays_put_while_another_suite_is_edited`
+pins one launch per edit, which varied between one and two before.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
