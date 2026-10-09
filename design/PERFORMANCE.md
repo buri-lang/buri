@@ -7011,6 +7011,85 @@ beside 36 busy loops at load 40.
 - **`mincore` to ask whether anything past the watermark is resident**: 900 µs
   for the 63.75 MiB range on macOS, sixty times a re-map.
 
+### 6.75 A wide fan-out maps stacks for the steps that run, 2026-10-09
+
+`f_wide` runs 100 fan-outs of 3,000 trivial steps, past the 1,024-step window.
+It took 1.26 s of wall and 9.2 s of CPU. `sample` found two costs:
+
+- **`__munmap`, 4,481 samples on the workers.** `new_task` mapped every
+  step's machine stack when the step was queued. So 1,024 queued steps held
+  1,024 stacks, while a dozen ran. The pool keeps 64, so most finished stacks
+  were unmapped and most new steps mapped fresh ones: a `mmap`, an `mprotect`
+  and two trimming `munmap`s each.
+- **The join, a step at a time.** Past the window, each step was a `Handoff`,
+  joined in turn through `park_on`, and each join freed one slot, so the
+  window refilled with a lock and a wake-up per step. Half the dispatching
+  thread's samples were `__psynch_mutexwait` on the run queue's lock.
+
+Three changes in `cli/runtime/rt.rs`:
+
+- **A step maps its stack on its first turn** (`turn`, `give_stack`) when its
+  fan-out is wider than the 64 stacks the pool keeps. A narrower one still
+  maps up front. Mapping later in `a_tiny` moved the work past the wake-up,
+  and the dispatcher ran its steps late enough that more workers joined:
+  160 ms to 225.
+- **One latch for every step.** The window refills 64 steps at a time
+  (`REFILL`) through one wait (`Arrived`, which is ready once the count
+  falls to a mark):
+
+  ```rust
+  let batch = REFILL.min(n - started);
+  park_on(Arrived { latch: &latch, left: n - started + IN_FLIGHT - batch });
+  ```
+
+  A step whose body didn't return marks the latch, and the fan-out asserts
+  on that at the end, as each join used to.
+- **The dispatcher keeps the steps it made** until they finish, and drops
+  them itself. Dropped by whichever thread finished them, they were freed
+  across threads, and `a_tiny` went from 160 ms to 250.
+
+The window now slides in steps of 64. The 1,025th step starts once 64 of the
+first 1,024 have finished, rather than one. The answer and its order don't
+change.
+
+`--release`, fewest of nine alternating runs, load 2–6, no sleep in
+`pmset -g log`. Cycles, then wall, then user + system time:
+
+| Program | before | after | wall |
+|---|---:|---:|---:|
+| `f_wide` | 29,064 M, 1,261 ms, 9.23 s | 6,038 M, 216 ms, 1.93 s | −83% |
+| `f_mid` | 1,793 M, 268 ms, 0.59 s | 1,773 M, 266 ms, 0.57 s | −1% |
+| `a_tiny` | 593 M, 158 ms, 0.18 s | 601 M, 160 ms, 0.19 s | +1.5% |
+| `a_tasks` | 1,340 M, 115 ms, 0.42 s | 1,343 M, 115 ms, 0.42 s | 0% |
+
+`f_wide` retires 3.6 G instructions instead of 35.6 G, and its peak footprint
+went from 57.0 MB to 6.5 MB. `a_tiny` retires 2% more instructions: the
+latch's mark and the stack counters. A full pass of seven runs, at load 4–11,
+had the programs that don't fan out at the same instructions. The stripped
+hello world is unchanged.
+
+`fan_out::a_wide_fan_out_refills_in_batches_and_maps_stacks_for_running_steps`
+runs 20 fan-outs of 3,000 trivial steps under the heap check. It reads two new
+probes, `buri_rt_tasks_batches` and `buri_rt_task_stacks_peak`:
+
+- at most 32 batches a fan-out, which is 1 + ⌈1,976 / 64⌉;
+- at most 257 task stacks out at once, the scheduler's 256 threads and the
+  caller, since these steps never park.
+
+Before, it queued a batch per step and failed. `rt::tests::a_latch_wakes_its_waiter_at_the_mark`
+walks the mark: one wake-up when the count reaches it, none after, and a
+failed step remembered. The new test passed 150 runs in a row, 6 × 30 at once,
+and 4 × 20 beside 36 busy loops. The runtime tests passed 15 full in-process
+runs under the heap check.
+
+**Tried and dropped:**
+
+- **Mapping every step's stack on its first turn**, narrow fan-outs too:
+  `a_tiny` 160 ms to 225.
+- **One idle stack per thread, ahead of the pool's lock**: `f_wide` 216 ms to
+  160 and 1.93 s of CPU to 1.14, but `a_tiny` 4% slower. On macOS each
+  access is a `tlv_get_addr` call, two per task.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
