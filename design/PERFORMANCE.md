@@ -6929,6 +6929,88 @@ tests and the release-backend test there.
 - **Past the window.** A fan-out wider than 1,024 steps joins each step through
   its own `Handoff`, and `f_wide` still takes 9.3 s of CPU for 1.25 s of wall.
 
+### 6.74 A task stack's floor decommit waits 10 ms, 2026-10-09
+
+§6.73 left 14% of `a_tiny`'s joining thread in `mmap` under `new_task`. Task
+stacks are already reused: `TASK_POOL` keeps up to 64 released ones, with
+their guard pages, and `map_task_stack` takes from it first. A breakpoint on
+`mmap` showed what the calls were:
+
+```text
+mmap(base + 1 MiB, 63.75 MiB, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON|MAP_FIXED)
+```
+
+That's `buri_rt_task_stack_release`'s decommit, and the stack's watermark was
+intact. It was the floor. Every 1,024th release decommits whatever the
+watermark says, in case a frame straddled the watermark without writing it.
+`a_tiny` releases 1.28 M task stacks, so that's 1,250 re-maps. Each shoots
+down every running thread's TLB, about 15 µs and 290 K instructions here.
+With the floor off, `a_tiny` retired 361 M fewer instructions and ran 12%
+faster.
+
+So the floor still fires on every 1,024th release, but no sooner than 10 ms
+after the last one:
+
+```rust
+// cli/runtime/memory.rs
+fn task_floor() -> bool {
+    if TASK_RELEASES.fetch_add(1, Ordering::Relaxed) % STACK_DECOMMIT_EVERY != STACK_DECOMMIT_EVERY - 1 {
+        return false;
+    }
+    let now = crate::host::buri_rt_host_clock_monotonic_nanoseconds();
+    let last = TASK_FLOOR_AT.load(Ordering::Relaxed);
+    now.saturating_sub(last) >= TASK_FLOOR_NS
+        && TASK_FLOOR_AT.compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed).is_ok()
+}
+```
+
+The clock is read once per 1,024 releases. A deep task still decommits on
+release, as before. The floor only ever caught a stack whose watermark a frame
+skipped, and only if that stack happened to be the 1,024th released. At
+`a_tiny`'s rate it still fires a hundred times a second. Each thread's own
+data stack keeps its per-1,024 floor; it wasn't in the profile.
+
+`--release`, fewest of nine alternating runs, load 8–9, no sleep in
+`pmset -g log`. Cycles, then wall, then user + system time:
+
+| Program | before | after | wall |
+|---|---:|---:|---:|
+| `a_tiny` | 699 M, 167 ms, 0.19 s | 624 M, 141 ms, 0.17 s | −15% |
+| `f_mid` | 1,832 M, 286 ms, 0.61 s | 1,809 M, 277 ms, 0.59 s | −3% |
+| `a_tasks` | 1,341 M, 125 ms, 0.41 s | 1,317 M, 121 ms, 0.40 s | −3% |
+
+`a_tiny` retires 1,517 M instructions instead of 1,883 M. The other
+fan-out programs, and a full corpus pass of seven runs at load 4–10, moved
+within the noise of a busy machine. The 25 programs that don't fan out are at
+the same instructions. Peak footprint is unchanged: `a_tiny` 6.23 to 6.16 MB,
+`f_mid` 6.21 to 6.28 MB. A pooled stack holds what it held before, its
+retained 256 KiB and the watermark's page, and the pool's cap of 64 is
+unchanged. The stripped hello world is unchanged.
+
+Guard pages aren't touched: the floor decides only whether a released stack
+is re-mapped above its guard.
+`rt::tests::a_task_machine_stack_is_guarded_at_the_end_it_grows_towards` still
+holds. `memory::tests::a_task_stack_decommits_when_deep_and_on_a_floor` sets
+the floor's last firing far in the past before its 1,025 shallow releases.
+`the_task_floor_fires_once_per_ten_milliseconds` walks the 10 ms on fixed
+times.
+
+`fan_out::shallow_steps_decommit_their_stacks_at_most_once_per_ten_milliseconds`
+runs 320,000 trivial steps under the heap check. It reads the bytes the
+runtime decommitted through the allocation probe, and bounds the re-maps by
+one per 10 ms of the run plus one. The bound grows on a slow machine instead
+of failing there. Before, the run re-mapped 312 stacks in 179 ms, against a
+bound of 18. It passed 200 runs in a row, 6 × 50 at once, and 4 × 25 at once
+beside 36 busy loops at load 40.
+
+**Tried and dropped:**
+
+- **Skipping the decommit when a task's Buri data stacks go back to the
+  pool**, whose drop re-maps every block whatever its watermark says. No
+  change: release-built steps never take a data stack.
+- **`mincore` to ask whether anything past the watermark is resident**: 900 µs
+  for the 63.75 MiB range on macOS, sixty times a re-map.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

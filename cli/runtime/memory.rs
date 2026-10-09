@@ -4227,6 +4227,35 @@ fn task_watermark(base: *mut u8) -> *mut u64 {
 /// watermark said: [`STACK_DECOMMIT_EVERY`]'s floor, at this stack.
 static TASK_RELEASES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// The shortest time between two of [`TASK_RELEASES`]' floor decommits.
+///
+/// A decommit is a `MAP_FIXED` re-map that shoots down every running
+/// thread's TLB: about 15 µs and 290 K instructions in `a_tiny`, whose
+/// 1.3 M tasks made 1,250 of them, 12% of its run. The floor is for a stack
+/// whose watermark a frame skipped, which a hundred a second still reach.
+const TASK_FLOOR_NS: i64 = 10_000_000;
+
+/// When the last of [`TASK_RELEASES`]' floor decommits was, on
+/// `buri_rt_host_clock_monotonic_nanoseconds`' clock.
+static TASK_FLOOR_AT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// Whether this release is the floor's: every [`STACK_DECOMMIT_EVERY`]th, and
+/// no sooner than [`TASK_FLOOR_NS`] after the last one.
+fn task_floor() -> bool {
+    if TASK_RELEASES.fetch_add(1, Ordering::Relaxed) % STACK_DECOMMIT_EVERY != STACK_DECOMMIT_EVERY - 1 {
+        return false;
+    }
+    floor_due(&TASK_FLOOR_AT, crate::host::buri_rt_host_clock_monotonic_nanoseconds())
+}
+
+/// Whether [`TASK_FLOOR_NS`] has passed since the floor `at` last fired,
+/// moving it to `now` if so. One caller wins a race for the same moment.
+fn floor_due(at: &std::sync::atomic::AtomicI64, now: i64) -> bool {
+    let last = at.load(Ordering::Relaxed);
+    now.saturating_sub(last) >= TASK_FLOOR_NS
+        && at.compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed).is_ok()
+}
+
 /// Idle task machine stacks, capped the way [`POOL`] is and for the same
 /// reason.
 static TASK_POOL: Mutex<Vec<usize>> = Mutex::new(Vec::new());
@@ -4274,8 +4303,7 @@ pub(crate) unsafe fn buri_rt_task_stack_release(base: *mut u8) {
     //
     // SAFETY: the word is in the mapping's usable range, and nothing runs on it.
     let shallow = unsafe { task_watermark(base).read() } == BURI_RT_STACK_WATERMARK;
-    let floor = TASK_RELEASES.fetch_add(1, Ordering::Relaxed) % STACK_DECOMMIT_EVERY == STACK_DECOMMIT_EVERY - 1;
-    if shallow && !floor {
+    if shallow && !task_floor() {
         task_pool_keep(base);
         return;
     }
@@ -4536,7 +4564,8 @@ mod tests {
     /// **A task stack that grew past its retained prefix is decommitted on
     /// release, and a shallow one is on a floor.** The watermark spares the
     /// system call for a step that stayed shallow; these are the two cases it
-    /// must not spare.
+    /// must not spare. The floor's 10 ms is
+    /// `the_task_floor_fires_once_per_ten_milliseconds`.
     #[test]
     fn a_task_stack_decommits_when_deep_and_on_a_floor() {
         let decommitted = || heap_stats().decommitted_bytes;
@@ -4552,7 +4581,10 @@ mod tests {
         unsafe { buri_rt_task_stack_release(base) };
         assert!(decommitted() >= before + tail, "a deep task stack was kept dirty");
 
+        // The floor's last firing put well over 10 ms back, so the next
+        // 1,024th release is the floor's, whoever else releases meanwhile.
         let before = decommitted();
+        TASK_FLOOR_AT.store(i64::MIN / 2, Ordering::Relaxed);
         for _ in 0..=STACK_DECOMMIT_EVERY {
             let (base, top) = buri_rt_task_stack_acquire();
             // SAFETY: the top byte, inside the retained prefix.
@@ -4561,6 +4593,19 @@ mod tests {
             unsafe { buri_rt_task_stack_release(base) };
         }
         assert!(decommitted() >= before + tail, "{STACK_DECOMMIT_EVERY} shallow releases decommitted nothing");
+    }
+
+    /// **The task floor fires once per 10 ms**, however often its count comes
+    /// round: each firing is a re-map that shoots down every thread's TLB.
+    #[test]
+    fn the_task_floor_fires_once_per_ten_milliseconds() {
+        let at = std::sync::atomic::AtomicI64::new(0);
+        let ms = 1_000_000;
+        assert!(!floor_due(&at, 5 * ms), "the floor fired 5 ms after the last");
+        assert!(floor_due(&at, 10 * ms), "the floor waited past 10 ms");
+        assert!(!floor_due(&at, 19 * ms), "the floor fired 9 ms after the last");
+        assert!(floor_due(&at, 31 * ms), "the floor waited past 21 ms");
+        assert_eq!(at.load(Ordering::Relaxed), 31 * ms);
     }
 
     /// The reserved bit is bit 63, the mask is its complement, and neither
