@@ -716,6 +716,14 @@ pub const ENTRIES: &[Entry] = &[
     // fields leave through the one out-pointer `Ret::ResMsg` gives, as
     // `Metadata` does.
     e("host.HostSpawn.spawnProcess", &[Dropped, List, List, Scalar, List], Ret::ResMsg),
+    // Starting one without waiting: `spawnProcess`'s arguments, and a handle
+    // back. The other four take the handle, and a signal or a status crosses
+    // as one integer in `core/process`'s numbering.
+    e("host.HostSpawn.startProcess", &[Dropped, List, List, Scalar, List], Ret::ResMsg),
+    e("host.HostSpawn.processId", &[Dropped, Scalar], Ret::Scalar),
+    e("host.HostSpawn.signalProcess", &[Dropped, Scalar, Scalar], Ret::ResMsg),
+    e("host.HostSpawn.pollProcess", &[Dropped, Scalar], Ret::Int(8)),
+    e("host.HostSpawn.waitProcess", &[Dropped, Scalar], Ret::ResMsg),
     e("host.HostStdin.readLine", &[Dropped], Ret::Sum),
     e("host.HostStdin.readBytes", &[Dropped, Scalar], Ret::Sum),
     // -- the scalar capabilities --------------------------------------------
@@ -1157,6 +1165,13 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.newSpawn", &[], Ret::Scalar),
     e("host_testing.recordSpawn", &[Scalar, List], Ret::Void),
     e("host_testing.spawnCalls", &[Scalar], Ret::Out),
+    // Its started children: the state a signal changes, which an immutable
+    // `self` cannot hold.
+    e("host_testing.spawnStart", &[Scalar, Scalar], Ret::Scalar),
+    e("host_testing.spawnSignal", &[Scalar, Scalar, Scalar], Ret::Void),
+    e("host_testing.spawnExited", &[Scalar, Scalar], Ret::Int(8)),
+    e("host_testing.spawnWait", &[Scalar, Scalar], Ret::Scalar),
+    e("host_testing.spawnSignals", &[Scalar], Ret::Out),
     // `sockets()` — a socket with no network behind it. Seven rows: the double,
     // the mint, the three `Sockets` methods and the two readers. `sent` and
     // `isOpen` take the **handle** rather than the `TestSockets`, in
@@ -2174,8 +2189,12 @@ mod tests {
                 // Starting a program fails the way the filesystem does and for
                 // the same reason: `ENOEXEC` and `E2BIG` have no `IoError`
                 // variant either, and the string is the only place a refused
-                // `spawn` says which it was.
+                // `spawn` says which it was. Its three siblings can meet an
+                // `EINVAL` or a failed `kqueue`, which have none either.
+                "host.HostSpawn.signalProcess",
                 "host.HostSpawn.spawnProcess",
+                "host.HostSpawn.startProcess",
+                "host.HostSpawn.waitProcess",
                 "host.HostTcp.tcpConnect",
                 "host.HostTcp.tcpRead",
                 "host.HostTcp.tcpWrite",

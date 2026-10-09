@@ -34,7 +34,7 @@ function __cmd_x_main_buri$main$withHost(host_0){
   }else{
     $abort('no arm matched');
   }
-  const events_8=ui_node$listen$b1px4q(void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0);
+  const events_8=ui_node$listen$1dndy7(void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0);
   const $t7=$share($k13);
   const children_9=$fromShared($k14,void 0);
   let $t3;
@@ -45,13 +45,13 @@ function __cmd_x_main_buri$main$withHost(host_0){
   }else{
     $abort('no arm matched');
   }
-  return $ui_node_mount(ctx_1,ui_node$stack$b1px4q([$k5,[[[17,$k6,void 0,$t7,$t3,events_8]],ui_node$stack$b1px4q($k21)],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  return $ui_node_mount(ctx_1,ui_node$stack$1dndy7([$k5,[[[17,$k6,void 0,$t7,$t3,events_8]],ui_node$stack$1dndy7($k21)],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
 function __cmd_x_main_buri$main(){
   return __cmd_x_main_buri$main$withHost($k22);
 }
-function ui_node$stack$b1px4q(config_0){
-  const events_1=ui_node$listen$b1px4q(config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]);
+function ui_node$stack$1dndy7(config_0){
+  const events_1=ui_node$listen$1dndy7(config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]);
   let $t1;
   const $t2=config_0[3];
   if($t2!==void 0){
@@ -82,7 +82,7 @@ function ui_node$stack$b1px4q(config_0){
     $abort('no arm matched');
   }
 }
-function ui_node$listen$b1px4q(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
+function ui_node$listen$1dndy7(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
   return [onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7];
 }
 const $buri$program={main:async ()=>{

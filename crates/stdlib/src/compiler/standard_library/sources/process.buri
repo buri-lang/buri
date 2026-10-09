@@ -21,9 +21,25 @@
 //! }
 //! ```
 //!
-//! [`run`] waits for the child and hands back everything it wrote. There is no
-//! streaming half and no handle to a live process: a program that needs one
-//! writes to a file and reads it, which is what the shape of `Output` says.
+//! [`run`] waits for the child and hands back everything it wrote.
+//!
+//! ## Starting something
+//!
+//! ```buri sig
+//! # from "core/process" import * as process;
+//! # from "core/process" import { Spawn, Status };
+//! # from "platform/effect" import { Allocator, IoError };
+//!
+//! export fn stopped<C: Allocator + Spawn>(ctx: C): Result<Status, IoError> {
+//!     let child = process.start(ctx, process.command("./server", ["--port", "9001"]))?;
+//!     let _ = child.signal(ctx, .Terminate)?;
+//!     child.wait(ctx)
+//! }
+//! ```
+//!
+//! [`start`] does not wait. It answers a [`Child`] to signal and wait on later.
+//! There is no streaming half: a started child writes to the files its
+//! `Command` names, or to this process's own streams.
 //!
 //! **The exit code is not an error.** A child that ran and failed is `.Ok` with
 //! a non-zero `code`; `.Err` is for a child that never ran — no such program,
@@ -60,10 +76,10 @@ export fn exit<C: Process>(ctx: C, code: Int): () {
 derive Equal, Show for Command;
 /// What to run, and what to run it with.
 ///
-/// [`command`] builds one with the three optional fields empty, and a program
-/// fills in what it needs. `.None` means "whatever this process has": the
-/// working directory it was started in, the environment it was given, and no
-/// standard input at all.
+/// [`command`] builds one with the five optional fields empty, and a program
+/// fills in what it needs with a spread: `Command { ..cmd, stdout: .Some(log) }`.
+/// `.None` means "whatever this process has": the working directory it was
+/// started in, the environment it was given, and no standard input at all.
 export struct Command {
     export program: Str,
     export arguments: [Str],
@@ -75,13 +91,22 @@ export struct Command {
     /// `.None` and `.Some([])` both give the child an input that is empty and
     /// already at its end.
     export stdin: Option<[U8]>,
+    /// A file the child's standard output goes to, created or emptied first. A
+    /// relative path is from this process's directory, not `workingDirectory`.
+    /// `.None` means [`run`] captures it and [`start`] hands the child this
+    /// process's own.
+    export stdout: Option<Path>,
+    /// The same, for standard error. The same file as `stdout` gets both
+    /// streams, in the order they were written.
+    export stderr: Option<Path>,
 }
 
 derive Equal, Show for Output;
 /// What a finished process left behind.
 ///
 /// `code` is the exit status, and a child killed by a signal reports `128 +
-/// signal`, which is the number a shell reports for it.
+/// signal`, which is the number a shell reports for it. A stream the `Command`
+/// sent to a file is empty here.
 export struct Output {
     export code: Int,
     export stdout: [U8],
@@ -99,14 +124,15 @@ export effect Spawn {
     ///
     /// **Four flat arguments rather than a `Command`**, and the shape is the
     /// boundary's rather than the module's. An argument crosses to the runtime
-    /// flattened into its scalar leaves, three of that struct's five fields are
+    /// flattened into its scalar leaves, five of that struct's seven fields are
     /// an `Option` whose layout the runtime would have to know, and a runtime
     /// call has a fixed number of registers to put leaves in
     /// (`backend/stencil/abi.rs`). So the encoding is here, in one place, and
-    /// [`run`] is the only caller of it:
+    /// [`run`] and [`start`] are its only callers:
     ///
-    /// * `plan` is the **program**, then the **working directory** — empty for
-    ///   this process's own — then the arguments.
+    /// * `plan` is the **program**, the **working directory**, the **standard
+    ///   output** file and the **standard error** file, each empty where the
+    ///   `Command` has none, then the arguments.
     /// * `environment` is name and value alternating, and is used only when
     ///   `replaceEnvironment` says so.
     /// * `stdin` is written to the child and the pipe is then closed.
@@ -117,6 +143,29 @@ export effect Spawn {
         replaceEnvironment: Bool,
         stdin: [U8],
     ): Result<Output, IoError>;
+
+    /// Starts a program and answers a handle to it without waiting. The
+    /// arguments are `spawnProcess`'s.
+    fn startProcess(
+        self,
+        plan: [Str],
+        environment: [Str],
+        replaceEnvironment: Bool,
+        stdin: [U8],
+    ): Result<Int, IoError>;
+
+    /// The operating system's process id for a handle.
+    fn processId(self, child: Int): Int;
+
+    /// Sends a signal, numbered as `signalCode` numbers it.
+    fn signalProcess(self, child: Int, signal: Int): Result<(), IoError>;
+
+    /// Whether the child has exited, collecting its status if it has.
+    fn pollProcess(self, child: Int): Bool;
+
+    /// Waits for the child to exit, and answers its status as `statusOf` reads
+    /// it.
+    fn waitProcess(self, child: Int): Result<Int, IoError>;
 }
 
 /// A command to run `program` with these arguments, and nothing else set.
@@ -139,22 +188,63 @@ export fn command(program: Str, arguments: [Str]): Command {
         workingDirectory: .None,
         environment: .None,
         stdin: .None,
+        stdout: .None,
+        stderr: .None,
     }
 }
 
 /// Runs the command and waits for it.
 ///
 /// `.Ok` means the child ran, whatever it made of it: read `code` to find out.
-/// `.Err` means it never ran — `.NotFound` for a program that is not there,
-/// `.PermissionDenied` for one that is not executable.
+/// `.Err` means it never ran: `.NotFound` for a program that is not there,
+/// `.PermissionDenied` for one that is not executable, or the error opening a
+/// `stdout` or `stderr` file.
 ///
 /// Both streams are read to the end while the child runs, so a child that
 /// writes more than a pipe holds does not deadlock.
 export fn run<C: Allocator + Spawn>(ctx: C, command: Command): Result<Output, IoError> {
-    let at = match (command.workingDirectory) {
-        .None => "",
-        .Some(directory) => directory.text(),
-    };
+    let (plan, variables, replace, input) = encoded(ctx, command);
+    ctx.spawnProcess(plan, variables, replace, input)
+}
+
+/// Starts the command and answers without waiting for it.
+///
+/// ```buri sig
+/// # from "core/path" import * as path;
+/// # from "core/process" import * as process;
+/// # from "core/process" import { Child, Command, Spawn };
+/// # from "platform/effect" import { Allocator, IoError };
+/// #
+/// export fn serve<C: Allocator + Spawn>(ctx: C): Result<Child, IoError> {
+///     let server = process.command("./server", ["--port", "9001"]);
+///     process.start(ctx, Command { ..server, stdout: .Some(path.of(ctx, "server.log")) })
+/// }
+/// ```
+///
+/// `.Err` is [`run`]'s: the child never started. The child reads
+/// `command.stdin` and then the end of its input, and writes to `stdout` and
+/// `stderr`, or to this process's own streams where those are `.None`.
+///
+/// **A child outlives the program that started it.** Nothing ends it but a
+/// signal or its own exit, as in Rust's `std`, so a program that wants it gone
+/// sends `.Kill` and waits.
+///
+/// **Wait for every child you start.** An exited child nobody waited on holds a
+/// slot in the process table until this program ends. The runtime keeps it
+/// there on purpose: it is what keeps the status for a `wait` that comes later.
+export fn start<C: Allocator + Spawn>(
+    ctx: C,
+    command: Command,
+): Result<Child, IoError> {
+    let (plan, variables, replace, input) = encoded(ctx, command);
+    match (ctx.startProcess(plan, variables, replace, input)) {
+        .Err(e) => .Err(e),
+        .Ok(handle) => .Ok(Child { handle: handle, pid: ctx.processId(handle) }),
+    }
+}
+
+/// A `Command` as `Spawn.spawnProcess` takes it.
+fn encoded<C: Allocator>(ctx: C, command: Command): ([Str], [Str], Bool, [U8]) {
     let replace = match (command.environment) {
         .None => false,
         .Some(_pairs) => true,
@@ -167,8 +257,131 @@ export fn run<C: Allocator + Spawn>(ctx: C, command: Command): Result<Output, Io
         .None => [],
         .Some(body) => body,
     };
-    let plan = [command.program, at].concat(ctx, command.arguments);
-    ctx.spawnProcess(plan, variables, replace, input)
+    let files = [
+        command.program,
+        text(command.workingDirectory),
+        text(command.stdout),
+        text(command.stderr),
+    ];
+    (files.concat(ctx, command.arguments), variables, replace, input)
+}
+
+/// A path's text, or the empty string for none. `path.of` never makes an empty
+/// path, so the two cannot be confused.
+fn text(at: Option<Path>): Str {
+    match (at) {
+        .None => "",
+        .Some(it) => it.text(),
+    }
+}
+
+derive Equal, Show for Signal;
+/// A signal to send a [`Child`], or the one that ended it.
+///
+/// `Other` is the platform's own number, for a signal with no name here:
+/// `.Other(1)` is `SIGHUP`. The named five mean the same on every platform,
+/// even where their numbers differ.
+export enum Signal {
+    /// `SIGINT`, what Ctrl-C sends.
+    Interrupt,
+    /// `SIGTERM`, a request to stop that a program may handle or ignore.
+    Terminate,
+    /// `SIGKILL`, which nothing can handle or ignore.
+    Kill,
+    /// `SIGSTOP`, which pauses the child until `.Continue`.
+    Stop,
+    /// `SIGCONT`.
+    Continue,
+    Other(Int),
+}
+
+derive Equal, Show for Status;
+/// How a child ended: the code it exited with, or the signal that ended it.
+export enum Status {
+    Exited(Int),
+    Signaled(Signal),
+}
+
+derive Equal, Show for Child;
+/// A child [`start`] started.
+///
+/// An inert handle: copying or dropping one does nothing to the process.
+export struct Child {
+    handle: Int,
+    pid: Int,
+}
+
+impl Child {
+    /// The operating system's process id, for a log.
+    ///
+    /// Once the child has been waited on, the id may name another process.
+    /// `signal` knows that and an id handed to `kill` does not.
+    export fn id(self): Int {
+        self.pid
+    }
+
+    /// Sends `signal` to the child.
+    ///
+    /// **A child that has exited is sent nothing**, and the answer is still
+    /// `.Ok`: once it has been waited on, its id may belong to another process.
+    export fn signal<C: Spawn>(self, ctx: C, signal: Signal): Result<(), IoError> {
+        ctx.signalProcess(self.handle, signalCode(signal))
+    }
+
+    /// Waits for the child to exit and answers how it ended.
+    ///
+    /// A stopped child has not exited, so this waits until it is continued and
+    /// finishes, or is killed. **Waiting again answers the same status**, from
+    /// any task, and a task that waits does not hold up the others.
+    export fn wait<C: Spawn>(self, ctx: C): Result<Status, IoError> {
+        match (ctx.waitProcess(self.handle)) {
+            .Err(e) => .Err(e),
+            .Ok(code) => .Ok(statusOf(code)),
+        }
+    }
+
+    /// How the child ended, or `.None` while it is still running. It never
+    /// waits.
+    export fn tryWait<C: Spawn>(self, ctx: C): Result<Option<Status>, IoError> {
+        if (ctx.pollProcess(self.handle)) {
+            match (self.wait(ctx)) {
+                .Err(e) => .Err(e),
+                .Ok(status) => .Ok(.Some(status)),
+            }
+        } else {
+            .Ok(.None)
+        }
+    }
+}
+
+/// A `Signal` as the effect takes it: the named five are `-1` to `-5`, and
+/// `Other(n)` is `n`.
+fn signalCode(signal: Signal): Int {
+    match (signal) {
+        .Interrupt => -1,
+        .Terminate => -2,
+        .Kill => -3,
+        .Stop => -4,
+        .Continue => -5,
+        .Other(n) => n,
+    }
+}
+
+/// A status as the effect answers it: an exit code as itself, and a signal as
+/// its number negated. `SIGINT`, `SIGKILL` and `SIGTERM` are 2, 9 and 15 on
+/// every platform, and `SIGSTOP` and `SIGCONT` never end a process.
+fn statusOf(code: Int): Status {
+    if (code >= 0) {
+        .Exited(code)
+    } else if (code == -2) {
+        .Signaled(.Interrupt)
+    } else if (code == -9) {
+        .Signaled(.Kill)
+    } else if (code == -15) {
+        .Signaled(.Terminate)
+    } else {
+        .Signaled(.Other(-code))
+    }
 }
 
 /// `[(name, value)]` as name and value alternating, which is what the effect

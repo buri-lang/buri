@@ -70,7 +70,7 @@ use buri::compiler::backend::Profile;
 /// asserts the backend's own inputs are real bytes before the suite starts. A
 /// guard firing there is a broken runner, not a modest host.
 #[cfg(feature = "backend-llvm")]
-fn ready() -> bool {
+pub(crate) fn ready() -> bool {
     match crate::llvm::can_execute() {
         Some(why) => !crate::ci::skipped("llvm", why),
         None => true,
@@ -80,19 +80,19 @@ fn ready() -> bool {
 /// The same question of the copy-and-patch backend, which is what a default
 /// build has.
 #[cfg(all(not(feature = "backend-llvm"), feature = "backend-stencil"))]
-fn ready() -> bool {
+pub(crate) fn ready() -> bool {
     crate::stencil::supported()
 }
 
 /// One program, through the whole pipeline, into an executable.
 #[cfg(feature = "backend-llvm")]
-fn built(name: &str, source: &str) -> PathBuf {
+pub(crate) fn built(name: &str, source: &str) -> PathBuf {
     crate::llvm::build_at(name, source, None, Profile::Release)
 }
 
 /// The same, on the backend a default build carries.
 #[cfg(all(not(feature = "backend-llvm"), feature = "backend-stencil"))]
-fn built(name: &str, source: &str) -> PathBuf {
+pub(crate) fn built(name: &str, source: &str) -> PathBuf {
     crate::stencil::build_with(name, source, None)
 }
 
@@ -3030,6 +3030,8 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
         workingDirectory: .None,
         environment: .None,
         stdin: .Some([104, 101, 108, 108, 111]),
+        stdout: .None,
+        stderr: .None,
     };
     let echoed = process.run(ctx, fed).mapErr(fn(_e) => "cat")?;
     let _p4 = io
@@ -3045,6 +3047,8 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
         workingDirectory: .None,
         environment: .None,
         stdin: .Some(large),
+        stdout: .None,
+        stderr: .None,
     };
     let all = process.run(ctx, flooded).mapErr(fn(_e) => "cat large")?;
     let _p5 = io
@@ -3068,6 +3072,8 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
         workingDirectory: .Some(yes.parent().withDefault(yes).join(ctx, "no-such-directory")),
         environment: .None,
         stdin: .None,
+        stdout: .None,
+        stderr: .None,
     };
     // The same again with a working directory that is a *file*, which is a
     // different refusal and the one a mistyped path usually gets.
@@ -3077,6 +3083,8 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
         workingDirectory: .Some(yes.join(ctx, "under-a-file")),
         environment: .None,
         stdin: .None,
+        stdout: .None,
+        stderr: .None,
     };
     let _p7 = io
         .println(
@@ -3095,6 +3103,8 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
         workingDirectory: .None,
         environment: .Some([("BURI_CHILD", "one two=three")]),
         stdin: .None,
+        stdout: .None,
+        stderr: .None,
     };
     let listed = process.run(ctx, scrubbed).mapErr(fn(_e) => "env")?;
     let _p8 = io
@@ -3106,6 +3116,8 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
         workingDirectory: .None,
         environment: .Some([]),
         stdin: .None,
+        stdout: .None,
+        stderr: .None,
     };
     let nothing = process.run(ctx, bare).mapErr(fn(_e) => "env none")?;
     let _p9 = io
@@ -3140,6 +3152,8 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
         workingDirectory: .Some(yes.parent().withDefault(pwd)),
         environment: .None,
         stdin: .None,
+        stdout: .None,
+        stderr: .None,
     };
     let told = process.run(ctx, moved).mapErr(fn(_e) => "pwd")?;
     io.println(ctx, "cwd ${text(ctx, told.stdout)}").mapErr(fn(_e) => "print")

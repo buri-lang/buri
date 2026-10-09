@@ -137,6 +137,8 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
         workingDirectory: .None,
         environment: .None,
         stdin: .Some(large),
+        stdout: .None,
+        stderr: .None,
     };
     let all = process.run(ctx, flooded).mapErr(fn(_e) => "cat large")?;
     let _p4 = io
@@ -150,6 +152,8 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
         workingDirectory: .None,
         environment: .Some([("BURI_CHILD", "one two=three")]),
         stdin: .None,
+        stdout: .None,
+        stderr: .None,
     };
     let listing = process.run(ctx, scrubbed).mapErr(fn(_e) => "env")?;
     // What the child holds rather than every line of it: macOS adds a variable
@@ -174,6 +178,8 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
         ),
         environment: .None,
         stdin: .None,
+        stdout: .None,
+        stderr: .None,
     };
     io
         .println(ctx, "nowhere ${refused(process.run(ctx, nowhere))}")

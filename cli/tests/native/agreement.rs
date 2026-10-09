@@ -382,6 +382,18 @@ fn messages(diagnostics: &Diagnostics) -> String {
 
 /// Compile through the JavaScript backend and run the artifact.
 pub(crate) fn run_js(row: &str, checked: &Checked, paths: &[String]) -> Ran {
+    let artifact = emit_js(row, checked, paths);
+    let engine = engine().expect("a JavaScript engine");
+    let out = Command::new(&engine).arg(&artifact).output().unwrap();
+    Ran {
+        status: out.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+    }
+}
+
+/// Compile through the JavaScript backend, and answer where the artifact is.
+pub(crate) fn emit_js(row: &str, checked: &Checked, paths: &[String]) -> PathBuf {
     let target = Target { platform: Platform::Js, arch: None };
     let program = prepared(row, checked, paths, target);
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
@@ -395,13 +407,7 @@ pub(crate) fn run_js(row: &str, checked: &Checked, paths: &[String]) -> Ran {
     let dir = workspace(&format!("{row}-js"));
     let artifact = dir.join("main.mjs");
     std::fs::write(&artifact, &units.first().expect("one unit").bytes).unwrap();
-    let engine = engine().expect("a JavaScript engine");
-    let out = Command::new(&engine).arg(&artifact).output().unwrap();
-    Ran {
-        status: out.status.code().unwrap_or(-1),
-        stdout: String::from_utf8_lossy(&out.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
-    }
+    artifact
 }
 
 /// Monomorphize and run the middle end for this host, once for every native
