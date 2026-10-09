@@ -272,7 +272,7 @@
 use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::{self, Desc, Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
+use crate::compiler::semantics::typed::{self, Expr, ExprKind, OptionOrResult, PatKind, Pattern, Stmt};
 use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
@@ -3432,7 +3432,7 @@ impl Scan<'_> {
             ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
                 self.short_circuit(id, lhs, rhs, live)
             }
-            ExprKind::Try { base, .. } => {
+            ExprKind::Try { base, kind } => {
                 // An early exit leaves the function, so nothing after it runs.
                 // Scanning the operand in the enclosing liveness is what keeps
                 // a drop off a path that never reached it.
@@ -3443,7 +3443,25 @@ impl Scan<'_> {
                 // reads it.
                 self.tries.push(id);
                 let held = self.owned_live(live);
-                self.expr(base, bid, live, mode);
+                // A tail-shaped operand is owned for a projection's reason
+                // ([`Scan::tail_shaped_base`]), and [`fresh_leaf`] agrees.
+                let bmode = if self.tail_shaped_base(base) { Mode::Own } else { mode };
+                // **A lent `?` is a projection.** Its payload is words copied
+                // out of the operand, with no count of its own, so whatever
+                // owns the operand has to outlive the parent that reads them —
+                // [`Scan::project`], below — and on the failing path the error
+                // handed back needs a count of its own. Where the operand is a
+                // local this function owns, the local's release on that path
+                // is that count; anywhere else the error is retained.
+                if bmode == Mode::Borrow && !fresh(base) && *kind == OptionOrResult::Result {
+                    match base.kind {
+                        ExprKind::Local(r) if self.owned.contains(&r) => {
+                            self.escaped.insert((id, Target::Local(r)));
+                        }
+                        _ => self.push(id, Position::Escape, RcOp::IncRef, Target::Node(bid)),
+                    }
+                }
+                self.expr(base, bid, live, bmode);
                 // ...and the other half of that sentence: *because* nothing
                 // after it runs, the drops the continuation would have
                 // performed never happen on the escape path, and every owned
@@ -3459,7 +3477,7 @@ impl Scan<'_> {
                 // reference. What survives into the escape is what the code
                 // after the `?` would have gone on to read.
                 self.escape(id, &held);
-                self.flush(id);
+                self.project(id, bmode);
             }
             // A projection reads its base without taking it, which is the whole
             // of borrowing at the tree level. What it *produces* is a reference
@@ -4462,7 +4480,8 @@ pub fn compound(e: &Expr) -> bool {
 }
 
 /// The local a borrowed child is an alias of: itself where it is one, and the
-/// base of a projection chain where it is words copied out of one.
+/// base of a projection chain, or of a lent `?`, where it is words copied out
+/// of one.
 ///
 /// [`Scan::project`] defers the base's drop to the parent; this is the other
 /// half of the same invariant, and it is what keeps the base alive across the
@@ -4688,7 +4707,8 @@ fn borrowed_root(e: &Expr) -> Option<LocalId> {
         ExprKind::Field { base, .. }
         | ExprKind::TupleIndex { base, .. }
         | ExprKind::CtxGet { base, .. }
-        | ExprKind::Index { base, .. } => borrowed_root(base),
+        | ExprKind::Index { base, .. }
+        | ExprKind::Try { base, .. } => borrowed_root(base),
         _ => None,
     }
 }
@@ -4798,8 +4818,10 @@ fn fresh_leaf(e: &Expr) -> bool {
     // per repeated field of a generated proto JSON decoder. The `let ys = …?;`
     // spelling never leaked, because a binding is a name and a name is what
     // `Scan` releases by.
+    //
+    // A tail-shaped operand is owned for the projection's reason above.
     if let ExprKind::Try { base, .. } = &e.kind {
-        return fresh(base);
+        return fresh(base) || compound(base);
     }
     matches!(
         e.kind,
