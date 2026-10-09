@@ -772,6 +772,35 @@ fn a_filtered_run_never_comes_from_the_cache() {
     );
 }
 
+/// A suite `--filter` leaves no test in isn't compiled, so a library that
+/// doesn't check is skipped rather than reported. A test source that doesn't
+/// parse still is: its names can't be read without the parse.
+#[test]
+fn a_filter_skips_a_suite_it_leaves_no_test_in_without_compiling_it() {
+    let scratch = Scratch::repo("filter-unbuilt");
+    for (name, body) in [("good", "1"), ("broken", "\"not a number\"")] {
+        scratch.write(
+            &format!("lib/{name}/BUILD.buri"),
+            &format!("library {{\n    test {{\n        sources: [\"test/{name}.buri\"]\n    }}\n}}\n"),
+        );
+        scratch.write(&format!("lib/{name}/lib.buri"), &format!("export fn one(): Int {{\n    {body}\n}}\n"));
+        scratch.write(
+            &format!("lib/{name}/test/{name}.buri"),
+            &format!(
+                "from \"//lib/{name}\" import {{ one }};\nfrom \"core/testing/assert\" import * as assert;\n\n\
+                 test \"{name} is one\" {{\n    assert.equal(one(), 1);\n}}\n"
+            ),
+        );
+    }
+    for extra in [&[][..], &["--output=js"][..]] {
+        let args: Vec<&str> = ["test", "//...", "--filter=good"].iter().chain(extra).copied().collect();
+        let run = scratch.run(&args);
+        run.ok().says("1 passed, 0 failed, 1 skipped").silent_about("error");
+    }
+    scratch.edit("lib/broken/test/broken.buri", "test \"broken", "test broken \"");
+    scratch.run(&["test", "//...", "--filter=good"]).exits(1).says("error");
+}
+
 // ---------------------------------------------------------------------------
 // The native row
 // ---------------------------------------------------------------------------
