@@ -7090,6 +7090,140 @@ runs under the heap check.
   160 and 1.93 s of CPU to 1.14, but `a_tiny` 4% slower. On macOS each
   access is a `tlv_get_addr` call, two per task.
 
+### 6.76 Where a `buri test` run's time goes, and suite keys side by side, 2026-10-09
+
+A release `buri` from `247a5fa8c` with `--features backend-llvm`, on a 12-core
+M3 Pro at load 2–4 unless noted, no sleep in `pmset -g log`. The phases come
+from `BURI_PROFILE` and a local probe, never committed, that wrote a timestamp
+at every phase change, process start and runner's first line. The workloads:
+
+- **conformance**: `cli/tests/conformance` with `backends: [JS]` dropped where
+  stencil compiles the suite. 33 native suites in one runner, 7 on `bun`,
+  4,205 tests.
+- **conformance ×10**: every package copied under ten names, 390 suites.
+- **example**: `cli/tests/example`, 8 suites, 6 native in two runners.
+- **edit**: rewrite one test in `//lib/calendar/test/date.buri`, then
+  `buri test //...`. For the example, change a constant in `//lib/money`, which
+  five suites read.
+
+**An edit is mostly the launch check.** Conformance, edit, 0.33 s:
+
+| Step | Wall |
+|---|---:|
+| start, open the workspace | 3–6 ms |
+| key and look up all 40 suites | 19–25 ms |
+| check, lower and emit `//lib/calendar` | ~20 ms |
+| link its 1 MB runner (`ld64.lld`) | 40 ms |
+| §6.39's launch check of that runner | 228–240 ms |
+| 12 runner processes, 117 tests | 8–10 ms |
+
+**A cold run waits on generators, one thread and the check.** Conformance
+after `buri clean`, 1.39 s:
+
+| Step | Wall |
+|---|---:|
+| compile the generator tool, 20 `bun` runs | 254 ms |
+| key and look up all suites | 36 ms |
+| check, monomorphize and middle end of the one batch program, one thread | ~300 ms |
+| emit, 12 threads | 40 ms |
+| stage 180 objects, `ld64.lld` | 130 ms |
+| launch check of the 27 MB runner | 436 ms |
+| 72 runner processes, 4,205 tests | 190 ms |
+
+Every other workload, by its largest costs:
+
+| Workload | Wall | Largest costs |
+|---|---:|---|
+| conformance, nothing changed | 24 ms | keys 19 ms |
+| conformance ×10, nothing changed | 0.31 s | keys 0.30 s |
+| conformance ×10, edit | 0.60 s | keys 0.28 s, launch check ~0.23 s |
+| example, cold | 0.21–0.31 s | two launch checks, `bun` |
+| example, edit `//lib/money` | 0.29 s | link 44 ms, compile 40 ms, two launch checks |
+| conformance `--release`, edit | 0.50 s | LLVM 205 ms on one thread, launch check, link 43 ms |
+| conformance `--release`, cold | 8.7 s | LLVM 80.6 s of CPU on 12 threads, 86% of wall |
+
+**The launch check costs about 0.2 s plus 10 ms per MB on a quiet machine.**
+A fresh copy of a 1 MB runner took 0.13–0.26 s to start, and of a 27 MB one
+0.40–0.47 s. At load 15–35, with other agents' tests in the same queue, either
+size took 4–17 s, and `XprotectService` held 50–60% of a core all day. §6.63's
+program store doesn't help here: an edit makes new bytes, so the runner is a
+new file whatever the store holds. That leaves the next cost.
+
+**Suite keys were the next, and the only one that grows with the
+repository.** Every `buri test //...` keys every suite before it looks
+anything up. A key reads the suite's test sources, lexes them for the
+comment-blind program text (§6.43) and hashes them, and `plan` did that one
+suite at a time. `sample` of the conformance keys: lexing 45%, SHA-256 17%,
+copies 12%, `open`/`read`/`stat` 14%. Conformance ×10 spent 0.30 s there on
+every run, half of an edit.
+
+No key reads another's result, so `commands/test.rs` now takes them on all
+cores before the lookups:
+
+```rust
+let keys = crate::parallel::map(runs.len(), |r| {
+    let &(i, platform) = runs.get(r)?;
+    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+    Some(actions::test_key(session, *suites.get(i)?, &output, flags))
+});
+```
+
+`runs_of` is the platform choice `plan` made, factored out so both read one
+list. The lookups, the build keys of suites that miss, and everything after
+them run as before.
+
+Five alternating runs per arm, median wall, load 2.9–3.2:
+
+| Workload | Before | After | Δ |
+|---|---:|---:|---:|
+| conformance, nothing changed | 26 ms | 14 ms | −46% |
+| conformance, edit | 0.328 s | 0.316 s | −4% |
+| conformance ×10, nothing changed | 0.312 s | 0.163 s | −48% |
+| conformance ×10, edit | 0.595 s | 0.438 s | −26% |
+| example, cold, best of three | 0.214 s | 0.190 s | −11% |
+
+Instructions rise about 1%, the threads' cost. Cold conformance didn't move
+(1.30 s and 1.29 s best of three): its keys are 36 ms of 1.39 s.
+
+**Output is identical.** A build that also computed every key serially and
+aborted on a mismatch ran cold, `--output=js` and warm over all 395 fixture
+repositories under `cli/tests`, the example, the tutorial and conformance:
+no mismatch. Base and new printed the same `--verbose` listings, summaries
+and exit codes for the same three runs of every one of them, with times
+masked.
+
+There's no growth guard. The work is the same, only spread over threads, and
+no count tells that apart from serial.
+
+**What's left, largest first:**
+
+- **The launch check**, 70% of a quiet edit and seconds under load. Only fewer
+  new executables avoid it. Loading a suite's code into a checked runner was
+  declined. On a developer's own machine, `spctl developer-mode
+  enable-terminal` and adding the terminal under Privacy & Security →
+  Developer Tools skip it, about 0.23 s per edit. Smaller stencil code would
+  shorten the cold run's 27 MB check, at about 10 ms per MB.
+- **One module's LLVM codegen runs on one thread.** The `--release` edit
+  spends 205 ms in `date.buri`'s unit. Splitting the module after optimization
+  and generating its machine code in parallel could save ~0.15 s per release
+  edit. A cold release is already 12-way parallel.
+- **The link**, 40–45 ms: `ld64.lld` starts in 143 M instructions, and loading
+  the 19 MB runtime archive's 78 members takes 22 ms. A runtime linked ahead
+  of time, as one object or a stable library, would save ~20–30 ms per run.
+  Its debug sections aren't the cost: stripped, the link retired the same
+  instructions.
+- **Cold, before codegen:** every suite waits on every generator (254 ms here),
+  and the batch program's check, monomorphize and middle end run on one thread
+  (~300 ms, middle 144 ms of it).
+- **Lookups stay serial**, 51 µs per suite, and so does the build key of each
+  suite that misses, 0.6 ms each: 20 ms and 44 ms at 390 suites.
+- **Workers poll every millisecond** while the first runner waits on the check
+  (`run_member`), about 3% of a core each. That's CPU, not wall.
+- **The first edit to a suite after a full run** re-emits its standard library
+  units, since a suite built alone is a different program from the batch.
+  Release spends 9.5 G instructions there instead of 2.8 G, on other threads,
+  so the wall barely moves.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

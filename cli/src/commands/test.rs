@@ -373,14 +373,15 @@ fn one_pass(
         promised: Vec::new(),
     };
     // Every suite's cache lookup first: on an unedited repository that is the
-    // whole pass.
+    // whole pass. The keys read and hash every suite's sources, so they are
+    // taken side by side before the lookups.
+    let with_tests: Vec<TargetId> = targets.iter().copied().filter(|&t| has_tests(&session, t)).collect();
+    let keys = verdict_keys(&session, &with_tests, &args.flags);
     let mut slots: Vec<Slot> = Vec::new();
     let mut plans: Vec<Plan> = Vec::new();
     let mut graph = None;
-    for &target in &targets {
-        if has_tests(&session, target) {
-            plans.push(plan(&mut session, target, args, &mut graph, &mut slots));
-        }
+    for (&target, keys) in with_tests.iter().zip(&keys) {
+        plans.push(plan(&mut session, target, args, keys, &mut graph, &mut slots));
     }
     let suites = plans.len();
     let shared = Shared {
@@ -557,6 +558,49 @@ struct Plan {
     slots: Vec<usize>,
 }
 
+/// The platforms a suite runs on, and whether anyone asked for each.
+fn runs_of(session: &Session, target: TargetId, flags: &arguments::Flags) -> Vec<(Platform, Chosen)> {
+    let declared: Vec<Platform> = session.workspace.suite_platforms(target);
+    if !declared.is_empty() {
+        declared.into_iter().map(|p| (p, Chosen::Asked)).collect()
+    } else if let Some(p) = selected_platform(flags) {
+        // `--output` names the platform for the suites that have not named
+        // one, and does not overrule a suite that has.
+        vec![(p, Chosen::Asked)]
+    } else {
+        vec![(crate::compiler::driver::host_native_platform(), Chosen::Default)]
+    }
+}
+
+/// [`actions::test_key`] for each run of each suite, in `suites`' order.
+///
+/// Each key reads and hashes its own suite's test sources, and nothing one
+/// key computes is another's input, so they are taken on all cores. A run
+/// [`plan`] refuses has a key nobody reads.
+fn verdict_keys(
+    session: &Session,
+    suites: &[TargetId],
+    flags: &arguments::Flags,
+) -> Vec<Vec<(Platform, crate::build::cache::ActionKey)>> {
+    let runs: Vec<(usize, Platform)> = suites
+        .iter()
+        .enumerate()
+        .flat_map(|(i, &t)| runs_of(session, t, flags).into_iter().map(move |(p, _)| (i, p)))
+        .collect();
+    let keys = crate::parallel::map(runs.len(), |r| {
+        let &(i, platform) = runs.get(r)?;
+        let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+        Some(actions::test_key(session, *suites.get(i)?, &output, flags))
+    });
+    let mut by_suite: Vec<Vec<(Platform, crate::build::cache::ActionKey)>> = vec![Vec::new(); suites.len()];
+    for ((i, platform), key) in runs.into_iter().zip(keys) {
+        if let (Some(keys), Some(key)) = (by_suite.get_mut(i), key) {
+            keys.push((platform, key));
+        }
+    }
+    by_suite
+}
+
 /// One suite's policy check, platforms, keys and cache lookups.
 ///
 /// A suite inherits its target's tags and platform restrictions, so a suite for
@@ -570,11 +614,13 @@ struct Plan {
 /// its build ([`recall`]): the errors that stopped it last time are its answer
 /// again, and a binary it linked or a bundle it emitted is run again rather
 /// than built. `graph` is
-/// [`actions::graph_key`], worked out the first time a suite needs it.
+/// [`actions::graph_key`], worked out the first time a suite needs it. `keys`
+/// are [`verdict_keys`]' for this suite.
 fn plan(
     session: &mut Session,
     target: TargetId,
     args: &arguments::Args,
+    keys: &[(Platform, crate::build::cache::ActionKey)],
     graph: &mut Option<crate::build::cache::ActionKey>,
     slots: &mut Vec<Slot>,
 ) -> Plan {
@@ -583,7 +629,7 @@ fn plan(
     let checked: Vec<Platform> = if declared.is_empty() {
         vec![crate::compiler::driver::host_native_platform()]
     } else {
-        declared.clone()
+        declared
     };
     // A platform a suite names must be one the target admits: asking for a JS
     // run of a `[LINUX, MACOS]` library is an error, not a skip
@@ -595,15 +641,7 @@ fn plan(
     if refused.has_errors() {
         return Plan { target, refused, slots: Vec::new() };
     }
-    let runs: Vec<(Platform, Chosen)> = if !declared.is_empty() {
-        declared.into_iter().map(|p| (p, Chosen::Asked)).collect()
-    } else if let Some(p) = selected_platform(&args.flags) {
-        // `--output` names the platform for the suites that have not named
-        // one, and does not overrule a suite that has.
-        vec![(p, Chosen::Asked)]
-    } else {
-        vec![(crate::compiler::driver::host_native_platform(), Chosen::Default)]
-    };
+    let runs = runs_of(session, target, &args.flags);
     let mut mine = Vec::new();
     for (platform, chosen) in runs {
         if platform.is_native() && !native_ready(platform, &args.flags) {
@@ -612,7 +650,10 @@ fn plan(
             continue;
         }
         let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-        let key = actions::test_key(session, target, &output, &args.flags);
+        let key = match keys.iter().find(|(p, _)| *p == platform) {
+            Some((_, key)) => key.clone(),
+            None => actions::test_key(session, target, &output, &args.flags),
+        };
         let (cached, mut explain) =
             crate::build::cache::holding_explain(|| served(session, target, platform, &key, args));
         let mut answer = cached.map(Ok);
