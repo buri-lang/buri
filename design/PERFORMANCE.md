@@ -6655,7 +6655,7 @@ the second cost 3.14 times the first.
 
 **What's left.**
 
-- **`unused-context` is quadratic in the findings in a package.**
+- **`unused-context` is quadratic in the findings in a package** (§6.71 fixes it).
   `context_edits` rebuilds the package's published names, and walks every body
   for call sites, once per finding. One file of `n` functions whose `ctx` is
   never read: `lint //...` is 1.05, 3.7 and 14.8 G at 1,000, 2,000 and 4,000,
@@ -6663,6 +6663,53 @@ the second cost 3.14 times the first.
 - **`Names::of` looks every identifier up in a `BTreeSet<String>`.** That's
   14% of a `mixed-100k` keystroke in `memcmp`. A set of the module's distinct
   names first would make it a lookup per name rather than per token.
+
+### 6.71 `unused-context` walks the package once, 2026-10-09
+
+§6.70's first lead. `context_edits` built the fix for one `unused-context`
+finding at a time. For each one it rebuilt the package's published names and
+walked every body for the call sites to rewrite, so a file of functions that
+never read their `ctx` cost time quadratic in the file.
+
+Now the rule collects its findings first and asks for every fix in one walk:
+
+```rust
+typed::ExprKind::CallFn { func: callee, args } => {
+    let Some(func) = callee.decl() else { return };
+    let Some((index, edits)) = wanted.get_mut(&func) else { return };
+    ...
+}
+```
+
+Each function's edits are pushed in the order the old walk met them, and a
+function is refused on the same three grounds: the package publishes it,
+something takes it as a value, or a body didn't check.
+
+Cold `lint //...`, process instructions. "Calls" is a binary of `n` private
+functions called from one that hands `ctx` on, so every fix rewrites a call
+site. "Published" is a library that exports all `n`.
+
+| Shape | `n` = 1,000 | 2,000 | 4,000 |
+|---|---:|---:|---:|
+| calls, before | 0.81 G | 2.50 G | 6.49 G |
+| calls, after | 0.30 G | 0.43 G | 0.66 G |
+| published, before | 1.07 G | 3.75 G | 14.85 G |
+| published, after | 0.28 G | 0.41 G | 0.66 G |
+
+At 4,000 the published library lints in 0.04 s instead of 0.91 s. A keystroke
+in it, after §6.70, went from 1.0, 3.8 and 15.1 G to 0.23, 0.45 and 0.90 G.
+`mixed-100k` and the conformance repository have no `unused-context` findings,
+and their lint is unchanged at 3.35 and 2.31 G.
+
+**Output is identical.** `lint //...`, `--error-format=json`, `--fix`'s report
+and the tree it leaves hash the same before and after on 10 repositories:
+`mixed-100k`, the conformance repository, both one-file shapes, and the calls
+shape at 200 and 1,000 three ways. The three are fixable, one function in seven
+taken as a value, and a type error in the caller. LSP sessions on five of them
+are byte-identical too.
+
+`build::profile`'s `unused_context_is_linear_in_its_findings` guards it: the
+calls shape at 500 and 1,000. Before, the second cost 3.09 times the first.
 
 ## 7. Profiling, on this platform
 

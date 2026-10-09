@@ -2935,7 +2935,7 @@ fn check_unused_contexts(
     use crate::compiler::semantics::types::ParamRole;
     let mine = editable_modules_of(analysis, target.package);
     let mut compiled: std::collections::BTreeMap<ModuleId, bool> = std::collections::BTreeMap::new();
-    let mut found: Vec<(Span, Vec<crate::diagnostics::Edit>)> = Vec::new();
+    let mut found: Vec<(Span, FnId, usize)> = Vec::new();
     for (fid, body) in analysis.bodies_of(&mine) {
         let info = analysis.checked.tables.fn_info(fid);
         if !mine.contains(&info.module) {
@@ -2976,15 +2976,15 @@ fn check_unused_contexts(
         if used {
             continue;
         }
-        let span = param.span;
-        found.push((span, context_edits(session, analysis, unchecked, target, fid, index)));
+        found.push((param.span, fid, index));
     }
+    let mut edits = context_edits(session, analysis, unchecked, target, &found);
     // `bodies` is a map, so the order findings are met in is not the order they
     // are written in. Sorting here makes one run's report the same as the next.
-    found.sort_by_key(|(span, _)| (span.file.0, span.start));
-    for (span, edits) in found {
+    found.sort_by_key(|(span, _, _)| (span.file.0, span.start));
+    for (span, fid, _) in found {
         let mut d = Diagnostic::templated("unused-context", span);
-        for e in edits {
+        for e in edits.remove(&fid).unwrap_or_default() {
             d = d.with_edit(e.at, &e.replacement);
         }
         diagnostics.push(d);
@@ -3079,7 +3079,8 @@ fn package_relative(session: &Session, package: PackageId, path: &str) -> Option
     rest.strip_prefix(&format!("{dir}/")).map(str::to_string)
 }
 
-/// The bytes that delete a `ctx` parameter and the argument at every call site.
+/// The bytes that delete a `ctx` parameter and the argument at every call site,
+/// for each `(span, function, parameter index)` the rule found.
 ///
 /// Empty — the finding stands with the page's sentence and nothing to apply —
 /// wherever this pass cannot see the whole of the change. `--fix` and an
@@ -3101,47 +3102,76 @@ fn package_relative(session: &Session, package: PackageId, path: &str) -> Option
 /// * **the package did not check whole.** A body that failed has lost the calls
 ///   written under the failure, and a run of declarations the parser skipped may
 ///   hold one, so the list of call sites is short by an unknown amount.
+///
+/// One walk of the package answers every finding. A walk per finding made a
+/// file of functions that never read their `ctx` quadratic to lint.
 fn context_edits(
     session: &Session,
     analysis: &Part<'_>,
     unchecked: &Unchecked,
     target: TargetId,
-    func: FnId,
-    index: usize,
-) -> Vec<crate::diagnostics::Edit> {
+    found: &[(Span, FnId, usize)],
+) -> std::collections::BTreeMap<FnId, Vec<crate::diagnostics::Edit>> {
     let own = target.package;
-    let info = analysis.checked.tables.fn_info(func);
-    if published_by(session, analysis, own).contains(info.name.as_str()) {
-        return Vec::new();
+    let tables = &analysis.checked.tables;
+    let mut out = std::collections::BTreeMap::new();
+    if found.is_empty() {
+        return out;
     }
     let mine = editable_modules_of(analysis, own);
     if mine.iter().any(|m| unchecked.module(*m)) {
-        return Vec::new();
+        return out;
     }
-    let Some(param) = info.params.get(index) else { return Vec::new() };
-    let Some(declaration) = dropped_from_list(session, param.span) else { return Vec::new() };
-
-    let mut edits = vec![declaration];
-    let mut refused = false;
+    let published = published_by(session, analysis, own);
+    // Each function the fix may still answer for: its parameter's index, and
+    // the edits so far, starting with the declaration's own.
+    let mut wanted: std::collections::BTreeMap<FnId, (usize, Vec<crate::diagnostics::Edit>)> =
+        std::collections::BTreeMap::new();
+    for (_, func, index) in found {
+        let info = tables.fn_info(*func);
+        if published.contains(info.name.as_str()) {
+            continue;
+        }
+        let Some(param) = info.params.get(*index) else { continue };
+        let Some(declaration) = dropped_from_list(session, param.span) else { continue };
+        wanted.insert(*func, (*index, vec![declaration]));
+    }
+    if wanted.is_empty() {
+        return out;
+    }
+    let mut refused: BTreeSet<FnId> = BTreeSet::new();
     for (fid, body) in analysis.bodies_of(&mine) {
-        if !mine.contains(&analysis.checked.tables.fn_info(fid).module) {
+        if !mine.contains(&tables.fn_info(fid).module) {
             continue;
         }
         if unchecked.body(fid) {
-            return Vec::new();
+            return out;
         }
         typed::walk(&body.expr, &mut |e| match &e.kind {
-            typed::ExprKind::FnRef(callee) if callee.decl() == Some(func) => refused = true,
-            typed::ExprKind::CallFn { func: callee, args } if callee.decl() == Some(func) => {
-                match args.get(index).and_then(|a| dropped_from_list(session, a.span)) {
+            typed::ExprKind::FnRef(callee) => {
+                if let Some(func) = callee.decl().filter(|f| wanted.contains_key(f)) {
+                    refused.insert(func);
+                }
+            }
+            typed::ExprKind::CallFn { func: callee, args } => {
+                let Some(func) = callee.decl() else { return };
+                let Some((index, edits)) = wanted.get_mut(&func) else { return };
+                match args.get(*index).and_then(|a| dropped_from_list(session, a.span)) {
                     Some(edit) => edits.push(edit),
-                    None => refused = true,
+                    None => {
+                        refused.insert(func);
+                    }
                 }
             }
             _ => {}
         });
     }
-    if refused { Vec::new() } else { edits }
+    for (func, (_, edits)) in wanted {
+        if !refused.contains(&func) {
+            out.insert(func, edits);
+        }
+    }
+    out
 }
 
 /// Every name the package publishes: its `lib.buri` surface, and the
