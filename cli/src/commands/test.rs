@@ -104,6 +104,61 @@ type Skipped = Vec<(String, String)>;
 struct Outcome {
     cases: Vec<Case>,
     skipped: Skipped,
+    /// `None` when no step built it this run, or a cached record doesn't say.
+    build: Option<Build>,
+}
+
+/// How long a suite's build took, as `--verbose` tells it.
+///
+/// Only the steps that served this suite alone are its own. A step that served
+/// several, such as loading the sources or one binary linked for a batch, is
+/// added to the pass's `shared build` line instead, so nothing is counted twice.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Build {
+    /// Its own steps took this many nanoseconds.
+    Own(u64),
+    /// Every step that built it served other suites too.
+    Shared,
+}
+
+/// A step that served `suites` suites and took `ns`: the suite's own when it
+/// is the only one, and otherwise told to [`drive`] as shared.
+fn settle(suites: usize, ns: u64, tell: &Tell) -> Build {
+    if suites == 1 {
+        Build::Own(ns)
+    } else {
+        tell.tell(Done::Shared { ns });
+        Build::Shared
+    }
+}
+
+/// Nanoseconds since `began`.
+fn since(began: Instant) -> u64 {
+    u64::try_from(began.elapsed().as_nanos()).unwrap_or(u64::MAX)
+}
+
+/// Adds a shared step's `ns` to the pass's `shared build` line.
+fn add_shared(total: &mut Option<u64>, ns: u64) {
+    *total = Some(total.unwrap_or(0).saturating_add(ns));
+}
+
+/// The verdict record's first line, saying how the suite was built.
+fn build_line(build: Option<Build>) -> String {
+    match build {
+        Some(Build::Own(ns)) => format!("{{\"build\":{ns}}}\n"),
+        Some(Build::Shared) => "{\"build\":\"shared\"}\n".to_string(),
+        None => String::new(),
+    }
+}
+
+/// The inverse of [`build_line`]. `None` for a record written before builds
+/// were timed, which starts with its array.
+fn build_of(record: &str) -> Option<Build> {
+    let first = record.lines().next()?.strip_prefix("{\"build\":")?.strip_suffix('}')?;
+    if first == "\"shared\"" {
+        return Some(Build::Shared);
+    }
+    first.parse().ok().map(Build::Own)
 }
 
 /// Where a run's platform came from.
@@ -341,7 +396,7 @@ fn one_pass(
         |job, held, queue, tell| work(job, held, queue, tell, &shared),
         |queue, done| drive(&mut session, args, &mut pre, &plans, &mut slots, queue, done, &mut out),
     );
-    let Tally { passed, failed, skipped, cached, uncompiled, printed, mut hard_error, listed, held } = tally;
+    let Tally { passed, failed, skipped, cached, uncompiled, printed, mut hard_error, listed, held, shared_build } = tally;
 
     // `check_during_build`: the catalogue runs over a test pass too, but only
     // one nothing already stopped — a suite that could not be built has an
@@ -385,6 +440,9 @@ fn one_pass(
     };
     // `--verbose` lists every suite first and the failures after it.
     if listed {
+        if let Some(ns) = shared_build {
+            out.line(&format!("shared build  {}", duration(ns)));
+        }
         out.blank();
     }
     if !held.is_empty() {
@@ -583,7 +641,7 @@ fn plan(
             match recalled {
                 Some(Recalled::Refused(diagnostics)) => answer = Some(Err(diagnostics)),
                 Some(Recalled::Nothing { skipped }) => {
-                    answer = Some(Ok(Outcome { cases: Vec::new(), skipped }));
+                    answer = Some(Ok(Outcome { cases: Vec::new(), skipped, build: None }));
                 }
                 Some(Recalled::Linked(l)) => linked = Some(Again::Linked(l)),
                 Some(Recalled::Bundled(b)) => linked = Some(Again::Bundled(b)),
@@ -665,6 +723,9 @@ struct Tally {
     /// back to print after the list.
     listed: bool,
     held: String,
+    /// What the steps that served several suites took, in nanoseconds: `None`
+    /// when no such step ran.
+    shared_build: Option<u64>,
 }
 
 /// Loads every suite the cache did not answer, on this thread, and queues it;
@@ -685,12 +746,12 @@ fn drive(
     out: &mut Out,
 ) -> Tally {
     RULE_PATHS.with(|paths| paths.borrow_mut().clear());
-    rerun(session, slots, queue);
-    batch(session, args, slots, queue);
-    for i in 0..slots.len() {
-        solo(session, args, pre, slots, i, queue);
-    }
     let mut tally = Tally::default();
+    rerun(session, slots, queue);
+    batch(session, args, slots, queue, &mut tally.shared_build);
+    for i in 0..slots.len() {
+        solo(session, args, pre, slots, i, queue, &mut tally.shared_build);
+    }
     let mut next = 0;
     loop {
         while let Some(plan) = plans.get(next) {
@@ -735,6 +796,7 @@ fn drive(
                 }
             }
             Done::Progress => {}
+            Done::Shared { ns } => add_shared(&mut tally.shared_build, ns),
             Done::Checked { target, analysis } => pre.analyses.push((target, *analysis)),
             Done::Linking { slot } => {
                 if let Some(s) = slots.get_mut(slot) {
@@ -758,10 +820,10 @@ fn drive(
                 }
                 if kept.len() >= 2 {
                     let (members, member_slots): (Vec<TargetId>, Vec<usize>) = kept.into_iter().unzip();
-                    queue_batch(session, &members, &member_slots, slots, queue);
+                    queue_batch(session, &members, &member_slots, slots, queue, &mut tally.shared_build);
                 }
                 for &i in &member_slots {
-                    solo(session, args, pre, slots, i, queue);
+                    solo(session, args, pre, slots, i, queue, &mut tally.shared_build);
                 }
             }
             Done::Built { slot, explain } => {
@@ -782,7 +844,7 @@ fn drive(
                         s.queued = false;
                         s.awaiting_build = false;
                     }
-                    solo(session, args, pre, slots, i, queue);
+                    solo(session, args, pre, slots, i, queue, &mut tally.shared_build);
                 }
             }
         }
@@ -850,8 +912,9 @@ fn report(
 /// the order the tests ran, then the ones a `--filter` left out.
 ///
 /// The suite's time is its tests' times added up, so it leaves out what the
-/// build and the processes cost. A cached suite shows the times of the run
-/// that cached it, and a record cached before tests were timed shows none.
+/// build and the processes cost. Its build comes after ([`Build`]). A cached
+/// suite shows the times of the run that cached it, and a record cached before
+/// tests or builds were timed shows none.
 fn list_suite(session: &Session, target: TargetId, platform: Platform, outcome: &Outcome, out: &mut Out) {
     let cases = &outcome.cases;
     let count = cases.len();
@@ -868,6 +931,11 @@ fn list_suite(session: &Session, target: TargetId, platform: Platform, outcome: 
     if let Some(ns) = total.filter(|_| !cases.is_empty()) {
         head.push_str("  ");
         head.push_str(&duration(ns));
+    }
+    match outcome.build {
+        Some(Build::Own(ns)) => head.push_str(&format!("  built in {}", duration(ns))),
+        Some(Build::Shared) => head.push_str("  built with others"),
+        None => {}
     }
     out.line(&head);
     let file_of = |module: &str| {
@@ -1005,6 +1073,8 @@ enum Done {
     Checked { target: TargetId, analysis: Box<crate::compiler::driver::Analysis> },
     /// One of a member's processes finished, and others haven't yet.
     Progress,
+    /// A build step that served several suites took `ns` ([`Build`]).
+    Shared { ns: u64 },
 }
 
 /// How a job hands [`drive`] a [`Done`] before its last.
@@ -1023,13 +1093,14 @@ struct Ran {
     cases: Vec<Case>,
     skipped: Skipped,
     roots: Vec<Root>,
+    build: Option<Build>,
 }
 
 /// Locates each case at the test it names ([`locate`]).
 fn located(session: &Session, ran: Ran) -> Outcome {
-    let Ran { mut cases, skipped, roots } = ran;
+    let Ran { mut cases, skipped, roots, build } = ran;
     locate(session, &roots, &mut cases);
-    Outcome { cases, skipped }
+    Outcome { cases, skipped, build }
 }
 
 /// The roots of a program's tests, for [`locate`].
@@ -1052,7 +1123,7 @@ fn work(job: Job, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Do
         Job::Member(job) => run_member(job, queue, shared),
         Job::Served(job) => {
             drop(held);
-            serve(*job, queue, shared)
+            serve(*job, queue, tell, shared)
         }
         Job::Bundled(job) => {
             drop(held);
@@ -1070,6 +1141,9 @@ fn work(job: Job, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Do
 ///
 /// `None`, not the platform, as the unit's platform: a test is never handed a
 /// host, so there is no host to check it against (`Unit::platform`).
+///
+/// The load is shared: what it parses, the standard library first of all, is
+/// kept for every later load of the pass.
 fn solo(
     session: &mut Session,
     args: &arguments::Args,
@@ -1077,6 +1151,7 @@ fn solo(
     slots: &mut [Slot],
     i: usize,
     queue: &Queue,
+    shared_build: &mut Option<u64>,
 ) {
     let Some(slot) = slots.get_mut(i) else { return };
     if slot.answer.is_some() || slot.queued {
@@ -1085,6 +1160,7 @@ fn solo(
     slot.queued = true;
     let (target, platform, chosen, key) = (slot.target, slot.platform, slot.chosen, slot.key.clone());
     let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
+    let began = Instant::now();
     let loading = crate::compiler::driver::load_all(
         Some(&session.workspace),
         &mut session.map,
@@ -1092,6 +1168,7 @@ fn solo(
         std::slice::from_ref(&unit),
     );
     note_reads(session, target, &key, &loading, &actions::Imports::of(loading.loaded()));
+    add_shared(shared_build, since(began));
     let bytes = build_bytes(loading.source_bytes(&session.map));
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
     let limit = suite(session, target).and_then(|x| x.timeout_seconds);
@@ -1171,6 +1248,7 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         snapshot_dir,
         filter,
     } = job;
+    let began = Instant::now();
     let answer = |answer, built| Done::Answer { slot, answer, explain: String::new(), notes: String::new(), built };
     let mut analysis = crate::compiler::driver::check(loading, Some(&shared.workspace), &map);
     if analysis.diagnostics.has_errors() {
@@ -1197,7 +1275,8 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
             tell.tell(Done::Checked { target, analysis: Box::new(analysis) });
         }
         let nothing = Built::Nothing { skipped: Vec::new() };
-        return answer(Ok(Ran { cases: Vec::new(), skipped: Vec::new(), roots: Vec::new() }), Some(nothing));
+        let build = Some(Build::Own(since(began)));
+        return answer(Ok(Ran { cases: Vec::new(), skipped: Vec::new(), roots: Vec::new(), build }), Some(nothing));
     }
     // Counted here rather than in the runner: the names are known before the
     // binary is built, so the summary can always print the count.
@@ -1230,7 +1309,7 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         drop(analysis);
     }
     if !platform.is_native() {
-        let job = JsJob { slot, program, tables, key, path: js, limit, on_timeout, skipped };
+        let job = JsJob { slot, program, tables, key, path: js, limit, on_timeout, skipped, began };
         return run_js(job, held, queue, shared);
     }
     // A filtered native run does not even generate the tests it leaves out.
@@ -1241,7 +1320,8 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         program.roots.tests().iter().map(|t| (t.name.clone(), t.module.clone())).collect();
     if tests.is_empty() {
         let nothing = Built::Nothing { skipped: skipped.clone() };
-        return answer(Ok(Ran { cases: Vec::new(), skipped, roots: Vec::new() }), Some(nothing));
+        let build = Some(Build::Own(since(began)));
+        return answer(Ok(Ran { cases: Vec::new(), skipped, roots: Vec::new(), build }), Some(nothing));
     }
     let paints = program.funcs.iter().any(|f| f.intrinsic_key() == Some(PAINT_KEY));
     let job = SoloJob {
@@ -1259,6 +1339,7 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         paints,
         tests,
         skipped,
+        began,
     };
     run_solo(job, held, queue, tell, shared)
 }
@@ -1280,6 +1361,8 @@ struct SoloJob {
     tests: Vec<(String, String)>,
     roots: Vec<Root>,
     skipped: Skipped,
+    /// When the suite's front end started, which its build is timed from.
+    began: Instant,
 }
 
 /// One suite, executed as a native binary.
@@ -1296,7 +1379,7 @@ struct SoloJob {
 /// another. A suite with a `timeout_seconds` keeps its one process
 /// ([`run_alone`]), for the reason a batch refuses it.
 fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
-    let SoloJob { slot, label, private, output, mut program, tables, key, limit, on_timeout, snapshot_dir, paints, tests, roots, skipped } = job;
+    let SoloJob { slot, label, private, output, mut program, tables, key, limit, on_timeout, snapshot_dir, paints, tests, roots, skipped, began } = job;
     // Taken before the link, which changes the program.
     let sheet = program.stylesheet.clone();
     let mut diagnostics = Diagnostics::new();
@@ -1321,6 +1404,7 @@ fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Share
         Err(d) => return answer(Err(d)),
     };
     let written = write_stylesheet(binary.path(), &sheet);
+    let build = Some(Build::Own(since(began)));
     let seeds = std::sync::Arc::new(seeds_at(&[(0, tests.len())], seed_of(&key)));
     let spec = MemberSpec {
         slot,
@@ -1335,6 +1419,7 @@ fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Share
         on_timeout,
         remember: Some((link, std::sync::Arc::new(sheet))),
         alone: Some(label),
+        build,
     };
     if spec.limit.is_some() {
         let program = binary.path().display().to_string();
@@ -1401,8 +1486,8 @@ fn run_alone(
             return answer(Err(d), notes);
         }
     };
-    let cases = recorded(shared, &spec.key, tests, blocks.iter());
-    let ran = Ran { cases, skipped: skipped.clone(), roots: roots.clone() };
+    let cases = recorded(shared, &spec.key, tests, blocks.iter(), spec.build);
+    let ran = Ran { cases, skipped: skipped.clone(), roots: roots.clone(), build: spec.build };
     Done::Answer { slot, answer: Ok(ran), explain: String::new(), notes, built: linked_of(spec) }
 }
 
@@ -1428,10 +1513,12 @@ struct JsJob {
     limit: Option<u32>,
     on_timeout: Diagnostics,
     skipped: Skipped,
+    /// When the suite's front end started, which its build is timed from.
+    began: Instant,
 }
 
 fn run_js(job: JsJob, held: Held, queue: &Queue, shared: &Shared) -> Done {
-    let JsJob { slot, mut program, tables, key, path, limit, on_timeout, skipped } = job;
+    let JsJob { slot, mut program, tables, key, path, limit, on_timeout, skipped, began } = job;
     let mut diagnostics = Diagnostics::new();
     let roots = roots_of(&program);
     let bundle =
@@ -1444,7 +1531,7 @@ fn run_js(job: JsJob, held: Held, queue: &Queue, shared: &Shared) -> Done {
     drop(program);
     drop(tables);
     drop(held);
-    let run = JsRun { key, path, limit, on_timeout };
+    let run = JsRun { key, path, limit, on_timeout, build: Some(Build::Own(since(began))) };
     let suite = JsSuite { slot, origin: JsOrigin::Emitted(bundle), skipped, roots, run };
     start_js(suite, queue, shared)
 }
@@ -1455,6 +1542,8 @@ struct JsRun {
     path: std::path::PathBuf,
     limit: Option<u32>,
     on_timeout: Diagnostics,
+    /// How the bundle was built, or restored, for this run.
+    build: Option<Build>,
 }
 
 /// What running a bundle came to.
@@ -1501,7 +1590,7 @@ struct JsSuite {
 /// build reports what went wrong.
 fn answer_js(suite: &JsSuite, ran: JsRan, shared: &Shared) -> Done {
     let slot = suite.slot;
-    let (skipped, roots) = (suite.skipped.clone(), suite.roots.clone());
+    let (skipped, roots, build) = (suite.skipped.clone(), suite.roots.clone(), suite.run.build);
     let answer =
         |answer, built| Done::Answer { slot, answer, explain: String::new(), notes: String::new(), built };
     match (&suite.origin, ran) {
@@ -1511,9 +1600,11 @@ fn answer_js(suite: &JsSuite, ran: JsRan, shared: &Shared) -> Done {
                 let bundle = actions::put_test_bundle(&shared.root, bundle);
                 Built::Bundled(Box::new(Bundled { bundle, skipped: skipped.clone(), roots: roots.clone() }))
             });
-            answer(ran.map(|cases| Ran { cases, skipped, roots }), built)
+            answer(ran.map(|cases| Ran { cases, skipped, roots, build }), built)
         }
-        (JsOrigin::Served(_), JsRan::Ran(ran)) => answer(ran.map(|cases| Ran { cases, skipped, roots }), None),
+        (JsOrigin::Served(_), JsRan::Ran(ran)) => {
+            answer(ran.map(|cases| Ran { cases, skipped, roots, build }), None)
+        }
         (JsOrigin::Emitted(_), JsRan::NotRun(d)) => answer(Err(d), None),
         (JsOrigin::Served(_), JsRan::NotRun(_)) => Done::Abandoned { slots: vec![slot], explain: String::new() },
     }
@@ -1639,7 +1730,7 @@ fn run_js_member(pulled: std::sync::Arc<JsPulled>, shared: &Shared) -> Done {
     // The array `$run` writes, joined from the records `$pull` wrote.
     let records: Vec<&str> = state.records.iter().map(|r| r.as_deref().unwrap_or_default()).collect();
     let stdout = format!("[{}]", records.join(","));
-    let cases = cases_of(&stdout, &pulled.suite.run.key, shared);
+    let cases = cases_of(&stdout, &pulled.suite.run, shared);
     answer_js(&pulled.suite, JsRan::Ran(Ok(cases)), shared)
 }
 
@@ -1769,11 +1860,13 @@ fn did_not_run(stderr: &str) -> Diagnostics {
     d
 }
 
-/// The cases in a suite's record array, stored where [`may_cache`] allows.
-fn cases_of(stdout: &str, key: &crate::build::cache::ActionKey, shared: &Shared) -> Vec<Case> {
+/// The cases in a suite's record array, stored with its build where
+/// [`may_cache`] allows.
+fn cases_of(stdout: &str, run: &JsRun, shared: &Shared) -> Vec<Case> {
     let cases = parse_results(stdout);
     if may_cache(&cases, &shared.flags) {
-        store_verdict(&shared.root, key, stdout.as_bytes());
+        let record = build_line(run.build) + stdout;
+        store_verdict(&shared.root, &run.key, record.as_bytes());
     }
     cases
 }
@@ -1793,7 +1886,7 @@ fn run_bundle(bundle: &str, run: &JsRun, shared: &Shared) -> JsRan {
         Err(e) => return JsRan::NotRun(cannot_run(&e.to_string())),
     };
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let cases = cases_of(&stdout, &run.key, shared);
+    let cases = cases_of(&stdout, run, shared);
     if cases.is_empty() && !out.status.success() {
         return JsRan::NotRun(did_not_run(&String::from_utf8_lossy(&out.stderr)));
     }
@@ -2171,7 +2264,7 @@ fn served(
         platform.slug(),
         key,
     );
-    Some(Outcome { cases, skipped: Vec::new() })
+    Some(Outcome { cases, skipped: Vec::new(), build: build_of(&text) })
 }
 
 // ---------------------------------------------------------------------------
@@ -2577,6 +2670,7 @@ fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue) {
                     path: bundle_path(session, target),
                     limit,
                     on_timeout: timed_out(session, target, limit),
+                    build: None,
                 };
                 queue.push_later(Job::Bundled(Box::new(BundledJob { slot: i, bundled: *bundled, run })), false);
                 continue;
@@ -2598,6 +2692,7 @@ fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue) {
             on_timeout: timed_out(session, target, limit),
             remember: None,
             alone: None,
+            build: None,
         };
         match jobs.iter_mut().find(|j| j.link == link) {
             Some(job) => job.members.push((spec, seeds)),
@@ -2642,13 +2737,21 @@ struct ServedJob {
 
 /// Puts a recorded binary back where it runs from and queues its members'
 /// processes. A binary the cache no longer holds sends its members to be built.
-fn serve(job: ServedJob, queue: &Queue, shared: &Shared) -> Done {
-    let ServedJob { link, sheet, output, private, members } = job;
+///
+/// Putting it back is the build of every suite in it: its own when it holds
+/// one suite, and shared when it holds several.
+fn serve(job: ServedJob, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
+    let ServedJob { link, sheet, output, private, mut members } = job;
+    let began = Instant::now();
     let Some(binary) = actions::place_test_binary(&shared.root, &output, private, &link) else {
         let slots = members.iter().map(|(m, _)| m.slot).collect();
         return Done::Abandoned { slots, explain: String::new() };
     };
     let sheet = write_stylesheet(binary.path(), &sheet);
+    let build = settle(members.len(), since(began), tell);
+    for (member, _) in &mut members {
+        member.build = Some(build);
+    }
     queue_members(binary, sheet, members, queue, jobs_of(&shared.flags));
     Done::Progress
 }
@@ -2664,11 +2767,13 @@ struct BundledJob {
 /// can't be run to a verdict, sends its suite to be built, and the build
 /// reports what went wrong.
 fn serve_bundle(job: BundledJob, queue: &Queue, shared: &Shared) -> Done {
-    let BundledJob { slot, bundled, run } = job;
+    let BundledJob { slot, bundled, mut run } = job;
     let Bundled { bundle, skipped, roots } = bundled;
+    let began = Instant::now();
     let Some(bundle) = actions::get_test_bundle(&shared.root, &bundle) else {
         return Done::Abandoned { slots: vec![slot], explain: String::new() };
     };
+    run.build = Some(Build::Own(since(began)));
     start_js(JsSuite { slot, origin: JsOrigin::Served(bundle), skipped, roots, run }, queue, shared)
 }
 
@@ -3061,8 +3166,8 @@ fn record_of(name: &str, module: &str, block: &Block) -> Value {
     Value::object(fields)
 }
 
-/// A native run's verdicts: recorded, cached where [`may_cache`] allows, and
-/// read back.
+/// A native run's verdicts: recorded, cached with the suite's build where
+/// [`may_cache`] allows, and read back.
 ///
 /// Read back out of the record, so a verdict served from the cache and one just
 /// produced are the same value by construction.
@@ -3071,13 +3176,14 @@ fn recorded<'b>(
     key: &crate::build::cache::ActionKey,
     tests: &[(String, String)],
     blocks: impl Iterator<Item = &'b Block>,
+    build: Option<Build>,
 ) -> Vec<Case> {
     let records =
         tests.iter().zip(blocks).map(|((name, module), block)| record_of(name, module, block));
     let record = Value::Array(records.collect()).to_string();
     let cases = parse_results(&record);
     if may_cache(&cases, &shared.flags) {
-        store_verdict(&shared.root, key, record.as_bytes());
+        store_verdict(&shared.root, key, (build_line(build) + &record).as_bytes());
     }
     cases
 }
@@ -3178,7 +3284,13 @@ fn recorded<'b>(
 /// Nothing at all is the answer that costs nothing and changes nothing: a pass
 /// with one uncached suite, `--output=`, a toolchain with no native backend.
 /// A slot this leaves unqueued is compiled on its own by [`solo`].
-fn batch(session: &mut Session, args: &arguments::Args, slots: &mut [Slot], queue: &Queue) {
+fn batch(
+    session: &mut Session,
+    args: &arguments::Args,
+    slots: &mut [Slot],
+    queue: &Queue,
+    shared_build: &mut Option<u64>,
+) {
     // A batch is only ever the *default's* answer: `--output=` is a request,
     // and a request is served one suite at a time. So is a coverage run, whose
     // probes go in where each suite's own front end sees its program.
@@ -3216,7 +3328,7 @@ fn batch(session: &mut Session, args: &arguments::Args, slots: &mut [Slot], queu
             .iter()
             .filter_map(|m| fresh.iter().find(|(t, _)| t == m).map(|(_, i)| *i))
             .collect();
-        queue_batch(session, &members, &member_slots, slots, queue);
+        queue_batch(session, &members, &member_slots, slots, queue, shared_build);
     }
 }
 
@@ -3348,6 +3460,7 @@ fn queue_batch(
     member_slots: &[usize],
     slots: &mut [Slot],
     queue: &Queue,
+    shared_build: &mut Option<u64>,
 ) {
     // One unit per member, in the pass's order, which is the order their test
     // sources load in and therefore the order the binary's blocks come out in.
@@ -3355,6 +3468,7 @@ fn queue_batch(
         .iter()
         .map(|&target| Unit { target: Some(target), platform: None, entry: None, with_tests: true })
         .collect();
+    let began = Instant::now();
     let loading = crate::compiler::driver::load_all(
         Some(&session.workspace),
         &mut session.map,
@@ -3367,6 +3481,7 @@ fn queue_batch(
             note_reads(session, target, &slot.key, &loading, &imports);
         }
     }
+    add_shared(shared_build, since(began));
     let platform = crate::compiler::driver::host_native_platform();
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
     let key_of = |i: usize| slots.get(i).map(|s| s.key.clone());
@@ -3447,10 +3562,16 @@ struct BatchJob {
 /// again without the members whose code failed it ([`broken_members`]).
 fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
     let BatchJob { info, loading, map, bytes } = job;
-    let abandoned = || Done::Abandoned { slots: info.member_slots.clone(), explain: String::new() };
+    // Everything here serves every member, so it is all shared.
+    let began = Instant::now();
+    let abandoned = || {
+        tell.tell(Done::Shared { ns: since(began) });
+        Done::Abandoned { slots: info.member_slots.clone(), explain: String::new() }
+    };
     let mut analysis = crate::compiler::driver::check(loading, Some(&shared.workspace), &map);
     drop(map);
     if analysis.diagnostics.has_errors() {
+        tell.tell(Done::Shared { ns: since(began) });
         return Done::Broken {
             members: info.members.clone(),
             member_slots: info.member_slots.clone(),
@@ -3494,7 +3615,8 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
     if let [group] = groups.as_slice() {
         let tables = std::sync::Arc::new(std::mem::take(&mut analysis.checked.tables));
         drop(analysis);
-        return submit_group(&info, &skipped, group, &selected, program, tables, held, queue, tell, shared);
+        let step = Step { began, suites: info.members.len() };
+        return submit_group(&info, &skipped, group, &selected, program, tables, step, held, queue, tell, shared);
     }
     // Each group is monomorphized again from the batch's one check, rooted at
     // its own tests, so each binary holds only its own code. Each is a heavy
@@ -3506,6 +3628,7 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
     let tables = std::sync::Arc::new(analysis.checked.tables.clone());
     let analysis = std::sync::Arc::new(analysis);
     let skipped = std::sync::Arc::new(skipped);
+    tell.tell(Done::Shared { ns: since(began) });
     for group in groups {
         let modules: Vec<String> = info
             .owners
@@ -3547,6 +3670,7 @@ struct PartJob {
 /// A group that fails sends only its own members back to run alone.
 fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
     let PartJob { info, analysis, tables, module_paths, skipped, group, modules } = job;
+    let step = Step { began: Instant::now(), suites: group.members.len() };
     let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
@@ -3555,9 +3679,9 @@ fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -
         monomorphize::Roots::TestsIn(&modules),
     );
     drop(analysis);
-    let abandoned = || Done::Abandoned {
-        slots: group.members.iter().map(|&i| info.slot_of(i)).collect(),
-        explain: String::new(),
+    let abandoned = || {
+        tell.tell(Done::Shared { ns: since(step.began) });
+        Done::Abandoned { slots: group.members.iter().map(|&i| info.slot_of(i)).collect(), explain: String::new() }
     };
     if diagnostics.has_errors() {
         return abandoned();
@@ -3568,7 +3692,15 @@ fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -
         tests.retain(|t| t.name.contains(f.as_str()));
     }
     let Some(mine) = selected_of(&program, &|m| info.owner_of(m)) else { return abandoned() };
-    submit_group(&info, &skipped, &group, &mine, program, tables, held, queue, tell, shared)
+    submit_group(&info, &skipped, &group, &mine, program, tables, step, held, queue, tell, shared)
+}
+
+/// The build step a group's binary ends: when it began, and how many suites it
+/// served ([`settle`]).
+#[derive(Clone, Copy)]
+struct Step {
+    began: Instant,
+    suites: usize,
 }
 
 /// Links one group's binary and queues its members' processes, or answers its
@@ -3576,8 +3708,8 @@ fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -
 #[allow(
     clippy::too_many_arguments,
     reason = "the batch, what the filter skipped, the group, its tests, its program and \
-              tables, the job's claim, the queue, the channel and the worker's shared \
-              state: none derivable from another"
+              tables, the step it ends, the job's claim, the queue, the channel and the \
+              worker's shared state: none derivable from another"
 )]
 fn submit_group(
     info: &BatchInfo,
@@ -3586,22 +3718,24 @@ fn submit_group(
     selected: &[Selected],
     program: monomorphize::Program,
     tables: std::sync::Arc<crate::compiler::semantics::types::Tables>,
+    step: Step,
     held: Held,
     queue: &Queue,
     tell: &Tell,
     shared: &Shared,
 ) -> Done {
     let skipped_of = |i: usize| skipped.get(i).cloned().unwrap_or_default();
-    let nothing = |i: usize| Done::Answer {
+    let nothing = |i: usize, build| Done::Answer {
         slot: info.slot_of(i),
-        answer: Ok(Ran { cases: Vec::new(), skipped: skipped_of(i), roots: Vec::new() }),
+        answer: Ok(Ran { cases: Vec::new(), skipped: skipped_of(i), roots: Vec::new(), build: Some(build) }),
         explain: String::new(),
         notes: String::new(),
         built: Some(Built::Nothing { skipped: skipped_of(i) }),
     };
     if selected.is_empty() {
+        let build = settle(step.suites, since(step.began), tell);
         for &i in &group.members {
-            tell.tell(nothing(i));
+            tell.tell(nothing(i, build));
         }
         return Done::Progress;
     }
@@ -3641,15 +3775,17 @@ fn submit_group(
                     on_timeout: Diagnostics::new(),
                     remember: None,
                     alone: None,
+                    build: None,
                 },
             ))
         })
         .collect();
     // A member a `--filter` left nothing in is answered here, with no process.
+    // Another member has tests, so the build served it too.
     let (members, empty): (Vec<_>, Vec<_>) =
         members.into_iter().partition(|(_, m)| !m.ranges.is_empty());
     for (i, _) in &empty {
-        tell.tell(nothing(*i));
+        tell.tell(nothing(*i, Build::Shared));
     }
     let members: Vec<MemberSpec> = members.into_iter().map(|(_, m)| m).collect();
     // Told before the link queues anything, so `drive` knows the first member
@@ -3671,8 +3807,9 @@ fn submit_group(
         tables,
         seeds: seeds.join(","),
         members,
+        step,
     };
-    build_group(job, held, queue, shared)
+    build_group(job, held, queue, tell, shared)
 }
 
 /// Consecutive runs of block indices, as `(from, to)` with `to` exclusive.
@@ -3697,6 +3834,8 @@ struct GroupJob {
     /// `BURI_TEST_SEED`: one per block, in the binary's numbering.
     seeds: String,
     members: Vec<MemberSpec>,
+    /// The build step the link ends.
+    step: Step,
 }
 
 /// One member of a group, as its own process will run it.
@@ -3723,14 +3862,16 @@ struct MemberSpec {
     /// suite again one process at a time ([`run_alone`]), rather than sending
     /// it back to be built alone, which is where it already is.
     alone: Option<String>,
+    /// How the member was built, or put back, for this run.
+    build: Option<Build>,
 }
 
 /// Links a group's binary and queues a process per member, ahead of any new
 /// build: those finish work already paid for.
 ///
 /// A link that fails sends every member back to run alone.
-fn build_group(job: GroupJob, held: Held, queue: &Queue, shared: &Shared) -> Done {
-    let GroupJob { label, private, output, mut program, tables, seeds, members } = job;
+fn build_group(job: GroupJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
+    let GroupJob { label, private, output, mut program, tables, seeds, members, step } = job;
     let sheet = program.stylesheet.clone();
     let mut diagnostics = Diagnostics::new();
     let (built, explain) = crate::build::cache::holding_explain(|| {
@@ -3740,9 +3881,11 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, shared: &Shared) -> Don
     drop(tables);
     drop(held);
     let Ok((binary, link)) = built else {
+        tell.tell(Done::Shared { ns: since(step.began) });
         return Done::Abandoned { slots: members.iter().map(|m| m.slot).collect(), explain };
     };
     let written = write_stylesheet(binary.path(), &sheet);
+    let build = settle(step.suites, since(step.began), tell);
     let sheet = std::sync::Arc::new(sheet);
     let seeds = std::sync::Arc::new(seeds);
     let first = members.first().map_or(usize::MAX, |m| m.slot);
@@ -3750,6 +3893,7 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, shared: &Shared) -> Don
         .into_iter()
         .map(|mut m| {
             m.remember = Some((link.clone(), std::sync::Arc::clone(&sheet)));
+            m.build = Some(build);
             (m, std::sync::Arc::clone(&seeds))
         })
         .collect();
@@ -4006,10 +4150,10 @@ fn answer_member(gathered: &std::sync::Mutex<Gathered>, spec: &MemberSpec, share
         return Done::Abandoned { slots: vec![spec.slot], explain: String::new() };
     }
     all.verdicts.sort_by_key(|(i, _)| *i);
-    let cases = recorded(shared, &spec.key, &spec.tests, all.verdicts.iter().map(|(_, block)| block));
+    let cases = recorded(shared, &spec.key, &spec.tests, all.verdicts.iter().map(|(_, block)| block), spec.build);
     Done::Answer {
         slot: spec.slot,
-        answer: Ok(Ran { cases, skipped: spec.skipped.clone(), roots: spec.roots.clone() }),
+        answer: Ok(Ran { cases, skipped: spec.skipped.clone(), roots: spec.roots.clone(), build: spec.build }),
         explain: String::new(),
         notes,
         built: linked_of(spec),

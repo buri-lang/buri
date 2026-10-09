@@ -1,18 +1,21 @@
 # `buri test --verbose` lists every suite, in label order, and every test in
 # it, in the order it ran: its verdict, its file under the package's `test/`,
-# its name, and how long it took. A cached suite shows the times of the run
+# its name, and how long it took. A suite line also says how long the suite's
+# own build took, or that it was built with others, and one `shared build` line
+# holds the work no one suite owns. A cached suite shows the times of the run
 # that cached it. Failure details stay where they always were, after the list.
 #
 # `//lib/money` and `//lib/shapes` are native and share one binary on a cold
 # run; `//apps/web` runs on JavaScript. Every time is replaced by `<time>` when
 # a golden is compared (`harness::normalise`), and only a time spelled the way
 # the runner spells one is: `412 µs`, `12.4 ms` or `2.5 s`.
-# `build::verbose` holds the units, an old cache record and `--watch`.
+# `build::verbose` holds the units, build times against the run, old cache
+# records and `--watch`.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "--verbose lists every suite and every test with its verdict and time; without it the output is unchanged"
+doc: "--verbose lists every suite with its build and every test with its verdict and time; without it the output is unchanged"
 
 run {
   args: ["test", "//...", "--verbose"]
@@ -49,6 +52,15 @@ run {
   args: ["test", "//lib/money", "--verbose", "--filter=cents"]
   exit: 0
   golden: "filter.txt"
+  stream: OUT
+}
+
+# A suite the filter leaves no test in still shows its build, and
+# `//lib/money`'s is putting back the binary the last filter left.
+run {
+  args: ["test", "//lib/...", "--verbose", "--filter=cents"]
+  exit: 0
+  golden: "filter_batch.txt"
   stream: OUT
 }
 
@@ -93,5 +105,14 @@ run {
   args: ["test", "//..."]
   exit: 1
   golden: "fail_plain.txt"
+  stream: OUT
+}
+
+# Unedited, the failing suite's binary comes back from the cache rather than
+# being built again, and its build time is what that took.
+run {
+  args: ["test", "//...", "--verbose"]
+  exit: 1
+  golden: "fail_again.txt"
   stream: OUT
 }

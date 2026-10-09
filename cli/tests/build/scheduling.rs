@@ -390,25 +390,27 @@ FAIL //lib/mixed  test/b.buri  \"b fails\"
     assert_eq!(first, (1, format!("{failures}\n3 passed, 3 failed, 0 skipped"), String::new()));
     let verbose = report(&["test", "//lib/mixed", "--force", "--verbose"]);
     let list = "\
-//lib/mixed  native  6 tests  <time>
+//lib/mixed  native  6 tests  <time>  built in <time>
   ok    a.buri  a passes                  <time>
   FAIL  a.buri  a compares wrong          <time>
   ok    a.buri  a passes after a failure  <time>
   FAIL  a.buri  a fails again             <time>
   ok    b.buri  b passes                  <time>
   FAIL  b.buri  b fails                   <time>
+shared build  <time>
 ";
     assert_eq!(verbose, (1, format!("{list}\n{failures}\n3 passed, 3 failed, 0 skipped"), String::new()));
     // A filtered binary holds only the tests it runs, and each is timed as itself.
     let filtered = report(&["test", "//lib/mixed", "--force", "--verbose", "--filter=passes"]);
     let list = "\
-//lib/mixed  native  3 tests  <time>
+//lib/mixed  native  3 tests  <time>  built in <time>
   ok    a.buri  a passes                  <time>
   ok    a.buri  a passes after a failure  <time>
   ok    b.buri  b passes                  <time>
   skip  a.buri  a compares wrong
   skip  a.buri  a fails again
   skip  b.buri  b fails
+shared build  <time>
 ";
     assert_eq!(filtered, (0, format!("{list}\n3 passed, 0 failed, 3 skipped"), String::new()));
 }

@@ -1,5 +1,5 @@
 cached test //lib/shapes native <key>
-//lib/shapes  native  3 tests  cached  <time>
+//lib/shapes  native  3 tests  cached  <time>  built with others
   ok    shapes.buri      a square has four equal sides        <time>
   ok    shapes.buri      a square's area is its side squared  <time>
   ok    solid/cube.buri  a cube has six square faces          <time>

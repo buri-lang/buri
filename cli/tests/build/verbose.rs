@@ -2,8 +2,8 @@
 //!
 //! `repositories/testing/verbose` records the list with every time blanked.
 //! This holds what the blanking hides: the unit a time is spelled in, the times
-//! a cached suite keeps, a cache record written before there were times, and
-//! the list each pass of a watch loop prints.
+//! a cached suite keeps, build times that fit in the run, cache records written
+//! before there were times, and the list each pass of a watch loop prints.
 use crate::harness::*;
 
 use std::io::Read as _;
@@ -33,6 +33,32 @@ fn time_of(line: &str) -> (u64, u64) {
         "ms" => (tenths() * 100_000, 50_000),
         _ => (tenths() * 100_000_000, 50_000_000),
     }
+}
+
+/// A suite line's tests' time and its build time, each as [`time_of`] reads
+/// one. No build time for a suite built with others.
+fn suite_times(line: &str) -> ((u64, u64), Option<(u64, u64)>) {
+    match line.split_once("  built in ") {
+        Some((tests, build)) => (time_of(tests), Some(time_of(&format!("//  {build}")))),
+        None => {
+            let tests = line.strip_suffix("  built with others");
+            (time_of(tests.unwrap_or_else(|| panic!("no build on the suite line {line:?}"))), None)
+        }
+    }
+}
+
+/// The run's elapsed time from its summary, in nanoseconds, and how far that
+/// may be from what it rounds.
+fn elapsed_of(stdout: &str) -> (u64, u64) {
+    let summary = stdout.lines().find(|l| l.contains(" passed, ")).unwrap_or_default();
+    let seconds = summary.split_once(" (").and_then(|(_, s)| s.split_once('s')).map(|(s, _)| s);
+    let tenths: u64 = seconds.and_then(|s| s.replace('.', "").parse().ok()).unwrap_or_else(|| panic!("no elapsed time in {summary:?}"));
+    (tenths * 100_000_000, 50_000_000)
+}
+
+/// The `shared build` lines of a `--verbose` list.
+fn shared_lines(stdout: &str) -> Vec<&str> {
+    stdout.lines().filter(|l| l.starts_with("shared build")).collect()
 }
 
 /// A tail-recursive loop: a turn is a call, an add and a remainder.
@@ -67,7 +93,7 @@ fn a_time_is_spelled_in_the_unit_its_size_calls_for() {
     let (spun, _) = tests[1];
     assert!(spun >= 10_000_000, "a hundred million turns took {spun} ns:\n{}", indent(&run.stdout));
     let suite = run.stdout.lines().find(|l| l.starts_with("//lib/spin")).unwrap_or_default();
-    let (total, slack) = time_of(suite);
+    let ((total, slack), _) = suite_times(suite);
     let sum: u64 = tests.iter().map(|t| t.0).sum();
     let slack = slack + tests.iter().map(|t| t.1).sum::<u64>();
     assert!(total.abs_diff(sum) <= slack, "the suite's time is not its tests' added up:\n{}", indent(&run.stdout));
@@ -100,11 +126,11 @@ fn a_batch_lists_each_suite_and_the_cache_keeps_its_times() {
     assert_eq!(
         shape,
         [
-            "//lib/money  native  3 tests  <time>",
+            "//lib/money  native  3 tests  <time>  built with others",
             "  ok    cents.buri  adding cents carries into dollars  <time>",
             "  ok    cents.buri  the cents are what is left over    <time>",
             "  ok    rates.buri  a rate of zero keeps nothing       <time>",
-            "//lib/shapes  native  3 tests  <time>",
+            "//lib/shapes  native  3 tests  <time>  built with others",
             "  ok    shapes.buri      a square has four equal sides        <time>",
             "  ok    shapes.buri      a square's area is its side squared  <time>",
             "  ok    solid/cube.buri  a cube has six square faces          <time>",
@@ -112,24 +138,86 @@ fn a_batch_lists_each_suite_and_the_cache_keeps_its_times() {
         "{}",
         indent(&cold.stdout)
     );
+    // The binary they share is built once, and its time is told once.
+    let shared: Vec<String> = shared_lines(&cold.stdout).into_iter().map(blank_test_time).collect();
+    assert_eq!(shared, ["shared build  <time>"], "{}", indent(&cold.stdout));
 
     let cached = scratch.run(&["test", "//lib/...", "--verbose"]);
     assert_eq!(cached.code, 0, "{}", indent(&cached.all()));
     assert_eq!(cached.stdout.matches("  cached  ").count(), 2, "{}", indent(&cached.stdout));
     assert_eq!(listed(&cached.stdout), cold_list, "the cache did not keep the times it was given");
+    assert!(shared_lines(&cached.stdout).is_empty(), "nothing was built:\n{}", indent(&cached.stdout));
+}
+
+/// A suite built on its own shows how long that took, JavaScript or native,
+/// and served from the cache it shows the very build time it was built in.
+#[test]
+fn a_suite_built_alone_shows_its_build_and_the_cache_keeps_it() {
+    let scratch = Scratch::copy_of("verbose-alone", &tests_dir().join("repositories/testing/verbose/repo"));
+    let cold = scratch.run(&["test", "//apps/web", "//lib/shapes", "--verbose"]);
+    cold.heap_ok();
+    assert_eq!(cold.code, 0, "{}", indent(&cold.all()));
+    let suites: Vec<&str> = cold.stdout.lines().filter(|l| l.starts_with("//")).collect();
+    assert_eq!(
+        suites.iter().map(|l| blank_test_time(l)).collect::<Vec<_>>(),
+        [
+            "//apps/web  js  2 tests  <time>  built in <time>",
+            "//lib/shapes  native  3 tests  <time>  built in <time>",
+        ],
+        "{}",
+        indent(&cold.stdout)
+    );
+    let shared: Vec<String> = shared_lines(&cold.stdout).into_iter().map(blank_test_time).collect();
+    assert_eq!(shared, ["shared build  <time>"], "{}", indent(&cold.stdout));
+    // Load stretches a build and the run around it alike.
+    let (elapsed, rounding) = elapsed_of(&cold.stdout);
+    for line in &suites {
+        let (_, build) = suite_times(line);
+        let (build, slack) = build.unwrap_or_default();
+        assert!(build <= elapsed + rounding + slack, "a build outlasted its run:\n{}", indent(&cold.stdout));
+    }
+
+    let cached = scratch.run(&["test", "//apps/web", "//lib/shapes", "--verbose"]);
+    assert_eq!(cached.code, 0, "{}", indent(&cached.all()));
+    assert_eq!(cached.stdout.matches("  cached  ").count(), 2, "{}", indent(&cached.stdout));
+    assert_eq!(listed(&cached.stdout), listed(&cold.stdout), "the cache did not keep the build times");
+    assert!(shared_lines(&cached.stdout).is_empty(), "nothing was built:\n{}", indent(&cached.stdout));
+}
+
+/// One worker builds and runs one step at a time, and only the loading runs
+/// beside it, so the build times can't add up to more than twice the run,
+/// however loaded the machine is.
+#[test]
+fn the_build_times_add_up_within_the_run() {
+    let scratch = Scratch::copy_of("verbose-sum", &tests_dir().join("repositories/testing/verbose/repo"));
+    let run = scratch.run(&["test", "//...", "--verbose", "--jobs=1"]);
+    run.heap_ok();
+    assert_eq!(run.code, 0, "{}", indent(&run.all()));
+    let mut builds: Vec<(u64, u64)> = run
+        .stdout
+        .lines()
+        .filter(|l| l.starts_with("//"))
+        .filter_map(|l| suite_times(l).1)
+        .collect();
+    let shared = shared_lines(&run.stdout);
+    assert_eq!(shared.len(), 1, "{}", indent(&run.stdout));
+    builds.push(time_of(shared[0]));
+    let (sum, slack) = builds.iter().fold((0, 0), |(s, k), (t, r)| (s + t, k + r));
+    let (elapsed, rounding) = elapsed_of(&run.stdout);
+    assert!(sum <= 2 * (elapsed + rounding) + slack, "the builds outlasted the run twice over:\n{}", indent(&run.stdout));
 }
 
 /// A verdict cached before there were times still serves: the suite says
 /// `cached` and no time, and so does every test in it.
 ///
-/// The record is made old by hand, the way the last toolchain wrote it: each
-/// test's `ms` was always 0, and nothing else said how long it took.
+/// The record is made old by hand, the way that toolchain wrote it: each
+/// test's `ms` was always 0, and nothing said how long it or the build took.
 #[test]
 fn a_verdict_cached_before_there_were_times_serves_without_them() {
     let scratch = Scratch::copy_of("verbose-old-record", &tests_dir().join("repositories/testing/verbose/repo"));
     let first = scratch.run(&["test", "//...", "--verbose"]);
     assert_eq!(first.code, 0, "{}", indent(&first.all()));
-    let rewritten = make_records_old(&scratch.path(".buri/cache"));
+    let rewritten = make_records_old(&scratch.path(".buri/cache"), |text| without_build(&without_times(text)));
     assert_eq!(rewritten, 3, "expected one verdict record per suite");
 
     let run = scratch.run(&["test", "//...", "--verbose"]);
@@ -155,9 +243,43 @@ fn a_verdict_cached_before_there_were_times_serves_without_them() {
     assert_eq!(normalise(&plain.stdout, &scratch.root), "8 passed, 0 failed, 0 skipped (0.0s, 8 cached)\n");
 }
 
-/// Rewrites every verdict record under `cache` into the shape it had before
-/// tests were timed, and says how many it rewrote.
-fn make_records_old(cache: &Path) -> usize {
+/// A verdict cached before builds were timed keeps its tests' times, and says
+/// nothing about its build.
+#[test]
+fn a_verdict_cached_before_builds_were_timed_keeps_its_test_times() {
+    let scratch = Scratch::copy_of("verbose-untimed-build", &tests_dir().join("repositories/testing/verbose/repo"));
+    let first = scratch.run(&["test", "//...", "--verbose"]);
+    assert_eq!(first.code, 0, "{}", indent(&first.all()));
+    let rewritten = make_records_old(&scratch.path(".buri/cache"), without_build);
+    assert_eq!(rewritten, 3, "expected one verdict record per suite");
+
+    let run = scratch.run(&["test", "//...", "--verbose"]);
+    run.heap_ok();
+    assert_eq!(run.code, 0, "{}", indent(&run.all()));
+    let suites: Vec<String> = run.stdout.lines().filter(|l| l.starts_with("//")).map(blank_test_time).collect();
+    assert_eq!(
+        suites,
+        [
+            "//apps/web  js  2 tests  cached  <time>",
+            "//lib/money  native  3 tests  cached  <time>",
+            "//lib/shapes  native  3 tests  cached  <time>",
+        ],
+        "{}",
+        indent(&run.stdout)
+    );
+    let first_tests: Vec<&str> = first.stdout.lines().filter(|l| l.starts_with("  ok  ")).collect();
+    let tests: Vec<&str> = run.stdout.lines().filter(|l| l.starts_with("  ok  ")).collect();
+    assert_eq!(tests, first_tests, "the tests' times were not kept");
+}
+
+/// `text` without the line that says how long the build took.
+fn without_build(text: &str) -> String {
+    text.split_inclusive('\n').filter(|l| !l.starts_with("{\"build\":")).collect()
+}
+
+/// Rewrites every verdict record under `cache` with `old`, into the shape an
+/// older toolchain wrote, and says how many it rewrote.
+fn make_records_old(cache: &Path, old: impl Fn(&str) -> String) -> usize {
     let mut rewritten = 0;
     for dir in std::fs::read_dir(cache).unwrap() {
         let dir = dir.unwrap().path();
@@ -170,9 +292,9 @@ fn make_records_old(cache: &Path) -> usize {
             if !text.starts_with("reads ") || !text.contains("\"ok\":true") {
                 continue;
             }
-            let old = without_times(&text);
-            assert_ne!(old, text, "a verdict record held no time to take out:\n{text}");
-            std::fs::write(&file, old).unwrap();
+            let older = old(&text);
+            assert_ne!(older, text, "a verdict record held nothing to take out:\n{text}");
+            std::fs::write(&file, older).unwrap();
             rewritten += 1;
         }
     }
@@ -259,10 +381,11 @@ fn each_pass_of_a_watch_loop_lists_its_own_suites() {
             pass.lines().skip(1).take_while(|l| !l.is_empty()).map(blank_test_time).collect();
         assert_eq!(
             lines.join("\n"),
-            "//lib/shapes  native  3 tests  <time>\n\
+            "//lib/shapes  native  3 tests  <time>  built in <time>\n\
              \x20 ok    shapes.buri      a square has four equal sides        <time>\n\
              \x20 ok    shapes.buri      a square's area is its side squared  <time>\n\
-             \x20 ok    solid/cube.buri  a cube has six square faces          <time>",
+             \x20 ok    solid/cube.buri  a cube has six square faces          <time>\n\
+             shared build  <time>",
             "a pass did not list its suite:\n{}",
             indent(&text)
         );
