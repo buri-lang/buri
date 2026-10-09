@@ -6729,6 +6729,79 @@ Keystrokes are the fewest of eight alternating runs and lints the fewer of two, 
 
 The same ten repositories and five LSP sessions hash identically.
 
+### 6.72 A keystroke reads unchanged modules' names from the kept text, 2026-10-09
+
+Where a `mixed-100k` keystroke's lint goes. `sample` over 150 keystrokes, each
+with a pull, on a release build with line tables. Self samples on the thread
+that answers, out of 5,420 for the pulls:
+
+| Work | samples | share |
+|---|---:|---:|
+| lint | 2,214 | 41% |
+| analysis | 1,962 | 36% |
+| publishing the findings | ~880 | 16% |
+| hashing the closure, for the result id | 363 | 7% |
+
+Within lint, `check_hygiene`'s rules are 1,718 samples. The rest are
+`dependency_label`'s `stat`s at 138, and the package rules at about 130.
+
+| Rule | samples |
+|---|---:|
+| `check_unused_declarations` | 491 |
+| ↳ `Census::of`, a walk of every body | 258 |
+| ↳ `Names::of`, a lookup per identifier token | 205 |
+| `check_unused_imports`, a set of every identifier per module | 294 |
+| `Held::of`, a second census walk | 238 |
+| `check_unused_context_bounds` | 206 |
+| `check_unused_variables` | 133 |
+| `check_unused_contexts` | 96 |
+| `check_discarded_results` | 92 |
+| `check_hand_rolled_discards` | 79 |
+| `check_deep_nesting` | 63 |
+
+**Two rules read every token of every module on each keystroke, though their
+answers depend on nothing but a module's text.** `unused-import` built the set
+of names written outside the imports, and `Names::of` asked about every
+identifier token. `Text`, which §6.47 keeps per file across keystrokes,
+now keeps both answers too:
+
+```rust
+/// The names written outside every `import` statement.
+used: crate::hash::Set<String>,
+/// One token for each name written anywhere but a type's mention of itself.
+undeclared: Vec<Span>,
+```
+
+A module with a body that didn't check, or a run of source the parser skipped,
+still walks its tokens, because what's in doubt depends on the analysis. Every
+other module costs a lookup of its text and an insert per distinct name.
+
+`mixed-100k`, 40 keystrokes with a pull each, eight alternating runs per arm,
+fewest of eight, load 1.0–1.4, no sleep in `pmset -g log`:
+
+| | before | after | Δ |
+|---|---:|---:|---:|
+| wall | 3.21 s | 3.03 s | −5.6% |
+| cycles | 12.90 G | 12.19 G | −5.5% |
+| instructions | 45.22 G | 42.30 G | −6.5% |
+
+A cold `lint //...` builds the sets once per module instead of scanning, and
+costs 3.08 → 3.10 G (+0.5%) on `mixed-100k`. Conformance stays at 2.27 G.
+
+**Output is identical** on §6.71's ten repositories: `lint //...`,
+`--error-format=json`, `--fix`'s report and the tree it leaves. The five LSP
+sessions match too.
+
+No growth guard. `BURI_PROFILE` counts phases, and these rules share a phase
+with the analysis a keystroke still runs over the whole target.
+
+**What's left.** Eight rules each walk every typed body: both censuses,
+`unused-context`, `unused-context-bound`, `unused-variable`,
+`result-discarded`, the hand-rolled discards and nesting. Together that's
+about 1,100 samples, a fifth of a pull. The bodies are rebuilt on every
+keystroke, so there's nothing stable to key a cache on. Fusing the walks into
+one visitor is the lever left, and it touches every rule.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
