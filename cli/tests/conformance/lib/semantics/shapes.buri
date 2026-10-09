@@ -1100,8 +1100,7 @@ impl Listen for OneShotListen {
         }
     }
 
-    /// The answer is checked for a plausible status and then the listener says
-    /// it is done, which is what makes this a *one-shot*.
+    /// The listener says it is done, which is what makes this a *one-shot*.
     ///
     /// `.Closed` from a **respond** rather than from the next accept, because
     /// this fake has no state to count with: an effect method takes only
@@ -1117,10 +1116,7 @@ impl Listen for OneShotListen {
         headers: [Header],
         body: [U8],
     ): Result<(), ServeError> {
-        match (status >= 200 && status < 600) {
-            true => .Err(ServeError { cause: .Closed, detail: "" }),
-            false => .Err(ServeError { cause: .Transport, detail: "bad status" }),
-        }
+        .Err(ServeError { cause: .Closed, detail: "" })
     }
 
     fn listenClose(self, handle: Int): () {

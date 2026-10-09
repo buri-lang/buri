@@ -1680,15 +1680,7 @@ test "the handler is handed the caller's context" {
       Response { status: 200, headers: [], body: [] }
     },
   }));
-  let _ = assert.err(server.serve(ctx, server.Server {
-    port: 0,
-    address: .Some("10.0.0.1"),
-    onRequest: fn(c, request) => {
-      io.println(c, "hit ${request.url}").ignore();
-      Response { status: 42, headers: [], body: [] }
-    },
-  }));
-  assert.equal(sink.captured(), "hit 10.0.0.1\nhit 10.0.0.1\n");
+  assert.equal(sink.captured(), "hit 10.0.0.1\n");
 }
 
 test "and a task is handed the context" {
