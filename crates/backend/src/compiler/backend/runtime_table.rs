@@ -1048,7 +1048,7 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.fsReadFileBytes", &[Scalar, Str], Ret::Res),
     e("host_testing.fsWriteFileBytes", &[Scalar, Str, List], Ret::Res),
     e("host_testing.fsAppendFile", &[Scalar, Str, List], Ret::Res),
-    e("host_testing.fsRenameFile", &[Scalar, Str, Str], Ret::Res),
+    e("host_testing.fsRenameFile", &[Scalar, Str, Str], Ret::ResMsg),
     e("host_testing.fsRemoveFile", &[Scalar, Str], Ret::Res),
     e("host_testing.fsRemoveDir", &[Scalar, Str], Ret::ResMsg),
     e("host_testing.fsMakeDir", &[Scalar, Str], Ret::Res),
@@ -2179,14 +2179,16 @@ mod tests {
                 "host.HostTcp.tcpConnect",
                 "host.HostTcp.tcpRead",
                 "host.HostTcp.tcpWrite",
-                // Two doubles with a sentence to give. A `TestFileSystem` whose
+                // Three doubles with a sentence to give. A `TestFileSystem` whose
                 // directory still holds something answers `.Other` for the same
-                // reason a real one does, and a `readRange` at a negative
-                // offset says so — both in the words the JavaScript double
+                // reason a real one does, so does a rename `ENOTEMPTY`,
+                // `EISDIR` or `EINVAL` refuses, and a `readRange` at a negative
+                // offset says so — all in the words the JavaScript double
                 // writes, so one conformance block reads the same on both
                 // backends.
                 "host_testing.fsReadRange",
                 "host_testing.fsRemoveDir",
+                "host_testing.fsRenameFile",
             ]
         );
         for writer in [

@@ -1,0 +1,294 @@
+from "core/fs" import * as fs;
+from "core/fs" import { FileSystemRead, FileSystemWrite };
+from "core/path" import * as path;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc, fs as testFs };
+
+test "renaming a directory moves it" {
+    let disk = testFs();
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "a")));
+    assert.ok(fs.writeText(ctx, path.of(ctx, "a/x"), "hi"));
+    assert.ok(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "b")));
+    assert.equal(assert.ok(fs.readText(ctx, path.of(ctx, "b/x"))), "hi");
+}
+
+test "making a directory with a file in it works" {
+    let disk = testFs();
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "a")));
+    assert.ok(fs.writeText(ctx, path.of(ctx, "a/x"), "hi"));
+    assert.equal(assert.ok(fs.readText(ctx, path.of(ctx, "a/x"))), "hi");
+}
+
+test "renaming a file moves it" {
+    let disk = testFs();
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.writeText(ctx, path.of(ctx, "x"), "hi"));
+    assert.ok(fs.rename(ctx, path.of(ctx, "x"), path.of(ctx, "y")));
+    assert.equal(assert.ok(fs.readText(ctx, path.of(ctx, "y"))), "hi");
+}
+
+// -----------------------------------------------------------------------------
+// A directory moves the way `rename(2)` moves one
+// -----------------------------------------------------------------------------
+
+test "a directory moves with every file and directory under it" {
+    let disk = testFs().files([("a/x", "X"), ("a/deep/y", "Y"), ("keep", "K")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "a/deep")));
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "a/empty")));
+    assert.ok(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "b")));
+    assert.equal(disk.snapshot(), [("b/deep/y", "Y"), ("b/x", "X"), ("keep", "K")]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "b"))), ["deep", "empty", "x"]);
+    assert.isTrue(fs.isDirectory(ctx, path.of(ctx, "b")));
+    assert.isTrue(fs.isDirectory(ctx, path.of(ctx, "b/empty")));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "a")));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "a/empty")));
+}
+
+test "a directory only its files imply moves too" {
+    let disk = testFs().files([("t/a", "A")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.rename(ctx, path.of(ctx, "t"), path.of(ctx, "u")));
+    assert.equal(disk.snapshot(), [("u/a", "A")]);
+}
+
+test "an empty directory moves" {
+    let disk = testFs();
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "a")));
+    assert.ok(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "b")));
+    assert.isTrue(fs.isDirectory(ctx, path.of(ctx, "b")));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "a")));
+}
+
+test "a directory replaces an empty one" {
+    let disk = testFs().files([("a/x", "X")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "a")));
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "b")));
+    assert.ok(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "b")));
+    assert.equal(disk.snapshot(), [("b/x", "X")]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, ""))), ["b"]);
+}
+
+test "a directory onto one that holds something is refused, and nothing moves" {
+    let disk = testFs().files([("a/x", "X"), ("b/y", "Y")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.equal(
+        assert.err(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "b"))),
+        .Other("directory not empty"),
+    );
+    assert.equal(disk.snapshot(), [("a/x", "X"), ("b/y", "Y")]);
+}
+
+test "a directory onto its own parent is a rename onto a directory that holds it" {
+    let disk = testFs();
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "a/b")));
+    assert.equal(
+        assert.err(fs.rename(ctx, path.of(ctx, "a/b"), path.of(ctx, "a"))),
+        .Other("directory not empty"),
+    );
+    assert.isTrue(fs.isDirectory(ctx, path.of(ctx, "a/b")));
+}
+
+test "a directory onto a file is NotADirectory" {
+    let disk = testFs().files([("a/x", "X"), ("f", "F")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.equal(
+        assert.err(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "f"))),
+        .NotADirectory,
+    );
+    assert.equal(disk.snapshot(), [("a/x", "X"), ("f", "F")]);
+}
+
+test "a file onto a directory is refused, empty or not" {
+    let disk = testFs().files([("f", "F"), ("full/y", "Y")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "empty")));
+    assert.equal(
+        assert.err(fs.rename(ctx, path.of(ctx, "f"), path.of(ctx, "empty"))),
+        .Other("is a directory"),
+    );
+    assert.equal(
+        assert.err(fs.rename(ctx, path.of(ctx, "f"), path.of(ctx, "full"))),
+        .Other("is a directory"),
+    );
+    assert.equal(disk.snapshot(), [("f", "F"), ("full/y", "Y")]);
+    assert.isTrue(fs.isDirectory(ctx, path.of(ctx, "empty")));
+}
+
+test "a directory into itself is refused" {
+    let disk = testFs().files([("a/x", "X")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "a/sub")));
+    assert.equal(
+        assert.err(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "a/sub/inner"))),
+        .Other("invalid argument"),
+    );
+    assert.equal(
+        assert.err(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "a/sub"))),
+        .Other("invalid argument"),
+    );
+    assert.equal(disk.snapshot(), [("a/x", "X")]);
+    assert.isTrue(fs.isDirectory(ctx, path.of(ctx, "a/sub")));
+}
+
+test "a directory whose name only starts with the other's is not inside it" {
+    let disk = testFs().files([("a/x", "X")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "ab")));
+    assert.equal(disk.snapshot(), [("ab/x", "X")]);
+}
+
+test "a file renamed onto itself is still there" {
+    let disk = testFs().files([("f", "F")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.rename(ctx, path.of(ctx, "f"), path.of(ctx, "f")));
+    assert.equal(disk.snapshot(), [("f", "F")]);
+}
+
+test "a directory renamed onto itself is still there" {
+    let disk = testFs().files([("d/x", "X")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "d")));
+    assert.ok(fs.rename(ctx, path.of(ctx, "d"), path.of(ctx, "d")));
+    assert.equal(disk.snapshot(), [("d/x", "X")]);
+    assert.isTrue(fs.isDirectory(ctx, path.of(ctx, "d")));
+}
+
+test "the destination's directory has to be there" {
+    let disk = testFs().files([("f", "F"), ("d/x", "X")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.equal(
+        assert.err(fs.rename(ctx, path.of(ctx, "f"), path.of(ctx, "nowhere/g"))),
+        .NotFound,
+    );
+    assert.equal(
+        assert.err(fs.rename(ctx, path.of(ctx, "d"), path.of(ctx, "nowhere/e"))),
+        .NotFound,
+    );
+    assert.equal(
+        assert.err(fs.rename(ctx, path.of(ctx, "d"), path.of(ctx, "d/nowhere/e"))),
+        .NotFound,
+    );
+    assert.equal(
+        assert.err(fs.rename(ctx, path.of(ctx, "d"), path.of(ctx, "f/e"))),
+        .NotADirectory,
+    );
+    assert.equal(disk.snapshot(), [("d/x", "X"), ("f", "F")]);
+}
+
+test "a destination inside a directory its files imply is somewhere to go" {
+    let disk = testFs().files([("f", "F"), ("d/x", "X")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.rename(ctx, path.of(ctx, "f"), path.of(ctx, "d/f")));
+    assert.equal(disk.snapshot(), [("d/f", "F"), ("d/x", "X")]);
+}
+
+test "renaming what is not there is NotFound" {
+    let disk = testFs().files([("f", "F")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.equal(
+        assert.err(fs.rename(ctx, path.of(ctx, "gone"), path.of(ctx, "g"))),
+        .NotFound,
+    );
+    assert.equal(
+        assert.err(fs.rename(ctx, path.of(ctx, "gone"), path.of(ctx, "f"))),
+        .NotFound,
+    );
+    assert.equal(disk.snapshot(), [("f", "F")]);
+}
+
+test "a read-only view of the filesystem sees the directory where it went" {
+    let disk = testFs().files([("a/x", "X")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "a/sub")));
+    let frozen = disk.readOnly();
+    let reader = context {
+        Allocator: alloc(),
+        FileSystemRead: frozen,
+    };
+    assert.ok(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "b")));
+    assert.isTrue(fs.isDirectory(reader, path.of(reader, "b/sub")));
+    assert.isFalse(fs.exists(reader, path.of(reader, "a/sub")));
+}

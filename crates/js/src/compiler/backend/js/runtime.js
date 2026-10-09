@@ -9418,15 +9418,85 @@ function $host_testing_fsAppendFile(h, p, b) {
   return $host_testing_logged(s, call, $ok(0));
 }
 
+// `rename(2)` over a flat map: a file or a whole directory moves, replacing
+// what `to` named. It refuses what `cli/runtime/testing.rs`'s `fs_rename`
+// refuses, in the same order and in the same words.
 function $host_testing_fsRenameFile(h, from, to) {
   const s = $tslot(h);
   const call = ["renameFile", from, to];
   if (s.ro) return $host_testing_logged(s, call, $err([2]));
-  const f = s.files;
-  if (!(from in f)) return $host_testing_logged(s, call, $err([0]));
-  f[to] = f[from];
-  delete f[from];
-  return $host_testing_logged(s, call, $ok(0));
+  const clean = function (p) {
+    const trimmed = p.replace(/\/+$/, "");
+    return trimmed === "." ? "" : trimmed;
+  };
+  return $host_testing_logged(s, call, $host_testing_rename(s, clean(from), clean(to)));
+}
+
+// Strictly under the directory `dir`; everything is under the root.
+function $host_testing_inside(p, dir) {
+  return dir === "" ? p !== "" : p.startsWith(dir + "/");
+}
+
+function $host_testing_holds(s, dir) {
+  return Object.keys(s.files)
+    .concat(s.dirs)
+    .some(function (k) {
+      return $host_testing_inside(k, dir);
+    });
+}
+
+// "file", "dir" or "none". A directory is one `makeDir` recorded or one
+// something is stored under, and the root always is one.
+function $host_testing_named(s, p) {
+  if (p === "") return "dir";
+  if (p in s.files) return "file";
+  return s.dirs.includes(p) || $host_testing_holds(s, p) ? "dir" : "none";
+}
+
+function $host_testing_rename(s, from, to) {
+  const source = $host_testing_named(s, from);
+  if (source === "none") return $err([0]);
+  for (let end = to.indexOf("/"); end >= 0; end = to.indexOf("/", end + 1)) {
+    const on = $host_testing_named(s, to.slice(0, end));
+    if (on === "file") return $err([4]);
+    if (on === "none") return $err([0]);
+  }
+  if (from === to) return $ok(0);
+  if (source === "dir" && $host_testing_inside(to, from)) {
+    return $err([6, "invalid argument"]);
+  }
+  const target = $host_testing_named(s, to);
+  if (source === "dir" && target === "file") return $err([4]);
+  if (source === "file" && target === "dir") return $err([6, "is a directory"]);
+  if (source === "file") {
+    const body = s.files[from];
+    delete s.files[from];
+    s.files[to] = body;
+    return $ok(0);
+  }
+  if (target === "dir" && $host_testing_holds(s, to)) {
+    return $err([6, "directory not empty"]);
+  }
+  const moved = function (k) {
+    return k === from || $host_testing_inside(k, from) ? to + k.slice(from.length) : undefined;
+  };
+  for (const k of Object.keys(s.files)) {
+    const next = moved(k);
+    if (next === undefined) continue;
+    const body = s.files[k];
+    delete s.files[k];
+    s.files[next] = body;
+  }
+  // In place: a `readOnly` view shares this array, and has to see the move.
+  const kept = s.dirs.filter(function (d) {
+    return d !== to;
+  });
+  s.dirs.length = 0;
+  for (const d of kept) {
+    const next = moved(d);
+    s.dirs.push(next === undefined ? d : next);
+  }
+  return $ok(0);
 }
 
 function $host_testing_fsRemoveFile(h, p) {
