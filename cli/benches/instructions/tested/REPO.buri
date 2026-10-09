@@ -1,0 +1,2 @@
+# The `buri test` workload of the instruction-count gate: two packages from
+# cli/tests/example, frozen here so editing that example moves no count.

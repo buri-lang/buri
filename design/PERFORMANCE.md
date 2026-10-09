@@ -7660,10 +7660,99 @@ can retire fewer instructions and still run slower.
 - **Cachegrind in the container works and is exact**: 269,464 instructions
   for `ls /`, twice. It needs a Linux build of the toolchain and simulates
   every instruction, so it's far slower, which buys exactness below the 0.5%
-  floor. Nothing here needs that yet; it's the tool to reach for when
-  something does.
+  floor. CI's regression gate uses it (§9).
 - **kpc and per-thread cycle counters beyond the fixed two** need root.
   `thread_selfcounts` gives instructions and cycles, which is all this needed.
 - **Process deltas at phase boundaries.** `proc_pid_rusage` is per process, and
   `buri test` checks one suite while it links another, so a phase boundary
   isn't a moment in time.
+
+
+---
+
+## 9. The instruction-count gate
+
+CI's `instruction counts (x86_64)` job runs fixed workloads under cachegrind
+and fails when one executes more than 2% more instructions than
+`cli/benches/instructions/baseline.txt` says:
+
+```text
+nix develop .#perf -c cargo bench -p buri --features backend-llvm --bench instructions
+```
+
+```text
+workload                  baseline             now    change
+run/lists               1933542599      2005818604   +3.738%  REGRESSED
+run/maps                1986711623      2008860271   +1.115%
+run/tree                1527411046      1590324651   +4.119%  REGRESSED
+```
+
+Cachegrind counts every instruction it runs, so a rerun reads the same number
+to within a few thousand in a billion. Time never decides anything here. The
+growth bounds in §6 check how a cost scales, on macOS's kernel counters; this
+checks what fixed work costs, on Linux.
+
+| Workload | What cachegrind counts |
+|---|---|
+| `build/mixed-10k` | a cold `buri build` of `cli/benches/corpora/mixed-10k` |
+| `lint/mixed-10k` | a cold `buri lint` of the same |
+| `build/programs` | a cold debug `buri build` of `cli/benches/instructions/programs`: stencils and link orchestration |
+| `test/one-edit` | `buri test` after adding one test to `cli/benches/instructions/tested`, whose suites already passed |
+| `run/<name>` | one program from `cli/benches/instructions/programs`, built with `--release` |
+
+- Every measured process runs under `taskset` on one core, so neither the
+  compiler nor the runtime starts workers. Children aren't counted: the linker
+  and test binaries cost nothing here.
+- Every process gets the same paths and environment under
+  `/tmp/buri-instructions`, so every machine hands the compiler the same bytes.
+- `~/.buri`'s linker records are filled before anything is measured. A user
+  pays for them once.
+- CI runs each workload twice (`--runs=2`) and fails if the two disagree by
+  more than 0.1%. Measured on an arm64 VM, three runs each: the compiler
+  workloads spread by at most 0.0013%, the programs by at most a dozen
+  instructions.
+
+### Reading a failure
+
+- **REGRESSED**: find the cause before re-blessing. `cg_annotate
+  /tmp/buri-instructions/out/<workload>.cachegrind` ranks functions, and §8's
+  protocol compares two builds.
+- **improved**: a count fell by more than 2%. It passes. Re-bless so the
+  baseline keeps the gain.
+- **The toolchain changed**: the baseline's `toolchain` line names rustc, LLVM,
+  clang, valgrind and glibc, and counts move with any of them. Bumping
+  `flake.lock` or `rust-toolchain.toml` needs a re-bless.
+- **moved between runs**: something the workload does isn't repeatable. Find
+  it; a wider threshold only hides it.
+
+### Re-blessing
+
+Re-blessing rewrites `baseline.txt`, so a count that rises is a line in review.
+
+- From CI: a failed run uploads `instructions-baseline`, the file as that run
+  measured it. Commit it.
+- On x86_64 Linux: add `-- --bless` to the command above.
+
+### Running it locally
+
+It's Linux only, because cachegrind is. On macOS, use a Linux VM with nix:
+
+```text
+limactl start --name=perf --vm-type=vz --cpus=8 --memory=16 template:ubuntu-24.04
+```
+
+Install nix inside it, copy the checkout in, and run the command above. An
+arm64 VM counts arm64 instructions, which the committed baseline doesn't have,
+so compare two commits: `-- --bless` on the base, then run on yours. Don't
+commit the `aarch64` lines; CI checks x86_64 only.
+
+- `-- --runs=3` measures each workload three times and reports the spread.
+- `-- run/` runs only the workloads whose names contain `run/`.
+
+### Why x86_64 only
+
+Valgrind's amd64 port shows the program one of a few fixed CPUs, so glibc and
+the standard library pick the same code paths on every runner. The arm64 port
+works and is repeatable on one machine (the figures above), but glibc picks
+its aarch64 `memcpy` by CPU model, and whether the arm runners all read the
+same hasn't been checked. Adding them is one matrix line once it has.

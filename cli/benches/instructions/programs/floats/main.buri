@@ -1,0 +1,20 @@
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator };
+
+fn go<C: Allocator>(ctx: C, i: Int, end: Int, x: Float, acc: Int): Int {
+    if (i == end) {
+        acc
+    } else {
+        let s = str.format(ctx, "${x} ${i}");
+        go(ctx, i + 1, end, x * 1.0001 + 0.37, acc + s.length())
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = host.alloc;
+    let n = go(ctx, 0, 500000, 0.1, 0);
+    let _ = io.println(host.stdout, str.format(ctx, "${n}")).ignore();
+    .Ok(())
+}

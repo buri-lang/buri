@@ -110,3 +110,12 @@ path = "src/main.rs"
 name = "compiler"
 path = "benches/compiler.rs"
 harness = false
+
+# The instruction-count gate (design/PERFORMANCE.md §9). It builds its runtime
+# workloads with `--release`, so it needs the release backend, and without the
+# feature a bare `cargo bench` leaves it out.
+[[bench]]
+name = "instructions"
+path = "benches/instructions.rs"
+harness = false
+required-features = ["backend-llvm"]
