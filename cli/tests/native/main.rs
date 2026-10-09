@@ -279,3 +279,8 @@ mod secret;
 // every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod collection_costs;
+// The programs the fast paths are for, at the size they're for: fan-outs of
+// every width, maps of colliding-shaped keys, wide ordered maps, deep trees and
+// long sorts, on JavaScript and every backend built in, under the heap check.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod at_scale;
