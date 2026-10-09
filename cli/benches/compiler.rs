@@ -83,6 +83,7 @@
 mod calibrate;
 mod corpus;
 mod generate;
+mod goals;
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -158,6 +159,8 @@ usage: compiler [flags]
   --targets=<list>       js,macos-arm64,macos-x86_64,linux-x86_64,linux-arm64
   --record[=<name>]      write the corpus into cli/benches/corpora/ and exit
   --pin[=<name>]         write a digest-pinned manifest into cli/benches/pinned/
+  --goals=<count|wall>   the goals gate: instructions a line against a budget,
+                         or lines a second against the goal (PERFORMANCE.md §6.82)
 ";
 
 // ---------------------------------------------------------------------------
@@ -240,6 +243,11 @@ struct Args {
     targets: Vec<Target>,
     record: Option<String>,
     pin: Option<String>,
+    goals: Option<String>,
+    /// Set only in the child process `--goals=count` spawns: run this phase
+    /// over the repository at `from`, once.
+    goals_child: Option<String>,
+    from: Option<String>,
 }
 
 fn parse_args() -> Args {
@@ -262,6 +270,9 @@ fn parse_args() -> Args {
         targets: default_targets(),
         record: None,
         pin: None,
+        goals: None,
+        goals_child: None,
+        from: None,
     };
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
@@ -336,6 +347,12 @@ fn parse_args() -> Args {
                     a.rss_child = Some(value(v));
                 } else if let Some(v) = arg.strip_prefix("--pin=") {
                     a.pin = Some(value(v));
+                } else if let Some(v) = arg.strip_prefix("--goals=") {
+                    a.goals = Some(value(v));
+                } else if let Some(v) = arg.strip_prefix("--goals-child=") {
+                    a.goals_child = Some(value(v));
+                } else if let Some(v) = arg.strip_prefix("--from=") {
+                    a.from = Some(value(v));
                 } else {
                     eprintln!("unknown argument {arg}");
                     eprintln!("{USAGE}");
@@ -681,6 +698,15 @@ fn run() {
 
     if args.list {
         print_profiles();
+        return;
+    }
+
+    if let Some(phase) = &args.goals_child {
+        goals::child(phase, args.from.as_deref().unwrap_or_else(|| fail("--goals-child needs --from")));
+        return;
+    }
+    if let Some(mode) = &args.goals {
+        goals::run(mode);
         return;
     }
 

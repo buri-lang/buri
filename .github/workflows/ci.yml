@@ -315,6 +315,59 @@ jobs:
           rustup target add "$(uname -m)-unknown-linux-musl"
       - run: cargo bench -p buri --bench compiler --profile validate -- --validate --quick
 
+  # The throughput goals, counted (design/PERFORMANCE.md §6.82): instructions a
+  # line per phase against the budget each goal sets. Cachegrind's counts are
+  # exact, so this blocks. arm64, because the budgets come from an Apple core's
+  # instruction rate, and an arm64 count is what that core retires.
+  # It runs in the flake's `perf` shell, as `instructions` does, which pins
+  # rustc, clang, glibc and valgrind.
+  goals-counted:
+    name: throughput goals, counted (arm64)
+    runs-on: blacksmith-8vcpu-ubuntu-2404-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-2404-arm-goals
+      # The runtime archive `cli/build.rs` builds, which rust-cache drops (see
+      # the `test` job).
+      - uses: actions/cache@v6
+        with:
+          path: target/release/build
+          key: goals-buildscript-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: goals-buildscript-
+      # The corpora on disk. A stale copy can't be used: the gate checks each
+      # against its pinned digest and writes it again on a mismatch.
+      - uses: actions/cache@v6
+        with:
+          path: target/goals
+          key: goals-corpora-${{ runner.os }}-${{ hashFiles('cli/benches/pinned/mixed-1M.txt', 'cli/benches/pinned/mixed-100k.txt') }}
+      - run: nix develop .#perf -c cargo bench -p buri --bench compiler -- --goals=count
+
+  # The throughput goals, timed: lines a second on a machine like a developer's,
+  # failing only below a goal itself. Parse only warns, because it has under
+  # 1.2x headroom and noise could fail it; check and dev compile have over 3x.
+  goals-timed:
+    name: throughput goals, timed (macOS)
+    runs-on: blacksmith-12vcpu-macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-goals
+      - uses: actions/cache@v6
+        with:
+          path: target/goals
+          key: goals-corpora-${{ runner.os }}-${{ hashFiles('cli/benches/pinned/mixed-1M.txt', 'cli/benches/pinned/mixed-100k.txt') }}
+      - run: cargo bench -p buri --bench compiler -- --goals=wall
+
   # The release backend, x86-64 only and ADVISORY: LLVM 21 is not in Ubuntu 24.04,
   # so this job depends on apt.llvm.org, and a red X caused by a 404 teaches
   # people to ignore a red X. The agreement test (ARCHITECTURE.md §4) is what
