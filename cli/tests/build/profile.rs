@@ -605,6 +605,38 @@ fn the_lint_rules_are_linear_in_a_files_length() {
     );
 }
 
+/// **`unused-context` is linear in its findings.** Each finding's fix walked
+/// every body in the package for call sites: a file of 4,000 functions that
+/// never read their `ctx` took 6.5 G instructions to lint. PERFORMANCE.md §6.71.
+#[test]
+fn unused_context_is_linear_in_its_findings() {
+    let linted = |n: usize| {
+        let scratch = Scratch::repo("profile-lint-unused-contexts");
+        let items: String =
+            (0..n).map(|i| format!("fn p{i}<C: Allocator>(ctx: C, x: Int): Int {{\n    x * {i}\n}}\n\n")).collect();
+        let calls: Vec<String> = (0..n).map(|i| format!("p{i}(ctx, {i})")).collect();
+        scratch.write("app/BUILD.buri", "binary {\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n");
+        scratch.write(
+            "app/main.buri",
+            &format!(
+                "from \"platform/effect\" import {{ Allocator, Stdout }};\n\
+                 from \"node\" import {{ NodeHost }};\n\
+                 from \"core/io\" import * as io;\n\n{items}\
+                 fn total<C: Allocator>(ctx: C): Int {{\n    {}\n}}\n\n\
+                 export fn main(host: NodeHost): Result<(), Str> {{\n    \
+                 let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};\n    \
+                 io.println(ctx, \"${{total(ctx)}}\").mapErr(fn(_e) => \"no stdout\")\n}}\n",
+                calls.join(" +\n        ")
+            ),
+        );
+        let run = scratch.run_with_env(&["lint", "//..."], &[("BURI_PROFILE", "1")]);
+        run.exits(1);
+        assert_eq!(run.all().matches("[unused-context]").count(), n, "{}", indent(&run.all()));
+        phase_instructions(&run.all(), "other")
+    };
+    grows_linearly("unused-context over one file", linted, 500);
+}
+
 /// A library of `n` functions, each with a context bound its body never uses.
 fn unused_bounds(scratch: &Scratch, n: usize) {
     let items: String = (0..n)
