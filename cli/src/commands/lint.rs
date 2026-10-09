@@ -1398,6 +1398,13 @@ struct Text {
     findings: Vec<Diagnostic>,
     /// Where every identifier token is. What it says is the text under it.
     idents: Vec<Span>,
+    /// The names written outside every `import` statement: what
+    /// [`check_unused_imports`] asks each imported name about.
+    used: crate::hash::Set<String>,
+    /// One token for each name written anywhere but a type's mention of itself
+    /// ([`Owned`]): what [`Names::of`] counts as written when nothing in the
+    /// module is in doubt.
+    undeclared: Vec<Span>,
 }
 
 thread_local! {
@@ -1430,16 +1437,42 @@ impl Text {
         check_time_unit_conversions(lexes, m, &mut found);
         check_function_shapes(lexes.session, m, &mut found);
         let lexed = lexes.of(m.file);
-        let idents = (0..lexed.tokens.len())
+        let idents: Vec<Span> = (0..lexed.tokens.len())
             .filter(|i| lexed.tokens.kind(*i) == crate::parsing::lexer::TokenKind::Ident)
             .map(|i| lexed.tokens.span(i))
             .collect();
+        // An identifier inside an import statement is the binding, not a use.
+        let imports: Vec<Span> = m
+            .ast
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                crate::parsing::tree::Item::Import(i) => Some(i.span),
+                _ => None,
+            })
+            .collect();
+        let owned = Owned::of(m);
+        let mut used = crate::hash::Set::default();
+        let mut undeclared = Vec::new();
+        let mut seen: crate::hash::Set<&str> = crate::hash::Set::default();
+        for at in idents.iter().copied() {
+            let name = source.get(at.start as usize..at.end as usize).unwrap_or("");
+            if !imports.iter().any(|i| at.start >= i.start && at.end <= i.end) && !used.contains(name) {
+                used.insert(name.to_string());
+            }
+            if !seen.contains(name) && !owned.declares(name, at) {
+                seen.insert(name);
+                undeclared.push(at);
+            }
+        }
         let read = std::rc::Rc::new(Text {
             length: source.len(),
             hash,
             role: m.role,
             findings: found.items,
             idents,
+            used,
+            undeclared,
         });
         TEXTS.with(|texts| texts.borrow_mut().insert(key, std::rc::Rc::clone(&read)));
         read
@@ -2294,7 +2327,7 @@ fn check_unused_declarations(
             continue;
         }
         if spoken_for(&(con.span.file.0, con.span.start, con.span.end))
-            || names.doubted.contains(&con.name)
+            || names.doubted.contains(con.name.as_str())
         {
             continue;
         }
@@ -2304,7 +2337,7 @@ fn check_unused_declarations(
         // variants underneath, which are the shape a consumer reaches through.
         let exempt =
             con.exported && (surface_in_doubt || published(con.module, con.name.as_str()));
-        if !census.built.contains(&id) && !names.written.contains(&con.name) {
+        if !census.built.contains(&id) && !names.written.contains(con.name.as_str()) {
             if !exempt {
                 diagnostics.push(
                     Diagnostic::templated("unused-type", con.span)
@@ -2324,7 +2357,7 @@ fn check_unused_declarations(
                 for (i, f) in fields.iter().enumerate() {
                     if (exempt && f.exported)
                         || census.read.contains(&(id, i))
-                        || names.doubted.contains(&f.name)
+                        || names.doubted.contains(f.name.as_str())
                     {
                         continue;
                     }
@@ -2337,7 +2370,7 @@ fn check_unused_declarations(
             }
             TyDef::Enum { variants } if !exempt => {
                 for (i, v) in variants.iter().enumerate() {
-                    if census.variants.contains(&(id, i)) || names.doubted.contains(&v.name) {
+                    if census.variants.contains(&(id, i)) || names.doubted.contains(v.name.as_str()) {
                         continue;
                     }
                     diagnostics.push(
@@ -2364,24 +2397,24 @@ fn check_unused_declarations(
 /// A generated module is not scanned. It declares and uses the types of one
 /// schema and nothing else, so there is no hand-written type whose only use
 /// could be inside one, and none of its own declarations is reported.
-struct Names {
+struct Names<'s> {
     /// Every name written down somewhere that is not the declaration of a type
     /// of that name, nor an `impl` or `derive` block about one.
-    written: crate::hash::Set<String>,
+    written: crate::hash::Set<&'s str>,
     /// Every name written down inside text the checker or the parser could not
     /// read: a body that did not check, or a run of declarations the parser
     /// skipped. Nothing is reported about one of these, because the use that
     /// would have answered for it may be exactly what went missing.
-    doubted: crate::hash::Set<String>,
+    doubted: crate::hash::Set<&'s str>,
 }
 
-impl Names {
+impl<'s> Names<'s> {
     fn of(
-        lexes: &Lexes<'_>,
+        lexes: &Lexes<'s>,
         analysis: &crate::compiler::driver::Analysis,
         mine: &BTreeSet<ModuleId>,
         unchecked: &Unchecked,
-    ) -> Names {
+    ) -> Names<'s> {
         use crate::parsing::tree::Item;
         let mut names = Names { written: crate::hash::Set::default(), doubted: crate::hash::Set::default() };
         // The bodies whose typed tree is short, by file. The *expression* and
@@ -2407,62 +2440,86 @@ impl Names {
                 Item::Error(at) => Some(*at),
                 _ => None,
             }));
-            let mut owned: Vec<(&str, Span)> = Vec::new();
-            for item in &m.ast.items {
-                match item {
-                    Item::Struct(d) => owned.push((m.ast.tree.name(d.name), d.span)),
-                    Item::Enum(d) => owned.push((m.ast.tree.name(d.name), d.span)),
-                    // The whole block: a type's methods are part of the shape,
-                    // so the constructor an unused type calls inside its own
-                    // `impl` is not a use of it.
-                    Item::Impl(d) => {
-                        if let Some(name) = m.ast.tree.type_head(d.self_ty) {
-                            owned.push((name, d.span));
-                        }
-                    }
-                    // Only the type the `derive` is *for*. The traits it names
-                    // are uses of those traits like any other mention.
-                    Item::Derive(d) => {
-                        if let Some(name) = m.ast.tree.type_head(d.self_ty) {
-                            owned.push((name, m.ast.tree.type_span(d.self_ty)));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            // Declarations do not overlap, so the one that can hold a token is
-            // the last to start at or before it. Where they do overlap, every
-            // one is asked.
-            owned.sort_by_key(|(_, range)| (range.start, range.end));
-            let disjoint = owned.windows(2).all(|w| match w {
-                [(_, a), (_, b)] => a.end <= b.start,
-                _ => true,
-            });
             let read = Text::of(lexes, m);
             let text = lexes.text(m.file);
+            let name_at = |at: Span| text.get(at.start as usize..at.end as usize).unwrap_or("");
+            // Nothing in doubt: what the module writes is what its text says,
+            // and the text kept that from the last pass.
+            if unreadable.is_empty() {
+                names.written.extend(read.undeclared.iter().map(|at| name_at(*at)));
+                continue;
+            }
+            let owned = Owned::of(m);
             for at in read.idents.iter().copied() {
-                let name = text.get(at.start as usize..at.end as usize).unwrap_or("");
-                if unreadable.iter().any(|r| at.start >= r.start && at.end <= r.end)
-                    && !names.doubted.contains(name)
-                {
-                    names.doubted.insert(name.to_string());
+                let name = name_at(at);
+                if unreadable.iter().any(|r| at.start >= r.start && at.end <= r.end) {
+                    names.doubted.insert(name);
                 }
-                let holds = |(owner, range): &(&str, Span)| {
-                    *owner == name && at.start >= range.start && at.end <= range.end
-                };
-                let declared = if disjoint {
-                    let after = owned.partition_point(|(_, range)| range.start <= at.start);
-                    after.checked_sub(1).and_then(|i| owned.get(i)).is_some_and(holds)
-                } else {
-                    owned.iter().any(holds)
-                };
-                if declared || names.written.contains(name) {
-                    continue;
+                if !owned.declares(name, at) {
+                    names.written.insert(name);
                 }
-                names.written.insert(name.to_string());
             }
         }
         names
+    }
+}
+
+/// The types a module declares, each with the extent its own mentions of
+/// itself sit in: a type's declaration, its `impl` blocks, and the type a
+/// `derive` is for.
+struct Owned<'m> {
+    by_start: Vec<(&'m str, Span)>,
+    /// Whether no two extents overlap, which is the usual case.
+    disjoint: bool,
+}
+
+impl<'m> Owned<'m> {
+    fn of(m: &'m ModuleData) -> Owned<'m> {
+        use crate::parsing::tree::Item;
+        let mut owned: Vec<(&str, Span)> = Vec::new();
+        for item in &m.ast.items {
+            match item {
+                Item::Struct(d) => owned.push((m.ast.tree.name(d.name), d.span)),
+                Item::Enum(d) => owned.push((m.ast.tree.name(d.name), d.span)),
+                // The whole block: a type's methods are part of the shape,
+                // so the constructor an unused type calls inside its own
+                // `impl` is not a use of it.
+                Item::Impl(d) => {
+                    if let Some(name) = m.ast.tree.type_head(d.self_ty) {
+                        owned.push((name, d.span));
+                    }
+                }
+                // Only the type the `derive` is *for*. The traits it names
+                // are uses of those traits like any other mention.
+                Item::Derive(d) => {
+                    if let Some(name) = m.ast.tree.type_head(d.self_ty) {
+                        owned.push((name, m.ast.tree.type_span(d.self_ty)));
+                    }
+                }
+                _ => {}
+            }
+        }
+        owned.sort_by_key(|(_, range)| (range.start, range.end));
+        let disjoint = owned.windows(2).all(|w| match w {
+            [(_, a), (_, b)] => a.end <= b.start,
+            _ => true,
+        });
+        Owned { by_start: owned, disjoint }
+    }
+
+    /// Whether the token `name` at `at` is a type's mention of itself.
+    fn declares(&self, name: &str, at: Span) -> bool {
+        let holds =
+            |(owner, range): &(&str, Span)| *owner == name && at.start >= range.start && at.end <= range.end;
+        // Declarations do not overlap, so the one that can hold a token is
+        // the last to start at or before it. Where they do overlap, every
+        // one is asked.
+        if self.disjoint {
+            let after = self.by_start.partition_point(|(_, range)| range.start <= at.start);
+            after.checked_sub(1).and_then(|i| self.by_start.get(i)).is_some_and(holds)
+        } else {
+            self.by_start.iter().any(holds)
+        }
     }
 }
 
@@ -2730,26 +2787,10 @@ fn check_unused_imports(
     held: &Held,
     diagnostics: &mut Diagnostics,
 ) {
-    // The byte ranges the import statements occupy. An identifier inside one of
-    // these is the binding, not a use of it.
-    let mut import_ranges: Vec<(u32, u32)> = Vec::new();
-    for item in &m.ast.items {
-        match item {
-            crate::parsing::tree::Item::Import(i) => import_ranges.push((i.span.start, i.span.end)),
-            // A re-export names what it exports, so it *is* a use.
-            crate::parsing::tree::Item::ReExport(_) => {}
-            _ => {}
-        }
-    }
-
+    // Every name written outside the import statements. A re-export names what
+    // it exports, so it *is* a use.
+    let used = &read.used;
     let text = lexes.text(m.file);
-    let mut used: crate::hash::Set<&str> = crate::hash::Set::default();
-    for span in &read.idents {
-        if import_ranges.iter().any(|(a, b)| span.start >= *a && span.end <= *b) {
-            continue;
-        }
-        used.insert(text.get(span.start as usize..span.end as usize).unwrap_or(""));
-    }
     let tycons = &analysis.checked.tables.tycons;
     let held_here: BTreeSet<&str> = held
         .by_module
