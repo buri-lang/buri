@@ -1,0 +1,52 @@
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+enum Op {
+    Add(Int),
+    Mul(Int),
+    Neg,
+    Skip,
+    Pair(Int, Int),
+}
+
+struct St {
+    acc: Int,
+    steps: Int,
+    last: Int,
+}
+
+fn op(i: Int): Op {
+    match (i % 5) {
+        0 => .Add(i % 13),
+        1 => .Mul(i % 3 + 1),
+        2 => .Neg,
+        3 => .Skip,
+        _ => .Pair(i % 7, i % 11),
+    }
+}
+
+fn apply(s: St, o: Op): St {
+    match (o) {
+        .Add(k) => St { ..s, acc: (s.acc + k) % 1000003, steps: s.steps + 1 },
+        .Mul(k) => St { ..s, acc: s.acc * k % 1000003, steps: s.steps + 1 },
+        .Neg => St { ..s, acc: 1000003 - s.acc, last: s.acc },
+        .Skip => s,
+        .Pair(a, b) if a > b => St { ..s, acc: (s.acc + a - b) % 1000003 },
+        .Pair(a, b) => St { ..s, last: a * b },
+    }
+}
+
+fn run(s: St, i: Int, n: Int): St {
+    if (i == n) { s } else { run(apply(s, op(i)), i + 1, n) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let s = run(St { acc: 1, steps: 0, last: 0 }, 0, 20000000);
+    let _ = io
+        .println(host.stdout, str.fromInt(host.alloc, s.acc + s.steps + s.last))
+        .ignore();
+    .Ok(())
+}

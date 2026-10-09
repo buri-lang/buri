@@ -1,0 +1,31 @@
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator };
+
+struct P {
+    x: Int,
+    name: Str,
+}
+
+fn round<C: Allocator>(ctx: C, k: Int, acc: Int): Int {
+    if (k == 0) {
+        acc
+    } else {
+        let xs = list.range(ctx, 0, 2000);
+        let ps = xs.mapCtx(ctx, fn(c, i) => P { x: i * k, name: str.fromInt(c, i) });
+        let kept = ps.filter(ctx, fn(p) => p.x % 3 != 0);
+        let rev = kept.reverse(ctx);
+        let s = rev.fold(fn(a, p) => (a + p.x + p.name.length()) % 1000000007, 0);
+        let sorted = xs.sortBy(ctx, fn(a, b) => b.compare(a));
+        round(ctx, k - 1, (acc + s + sorted.first().withDefault(0)) % 1000000007)
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = host.alloc;
+    let r = round(ctx, 3000, 0);
+    let _ = io.println(host.stdout, str.format(ctx, "${r}")).ignore();
+    .Ok(())
+}

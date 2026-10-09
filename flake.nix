@@ -606,7 +606,8 @@
         # a C++ compiler, and the link step drives `cc` because the C driver is
         # what knows where `crt1.o`, `libc` and `libSystem.tbd` live
         # (`cli/src/build/link.rs`).
-        devShells.default = pkgs.mkShell {
+        devShells = {
+        default = pkgs.mkShell {
           # `llvm-sys` refuses to guess. Without this the `backend-llvm` build
           # fails at its build script rather than at a link.
           LLVM_SYS_211_PREFIX = "${llvm.dev}";
@@ -679,6 +680,38 @@
           # and the Mach-O fork was archived in November 2024 with its author
           # recommending Apple's linker (BUILD-AND-WATCH.md §3).
           ++ pkgs.lib.optional pkgs.stdenv.isLinux pkgs.mold;
+        };
+        }
+        # The instruction-count gate's shell (design/PERFORMANCE.md §9).
+        # Linux only, because cachegrind is. Everything that moves a count is
+        # pinned by `flake.lock` here: rustc, LLVM, clang, glibc and valgrind.
+        // lib.optionalAttrs pkgs.stdenv.isLinux {
+        perf = pkgs.mkShell {
+          LLVM_SYS_211_PREFIX = "${llvm.dev}";
+          # What `from-source` sets, for the same reason: the runtime's musl C.
+          "CC_${muslKey}" = "${pkgs.clang}/bin/clang";
+          "CFLAGS_${muslKey}" = "--target=${muslTarget} -isystem ${pkgs.musl.dev}/include";
+          NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING = "1";
+          packages = [
+            rustToolchain
+            llvm.dev
+            pkgs.libffi
+            pkgs.libxml2
+            pkgs.zlib
+            pkgs.zstd
+            pkgs.ncurses
+            pkgs.clang
+            pkgs.lld
+            pkgs.mold
+            pkgs.valgrind
+            # `taskset`, which pins a measured process to one core.
+            pkgs.util-linux
+          ];
+          # `cli/build.rs` needs clang; the stdenv's `cc` is gcc here.
+          shellHook = ''
+            export CC=${pkgs.clang}/bin/clang
+          '';
+        };
         };
       }
     );

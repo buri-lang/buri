@@ -1,0 +1,3 @@
+# Instructions each workload executes under cachegrind, per architecture.
+# The gate fails when one grows by more than 2%. design/PERFORMANCE.md §9 says
+# how to run it and re-bless; never edit a count by hand.
