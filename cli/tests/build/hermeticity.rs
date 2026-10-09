@@ -380,6 +380,65 @@ fn two_concurrent_builds_leave_the_cache_intact() {
     );
 }
 
+/// **Native builds racing from cold each link from the shared cache, and each
+/// executable runs** (PERFORMANCE.md §6.79). The linker reads every object
+/// where the cache keeps it rather than from a copy, so another build writing
+/// the same entry is reading the same file. Then an edit to one module relinks
+/// with the other's object from the cache, and the program says the new answer.
+#[test]
+fn concurrent_native_builds_each_link_from_the_cache_and_run() {
+    let host = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let scratch = Scratch::repo("concurrent-native-build");
+    scratch.write(
+        "cmd/c/BUILD.buri",
+        &format!("binary {{\n  outputs: [{{ platform: \"native\", variant: \"{host}-{arch}\" }}]\n}}\n"),
+    );
+    scratch.write("cmd/c/helper.buri", "export fn answer(): Int { 6 * 7 }\n");
+    scratch.write(
+        "cmd/c/main.buri",
+        "from \"platform/effect\" import { Allocator, Stdout };\n\
+         from \"native\" import { NativeHost };\n\
+         from \"core/io\" import * as io;\n\
+         from \"//cmd/c/helper.buri\" import { answer };\n\n\
+         export fn main(host: NativeHost): Result<(), Str> {\n  \
+         let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n  \
+         let _ = io.println(ctx, \"answer=${answer()}\").ignore();\n  .Ok(())\n}\n",
+    );
+    let exe = scratch.root.join(format!(".buri/out/native/{host}-{arch}/cmd/c/c"));
+    let answer = || {
+        let out = std::process::Command::new(&exe).output().expect("the artifact runs");
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+
+    let spawn = || {
+        buri_command()
+            .args(["run", "//cmd/c", "--color=never"])
+            .current_dir(&scratch.root)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("the buri binary runs")
+    };
+    let racing: Vec<_> = (0..4).map(|_| spawn()).collect();
+    for (n, child) in racing.into_iter().enumerate() {
+        let out = child.wait_with_output().expect("a concurrent build finishes");
+        assert!(
+            out.status.success(),
+            "concurrent build {n} exited {:?}:\n{}",
+            out.status.code(),
+            indent(&String::from_utf8_lossy(&out.stderr))
+        );
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "answer=42\n", "concurrent build {n}");
+    }
+    scratch.run(&["build", "//cmd/c"]).ok().says("cached");
+    assert_eq!(answer(), "answer=42\n");
+
+    scratch.write("cmd/c/helper.buri", "export fn answer(): Int { 6 * 9 }\n");
+    scratch.run(&["build", "//cmd/c"]).ok();
+    assert_eq!(answer(), "answer=54\n", "the relink read a stale object");
+}
+
 /// The toolchain in every key is the id the linker wrote into the `buri`
 /// binary, and it has to be one: a rebuilt `buri` with different code must
 /// name itself differently, and the same binary must name itself the same way
