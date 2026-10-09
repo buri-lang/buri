@@ -5348,11 +5348,17 @@ fn verbose_under_release_times_every_test() {
     cmd.current_dir(&repo).args(["test", "--release", "--verbose", "//lib/..."]);
     let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
     assert_eq!(ran.status, 1, "{}\n{}", ran.stdout, ran.stderr);
-    let listed: Vec<&str> = ran.stdout.lines().take_while(|l| !l.is_empty()).collect();
+    let (shared, listed): (Vec<&str>, Vec<&str>) =
+        ran.stdout.lines().take_while(|l| !l.is_empty()).partition(|l| l.starts_with("shared build  "));
+    assert!(shared.len() == 1 && timed(shared[0]), "no one shared build time:\n{}", ran.stdout);
     let shape: Vec<String> = listed
         .iter()
         .map(|l| {
-            assert!(timed(l), "not a time the runner spells: {l:?}\n{}", ran.stdout);
+            // A suite's build follows its tests' time, and is a time of its own
+            // unless it was built with others.
+            let (tests, build) = l.split_once("  built in ").unwrap_or((l.trim_end_matches("  built with others"), "0 µs"));
+            assert!(timed(tests) && timed(build), "not a time the runner spells: {l:?}\n{}", ran.stdout);
+            assert!(!l.starts_with("//") || l.contains("  built "), "a suite with no build: {l:?}\n{}", ran.stdout);
             l.split("  ").filter(|w| !w.is_empty()).take(3).collect::<Vec<_>>().join("|")
         })
         .collect();

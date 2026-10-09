@@ -9,7 +9,6 @@
   ok    shapes.buri      a square has four equal sides        <time>
   ok    shapes.buri      a square's area is its side squared  <time>
   ok    solid/cube.buri  a cube has six square faces          <time>
-shared build  <time>
 
 FAIL //lib/money  test/cents.buri  "the cents are what is left over"
   assert.equal failed

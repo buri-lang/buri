@@ -1,13 +1,14 @@
-//apps/web  js  2 tests  <time>
+//apps/web  js  2 tests  <time>  built in <time>
   ok    page.buri  the title renders        <time>
   ok    page.buri  the title fits on a tab  <time>
-//lib/money  native  3 tests  <time>
+//lib/money  native  3 tests  <time>  built with others
   ok    cents.buri  adding cents carries into dollars  <time>
   ok    cents.buri  the cents are what is left over    <time>
   ok    rates.buri  a rate of zero keeps nothing       <time>
-//lib/shapes  native  3 tests  <time>
+//lib/shapes  native  3 tests  <time>  built with others
   ok    shapes.buri      a square has four equal sides        <time>
   ok    shapes.buri      a square's area is its side squared  <time>
   ok    solid/cube.buri  a cube has six square faces          <time>
+shared build  <time>
 
 8 passed, 0 failed, 0 skipped (0.0s)

@@ -1,6 +1,7 @@
-//lib/shapes  js  3 tests  <time>
+//lib/shapes  js  3 tests  <time>  built in <time>
   ok    shapes.buri      a square has four equal sides        <time>
   ok    shapes.buri      a square's area is its side squared  <time>
   ok    solid/cube.buri  a cube has six square faces          <time>
+shared build  <time>
 
 3 passed, 0 failed, 0 skipped (0.0s)

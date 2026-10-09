@@ -1,6 +1,7 @@
-//lib/money  native  2 tests  <time>
+//lib/money  native  2 tests  <time>  built in <time>
   ok    cents.buri  adding cents carries into dollars  <time>
   ok    cents.buri  the cents are what is left over    <time>
   skip  rates.buri  a rate of zero keeps nothing
+shared build  <time>
 
 2 passed, 0 failed, 1 skipped (0.0s)

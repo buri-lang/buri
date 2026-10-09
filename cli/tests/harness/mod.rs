@@ -398,27 +398,44 @@ pub fn normalise(text: &str, root: &Path) -> String {
     s
 }
 
-/// One `buri test --verbose` line with its time replaced by `<time>`, or the
-/// line unchanged when it is not one. A suite line starts `//` and a test line
-/// `  ok  ` or `  FAIL`, and only a time the runner spells is replaced: whole
+/// One `buri test --verbose` line with its times replaced by `<time>`, or the
+/// line unchanged when it holds none. A test line starts `  ok  ` or `  FAIL`
+/// and ends in its time. A suite line starts `//` and holds its tests' time
+/// after two spaces and its build's after `built in`, and the `shared build`
+/// line ends in one. Only a time the runner spells is replaced: whole
 /// microseconds, or milliseconds and seconds to one decimal. A time in any
 /// other shape stays, so the golden fails on it.
 pub fn blank_test_time(line: &str) -> String {
-    let listed = line.starts_with("//") || line.starts_with("  ok  ") || line.starts_with("  FAIL  ");
-    let Some((rest, unit)) = line.rsplit_once(' ') else { return line.to_string() };
-    let Some((head, number)) = rest.rsplit_once(' ') else { return line.to_string() };
+    let suite = line.starts_with("//") || line.starts_with("shared build  ");
+    if !suite && !line.starts_with("  ok  ") && !line.starts_with("  FAIL  ") {
+        return line.to_string();
+    }
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-    let spelled = match unit {
+    let spelled = |number: &str, unit: &str| match unit {
         "µs" => digits(number),
-        "ms" | "s" => number.split_once('.').is_some_and(|(whole, tenth)| digits(whole) && tenth.len() == 1 && digits(tenth)),
+        "ms" | "s" => number
+            .split_once('.')
+            .is_some_and(|(whole, tenth)| digits(whole) && tenth.len() == 1 && digits(tenth)),
         _ => false,
     };
-    // Two spaces before the time, and `head` holds the first of them.
-    if listed && spelled && head.ends_with(' ') {
-        format!("{head} <time>")
-    } else {
-        line.to_string()
+    let words: Vec<&str> = line.split(' ').collect();
+    let mut out: Vec<&str> = Vec::with_capacity(words.len());
+    let mut i = 0;
+    while let Some(&word) = words.get(i) {
+        let unit = words.get(i + 1).copied().unwrap_or_default();
+        // A test line's time is its last two words; a title may hold others.
+        let placed = suite || i + 2 == words.len();
+        // Two spaces before a time leave an empty word, unless it's a build's.
+        let after = i > 0 && matches!(words.get(i - 1), Some(&"" | &"in"));
+        if placed && after && spelled(word, unit) {
+            out.push("<time>");
+            i += 2;
+        } else {
+            out.push(word);
+            i += 1;
+        }
     }
+    out.join(" ")
 }
 
 /// Blanks the key column of every `--explain` line. The key folds the running

@@ -26,24 +26,25 @@ whose code is unchanged, comments and whitespace aside, reports as cached.
 
 ## Every test
 
-`--verbose` lists every suite and every test in it, with its verdict and how
-long it took:
+`--verbose` lists every suite with how long it took to build, and every test in
+it with its verdict and how long it took:
 
 ```sh
 buri test //... --verbose
 ```
 
 ```text
-//apps/web  js  2 tests  48.2 ms
+//apps/web  js  2 tests  48.2 ms  built in 310.4 ms
   ok    page.buri  the title renders       31.0 ms
   ok    page.buri  a click opens the menu  17.2 ms
-//lib/money  native  3 tests  12.4 ms
+//lib/money  native  3 tests  12.4 ms  built in 1.8 s
   ok    cents.buri  adding cents carries into dollars        0.8 ms
   FAIL  cents.buri  formatting pads the cents to two digits  1.1 ms
   ok    rates.buri  a rate table is sorted by currency       10.5 ms
-//lib/shapes  native  2 tests  cached  412 µs
+//lib/shapes  native  2 tests  cached  412 µs  built with others
   ok    shapes.buri  a square has four equal sides  250 µs
   ok    shapes.buri  an empty shape has no area     162 µs
+shared build  95.3 ms
 
 FAIL //lib/money  test/cents.buri  "formatting pads the cents to two digits"
   assert.equal failed
@@ -57,9 +58,20 @@ FAIL //lib/money  test/cents.buri  "formatting pads the cents to two digits"
 Suites print in label order, and tests in the order they're declared, whichever
 finished first. The test process times each test itself, so building and
 starting it isn't counted, and a suite's time is its tests' times added up.
-Tests run side by side, so that can be longer than the whole run. A cached suite shows the times from
-the run that cached it. A test `--filter` leaves out shows as `skip`, with no
-time. Failures print after the list, where they print without the flag.
+Tests run side by side, so that can be longer than the whole run.
+
+A suite's build time covers the steps it needed alone: checking and compiling
+it, then linking its binary or emitting its bundle. Work that served several
+suites is counted once, on the `shared build` line, instead of split between
+them: loading the sources and the standard library, and one binary built for
+several native suites, which `buri test` does whenever it can. A suite with no
+step of its own says `built with others`. A binary or bundle the cache puts back
+costs what putting it back took.
+
+A cached suite shows the times, build included, from the run that cached it.
+`shared build` counts this run's work alone, so a run served from the cache
+prints none. A test `--filter` leaves out shows as `skip`, with no time.
+Failures print after the list, where they print without the flag.
 
 ## Lint findings
 
