@@ -182,7 +182,7 @@ use std::cell::{Cell, UnsafeCell};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use std::thread;
@@ -663,10 +663,20 @@ struct Sched<T> {
     threads: usize,
     /// A thread is started and has not reached [`take`] yet.
     starting: bool,
+    /// Of the idle threads, those blocked in [`READY`]'s wait.
+    sleeping: usize,
+    /// Wake-ups [`Sched::wake`] sent that no thread has come back from yet.
+    waking: usize,
 }
 
-static SCHED: Mutex<Sched<Arc<Task>>> =
-    Mutex::new(Sched { queue: VecDeque::new(), idle: 0, threads: 0, starting: false });
+static SCHED: Mutex<Sched<Arc<Task>>> = Mutex::new(Sched {
+    queue: VecDeque::new(),
+    idle: 0,
+    threads: 0,
+    starting: false,
+    sleeping: 0,
+    waking: 0,
+});
 /// Woken by [`push`], waited on by [`take`].
 static READY: Condvar = Condvar::new();
 
@@ -709,6 +719,43 @@ impl<T> Sched<T> {
         }
         short
     }
+
+    /// Whether to wake a sleeping thread for the queued work, counting the
+    /// wake-up if so.
+    ///
+    /// **One thread on its way at a time.** A thread that wakes and takes a
+    /// task asks again, so a backlog wakes the pool one thread after another,
+    /// and work that's gone before the next thread arrives wakes no more. A
+    /// broadcast per fan-out woke every sleeping thread, and on a fan-out of
+    /// trivial steps most of them found the queue empty: `a_tiny` spent 8.6 s
+    /// of CPU in the kernel for 1.4 s of wall.
+    ///
+    /// **Only when no idle thread is awake.** One that has just finished a
+    /// task is on its way to [`take`] already, and asks again after its pop.
+    fn wake(&mut self) -> bool {
+        let wake = !self.queue.is_empty()
+            && self.sleeping > 0
+            && self.waking == 0
+            && self.idle == self.sleeping;
+        if wake {
+            self.waking += 1;
+        }
+        wake
+    }
+}
+
+/// How many threads a fan-out's dispatch has woken, over the whole run. A
+/// count for a test to read through [`buri_rt_tasks_dispatch_wakes`].
+static DISPATCH_WAKES: AtomicU64 = AtomicU64::new(0);
+
+/// How many sleeping threads fan-outs have woken to take their steps so far
+/// in this run.
+///
+/// A probe: `cli/tests/native/fan_out.rs` links a destructor that prints it, so
+/// a test can bound the wake-ups a fan-out costs without timing anything.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_dispatch_wakes() -> u64 {
+    DISPATCH_WAKES.load(Ordering::Relaxed)
 }
 
 /// How many threads exist.
@@ -731,27 +778,20 @@ fn push(task: Arc<Task>) {
     }
 }
 
-/// [`push`] for a batch: one lock, and one wake-up for the lot where it will
-/// reach every idle thread anyway.
+/// [`push`] for a batch: one lock, and at most one wake-up.
 ///
-/// A fan-out queued its steps one [`push`] at a time, and each paid a
-/// `pthread_cond_signal`, a system call whenever a thread was waiting. That was
-/// most of what the dispatching thread did. A broadcast wakes every waiter in
-/// one call, which is what that many single wake-ups would have done.
+/// The thread it wakes wakes the next if work is still queued when it takes a
+/// task ([`Sched::wake`]), and the dispatcher runs steps itself meanwhile
+/// ([`help`]).
 fn push_all(tasks: impl IntoIterator<Item = Arc<Task>>) {
-    let (start, queued, idle) = {
+    let (start, wake) = {
         let mut s = sched();
-        let before = s.queue.len();
         s.queue.extend(tasks);
-        let queued = s.queue.len() - before;
-        (s.grow(), queued, s.idle)
+        (s.grow(), s.wake())
     };
-    if queued >= idle {
-        READY.notify_all();
-    } else {
-        for _ in 0..queued {
-            READY.notify_one();
-        }
+    if wake {
+        DISPATCH_WAKES.fetch_add(1, Ordering::Relaxed);
+        READY.notify_one();
     }
     if start {
         start_thread();
@@ -781,16 +821,24 @@ fn take(armed: bool, fresh: bool) -> Arc<Task> {
         if let Some(task) = s.queue.pop_front() {
             s.idle -= 1;
             let start = s.grow();
+            let wake = s.wake();
             drop(s);
+            if wake {
+                READY.notify_one();
+            }
             if start {
                 start_thread();
             }
             return task;
         }
+        s.sleeping += 1;
         s = match READY.wait(s) {
             Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),
         };
+        s.sleeping -= 1;
+        // Saturating: a spurious wake-up, or one from `push`, comes back too.
+        s.waking = s.waking.saturating_sub(1);
     }
 }
 
@@ -909,26 +957,9 @@ fn thread_loop() {
         let task = take(armed, fresh);
         armed = false;
         fresh = false;
-        set_running(Arc::as_ptr(&task));
-        task.state.store(RUNNING, Ordering::Release);
-        // G5: the arena belongs to the task, not to the thread it is on this
-        // turn. The thread's own slot goes aside, the task's comes in, and the
-        // two are exchanged again on the way back — so a task that parks inside
-        // a `core/alloc::scoped` finds its arena on whichever thread resumes
-        // it, and a thread between tasks is inside no scope at all.
-        let thread_arena = crate::memory::arena_slot_of_thread();
-        crate::memory::set_arena_slot_of_thread(task_arena(&task));
-        // SAFETY: the task came off the queue, so no other thread is running
-        // it, and its saved context is either the frame `new_task` prepared
-        // or one this very call wrote on a previous turn. The `Arc` held here
-        // keeps the task — and the stack under that context — alive for the
-        // whole of it.
-        unsafe { switch::buri_rt_task_switch(thread_slot(), *task.sp.get()) };
-        set_task_arena(&task, crate::memory::arena_slot_of_thread());
-        crate::memory::set_arena_slot_of_thread(thread_arena);
-        set_running(std::ptr::null());
+        let done = turn(&task);
 
-        if task.why.load(Ordering::Acquire) == WHY_DONE {
+        if done {
             // On the thread's stack again, which is the only place the task's
             // own stack can be given back from.
             //
@@ -947,16 +978,83 @@ fn thread_loop() {
                 Some(latch) => latch.arrive(),
                 None => wake_waiters(&task),
             }
-        } else if task
-            .state
-            .compare_exchange(PARKING, PARKED, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            // `NOTIFIED_PARKING`: a waker reached the task while its context
-            // was still being saved and left the queueing here, where the
-            // context is known to be down.
-            task.state.store(QUEUED, Ordering::Release);
-            push(task);
+        } else {
+            parked(task);
+        }
+    }
+}
+
+/// One turn of `task` on this thread, until it parks or finishes. Answers
+/// whether it finished.
+fn turn(task: &Arc<Task>) -> bool {
+    set_running(Arc::as_ptr(task));
+    task.state.store(RUNNING, Ordering::Release);
+    // G5: the arena belongs to the task, not to the thread it is on this
+    // turn. The thread's own slot goes aside, the task's comes in, and the
+    // two are exchanged again on the way back — so a task that parks inside
+    // a `core/alloc::scoped` finds its arena on whichever thread resumes
+    // it, and a thread between tasks is inside no scope at all.
+    let thread_arena = crate::memory::arena_slot_of_thread();
+    crate::memory::set_arena_slot_of_thread(task_arena(task));
+    // SAFETY: the task came off the queue, so no other thread is running
+    // it, and its saved context is either the frame `new_task` prepared
+    // or one this very call wrote on a previous turn. The `Arc` held here
+    // keeps the task — and the stack under that context — alive for the
+    // whole of it.
+    unsafe { switch::buri_rt_task_switch(thread_slot(), *task.sp.get()) };
+    set_task_arena(task, crate::memory::arena_slot_of_thread());
+    crate::memory::set_arena_slot_of_thread(thread_arena);
+    set_running(std::ptr::null());
+    task.why.load(Ordering::Acquire) == WHY_DONE
+}
+
+/// A task's turn ended in a park: it is `PARKED` now, unless a waker reached
+/// it while its context was still being saved.
+fn parked(task: Arc<Task>) {
+    if task
+        .state
+        .compare_exchange(PARKING, PARKED, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        // `NOTIFIED_PARKING`: a waker reached the task while its context
+        // was still being saved and left the queueing here, where the
+        // context is known to be down.
+        task.state.store(QUEUED, Ordering::Release);
+        push(task);
+    }
+}
+
+/// Run a fan-out's own steps on the thread that is joining it, while they are
+/// still queued, newest first.
+///
+/// A thread that is not a task has nothing else to do until the latch opens,
+/// and a step it runs is a step no worker is woken for. Workers take from the
+/// front, so this takes from the back: the steps they would reach last. It
+/// stops at the first queued task that isn't one of its own, so another
+/// caller's work never runs here and holds up this caller's answer.
+///
+/// It also stops while a timer is pending. Timers fire on this thread while it
+/// waits (`firing_while`), and a step run here would hold one back for as long
+/// as the step runs.
+fn help(latch: &Arc<Latch>) {
+    let mine = Arc::as_ptr(latch);
+    while latch.left.load(Ordering::Acquire) > 0 && !timers_pending() {
+        let task = {
+            let mut s = sched();
+            match s.queue.back() {
+                Some(t) if t.latch.as_ref().is_some_and(|l| Arc::as_ptr(l) == mine) => s.queue.pop_back(),
+                _ => None,
+            }
+        };
+        let Some(task) = task else { return };
+        if turn(&task) {
+            // SAFETY: as in `thread_loop`'s finishing arm: the task switched
+            // off its stack for the last time.
+            unsafe { crate::memory::buri_rt_task_stack_release(task.stack) };
+            task.done.store(true, Ordering::Release);
+            latch.arrive();
+        } else {
+            parked(task);
         }
     }
 }
@@ -1371,12 +1469,12 @@ unsafe fn in_order(steps: Steps, n: usize) {
 /// for the next index to reuse it, so a `parallel` over items that do not wait
 /// costs a handful of threads rather than one per item.
 ///
-/// This thread dispatches and waits. It runs no Buri code between the first
-/// dispatch and the last join — not because it is excluded but because there
-/// is nothing here for it to run — so a **nested** fan-out is a thread
-/// dispatching to other threads, and needs nothing given up first.
-/// `a_nested_fan_out_answers_the_same_numbers` is that case, and it is what
-/// `a_nested_fan_out_gives_the_baton_up_first` became.
+/// This thread dispatches and waits. A thread that is not a task runs its own
+/// queued steps meanwhile ([`help`]), each on the step's own stack, so its own
+/// frames are untouched. A task that fans out runs none, so a **nested**
+/// fan-out is a task dispatching to other threads, and needs nothing given up
+/// first. `a_nested_fan_out_answers_the_same_numbers` is that case, and it is
+/// what `a_nested_fan_out_gives_the_baton_up_first` became.
 ///
 /// # Safety
 /// As [`in_order`].
@@ -1399,6 +1497,14 @@ unsafe fn fan_out(steps: Steps, n: usize) {
             })
             .collect();
         push_all(tasks.iter().cloned());
+        // A task that fans out parks instead: its own stack is the one a step
+        // would need to switch away from.
+        if running().is_null() {
+            // What was printed goes out at the dispatch, as it did when this
+            // thread went straight to waiting.
+            crate::host::about_to_block();
+            help(&latch);
+        }
         park_on(AllArrived(&latch));
         assert!(tasks.iter().all(|t| t.ok.load(Ordering::Acquire)), "a buri task did not finish");
         return;
@@ -2609,6 +2715,11 @@ fn started() -> &'static tokio::sync::Notify {
     STARTED.get_or_init(tokio::sync::Notify::new)
 }
 
+/// Whether any timer is pending. One load for a program that never started one.
+fn timers_pending() -> bool {
+    SETTLE.get().is_some() && earliest().is_some()
+}
+
 /// When the earliest pending timer comes due, if any is pending.
 fn earliest() -> Option<std::time::Instant> {
     timers().due.keys().next().map(|(at, _)| *at)
@@ -3077,7 +3188,7 @@ mod tests {
     /// [`MAX_THREADS`] for a thousand tasks that park.
     #[test]
     fn a_burst_starts_one_thread_until_that_thread_arrives() {
-        let mut s = Sched { queue: VecDeque::new(), idle: 0, threads: 0, starting: false };
+        let mut s = Sched { queue: VecDeque::new(), idle: 0, threads: 0, starting: false, sleeping: 0, waking: 0 };
         for _ in 0..1000 {
             s.queue.push_back(());
             s.grow();
@@ -3098,7 +3209,7 @@ mod tests {
     /// work ran on 64 threads.
     #[test]
     fn a_queue_with_an_idle_thread_starts_none() {
-        let mut s = Sched { queue: VecDeque::new(), idle: 1, threads: 1, starting: false };
+        let mut s = Sched { queue: VecDeque::new(), idle: 1, threads: 1, starting: false, sleeping: 0, waking: 0 };
         for _ in 0..64 {
             s.queue.push_back(());
             assert!(!s.grow(), "a push started a thread while one was idle");
@@ -3109,6 +3220,47 @@ mod tests {
         s.idle = 0;
         s.queue.pop_front();
         assert!(s.grow(), "a backlog with no idle thread started none");
+    }
+
+    /// **A batch wakes one sleeping thread, and that one wakes the next.**
+    ///
+    /// A broadcast per batch woke all eight here, and on trivial steps most
+    /// found the queue empty when they got the lock.
+    #[test]
+    fn a_batch_wakes_one_thread_and_each_arrival_the_next() {
+        let mut s = Sched { queue: VecDeque::new(), idle: 8, threads: 8, starting: false, sleeping: 8, waking: 0 };
+        s.queue.extend([(); 64]);
+        assert!(s.wake(), "a batch with eight threads asleep woke none");
+        assert!(!s.wake(), "a second thread was woken before the first arrived");
+
+        // The woken thread arrives, as `take` has it, and pops with work left.
+        s.sleeping -= 1;
+        s.waking -= 1;
+        s.idle -= 1;
+        s.queue.pop_front();
+        assert!(s.wake(), "an arrival that left work behind woke nobody");
+
+        // Nothing left: the next arrival wakes no one.
+        s.sleeping -= 1;
+        s.waking -= 1;
+        s.idle -= 1;
+        s.queue.clear();
+        assert!(!s.wake(), "an empty queue woke a thread");
+    }
+
+    /// **An idle thread that's awake takes the work**, so nothing is woken
+    /// for it. A thread that has just finished a step is counted idle before
+    /// it reaches the lock, and asks again after its pop.
+    #[test]
+    fn a_batch_wakes_nobody_while_an_idle_thread_is_awake() {
+        let mut s = Sched { queue: VecDeque::new(), idle: 3, threads: 3, starting: false, sleeping: 2, waking: 0 };
+        s.queue.extend([(); 64]);
+        assert!(!s.wake(), "a thread was woken while an idle one was on its way");
+
+        // That thread pops, and the two left are asleep.
+        s.idle -= 1;
+        s.queue.pop_front();
+        assert!(s.wake(), "a pop that left work behind woke nobody");
     }
 
     /// A job runs off the calling thread, and the next one starts no thread.
@@ -4270,11 +4422,13 @@ mod tests {
     /// sequential answer.
     ///
     /// The only case that touches the two globals, which is why it puts both
-    /// back. The observable difference is the thread a step runs on, and the
-    /// table it walks is the whole truth table: a step fans out where the
-    /// artifact has said *both* that its threads have frames of their own and
-    /// that its values may cross a task boundary, and runs on the caller's
-    /// thread otherwise.
+    /// back. The observable difference is whether a step runs as a task, on a
+    /// stack of its own that any thread may take, and the table it walks is the
+    /// whole truth table: a step fans out where the artifact has said *both*
+    /// that its threads have frames of their own and that its values may cross
+    /// a task boundary, and runs on the caller's thread and stack otherwise.
+    /// The caller may run a fanned-out step itself ([`help`]), so the thread
+    /// alone doesn't tell the two apart.
     ///
     /// The two are separate rows rather than one because they are separate
     /// facts (§2), and because the "frames yes, marking no" row is the one a
@@ -4283,16 +4437,17 @@ mod tests {
     /// stays sequential is asserting that the gate is a gate.
     #[test]
     fn the_artifact_says_whether_the_steps_may_fan_out() {
-        static WHERE: Mutex<Vec<ThreadId>> = Mutex::new(Vec::new());
+        static WHERE: Mutex<Vec<(ThreadId, bool)>> = Mutex::new(Vec::new());
         unsafe extern "C" fn note(_: *mut u8, index: u64, _: *const u8, out: *mut u8) {
+            let at = (thread::current().id(), !running().is_null());
             match WHERE.lock() {
-                Ok(mut seen) => seen.push(thread::current().id()),
-                Err(poisoned) => poisoned.into_inner().push(thread::current().id()),
+                Ok(mut seen) => seen.push(at),
+                Err(poisoned) => poisoned.into_inner().push(at),
             }
             // SAFETY: an `i64` slot of the answer.
             unsafe { out.cast::<i64>().write(index as i64) }
         }
-        fn ran_on() -> Vec<ThreadId> {
+        fn ran_on() -> Vec<(ThreadId, bool)> {
             let src: [i64; 4] = [0; 4];
             let mut got = BuriList { ptr: std::ptr::null_mut(), len: 0 };
             // SAFETY: four `i64`s in, four out, and `got` is a live local.
@@ -4318,7 +4473,7 @@ mod tests {
         let _alone = alone();
         let _latch = crate::memory::latch();
         let me = thread::current().id();
-        let here = |seen: &[ThreadId]| seen.iter().all(|id| *id == me);
+        let here = |seen: &[(ThreadId, bool)]| seen.iter().all(|&(id, task)| id == me && !task);
 
         assert!(!crate::frames_are_per_thread(), "the silent answer is the safe one");
         assert!(!crate::memory::values_may_cross_tasks(), "the silent answer is the safe one");
@@ -4360,8 +4515,8 @@ mod tests {
         // SAFETY: the only reference.
         unsafe { crate::memory::buri_rt_free(early) };
         assert!(
-            fanned.iter().any(|id| *id != me),
-            "the steps stayed on the calling thread: {fanned:?}"
+            fanned.len() == 4 && fanned.iter().all(|&(_, task)| task),
+            "the steps stayed on the calling thread's stack: {fanned:?}"
         );
         assert!(early_marked, "a block made before the fan-out was still counted plainly");
     }
