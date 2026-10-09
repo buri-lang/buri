@@ -7209,7 +7209,7 @@ no count tells that apart from serial.
   edit. A cold release is already 12-way parallel.
 - **The link**, 40–45 ms: `ld64.lld` starts in 143 M instructions, and loading
   the 19 MB runtime archive's 78 members takes 22 ms. A runtime linked ahead
-  of time, as one object or a stable library, would save ~20–30 ms per run.
+  of time saves ~10 ms at most (§6.77).
   Its debug sections aren't the cost: stripped, the link retired the same
   instructions.
 - **Cold, before codegen:** every suite waits on every generator (254 ms here),
@@ -7223,6 +7223,39 @@ no count tells that apart from serial.
   units, since a suite built alone is a different program from the batch.
   Release spends 9.5 G instructions there instead of 2.8 G, on other threads,
   so the wall barely moves.
+
+### 6.77 A runtime linked ahead of time, measured and left, 2026-10-09
+
+§6.76's third lever. Every `buri test` link hands `ld64.lld` the 19 MB runtime
+archive, and lld spends 22 ms loading the 78 members a runner uses. Two ways
+to link the runtime once, tried by hand on the conformance edit's link
+(`//lib/calendar`, 1 MB runner), three to four runs each:
+
+| Runtime as | `ld64.lld` instructions | Wall | Runner |
+|---|---:|---:|---:|
+| the archive, as today | 542–548 M | 40 ms | 1.06 MB |
+| one object, `ld -r -all_load` | 639–649 M | 40–50 ms | 9.8 MB |
+| the same, debug sections stripped | 641–645 M | 40–50 ms | 9.8 MB |
+| a dylib, `-all_load` | 410–414 M | 30 ms | 0.52 MB |
+
+- **One object is worse.** Apple's `ld -r` merges the members into one
+  section per kind, so `-dead_strip` keeps the whole runtime. `ld64.lld` has
+  no `-r` at all.
+- **A dylib saves ~10 ms a link and nothing else.** Building it takes 0.13 s
+  and 694 M instructions, once per runtime. Each runner process then binds it
+  at start: 26.7 M instructions against 20.4 M, at the same 8.6 ms wall over
+  40 launches. A conformance edit starts 12 of them, so the processes give back
+  about half the instructions the link saves. The smaller runner doesn't shorten the
+  launch check: fresh 0.52 MB and 1.06 MB runners both took 0.20–0.22 s.
+
+That's ~10 ms of a 0.32 s edit, about 3%. In return, test runners would link
+differently from `buri build`'s binaries: a dylib kept by its bytes in
+`BURI_HOME`, an `rpath`, calls into the runtime through stubs, and one launch
+check of a 9.5 MB library per runtime. That isn't worth 3%, so the link is
+unchanged.
+
+`ld64.lld` itself is now most of the link: 143 M of the 542 M instructions are
+its start-up, before it reads an input.
 
 ## 7. Profiling, on this platform
 
