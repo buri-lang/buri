@@ -1,3 +1,16 @@
 # Instructions each workload executes under cachegrind, per architecture.
 # The gate fails when one grows by more than 2%. design/PERFORMANCE.md §9 says
 # how to run it and re-bless; never edit a count by hand.
+
+toolchain x86_64 rustc 1.99.0 (b940084d7 2026-09-28); LLVM 21.1.7; clang version 21.1.7; valgrind-3.26.0; glibc 2.40
+x86_64 build/mixed-10k      382663557
+x86_64 build/programs       157718744
+x86_64 lint/mixed-10k       150217604
+x86_64 run/floats           694160803
+x86_64 run/lists           1992362828
+x86_64 run/maps            2080525719
+x86_64 run/match            825848868
+x86_64 run/sort             332077083
+x86_64 run/strings         2075933456
+x86_64 run/tree            1550543036
+x86_64 test/one-edit         97310590
