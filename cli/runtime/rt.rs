@@ -3232,11 +3232,16 @@ mod tests {
 
     /// A scheduler thread runs with `PSTATE.DIT` set, which keeps an M3's
     /// pointer prefetcher off (PERFORMANCE.md §6.68). A plain thread starts
-    /// with it clear, so the bit has to be set on each one.
+    /// with it clear, so the bit has to be set on each one. A CPU without
+    /// FEAT_DIT can't read the bit, and its scheduler threads must still run.
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     #[test]
     fn a_scheduler_thread_runs_with_dit_set() {
         let _alone = alone();
+        if !crate::host::has_dit() {
+            assert_eq!(on_thread(|| 6 * 7).join().unwrap(), 42);
+            return;
+        }
         assert!(!thread::spawn(crate::host::dit_is_set).join().unwrap(), "a new thread started with DIT set");
         assert!(on_thread(crate::host::dit_is_set).join().unwrap(), "a scheduler thread ran with DIT clear");
     }
