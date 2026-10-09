@@ -664,6 +664,11 @@ impl SourceFile {
         SourceFile { name, abs_path, text, line_starts }
     }
 
+    /// Byte offset of the start of each line, the first at 0.
+    pub fn line_starts(&self) -> &[u32] {
+        &self.line_starts
+    }
+
     /// The largest offset at or below `at` that starts a character.
     ///
     /// A span does not have to land on a character boundary to reach here: a

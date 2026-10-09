@@ -221,9 +221,10 @@ fn swept_publishes(state: &mut State, reports: Vec<Published>) -> Vec<Value> {
         }
         let Some(text) = state.text_of(&path) else { continue };
         let uri = convert::uri_of(&path);
+        let lines = convert::Lines::new(&text);
         let items = build_files::diagnostics(&path, &text)
             .iter()
-            .map(|d| convert::diagnostic(&text, d, &uri))
+            .map(|d| convert::diagnostic(&lines, d, &uri))
             .collect::<Vec<_>>();
         published.entry(uri).or_default().extend(items);
     }
@@ -2103,7 +2104,8 @@ fn parse_diagnostics(state: &mut State, path: &std::path::Path, text: &str) -> V
         return vec![publish(&uri, items)];
     }
     state.showing_parse_errors.insert(uri.clone());
-    let items: Vec<Value> = errors.iter().map(|d| convert::diagnostic(text, d, &uri)).collect();
+    let lines = convert::Lines::new(text);
+    let items: Vec<Value> = errors.iter().map(|d| convert::diagnostic(&lines, d, &uri)).collect();
     vec![publish(&uri, items)]
 }
 
@@ -2135,13 +2137,14 @@ fn language_findings(state: &mut State, path: &std::path::Path, text: &str) -> O
         .unwrap_or_default();
     let uri = convert::uri_of(path);
     let file = crate::diagnostics::FileId(0);
+    let lines = convert::Lines::new(text);
     Some(
         findings
             .iter()
             .filter(|f| f.file == rel)
             .map(|f| {
                 let span = crate::diagnostics::Span::new(file, f.span.0, f.span.1);
-                convert::diagnostic(text, &f.diagnostic(span), &uri)
+                convert::diagnostic(&lines, &f.diagnostic(span), &uri)
             })
             .collect(),
     )
@@ -2239,9 +2242,10 @@ fn build_file_findings(state: &mut State, path: &std::path::Path, published: &mu
     }
     if let Some(text) = state.text_of(path) {
         let uri = convert::uri_of(path);
+        let lines = convert::Lines::new(&text);
         let items: Vec<Value> = build_files::diagnostics(path, &text)
             .iter()
-            .map(|d| convert::diagnostic(&text, d, &uri))
+            .map(|d| convert::diagnostic(&lines, d, &uri))
             .collect();
         published.entry(uri).or_default().extend(items);
     }
@@ -2272,6 +2276,7 @@ fn closure_findings(state: &mut State, path: &std::path::Path, published: &mut P
             add_finding(&mut found, &linted.analyzed.session, d);
         }
     }
+    dedup_findings(&mut found);
     state.keep_publish(path, &found);
     state::merge_findings(published, &found);
 }
@@ -2288,7 +2293,7 @@ fn add_finding(published: &mut Published, session: &Session, d: &crate::diagnost
 /// What a finding is filed under before it is rendered: the file, the span, and
 /// the words.
 ///
-/// Exactly what [`same_finding`] compares, one step earlier — a range is a
+/// Exactly what [`finding_key`] holds, one step earlier — a range is a
 /// function of a span and the file's text, so two diagnostics that agree here
 /// render to the same item.
 type Rendered = std::collections::BTreeMap<(String, u32, u32, String), Value>;
@@ -2326,7 +2331,7 @@ fn add_finding_rendering(
     let item = match rendered.get(&key) {
         Some(known) => known.clone(),
         None => {
-            let item = convert::diagnostic(&f.text, d, &uri);
+            let item = convert::diagnostic(&convert::Lines::of(f), d, &uri);
             rendered.insert(key, item.clone());
             item
         }
@@ -2377,7 +2382,7 @@ fn moved_finding(
             let mut moved = d.clone();
             moved.span = span;
             moved.secondary_spans.clear();
-            let item = convert::diagnostic(&text, &moved, &uri);
+            let item = convert::diagnostic(&convert::Lines::new(&text), &moved, &uri);
             rendered.insert(key, item.clone());
             item
         }
@@ -2386,11 +2391,18 @@ fn moved_finding(
     Some(())
 }
 
-/// One rendered item into one file's bucket, once however many times it is met.
+/// One rendered item into one file's bucket. [`dedup_findings`] drops the
+/// repeats once the buckets are full: comparing each item with every one before
+/// it was quadratic in a file's findings.
 fn filed(published: &mut Published, uri: String, item: Value) {
-    let bucket = published.entry(uri).or_default();
-    if !bucket.iter().any(|existing| same_finding(existing, &item)) {
-        bucket.push(item);
+    published.entry(uri).or_default().push(item);
+}
+
+/// Each bucket's first copy of every finding, in the order they were filed.
+fn dedup_findings(published: &mut Published) {
+    for bucket in published.values_mut() {
+        let mut seen = std::collections::HashSet::new();
+        bucket.retain(|item| seen.insert(finding_key(item)));
     }
 }
 
@@ -2415,9 +2427,12 @@ fn remember(state: &mut State, published: Published) -> Vec<Value> {
     out
 }
 
-/// Whether two diagnostics are the same one seen twice: same place, same words.
-fn same_finding(analyzed: &Value, b: &Value) -> bool {
-    analyzed.get("message") == b.get("message") && analyzed.get("range") == b.get("range")
+/// What makes two diagnostics the same one seen twice: same place, same words.
+///
+/// Equal keys are equal values, because an object writes its keys in order and
+/// neither a message nor a range holds a float.
+fn finding_key(item: &Value) -> (Option<String>, Option<String>) {
+    (item.get("message").map(Value::to_string), item.get("range").map(Value::to_string))
 }
 
 fn publish(uri: &str, items: Vec<Value>) -> Value {

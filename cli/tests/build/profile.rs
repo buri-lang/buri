@@ -605,6 +605,43 @@ fn the_lint_rules_are_linear_in_a_files_length() {
     );
 }
 
+/// A library of `n` functions, each with a context bound its body never uses.
+fn unused_bounds(scratch: &Scratch, n: usize) {
+    let items: String = (0..n)
+        .map(|i| format!("export fn p{i}<C: Allocator>(ctx: C, x: Int): Int {{\n    let _ = ctx;\n    x * {i}\n}}\n\n"))
+        .collect();
+    scratch.write("lib/big/BUILD.buri", "library {\n    visibility: [\"//visibility:public\"]\n}\n");
+    scratch.write("lib/big/lib.buri", &format!("from \"platform/effect\" import {{ Allocator }};\n\n{items}"));
+}
+
+/// **The language server publishes a file's findings in time linear in how
+/// many it has.** Each finding's range was counted from the top of the file and
+/// compared with every finding before it: a file with 4,000 took 26 G
+/// instructions a keystroke. PERFORMANCE.md §6.70.
+#[test]
+fn publishing_a_files_findings_is_linear_in_how_many_it_has() {
+    let published = |n: usize| {
+        let scratch = Scratch::repo("profile-lsp-findings");
+        unused_bounds(&scratch, n);
+        let uri = format!("file://{}", scratch.path("lib/big/lib.buri").display());
+        let root = format!("file://{}", scratch.root.display());
+        let session: String = [
+            format!(r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"rootUri":"{root}","capabilities":{{}}}}}}"#),
+            r#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#.to_string(),
+            format!(r#"{{"jsonrpc":"2.0","id":2,"method":"textDocument/diagnostic","params":{{"textDocument":{{"uri":"{uri}"}}}}}}"#),
+            r#"{"jsonrpc":"2.0","id":3,"method":"shutdown"}"#.to_string(),
+            r#"{"jsonrpc":"2.0","method":"exit"}"#.to_string(),
+        ]
+        .iter()
+        .map(|m| format!("Content-Length: {}\r\n\r\n{m}", m.len()))
+        .collect();
+        let run = scratch.run_with_stdin_and_env(&["lsp"], session.as_bytes(), &[("BURI_PROFILE", "1")]);
+        assert_eq!(run.stdout.matches("\"code\":\"unused-context-bound\"").count(), n, "{}", indent(&run.stdout));
+        phase_instructions(&run.stderr, "other")
+    };
+    grows_linearly("publishing one file's findings", published, 200);
+}
+
 /// **A `format --check` of an unchanged tree formats nothing.** It formatted
 /// every file on one core every run: 1.3–1.5 s for #259's 8 MB. Each file's
 /// answer is kept under its bytes. PERFORMANCE.md §6.55.
