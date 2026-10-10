@@ -493,8 +493,8 @@ export fn main(host: NodeHost): Result<(), Str> {
     );
 }
 
-/// `FromJson` is reported rather than generated, and the descriptor it
-/// needs stays where the intrinsic can find it.
+/// The type `json.decode` is handed is recorded, and encoding is generated
+/// beside it.
 #[test]
 fn from_json_is_recorded_as_a_seam() {
     let src = r#"

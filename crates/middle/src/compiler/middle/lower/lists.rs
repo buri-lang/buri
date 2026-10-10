@@ -1,4 +1,4 @@
-//! `core/list`'s closure operations, `get`, `zip`, `flatten` and the three
+//! `core/list`'s closure operations, `get`, `zip`, `flatten` and four of the
 //! `deriveArray*` derives, lowered to loops in the IR.
 //!
 //! `cli/runtime/list.rs`'s header says why the archive has no
@@ -72,7 +72,19 @@ pub(super) fn handles(key: &str) -> bool {
             | "deriveArrayEq"
             | "deriveArrayCompare"
             | "deriveArrayShow"
-    ) || intrinsic_keys::list_call(key).is_some()
+    ) || derive_map(key).is_some()
+        || intrinsic_keys::list_call(key).is_some()
+}
+
+/// `deriveArrayJson(xs, step)`, which is a `map` with no context: each element
+/// through the step, into a block of the results.
+fn derive_map(key: &str) -> Option<intrinsic_keys::ListCall> {
+    (key == "deriveArrayJson").then_some(intrinsic_keys::ListCall {
+        kind: Step::Map,
+        ctx: None,
+        func: 1,
+        init: None,
+    })
 }
 
 /// Where `key`'s step is among its operands. `middle::derives` builds the
@@ -81,7 +93,7 @@ fn step_at(key: &str) -> Option<usize> {
     match key {
         "deriveArrayEq" | "deriveArrayCompare" => Some(2),
         "deriveArrayShow" => Some(1),
-        _ => intrinsic_keys::list_call(key).map(|c| c.func),
+        _ => derive_map(key).or_else(|| intrinsic_keys::list_call(key)).map(|c| c.func),
     }
 }
 
@@ -214,7 +226,7 @@ impl FnLower<'_> {
             "deriveArrayShow" => return self.derive_show(vals, tys, step, ret),
             _ => {}
         }
-        let call = intrinsic_keys::list_call(key)?;
+        let call = derive_map(key).or_else(|| intrinsic_keys::list_call(key))?;
         let xs = *vals.first()?;
         let elem = match (tys.first()?).kind() {
             TyKind::Array(e) => *e,

@@ -57,24 +57,18 @@
 //! `proto/binary.buri` was the twenty-sixth: it compiled and passed all along and
 //! was held out for a *middle-end* cost, `middle/rc.rs`'s exponential
 //! `Scan::short_circuit`, which is linear now. What is actually
-//! *refused* is four things:
+//! *refused* is three things:
 //!
 //!  1. **`deriveArrayHash`** — the one derive leaf over an array this backend
 //!     has no body for. `bignum/hashing.buri` and `uuid/hashing.buri`, each of
 //!     them a `derive Hash` whose field is a `[T]`. An inexact numeric
 //!     conversion was this row and is not any more: all four shapes SPEC 6.2.1
-//!     gives one are compiled, `RangeError`'s two `Str`s included.
-//!  2. **`json.*`, and `ToJson::toJson` at a primitive.** `json.decode` is a
-//!     descriptor-driven walker, which is what `runtime.js` does.
-//!     `json/decoding.buri` and `json/encoding.buri`. `derivePrimJson` was the
-//!     second half of this reason and is not any more — both native backends
-//!     build `Json`'s primitive arm now (VALUE-MODEL.md §12 row 10) — so what
-//!     holds `json/encoding.buri` out is the five keys a *direct* `x.toJson()`
-//!     produces, which is the same answer reached through the trait rather
-//!     than through the derive.
-//!  3. **`core/math`'s thirteen transcendentals**, which are refused rather
+//!     gives one are compiled, `RangeError`'s two `Str`s included. `json.*`
+//!     was a row too, until `middle::derives` wrote a decoder per type and gave
+//!     `ToJson::toJson` at a primitive a body (buri-lang/buri#279).
+//!  2. **`core/math`'s thirteen transcendentals**, which are refused rather
 //!     than unwritten — `cli/runtime/math.rs` argues it. `numbers/floats.buri`.
-//!  4. **The document, and its serialization — now in the set.** The *graph*
+//!  3. **The document, and its serialization — now in the set.** The *graph*
 //!     came in when `cli/runtime/ui.rs` ported it, the *reconciler* when the
 //!     renderer landed, the *CSS/theme artifacts* when #53 phase 5 surfaced
 //!     them, and phase 6 moved `markup()` to the headerless scene document both
@@ -607,19 +601,12 @@ const PACKAGES: &[Case] = &[
     // before a byte of code is generated, which is what that hook is for,
     // and `the_excluded_packages_are_excluded_for_the_stated_reason`
     // checks that the reason is still true.
-    excluded(
-        "json/decoding.buri",
-        "`json.decode`, and core/character's classifiers",
-    ),
-    // `derivePrimJson` was this row's reason and is not any more: both native
-    // backends have a body for it (VALUE-MODEL.md §12 row 10). What is left is
-    // its sibling — `ToJson::toJson` called *directly* on a primitive, which
-    // reaches a backend as `bool.toJson`, `character.toJson`, `str.toJson`,
-    // `number.I64.toJson` and `number.F64.toJson`, five ordinary intrinsic keys with
-    // no body. They are the same three-way answer `json_prim` already gives
-    // and are a slice of their own, because letting this file in moves the
-    // census ratchet.
-    excluded("json/encoding.buri", "`ToJson::toJson` at every primitive"),
+    // `json.decode` gets its body from `middle::derives`, a decoder per type
+    // (buri-lang/buri#279).
+    included("json/decoding.buri"),
+    // `ToJson::toJson` called on a primitive itself gets `derivePrimJson` as
+    // its body, the leaf a derived `ToJson` reaches at the same field.
+    included("json/encoding.buri"),
     // `core/bytes` and `character.toDigit` are emitted now, and this file needs
     // nothing else.
     included("proto/failures.buri"),
