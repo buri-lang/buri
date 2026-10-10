@@ -1,0 +1,13 @@
+# The coverage gate (`src/main.rs`). Not part of the toolchain: it builds an
+# instrumented `buri`, runs the end-to-end tests against it, and holds the
+# result to `compiler-branches.txt`.
+[package]
+name = "buri-coverage"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -93,6 +93,16 @@
             ];
           }
         );
+        # The coverage gate's compiler. Branch coverage is unstable, so it
+        # needs a nightly; nothing else builds with this one. The last 1.99
+        # nightly, the closest one to `rust-toolchain.toml`'s release.
+        coverageToolchain = pkgs.rust-bin.nightly."2026-08-15".minimal.override {
+          extensions = [ "llvm-tools-preview" ];
+          targets = [
+            "x86_64-unknown-linux-musl"
+            "aarch64-unknown-linux-musl"
+          ];
+        };
         rustPlatform = pkgs.makeRustPlatform {
           cargo = rustToolchain;
           rustc = rustToolchain;
@@ -681,6 +691,49 @@
           # recommending Apple's linker (BUILD-AND-WATCH.md §3).
           ++ pkgs.lib.optional pkgs.stdenv.isLinux pkgs.mold;
         };
+        # The coverage gate's shell (coverage/README.md): the default shell's
+        # tools, built by the nightly that has `-Zcoverage-options=branch`.
+        coverage = pkgs.mkShell (
+          {
+            LLVM_SYS_211_PREFIX = "${llvm.dev}";
+            packages = [
+              # Unwrapped cargo first, for the reason the default shell gives.
+              (pkgs.runCommand "nightly-cargo-without-dyld-library-path" { } ''
+                mkdir -p $out/bin
+                ln -s ${coverageToolchain.availableComponents.cargo}/bin/cargo $out/bin/cargo
+              '')
+              coverageToolchain
+              cargoNextest
+              # No `bun` or `node`: the suite's goldens are the ones CI's
+              # `oven-sh/setup-bun` and the runner's node print, and nixpkgs'
+              # bun fails a copy of a file onto itself on Linux.
+              llvm.dev
+              llvm
+              pkgs.libffi
+              pkgs.libxml2
+              pkgs.zlib
+              pkgs.zstd
+              pkgs.ncurses
+              pkgs.lld
+            ]
+            ++ lib.optionals pkgs.stdenv.isLinux [
+              pkgs.clang
+              pkgs.mold
+            ];
+          }
+          # What the `perf` shell sets, for the runtime's musl C.
+          // lib.optionalAttrs pkgs.stdenv.isLinux {
+            "CC_${muslKey}" = "${pkgs.clang}/bin/clang";
+            "CFLAGS_${muslKey}" = "--target=${muslTarget} -isystem ${pkgs.musl.dev}/include";
+            NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING = "1";
+            # The wrapper's `_FORTIFY_SOURCE` calls glibc's `__vfprintf_chk`,
+            # which a C object the suite links against musl can't resolve.
+            hardeningDisable = [ "all" ];
+            shellHook = ''
+              export CC=${pkgs.clang}/bin/clang
+            '';
+          }
+        );
         }
         # The instruction-count gate's shell (design/PERFORMANCE.md §9).
         # Linux only, because cachegrind is. Everything that moves a count is
