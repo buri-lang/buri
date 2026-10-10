@@ -1,4 +1,4 @@
-# The compiler's coverage from end-to-end tests only (coverage/src/main.rs).
+# The compiler's coverage from end-to-end tests only (coverage/compiler/src/main.rs).
 # Branches gate; lines and regions are context.
 
 crate                             branches                      lines                    regions         

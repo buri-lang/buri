@@ -2,11 +2,11 @@
 //! tests only, and held to `compiler-branches.txt`.
 //!
 //! ```text
-//! nix develop .#coverage -c cargo run -p buri-coverage                  # run the end-to-end tests, check
-//! nix develop .#coverage -c cargo run -p buri-coverage -- --bless       # and rewrite the baseline
-//! nix develop .#coverage -c cargo run -p buri-coverage -- --build       # CI: build once, for the shards
-//! nix develop .#coverage -c cargo run -p buri-coverage -- --shard=2/4   # CI: one shard's profile
-//! nix develop .#coverage -c cargo run -p buri-coverage -- --merge=<dir> # CI: check the shards' profiles
+//! nix develop .#coverage -c cargo run -p buri-compiler-coverage                  # run the end-to-end tests, check
+//! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --bless       # and rewrite the baseline
+//! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --build       # CI: build once, for the shards
+//! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --shard=2/4   # CI: one shard's profile
+//! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --merge=<dir> # CI: check the shards' profiles
 //! ```
 //!
 //! Only `buri` processes count. `buri` is built with coverage on and the test
@@ -121,7 +121,7 @@ struct Gate {
 
 impl Gate {
     fn new() -> Gate {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().to_path_buf();
         let target = root.join("target").join("coverage");
         std::fs::create_dir_all(&target).unwrap();
         let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
@@ -494,7 +494,7 @@ fn summary(files: &BTreeMap<String, Counts>) -> String {
         total.add(counts);
     }
     let mut out = String::from(
-        "# The compiler's coverage from end-to-end tests only (coverage/src/main.rs).\n\
+        "# The compiler's coverage from end-to-end tests only (coverage/compiler/src/main.rs).\n\
          # Branches gate; lines and regions are context.\n\n",
     );
     out.push_str(&format!(
@@ -589,7 +589,7 @@ impl Baseline {
         let mut out = format!(
             "# Branches covered by end-to-end tests, per file: covered, total, path.\n\
              # CI's coverage job raises it on main; never edit a count by hand.\n\
-             # coverage/src/main.rs has the rest.\n\
+             # coverage/compiler/src/main.rs has the rest.\n\
              # total {covered} {total} ({})\n\
              host {}\n",
             percent(covered, total),

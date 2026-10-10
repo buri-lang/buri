@@ -300,7 +300,7 @@ pub fn reader_gone() -> ! {
     std::process::exit(141)
 }
 
-/// The coverage gate's build only (`coverage/src/main.rs`): writes this
+/// The coverage gate's build only (`coverage/compiler/src/main.rs`): writes this
 /// process's profile now. A process that dies by a signal runs no `atexit`,
 /// which is where the profile is otherwise written.
 #[cfg(buri_coverage)]

@@ -326,8 +326,8 @@ Bless with `cargo test`, not nextest. A blessing corpus is written once per
 process, so one process per test would write it from several at once.
 
 ```
-nix develop .#coverage -c cargo run -p buri-coverage            # the coverage gate
-nix develop .#coverage -c cargo run -p buri-coverage -- --bless
+nix develop .#coverage -c cargo run -p buri-compiler-coverage             # the compiler coverage gate
+nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --bless
 ```
 
 The gate builds `buri` with branch coverage, runs `buri`'s tests uninstrumented

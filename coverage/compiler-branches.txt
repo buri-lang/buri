@@ -1,6 +1,6 @@
 # Branches covered by end-to-end tests, per file: covered, total, path.
 # CI's coverage job raises it on main; never edit a count by hand.
-# coverage/src/main.rs has the rest.
+# coverage/compiler/src/main.rs has the rest.
 # total 13353 18830 (70.91%)
 host x86_64-unknown-linux-gnu
 254 341 cli/src/build/actions.rs
