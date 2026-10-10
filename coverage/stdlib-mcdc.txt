@@ -1,0 +1,66 @@
+# The standard library's MC/DC conditions shown, per module: shown, total,
+# module. CI's stdlib-coverage job raises it on main; never edit a count
+# by hand. coverage/stdlib/src/main.rs has the rest.
+# total 585 1007 (58.1%)
+host x86_64-unknown-linux-gnu
+0 0 core/actor
+0 0 core/alloc
+21 21 core/bigint
+0 0 core/bool
+146 266 core/buri/ast
+22 28 core/bytes
+12 12 core/character
+1 2 core/cli
+0 0 core/codegen
+16 31 core/compression
+17 26 core/crypto
+12 12 core/csv
+42 52 core/date
+9 10 core/decimal
+0 0 core/env
+0 0 core/hash
+0 0 core/heap
+0 0 core/io
+27 38 core/json
+0 0 core/list
+0 0 core/map
+12 13 core/math
+12 13 core/net/http
+0 0 core/net/server
+0 0 core/net/tcp
+19 23 core/net/url
+0 0 core/net/websocket
+6 6 core/number
+0 0 core/option
+0 0 core/order
+0 0 core/orderedmap
+0 0 core/orderedset
+18 21 core/path
+47 96 core/proto
+0 4 core/proto/any
+0 4 core/proto/duration
+0 0 core/proto/empty
+0 2 core/proto/field_mask
+6 20 core/proto/struct
+0 4 core/proto/timestamp
+0 18 core/proto/wrappers
+0 0 core/queue
+1 2 core/random
+0 0 core/result
+0 0 core/secret
+0 0 core/set
+2 8 core/simd
+71 76 core/str
+0 0 core/tasks
+0 0 core/testing/check
+2 2 core/time
+3 3 core/uuid
+7 87 std/codegen/proto
+44 90 std/codegen/proto/schema
+0 2 std/codegen/proto/wellknown
+10 15 ui/node
+0 0 ui/prop
+0 0 ui/signal
+0 0 ui/style
+0 0 ui/theme
+0 0 ui/web

@@ -1,0 +1,97 @@
+# The standard library's MC/DC from the conformance corpus on four backends
+# (coverage/stdlib/src/main.rs). Conditions gate; decisions and branches are
+# context.
+
+module                                conditions           decisions              branches
+core/actor                           0/0       -         0/0       -       230/430   53.5%
+core/alloc                           0/0       -         0/0       -           3/4   75.0%
+core/bigint                        21/21  100.0%       10/10  100.0%       148/168   88.1%
+core/bool                            0/0       -         0/0       -          5/12   41.7%
+core/buri/ast                    146/266   54.9%       28/63   44.4%     1189/1457   81.6%
+core/bytes                         22/28   78.6%        8/14   57.1%       206/349   59.0%
+core/character                     12/12  100.0%         3/3  100.0%         38/42   90.5%
+core/cli                             1/2   50.0%         0/1    0.0%       117/127   92.1%
+core/codegen                         0/0       -         0/0       -         26/28   92.9%
+core/compression                   16/31   51.6%        5/14   35.7%       172/208   82.7%
+core/crypto                        17/26   65.4%        4/11   36.4%       130/168   77.4%
+core/csv                           12/12  100.0%         5/5  100.0%         50/52   96.2%
+core/date                          42/52   80.8%       13/17   76.5%       277/332   83.4%
+core/decimal                        9/10   90.0%         4/5   80.0%        93/114   81.6%
+core/env                             0/0       -         0/0       -           6/6  100.0%
+core/hash                            0/0       -         0/0       -         12/24   50.0%
+core/heap                            0/0       -         0/0       -         49/56   87.5%
+core/io                              0/0       -         0/0       -           5/6   83.3%
+core/json                          27/38   71.1%        7/15   46.7%       255/304   83.9%
+core/list                            0/0       -         0/0       -       271/320   84.7%
+core/map                             0/0       -         0/0       -       378/892   42.4%
+core/math                          12/13   92.3%         5/6   83.3%         83/84   98.8%
+core/net/http                      12/13   92.3%         5/6   83.3%        74/139   53.2%
+core/net/server                      0/0       -         0/0       -       120/212   56.6%
+core/net/tcp                         0/0       -         0/0       -           1/2   50.0%
+core/net/url                       19/23   82.6%         5/8   62.5%       146/160   91.2%
+core/net/websocket                   0/0       -         0/0       -         13/24   54.2%
+core/number                          6/6  100.0%         3/3  100.0%       102/138   73.9%
+core/option                          0/0       -         0/0       -       382/646   59.1%
+core/order                           0/0       -         0/0       -         38/52   73.1%
+core/orderedmap                      0/0       -         0/0       -      830/2003   41.4%
+core/orderedset                      0/0       -         0/0       -         14/16   87.5%
+core/path                          18/21   85.7%        7/10   70.0%       139/150   92.7%
+core/proto                         47/96   49.0%       10/35   28.6%       468/613   76.3%
+core/proto/any                       0/4    0.0%         0/2    0.0%          7/42   16.7%
+core/proto/duration                  0/4    0.0%         0/2    0.0%          7/30   23.3%
+core/proto/empty                     0/0       -         0/0       -           1/8   12.5%
+core/proto/field_mask                0/2    0.0%         0/1    0.0%          2/14   14.3%
+core/proto/struct                   6/20   30.0%        0/10    0.0%       113/173   65.3%
+core/proto/timestamp                 0/4    0.0%         0/2    0.0%          3/30   10.0%
+core/proto/wrappers                 0/18    0.0%         0/9    0.0%         9/164    5.5%
+core/queue                           0/0       -         0/0       -         17/22   77.3%
+core/random                          1/2   50.0%         0/1    0.0%         27/54   50.0%
+core/result                          0/0       -         0/0       -       296/570   51.9%
+core/secret                          0/0       -         0/0       -           0/0       -
+core/set                             0/0       -         0/0       -         13/14   92.9%
+core/simd                            2/8   25.0%         0/2    0.0%       111/170   65.3%
+core/str                           71/76   93.4%       21/26   80.8%       406/455   89.2%
+core/tasks                           0/0       -         0/0       -         14/60   23.3%
+core/testing/check                   0/0       -         0/0       -          8/10   80.0%
+core/time                            2/2  100.0%         1/1  100.0%         33/58   56.9%
+core/uuid                            3/3  100.0%         1/1  100.0%         28/30   93.3%
+std/codegen/proto                   7/87    8.0%        1/38    2.6%       299/513   58.3%
+std/codegen/proto/schema           44/90   48.9%        8/40   20.0%       439/591   74.3%
+std/codegen/proto/wellknown          0/2    0.0%         0/1    0.0%         17/40   42.5%
+ui/node                            10/15   66.7%         3/6   50.0%       460/943   48.8%
+ui/prop                              0/0       -         0/0       -         13/15   86.7%
+ui/signal                            0/0       -         0/0       -           0/0       -
+ui/style                             0/0       -         0/0       -           1/6   16.7%
+ui/theme                             0/0       -         0/0       -         19/24   79.2%
+ui/web                               0/0       -         0/0       -           3/4   75.0%
+total                           585/1007   58.1%     157/368   42.7%    8416/13378   62.9%
+
+The 30 modules with the most unshown conditions:
+
+ unshown          conditions  module
+     120     146/266   54.9%  core/buri/ast
+      80        7/87    8.0%  std/codegen/proto
+      49       47/96   49.0%  core/proto
+      46       44/90   48.9%  std/codegen/proto/schema
+      18        0/18    0.0%  core/proto/wrappers
+      15       16/31   51.6%  core/compression
+      14        6/20   30.0%  core/proto/struct
+      11       27/38   71.1%  core/json
+      10       42/52   80.8%  core/date
+       9       17/26   65.4%  core/crypto
+       6       22/28   78.6%  core/bytes
+       6         2/8   25.0%  core/simd
+       5       71/76   93.4%  core/str
+       5       10/15   66.7%  ui/node
+       4       19/23   82.6%  core/net/url
+       4         0/4    0.0%  core/proto/any
+       4         0/4    0.0%  core/proto/duration
+       4         0/4    0.0%  core/proto/timestamp
+       3       18/21   85.7%  core/path
+       2         0/2    0.0%  core/proto/field_mask
+       2         0/2    0.0%  std/codegen/proto/wellknown
+       1         1/2   50.0%  core/cli
+       1        9/10   90.0%  core/decimal
+       1       12/13   92.3%  core/math
+       1       12/13   92.3%  core/net/http
+       1         1/2   50.0%  core/random
