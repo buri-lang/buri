@@ -188,6 +188,9 @@ const PRELUDE: &str = r#"
 // GENERATED — the stencil generators of stencil.
 // See crates/stencil/src/compiler/backend/stencil/sources.rs.
 #include <stdint.h>
+// `-ffp-contract=off` again, in the source: the shard cache keys on the C
+// and not on the flags, so only this line rebuilds an object compiled without it.
+#pragma STDC FP_CONTRACT OFF
 
 #define HID __attribute__((visibility("hidden")))
 
@@ -1603,49 +1606,6 @@ fn supernodes(o: &mut Out) {
         }
         o.push(&format!("movn/{n}"), format!("void $NAME(ARGS) {{ {body}TAIL; }}"));
     }
-    // Fused multiply-add and add-add over frame slots: the two shapes an
-    // index computation and a dot product are made of.
-    for t in [I64, F64] {
-        let c = t.cty;
-        o.push(
-            &format!("fma/{}", t.tag),
-            format!(
-                "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = {}; TAIL; }}",
-                if t.float {
-                    "f64_bits(AT(double, _JIT_A) * AT(double, _JIT_B) + AT(double, _JIT_C))"
-                        .to_string()
-                } else {
-                    format!("(uint64_t)(AT({c}, _JIT_A) * AT({c}, _JIT_B) + AT({c}, _JIT_C))")
-                }
-            ),
-        );
-        o.push(
-            &format!("mulimm_add/{}", t.tag),
-            format!(
-                "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = {}; TAIL; }}",
-                if t.float {
-                    "f64_bits(AT(double, _JIT_A) * imm_f64() + AT(double, _JIT_C))".to_string()
-                } else {
-                    format!(
-                        "(uint64_t)(AT({c}, _JIT_A) * ({c})(uintptr_t)_JIT_K + AT({c}, _JIT_C))"
-                    )
-                }
-            ),
-        );
-        o.push(
-            &format!("addimm_add/{}", t.tag),
-            format!(
-                "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = {}; TAIL; }}",
-                if t.float {
-                    "f64_bits(AT(double, _JIT_A) + imm_f64() + AT(double, _JIT_C))".to_string()
-                } else {
-                    format!(
-                        "(uint64_t)(AT({c}, _JIT_A) + ({c})(uintptr_t)_JIT_K + AT({c}, _JIT_C))"
-                    )
-                }
-            ),
-        );
-    }
     // Field load fused into a comparison-and-branch: the enum-tag test that
     // every `match` in this language lowers to.
     o.push(
@@ -1927,6 +1887,8 @@ fn compile_flags(cc: &str, target: StencilTarget) -> Result<Vec<String>, String>
         "-fno-stack-protector",
         "-fomit-frame-pointer",
         "-fno-unwind-tables",
+        // A fused `a * b + c` rounds once where LLVM and JavaScript round twice.
+        "-ffp-contract=off",
     ]
     .iter()
     .map(|s| String::from(*s))
