@@ -6467,6 +6467,87 @@ export fn main(host: NativeHost): Result<(), Str> {{
     );
 }
 
+/// **Values with padding in them are stored, shared, copied and dropped in a
+/// list on every backend** (buri-lang/buri#289, #291, #293–#295).
+///
+/// Each shape leaves bytes no field covers: after a `Bool` or an `F32`, after
+/// a tag, at a struct's end, and between fields of a struct too wide for
+/// registers. A list's walks test each element for all-zero bytes, padding
+/// included, so `.Dot` and `Flagged { on: false, xs: [] }` are the elements
+/// that test reads. Memcheck runs this row: before the fix it reported the
+/// padding as uninitialised there.
+#[test]
+fn values_with_padding_are_shared_and_dropped_on_every_backend() {
+    rows_or_skip!();
+    let fields: String = (0..11).map(|i| format!("    f{i}: Str,\n")).collect();
+    let inits: Vec<String> = (0..11).map(|i| format!("f{i}: s")).collect();
+    let source = format!(
+        r#"
+from "core/alloc" import * as alloc;
+from "core/map" import * as map;
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+
+struct Flagged {{ on: Bool, xs: [Int] }}
+struct Tail {{ xs: [Int], on: Bool }}
+struct Scaled {{ by: F32, name: Str }}
+struct Odd {{ a: Bool, b: Bool, xs: [Int] }}
+enum Shape {{ Dot, Line(Str), Box(Int, Bool) }}
+
+struct Big {{
+    on: Bool,
+{fields}}}
+
+enum Held {{ Nothing, Wide(Big) }}
+
+fn big(s: Str, on: Bool): Big {{ Big {{ on: on, {inits} }} }}
+
+fn shape(s: Shape): Int {{
+    match (s) {{
+        .Dot => 0,
+        .Line(t) => t.length(),
+        .Box(n, b) => if (b) {{ n }} else {{ 0 - n }},
+    }}
+}}
+
+fn held(h: Held): Int {{
+    match (h) {{
+        .Nothing => 0,
+        .Wide(b) => if (b.on) {{ b.f10.length() }} else {{ 1 }},
+    }}
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let mem = host.alloc;
+    let t = "ab".repeat(mem, 2);
+    let flags = [Flagged {{ on: false, xs: [] }}, Flagged {{ on: true, xs: [1, 2] }}];
+    let flags2 = flags.push(mem, Flagged {{ on: false, xs: [] }}).insertAt(mem, 0, Flagged {{ on: true, xs: [3] }});
+    let tails = [Tail {{ xs: [], on: false }}, Tail {{ xs: [4], on: true }}].removeAt(mem, 1);
+    let scaled = [Scaled {{ by: 0.5, name: t }}].push(mem, Scaled {{ by: 2.0, name: "x" }});
+    let odds = [Odd {{ a: false, b: false, xs: [] }}, Odd {{ a: true, b: false, xs: [5] }}];
+    let shapes = [Shape.Dot, .Line(t), .Box(3, true)].push(mem, .Dot).removeAt(mem, 0);
+    let copied = alloc.copyOut(shapes);
+    let bigs: [Held] = [.Nothing, .Wide(big(t, true)), .Wide(big("c", false))];
+    let more = bigs.push(mem, .Nothing);
+    let m = map.empty().insert(mem, 1, Shape.Dot).insert(mem, 2, .Line(t)).insert(mem, 3, .Box(1, false)).remove(mem, 2);
+    let _ = io.println(host.stdout, "flags ${{flags2.length()}} ${{flags2.fold(fn(a, f) => a + f.xs.length(), 0)}}").ignore();
+    let _ = io.println(host.stdout, "tails ${{tails.length()}} odds ${{odds.fold(fn(a, o) => a + o.xs.length(), 0)}}").ignore();
+    let _ = io.println(host.stdout, "scaled ${{scaled.fold(fn(a, s) => a + s.name.length(), 0)}}").ignore();
+    let _ = io.println(host.stdout, "shapes ${{copied.fold(fn(a, s) => a + shape(s), 0)}}").ignore();
+    let _ = io.println(host.stdout, "held ${{more.fold(fn(a, h) => a + held(h), 0)}}").ignore();
+    let _ = io.println(host.stdout, "map ${{m.length()}} ${{m.has(2)}}").ignore();
+    .Ok(())
+}}
+"#,
+        inits = inits.join(", "),
+    );
+    agree(
+        "values with padding",
+        &source,
+        "flags 4 3\ntails 1 odds 1\nscaled 5\nshapes 7\nheld 5\nmap 2 false\n",
+    );
+}
+
 /// `every_conformance_file_is_accounted_for` has to its own list, and it
 /// needs no backend, so it runs on every host.
 #[test]
