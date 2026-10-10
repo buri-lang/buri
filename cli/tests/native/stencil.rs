@@ -4701,9 +4701,9 @@ fn eight_requests_at_once_are_each_answered_on_their_own_connection() {
         return;
     }
     const REQUESTS: usize = 8;
-    let source = crate::shared::concurrent_server(REQUESTS, 0);
+    let source = crate::shared::concurrent_server(REQUESTS, None);
     let binary = build_with("server-concurrent", &source, None);
-    let (out, replies, _elapsed) = crate::shared::served_many(&binary, REQUESTS);
+    let (out, replies) = crate::shared::served_many(&binary, REQUESTS);
     assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
     assert!(
         out.stdout.ends_with("served\n"),
