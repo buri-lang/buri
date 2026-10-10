@@ -236,6 +236,26 @@ impl BinOp {
     pub fn is_comparison(self) -> bool {
         matches!(self, BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge)
     }
+
+    /// The operation's short name: `add`, `and`, `le`.
+    pub fn name(self) -> &'static str {
+        match self {
+            BinOp::Add => "add",
+            BinOp::Sub => "sub",
+            BinOp::Mul => "mul",
+            BinOp::Div => "div",
+            BinOp::Rem => "rem",
+            BinOp::BitAnd => "and",
+            BinOp::BitOr => "or",
+            BinOp::BitXor => "xor",
+            BinOp::Eq => "eq",
+            BinOp::Ne => "ne",
+            BinOp::Lt => "lt",
+            BinOp::Le => "le",
+            BinOp::Gt => "gt",
+            BinOp::Ge => "ge",
+        }
+    }
 }
 
 /// A structural operation at a type, before `middle::derives` has generated
@@ -1500,7 +1520,7 @@ impl Program {
             }
             Inst::Binary { dest: d, op, prim, lhs, rhs } => {
                 dest(out, d);
-                out.push_str(bin_op(*op));
+                out.push_str(op.name());
                 out.push('.');
                 out.push_str(prim.name());
                 out.push(' ');
@@ -1762,25 +1782,6 @@ fn un_op(op: UnOp) -> &'static str {
         UnOp::Not => "not",
         UnOp::BitNot => "bitnot",
         UnOp::FromBool => "frombool",
-    }
-}
-
-fn bin_op(op: BinOp) -> &'static str {
-    match op {
-        BinOp::Add => "add",
-        BinOp::Sub => "sub",
-        BinOp::Mul => "mul",
-        BinOp::Div => "div",
-        BinOp::Rem => "rem",
-        BinOp::BitAnd => "and",
-        BinOp::BitOr => "or",
-        BinOp::BitXor => "xor",
-        BinOp::Eq => "eq",
-        BinOp::Ne => "ne",
-        BinOp::Lt => "lt",
-        BinOp::Le => "le",
-        BinOp::Gt => "gt",
-        BinOp::Ge => "ge",
     }
 }
 
