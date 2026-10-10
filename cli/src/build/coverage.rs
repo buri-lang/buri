@@ -388,6 +388,11 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
             ran.entry((file, id)).or_default().push((key.saturating_sub(base), n));
         }
     }
+    // In path order, not `counts`' hash order, so the report runs the same way
+    // every time.
+    for paths in ran.values_mut() {
+        paths.sort_unstable();
+    }
 
     let mut report: BTreeMap<&str, File> = BTreeMap::new();
     for (file, u) in &files {
