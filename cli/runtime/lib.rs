@@ -853,6 +853,8 @@ pub unsafe extern "C" fn buri_rt_i128_divmod(
 /// `design/native/VALUE-MODEL.md` §12 row 2). Rust's `checked_*` is exactly that
 /// promise, including `i128::MIN.checked_div(-1)`, which is `None` because
 /// `2^127` has no two's-complement representation.
+/// `checked_rem` is the exception: `i128::MIN.checked_rem(-1)` is `None`, but the
+/// remainder is `0`. Only a zero divisor has no remainder.
 ///
 /// `buri_rt_i128_saturating` clamps at the same bounds, as `$sat` does on the
 /// other backend: `Saturating` never had a second bound to lose.
@@ -892,6 +894,8 @@ pub unsafe extern "C" fn buri_rt_i128_checked(
             0 => sa.checked_add(sb),
             1 => sa.checked_sub(sb),
             2 => sa.checked_mul(sb),
+            // `checked_rem` alone is `None` for `MIN % -1`.
+            4 if sb == -1 => Some(0),
             4 => sa.checked_rem(sb),
             5 => checked_power_i128(sa, sb),
             _ => sa.checked_div(sb),
