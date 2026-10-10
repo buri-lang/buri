@@ -18,6 +18,10 @@
 //! wrong answer rather than a slow one. The parse reuse inside one run comes
 //! from [`crate::build::sources`] instead.
 //!
+//! The package rules' findings are not kept either. `unused-source` reads the
+//! package's directory, which no file in a closure stands for, so every run
+//! asks them again (buri-lang/buri#281).
+//!
 //! A record holds what the **catalogue** found, and not what this repository
 //! chose to hear about: `REPO.buri`'s `rules` block is applied on the way out
 //! of [`crate::commands::lint::findings_for`], after a record has been read
@@ -52,33 +56,19 @@ use std::path::{Path, PathBuf};
 /// The shape of a record, so that a change to the encoding below is a miss
 /// rather than a misreading. The toolchain version is already in every key;
 /// this is what makes the decoder safe to point at a truncated file.
-const FORMAT: &[u8] = b"buri-lint-findings-2\n";
+const FORMAT: &[u8] = b"buri-lint-findings-3\n";
 
 /// The shape of a closure node ([`Store::node_of`]).
 const NODE_FORMAT: &[u8] = b"buri-lint-closure-1\n";
 
-/// The three lists the per-target pass adds to the report, in the order it
-/// adds them.
+/// What the per-target pass adds to the report, around the package rules.
 ///
-/// They are kept apart because the package rules are asked once per *package*:
-/// a package holding a library and a binary reports its own findings under
-/// whichever of the two a run reaches first, and which one that is depends on
-/// the targets the command was given rather than on anything a record knows.
+/// Those are not kept: they read the package's directory, which nothing in a
+/// closure stands for, so a replay asks them again
+/// (`commands::lint::package_rules`).
 pub struct Parts {
     pub analysis: Vec<Diagnostic>,
-    /// Empty either because the package had nothing to report or because
-    /// another target of it had already been asked, and the two have to be
-    /// told apart — see [`Parts::asked_the_package`].
-    pub package: Vec<Diagnostic>,
     pub target: Vec<Diagnostic>,
-    /// Whether this pass was the one that asked the package rules.
-    ///
-    /// Which target of a package that is depends only on the order the loop
-    /// reaches them, and every target pattern selects whole packages, so it is
-    /// the same target every run. Recorded anyway: a record whose package part
-    /// was somebody else's is not one a first-in-package target may replay,
-    /// and saying so costs a byte.
-    pub asked_the_package: bool,
 }
 
 /// One repository's lint records, for the length of one command.
@@ -115,7 +105,6 @@ pub struct Store {
 struct Pending {
     target: TargetId,
     closure: Vec<u32>,
-    asked_the_package: bool,
     findings: Vec<u8>,
 }
 
@@ -322,28 +311,17 @@ impl Store {
     ///
     /// Says nothing: [`Store::reused`] says so when the caller replays it, so
     /// `--explain` lists the targets in the order the report reads them.
-    pub fn recall(
-        &mut self,
-        session: &mut Session,
-        target: TargetId,
-        first_in_package: bool,
-    ) -> Option<Parts> {
+    pub fn recall(&mut self, session: &mut Session, target: TargetId) -> Option<Parts> {
         let key = self.key(session, target);
         let bytes = self.cache.get(&key)?;
         let mut reader = Reader::new(&bytes)?;
-        let asked_the_package = reader.byte()? == 1;
-        if first_in_package && !asked_the_package {
-            return None;
-        }
         let node = ActionKey::parse(&reader.text()?)?;
         if !self.holds(&node) {
             return None;
         }
         let parts = Parts {
             analysis: read_findings(&mut reader, &mut session.map, &self.root)?,
-            package: read_findings(&mut reader, &mut session.map, &self.root)?,
             target: read_findings(&mut reader, &mut session.map, &self.root)?,
-            asked_the_package,
         };
         self.nodes.insert(target, node);
         Some(parts)
@@ -370,13 +348,13 @@ impl Store {
         ids.sort_unstable();
         ids.dedup();
         let mut findings = Vec::new();
-        for list in [&parts.analysis, &parts.package, &parts.target] {
+        for list in [&parts.analysis, &parts.target] {
             put_u32(&mut findings, list.len() as u32);
             for d in list {
                 put_diagnostic(&mut findings, &session.map, d);
             }
         }
-        self.pending.push(Pending { target, closure: ids, asked_the_package: parts.asked_the_package, findings });
+        self.pending.push(Pending { target, closure: ids, findings });
     }
 
     /// Writes what [`Store::remember`] took. A target's node can name its
@@ -389,7 +367,6 @@ impl Store {
             let node = self.node_of(session, p.target, &p.closure);
             self.nodes.insert(p.target, node.clone());
             let mut out = FORMAT.to_vec();
-            out.push(u8::from(p.asked_the_package));
             put_text(&mut out, node.as_str());
             out.extend_from_slice(&p.findings);
             let key = self.key(session, p.target);

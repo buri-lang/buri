@@ -157,7 +157,8 @@ pub enum Step {
     },
     /// A file renamed inside the scratch copy. Moving one out of the way and
     /// back is how a case takes a file away and restores it byte for byte,
-    /// which no `edit` can do: an edit leaves the file there.
+    /// which no `edit` can do: an edit leaves the file there. The
+    /// destination's directory is made if it is missing.
     Move {
         from: String,
         to: String,
@@ -815,6 +816,9 @@ pub fn run_case(case: &Case, g: &mut Golden) {
             Step::Edit { file, from, to } => scratch.edit(file, from, to),
             Step::Move { from, to } => {
                 let (source, dest) = (scratch.path(from), scratch.path(to));
+                if let Some(parent) = dest.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
                 std::fs::rename(&source, &dest).unwrap_or_else(|e| {
                     panic!("{}: step {} cannot move {from} to {to}: {e}", case.name, i + 1)
                 });

@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the server's unused-source follows the files in the package: a stray file appearing, going away, renamed, nested in a subdirectory, declared and undeclared again moves the build file's pulled report, its result id and the workspace report, asks the client to pull again, and re-analyses only the package it landed in: `//libs/other` is analysed again only when the graph moves (buri-lang/buri#281)"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

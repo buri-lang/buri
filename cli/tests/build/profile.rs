@@ -761,6 +761,52 @@ fn a_second_gen_check_works_out_no_build_file() {
     assert_eq!(modules_loaded(&warm.all()), Some(0), "{}", indent(&warm.all()));
 }
 
+/// The targets a `BURI_PROFILE=1` run of `buri lint` analysed rather than
+/// recalled (`targets linted` in the report).
+fn targets_linted(all: &str) -> Option<u64> {
+    let line = all.lines().find(|l| l.starts_with("targets linted "))?;
+    line.trim_start_matches("targets linted ").trim().parse().ok()
+}
+
+/// **A second lint analyses no target, and neither does a stray file.**
+/// `unused-source` reads a package's directory, so its answer is asked again on
+/// every run rather than remembered. That is a walk of each package, and
+/// nothing is loaded or analysed for a file appearing or going away
+/// (buri-lang/buri#281).
+#[test]
+fn a_second_lint_analyses_no_target_and_a_stray_file_none_either() {
+    let scratch = Scratch::repo("profile-lint-warm");
+    library_chain(&scratch, 20);
+    scratch.write(
+        "lib/shapes/BUILD.buri",
+        "library {\n    generators: [\n        { tool: \"json\", inputs: [\"square.schema.json\"] },\n    ]\n}\n",
+    );
+    scratch.write(
+        "lib/shapes/square.schema.json",
+        "{\n    \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n    \"title\": \"Square\",\n    \"type\": \"object\"\n}\n",
+    );
+    scratch.write("lib/shapes/lib.buri", "from \"//lib/shapes/square.schema.json\" export { Square };\n");
+    let lint = || scratch.run_with_env(&["lint", "//..."], &[("BURI_PROFILE", "1")]);
+    let counts = |all: &str| (targets_linted(all), modules_loaded(all));
+
+    let cold = lint();
+    cold.ok();
+    assert_eq!(targets_linted(&cold.all()), Some(21), "{}", indent(&cold.all()));
+    let warm = lint();
+    warm.ok();
+    assert_eq!(counts(&warm.all()), (Some(0), Some(0)), "{}", indent(&warm.all()));
+
+    scratch.write("lib/shapes/stray.json", "{}\n");
+    let stray = lint();
+    stray.exits(1).says("lib/shapes/stray.json belongs to no library or binary");
+    assert_eq!(counts(&stray.all()), (Some(0), Some(0)), "{}", indent(&stray.all()));
+
+    let _ = std::fs::remove_file(scratch.path("lib/shapes/stray.json"));
+    let gone = lint();
+    gone.ok();
+    assert_eq!(counts(&gone.all()), (Some(0), Some(0)), "{}", indent(&gone.all()));
+}
+
 /// The same with a generator: a warm check runs no tool and works out
 /// nothing, where a generator's key in a record once spoiled it.
 #[test]

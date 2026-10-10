@@ -1,0 +1,4 @@
+{
+    "$schema": "//libs/shapes/square.schema.json",
+    "side": 3
+}

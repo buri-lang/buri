@@ -59,6 +59,18 @@ use std::path::{Path, PathBuf};
 /// a warning, and nothing silences one; `REPO.buri`'s `lint` block may only ask
 /// for them sooner or harder.
 pub fn command_lint(args: &arguments::Args) -> i32 {
+    let code = lint_all(args);
+    if crate::profile::enabled() {
+        eprintln!("targets linted {}", LINTED.load(std::sync::atomic::Ordering::Relaxed));
+    }
+    code
+}
+
+/// The targets this command analysed rather than answered from a lint record:
+/// `targets linted` in a `BURI_PROFILE` report.
+static LINTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn lint_all(args: &arguments::Args) -> i32 {
     let (mut session, diagnostics) = match collect_findings(args) {
         Ok(v) => v,
         Err(code) => return code,
@@ -126,14 +138,9 @@ pub fn findings_reusing(
     let mut spoken = Spoken::default();
     let mut store = super::lint_cache::Store::open(&session.root, flags);
     // The records first, so that every target they cannot answer is analysed
-    // in one compilation rather than one each. The package rules are asked
-    // once per package, so which of a record's three lists is replayed depends
-    // on whether an earlier target shares the package.
-    let mut asked = BTreeSet::new();
-    let recalled: Vec<Option<super::lint_cache::Parts>> = targets
-        .iter()
-        .map(|target| store.recall(session, *target, asked.insert(target.package)))
-        .collect();
+    // in one compilation rather than one each.
+    let recalled: Vec<Option<super::lint_cache::Parts>> =
+        targets.iter().map(|target| store.recall(session, *target)).collect();
     let unanswered: Vec<TargetId> = targets
         .iter()
         .zip(&recalled)
@@ -142,11 +149,9 @@ pub fn findings_reusing(
         .collect();
     let shared = Shared::of(session, &unanswered);
     for (target, recalled) in targets.iter().zip(recalled) {
-        let first_in_package = !seen_packages.contains(&target.package);
         if let Some(parts) = recalled {
-            seen_packages.insert(target.package);
             store.reused(session, *target);
-            replay(&parts, first_in_package, &mut diagnostics);
+            replay(session, *target, parts, &mut seen_packages, &mut diagnostics);
             continue;
         }
         let alone;
@@ -163,6 +168,7 @@ pub fn findings_reusing(
                 }
             },
         };
+        LINTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let marks =
             one_target(session, *target, &part, &mut seen_packages, &mut spoken, &mut diagnostics);
         let closure = part.reads(&session.workspace);
@@ -177,21 +183,24 @@ pub fn findings_reusing(
     diagnostics
 }
 
-/// A recalled target's findings, put back in the order they were found in.
+/// A recalled target's findings, put back in the order they were found in,
+/// with the package rules asked afresh.
 ///
 /// Through `push` rather than by concatenation, so that the deduplication a
 /// cold run applied — one error in a shared module, reported by every target
 /// whose closure holds it — applies here to the same effect.
 fn replay(
-    parts: &super::lint_cache::Parts,
-    first_in_package: bool,
+    session: &Session,
+    target: TargetId,
+    parts: super::lint_cache::Parts,
+    seen_packages: &mut BTreeSet<crate::build::workspace::PackageId>,
     diagnostics: &mut Diagnostics,
 ) {
-    diagnostics.extend(parts.analysis.iter().cloned());
-    if first_in_package {
-        diagnostics.extend(parts.package.iter().cloned());
+    diagnostics.extend(parts.analysis);
+    if seen_packages.insert(target.package) {
+        package_rules(session, target.package, diagnostics);
     }
-    diagnostics.extend(parts.target.iter().cloned());
+    diagnostics.extend(parts.target);
 }
 
 /// The same rules over one target, with its analysis already in hand.
@@ -562,9 +571,6 @@ struct Marks {
     start: usize,
     analysis_end: usize,
     package_end: usize,
-    /// Whether this pass asked the package rules, which is what tells an empty
-    /// package list "nothing to report" from "somebody else reported it".
-    asked_the_package: bool,
 }
 
 impl Marks {
@@ -574,9 +580,7 @@ impl Marks {
         };
         super::lint_cache::Parts {
             analysis: cut(self.start, self.analysis_end),
-            package: cut(self.analysis_end, self.package_end),
             target: cut(self.package_end, diagnostics.items.len()),
-            asked_the_package: self.asked_the_package,
         }
     }
 }
@@ -597,10 +601,8 @@ fn one_target(
     // import nothing uses, and the two are found by different questions.
     diagnostics.extend(analysis.reported().iter().cloned());
     let analysis_end = diagnostics.items.len();
-    let asked_the_package = seen_packages.insert(target.package);
-    if asked_the_package {
-        check_sources_declared(session, target.package, diagnostics);
-        check_test_suites(session, target.package, diagnostics);
+    if seen_packages.insert(target.package) {
+        package_rules(session, target.package, diagnostics);
     }
     let package_end = diagnostics.items.len();
     // `lint` is not building, so it checks a binary against the platforms
@@ -610,7 +612,17 @@ fn one_target(
     crate::build::actions::check_tags(session, target, diagnostics);
     check_target_platforms(session, target, diagnostics);
     check_dependencies(session, target, analysis, spoken, diagnostics);
-    Marks { start, analysis_end, package_end, asked_the_package }
+    Marks { start, analysis_end, package_end }
+}
+
+/// The rules asked once per package rather than once per target.
+///
+/// Never remembered between runs: `unused-source` reads the package's
+/// directory, which no file in a closure stands for, and the walk costs less
+/// than proving it has not moved would (buri-lang/buri#281).
+fn package_rules(session: &Session, package: PackageId, diagnostics: &mut Diagnostics) {
+    check_sources_declared(session, package, diagnostics);
+    check_test_suites(session, package, diagnostics);
 }
 
 /// `rules`: drops every finding from a rule this repository has turned off.
@@ -972,6 +984,27 @@ fn unlisted_files(session: &Session, package: PackageId, declared: &[(String, Sp
     known.insert("testing/lib.buri".into());
     known.insert("tool.buri".into());
 
+    let mut on_disk = package_files(session, package);
+    on_disk.retain(|rel| !known.contains(rel));
+    if on_disk.is_empty() {
+        return on_disk;
+    }
+    // A schema an input is checked against is read by the build, so it
+    // belongs to whichever rule lists that input.
+    let schemas: BTreeSet<String> = session
+        .workspace
+        .targets()
+        .into_iter()
+        .filter_map(|t| session.workspace.generated.outcome(t))
+        .flat_map(|o| o.reads)
+        .collect();
+    on_disk.retain(|rel| !schemas.contains(&session.workspace.rel_of(&p.dir.join(rel))));
+    on_disk
+}
+
+/// Every file in a package `unused-source` could report, package-relative and
+/// sorted, from one walk of its directory.
+fn package_files(session: &Session, package: PackageId) -> Vec<String> {
     // What a generator's inputs wear. A generator reads whatever it likes, so
     // "every file belongs to a rule" cannot be asked of every file on disk —
     // a README is nobody's. It can be asked of a file wearing an extension a
@@ -987,23 +1020,25 @@ fn unlisted_files(session: &Session, package: PackageId, declared: &[(String, Sp
             }
         }
     }
-
-    // A schema an input is checked against is read by the build, so it
-    // belongs to whichever rule lists that input.
-    let schemas: BTreeSet<String> = session
-        .workspace
-        .targets()
-        .into_iter()
-        .filter_map(|t| session.workspace.generated.outcome(t))
-        .flat_map(|o| o.reads)
-        .collect();
-
+    let p = session.workspace.package(package);
     let mut on_disk = Vec::new();
     collect_package_sources(&p.dir, &p.dir, &extensions, &mut on_disk);
-    on_disk.retain(|rel| {
-        !known.contains(rel) && !schemas.contains(&session.workspace.rel_of(&p.dir.join(rel)))
-    });
     on_disk
+}
+
+/// A hash of [`package_files`]: which files the package rules see.
+///
+/// No file in a closure stands for a file appearing or going away, so a
+/// remembered answer that includes the package rules is keyed on this too
+/// (buri-lang/buri#281).
+pub fn package_files_key(session: &Session, package: PackageId) -> u64 {
+    use std::hash::Hasher;
+    let mut hasher = crate::hash::FxHasher::default();
+    for rel in package_files(session, package) {
+        hasher.write(rel.as_bytes());
+        hasher.write_u8(0);
+    }
+    hasher.finish()
 }
 
 /// Whether [`unlisted_files`] over these targets' packages has to know what
