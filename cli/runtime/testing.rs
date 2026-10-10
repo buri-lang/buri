@@ -543,16 +543,19 @@ fn fs_clean(path: &str) -> &str {
     }
 }
 
-/// Replace the file at `path`, or add it.
-fn fs_put(handle: i64, path: String, body: Vec<u8>) {
-    with(handle, (), |slot| {
-        if let Slot::Files { entries, .. } = slot {
-            match entries.iter_mut().find(|(k, _)| *k == path) {
-                Some(entry) => entry.1 = body,
-                None => entries.push((path, body)),
-            }
+/// Replace the file at `path`, or add it where its directory is there.
+fn fs_put(handle: i64, path: String, body: Vec<u8>) -> i32 {
+    with(handle, IO_NOT_FOUND, |slot| {
+        let Slot::Files { entries, dirs } = slot else { return IO_NOT_FOUND };
+        if let Err(tag) = fs_parents(entries, dirs, fs_clean(&path)) {
+            return tag;
         }
-    });
+        match entries.iter_mut().find(|(k, _)| *k == path) {
+            Some(entry) => entry.1 = body,
+            None => entries.push((path, body)),
+        }
+        BURI_OK
+    })
 }
 
 /// Move a test clock forward, which is all `sleepMilliseconds` does.
@@ -965,12 +968,16 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_files_bytes(
 }
 
 /// The handle both builders answer: this view's files with `added` written over
-/// them, in a store of its own, under this view's attenuation and plan.
+/// them, in a store of its own, under this view's attenuation and plan. A
+/// fixture's files imply their directories, which is how a test seeds a tree.
 fn fs_extended(handle: i64, added: impl IntoIterator<Item = (String, Vec<u8>)>) -> i64 {
     let (store, read_only) = fs_view(handle);
     let plan = slot_plan(handle);
-    let (mut entries, dirs) = fs_contents(store);
+    let (mut entries, mut dirs) = fs_contents(store);
     for (path, body) in added {
+        if let Some((parent, _)) = fs_clean(&path).rsplit_once('/') {
+            fs_record_dirs(&mut dirs, parent);
+        }
         match entries.iter_mut().find(|(k, _)| *k == path) {
             Some(entry) => entry.1 = body,
             None => entries.push((path, body)),
@@ -1101,9 +1108,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read_file(
 
 /// `TestFileSystem.writeFile(self, path, body) -> Result<(), IoError>`.
 ///
-/// `.Err(.ReadOnly)` through an attenuated view, and otherwise it cannot fail:
-/// a write to a path already there replaces it in place, so `files` written
-/// twice reads back once.
+/// `.Err(.ReadOnly)` through an attenuated view, and `fs_parents`' answer where
+/// the directory is not there. A write to a path already there replaces it in
+/// place, so `files` written twice reads back once.
 ///
 /// # Safety
 /// Both ranges are readable.
@@ -1127,8 +1134,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_write_file(
     if read_only {
         return IO_READ_ONLY;
     }
-    fs_put(store, path, body);
-    BURI_OK
+    fs_put(store, path, body)
 }
 
 /// `TestFileSystem.fileExists(self, path) -> Bool` — true for a file, and for a
@@ -1229,7 +1235,8 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read_file_bytes(
 }
 
 /// `TestFileSystem.writeFileBytes(self, path, body) -> Result<(), IoError>` — replaces
-/// the file, or creates it. `.Err(.ReadOnly)` through an attenuated view.
+/// the file, or creates it where its directory is there. `.Err(.ReadOnly)` through
+/// an attenuated view.
 ///
 /// # Safety
 /// Both ranges are readable.
@@ -1252,12 +1259,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_write_file_bytes(
     if read_only {
         return IO_READ_ONLY;
     }
-    fs_put(store, path, body);
-    BURI_OK
+    fs_put(store, path, body)
 }
 
 /// `TestFileSystem.appendFile(self, path, body) -> Result<(), IoError>` — adds the
-/// octets to the end, creating the file when it is absent.
+/// octets to the end, creating the file when it is absent and its directory is there.
 ///
 /// # Safety
 /// Both ranges are readable.
@@ -1280,15 +1286,17 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_append_file(
     if read_only {
         return IO_READ_ONLY;
     }
-    with(store, (), |slot| {
-        if let Slot::Files { entries, .. } = slot {
-            match entries.iter_mut().find(|(k, _)| *k == path) {
-                Some(entry) => entry.1.extend_from_slice(&body),
-                None => entries.push((path, body)),
-            }
+    with(store, IO_NOT_FOUND, |slot| {
+        let Slot::Files { entries, dirs } = slot else { return IO_NOT_FOUND };
+        if let Err(tag) = fs_parents(entries, dirs, fs_clean(&path)) {
+            return tag;
         }
-    });
-    BURI_OK
+        match entries.iter_mut().find(|(k, _)| *k == path) {
+            Some(entry) => entry.1.extend_from_slice(&body),
+            None => entries.push((path, body)),
+        }
+        BURI_OK
+    })
 }
 
 /// `TestFileSystem.renameFile(self, from, to) -> Result<(), IoError>` — `rename(2)`
@@ -1370,6 +1378,20 @@ fn fs_inside(path: &str, dir: &str) -> bool {
         || path.strip_prefix(dir).is_some_and(|rest| rest.starts_with('/'))
 }
 
+/// Whether every directory on the way to `path` is there, as `open(2)` and
+/// `rename(2)` walk it: `.NotFound` at the first one missing, `.NotADirectory`
+/// at the first file.
+fn fs_parents(entries: &[(String, Vec<u8>)], dirs: &[String], path: &str) -> Result<(), i32> {
+    for (end, _) in path.match_indices('/') {
+        match fs_named(entries, dirs, path.get(..end).unwrap_or_default()) {
+            Named::Directory => {}
+            Named::File => return Err(IO_NOT_A_DIRECTORY),
+            Named::Nothing => return Err(IO_NOT_FOUND),
+        }
+    }
+    Ok(())
+}
+
 /// `rename(2)` on a store, with both paths [`fs_clean`]ed. The refusals are the
 /// ones macOS and Linux both give, found in the order the kernel finds them:
 ///
@@ -1391,13 +1413,7 @@ fn fs_rename(
     if source == Named::Nothing {
         return Err((IO_NOT_FOUND, ""));
     }
-    for (end, _) in to.match_indices('/') {
-        match fs_named(entries, dirs, to.get(..end).unwrap_or_default()) {
-            Named::Directory => {}
-            Named::File => return Err((IO_NOT_A_DIRECTORY, "")),
-            Named::Nothing => return Err((IO_NOT_FOUND, "")),
-        }
-    }
+    fs_parents(entries, dirs, to).map_err(|tag| (tag, ""))?;
     if from == to {
         return Ok(());
     }
@@ -1531,8 +1547,8 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_remove_dir(
 }
 
 /// `TestFileSystem.makeDir(self, path) -> Result<(), IoError>` — parents included, an
-/// existing directory `.Ok`, and a path already naming a file
-/// `.Err(.AlreadyExists)`.
+/// existing directory `.Ok`, a path already naming a file `.Err(.AlreadyExists)`,
+/// and a file on the way `.Err(.NotADirectory)`, as `mkdir -p` answers.
 ///
 /// # Safety
 /// The range is readable.
@@ -1556,18 +1572,27 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_make_dir(
     }
     with(store, BURI_OK, |slot| {
         let Slot::Files { entries, dirs } = slot else { return BURI_OK };
+        let mut ancestors =
+            clean.match_indices('/').map(|(end, _)| clean.get(..end).unwrap_or_default());
+        if ancestors.any(|at| entries.iter().any(|(k, _)| k == at)) {
+            return IO_NOT_A_DIRECTORY;
+        }
         if entries.iter().any(|(k, _)| *k == clean) {
             return IO_ALREADY_EXISTS;
         }
-        let parts: Vec<&str> = clean.split('/').collect();
-        for i in 0..parts.len() {
-            let at = parts.get(..=i).unwrap_or(&[]).join("/");
-            if !at.is_empty() && !dirs.contains(&at) {
-                dirs.push(at);
-            }
-        }
+        fs_record_dirs(dirs, &clean);
         BURI_OK
     })
+}
+
+/// Record `dir` and every directory above it.
+fn fs_record_dirs(dirs: &mut Vec<String>, dir: &str) {
+    let ends = dir.match_indices('/').map(|(end, _)| end).chain([dir.len()]);
+    for at in ends.filter_map(|end| dir.get(..end)) {
+        if !at.is_empty() && !dirs.iter().any(|d| d == at) {
+            dirs.push(at.to_string());
+        }
+    }
 }
 
 /// `TestFileSystem.syncFile(self, path) -> Result<(), IoError>` — nothing to flush, so
@@ -2677,8 +2702,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_real_path(
 
 /// `TestFileSystem.copyFile(self, source, destination) -> Result<(), IoError>`.
 ///
-/// `.Err(.ReadOnly)` through an attenuated view, and `.Err(.NotFound)` where
-/// the source is not there — the two answers `renameFile` gives, minus the move.
+/// `.Err(.ReadOnly)` through an attenuated view, `.Err(.NotFound)` where the
+/// source is not there, and `fs_parents`' answer for the destination's
+/// directory — the answers `renameFile` gives, minus the move.
 ///
 /// # Safety
 /// Both ranges are readable.
@@ -2705,8 +2731,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_copy_file(
         return IO_READ_ONLY;
     }
     let Some(body) = fs_read(store, &from) else { return IO_NOT_FOUND };
-    fs_put(store, to, body);
-    BURI_OK
+    fs_put(store, to, body)
 }
 
 

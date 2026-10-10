@@ -259,16 +259,18 @@ impl TestStdin {
 /// filesystem's does — so `writeFileBytes` of a byte a text encoding cannot carry
 /// reads back through `readFileBytes` unchanged.
 ///
-/// An in-memory filesystem is thinner than a real one in two observable places.
-/// It is a flat map of paths, so the parents of a fixture's path are not
-/// directories until `makeDir` says so; and `sync` has nothing to flush, so it is
-/// `.Ok` for any path that exists. Everything else — append creating a file,
-/// rename replacing one, removing what is not there — answers exactly what a real
-/// filesystem answers.
+/// Directories behave as on a real filesystem. A write, append, copy or rename
+/// into a directory that is not there is `.Err(.NotFound)`, and one under a file
+/// is `.Err(.NotADirectory)`. Only `makeDir` creates directories, and a fixture's
+/// files imply theirs: `files([("t/a", "A")])` holds the directory `t`.
+///
+/// An in-memory filesystem is thinner than a real one in one observable place:
+/// `sync` has nothing to flush, so it is `.Ok` for any path that exists.
+/// Everything else — append creating a file, rename replacing one, removing what
+/// is not there — answers exactly what a real filesystem answers.
 ///
 /// `rename` is `rename(2)`: a directory moves with everything under it, and it
-/// refuses what macOS and Linux both refuse. A rename counts a path something is
-/// stored under as a directory, so a fixture's `("t/a", "A")` moves with `t`.
+/// refuses what macOS and Linux both refuse.
 ///
 /// ## Two fields, for `TestNetwork`'s reason
 ///

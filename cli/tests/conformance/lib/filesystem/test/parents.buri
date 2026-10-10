@@ -1,0 +1,172 @@
+// A write needs its directory to be there, as on a real filesystem.
+//
+// `native::e2e` and the JavaScript runner's real filesystem answer `.NotFound`
+// for a missing directory and `.NotADirectory` for a file in the way, and so
+// does `fs()`. Only `makeDir` creates a directory, and a fixture's files imply
+// theirs.
+
+from "core/fs" import * as files;
+from "core/fs" import { FileSystemRead, FileSystemWrite };
+from "core/path" import * as path;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc, fs };
+
+test "writing into a directory that does not exist fails" {
+    let disk = fs();
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    let written = files.writeBytes(ctx, path.of(ctx, "missing/dir/file.bin"), [1]);
+    assert.isTrue(written.isErr());
+    assert.isFalse(files.exists(ctx, path.of(ctx, "missing/dir")));
+}
+
+// -----------------------------------------------------------------------------
+// A missing directory is NotFound, and nothing is created
+// -----------------------------------------------------------------------------
+
+test "every write into a missing directory is NotFound" {
+    let disk = fs().files([("f", "F")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    let into = path.of(ctx, "missing/x");
+    assert.equal(assert.err(files.writeText(ctx, into, "a")), .NotFound);
+    assert.equal(assert.err(files.writeBytes(ctx, into, [1])), .NotFound);
+    assert.equal(assert.err(files.writeAtomic(ctx, into, [1])), .NotFound);
+    assert.equal(assert.err(files.append(ctx, into, [1])), .NotFound);
+    assert.equal(assert.err(files.copy(ctx, path.of(ctx, "f"), into)), .NotFound);
+    assert.equal(assert.err(files.rename(ctx, path.of(ctx, "f"), into)), .NotFound);
+    assert.equal(disk.snapshot(), [("f", "F")]);
+    assert.isFalse(files.exists(ctx, path.of(ctx, "missing")));
+    assert.equal(assert.ok(files.listDir(ctx, path.of(ctx, ""))), ["f"]);
+}
+
+test "a directory removed is a directory missing" {
+    let disk = fs();
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(files.makeDir(ctx, path.of(ctx, "d")));
+    assert.ok(files.removeDir(ctx, path.of(ctx, "d")));
+    assert.equal(assert.err(files.writeText(ctx, path.of(ctx, "d/x"), "a")), .NotFound);
+}
+
+// -----------------------------------------------------------------------------
+// A file in the way is NotADirectory
+// -----------------------------------------------------------------------------
+
+test "every write under a file is NotADirectory" {
+    let disk = fs().files([("f", "F"), ("g", "G")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    let under = path.of(ctx, "f/x");
+    assert.equal(assert.err(files.writeText(ctx, under, "a")), .NotADirectory);
+    assert.equal(assert.err(files.writeBytes(ctx, under, [1])), .NotADirectory);
+    assert.equal(assert.err(files.writeAtomic(ctx, under, [1])), .NotADirectory);
+    assert.equal(assert.err(files.append(ctx, under, [1])), .NotADirectory);
+    assert.equal(assert.err(files.copy(ctx, path.of(ctx, "g"), under)), .NotADirectory);
+    assert.equal(
+        assert.err(files.rename(ctx, path.of(ctx, "g"), under)),
+        .NotADirectory,
+    );
+    assert.equal(disk.snapshot(), [("f", "F"), ("g", "G")]);
+}
+
+test "a file further up is NotADirectory too" {
+    let disk = fs().files([("f", "F")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.equal(
+        assert.err(files.writeText(ctx, path.of(ctx, "f/a/b"), "a")),
+        .NotADirectory,
+    );
+}
+
+test "makeDir under a file is NotADirectory, and makes nothing" {
+    let disk = fs().files([("f", "F")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.equal(assert.err(files.makeDir(ctx, path.of(ctx, "f/a/b"))), .NotADirectory);
+    assert.isTrue(files.isFile(ctx, path.of(ctx, "f")));
+    assert.isFalse(files.exists(ctx, path.of(ctx, "f/a")));
+    assert.equal(assert.err(files.makeDir(ctx, path.of(ctx, "f"))), .AlreadyExists);
+}
+
+// -----------------------------------------------------------------------------
+// What creates a directory
+// -----------------------------------------------------------------------------
+
+test "makeDir creates every missing parent, and a write lands inside" {
+    let disk = fs();
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(files.makeDir(ctx, path.of(ctx, "a/b/c")));
+    assert.isTrue(files.isDirectory(ctx, path.of(ctx, "a")));
+    assert.isTrue(files.isDirectory(ctx, path.of(ctx, "a/b")));
+    assert.ok(files.writeText(ctx, path.of(ctx, "a/b/c/x"), "X"));
+    assert.ok(files.append(ctx, path.of(ctx, "a/b/y"), [89]));
+    assert.ok(files.copy(ctx, path.of(ctx, "a/b/c/x"), path.of(ctx, "a/z")));
+    assert.equal(disk.snapshot(), [("a/b/c/x", "X"), ("a/b/y", "Y"), ("a/z", "X")]);
+}
+
+test "a fixture's files imply their directories" {
+    let disk = fs().files([("t/deep/a", "A")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.isTrue(files.isDirectory(ctx, path.of(ctx, "t")));
+    assert.isTrue(files.isDirectory(ctx, path.of(ctx, "t/deep")));
+    assert.ok(files.writeText(ctx, path.of(ctx, "t/b"), "B"));
+    assert.ok(files.writeText(ctx, path.of(ctx, "t/deep/c"), "C"));
+    assert.equal(disk.snapshot(), [("t/b", "B"), ("t/deep/a", "A"), ("t/deep/c", "C")]);
+}
+
+test "a fixture's directory stays when its last file goes" {
+    let disk = fs().filesBytes([("t/a", [65])]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(files.remove(ctx, path.of(ctx, "t/a")));
+    assert.isTrue(files.isDirectory(ctx, path.of(ctx, "t")));
+    assert.ok(files.writeText(ctx, path.of(ctx, "t/b"), "B"));
+}
+
+test "a directory a rename moved is somewhere to write" {
+    let disk = fs();
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(files.makeDir(ctx, path.of(ctx, "a/b")));
+    assert.ok(files.rename(ctx, path.of(ctx, "a"), path.of(ctx, "c")));
+    assert.ok(files.writeText(ctx, path.of(ctx, "c/b/x"), "X"));
+    assert.equal(
+        assert.err(files.writeText(ctx, path.of(ctx, "a/b/x"), "X")),
+        .NotFound,
+    );
+}

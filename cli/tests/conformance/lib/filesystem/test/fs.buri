@@ -350,19 +350,18 @@ test "an empty file copies as an empty file" {
     assert.isEmpty(assert.ok(fs.readBytes(ctx, path.of(ctx, "b"))));
 }
 
-test "a copy into a directory nobody made is the one answer a map cannot give" {
-    // A flat map has no directories to be missing, so the key is simply
-    // written. A real filesystem answers `.NotFound`, and `native::e2e` is
-    // where that is asserted — this block is here so the difference is written
-    // down rather than found later.
+test "a copy into a directory nobody made is NotFound" {
     let files = disk().files([("a", "A")]);
     let ctx = context {
         Allocator: alloc(),
         FileSystemRead: files,
         FileSystemWrite: files,
     };
-    assert.ok(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "nowhere/b")));
-    assert.equal(files.snapshot(), [("a", "A"), ("nowhere/b", "A")]);
+    assert.equal(
+        assert.err(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "nowhere/b"))),
+        .NotFound,
+    );
+    assert.equal(files.snapshot(), [("a", "A")]);
 }
 
 test "copying what is not there is NotFound, and a read-only view refuses" {

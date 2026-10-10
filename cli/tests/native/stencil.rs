@@ -2099,6 +2099,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "http/messages.buri",
     "environment/env.buri",
     "filesystem/fs.buri",
+    "filesystem/parents.buri",
     "filesystem/rename.buri",
     "lazy/load.buri",
     "memory/allocators.buri",

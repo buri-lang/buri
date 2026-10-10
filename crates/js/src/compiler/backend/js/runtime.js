@@ -8808,19 +8808,40 @@ function $host_testing_newFs() {
 // This view's files with these written over them, in a map of its own, under
 // this view's attenuation and plan — so `files` and `filesBytes` compose in
 // either order, `fs().readOnly().files(..)` is still read-only, and
-// `fs().faults(p).files(..)` still fails what `p` names.
+// `fs().faults(p).files(..)` still fails what `p` names. A fixture's files
+// imply their directories, which is how a test seeds a tree.
 function $host_testing_fsFiles(h, entries) {
-  const s = $tslot(h);
-  const files = Object.assign({}, s.files);
-  for (const e of entries) files[e[0]] = $bytes_toUtf8(null, e[1]);
-  return $tmint({ files, dirs: s.dirs.slice(), ro: s.ro, plan: s.plan, calls: [] });
+  return $host_testing_fsExtended(h, entries, function (b) {
+    return $bytes_toUtf8(null, b);
+  });
 }
 
 function $host_testing_fsFilesBytes(h, entries) {
+  return $host_testing_fsExtended(h, entries, function (b) {
+    return b.slice();
+  });
+}
+
+function $host_testing_fsExtended(h, entries, body) {
   const s = $tslot(h);
   const files = Object.assign({}, s.files);
-  for (const e of entries) files[e[0]] = e[1].slice();
-  return $tmint({ files, dirs: s.dirs.slice(), ro: s.ro, plan: s.plan, calls: [] });
+  const dirs = s.dirs.slice();
+  for (const e of entries) {
+    const clean = e[0].replace(/\/+$/, "");
+    const end = clean.lastIndexOf("/");
+    if (end > 0) $host_testing_recordDirs(dirs, clean.slice(0, end));
+    files[e[0]] = body(e[1]);
+  }
+  return $tmint({ files, dirs, ro: s.ro, plan: s.plan, calls: [] });
+}
+
+// `dir` and every directory above it.
+function $host_testing_recordDirs(dirs, dir) {
+  const parts = dir.split("/");
+  for (let i = 0; i < parts.length; i++) {
+    const at = parts.slice(0, i + 1).join("/");
+    if (at !== "" && !dirs.includes(at)) dirs.push(at);
+  }
 }
 
 // The same two objects, deliberately: a method that copied would be a snapshot
@@ -9520,6 +9541,8 @@ function $host_testing_fsWriteFile(h, p, b) {
   const s = $tslot(h);
   const call = ["writeFile", p, b];
   if (s.ro) return $host_testing_logged(s, call, $err([2]));
+  const refused = $host_testing_parents(s, p.replace(/\/+$/, ""));
+  if (refused) return $host_testing_logged(s, call, refused);
   s.files[p] = $bytes_toUtf8(null, b);
   return $host_testing_logged(s, call, $ok(0));
 }
@@ -9558,6 +9581,8 @@ function $host_testing_fsWriteFileBytes(h, p, b) {
   const s = $tslot(h);
   const call = ["writeFileBytes", p, $utf8Lossy(b)];
   if (s.ro) return $host_testing_logged(s, call, $err([2]));
+  const refused = $host_testing_parents(s, p.replace(/\/+$/, ""));
+  if (refused) return $host_testing_logged(s, call, refused);
   s.files[p] = b.slice();
   return $host_testing_logged(s, call, $ok(0));
 }
@@ -9566,6 +9591,8 @@ function $host_testing_fsAppendFile(h, p, b) {
   const s = $tslot(h);
   const call = ["appendFile", p, $utf8Lossy(b)];
   if (s.ro) return $host_testing_logged(s, call, $err([2]));
+  const refused = $host_testing_parents(s, p.replace(/\/+$/, ""));
+  if (refused) return $host_testing_logged(s, call, refused);
   const f = s.files;
   f[p] = (p in f ? f[p] : []).concat(b);
   return $host_testing_logged(s, call, $ok(0));
@@ -9606,14 +9633,23 @@ function $host_testing_named(s, p) {
   return s.dirs.includes(p) || $host_testing_holds(s, p) ? "dir" : "none";
 }
 
-function $host_testing_rename(s, from, to) {
-  const source = $host_testing_named(s, from);
-  if (source === "none") return $err([0]);
-  for (let end = to.indexOf("/"); end >= 0; end = to.indexOf("/", end + 1)) {
-    const on = $host_testing_named(s, to.slice(0, end));
+// Every directory on the way to `p`, walked as `open(2)` and `rename(2)` walk
+// it: `.NotFound` at the first one missing, `.NotADirectory` at the first file,
+// and `undefined` where all of them are there.
+function $host_testing_parents(s, p) {
+  for (let end = p.indexOf("/"); end >= 0; end = p.indexOf("/", end + 1)) {
+    const on = $host_testing_named(s, p.slice(0, end));
     if (on === "file") return $err([4]);
     if (on === "none") return $err([0]);
   }
+  return undefined;
+}
+
+function $host_testing_rename(s, from, to) {
+  const source = $host_testing_named(s, from);
+  if (source === "none") return $err([0]);
+  const refused = $host_testing_parents(s, to);
+  if (refused) return refused;
   if (from === to) return $ok(0);
   if (source === "dir" && $host_testing_inside(to, from)) {
     return $err([6, "invalid argument"]);
@@ -9692,20 +9728,20 @@ function $host_testing_fsRemoveDir(h, p) {
   return $host_testing_logged(s, call, $ok(0));
 }
 
-// Parents included, an existing directory is `.Ok`, and a path already naming
-// a file is `.AlreadyExists` — the three answers `mkdir -p` gives.
+// Parents included, an existing directory is `.Ok`, a path already naming a
+// file is `.AlreadyExists`, and a file on the way is `.NotADirectory` — the
+// answers `mkdir -p` gives.
 function $host_testing_fsMakeDir(h, p) {
   const s = $tslot(h);
   const call = ["makeDir", p, ""];
   if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const clean = p.replace(/\/+$/, "");
   if (clean === "" || clean === ".") return $host_testing_logged(s, call, $ok(0));
-  if (clean in s.files) return $host_testing_logged(s, call, $err([3]));
-  const parts = clean.split("/");
-  for (let i = 0; i < parts.length; i++) {
-    const at = parts.slice(0, i + 1).join("/");
-    if (at !== "" && !s.dirs.includes(at)) s.dirs.push(at);
+  for (let end = clean.indexOf("/"); end >= 0; end = clean.indexOf("/", end + 1)) {
+    if (clean.slice(0, end) in s.files) return $host_testing_logged(s, call, $err([4]));
   }
+  if (clean in s.files) return $host_testing_logged(s, call, $err([3]));
+  $host_testing_recordDirs(s.dirs, clean);
   return $host_testing_logged(s, call, $ok(0));
 }
 
@@ -9771,6 +9807,8 @@ function $host_testing_fsCopyFile(h, from, to) {
   if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const f = s.files;
   if (!(from in f)) return $host_testing_logged(s, call, $err([0]));
+  const refused = $host_testing_parents(s, to.replace(/\/+$/, ""));
+  if (refused) return $host_testing_logged(s, call, refused);
   f[to] = f[from].slice();
   return $host_testing_logged(s, call, $ok(0));
 }
