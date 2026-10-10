@@ -16,18 +16,12 @@
 //!  * **Cost.** Growing a list in a loop is linear — whether the list is the
 //!    last field its record's literal writes or not, and `core/buri/ast`'s
 //!    printer, which the build runs for every `.proto` in a repository, is
-//!    linear because of it. Asserted as a ratio rather
-//!    than a time, between the same *total* number of pushes taken in runs of
-//!    ten thousand and in runs of a hundred thousand: linear work makes those
-//!    equal, and the copying they replaced makes the second ten times the
-//!    first. One program times both, back to back, reading the clock around
-//!    its own pushing — so what is compared is the work rather than a
-//!    process's wall time, and the two halves of a ratio are always answers
-//!    about the same machine a moment apart. Two dozen such pairs, and the
-//!    median is the answer: what load does to a pair, it does to both halves,
-//!    and a ratio divides it out. Where one update grows two lists, and where
-//!    `core/buri/ast`'s lexer pushes each token, the claim is a count instead:
-//!    how many elements every `Array.prototype.slice` copied.
+//!    linear because of it. Asserted as a ratio between the same *total*
+//!    work done in small runs and in large ones: linear work makes those
+//!    equal, and the copying they replaced makes the second several times the
+//!    first. The work is counted, never timed, so load can't move it: the
+//!    instructions the JavaScript runtime retires, where macOS counts them,
+//!    and everywhere the elements every `Array.prototype.slice` copied.
 //!
 //! ```text
 //! cargo test -p buri --test language sharing::
@@ -149,16 +143,6 @@ fn a_host_array_is_never_written_through() {
     );
 }
 
-/// How many pairs of measurements one launch takes, and how many launches
-/// there are.
-///
-/// Twelve pairs a launch and two launches is twenty-four ratios, and the answer
-/// is the median of them. Two launches rather than one because a JIT that
-/// settles somewhere unlucky settles there for a whole process, and that is the
-/// one source of error a second sample inside the same process cannot reach.
-const PAIRS: usize = 12;
-const LAUNCHES: usize = 2;
-
 /// A list grown in a loop: `<runs>` runs of `<size>` pushes through each of
 /// two shapes, printing how many elements that pushed.
 const GROW: &str = r#"
@@ -214,91 +198,6 @@ export fn main(host: NodeHost): Result<(), Str> {
 }
 "#;
 
-/// One pair: the two sizes as the program timed them, in milliseconds.
-struct Pair {
-    small: u64,
-    large: u64,
-}
-
-impl Pair {
-    fn ratio(&self) -> f64 {
-        self.large as f64 / self.small as f64
-    }
-}
-
-/// Every pair the program reported, over every launch.
-///
-/// The launches are what is left of the old best-of-three: three runs of one
-/// program and then three of the other were two samples taken at two different
-/// moments, and a burst of load landing inside one of them moved the ratio for
-/// a reason that had nothing to do with the curve. That is how this row went
-/// flaky twice — the second time 115 ms against 784 ms, a ratio of 6.8 on a
-/// bound of 4, from JavaScript the run before had passed on. Nothing about a
-/// sample *count* fixes it; only measuring the two sizes together does, which
-/// is what the program now does. The launches remain because a process is also
-/// a JIT, and two of them are two opinions about the same code.
-fn pairs(scratch: &Scratch, package: &str, pushes: &str) -> Vec<Pair> {
-    let artifact = scratch.artifact(package);
-    let what = format!("{} {}", js_runtime(), artifact.display());
-    let mut all = Vec::new();
-    for _ in 0..LAUNCHES {
-        let out = Command::new(js_runtime())
-            .arg(&artifact)
-            .output()
-            .unwrap_or_else(|e| panic!("`{what}` did not run: {e}"));
-        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-        let both = format!("{stdout}{}", String::from_utf8_lossy(&out.stderr));
-        assert!(out.status.success(), "`{what}` failed:\n{both}");
-        let mut seen = 0;
-        for line in stdout.lines() {
-            let field: Vec<&str> = line.split_whitespace().collect();
-            assert_eq!(
-                field.len(),
-                4,
-                "`{what}` printed {line:?}, not four numbers:\n{both}"
-            );
-            let number = |at: usize| -> u64 {
-                field[at].parse().unwrap_or_else(|_| {
-                    panic!("`{what}` printed {:?} where a number belongs:\n{both}", field[at])
-                })
-            };
-            for at in [2, 3] {
-                assert_eq!(
-                    field[at], pushes,
-                    "a repetition pushed the wrong number of elements:\n{both}"
-                );
-            }
-            let (small, large) = (number(0), number(1));
-            assert!(
-                small > 0 && large > 0,
-                "`{what}` timed a repetition at zero milliseconds, which the clock \
-                 cannot resolve; raise the runs per repetition:\n{both}"
-            );
-            all.push(Pair { small, large });
-            seen += 1;
-        }
-        assert_eq!(seen, PAIRS, "`{what}` reported {seen} pairs rather than {PAIRS}:\n{both}");
-    }
-    all
-}
-
-/// The median of what the pairs say, which is the number the bound is on.
-///
-/// A median and not a minimum, because pairing has already done what a minimum
-/// used to be for. A minimum throws away every sample a burst of load touched,
-/// and that was the only defence available while the two halves of the ratio
-/// were measured seconds apart; it also has a bias nobody wants — the shorter
-/// of two tasks is likelier to find an uninterrupted slice on a contended box,
-/// so a minimum quietly flatters the small one. Inside a pair, load lands on
-/// both halves and divides out, so what is wanted is the *typical* pair rather
-/// than the luckiest one, and half the pairs have to be wrong in the same
-/// direction to move a median.
-fn median_ratio(pairs: &[Pair]) -> f64 {
-    let mut ratios: Vec<f64> = pairs.iter().map(Pair::ratio).collect();
-    ratios.sort_by(|a, b| a.partial_cmp(b).expect("a ratio is a number"));
-    ratios[ratios.len() / 2]
-}
-
 /// Both sizes push two hundred thousand elements: runs of a thousand and runs
 /// of ten thousand. Linear growth makes them cost the same; the copy they
 /// replaced makes each push of the larger copy ten times as much.
@@ -339,22 +238,20 @@ fn growing_a_list_in_a_loop_is_linear() {
 ///
 /// `raw` out of `core/buri/ast`'s printer, with the names changed: a record
 /// carrying the pieces written so far and the offset the next one starts at,
-/// and one functional update that pushes a piece and advances the offset. Both
-/// sizes are timed the way [`GROW`] times its two, and for the same reasons.
+/// and one functional update that pushes a piece and advances the offset,
+/// run the way [`GROW`] runs.
 ///
 /// `total` is what the shape is for. It is written beside the push, it is read
 /// out of the same record, and what reading it produces is an `Int` rather
 /// than a reference to anything.
 const GROW_BESIDE: &str = r#"
-from "platform/effect" import { Allocator, Clock, Stdout };
+from "core/env" import * as env;
+from "platform/effect" import { Allocator, Environment, Stdout };
 from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
-from "core/time" import * as time;
 
 struct Out { items: [Int], total: Int }
-
-struct Timing { milliseconds: Int, pushed: Int }
 
 fn write<C: Allocator>(ctx: C, i: Int, n: Int, out: Out): Out {
   if (i >= n) {
@@ -378,42 +275,12 @@ fn writeRuns<C: Allocator>(ctx: C, k: Int, count: Int, n: Int, acc: Int): Int {
   }
 }
 
-/// One size, timed: `count` runs of `n` pushes.
-fn timed<C: Allocator + Clock>(ctx: C, count: Int, n: Int): Timing {
-  let started = time.now(ctx);
-  let pushed = writeRuns(ctx, 0, count, n, 0);
-  let took = time.since(ctx, started);
-  Timing { milliseconds: took.milliseconds(), pushed: pushed }
-}
-
-fn say<C: Allocator + Stdout>(ctx: C, small: Timing, large: Timing): () {
-  io.println(
-    ctx,
-    "${small.milliseconds} ${large.milliseconds} ${small.pushed} ${large.pushed}",
-  ).ignore()
-}
-
-fn pairs<C: Allocator + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
-  if (k >= count) {
-    ()
-  } else {
-    let _ = if (k % 2 == 0) {
-      let small = timed(ctx, SMALL_RUNS, SMALL_SIZE);
-      let large = timed(ctx, LARGE_RUNS, LARGE_SIZE);
-      say(ctx, small, large)
-    } else {
-      let large = timed(ctx, LARGE_RUNS, LARGE_SIZE);
-      let small = timed(ctx, SMALL_RUNS, SMALL_SIZE);
-      say(ctx, small, large)
-    };
-    pairs(ctx, k + 1, count)
-  }
-}
-
 export fn main(host: NodeHost): Result<(), Str> {
-  let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
-  let _ = pairs(ctx, 0, PAIRS);
-  .Ok(())
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let args = env.arguments(ctx);
+  let runs = args.get(0).andThen(fn(s) => s.toInt()).withDefault(0);
+  let n = args.get(1).andThen(fn(s) => s.toInt()).withDefault(0);
+  io.println(ctx, "${writeRuns(ctx, 0, runs, n, 0)}").mapErr(fn(_e) => "stdout")
 }
 "#;
 
@@ -430,48 +297,37 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// another reader of its list, which is what `middle/rc.rs`'s
 /// `Scan::no_reference_path` says.
 ///
-/// Measured the same way and against the same bound, because it is the same
-/// claim about the same curve. `core/buri/ast`'s printer is what found it:
-/// every token it writes goes through this shape, and printing a
-/// four-hundred-field message took 56 seconds.
+/// Counted the same way and against the same bound, because it is the same
+/// claim about the same curve: linear growth scores 1.0 and copying
+/// 8.0. `core/buri/ast`'s printer is what found it: every token it
+/// writes goes through this shape, and printing a four-hundred-field message
+/// took 56 seconds.
 #[test]
 fn growing_a_list_beside_another_field_is_linear() {
     let scratch = Scratch::repo("js-sharing-linearity-beside");
-    let source = GROW_BESIDE
-        .replace("PAIRS", &PAIRS.to_string())
-        .replace("SMALL_RUNS", "60")
-        .replace("SMALL_SIZE", "10_000")
-        .replace("LARGE_RUNS", "6")
-        .replace("LARGE_SIZE", "100_000");
     scratch.write("cmd/grow/BUILD.buri", JS_BINARY);
-    scratch.write("cmd/grow/main.buri", &source);
+    scratch.write("cmd/grow/main.buri", GROW_BESIDE);
     scratch.run(&["build", "//cmd/grow", "--force"]).ok();
 
-    let measured = pairs(&scratch, "cmd/grow", "600000");
-    let ratio = median_ratio(&measured);
-
-    let mut short: Vec<u64> = measured.iter().map(|p| p.small).collect();
-    short.sort_unstable();
-    let typical = short[short.len() / 2];
-    assert!(
-        typical >= 5,
-        "the typical repetition took {typical} ms, which a whole-millisecond clock \
-         cannot resolve; raise the runs per repetition"
-    );
-    assert!(
-        ratio <= 4.0,
-        "a push beside another field is not linear: over {} pairs of six hundred \
-         thousand pushes, the median run in runs of a hundred thousand cost \
-         {ratio:.1} times the same work in runs of ten thousand, where linear \
-         growth scores about 1 and copying scores about 10. The pairs, as \
-         `<ten-thousand ms> <hundred-thousand ms>`: {}",
-        measured.len(),
-        measured
-            .iter()
-            .map(|p| format!("{}/{}", p.small, p.large))
-            .collect::<Vec<_>>()
-            .join(" "),
-    );
+    let small = added(&scratch, "cmd/grow", 200, 1_000);
+    let large = added(&scratch, "cmd/grow", 20, 10_000);
+    if let Some(ratio) = ratio(&small, &large) {
+        assert!(
+            ratio <= 4.0,
+            "a push beside another field is not linear: two hundred thousand pushes \
+             cost {ratio:.1} times as many instructions in runs of ten thousand as in \
+             runs of a thousand, where linear growth scores 1.0 and copying \
+             8.0"
+        );
+    }
+    for (cost, size) in [(&small, "a thousand"), (&large, "ten thousand")] {
+        assert!(
+            cost.copied < 20_000,
+            "two hundred thousand pushes beside another field in runs of {size} \
+             copied {} elements",
+            cost.copied
+        );
+    }
 }
 
 /// The printer the build runs for every `.proto` in a repository is linear in
