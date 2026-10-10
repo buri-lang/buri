@@ -89,7 +89,7 @@ use crate::compiler::semantics::typed::{
     self, Arm, ArrayRest, Expr, ExprKind, FieldPat, Magnitude, OptionOrResult, PatKind, Pattern,
     PrimOp, Stmt, TemplatePart,
 };
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Tables, Ty, TyKind};
+use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Tables, Ty, TyConId, TyKind};
 use crate::diagnostics::Invariant as _;
 use crate::hash::Map as HashMap;
 
@@ -457,7 +457,8 @@ impl Types {
         if matches!(ty.kind(), TyKind::Unit) {
             return Type::Unit;
         }
-        match tables.as_prim(ty).and_then(Type::of_prim) {
+        // A `derive Flags` struct is its word (`middle::flags`).
+        match tables.as_prim(ty).or_else(|| tables.flags_word_of(ty)).and_then(Type::of_prim) {
             Some(t) => t,
             None => Type::Agg(self.intern(tables, ty)),
         }
@@ -705,6 +706,18 @@ impl FnLower<'_> {
 
     fn type_of(&mut self, ty: &Ty) -> Type {
         self.types.of(self.tables, ty)
+    }
+
+    /// Whether field `index` of a `derive Flags` value is set: its bit, which
+    /// `middle::flags` places at `n - 1 - index`.
+    fn flag(&mut self, val: ValueId, prim: Prim, con: TyConId, index: usize) -> ValueId {
+        let n = self.tables.tycon(con).fields().len();
+        let ty = Type::of_prim(prim).unwrap_or(Type::I64);
+        let shift = n.saturating_sub(1).saturating_sub(index);
+        let mask = self.constant(ty, Const::Int { bits: Magnitude::new(1u128 << shift), negative: false });
+        let bit = self.emit(ty, |dest| Inst::Binary { dest, op: BinOp::BitAnd, prim, lhs: val, rhs: mask });
+        let zero = self.int(ty, 0);
+        self.emit(Type::I1, |dest| Inst::Binary { dest, op: BinOp::Ne, prim, lhs: bit, rhs: zero })
     }
 
     fn type_id(&mut self, ty: &Ty) -> TypeId {
@@ -1961,14 +1974,18 @@ impl FnLower<'_> {
                     self.pattern(f, p, fail);
                 }
             }
-            PatKind::Struct { fields, .. } => {
+            PatKind::Struct { con, fields } => {
+                let word = self.tables.flags_word(*con);
                 for f in fields {
                     let ty = self.type_of(&f.pattern.ty);
-                    let v = self.emit(ty, |dest| Inst::GetField {
-                        dest,
-                        agg: val,
-                        index: f.index as u32,
-                    });
+                    let v = match word {
+                        Some(prim) => self.flag(val, prim, *con, f.index),
+                        None => self.emit(ty, |dest| Inst::GetField {
+                            dest,
+                            agg: val,
+                            index: f.index as u32,
+                        }),
+                    };
                     self.pattern(v, &f.pattern, fail);
                 }
             }
@@ -2321,7 +2338,8 @@ fn qualified_key(tables: &Tables, name: &str, args: &[Expr]) -> Box<str> {
         "derivePrimHash" => args.get(1),
         _ => return name.into(),
     };
-    match operand.and_then(|a| tables.as_prim(&a.ty)) {
+    // A `derive Flags` word is hashed as the primitive it is stored in.
+    match operand.and_then(|a| tables.as_prim(&a.ty).or_else(|| tables.flags_word_of(&a.ty))) {
         Some(p) => format!("{name}.{}", p.name()).into(),
         // A `derivePrim*` at something that is not a primitive is a bug in
         // `derives.rs` rather than in the program, and the unqualified key is

@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Flags` cannot be derived","code":"trait-not-derivable","location":{"file":"cmd/flags_foreign_trait/main.buri","line":22,"column":8,"endLine":22,"endColumn":13,"text":"derive Flags for Access;"},"fix":"write `impl Flags for ... { ... }` by hand","notes":["only the `Flags` that `core/flags` declares is derivable"],"related":[]}

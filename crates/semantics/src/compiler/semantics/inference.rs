@@ -1200,6 +1200,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // A derived impl requires every field type to satisfy the
                     // trait too.
                     let derived = imp.is_derived();
+                    // `Flags` asks its fields to be `Bool`s, not to be
+                    // `Flags`, and `check_flags` already said whether they are.
+                    if derived && self.c.tables.trait_(tr).name == "Flags" {
+                        return true;
+                    }
                     if derived {
                         if seen.contains(id) {
                             return true;

@@ -408,7 +408,7 @@ at zero, where it keeps `-0.0` and `0.0` `.Equal`, as `==` does.
 [`core/set`](../../../../stdlib/src/compiler/standard_library/sources/set.buri),
 [`core/orderedmap`](../../../../stdlib/src/compiler/standard_library/sources/orderedmap.buri),
 [`core/orderedset`](../../../../stdlib/src/compiler/standard_library/sources/orderedset.buri),
-[`core/bitset`](../../../../stdlib/src/compiler/standard_library/sources/bitset.buri).
+[`core/flags`](../../../../stdlib/src/compiler/standard_library/sources/flags.buri).
 
 Every one of these is a value, so every "modification" answers a new one. Each
 module states its cost rather than leaving you to guess:
@@ -419,7 +419,7 @@ module states its cost rather than leaving you to guess:
 | `core/heap` | O(1) `peek` | O(1) `push` | A pairing heap, smallest first. `merge` is O(1) and `pop` is O(log n) amortized. It holds duplicates, which is why it is not an `OrderedSet`. |
 | `core/map`, `core/set` | O(1) expected | O(b) in buckets | Buckets of association lists. Grows and rehashes past a load factor of 4. **Iteration order is unspecified and will change.** |
 | `core/orderedmap`, `core/orderedset` | O(log n) | O(log n) | A persistent B-tree, seven entries to a node. **Iteration runs in key order.** `range` and `prefix` scan at O(log n + m) rather than filtering over everything. |
-| `core/bitset` | O(1) | O(n/32) | 32 bits to an `Int` word. 32 and not 64 because `Int` is signed, and a bit in position 63 would make every shift a question about sign extension. |
+| `core/flags` | O(1) | O(1) | `derive Flags` packs a struct of up to 64 `Bool`s into a `U8`, `U16`, `U32` or `U64`, whichever is smallest. A value is copied, never allocated. |
 
 **Two keyed collections, and order is what you choose between.** `Map` hashes,
 and looks one key up faster. `OrderedMap` compares, and answers "every key between
@@ -484,12 +484,33 @@ one side, `isSupersetOf` is `isSubsetOf` read from the other end, and
 O(n²); they are free functions for `groupBy`'s reason. `core/orderedset` has the
 same six over `Ordered`, plus `floor` and `ceiling`.
 
-**Walking a `BitSet` one bit at a time.** `firstSet` and `nextSet` read words
-and skip an empty one whole, so finding a member costs O(n/32) rather than
-`toList`'s whole-set allocation. `toggle`, `complement` and `setRange` are
-word-at-a-time too, and each stops at the capacity rather than at the word.
+**A fixed set of named facts is a struct of `Bool`s.** `derive Flags` keeps the
+fields, so `x.read` reads one and `Access { ..x, read: true }` sets one, and adds
+`union`, `intersect`, `difference`, `symmetricDifference`, `complement`,
+`isSubsetOf`, `isEmpty` and `count`. `flags.none<Access>()` and
+`flags.all<Access>()` are the two ends. A set of integers that is not known
+until run time is a `Set<Int>` or an `OrderedSet<Int>`.
 
-`Queue`, `Map`, `Set`, `OrderedMap`, `OrderedSet` and `BitSet` provide `equals` rather
+```buri
+from "core/flags" import * as flags;
+from "core/flags" import { Flags };
+
+derive Flags, Equal for Access;
+struct Access {
+    read: Bool,
+    write: Bool,
+    share: Bool,
+}
+
+fn canPublish(a: Access): Bool {
+    Access { ..flags.none<Access>(), write: true, share: true }.isSubsetOf(a)
+}
+```
+
+`core/bitset` is gone. Its `BitSet` of named indices is a `derive Flags` struct,
+one field per index, and `has(i)` is a field read.
+
+`Queue`, `Map`, `Set`, `OrderedMap` and `OrderedSet` provide `equals` rather
 than deriving `Equal`, because a derived `Equal` would compare the *representation*.
 Two maps built in different orders need not share a bucket layout.
 
@@ -1308,7 +1329,7 @@ Only a test source may import
 because the report is the point. Each one names the two values it compared,
 where `assert.isTrue(xs.contains(x))` can only say "expected true, got false".
 `equalWith(ctx, actual, expected, same)` is the one for a type with no `Equal`:
-`Map`, `Set`, `OrderedMap`, `OrderedSet`, `Queue` and `BitSet` answer
+`Map`, `Set`, `OrderedMap`, `OrderedSet` and `Queue` answer
 `equals(ctx, other)` instead, and passing that comparison keeps the report.
 `unordered(ctx, actual, expected)` sorts both lists first and reports the sorted
 pair, which costs O(n log n).

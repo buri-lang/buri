@@ -21,7 +21,7 @@ use crate::compiler::backend::js::crossing::HOSTED_PROGRAM;
 use crate::compiler::backend::js::park::{self, Parking};
 use crate::compiler::backend::js::javascript::{self, BinOp, Expr, RuntimeDecl, Stmt, UnOp, VarKind};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp};
-use crate::compiler::semantics::types::{LocalId, Prim, Tables, Ty, TyKind, TyDef};
+use crate::compiler::semantics::types::{LocalId, Prim, Tables, Ty, TyConId, TyKind, TyDef};
 use crate::compiler::middle::monomorphize::{self, Desc, FuncKind, Program, ProgramRoots};
 use crate::compiler::middle::rc;
 use crate::diagnostics::Invariant as _;
@@ -1036,8 +1036,10 @@ impl<'a> Gen<'a> {
         runtime_names().contains(name)
     }
 
+    /// The primitive a value of `ty` is: its own, or the word a `derive
+    /// Flags` struct is stored in.
     pub(crate) fn prim_of(&self, ty: &Ty) -> Option<Prim> {
-        self.tables.as_prim(ty)
+        self.tables.as_prim(ty).or_else(|| self.tables.flags_word_of(ty))
     }
 
     pub(crate) fn prim_op_pub(&mut self, op: PrimOp, prim: Prim, args: Vec<Expr>) -> Expr {
@@ -1702,6 +1704,21 @@ impl<'a> Gen<'a> {
         }
     }
 
+    /// Field `index` of a struct a pattern takes apart. A `derive Flags`
+    /// struct is a number, or a `BigInt` at 64 bits, with field `i` of `n` at
+    /// bit `n - 1 - i` (`middle::flags`), so its field is a bit test.
+    fn field_of(&self, con: TyConId, subject: &Expr, index: usize) -> Expr {
+        let Some(prim) = self.tables.flags_word(con) else {
+            return Expr::index(subject.clone(), Expr::Num(index as f64));
+        };
+        let n = self.tables.tycon(con).fields().len();
+        let shift = n.saturating_sub(1).saturating_sub(index);
+        let word = self.tables.prim(prim);
+        let mask = self.int_literal(1u128 << shift, false, &word);
+        let zero = self.int_literal(0, false, &word);
+        Expr::bin(BinOp::StrictNe, Expr::bin(BinOp::BitAnd, subject.clone(), mask), zero)
+    }
+
     /// Every name an irrefutable pattern binds, with its type.
     fn typed_binds(p: &typed::Pattern, out: &mut Vec<(LocalId, Ty)>) {
         match &p.kind {
@@ -1919,11 +1936,13 @@ impl<'a> Gen<'a> {
             PatKind::Tuple(ps) => self.all_tests(
                 ps.iter().enumerate().map(|(i, p)| (p, Expr::index(subject.clone(), Expr::Num(i as f64)))),
             ),
-            PatKind::Struct { fields, .. } => self.all_tests(
-                fields
+            PatKind::Struct { con, fields } => {
+                let parts: Vec<(&typed::Pattern, Expr)> = fields
                     .iter()
-                    .map(|f| (&f.pattern, Expr::index(subject.clone(), Expr::Num(f.index as f64)))),
-            ),
+                    .map(|f| (&f.pattern, self.field_of(*con, subject, f.index)))
+                    .collect();
+                self.all_tests(parts.into_iter())
+            }
             PatKind::Variant { con, variant, fields } => {
                 if let Some(nested) = self.option_nesting(&pattern.ty) {
                     // `Some` is anything but absence; `None` is absence.
@@ -2072,13 +2091,10 @@ impl<'a> Gen<'a> {
                     self.bind(p, &Expr::index(subject.clone(), Expr::Num(i as f64)), out);
                 }
             }
-            PatKind::Struct { fields, .. } => {
+            PatKind::Struct { con, fields } => {
                 for f in fields {
-                    self.bind(
-                        &f.pattern,
-                        &Expr::index(subject.clone(), Expr::Num(f.index as f64)),
-                        out,
-                    );
+                    let field = self.field_of(*con, subject, f.index);
+                    self.bind(&f.pattern, &field, out);
                 }
             }
             PatKind::Variant { fields, .. } => {
@@ -2199,13 +2215,10 @@ impl<'a> Gen<'a> {
                     self.bind_assignments(p, &Expr::index(subject.clone(), Expr::Num(i as f64)), out);
                 }
             }
-            PatKind::Struct { fields, .. } => {
+            PatKind::Struct { con, fields } => {
                 for f in fields {
-                    self.bind_assignments(
-                        &f.pattern,
-                        &Expr::index(subject.clone(), Expr::Num(f.index as f64)),
-                        out,
-                    );
+                    let field = self.field_of(*con, subject, f.index);
+                    self.bind_assignments(&f.pattern, &field, out);
                 }
             }
             PatKind::Variant { fields, .. } => {
@@ -3127,6 +3140,25 @@ impl<'a> Gen<'a> {
                 Expr::Array(vec![Expr::Num(7.0), Expr::ident(descriptor_name(*inner))])
             }
             Desc::Opaque(_) | Desc::Reserved => Expr::Array(vec![Expr::Num(6.0)]),
+            // [8, struct, masks, $unflag, $flag]: a `derive Flags` word, read
+            // as the struct of `Bool`s it stands for, with the bit each field
+            // is (`middle::flags`). Naming the two conversions here is what
+            // keeps them out of a program with no such struct.
+            Desc::Flags { name, record, fields, prim } => {
+                let word = self.tables.prim(*prim);
+                let n = fields.len();
+                let masks = (0..n)
+                    .map(|i| self.int_literal(1u128 << (n - 1 - i), false, &word))
+                    .collect();
+                let plain = Desc::Struct { name: name.clone(), record: *record, fields: fields.clone() };
+                Expr::Array(vec![
+                    Expr::Num(8.0),
+                    self.descriptor(&plain),
+                    Expr::Array(masks),
+                    Expr::ident("$unflag"),
+                    Expr::ident("$flag"),
+                ])
+            }
         }
     }
 
@@ -3138,7 +3170,7 @@ impl<'a> Gen<'a> {
     fn eq_kind(&self, i: usize) -> EqKind {
         match self.program.descriptors.get(i) {
             Some(Desc::Prim(p)) if p.is_float() => EqKind::Float,
-            Some(Desc::Prim(_) | Desc::Unit) => EqKind::Identity,
+            Some(Desc::Prim(_) | Desc::Unit | Desc::Flags { .. }) => EqKind::Identity,
             Some(e @ Desc::Enum { .. }) if e.payloadless() => EqKind::Identity,
             Some(Desc::Struct { .. } | Desc::Enum { .. } | Desc::Array(_) | Desc::Tuple(_)) => {
                 EqKind::Compiled

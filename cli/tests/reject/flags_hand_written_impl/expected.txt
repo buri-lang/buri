@@ -1,0 +1,33 @@
+error: `Flags` is derived, not implemented [derive-only-trait]
+  --> cmd/flags_hand_written_impl/main.buri:12:1
+   |
+12 | impl Flags for Access {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a `Flags` type is stored as a word with one bit per field, and its operations are that word's, so only the compiler can write them
+   = fix: write `derive Flags for Access;` instead
+
+     core/json's ToJson and FromJson, and core/flags's Flags, are always
+     derived.
+
+     One runtime walker encodes every derived type by its shape. So encoding a
+     Date directly would call a hand-written impl ToJson for Date, but encoding
+     an Appointment that holds a Date would walk straight past it. For a
+     different document, convert to another type first, through a function
+     visible at the call site.
+
+     Flags's operations work on the word derive Flags packs the fields into, so
+     there is nothing for an impl to say.
+
+error: `Access` does not implement `Flags` [missing-impl]
+  --> cmd/flags_hand_written_impl/main.buri:25:30
+   |
+25 |   let _ = io.println(ctx, "${flags.none<Access>().read}").ignore();
+   |                              ^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: add `derive Flags for Access;` in that type's own module
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

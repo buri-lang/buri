@@ -239,7 +239,7 @@ test "shifting by zero changes nothing at any width" {
 // `Int` is `I64`, and JavaScript's `&`, `|`, `^` and `~` coerce to 32-bit
 // signed — so on the only backend these had to stop being the native operators
 // somewhere above bit 31. They did not, and every one of these was wrong until
-// `core/bitset` walked into it.
+// a bit set in the standard library walked into it.
 
 test "or keeps bits above 31" {
     assert.equal(0 | bits.shiftLeft(1, 31), 2147483648);

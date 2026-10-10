@@ -205,7 +205,13 @@ pub struct Checked {
 /// missing because the type did not derive the trait it comes from.
 pub const DERIVABLE: &[&str] = &[
     "Equal", "Ordered", "Show", "Hash", "ToJson", "FromJson", "Add", "Subtract", "Multiply", "Divide", "Remainder", "Negate",
+    "Flags",
 ];
+
+/// The module `Flags` is declared in. A `derive Flags` changes how the type is
+/// stored, so only that trait, and not one a program happens to call `Flags`,
+/// may be derived under the name.
+pub const FLAGS_MODULE: &str = "core/flags";
 
 #[derive(Clone, Debug)]
 pub struct TestCase {
@@ -2637,11 +2643,21 @@ impl<'a> Checker<'a> {
         // and never calls it. Rather than obey an `impl` in some positions and
         // ignore it in others, there is no hand-written one.
         let tname = self.tables.trait_(trait_id).name.clone();
-        if tname == "ToJson" || tname == "FromJson" {
+        let own_flags = tname == "Flags" && !self.declared_in(trait_id, FLAGS_MODULE);
+        if crate::compiler::semantics::types::is_derive_only(&tname) && !own_flags {
             let c = self.tables.tycon(self_con).name.clone();
+            let reason = if tname == "Flags" {
+                "a `Flags` type is stored as a word with one bit per field, and its operations \
+                 are that word's, so only the compiler can write them"
+            } else {
+                "a derived encoder is a fold over the type's shape, and would encode a \
+                 hand-written one structurally rather than calling it — so an `impl` would be \
+                 obeyed at the top of a document and ignored inside it"
+            };
             self.templated("derive-only-trait", d.span)
                 .bind("trait", tname)
-                .bind("type", c);
+                .bind("type", c)
+                .bind("reason", reason);
             return;
         }
 
@@ -2969,13 +2985,19 @@ impl<'a> Checker<'a> {
                 continue;
             };
             let name = self.tables.trait_(trait_id).name.clone();
-            if !DERIVABLE.contains(&name.as_str()) {
-                self.templated("trait-not-derivable", at).bind("trait", name).note(format!(
-                    "derivable: {}",
-                    crate::diagnostics::names(
-                        &DERIVABLE.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+            let foreign_flags = name == "Flags" && !self.declared_in(trait_id, FLAGS_MODULE);
+            if !DERIVABLE.contains(&name.as_str()) || foreign_flags {
+                let note = if foreign_flags {
+                    format!("only the `Flags` that `{FLAGS_MODULE}` declares is derivable")
+                } else {
+                    format!(
+                        "derivable: {}",
+                        crate::diagnostics::names(
+                            &DERIVABLE.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+                        )
                     )
-                ));
+                };
+                self.templated("trait-not-derivable", at).bind("trait", name).note(note);
                 continue;
             }
             if self.tables.impls.contains_key(&(trait_id, self_con)) {
@@ -3043,6 +3065,10 @@ impl<'a> Checker<'a> {
         sorted.sort_by_key(|(t, c, _)| (t.0, c.0));
 
         for (tr, con, span) in sorted {
+            if self.tables.trait_(tr).name == "Flags" {
+                self.check_flags(con, span);
+                continue;
+            }
             // A generic type's components are checked at each use site, where
             // the arguments are known; here only the ones that cannot depend
             // on an argument are decidable.
@@ -3096,6 +3122,42 @@ impl<'a> Checker<'a> {
                 });
             }
         }
+    }
+
+    /// A `Flags` type is a word with one bit per field, so it is a struct
+    /// whose fields are all `Bool`, at least one and at most
+    /// [`types::FLAGS_MAX`].
+    fn check_flags(&mut self, con: TyConId, span: Span) {
+        let tycon = self.tables.tycon(con);
+        let name = tycon.name.clone();
+        let TyDef::Struct { fields, .. } = &tycon.def else {
+            self.templated("flags-not-struct", span).bind("type", name);
+            return;
+        };
+        let bool_ty = self.tables.prim(Prim::Bool);
+        if let Some(f) = fields.iter().find(|f| f.ty != bool_ty) {
+            let field = f.name.clone();
+            let shown = show(&self.tables, None, &tycon.generics, &f.ty);
+            self.templated("flags-field-not-bool", span)
+                .bind("type", name)
+                .bind("field", field)
+                .bind("field_type", shown);
+        } else if fields.is_empty() {
+            self.templated("flags-empty", span).bind("type", name);
+        } else if fields.len() > FLAGS_MAX {
+            let count = fields.len().to_string();
+            self.templated("flags-too-wide", span)
+                .bind("type", name)
+                .bind("count", count)
+                .bind("max", FLAGS_MAX.to_string());
+        }
+    }
+
+    /// Whether a trait is the one declared in the standard-library module at
+    /// `path`.
+    fn declared_in(&self, trait_id: TraitId, path: &str) -> bool {
+        let module = self.tables.trait_(trait_id).module;
+        self.loaded.modules.get(module.index()).is_some_and(|m| m.path == path)
     }
 
     /// The innermost part of a component that cannot satisfy the trait: an

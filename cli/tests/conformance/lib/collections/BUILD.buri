@@ -4,7 +4,7 @@ library {
     test {
         sources: [
             "test/queue.buri",
-            "test/bitset.buri",
+            "test/flags.buri",
             "test/map.buri",
             "test/orderedmap.buri",
             "test/sets.buri",

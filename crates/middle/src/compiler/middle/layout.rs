@@ -643,6 +643,10 @@ impl<'a> Layouts<'a> {
                     // `Str`, and `Template`, which is `Str` (§3.3).
                     None => Layout::words(3, vec![0, POINTER, 16], Repr::Str),
                 },
+                // `derive Flags`: one word, a bit per field (`middle::flags`).
+                TyDef::Struct { .. } if tables.flags_word(*id).is_some() => {
+                    Layout::scalar(tables.flags_word(*id).and_then(scalar_of).unwrap_or(Scalar::I64))
+                }
                 TyDef::Struct { fields, .. } => {
                     let tys: Vec<Ty> =
                         fields.iter().map(|f| types::substitute(&f.ty, args, None)).collect();

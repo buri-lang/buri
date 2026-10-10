@@ -124,7 +124,7 @@ pub const MODULES: &[StdModule] = &[
     StdModule { eager: true, ..m("core/bool", include_str!("sources/bool.buri")) },
     m("core/queue", include_str!("sources/queue.buri")),
     m("core/heap", include_str!("sources/heap.buri")),
-    m("core/bitset", include_str!("sources/bitset.buri")),
+    m("core/flags", include_str!("sources/flags.buri")),
     m("core/json", include_str!("sources/json.buri")),
     m("core/csv", include_str!("sources/csv.buri")),
     m("core/proto", include_str!("sources/proto.buri")),
