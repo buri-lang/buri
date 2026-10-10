@@ -864,6 +864,9 @@ pub unsafe extern "C" fn buri_rt_host_file_system_sync_file(
 #[repr(C)]
 pub struct BuriMetadata {
     kind: i8,
+    /// Zeros: Buri code reads every byte of a list element, padding too
+    /// (`stencil/glue.rs`'s `unless_spare`).
+    pad: [u8; 7],
     size: i64,
     modified: i64,
 }
@@ -873,7 +876,7 @@ pub struct BuriMetadata {
 /// Here rather than there so the layout has one definition: two transcriptions
 /// of one struct is one of them being wrong.
 pub(crate) fn metadata_of(kind: i8, size: i64) -> BuriMetadata {
-    BuriMetadata { kind, size, modified: 0 }
+    BuriMetadata { kind, pad: [0; 7], size, modified: 0 }
 }
 
 /// What a `std::fs::Metadata` is, as `EntryKind`'s variant index.
@@ -929,6 +932,7 @@ pub unsafe extern "C" fn buri_rt_host_file_system_metadata(
         Ok(m) => {
             let value = BuriMetadata {
                 kind: entry_kind(&m),
+                pad: [0; 7],
                 size: i64::try_from(m.len()).unwrap_or(i64::MAX),
                 modified: modified_millis(&m),
             };
