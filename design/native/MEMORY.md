@@ -1205,8 +1205,8 @@ So under helgrind the runtime tells it what it can't see:
   over, and a lock-order inversion is reported.
 - The lock-free hand-offs say what they order: a shared block's last decrement
   after every other, a task's end before its joiner reads the answer, a latch's
-  arrivals before its waiter, a park before its wake-up, and a thread's start
-  after what started it.
+  arrivals before its waiter, a park before its wake-up, a thread's start
+  after what started it, and the reactor's build before every use of it.
 - The flags threads store and poll without a lock aren't checked: helgrind
   orders an atomic's read-modify-write but not its plain loads and stores.
 - A block from musl's `malloc` starts fresh, so what a thread did at the same
