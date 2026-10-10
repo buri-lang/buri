@@ -286,6 +286,8 @@ mod from_json;
 // read off the runtime's heap statistics, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod flags;
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod wrapping;
 // What an ordered map's lookups and a list's projections cost against the
 // width of the element: instructions and blocks counted rather than timed, on
 // every backend built in.

@@ -2504,24 +2504,8 @@ impl Generator {
             p => {
                 let n = frame.local("n", ty);
                 let into = format!("number.F64.wrapTo{}", p.name());
-                let mut rounded = self.rt(&into, vec![xe.clone()], *ty);
+                let rounded = self.rt(&into, vec![xe.clone()], *ty);
                 let float = |v: f64| Expr::new(ExprKind::Float(v), payload_ty, Span::NONE);
-                // The upper half of `U64` is past what both native backends'
-                // float-to-integer conversion reaches, which saturates at
-                // `2^63 - 1`; it is read as its distance from `2^63` instead,
-                // which is exact.
-                if p == Prim::U64 {
-                    let half = 2f64.powi(63);
-                    let args = vec![xe.clone(), float(half)];
-                    let less = ExprKind::Prim { op: PrimOp::Sub, prim: Prim::F64, args };
-                    let less = Expr::new(less, payload_ty, Span::NONE);
-                    let low = self.rt(&into, vec![less], *ty);
-                    let top = typed::Magnitude::new(1u128 << 63);
-                    let top = Expr::new(ExprKind::Int(top, false), *ty, Span::NONE);
-                    let sum = ExprKind::Prim { op: PrimOp::Add, prim: Prim::U64, args: vec![low, top] };
-                    let upper = self.prim_test(PrimOp::Ge, Prim::F64, xe.clone(), float(half));
-                    rounded = self.choose(upper, Expr::new(sum, *ty, Span::NONE), rounded, *ty);
-                }
                 let out = format!("number.{}.toF64", p.name());
                 let back = self.rt(&out, vec![self.local_expr(n, ty)], payload_ty);
                 let bits = i32::try_from(p.bits()).unwrap_or(64);

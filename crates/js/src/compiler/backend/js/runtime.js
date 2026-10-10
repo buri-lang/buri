@@ -75,6 +75,12 @@ function $absBig(v) {
 // wrapping is the intent. The target is one of the `number` widths — the
 // backend spells the `BigInt` ones as `asIntN` on the spot — but the *source*
 // may be either, so a value that is already exact is not sent through a double.
+// A float's whole part, which `wrapTo*` keeps the low bits of. `NaN` and the
+// infinities have none and are `0`, as ECMAScript's `ToInt32` reads them.
+function $ftrunc(v) {
+  return Number.isFinite(v) ? Math.trunc(v) : 0;
+}
+
 function $wrapTo(v, bits, signed) {
   const b = typeof v === "bigint" ? v : BigInt(Math.trunc(v));
   const w = signed ? BigInt.asIntN(bits, b) : BigInt.asUintN(bits, b);
