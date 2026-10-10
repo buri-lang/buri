@@ -644,29 +644,32 @@ pub struct SourceFile {
     pub name: String,
     pub abs_path: PathBuf,
     pub text: String,
-    /// Byte offset of the start of each line.
-    line_starts: Vec<u32>,
+    /// Byte offset of the start of each line, found the first time a line is
+    /// asked for. Most files a build reads report nothing, and never are.
+    line_starts: std::sync::OnceLock<Vec<u32>>,
 }
 
 impl SourceFile {
     pub(crate) fn new(name: String, abs_path: PathBuf, text: String) -> SourceFile {
-        // A `char` pattern finds each newline with `memchr` rather than a
-        // compare per byte.
-        let mut line_starts = vec![0u32];
-        line_starts.extend(text.match_indices('\n').map(|(i, _)| {
-            // Saturating rather than `as`, so the one file that does not
-            // fit in a `u32` of offsets degrades to a wrong line number
-            // instead of wrapping to offset 0. `SourceMap::load` turns that
-            // file away before it gets here; this is the belt to that
-            // brace, for text handed to `add` directly.
-            u32::try_from(i.saturating_add(1)).unwrap_or(u32::MAX)
-        }));
-        SourceFile { name, abs_path, text, line_starts }
+        SourceFile { name, abs_path, text, line_starts: std::sync::OnceLock::new() }
     }
 
     /// Byte offset of the start of each line, the first at 0.
     pub fn line_starts(&self) -> &[u32] {
-        &self.line_starts
+        self.line_starts.get_or_init(|| {
+            // A `char` pattern finds each newline with `memchr` rather than a
+            // compare per byte.
+            let mut starts = vec![0u32];
+            starts.extend(self.text.match_indices('\n').map(|(i, _)| {
+                // Saturating rather than `as`, so the one file that does not
+                // fit in a `u32` of offsets degrades to a wrong line number
+                // instead of wrapping to offset 0. `SourceMap::load` turns that
+                // file away before it gets here; this is the belt to that
+                // brace, for text handed to `add` directly.
+                u32::try_from(i.saturating_add(1)).unwrap_or(u32::MAX)
+            }));
+            starts
+        })
     }
 
     /// The largest offset at or below `at` that starts a character.
@@ -690,21 +693,21 @@ impl SourceFile {
         // `line_starts` opens with 0 and `offset` is not negative, so the
         // insertion point is never 0 and the subtraction never wraps; it
         // saturates rather than say so twice.
-        let line = match self.line_starts.binary_search(&(offset as u32)) {
+        let line = match self.line_starts().binary_search(&(offset as u32)) {
             Ok(i) => i,
             Err(i) => i.saturating_sub(1),
         };
-        let start = self.line_starts.get(line).map_or(0, |&s| s as usize);
+        let start = self.line_starts().get(line).map_or(0, |&s| s as usize);
         let col = self.text.get(start..offset).map_or(0, |s| s.chars().count());
         (line.saturating_add(1), col.saturating_add(1))
     }
 
     /// The text of a 1-based line, empty for a line this file does not have.
     fn line_text(&self, line: usize) -> &str {
-        let Some(start) = line.checked_sub(1).and_then(|i| self.line_starts.get(i)) else {
+        let Some(start) = line.checked_sub(1).and_then(|i| self.line_starts().get(i)) else {
             return "";
         };
-        let end = self.line_starts.get(line).map_or(self.text.len(), |&e| e as usize);
+        let end = self.line_starts().get(line).map_or(self.text.len(), |&e| e as usize);
         self.text
             .get(*start as usize..end)
             .unwrap_or("")
@@ -715,7 +718,7 @@ impl SourceFile {
     /// not got.
     pub fn line_start(&self, line: usize) -> usize {
         line.checked_sub(1)
-            .and_then(|i| self.line_starts.get(i))
+            .and_then(|i| self.line_starts().get(i))
             .map_or(0, |&s| s as usize)
     }
 }
@@ -837,13 +840,18 @@ impl SourceMap {
         if let Some(id) = self.find(name) {
             return Ok(id);
         }
-        if std::fs::metadata(abs_path).is_ok_and(|m| m.len() > MAX_SOURCE_BYTES) {
+        // The size is asked of the open file rather than of the path, which
+        // would be a second lookup of every file a build reads.
+        let mut file = std::fs::File::open(abs_path)?;
+        let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+        if size > MAX_SOURCE_BYTES {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("the file is larger than {MAX_SOURCE_BYTES} bytes, which is the most one source file may hold"),
             ));
         }
-        let text = std::fs::read_to_string(abs_path)?;
+        let mut text = String::with_capacity(usize::try_from(size).unwrap_or(0));
+        std::io::Read::read_to_string(&mut file, &mut text)?;
         Ok(self.add(name, abs_path.to_path_buf(), text))
     }
 
