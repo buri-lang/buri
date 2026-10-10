@@ -194,7 +194,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/units
-          cargo test -p buri-rt-tests -p buri -p buri-hash -p buri-stdlib -p buri-docs -p buri-diagnostics -p buri-syntax -p buri-project -p buri-semantics -p buri-middle -p buri-backend -p buri-js -p buri-stencil -p buri-stdlib-coverage -p buri-coverage --no-run --message-format=json-render-diagnostics \
+          cargo test -p buri-rt-tests -p buri -p buri-hash -p buri-stdlib -p buri-docs -p buri-diagnostics -p buri-syntax -p buri-project -p buri-semantics -p buri-middle -p buri-backend -p buri-js -p buri-stencil -p buri-stdlib-coverage -p buri-compiler-coverage --no-run --message-format=json-render-diagnostics \
             | jq -r 'select(.profile.test == true) | .executable | select(. != null)' > target/units.txt
           test -s target/units.txt
           slowest="$(grep -E '/language-[0-9a-f]+$' target/units.txt)"
@@ -482,7 +482,7 @@ jobs:
           if-no-files-found: ignore
 
   # The compiler's branch coverage from end-to-end tests only, which must never
-  # fall (coverage/src/main.rs). x86_64 Linux, the baseline's host.
+  # fall (coverage/compiler/src/main.rs). x86_64 Linux, the baseline's host.
   # `coverage-build` builds the instrumented `buri` and the tests once, so
   # every shard runs the same `buri`; each shard runs a quarter of the tests;
   # `coverage` merges the shards' profiles and gates.
@@ -510,7 +510,7 @@ jobs:
             target/coverage-buri/debug/build
           key: coverage-buildscript-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
           restore-keys: coverage-buildscript-
-      - run: nix develop .#coverage -c cargo run -p buri-coverage -- --build
+      - run: nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --build
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-build
@@ -545,7 +545,7 @@ jobs:
         with:
           name: coverage-build
           path: target/coverage/build
-      - run: nix develop .#coverage -c cargo run -p buri-coverage -- --shard=${{ matrix.shard }}/4
+      - run: nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --shard=${{ matrix.shard }}/4
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-shard-${{ matrix.shard }}
@@ -573,7 +573,7 @@ jobs:
         with:
           pattern: coverage-shard-*
           path: target/shards
-      - run: nix develop .#coverage -c cargo run -p buri-coverage -- --merge=target/shards
+      - run: nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --merge=target/shards
       # The ratchet: a rise in coverage becomes the baseline. On a push to main
       # it's committed there; anywhere else the commit is only printed. If main
       # moved meanwhile, the rise is checked again against main's baseline. A
@@ -592,7 +592,7 @@ jobs:
               git fetch --quiet origin main
               git checkout --quiet --detach FETCH_HEAD
             fi
-            nix develop .#coverage -c cargo run -q -p buri-coverage -- --raise
+            nix develop .#coverage -c cargo run -q -p buri-compiler-coverage -- --raise
             if [ -z "$(git status --porcelain -- coverage)" ]; then
               exit 0
             fi

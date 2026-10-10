@@ -691,7 +691,7 @@
           # recommending Apple's linker (BUILD-AND-WATCH.md §3).
           ++ pkgs.lib.optional pkgs.stdenv.isLinux pkgs.mold;
         };
-        # The coverage gate's shell (coverage/README.md): the default shell's
+        # The coverage gate's shell (coverage/compiler/src/main.rs): the default shell's
         # tools, built by the nightly that has `-Zcoverage-options=branch`.
         coverage = pkgs.mkShell (
           {

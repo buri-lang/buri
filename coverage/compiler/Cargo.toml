@@ -2,7 +2,7 @@
 # instrumented `buri`, runs the end-to-end tests against it, and holds the
 # result to `compiler-branches.txt`.
 [package]
-name = "buri-coverage"
+name = "buri-compiler-coverage"
 version = "0.0.0"
 edition = "2021"
 publish = false
