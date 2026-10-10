@@ -149,6 +149,36 @@ pub fn exited_instructions(pid: u32) -> Option<u64> {
     os::exited_child(pid).map(|(instructions, _)| instructions).filter(|&n| n > 0)
 }
 
+thread_local! {
+    /// What this thread's instructions are being added to, for [`counted`].
+    static TALLY: std::cell::RefCell<Option<std::sync::Arc<AtomicU64>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// `work`'s answer, and the instructions it retired on this thread and on
+/// every `parallel` worker it started: macOS only, and 0 elsewhere or where
+/// the kernel won't say.
+pub fn counted<T>(work: impl FnOnce() -> T) -> (T, u64) {
+    let tally = std::sync::Arc::new(AtomicU64::new(0));
+    let out = tallied(Some(std::sync::Arc::clone(&tally)), work);
+    (out, tally.load(Relaxed))
+}
+
+/// The tally this thread adds to, for a worker it starts to add to as well.
+pub fn tally() -> Option<std::sync::Arc<AtomicU64>> {
+    TALLY.try_with(|t| t.borrow().clone()).ok().flatten()
+}
+
+/// Runs `work`, adding the instructions this thread retires in it to `tally`.
+pub fn tallied<T>(tally: Option<std::sync::Arc<AtomicU64>>, work: impl FnOnce() -> T) -> T {
+    let Some(tally) = tally else { return work() };
+    let previous = TALLY.with(|t| t.replace(Some(std::sync::Arc::clone(&tally))));
+    let before = thread_instructions();
+    let out = work();
+    tally.fetch_add(thread_instructions().saturating_sub(before), Relaxed);
+    TALLY.with(|t| *t.borrow_mut() = previous);
+    out
+}
+
 /// This thread's instructions retired so far: macOS only, and 0 elsewhere or
 /// where the kernel won't say, such as in a virtual machine.
 pub fn thread_instructions() -> u64 {
