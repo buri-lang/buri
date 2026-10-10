@@ -1813,11 +1813,12 @@ struct Held {
     len: u64,
 }
 
-// SAFETY: the pointer names a Buri block, and a program that reaches this file
-// at all is one `middle::rc::crosses_tasks` marked — `actor.` is on that list —
-// so every block it allocated carries `CAP_SHARED_FLAG` and is counted
-// atomically (§1). Moving one between threads is therefore what the mark was
-// bought for, and the queue below is exactly the hand-off it describes.
+// SAFETY: the pointer names a Buri block, and a block reaches another thread
+// only through a second thread running Buri code. Only [`fan_out`] and a scope
+// running its tasks beside its body start one, and both call
+// `memory::begin_sharing` first, so from then on every block is counted
+// atomically, the ones allocated before included (§1). Before that, one thread
+// does every count.
 unsafe impl Send for Held {}
 
 impl Held {
@@ -5371,6 +5372,28 @@ mod tests {
         BuriList { ptr: std::ptr::null_mut(), len: 0 }
     }
 
+    /// Every block counted atomically until this drops, which is what a
+    /// program's fan-out sets up before an actor's blocks can reach a second
+    /// thread. A case that hands a block across threads holds one.
+    struct Sharing {
+        _alone: MutexGuard<'static, ()>,
+        _latch: MutexGuard<'static, ()>,
+    }
+
+    fn sharing() -> Sharing {
+        // `alone()` first, then the latch; `memory::latch` states the order.
+        let _alone = alone();
+        let _latch = crate::memory::latch();
+        crate::memory::share_now();
+        Sharing { _alone, _latch }
+    }
+
+    impl Drop for Sharing {
+        fn drop(&mut self) {
+            crate::memory::forget_values_may_cross_tasks();
+        }
+    }
+
     /// A mailbox is a queue: what one sender posted comes back in the order it
     /// posted it, and an empty one answers `.None` rather than waiting.
     #[test]
@@ -5422,6 +5445,7 @@ mod tests {
     /// that never woke is a failure rather than a hang.
     #[test]
     fn a_full_mailbox_makes_a_post_wait_for_room() {
+        let _sharing = sharing();
         let state = carried(0);
         // SAFETY: a live one-element block.
         let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 1) };
@@ -5639,6 +5663,7 @@ mod tests {
     /// seconds.
     #[test]
     fn a_take_waits_for_a_step_on_another_thread_and_a_stop_answers_it() {
+        let _sharing = sharing();
         let state = carried(3);
         // SAFETY: a live one-element block.
         let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 4) };
@@ -5797,6 +5822,7 @@ mod tests {
     /// finish" enforced by the runtime rather than asked of the caller.
     #[test]
     fn a_close_waits_for_the_step_in_flight() {
+        let _sharing = sharing();
         let state = carried(1);
         // SAFETY: a live one-element block.
         let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 4) };

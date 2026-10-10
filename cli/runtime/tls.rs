@@ -1211,22 +1211,40 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         );
     }
 
-    /// [`provider`] with X25519 as its only group: a peer that has no ML-KEM.
+    /// The provider a peer can run on this CPU, chosen the way [`provider`]
+    /// chooses: `ring` where `graviola` would abort, as it does under Valgrind,
+    /// whose CPU has no ADX (Valgrind bug 494162).
+    fn peer() -> Arc<rustls::crypto::CryptoProvider> {
+        chosen(graviola_runs_here())
+    }
+
+    /// What two [`peer`]s settle on: X25519MLKEM768, or X25519 where `ring`
+    /// stands in and has no ML-KEM.
+    fn best() -> rustls::NamedGroup {
+        if graviola_runs_here() {
+            rustls::NamedGroup::X25519MLKEM768
+        } else {
+            rustls::NamedGroup::X25519
+        }
+    }
+
+    /// [`peer`] with X25519 as its only group: a peer that has no ML-KEM.
     fn classical() -> Arc<rustls::crypto::CryptoProvider> {
-        let mut provider = rustls_graviola::default_provider();
+        let mut provider = Arc::unwrap_or_clone(peer());
         provider.kx_groups.retain(|group| group.name() == rustls::NamedGroup::X25519);
         Arc::new(provider)
     }
 
     /// The client settles on X25519MLKEM768 with a server that has it, and on
-    /// X25519 with one that does not.
+    /// X25519 with one that does not. Without `graviola` it settles on X25519
+    /// with both.
     #[test]
     fn the_client_prefers_hybrid_key_exchange_and_falls_back_to_x25519() {
         let _trusting = trust_lock();
         let ours = bundle("ca-groups", CA_PEM);
         trust(&ours);
         for (server, expected) in [
-            (provider(), rustls::NamedGroup::X25519MLKEM768),
+            (provider(), best()),
             (classical(), rustls::NamedGroup::X25519),
         ] {
             let (port, served) = serve_with(server, RESPONSE);
@@ -1248,7 +1266,8 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     }
 
     /// The server settles on X25519MLKEM768 with a client that offers it, and
-    /// still answers a client that only offers X25519.
+    /// still answers a client that only offers X25519. Without `graviola` it
+    /// settles on X25519 with both.
     #[test]
     fn the_server_prefers_hybrid_key_exchange_and_accepts_x25519() {
         let certificate = bundle("leaf-groups", LEAF_PEM);
@@ -1259,7 +1278,7 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
             roots.add(CertificateDer::from(der)).expect("the test CA");
         }
         for (client, expected) in [
-            (provider(), rustls::NamedGroup::X25519MLKEM768),
+            (provider(), best()),
             (classical(), rustls::NamedGroup::X25519),
         ] {
             let (port, listeners) = loopback();
@@ -1299,19 +1318,20 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     }
 
     /// On a CPU `graviola` cannot run on, the client and the server still
-    /// meet a hybrid-preferring peer, on X25519.
+    /// meet a [`peer`], on X25519. That peer prefers the hybrid wherever
+    /// `graviola` runs.
     #[test]
     fn without_graviola_the_runtime_falls_back_to_x25519_through_ring() {
         GRAVIOLA_RUNS.with(|runs| runs.set(Some(false)));
         let groups: Vec<_> = provider().kx_groups.iter().map(|g| g.name()).collect();
         assert!(!groups.contains(&rustls::NamedGroup::X25519MLKEM768), "{groups:?}");
 
-        // The client, against a server that prefers the hybrid group.
+        // The client, against a server that prefers the hybrid group where it can.
         {
             let _trusting = trust_lock();
             let ours = bundle("ca-fallback", CA_PEM);
             trust(&ours);
-            let (port, served) = serve_with(chosen(true), RESPONSE);
+            let (port, served) = serve_with(peer(), RESPONSE);
             let sock = TcpStream::connect(("127.0.0.1", port)).expect("the loopback server");
             let mut stream = match connect(sock, "localhost") {
                 Ok(stream) => stream,
@@ -1327,7 +1347,7 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
             assert_eq!(group, Some(rustls::NamedGroup::X25519));
         }
 
-        // The server, against a client that offers the hybrid group first.
+        // The server, against a client that offers the hybrid group first where it can.
         let certificate = bundle("leaf-fallback", LEAF_PEM);
         let key = bundle("leaf-key-fallback", LEAF_KEY_PEM);
         let config = Arc::new(server_config(&certificate, &key, Vec::new()).expect("a config"));
@@ -1341,7 +1361,7 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
             let conn = accept(config, &mut sock).ok()?;
             conn.negotiated_key_exchange_group().map(|g| g.name())
         });
-        let client = ClientConfig::builder_with_provider(chosen(true))
+        let client = ClientConfig::builder_with_provider(peer())
             .with_safe_default_protocol_versions()
             .unwrap()
             .with_root_certificates(roots)
