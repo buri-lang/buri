@@ -1,7 +1,7 @@
 # Branches covered by end-to-end tests, per file: covered, total, path.
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
-# total 13466 19060 (70.65%)
+# total 13529 19072 (70.94%)
 host x86_64-unknown-linux-gnu
 254 343 cli/src/build/actions.rs
 32 48 cli/src/build/cache.rs
@@ -23,21 +23,22 @@ host x86_64-unknown-linux-gnu
 248 292 cli/src/build/workspace.rs
 0 0 cli/src/commands/add/mod.rs
 7 8 cli/src/commands/add/skills.rs
-33 42 cli/src/commands/arguments.rs
+34 42 cli/src/commands/arguments.rs
 71 96 cli/src/commands/build.rs
 10 10 cli/src/commands/clean.rs
 83 98 cli/src/commands/format.rs
 28 34 cli/src/commands/generate.rs
 24 32 cli/src/commands/init.rs
+1 2 cli/src/commands/interrupt.rs
 549 668 cli/src/commands/lint.rs
 36 40 cli/src/commands/lint_cache.rs
-18 24 cli/src/commands/mod.rs
+19 24 cli/src/commands/mod.rs
 34 42 cli/src/commands/query.rs
-26 54 cli/src/commands/run.rs
-0 34 cli/src/commands/serve.rs
-427 580 cli/src/commands/test.rs
+37 56 cli/src/commands/run.rs
+16 36 cli/src/commands/serve.rs
+431 580 cli/src/commands/test.rs
 3 6 cli/src/commands/version.rs
-0 42 cli/src/commands/watch.rs
+28 48 cli/src/commands/watch.rs
 0 0 cli/src/compiler/backend/mod.rs
 1 2 cli/src/compiler/backend/runtime_native.rs
 48 66 cli/src/compiler/driver.rs
@@ -83,7 +84,7 @@ host x86_64-unknown-linux-gnu
 0 0 crates/backend/src/compiler/backend/task_thread.rs
 93 124 crates/diagnostics/src/diagnostics.rs
 31 46 crates/diagnostics/src/json.rs
-29 36 crates/diagnostics/src/parallel.rs
+30 36 crates/diagnostics/src/parallel.rs
 25 38 crates/diagnostics/src/profile.rs
 0 0 crates/docs/src/documentation/errors.rs
 30 42 crates/docs/src/documentation/frontmatter.rs
