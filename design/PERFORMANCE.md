@@ -7667,6 +7667,95 @@ one at a time). §9's `build/mixed-10k` and `lint/mixed-10k` will read
 - A cheaper `Save`. A statement's rollback point costs 43 instructions, 2.5%
   of `parse` on `mixed`; it waits for a change that can shrink `Mark`.
 
+### 6.86 A lexer and parser rewrite for three times the goal, judged, 2026-10-09
+
+Not done. Without `unsafe`, with this tree and with today's recovery, no
+design reaches 30 M lines a second on 19 of the 20 pinned shapes, and a
+rewrite reaches two thirds of that at best. The bar was three times the goal
+with code that isn't significantly more complex.
+
+M3 Pro, release build, `c841da6e6`, fewest instructions of seven. Three times
+the goal is about 600 instructions a line at this core's 18.3 G a second.
+
+**The floor is over the budget.** Two passes that do less than any parser
+can, both in safe Rust with checked access as the workspace's lints
+require: a lexer with no trivia, no cooked text and no diagnostics, and a
+pass over its tokens that only writes a tree about the size `parse` writes,
+a node per operand, operator and `)`, a kid per `,`, a statement per `;` and
+a type per `:`.
+
+| Shape | `parse` today | Lexer floor | Write floor | Floor |
+|---|---:|---:|---:|---:|
+| `comment-free` | 1,762 | 535 | 268 | 803 |
+| `comment-heavy` | 1,059 | 497 | 121 | 618 |
+| `derive-heavy` | 1,403 | 475 | 200 | 675 |
+| `enum-heavy` | 1,378 | 449 | 221 | 670 |
+| `generic-blowup` | 1,607 | 531 | 274 | 805 |
+| `generic-free` | 1,436 | 488 | 207 | 695 |
+| `impl-heavy` | 1,325 | 451 | 211 | 662 |
+| `list-heavy` | 1,501 | 539 | 223 | 762 |
+| `long-bodies` | 1,429 | 467 | 207 | 674 |
+| `long-idents` | 1,341 | 496 | 189 | 685 |
+| `match-heavy` | 1,336 | 453 | 195 | 648 |
+| `mixed` | 1,463 | 502 | 214 | 716 |
+| `mixed-deep-graph` | 1,466 | 502 | 214 | 716 |
+| `mixed-few-files` | 1,339 | 495 | 192 | 687 |
+| `mixed-libs` | 1,473 | 503 | 214 | 717 |
+| `mixed-many-files` | 1,703 | 513 | 269 | 782 |
+| `mixed-wide-graph` | 1,518 | 511 | 221 | 732 |
+| `string-heavy` | 1,624 | 546 | 223 | 769 |
+| `struct-heavy` | 1,117 | 385 | 158 | 543 |
+| `struct-light` | 1,481 | 510 | 220 | 730 |
+
+Instructions a line. Only `struct-heavy` fits. A token record costs 13
+instructions to push even into a vector already sized and touched, 16 into a
+fresh one, and today's lexer costs 1.12–1.34× its floor.
+
+**A clean parser buys about 40%.** A prototype in the §6.83 style, with
+precedence climbing, small frames, cursor in locals and the tree written
+directly, covers functions, `let`, expression statements, calls, fields and
+named types. It builds a byte-identical tree on those inputs and has no
+recovery, no depth or chain budget, and no checks for stray, early or
+exchanged tokens.
+
+| Input, per token | Today's parser | Prototype |
+|---|---:|---:|
+| `let a = x;` | 124 | 56 |
+| `let a = x.y;` | 123 | 59 |
+| `let a = x * y;` | 124 | 77 |
+| `let a = f(x);` | 137 | 79 |
+| `x;` | 189 | 101 |
+| `fn f(a: Int, b: Int): Int { 1 }` | 106 | 65 |
+| `let a1 = str.format(ctx, r.f0, x.y.z(1, 2));` | 121 | 80 |
+| `let a1 = a0 * 79 + 3;` | 134 | 96 |
+
+The lexer is 57–76 a token on the same inputs, and isn't counted above.
+
+**The best a rewrite reaches** is the lexer at its floor and the parser at the
+prototype's ratio, 0.45–0.72. That's 894–1,025 instructions a line on `mixed`,
+1.8–2.0× the goal, and 1,022–1,185 on `comment-free`, 1.5–1.8×. It's an upper
+bound, since keeping recovery byte-identical keeps its checks on the happy
+path.
+
+**The complexity is the other half.** `lexer.rs` is 1,502 lines of code,
+`parser.rs` 3,028, `flat.rs` 1,197 and `tree.rs` 367, tests and comments left
+out. About 600 of the parser's lines are recovery helpers alone, and every
+recovery path is pinned by diagnostics goldens and the formatter. The designs that would get past the
+prototype cost more code that's harder to follow:
+
+- Lexing on demand drops the token buffer, 13 instructions to write a token
+  and a few more to read it back. The parser looks ahead by index, scans up to
+  256 tokens for a closer or a `>`, recounts a failed construct's
+  delimiters over its tokens, and rewinds after a trial parse, so it
+  needs a ring buffer with rewind. The formatter still wants the buffer.
+- An explicit-stack parser keeps the cursor in registers across a whole
+  expression, and turns every production and every recovery path into a
+  state machine.
+
+**What would move it**, all outside the constraint: `unsafe` for unchecked
+token and arena access, a tree that holds spans in its nodes, or recovery
+that's allowed to say something different.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
