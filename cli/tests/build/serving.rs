@@ -673,6 +673,127 @@ fn a_port_already_taken_is_refused_by_name() {
 }
 
 // ---------------------------------------------------------------------------
+// Stopping a page server
+// ---------------------------------------------------------------------------
+
+impl Serving {
+    /// Sends `signal` and waits for the server to exit, under [`DEADLINE`].
+    fn stopped_by(&mut self, signal: i32) -> std::process::ExitStatus {
+        let pid = i32::try_from(self.child.id()).expect("a pid fits an i32");
+        // SAFETY: an ordinary `kill` on this row's own child.
+        unsafe { kill(pid, signal) };
+        until(DEADLINE, || self.child.try_wait().ok().flatten())
+            .unwrap_or_else(|| panic!("the server was still running {DEADLINE:?} after signal {signal}"))
+    }
+}
+
+/// What a server prints when the first signal arrives.
+const STOPPING: &str = "signal again to stop now";
+
+/// A page server stops on a signal and exits with 128 plus it.
+///
+/// That is the status a shell shows for an interrupted command, so a script sees
+/// what it saw when the signal killed the server outright. What changed is that
+/// the server now stops by itself.
+#[test]
+fn a_page_server_stops_on_a_signal_with_its_status() {
+    for (signal, name) in [(SIGTERM, "sigterm"), (SIGINT, "sigint")] {
+        let scratch = page_repo(&format!("serving-stop-{name}"));
+        let mut server = serving(&scratch, "//cmd/site", &[]);
+        get(server.port, "/").ok();
+        let status = server.stopped_by(signal);
+        assert_eq!(status.code(), Some(128 + signal), "{name}: the server ended {status}");
+    }
+}
+
+/// Replaces the page's `main.buri` with a named pipe, then waits until a
+/// rebuild has it open to read and hands back the writing end.
+///
+/// Nothing is written until the row says so, so the rebuild is held reading
+/// the source for as long as the row holds the pipe: a signal sent now lands in
+/// the middle of a rebuild every time.
+fn a_rebuild_held_reading(scratch: &Scratch) -> std::fs::File {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    unsafe extern "C" {
+        fn mkfifo(path: *const std::ffi::c_char, mode: u32) -> i32;
+    }
+    const O_NONBLOCK: i32 = if cfg!(target_os = "macos") { 0x4 } else { 0o4000 };
+    let path = scratch.path("cmd/site/main.buri");
+    // Made beside it and renamed over it, so no sweep sees the source missing.
+    let beside = scratch.path("cmd/site/main.pipe");
+    let name = std::ffi::CString::new(beside.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: a NUL-terminated path, and a mode.
+    assert_eq!(unsafe { mkfifo(name.as_ptr(), 0o644) }, 0, "mkfifo failed");
+    std::fs::rename(&beside, &path).unwrap();
+    // A writer that won't wait is refused until a reader has the pipe open.
+    until(DEADLINE, || std::fs::OpenOptions::new().write(true).custom_flags(O_NONBLOCK).open(&path).ok())
+        .unwrap_or_else(|| panic!("no rebuild read the source within {DEADLINE:?}"))
+}
+
+/// Whether anything the rebuilds wrote under `.buri/out` holds `needle`.
+fn built_holds(scratch: &Scratch, needle: &str) -> bool {
+    fn walk(dir: &std::path::Path, needle: &str) -> bool {
+        std::fs::read_dir(dir).into_iter().flatten().flatten().any(|entry| {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, needle)
+            } else {
+                std::fs::read_to_string(&path).is_ok_and(|text| text.contains(needle))
+            }
+        })
+    }
+    walk(&scratch.path(".buri/out"), needle)
+}
+
+/// Under `--watch`, a rebuild that is running when the signal arrives finishes,
+/// and then the server stops with 128 plus the signal.
+#[test]
+fn a_rebuild_in_progress_finishes_before_the_server_stops() {
+    let scratch = page_repo("serving-stop-mid-rebuild");
+    let mut server = serving(&scratch, "//cmd/site", &["--watch"]);
+    let source = scratch.read("cmd/site/main.buri");
+    let edited = source.replace("the front page", "the finished front page");
+    assert_ne!(edited, source, "the edit changed nothing");
+    let mut pipe = a_rebuild_held_reading(&scratch);
+
+    let pid = i32::try_from(server.child.id()).unwrap();
+    // SAFETY: an ordinary `kill` on this row's own child.
+    unsafe { kill(pid, SIGTERM) };
+    server.complained_about(STOPPING);
+    // The edited source back as a file for everything the rebuild reads later,
+    // then the same bytes down the pipe it is reading now.
+    scratch.write("cmd/site/main.edited", &edited);
+    std::fs::rename(scratch.path("cmd/site/main.edited"), scratch.path("cmd/site/main.buri")).unwrap();
+    pipe.write_all(edited.as_bytes()).unwrap();
+    drop(pipe);
+
+    let status = until(DEADLINE, || server.child.try_wait().ok().flatten())
+        .unwrap_or_else(|| panic!("the server was still running {DEADLINE:?} after the rebuild"));
+    assert_eq!(status.code(), Some(128 + SIGTERM), "the server ended {status}");
+    assert!(
+        built_holds(&scratch, "the finished front page"),
+        "the server stopped before the rebuild it was in finished"
+    );
+}
+
+/// A second signal stops the server at once, rebuild or not.
+#[test]
+fn a_second_signal_stops_the_server_at_once() {
+    use std::os::unix::process::ExitStatusExt as _;
+    let scratch = page_repo("serving-stop-twice");
+    let mut server = serving(&scratch, "//cmd/site", &["--watch"]);
+    let pipe = a_rebuild_held_reading(&scratch);
+
+    let pid = i32::try_from(server.child.id()).unwrap();
+    // SAFETY: an ordinary `kill` on this row's own child.
+    unsafe { kill(pid, SIGTERM) };
+    server.complained_about(STOPPING);
+    let status = server.stopped_by(SIGTERM);
+    assert_eq!(status.signal(), Some(SIGTERM), "the second signal did not stop the server: {status}");
+    drop(pipe);
+}
+
+// ---------------------------------------------------------------------------
 // Stopping what `buri run` started
 // ---------------------------------------------------------------------------
 

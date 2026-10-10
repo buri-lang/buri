@@ -351,12 +351,10 @@ system, the language server, the documentation) and `crates/*/src`.
 module. Raise coverage in the compiler and type checker first: `crates/syntax`,
 `crates/semantics`, `crates/middle` and the backends.
 
-One known gap: a `buri` that dies by a signal writes no profile, because the
-profile is written at exit. So `commands/serve` and `commands/watch` count 0:
-tests stop `buri run`'s page server and the `--watch` loops with `SIGTERM`.
-Writing the profile from the signal handler counts whatever the other threads
-were part-way through, so it can't give the same count twice. They will count
-once those loops stop cleanly on a signal.
+A `buri` killed by a signal writes no profile, because the profile is written
+at exit, and writing it from a signal handler counts whatever other threads
+were part-way through. So the page server and the `--watch` loops stop cleanly
+on a signal (`commands/interrupt.rs`), and everything else exits by itself.
 
 Process per test also means a `OnceLock` no longer shares work across a
 binary's tests. Four things still need to be shared by the whole run, so they

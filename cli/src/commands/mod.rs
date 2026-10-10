@@ -28,6 +28,7 @@ pub mod build;
 pub mod clean;
 pub mod format;
 pub mod generate;
+pub mod interrupt;
 pub mod init;
 pub mod lint;
 /// What the last lint pass found for a target, kept in `.buri/cache` so that a

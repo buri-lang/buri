@@ -207,9 +207,10 @@ fn serve_page(
     };
 
     if !args.flags.watch {
+        crate::commands::interrupt::listen();
         serve::announce(&label, port);
         serve::serve(&listener, &page);
-        return 0;
+        return crate::commands::interrupt::asked().unwrap_or(0);
     }
 
     // The set this build's keys were computed from, which is the loop's
@@ -221,7 +222,8 @@ fn serve_page(
     let mut sources = crate::build::sources::Sources::at(&root, args.flags.clone());
     let mut listener = Some(listener);
     let serving = std::sync::Arc::clone(&page);
-    watch::Watch::on(root, args.flags.explain).drive_armed(
+    let mut server = None;
+    let code = watch::Watch::on(root, args.flags.explain).drive_armed(
         |trigger| {
             if trigger.pass == 1 {
                 return watch::Pass {
@@ -240,10 +242,15 @@ fn serve_page(
             serve::announce(&label, port);
             if let Some(listener) = listener.take() {
                 let page = std::sync::Arc::clone(&serving);
-                std::thread::spawn(move || serve::serve(&listener, &page));
+                server = Some(std::thread::spawn(move || serve::serve(&listener, &page)));
             }
         },
-    )
+    );
+    // The loop ends only on a signal, which stops the server too.
+    if let Some(server) = server {
+        let _ = server.join();
+    }
+    code
 }
 
 /// One pass of the watch loop: build the page again, into the same directory
