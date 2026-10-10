@@ -854,13 +854,14 @@ impl<'a> Loader<'a> {
             };
             Some((text, parsed))
         };
-        // Half the cores. Opening files and faulting in fresh memory meet in
-        // the kernel's locks, and on twelve cores twelve lanes took five times
-        // the CPU of six for no less wall time (design/PERFORMANCE.md §6.83).
-        // Each lane takes every `lanes`-th file, so one large file doesn't
-        // leave one lane running long after the rest.
+        // A third of the cores. On twelve, four lanes take the CPU one did and
+        // six take half again as much, for a sixth less wall time: opening
+        // files and faulting in fresh memory meet in the kernel's locks, and
+        // the extra lanes land on efficiency cores (design/PERFORMANCE.md
+        // §6.83). Each lane takes every `lanes`-th file, so one large file
+        // doesn't leave one lane running long after the rest.
         let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
-        let lanes = cores.div_ceil(2).clamp(1, wanted.len());
+        let lanes = (cores / 3).clamp(1, wanted.len());
         let done = crate::parallel::map(lanes, |lane| {
             (lane..wanted.len()).step_by(lanes).map(|i| (i, one(i))).collect::<Vec<_>>()
         });
