@@ -1184,6 +1184,11 @@ poison and holds it live, so a stale read reads poison where memcheck should
 report it. Under memcheck `BURI_RT_HEAP_CHECK=1` keeps the leak audit and drops
 the quarantine.
 
+**Padding is written.** A list's glue skips an all-zero element as headroom,
+and it tests every byte, padding included. So a record the runtime hands to
+Buri code, such as `testing.rs`'s `BuriNetCall`, spells its padding as a zeroed
+field. A missed one changes no answer, so only memcheck catches it.
+
 **What it can't see.** A scope's arena (`core/alloc::scoped`) is bump-allocated
 in a mapping, so a block inside one isn't tracked, and neither is the Buri data
 stack. Stencil-built code has no function names, so its frames read `???`.

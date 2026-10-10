@@ -4374,6 +4374,9 @@ fn protocol_of(index: i64) -> Result<Protocol, ServeErr> {
 #[repr(C)]
 pub struct BuriRequest {
     method: i8,
+    /// Zeros: Buri code reads every byte of a list element, padding too
+    /// (`stencil/glue.rs`'s `unless_spare`).
+    pad: [u8; 7],
     url: BuriStr,
     headers: BuriList,
     body: BuriList,
@@ -4403,12 +4406,15 @@ pub struct BuriResponse {
 #[repr(C)]
 pub struct BuriServeError {
     cause: i8,
+    /// Zeros: Buri code reads every byte of a list element, padding too
+    /// (`stencil/glue.rs`'s `unless_spare`).
+    pad: [u8; 7],
     detail: BuriStr,
 }
 
 impl BuriServeError {
     fn of(e: &ServeErr) -> BuriServeError {
-        BuriServeError { cause: e.cause.tag(), detail: str_of(&e.detail) }
+        BuriServeError { cause: e.cause.tag(), pad: [0; 7], detail: str_of(&e.detail) }
     }
 }
 
@@ -4523,6 +4529,7 @@ pub unsafe extern "C" fn buri_rt_host_listen_request(
         Ok(request) => {
             let value = BuriRequest {
                 method: i8::try_from(request.method).unwrap_or(0),
+                pad: [0; 7],
                 url: str_of(&request.target),
                 headers: list_of_headers(&request.headers),
                 body: list_of_bytes(&request.body),
@@ -4598,6 +4605,9 @@ pub extern "C" fn buri_rt_host_listen_close(handle: i64) {
 #[repr(C)]
 pub struct BuriReceived {
     frame: i8,
+    /// Zeros: Buri code reads every byte of a list element, padding too
+    /// (`stencil/glue.rs`'s `unless_spare`).
+    pad: [u8; 7],
     text: BuriStr,
     data: BuriList,
     code: i64,
@@ -4664,6 +4674,7 @@ pub unsafe extern "C" fn buri_rt_host_listen_receive(
         Ok(event) => {
             let value = BuriReceived {
                 frame: event.frame,
+                pad: [0; 7],
                 text: str_of(&event.text),
                 data: list_of_bytes(&event.data),
                 code: event.code,
@@ -4900,6 +4911,7 @@ pub unsafe extern "C" fn buri_rt_host_web_socket_client_connect_receive(
         Ok(event) => {
             let value = BuriReceived {
                 frame: event.frame,
+                pad: [0; 7],
                 text: str_of(&event.text),
                 data: list_of_bytes(&event.data),
                 code: event.code,

@@ -1971,6 +1971,9 @@ struct SentLog {
 struct BuriSent {
     socket: i64,
     frame: i8,
+    /// Zeros: Buri code reads every byte of a list element, padding too
+    /// (`stencil/glue.rs`'s `unless_spare`).
+    pad: [u8; 7],
     text: BuriStr,
     data: BuriList,
 }
@@ -2120,6 +2123,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_sockets_sent(handle: i64, out: *mu
         list_of(&sent, |(socket, frame, text, data): &(i64, i8, String, Vec<u8>)| BuriSent {
             socket: *socket,
             frame: *frame,
+            pad: [0; 7],
             text: str_of(text),
             data: list_of_bytes(data),
         });
@@ -2170,6 +2174,9 @@ struct BuriConnected {
 #[repr(C)]
 struct BuriReceived {
     frame: i8,
+    /// Zeros: Buri code reads every byte of a list element, padding too
+    /// (`stencil/glue.rs`'s `unless_spare`).
+    pad: [u8; 7],
     text: BuriStr,
     data: BuriList,
     code: i64,
@@ -2179,6 +2186,9 @@ struct BuriReceived {
 #[repr(C)]
 struct BuriServeError {
     cause: i8,
+    /// Zeros: Buri code reads every byte of a list element, padding too
+    /// (`stencil/glue.rs`'s `unless_spare`).
+    pad: [u8; 7],
     detail: BuriStr,
 }
 
@@ -2299,7 +2309,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_soc
             "this is not a WebSocket URL: `{url}` names neither `ws://` nor `wss://`"
         );
         // SAFETY: the caller promises a writable destination.
-        unsafe { err.write(BuriServeError { cause: SERVE_UNSUPPORTED, detail: str_of(&detail) }) };
+        unsafe { err.write(BuriServeError { cause: SERVE_UNSUPPORTED, pad: [0; 7], detail: str_of(&detail) }) };
         return 0;
     }
     // Two locks and not one, because [`lock`] is not reentrant: the mint is a
@@ -2368,6 +2378,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_rec
         unsafe {
             err.write(BuriServeError {
                 cause: SERVE_CLOSED,
+                pad: [0; 7],
                 detail: str_of("this socket has already closed"),
             })
         };
@@ -2419,6 +2430,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_rec
         );
         let value = BuriReceived {
             frame: FRAME_CLOSED,
+            pad: [0; 7],
             text: str_of(""),
             data: list_of_bytes(&[]),
             code,
@@ -2428,7 +2440,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_rec
         return BURI_OK;
     };
     let value =
-        BuriReceived { frame, text: str_of(&text), data: list_of_bytes(&data), code: 0 };
+        BuriReceived { frame, pad: [0; 7], text: str_of(&text), data: list_of_bytes(&data), code: 0 };
     // SAFETY: the caller promises a writable destination.
     unsafe { out.write(value) };
     BURI_OK
@@ -2473,6 +2485,9 @@ struct BuriFsCall {
 #[repr(C)]
 struct BuriNetCall {
     method: i8,
+    /// Zeros: Buri code reads every byte of a list element, padding too
+    /// (`stencil/glue.rs`'s `unless_spare`).
+    pad: [u8; 7],
     url: BuriStr,
     headers: BuriList,
     body: BuriList,
@@ -3278,6 +3293,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_net_calls(handle: i64, out: *mut B
     });
     let value = list_of(&calls, |call: &NetLog| BuriNetCall {
         method: call.method,
+        pad: [0; 7],
         url: str_of(&call.url),
         headers: crate::value::list_of_headers(&call.headers),
         body: list_of_bytes(&call.body),
