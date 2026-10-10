@@ -7816,9 +7816,13 @@ copies of each, 1,574 lexer edge cases, all twenty pinned 1M shapes, and
 100,000 generated inputs against a build of `483013296`, nesting and chains at
 their limits included.
 
-**Guards.** `build/loading.rs` bounds `parser::parse`, and a whole load, in
-instructions a line on all twenty shapes at 30,000 lines. It asserts nothing
-where the kernel counts nothing. End to end: `language/lexing.rs` (where words,
+**Guards.** `build/loading.rs` bounds `parser::parse`, and a load of the
+program's text, in instructions a line on all twenty shapes at 30,000 lines:
+this thread's count, the fewest of three runs. A load from disk was counted
+over the whole process at first, and that count moved by a quarter under load,
+since opening files and reading ahead on other threads is kernel work. Beside
+four busy loops, four copies at once, five times, the worst run read 0.93 of
+its bound. It asserts nothing where the kernel counts nothing. End to end: `language/lexing.rs` (where words,
 integers and comments end), `language/parsing.rs` (operands and postfix
 chains; nesting and chains one past their limits), `build/loading.rs`
 (imports reported where they're written; modules read side by side load as
