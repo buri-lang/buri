@@ -326,15 +326,13 @@ fn serve(
     for job in incoming.iter() {
         let wanted = Wanted { latest: Arc::clone(latest), generation: job.generation };
         let swept = one(&mut analyst, job, &wanted);
-        if outgoing.send(swept).is_err() {
-            return;
-        }
+        // A send fails only once the server has gone, and then `incoming` ends
+        // the loop too. Not a branch, since which comes first is a race.
+        let _ = outgoing.send(swept);
         // The report is on the channel; this is what makes the request thread
         // look at it rather than waiting for the client to say something.
         if let Some(knocker) = knocker {
-            if knocker.send(super::Event::Swept).is_err() {
-                return;
-            }
+            let _ = knocker.send(super::Event::Swept);
         }
     }
 }
