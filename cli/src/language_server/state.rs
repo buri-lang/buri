@@ -260,8 +260,8 @@ pub struct State {
     /// analysis cache holds eight, so a session with more targets open than
     /// that recompiled all of them on every open.
     publish_findings: BTreeMap<(PathBuf, Option<TargetId>), TargetFindings>,
-    /// [`State::package_files_key`]'s answers for the message being served.
-    package_files: BTreeMap<(PathBuf, PackageId), u64>,
+    /// [`State::package_key`]'s answers for the message being served.
+    package_keys: BTreeMap<(PathBuf, PackageId), u64>,
     /// What has been done since the server started. `handle` reads it either
     /// side of a request and reports the difference.
     work: Work,
@@ -583,7 +583,7 @@ impl State {
             sources: BTreeMap::new(),
             target_findings: BTreeMap::new(),
             publish_findings: BTreeMap::new(),
-            package_files: BTreeMap::new(),
+            package_keys: BTreeMap::new(),
             work: Work::default(),
             sweeps: super::sweep::Sweeps::new(),
         }
@@ -613,7 +613,7 @@ impl State {
         for sources in self.sources.values_mut() {
             sources.begin_round();
         }
-        self.package_files.clear();
+        self.package_keys.clear();
     }
 
     /// What the server has done since it started, its own counters and the
@@ -801,22 +801,30 @@ impl State {
         let (sources, open) = self.sources_of(root);
         let key = sources.closure_key(closure, open);
         let Some(target) = target else { return key };
-        let files = self.package_files_key(root, target.package);
         let mut hasher = crate::hash::FxHasher::default();
         hasher.write_u64(key);
-        hasher.write_u64(files);
+        hasher.write_u64(self.package_key(root, target.package));
         hasher.finish()
     }
 
-    /// `lint::package_files_key`, once a message.
-    fn package_files_key(&mut self, root: &Path, package: PackageId) -> u64 {
+    /// A hash of `lint::package_reads`: the names and the bytes, once a
+    /// message.
+    fn package_key(&mut self, root: &Path, package: PackageId) -> u64 {
         let at = (root.to_path_buf(), package);
-        if let Some(known) = self.package_files.get(&at) {
+        if let Some(known) = self.package_keys.get(&at) {
             return *known;
         }
         let Some(session) = self.graph(root) else { return 0 };
-        let key = crate::commands::lint::package_files_key(&session, package);
-        self.package_files.insert(at, key);
+        let (names, files) = crate::commands::lint::package_reads(&session, package);
+        let mut hasher = crate::hash::FxHasher::default();
+        hasher.write_u64(names);
+        let (sources, open) = self.sources_of(root);
+        for path in &files {
+            hasher.write(path.as_os_str().as_encoded_bytes());
+            hasher.write_u64(sources.content_hash(path, open));
+        }
+        let key = hasher.finish();
+        self.package_keys.insert(at, key);
         key
     }
 
@@ -848,7 +856,7 @@ impl State {
                 None => BTreeSet::new(),
             };
             for package in packages {
-                hasher.write_u64(self.package_files_key(&root, package));
+                hasher.write_u64(self.package_key(&root, package));
             }
         }
         hasher.finish()

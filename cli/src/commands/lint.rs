@@ -977,15 +977,7 @@ fn declared_sources(session: &Session, package: PackageId) -> Vec<(String, Span)
 /// generators reads that is neither an input nor a schema a check read.
 fn unlisted_files(session: &Session, package: PackageId, declared: &[(String, Span)]) -> Vec<String> {
     let p = session.workspace.package(package);
-    // The entry points are named by the rule kind rather than listed.
-    let mut known: BTreeSet<String> = declared.iter().map(|(n, _)| n.clone()).collect();
-    known.insert("lib.buri".into());
-    known.insert("main.buri".into());
-    known.insert("testing/lib.buri".into());
-    known.insert("tool.buri".into());
-
-    let mut on_disk = package_files(session, package);
-    on_disk.retain(|rel| !known.contains(rel));
+    let mut on_disk = unclaimed(declared, package_files(session, package));
     if on_disk.is_empty() {
         return on_disk;
     }
@@ -999,6 +991,19 @@ fn unlisted_files(session: &Session, package: PackageId, declared: &[(String, Sp
         .flat_map(|o| o.reads)
         .collect();
     on_disk.retain(|rel| !schemas.contains(&session.workspace.rel_of(&p.dir.join(rel))));
+    on_disk
+}
+
+/// The files of [`package_files`] no rule lists, before asking whether a
+/// check elsewhere reads one.
+fn unclaimed(declared: &[(String, Span)], mut on_disk: Vec<String>) -> Vec<String> {
+    // The entry points are named by the rule kind rather than listed.
+    let mut known: BTreeSet<String> = declared.iter().map(|(n, _)| n.clone()).collect();
+    known.insert("lib.buri".into());
+    known.insert("main.buri".into());
+    known.insert("testing/lib.buri".into());
+    known.insert("tool.buri".into());
+    on_disk.retain(|rel| !known.contains(rel));
     on_disk
 }
 
@@ -1026,19 +1031,31 @@ fn package_files(session: &Session, package: PackageId) -> Vec<String> {
     on_disk
 }
 
-/// A hash of [`package_files`]: which files the package rules see.
-///
-/// No file in a closure stands for a file appearing or going away, so a
-/// remembered answer that includes the package rules is keyed on this too
+/// What the package rules read that no file in a target's closure stands for,
+/// so that a remembered answer holding them can be keyed on it too
 /// (buri-lang/buri#281).
-pub fn package_files_key(session: &Session, package: PackageId) -> u64 {
+///
+/// A hash of the names [`package_files`] walks to, which moves when a file
+/// appears or goes away. And, when a file no rule of the package lists is not
+/// a `.buri`, every file each generator rule is worked out from: whether a
+/// check elsewhere reads it as a schema is then part of the answer.
+pub fn package_reads(session: &Session, package: PackageId) -> (u64, Vec<PathBuf>) {
     use std::hash::Hasher;
+    let on_disk = package_files(session, package);
     let mut hasher = crate::hash::FxHasher::default();
-    for rel in package_files(session, package) {
+    for rel in &on_disk {
         hasher.write(rel.as_bytes());
         hasher.write_u8(0);
     }
-    hasher.finish()
+    let mut files = Vec::new();
+    if unclaimed(&declared_sources(session, package), on_disk).iter().any(|rel| !rel.ends_with(".buri")) {
+        for target in session.workspace.targets() {
+            files.extend(crate::build::generators::worked_out_from(&session.workspace, target));
+        }
+        files.sort();
+        files.dedup();
+    }
+    (hasher.finish(), files)
 }
 
 /// Whether [`unlisted_files`] over these targets' packages has to know what

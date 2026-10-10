@@ -1,0 +1,5 @@
+library {
+    generators: [
+        { tool: "json", inputs: ["b.json"] },
+    ]
+}
