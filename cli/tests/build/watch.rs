@@ -573,6 +573,12 @@ impl Looping {
         }
     }
 
+    /// Ends the loop with Ctrl-C, once it is waiting for an edit.
+    fn stop(mut self) {
+        let status = ctrl_c(&mut self.child, "buri test --watch");
+        assert_eq!(status.code(), Some(130), "the loop ended {status}:\n{}", indent(&self.seen));
+    }
+
     /// Pass `n`'s separator line.
     fn separator(&self, n: usize) -> &str {
         let at = separator_at(&self.seen, n).expect("the pass has started");
@@ -628,6 +634,7 @@ fn a_stray_file_coming_and_going_starts_a_pass_each_way() {
         "the departure was not noticed:\n{}",
         indent(&looping.seen)
     );
+    looping.stop();
 }
 
 /// **A schema a check reads is watched, whatever its extension.** It is in the
@@ -649,6 +656,7 @@ fn a_schema_with_an_extension_of_its_own_starts_a_pass() {
     assert!(looping.reported(1).contains("json-syntax"), "{}", indent(&looping.seen));
     assert!(looping.separator(2).contains("libs/x/shape.schema"), "{}", indent(&looping.seen));
     assert!(!looping.reported(2).contains("json-syntax"), "{}", indent(&looping.seen));
+    looping.stop();
 }
 
 /// **Another package's generator input is watched under `check_during_build`**
@@ -673,6 +681,7 @@ fn an_input_elsewhere_that_stops_reading_a_schema_starts_a_pass() {
         "{}",
         indent(&looping.seen)
     );
+    looping.stop();
 }
 
 // ---------------------------------------------------------------------------

@@ -36,6 +36,9 @@ stops at once and silently, killed by `SIGPIPE` like any Unix tool. Shells
 report that as `141`. A program `buri` builds isn't killed: its print answers
 `.Err`, on every backend.
 
+Any other failed write to stdout, such as a full disk, prints
+`error: cannot write to stdout: …` and exits `2`.
+
 ## Diagnostics
 
 Every diagnostic answers four questions in the same order:

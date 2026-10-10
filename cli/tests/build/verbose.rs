@@ -363,9 +363,9 @@ fn each_pass_of_a_watch_loop_lists_its_own_suites() {
             );
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    let status = ctrl_c(&mut child, "buri test --watch --verbose");
     let text = seen.replace('\r', "");
+    assert_eq!(status.code(), Some(130), "the loop ended {status}:\n{}", indent(&text));
     let passes: Vec<&str> = text.split("── ").skip(1).collect();
     assert_eq!(passes.len(), 2, "expected two passes:\n{}", indent(&text));
     for pass in passes {

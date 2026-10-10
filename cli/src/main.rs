@@ -37,12 +37,12 @@ use std::process::ExitCode;
 const STACK: usize = buri::parallel::STACK;
 
 fn main() -> ExitCode {
-    // A `println!` whose reader has gone ends the process, from whichever
-    // thread it ran on, before anything unwinds.
+    // A failed `println!` ends the process, from whichever thread it ran on,
+    // before anything unwinds.
     let report = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        if info.payload().downcast_ref::<String>().is_some_and(|m| arguments::is_reader_gone(m)) {
-            arguments::reader_gone();
+        if let Some(message) = info.payload().downcast_ref::<String>() {
+            arguments::failed_print(message);
         }
         report(info);
     }));
