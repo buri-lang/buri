@@ -225,16 +225,20 @@ static REACTOR: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 /// If the reactor cannot be built, which on a supported platform means the
 /// process cannot create threads.
 pub fn handle() -> &'static tokio::runtime::Handle {
-    REACTOR
-        .get_or_init(|| {
-            #[expect(clippy::expect_used, reason = "a program with no reactor has nothing left to run on")]
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .thread_name("buri-reactor")
-                .build()
-                .expect("the buri runtime could not start a reactor")
-        })
-        .handle()
+    let reactor = REACTOR.get_or_init(|| {
+        #[expect(clippy::expect_used, reason = "a program with no reactor has nothing left to run on")]
+        let built = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("buri-reactor")
+            .build()
+            .expect("the buri runtime could not start a reactor");
+        // What the `OnceLock`'s futex orders, told to helgrind: the thread that
+        // built the reactor happens before every thread that uses it.
+        valgrind::happens_before(&raw const REACTOR);
+        built
+    });
+    valgrind::happens_after(&raw const REACTOR);
+    reactor.handle()
 }
 
 // ---------------------------------------------------------------------------
