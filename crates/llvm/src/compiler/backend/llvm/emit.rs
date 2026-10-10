@@ -877,7 +877,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
         }
         if let [(dst, src, slots)] = moves.as_slice() {
-            let bytes = self.ctx.i64_type().const_int(u64::from(repr::extent(slots)), false);
+            let bytes = self.ctx.i64_type().const_int(u64::from(repr::padded(slots)), false);
             let align = repr::memory_align(slots);
             let _ = self.builder.build_memmove(*dst, HEAP_ALIGN, *src, align, bytes);
             return;
@@ -1455,6 +1455,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             self.store_value(into, &fs, align, value);
         }
+        // The padding between fields, which no field's own store covers.
+        for (start, end) in repr::gaps(slots) {
+            self.zero_bytes(buf, start, end, HEAP_ALIGN);
+        }
         self.set(state, dest, buf.into());
     }
 
@@ -1967,7 +1971,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // The bytes no field of this variant covers are zero, as the register
         // form's blob is: nothing reads them, and zero is the one pattern that
         // is the same however it is read.
-        let area = repr::extent(slots).saturating_sub(payload);
+        let area = repr::padded(slots).saturating_sub(payload);
         if area > 0 {
             let at = repr::byte_offset(self.ctx, &self.builder, buf, i64::from(payload), "pay.p");
             let bytes = self.ctx.i64_type().const_int(u64::from(area), false);
@@ -2180,19 +2184,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         for (i, e) in elems.iter().enumerate() {
             let at = u64::from(stride).saturating_mul(i as u64);
             let value = self.get(state, *e);
-            if repr::in_memory(&element_slots) {
-                let p = repr::byte_offset(self.ctx, &self.builder, block, at as i64, "elem");
-                self.store_value(p, &element_slots, element_align, value);
-                continue;
-            }
-            let pieces = self.pieces(&element_slots, value);
-            for (slot, piece) in element_slots.iter().zip(pieces) {
-                let offset = at.saturating_add(u64::from(slot.offset));
-                let p = repr::byte_offset(self.ctx, &self.builder, block, offset as i64, "elem");
-                if let Ok(store) = self.builder.build_store(p, piece) {
-                    let _ = store.set_alignment(repr::access_align(element_align, *slot));
-                }
-            }
+            let p = repr::byte_offset(self.ctx, &self.builder, block, at as i64, "elem");
+            self.store_value(p, &element_slots, element_align, value);
         }
         let len = self.ctx.i64_type().const_int(elems.len() as u64, false);
         let values = [block.into(), len.into()];
@@ -4453,6 +4446,15 @@ struct Elements {
 const STEP_CTX: u32 = 16;
 
 /// The alignment of `base + at` for a `base` aligned to `align`.
+/// Where an enum's payload starts: past the tag's padding, or right after a
+/// bare tag.
+fn payload_at(enum_repr: &EnumRepr, tag: Scalar) -> u32 {
+    match enum_repr {
+        EnumRepr::Tagged { payload, .. } => *payload,
+        _ => tag.size(),
+    }
+}
+
 fn within(align: u32, at: u32) -> u32 {
     if at == 0 {
         align.max(1)
@@ -5517,7 +5519,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .and_then(|b| b.get_parent())
             .and_then(|f| f.get_first_basic_block());
         match entry {
-            Some(entry) => self.entry_alloca(entry, repr::extent(slots), HEAP_ALIGN),
+            Some(entry) => self.entry_alloca(entry, repr::padded(slots), HEAP_ALIGN),
             None => self.ptr_ty().const_null(),
         }
     }
@@ -5581,7 +5583,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         src: PointerValue<'ctx>,
         slots: &[Slot],
     ) {
-        let bytes = self.ctx.i64_type().const_int(u64::from(repr::extent(slots)), false);
+        let bytes = self.ctx.i64_type().const_int(u64::from(repr::padded(slots)), false);
         let src_align = repr::memory_align(slots);
         let _ = self.builder.build_memcpy(dst, dst_align.max(1), src, src_align, bytes);
     }
@@ -5597,7 +5599,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) -> BasicValueEnum<'ctx> {
         if repr::in_memory(slots) {
             let buf = self.value_buffer(slots);
-            let bytes = self.ctx.i64_type().const_int(u64::from(repr::extent(slots)), false);
+            let bytes = self.ctx.i64_type().const_int(u64::from(repr::padded(slots)), false);
             let _ = self.builder.build_memcpy(buf, HEAP_ALIGN, src, align.max(1), bytes);
             return buf.into();
         }
@@ -5622,7 +5624,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return repr::register_type(self.ctx, slots).const_zero();
         }
         let buf = self.value_buffer(slots);
-        let bytes = self.ctx.i64_type().const_int(u64::from(repr::extent(slots)), false);
+        let bytes = self.ctx.i64_type().const_int(u64::from(repr::padded(slots)), false);
         let _ = self.builder.build_memset(buf, HEAP_ALIGN, self.ctx.i8_type().const_zero(), bytes);
         buf.into()
     }
@@ -5753,6 +5755,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     /// The inverse of [`Unit::load_slots`], for spilling a generic argument.
+    ///
+    /// A whole value's padding is written as zeros ([`repr::gaps`]): a list
+    /// element is tested for all-zero bytes, and padding left as the stack or
+    /// the allocator had it makes that test read garbage (buri-lang/buri#289,
+    /// #291, #293–#295). A small integer followed by padding, which is a tag
+    /// before its payload or a `Bool` before the next word, is stored widened
+    /// over it, so the common case costs no extra store.
     fn store_slots(
         &mut self,
         buf: PointerValue<'ctx>,
@@ -5760,11 +5769,63 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         align: u32,
         pieces: &[BasicValueEnum<'ctx>],
     ) {
+        self.store_padded(buf, slots, align, pieces, repr::gaps(slots));
+    }
+
+    /// [`Unit::store_slots`] with the padding to zero named by the caller.
+    fn store_padded(
+        &mut self,
+        buf: PointerValue<'ctx>,
+        slots: &[Slot],
+        align: u32,
+        pieces: &[BasicValueEnum<'ctx>],
+        mut gaps: Vec<(u32, u32)>,
+    ) {
         for (slot, piece) in slots.iter().zip(pieces) {
             let p = repr::byte_offset(self.ctx, &self.builder, buf, i64::from(slot.offset), "in.p");
+            let end = slot.offset.saturating_add(slot.ty.size());
+            let after = gaps.iter_mut().find(|g| g.0 == end && g.1 > g.0);
+            if let (Some(gap), BasicValueEnum::IntValue(v)) = (after, *piece) {
+                // The widest of 8, 4 and 2 bytes the slot's offset is aligned
+                // to and the padding after it covers.
+                let wide = [8u32, 4, 2].into_iter().find(|w| {
+                    *w > slot.ty.size()
+                        && slot.offset.is_multiple_of(*w)
+                        && slot.offset.saturating_add(*w) <= gap.1
+                });
+                if let Some(w) = wide {
+                    let t = repr::int_type(self.ctx, w);
+                    let v = self.builder.build_int_z_extend(v, t, "in.wide").unwrap_or(v);
+                    if let Ok(store) = self.builder.build_store(p, v) {
+                        let _ = store.set_alignment(within(align, slot.offset).min(w));
+                    }
+                    gap.0 = slot.offset.saturating_add(w);
+                    continue;
+                }
+            }
             if let Ok(store) = self.builder.build_store(p, *piece) {
                 let _ = store.set_alignment(repr::access_align(align, *slot));
             }
+        }
+        for (start, end) in gaps {
+            self.zero_bytes(buf, start, end, align);
+        }
+    }
+
+    /// Zeros `[start, end)` of `buf`, a word at a time where the offset allows.
+    fn zero_bytes(&mut self, buf: PointerValue<'ctx>, start: u32, end: u32, align: u32) {
+        let mut at = start;
+        while at < end {
+            let w = [8u32, 4, 2, 1]
+                .into_iter()
+                .find(|w| at.is_multiple_of(*w) && at.saturating_add(*w) <= end)
+                .unwrap_or(1);
+            let p = repr::byte_offset(self.ctx, &self.builder, buf, i64::from(at), "pad.p");
+            let zero = repr::int_type(self.ctx, w).const_zero();
+            if let Ok(store) = self.builder.build_store(p, zero) {
+                let _ = store.set_alignment(within(align, at).min(w));
+            }
+            at = at.saturating_add(w);
         }
     }
 
@@ -5932,7 +5993,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.builder.position_at_end(none_bb);
             self.store_tag(buf, &enum_repr, align, none_at);
             if let EnumRepr::Tagged { payload, .. } = enum_repr {
-                let area = repr::extent(&slots).saturating_sub(payload);
+                let area = repr::padded(&slots).saturating_sub(payload);
                 let at = repr::byte_offset(self.ctx, &self.builder, buf, i64::from(payload), "sum.z");
                 let bytes = self.ctx.i64_type().const_int(u64::from(area), false);
                 let zero = self.ctx.i8_type().const_zero();
@@ -6208,7 +6269,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     }
                     other => other.const_zero(),
                 };
-                self.store_slots(buf, &[slot], align, &[value]);
+                self.store_discriminant(buf, 0, *tag, payload_at(enum_repr, *tag), align, value);
             }
             EnumRepr::Niche { null_at } => {
                 let slot = Slot { offset: *null_at, ty: SlotTy::Scalar(Scalar::Ptr) };
@@ -6216,6 +6277,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.store_slots(buf, &[slot], align, &[zero.as_basic_value_enum()]);
             }
         }
+    }
+
+    /// A tag at `buf + at`, and the padding between it and the payload as
+    /// zeros, in one store where the payload's offset allows (`store_slots`
+    /// says why the padding is written).
+    fn store_discriminant(
+        &mut self,
+        buf: PointerValue<'ctx>,
+        at: u32,
+        tag: Scalar,
+        payload: u32,
+        align: u32,
+        value: BasicValueEnum<'ctx>,
+    ) {
+        let into = repr::byte_offset(self.ctx, &self.builder, buf, i64::from(at), "tag.p");
+        let slot = Slot { offset: 0, ty: SlotTy::Scalar(tag) };
+        let padding = vec![(tag.size(), payload)];
+        self.store_padded(into, &[slot], within(align, at), &[value], padding);
     }
 
     /// An enum at `buf + at`, labelled with a variant index that is a
@@ -6235,7 +6314,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         message_at: Option<u32>,
     ) {
         let LayoutRepr::Enum {
-            repr: EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. },
+            repr: enum_repr @ (EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. }),
             ..
         } = &l.repr
         else {
@@ -6247,7 +6326,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             other => return self.ice(format_args!("stored a variant index into a {other} tag")),
         };
         let narrowed = self.narrow_int(index.as_basic_value_enum(), want.as_basic_type_enum());
-        self.store_slots(buf, &[slot], align, &[narrowed]);
+        self.store_discriminant(buf, at, *tag, payload_at(enum_repr, *tag), align, narrowed);
         if let LayoutRepr::Enum { repr: EnumRepr::Tagged { payload, .. }, .. } = &l.repr {
             let mut off = *payload;
             // §2.1's message shape: the entry wrote `E`'s one `Str` at
