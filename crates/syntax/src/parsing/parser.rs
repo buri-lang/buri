@@ -86,6 +86,21 @@ impl Cache {
         entry
     }
 
+    /// The parse of `file`, given one made elsewhere. What [`Cache::parse`]
+    /// would hand back: a parse already kept for `file` wins.
+    pub fn adopt(
+        &mut self,
+        file: FileId,
+        parsed: Parsed,
+    ) -> (std::sync::Arc<Module>, std::sync::Arc<Vec<Diagnostic>>) {
+        if let Some(hit) = self.entries.get(&file) {
+            return hit.clone();
+        }
+        let entry = (std::sync::Arc::new(parsed.module), std::sync::Arc::new(parsed.errors));
+        self.entries.insert(file, entry.clone());
+        entry
+    }
+
     /// Drops the parse of one file, because its text has been replaced.
     ///
     /// The pair with [`SourceMap::replace`](crate::diagnostics::SourceMap::replace):

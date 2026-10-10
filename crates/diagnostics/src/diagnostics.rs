@@ -635,6 +635,23 @@ impl Diagnostic {
     pub fn is_error(&self) -> bool {
         self.severity == Severity::Error
     }
+
+    /// Moves every span in this diagnostic that is in file `from` to file
+    /// `to`.
+    pub fn refile(&mut self, from: FileId, to: FileId) {
+        let at = |s: &mut Span| {
+            if s.file == from {
+                s.file = to;
+            }
+        };
+        at(&mut self.span);
+        for s in &mut self.secondary_spans {
+            at(&mut s.span);
+        }
+        for e in &mut self.edits {
+            at(&mut e.at);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -840,6 +857,13 @@ impl SourceMap {
         if let Some(id) = self.find(name) {
             return Ok(id);
         }
+        let text = SourceMap::read(abs_path)?;
+        Ok(self.add(name, abs_path.to_path_buf(), text))
+    }
+
+    /// What [`SourceMap::load`] reads from `abs_path`, without keeping it: for
+    /// a caller that reads files side by side and adds them in order.
+    pub fn read(abs_path: &Path) -> std::io::Result<String> {
         // The size is asked of the open file rather than of the path, which
         // would be a second lookup of every file a build reads.
         let mut file = std::fs::File::open(abs_path)?;
@@ -852,7 +876,7 @@ impl SourceMap {
         }
         let mut text = String::with_capacity(usize::try_from(size).unwrap_or(0));
         std::io::Read::read_to_string(&mut file, &mut text)?;
-        Ok(self.add(name, abs_path.to_path_buf(), text))
+        Ok(text)
     }
 
     pub fn find(&self, name: &str) -> Option<FileId> {

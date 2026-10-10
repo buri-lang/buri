@@ -94,11 +94,13 @@ fn nesting_and_chains_are_refused_one_past_their_limits() {
         let ty = "[".repeat(n) + "Int" + &"]".repeat(n);
         ("1".to_string(), format!("fn f(a: {ty}): Int {{\n    1\n}}\n\n"))
     };
-    let cases: [(&str, &dyn Fn(usize) -> (String, String), usize, &str); 4] = [
-        ("parentheses", &deep, 126, "expression-too-deep"),
-        ("prefix minus", &negated, 253, "expression-too-deep"),
-        ("a sum", &summed, 2048, "chain-too-long"),
-        ("array types", &typed, 255, "expression-too-deep"),
+    // A shape at `n`: the value `main` binds, and the items above `main`.
+    type Shape = fn(usize) -> (String, String);
+    let cases: [(&str, Shape, usize, &str); 4] = [
+        ("parentheses", deep, 126, "expression-too-deep"),
+        ("prefix minus", negated, 253, "expression-too-deep"),
+        ("a sum", summed, 2048, "chain-too-long"),
+        ("array types", typed, 255, "expression-too-deep"),
     ];
     for (what, make, limit, code) in cases {
         for (n, refused) in [(limit, false), (limit + 1, true)] {
