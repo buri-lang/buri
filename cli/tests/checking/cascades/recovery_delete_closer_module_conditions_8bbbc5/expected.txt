@@ -1,0 +1,68 @@
+error: there is nothing named `pickAny` in scope [unknown-name]
+  --> main.buri:96:5
+   |
+96 |     pickAny(n - 1 > 0, 1, 2)
+   |     ^^^^^^^
+   |
+   = did you mean `pick`?
+   = fix: if you meant `pick`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `pickAny` in scope [unknown-name]
+   --> main.buri:100:5
+    |
+100 |     pickAny(n + 1 > 2, "yes", "no")
+    |     ^^^^^^^
+    |
+    = did you mean `pick`?
+    = fix: if you meant `pick`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `pickGuard` in scope [unknown-name]
+   --> main.buri:104:5
+    |
+104 |     pickGuard(n - 1 > 0, n)
+    |     ^^^^^^^^^
+    |
+    = did you mean `pickHeld`?
+    = fix: if you meant `pickHeld`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `pickOr` in scope [unknown-name]
+   --> main.buri:108:5
+    |
+108 |     pickOr(n - 1 > 0, n + 1 < 2)
+    |     ^^^^^^
+    |
+    = did you mean `pick`?
+    = fix: if you meant `pick`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `pickMixed` in scope [unknown-name]
+   --> main.buri:116:5
+    |
+116 |     pickMixed(n - 1 > 0, n * 2 < 7, n + 5 == 5)
+    |     ^^^^^^^^^
+    |
+    = did you mean `pickHeld`?
+    = fix: if you meant `pickHeld`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: an `if` used as a statement ends with `;` [missing-semicolon]
+   --> main.buri:143:38
+    |
+143 |     if (holder.flag) { 1 } else { 2 }
+    |                                      ^
+    |
+    = fix: write `;` here
+error: expected `(`, found `pickAny` [unexpected-token]
+   --> main.buri:146:4
+    |
+146 | fn pickAny<T>(flag: Bool, yes: T, no: T): T {
+    |    ^^^^^^^
+    |
+    = expected: `(`
+    = actual: `pickAny`
+    = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+   --> main.buri:164:1
+    |
+164 | 
+    | ^
+    |
+   --> main.buri:142:35
+    |
+142 | fn pickHeld(holder: Flagged): Int {
+    |                                   ^ opened here
+    |
+    = fix: write `}` here

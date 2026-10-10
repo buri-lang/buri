@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//libs/greeting" import { f };
+
+test "f" {
+    assert.equal([f(0), f(1), f(2), f(3)], [2, 2, 1, 1]);
+}

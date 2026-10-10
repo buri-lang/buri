@@ -195,6 +195,10 @@ mod cross;
 mod reproducible;
 #[cfg(feature = "backend-stencil")]
 mod conformance;
+// The conformance corpus under `--coverage` and `--coverage=mcdc` gives every
+// test the verdict it gets without, on JavaScript and every backend built in.
+#[cfg(feature = "backend-stencil")]
+mod coverage_agrees;
 // The whole corpus through both pipelines, verdict by verdict. Beside
 // `conformance` and gated with it, because the native half of the comparison
 // is that module's memoized build.

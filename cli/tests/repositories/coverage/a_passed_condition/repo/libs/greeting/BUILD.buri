@@ -1,0 +1,8 @@
+library {
+    sources: ["greeting.buri"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/greeting.buri"]
+    }
+}

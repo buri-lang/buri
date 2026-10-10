@@ -1,0 +1,63 @@
+# buri-lang/buri#297, verbatim: `f` hands `n - 1 > 0` to `pick`, which
+# branches on it. Coverage must not change the answer, so every run passes and
+# counts each side of the `if` twice. `cli/tests/native/llvm.rs` reads the
+# goldens against `--release`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an if on a Bool another function computed takes the branch its value names under --coverage"
+
+run {
+  args: ["test"]
+  exit: 0
+  golden: "passed.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "--coverage"]
+  exit: 0
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
+
+run {
+  args: ["test", "--coverage", "--output=js"]
+  exit: 0
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
+
+run {
+  args: ["test", "--coverage=mcdc"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}
+
+run {
+  args: ["test", "--coverage=mcdc", "--output=js"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}

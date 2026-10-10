@@ -5232,7 +5232,8 @@ test "two trees grown alike are two trees" {
 /// The probes go in before the middle end, so LLVM gets them like any call into
 /// the runtime. The ground truth is the coverage corpus's own lcov goldens, read
 /// by `build::repositories::test_coverage` against the other two backends: one
-/// with an `if` and a `match`, and one with every kind of branch.
+/// with an `if` and a `match`, one with every kind of branch, and #297's `if` on
+/// a passed `Bool`.
 #[test]
 fn coverage_under_release_counts_the_lines_the_other_backends_count() {
     skip_unless_executable!();
@@ -5254,6 +5255,8 @@ fn coverage_under_release_counts_the_lines_the_other_backends_count() {
         ("branch_kinds", "//lib/branches", "--coverage", "lcov.info", "7 passed, 0 failed", 0),
         ("mcdc", "//lib/m", "--coverage=mcdc", "mcdc.info", "6 passed, 1 failed", 1),
         ("mcdc", "//lib/d", "--coverage=mcdc", "derived.info", "3 passed, 0 failed", 0),
+        ("a_passed_condition", "//libs/greeting", "--coverage", "lcov.info", "1 passed, 0 failed", 0),
+        ("a_passed_condition", "//libs/greeting", "--coverage=mcdc", "mcdc.info", "1 passed, 0 failed", 0),
     ];
     for (name, target, flag, golden, passed, status) in cases {
         let case = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/repositories/coverage").join(name);
@@ -5274,6 +5277,15 @@ fn coverage_under_release_counts_the_lines_the_other_backends_count() {
         let expected = std::fs::read_to_string(case.join("expected").join(golden)).unwrap();
         assert_eq!(lcov, expected, "{name}");
     }
+}
+
+/// **`--release --coverage` changes no test's verdict** in the conformance
+/// corpus (`coverage_agrees`).
+#[cfg(feature = "backend-stencil")]
+#[test]
+fn coverage_changes_no_verdict_under_release() {
+    skip_unless_executable!();
+    crate::coverage_agrees::agrees("llvm", true, &["--release"]);
 }
 
 /// **`--release --verbose` times every test LLVM built, a failing one too.**

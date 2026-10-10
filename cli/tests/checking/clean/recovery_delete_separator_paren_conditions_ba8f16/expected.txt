@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:59:25
+   |
+59 |     pickNested(n - 1 > 0 n * 2 < 5)
+   |                         ^
+   |
+   = fix: write `,` here

@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+   --> main.buri:100:22
+    |
+100 |     pickAny(n + 1 > 2 "yes", "no")
+    |                      ^
+    |
+    = fix: write `,` here

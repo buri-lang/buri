@@ -1,0 +1,1 @@
+from "//libs/greeting/greeting.buri" export { f };

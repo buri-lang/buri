@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+   --> main.buri:112:36
+    |
+112 |     pick(n - 1 > 0 && n * 2 < 7 || , n + 5 == 5)
+    |                                    ^
+    |
+    = expected: an expression
+    = actual: `,`
+    = fix: write a value here

@@ -19,6 +19,7 @@ from "//lib/semantics/shapes.buri" export {
     totalGrams, Tree, treeOf, triple, twice, Version, version, Weigh, weighAndShow,
     Widget, World, worldHere, Wrap,
 };
+
 // derived traits
 // newtypes with derived operator traits
 // hand-written impls
@@ -35,3 +36,10 @@ from "//lib/semantics/shapes.buri" export {
 // fields a literal may leave out
 // literals that leave the type name out too
 // evaluation-order instrumentation
+
+from "//lib/semantics/conditions.buri" export {
+    atLeast, below, differs, eitherSide, equals, equalsFalse, float, floatBelow,
+    generic, genericText, guardedBy, heldAcrossAList, heldAcrossAnotherList, inline,
+    matched, minusOne, mixed, mixedArguments, named, negated, nested, plain, plusOne,
+    stored, withAnd,
+};
