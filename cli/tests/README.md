@@ -116,7 +116,8 @@ cli/tests/
 top level because suites share them: `language::conformance` reads
 `conformance/` on the JavaScript backend while `native::conformance` and
 `native::stencil` read it on the copy-and-patch one, and four suites read
-`crash/`. That split is written into the corpus — each
+`crash/`. CI's `llvm-conformance` job runs `native::conformance` again with
+`BURI_CONFORMANCE_BUILD=llvm-release`, on the release backend. That split is written into the corpus — each
 `conformance/lib/*/BUILD.buri` declares `test { backends: [JS] }`, because
 `buri test` runs a suite natively by default and the reference run has to stay
 the reference one. A divergence then means one backend is wrong, rather than two
@@ -586,6 +587,9 @@ nix develop .#perf -c cargo run -p buri --features backend-llvm,valgrind --examp
 - `report` writes one draft issue per distinct error to `issues/`. An error is
   its kind and its first named frame past the allocator, so one bug reached by
   many programs is one issue.
+- Valgrind's errors never set a program's exit status, so a test that fails
+  under a tool failed on its own. `failed` drafts it as its own issue,
+  `memcheck: test failed: <test> (<build>)`, from the step's output.
 - A workflow files a draft from `main` only, and only when no open issue has
   its signature in the title. Elsewhere it prints the issue it would file.
 - Memcheck: a definite leak is an error, except in the runtime's unit tests,

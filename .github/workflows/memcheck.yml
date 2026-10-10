@@ -12,6 +12,9 @@ name: Memcheck
 # * **`--features valgrind`** builds a runtime that, under memcheck, takes
 #   every block from the system allocator one at a time, annotated where
 #   memcheck can't see `malloc` (`cli/runtime/valgrind.rs`).
+# * **A test's own failure is its own issue.** Valgrind's errors never change
+#   a program's exit status, so a failed test is the test's, and `failed`
+#   drafts it from the step's output.
 # * **Issues are filed from `main` only.** A run on any other ref prints the
 #   issues it would have filed.
 #
@@ -87,21 +90,42 @@ jobs:
         if: startsWith(matrix.shard, 'stencil') || startsWith(matrix.shard, 'llvm')
         env:
           BURI_CONFORMANCE_BUILD: ${{ matrix.shard == 'stencil-debug' && 'stencil' || matrix.shard }}
-        run: nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- conformance::the_native_set_passes
+        run: |
+          set -euo pipefail
+          mkdir -p "$BURI_MEMCHECK"
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- conformance::the_native_set_passes \
+            2>&1 | tee -a "$BURI_MEMCHECK/tests.log"
       - name: The agreement and at-scale rows
         if: matrix.shard == 'agreement'
-        run: "nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- agreement:: at_scale::"
+        run: |
+          set -euo pipefail
+          mkdir -p "$BURI_MEMCHECK"
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- agreement:: at_scale:: \
+            2>&1 | tee -a "$BURI_MEMCHECK/tests.log"
       - name: The runtime's unit tests
         if: matrix.shard == 'runtime'
         env:
           # Ten thousand parked tasks' stacks are more address space than
           # Valgrind gives a program; a thousand still asks the same question.
           BURI_B9_PARKED: "1000"
+          # graviola refuses a CPU without ADX, and Valgrind's CPUID hides it
+          # (Valgrind bug 494162). This is graviola's switch for it.
+          VALGRIND_BUG_494162: "1"
         run: |
           set -euo pipefail
+          mkdir -p "$BURI_MEMCHECK"
           tests="$(nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri-rt-tests --features valgrind --no-run --message-format=json-render-diagnostics \
             | jq -r 'select(.profile.test == true) | .executable | select(. != null)')"
-          nix develop .#perf -c target/debug/examples/valgrind tests memcheck "$BURI_MEMCHECK" 'runtime unit tests' "$tests" --test-threads=1
+          nix develop .#perf -c target/debug/examples/valgrind tests memcheck "$BURI_MEMCHECK" 'runtime unit tests' "$tests" --test-threads=1 \
+            2>&1 | tee -a "$BURI_MEMCHECK/tests.log"
+      # A test that failed on its own, apart from any Valgrind error: its own
+      # draft issue, and a red step that says so.
+      - name: Tests that failed on their own
+        if: always()
+        run: |
+          [ -e "$BURI_MEMCHECK/tests.log" ] || exit 0
+          nix develop .#perf -c target/debug/examples/valgrind failed memcheck "$BURI_MEMCHECK" '${{ matrix.shard }}' \
+            "$BURI_MEMCHECK/tests.log" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
       - name: Report
         if: always()
         run: nix develop .#perf -c target/debug/examples/valgrind report "$BURI_MEMCHECK"
