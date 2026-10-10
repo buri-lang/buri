@@ -329,7 +329,7 @@ fn one_pass(
         Ok(session) => session,
         Err(msg) => {
             eprintln!("error: {msg}");
-            return watch::Pass { code: 2, inputs: Vec::new(), output: out.take(), quiet: false };
+            return watch::Pass { code: 2, inputs: watch::Watched::default(), output: out.take(), quiet: false };
         }
     };
     // A graph with errors in it is still a graph: `Workspace::load` keeps every
@@ -340,7 +340,7 @@ fn one_pass(
     // state, not an exit (BUILD-AND-WATCH.md §4.3).
     let broken = session.report();
     if broken && !watching {
-        return watch::Pass { code: 2, inputs: Vec::new(), output: out.take(), quiet: false };
+        return watch::Pass { code: 2, inputs: watch::Watched::default(), output: out.take(), quiet: false };
     }
     let targets = match session.resolve_targets(&args.targets) {
         Ok(t) => t,
@@ -348,10 +348,10 @@ fn one_pass(
             eprintln!("error: {msg}");
             // Nothing to watch and nothing to run: a selection that names no
             // target is a mistake in the invocation, which no edit will fix.
-            return watch::Pass { code: 2, inputs: Vec::new(), output: out.take(), quiet: false };
+            return watch::Pass { code: 2, inputs: watch::Watched::default(), output: out.take(), quiet: false };
         }
     };
-    let inputs = if watching { watch::inputs(&session, &targets) } else { Vec::new() };
+    let inputs = if watching { watch::inputs(&session, &targets) } else { watch::Watched::default() };
     if broken {
         return watch::Pass { code: 2, inputs, output: out.take(), quiet: false };
     }

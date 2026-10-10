@@ -1010,12 +1010,16 @@ fn unclaimed(declared: &[(String, Span)], mut on_disk: Vec<String>) -> Vec<Strin
 /// Every file in a package `unused-source` could report, package-relative and
 /// sorted, from one walk of its directory.
 fn package_files(session: &Session, package: PackageId) -> Vec<String> {
-    // What a generator's inputs wear. A generator reads whatever it likes, so
-    // "every file belongs to a rule" cannot be asked of every file on disk —
-    // a README is nobody's. It can be asked of a file wearing an extension a
-    // generator in *this package* already reads: something declares `.units`
-    // here, so a second `.units` that nothing declares is an oversight rather
-    // than a document.
+    listing(&session.workspace.package(package).dir, &generator_extensions(session, package))
+}
+
+/// What a package's generator inputs wear. A generator reads whatever it
+/// likes, so "every file belongs to a rule" cannot be asked of every file on
+/// disk — a README is nobody's. It can be asked of a file wearing an extension
+/// a generator in *this package* already reads: something declares `.units`
+/// here, so a second `.units` that nothing declares is an oversight rather
+/// than a document.
+pub fn generator_extensions(session: &Session, package: PackageId) -> BTreeSet<String> {
     let mut extensions: BTreeSet<String> = BTreeSet::new();
     for kind in [RuleKind::Library, RuleKind::Binary] {
         let target = crate::build::workspace::TargetId { package, kind };
@@ -1025,10 +1029,27 @@ fn package_files(session: &Session, package: PackageId) -> Vec<String> {
             }
         }
     }
-    let p = session.workspace.package(package);
+    extensions
+}
+
+/// The files under a package directory `unused-source` could report: every
+/// `.buri` but `BUILD.buri`, every `.proto`, and every file wearing one of
+/// `extensions`. Package-relative and sorted, from one listing of each
+/// directory; nothing is read. `buri test --watch` lists the same way, so it
+/// wakes exactly when this answer moves (buri-lang/buri#285).
+pub fn listing(dir: &Path, extensions: &BTreeSet<String>) -> Vec<String> {
     let mut on_disk = Vec::new();
-    collect_package_sources(&p.dir, &p.dir, &extensions, &mut on_disk);
+    collect_package_sources(dir, dir, extensions, &mut on_disk);
     on_disk
+}
+
+thread_local! {
+    static LISTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many directories [`listing`] has read on this thread.
+pub fn directories_listed() -> usize {
+    LISTED.with(std::cell::Cell::get)
 }
 
 /// What the package rules read that no file in a target's closure stands for,
@@ -1110,6 +1131,7 @@ fn collect_package_sources(
     out: &mut Vec<String>,
 ) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
+    LISTED.with(|n| n.set(n.get().saturating_add(1)));
     let mut items: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
     items.sort();
     for p in items {

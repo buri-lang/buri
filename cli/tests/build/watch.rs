@@ -21,7 +21,7 @@ use crate::harness::*;
 
 use buri::build::session::{Rendering, Session};
 use buri::build::workspace::Workspace;
-use buri::commands::watch::{Pass, Snapshot, Watch};
+use buri::commands::watch::{Pass, Snapshot, Watch, Watched};
 use buri::diagnostics::{Diagnostics, SourceMap};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -73,12 +73,12 @@ fn two_suites(name: &str) -> Scratch {
 /// A `Session` built here rather than through `session::open`, because `open`
 /// finds the root from the working directory and a test binary's working
 /// directory is shared by every test in it.
-fn declared_set(root: &Path) -> Vec<PathBuf> {
+fn declared_set(root: &Path) -> Watched {
     declared_set_of(root, "//...")
 }
 
 /// The same, for the targets one pattern names.
-fn declared_set_of(root: &Path, pattern: &str) -> Vec<PathBuf> {
+fn declared_set_of(root: &Path, pattern: &str) -> Watched {
     let mut map = SourceMap::new();
     let mut diagnostics = Diagnostics::new();
     let workspace = Workspace::load(root, &mut map, &mut diagnostics).expect("the workspace loads");
@@ -116,7 +116,7 @@ fn names(root: &Path, paths: &[PathBuf]) -> Vec<String> {
 fn the_declared_set_is_the_inputs_and_the_files_that_decide_them() {
     let scratch = two_suites("watch-set");
     let set = declared_set(&scratch.root);
-    let listed = names(&scratch.root, &set);
+    let listed = names(&scratch.root, &set.files);
 
     for want in [
         "REPO.buri",
@@ -169,7 +169,7 @@ fn a_generators_input_and_the_tool_that_reads_it_are_watched() {
     scratch.write("tools/gen/BUILD.buri", "tool {\n  generate {}\n}\n");
     scratch.write("tools/gen/tool.buri", "export fn generate(): Int { 1 }\n");
 
-    let listed = names(&scratch.root, &declared_set(&scratch.root));
+    let listed = names(&scratch.root, &declared_set(&scratch.root).files);
     for want in ["lib/wire/units.txt", "tools/gen/tool.buri", "tools/gen/BUILD.buri"] {
         assert!(
             listed.iter().any(|p| p == want),
@@ -189,7 +189,7 @@ fn a_snapshot_golden_is_watched_and_its_diff_is_not() {
     scratch.write("lib/a/test/__snapshots__/front.png", "golden");
     scratch.write("lib/a/test/__snapshots__/front.diff.png", "diff");
 
-    let listed = names(&scratch.root, &declared_set(&scratch.root));
+    let listed = names(&scratch.root, &declared_set(&scratch.root).files);
     assert!(
         listed.iter().any(|p| p == "lib/a/test/__snapshots__/front.png"),
         "the declared set does not name the golden:\n{}",
@@ -233,7 +233,7 @@ fn a_platforms_files_and_dependencies_are_watched() {
          export fn main(host: KioskHost): Result<(), Str> { .Ok(()) }\n",
     );
 
-    let listed = names(&scratch.root, &declared_set_of(&scratch.root, "//cmd/kiosk"));
+    let listed = names(&scratch.root, &declared_set_of(&scratch.root, "//cmd/kiosk").files);
     for want in [
         "platform/kiosk/platform.buri",
         "platform/kiosk/extra.buri",
@@ -282,7 +282,7 @@ fn a_test_only_dependency_is_watched() {
     );
 
     let set = declared_set(&scratch.root);
-    let listed = names(&scratch.root, &set);
+    let listed = names(&scratch.root, &set.files);
     for want in ["lib/helper/BUILD.buri", "lib/helper/lib.buri", "lib/helper/h.buri"] {
         assert!(
             listed.iter().any(|p| p == want),
@@ -406,7 +406,7 @@ fn a_build_file_is_watched_and_a_new_source_arrives_through_it() {
     let scratch = two_suites("watch-build-file");
     let before = declared_set(&scratch.root);
     assert!(
-        !names(&scratch.root, &before).iter().any(|p| p == "lib/a/more.buri"),
+        !names(&scratch.root, &before.files).iter().any(|p| p == "lib/a/more.buri"),
         "an undeclared file was watched"
     );
 
@@ -431,7 +431,7 @@ fn a_build_file_is_watched_and_a_new_source_arrives_through_it() {
         "editing a build file did not wake the loop"
     );
     assert!(
-        names(&scratch.root, &declared_set(&scratch.root))
+        names(&scratch.root, &declared_set(&scratch.root).files)
             .iter()
             .any(|p| p == "lib/a/more.buri"),
         "a newly declared source did not enter the set"
@@ -447,7 +447,7 @@ fn a_broken_build_file_keeps_the_loop_watching() {
     let scratch = two_suites("watch-broken");
     scratch.write("lib/a/BUILD.buri", "library {\n  sources: [\n");
     assert!(
-        names(&scratch.root, &declared_set(&scratch.root))
+        names(&scratch.root, &declared_set(&scratch.root).files)
             .iter()
             .any(|p| p == "lib/a/BUILD.buri"),
         "a build file that stopped parsing stopped being watched"
@@ -509,4 +509,248 @@ fn status(text: &str, action_and_label: &str) -> String {
         }
     }
     panic!("no `{action_and_label}` line in:\n{}", indent(text));
+}
+
+// ---------------------------------------------------------------------------
+// The loop at a terminal
+// ---------------------------------------------------------------------------
+
+/// `buri test <target> --watch`, read as it prints.
+///
+/// `--watch` refuses a pipe, so the loop runs under `script`, which hands it a
+/// terminal. A pass is over once its separator is drawn: the loop takes its
+/// stamps before drawing it, so an edit made after it is one the loop sees.
+struct Looping {
+    child: std::process::Child,
+    lines: std::sync::mpsc::Receiver<Vec<u8>>,
+    seen: String,
+}
+
+impl Looping {
+    fn start(scratch: &Scratch, target: &str) -> Looping {
+        use std::io::Read as _;
+        let buri = env!("CARGO_BIN_EXE_buri");
+        let mut cmd = std::process::Command::new("script");
+        if cfg!(target_os = "macos") {
+            cmd.args(["-q", "/dev/null", buri, "test", target, "--watch"]);
+        } else {
+            cmd.args(["-qec", &format!("{buri} test {target} --watch"), "/dev/null"]);
+        }
+        let mut child = cmd
+            .current_dir(&scratch.root)
+            .env("BURI_HOME", sweep::kept::shared_cross_home())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("`script` runs");
+        let mut pipe = child.stdout.take().unwrap();
+        let (tx, lines) = std::sync::mpsc::channel::<Vec<u8>>();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = pipe.read(&mut buf) {
+                if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        Looping { child, lines, seen: String::new() }
+    }
+
+    /// Reads until pass `n`'s separator is drawn.
+    fn until_pass(&mut self, n: usize) {
+        // A guard against a loop that never wakes, not a measurement.
+        let deadline = std::time::Instant::now() + Duration::from_secs(240);
+        while separator_at(&self.seen, n).is_none() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "pass {n} never started:\n{}",
+                indent(&self.seen)
+            );
+            if let Ok(bytes) = self.lines.recv_timeout(Duration::from_millis(100)) {
+                self.seen.push_str(&String::from_utf8_lossy(&bytes).replace('\r', ""));
+            }
+        }
+    }
+
+    /// Pass `n`'s separator line.
+    fn separator(&self, n: usize) -> &str {
+        let at = separator_at(&self.seen, n).expect("the pass has started");
+        let start = self.seen[..at].rfind('\n').map_or(0, |i| i + 1);
+        let end = self.seen[at..].find('\n').map_or(self.seen.len(), |i| at + i);
+        &self.seen[start..end]
+    }
+
+    /// What pass `n` reported on standard error, which reaches the terminal
+    /// before its separator: everything after the previous separator.
+    fn reported(&self, n: usize) -> &str {
+        let end = separator_at(&self.seen, n).expect("the pass has started");
+        let start = if n == 1 { 0 } else { separator_at(&self.seen, n - 1).expect("the pass has started") };
+        &self.seen[start..end]
+    }
+}
+
+impl Drop for Looping {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+fn separator_at(text: &str, n: usize) -> Option<usize> {
+    text.find(&format!("  run {n} "))
+}
+
+/// **A stray file arriving starts a pass, and so does its leaving**, under
+/// `check_during_build`: `unused-source` reads the package's directory, so a
+/// file nobody declared appearing there changes what the pass reports
+/// (buri-lang/buri#285).
+#[test]
+fn a_stray_file_coming_and_going_starts_a_pass_each_way() {
+    let scratch = Scratch::copy_of(
+        "watch-stray",
+        &tests_dir().join("repositories/linting/a_stray_file_is_seen_during_build/repo"),
+    );
+    let mut looping = Looping::start(&scratch, "//libs/shapes");
+    looping.until_pass(1);
+    std::fs::rename(scratch.path("staging/stray.json"), scratch.path("libs/shapes/stray.json")).unwrap();
+    looping.until_pass(2);
+    std::fs::rename(scratch.path("libs/shapes/stray.json"), scratch.path("staging/stray.json")).unwrap();
+    looping.until_pass(3);
+
+    let finding = "libs/shapes/stray.json belongs to no library or binary";
+    assert!(!looping.reported(1).contains("unused-source"), "{}", indent(&looping.seen));
+    assert!(looping.separator(2).contains("libs/shapes/stray.json"), "{}", indent(&looping.seen));
+    assert!(looping.reported(2).contains(finding), "the arrival was not reported:\n{}", indent(&looping.seen));
+    assert!(looping.separator(3).contains("libs/shapes/stray.json"), "{}", indent(&looping.seen));
+    assert!(
+        !looping.reported(3).contains("unused-source"),
+        "the departure was not noticed:\n{}",
+        indent(&looping.seen)
+    );
+}
+
+/// **A schema a check reads is watched, whatever its extension.** It is in the
+/// check's key without being anybody's declared input, so editing it moves the
+/// build and has to start a pass. `check_during_build` is only how the pass
+/// says what the check found.
+#[test]
+fn a_schema_with_an_extension_of_its_own_starts_a_pass() {
+    let scratch = Scratch::copy_of(
+        "watch-schema",
+        &tests_dir().join("repositories/linting/a_schema_read_in_another_dialect_is_checked_again/repo"),
+    );
+    scratch.write("REPO.buri", "lint {\n    check_during_build: true\n}\n");
+    let mut looping = Looping::start(&scratch, "//libs/x");
+    looping.until_pass(1);
+    scratch.write("libs/x/shape.schema", "{ \"title\": \"Shape\", \"type\": \"object\" }\n");
+    looping.until_pass(2);
+
+    assert!(looping.reported(1).contains("json-syntax"), "{}", indent(&looping.seen));
+    assert!(looping.separator(2).contains("libs/x/shape.schema"), "{}", indent(&looping.seen));
+    assert!(!looping.reported(2).contains("json-syntax"), "{}", indent(&looping.seen));
+}
+
+/// **Another package's generator input is watched under `check_during_build`**
+/// while the package holds a file only a check elsewhere may read: whether
+/// `unused-source` reports it follows that input.
+#[test]
+fn an_input_elsewhere_that_stops_reading_a_schema_starts_a_pass() {
+    let scratch = Scratch::copy_of(
+        "watch-unread",
+        &tests_dir().join("repositories/linting/a_schema_nothing_reads_any_more_is_reported/repo"),
+    );
+    scratch.write("REPO.buri", "lint {\n    check_during_build: true\n}\n");
+    let mut looping = Looping::start(&scratch, "//libs/a");
+    looping.until_pass(1);
+    scratch.edit("libs/b/b.json", "//libs/a/shared.schema.json", "//libs/a/own.schema.json");
+    looping.until_pass(2);
+
+    assert!(!looping.reported(1).contains("unused-source"), "{}", indent(&looping.seen));
+    assert!(looping.separator(2).contains("libs/b/b.json"), "{}", indent(&looping.seen));
+    assert!(
+        looping.reported(2).contains("libs/a/shared.schema.json belongs to no library or binary"),
+        "{}",
+        indent(&looping.seen)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// What a sweep lists
+// ---------------------------------------------------------------------------
+
+fn stray_repo(name: &str, check_during_build: bool) -> Scratch {
+    let scratch = Scratch::copy_of(
+        name,
+        &tests_dir().join("repositories/linting/a_stray_file_is_seen_during_build/repo"),
+    );
+    scratch.write("REPO.buri", &format!("lint {{\n    check_during_build: {check_during_build}\n}}\n"));
+    scratch
+}
+
+/// **Without `check_during_build` no directory is listed**, so a stray file
+/// moves nothing: nothing in the pass would report it.
+#[test]
+fn a_stray_file_moves_nothing_without_check_during_build() {
+    let scratch = stray_repo("watch-stray-off", false);
+    let set = declared_set_of(&scratch.root, "//libs/shapes");
+    let listed = buri::commands::lint::directories_listed();
+    let before = Snapshot::sweep(&set);
+    assert_eq!(buri::commands::lint::directories_listed(), listed, "a sweep listed a directory");
+
+    std::fs::rename(scratch.path("staging/stray.json"), scratch.path("libs/shapes/stray.json")).unwrap();
+    assert!(
+        before.difference(&Snapshot::sweep(&set)).is_empty(),
+        "a stray file moved the sweep without check_during_build"
+    );
+}
+
+/// **A sweep lists each directory of a watched package once**, and no other:
+/// not a nested package's, not a dot-directory's. That listing, and a `stat`
+/// per declared file, is the whole of what a sweep costs.
+#[test]
+fn a_sweep_lists_each_directory_of_a_watched_package_once() {
+    let scratch = stray_repo("watch-listings", true);
+    scratch.write("libs/shapes/parts/edge.buri", "export fn edge(): Int { 1 }\n");
+    scratch.write("libs/shapes/.hidden/note.buri", "export fn note(): Int { 1 }\n");
+    scratch.write("libs/shapes/inner/BUILD.buri", "library {}\n");
+    scratch.write("libs/shapes/inner/lib.buri", "export fn inner(): Int { 1 }\n");
+    let set = declared_set_of(&scratch.root, "//libs/shapes");
+
+    let listed = buri::commands::lint::directories_listed();
+    let before = Snapshot::sweep(&set);
+    assert_eq!(
+        buri::commands::lint::directories_listed() - listed,
+        2,
+        "a sweep of libs/shapes did not list exactly libs/shapes and libs/shapes/parts"
+    );
+    // The nested file nobody declared is in what the sweep found, so its going
+    // away is a change too.
+    std::fs::remove_file(scratch.path("libs/shapes/parts/edge.buri")).unwrap();
+    assert_eq!(
+        names(&scratch.root, &before.difference(&Snapshot::sweep(&set))),
+        vec!["libs/shapes/parts/edge.buri".to_string()]
+    );
+}
+
+/// **What the toolchain writes never moves a sweep**, even for a package at
+/// the repository's root, whose directory holds `.buri/`.
+#[test]
+fn writes_under_dot_buri_never_move_a_sweep() {
+    let scratch = Scratch::repo("watch-dot-buri");
+    scratch.write("REPO.buri", "lint {\n    check_during_build: true\n}\n");
+    scratch.write("BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write("lib.buri", &library("21"));
+    scratch.write("test/a.buri", &suite("/"));
+    let set = declared_set(&scratch.root);
+    assert!(!set.listings.is_empty(), "the root package is not listed");
+    let before = Snapshot::sweep(&set);
+
+    let run = scratch.run(&["test", "//..."]);
+    assert_eq!(run.code, 0, "{}", indent(&run.all()));
+    assert!(scratch.path(".buri").is_dir(), "the run wrote nothing under .buri/");
+    assert!(
+        before.difference(&Snapshot::sweep(&set)).is_empty(),
+        "a run moved the sweep of its own repository"
+    );
 }

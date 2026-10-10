@@ -317,9 +317,8 @@ fn without_times(text: &str) -> String {
 /// Under `--watch`, each pass prints the list of the pass it is.
 ///
 /// `--watch` refuses a pipe, so the loop runs under `script`, which hands it a
-/// terminal. The edit is written again until a second pass starts, because the
-/// loop takes its stamps just after the first pass prints, and an edit that
-/// lands before them wakes nothing.
+/// terminal. The edit is written once the first pass prints: the loop takes its
+/// stamps before printing, so an edit after it always wakes a second pass.
 #[test]
 fn each_pass_of_a_watch_loop_lists_its_own_suites() {
     let scratch = Scratch::copy_of("verbose-watch", &tests_dir().join("repositories/testing/verbose/repo"));
@@ -350,25 +349,18 @@ fn each_pass_of_a_watch_loop_lists_its_own_suites() {
     });
     let mut seen = String::new();
     let deadline = Instant::now() + Duration::from_secs(240);
-    let mut edits = 0;
-    let mut last_edit = Instant::now();
+    let mut edited = false;
     while seen.matches(" passed, ").count() < 2 && Instant::now() < deadline {
         if let Ok(bytes) = rx.recv_timeout(Duration::from_millis(100)) {
             seen.push_str(&String::from_utf8_lossy(&bytes));
         }
-        let first_done = seen.contains(" passed, ");
-        if first_done && (edits == 0 || last_edit.elapsed() > Duration::from_secs(2)) && !seen.contains("run 2") {
-            edits += 1;
-            let perimeter = ["side * 4", "side + side + side + side", "2 * (side + side)", "4 * side"];
+        if !edited && seen.contains(" passed, ") {
+            edited = true;
             scratch.write(
                 "lib/shapes/shapes.buri",
-                &format!(
-                    "export fn square(side: Int): Int {{\n    side * side\n}}\n\n\
-                     export fn perimeter(side: Int): Int {{\n    {}\n}}\n",
-                    perimeter[(edits - 1) % perimeter.len()]
-                ),
+                "export fn square(side: Int): Int {\n    side * side\n}\n\n\
+                 export fn perimeter(side: Int): Int {\n    side + side + side + side\n}\n",
             );
-            last_edit = Instant::now();
         }
     }
     let _ = child.kill();
