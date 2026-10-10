@@ -7257,6 +7257,73 @@ unchanged.
 `ld64.lld` itself is now most of the link: 143 M of the 542 M instructions are
 its start-up, before it reads an input.
 
+### 6.78 Release machine code on several threads, measured and left, 2026-10-09
+
+§6.76's lead: a `--release` edit of `//lib/calendar/test/date.buri` spends
+about 0.2 s in LLVM on one thread. On a quiet machine, the edited unit's time
+splits about evenly:
+
+| Step | Wall |
+|---|---:|
+| build the unit's IR | 8 ms |
+| `default<O2>` | 90–100 ms |
+| machine code | 120–130 ms |
+
+The edit re-emits about 30 units side by side. The longest chain was
+`//lib/bignum/test/bigint.buri`'s, at 112 ms of `opt` and 175 ms of machine
+code. Splitting can only take the machine-code half, since `opt` runs before
+the split so inlining sees the whole module. Two ways of dividing it were
+built and measured:
+
+```text
+optimized module ──bitcode──▶ part 0 … part n, each in an LLVM context of its own:
+                                its functions defined, the rest declared,
+                                its constants available_externally so loads still fold
+                              ──▶ one object per part, on parallel::map's threads
+```
+
+**One assembled object: slower than one thread.** Each part printed its
+assembly, its local labels were renamed apart, and the text was assembled
+once as a carrier module's inline asm, so the unit stayed one object.
+Assembling is the cost. `bigint`'s 317 KB of assembly took 110 ms to
+assemble, after 185 ms for two parts, against 175 ms for the whole unit in
+one go.
+
+**An archive of objects: faster, but not neutral.** Each part became its own
+object, packed with an empty table of contents into an archive and linked
+with `-force_load`. Both `ld64.lld` and Apple's `ld` accept such an archive.
+Local symbols that another part names became hidden and got a per-unit
+suffix. The conformance copy passed release-built, 3,601 tests, the same as
+without splitting. One-edit runs, fewest of nine alternating, load 4–8; cold
+runs, fewest of three, load 6–34:
+
+| Part size, IR instructions | edit | CPU | cold | CPU |
+|---|---:|---:|---:|---:|
+| no split | 574 ms | 1.63 s | 10.80 s | 92.9 s |
+| 3,000 | 573 ms | 1.69 s | 10.37 s | 101.1 s |
+| 1,500 | 480–504 ms | 1.85–1.90 s | 10.58 s | 102.9 s |
+| 600 | 503 ms | 2.09 s | | |
+
+So the gain is about 13% of an edit and a few percent of a cold run, for
+10% more CPU. The rest of an edit is the launch check, the link and `opt`.
+A cold run already keeps every core busy.
+
+**What stopped it: parts don't make the code the whole module made.** With
+every corpus program forced into parts, outputs matched, but `s_rand`
+retired 0.7% more instructions, `z_sorts` and `lists` 0.6% and `b_lists`
+0.4%. The other single-threaded programs stayed within 0.1%. `s_rand`'s hot
+loop took four more instructions. The split isn't the cause: `llc` on the whole module's bitcode
+writes the same loop as the part does. The bitcode round trip is, most
+likely through use-list order, which `LLVMWriteBitcodeToMemoryBuffer`
+doesn't keep and which passes such as loop strength reduction iterate.
+Release output comes first, so the split wasn't kept.
+
+What would make it neutral: write each part's bitcode with use-list order
+preserved (`WriteBitcodeToFile(M, OS, /*ShouldPreserveUseListOrder=*/true)`,
+which the C API doesn't expose and would need a small C++ shim), or hand
+parts over without serializing at all. Then the archive route gives the 13%
+above with identical code.
+
 ### 6.79 A cold `buri test`: what can overlap, and a link that reads the cache in place, 2026-10-09
 
 §6.76's fourth lever. Cold conformance, `buri clean` first, 1.36 s at load 6,
