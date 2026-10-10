@@ -30,6 +30,9 @@
 //! Most of these live in crates of their own under `crates/` and are
 //! re-exported here at their old paths. `design/CRATES.md` has the graph.
 
+// The coverage gate's nightly build, so a race can be left out of what it counts.
+#![cfg_attr(buri_coverage, feature(coverage_attribute))]
+
 #[path = "../runtime/allocator.rs"]
 pub mod allocator;
 pub mod build;

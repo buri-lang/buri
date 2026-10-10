@@ -30,8 +30,10 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Branch coverage needs a nightly; the `coverage` shell pins it.
-const RUSTFLAGS: &str = "-Cinstrument-coverage -Zcoverage-options=branch";
+/// Branch coverage needs a nightly; the `coverage` shell pins it. `buri_coverage`
+/// turns on `#[coverage(off)]`, which leaves out the few branches a race
+/// decides, each with its reason beside it.
+const RUSTFLAGS: &str = "-Cinstrument-coverage -Zcoverage-options=branch --cfg buri_coverage";
 
 /// Profiles merged online into this many files per binary, so disk use doesn't
 /// grow with the number of processes.
