@@ -835,9 +835,25 @@ impl State {
     }
 
     /// A hash of every byte that feeds an analysis of one repository.
+    ///
+    /// The sources and schemas, and every file a generator rule is worked out
+    /// from: an input that is not a `.buri` moves the module it becomes
+    /// (buri-lang/buri#281).
     fn fingerprint(&mut self, root: &Path) -> u64 {
         let (sources, open) = self.sources_of(root);
-        sources.fingerprint(open)
+        let mut hasher = crate::hash::FxHasher::default();
+        hasher.write_u64(sources.fingerprint(open));
+        // `shared` rather than `graph`: a repository that will not open is
+        // announced, and the announcement is keyed on this.
+        if let Ok(session) = sources.shared(open) {
+            for target in session.workspace.targets() {
+                for path in crate::build::generators::worked_out_from(&session.workspace, target) {
+                    hasher.write(path.as_os_str().as_encoded_bytes());
+                    hasher.write_u64(sources.content_hash(&path, open));
+                }
+            }
+        }
+        hasher.finish()
     }
 
     /// One number for the whole of what the client has open.
