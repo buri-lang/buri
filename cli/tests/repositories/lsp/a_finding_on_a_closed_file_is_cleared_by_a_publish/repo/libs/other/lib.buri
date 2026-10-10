@@ -1,0 +1,4 @@
+/// One.
+export fn one(): Int {
+    1
+}
