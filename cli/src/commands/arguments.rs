@@ -289,8 +289,6 @@ pub fn reader_gone() -> ! {
     }
     const SIGPIPE: i32 = 13;
     const SIG_DFL: usize = 0;
-    #[cfg(buri_coverage)]
-    write_coverage_profile();
     // SAFETY: both take integers and touch nothing of ours.
     unsafe {
         signal(SIGPIPE, SIG_DFL);
@@ -298,18 +296,6 @@ pub fn reader_gone() -> ! {
     }
     // Reached only if the signal is blocked: the status a shell would show.
     std::process::exit(141)
-}
-
-/// The coverage gate's build only (`coverage/compiler/src/main.rs`): writes this
-/// process's profile now. A process that dies by a signal runs no `atexit`,
-/// which is where the profile is otherwise written.
-#[cfg(buri_coverage)]
-pub fn write_coverage_profile() {
-    unsafe extern "C" {
-        fn __llvm_profile_write_file() -> i32;
-    }
-    // SAFETY: compiler-rt's own entry point, in every instrumented binary.
-    unsafe { __llvm_profile_write_file() };
 }
 
 /// Whether a panic message is `println!` finding stdout's reader gone.
