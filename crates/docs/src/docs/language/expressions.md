@@ -89,7 +89,7 @@ Three families:
 |---|---|---|
 | `x.toT()` where every `T` value fits | `T` | cannot happen |
 | `x.toT()` where it might not | `Result<T, RangeError>` | `.Err` |
-| `x.wrapToT()` | `T` | wraps (integers) or rounds (floats) |
+| `x.wrapToT()` | `T` | keeps the low bits (integer `T`) or rounds (float `T`) |
 
 So `i32.toI64()` yields `I64` while `i64.toI32()` yields
 `Result<I32, RangeError>`: the type says whether a conversion can fail.
@@ -102,7 +102,9 @@ float is too common to return a `Result`.
 `Result<Char, RangeError>`.
 
 A float converts to an integer only if it's whole and in range, so
-`2.5.toI64()`, `NaN` and the infinities are `.Err`. Use `wrapToT` to truncate.
+`2.5.toI64()`, `NaN` and the infinities are `.Err`. Use `wrapToT` to truncate:
+it rounds toward zero and keeps the low bits, so `3e9.wrapToI32()` is
+`-1294967296`, and `NaN` and the infinities wrap to `0`.
 
 These methods live in `core/number`. There is no `as` cast; `as` appears only in
 imports (`design/grammar-rationale.md` 12.5).

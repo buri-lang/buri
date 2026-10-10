@@ -7746,13 +7746,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // are left to the table and to `missing_intrinsics`.
         if let Some(to) = conversion_target(op) {
             let Some(v) = a else { return false };
-            // The modular form always answers the target type. Its float source
-            // is the one place this backend and JavaScript differ: `$wrapTo`
-            // truncates and then takes the low bits through a `BigInt`, and
-            // this saturates, because `llvm.fptosi.sat` is the only
-            // float-to-integer conversion that is not `poison` out of range.
-            // VALUE-MODEL.md §11 and its divergence table's row 1 put overflow
-            // outside what the two backends promise each other.
+            // The modular form always answers the target type. From a float it
+            // truncates and keeps the low bits, as `$wrapTo` does
+            // (`float_to_int`).
             if op.starts_with("wrapTo") || conversion_is_exact(from, to) {
                 let out = self.cast(v, from, to, want);
                 self.set(state, dest, out);
@@ -8850,10 +8846,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// Widening takes its signedness from the **source**, which is the whole of
     /// the integer rule: `U8` to `I64` is a zero extension and `I8` to `I64` is
     /// a sign extension, and getting that backwards is the classic conversion
-    /// bug. A float-to-integer conversion takes its signedness from the
-    /// **target** instead, because that is what decides which end of the range
-    /// it saturates against — and it saturates rather than trapping, because a
-    /// trap here would be a run-time failure the language does not have.
+    /// bug. A float-to-integer conversion keeps the low bits of the truncated
+    /// value ([`Unit::float_to_int`]).
     fn cast(
         &mut self,
         v: BasicValueEnum<'ctx>,
@@ -8906,35 +8900,88 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
-    /// A float to an integer, **saturating**.
+    /// A float to an integer, **modular**: truncated toward zero, then its low
+    /// bits, with `NaN` and the infinities at zero (SPEC 6.2.1, JavaScript's
+    /// `$wrapTo`). `stencil/sources.rs`'s `cvt/f2i` is the twin.
     ///
-    /// `llvm.fptosi.sat` / `llvm.fptoui.sat` rather than a plain `fptosi`: a
-    /// plain one is `poison` outside the target's range, and `poison` reaching
-    /// a value a program prints is undefined behaviour where SPEC has a defined
-    /// answer. The saturating form clamps to the endpoints and answers `0` for
-    /// `NaN`, which is the same clamp the debug backend performs — so the two
-    /// backends agree without either of them writing the clamp out.
+    /// The value is first brought into the signed range of a 64-bit word, or a
+    /// 128-bit one for a 128-bit target. Past half that range a double is
+    /// whole, so `frem` by the word's modulus is exact and leaves it one exact
+    /// subtraction from range. `llvm.fptosi.sat` then never clamps, and a
+    /// narrower target takes the low bits. A checked conversion only uses the
+    /// answer inside the target's range, where it is the plain truncation.
     fn float_to_int(
         &mut self,
         x: FloatValue<'ctx>,
         want: IntType<'ctx>,
-        signed: bool,
+        _signed: bool,
     ) -> BasicValueEnum<'ctx> {
-        let name = if signed { "llvm.fptosi.sat" } else { "llvm.fptoui.sat" };
         let zero = want.const_zero().as_basic_value_enum();
+        let f64t = self.ctx.f64_type();
+        let x = if x.get_type() == f64t {
+            x
+        } else {
+            self.builder.build_float_ext(x, f64t, "wrap.ext").unwrap_or(x)
+        };
+        let wide = want.get_bit_width() > 64;
+        let (bits, word, top) = if wide {
+            (128, self.ctx.i128_type(), 2f64.powi(127))
+        } else {
+            (64, self.ctx.i64_type(), 2f64.powi(63))
+        };
+        let modulus = f64t.const_float(top * 2.0);
+        let half = f64t.const_float(top);
+        let low = f64t.const_float(-top);
+        let fzero = f64t.const_float(0.0);
+        let b = &self.builder;
+        let cmp = |p, l: FloatValue<'ctx>, r: FloatValue<'ctx>, n: &str| {
+            b.build_float_compare(p, l, r, n).ok()
+        };
+        let pick = |c, t: FloatValue<'ctx>, e: FloatValue<'ctx>, n: &str| {
+            b.build_select(c, t, e, n).ok().map(BasicValueEnum::into_float_value)
+        };
+        let reduced = (|| {
+            let gap = b.build_float_sub(x, x, "wrap.gap").ok()?;
+            let finite = cmp(FloatPredicate::OEQ, gap, fzero, "wrap.finite")?;
+            let above = cmp(FloatPredicate::OGE, x, low, "wrap.ge")?;
+            let below = cmp(FloatPredicate::OLT, x, half, "wrap.lt")?;
+            let inside = b.build_and(above, below, "wrap.in").ok()?;
+            let m = b.build_float_rem(x, modulus, "wrap.rem").ok()?;
+            let down = b.build_float_sub(m, modulus, "wrap.down").ok()?;
+            let up = b.build_float_add(m, modulus, "wrap.up").ok()?;
+            let high = cmp(FloatPredicate::OGE, m, half, "wrap.high")?;
+            let under = cmp(FloatPredicate::OLT, m, low, "wrap.under")?;
+            let m = pick(under, up, m, "wrap.m1")?;
+            let m = pick(high, down, m, "wrap.m2")?;
+            let v = pick(inside, x, m, "wrap.v")?;
+            pick(finite, v, fzero, "wrap.x")
+        })();
+        let Some(reduced) = reduced else {
+            self.ice(format_args!("could not reduce a float to a {bits}-bit word"));
+            return zero;
+        };
+        let name = "llvm.fptosi.sat";
         let Some(intrinsic) = inkwell::intrinsics::Intrinsic::find(name) else {
             self.ice(format_args!("found no `{name}`"));
             return zero;
         };
-        let overloads = [want.as_basic_type_enum(), x.get_type().as_basic_type_enum()];
+        let overloads = [word.as_basic_type_enum(), f64t.as_basic_type_enum()];
         let Some(f) = intrinsic.get_declaration(&self.module, &overloads) else {
             self.ice(format_args!("could not declare `{name}`"));
             return zero;
         };
-        match self.builder.build_call(f, &[x.into()], "sat") {
-            Ok(call) => call.try_as_basic_value().basic().unwrap_or(zero),
-            Err(_) => zero,
+        let whole = match self.builder.build_call(f, &[reduced.into()], "wrap") {
+            Ok(call) => call.try_as_basic_value().basic(),
+            Err(_) => None,
+        };
+        let Some(BasicValueEnum::IntValue(whole)) = whole else { return zero };
+        if want.get_bit_width() == bits {
+            return whole.as_basic_value_enum();
         }
+        self.builder
+            .build_int_truncate(whole, want, "wrap.trunc")
+            .map(Into::into)
+            .unwrap_or(zero)
     }
 }
 

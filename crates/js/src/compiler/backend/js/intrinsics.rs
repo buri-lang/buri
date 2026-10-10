@@ -457,7 +457,7 @@ impl<'a> Gen<'a> {
             return represent(v, from, to);
         }
         let value = if from.is_float() {
-            Expr::call(Expr::member(Expr::ident("Math"), "trunc"), vec![v])
+            Expr::call(Expr::ident("$ftrunc"), vec![v])
         } else {
             v
         };

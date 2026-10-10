@@ -623,17 +623,19 @@ fn moves(o: &mut Out) {
     // Float/integer conversions, for `number.*.toF64` and friends.
     o.push("cvt/i2f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)(int64_t)AT(uint64_t, _JIT_A)); TAIL; }".into());
     o.push("cvt/u2f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)AT(uint64_t, _JIT_A)); TAIL; }".into());
-    // The two float-to-integer directions, **saturating**, because a C cast of
-    // a double the target cannot hold is undefined and this language has an
-    // answer for every input. `NaN` goes to zero and each end clamps, which is
-    // what `llvm.fptosi.sat` and `llvm.fptoui.sat` do on the other native
-    // backend — so the two agree without either of them writing the clamp out.
-    // A *checked* conversion never reaches the clamp: `emit.rs`'s
-    // `convert_checked` has already answered `.Err` for anything outside the
-    // target's range, and what is left here is the wrapping family, where
-    // VALUE-MODEL.md §11 puts an overflow outside what the backends promise
-    // each other.
-    o.push("cvt/f2i", "void $NAME(ARGS) { double x = bits_f64(AT(uint64_t, _JIT_A)); int64_t r; if (x != x) r = 0; else if (x >= 9223372036854775808.0) r = INT64_MAX; else if (x <= -9223372036854775808.0) r = INT64_MIN; else r = (int64_t)x; AT(uint64_t, _JIT_D) = (uint64_t)r; TAIL; }".into());
+    // A float to a signed 64-bit integer is **modular**: truncated toward zero,
+    // then its low sixty-four bits, with `NaN` and the infinities at zero, which
+    // is what `wrapTo*` means on every backend (SPEC 6.2.1) and what a narrower
+    // target then takes the low bits of. `fmod` by `2^64` is exact, keeps a
+    // value already in range as it is, and leaves any other one subtraction
+    // from range. A
+    // *checked* conversion only reaches this inside the target's range, where
+    // the answer is the plain cast. Written without an early exit: a stencil
+    // whose special case left by a path of its own skipped the store.
+    //
+    // The unsigned direction saturates. Only `convert_checked` uses it, for a
+    // `U64` above `2^63`, and only inside the range.
+    o.push("cvt/f2i", "void $NAME(ARGS) { uint64_t bits = AT(uint64_t, _JIT_A); double x = ((bits >> 52) & 0x7ff) == 0x7ff ? 0.0 : bits_f64(bits); double m = buri_fmod(x, 18446744073709551616.0); m = m >= 9223372036854775808.0 ? m - 18446744073709551616.0 : m; m = m < -9223372036854775808.0 ? m + 18446744073709551616.0 : m; AT(uint64_t, _JIT_D) = (uint64_t)(int64_t)m; TAIL; }".into());
     o.push("cvt/f2u", "void $NAME(ARGS) { double x = bits_f64(AT(uint64_t, _JIT_A)); uint64_t r; if (x != x) r = 0; else if (x >= 18446744073709551616.0) r = UINT64_MAX; else if (x <= 0.0) r = 0; else r = (uint64_t)x; AT(uint64_t, _JIT_D) = r; TAIL; }".into());
     o.push("cvt/f2f32", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f32_bits((float)bits_f64(AT(uint64_t, _JIT_A))); TAIL; }".into());
     o.push("cvt/f322f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)bits_f32(AT(uint64_t, _JIT_A))); TAIL; }".into());

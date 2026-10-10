@@ -2480,17 +2480,13 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-/// A float-to-integer conversion **saturates** rather than trapping.
-///
-/// A plain `fptosi` is `poison` outside the target's range, and `poison`
-/// reaching a value a program prints is undefined behaviour where SPEC has a
-/// defined answer — so this is `llvm.fptosi.sat`'s clamp, which is also the
-/// clamp `fcvt_to_sint_sat` performs on the other backend.
+/// A float-to-integer `wrapTo` is **modular**, as on every backend: truncated,
+/// then the low bits. Never `poison`, which a plain `fptosi` is out of range.
 #[test]
-fn float_to_integer_conversions_saturate() {
+fn float_to_integer_conversions_wrap() {
     skip_unless_executable!();
     let (out, err, code) = build_and_run(
-        "saturate",
+        "wrap",
         &program(
             r#"
 fn narrow(x: Float): I32 { x.wrapToI32() }
@@ -2499,15 +2495,15 @@ from "native" import { NativeHost };
 
 export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "hi ${narrow(1.0e30)}").ignore();
-  let _ = io.println(ctx, "lo ${narrow(-1.0e30)}").ignore();
+  let _ = io.println(ctx, "hi ${narrow(3.0e9)}").ignore();
+  let _ = io.println(ctx, "lo ${narrow(-3.0e9)}").ignore();
   let _ = io.println(ctx, "mid ${narrow(-3.7)}").ignore();
   .Ok(())
 }
 "#,
         ),
     );
-    assert_eq!(out, "hi 2147483647\nlo -2147483648\nmid -3\n", "stderr was: {err}");
+    assert_eq!(out, "hi -1294967296\nlo 1294967296\nmid -3\n", "stderr was: {err}");
     assert_eq!(code, Some(0));
 }
 

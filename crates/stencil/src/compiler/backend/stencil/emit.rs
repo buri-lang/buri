@@ -3676,10 +3676,9 @@ impl Jit<'_> {
                 }
                 Ok(())
             }
-            // Float to integer rounds toward zero, and out of range saturates
-            // rather than being undefined — `sources.rs`'s `cvt/f2i` writes the
-            // clamp out, which is the same answer `llvm/emit.rs::float_to_int`
-            // gets from `llvm.fptosi.sat`.
+            // Float to integer truncates toward zero and keeps the low bits,
+            // with `NaN` and the infinities at zero — `sources.rs`'s `cvt/f2i`,
+            // and `llvm/emit.rs::float_to_int` on the other backend.
             //
             // **Signed, whatever the target is.** This arm is the *wrapping*
             // family's and a checked conversion's `.Ok` both, and the wrapping
