@@ -142,8 +142,8 @@ the painter does and does not do.
 
 ## Coverage
 
-`--coverage` counts the lines your tests reach, prints a line per file after
-the verdicts, and writes an lcov file:
+`--coverage` counts the branches your tests take, prints a line per file after
+the verdicts, and writes an lcov file. `--coverage=branch` says the same thing.
 
 ```sh
 buri test //... --coverage
@@ -152,16 +152,43 @@ buri test //... --coverage
 ```text
 3 passed, 0 failed, 0 skipped (0.4s)
 
-coverage
-  lib/shapes/shapes.buri  9/15   60.0%
-  total                   9/15   60.0%
+branch coverage
+  lib/shapes/shapes.buri  3/5   60.0%
+  total                   3/5   60.0%
 lcov: .buri/coverage/lcov.info
 ```
 
-A line counts when a statement, a block's last expression, an `if` branch, a
-`match` arm or a function body starts on it. Only your repository's own source
-counts: test sources, the standard library and the platforms don't. Paths are
-relative to the repository root, and counts add up across suites and backends.
+Every place your code picks one path out of several is a decision, and each
+path is a branch:
+
+| Decision | Branches |
+|---|---|
+| `if (c) { a } else { b }` | `a` ran, `b` ran |
+| `match` | each arm ran |
+| a guard, `.Some(n) if n > 9 =>` | true, false |
+| `a && b`, `a \|\| b` | `b` ran, `b` was skipped |
+| `x?` | execution went on, `?` returned early |
+
+A branch is covered once it runs. Only your repository's own source counts: test
+sources, the standard library, the platforms, and the code a `derive` or a
+comparison like `a < b` stands for don't. A branch in a generic function counts
+once, whatever types it runs at. Paths are relative to the repository root, and
+counts add up across suites and backends.
+
+The lcov file has a `BRDA` record per branch, on the line of its `if`, `match`,
+guard, `?`, or the right side of `&&` or `||`. Decisions sharing a line are
+numbered left to right. A decision your tests never reached reads `-`, like the
+`if` on line 16 here, under `--filter=circle`:
+
+```text
+BRDA:8,0,0,1
+BRDA:8,0,1,0
+BRDA:8,0,2,0
+BRDA:16,0,0,-
+BRDA:16,0,1,-
+```
+
+It keeps a `DA` record per line too, for editors that shade lines.
 
 A coverage run builds its own instrumented artifacts and runs every suite, even
 one whose verdict is cached, so the counts are always this run's. Verdicts,

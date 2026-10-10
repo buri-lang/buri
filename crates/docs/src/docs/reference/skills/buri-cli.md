@@ -56,7 +56,7 @@ passing it elsewhere is an error that names them.
 | `--explain` | build, test, run | one line per action: whether it ran or the cache served it, and the key |
 | `--check-reproducible` | build | build twice in separate directories and compare byte for byte |
 | `--filter=<substring>` | test | run only the tests whose name contains this |
-| `--coverage` | test | count the lines the tests reach, and write `.buri/coverage/lcov.info` |
+| `--coverage[=branch]` | test | count the branches the tests take, and write `.buri/coverage/lcov.info` |
 | `--watch` | test, run | re-run on every change to a declared input, until interrupted; on `buri run` it rebuilds the page being served |
 | `--port=<port>` | run | where the page `buri run` serves listens — default 4000, `0` takes whatever is free |
 | `--check` | format, gen, docs | report what would change and exit 1, writing nothing |

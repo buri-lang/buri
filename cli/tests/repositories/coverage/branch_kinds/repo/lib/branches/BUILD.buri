@@ -1,0 +1,7 @@
+library {
+    sources: ["branches.buri"]
+
+    test {
+        sources: ["test/branches.buri"]
+    }
+}

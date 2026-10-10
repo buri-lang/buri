@@ -1,7 +1,7 @@
 2 passed, 0 failed, 0 skipped (0.0s)
 
-coverage
-  lib/report/report.buri  2/2  100.0%
-  lib/shapes/shapes.buri  6/6  100.0%
-  total                   8/8  100.0%
+branch coverage
+  lib/report/report.buri  0/0       -
+  lib/shapes/shapes.buri  3/6   50.0%
+  total                   3/6   50.0%
 lcov: .buri/coverage/lcov.info

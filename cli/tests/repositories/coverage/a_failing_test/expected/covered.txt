@@ -6,7 +6,7 @@ FAIL //lib/calc  test/calc.buri  "halves"
 
 1 passed, 1 failed, 0 skipped (0.0s)
 
-coverage
-  lib/calc/calc.buri  4/4  100.0%
-  total               4/4  100.0%
+branch coverage
+  lib/calc/calc.buri  2/4   50.0%
+  total               2/4   50.0%
 lcov: .buri/coverage/lcov.info

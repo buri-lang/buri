@@ -1,5 +1,11 @@
 TN:
 SF:lib/calc/calc.buri
+BRDA:2,0,0,1
+BRDA:2,0,1,0
+BRDA:6,0,0,1
+BRDA:6,0,1,0
+BRF:4
+BRH:2
 DA:1,1
 DA:2,1
 DA:5,1

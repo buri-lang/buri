@@ -84,7 +84,7 @@ pub struct Flags {
     /// How many suites `buri test` builds and runs at once. `None` picks from
     /// the cores and the memory this machine has.
     pub jobs: Option<usize>,
-    /// Count the lines each suite reaches and report them after the verdicts.
+    /// Count the branches each suite takes and report them after the verdicts.
     /// `buri test` only.
     pub coverage: bool,
 }

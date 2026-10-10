@@ -1,10 +1,10 @@
 # A failing test under `--coverage`: the same report and the same exit code as
 # without it, with the counts after them. The failed assertion ends its
-# process, and the lines it ran before that still count, on both backends.
+# process, and the branches it took before that still count, on both backends.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
-doc: "--coverage leaves a failing run's report and exit code alone, and counts the lines a failed test ran"
+doc: "--coverage leaves a failing run's report and exit code alone, and counts the branches a failed test took"
 
 run {
   args: ["test", "//lib/calc"]

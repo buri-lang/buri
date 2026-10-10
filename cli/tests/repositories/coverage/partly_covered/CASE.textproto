@@ -1,12 +1,12 @@
 # `buri test --coverage`: one library whose tests leave an `if` branch, a
-# `match` arm and a whole function unreached. The same lines come back from the
+# `match` arm and a whole function unreached. The same branches come back from the
 # native backend and from JavaScript, both read against one hand-written lcov
 # golden. A cached verdict is run again rather than reported with no counts, and
 # a coverage run leaves the plain run's cache alone.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
-doc: "--coverage counts the lines a suite reached, the same on both backends, and never from the cache"
+doc: "--coverage counts the branches a suite took, the same on both backends, and never from the cache"
 
 # A plain run, twice, so the second is served from the cache.
 run {
@@ -58,7 +58,7 @@ run {
   stream: OUT
 }
 
-# JavaScript reaches the same lines the same number of times.
+# JavaScript takes the same branches the same number of times.
 run {
   args: ["test", "//lib/shapes", "--coverage", "--output=js"]
   exit: 0
@@ -89,6 +89,14 @@ file {
 run {
   args: ["test", "//lib/shapes", "--coverage", "--watch"]
   exit: 2
+}
+
+# A kind of coverage there isn't is refused, naming the ones there are.
+run {
+  args: ["test", "//lib/shapes", "--coverage=line"]
+  exit: 2
+  golden: "unknown_kind.txt"
+  stream: ERR
 }
 
 # The edit that reaches the other branch.
