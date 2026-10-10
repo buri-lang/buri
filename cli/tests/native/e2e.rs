@@ -4321,8 +4321,6 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// `refused 0` is the row: every message stepped once, and every sender told
 /// what its step answered.
 ///
-/// On the development backend the tasks run one after another and the row is
-/// the same answer reached without contention.
 #[test]
 fn every_sender_gets_its_answer_when_many_post_at_once() {
     unless_ready!();
@@ -4475,9 +4473,6 @@ fn a_step_sending_to_its_own_actor_is_refused_at_once() {
 ///   `started` before it gives up;
 /// * **a timer spawned after the loop still runs**, although the loop has not
 ///   finished, so the loop hears `fired` and the body hears that it did.
-///
-/// Gated with the one row that builds it, which is release-only.
-#[cfg(feature = "backend-llvm")]
 fn beside_the_body() -> String {
     String::from(
         r#"
@@ -4574,18 +4569,14 @@ export fn main(host: NativeHost): Result<(), Str> {
     )
 }
 
-/// **A spawned task runs beside the scope's body in a `--release` build**
-/// (buri-lang/buri#206).
+/// **A spawned task runs beside the scope's body** (buri-lang/buri#206,
+/// buri-lang/buri#280).
 ///
-/// `core/tasks` promises that a native `--release` build runs a spawned task on
-/// a thread of its own, and that a socket loop and a timer spawned into one
-/// scope both run. The bug this row pins held every spawned task back until the
-/// body returned, so a timer spawned beside a server's `run` — a body that
-/// never returns — never fired.
-///
-/// Release only. The development backend runs a scope's tasks after its body,
-/// and says so; `agreement.rs`'s scope rows pin that order there.
-#[cfg(feature = "backend-llvm")]
+/// `core/tasks` promises that a native build runs a spawned task on a thread
+/// of its own, and that a socket loop and a timer spawned into one scope both
+/// run. The bug this row pins held every spawned task back until the body
+/// returned, so a timer spawned beside a server's `run` — a body that never
+/// returns — never fired.
 #[test]
 fn a_spawned_task_runs_beside_the_body_that_spawned_it() {
     unless_ready!();
@@ -4616,7 +4607,6 @@ fn a_spawned_task_runs_beside_the_body_that_spawned_it() {
 /// Sixty rounds of six spawns, each spawned task sleeping four times. A scope
 /// returns once every task spawned into it has finished, so the line the
 /// program prints is how many tasks it waited for.
-#[cfg(feature = "backend-llvm")]
 fn waking_on_another_thread() -> String {
     String::from(
         r#"
@@ -4683,9 +4673,6 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// internal runtime error. On a Linux `--release` build that happened in about
 /// one run of `a_spawned_task_runs_beside_the_body_that_spawned_it` in sixty.
 /// These rounds wake tasks on other threads thousands of times per run.
-///
-/// Release only, for the reason the row above gives.
-#[cfg(feature = "backend-llvm")]
 #[test]
 fn a_task_that_wakes_on_another_thread_still_finishes() {
     unless_ready!();

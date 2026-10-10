@@ -242,10 +242,10 @@ is_shared(p) = (cap(p) | buri_rt_shared_mask) & bit63
   reach a fan-out: `host.HostTasks.parallel` or `tasks.scopeBeside`. Only those
   run Buri code on a second thread. `core/actor` steps on whichever thread
   drives it.
-- **The release backend**, for such a program, ORs `buri_rt_shared_mask` into
-  every fork and `Str` uniqueness probe, and its `main` calls
-  `buri_rt_values_may_cross_tasks()`. That call is permission, not a mark. The
-  development backend never fans out, so it does neither.
+- **Both native backends**, for such a program, OR `buri_rt_shared_mask` into
+  every fork (and, on the release backend, the `Str` uniqueness probe; the
+  development backend's goes through the runtime), and their `main` calls
+  `buri_rt_values_may_cross_tasks()`. That call is permission, not a mark.
 - **`rt.rs`'s two fan-outs** call `memory::begin_sharing` before the first step
   leaves the thread, if permission was given. That sets the mask, which covers
   blocks allocated before it, and makes `finish` mark every new block.

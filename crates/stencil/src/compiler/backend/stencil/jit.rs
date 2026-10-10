@@ -369,6 +369,9 @@ pub struct Jit<'a> {
     /// ([`super::glue::symbol`]).
     part: usize,
     bufs: Bufs,
+    /// Whether the program can fan out (`runtime::shares_counts`), so every
+    /// count reads `buri_rt_shared_mask` (`emit.rs`'s `rc_key`).
+    pub(crate) shares: bool,
 }
 
 /// The two memo tables a `Jit` is worth keeping across the parts one worker
@@ -665,6 +668,7 @@ impl<'a> Jit<'a> {
             counts: scratch.counts,
             bufs: scratch.bufs,
             part,
+            shares: false,
         }
     }
 

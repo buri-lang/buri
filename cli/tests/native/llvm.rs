@@ -4445,12 +4445,8 @@ fn a_socket_counts_the_messages_it_was_sent() {
 /// a socket `send` is a queue and a byte on a pipe rather than a write somebody
 /// has to be waiting for.
 ///
-/// **This row is LLVM's alone.** Two sockets open at once is two workers, and
-/// the frame-threaded backend runs a `parallel` in index order because a
-/// program it builds has one Buri data stack — so worker zero would take the
-/// first socket and never return. That is a timing difference and not a
-/// behaviour one, and F3's `eight_requests_at_once…` is where the same fact is
-/// written down for requests.
+/// Two sockets open at once is two workers, so this row needs a fan-out that
+/// runs side by side. `stencil.rs` has the same row.
 ///
 /// The instrument is that the *second* client hears what the first said, which
 /// no single-socket arrangement can produce.
@@ -4459,61 +4455,7 @@ fn a_broadcast_actor_reaches_a_socket_it_did_not_publish_on() {
     skip_unless_executable!();
     let source = crate::shared::broadcasting_socket_server(2);
     let binary = build_at("socket-broadcast", &source, None, Profile::Release);
-    let running = crate::shared::announced(&binary);
-    let port = running.2;
-    // **The ordering is what makes this deterministic rather than probable.**
-    // A `Joined` is posted by `onOpen`, which runs after the `101` the client
-    // read — so "both clients have connected" does not mean "both are in the
-    // room". What does mean it is a publish that came back: the first client
-    // says something and hears its own echo, and a send that answered is a send
-    // whose mailbox ran down, so by the time the second client publishes its own
-    // `Joined` is in front of its `Publish` on the same worker's queue.
-    let mut first = crate::shared::Talking::to(port);
-    first.say("one");
-    let alone = first.heard();
-
-    let mut second = crate::shared::Talking::to(port);
-    second.say("two");
-    let to_second = second.heard();
-    let to_first = first.heard();
-
-    first.hush();
-    second.hush();
-    let out = crate::shared::finished(running);
-    assert_eq!(
-        alone.as_deref(),
-        Some("one"),
-        "the first socket did not hear its own message:\nstdout:\n{}\nstderr:\n{}",
-        out.stdout,
-        out.stderr
-    );
-    assert_eq!(
-        to_second.as_deref(),
-        Some("two"),
-        "the publisher did not hear its own message:\nstdout:\n{}\nstderr:\n{}",
-        out.stdout,
-        out.stderr
-    );
-    // **The whole row.** The first socket published nothing this time and heard
-    // what the second said, on a worker that is not the one that published it.
-    assert_eq!(
-        to_first.as_deref(),
-        Some("two"),
-        "a socket that published nothing heard nothing:\nstdout:\n{}\nstderr:\n{}",
-        out.stdout,
-        out.stderr
-    );
-    assert!(
-        out.stdout.contains("published to 1\n") && out.stdout.contains("published to 2\n"),
-        "the room did not grow between the two publishes:\n{}",
-        out.stdout
-    );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
-    assert!(
-        out.stdout.ends_with("served\n"),
-        "the server did not run to its own end:\n{}",
-        out.stdout
-    );
+    crate::shared::broadcast_reaches_the_other_socket(&binary);
 }
 
 /// An echo server that serves `sockets` WebSockets, one more, and one plain
@@ -4586,8 +4528,6 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// Two hundred and one sockets, on both ends of loopback, fit under the
 /// smallest descriptor limit a test process starts with (256 on macOS).
 ///
-/// LLVM's alone, for [`a_broadcast_actor_reaches_a_socket_it_did_not_publish_on`]'s
-/// reason: the frame-threaded backend answers one socket at a time.
 #[test]
 fn a_server_holding_two_hundred_open_websockets_still_answers() {
     skip_unless_executable!();

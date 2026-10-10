@@ -40,9 +40,10 @@
 //! site* set aside — the first byte past its own frame, which is where a Buri
 //! callee's frame begins anyway — and the address of it travels in the third
 //! word of the state record. That is one word of ABI rather than a stack
-//! discipline, and it is the word `Helper::Entry`'s stub reads before it does
-//! anything else. When the runtime grows real per-task stacks (`design`'s B7)
-//! this is the word that changes and nothing else here does.
+//! discipline. A step running on a task can't use it, because its siblings
+//! run beside it and it may park, so `Helper::Entry`'s stub first asks the
+//! runtime for a stack of the task's own and falls back to the word only
+//! outside a task.
 //!
 //! The walk itself reads the value out of a *copy* in that frame rather than
 //! through the pointer. That is what lets `Jit::walk_rc` — which addresses
@@ -73,6 +74,7 @@ use super::emit::RC_DEPTH;
 use super::jit::{Fn2, FrameSig, Jit, V};
 use super::rtcall::Src;
 use crate::compiler::backend::counts::{Field, Op, Site};
+use crate::compiler::backend::task_thread;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{Layouts, CAP_MASK, CLOSURE_ENV};
 use crate::compiler::semantics::types::Ty;
@@ -1244,52 +1246,101 @@ impl Jit<'_> {
         self.resolve_helper_blocks(base, &st);
     }
 
-    /// The instructions in front of an entry thunk's body: the four C
-    /// arguments into the frame the state record names, and a call into the
+    /// The instructions in front of an entry thunk's body: pick the Buri frame
+    /// to work in, put the four C arguments into it, and call the
     /// frame-threaded code that follows.
     ///
-    /// Unlike [`Jit::glue_stub`] this one makes **no machine-stack frame** and
-    /// so has no width to refuse: the Buri frame it works in already exists —
-    /// the call site set it aside past its own — and the only thing the machine
-    /// stack holds is the return address, which the stencil chain below would
-    /// otherwise lose.
+    /// The frame is a stack of the running task's own
+    /// (`task_thread::STEP_STACK_ACQUIRE`), given back after the body. Outside a
+    /// task the runtime answers null and the frame is the one the state record
+    /// names, which the call site set aside past its own. A step on a task runs
+    /// beside its siblings and may park, so it can't share that one.
+    ///
+    /// The machine stack holds the return address, the four arguments across
+    /// the acquire, and the acquired stack across the body.
     fn entry_stub(&mut self) {
+        const ARGS: u32 = 0;
+        const STACK: u32 = 32;
+        const FRAME: u32 = 48;
         if !self.target.is_arm64() {
+            // The epilogue after the body's call, emitted twice: once here to
+            // measure how far ahead the body starts.
+            let epilogue = |a: &mut X86| {
+                a.ldr(RDI, RSP, STACK);
+                a.call_symbol(task_thread::STEP_STACK_RELEASE);
+                a.add_imm(RSP, FRAME);
+                a.pop_rbp();
+                a.ret();
+            };
+            let mut measure = X86::new();
+            epilogue(&mut measure);
+            let ahead = measure.finish().0.len() as i32;
+
             let mut a = X86::new();
-            // `rsp % 16` is 8 on entry and the `call` below wants 0; the push
-            // is the whole of the correction, exactly as in `glue_stub`.
+            // `rsp % 16` is 8 on entry; the push makes it 0 and `FRAME` keeps
+            // it, so every `call` below is made on a sixteen-aligned stack.
             a.push_rbp();
+            a.sub_imm(RSP, FRAME);
+            for (i, r) in [RDI, RSI, RDX, RCX].into_iter().enumerate() {
+                a.str_off(r, RSP, ARGS + 8 * i as u32);
+            }
+            a.call_symbol(task_thread::STEP_STACK_ACQUIRE);
+            a.str_off(RAX, RSP, STACK);
+            a.ldr(RDI, RSP, ARGS);
+            let have = a.cbnz_x(RAX);
             a.ldr(RAX, RDI, E_FRAME);
+            a.here(have);
+            a.ldr(RSI, RSP, ARGS + 8);
+            a.ldr(RDX, RSP, ARGS + 16);
+            a.ldr(RCX, RSP, ARGS + 24);
             a.str_off(RDI, RAX, E_STATE);
             a.str_off(RSI, RAX, E_INDEX);
             a.str_off(RDX, RAX, E_ARG);
             a.str_off(RCX, RAX, E_OUT);
             a.mov_reg(RDI, RAX);
-            // `pop` and `ret` are one byte each: two bytes stand between the
-            // end of this call and the body.
-            a.call_ahead(2);
-            a.pop_rbp();
-            a.ret();
-            let (bytes, _) = a.finish();
-            self.region.put(&bytes);
+            a.call_ahead(ahead);
+            epilogue(&mut a);
+            let (bytes, relocs) = a.finish();
+            let at = self.region.put(&bytes);
+            for (off, kind, target, addend) in relocs {
+                self.region.reloc_with(at + off, kind, target, addend);
+            }
             return;
         }
         let mut a = Asm::new();
-        a.str_pre16(30, SP);
-        // `x4` rather than `x3` for the frame pointer: `x3` is the fourth C
-        // argument now, and reading the record into it would lose `out`.
+        a.stp_fp_lr();
+        a.sub_imm(SP, SP, FRAME);
+        for r in 0..4 {
+            a.str_off(r, SP, ARGS + 8 * r);
+        }
+        a.bl_symbol(task_thread::STEP_STACK_ACQUIRE);
+        a.str_off(0, SP, STACK);
+        // `x4` for the frame: `x0`..`x3` are the four C arguments again below.
+        a.mov_reg(4, 0);
+        a.ldr(0, SP, ARGS);
+        let have = a.cbnz_x(4);
         a.ldr(4, 0, E_FRAME);
+        a.here(have);
+        a.ldr(1, SP, ARGS + 8);
+        a.ldr(2, SP, ARGS + 16);
+        a.ldr(3, SP, ARGS + 24);
         a.str_off(0, 4, E_STATE);
         a.str_off(1, 4, E_INDEX);
         a.str_off(2, 4, E_ARG);
         a.str_off(3, 4, E_OUT);
         a.add_imm(0, 4, 0);
-        // Two instructions stand between this one and the body.
-        a.bl_words(3);
-        a.ldr_post16(30, SP);
+        // Five instructions stand between this one and the body.
+        a.bl_words(6);
+        a.ldr(0, SP, STACK);
+        a.bl_symbol(task_thread::STEP_STACK_RELEASE);
+        a.add_imm(SP, SP, FRAME);
+        a.ldp_fp_lr();
         a.ret();
-        let (bytes, _) = a.finish();
-        self.region.put(&bytes);
+        let (bytes, relocs) = a.finish();
+        let at = self.region.put(&bytes);
+        for (off, kind, target) in relocs {
+            self.region.reloc(at + off, kind, target);
+        }
     }
 
     /// `extern "C" fn(frame, a, b, out)` — whether two values of one type are

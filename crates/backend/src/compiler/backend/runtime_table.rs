@@ -1558,22 +1558,19 @@ pub const RETURNED: &str = "buri_rt_main_returned";
 /// `buri_rt_frames_are_per_thread()` — the artifact's one statement about
 /// itself, made once at startup (`cli/runtime/lib.rs` §6).
 ///
-/// **The LLVM backend makes it and the frame-threaded one does not**, and that
-/// is a fact about where a Buri frame lives rather than a difference of opinion
-/// about scheduling. In LLVM a Buri function is an ordinary LLVM function and
-/// its locals are `alloca`s, so a thread's 512 KiB stack is its own and the
-/// runtime may run two `Tasks.parallel` steps at once. In the stencil backend a
-/// program has one Buri stack — the `buri$stencil$stack` block its `main`
-/// guards — and a step runs in a frame the *call site* set aside, so two of
-/// them would share it. Saying nothing is the safe answer, which is why only
-/// the LLVM backend emits the call.
+/// It says where a Buri frame lives. In LLVM a Buri function is an ordinary
+/// LLVM function and its locals are `alloca`s, so a task's machine stack is
+/// its own. In the stencil backend a step's entry thunk on a task takes a Buri
+/// stack of the task's own (`task_thread::STEP_STACK_ACQUIRE`). Saying nothing
+/// is the safe answer: the runtime then runs `Tasks.parallel` steps one at a
+/// time.
 pub const FRAMES_PER_THREAD: &str = "buri_rt_frames_are_per_thread";
 /// `buri_rt_values_may_cross_tasks()` — the artifact's other statement about
 /// itself, made once at startup (`cli/runtime/lib.rs` §6).
 ///
 /// It says **this artifact's values may cross a task boundary, and its
-/// reference operations read [`SHARED_MASK`]**. The release backend makes it,
-/// for a program `middle::rc::crosses_tasks` says can reach a task boundary.
+/// reference operations read [`SHARED_MASK`]**. Both native backends make it,
+/// for a program [`shares_counts`] says can fan out.
 /// It is not the same fact as [`FRAMES_PER_THREAD`]: that one is about *where
 /// a frame lives*, a property of the backend, and this one is about *whether a
 /// block can be reached from two threads*, a property of the program.
@@ -1763,18 +1760,23 @@ mod tests {
         assert_eq!(symbol_for("host.HostAllocator.allocate"), "buri_rt_host_allocator_allocate");
     }
 
-    /// **The two thread-stack entries are symbols with no row, and that is
-    /// the answer rather than an omission.**
+    /// **The thread-stack entries are symbols with no row, and that is the
+    /// answer rather than an omission.**
     ///
-    /// `buri_rt_stack_acquire` and `buri_rt_stack_release` are called by the
-    /// frame-threaded backend's thread door, by name, out of a hand-written
-    /// shim (`stencil/asm.rs`), and never by the LLVM backend, whose frames are
-    /// machine frames. [`ENTRIES`] is keyed by *intrinsic key*, and these two
-    /// have none — no Buri expression names them and none should.
+    /// The frame-threaded backend's thread door and step thunks call them by
+    /// name, out of hand-written shims (`stencil/asm.rs`, `stencil/glue.rs`),
+    /// and the LLVM backend, whose frames are machine frames, never does.
+    /// [`ENTRIES`] is keyed by *intrinsic key*, and these have none — no Buri
+    /// expression names them and none should.
     #[test]
     fn the_thread_stack_entries_have_symbols_and_no_row() {
         use crate::compiler::backend::task_thread;
-        for symbol in [task_thread::STACK_ACQUIRE, task_thread::STACK_RELEASE] {
+        for symbol in [
+            task_thread::STACK_ACQUIRE,
+            task_thread::STACK_RELEASE,
+            task_thread::STEP_STACK_ACQUIRE,
+            task_thread::STEP_STACK_RELEASE,
+        ] {
             assert!(symbol.starts_with("buri_rt_"), "{symbol} is not a runtime symbol");
             assert!(
                 !ENTRIES.iter().any(|e| e.symbol() == symbol),

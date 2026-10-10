@@ -1485,8 +1485,8 @@ fn memory(o: &mut Out) {
     //
     // `cap` at `ptr - 8` carries the multi-threaded mark in bit 63
     // (`middle::layout::CAP_SHARED_FLAG`, VALUE-MODEL.md §2.1), and it chooses
-    // between the two counts below. **Nothing sets it**, so on every program
-    // this toolchain compiles today the shared arm is dead code and the fork
+    // between the two counts below. **Nothing sets it** in a program that
+    // can't fan out, so there the shared arm is dead code and the fork
     // is what it costs: one load — of the word next to the count, in the same
     // 16-byte header, so on the same cache line — and one `tbnz`. The hint is
     // what keeps the unshared arm the fallthrough; the `< 0` spelling is what
@@ -1512,16 +1512,36 @@ fn memory(o: &mut Out) {
     // path: a plain `fetch_add(1)` would wrap `u64::MAX` to zero and free
     // every string literal in the program. Relaxed is right for an increment,
     // which publishes nothing; the decrement below is the side that orders.
+    //
+    // Each count stencil has a `/shared` twin for a program that can fan out.
+    // It ORs `buri_rt_shared_mask`, whose address is the `R` hole, into the
+    // `cap` it tests, so a block allocated before the first fan-out counts as
+    // marked after it (buri-lang/buri#243, `emit.rs`'s `rc_key`).
+    for (suffix, marked) in [
+        ("", "(int64_t)*(uint64_t *)(p - 8) < 0"),
+        (
+            "/shared",
+            "(int64_t)(*(uint64_t *)(p - 8) | \
+             __atomic_load_n((uint64_t *)(uintptr_t)_JIT_R, __ATOMIC_RELAXED)) < 0",
+        ),
+    ] {
+        memory_counts(o, suffix, marked);
+    }
+}
+
+/// `incref`, `decref/drop` and `decref/free`, under `suffix`, with `marked` as
+/// the test that picks the atomic arm.
+fn memory_counts(o: &mut Out, suffix: &str, marked: &str) {
     o.push(
-        "incref",
-        "void $NAME(ARGS) { uint64_t p = AT(uint64_t, _JIT_A); if (p) { \
+        &format!("incref{suffix}"),
+        format!(
+            "void $NAME(ARGS) {{ uint64_t p = AT(uint64_t, _JIT_A); if (p) {{ \
          uint64_t *rc = (uint64_t *)(p - 16); \
-         if (__builtin_expect_with_probability( \
-         (int64_t)*(uint64_t *)(p - 8) < 0, 0, 0.9)) { \
+         if (__builtin_expect_with_probability({marked}, 0, 0.9)) {{ \
          uint64_t v = __atomic_load_n(rc, __ATOMIC_RELAXED); \
          __atomic_fetch_add(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_RELAXED); \
-         } else { uint64_t v = *rc; *rc = v + (v != (uint64_t)-1); } } TAIL; }"
-            .into(),
+         }} else {{ uint64_t v = *rc; *rc = v + (v != (uint64_t)-1); }} }} TAIL; }}"
+        ),
     );
     // === G2 end =============================================================
     // The decrement's dying arm is open-coded, the way `llvm/emit.rs`'s
@@ -1552,33 +1572,33 @@ fn memory(o: &mut Out) {
     // and answers `u64::MAX`, which is not `1`, so it is not freed — the same
     // no-op `buri_rt_free` promises for one.
     o.push(
-        "decref/drop",
-        "void $NAME(ARGS0) { uint64_t p = AT(uint64_t, _JIT_A); if (p) { \
+        &format!("decref/drop{suffix}"),
+        format!(
+            "void $NAME(ARGS0) {{ uint64_t p = AT(uint64_t, _JIT_A); if (p) {{ \
          uint64_t *rc = (uint64_t *)(p - 16); \
-         if (__builtin_expect_with_probability( \
-         (int64_t)*(uint64_t *)(p - 8) < 0, 0, 0.9)) { \
+         if (__builtin_expect_with_probability({marked}, 0, 0.9)) {{ \
          uint64_t v = __atomic_load_n(rc, __ATOMIC_RELAXED); \
-         if (__atomic_fetch_sub(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_ACQ_REL) == 1) { \
-         ((void (*)(uint64_t))(uintptr_t)_JIT_M)(p); buri_rt_free(p); } \
-         } else { uint64_t v = *rc; \
-         if (v > 1 && v != (uint64_t)-1) { *rc = v - 1; } \
-         else if (v != (uint64_t)-1) { \
-         ((void (*)(uint64_t))(uintptr_t)_JIT_M)(p); buri_rt_free(p); } } } TAIL0; }"
-            .into(),
+         if (__atomic_fetch_sub(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_ACQ_REL) == 1) {{ \
+         ((void (*)(uint64_t))(uintptr_t)_JIT_M)(p); buri_rt_free(p); }} \
+         }} else {{ uint64_t v = *rc; \
+         if (v > 1 && v != (uint64_t)-1) {{ *rc = v - 1; }} \
+         else if (v != (uint64_t)-1) {{ \
+         ((void (*)(uint64_t))(uintptr_t)_JIT_M)(p); buri_rt_free(p); }} }} }} TAIL0; }}"
+        ),
     );
     o.push(
-        "decref/free",
-        "void $NAME(ARGS0) { uint64_t p = AT(uint64_t, _JIT_A); if (p) { \
+        &format!("decref/free{suffix}"),
+        format!(
+            "void $NAME(ARGS0) {{ uint64_t p = AT(uint64_t, _JIT_A); if (p) {{ \
          uint64_t *rc = (uint64_t *)(p - 16); \
-         if (__builtin_expect_with_probability( \
-         (int64_t)*(uint64_t *)(p - 8) < 0, 0, 0.9)) { \
+         if (__builtin_expect_with_probability({marked}, 0, 0.9)) {{ \
          uint64_t v = __atomic_load_n(rc, __ATOMIC_RELAXED); \
-         if (__atomic_fetch_sub(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_ACQ_REL) == 1) { \
-         buri_rt_free(p); } \
-         } else { uint64_t v = *rc; \
-         if (v > 1 && v != (uint64_t)-1) { *rc = v - 1; } \
-         else if (v != (uint64_t)-1) { buri_rt_free(p); } } } TAIL0; }"
-            .into(),
+         if (__atomic_fetch_sub(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_ACQ_REL) == 1) {{ \
+         buri_rt_free(p); }} \
+         }} else {{ uint64_t v = *rc; \
+         if (v > 1 && v != (uint64_t)-1) {{ *rc = v - 1; }} \
+         else if (v != (uint64_t)-1) {{ buri_rt_free(p); }} }} }} TAIL0; }}"
+        ),
     );
     // === G2 end =============================================================
 }

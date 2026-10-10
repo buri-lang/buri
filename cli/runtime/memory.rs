@@ -130,8 +130,9 @@ pub const BURI_RT_CAP_FLAGS: u64 = BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA;
 // **How a block made before that moment is covered.** It carries no bit, so
 // the bit alone can't be the test. [`SHARED_MASK`] is exported as
 // `buri_rt_shared_mask`, and every reader of the mark ORs it into the `cap` it
-// tests: [`is_shared`] here, and the release backend's open-coded fork and
-// `Str` concatenation. From the store in [`begin_sharing`] on, every block is
+// tests: [`is_shared`] here, the release backend's open-coded fork and
+// `Str` concatenation, and the development backend's `/shared` count
+// stencils. From the store in [`begin_sharing`] on, every block is
 // marked as far as any reader can tell. The store happens on the one thread
 // running Buri code, before it hands a step to another thread through a
 // synchronising queue, so every thread that runs Buri code beside it reads the
@@ -144,8 +145,8 @@ pub const BURI_RT_CAP_FLAGS: u64 = BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA;
 // sharing later; it marks nothing itself. **Silence is the safe answer**: an
 // entry point that doesn't make it gets a single-threaded program, because
 // both places that would begin sharing are gated on it and run their steps in
-// order instead. The development backend doesn't make it, and its fork reads
-// only the bit (`stencil/asm.rs`'s `Marking`).
+// order instead. The development backend makes it on the same terms, and its
+// `/shared` count stencils read the mask (`stencil/asm.rs`'s `Marking`).
 
 /// [`BURI_RT_CAP_SHARED`] once sharing has begun ([`begin_sharing`]), and `0`
 /// before that — the whole of the marking policy, as one word.
@@ -172,7 +173,7 @@ static MAY_SHARE: AtomicBool = AtomicBool::new(false);
 /// operations read `buri_rt_shared_mask`**, so the runtime may begin sharing
 /// at its first fan-out.
 ///
-/// Emitted into `main` by the release backend, immediately after
+/// Emitted into `main` by both native backends, immediately after
 /// `buri_rt_argv_init`, and only for a program that can reach a fan-out.
 /// `cli/runtime/lib.rs` §6 is the contract; calling it twice is calling it
 /// once. It marks no block: [`begin_sharing`] does, when a second thread is
@@ -4228,6 +4229,70 @@ unsafe fn watermark_intact(base: *mut u8) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_stack_acquire() -> *mut u8 {
     stack_list(Blocks::acquire)
+}
+
+/// [`buri_rt_stack_acquire`] for a step's entry thunk: a Buri data stack for
+/// the running task, or null when no task is running.
+///
+/// A task runs beside other tasks and may park, so a step on one can't use
+/// the frame its call site set aside. Outside a task the steps run one at a
+/// time on the caller's thread, and that frame is still the right one. The
+/// thunk hands the answer to [`buri_rt_step_stack_release`].
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_step_stack_acquire() -> *mut u8 {
+    #[cfg(feature = "net")]
+    if crate::rt::running_task_blocks().is_some() {
+        let spare = STEP_SPARE.with(|s| s.replace(core::ptr::null_mut()));
+        return if spare.is_null() { map_stack() } else { spare };
+    }
+    core::ptr::null_mut()
+}
+
+/// Give back a stack [`buri_rt_step_stack_acquire`] answered, null included.
+///
+/// The block becomes this thread's spare, for the next step here, and the
+/// spare it replaces goes to the pool. A fan-out of short steps then takes
+/// neither the pool's lock nor a mapping per step: through the pool,
+/// `f_wlong`'s 1.8 M steps cost five times the cycles of the release build.
+/// The block may have come from another thread, if the task parked and moved;
+/// it's empty now, so any thread may keep it.
+///
+/// A block an entry went deep in is decommitted first, and so is every
+/// [`STACK_DECOMMIT_EVERY`]th, for an entry that wrote past the retained
+/// prefix without touching the watermark.
+///
+/// # Safety
+/// `base` is null or came from [`buri_rt_step_stack_acquire`], and nothing is
+/// inside it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_step_stack_release(base: *mut u8) {
+    if base.is_null() {
+        return;
+    }
+    let floor = STEP_RELEASES.with(|n| {
+        let next = n.get().wrapping_add(1);
+        n.set(next);
+        next % STACK_DECOMMIT_EVERY == 0
+    });
+    // SAFETY: the caller's promise: a live block nothing is inside.
+    let deep = !unsafe { watermark_intact(base) };
+    if (deep || floor) && !decommit_stack(base) {
+        // Retired by `decommit_stack` itself, which unmapped it.
+        return;
+    }
+    let old = STEP_SPARE.with(|s| s.replace(base));
+    if !old.is_null() {
+        // SAFETY: a spare is a block nothing is inside, on no list.
+        unsafe { retire_stack(old) };
+    }
+}
+
+thread_local! {
+    /// The Buri data stack the last step on this thread gave back
+    /// ([`buri_rt_step_stack_release`]), or null.
+    static STEP_SPARE: std::cell::Cell<*mut u8> = const { std::cell::Cell::new(core::ptr::null_mut()) };
+    /// Step stacks given back on this thread, for the decommit floor.
+    static STEP_RELEASES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 /// **Gives an idle thread stack's pages back to the kernel** and the block

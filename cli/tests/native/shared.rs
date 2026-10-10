@@ -1462,6 +1462,66 @@ export fn main(host: NativeHost): Result<(), Str> {
     )
 }
 
+/// [`broadcasting_socket_server`]'s two-socket row against a built binary: the
+/// first socket hears what the second published.
+pub fn broadcast_reaches_the_other_socket(binary: &Path) {
+    let running = announced(binary);
+    let port = running.2;
+    // **The ordering is what makes this deterministic rather than probable.**
+    // A `Joined` is posted by `onOpen`, which runs after the `101` the client
+    // read — so "both clients have connected" does not mean "both are in the
+    // room". What does mean it is a publish that came back: the first client
+    // says something and hears its own echo, and a send that answered is a send
+    // whose mailbox ran down, so by the time the second client publishes its own
+    // `Joined` is in front of its `Publish` on the same worker's queue.
+    let mut first = Talking::to(port);
+    first.say("one");
+    let alone = first.heard();
+
+    let mut second = Talking::to(port);
+    second.say("two");
+    let to_second = second.heard();
+    let to_first = first.heard();
+
+    first.hush();
+    second.hush();
+    let out = finished(running);
+    assert_eq!(
+        alone.as_deref(),
+        Some("one"),
+        "the first socket did not hear its own message:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert_eq!(
+        to_second.as_deref(),
+        Some("two"),
+        "the publisher did not hear its own message:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // **The whole row.** The first socket published nothing this time and heard
+    // what the second said, on a worker that is not the one that published it.
+    assert_eq!(
+        to_first.as_deref(),
+        Some("two"),
+        "a socket that published nothing heard nothing:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("published to 1\n") && out.stdout.contains("published to 2\n"),
+        "the room did not grow between the two publishes:\n{}",
+        out.stdout
+    );
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert!(
+        out.stdout.ends_with("served\n"),
+        "the server did not run to its own end:\n{}",
+        out.stdout
+    );
+}
+
 /// The note's broadcast-actor example, as a program that finishes.
 ///
 /// **The design row's second named test, and F6's forecast spent** — with one
@@ -1479,10 +1539,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// holding `[Socket]`, sent to from a socket hook, pushing to sockets its own
 /// worker does not own.
 ///
-/// It needs two sockets open at once, so it needs two workers, so it is an
-/// LLVM row rather than a pair: the frame-threaded backend runs a `parallel`
-/// in index order because a program it builds has one Buri data stack, and
-/// worker zero holding a socket is worker zero never returning.
+/// It needs two sockets open at once, so it needs two workers running side by
+/// side.
 pub fn broadcasting_socket_server(members: usize) -> String {
     format!(
         r#"from "core/actor" import * as actor;

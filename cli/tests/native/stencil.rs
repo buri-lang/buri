@@ -4691,20 +4691,10 @@ fn a_secured_server_opens_its_port_and_says_why_when_it_cannot() {
 
 /// **Eight requests at once, answered one at a time — and all eight answered.**
 ///
-/// The frame-threaded backend's half of F3, and the honest one. `run` fans its
-/// accept loop out with `Tasks.parallel` on every backend, but `rt.rs` runs the
-/// steps of a fan-out on the calling thread unless the artifact called
-/// `buri_rt_frames_are_per_thread` — and this backend never does, because a
-/// program it builds has one Buri stack and a second worker would have nowhere
-/// to put a frame (`asm.rs`, where that call's absence is asserted). So the
-/// eight workers here run in index order and worker zero answers everything.
-///
-/// **That is a timing difference and not a behaviour difference**, which is the
-/// claim. Eight clients connect at once, the backlog holds them, and every one
-/// of them gets its own answer back: `each_answered_its_own` is the same
-/// assertion the LLVM row makes, and it passes here for the same reason. No
-/// clock is asserted, because there is nothing to assert — the sleep is zero and
-/// the row would be measuring the scheduler it does not have.
+/// The frame-threaded backend's half of F3. `run` fans its accept loop out with
+/// `Tasks.parallel`, eight clients connect at once, the backlog holds them, and
+/// every one of them gets its own answer back: `each_answered_its_own` is the
+/// same assertion the LLVM row makes. No clock is asserted; the sleep is zero.
 #[test]
 fn eight_requests_at_once_are_each_answered_on_their_own_connection() {
     if !supported() {
@@ -4722,6 +4712,18 @@ fn eight_requests_at_once_are_each_answered_on_their_own_connection() {
     );
     assert_eq!(replies.len(), REQUESTS);
     crate::shared::each_answered_its_own(&replies);
+}
+
+/// **A broadcast actor reaches a socket it didn't publish on**: two sockets
+/// open at once, on two workers running side by side (buri-lang/buri#280).
+/// `llvm.rs` has the same row.
+#[test]
+fn a_broadcast_actor_reaches_a_socket_it_did_not_publish_on() {
+    if !supported() {
+        return;
+    }
+    let binary = build_with("socket-broadcast", &crate::shared::broadcasting_socket_server(2), None);
+    crate::shared::broadcast_reaches_the_other_socket(&binary);
 }
 
 /// **The note's counter-per-socket example, against the real acceptor.**

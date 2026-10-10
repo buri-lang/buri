@@ -82,6 +82,15 @@ pub const STACK_ACQUIRE: &str = "buri_rt_stack_acquire";
 /// The runtime entry that gives one back. `cli/runtime/memory.rs`.
 pub const STACK_RELEASE: &str = "buri_rt_stack_release";
 
+/// The runtime entry a stencil step's entry thunk takes its Buri data stack
+/// from: the running task's own, or null outside a task, where the thunk keeps
+/// the frame its call site set aside. `cli/runtime/memory.rs`.
+pub const STEP_STACK_ACQUIRE: &str = "buri_rt_step_stack_acquire";
+
+/// The runtime entry that gives a step's stack back, null included.
+/// `cli/runtime/memory.rs`.
+pub const STEP_STACK_RELEASE: &str = "buri_rt_step_stack_release";
+
 /// The symbol the door to a program's root is emitted under.
 ///
 /// A fixed name rather than one derived from the root's own mangled symbol,
