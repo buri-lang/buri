@@ -6,7 +6,7 @@ shared build  <time>
 
 3 passed, 0 failed, 0 skipped (0.0s)
 
-coverage
-  lib/shapes/shapes.buri  4/4  100.0%
-  total                   4/4  100.0%
+branch coverage
+  lib/shapes/shapes.buri  0/0       -
+  total                   0/0       -
 lcov: .buri/coverage/lcov.info
