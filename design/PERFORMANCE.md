@@ -7551,6 +7551,122 @@ looks at the first failing member's.
 `work_counts::a_failing_suites_runner_stays_put_while_another_suite_is_edited`
 pins one launch per edit, which varied between one and two before.
 
+### 6.83 Parsing, and a build's lex+parse, 2026-10-09
+
+One M3 Pro, release build, load 2–4, before at `483013296` and after at this
+section's commit. `parser::parse` and `lexer::lex` run over every module of
+each pinned 1M shape, fewest instructions and fastest of seven. A load is
+`driver::load_all` of the shape as a repository, whole-process instructions
+and fastest of three. A build's `lex+parse` is `BURI_PROFILE=1` on a cold
+`buri build`.
+
+**Where the work went.** `mixed-1M` is 6.95 tokens a line:
+
+| Before | Instructions a line |
+|---|---:|
+| `lexer::lex`, 111 a token | 772 |
+| the parser over those tokens, 145 a token | 1,008 |
+| **`parser::parse`** | **1,780** |
+| reading 3,473 files, mostly in the kernel | 606 |
+| resolving imports: three `stat`s per import line | 526 |
+| a line table for every file read | 157 |
+| parsing into memory not yet touched | 90 |
+| a second `stat` per file read | 44 |
+| the rest of the walk | 113 |
+| **a load** | **3,316** |
+
+Neither half had a hot spot. A one-letter word cost 101 instructions to lex, a
+`(` 54, a `///` line about 360, an integer 200; `x;` cost 446 to parse, spread
+over a dozen calls of a few dozen instructions each. Nothing lexes twice: the
+formatter and the doc extractor read the parse, and `flat.rs` builds the tree in
+place.
+
+**What changed**, `mixed-1M`:
+
+| Change | Before | After |
+|---|---:|---:|
+| A load resolves each import path once | load 3,316 | 2,790 |
+| A line table waits for a line to be asked for; one `stat` per read | load 2,787 | 2,586 |
+| The lexer: cursor and tokens in locals, a class table to dispatch, a word read from its key's load, small integers valued while scanned, comment and string ends found eight bytes at a time | `lex` 772 | 606 |
+| The parser: a plain operand, type or binding in one step; the cursor's kind and location kept beside it | `parse` 1,613 | 1,478 |
+| A load reads and parses a module's imports side by side, on a third of the cores | load wall 208 ms | 64 ms |
+| The lexer's trivia test from a register; a two-instruction keyword hash | `lex` 606 | 592 |
+
+**Every pinned 1M shape**, before → after:
+
+| Shape | `parse`, instructions a line | `parse`, M lines/s | `lex`, instructions a line | load, instructions a line | load, M lines/s | build `lex+parse`, instructions a line |
+|---|---:|---:|---:|---:|---:|---:|
+| `comment-free` | 2,141 → 1,762 | 9.1 → 10.2 | 886 → 679 | 4,007 → 2,852 | 3.9 → 12.9 | 4,096 → 3,194 |
+| `comment-heavy` | 1,268 → 1,057 | 15.7 → 18.1 | 692 → 559 | 2,240 → 1,570 | 7.0 → 25.1 | 2,252 → 1,710 |
+| `derive-heavy` | 1,700 → 1,401 | 11.5 → 12.9 | 744 → 566 | 3,211 → 2,287 | 4.8 → 15.7 | 3,275 → 2,531 |
+| `enum-heavy` | 1,739 → 1,378 | 12.0 → 13.3 | 713 → 528 | 3,190 → 2,213 | 4.9 → 16.4 | 3,264 → 2,476 |
+| `generic-blowup` | 1,911 → 1,607 | 10.5 → 11.7 | 789 → 619 | 3,562 → 2,520 | 4.5 → 14.9 | 3,551 → 2,793 |
+| `generic-free` | 1,751 → 1,436 | 11.2 → 12.6 | 761 → 580 | 3,287 → 2,330 | 4.7 → 15.7 | 3,345 → 2,576 |
+| `impl-heavy` | 1,634 → 1,317 | 12.4 → 14.0 | 732 → 537 | 3,001 → 2,125 | 5.3 → 17.1 | 3,107 → 2,380 |
+| `list-heavy` | 1,837 → 1,497 | 10.9 → 12.3 | 804 → 607 | 3,387 → 2,415 | 4.7 → 15.3 | 3,491 → 2,691 |
+| `long-bodies` | 1,839 → 1,426 | 10.7 → 12.7 | 762 → 548 | 3,745 → 2,655 | 4.0 → 14.2 | 3,477 → 2,620 |
+| `long-idents` | 1,622 → 1,338 | 12.2 → 13.6 | 737 → 572 | 3,061 → 2,142 | 3.8 → 17.2 | 3,070 → 2,364 |
+| `match-heavy` | 1,651 → 1,337 | 12.4 → 13.8 | 723 → 530 | 3,211 → 2,233 | 4.1 → 16.4 | 3,268 → 2,498 |
+| `mixed` | 1,779 → 1,462 | 11.1 → 12.4 | 772 → 591 | 3,324 → 2,359 | 4.6 → 15.8 | 3,374 → 2,607 |
+| `mixed-deep-graph` | 1,779 → 1,462 | 11.0 → 12.4 | 772 → 591 | 3,462 → 2,368 | 4.5 → 15.6 | 3,386 → 2,621 |
+| `mixed-few-files` | 1,673 → 1,339 | 11.8 → 13.6 | 730 → 546 | 1,902 → 1,421 | 9.8 → 36.2 | 2,010 → 1,532 |
+| `mixed-libs` | 1,777 → 1,460 | 11.0 → 12.4 | 771 → 590 | 3,446 → 2,366 | 4.5 → 14.2 | 3,379 → 2,611 |
+| `mixed-many-files` | 1,952 → 1,687 | 10.2 → 11.1 | 857 → 683 | 9,918 → 6,571 | 1.4 → 4.2 | 9,020 → 6,553 |
+| `mixed-wide-graph` | 1,831 → 1,511 | 11.1 → 12.4 | 794 → 608 | 4,852 → 2,667 | 3.3 → 13.0 | 4,364 → 2,825 |
+| `string-heavy` | 1,948 → 1,620 | 10.4 → 11.5 | 849 → 672 | 3,504 → 2,537 | 4.6 → 15.0 | 3,579 → 2,784 |
+| `struct-heavy` | 1,363 → 1,115 | 14.7 → 16.3 | 649 → 489 | 2,658 → 1,862 | 5.9 → 19.2 | 2,708 → 2,068 |
+| `struct-light` | 1,800 → 1,476 | 11.3 → 12.6 | 774 → 593 | 3,347 → 2,374 | 4.7 → 15.8 | 3,409 → 2,630 |
+
+A build's `lex+parse` phase uses less CPU than before on every shape but
+`mixed-deep-graph`, where it's level: 0.196 s against 0.218 s on `mixed-1M`,
+0.579 s against 0.789 s on `mixed-many-files-1M`.
+
+**The goal.** `parser::parse` holds it on every shape, from 1.02× on
+`comment-free` to 1.81× on `comment-heavy`, and 1.24× on `mixed`. Three times
+the goal is
+about 600 instructions a line at this core's 18 G a second, and the lexer
+alone is 592. What's left is spread thin: a `(` still costs 42 instructions to
+lex, a one-letter word 68, and an operand goes through a call or two of large
+frames. Three times needs a lexer and parser that keep their state in
+registers end to end, a different design rather than more fast paths. A load
+holds the goal by the clock on every shape but `mixed-many-files`, at 4.2 M
+lines a second; per core it's still 2,359 instructions a line on `mixed-1M`,
+606 of them reading files.
+
+**A load reads ahead, and the walk is unchanged.** When a module's imports
+name two or more files it hasn't loaded, they're read and parsed side by side
+under a placeholder file id, and the walk loads each in turn as before.
+`Module::refile` moves a parse to the id the source map then gives it, and
+`language/corpus.rs` holds that to parsing in place, over every `.buri` file
+in the repository. The loads of all 429 test repositories are byte-identical
+to before.
+
+**Identity.** Trees, diagnostics, formatted output and `program_text` are
+byte-identical on the repository's 8,008 `.buri` files and twelve damaged
+copies of each, 1,574 lexer edge cases, all twenty pinned 1M shapes, and
+100,000 generated inputs against a build of `483013296`, nesting and chains at
+their limits included.
+
+**Guards.** `build/loading.rs` bounds `parser::parse`, and a whole load, in
+instructions a line on all twenty shapes at 30,000 lines. It asserts nothing
+where the kernel counts nothing. End to end: `language/lexing.rs` (where words,
+integers and comments end), `language/parsing.rs` (operands and postfix
+chains; nesting and chains one past their limits), `build/loading.rs`
+(imports reported where they're written; modules read side by side load as
+one at a time). §9's `build/mixed-10k` and `lint/mixed-10k` will read
+*improved*; re-bless them.
+
+**Measured and left:**
+
+- Half the cores reading ahead instead of a third: a sixth less wall time,
+  for 1.4–2× the CPU.
+- `expr`, `ty` and `pattern` inlined into their callers with their fast
+  paths: no fewer instructions, and no less time.
+- `bump`, `peek`, `eat` and seven other token helpers forced inline: 1,546
+  against 1,548.
+- A cheaper `Save`. A statement's rollback point costs 43 instructions, 2.5%
+  of `parse` on `mixed`; it waits for a change that can shrink `Mark`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
