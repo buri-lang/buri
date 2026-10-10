@@ -25,8 +25,7 @@
 use super::jit::KeyArg;
 use super::abi::Loc;
 use crate::compiler::backend::intrinsic_keys::{
-    bits_op, checked_kind, conversion_target, json_arm, json_variant, numeric_key,
-    prim_trait_op, CheckedKind, JsonArm,
+    checked_kind, conversion_target, json_arm, json_variant, native_body, CheckedKind, JsonArm,
 };
 use crate::compiler::semantics::types::{field_types, variant_types};
 
@@ -42,7 +41,6 @@ use super::glue::Helper;
 use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
-use crate::compiler::middle::lower;
 use crate::compiler::middle::layout::{EnumRepr, Repr};
 use crate::compiler::semantics::types::{Prim, Ty, TyKind};
 
@@ -3922,15 +3920,7 @@ fn bound_bits(prim: Prim, low: bool) -> Option<u64> {
 /// needs retain glue — is refused during emission with a sentence naming it.
 /// The two answers are different questions and this is the cheaper one.
 pub fn implemented(key: &str) -> bool {
-    super::runtime::entry(key).is_some()
-        || open_coded_key(key)
-        || lower::lowers(key)
-        || bits_op(key)
-        || prim_trait_op(key)
-        || key.strip_prefix("derivePrimShow.").is_some_and(|t| prim_of_name(t).is_some())
-        || key.strip_prefix("derivePrimHash.").is_some_and(|t| prim_of_name(t).is_some())
-        || key.strip_prefix("derivePrimJson.").is_some_and(|t| prim_of_name(t).is_some())
-        || numeric_key(key)
+    super::runtime::entry(key).is_some() || open_coded_key(key) || native_body(key)
 }
 
 /// The keys that are instructions rather than calls.

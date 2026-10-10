@@ -77,13 +77,13 @@ use inkwell::values::{
 use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::compiler::backend::intrinsic_keys::{
-    bits_op, checked_kind, conversion_target, derive_key, json_arm, json_variant, numeric_key,
+    checked_kind, conversion_target, derive_key, json_arm, json_variant, native_body, prim_trait_op,
     step_call, CheckedKind, JsonArm,
 };
 use crate::compiler::backend::task_thread;
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::Profile;
-use crate::compiler::middle::{ir, lower};
+use crate::compiler::middle::ir;
 use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::middle::layout::{
     self, EnumRepr, Layouts, Repr as LayoutRepr, Scalar, CAP_MASK, CAP_SHARED_FLAG,
@@ -8953,13 +8953,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 /// that late diagnostic names the two types it could not tell apart, which is
 /// more than a key could have said.
 pub fn implemented(key: &str) -> bool {
-    bits_op(key)
-        || open_coded_key(key)
-        || lower::lowers(key)
-        || derive_key(key).is_some()
-        || runtime::entry(key).is_some()
-        || numeric_key(key)
-        || prim_leaf(key).is_some()
+    open_coded_key(key) || runtime::entry(key).is_some() || native_body(key)
 }
 
 /// `str.show`, `character.equal`, `bool.compare` and their six siblings.
@@ -8974,19 +8968,16 @@ pub fn implemented(key: &str) -> bool {
 /// `str.equal`, `str.compare` and `str.hash` are absent because the archive has
 /// bodies for all three and [`runtime::ENTRIES`] is where a body goes.
 fn prim_leaf(key: &str) -> Option<(Prim, &str)> {
+    if !prim_trait_op(key) || key == "character.toU32" {
+        return None;
+    }
     let (module, op) = key.split_once('.')?;
     let prim = match module {
         "str" => Prim::Str,
         "character" => Prim::Char,
-        "bool" => Prim::Bool,
-        _ => return None,
+        _ => Prim::Bool,
     };
-    match (prim, op) {
-        (_, "show") | (Prim::Char | Prim::Bool, "equal" | "compare" | "hash") => {
-            Some((prim, op))
-        }
-        _ => None,
-    }
+    Some((prim, op))
 }
 
 /// The intrinsics this backend emits as instructions rather than as a call.
