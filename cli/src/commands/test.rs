@@ -2831,6 +2831,9 @@ fn is_reserved(path: &std::path::Path) -> bool {
 /// Where a test binary whose first suite is `target` goes when the shared
 /// runner file is taken: [`actions::private_test_binary`], or a name beside it
 /// when a binary this pass restored runs from there.
+// Not counted by the coverage gate: whether a restored binary holds that name
+// when a suite asks is which suite the pool started first, which is timing.
+#[cfg_attr(buri_coverage, coverage(off))]
 fn private_test_binary(
     session: &Session,
     target: TargetId,

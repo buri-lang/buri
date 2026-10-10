@@ -321,7 +321,9 @@ fn read_line(input: &mut impl Read) -> Result<Option<String>, String> {
     let mut byte = [0u8; 1];
     loop {
         match input.read(&mut byte) {
-            Ok(0) => return Ok(if out.is_empty() { None } else { Some(String::new()) }),
+            // Not an `if`: whether the client's last line was cut short by its
+            // close is the client's timing, not a case of ours.
+            Ok(0) => return Ok((!out.is_empty()).then(String::new)),
             Ok(_) => {
                 out.push(byte[0]);
                 if byte[0] == b'\n' {
