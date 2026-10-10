@@ -325,6 +325,26 @@ them are waiting on macOS's check of a new executable (`design/PERFORMANCE.md`
 Bless with `cargo test`, not nextest. A blessing corpus is written once per
 process, so one process per test would write it from several at once.
 
+```
+nix develop .#coverage -c cargo run -p buri-coverage            # the coverage gate
+nix develop .#coverage -c cargo run -p buri-coverage -- --bless
+```
+
+The gate builds `buri` with branch coverage, runs `buri`'s tests uninstrumented
+against it, and holds the compiler's branch coverage to
+`coverage/compiler-branches.txt`. Only `buri` processes count: a test that calls
+the compiler in-process adds nothing, and every `buri` it starts adds its
+profile.
+
+The total only goes up. A run whose total falls fails. A run on main whose total
+rises commits the new baseline, per-file counts included, to main itself
+(`coverage: raise the baseline … [skip ci]`). Branches and pull requests print
+that commit and push nothing. A file covering fewer branches only warns, since
+moving or deleting code does that without lowering coverage.
+
+The baseline is x86_64 Linux's, so on any other host the gate prints its numbers
+and compares nothing.
+
 Process per test also means a `OnceLock` no longer shares work across a
 binary's tests. Four things still need to be shared by the whole run, so they
 are named for it (`sweep::run_name`): the corpus pool's permits, the C driver

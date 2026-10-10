@@ -194,7 +194,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/units
-          cargo test -p buri-rt-tests -p buri -p buri-hash -p buri-stdlib -p buri-docs -p buri-diagnostics -p buri-syntax -p buri-project -p buri-semantics -p buri-middle -p buri-backend -p buri-js -p buri-stencil -p buri-stdlib-coverage --no-run --message-format=json-render-diagnostics \
+          cargo test -p buri-rt-tests -p buri -p buri-hash -p buri-stdlib -p buri-docs -p buri-diagnostics -p buri-syntax -p buri-project -p buri-semantics -p buri-middle -p buri-backend -p buri-js -p buri-stencil -p buri-stdlib-coverage -p buri-coverage --no-run --message-format=json-render-diagnostics \
             | jq -r 'select(.profile.test == true) | .executable | select(. != null)' > target/units.txt
           test -s target/units.txt
           slowest="$(grep -E '/language-[0-9a-f]+$' target/units.txt)"
@@ -478,6 +478,147 @@ jobs:
         with:
           name: instructions-baseline
           path: /tmp/buri-instructions/baseline.txt
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # The compiler's branch coverage from end-to-end tests only, which must never
+  # fall (coverage/src/main.rs). x86_64 Linux, the baseline's host.
+  # `coverage-build` builds the instrumented `buri` and the tests once, so
+  # every shard runs the same `buri`; each shard runs a quarter of the tests;
+  # `coverage` merges the shards' profiles and gates.
+  coverage-build:
+    name: coverage build
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-2404-x86_64-coverage
+          workspaces: |
+            . -> target/coverage
+            . -> target/coverage-buri
+      # The runtime archive `cli/build.rs` builds, which rust-cache drops (see
+      # the `test` job).
+      - uses: actions/cache@v6
+        with:
+          path: |
+            target/coverage/debug/build
+            target/coverage-buri/debug/build
+          key: coverage-buildscript-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: coverage-buildscript-
+      - run: nix develop .#coverage -c cargo run -p buri-coverage -- --build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-build
+          path: target/coverage/build
+          retention-days: 7
+
+  coverage-shard:
+    name: coverage shard (${{ matrix.shard }}/4)
+    needs: coverage-build
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    env:
+      NEXTEST_TEST_THREADS: 16
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
+      - uses: oven-sh/setup-bun@v2
+      # The test job's tools, which the suite checks are on PATH.
+      - run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang lld mold llvm binutils musl-dev musl-tools
+          ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@v8
+        with:
+          name: coverage-build
+          path: target/coverage/build
+      - run: nix develop .#coverage -c cargo run -p buri-coverage -- --shard=${{ matrix.shard }}/4
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-shard-${{ matrix.shard }}
+          path: target/coverage/shard
+          retention-days: 7
+
+  coverage:
+    name: coverage
+    needs: coverage-shard
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    # The ratchet's push to main. No other job writes.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: coverage-build
+          path: target/coverage/build
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: coverage-shard-*
+          path: target/shards
+      - run: nix develop .#coverage -c cargo run -p buri-coverage -- --merge=target/shards
+      # The ratchet: a rise in coverage becomes the baseline. On a push to main
+      # it's committed there; anywhere else the commit is only printed. If main
+      # moved meanwhile, the rise is checked again against main's baseline. A
+      # push made with this job's token starts no workflow, and `[skip ci]`
+      # says so twice, so the commit can't loop.
+      - name: Raise the baseline
+        env:
+          WRITE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          tested=$(git rev-parse HEAD)
+          for attempt in 1 2 3 4 5; do
+            if [ "$WRITE" = true ]; then
+              git fetch --quiet origin main
+              git checkout --quiet --detach FETCH_HEAD
+            fi
+            nix develop .#coverage -c cargo run -q -p buri-coverage -- --raise
+            if [ -z "$(git status --porcelain -- coverage)" ]; then
+              exit 0
+            fi
+            git add coverage/compiler-branches.txt coverage/compiler.txt
+            git commit -q -m "coverage: raise the baseline to what ${tested:0:9} measured [skip ci]" \
+              -m "Written by the coverage job of CI run ${{ github.run_id }}."
+            if [ "$WRITE" != true ]; then
+              echo "Not a push to main, so this commit is not pushed:"
+              git show --stat HEAD
+              exit 0
+            fi
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "main kept moving; the baseline was not raised" >&2
+          exit 1
+      # What this run measured.
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-baseline
+          path: |
+            target/coverage/compiler-branches.txt
+            target/coverage/compiler.txt
           retention-days: 7
           if-no-files-found: ignore
 
