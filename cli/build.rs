@@ -1454,6 +1454,11 @@ fn runtime_archive(manifest: &Path) {
     // so the fallback path a host with no `cc` takes keeps it, and
     // `platform/effect/testing`'s `snapshot` works on every toolchain this script can build.
     features.push("paint");
+    // `buri`'s own `memcheck` feature, passed down: a toolchain built for
+    // memcheck builds programs memcheck can see into (MEMORY.md §8).
+    if std::env::var_os("CARGO_FEATURE_MEMCHECK").is_some() {
+        features.push("memcheck");
+    }
 
     // The command line is built **before** the freshness question rather than
     // after it, because it is one of the things the stamp is a digest of: the

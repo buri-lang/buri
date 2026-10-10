@@ -12,6 +12,7 @@
 )]
 
 use crate::abort::{buri_rt_abort_alloc_budget, buri_rt_abort_oom};
+use crate::allocator::valgrind;
 use std::alloc::{alloc, alloc_zeroed, dealloc, realloc, Layout};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -877,6 +878,11 @@ const CACHE_BYTES_FLOOR: u64 = 64 << 10;
 fn cache_budget() -> u64 {
     static BUDGET: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
     *BUDGET.get_or_init(|| {
+        // Under memcheck every block goes back to the allocator, where memcheck
+        // sees it freed.
+        if valgrind::reroutes() {
+            return 0;
+        }
         let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
         let share = CACHE_BYTES / (threads as u64).max(1);
         share.max(CACHE_BYTES_FLOOR)
@@ -2333,6 +2339,9 @@ fn heap_check_once(cell: &OnceLock<HeapCheck>) -> HeapCheck {
             Ok("trace") => HeapCheck::Trace,
             _ => HeapCheck::Off,
         };
+        // Under memcheck a freed block goes back to the allocator rather than
+        // into the quarantine, which would hide a read of it from memcheck.
+        let mode = if mode == HeapCheck::Full && valgrind::reroutes() { HeapCheck::Leak } else { mode };
         if mode != HeapCheck::Off {
             // SAFETY: `heap_audit` is an `extern "C" fn()` taking no arguments
             // and returning normally, which is the whole of `atexit`'s
@@ -4496,6 +4505,7 @@ fn map_task_stack() -> *mut u8 {
     assert!(rc == 0, "a task stack could not be given its guard");
     // SAFETY: the mapping just made, and the word is in its usable range.
     unsafe { task_watermark(p).write(BURI_RT_STACK_WATERMARK) };
+    register_task_stack(p);
     p
 }
 
@@ -4598,6 +4608,11 @@ pub(crate) unsafe fn buri_rt_task_stack_release(base: *mut u8) {
     TASK_STACKS_LIVE.fetch_sub(1, Ordering::Relaxed);
     let low = base.wrapping_add(BURI_RT_STACK_GUARD);
     let len = BURI_RT_STACK_USABLE - BURI_RT_STACK_WARM;
+    // The watermark is below where the task's stack pointer was, which
+    // memcheck counts as gone.
+    if valgrind::memcheck() {
+        valgrind::make_defined(task_watermark(base).cast(), 8);
+    }
     // A task that stayed inside the retained prefix left nothing below it to
     // give back, and the re-map is a system call per task: most of what a
     // short step cost. The data stack asks its watermark the same question.
@@ -4628,7 +4643,7 @@ pub(crate) unsafe fn buri_rt_task_stack_release(base: *mut u8) {
         // SAFETY: `base` came from `map_task_stack`, trimmed to exactly this
         // length.
         unsafe {
-            munmap(base.cast(), BURI_RT_STACK_BYTES);
+            unmap_task_stack(base);
         }
         return;
     }
@@ -4650,8 +4665,43 @@ fn task_pool_keep(base: *mut u8) {
     // SAFETY: `base` came from `map_task_stack`, trimmed to exactly this
     // length; the pool is full and this block is on no list.
     unsafe {
-        munmap(base.cast(), BURI_RT_STACK_BYTES);
+        unmap_task_stack(base);
     }
+}
+
+/// The task stacks memcheck was told about, as `(base, id)`. Empty elsewhere.
+static TASK_STACK_IDS: Mutex<Vec<(usize, usize)>> = Mutex::new(Vec::new());
+
+/// Tells memcheck the usable range of a task stack just mapped is a stack, so
+/// a switch onto it isn't read as a wild move of the stack pointer.
+fn register_task_stack(base: *mut u8) {
+    if !valgrind::memcheck() {
+        return;
+    }
+    let low = base.wrapping_add(BURI_RT_STACK_GUARD);
+    let id = valgrind::stack_register(low, base.wrapping_add(BURI_RT_STACK_BYTES));
+    match TASK_STACK_IDS.lock() {
+        Ok(mut ids) => ids.push((base as usize, id)),
+        Err(poisoned) => poisoned.into_inner().push((base as usize, id)),
+    }
+}
+
+/// Unmaps a task stack, and tells memcheck it is no longer one.
+///
+/// # Safety
+/// `base` came from [`map_task_stack`], and nothing runs on it.
+unsafe fn unmap_task_stack(base: *mut u8) {
+    if valgrind::memcheck() {
+        let mut ids = match TASK_STACK_IDS.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(at) = ids.iter().position(|&(b, _)| b == base as usize) {
+            valgrind::stack_deregister(ids.swap_remove(at).1);
+        }
+    }
+    // SAFETY: the caller's promise; the mapping is exactly this length.
+    unsafe { munmap(base.cast(), BURI_RT_STACK_BYTES) };
 }
 
 #[cfg(test)]

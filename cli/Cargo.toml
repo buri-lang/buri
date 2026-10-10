@@ -78,6 +78,11 @@ backend-llvm = ["dep:buri-llvm"]
 # one too, for `BURI_PROFILE=1`'s allocation column.
 alloc-counter = []
 
+# Off by default. Builds this toolchain, and the runtime of every program it
+# compiles, to step aside for Valgrind's memcheck when it runs under it
+# (design/native/MEMORY.md §8). Off, the runtime holds no trace of it.
+memcheck = []
+
 # The panic-free lint set, in the workspace manifest with the reasoning.
 [lints]
 workspace = true

@@ -1,0 +1,50 @@
+# Memcheck suppressions (cli/tests/native/memcheck.rs). Every entry says why it
+# is not a bug in Buri or its runtime. An error in Buri code or in cli/runtime
+# is never suppressed here: it is filed.
+
+# ring's AES-GCM on x86_64. Memcheck models PCLMULQDQ and AES-NI as opaque
+# helpers whose result is wholly undefined when any input bit is, so a GHASH
+# over a block ring loads whole and masks makes the tag "uninitialised". The
+# arm64 build of the same code reports nothing.
+{
+   ring-gcm-tag-compare
+   Memcheck:Cond
+   fun:*ring*aead*open_within*
+}
+{
+   ring-gcm-ciphertext-sendto
+   Memcheck:Param
+   socketcall.sendto(msg)
+   ...
+   fun:*rustls*ChunkVecBuffer*write_to*
+}
+# Memcheck names a `writev` parameter by its index exactly, so one entry each
+# for the slices rustls writes a record from.
+{
+   ring-gcm-ciphertext-writev-0
+   Memcheck:Param
+   writev(vector[0])
+   ...
+   fun:*write_to*
+}
+{
+   ring-gcm-ciphertext-writev-1
+   Memcheck:Param
+   writev(vector[1])
+   ...
+   fun:*write_to*
+}
+{
+   ring-gcm-ciphertext-writev-2
+   Memcheck:Param
+   writev(vector[2])
+   ...
+   fun:*write_to*
+}
+{
+   ring-gcm-ciphertext-writev-3
+   Memcheck:Param
+   writev(vector[3])
+   ...
+   fun:*write_to*
+}
