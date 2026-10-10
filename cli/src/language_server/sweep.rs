@@ -321,7 +321,9 @@ fn serve(
     // own parses. Nothing in it is shared with the thread that answers
     // questions, which is what makes this a thread rather than a lock.
     let mut analyst = State::new();
-    while let Ok(job) = incoming.recv() {
+    // A `for`, so the end isn't a branch: whether the server lets go of
+    // `jobs` before it exits is a race.
+    for job in incoming.iter() {
         let wanted = Wanted { latest: Arc::clone(latest), generation: job.generation };
         let swept = one(&mut analyst, job, &wanted);
         if outgoing.send(swept).is_err() {

@@ -1019,6 +1019,9 @@ fn list_suite(session: &Session, target: TargetId, platform: Platform, outcome: 
 
 /// A test's time: whole microseconds under a millisecond, milliseconds to one
 /// decimal under a second, then seconds to one decimal.
+// Not counted by the coverage gate: which unit a run's measured times fall in
+// is the machine's speed, not the test. The unit test below covers each unit.
+#[cfg_attr(buri_coverage, coverage(off))]
 fn duration(ns: u64) -> String {
     if ns < 1_000_000 {
         return format!("{} µs", ns / 1_000);
@@ -1078,7 +1081,9 @@ impl Shared {
 
     fn release(&self, dir: &str, slot: usize) {
         let mut painters = self.painting.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(p) = painters.iter_mut().find(|p| p.dir == dir && p.slot == slot) {
+        // `&`: one decision. Which painters are left when a suite lets go is
+        // the pool's timing, so the half that `&&` would skip is not a branch.
+        if let Some(p) = painters.iter_mut().find(|p| (p.dir == dir) & (p.slot == slot)) {
             p.processes = p.processes.saturating_sub(1);
         }
         painters.retain(|p| p.processes > 0);
