@@ -127,6 +127,7 @@ where
     }
     let next = AtomicUsize::new(0);
     let phase = crate::profile::current();
+    let tally = crate::profile::tally();
     let mut slots: Vec<Option<R>> = Vec::with_capacity(len);
     slots.resize_with(len, || None);
     std::thread::scope(|scope| {
@@ -135,20 +136,23 @@ where
             let cursor = &next;
             let each = &f;
             let start = &init;
+            let tally = tally.clone();
             let worker = std::thread::Builder::new()
                 .name("buri-worker".into())
                 .stack_size(STACK)
                 .spawn_scoped(scope, move || {
                     let _phase = crate::profile::adopt(phase);
-                    let mut done: Vec<(usize, R)> = Vec::new();
-                    let mut state = start();
-                    loop {
-                        let i = cursor.fetch_add(1, Ordering::Relaxed);
-                        if i >= len {
-                            return done;
+                    crate::profile::tallied(tally, || {
+                        let mut done: Vec<(usize, R)> = Vec::new();
+                        let mut state = start();
+                        loop {
+                            let i = cursor.fetch_add(1, Ordering::Relaxed);
+                            if i >= len {
+                                return done;
+                            }
+                            done.push((i, each(&mut state, i)));
                         }
-                        done.push((i, each(&mut state, i)));
-                    }
+                    })
                 });
             match worker {
                 Ok(worker) => workers.push(worker),
@@ -359,22 +363,26 @@ where
     };
     let (send, receive) = std::sync::mpsc::channel();
     let phase = crate::profile::current();
+    let tally = crate::profile::tally();
     std::thread::scope(|scope| {
         for _ in 0..width.max(1) {
             let (queue, work, send) = (&queue, &work, send.clone());
+            let tally = tally.clone();
             let started = std::thread::Builder::new()
                 .name("buri-job".into())
                 .stack_size(STACK)
                 .spawn_scoped(scope, move || {
                     let _phase = crate::profile::adopt(phase);
-                    let tell = Tell { send };
-                    while let Some((job, held)) = queue.take() {
-                        // A job that panics drops its `Held` as it unwinds.
-                        let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            work(job, held, queue, &tell)
-                        }));
-                        let _ = tell.send.send(done.ok());
-                    }
+                    crate::profile::tallied(tally, || {
+                        let tell = Tell { send };
+                        while let Some((job, held)) = queue.take() {
+                            // A job that panics drops its `Held` as it unwinds.
+                            let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                work(job, held, queue, &tell)
+                            }));
+                            let _ = tell.send.send(done.ok());
+                        }
+                    });
                 });
             if started.is_err() {
                 break;
@@ -434,6 +442,21 @@ mod tests {
         assert_eq!(width(0), 1);
         assert_eq!(width(1), 1);
         assert!(width(2) <= 2);
+    }
+
+    /// A counted region counts the workers it starts: the same work spread
+    /// over them costs about what it costs on one thread. Where nothing
+    /// counts, both read 0.
+    #[test]
+    fn a_counted_region_counts_its_workers() {
+        let spin = |i: usize| (0..200_000u64).fold(i as u64, |a, k| std::hint::black_box(a ^ k));
+        let (_, alone) = crate::profile::counted(|| (0..16).map(spin).collect::<Vec<_>>());
+        let (_, spread) = crate::profile::counted(|| map(16, spin));
+        if alone == 0 {
+            return;
+        }
+        let ratio = spread as f64 / alone as f64;
+        assert!((0.8..1.5).contains(&ratio), "{spread} instructions spread against {alone} alone");
     }
 
     /// A `drive` that panics still closes the queue, so the workers stop and
