@@ -996,6 +996,35 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// `checkedRemainder` at 128 bits: `MIN % -1` is `.Some(0)` although
+/// `MIN / -1` overflows, and a zero divisor is the only `.None`.
+#[test]
+fn row_04_checked_remainder_at_128_bits() {
+    rows_or_skip!();
+    agree(
+        "row 4 checked remainder",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+fn tell(host: NativeHost, x: Option<I128>): Str {
+  match (x) { .Some(v) => str.format(host.alloc, "Some ${v}"), .None => "None" }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let bottom: I128 = -170141183460469231731687303715884105728;
+  let a = tell(host, bottom.checkedRemainder(-1));
+  let b = tell(host, bottom.checkedRemainder(0));
+  let c = tell(host, bottom.checkedRemainder(7));
+  let _ = io.println(host.stdout, "${a} ${b} ${c}").ignore();
+  .Ok(())
+}
+"#,
+        "Some 0 None Some -2\n",
+    );
+}
+
 // -------------------------------------------------------------------
 // Row 5 — `Option<Option<T>>`
 // -------------------------------------------------------------------
