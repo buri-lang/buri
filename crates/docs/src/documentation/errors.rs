@@ -80,6 +80,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("build-quoted-word", "An enumerated build-file value is a bare word", &["build/build-files"]),
     e!("build-unknown-field", "A build file uses only declared fields", &["build/build-files"]),
     e!("build-unknown-word", "A build-file field takes one of a closed set of words", &["build/build-files"]),
+    e!("built-in-type-name", "A built-in type's name is not declared again"),
     e!("built-in-language-tool", "A built-in language keeps its own tools", &["build/repo-config"]),
     e!("chain-too-long", "A chain has a bounded length"),
     e!("chained-comparison", "Comparison operators do not chain"),

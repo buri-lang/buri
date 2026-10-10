@@ -51,6 +51,7 @@
 #[path = "../harness/mod.rs"]
 mod harness;
 
+mod built_in_names;
 mod conformance;
 mod corpus;
 mod debug_suite;
