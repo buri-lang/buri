@@ -288,7 +288,7 @@ impl Cache {
         Cache { dir }
     }
 
-    fn path(&self, key: &ActionKey) -> PathBuf {
+    pub(crate) fn path(&self, key: &ActionKey) -> PathBuf {
         // Two levels, so a large repository does not put a hundred thousand
         // entries in one directory. An `ActionKey` is a whole SHA-256 by
         // construction, so the split always has both halves.

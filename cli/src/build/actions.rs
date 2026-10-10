@@ -2157,43 +2157,73 @@ fn collect_types(func: &ir::Func, out: &mut Vec<usize>) {
 /// says it is, a statement about which of the backend's inputs the bytes depend
 /// on, and that statement enters here through `Backend::identity`, which is in
 /// every `codegen` key.
+///
+/// - A unit another build in this process is emitting, such as another test
+///   runner's copy of the standard library, is waited for and served from the
+///   cache, rather than emitted twice ([`Flights`]). So each unit is emitted
+///   once a process, whichever build asks first. `emit` is called again only
+///   for a unit whose other build failed.
 fn codegen_units_for<F>(
     cache: &Cache,
     keys: &[(String, ActionKey)],
     force: bool,
-    emit: F,
+    mut emit: F,
 ) -> Result<Vec<(Emitted, bool)>, Diagnostics>
 where
-    F: FnOnce(&[u32]) -> Result<Vec<Emitted>, Diagnostics>,
+    F: FnMut(&[u32]) -> Result<Vec<Emitted>, Diagnostics>,
 {
-    let hits: Vec<Option<Vec<u8>>> =
+    let mut hits: Vec<Option<Vec<u8>>> =
         keys.iter().map(|(_, k)| if force { None } else { cache.get(k) }).collect();
-    if hits.iter().all(Option::is_some) {
-        let mut out = Vec::with_capacity(keys.len());
-        for ((name, key), bytes) in keys.iter().zip(hits) {
-            let bytes = bytes.unwrap_or_default();
-            out.push((Emitted { name: object_name(name), key: Some(key.clone()), bytes }, true));
-        }
-        return Ok(out);
-    }
-
+    let mut fresh = vec![false; keys.len()];
     // `keys` is in unit order, because `unit_hashes` walks `Program::units`, so
     // a position in it is the `Func::unit` the backend selects on.
-    let wanted: Vec<u32> = hits
-        .iter()
-        .enumerate()
-        .filter(|(_, hit)| hit.is_none())
-        .filter_map(|(i, _)| u32::try_from(i).ok())
-        .collect();
-    let fresh = emit(&wanted)?;
-    let mut out = Vec::with_capacity(keys.len());
-    for ((name, key), hit) in keys.iter().zip(hits) {
-        if let Some(bytes) = hit {
-            out.push((Emitted { name: object_name(name), key: Some(key.clone()), bytes }, true));
-            continue;
+    let missing: Vec<usize> = (0..keys.len()).filter(|&i| hits.get(i).is_some_and(Option::is_none)).collect();
+    let (mine, theirs) = Flights::claim(cache, keys, &missing);
+    emit_into(cache, keys, &mine.units, &mut emit, &mut hits, &mut fresh)?;
+    drop(mine);
+    let mut failed = Vec::new();
+    for (i, flight) in theirs {
+        flight.wait();
+        match keys.get(i).and_then(|(_, key)| cache.get(key)) {
+            Some(bytes) => {
+                if let Some(hit) = hits.get_mut(i) {
+                    *hit = Some(bytes);
+                }
+            }
+            None => failed.push(i),
         }
-        let wanted = object_name(name);
-        let Some(unit) = fresh.iter().find(|e| e.name == wanted || e.name == *name) else {
+    }
+    emit_into(cache, keys, &failed, &mut emit, &mut hits, &mut fresh)?;
+    let mut out = Vec::with_capacity(keys.len());
+    for (((name, key), bytes), fresh) in keys.iter().zip(hits).zip(fresh) {
+        let bytes = bytes.unwrap_or_default();
+        out.push((Emitted { name: object_name(name), key: Some(key.clone()), bytes }, !fresh));
+    }
+    Ok(out)
+}
+
+/// Emits the units at `wanted` and puts each in the cache and in `hits`, marked
+/// `fresh`. Asks `emit` nothing when `wanted` is empty.
+fn emit_into<F>(
+    cache: &Cache,
+    keys: &[(String, ActionKey)],
+    wanted: &[usize],
+    emit: &mut F,
+    hits: &mut [Option<Vec<u8>>],
+    fresh: &mut [bool],
+) -> Result<(), Diagnostics>
+where
+    F: FnMut(&[u32]) -> Result<Vec<Emitted>, Diagnostics>,
+{
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let units: Vec<u32> = wanted.iter().filter_map(|&i| u32::try_from(i).ok()).collect();
+    let emitted = emit(&units)?;
+    for &i in wanted {
+        let Some((name, key)) = keys.get(i) else { continue };
+        let object = object_name(name);
+        let Some(unit) = emitted.iter().find(|e| e.name == object || e.name == *name) else {
             let mut diagnostics = Diagnostics::new();
             diagnostics.push(Diagnostic::error(
                 Span::NONE,
@@ -2202,12 +2232,92 @@ where
             return Err(diagnostics);
         };
         cache.put(key, &unit.bytes);
-        out.push((
-            Emitted { name: wanted, key: Some(key.clone()), bytes: unit.bytes.clone() },
-            false,
-        ));
+        if let (Some(hit), Some(fresh)) = (hits.get_mut(i), fresh.get_mut(i)) {
+            *hit = Some(unit.bytes.clone());
+            *fresh = true;
+        }
     }
-    Ok(out)
+    Ok(())
+}
+
+/// The units this process is emitting, by cache and key, so two builds that
+/// want one unit at once emit it once.
+///
+/// A build claims every unit it misses that nobody holds, all at once, then
+/// emits them before it waits for anyone else's. So a build only ever waits on
+/// one that claimed before it, and none waits in a circle.
+struct Flights;
+
+/// One unit being emitted, done when its build releases it.
+struct Flight {
+    done: std::sync::Mutex<bool>,
+    ended: std::sync::Condvar,
+}
+
+impl Flight {
+    fn wait(&self) {
+        let mut done = self.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        while !*done {
+            done = self.ended.wait(done).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+}
+
+/// The units one build claimed. Dropping it releases them, emitted or not.
+struct Claimed {
+    units: Vec<usize>,
+    names: Vec<PathBuf>,
+    flights: Vec<std::sync::Arc<Flight>>,
+}
+
+type FlightMap = std::collections::HashMap<PathBuf, std::sync::Arc<Flight>>;
+
+impl Flights {
+    fn map() -> std::sync::MutexGuard<'static, FlightMap> {
+        static FLIGHTS: std::sync::OnceLock<std::sync::Mutex<FlightMap>> = std::sync::OnceLock::new();
+        FLIGHTS.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The units of `missing` this build emits, and the ones it waits for.
+    fn claim(
+        cache: &Cache,
+        keys: &[(String, ActionKey)],
+        missing: &[usize],
+    ) -> (Claimed, Vec<(usize, std::sync::Arc<Flight>)>) {
+        let mut mine = Claimed { units: Vec::new(), names: Vec::new(), flights: Vec::new() };
+        let mut theirs = Vec::new();
+        let mut flights = Flights::map();
+        for &i in missing {
+            let Some((_, key)) = keys.get(i) else { continue };
+            let name = cache.path(key);
+            match flights.get(&name) {
+                Some(flight) => theirs.push((i, std::sync::Arc::clone(flight))),
+                None => {
+                    let flight =
+                        std::sync::Arc::new(Flight { done: std::sync::Mutex::new(false), ended: std::sync::Condvar::new() });
+                    flights.insert(name.clone(), std::sync::Arc::clone(&flight));
+                    mine.units.push(i);
+                    mine.names.push(name);
+                    mine.flights.push(flight);
+                }
+            }
+        }
+        (mine, theirs)
+    }
+}
+
+impl Drop for Claimed {
+    fn drop(&mut self) {
+        let mut flights = Flights::map();
+        for name in &self.names {
+            flights.remove(name);
+        }
+        drop(flights);
+        for flight in &self.flights {
+            *flight.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+            flight.ended.notify_all();
+        }
+    }
 }
 
 /// [`codegen_units_for`], for a caller with no per-unit emission path.
@@ -2224,7 +2334,9 @@ pub fn codegen_units<F>(
 where
     F: FnOnce() -> Result<Vec<Emitted>, Diagnostics>,
 {
-    codegen_units_for(cache, keys, force, |_| emit())
+    // Asked again only for a unit another build failed, which a test never has.
+    let mut emit = Some(emit);
+    codegen_units_for(cache, keys, force, |_| emit.take().map_or_else(|| Ok(Vec::new()), |emit| emit()))
 }
 
 /// `core_list` -> `core_list.o`. One rule, because the manifest names the unit
