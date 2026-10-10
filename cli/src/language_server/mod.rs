@@ -116,7 +116,9 @@ pub fn command_language_server(_args: &arguments::Args) -> i32 {
                 Err(e) => Event::Broke(e),
             };
             let over = !matches!(event, Event::Message(_));
-            if sender.send(event).is_err() || over {
+            // `|`, not `||`, so this is one decision: whether the send fails
+            // races the server's own exit, and coverage must not hang on it.
+            if sender.send(event).is_err() | over {
                 return;
             }
         }

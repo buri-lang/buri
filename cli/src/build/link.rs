@@ -2767,9 +2767,10 @@ fn keep_only_objects(dir: &Path, units: &[Emitted]) {
 /// is a true record of a link of this key.
 fn publish(work: &Path, shared: &Path) {
     let _ = std::fs::remove_dir_all(shared);
-    if std::fs::rename(work, shared).is_err() {
-        let _ = std::fs::remove_dir_all(work);
-    }
+    let _ = std::fs::rename(work, shared);
+    // Gone already when the rename won. Unconditional, so which of two
+    // links wins is not a branch the coverage gate sees flip.
+    let _ = std::fs::remove_dir_all(work);
 }
 
 #[cfg(test)]

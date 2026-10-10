@@ -507,6 +507,10 @@ mod stopping {
     /// toolchain admits — `AtomicI32::is_lock_free` is a compile-time `true` on
     /// AArch64 and x86-64 — so nothing here can be interrupted holding a lock
     /// the interrupted thread was already inside.
+    // Not counted by the coverage gate: whether a signal lands before or after
+    // the spawn is the race this code exists to handle, so which branch a test
+    // takes is timing, not the test.
+    #[cfg_attr(buri_coverage, coverage(off))]
     fn remember(sig: i32) -> Option<i32> {
         let mut seen = STATE.load(Ordering::Relaxed);
         loop {
@@ -532,6 +536,10 @@ mod stopping {
     /// sending it on is the program's *first* delivery and not a second one —
     /// including under a terminal, where the group signal the handler saw was
     /// one the child was not there to receive.
+    // Not counted by the coverage gate: whether a signal lands before or after
+    // the spawn is the race this code exists to handle, so which branch a test
+    // takes is timing, not the test.
+    #[cfg_attr(buri_coverage, coverage(off))]
     fn published(pid: i32) -> Option<i32> {
         match STATE.swap(pid, Ordering::Relaxed) {
             asked if asked < 0 => Some(asked.saturating_neg()),
@@ -539,9 +547,24 @@ mod stopping {
         }
     }
 
+    /// [`published`], and the `kill` it asks for.
+    // Not counted by the coverage gate, for the reason `published` isn't.
+    #[cfg_attr(buri_coverage, coverage(off))]
+    fn hand_over(pid: i32) {
+        if let Some(sig) = published(pid) {
+            // SAFETY: an ordinary `kill` on the child just spawned, with the
+            // signal that arrived while it was being spawned.
+            unsafe { kill(pid, sig) };
+        }
+    }
+
     /// The handler. **Everything it does is on POSIX's async-signal-safe list**,
     /// which for one `kill` is the whole of the argument the module header makes
     /// at greater length for the runtime's.
+    // Not counted by the coverage gate: whether a signal lands before or after
+    // the spawn is the race this code exists to handle, so which branch a test
+    // takes is timing, not the test.
+    #[cfg_attr(buri_coverage, coverage(off))]
     extern "C" fn forward(sig: i32) {
         let slot = errno_slot();
         // SAFETY: `errno_slot` answers this thread's own `errno`.
@@ -626,11 +649,7 @@ mod stopping {
         // to one child must never do.
         let pid = i32::try_from(child.id()).unwrap_or(0);
         if pid > 0 {
-            if let Some(sig) = published(pid) {
-                // SAFETY: an ordinary `kill` on the child spawned a line above,
-                // with the signal that arrived while it was being spawned.
-                unsafe { kill(pid, sig) };
-            }
+            hand_over(pid);
         }
         Ok(child)
     }

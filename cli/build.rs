@@ -264,6 +264,8 @@ use buri_hash::build::sha256;
 
 fn main() {
     let manifest = PathBuf::from(env("CARGO_MANIFEST_DIR"));
+    // Set by the coverage gate's build alone (coverage/src/main.rs).
+    println!("cargo:rustc-check-cfg=cfg(buri_coverage)");
     // The toolchain names itself by the id its linker writes into the header
     // (`src/build/exe_identity.rs`). ld64 always writes an `LC_UUID`; on Linux
     // not every linker writes a build id unless asked, the static-PIE musl
