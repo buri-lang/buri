@@ -4027,6 +4027,7 @@ mod tests {
         struct Shared {
             block: usize,
             inside: AtomicUsize,
+            entered: AtomicUsize,
             overlaps: AtomicUsize,
         }
         unsafe extern "C" fn touch(state: *mut u8, index: u64, _: *const u8, out: *mut u8) {
@@ -4036,17 +4037,15 @@ mod tests {
                 if shared.inside.fetch_add(1, Ordering::SeqCst) != 0 {
                     shared.overlaps.fetch_add(1, Ordering::SeqCst);
                 }
-                // The first step stays in until a second has come in beside
-                // it, or ten seconds. Two hundred short steps could otherwise
-                // all run on the first thread up on a loaded machine before
-                // a second got a core, and an overlap left to chance is a
-                // flaky test; the pool starts a thread for the queued steps
-                // while this one holds its own.
-                if index == 0 {
-                    let until = Instant::now() + Duration::from_secs(10);
-                    while shared.inside.load(Ordering::SeqCst) < 2 && Instant::now() < until {
-                        thread::yield_now();
-                    }
+                // The first step in stays in until a second has come in
+                // beside it, however long that takes. The caller may run every
+                // step itself, and two hundred short steps could all finish on
+                // one thread before another got a core; holding the first one
+                // here leaves the rest queued, and the pool hands them to
+                // another thread, so the overlap is certain rather than likely.
+                shared.entered.fetch_add(1, Ordering::SeqCst);
+                while shared.entered.load(Ordering::SeqCst) < 2 {
+                    thread::yield_now();
                 }
                 let p = shared.block as *mut u8;
                 for _ in 0..50 {
@@ -4068,6 +4067,7 @@ mod tests {
         let shared = Shared {
             block: p as usize,
             inside: AtomicUsize::new(0),
+            entered: AtomicUsize::new(0),
             overlaps: AtomicUsize::new(0),
         };
         let src = vec![0i64; STEPS];
