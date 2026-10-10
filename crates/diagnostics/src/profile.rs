@@ -142,6 +142,13 @@ pub fn reaped(pid: u32) {
     }
 }
 
+/// The instructions child `pid` retired, once it exits: macOS only, and `None`
+/// elsewhere or where the kernel won't say. Waits like [`reaped`], and leaves
+/// reaping to the caller.
+pub fn exited_instructions(pid: u32) -> Option<u64> {
+    os::exited_child(pid).map(|(instructions, _)| instructions).filter(|&n| n > 0)
+}
+
 /// This thread's instructions retired so far: macOS only, and 0 elsewhere or
 /// where the kernel won't say, such as in a virtual machine.
 pub fn thread_instructions() -> u64 {

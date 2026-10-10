@@ -33,7 +33,7 @@
 //! cargo test -p buri --test language sharing::
 //! ```
 
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::harness::{JS_BINARY, Scratch, js_runtime};
 
@@ -551,7 +551,7 @@ fn growing_a_list_beside_another_field_is_linear() {
 /// measured — which is a `.proto` message with `n` fields and the thing the
 /// build runs for every schema in a repository. The two sizes print the same
 /// **total** number of fields, so linear growth makes them cost the same.
-const PRINT: &str = r#"
+const PRINT_TIMED: &str = r#"
 from "core/buri/ast" import * as ast;
 from "platform/effect" import { Allocator, Clock, Stdout };
 from "node" import { NodeHost };
@@ -721,6 +721,116 @@ fn printing_a_module_is_linear_in_its_size() {
     );
 }
 
+/// `core/buri/ast`'s printer, over the module `SHAPE` builds `<size>` wide,
+/// printed `<runs>` times. It prints how many characters that wrote.
+///
+/// The tree is built before the first print, and the same tree is printed
+/// each time, so a second batch of prints is the printer's work alone.
+const PRINT: &str = r#"
+from "core/buri/ast" import * as ast;
+from "core/env" import * as env;
+from "platform/effect" import { Allocator, Environment, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+fn fields<C: Allocator>(ctx: C, i: Int, n: Int, acc: [ast.FieldDecl]): [ast.FieldDecl] {
+  if (i >= n) {
+    acc
+  } else {
+    fields(
+      ctx,
+      i + 1,
+      n,
+      acc.push(
+        ctx,
+        ast.FieldDecl {
+          name: ast.Name { text: "field", origin: ast.nowhere() },
+          ty: ast.Type {
+            kind: .Named(ast.Name { text: "Int", origin: ast.nowhere() }, []),
+            origin: ast.nowhere(),
+          },
+          exported: true,
+          docs: [],
+          origin: ast.origin("wide.proto", i, i + 1),
+        },
+      ),
+    )
+  }
+}
+
+/// `export struct Wide { export field: Int, ... }`, `n` fields wide.
+fn wide<C: Allocator>(ctx: C, n: Int): ast.Module {
+  ast.Module {
+    items: [
+      ast.Item {
+        kind: .Struct(ast.StructDecl {
+          name: ast.Name { text: "Wide", origin: ast.nowhere() },
+          generics: [],
+          body: .Record(fields(ctx, 0, n, list.empty<ast.FieldDecl>())),
+          exported: true,
+          docs: [],
+        }),
+        origin: ast.origin("wide.proto", 0, 4),
+      },
+    ],
+    docs: [],
+  }
+}
+
+/// `export struct S0 { export field: Int }` and `derive Equal, Show for S0;`,
+/// and the same for each of `n` names: a schema of `n` messages. The derives
+/// come after every struct, so each is printed above a declaration it names.
+fn many<C: Allocator>(ctx: C, n: Int): ast.Module {
+  let names = list.range(ctx, 0, n).mapCtx(ctx, fn(c, i) => str.format(c, "S${i}"));
+  let structs = names.mapCtx(ctx, fn(c, name) => declared(c, name));
+  let derives = names.map(ctx, fn(name) => derived(name));
+  ast.Module { items: structs.concat(ctx, derives), docs: [] }
+}
+
+fn named(text: Str): ast.Type {
+  ast.Type { kind: .Named(ast.Name { text: text, origin: ast.nowhere() }, []), origin: ast.nowhere() }
+}
+
+fn declared<C: Allocator>(ctx: C, name: Str): ast.Item {
+  ast.Item {
+    kind: .Struct(ast.StructDecl {
+      name: ast.Name { text: name, origin: ast.nowhere() },
+      generics: [],
+      body: .Record(fields(ctx, 0, 1, list.empty<ast.FieldDecl>())),
+      exported: true,
+      docs: [],
+    }),
+    origin: ast.nowhere(),
+  }
+}
+
+fn derived(name: Str): ast.Item {
+  ast.Item {
+    kind: .Derive(ast.DeriveDecl { traits: [named("Equal"), named("Show")], selfTy: named(name) }),
+    origin: ast.nowhere(),
+  }
+}
+
+fn runs<C: Allocator>(ctx: C, k: Int, count: Int, tree: ast.Module, acc: Int): Int {
+  if (k >= count) {
+    acc
+  } else {
+    runs(ctx, k + 1, count, tree, acc + ast.print(ctx, tree).text.length())
+  }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let args = env.arguments(ctx);
+  let count = args.get(0).andThen(fn(s) => s.toInt()).withDefault(0);
+  let size = args.get(1).andThen(fn(s) => s.toInt()).withDefault(0);
+  let tree = SHAPE(ctx, size);
+  io.println(ctx, "${runs(ctx, 0, count, tree, 0)}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
 /// The same printer over a module of many declarations, each with a `derive`
 /// that names it: a schema of many messages rather than one wide one.
 ///
@@ -728,37 +838,39 @@ fn printing_a_module_is_linear_in_its_size() {
 /// search of every item for each `derive`, and then a pass over every item for
 /// each declaration, so printing a module was quadratic in how many
 /// declarations it held — most of the time `std/codegen/proto` spent on a
-/// schema of a thousand messages. Two thousand declarations printed in
-/// modules of fifty and in one module of two thousand, against the bound and
-/// the reasoning of [`printing_a_module_is_linear_in_its_size`]. The quadratic
-/// printer scored 9.2 here and the linear one 1.7, both on a box at a load
-/// average of fifty on ten cores, and the bound sits between them.
+/// schema of a thousand messages.
+///
+/// Four thousand declarations printed in modules of fifty and in one module of
+/// four thousand, counted in instructions: linear printing scores 1.1, and the
+/// quadratic printer 16. There is no such count off macOS, and no copy to
+/// count instead, so elsewhere this checks only that the module prints.
 #[test]
 fn printing_many_declarations_is_linear_in_their_number() {
-    let (ratio, measured) = printed("js-sharing-printer-many", "many", ["40", "50", "1", "2_000"], "2000");
-    assert!(
-        ratio <= 4.0,
-        "the printer is not linear in declarations: over {} pairs of two thousand \
-         printed declarations, the module of two thousand cost {ratio:.1} times \
-         the same work in modules of fifty, where a quadratic printer scores about \
-         9. The pairs, as `<fifty ms> <two thousand ms>`: {}",
-        measured.len(),
-        measured
-            .iter()
-            .map(|p| format!("{}/{}", p.small, p.large))
-            .collect::<Vec<_>>()
-            .join(" "),
-    );
+    let scratch = Scratch::repo("js-sharing-printer-many");
+    scratch.write("cmd/print/BUILD.buri", JS_BINARY);
+    scratch.write("cmd/print/main.buri", &PRINT.replace("SHAPE", "many"));
+    scratch.run(&["build", "//cmd/print", "--force"]).ok();
+
+    let small = added(&scratch, "cmd/print", 80, 50);
+    let large = added(&scratch, "cmd/print", 1, 4_000);
+    if let Some(ratio) = ratio(&small, &large) {
+        assert!(
+            ratio <= 4.0,
+            "the printer is not linear in declarations: four thousand declarations \
+             cost {ratio:.1} times as many instructions printed as one module as in \
+             modules of fifty, where linear printing scores 1.1 and quadratic 16"
+        );
+    }
 }
 
-/// Builds [`PRINT`] with the module `shape` builds, at `[small runs, small
+/// Builds [`PRINT_TIMED`] with the module `shape` builds, at `[small runs, small
 /// size, large runs, large size]`, and answers the median ratio beside every
 /// pair. A repetition too short for a whole-millisecond clock to resolve is a
 /// measurement rather than a claim, so it fails here, before any bound is
 /// asked.
 fn printed(name: &str, shape: &str, sizes: [&str; 4], total: &str) -> (f64, Vec<Pair>) {
     let scratch = Scratch::repo(name);
-    let source = PRINT
+    let source = PRINT_TIMED
         .replace("SHAPE", shape)
         .replace("PAIRS", &PAIRS.to_string())
         .replace("SMALL_RUNS", sizes[0])
@@ -781,6 +893,49 @@ fn printed(name: &str, shape: &str, sizes: [&str; 4], total: &str) -> (f64, Vec<
     (median_ratio(&measured), measured)
 }
 
+/// What running an artifact cost: the elements every `Array.prototype.slice`
+/// copied, and the instructions it retired where the kernel counts them.
+struct Cost {
+    copied: u64,
+    instructions: Option<u64>,
+}
+
+/// What `runs` more runs of `size` cost `package`: its run with `2 × runs`
+/// less its run with `runs`, so that starting the runtime and compiling the
+/// code are on neither side. Each is the fewer instructions of two launches,
+/// since a launch only ever gains noise.
+///
+/// A count rather than a time, so a loaded machine reads what an idle one
+/// does. A clock was what made these flaky: under load one pair read 402 ms
+/// against 20, and the next 10 against 105.
+fn added(scratch: &Scratch, package: &str, runs: u64, size: u64) -> Cost {
+    let cost = |runs: u64| {
+        let args = [runs.to_string(), size.to_string()];
+        let (first, said) = launched(scratch, package, &args);
+        let (second, again) = launched(scratch, package, &args);
+        assert_eq!((first.copied, &said), (second.copied, &again), "two launches of `{package} {args:?}` differ");
+        let fewer = first.instructions.zip(second.instructions).map(|(a, b)| a.min(b));
+        (Cost { copied: first.copied, instructions: fewer }, said)
+    };
+    let (once, said_once) = cost(runs);
+    let (twice, said_twice) = cost(2 * runs);
+    let wrote = |said: &str| said.trim().parse::<u64>().unwrap_or_else(|_| panic!("`{package}` printed {said:?}"));
+    assert_eq!(wrote(&said_twice), 2 * wrote(&said_once), "`{package}`'s second batch did different work");
+    Cost {
+        copied: twice.copied.saturating_sub(once.copied),
+        instructions: twice.instructions.zip(once.instructions).map(|(t, o)| t.saturating_sub(o)),
+    }
+}
+
+/// How many times the instructions `small` cost `large` does, where the two
+/// did the same number of elements in different sizes: about 1 for linear
+/// work. `None` where nothing counts instructions.
+fn ratio(small: &Cost, large: &Cost) -> Option<f64> {
+    let (small, large) = (small.instructions?, large.instructions?);
+    eprintln!("instructions: {small} small, {large} large");
+    Some(large as f64 / small.max(1) as f64)
+}
+
 /// Runs a built artifact with every `Array.prototype.slice` counted, and
 /// answers the elements those calls copied, beside what the program printed.
 ///
@@ -795,6 +950,16 @@ fn printed(name: &str, shape: &str, sizes: [&str; 4], total: &str) -> (f64, Vec<
 /// count is written synchronously on the way out, because an asynchronous write
 /// to a pipe may not survive the exit.
 fn copied_by_slice(scratch: &Scratch, package: &str) -> (u64, String) {
+    let (cost, stdout) = launched(scratch, package, &[]);
+    (cost.copied, stdout)
+}
+
+/// One launch of `package` with `args` under the wrapper [`copied_by_slice`]
+/// describes, and what it printed.
+///
+/// JavaScriptCore compiles on the program's own thread here, so the
+/// instructions don't depend on when a compiler thread finished.
+fn launched(scratch: &Scratch, package: &str, args: &[String]) -> (Cost, String) {
     let artifact = scratch.artifact(package);
     let wrapper = scratch.write(
         "count-slices.mjs",
@@ -809,15 +974,24 @@ Array.prototype.slice = function (...args) {
   return out;
 };
 process.on("exit", () => writeSync(2, `copied=${copied}\n`));
-await import(pathToFileURL(process.argv[2]).href);
+// The program reads its own arguments after the artifact's path.
+const [artifact] = process.argv.splice(2, 1);
+if (typeof Bun !== "undefined" && Bun.argv !== process.argv) Bun.argv.splice(2, 1);
+await import(pathToFileURL(artifact).href);
 "#,
     );
-    let what = format!("{} {} {}", js_runtime(), wrapper.display(), artifact.display());
-    let out = Command::new(js_runtime())
+    let what = format!("{} {} {} {}", js_runtime(), wrapper.display(), artifact.display(), args.join(" "));
+    let child = Command::new(js_runtime())
         .arg(&wrapper)
         .arg(&artifact)
-        .output()
+        .args(args)
+        .env("BUN_JSC_useConcurrentJIT", "0")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .unwrap_or_else(|e| panic!("`{what}` did not run: {e}"));
+    let instructions = buri::profile::exited_instructions(child.id());
+    let out = child.wait_with_output().unwrap_or_else(|e| panic!("`{what}` did not finish: {e}"));
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     assert!(out.status.success(), "`{what}` failed:\n{stdout}{stderr}");
@@ -826,7 +1000,7 @@ await import(pathToFileURL(process.argv[2]).href);
         .find_map(|l| l.strip_prefix("copied="))
         .and_then(|n| n.trim().parse().ok())
         .unwrap_or_else(|| panic!("`{what}` reported no count:\n{stdout}{stderr}"));
-    (copied, stdout)
+    (Cost { copied, instructions }, stdout)
 }
 
 /// A fold whose record grows **two** lists in one functional update, and reads
