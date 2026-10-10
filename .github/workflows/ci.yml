@@ -194,7 +194,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/units
-          cargo test -p buri-rt-tests -p buri -p buri-hash -p buri-stdlib -p buri-docs -p buri-diagnostics -p buri-syntax -p buri-project -p buri-semantics -p buri-middle -p buri-backend -p buri-js -p buri-stencil --no-run --message-format=json-render-diagnostics \
+          cargo test -p buri-rt-tests -p buri -p buri-hash -p buri-stdlib -p buri-docs -p buri-diagnostics -p buri-syntax -p buri-project -p buri-semantics -p buri-middle -p buri-backend -p buri-js -p buri-stencil -p buri-stdlib-coverage --no-run --message-format=json-render-diagnostics \
             | jq -r 'select(.profile.test == true) | .executable | select(. != null)' > target/units.txt
           test -s target/units.txt
           slowest="$(grep -E '/language-[0-9a-f]+$' target/units.txt)"
@@ -584,3 +584,97 @@ jobs:
       - run: cargo test -p buri --test vectors -- proto::the_conformance_runner_passes --nocapture
         env:
           CONFORMANCE_TEST_RUNNER: ${{ github.workspace }}/runner/bin/conformance_test_runner
+
+  # The standard library's MC/DC from the conformance corpus on JavaScript,
+  # JavaScript --release, the stencil backend and LLVM --release, which must
+  # never fall, in total or in any module (coverage/stdlib/src/main.rs). x86_64
+  # Linux, the baseline's host. The backends must also count alike.
+  stdlib-coverage:
+    name: stdlib coverage
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    env:
+      CC: clang
+    timeout-minutes: 45
+    # The ratchet's push to main. No other job writes.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-2404-x86_64-stdlib-coverage
+      - uses: oven-sh/setup-bun@v2
+      - run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang lld mold llvm binutils musl-dev musl-tools
+          ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
+          # The musl std a hermetic native test binary links against.
+          rustup target add "$(uname -m)-unknown-linux-musl"
+      # The `release` job's LLVM, which `--release` builds with.
+      - name: LLVM 21 from apt.llvm.org
+        run: |
+          set -euo pipefail
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          codename=$(lsb_release -cs)
+          echo "deb http://apt.llvm.org/$codename/ llvm-toolchain-$codename-21 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm21.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            llvm-21-dev libpolly-21-dev libzstd-dev zlib1g-dev
+          case "$(llvm-config-21 --version)" in
+            21.*) ;;
+            *) echo "::error::apt.llvm.org served $(llvm-config-21 --version), not 21.x"; exit 1 ;;
+          esac
+          echo "LLVM_SYS_211_PREFIX=$(llvm-config-21 --prefix)" >> "$GITHUB_ENV"
+      - run: cargo run -p buri-stdlib-coverage
+      # The ratchet, as the compiler coverage job's: a rise becomes the
+      # baseline. On a push to main it's committed there; anywhere else the
+      # commit is only printed. If main moved meanwhile, the rise is checked
+      # again against main's baseline. A push made with this job's token starts
+      # no workflow, and `[skip ci]` says so twice, so the commit can't loop.
+      - name: Raise the baseline
+        env:
+          WRITE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          tested=$(git rev-parse HEAD)
+          for attempt in 1 2 3 4 5; do
+            if [ "$WRITE" = true ]; then
+              git fetch --quiet origin main
+              git checkout --quiet --detach FETCH_HEAD
+            fi
+            cargo run -q -p buri-stdlib-coverage -- --raise
+            if [ -z "$(git status --porcelain -- coverage/stdlib-mcdc.txt coverage/stdlib.txt)" ]; then
+              exit 0
+            fi
+            git add coverage/stdlib-mcdc.txt coverage/stdlib.txt
+            git commit -q -m "coverage: raise the stdlib MC/DC baseline to what ${tested:0:9} measured [skip ci]" \
+              -m "Written by the stdlib-coverage job of CI run ${{ github.run_id }}."
+            if [ "$WRITE" != true ]; then
+              echo "Not a push to main, so this commit is not pushed:"
+              git show --stat HEAD
+              exit 0
+            fi
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "main kept moving; the baseline was not raised" >&2
+          exit 1
+      # What this run measured.
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stdlib-coverage-baseline
+          path: |
+            target/stdlib-coverage/stdlib-mcdc.txt
+            target/stdlib-coverage/stdlib.txt
+          retention-days: 7
+          if-no-files-found: ignore

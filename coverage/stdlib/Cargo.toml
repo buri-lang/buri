@@ -1,0 +1,13 @@
+# The standard library's MC/DC gate (`src/main.rs`). Not part of the
+# toolchain: it runs the conformance corpus under `buri test --coverage=mcdc`
+# on every backend and holds the result to `../stdlib-mcdc.txt`.
+[package]
+name = "buri-stdlib-coverage"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true

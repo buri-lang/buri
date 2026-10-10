@@ -171,6 +171,10 @@ name = "buri-stdlib"
 version = "0.3.19"
 
 [[package]]
+name = "buri-stdlib-coverage"
+version = "0.0.0"
+
+[[package]]
 name = "buri-stencil"
 version = "0.3.19"
 dependencies = [
