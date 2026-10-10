@@ -1227,6 +1227,12 @@ impl<'a> Jit<'a> {
         }
         // Falling back to the frame-only form is only sound when nothing this
         // instruction touches lives in a register.
+        // The fallback below widens through `sext`/`zext`, which is only an
+        // integer narrower than a word. A float taking it computed integer
+        // `%` on the bits, so anything else is a library missing a key.
+        if matches!(prim, Prim::F32 | Prim::F64) || bits >= 64 {
+            crate::diagnostics::ice(&format!("stencil: no stencil {key}, and {tag} has no narrow fallback"));
+        }
         if la != Loc::Frame || lb != Loc::Frame || ld != Loc::Frame {
             return self.unsupported(format!("Binary {name} at {tag} with no register variant"));
         }

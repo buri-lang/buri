@@ -1682,6 +1682,180 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// One `%` line per case, each answered four ways: operands in the frame
+/// (parameters), in CPS registers (products), read out of a struct's fields,
+/// and bound by `let`. So every line is the expected value four times.
+fn float_remainder_program(
+    ty: &str,
+    cases: &[(&str, &str, &str)],
+    by_constant: &[(&str, &str)],
+) -> (String, String) {
+    let mut source = format!(
+        r#"
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+
+export struct P {{ a: {ty}, b: {ty} }}
+
+// `show` of an `F32` widens it, so `toF64` prints the same text.
+fn wide(x: {ty}): F64 {{ x.toF64() }}
+fn zero(): {ty} {{ 0.0 }}
+fn inf(): {ty} {{ 1.0 / zero() }}
+fn nan(): {ty} {{ zero() / zero() }}
+fn params(a: {ty}, b: {ty}): {ty} {{ a % b }}
+fn regs(a: {ty}, b: {ty}, one: {ty}): {ty} {{ (a * one) % (b * one) }}
+fn fields(p: P): {ty} {{ p.a % p.b }}
+fn byTwo(a: {ty}): {ty} {{ a % 2.0 }}
+fn byNegativeTwo(a: {ty}): {ty} {{ a % -2.0 }}
+fn bySeven(a: {ty}): {ty} {{ a % 7.0 }}
+fn byZero(a: {ty}): {ty} {{ a % 0.0 }}
+fn ofFiveAndAHalf(b: {ty}): {ty} {{ 5.5 % b }}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+"#
+    );
+    let mut expected = String::new();
+    for (a, b, want) in cases {
+        source.push_str(&format!(
+            "  let x: {ty} = {a};\n  let y: {ty} = {b};\n  \
+             let _ = io.println(host.stdout, \"${{wide(params({a}, {b}))}} ${{wide(regs({a}, {b}, 1.0))}} \
+             ${{wide(fields(P {{ a: {a}, b: {b} }}))}} ${{wide(x % y)}}\").ignore();\n"
+        ));
+        expected.push_str(&format!("{want} {want} {want} {want}\n"));
+    }
+    for (call, want) in by_constant {
+        source.push_str(&format!("  let _ = io.println(host.stdout, \"${{wide({call})}}\").ignore();\n"));
+        expected.push_str(&format!("{want}\n"));
+    }
+    source.push_str("  .Ok(())\n}\n");
+    (source, expected)
+}
+
+/// Float `%` is C's `fmod`: exact, with the dividend's sign. Signs, a zero
+/// divisor, `±0` and infinite dividends, infinite divisors, NaN operands,
+/// quotients far past 2^53, and subnormals. `show` is the shortest round trip,
+/// so each line pins the bits. NaN's payload is not pinned: hosts disagree on it.
+#[test]
+fn float_remainder_at_f64() {
+    rows_or_skip!();
+    let (source, expected) = float_remainder_program(
+        "F64",
+        &[
+            ("5.5", "2.0", "1.5"),
+            ("-5.5", "2.0", "-1.5"),
+            ("5.5", "-2.0", "1.5"),
+            ("-5.5", "-2.0", "-1.5"),
+            ("-4.0", "2.0", "-0.0"),
+            ("4.0", "-2.0", "0.0"),
+            ("1.0", "0.0", "NaN"),
+            ("-1.0", "-0.0", "NaN"),
+            ("0.0", "3.0", "0.0"),
+            ("-0.0", "3.0", "-0.0"),
+            ("-0.0", "-3.0", "-0.0"),
+            ("inf()", "2.0", "NaN"),
+            ("-inf()", "2.0", "NaN"),
+            ("inf()", "inf()", "NaN"),
+            ("2.5", "inf()", "2.5"),
+            ("-2.5", "-inf()", "-2.5"),
+            ("-0.0", "inf()", "-0.0"),
+            ("nan()", "1.0", "NaN"),
+            ("1.0", "nan()", "NaN"),
+            ("nan()", "0.0", "NaN"),
+            ("1e300", "7.0", "1.0"),
+            ("-1e300", "7.0", "-1.0"),
+            ("1e300", "3.0", "0.0"),
+            ("1e308", "1e-300", "3.0195000970293847e-301"),
+            ("1.7976931348623157e308", "0.3", "0.2830052136624779"),
+            ("5.5", "0.1", "0.0999999999999997"),
+            ("1e-310", "3e-320", "4.125e-321"),
+            ("5e-324", "3.0", "5e-324"),
+            ("1.0", "5e-324", "0.0"),
+        ],
+        &[
+            ("byTwo(-5.5)", "-1.5"),
+            ("byTwo(-4.0)", "-0.0"),
+            ("byNegativeTwo(5.5)", "1.5"),
+            ("bySeven(1e300)", "1.0"),
+            ("bySeven(inf())", "NaN"),
+            ("byZero(1.0)", "NaN"),
+            ("ofFiveAndAHalf(-2.0)", "1.5"),
+            ("ofFiveAndAHalf(inf())", "5.5"),
+            ("ofFiveAndAHalf(0.0)", "NaN"),
+            ("5.5 % 2.0", "1.5"),
+            ("-4.0 % 2.0", "-0.0"),
+        ],
+    );
+    agree("float remainder F64", &source, &expected);
+}
+
+/// [`float_remainder_at_f64`] at `F32`. `show` widens to `F64`, so it still
+/// prints every bit of the single-precision answer.
+#[test]
+fn float_remainder_at_f32() {
+    rows_or_skip!();
+    let (source, expected) = float_remainder_program(
+        "F32",
+        &[
+            ("5.5", "2.0", "1.5"),
+            ("-5.5", "2.0", "-1.5"),
+            ("5.5", "-2.0", "1.5"),
+            ("-5.5", "-2.0", "-1.5"),
+            ("-4.0", "2.0", "-0.0"),
+            ("4.0", "-2.0", "0.0"),
+            ("1.0", "0.0", "NaN"),
+            ("-1.0", "-0.0", "NaN"),
+            ("-0.0", "3.0", "-0.0"),
+            ("inf()", "2.0", "NaN"),
+            ("-inf()", "2.0", "NaN"),
+            ("2.5", "inf()", "2.5"),
+            ("-2.5", "-inf()", "-2.5"),
+            ("nan()", "1.0", "NaN"),
+            ("1.0", "nan()", "NaN"),
+            ("1e30", "7.0", "1.0"),
+            ("-1e30", "7.0", "-1.0"),
+            ("3e38", "0.3", "0.1665143370628357"),
+            ("5.5", "0.1", "0.09999991953372955"),
+            ("1e-38", "7e-45", "4.203895392974451e-45"),
+            ("1e-40", "3e-45", "0.0"),
+        ],
+        &[
+            ("byTwo(-5.5)", "-1.5"),
+            ("byTwo(-4.0)", "-0.0"),
+            ("byNegativeTwo(5.5)", "1.5"),
+            ("bySeven(1e30)", "1.0"),
+            ("bySeven(inf())", "NaN"),
+            ("byZero(1.0)", "NaN"),
+            ("ofFiveAndAHalf(-2.0)", "1.5"),
+            ("ofFiveAndAHalf(inf())", "5.5"),
+            ("ofFiveAndAHalf(0.0)", "NaN"),
+        ],
+    );
+    agree("float remainder F32", &source, &expected);
+}
+
+/// `F32` `%` with nothing in a register. A refused register variant hid this
+/// one: the frame-only fallback did integer `%` on the bits, so `5.5 % 2.0`
+/// printed `1.6163047323806453e-38` and `1.0 % 0.0` aborted.
+#[test]
+fn float_remainder_at_f32_in_the_frame() {
+    rows_or_skip!();
+    agree(
+        "float remainder F32 in the frame",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+fn params(a: F32, b: F32): F32 { a % b }
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = io.println(host.stdout, "${params(5.5, 2.0).toF64()} ${params(-5.5, 2.0).toF64()} ${params(1e30, 7.0).toF64()} ${params(1.0, 0.0).toF64()}").ignore();
+  .Ok(())
+}
+"#,
+        "1.5 -1.5 1.0 NaN\n",
+    );
+}
+
 /// A `[T]` inside a derived `Show`, which used to be a named gap.
 ///
 /// It was `row_09_derived_show_of_a_list_is_a_gap` beside an `#[ignore]`d

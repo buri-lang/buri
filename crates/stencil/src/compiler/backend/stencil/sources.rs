@@ -100,7 +100,7 @@ pub const BIN_OPS: [(&str, &str, bool); 16] = [
 
 fn op_applies(op: &str, t: Sc) -> bool {
     match op {
-        "and" | "or" | "xor" | "shl" | "shr" | "rem" => !t.float,
+        "and" | "or" | "xor" | "shl" | "shr" => !t.float,
         _ => true,
     }
 }
@@ -132,6 +132,11 @@ fn op_applies(op: &str, t: Sc) -> bool {
 /// `extract::fold_cond` refuses a shape it cannot see through, so a future
 /// operand that does branch is slower rather than wrong.
 fn binary_expr(t: Sc, name: &str, cop: &str, ra: &str, rb: &str) -> String {
+    // C has no float `%`. `fmod` of two `float`s is exact in `double` and
+    // representable in `float`, so one helper serves both widths.
+    if t.float && name == "rem" {
+        return format!("({})buri_fmod((double)({ra}), (double)({rb}))", t.cty);
+    }
     if t.float && (name == "eq" || name == "ne") {
         let eq = format!("((({ra}) == ({rb})) | ((({ra}) != ({ra})) & (({rb}) != ({rb}))))");
         return if name == "eq" { eq } else { format!("!{eq}") };
@@ -355,6 +360,31 @@ static inline void wr128(uint64_t *fp, uintptr_t o, u128_t v) {
 }
 static inline double imm_f64(void) { return bits_f64((uint64_t)(uintptr_t)_JIT_K); }
 static inline float imm_f32(void) { return bits_f32((uint64_t)(uintptr_t)_JIT_K); }
+// Float `%`: C's `fmod`, which LLVM's `frem` and JavaScript's `%` both are.
+// musl's integer long division, inlined because a stencil may not call libm.
+// Exact, so every correct `fmod` answers the same bits; the sign is the dividend's.
+__attribute__((always_inline)) static inline double buri_fmod(double x, double y) {
+  uint64_t ux = f64_bits(x), uy = f64_bits(y), i;
+  int ex = (int)(ux >> 52 & 0x7ff), ey = (int)(uy >> 52 & 0x7ff);
+  uint64_t sx = ux >> 63;
+  if (uy << 1 == 0 || y != y || ex == 0x7ff) return (x * y) / (x * y);
+  if (ux << 1 <= uy << 1) return ux << 1 == uy << 1 ? 0 * x : x;
+  if (!ex) { for (i = ux << 12; i >> 63 == 0; ex--, i <<= 1) {} ux <<= -ex + 1; }
+  else { ux &= -1ULL >> 12; ux |= 1ULL << 52; }
+  if (!ey) { for (i = uy << 12; i >> 63 == 0; ey--, i <<= 1) {} uy <<= -ey + 1; }
+  else { uy &= -1ULL >> 12; uy |= 1ULL << 52; }
+  for (; ex > ey; ex--) {
+    i = ux - uy;
+    if (i >> 63 == 0) { if (i == 0) return 0 * x; ux = i; }
+    ux <<= 1;
+  }
+  i = ux - uy;
+  if (i >> 63 == 0) { if (i == 0) return 0 * x; ux = i; }
+  for (; ux >> 52 == 0; ux <<= 1, ex--) {}
+  if (ex > 0) { ux -= 1ULL << 52; ux |= (uint64_t)ex << 52; }
+  else ux >>= -ex + 1;
+  return bits_f64(ux | sx << 63);
+}
 "#;
 
 /// Every stencil the library contains, as C source shards.
