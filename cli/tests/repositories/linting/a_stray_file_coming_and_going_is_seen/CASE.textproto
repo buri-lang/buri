@@ -1,0 +1,121 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+#
+# `staging/` is not a package, so a file waiting there is nobody's business
+# until a `move` puts it in `libs/shapes`. Every `lint` after the first has a
+# remembered answer to reuse, and none of them may serve one that is out of date.
+
+doc: "unused-source follows the files in the package, not just its BUILD.buri: a stray file appearing, going away, renamed, nested in a subdirectory, declared and undeclared again is reported or dropped on the next lint, with nothing cleaned in between (buri-lang/buri#281)"
+
+run {
+  args: ["lint", "//libs/shapes"]
+  exit: 0
+}
+
+move {
+  from: "staging/stray.json"
+  to: "libs/shapes/stray.json"
+}
+
+run {
+  args: ["lint", "//libs/shapes"]
+  exit: 1
+  golden: "stray.txt"
+}
+
+move {
+  from: "libs/shapes/stray.json"
+  to: "staging/stray.json"
+}
+
+run {
+  args: ["lint", "//libs/shapes"]
+  exit: 0
+}
+
+# Editing the build file moves the answer too, and editing it back is the same
+# build file the stray answer above was recorded under.
+edit {
+  file: "libs/shapes/BUILD.buri"
+  replace: "library {"
+  with: "# touched\nlibrary {"
+}
+
+run {
+  args: ["lint", "//libs/shapes"]
+  exit: 0
+}
+
+edit {
+  file: "libs/shapes/BUILD.buri"
+  replace: "# touched\nlibrary {"
+  with: "library {"
+}
+
+move {
+  from: "staging/late.json"
+  to: "libs/shapes/late.json"
+}
+
+run {
+  args: ["lint", "//libs/shapes"]
+  exit: 1
+  golden: "late.txt"
+}
+
+move {
+  from: "libs/shapes/late.json"
+  to: "libs/shapes/renamed.json"
+}
+
+run {
+  args: ["lint", "//libs/shapes"]
+  exit: 1
+  golden: "renamed.txt"
+}
+
+move {
+  from: "libs/shapes/renamed.json"
+  to: "libs/shapes/deep/nested.json"
+}
+
+run {
+  args: ["lint", "//libs/shapes"]
+  exit: 1
+  golden: "nested.txt"
+}
+
+edit {
+  file: "libs/shapes/BUILD.buri"
+  replace: "inputs: [\"square.schema.json\"]"
+  with: "inputs: [\"square.schema.json\", \"deep/nested.json\"]"
+}
+
+run {
+  args: ["lint", "//libs/shapes"]
+  exit: 0
+}
+
+edit {
+  file: "libs/shapes/BUILD.buri"
+  replace: "inputs: [\"square.schema.json\", \"deep/nested.json\"]"
+  with: "inputs: [\"square.schema.json\"]"
+}
+
+run {
+  args: ["lint", "//libs/shapes"]
+  exit: 1
+  golden: "nested.txt"
+}
+
+run {
+  args: ["clean"]
+  exit: 0
+}
+
+# The same tree with nothing remembered. Same golden, on purpose.
+run {
+  args: ["lint", "//libs/shapes"]
+  exit: 1
+  golden: "nested.txt"
+}

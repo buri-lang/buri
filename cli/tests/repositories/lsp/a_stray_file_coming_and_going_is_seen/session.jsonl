@@ -1,0 +1,62 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# A `!` line is the harness acting as the editor would; see harness/case.rs.
+#
+# Each state is asked twice: a pull about the build file, quoting the id the
+# last one went out with, and a workspace pull. Neither may be answered from
+# what the package held before the move, and every move asks the client to
+# pull again.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "trace": "verbose", "capabilities": {"textDocument": {"diagnostic": {"relatedDocumentSupport": true}}, "workspace": {"didChangeWatchedFiles": {"dynamicRegistration": true}, "diagnostics": {"refreshSupport": true}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "id": "buri/watchers", "result": null}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/lib.buri", "languageId": "buri", "version": 1, "text": "from \"//libs/shapes/square.schema.json\" export { Square };\n"}}}
+# Clean.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/BUILD.buri"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# A stray file appears.
+!wait 3
+!move staging/stray.json libs/shapes/stray.json
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/libs/shapes/stray.json", "type": 1}]}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/BUILD.buri"}, "previousResultId": "1"}}
+{"jsonrpc": "2.0", "id": 5, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# It goes away.
+!wait 5
+!move libs/shapes/stray.json staging/stray.json
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/libs/shapes/stray.json", "type": 3}]}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/BUILD.buri"}, "previousResultId": "3"}}
+{"jsonrpc": "2.0", "id": 7, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# Another one appears.
+!wait 7
+!move staging/late.json libs/shapes/late.json
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/libs/shapes/late.json", "type": 1}]}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/BUILD.buri"}, "previousResultId": "4"}}
+{"jsonrpc": "2.0", "id": 9, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# It is renamed.
+!wait 9
+!move libs/shapes/late.json libs/shapes/renamed.json
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/libs/shapes/late.json", "type": 3}, {"uri": "file://<scratch>/libs/shapes/renamed.json", "type": 1}]}}
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/BUILD.buri"}, "previousResultId": "5"}}
+{"jsonrpc": "2.0", "id": 11, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# It moves into a subdirectory.
+!wait 11
+!move libs/shapes/renamed.json libs/shapes/deep/nested.json
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/libs/shapes/renamed.json", "type": 3}, {"uri": "file://<scratch>/libs/shapes/deep/nested.json", "type": 1}]}}
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/BUILD.buri"}, "previousResultId": "6"}}
+{"jsonrpc": "2.0", "id": 13, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# The build file starts listing it.
+!wait 13
+!move libs/shapes/BUILD.buri staging/BUILD.plain
+!move staging/BUILD.declared libs/shapes/BUILD.buri
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/libs/shapes/BUILD.buri", "type": 2}]}}
+{"jsonrpc": "2.0", "id": 14, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/BUILD.buri"}, "previousResultId": "7"}}
+{"jsonrpc": "2.0", "id": 15, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# And stops.
+!wait 15
+!move libs/shapes/BUILD.buri staging/BUILD.declared
+!move staging/BUILD.plain libs/shapes/BUILD.buri
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/libs/shapes/BUILD.buri", "type": 2}]}}
+{"jsonrpc": "2.0", "id": 16, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/BUILD.buri"}, "previousResultId": "8"}}
+{"jsonrpc": "2.0", "id": 17, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# Nothing moved since the last pull, so its id is still current.
+{"jsonrpc": "2.0", "id": 18, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/BUILD.buri"}, "previousResultId": "10"}}
+{"jsonrpc": "2.0", "id": 19, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

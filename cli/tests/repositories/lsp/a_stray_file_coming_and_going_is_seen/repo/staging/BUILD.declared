@@ -1,0 +1,6 @@
+library {
+    sources: []
+    generators: [
+        { tool: "json", inputs: ["square.schema.json", "deep/nested.json"] },
+    ]
+}

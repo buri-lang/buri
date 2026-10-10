@@ -17,7 +17,7 @@
 
 use crate::build::session::Session;
 use crate::build::sources::{closure_of, Overlay, Sources};
-use crate::build::workspace::TargetId;
+use crate::build::workspace::{PackageId, TargetId};
 use crate::commands::arguments::Flags;
 use crate::compiler::driver::Analysis;
 use crate::compiler::modules::Unit;
@@ -260,6 +260,8 @@ pub struct State {
     /// analysis cache holds eight, so a session with more targets open than
     /// that recompiled all of them on every open.
     publish_findings: BTreeMap<(PathBuf, Option<TargetId>), TargetFindings>,
+    /// [`State::package_files_key`]'s answers for the message being served.
+    package_files: BTreeMap<(PathBuf, PackageId), u64>,
     /// What has been done since the server started. `handle` reads it either
     /// side of a request and reports the difference.
     work: Work,
@@ -581,6 +583,7 @@ impl State {
             sources: BTreeMap::new(),
             target_findings: BTreeMap::new(),
             publish_findings: BTreeMap::new(),
+            package_files: BTreeMap::new(),
             work: Work::default(),
             sweeps: super::sweep::Sweeps::new(),
         }
@@ -610,6 +613,7 @@ impl State {
         for sources in self.sources.values_mut() {
             sources.begin_round();
         }
+        self.package_files.clear();
     }
 
     /// What the server has done since it started, its own counters and the
@@ -789,9 +793,31 @@ impl State {
     /// A hash of the files named in `closure`, under the graph they were
     /// resolved through. See `build::sources`, which is where the reading and
     /// the hashing live.
-    fn closure_key(&mut self, root: &Path, closure: &[PathBuf]) -> u64 {
+    ///
+    /// With the files `target`'s package holds: the lint pass reports the ones
+    /// no rule lists, and no file in a closure moves when one appears
+    /// (buri-lang/buri#281).
+    fn closure_key(&mut self, root: &Path, target: Option<TargetId>, closure: &[PathBuf]) -> u64 {
         let (sources, open) = self.sources_of(root);
-        sources.closure_key(closure, open)
+        let key = sources.closure_key(closure, open);
+        let Some(target) = target else { return key };
+        let files = self.package_files_key(root, target.package);
+        let mut hasher = crate::hash::FxHasher::default();
+        hasher.write_u64(key);
+        hasher.write_u64(files);
+        hasher.finish()
+    }
+
+    /// `lint::package_files_key`, once a message.
+    fn package_files_key(&mut self, root: &Path, package: PackageId) -> u64 {
+        let at = (root.to_path_buf(), package);
+        if let Some(known) = self.package_files.get(&at) {
+            return *known;
+        }
+        let Some(session) = self.graph(root) else { return 0 };
+        let key = crate::commands::lint::package_files_key(&session, package);
+        self.package_files.insert(at, key);
+        key
     }
 
     /// A hash of everything that decides the build graph.
@@ -810,12 +836,20 @@ impl State {
     ///
     /// [`State::fingerprint`] answers for one repository, which is what an
     /// analysis is keyed by. "Has anything the client is looking at moved" is
-    /// the other question, and it is every root's answer together.
+    /// the other question, and it is every root's answer together, with the
+    /// files each package's lint pass sees (buri-lang/buri#281).
     pub fn analysis_fingerprint(&mut self) -> u64 {
         let mut hasher = crate::hash::FxHasher::default();
         for root in self.roots.clone() {
             let one = self.fingerprint(&root);
             hasher.write_u64(one);
+            let packages: BTreeSet<PackageId> = match self.graph(&root) {
+                Some(session) => session.workspace.targets().iter().map(|t| t.package).collect(),
+                None => BTreeSet::new(),
+            };
+            for package in packages {
+                hasher.write_u64(self.package_files_key(&root, package));
+            }
         }
         hasher.finish()
     }
@@ -845,7 +879,7 @@ impl State {
         let root = self.root_of(path)?;
         let target = self.target_of(&root, path);
         let closure = self.known_closure(&root, target)?;
-        let now = self.closure_key(&root, &closure);
+        let now = self.closure_key(&root, target, &closure);
         let (seen, id) = self.diagnostic_results.documents.get(&(root, target))?;
         (*seen == now).then(|| id.clone())
     }
@@ -861,7 +895,7 @@ impl State {
         // key: `REPO.buri` then keeps its id through a keystroke in a source
         // rather than being restated on every one.
         let now = match self.known_closure(&root, target) {
-            Some(closure) => self.closure_key(&root, &closure),
+            Some(closure) => self.closure_key(&root, target, &closure),
             None => self.graph_key(&root),
         };
         Some(self.issued((root, target), now))
@@ -1038,7 +1072,7 @@ impl State {
         let closure = closure_of(&session.workspace, &analysis);
         self.keep(root, &session);
         let analyzed = Rc::new(Analyzed { session, analysis });
-        let key = self.closure_key(root, &closure);
+        let key = self.closure_key(root, target, &closure);
         remember(
             &mut self.cache.analyses,
             Cached {
@@ -1116,7 +1150,7 @@ impl State {
         }
         self.keep(&root, &session);
         let analyzed = Rc::new(Analyzed { session, analysis });
-        let key = self.closure_key(&root, &closure);
+        let key = self.closure_key(&root, target, &closure);
         remember(
             &mut self.cache.queries,
             Cached {
@@ -1208,7 +1242,7 @@ impl State {
         let closure =
             Rc::new(closure_of(&analyzed.session.workspace, &analyzed.analysis));
         let linted = Rc::new(Linted { analyzed, diagnostics });
-        let key = self.closure_key(root, &closure);
+        let key = self.closure_key(root, Some(target), &closure);
         remember(
             &mut self.cache.lints,
             Cached {
@@ -1297,7 +1331,7 @@ impl State {
             }
             super::dedup_findings(&mut found);
             let closure = Rc::new(report.closure);
-            let key = self.closure_key(root, &closure);
+            let key = self.closure_key(root, Some(target), &closure);
             self.target_findings.insert(
                 (root.to_path_buf(), target),
                 TargetFindings { key, closure, found: found.clone() },
@@ -1448,7 +1482,7 @@ impl State {
         let target = self.target_of(&root, path);
         let filed = self.publish_findings.get(&(root.clone(), target))?;
         let (was, closure) = (filed.key, Rc::clone(&filed.closure));
-        let now = self.closure_key(&root, &closure);
+        let now = self.closure_key(&root, target, &closure);
         let filed = self.publish_findings.get(&(root, target))?;
         (was == now).then(|| filed.found.clone())
     }
@@ -1460,7 +1494,7 @@ impl State {
         // A target nothing has analysed has no closure to key on, so there is
         // nothing here that a later question could safely be answered from.
         let Some(closure) = self.known_closure(&root, target) else { return };
-        let key = self.closure_key(&root, &closure);
+        let key = self.closure_key(&root, target, &closure);
         self.publish_findings
             .insert((root, target), TargetFindings { key, closure, found: found.clone() });
     }
@@ -1469,7 +1503,7 @@ impl State {
     /// is where it was.
     fn cached_findings(&mut self, root: &Path, target: TargetId) -> Option<super::Published> {
         let closure = self.known_closure(root, Some(target))?;
-        let now = self.closure_key(root, &closure);
+        let now = self.closure_key(root, Some(target), &closure);
         let known = self.target_findings.get(&(root.to_path_buf(), target))?;
         (known.key == now).then(|| known.found.clone())
     }
@@ -1505,7 +1539,7 @@ impl State {
     fn cached_analysis(&mut self, root: &Path, target: Option<TargetId>) -> Option<Rc<Analyzed>> {
         let filed = self.cache.analyses.iter().find(|c| c.root == root && c.target == target)?;
         let (was, closure) = (filed.key, Rc::clone(&filed.closure));
-        let now = self.closure_key(root, &closure);
+        let now = self.closure_key(root, target, &closure);
         let filed = self.cache.analyses.iter().find(|c| c.root == root && c.target == target)?;
         (was == now).then(|| Rc::clone(&filed.value))
     }
@@ -1520,8 +1554,8 @@ impl State {
     fn cached_query(&mut self, root: &Path, path: &Path) -> Option<Rc<Analyzed>> {
         let scope = Some(path.to_path_buf());
         let filed = self.cache.queries.iter().find(|c| c.root == root && c.scope == scope)?;
-        let (was, closure) = (filed.key, Rc::clone(&filed.closure));
-        let now = self.closure_key(root, &closure);
+        let (was, target, closure) = (filed.key, filed.target, Rc::clone(&filed.closure));
+        let now = self.closure_key(root, target, &closure);
         let filed = self.cache.queries.iter().find(|c| c.root == root && c.scope == scope)?;
         (was == now).then(|| Rc::clone(&filed.value))
     }
@@ -1531,7 +1565,7 @@ impl State {
         let wanted = Some(target);
         let filed = self.cache.lints.iter().find(|c| c.root == root && c.target == wanted)?;
         let (was, closure) = (filed.key, Rc::clone(&filed.closure));
-        let now = self.closure_key(root, &closure);
+        let now = self.closure_key(root, wanted, &closure);
         let filed = self.cache.lints.iter().find(|c| c.root == root && c.target == wanted)?;
         (was == now).then(|| Rc::clone(&filed.value))
     }
