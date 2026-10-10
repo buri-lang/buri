@@ -1968,6 +1968,13 @@ pub unsafe extern "C" fn buri_rt_decref(p: *mut u8, drop_glue: Option<extern "C"
             let last = rc.fetch_sub(atomic_delta(rc), Ordering::AcqRel) == 1;
             if last {
                 valgrind::happens_after(p);
+                // The other threads' reads and writes of the count came after
+                // their annotation, so helgrind can't order them before the
+                // free's writes to the header. `AcqRel` does, so it starts
+                // fresh here.
+                if valgrind::helgrind() {
+                    valgrind::fresh(h.cast(), size_of::<Header>());
+                }
             }
             last
         } else {
