@@ -7907,6 +7907,78 @@ before it. Under load, `work_counts` failed 3 of 20 stress iterations before
 and 40 of 40 passed after. ×10's three runners share 2 of 1,167 units, so its
 cold run doesn't move.
 
+### 6.85 Debug test suites run in a test host that macOS has already checked, 2026-10-09
+
+Every edit linked a new runner, and macOS checked it before its first start
+(§6.39): 228–240 ms of a 0.33 s conformance edit, seconds under load. A copy
+of a checked runner pays again, so only not starting new files helps. Now a
+stencil `buri test` on macOS arm64 starts one fixed executable, the test
+host, and the host copies the suite's code into memory:
+
+```text
+$BURI_HOME/test-host/<key>/test-host   linked once per toolchain, checked once
+.buri/cache/<image key>                the suite's objects, linked by buri itself
+
+buri ──spawn──▶ test-host   BURI_TEST_IMAGE=<image>   (one process per runner process, as before)
+                  │ read the image
+                  │ code   → MAP_JIT, written under pthread_jit_write_protect_np(0), then (1)
+                  │ consts → read-only, stack → read-write, in one reservation beside the host
+                  │ fix up absolute words and every reference into the runtime
+                  └ call the image's `main`, the same test_entry a linked runner starts at
+```
+
+- **One process per test process, unchanged.** Crashes, `timeout_seconds`,
+  the heap check, exit codes, output, signals and `--jobs` see the same
+  processes, only started from the host. The stack guard is the same
+  `mprotect` of the same zero-filled stack, now an anonymous mapping.
+- **The host is built, not shipped.** It is `libburi_rt.a` force-loaded with
+  a two-instruction `main` into `buri_rt_test_host`, linked by the same
+  driver. Its key is the runtime archive's hash, the linker and the image
+  format, so nightly tarballs, the Homebrew formula and the nix flake ship
+  nothing new and need no new signing step. Ad-hoc signed by the linker, like
+  every runner today: no hardened runtime, so `MAP_JIT` needs no entitlement,
+  and none is added. A hardened host would need
+  `com.apple.security.cs.allow-jit`.
+- **The image is the link, done by `buri`.** The same objects a link reads,
+  laid out in link order. Branches and page references inside the image are
+  patched by `buri`. The host fixes up the rest: absolute words, and
+  references into the runtime, which `buri` names by their offset in the
+  host's symbol table, or by name for a C library symbol (`dlsym`). The
+  image is placed within a branch's reach of the host where it can be, so a
+  call into the runtime is the same `bl` a linked runner makes. Out of reach,
+  it goes through a stub. A page reference out of ±4 GB fails the load.
+- **W^X.** Code memory is never writable and executable at once on any
+  thread. `mprotect` is refused on `MAP_JIT` memory, so constants and the
+  stack are separate ordinary mappings inside one reservation, which keeps
+  the image's page distances what `buri` patched.
+- **Fallback.** After linking the host, `buri` starts it once to map, write
+  and call one instruction, and keeps the answer beside it. When that, the
+  home directory or the host's link fails, the suite links a runner as
+  before, and `--explain` and `--verbose` say why. `BURI_TEST_LINKED=1`
+  asks for linked runners, for running one under `lldb`.
+- **Linux keeps linked runners.** It has no launch check, and the link is
+  40–100 ms. ELF images would need their own relocations on two
+  architectures, which only CI could run. `--release`, `buri build` and
+  `buri run` keep producing executables, and §6.63's store still serves them.
+
+**What is lost:** a crash report or `lldb` attached to a host names no Buri
+function in loaded code, since it has no symbol table there.
+`BURI_TEST_LINKED=1` gets a linked runner.
+
+**Status:** opt-in with `BURI_TEST_LOADER=1`. `cli/tests/example` passes all
+51 tests loaded, and an edit there links no runner and launches no new
+executable (0.019 s with a debug `buri`). Left before it's the default: the
+end-to-end tests and pinned counts, the `--verbose` and `--explain` line, and
+the measurements below. Before, a release `buri` at
+`c841da6e6`, conformance with `backends: [JS]` dropped where stencil compiles
+the suite, load 15–23:
+
+| Run | Wall |
+|---|---:|
+| edit one test's code, five runs | 0.29–0.37 s |
+| cold, after `buri clean`, five runs | 1.47–3.03 s |
+| nothing changed | 13–17 ms |
+
 ### 6.86 A lexer and parser rewrite for three times the goal, judged, 2026-10-09
 
 Not done. Without `unsafe`, with this tree and with today's recovery, no
