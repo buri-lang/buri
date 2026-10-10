@@ -1,11 +1,11 @@
 # Two suites over one library: `//lib/report`'s suite reaches `//lib/shapes`
 # through its own code, and `//lib/shapes`' suite reaches it directly. The
-# report adds both suites' counts together line by line, on the native backend
-# and on JavaScript alike.
+# report adds both suites' counts together branch by branch, on the native
+# backend and on JavaScript alike.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
-doc: "--coverage over two suites adds up the lines each one reached in the library they share"
+doc: "--coverage over two suites adds up the branches each one took in the library they share"
 
 run {
   args: ["test", "//...", "--coverage"]

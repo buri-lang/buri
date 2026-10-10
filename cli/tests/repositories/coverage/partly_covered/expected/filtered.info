@@ -1,5 +1,12 @@
 TN:
 SF:lib/shapes/shapes.buri
+BRDA:8,0,0,1
+BRDA:8,0,1,0
+BRDA:8,0,2,0
+BRDA:16,0,0,-
+BRDA:16,0,1,-
+BRF:5
+BRH:1
 DA:7,1
 DA:8,1
 DA:9,1

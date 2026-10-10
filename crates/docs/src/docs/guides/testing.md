@@ -367,7 +367,7 @@ buri test //...                      every test in the repository
 buri test //lib/money                one package's suites
 buri test //lib/money --filter=pads  only tests whose title contains "pads"
 buri test //... --watch              re-run on every save, until interrupted
-buri test //... --coverage           count the lines the tests reach
+buri test //... --coverage           count the branches the tests take
 ```
 
 `--filter` is a substring match on the test's title, which is the other reason

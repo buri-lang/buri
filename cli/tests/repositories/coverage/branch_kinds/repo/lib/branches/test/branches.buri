@@ -1,0 +1,38 @@
+from "core/testing/assert" import * as assert;
+from "//lib/branches" import * as b;
+from "//lib/branches" import { Point };
+
+test "if" {
+    assert.equal(b.sign(5), "not negative");
+}
+
+test "match and guard" {
+    assert.equal(b.describe(.Some(3)), "small");
+    assert.equal(b.describe(.Some(30)), "big");
+}
+
+test "and, or" {
+    assert.equal(b.both(false, true), false);
+    assert.equal(b.either(true, false, false), true);
+    assert.equal(b.either(false, false, true), true);
+}
+
+test "try" {
+    assert.equal(b.plusOne(.Some(1)), .Some(2));
+    assert.equal(b.doubled(.Err("no")), .Err("no"));
+}
+
+test "generic" {
+    assert.equal(b.firstOr([1, 2], 0), 1);
+    assert.equal(b.firstOr([], "none"), "none");
+}
+
+test "one line" {
+    assert.equal(b.inRange(5, 1, 9), true);
+    assert.equal(b.inRange(0, 1, 9), false);
+    assert.equal(b.smaller(Point { x: 1, y: 2 }, Point { x: 2, y: 1 }), true);
+}
+
+test "lambda" {
+    assert.equal(b.positive(3), true);
+}

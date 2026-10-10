@@ -5208,8 +5208,9 @@ test "two trees grown alike are two trees" {
 /// **`--release --coverage` counts what the native and JavaScript runs count.**
 ///
 /// The probes go in before the middle end, so LLVM gets them like any call into
-/// the runtime. The ground truth is the coverage corpus's own lcov golden, read
-/// by `build::repositories::test_coverage` against the other two backends.
+/// the runtime. The ground truth is the coverage corpus's own lcov goldens, read
+/// by `build::repositories::test_coverage` against the other two backends: one
+/// with an `if` and a `match`, and one with every kind of branch.
 #[test]
 fn coverage_under_release_counts_the_lines_the_other_backends_count() {
     skip_unless_executable!();
@@ -5225,23 +5226,29 @@ fn coverage_under_release_counts_the_lines_the_other_backends_count() {
             }
         }
     }
-    let case = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/repositories/coverage/partly_covered");
-    let repo = workspace().join("coverage-under-release");
-    let _ = std::fs::remove_dir_all(&repo);
-    copy(&case.join("repo"), &repo);
+    let cases = [
+        ("partly_covered", "//lib/shapes", "3 passed, 0 failed"),
+        ("branch_kinds", "//lib/branches", "7 passed, 0 failed"),
+    ];
+    for (name, target, passed) in cases {
+        let case = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/repositories/coverage").join(name);
+        let repo = workspace().join(format!("coverage-under-release-{name}"));
+        let _ = std::fs::remove_dir_all(&repo);
+        copy(&case.join("repo"), &repo);
 
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-    cmd.current_dir(&repo).args(["test", "--release", "--coverage", "//lib/shapes"]);
-    let ran = crate::shared::ran_command(&mut cmd);
-    assert!(
-        ran.status == 0 && ran.stdout.contains("3 passed, 0 failed"),
-        "--release --coverage:\n{}\n{}",
-        ran.stdout,
-        ran.stderr
-    );
-    let lcov = std::fs::read_to_string(repo.join(".buri/coverage/lcov.info")).unwrap();
-    let expected = std::fs::read_to_string(case.join("expected/lcov.info")).unwrap();
-    assert_eq!(lcov, expected);
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
+        cmd.current_dir(&repo).args(["test", "--release", "--coverage", target]);
+        let ran = crate::shared::ran_command(&mut cmd);
+        assert!(
+            ran.status == 0 && ran.stdout.contains(passed),
+            "{name}: --release --coverage:\n{}\n{}",
+            ran.stdout,
+            ran.stderr
+        );
+        let lcov = std::fs::read_to_string(repo.join(".buri/coverage/lcov.info")).unwrap();
+        let expected = std::fs::read_to_string(case.join("expected/lcov.info")).unwrap();
+        assert_eq!(lcov, expected, "{name}");
+    }
 }
 
 /// **`--release --verbose` times every test LLVM built, a failing one too.**

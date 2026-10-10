@@ -263,7 +263,7 @@ buri test //lib/money --filter=pads  substring match on test names
 buri test //... --output=js          send the suites that name no backend to JS
 buri test //... --watch              re-run on every change to a declared input
 buri test //... --explain            one line per action: ran, or served by the cache
-buri test //... --coverage           line coverage, and .buri/coverage/lcov.info
+buri test //... --coverage           branch coverage, and .buri/coverage/lcov.info
 ```
 
 `buri test` exits `0` when every test passed and `1` otherwise.

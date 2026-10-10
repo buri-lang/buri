@@ -1,0 +1,69 @@
+derive Equal, Ordered for Point;
+export struct Point {
+    export x: Int,
+    export y: Int,
+}
+
+export fn sign(n: Int): Str {
+    if (n < 0) { "negative" } else { "not negative" }
+}
+
+export fn describe(n: Option<Int>): Str {
+    match (n) {
+        .Some(k) if k > 9 => "big",
+        .Some(_) => "small",
+        .None => "none",
+    }
+}
+
+export fn both(a: Bool, b: Bool): Bool {
+    a && b
+}
+
+export fn either(
+    theFirstCondition: Bool,
+    theSecondCondition: Bool,
+    theThirdCondition: Bool,
+): Bool {
+    theFirstCondition
+        || theSecondCondition
+        || theThirdCondition
+        || theFirstCondition && theSecondCondition
+}
+
+export fn plusOne(n: Option<Int>): Option<Int> {
+    let k = n?;
+    .Some(k + 1)
+}
+
+export fn doubled(r: Result<Int, Str>): Result<Int, Str> {
+    let k = r?;
+    .Ok(k * 2)
+}
+
+export fn firstOr<T>(items: [T], fallback: T): T {
+    match (items[0]) {
+        .Some(x) => x,
+        .None => fallback,
+    }
+}
+
+export fn inRange(n: Int, low: Int, high: Int): Bool {
+    if (n >= low && n <= high) { true } else { false }
+}
+
+export fn smaller(a: Point, b: Point): Bool {
+    a < b
+}
+
+export fn keep(f: fn(Int) => Bool, n: Int): Bool {
+    f(n)
+}
+
+export fn positive(n: Int): Bool {
+    keep(fn(k) => if (k > 0) { true } else { false }, n)
+}
+
+export fn never(n: Int): Int {
+    if (n > 0) { 1 } else { 2 }
+}

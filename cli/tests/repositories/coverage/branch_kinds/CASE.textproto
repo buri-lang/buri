@@ -1,0 +1,48 @@
+# `buri test --coverage` counts branches: both sides of an `if`, every `match`
+# arm, a guard's true and false, whether the right side of `&&` and `||` ran,
+# and whether `?` returned early. A generic function's branch counts once over
+# both of its instantiations. A `derive` and a `<` on a derived order add none.
+# Decisions that share a line are numbered left to right. A decision nothing
+# reached reads `-`. Native and JavaScript match one hand-written golden, and
+# `cli/tests/native/llvm.rs` reads it against `--release`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "--coverage counts every kind of branch, the same on both backends"
+
+run {
+  args: ["test", "//lib/branches", "--coverage"]
+  exit: 0
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
+
+run {
+  args: ["test", "//lib/branches", "--coverage", "--output=js"]
+  exit: 0
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
+
+# `--coverage=branch` is the same thing, spelled out.
+run {
+  args: ["test", "//lib/branches", "--coverage=branch"]
+  exit: 0
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
