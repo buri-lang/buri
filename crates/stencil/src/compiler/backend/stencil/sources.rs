@@ -44,121 +44,6 @@ use std::collections::HashMap;
 use std::process::Command;
 use std::sync::Mutex;
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum Level {
-    /// (a) one stencil per IR operation; every operand and result in the frame.
-    Base = 0,
-    /// (b.1) immediate-operand variants.
-    Imm = 1,
-    /// (c) width-specialised arithmetic (the extend/truncate fold).
-    Width = 2,
-    /// (d) fused compare-and-branch.
-    CmpBr = 3,
-    /// (b.2) register-operand and register-result variants: the paper's CPS
-    /// register allocation.
-    Reg = 4,
-    /// (e)+(f) multi-operation supernodes.
-    Super = 5,
-    /// (f) the addressing-mode fold: a frame-slot hole becomes the `imm12`
-    /// field of the load that uses it, which is what the paper gets from
-    /// x86-64's `disp32` for nothing. See `extract::fold_addressing`.
-    Addr = 6,
-    /// (g) branch mechanics: the *false* arm of every two-target stencil is the
-    /// one whose `b` is elidable, so the emitter arranges for it to be the
-    /// fallthrough — inverting the comparison when that is what it takes. Needs
-    /// the negated `br`/`tagbr` families in the library.
-    Br = 7,
-    /// (h) the immediate fold: a literal hole becomes the `imm12` field of the
-    /// `add`/`subtract`/`cmp` that consumes it, the exact analogue of `Addr` for
-    /// [`Loc::Imm`]. Plus compare-against-zero variants, which is the one
-    /// constant this ISA has a register for.
-    IFold = 8,
-    /// (i) frame-slot coalescing: a value whose only use is an edge copy is
-    /// given the destination's slot, so the copy disappears.
-    Coal = 9,
-    /// (j) the `mem2reg` the paper names as future work: loop-carried variables
-    /// held in the CPS register file across block boundaries.
-    M2r = 10,
-    /// (k) block layout: reverse postorder rather than IR order, so that the
-    /// branch a loop takes every iteration is the fallthrough and the one it
-    /// takes once is the branch.
-    Lay = 11,
-    /// (l) enum dispatch, ported from the debug backend of the day's
-    /// `compare_chain` (`fp-wave1`). Two halves, both about the chain of equality tests a
-    /// `match` lowers to:
-    ///
-    /// * **the total chain** — `middle::exhaustiveness` has already proved the
-    ///   match total, and every `Term::Switch` in this IR arrives with
-    ///   `default: None`, so the *last* arm needs no test of its own. On a
-    ///   two-arm `Option` match that halves the dispatch;
-    /// * **the byte tag folds into the compare** — `tagbr/eq8` asked C for
-    ///   `AT(uint8_t, A) == (uint8_t)OFF(N)`, and clang answered with
-    ///   `cmp w8, w9, uxtb`, the *extended*-register form, which
-    ///   [`fold_imm`] cannot rewrite into an `imm12` field. The
-    ///   comparison is done at 64 bits instead — identical for a tag that fits
-    ///   its own field — so the pair folds and the arm is four instructions
-    ///   rather than six. `tagbr/eq` and `tagbr/eq32` already folded; the byte
-    ///   tag is the one the corpus actually uses.
-    Tag = 12,
-}
-
-impl Level {
-    /// The inverse of [`Level::name`]'s short spelling, for a level named on
-    /// the sweep's command line. `None` is a name no level answers to.
-    pub fn parse(s: &str) -> Option<Level> {
-        Some(match s {
-            "base" | "L0" => Level::Base,
-            "imm" | "L1" => Level::Imm,
-            "width" | "L2" => Level::Width,
-            "cmpbr" | "L3" => Level::CmpBr,
-            "reg" | "L4" => Level::Reg,
-            "super" | "L5" => Level::Super,
-            "addr" | "L6" => Level::Addr,
-            "br" | "L7" => Level::Br,
-            "ifold" | "L8" => Level::IFold,
-            "coal" | "L9" => Level::Coal,
-            "m2r" | "L10" => Level::M2r,
-            "lay" | "L11" => Level::Lay,
-            "tag" | "L12" => Level::Tag,
-            _ => return None,
-        })
-    }
-    pub fn name(self) -> &'static str {
-        match self {
-            Level::Base => "L0-base",
-            Level::Imm => "L1-imm",
-            Level::Width => "L2-width",
-            Level::CmpBr => "L3-cmpbr",
-            Level::Reg => "L4-reg",
-            Level::Super => "L5-super",
-            Level::Addr => "L6-addr",
-            Level::Br => "L7-br",
-            Level::IFold => "L8-ifold",
-            Level::Coal => "L9-coal",
-            Level::M2r => "L10-m2r",
-            Level::Lay => "L11-lay",
-            Level::Tag => "L12-tag",
-        }
-    }
-    pub fn all() -> [Level; 13] {
-        [
-            Level::Base,
-            Level::Imm,
-            Level::Width,
-            Level::CmpBr,
-            Level::Reg,
-            Level::Super,
-            Level::Addr,
-            Level::Br,
-            Level::IFold,
-            Level::Coal,
-            Level::M2r,
-            Level::Lay,
-            Level::Tag,
-        ]
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Scalar types
 // ---------------------------------------------------------------------------
@@ -189,9 +74,9 @@ pub const F32: Sc = Sc { tag: "f32", cty: "float", bits: 32, float: true, signed
 /// else goes through `eload/n`, whose size is a hole and whose body is a call.
 pub const ELEM_WIDTHS: [u32; 12] = [1, 2, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64];
 
-/// The types every level generates arithmetic for.
+/// The types arithmetic is generated for.
 const CORE_TYPES: [Sc; 4] = [I64, U64, F64, F32];
-/// The extra widths [`Level::Width`] adds.
+/// The narrow widths arithmetic is generated for besides.
 const NARROW_TYPES: [Sc; 6] = [I32, U32, I16, U16, I8, U8];
 
 pub const BIN_OPS: [(&str, &str, bool); 16] = [
@@ -472,19 +357,17 @@ static inline double imm_f64(void) { return bits_f64((uint64_t)(uintptr_t)_JIT_K
 static inline float imm_f32(void) { return bits_f32((uint64_t)(uintptr_t)_JIT_K); }
 "#;
 
-/// Every stencil the level's library contains, as C source shards.
-pub fn sources(level: Level, target: StencilTarget) -> Result<Vec<Out2>, String> {
+/// Every stencil the library contains, as C source shards.
+pub fn sources(target: StencilTarget) -> Result<Vec<Out2>, String> {
     let mut o = Out::new(target);
     moves(&mut o);
-    arithmetic(&mut o, level)?;
-    control(&mut o, level);
+    arithmetic(&mut o)?;
+    control(&mut o);
     calls(&mut o);
     runtime_calls(&mut o);
-    regmoves(&mut o, level);
-    memory(&mut o, level);
-    if level >= Level::Super {
-        supernodes(&mut o, level);
-    }
+    regmoves(&mut o);
+    memory(&mut o);
+    supernodes(&mut o);
     Ok(shard(o))
 }
 
@@ -565,8 +448,7 @@ fn moves(o: &mut Out) {
             format!("void $NAME(ARGS) {{ AT({uty}, _JIT_D) = ({uty})AT(uint64_t, _JIT_A); TAIL; }}"),
         );
     }
-    // Sign- and zero-extension of a frame word from a width, which is what the
-    // Base level uses instead of a width-specialised arithmetic stencil.
+    // Sign- and zero-extension of a frame word from a width.
     for bits in [8u32, 16, 32] {
         o.push(
             &format!("sext/{bits}"),
@@ -724,43 +606,34 @@ fn moves(o: &mut Out) {
     o.push("cvt/f322f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)bits_f32(AT(uint64_t, _JIT_A))); TAIL; }".into());
 }
 
-/// The types a level generates direct arithmetic for.
-fn types_for(level: Level) -> Vec<Sc> {
+/// The types direct arithmetic is generated for.
+fn types_for() -> Vec<Sc> {
     let mut v: Vec<Sc> = CORE_TYPES.to_vec();
-    if level >= Level::Width {
-        v.extend_from_slice(&NARROW_TYPES);
+    v.extend_from_slice(&NARROW_TYPES);
+    v
+}
+
+/// Operand-location combinations.
+fn locs_for() -> Vec<Loc> {
+    let mut v = vec![Loc::Frame, Loc::Imm];
+    for k in 0..CPS_REGISTER_COUNT {
+        v.push(Loc::Reg(k as u8));
     }
     v
 }
 
-/// Operand-location combinations a level generates.
-fn locs_for(level: Level) -> Vec<Loc> {
+fn dsts_for() -> Vec<Loc> {
     let mut v = vec![Loc::Frame];
-    if level >= Level::Imm {
-        v.push(Loc::Imm);
-    }
-    if level >= Level::Reg {
-        for k in 0..CPS_REGISTER_COUNT {
-            v.push(Loc::Reg(k as u8));
-        }
+    for k in 0..CPS_REGISTER_COUNT {
+        v.push(Loc::Reg(k as u8));
     }
     v
 }
 
-fn dsts_for(level: Level) -> Vec<Loc> {
-    let mut v = vec![Loc::Frame];
-    if level >= Level::Reg {
-        for k in 0..CPS_REGISTER_COUNT {
-            v.push(Loc::Reg(k as u8));
-        }
-    }
-    v
-}
-
-fn arithmetic(o: &mut Out, level: Level) -> Result<(), String> {
-    let locs = locs_for(level);
-    let dsts = dsts_for(level);
-    for t in types_for(level) {
+fn arithmetic(o: &mut Out) -> Result<(), String> {
+    let locs = locs_for();
+    let dsts = dsts_for();
+    for t in types_for() {
         for (name, cop, is_cmp) in BIN_OPS {
             if !op_applies(name, t) {
                 continue;
@@ -838,8 +711,8 @@ fn arithmetic(o: &mut Out, level: Level) -> Result<(), String> {
 /// eight, sixteen and thirty-two bits and wrong at sixty-four, where no wider
 /// type exists to do the arithmetic in.
 ///
-/// Generated at every integer width whatever the level, because this is
-/// correctness rather than a specialisation the level ladder measures.
+/// Generated at every integer width, because this is correctness rather than a
+/// specialisation.
 fn checks(o: &mut Out) -> Result<(), String> {
     for t in [I8, I16, I32, I64, U8, U16, U32, U64] {
         let cty = t.cty;
@@ -955,7 +828,7 @@ fn checks(o: &mut Out) -> Result<(), String> {
 /// into an operand whose `fi` stencil exists, so not generating one is what
 /// keeps a 128-bit constant materialised.
 ///
-/// Nothing about this is a level: `core/number` declares `I128` and `U128` at
+/// Nothing about this is a specialisation: `core/number` declares `I128` and `U128` at
 /// every operation the other widths have, so a library without these is a
 /// library that refuses a program rather than one that compiles it slower.
 fn wide(o: &mut Out) {
@@ -1120,9 +993,9 @@ fn wide(o: &mut Out) {
     }
 }
 
-fn control(o: &mut Out, level: Level) {
+fn control(o: &mut Out) {
     o.push("jump", "void $NAME(ARGS) { __attribute__((musttail)) return _JIT_T(PASS); }".into());
-    let locs = locs_for(level);
+    let locs = locs_for();
     for a in &locs {
         if matches!(a, Loc::Imm) {
             continue;
@@ -1136,71 +1009,67 @@ fn control(o: &mut Out, level: Level) {
             ),
         );
     }
-    if level >= Level::Br {
-        // (g) The negated branch. A two-target stencil's body is
-        // `cmp ; b.cc L ; b _JIT_T ; L: b _JIT_F`, so it is the **false** arm
-        // whose branch is the body's last instruction and therefore the only
-        // one copy-and-patch can elide. When the IR's `then` side is the block
-        // that comes next, the emitter negates the test and swaps the arms
-        // rather than paying a branch for the fallthrough.
-        for a in &locs {
-            if matches!(a, Loc::Imm) {
+    // (g) The negated branch. A two-target stencil's body is
+    // `cmp ; b.cc L ; b _JIT_T ; L: b _JIT_F`, so it is the **false** arm
+    // whose branch is the body's last instruction and therefore the only
+    // one copy-and-patch can elide. When the IR's `then` side is the block
+    // that comes next, the emitter negates the test and swaps the arms
+    // rather than paying a branch for the fallthrough.
+    for a in &locs {
+        if matches!(a, Loc::Imm) {
+            continue;
+        }
+        let c = read(U64, *a, "A");
+        o.push(
+            &format!("brn/{}", a.tag()),
+            format!(
+                "void $NAME(ARGS) {{ if (!({c})) {{ __attribute__((musttail)) return _JIT_T(PASS); }} \
+                 else {{ __attribute__((musttail)) return _JIT_F(PASS); }} }}"
+            ),
+        );
+    }
+    for (k, ty) in [("", "uint64_t"), ("8", "uint8_t"), ("32", "uint32_t")] {
+        // (l) See `tagbr/eq8`: the byte comparison is widened so that the tag
+        // constant folds into the compare.
+        let (lhs, rhs) = if k == "8" {
+            (format!("(uint64_t)AT({ty}, _JIT_A)"), "(uint64_t)OFF(_JIT_N)".to_string())
+        } else {
+            (format!("AT({ty}, _JIT_A)"), format!("({ty})OFF(_JIT_N)"))
+        };
+        o.push(
+            &format!("tagbr/ne{k}"),
+            format!(
+                "void $NAME(ARGS) {{ if ({lhs} != {rhs}) \
+                 {{ __attribute__((musttail)) return _JIT_T(PASS); }} \
+                 else {{ __attribute__((musttail)) return _JIT_F(PASS); }} }}"
+            ),
+        );
+    }
+    // (d) fused compare-and-branch. The paper's Figure 11b supernode.
+    for t in types_for() {
+        for (name, cop, is_cmp) in BIN_OPS {
+            if !is_cmp {
                 continue;
             }
-            let c = read(U64, *a, "A");
-            o.push(
-                &format!("brn/{}", a.tag()),
-                format!(
-                    "void $NAME(ARGS) {{ if (!({c})) {{ __attribute__((musttail)) return _JIT_T(PASS); }} \
-                     else {{ __attribute__((musttail)) return _JIT_F(PASS); }} }}"
-                ),
-            );
-        }
-        for (k, ty) in [("", "uint64_t"), ("8", "uint8_t"), ("32", "uint32_t")] {
-            // (l) See `tagbr/eq8`: at [`Level::Tag`] the byte comparison is
-            // widened so that the tag constant folds into the compare.
-            let (lhs, rhs) = if level >= Level::Tag && k == "8" {
-                (format!("(uint64_t)AT({ty}, _JIT_A)"), "(uint64_t)OFF(_JIT_N)".to_string())
-            } else {
-                (format!("AT({ty}, _JIT_A)"), format!("({ty})OFF(_JIT_N)"))
-            };
-            o.push(
-                &format!("tagbr/ne{k}"),
-                format!(
-                    "void $NAME(ARGS) {{ if ({lhs} != {rhs}) \
-                     {{ __attribute__((musttail)) return _JIT_T(PASS); }} \
-                     else {{ __attribute__((musttail)) return _JIT_F(PASS); }} }}"
-                ),
-            );
-        }
-    }
-    if level >= Level::CmpBr {
-        // (d) fused compare-and-branch. The paper's Figure 11b supernode.
-        for t in types_for(level) {
-            for (name, cop, is_cmp) in BIN_OPS {
-                if !is_cmp {
+            for a in &locs {
+                if matches!(a, Loc::Imm) {
                     continue;
                 }
-                for a in &locs {
-                    if matches!(a, Loc::Imm) {
-                        continue;
-                    }
-                    for b in &locs {
-                        let ra = read(t, *a, "A");
-                        let rb = read(t, *b, "B");
-                        // The same expression the `bin/*` stencil computes —
-                        // see [`binary_expr`] for why a float `equal`/`ne` is not
-                        // C's, and why fusing the branch has to keep it.
-                        let test = binary_expr(t, name, cop, &ra, &rb);
-                        o.push(
-                            &format!("brcmp/{name}/{}/{}{}", t.tag, a.tag(), b.tag()),
-                            format!(
-                                "void $NAME(ARGS) {{ if ({test}) \
-                                 {{ __attribute__((musttail)) return _JIT_T(PASS); }} \
-                                 else {{ __attribute__((musttail)) return _JIT_F(PASS); }} }}"
-                            ),
-                        );
-                    }
+                for b in &locs {
+                    let ra = read(t, *a, "A");
+                    let rb = read(t, *b, "B");
+                    // The same expression the `bin/*` stencil computes —
+                    // see [`binary_expr`] for why a float `equal`/`ne` is not
+                    // C's, and why fusing the branch has to keep it.
+                    let test = binary_expr(t, name, cop, &ra, &rb);
+                    o.push(
+                        &format!("brcmp/{name}/{}/{}{}", t.tag, a.tag(), b.tag()),
+                        format!(
+                            "void $NAME(ARGS) {{ if ({test}) \
+                             {{ __attribute__((musttail)) return _JIT_T(PASS); }} \
+                             else {{ __attribute__((musttail)) return _JIT_F(PASS); }} }}"
+                        ),
+                    );
                 }
             }
         }
@@ -1231,10 +1100,7 @@ fn control(o: &mut Out, level: Level) {
 /// these. Holding a *loop variable* across a block boundary does: something has
 /// to fill the register on the way in and write it back where anything that
 /// cannot read a register will look.
-fn regmoves(o: &mut Out, level: Level) {
-    if level < Level::M2r {
-        return;
-    }
+fn regmoves(o: &mut Out) {
     for k in 0..CPS_REGISTER_COUNT {
         o.push(
             &format!("ld/r{k}"),
@@ -1574,7 +1440,7 @@ fn calls(o: &mut Out) {
     }
 }
 
-fn memory(o: &mut Out, level: Level) {
+fn memory(o: &mut Out) {
     // The one stencil every runtime-supplied operation goes through. See
     // `rtcall.rs`'s header for why it is one family and not one per signature.
 
@@ -1682,7 +1548,6 @@ fn memory(o: &mut Out, level: Level) {
             .into(),
     );
     // === G2 end =============================================================
-    let _ = level;
 }
 
 /// (e) and (f): supernodes over two and three IR operations.
@@ -1691,7 +1556,7 @@ fn memory(o: &mut Out, level: Level) {
 /// `c = a[i] <op> b[<literal>]` shapes, and §6's observation that the
 /// memory-bound benchmarks are the ones supernodes help most — intersected with
 /// what this IR actually contains (the census in the report).
-fn supernodes(o: &mut Out, level: Level) {
+fn supernodes(o: &mut Out) {
     // Two and three parallel frame copies in one stencil: every control-flow
     // edge in this IR carries block arguments, and at Base each one is its own
     // `mov` stencil with its own continuation branch.
@@ -1760,8 +1625,8 @@ fn supernodes(o: &mut Out, level: Level) {
          else { __attribute__((musttail)) return _JIT_F(PASS); } }"
             .into(),
     );
-    // (l) The byte tag. At and below [`Level::Lay`] the comparison is written
-    // at the field's own width, and clang answers `cmp w8, w9, uxtb` — the
+    // (l) The byte tag. Written at the field's own width, the comparison gets
+    // `cmp w8, w9, uxtb` from clang — the
     // *extended*-register form, which `extract::fold_imm` refuses, so the tag
     // constant costs a `movz`/`movk` pair in every arm of every match. Widening
     // the comparison to 64 bits removes the extension and the pair folds into
@@ -1770,17 +1635,10 @@ fn supernodes(o: &mut Out, level: Level) {
     // not have been stored there.
     o.push(
         "tagbr/eq8",
-        if level >= Level::Tag {
-            "void $NAME(ARGS) { if ((uint64_t)AT(uint8_t, _JIT_A) == (uint64_t)OFF(_JIT_N)) \
-             { __attribute__((musttail)) return _JIT_T(PASS); } \
-             else { __attribute__((musttail)) return _JIT_F(PASS); } }"
-                .to_string()
-        } else {
-            "void $NAME(ARGS) { if (AT(uint8_t, _JIT_A) == (uint8_t)OFF(_JIT_N)) \
-             { __attribute__((musttail)) return _JIT_T(PASS); } \
-             else { __attribute__((musttail)) return _JIT_F(PASS); } }"
-                .to_string()
-        },
+        "void $NAME(ARGS) { if ((uint64_t)AT(uint8_t, _JIT_A) == (uint64_t)OFF(_JIT_N)) \
+         { __attribute__((musttail)) return _JIT_T(PASS); } \
+         else { __attribute__((musttail)) return _JIT_F(PASS); } }"
+            .to_string(),
     );
     o.push(
         "tagbr/eq32",
@@ -1928,7 +1786,7 @@ fn plan(dir: &std::path::Path, cc: &str, target: StencilTarget) -> Result<Plan, 
     let dir = dir.join(target.slug());
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let flags = compile_flags(cc, target)?;
-    let shards = sources(Level::Tag, target)?;
+    let shards = sources(target)?;
     Ok(Plan { target, dir, flags, shards })
 }
 
@@ -2254,9 +2112,9 @@ const MAX_DROPPED_PER_SHARD: usize = 40;
 /// `codegen` cache key this backend produces.
 ///
 /// It names what the *bytes of a stencil* depend on and nothing else: the width
-/// of the CPS register file, and the level the generators were run at. The
+/// of the CPS register file, and the generators' revision. The
 /// compiler's own version is not here — it is hashed in, along with everything
 /// else, by `cli/build.rs`, which has the library in front of it.
 pub fn config(target: StencilTarget) -> String {
-    format!("{} {} r{CPS_REGISTER_COUNT}", target.slug(), Level::Tag.name())
+    format!("{} L12-tag r{CPS_REGISTER_COUNT}", target.slug())
 }

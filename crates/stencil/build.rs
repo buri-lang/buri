@@ -16,18 +16,16 @@ use std::process::Command;
 
 // The stencil library's *builder* is compiled into this script rather than into
 // the toolchain: generating C and running a C compiler is something a build
-// does once, and a `Level` ladder and a Mach-O reader are not things `buri`
+// does once, and the generators and a Mach-O reader are not things `buri`
 // should carry at run time. The four modules below are the halves of
 // `backend/stencil` that only this script compiles, plus the two — `abi` and
 // `library` — that both compile, which is what keeps the emitter and the
 // library it reads from disagreeing. `super::` resolves the same way in both
 // module trees, which is why the paths inside them are written that way.
 //
-// `dead_code` is allowed on the four the script does not use *all* of, and the
+// `dead_code` is allowed on the three the script does not use *all* of, and the
 // allow is here rather than in the files because that is where the fact is:
-// `library.rs`'s decoder and `abi.rs`'s register cap are the toolchain's half,
-// and `Level`'s lower rungs are the ladder the report measured along — the
-// generators still read them, and a library is built at the top one.
+// `library.rs`'s decoder and `abi.rs`'s register cap are the toolchain's half.
 #[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
 #[path = "src/compiler/backend/stencil/abi.rs"]
 mod abi;
@@ -40,7 +38,6 @@ mod machobj;
 #[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
 #[path = "src/compiler/backend/stencil/x86.rs"]
 mod x86;
-#[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
 #[path = "src/compiler/backend/stencil/sources.rs"]
 mod sources;
 #[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
