@@ -545,151 +545,6 @@ fn growing_a_list_beside_another_field_is_linear() {
     );
 }
 
-/// `core/buri/ast`'s printer, over a message-shaped module.
-///
-/// One `export struct` of `n` fields, each carrying an origin, printed and
-/// measured — which is a `.proto` message with `n` fields and the thing the
-/// build runs for every schema in a repository. The two sizes print the same
-/// **total** number of fields, so linear growth makes them cost the same.
-const PRINT_TIMED: &str = r#"
-from "core/buri/ast" import * as ast;
-from "platform/effect" import { Allocator, Clock, Stdout };
-from "node" import { NodeHost };
-from "core/io" import * as io;
-from "core/list" import * as list;
-from "core/str" import * as str;
-from "core/time" import * as time;
-
-struct Timing { milliseconds: Int, printed: Int }
-
-fn fields<C: Allocator>(ctx: C, i: Int, n: Int, acc: [ast.FieldDecl]): [ast.FieldDecl] {
-  if (i >= n) {
-    acc
-  } else {
-    fields(
-      ctx,
-      i + 1,
-      n,
-      acc.push(
-        ctx,
-        ast.FieldDecl {
-          name: ast.Name { text: "field", origin: ast.nowhere() },
-          ty: ast.Type {
-            kind: .Named(ast.Name { text: "Int", origin: ast.nowhere() }, []),
-            origin: ast.nowhere(),
-          },
-          exported: true,
-          docs: [],
-          origin: ast.origin("wide.proto", i, i + 1),
-        },
-      ),
-    )
-  }
-}
-
-/// `export struct Wide { export field: Int, ... }`, `n` fields wide.
-fn wide<C: Allocator>(ctx: C, n: Int): ast.Module {
-  ast.Module {
-    items: [
-      ast.Item {
-        kind: .Struct(ast.StructDecl {
-          name: ast.Name { text: "Wide", origin: ast.nowhere() },
-          generics: [],
-          body: .Record(fields(ctx, 0, n, list.empty<ast.FieldDecl>())),
-          exported: true,
-          docs: [],
-        }),
-        origin: ast.origin("wide.proto", 0, 4),
-      },
-    ],
-    docs: [],
-  }
-}
-
-fn runs<C: Allocator>(ctx: C, k: Int, count: Int, tree: ast.Module, acc: Int): Int {
-  if (k >= count) {
-    acc
-  } else {
-    runs(ctx, k + 1, count, tree, acc + ast.print(ctx, tree).text.length())
-  }
-}
-
-/// `export struct S0 { export field: Int }` and `derive Equal, Show for S0;`,
-/// and the same for each of `n` names: a schema of `n` messages. The derives
-/// come after every struct, so each is printed above a declaration it names.
-fn many<C: Allocator>(ctx: C, n: Int): ast.Module {
-  let names = list.range(ctx, 0, n).mapCtx(ctx, fn(c, i) => str.format(c, "S${i}"));
-  let structs = names.mapCtx(ctx, fn(c, name) => declared(c, name));
-  let derives = names.map(ctx, fn(name) => derived(name));
-  ast.Module { items: structs.concat(ctx, derives), docs: [] }
-}
-
-fn named(text: Str): ast.Type {
-  ast.Type { kind: .Named(ast.Name { text: text, origin: ast.nowhere() }, []), origin: ast.nowhere() }
-}
-
-fn declared<C: Allocator>(ctx: C, name: Str): ast.Item {
-  ast.Item {
-    kind: .Struct(ast.StructDecl {
-      name: ast.Name { text: name, origin: ast.nowhere() },
-      generics: [],
-      body: .Record(fields(ctx, 0, 1, list.empty<ast.FieldDecl>())),
-      exported: true,
-      docs: [],
-    }),
-    origin: ast.nowhere(),
-  }
-}
-
-fn derived(name: Str): ast.Item {
-  ast.Item {
-    kind: .Derive(ast.DeriveDecl { traits: [named("Equal"), named("Show")], selfTy: named(name) }),
-    origin: ast.nowhere(),
-  }
-}
-
-/// One size, timed: `count` prints of a module of size `n`. The tree is built
-/// before the clock starts, because what is measured is the printer.
-fn timed<C: Allocator + Clock>(ctx: C, count: Int, n: Int): Timing {
-  let tree = SHAPE(ctx, n);
-  let started = time.now(ctx);
-  let written = runs(ctx, 0, count, tree, 0);
-  let took = time.since(ctx, started);
-  let _ = written;
-  Timing { milliseconds: took.milliseconds(), printed: count * n }
-}
-
-fn say<C: Allocator + Stdout>(ctx: C, small: Timing, large: Timing): () {
-  io.println(
-    ctx,
-    "${small.milliseconds} ${large.milliseconds} ${small.printed} ${large.printed}",
-  ).ignore()
-}
-
-fn pairs<C: Allocator + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
-  if (k >= count) {
-    ()
-  } else {
-    let _ = if (k % 2 == 0) {
-      let small = timed(ctx, SMALL_RUNS, SMALL_SIZE);
-      let large = timed(ctx, LARGE_RUNS, LARGE_SIZE);
-      say(ctx, small, large)
-    } else {
-      let large = timed(ctx, LARGE_RUNS, LARGE_SIZE);
-      let small = timed(ctx, SMALL_RUNS, SMALL_SIZE);
-      say(ctx, small, large)
-    };
-    pairs(ctx, k + 1, count)
-  }
-}
-
-export fn main(host: NodeHost): Result<(), Str> {
-  let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
-  let _ = pairs(ctx, 0, PAIRS);
-  .Ok(())
-}
-"#;
-
 /// The printer the build runs for every `.proto` in a repository is linear in
 /// the module it prints.
 ///
@@ -701,24 +556,36 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// four-hundred-field message took 56 seconds and an eight-hundred-field one
 /// five minutes; it is 26 milliseconds for twenty-five thousand fields now.
 ///
-/// Measured as a ratio for the same reason, and against the same bound: ten
-/// thousand fields printed in runs of a hundred and in runs of a thousand,
-/// where linear growth scores about 1 and a quadratic printer scores about 10.
+/// Counted rather than timed, against the same bound: ten thousand fields
+/// printed in modules of a hundred and in modules of two thousand. In
+/// instructions, linear printing scores 1.5 and a printer whose `raw` copies
+/// scores 12. The copies themselves are counted too, which Linux can do: a
+/// printed field copies about one element, and the copying printer over a
+/// billion.
 #[test]
 fn printing_a_module_is_linear_in_its_size() {
-    let (ratio, measured) = printed("js-sharing-printer", "wide", ["100", "100", "10", "1_000"], "10000");
-    assert!(
-        ratio <= 4.0,
-        "the printer is not linear: over {} pairs of ten thousand printed fields, \
-         the median run in modules of a thousand cost {ratio:.1} times the same \
-         work in modules of a hundred. The pairs, as `<hundred ms> <thousand ms>`: {}",
-        measured.len(),
-        measured
-            .iter()
-            .map(|p| format!("{}/{}", p.small, p.large))
-            .collect::<Vec<_>>()
-            .join(" "),
-    );
+    let scratch = Scratch::repo("js-sharing-printer");
+    scratch.write("cmd/print/BUILD.buri", JS_BINARY);
+    scratch.write("cmd/print/main.buri", &PRINT.replace("SHAPE", "wide"));
+    scratch.run(&["build", "//cmd/print", "--force"]).ok();
+
+    let small = added(&scratch, "cmd/print", 100, 100);
+    let large = added(&scratch, "cmd/print", 5, 2_000);
+    for (cost, size) in [(&small, "a hundred"), (&large, "two thousand")] {
+        assert!(
+            cost.copied < 20_000,
+            "printing ten thousand fields in modules of {size} copied {} elements",
+            cost.copied
+        );
+    }
+    if let Some(ratio) = ratio(&small, &large) {
+        assert!(
+            ratio <= 4.0,
+            "the printer is not linear: ten thousand fields cost {ratio:.1} times as \
+             many instructions printed in modules of two thousand as in modules of a \
+             hundred, where linear printing scores 1.5 and copying 12"
+        );
+    }
 }
 
 /// `core/buri/ast`'s printer, over the module `SHAPE` builds `<size>` wide,
@@ -861,36 +728,6 @@ fn printing_many_declarations_is_linear_in_their_number() {
              modules of fifty, where linear printing scores 1.1 and quadratic 16"
         );
     }
-}
-
-/// Builds [`PRINT_TIMED`] with the module `shape` builds, at `[small runs, small
-/// size, large runs, large size]`, and answers the median ratio beside every
-/// pair. A repetition too short for a whole-millisecond clock to resolve is a
-/// measurement rather than a claim, so it fails here, before any bound is
-/// asked.
-fn printed(name: &str, shape: &str, sizes: [&str; 4], total: &str) -> (f64, Vec<Pair>) {
-    let scratch = Scratch::repo(name);
-    let source = PRINT_TIMED
-        .replace("SHAPE", shape)
-        .replace("PAIRS", &PAIRS.to_string())
-        .replace("SMALL_RUNS", sizes[0])
-        .replace("SMALL_SIZE", sizes[1])
-        .replace("LARGE_RUNS", sizes[2])
-        .replace("LARGE_SIZE", sizes[3]);
-    scratch.write("cmd/print/BUILD.buri", JS_BINARY);
-    scratch.write("cmd/print/main.buri", &source);
-    scratch.run(&["build", "//cmd/print", "--force"]).ok();
-
-    let measured = pairs(&scratch, "cmd/print", total);
-    let mut short: Vec<u64> = measured.iter().map(|p| p.small).collect();
-    short.sort_unstable();
-    let typical = short[short.len() / 2];
-    assert!(
-        typical >= 5,
-        "the typical repetition took {typical} ms, which a whole-millisecond clock \
-         cannot resolve; raise the runs per repetition"
-    );
-    (median_ratio(&measured), measured)
 }
 
 /// What running an artifact cost: the elements every `Array.prototype.slice`
