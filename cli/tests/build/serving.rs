@@ -884,17 +884,21 @@ fn stopped(server: &mut Serving) -> std::process::ExitStatus {
     })
 }
 
-/// Nothing is listening there any more.
+/// Nothing `buri run` started is still running, so nothing it started can
+/// still hold a port.
 ///
 /// Asked once, after `buri run` has been reaped, and that ordering is the
 /// assertion: a wrapper that waits for its child before exiting cannot leave a
-/// bound port behind it.
-fn refused(port: u16) {
-    let at = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    if std::net::TcpStream::connect_timeout(&at, DEADLINE).is_ok() {
+/// bound port behind it. The witness is the output pipe the program inherited,
+/// which ends only once every process holding it has exited. Dialling the port
+/// instead raced every concurrent test: once the program let it go, the
+/// operating system could hand it to another test's server, which answered.
+fn gone(server: &Serving) {
+    let ended = until(DEADLINE, || server.readers.iter().all(|r| r.is_finished()).then_some(()));
+    if ended.is_none() {
         panic!(
-            "127.0.0.1:{port} still answers after `buri run` exited, so the program it started \
-             is still running and still holding the port"
+            "the output of `buri run` was still open {DEADLINE:?} after it exited, so the \
+             program it started is still running and still holding its port"
         );
     }
 }
@@ -905,8 +909,8 @@ fn refused(port: u16) {
 /// The wrapper executes a native binary as a child, so a `SIGTERM` that reaches
 /// only the wrapper leaves a server reparented to `init`, still bound to its
 /// port and never told to drain (buri-lang/buri#91). What this row reads is
-/// exactly that from outside: the command is reaped, and *then* the port is
-/// dialled — a connection that succeeds is an orphan.
+/// exactly that from outside: the command is reaped, and *then* its output must
+/// end — output still open is an orphan.
 ///
 /// The status is the other half. A drained server returns `.Ok(())`, so `buri
 /// run` has a child that exited 0 to report, and reporting anything else would
@@ -915,7 +919,7 @@ fn refused(port: u16) {
 fn a_signalled_run_stops_the_server_it_started() {
     let Some(scratch) = native_repo("run-signal", SERVER) else { return };
     let (mut server, first) = running(&scratch);
-    let port = announced_port(&first);
+    announced_port(&first);
 
     signal(&server, Aim::AtTheWrapper, SIGTERM);
     let status = stopped(&mut server);
@@ -924,7 +928,7 @@ fn a_signalled_run_stops_the_server_it_started() {
         Some(0),
         "`buri run` did not answer with the status its child drained with: {status}"
     );
-    refused(port);
+    gone(&server);
 }
 
 /// The signature failure beside it: a signal aimed at the whole process group
@@ -941,7 +945,7 @@ fn a_signalled_run_stops_the_server_it_started() {
 fn a_signal_to_the_whole_group_reaches_the_program_once() {
     let Some(scratch) = native_repo("run-signal-group", SERVER) else { return };
     let (mut server, first) = running(&scratch);
-    let port = announced_port(&first);
+    announced_port(&first);
 
     signal(&server, Aim::AtTheGroup, SIGINT);
     let status = stopped(&mut server);
@@ -950,7 +954,7 @@ fn a_signal_to_the_whole_group_reaches_the_program_once() {
         Some(0),
         "the program was killed rather than drained, so it was signalled twice: {status}"
     );
-    refused(port);
+    gone(&server);
 }
 
 /// A program that catches nothing is ended by the signal, and `buri run` says
@@ -988,5 +992,5 @@ fn a_signalled_page_server_gives_up_its_port() {
 
     signal(&server, Aim::AtTheWrapper, SIGTERM);
     let _ = stopped(&mut server);
-    refused(port);
+    gone(&server);
 }
