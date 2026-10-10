@@ -3257,7 +3257,7 @@ impl<'a> Jit<'a> {
                 if let ir::Inst::Binary { op, prim, rhs, .. } = i {
                     if let Some(k) = ent(constants, rhs.index(), None) {
                         if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
-                            let name = super::emit::binop_name(*op);
+                            let name = op.name();
                             let key = key!["bin/", name, "/", tag, "/fi/f"];
                             if self.has(&key) && !zero_divisor(name, tag, k) {
                                 bump(&mut imm, rhs.index());
@@ -3309,7 +3309,7 @@ impl<'a> Jit<'a> {
                             st.loc(*rhs).tag()
                         };
                         if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
-                            let key = key!["brcmp/", super::emit::binop_name(*op), "/", tag, "/", a, b];
+                            let key = key!["brcmp/", op.name(), "/", tag, "/", a, b];
                             if self.has(&key) {
                                 put(&mut p.skip, k, true);
                                 p.cmpbr = Some((*op, *prim, *lhs, *rhs));

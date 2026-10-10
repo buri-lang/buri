@@ -126,25 +126,6 @@ fn stencil_op(op: &str) -> &str {
     }
 }
 
-pub fn binop_name(op: BinOp) -> &'static str {
-    match op {
-        BinOp::Add => "add",
-        BinOp::Sub => "sub",
-        BinOp::Mul => "mul",
-        BinOp::Div => "div",
-        BinOp::Rem => "rem",
-        BinOp::BitAnd => "and",
-        BinOp::BitOr => "or",
-        BinOp::BitXor => "xor",
-        BinOp::Eq => "eq",
-        BinOp::Ne => "ne",
-        BinOp::Lt => "lt",
-        BinOp::Le => "le",
-        BinOp::Gt => "gt",
-        BinOp::Ge => "ge",
-    }
-}
-
 // `Fn2::folded`, `Fn2::constants` and `Fn2::wt` are `Jit::plan`'s side tables
 // and carry one entry per value of the `ir::Code` being emitted, exactly as
 // `Fn2::slot` — which is why `Fn2::at` reads its own with the same fallback.
@@ -1208,7 +1189,7 @@ impl<'a> Jit<'a> {
         let Some((tag, bits, signed)) = prim_tag(prim) else {
             return self.unsupported(format!("Binary at {prim:?}"));
         };
-        let name = binop_name(op);
+        let name = op.name();
         let d = st.at(dest);
         let a = st.at(lhs);
         let b = st.at(rhs);
@@ -1839,7 +1820,7 @@ impl<'a> Jit<'a> {
             let (tag, _, _) = prim_tag(prim)?;
             let la = st.loc(lhs).tag();
             let lb = if folded(st, rhs) { "i".into() } else { st.loc(rhs).tag() };
-            let k = key!["brcmp/", binop_name(op), "/", tag, "/", la, lb];
+            let k = key!["brcmp/", op.name(), "/", tag, "/", la, lb];
             return self.has(&k).then_some(k);
         }
         let k = key!["br/", st.loc(cond).tag()];
