@@ -345,6 +345,12 @@ moving or deleting code does that without lowering coverage.
 The baseline is x86_64 Linux's, so on any other host the gate prints its numbers
 and compares nothing.
 
+The gate counts everything the CLI runs: `cli/src` (every command, the build
+system, the language server, the documentation) and `crates/*/src`.
+`coverage/compiler.txt` breaks the total down by crate and by `cli/src`
+module. Raise coverage in the compiler and type checker first: `crates/syntax`,
+`crates/semantics`, `crates/middle` and the backends.
+
 Process per test also means a `OnceLock` no longer shares work across a
 binary's tests. Four things still need to be shared by the whole run, so they
 are named for it (`sweep::run_name`): the corpus pool's permits, the C driver

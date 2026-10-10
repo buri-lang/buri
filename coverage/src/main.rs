@@ -471,6 +471,20 @@ fn crate_of(path: &str) -> String {
     }
 }
 
+/// Where in `cli/src` a source sits: a command (`commands/lint`), a
+/// directory (`language_server`), or a file at the top (`json`).
+fn module_of(path: &str) -> Option<String> {
+    let rest = path.strip_prefix("cli/src/")?;
+    let mut parts = rest.split('/');
+    let first = parts.next()?;
+    let name = match (first, parts.next()) {
+        ("commands", Some(command)) => format!("commands/{}", command.trim_end_matches(".rs")),
+        (dir, Some(_)) => dir.to_string(),
+        (file, None) => file.trim_end_matches(".rs").to_string(),
+    };
+    Some(name)
+}
+
 /// `compiler.txt`: per crate, then the files with the most uncovered branches.
 fn summary(files: &BTreeMap<String, Counts>) -> String {
     let mut crates: BTreeMap<String, Counts> = BTreeMap::new();
@@ -484,12 +498,12 @@ fn summary(files: &BTreeMap<String, Counts>) -> String {
          # Branches gate; lines and regions are context.\n\n",
     );
     out.push_str(&format!(
-        "{:<20} {:>17} {:>8} {:>17} {:>8} {:>17} {:>8}\n",
+        "{:<24} {:>17} {:>8} {:>17} {:>8} {:>17} {:>8}\n",
         "crate", "branches", "", "lines", "", "regions", ""
     ));
     let row = |name: &str, c: &Counts| {
         format!(
-            "{name:<20} {:>17} {:>8} {:>17} {:>8} {:>17} {:>8}\n",
+            "{name:<24} {:>17} {:>8} {:>17} {:>8} {:>17} {:>8}\n",
             format!("{}/{}", c.branches_covered, c.branches),
             percent(c.branches_covered, c.branches),
             format!("{}/{}", c.lines_covered, c.lines),
@@ -502,6 +516,20 @@ fn summary(files: &BTreeMap<String, Counts>) -> String {
         out.push_str(&row(name, counts));
     }
     out.push_str(&row("total", &total));
+
+    let mut modules: BTreeMap<String, Counts> = BTreeMap::new();
+    for (path, counts) in files {
+        if let Some(module) = module_of(path) {
+            modules.entry(module).or_default().add(counts);
+        }
+    }
+    out.push_str(&format!(
+        "\n{:<24} {:>17} {:>8} {:>17} {:>8} {:>17} {:>8}\n",
+        "cli/src", "branches", "", "lines", "", "regions", ""
+    ));
+    for (name, counts) in &modules {
+        out.push_str(&row(name, counts));
+    }
 
     let mut worst: Vec<(&String, &Counts)> = files.iter().collect();
     worst.sort_by_key(|(path, c)| (std::cmp::Reverse(c.branches - c.branches_covered), path.as_str()));
@@ -717,6 +745,15 @@ mod tests {
             assert_eq!(relative(path, root), "cli/src/a.rs");
         }
         assert_eq!(relative(".cargo/registry/x.rs", root), ".cargo/registry/x.rs");
+    }
+
+    #[test]
+    fn the_cli_is_broken_down_by_command_and_module() {
+        assert_eq!(module_of("cli/src/commands/lint.rs").as_deref(), Some("commands/lint"));
+        assert_eq!(module_of("cli/src/commands/test/runner.rs").as_deref(), Some("commands/test"));
+        assert_eq!(module_of("cli/src/language_server/mod.rs").as_deref(), Some("language_server"));
+        assert_eq!(module_of("cli/src/json.rs").as_deref(), Some("json"));
+        assert_eq!(module_of("crates/syntax/src/lexer.rs"), None);
     }
 
     #[test]
