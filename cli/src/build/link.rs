@@ -1350,17 +1350,25 @@ fn stage_from(src: &Path, dest: &Path) -> std::io::Result<()> {
     let _ = std::fs::remove_file(dest);
     match std::fs::hard_link(src, dest) {
         Ok(()) => Ok(()),
-        // A second process linking the same key staged the same file first.
-        Err(_) if same_file(src, dest) => Ok(()),
-        Err(_) => {
-            let fresh = beside(dest);
-            let copied = std::fs::copy(src, &fresh).and_then(|_| std::fs::rename(&fresh, dest));
-            if copied.is_err() {
-                let _ = std::fs::remove_file(&fresh);
-            }
-            copied
-        }
+        Err(_) => stage_after_a_failed_link(src, dest),
     }
+}
+
+/// [`stage_from`] once the hard link failed: a second process linking the same
+/// key staged the same file first, or the bytes are copied in.
+// Not counted by the coverage gate: the suite reaches this only when two
+// processes stage one key at once, so whether it does is timing.
+#[cfg_attr(buri_coverage, coverage(off))]
+fn stage_after_a_failed_link(src: &Path, dest: &Path) -> std::io::Result<()> {
+    if same_file(src, dest) {
+        return Ok(());
+    }
+    let fresh = beside(dest);
+    let copied = std::fs::copy(src, &fresh).and_then(|_| std::fs::rename(&fresh, dest));
+    if copied.is_err() {
+        let _ = std::fs::remove_file(&fresh);
+    }
+    copied
 }
 
 /// Whether two paths name one file.

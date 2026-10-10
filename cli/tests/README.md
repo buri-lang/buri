@@ -351,6 +351,10 @@ system, the language server, the documentation) and `crates/*/src`.
 module. Raise coverage in the compiler and type checker first: `crates/syntax`,
 `crates/semantics`, `crates/middle` and the backends.
 
+One gap: a `buri` that dies by a signal writes no profile. So `buri run`'s page
+server and the `--watch` loops, which tests stop with `SIGTERM`, count 0 until
+they stop cleanly on one.
+
 Process per test also means a `OnceLock` no longer shares work across a
 binary's tests. Four things still need to be shared by the whole run, so they
 are named for it (`sweep::run_name`): the corpus pool's permits, the C driver
