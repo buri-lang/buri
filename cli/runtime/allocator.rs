@@ -340,6 +340,10 @@ fn new_page(heap: *mut Heap, c: usize) -> *mut Page {
 fn start_thread() -> *mut Heap {
     // Registering the exit hook may allocate, and that allocation comes from the system.
     let _ = HEAP.try_with(|h| h.set(SYSTEM));
+    // For good: memcheck sees system blocks one by one, and pages as one mapping.
+    if valgrind::reroutes() {
+        return SYSTEM;
+    }
     if EXIT.try_with(|_| ()).is_err() {
         return SYSTEM;
     }
@@ -530,6 +534,318 @@ mod os {
     pub fn reuse(_page: *mut u8) {}
 }
 
+/// Valgrind client requests, so memcheck sees each block rather than a few big
+/// pages (`design/native/MEMORY.md` §8).
+///
+/// Only with the `memcheck` feature. Without it [`valgrind::memcheck`] is a
+/// constant `false` and none of this is in the binary. With it, a program that
+/// isn't under memcheck asks once. Under memcheck:
+///
+/// - small blocks come from the system rather than from pages, and
+///   `memory.rs` caches none, so every block is allocated and freed where
+///   memcheck can see it;
+/// - on musl, whose `malloc` memcheck can't replace in a static binary, those
+///   system blocks are annotated here, with redzones, and a freed one waits
+///   behind 20 MB of later frees before it's reused, as memcheck's own do;
+/// - task stacks are registered as stacks.
+///
+/// cachegrind and callgrind see none of this, so the instruction gate measures
+/// the allocator a program ships with.
+///
+/// An in-process loader that maps code must also discard Valgrind's
+/// translations of it (`VALGRIND_DISCARD_TRANSLATIONS`, request `0x1002`).
+pub mod valgrind {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::ptr::null_mut;
+    use std::sync::atomic::Ordering::Relaxed;
+    use std::sync::atomic::{AtomicBool, AtomicU8};
+
+    const MALLOCLIKE_BLOCK: usize = 0x1301;
+    const FREELIKE_BLOCK: usize = 0x1302;
+    const RESIZEINPLACE_BLOCK: usize = 0x130b;
+    const STACK_REGISTER: usize = 0x1501;
+    const STACK_DEREGISTER: usize = 0x1502;
+    /// Memcheck's own requests start at `'M' << 24 | 'C' << 16`.
+    const MAKE_MEM_NOACCESS: usize = 0x4d43_0000;
+    const MAKE_MEM_UNDEFINED: usize = 0x4d43_0001;
+    const MAKE_MEM_DEFINED: usize = 0x4d43_0002;
+    #[cfg(feature = "memcheck")]
+    const CHECK_MEM_IS_ADDRESSABLE: usize = 0x4d43_0004;
+
+    /// Whether system blocks are annotated here: only where memcheck can't
+    /// replace `malloc`.
+    pub(super) const ANNOTATES: bool = cfg!(all(feature = "memcheck", target_env = "musl", not(test)));
+
+    /// Whether memcheck changes how this process allocates: pages, caches and
+    /// the heap check's quarantine all step aside. Not under `cfg(test)`, whose
+    /// tests are about those.
+    pub fn reroutes() -> bool {
+        !cfg!(test) && memcheck()
+    }
+
+    /// Marks `[p, p + len)` as written, for a read memcheck can't follow: a
+    /// task stack's watermark, below where its stack pointer was.
+    #[cold]
+    #[inline(never)]
+    pub fn make_defined(p: *mut u8, len: usize) {
+        mark(MAKE_MEM_DEFINED, p, len);
+    }
+
+    /// Bytes on each side of an annotated block. An overrun lands in them.
+    const REDZONE: usize = 32;
+
+    /// Freed bytes held back from reuse: memcheck's own `--freelist-vol`.
+    const QUARANTINE: usize = 20 << 20;
+
+    /// The request's answer, or `default` outside Valgrind.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[inline(always)]
+    fn request(default: usize, args: [usize; 6]) -> usize {
+        let result;
+        // SAFETY: the rotations total 128 bits, so `rdi` is unchanged, and
+        // `xchg rbx, rbx` is a no-op. Valgrind reads `args` through `rax`.
+        unsafe {
+            std::arch::asm!(
+                "rol rdi, 3", "rol rdi, 13", "rol rdi, 61", "rol rdi, 51", "xchg rbx, rbx",
+                in("rax") args.as_ptr(),
+                inout("rdx") default => result,
+                options(nostack),
+            );
+        }
+        result
+    }
+
+    /// The request's answer, or `default` outside Valgrind.
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    #[inline(always)]
+    fn request(default: usize, args: [usize; 6]) -> usize {
+        let result;
+        // SAFETY: the rotations total 128 bits, so `x12` is unchanged, and
+        // `orr x10, x10, x10` is a no-op. Valgrind reads `args` through `x4`.
+        unsafe {
+            std::arch::asm!(
+                "ror x12, x12, #3", "ror x12, x12, #13", "ror x12, x12, #51", "ror x12, x12, #61",
+                "orr x10, x10, x10",
+                in("x4") args.as_ptr(),
+                inout("x3") default => result,
+                options(nostack),
+            );
+        }
+        result
+    }
+
+    /// Valgrind doesn't run here.
+    #[cfg(not(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    #[inline(always)]
+    fn request(default: usize, _args: [usize; 6]) -> usize {
+        default
+    }
+
+    fn mark(what: usize, p: *mut u8, len: usize) {
+        request(0, [what, p.addr(), len, 0, 0, 0]);
+    }
+
+    /// Whether this process runs under memcheck, by a request only memcheck
+    /// answers. Asked once.
+    #[inline]
+    pub fn memcheck() -> bool {
+        #[cfg(not(feature = "memcheck"))]
+        return false;
+        #[cfg(feature = "memcheck")]
+        match STATE.load(Relaxed) {
+            1 => false,
+            2 => true,
+            _ => decide(),
+        }
+    }
+
+    /// [`memcheck`]'s answer: `0` until it's asked, then `1` for no, `2` for yes.
+    static STATE: AtomicU8 = AtomicU8::new(0);
+
+    /// Whether a block that exists was annotated: [`memcheck`] without the
+    /// call to ask, which the allocation of that block already made.
+    #[inline(always)]
+    pub(super) fn annotating() -> bool {
+        ANNOTATES && STATE.load(Relaxed) == 2
+    }
+
+    // Every request is out of line: its arguments are an array on the stack,
+    // which would give the allocator's fast path a frame.
+    #[cfg(feature = "memcheck")]
+    #[cold]
+    #[inline(never)]
+    fn decide() -> bool {
+        let probe = 0u8;
+        let at = std::ptr::addr_of!(probe).addr();
+        let yes = request(1, [CHECK_MEM_IS_ADDRESSABLE, at, 1, 0, 0, 0]) == 0;
+        STATE.store(if yes { 2 } else { 1 }, Relaxed);
+        yes
+    }
+
+    fn redzone(align: usize) -> usize {
+        REDZONE.max(align)
+    }
+
+    /// A system block for `chunk`, of which memcheck sees the first `size` bytes.
+    ///
+    /// # Safety
+    /// `chunk` has a non-zero size.
+    #[cold]
+    #[inline(never)]
+    pub(super) unsafe fn alloc(chunk: Layout, size: usize, zeroed: bool) -> *mut u8 {
+        let rz = redzone(chunk.align());
+        let Ok(outer) = Layout::from_size_align(chunk.size().saturating_add(2 * rz), chunk.align()) else {
+            return null_mut();
+        };
+        // SAFETY: a non-zero size.
+        let base = unsafe { if zeroed { System.alloc_zeroed(outer) } else { System.alloc(outer) } };
+        if base.is_null() {
+            return base;
+        }
+        let p = base.wrapping_add(rz);
+        mark(MAKE_MEM_NOACCESS, base, outer.size());
+        request(0, [MALLOCLIKE_BLOCK, p.addr(), size, rz, usize::from(zeroed), 0]);
+        p
+    }
+
+    /// `p`, from [`alloc`] for `chunk`, now holds `new` bytes rather than `old`.
+    #[cold]
+    #[inline(never)]
+    pub(super) fn resize(p: *mut u8, chunk: Layout, old: usize, new: usize) {
+        request(0, [RESIZEINPLACE_BLOCK, p.addr(), old, new, redzone(chunk.align()), 0]);
+    }
+
+    /// What a held block's redzone records, to find the next one and free this.
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Link {
+        next: *mut u8,
+        size: usize,
+        align: usize,
+    }
+
+    const LINK: usize = size_of::<Link>();
+    const _: () = assert!(LINK <= REDZONE);
+
+    static LOCK: AtomicBool = AtomicBool::new(false);
+    /// The oldest and newest held blocks, and the bytes held, behind `LOCK`.
+    static mut HEAD: *mut u8 = null_mut();
+    static mut TAIL: *mut u8 = null_mut();
+    static mut HELD: usize = 0;
+
+    /// Frees `p` for memcheck, and holds its memory back from reuse.
+    ///
+    /// # Safety
+    /// `p` came from [`alloc`] for `chunk`, and nothing uses it again.
+    #[cold]
+    #[inline(never)]
+    pub(super) unsafe fn dealloc(p: *mut u8, chunk: Layout) {
+        let rz = redzone(chunk.align());
+        request(0, [FREELIKE_BLOCK, p.addr(), rz, 0, 0, 0]);
+        let base = p.wrapping_sub(rz);
+        let size = chunk.size() + 2 * rz;
+        if size > QUARANTINE {
+            // SAFETY: the size and alignment `alloc` made the block with.
+            unsafe { release(base, Link { next: null_mut(), size, align: chunk.align() }) };
+            return;
+        }
+        let _held = super::lock(&LOCK);
+        // SAFETY: the lock is held, and every link is in a held block's redzone.
+        unsafe {
+            write_link(base, Link { next: null_mut(), size, align: chunk.align() });
+            if TAIL.is_null() {
+                HEAD = base;
+            } else {
+                write_link(TAIL, Link { next: base, ..read_link(TAIL) });
+            }
+            TAIL = base;
+            HELD += size;
+            while HELD > QUARANTINE {
+                let oldest = HEAD;
+                let link = read_link(oldest);
+                HEAD = link.next;
+                if HEAD.is_null() {
+                    TAIL = null_mut();
+                }
+                HELD -= link.size;
+                release(oldest, link);
+            }
+        }
+    }
+
+    /// The link in a held block's redzone, opened for the read and closed again.
+    unsafe fn read_link(base: *mut u8) -> Link {
+        mark(MAKE_MEM_DEFINED, base, LINK);
+        // SAFETY: the caller's held block, which starts with its link.
+        let link = unsafe { base.cast::<Link>().read_unaligned() };
+        mark(MAKE_MEM_NOACCESS, base, LINK);
+        link
+    }
+
+    unsafe fn write_link(base: *mut u8, link: Link) {
+        mark(MAKE_MEM_UNDEFINED, base, LINK);
+        // SAFETY: the caller's held block, whose redzone is at least `LINK` bytes.
+        unsafe { base.cast::<Link>().write_unaligned(link) };
+        mark(MAKE_MEM_NOACCESS, base, LINK);
+    }
+
+    /// Gives a block back to the system. Defined, as untracked memory is:
+    /// musl's `malloc` puts its own header inside a slot it hands out again.
+    unsafe fn release(base: *mut u8, link: Link) {
+        mark(MAKE_MEM_DEFINED, base, link.size);
+        // SAFETY: `base` came from `System` at this size and alignment.
+        unsafe { System.dealloc(base, Layout::from_size_align_unchecked(link.size, link.align)) };
+    }
+
+    /// Tells memcheck `[low, high)` is a stack, and answers its id.
+    #[cold]
+    #[inline(never)]
+    pub fn stack_register(low: *mut u8, high: *mut u8) -> usize {
+        request(0, [STACK_REGISTER, low.addr(), high.addr(), 0, 0, 0])
+    }
+
+    /// Forgets the stack [`stack_register`] answered `id` for.
+    #[cold]
+    #[inline(never)]
+    pub fn stack_deregister(id: usize) {
+        request(0, [STACK_DEREGISTER, id, 0, 0, 0, 0]);
+    }
+}
+
+/// [`System`], or under memcheck on musl an annotated block for `chunk`, of
+/// which the caller asked for `size` bytes.
+///
+/// Out of line where it annotates, so `alloc` and `dealloc` stay small enough
+/// to inline into the cache's sweep.
+///
+/// # Safety
+/// `chunk` has a non-zero size.
+#[cfg_attr(all(feature = "memcheck", target_env = "musl", not(test)), inline(never))]
+#[cfg_attr(not(all(feature = "memcheck", target_env = "musl", not(test))), inline)]
+unsafe fn system_alloc(chunk: Layout, size: usize, zeroed: bool) -> *mut u8 {
+    if valgrind::ANNOTATES && valgrind::memcheck() {
+        // SAFETY: forwarded.
+        return unsafe { valgrind::alloc(chunk, size, zeroed) };
+    }
+    // SAFETY: forwarded.
+    unsafe { if zeroed { System.alloc_zeroed(chunk) } else { System.alloc(chunk) } }
+}
+
+/// Gives back a block [`system_alloc`] made for `chunk`.
+///
+/// # Safety
+/// `p` came from [`system_alloc`] for `chunk`.
+#[cfg_attr(all(feature = "memcheck", target_env = "musl", not(test)), inline(never))]
+#[cfg_attr(not(all(feature = "memcheck", target_env = "musl", not(test))), inline)]
+unsafe fn system_dealloc(p: *mut u8, chunk: Layout) {
+    if valgrind::annotating() {
+        // SAFETY: forwarded.
+        return unsafe { valgrind::dealloc(p, chunk) };
+    }
+    // SAFETY: forwarded.
+    unsafe { System.dealloc(p, chunk) }
+}
+
 impl Allocator {
     /// A block of class `c` when the first page on the list has nothing free.
     #[cold]
@@ -570,7 +886,7 @@ impl Allocator {
         let page = new_page(heap, c);
         if page.is_null() {
             // SAFETY: a non-zero size.
-            return unsafe { System.alloc(class_layout(c)) };
+            return unsafe { system_alloc(class_layout(c), SIZES[c], false) };
         }
         // SAFETY: a fresh page, which has room for at least one block.
         unsafe {
@@ -613,7 +929,7 @@ unsafe impl GlobalAlloc for Allocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let Some(c) = class(layout) else {
             // SAFETY: the caller's contract, passed through.
-            return unsafe { System.alloc(layout) };
+            return unsafe { system_alloc(layout, layout.size(), false) };
         };
         let mut heap = HEAP.try_with(Cell::get).unwrap_or(SYSTEM);
         if heap.is_null() {
@@ -621,7 +937,7 @@ unsafe impl GlobalAlloc for Allocator {
         }
         if heap == SYSTEM {
             // SAFETY: a non-zero size.
-            return unsafe { System.alloc(class_layout(c)) };
+            return unsafe { system_alloc(class_layout(c), layout.size(), false) };
         }
         // SAFETY: this thread's heap and page; the list holds free blocks of class `c`.
         unsafe {
@@ -642,11 +958,11 @@ unsafe impl GlobalAlloc for Allocator {
     unsafe fn dealloc(&self, p: *mut u8, layout: Layout) {
         let Some(c) = class(layout) else {
             // SAFETY: the caller's contract, passed through.
-            return unsafe { System.dealloc(p, layout) };
+            return unsafe { system_dealloc(p, layout) };
         };
         let Some(page) = page_of(p) else {
             // SAFETY: a small block outside the range came from the system at its class's layout.
-            return unsafe { System.dealloc(p, class_layout(c)) };
+            return unsafe { system_dealloc(p, class_layout(c)) };
         };
         let heap = HEAP.try_with(Cell::get).unwrap_or(SYSTEM);
         // SAFETY: `p` is a free block of `page`, whose `owner` never changes.
@@ -691,7 +1007,7 @@ unsafe impl GlobalAlloc for Allocator {
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         if class(layout).is_none() {
             // SAFETY: the caller's contract, passed through.
-            return unsafe { System.alloc_zeroed(layout) };
+            return unsafe { system_alloc(layout, layout.size(), true) };
         }
         // SAFETY: the caller's contract.
         let p = unsafe { self.alloc(layout) };
@@ -708,9 +1024,16 @@ unsafe impl GlobalAlloc for Allocator {
         let new = unsafe { Layout::from_size_align_unchecked(new_size, layout.align()) };
         match (class(layout), class(new)) {
             // A block holds its whole class, wherever it came from.
-            (Some(a), Some(b)) if a == b => p,
+            (Some(a), Some(b)) if a == b => {
+                if valgrind::annotating() {
+                    valgrind::resize(p, class_layout(a), layout.size(), new_size);
+                }
+                p
+            }
             // SAFETY: the caller's contract, passed through.
-            (None, None) => unsafe { System.realloc(p, layout, new_size) },
+            (None, None) if !valgrind::annotating() => unsafe {
+                System.realloc(p, layout, new_size)
+            },
             _ => {
                 // SAFETY: the caller's contract.
                 let q = unsafe { self.alloc(new) };

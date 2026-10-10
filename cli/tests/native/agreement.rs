@@ -206,6 +206,18 @@ impl Native {
     }
 }
 
+/// The LLVM backend, for `conformance::Build`'s two LLVM builds; `build`
+/// names the one that asked.
+pub(crate) fn llvm(build: &str) -> Box<dyn Backend> {
+    #[cfg(feature = "backend-llvm")]
+    {
+        let _ = build;
+        Box::new(backend::llvm::Llvm::default())
+    }
+    #[cfg(not(feature = "backend-llvm"))]
+    panic!("the {build} build needs `--features backend-llvm`")
+}
+
 fn host_target() -> Target {
     Target {
         platform: if cfg!(target_os = "macos") { Platform::Macos } else { Platform::Linux },
@@ -498,7 +510,8 @@ pub(crate) fn link_and_run(row: &str, native: Native, units: &[backend::Emitted]
     // with agreement about what was *freed*, and the rows pay nothing for it
     // (`shared::ran_checked`, and `cli/runtime/memory.rs`'s heap-check
     // section).
-    let ran = crate::shared::ran_checked(&binary);
+    let profile = if matches!(native.profile, Profile::Release) { "release" } else { "debug" };
+    let ran = crate::shared::ran_built(&binary, &format!("{} {profile}", native.name));
     Ran { status: ran.status, stdout: ran.stdout, stderr: ran.stderr }
 }
 

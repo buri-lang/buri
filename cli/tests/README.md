@@ -526,6 +526,45 @@ cargo nextest run -p buri-rt-tests --features net-h3                        # BU
 dependencies, features and locked versions equal to `cli/runtime/manifest.toml`
 and `manifest.lock`.
 
+### Memcheck
+
+`.github/workflows/memcheck.yml` runs these under Valgrind's memcheck at 03:41
+and 15:41 UTC, Linux only:
+
+| Shard | What runs under memcheck |
+|---|---|
+| `stencil-debug`, `llvm-debug`, `llvm-release` | `native::conformance`'s native set, built that way |
+| `agreement` | `native::agreement` and `native::at_scale`, on stencil and LLVM release |
+| `runtime` | `buri-rt-tests`, x86_64 only |
+
+```
+nix develop .#perf -c env BURI_MEMCHECK=/tmp/memcheck BURI_CONFORMANCE_BUILD=llvm-release \
+  cargo test -p buri --features backend-llvm,memcheck --test native -- conformance::the_native_set_passes
+nix develop .#perf -c cargo run -p buri --features backend-llvm,memcheck --example memcheck -- report /tmp/memcheck
+```
+
+- The `memcheck` feature builds a runtime that steps aside for memcheck
+  (design/native/MEMORY.md §8). Without it memcheck sees a few big pages.
+- `BURI_MEMCHECK` makes `native/shared.rs` run every program the suite built
+  under memcheck (`native/memcheck.rs`), with its report in `runs/`. `buri`
+  and cargo aren't.
+- `BURI_CONFORMANCE_BUILD` is `stencil` (the default), `llvm-debug` or
+  `llvm-release`.
+- `report` writes one draft issue per distinct error to `issues/`. An error is
+  its kind and its first named frame past the allocator, so one bug reached by
+  many programs is one issue.
+- The workflow files a draft from `main` only, and only when no open issue has
+  its signature in the title. Elsewhere it prints the issue it would file.
+- A definite leak is an error, except in the runtime's unit tests, some of
+  which leave a block behind on purpose.
+- `native/memcheck.supp` holds the suppressions, each with its reason. None
+  covers Buri code or `cli/runtime`.
+- arm64 runs the compiled programs too. Its port of memcheck reports
+  uninitialised values in safe Rust under the runtime's tests, so those run on
+  x86_64.
+
+A run takes about ten minutes, most of it the build.
+
 ### The five-minute budget
 
 The whole verification bar runs in **under five minutes**. That is a policy: a

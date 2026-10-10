@@ -166,6 +166,10 @@ mod shard;
 // of the file is what makes the unread rest of it free.
 mod shared;
 
+// The scheduled memcheck job's hook: `shared` runs each program it built
+// under memcheck when `BURI_MEMCHECK` is set.
+mod memcheck;
+
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod agreement;
 // The end-to-end tier: whole programs, a real process, a real socket. Gated

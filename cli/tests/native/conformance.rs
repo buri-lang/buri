@@ -1022,7 +1022,7 @@ fn linked_for_the_run(name: &str, source: &str) -> Built {
     crate::sweep::once();
     // The same binary in every process, so the same hash for the same source.
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    (name, source).hash(&mut hasher);
+    (name, source, Build::chosen().label()).hash(&mut hasher);
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("native-linked-{}", crate::sweep::run_name()))
         .join(format!("{}-{:016x}", name.replace('/', "-"), hasher.finish()));
@@ -1042,6 +1042,51 @@ fn linked_for_the_run(name: &str, source: &str) -> Built {
 /// or `None` for a file in the set or not in the corpus.
 pub(crate) fn excluded_because(path: &str) -> Option<&'static str> {
     PACKAGES.iter().find(|c| c.path == path).and_then(|c| c.out.as_ref()).map(Out::why)
+}
+
+/// What the native set is built with: the development backend, unless
+/// `BURI_CONFORMANCE_BUILD` names `llvm-debug` or `llvm-release`, the memcheck
+/// job's other two builds (cli/tests/README.md).
+#[derive(Clone, Copy)]
+pub(crate) enum Build {
+    Stencil,
+    LlvmDebug,
+    LlvmRelease,
+}
+
+impl Build {
+    pub(crate) fn chosen() -> Build {
+        match std::env::var("BURI_CONFORMANCE_BUILD").as_deref() {
+            Err(_) | Ok("" | "stencil") => Build::Stencil,
+            Ok("llvm-debug") => Build::LlvmDebug,
+            Ok("llvm-release") => Build::LlvmRelease,
+            Ok(other) => panic!(
+                "BURI_CONFORMANCE_BUILD={other}: expected `stencil`, `llvm-debug` or `llvm-release`"
+            ),
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Build::Stencil => "stencil debug",
+            Build::LlvmDebug => "llvm debug",
+            Build::LlvmRelease => "llvm release",
+        }
+    }
+
+    fn profile(self) -> Profile {
+        match self {
+            Build::LlvmRelease => Profile::Release,
+            Build::Stencil | Build::LlvmDebug => Profile::Debug,
+        }
+    }
+
+    fn backend(self) -> Box<dyn Backend> {
+        match self {
+            Build::Stencil => Box::new(Stencil::default()),
+            Build::LlvmDebug | Build::LlvmRelease => crate::agreement::llvm(self.label()),
+        }
+    }
 }
 
 /// [`linked`] without the memo, which is where the work is, into `dir`.
@@ -1067,8 +1112,9 @@ fn build(name: &str, source: &str, dir: &Path) -> Built {
     let blocks = program.roots.tests().len();
 
     let target = Target { platform: host_platform(), arch: None };
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
-    let mut backend = Stencil::default();
+    let build = Build::chosen();
+    let opts = Options { profile: build.profile(), target, unit_prefix: "" };
+    let mut backend = build.backend();
     let missing = backend.missing_intrinsics(&program, &analysis.checked.tables);
     if !missing.is_empty() {
         return Built::Unsupported(format!("the backend is missing {missing:?}"));
@@ -1127,7 +1173,7 @@ fn run(name: &str, source: &str) -> Result<(i32, String, String, usize), String>
         Built::FrontEnd(why) => return Err(why),
         Built::Unsupported(why) => panic!("{name}: {why}"),
     };
-    let ran = crate::shared::ran_checked(&binary);
+    let ran = crate::shared::ran_built(&binary, Build::chosen().label());
     Ok((ran.status, ran.stdout, ran.stderr, blocks))
 }
 
@@ -1358,7 +1404,7 @@ fn native_set_shard(at: usize, count: usize) {
                 panic!("`{}` is in the native set but {why}", case.path)
             }
         };
-        let output = crate::shared::ran_checked(&binary);
+        let output = crate::shared::ran_built(&binary, Build::chosen().label());
         let (status, out, err) = (output.status, output.stdout, output.stderr);
         // The heap invariant, and it is a *different* verdict from the one
         // above: a program that failed an assertion aborts, which is status 1

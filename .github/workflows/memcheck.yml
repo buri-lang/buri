@@ -1,0 +1,153 @@
+name: Memcheck
+
+# Compiled Buri programs and the native runtime under Valgrind's memcheck, twice
+# a day (design/native/MEMORY.md §8, cli/tests/README.md "Memcheck"). Each
+# distinct error becomes one GitHub issue, labelled `planned` and `urgent`.
+#
+# * **The workload** is the native conformance set built three ways, the
+#   backend-agreement and at-scale rows on both native backends, and the
+#   runtime's unit tests. `BURI_MEMCHECK` makes `cli/tests/native/shared.rs`
+#   run each program it built under memcheck; the runtime's tests are one
+#   program, run by the same tool.
+# * **`--features memcheck`** builds a runtime that, under memcheck, takes
+#   every block from the system allocator one at a time, annotated where
+#   memcheck can't see `malloc` (`cli/runtime/allocator.rs`, `valgrind`).
+# * **Issues are filed from `main` only.** A run on any other ref prints the
+#   issues it would have filed.
+#
+# The schedule fires only from the default branch, at minute 41, away from the
+# top of the hour when every other schedule fires.
+
+on:
+  schedule:
+    - cron: "41 3,15 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: memcheck-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
+  # No silent skip: `cli/tests/harness/ci.rs` panics on one.
+  BURI_CI: 1
+
+jobs:
+  memcheck:
+    name: memcheck (${{ matrix.shard }}, ${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, arm64]
+        shard: [stencil-debug, llvm-debug, llvm-release, agreement, runtime]
+        include:
+          - { arch: x86_64, os: blacksmith-8vcpu-ubuntu-2404 }
+          - { arch: arm64, os: blacksmith-8vcpu-ubuntu-2404-arm }
+        # Valgrind's arm64 port reports uninitialised values in safe Rust under
+        # the runtime's tests (tokio's timer wheel, taffy's layout) that the
+        # x86_64 port doesn't. Its compiled programs agree with x86_64's.
+        exclude:
+          - { arch: arm64, shard: runtime }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      BURI_MEMCHECK: ${{ github.workspace }}/target/memcheck
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: memcheck-${{ matrix.arch }}
+      # The runtime archive `cli/build.rs` builds, which rust-cache drops (see
+      # ci.yml's `test` job).
+      - uses: actions/cache@v6
+        with:
+          path: target/debug/build
+          key: memcheck-buildscript-${{ matrix.arch }}-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: memcheck-buildscript-${{ matrix.arch }}-
+      # The agreement rows compare each native answer with JavaScript's.
+      - uses: oven-sh/setup-bun@v2
+      # `NIX_HARDENING_ENABLE=` everywhere: the C probes some rows link beside a
+      # program are compiled by the shell's clang, whose fortify asks musl for
+      # `__*_chk`, and a step that changed it would rebuild the runtime.
+      - name: Build
+        run: |
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,memcheck --test native --no-run
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo build -p buri --features backend-llvm,memcheck --example memcheck
+      - name: The conformance set, ${{ matrix.shard }}
+        if: startsWith(matrix.shard, 'stencil') || startsWith(matrix.shard, 'llvm')
+        env:
+          BURI_CONFORMANCE_BUILD: ${{ matrix.shard == 'stencil-debug' && 'stencil' || matrix.shard }}
+        run: nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,memcheck --test native -- conformance::the_native_set_passes
+      - name: The agreement and at-scale rows
+        if: matrix.shard == 'agreement'
+        run: "nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,memcheck --test native -- agreement:: at_scale::"
+      - name: The runtime's unit tests
+        if: matrix.shard == 'runtime'
+        env:
+          # Ten thousand parked tasks' stacks are more address space than
+          # Valgrind gives a program; a thousand still asks the same question.
+          BURI_B9_PARKED: "1000"
+        run: |
+          set -euo pipefail
+          tests="$(nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri-rt-tests --features memcheck --no-run --message-format=json-render-diagnostics \
+            | jq -r 'select(.profile.test == true) | .executable | select(. != null)')"
+          nix develop .#perf -c target/debug/examples/memcheck tests "$BURI_MEMCHECK" 'runtime unit tests' "$tests" --test-threads=1
+      - name: Report
+        if: always()
+        run: nix develop .#perf -c target/debug/examples/memcheck report "$BURI_MEMCHECK"
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: memcheck-${{ matrix.shard }}-${{ matrix.arch }}
+          path: target/memcheck
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # One issue per signature, and none for a signature with an open issue. The
+  # only job with write access, and only to issues.
+  file:
+    needs: memcheck
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: memcheck-*
+          path: reports
+      - name: File one issue per new error
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          FILE: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          set -euo pipefail
+          mkdir -p drafts
+          # The same signature from two shards is one draft.
+          find reports -path '*/issues/*.md' -exec cp -n {} drafts/ \;
+          for draft in drafts/*.md; do
+            [ -e "$draft" ] || { echo "no errors"; break; }
+            signature="$(basename "$draft" .md)"
+            title="$(head -n 1 "$draft")"
+            tail -n +2 "$draft" > body.md
+            open="$(gh issue list --state open --search "\"[$signature]\" in:title" --json number --jq length)"
+            if [ "$open" != 0 ]; then
+              echo "already open: $title"
+            elif [ "$FILE" = true ]; then
+              gh issue create --title "$title" --body-file body.md --label planned --label urgent
+            else
+              echo "would file (not on main): $title"
+              cat body.md
+            fi
+          done

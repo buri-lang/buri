@@ -1143,3 +1143,45 @@ per intrinsic) or a widened ABI that passes the charge and the counter handle
 into the runtime (needing every `buri_rt_*` producer to take two more
 arguments). Both are two-backend changes, and doing one backend alone breaks
 the one property the module has: that the numbers agree.
+
+## 8. Under memcheck
+
+`.github/workflows/memcheck.yml` runs compiled programs and the runtime's tests
+under Valgrind's memcheck twice a day, and files each distinct error as an issue
+labelled `planned` and `urgent`. cli/tests/README.md, "Memcheck", says how to
+run it.
+
+Memcheck tracks `malloc` and `free`, and this runtime mostly avoids them: blocks
+come from pages (§5.4) and go back to per-thread caches. A Linux program is
+also a static musl binary, whose `malloc` memcheck can't replace. So the runtime
+asks, once per process, whether memcheck is running, and steps aside:
+
+| Normally | Under memcheck |
+|---|---|
+| small blocks from 32 KiB pages | every block from the system allocator |
+| freed blocks kept in a per-thread cache, large ones too | every free reaches the allocator |
+| the heap check's quarantine poisons freed blocks and holds them | the exit audit only |
+| musl's `malloc`, invisible | blocks annotated with 32-byte redzones, and 20 MB of frees held back from reuse |
+| task stacks are plain memory | task stacks registered as stacks |
+
+**Client requests, not an environment variable.** A mode that sent every
+allocation to `malloc` would catch nothing in a static musl binary, where
+memcheck can't see `malloc` either. The annotations are needed regardless, and
+once they exist the mode adds nothing but a flag to forget. The question is a
+request only memcheck answers, so a program from a memcheck build needs no
+setting, and under cachegrind it runs the allocator that ships.
+
+**Behind a feature.** `cargo build -p buri --features memcheck` builds a
+toolchain whose runtime carries all this. Without the feature none of it is in
+the binary. Compiled in always, the annotations cost 1.5 KB of hello world on
+Linux, and an inlined check kept `dealloc` out of the cache's sweep: `run/tree`
+ran 9% more instructions.
+
+**The heap check is reused in part.** Its quarantine fills a freed block with
+poison and holds it live, so a stale read reads poison where memcheck should
+report it. Under memcheck `BURI_RT_HEAP_CHECK=1` keeps the leak audit and drops
+the quarantine.
+
+**What it can't see.** A scope's arena (`core/alloc::scoped`) is bump-allocated
+in a mapping, so a block inside one isn't tracked, and neither is the Buri data
+stack. Stencil-built code has no function names, so its frames read `???`.

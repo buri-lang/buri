@@ -73,7 +73,20 @@ pub fn ran_unchecked(binary: &Path) -> Ran {
 
 /// [`ran`] for a command a caller has already configured.
 pub fn ran_command(cmd: &mut Command) -> Ran {
-    let out = cmd.output().unwrap();
+    ran_as(cmd, "a build this harness doesn't name")
+}
+
+/// [`ran_checked`] for a program built with `build`, a backend and profile
+/// such as `stencil debug`, which a memcheck report names.
+pub fn ran_built(binary: &Path, build: &str) -> Ran {
+    let mut cmd = Command::new(binary);
+    heap_checked(&mut cmd);
+    ran_as(&mut cmd, build)
+}
+
+/// Runs `cmd`, under memcheck when `BURI_MEMCHECK` asks (`memcheck.rs`).
+fn ran_as(cmd: &mut Command, build: &str) -> Ran {
+    let out = crate::memcheck::output(cmd, build).unwrap_or_else(|| cmd.output().unwrap());
     Ran {
         status: out.status.code().unwrap_or(-1),
         stdout: String::from_utf8_lossy(&out.stdout).to_string(),
