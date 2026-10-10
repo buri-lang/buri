@@ -1572,6 +1572,10 @@ fn runtime_archive(manifest: &Path) {
     }
     command.arg("--").args(RUNTIME_RUSTC_ARGS);
 
+    // The runtime crate is rebuilt every time (see [`STAMP`]), so clearing its
+    // build directory costs nothing and leaves `built_archive` one candidate.
+    let release = target_dir.join(&target).join("release");
+    let _ = std::fs::remove_dir_all(release.join("build").join("buri-rt"));
     match command.status() {
         Ok(s) if s.success() => {}
         // A tree that resolved and then failed to compile is a broken runtime
@@ -1584,11 +1588,7 @@ fn runtime_archive(manifest: &Path) {
         copy_if_different(&pkg.join("Cargo.lock"), &runtime.join("manifest.lock"));
     }
 
-    // `deps/` rather than the profile directory above it: Cargo hard-links an
-    // artifact up one level only when the copy in `deps/` has a different name,
-    // and an empty `-C extra-filename` makes the two names the same, so the
-    // uplift does not happen and `deps/` is where the archive actually is.
-    let built = target_dir.join(&target).join("release/deps/libburi_rt.a");
+    let built = built_archive(&release);
     let bytes = match std::fs::read(&built) {
         Ok(bytes) => bytes,
         Err(e) => {
@@ -1771,6 +1771,23 @@ fn env(name: &str) -> String {
         Ok(v) => v,
         Err(_) => fail(&format!("cargo did not set {name}")),
     }
+}
+
+/// Where the nested build left `libburi_rt.a` under `release`.
+///
+/// Cargo uplifts an artifact only when its name differs from the one it was
+/// built under, and an empty `-C extra-filename` makes them the same, so the
+/// archive stays where it was built: `deps/` in cargo's old layout, and
+/// `build/buri-rt/<hash>/out/` in the one 1.100 makes the default.
+/// `cli/src/build/runtime_cross.rs` looks in the same two places.
+fn built_archive(release: &Path) -> PathBuf {
+    let built = std::fs::read_dir(release.join("build").join("buri-rt"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|unit| unit.path().join("out").join("libburi_rt.a"))
+        .find(|archive| archive.is_file());
+    built.unwrap_or_else(|| release.join("deps").join("libburi_rt.a"))
 }
 
 fn fail(message: &str) -> ! {

@@ -341,7 +341,7 @@ fn run_cargo(
     features: &[String],
     target_dir: &Path,
 ) -> Result<PathBuf, link_refusal::Refusal> {
-    let built = target_dir.join(triple).join("release/deps/libburi_rt.a");
+    let release = target_dir.join(triple).join("release");
     let mut last: Option<String> = None;
     for offline in [true, false] {
         let mut command = Command::new(cargo);
@@ -375,7 +375,7 @@ fn run_cargo(
             "-Cextra-filename=",
         ]);
         match crate::build::spawn::output(&mut command) {
-            Ok(out) if out.status.success() => return Ok(built),
+            Ok(out) if out.status.success() => return Ok(built_archive(&release)),
             Ok(out) => last = Some(String::from_utf8_lossy(&out.stderr).into_owned()),
             Err(e) => last = Some(e.to_string()),
         }
@@ -400,6 +400,19 @@ fn run_cargo(
         }
     }
     Err(refusal)
+}
+
+/// Where the nested build left `libburi_rt.a`, as `cli/build.rs::built_archive`
+/// finds it: `deps/` in cargo's old layout, `build/buri-rt/<hash>/out/` in the
+/// one 1.100 makes the default. `release` is fresh, so there is one candidate.
+fn built_archive(release: &Path) -> PathBuf {
+    let built = std::fs::read_dir(release.join("build").join("buri-rt"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|unit| unit.path().join("out").join("libburi_rt.a"))
+        .find(|archive| archive.is_file());
+    built.unwrap_or_else(|| release.join("deps").join("libburi_rt.a"))
 }
 
 /// A cache hit: the archive, the sysroot and the sidecars all present in `dir`,
