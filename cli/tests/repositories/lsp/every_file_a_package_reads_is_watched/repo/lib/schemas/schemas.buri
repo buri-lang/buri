@@ -1,0 +1,6 @@
+from "//lib/schemas/files" import { A_TXT };
+
+/// The text of a.txt.
+export fn a(): Str {
+    A_TXT
+}
