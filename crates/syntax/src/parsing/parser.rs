@@ -4580,18 +4580,33 @@ mod tests {
     /// One syntax error per location used to be a scan of every error reported
     /// so far, which is quadratic in a file that produces a lot of them — and a
     /// truncated or generated file produces a lot of them.
+    ///
+    /// Counted in this thread's instructions, the fewest of three parses, so
+    /// load can't move it: forty thousand errors cost 2.0 times twenty
+    /// thousand, and the scan made it 3.6. Off macOS hardware nothing counts,
+    /// and this checks only that the errors are reported.
     #[test]
     fn a_file_full_of_errors_is_read_in_time_proportional_to_its_size() {
-        let src: String = (0..40_000).map(|_| "fn ;\n").collect();
-        let started = std::time::Instant::now();
-        let p = parse(&src, FileId(0));
-        assert!(!p.errors.is_empty());
-        // Generous by two orders of magnitude: the point is that it is not
-        // n², which took half a minute at this size.
+        let cost = |n: usize| {
+            let src: String = (0..n).map(|_| "fn ;\n").collect();
+            let mut fewest = u64::MAX;
+            for _ in 0..3 {
+                let before = buri_diagnostics::profile::thread_instructions();
+                let p = parse(&src, FileId(0));
+                fewest = fewest.min(buri_diagnostics::profile::thread_instructions().saturating_sub(before));
+                assert!(p.errors.len() >= n, "{n} broken declarations reported {} errors", p.errors.len());
+            }
+            fewest
+        };
+        let (small, large) = (cost(20_000), cost(40_000));
+        if small == 0 {
+            return;
+        }
+        let ratio = large as f64 / small as f64;
         assert!(
-            started.elapsed() < std::time::Duration::from_secs(10),
-            "parsing 40,000 errors took {:?}",
-            started.elapsed()
+            ratio <= 2.5,
+            "forty thousand errors cost {large} instructions, {ratio:.2} times the {small} \
+             twenty thousand did"
         );
     }
 }
