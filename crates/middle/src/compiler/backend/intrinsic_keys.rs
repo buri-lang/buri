@@ -38,6 +38,18 @@ pub fn prim_trait_op(key: &str) -> bool {
     )
 }
 
+/// Whether a key has a body on every native backend with no table row or
+/// open-coded sequence of its own: a loop `middle::lower` builds, a `core/bits`
+/// operation, a derive leaf, a `number.<T>.<op>` operation, or a
+/// [`prim_trait_op`]. Each backend's `implemented` adds what it claims alone.
+pub fn native_body(key: &str) -> bool {
+    crate::compiler::middle::lower::lowers(key)
+        || bits_op(key)
+        || prim_trait_op(key)
+        || derive_key(key).is_some()
+        || numeric_key(key)
+}
+
 /// `core/lazy`'s one declaration, and the node the split pass leaves where a
 /// call to it stood.
 ///
