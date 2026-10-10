@@ -141,6 +141,10 @@ fn parse_inner(text: &str, file: FileId, allow_bodyless: bool) -> (Parsed, Kept<
         },
         scratch: Scratch::default(),
         last: lexed.tokens.len().saturating_sub(1),
+        cur: lexed.tokens.kind(0),
+        here: lexed.tokens.loc(0),
+        before: lexed.tokens.loc(0),
+        file,
         tokens: lexed.tokens,
         trivia: lexed.trivia,
         pos: 0,
@@ -429,6 +433,21 @@ fn binding_power(t: TokenKind) -> Option<(BinOp, u8, u8, usize)> {
     Some((op, base, base.saturating_add(1), level))
 }
 
+/// Whether a token continues a postfix chain: the set [`Parser::postfix_ops`]
+/// looks at before anything else.
+fn starts_postfix(t: TokenKind) -> bool {
+    matches!(
+        t,
+        TokenKind::Dot
+            | TokenKind::LParen
+            | TokenKind::LBracket
+            | TokenKind::Question
+            | TokenKind::Lt
+            | TokenKind::ColonColon
+            | TokenKind::LBrace
+    )
+}
+
 /// Bail-out for error recovery: unwinds to the nearest item or statement.
 struct Bail;
 type PResult<T> = Result<T, Bail>;
@@ -519,6 +538,14 @@ struct Parser<'a> {
     /// lookup and a subtraction on every token access.
     last: usize,
     pos: usize,
+    /// The kind and location of the token at `pos`, and the location of the
+    /// one before it. The parser asks these several times a token, and
+    /// [`Parser::bump`] and [`Parser::seek`], the only two places that move
+    /// `pos`, keep them.
+    cur: TokenKind,
+    here: Location,
+    before: Location,
+    file: FileId,
     errors: Vec<Diagnostic>,
     /// The spans already reported, so that "one syntax error per location" is
     /// a lookup rather than a scan of everything reported so far. Scanning
@@ -633,7 +660,7 @@ impl<'a> Parser<'a> {
     /// forty-eight-byte record's discriminant and payload — which is the
     /// reason the token buffer is columns. See [`crate::parsing::lexer::Tokens`].
     fn peek(&self) -> TokenKind {
-        self.tokens.kind(self.at(self.pos))
+        self.cur
     }
 
     fn kind_at(&self, i: usize) -> TokenKind {
@@ -641,11 +668,11 @@ impl<'a> Parser<'a> {
     }
 
     fn span(&self) -> Span {
-        self.tokens.span(self.at(self.pos))
+        Span { file: self.file, start: self.here.start, end: self.here.end }
     }
 
     fn prev_span(&self) -> Span {
-        self.tokens.span(self.at(self.pos.saturating_sub(1)))
+        Span { file: self.file, start: self.before.start, end: self.before.end }
     }
 
     /// The doc lines attached to the token about to be read, taken out of the
@@ -724,8 +751,17 @@ impl<'a> Parser<'a> {
         let span = self.span();
         if self.pos < self.last {
             self.pos = self.pos.saturating_add(1);
+            self.before = self.here;
+            (self.cur, self.here) = self.tokens.record(self.pos);
         }
         span
+    }
+
+    /// Put the cursor back where a trial parse began.
+    fn seek(&mut self, pos: usize) {
+        self.pos = pos;
+        (self.cur, self.here) = self.tokens.record(self.at(pos));
+        self.before = self.tokens.loc(self.at(pos.saturating_sub(1)));
     }
 
     /// The cooked text of the string token under the cursor, or nothing when
@@ -1960,7 +1996,7 @@ impl<'a> Parser<'a> {
         let annotated = parsed.is_ok()
             && (self.is(Punctuation::Comma) || self.is(Punctuation::RParen));
         self.restore(save);
-        self.pos = pos;
+        self.seek(pos);
         if !annotated {
             return keyword;
         }
@@ -2496,7 +2532,7 @@ impl<'a> Parser<'a> {
             Ok(args) if !args.is_empty() && self.commits_to_type_args() => Some(args),
             _ => {
                 self.restore(save);
-                self.pos = pos;
+                self.seek(pos);
                 None
             }
         }
@@ -2562,6 +2598,17 @@ impl<'a> Parser<'a> {
     }
 
     fn ty(&mut self) -> PResult<TypeId> {
+        // A bare name, `Int`, with no path after it and no arguments: the type
+        // `named_type` would build, without the two calls down to it. Taken only
+        // where `enter` would not refuse.
+        if self.cur == TokenKind::Ident
+            && self.depth < MAX_DEPTH
+            && !matches!(self.kind_at(self.pos.saturating_add(1)), TokenKind::Dot | TokenKind::Lt)
+        {
+            let span = self.bump();
+            let name = self.tree.push_name(Location::of(span));
+            return Ok(self.tree.push_type(TypeKind::Named, [name, 1, 0, 0], span));
+        }
         self.enter()?;
         let r = self.ty_inner();
         self.leave();
@@ -2969,7 +3016,10 @@ impl<'a> Parser<'a> {
         // Recorded before the left operand, so every node this call appends —
         // the whole left-leaning chain — has the same subtree start.
         let at = self.tree.next_node();
-        let mut lhs = self.unary_expr()?;
+        let mut lhs = match self.leaf(None) {
+            Some(leaf) => leaf?,
+            None => self.unary_expr()?,
+        };
         // The chain budget is counted per rung, as it was when each rung was
         // its own function: a run of `+` and a run of `||` in one expression
         // are two chains. Tracking the current rung is enough to do that with
@@ -3023,7 +3073,10 @@ impl<'a> Parser<'a> {
             links = links.saturating_add(1);
             self.link(links)?;
             let op_span = self.bump();
-            let rhs = self.binary_expr(rbp)?;
+            let rhs = match self.leaf(Some(rbp)) {
+                Some(leaf) => leaf?,
+                None => self.binary_expr(rbp)?,
+            };
             let span = self.tree.span(lhs).to(self.tree.span(rhs));
             lhs = self.tree.push(
                 Kind::of_binop(op),
@@ -3032,6 +3085,60 @@ impl<'a> Parser<'a> {
                 at,
             );
         }
+    }
+
+    /// The commonest operand, a name or a literal, read here rather than
+    /// three calls down in [`Parser::primary_expr`], and handed to
+    /// [`Parser::postfix_ops`] directly when a postfix operator follows it.
+    ///
+    /// It appends the nodes those calls would, and is taken only where they
+    /// would spend their budgets without refusing: the level
+    /// [`Parser::unary_expr`] enters, and the first link
+    /// [`Parser::postfix_ops`] counts. `rhs` is the binding power a
+    /// right-hand side is read at; then it is taken only where
+    /// [`Parser::binary_expr`] would hand the operand straight back, because
+    /// no operator after it binds that tightly.
+    #[inline(always)]
+    fn leaf(&mut self, rhs: Option<u8>) -> Option<PResult<ExprId>> {
+        if self.depth >= MAX_DEPTH || self.chain >= MAX_CHAIN {
+            return None;
+        }
+        let kind = match self.cur {
+            TokenKind::Ident => Kind::Ident,
+            TokenKind::Int => Kind::Int,
+            TokenKind::KeywordTrue => Kind::True,
+            TokenKind::KeywordFalse => Kind::False,
+            TokenKind::KeywordSelfValue => Kind::SelfValue,
+            TokenKind::KeywordCtx => Kind::Ctx,
+            _ => return None,
+        };
+        let next = self.kind_at(self.pos.saturating_add(1));
+        let postfix = starts_postfix(next);
+        match rhs {
+            Some(_) if postfix => return None,
+            Some(min_bp) if binding_power(next).is_some_and(|(_, lbp, _, _)| lbp >= min_bp) => {
+                return None;
+            }
+            _ => {}
+        }
+        let at = self.tree.next_node();
+        let payload = if kind == Kind::Int {
+            let value = self.int_value();
+            let span = self.span();
+            [self.tree.push_int(value), span.start, span.end, 0]
+        } else {
+            [0; 4]
+        };
+        let span = self.bump();
+        let leaf = self.tree.push(kind, payload, span, at);
+        if !postfix {
+            return Some(Ok(leaf));
+        }
+        // The level `unary_expr` would have entered around the chain.
+        self.depth = self.depth.saturating_add(1);
+        let chain = self.postfix_ops(leaf);
+        self.leave();
+        Some(chain)
     }
 
     fn at_cmp_op(&self) -> bool {
@@ -3478,16 +3585,7 @@ impl<'a> Parser<'a> {
             self.link(links)?;
             // Most expressions take no postfix operator at all, so the answer
             // to "is there one" comes before the span that only a link needs.
-            if !matches!(
-                self.peek(),
-                TokenKind::Dot
-                    | TokenKind::LParen
-                    | TokenKind::LBracket
-                    | TokenKind::Question
-                    | TokenKind::Lt
-                    | TokenKind::ColonColon
-                    | TokenKind::LBrace
-            ) {
+            if !starts_postfix(self.peek()) {
                 return Ok(base);
             }
             let start = self.tree.span(base);
@@ -3728,6 +3826,20 @@ impl<'a> Parser<'a> {
     // -- patterns -----------------------------------------------------------
 
     fn pattern(&mut self) -> PResult<PatId> {
+        // A bare name, which is always a binding: what `pattern_primary` reads
+        // when nothing after the name makes it a path, a payload, an `@` or an
+        // alternative. Taken only where `enter` would not refuse.
+        if self.cur == TokenKind::Ident
+            && self.depth < MAX_DEPTH
+            && !matches!(
+                self.kind_at(self.pos.saturating_add(1)),
+                TokenKind::Dot | TokenKind::LParen | TokenKind::LBrace | TokenKind::At | TokenKind::Or
+            )
+        {
+            let at = self.tree.next_pat();
+            let span = self.bump();
+            return Ok(self.tree.ppush(PatternKind::Bind, [span.start, span.end, NONE, 0], span, at));
+        }
         self.enter()?;
         let r = self.pattern_or();
         self.leave();
