@@ -1,0 +1,1 @@
+from "//libs/b/b.json" export { b };

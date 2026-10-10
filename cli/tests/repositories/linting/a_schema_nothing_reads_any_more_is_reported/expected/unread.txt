@@ -1,0 +1,18 @@
+warning: libs/a/shared.schema.json belongs to no library or binary, so nothing builds it [unused-source]
+ --> libs/a/BUILD.buri:1:1
+  |
+1 | library {
+  | ^
+  |
+  = fix: add it to the library's or the binary's `generators`, or delete it — `buri gen` leaves `generators` alone, so write the entry by hand
+
+    Nothing builds or reaches this file, yet every reader has to work out
+    whether it matters, and "where is this used" searches dead-end on it.
+
+    - It's dead, say orphaned by a refactor. Delete it, with anything that only
+    supported it.
+
+    - It's meant to be reachable: an entry point, a published export, a script
+    something else runs. Add it to the library or binary that should build it.
+    Don't silence the finding by ignoring the path.
+

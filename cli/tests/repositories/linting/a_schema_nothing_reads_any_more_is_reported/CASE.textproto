@@ -1,0 +1,36 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+#
+# `libs/a/shared.schema.json` is in no rule of `//libs/a`. It is not stray while
+# `//libs/b`'s data file names it as its schema, because the check that reads it
+# belongs to `//libs/b`. Nothing in `//libs/a`'s own files moves when that stops.
+
+doc: "a schema another package's data file stops naming is reported by unused-source on the next lint, and one it names again is not, with nothing cleaned in between (buri-lang/buri#281)"
+
+run {
+  args: ["lint"]
+  exit: 0
+}
+
+edit {
+  file: "libs/b/b.json"
+  replace: "//libs/a/shared.schema.json"
+  with: "//libs/a/own.schema.json"
+}
+
+run {
+  args: ["lint"]
+  exit: 1
+  golden: "unread.txt"
+}
+
+edit {
+  file: "libs/b/b.json"
+  replace: "//libs/a/own.schema.json"
+  with: "//libs/a/shared.schema.json"
+}
+
+run {
+  args: ["lint"]
+  exit: 0
+}

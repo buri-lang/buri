@@ -1,0 +1,6 @@
+library {
+    generators: [
+        { tool: "json", inputs: ["own.schema.json"] },
+    ]
+    visibility: ["//visibility:public"]
+}
