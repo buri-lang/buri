@@ -1,8 +1,16 @@
 # The compiler's coverage from end-to-end tests only (coverage/compiler/src/main.rs).
-# Branches gate; lines and regions are context.
+# Branches gate, in total and per area; lines and regions are context.
 
-crate                             branches                      lines                    regions         
-cli                              4391/6304   69.65%       25158/30107   83.56%       50465/60665   83.19%
+area                              branches                      lines                    regions         
+cli/build                        1327/1935   68.58%         7562/9195   82.24%       15737/19045   82.63%
+cli/documentation                  255/769   33.16%         1638/3644   44.95%         2954/6861   43.05%
+cli/format                           83/98   84.69%           302/309   97.73%           582/604   96.36%
+cli/language_server              1146/1472   77.85%         7206/7645   94.26%       14846/16046   92.52%
+cli/lint                           586/708   82.77%         2796/2888   96.81%         5481/5742   95.45%
+cli/other                          480/600   80.00%         2578/2908   88.65%         4742/5287   89.69%
+cli/run                              37/56   66.07%           241/287   83.97%           454/519   87.48%
+cli/serve+watch                      46/86   53.49%           307/379   81.00%           575/734   78.34%
+cli/test                           431/580   74.31%         2528/2852   88.64%         5094/5827   87.42%
 crates/backend                       65/90   72.22%           284/385   73.77%           507/649   78.12%
 crates/diagnostics                 181/244   74.18%         1283/1490   86.11%         2301/2638   87.23%
 crates/docs                        197/304   64.80%           678/942   71.97%         1316/1776   74.10%

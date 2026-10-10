@@ -1,8 +1,30 @@
-# Branches covered by end-to-end tests, per file: covered, total, path.
+# Branches covered by end-to-end tests: covered, total, then what. The
+# gate holds the total and each area to their share; files only warn.
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
-# total 13570 19104 (71.03%)
 host x86_64-unknown-linux-gnu
+total 13570 19104 71.03%
+area cli/build 1327 1935 68.58%
+area cli/documentation 255 769 33.16%
+area cli/format 83 98 84.69%
+area cli/language_server 1146 1472 77.85%
+area cli/lint 586 708 82.77%
+area cli/other 480 600 80.00%
+area cli/run 37 56 66.07%
+area cli/serve+watch 46 86 53.49%
+area cli/test 431 580 74.31%
+area crates/backend 65 90 72.22%
+area crates/diagnostics 181 244 74.18%
+area crates/docs 197 304 64.80%
+area crates/hash 17 18 94.44%
+area crates/js 1060 1342 78.99%
+area crates/llvm 798 1368 58.33%
+area crates/middle 1904 2515 75.71%
+area crates/project 877 1418 61.85%
+area crates/semantics 1768 2156 82.00%
+area crates/stdlib 12 14 85.71%
+area crates/stencil 1283 2033 63.11%
+area crates/syntax 1017 1298 78.35%
 254 343 cli/src/build/actions.rs
 32 48 cli/src/build/cache.rs
 11 22 cli/src/build/counted.rs
