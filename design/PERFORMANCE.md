@@ -7582,7 +7582,8 @@ The first edit after a cold run still launches two. The cold run left the
 failing suite's runner at its group's first member's path, and the restore
 looks at the first failing member's.
 `work_counts::a_failing_suites_runner_stays_put_while_another_suite_is_edited`
-pins one launch per edit, which varied between one and two before.
+pins one launch per edit, which varied between one and two before. §6.84
+fixes the first edit.
 
 ### 6.82 The goals, gated on CI, 2026-10-09
 
@@ -7839,6 +7840,70 @@ one at a time). §9's `build/mixed-10k` and `lint/mixed-10k` will read
   against 1,548.
 - A cheaper `Save`. A statement's rollback point costs 43 instructions, 2.5%
   of `parse` on `mixed`; it waits for a change that can shrink `Mark`.
+
+### 6.84 A failing suite's runner, and units two runners share, 2026-10-09
+
+The `validate` profile, stencil, on a 12-core M3 Pro at load 7–33, no sleep in
+`pmset -g log`, a fresh `BURI_HOME` each round. Conformance and ×10 as in
+§6.81. Each edit changes a year in `//lib/calendar0/test/date.buri`'s first
+assertion. §6.81's edits renamed a test, which leaves the runner's bytes
+alone, so they launched nothing new.
+
+**A failing suite's runner was written again, as a new file, on every run.**
+Its verdict isn't cached, so each run starts it again, and two things wrote it
+again:
+
+- The restore looked at the first failing member's path. The cold run left the
+  runner at the shared `test-runner` file or at its group's first member's.
+- A run that doesn't start the failing suite, such as a `--filter` run, could
+  link over it at the shared file.
+
+Now a build record says where its runner ran, and a restore starts it there
+when the bytes still match, before any link claims a file. A failing verdict
+keeps its runner: at the shared file, `.test-runner.kept` beside it keeps
+links off until a run takes the file back without a failure, or a run of every
+suite, unfiltered, starts nothing there. A link whose own path holds a runner
+restored this pass takes a name beside it, `test-library.2`.
+
+On macOS, §6.63's program store had already made each copy a link to a checked
+file, so this matches the store's times. On Linux there's no store, and a
+rerun wrote one or two runners again, by the schedule. With the store turned
+off here, 3 of 5 reruns wrote one and 2 wrote two. Now none does.
+
+| ×10 | `ed5237423` | The store | The store and this |
+|---|---:|---:|---:|
+| cold, then an edit | 2.30–2.34 s, 4 new | 0.40–0.53 s, 1 new | 0.43–0.59 s, 1 new |
+| cold, then a rerun | 2.21–2.23 s, 3 new | 0.30–0.32 s, 0 new | 0.29–0.31 s, 0 new |
+| `--filter=leap year` twice, then the whole run | 0.88–0.90 s, 1 new | 0.23–0.24 s, 0 new | 0.22–0.25 s, 0 new |
+
+Conformance has one runner, so it didn't move: an edit after a cold run is
+0.22–0.35 s and 1 new either way.
+
+`work_counts::a_native_failing_suites_runner_is_never_a_new_executable_again`
+pins it on two runners that each hold a failing suite after their first: a
+rerun, edits, a suite that starts and stops failing, an edit to a failing
+suite's runner-mate, and `--filter` there and back. Each launches only the
+runner it links. So do its `--release` and JavaScript twins. It fails on
+`ed5237423`, where a rerun launches one. On JavaScript, the whole run after a
+filtered one writes the filtered suite's bundle again: one file, with no
+launch check.
+
+**Moving the runner home, measured and left.** Renaming a failing runner from
+the shared file to its own path once its last process ends would free the
+shared file. But macOS keeps its check across a rename only for a moment:
+conformance's runner renamed at once started in 0.37 s, its usual time, 6 of
+6; renamed 2 s later, it took 0.57–0.59 s, 6 of 6.
+
+**Units two runners share are emitted once.** A cold run that linked two
+runners at once emitted the units both hold, such as `core_testing_assert`,
+side by side, unless one finished first and the other found them in the cache.
+So `work_counts`' cold counts moved with the schedule, and CI's 4-core runner
+read 7 objects compiled and 3 restored where 10 and 0 were pinned. Now a build
+claims the units it misses that no other build in the process is emitting,
+emits them, and waits for the rest. It only waits on a build that claimed
+before it. Under load, `work_counts` failed 3 of 20 stress iterations before
+and 40 of 40 passed after. ×10's three runners share 2 of 1,167 units, so its
+cold run doesn't move.
 
 ### 6.86 A lexer and parser rewrite for three times the goal, judged, 2026-10-09
 

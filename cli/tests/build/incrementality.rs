@@ -858,6 +858,76 @@ fn a_failing_suite_and_an_edited_one_each_run_their_own_runner() {
     }
 }
 
+/// Failing suites that share runners with passing ones run again from those
+/// runners while their runner-mates are edited, start failing and pass again,
+/// and while `--filter` runs pick one test. Each pass reports each suite's
+/// failure as its code is now.
+#[test]
+fn failing_suites_beside_edited_runner_mates_each_report_their_own_code() {
+    let scratch = Scratch::repo("failing-runner-mates");
+    scratch.write(
+        "REPO.buri",
+        "tag {\n  name: \"server\"\n  doc: \"runs on infrastructure we operate\"\n  \
+         forbids { tags: [\"client\"] }\n}\n\n\
+         tag {\n  name: \"client\"\n  doc: \"ships to a user's machine\"\n}\n",
+    );
+    let asserting = |s: &str, k: u32, want: u32| {
+        scratch.write(
+            &format!("lib/{s}/test/{s}.buri"),
+            &format!(
+                "from \"//lib/{s}\" import {{ same }};\nfrom \"core/testing/assert\" import * as assert;\n\n\
+                 test \"{s} holds\" {{\n    assert.equal(same({k}), {want});\n}}\n"
+            ),
+        );
+    };
+    // Two runners, `server` and `client`, each with a failing suite after its first.
+    let mut now = std::collections::BTreeMap::new();
+    let suites = [("a", "server", 0, 0), ("d", "server", 10, 11), ("e", "server", 0, 0)]
+        .into_iter()
+        .chain([("b", "client", 0, 0), ("c", "client", 20, 21)]);
+    for (s, tag, k, want) in suites {
+        scratch.write(
+            &format!("lib/{s}/BUILD.buri"),
+            &format!(
+                "library {{\n    tags: [\"{tag}\"]\n    test {{\n        sources: [\"test/{s}.buri\"]\n    }}\n}}\n"
+            ),
+        );
+        scratch.write(&format!("lib/{s}/lib.buri"), "export fn same(k: Int): Int {\n    k\n}\n");
+        asserting(s, k, want);
+        now.insert(s, (k, want));
+    }
+    // Each failing suite says so, with the value its code now computes.
+    let holds = |run: &Run, now: &std::collections::BTreeMap<&str, (u32, u32)>, filter: Option<&str>| {
+        for (s, &(k, want)) in now {
+            let ran = filter.is_none_or(|f| f == *s);
+            let fails = run.stdout.contains(&format!("FAIL //lib/{s} "));
+            assert_eq!(fails, ran && k != want, "//lib/{s} got the wrong verdict:\n{}", indent(&run.all()));
+            if fails {
+                run.says(&format!("lib/{s}/test/{s}.buri:4:1")).says(&format!("actual:   {k}\n"));
+            }
+        }
+    };
+    let all = ["test", "//..."];
+    let edits = [("e", 1, 1), ("e", 2, 2), ("e", 3, 4), ("e", 4, 4)]
+        .into_iter()
+        .chain([("b", 5, 6), ("b", 7, 7), ("c", 21, 21), ("c", 22, 23)]);
+    for (s, k, want) in edits {
+        holds(scratch.run(&all).exits(1), &now, None);
+        asserting(s, k, want);
+        now.insert(s, (k, want));
+        holds(scratch.run(&all).exits(1), &now, None);
+    }
+    for _ in 0..2 {
+        holds(scratch.run(&["test", "//...", "--filter=d holds"]).exits(1), &now, Some("d"));
+    }
+    holds(scratch.run(&all).exits(1), &now, None);
+    for (s, k, want, exit) in [("c", 23, 23, 1), ("d", 11, 11, 0), ("e", 5, 5, 0), ("a", 6, 7, 1)] {
+        asserting(s, k, want);
+        now.insert(s, (k, want));
+        holds(scratch.run(&all).exits(exit), &now, None);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The native row
 // ---------------------------------------------------------------------------
