@@ -549,6 +549,15 @@ function $jsonVariantInto(j, d, p) {
   return out;
 }
 
+// Whether a whole number is one the integer type `t` holds, `t` being its name:
+// `U8`, `I64`. Every bound is zero or a power of two, so each comparison is
+// exact on a double: `2 ** 63` is past `I64`, whose largest value is not a
+// double at all.
+function $jsonFits(x, t) {
+  const top = 2 ** (t[0] === "I" ? t.slice(1) - 1 : +t.slice(1));
+  return x >= (t[0] === "I" ? -top : 0) && x < top;
+}
+
 function $json_into(j, d, p) {
   const k = d[0];
   if (k === 0) {
@@ -570,9 +579,12 @@ function $json_into(j, d, p) {
       return j[1];
     }
     if (j[0] !== 2) $jsonWrong(p, t === "f" ? "a number" : "an integer", j);
+    // An `F32` holds the binary32 nearest the number.
+    if (t === "f") return d[2] === "F32" ? Math.fround(j[1]) : j[1];
     // JSON has one number type, so an integer field is a number that happens
-    // to be whole — and a document that says `1.5` is not one.
-    if (t !== "f" && !Number.isInteger(j[1])) $jsonWrong(p, "an integer", j);
+    // to be whole and that its type holds — `1.5` is neither, `300` is not a
+    // `U8`.
+    if (!Number.isInteger(j[1]) || !$jsonFits(j[1], d[2])) $jsonWrong(p, "an integer", j);
     // A `BigInt` field is built from that whole number, which is as much as a
     // document carries: JSON's number is a double.
     return t === "I" ? BigInt(j[1]) : j[1];

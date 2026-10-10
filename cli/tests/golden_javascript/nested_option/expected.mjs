@@ -10,7 +10,7 @@ const $D1=[];
 const $D2=[];
 $D0.push(2,'Holder',true,['inner'],[$D1]);
 $D1.push(7,$D2);
-$D2.push(0,'I');
+$D2.push(0,'I','I64');
 function $eqD0(a,b){
   if(a===b){
     return true;

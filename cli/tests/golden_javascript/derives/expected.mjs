@@ -9,7 +9,7 @@ const $D1=[];
 const $D2=[];
 const $D3=[];
 $D0.push(2,'Pair',true,['a','b'],[$D1,$D2]);
-$D1.push(0,'I');
+$D1.push(0,'I','I64');
 $D2.push(0,'s');
 $D3.push(3,'Tag',[['Low',false,[],[]],['High',false,['0'],[$D1]]],false);
 function $eqD0(a,b){

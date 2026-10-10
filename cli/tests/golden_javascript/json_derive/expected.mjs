@@ -11,7 +11,7 @@ const $D4=[];
 const $D5=[];
 $D0.push(3,'Result',[['Ok',false,['0'],[$D1]],['Err',false,['0'],[$D3]]],false);
 $D1.push(2,'Point',true,['x','y'],[$D2,$D2]);
-$D2.push(0,'I');
+$D2.push(0,'I','I64');
 $D3.push(3,'DecodeError',[['Missing',true,['path'],[$D4]],['WrongType',true,['path','wanted','found'],[$D4,$D4,$D4]],['UnknownVariant',true,['path','tag'],[$D4,$D4]]],false);
 $D4.push(0,'s');
 $D5.push(3,'Shape',[['Empty',false,[],[]],['Rect',true,['width','height'],[$D2,$D2]]],false);
