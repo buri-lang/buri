@@ -6228,7 +6228,7 @@ fn fetched(
 ///
 /// The peer is this test: a loopback listener that takes one connection, reads
 /// the request whole, and answers with a status, a header and a body. Then two
-/// failures that need no peer. A port that was bound and released is
+/// failures that need no peer. A port nothing listens on is
 /// `.Refused`. A string that is not a URL is `.BadUrl`, and `BadUrl` carries a
 /// sentence, so this row also checks that the sentence arrived.
 ///
@@ -6242,10 +6242,7 @@ fn a_native_binary_sends_a_request_and_reads_the_answer() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
     let port = listener.local_addr().expect("the bound address").port();
     listener.set_nonblocking(true).expect("a listener that can be polled");
-    let closed = {
-        let released = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
-        released.local_addr().expect("the bound address").port()
-    };
+    let closed = crate::shared::RefusedPort::hold();
     // Built and admitted before the peer's clock starts, so neither is on it.
     let binary = built("e2e-http-client", &fetching_client());
     crate::shared::admitted(&binary);
@@ -6298,7 +6295,7 @@ fn a_native_binary_sends_a_request_and_reads_the_answer() {
         &binary,
         &[
             format!("http://127.0.0.1:{port}/echo?q=1"),
-            format!("http://127.0.0.1:{closed}/"),
+            format!("http://127.0.0.1:{}/", closed.port),
             String::from("not a url"),
         ],
         &[],

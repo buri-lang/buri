@@ -201,6 +201,8 @@ took a CI job with it. So:
 * the program binds `port: 0` and prints the port; the client dials
   `127.0.0.1`. A test that picks a port and hopes races the pick against the
   bind;
+* a dial that must be refused aims at `shared::RefusedPort`, never at a port
+  bound and dropped, which another test's server can be handed first;
 * every connect, read and write carries `shared::SERVER_DEADLINE`;
 * start a native program with `shared::spawned` or `shared::started`, so the
   deadlines start once it runs. macOS holds a fresh executable inside `exec`

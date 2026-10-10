@@ -946,12 +946,8 @@ fn the_network_effect_answers_https_according_to_its_features() {
     if skip() {
         return;
     }
-    // A port nothing is listening on: bound, read back, and dropped.
-    let port = {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        listener.local_addr().unwrap().port()
-    };
-    let out = run(&["net", &format!("https://127.0.0.1:{port}/probe")]);
+    let closed = crate::shared::RefusedPort::hold();
+    let out = run(&["net", &format!("https://127.0.0.1:{}/probe", closed.port)]);
     if net() {
         assert_eq!(
             stdout(&out).trim_end(),

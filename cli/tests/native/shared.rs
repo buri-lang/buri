@@ -320,6 +320,31 @@ pub fn runtime_archive() -> &'static Path {
 /// any one step of the exchange may take.
 pub const SERVER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
 
+/// A loopback port nothing listens on and nothing else can take, held for as
+/// long as this value lives. `cli/runtime/lib.rs`'s `RefusedPort` is the same
+/// thing for the runtime's own tests.
+///
+/// The port is the source port of a loopback connection this holds open. The
+/// kernel refuses a dial to it, because nothing listens there, and won't hand
+/// it to another bind, because the connection uses it. A port bound and
+/// dropped was free for any concurrent test's server to take before the dial,
+/// and on CI one did: `https://` got a reset instead of `Refused`.
+pub struct RefusedPort {
+    pub port: u16,
+    _held: (std::net::TcpListener, std::net::TcpStream, std::net::TcpStream),
+}
+
+impl RefusedPort {
+    pub fn hold() -> RefusedPort {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a loopback listener");
+        let client = std::net::TcpStream::connect(listener.local_addr().expect("its address"))
+            .expect("a loopback connection");
+        let (server, _) = listener.accept().expect("the connection accepted");
+        let port = client.local_addr().expect("the connection's source port").port();
+        RefusedPort { port, _held: (listener, client, server) }
+    }
+}
+
 /// Start a server binary, and return once macOS has let it run.
 ///
 /// macOS holds every never-seen executable inside `exec` until `syspolicyd`
