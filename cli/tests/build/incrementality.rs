@@ -287,6 +287,41 @@ fn a_rebuilt_toolchain_does_not_serve_the_previous_build() {
     eprintln!("toolchain change: wipes the cache, then caches again");
 }
 
+/// A build that waited for another process to claim the cache doesn't empty it
+/// again.
+///
+/// Two `buri` processes opening one cache for the first time both find it isn't
+/// this toolchain's. One takes `.buri/cache/.lock` and marks the cache as this
+/// toolchain's. The other waits for the lock, finds the mark, and keeps what
+/// the first one built (#248). Here the test plays the first process.
+#[test]
+fn a_build_that_waited_for_the_cache_lock_keeps_the_cache() {
+    let scratch = Scratch::repo("toolchain-lock-wait");
+    scratch.binary_package("cmd/c", &program(1));
+    let version = scratch.run(&["version", "--verbose"]);
+    let identity = version
+        .stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("this executable: "))
+        .unwrap_or_else(|| panic!("`buri version --verbose` names no executable:\n{}", version.all()))
+        .to_string();
+
+    scratch.write(".buri/cache/.lock", "");
+    scratch.write(".buri/cache/kept", "an entry the first process built");
+    std::thread::scope(|scope| {
+        let build = scope.spawn(|| scratch.run(&["build", "//cmd/c"]));
+        // Long enough for the build to be waiting, well short of its 10 s patience.
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        scratch.write(".buri/cache/.toolchain", &identity);
+        std::fs::remove_file(scratch.path(".buri/cache/.lock")).unwrap();
+        build.join().unwrap().ok();
+    });
+    assert!(
+        scratch.path(".buri/cache/kept").exists(),
+        "a build that waited for the cache lock emptied the cache again"
+    );
+}
+
 /// Keys are over content, not timestamps. Rewriting a file with the bytes it
 /// already held is what checking a branch out and back looks like to the
 /// filesystem, and it must rebuild nothing.
