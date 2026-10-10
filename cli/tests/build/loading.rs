@@ -131,34 +131,36 @@ fn modules_read_side_by_side_load_as_they_would_one_at_a_time() {
 // ---------------------------------------------------------------------------
 
 /// Each pinned point, and the instructions a line `parser::parse` and a load
-/// may retire on it in this test build. A load reads each file, resolves each
-/// import and parses.
+/// may retire on it in this test build. The load is of the program's text, as
+/// the benchmark's is: it resolves each import and parses, and reads no file.
 ///
 /// Counted rather than timed (`design/PERFORMANCE.md` §8), at 30,000 lines a
-/// shape. Each bound is a tenth over what parsing measured, and a quarter over
-/// what loading did, because the kernel's work opening files moves by a tenth
-/// between runs. §6.83 has the release build's figures.
+/// shape, on this thread only, and the fewest of three runs. A load from disk
+/// isn't counted: opening files and reading ahead on other threads is kernel
+/// work, and under load it moved a whole-process count by a quarter. Each
+/// bound is a tenth over what was measured. §6.83 has the release build's
+/// figures.
 const BOUNDS: [(&str, u64, u64); 20] = [
-    ("comment-free", 2310, 4430),
-    ("comment-heavy", 1380, 2600),
-    ("derive-heavy", 1850, 3660),
-    ("enum-heavy", 1860, 3660),
-    ("generic-blowup", 2130, 3930),
-    ("generic-free", 1890, 3660),
-    ("impl-heavy", 1730, 3420),
-    ("list-heavy", 1980, 3900),
-    ("long-bodies", 1880, 3640),
-    ("long-idents", 1750, 3380),
-    ("match-heavy", 1790, 3640),
-    ("mixed", 1920, 3830),
-    ("mixed-deep-graph", 1920, 3680),
-    ("mixed-few-files", 1810, 2430),
-    ("mixed-libs", 1930, 3770),
-    ("mixed-many-files", 2270, 8710),
-    ("mixed-wide-graph", 1980, 4110),
-    ("string-heavy", 2140, 3960),
-    ("struct-heavy", 1460, 2970),
-    ("struct-light", 1940, 3730),
+    ("comment-free", 2310, 2690),
+    ("comment-heavy", 1370, 1660),
+    ("derive-heavy", 1850, 2250),
+    ("enum-heavy", 1850, 2190),
+    ("generic-blowup", 2130, 2470),
+    ("generic-free", 1890, 2230),
+    ("impl-heavy", 1730, 2060),
+    ("list-heavy", 1970, 2320),
+    ("long-bodies", 1870, 2220),
+    ("long-idents", 1750, 2090),
+    ("match-heavy", 1790, 2140),
+    ("mixed", 1920, 2270),
+    ("mixed-deep-graph", 1920, 2260),
+    ("mixed-few-files", 1770, 2010),
+    ("mixed-libs", 1930, 2270),
+    ("mixed-many-files", 2270, 3190),
+    ("mixed-wide-graph", 1980, 2460),
+    ("string-heavy", 2110, 2470),
+    ("struct-heavy", 1460, 1790),
+    ("struct-light", 1940, 2290),
 ];
 
 /// The pinned point `name`, regenerated from its manifest at 30,000 lines.
@@ -179,14 +181,16 @@ fn pinned_shape(name: &str) -> crate::generate::Program {
     crate::generate::program(&params)
 }
 
-/// The fewer instructions of two runs of `work`, by `counter`, or `None`
-/// where the kernel counts none (Linux, and CI's virtual machines).
-fn counted<T>(counter: fn() -> u64, mut work: impl FnMut() -> T) -> Option<u64> {
+/// The fewest instructions this thread retires over three runs of `work`, or
+/// `None` where the kernel counts none (Linux, and CI's virtual machines).
+/// The first run faults in the memory the others reuse, and the kernel's work
+/// only ever adds to a count, so the fewest is the work itself.
+fn counted<T>(mut work: impl FnMut() -> T) -> Option<u64> {
     let mut fewest = u64::MAX;
-    for _ in 0..2 {
-        let before = counter();
+    for _ in 0..3 {
+        let before = buri::profile::thread_instructions();
         std::hint::black_box(work());
-        fewest = fewest.min(counter().saturating_sub(before));
+        fewest = fewest.min(buri::profile::thread_instructions().saturating_sub(before));
     }
     (fewest > 0).then_some(fewest)
 }
@@ -194,29 +198,29 @@ fn counted<T>(counter: fn() -> u64, mut work: impl FnMut() -> T) -> Option<u64> 
 /// What `parser::parse` over every module, and a load of the whole program,
 /// retire a line on the pinned point `name`.
 fn costs(name: &str) -> Option<(u64, u64)> {
+    use buri::compiler::modules::{Loader, Role};
+    use buri::compiler::snapshot::{self, Opening};
     use buri::diagnostics::{Diagnostics, FileId, Severity, SourceMap};
     let program = pinned_shape(name);
     let lines = program.lines() as u64;
-    let parse = counted(buri::profile::thread_instructions, || {
+    let parse = counted(|| {
         let parse = |(i, m): (usize, &crate::generate::Module)| buri::parsing::parser::parse(&m.text, FileId(i as u32));
         program.modules.iter().enumerate().map(parse).collect::<Vec<_>>()
     })?;
-    let scratch = Scratch::repo(&format!("cost-{name}"));
-    scratch.write("bench/BUILD.buri", JS_BINARY);
-    for m in &program.modules {
-        scratch.write(&format!("bench/{}", m.path.rsplit('/').next().unwrap()), &m.text);
-    }
-    let _ = buri::compiler::snapshot::of(buri::compiler::snapshot::Opening::Builtin, true);
-    // A load reads and parses on other threads too, so the whole process counts.
-    let load = counted(buri::profile::process_instructions, || {
-        let mut map = SourceMap::new();
-        let ws = buri::build::workspace::Workspace::load(&scratch.root, &mut map, &mut Diagnostics::new()).unwrap();
-        let target = ws.targets().into_iter().find(|t| t.kind == buri::build::workspace::RuleKind::Binary).unwrap();
-        let unit = buri::compiler::modules::Unit { target: Some(target), platform: None, entry: None, with_tests: false };
+    let snapshot = snapshot::of(Opening::Builtin, true);
+    let load = counted(|| {
+        let (mut map, mut diagnostics) = (SourceMap::new(), Diagnostics::new());
         let mut cache = buri::parsing::parser::Cache::new();
-        let loading = buri::compiler::driver::load_all(Some(&ws), &mut map, &mut cache, &[unit]);
-        assert!(!loading.reported().iter().any(|d| d.severity == Severity::Error), "{name} does not load");
-        loading
+        let mut loader = Loader::seeded(None, &mut map, &mut diagnostics, &mut cache, snapshot);
+        loader.load_builtin_modules();
+        let last = program.modules.len().saturating_sub(1);
+        for (i, m) in program.modules.iter().enumerate() {
+            let role = if i == last { Role::Entry } else { Role::Source };
+            loader.load_source(&m.path, role, m.text.clone());
+        }
+        let loaded = loader.finish();
+        assert!(!diagnostics.items.iter().any(|d| d.severity == Severity::Error), "{name} does not load");
+        loaded
     })?;
     Some((parse / lines, load / lines))
 }
@@ -235,5 +239,6 @@ fn parsing_and_loading_each_pinned_shape_stay_within_their_instruction_bounds() 
             over.push(name);
         }
     }
+    eprintln!("{table}");
     assert!(over.is_empty(), "instructions a line over their bounds on {over:?}:\n{table}");
 }
