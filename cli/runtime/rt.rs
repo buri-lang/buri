@@ -184,7 +184,9 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
+use crate::allocator::valgrind;
+use crate::sync::{Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use std::thread;
 use std::time::Duration;
@@ -637,6 +639,8 @@ unsafe fn notify(p: *const Task) {
             continue;
         }
         if seen == PARKED {
+            // After `parked`'s save, which the `AcqRel` orders.
+            valgrind::happens_after(p);
             // SAFETY: `p` came from an `Arc` the caller holds, so a count for
             // the queue can be taken from it.
             let owned = unsafe {
@@ -874,6 +878,9 @@ fn start_thread() {
         let s = sched();
         s.threads
     };
+    // What this thread did happens before the new one starts, which a static
+    // binary's `pthread_create` doesn't tell helgrind.
+    valgrind::happens_before(&raw const SCHED);
     let started = thread::Builder::new()
         .name(format!("buri-thread-{id}"))
         .stack_size(THREAD_STACK_BYTES)
@@ -970,6 +977,7 @@ fn set_task_arena(task: &Task, slot: crate::memory::ArenaSlot) {
 /// or finishes, and either way it is back here with a thread to spend on
 /// something else.
 fn thread_loop() {
+    valgrind::happens_after(&raw const SCHED);
     crate::host::no_pointer_prefetch();
     let mut armed = false;
     let mut fresh = true;
@@ -991,6 +999,8 @@ fn thread_loop() {
             // caller that dispatches again immediately finds this thread.
             arm();
             armed = true;
+            // What `Release` publishes, told to helgrind: see `finished`.
+            valgrind::happens_before(Arc::as_ptr(&task));
             task.done.store(true, Ordering::Release);
             // A fan-out's step is waited for through its latch and nothing
             // else, so its waiter list, a boxed lock, is never made.
@@ -1037,6 +1047,8 @@ fn turn(task: &Arc<Task>) -> bool {
 /// A task's turn ended in a park: it is `PARKED` now, unless a waker reached
 /// it while its context was still being saved.
 fn parked(task: Arc<Task>) {
+    // The saved context happens before whoever queues the task: `notify`.
+    valgrind::happens_before(Arc::as_ptr(&task));
     if task
         .state
         .compare_exchange(PARKING, PARKED, Ordering::AcqRel, Ordering::Acquire)
@@ -1077,6 +1089,7 @@ fn help(latch: &Arc<Latch>) {
             // SAFETY: as in `thread_loop`'s finishing arm: the task switched
             // off its stack for the last time.
             unsafe { crate::memory::buri_rt_task_stack_release(*task.stack.get()) };
+            valgrind::happens_before(Arc::as_ptr(&task));
             task.done.store(true, Ordering::Release);
             latch.arrive(task.ok.load(Ordering::Acquire));
         } else {
@@ -1184,6 +1197,10 @@ fn new_task(body: Box<dyn FnOnce() + Send>, latch: Option<Arc<Latch>>, lineage: 
         arena: UnsafeCell::new(crate::memory::ArenaSlot::NONE),
         lineage,
     });
+    // Flags threads poll and store: the state machine, the end and its answer.
+    valgrind::atomic(&task.state);
+    valgrind::atomic(&task.done);
+    valgrind::atomic(&task.ok);
     if mapped {
         // SAFETY: the task was made on the line above and isn't queued yet.
         unsafe { give_stack(&task) };
@@ -1235,7 +1252,7 @@ impl Future for Complete<'_> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        if self.0.done.load(Ordering::Acquire) {
+        if finished(self.0) {
             return Poll::Ready(());
         }
         let mut waiters = match self.0.waiters.lock() {
@@ -1244,12 +1261,23 @@ impl Future for Complete<'_> {
         };
         // Under the lock, because `wake_waiters` takes the same one: a waiter
         // registered after the drain and before the flag would never be woken.
-        if self.0.done.load(Ordering::Acquire) {
+        if finished(self.0) {
             return Poll::Ready(());
         }
         waiters.push(cx.waker().clone());
         Poll::Pending
     }
+}
+
+/// Whether `task` is done, and so everything it did happens before what the
+/// caller does next: an `Acquire` of the thread loop's `Release`, which
+/// helgrind can't see, so it is told.
+fn finished(task: &Arc<Task>) -> bool {
+    let done = task.done.load(Ordering::Acquire);
+    if done {
+        valgrind::happens_after(Arc::as_ptr(task));
+    }
+    done
 }
 
 /// Run `f` as a task, and answer the handle that waits for it.
@@ -1525,7 +1553,7 @@ unsafe fn in_order(steps: Steps, n: usize) {
 unsafe fn fan_out(steps: Steps, n: usize) {
     // One latch for every step, however many windows they take: a join per
     // step was a flush, a look at the timers and a trip into the reactor.
-    let latch = Arc::new(Latch::new(n));
+    let latch = Latch::new(n);
     let lineage = lineage_here();
     let mut started = 0;
     let mut kept: Vec<Arc<Task>> = Vec::new();
@@ -1551,7 +1579,7 @@ unsafe fn fan_out(steps: Steps, n: usize) {
             // Finished steps are dropped here, on the thread that made them,
             // rather than by whichever thread finished them: freed across
             // threads, they took `a_tiny` from 160 ms to 250.
-            kept.retain(|t| !t.done.load(Ordering::Acquire));
+            kept.retain(|t| !finished(t));
             kept.extend(batch.iter().cloned());
             push_all(batch);
             started = end;
@@ -1600,16 +1628,20 @@ struct Latch {
 }
 
 impl Latch {
-    fn new(n: usize) -> Latch {
-        Latch {
+    fn new(n: usize) -> Arc<Latch> {
+        let latch = Arc::new(Latch {
             left: AtomicUsize::new(n),
             want: AtomicUsize::new(0),
             failed: AtomicBool::new(false),
             waiter: Mutex::new(None),
-        }
+        });
+        // The two a step stores and its waiter loads.
+        valgrind::atomic(&latch.want);
+        valgrind::atomic(&latch.failed);
+        latch
     }
 
-    fn waiter(&self) -> std::sync::MutexGuard<'_, Option<Waker>> {
+    fn waiter(&self) -> crate::sync::MutexGuard<'_, Option<Waker>> {
         match self.waiter.lock() {
             Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),
@@ -1622,6 +1654,9 @@ impl Latch {
         if !ok {
             self.failed.store(true, Ordering::Release);
         }
+        // The step's writes happen before its waiter reads them, which the
+        // count orders and helgrind is told.
+        valgrind::happens_before(self);
         // Sequentially consistent with `Arrived::poll`'s store and load, so
         // either this sees the new mark or the poll sees this count.
         let left = self.left.fetch_sub(1, Ordering::SeqCst) - 1;
@@ -1649,12 +1684,14 @@ impl Future for Arrived<'_> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         if self.latch.left.load(Ordering::Acquire) <= self.left {
+            valgrind::happens_after(self.latch);
             return Poll::Ready(());
         }
         let mut waiter = self.latch.waiter();
         self.latch.want.store(self.left, Ordering::SeqCst);
         if self.latch.left.load(Ordering::SeqCst) <= self.left {
             self.latch.want.store(0, Ordering::SeqCst);
+            valgrind::happens_after(self.latch);
             return Poll::Ready(());
         }
         *waiter = Some(cx.waker().clone());
@@ -4158,6 +4195,8 @@ mod tests {
             unsafe { out.cast::<i64>().write(arg.cast::<i64>().read() * 2 + index as i64) }
         }
         let stop = Arc::new(AtomicBool::new(false));
+        // The hogs poll it with plain loads, which helgrind doesn't order.
+        valgrind::atomic(&*stop);
         let cores = thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
         let hogs: Vec<_> = (0..cores * 2)
             .map(|_| {

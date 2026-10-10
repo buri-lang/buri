@@ -1454,10 +1454,10 @@ fn runtime_archive(manifest: &Path) {
     // so the fallback path a host with no `cc` takes keeps it, and
     // `platform/effect/testing`'s `snapshot` works on every toolchain this script can build.
     features.push("paint");
-    // `buri`'s own `memcheck` feature, passed down: a toolchain built for
-    // memcheck builds programs memcheck can see into (MEMORY.md §8).
-    if std::env::var_os("CARGO_FEATURE_MEMCHECK").is_some() {
-        features.push("memcheck");
+    // `buri`'s own `valgrind` feature, passed down: a toolchain built for
+    // Valgrind builds programs its tools can see into (MEMORY.md §8).
+    if std::env::var_os("CARGO_FEATURE_VALGRIND").is_some() {
+        features.push("valgrind");
     }
 
     // The command line is built **before** the freshness question rather than

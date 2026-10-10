@@ -1,4 +1,4 @@
-# Memcheck suppressions (cli/tests/native/memcheck.rs). Every entry says why it
+# Memcheck suppressions (cli/tests/native/valgrind.rs). Every entry says why it
 # is not a bug in Buri or its runtime. An error in Buri code or in cli/runtime
 # is never suppressed here: it is filed.
 

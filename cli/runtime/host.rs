@@ -56,7 +56,7 @@ use crate::rng;
 use crate::value::{list_of_bytes, list_of_headers, list_of_strs, str_of, BuriList, BuriStr};
 use crate::BURI_OK;
 use std::io::{Read, Seek, Write};
-use std::sync::Mutex;
+use crate::sync::Mutex;
 
 /// Bytes buffered before a flush happens on its own. `$host` flushes after 64
 /// pushed strings; a byte count is the same idea against a runtime that has
@@ -89,7 +89,7 @@ static PENDING: Mutex<Option<std::io::Error>> = Mutex::new(None);
 /// already happened inside this runtime. Recovering the buffer is strictly
 /// better than failing a second time on top of the first — in particular it is
 /// what lets an abort still flush what the program had printed.
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+fn lock<T>(m: &Mutex<T>) -> crate::sync::MutexGuard<'_, T> {
     match m.lock() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),

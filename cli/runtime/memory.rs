@@ -15,7 +15,8 @@ use crate::abort::{buri_rt_abort_alloc_budget, buri_rt_abort_oom};
 use crate::allocator::valgrind;
 use std::alloc::{alloc, alloc_zeroed, dealloc, realloc, Layout};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use crate::sync::{Mutex, MutexGuard};
+use std::sync::OnceLock;
 
 /// A reference count that is never decremented and never freed.
 ///
@@ -211,6 +212,8 @@ pub fn values_may_cross_tasks() -> bool {
 /// store no other thread runs Buri code, so no count is ever taken plainly on
 /// one thread and atomically on another at the same time.
 pub fn begin_sharing() {
+    // A latch every allocation reads with a plain load.
+    valgrind::atomic(&SHARED_MASK);
     SHARED_MASK.store(BURI_RT_CAP_SHARED, Ordering::Relaxed);
 }
 
@@ -270,8 +273,8 @@ pub(crate) fn share_now() {
 /// Where a case takes both this and `rt`'s `alone()`, `alone()` comes first.
 /// There is no other order in the crate, so there is no cycle.
 #[cfg(test)]
-pub(crate) fn latch() -> std::sync::MutexGuard<'static, ()> {
-    static LATCH: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) fn latch() -> crate::sync::MutexGuard<'static, ()> {
+    static LATCH: crate::sync::Mutex<()> = crate::sync::Mutex::new(());
     match LATCH.lock() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
@@ -1959,7 +1962,14 @@ pub unsafe extern "C" fn buri_rt_decref(p: *mut u8, drop_glue: Option<extern "C"
             // the glue runs. An `IMMORTAL` block subtracts nothing and answers
             // `u64::MAX`, so it is never the one.
             let rc = rc_atomic(h);
-            rc.fetch_sub(atomic_delta(rc), Ordering::AcqRel) == 1
+            // What `AcqRel` orders, told to helgrind: this thread's use of the
+            // value happens before whichever thread frees it.
+            valgrind::happens_before(p);
+            let last = rc.fetch_sub(atomic_delta(rc), Ordering::AcqRel) == 1;
+            if last {
+                valgrind::happens_after(p);
+            }
+            last
         } else {
             let rc = (*h).rc;
             if rc == BURI_RT_IMMORTAL {
@@ -2327,6 +2337,8 @@ fn heap_check_decided() -> HeapCheck {
         HeapCheck::Full => 3,
         HeapCheck::Trace => 4,
     };
+    // A latch every allocation reads with a plain load.
+    valgrind::atomic(&HEAP_MODE);
     HEAP_MODE.store(byte, Ordering::Relaxed);
     mode
 }
@@ -2818,6 +2830,7 @@ pub unsafe fn buri_rt_unclaim(p: *const u8) {
     unsafe {
         let h = header(p.cast_mut());
         if is_shared(h) {
+            valgrind::happens_before(p);
             let before = rc_atomic(h).fetch_sub(1, Ordering::Release);
             debug_assert!(before >= 2, "an unclaim took a block's last reference");
         } else {
@@ -2883,7 +2896,7 @@ struct Counter {
     budget: i64,
 }
 
-static COUNTERS: std::sync::Mutex<Vec<Counter>> = std::sync::Mutex::new(Vec::new());
+static COUNTERS: crate::sync::Mutex<Vec<Counter>> = crate::sync::Mutex::new(Vec::new());
 
 /// The table, with a poisoned lock recovered rather than propagated — the
 /// language has no threads, so poisoning means this runtime already panicked
@@ -3215,6 +3228,8 @@ fn arena_reserve(a: &mut Arena, bytes: usize) {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_arena_create() -> i64 {
     // From here on this process's allocations ask which scope they are in.
+    // A latch every allocation reads with a plain load.
+    valgrind::atomic(&SCOPES_EXIST);
     SCOPES_EXIST.store(true, Ordering::Relaxed);
     let reused = arena_free(Vec::pop).and_then(|slot| {
         arenas(|t| {
@@ -4675,7 +4690,7 @@ static TASK_STACK_IDS: Mutex<Vec<(usize, usize)>> = Mutex::new(Vec::new());
 /// Tells memcheck the usable range of a task stack just mapped is a stack, so
 /// a switch onto it isn't read as a wild move of the stack pointer.
 fn register_task_stack(base: *mut u8) {
-    if !valgrind::memcheck() {
+    if !valgrind::registers_stacks() {
         return;
     }
     let low = base.wrapping_add(BURI_RT_STACK_GUARD);
@@ -4691,7 +4706,7 @@ fn register_task_stack(base: *mut u8) {
 /// # Safety
 /// `base` came from [`map_task_stack`], and nothing runs on it.
 unsafe fn unmap_task_stack(base: *mut u8) {
-    if valgrind::memcheck() {
+    if valgrind::registers_stacks() {
         let mut ids = match TASK_STACK_IDS.lock() {
             Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),
@@ -5986,8 +6001,8 @@ mod tests {
     /// `memory::latch`'s shape, and independent of it: a scope has nothing to
     /// do with the marking latch, and a case that took both would be claiming
     /// they interact.
-    fn arena_alone() -> std::sync::MutexGuard<'static, ()> {
-        static ALONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    fn arena_alone() -> crate::sync::MutexGuard<'static, ()> {
+        static ALONE: crate::sync::Mutex<()> = crate::sync::Mutex::new(());
         match ALONE.lock() {
             Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),

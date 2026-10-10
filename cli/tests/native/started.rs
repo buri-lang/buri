@@ -63,7 +63,9 @@ enum On {
 fn ran(on: On, mode: &str) -> Option<String> {
     let mut command = match on {
         On::Native => {
-            let mut command = Command::new(native()?);
+            let binary = native()?;
+            let mut command =
+                crate::valgrind::command(binary, "process.start").unwrap_or_else(|| Command::new(binary));
             crate::shared::heap_checked(&mut command);
             command
         }

@@ -1028,10 +1028,10 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     /// has already failed and reported why, and refusing the lock afterwards
     /// would turn one failure into every other case failing for a reason that
     /// is not theirs.
-    pub(crate) static TRUST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    pub(crate) static TRUST_LOCK: crate::sync::Mutex<()> = crate::sync::Mutex::new(());
 
     /// Hold [`TRUST_LOCK`] until the guard is dropped.
-    pub(crate) fn trust_lock() -> std::sync::MutexGuard<'static, ()> {
+    pub(crate) fn trust_lock() -> crate::sync::MutexGuard<'static, ()> {
         TRUST_LOCK.lock().unwrap_or_else(|held| held.into_inner())
     }
 

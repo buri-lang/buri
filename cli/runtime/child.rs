@@ -33,7 +33,7 @@ use crate::BURI_OK;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use crate::sync::{Mutex, MutexGuard};
 
 /// One started child: its pid, and its raw wait status once reaped.
 struct Started {

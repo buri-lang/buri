@@ -54,7 +54,7 @@
 use crate::list::{Release, Retain};
 use crate::ui::ComputeEntry;
 use crate::value::{list_of_bytes, str_of, BuriList, BuriStr, BURI_RT_STR_LEN_MASK};
-use std::sync::Mutex;
+use crate::sync::Mutex;
 
 /// What a record is. A `Marker` emits nothing in markup and is never counted;
 /// it is a placeholder around a region a watcher rebuilds.
@@ -367,7 +367,7 @@ impl Document {
 /// reaches it by the same index.
 static DOCUMENTS: Mutex<Vec<Document>> = Mutex::new(Vec::new());
 
-fn documents() -> std::sync::MutexGuard<'static, Vec<Document>> {
+fn documents() -> crate::sync::MutexGuard<'static, Vec<Document>> {
     match DOCUMENTS.lock() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),

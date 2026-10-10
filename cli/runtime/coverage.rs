@@ -8,7 +8,8 @@
 
 use std::collections::HashMap;
 use std::io::Write as _;
-use std::sync::{Mutex, PoisonError};
+use crate::sync::Mutex;
+use std::sync::PoisonError;
 
 static COUNTS: Mutex<Option<HashMap<i64, u64>>> = Mutex::new(None);
 

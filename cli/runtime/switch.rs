@@ -329,7 +329,7 @@ pub(crate) unsafe fn plant_return(sp: *mut u8, target: *const ()) {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-    use std::sync::Mutex;
+    use crate::sync::Mutex;
 
     /// The probe below is one `extern "C" fn` with no argument, so everything
     /// it needs is a static and only one case may use it at a time.

@@ -526,44 +526,50 @@ cargo nextest run -p buri-rt-tests --features net-h3                        # BU
 dependencies, features and locked versions equal to `cli/runtime/manifest.toml`
 and `manifest.lock`.
 
-### Memcheck
+### Valgrind
 
-`.github/workflows/memcheck.yml` runs these under Valgrind's memcheck at 03:41
-and 15:41 UTC, Linux only:
+Two scheduled workflows run what this domain builds under Valgrind, Linux only,
+and file each distinct error as an issue labelled `planned` and `urgent`.
 
-| Shard | What runs under memcheck |
-|---|---|
-| `stencil-debug`, `llvm-debug`, `llvm-release` | `native::conformance`'s native set, built that way |
-| `agreement` | `native::agreement` and `native::at_scale`, on stencil and LLVM release |
-| `runtime` | `buri-rt-tests`, x86_64 only |
+| Workflow | Tool | Shards |
+|---|---|---|
+| `memcheck.yml`, 03:41 and 15:41 UTC | memcheck | `native::conformance`'s native set built as `stencil-debug`, `llvm-debug` and `llvm-release`; `agreement::` and `at_scale::`; `buri-rt-tests`, x86_64 only |
+| `races.yml`, 04:11 and 16:11 UTC | helgrind | `fan_out::`, `at_scale::fan_outs_of_every_width` and `started::`; `agreement::`; `buri-rt-tests`'s `rt::`. On stencil and LLVM, x86_64 only |
 
 ```
 nix develop .#perf -c env BURI_MEMCHECK=/tmp/memcheck BURI_CONFORMANCE_BUILD=llvm-release \
-  cargo test -p buri --features backend-llvm,memcheck --test native -- conformance::the_native_set_passes
-nix develop .#perf -c cargo run -p buri --features backend-llvm,memcheck --example memcheck -- report /tmp/memcheck
+  cargo test -p buri --features backend-llvm,valgrind --test native -- conformance::the_native_set_passes
+nix develop .#perf -c env BURI_HELGRIND=/tmp/helgrind \
+  cargo test -p buri --features backend-llvm,valgrind --test native -- agreement::
+nix develop .#perf -c cargo run -p buri --features backend-llvm,valgrind --example valgrind -- report /tmp/helgrind
 ```
 
-- The `memcheck` feature builds a runtime that steps aside for memcheck
-  (design/native/MEMORY.md §8). Without it memcheck sees a few big pages.
-- `BURI_MEMCHECK` makes `native/shared.rs` run every program the suite built
-  under memcheck (`native/memcheck.rs`), with its report in `runs/`. `buri`
-  and cargo aren't.
+- The `valgrind` feature builds a runtime that shows the tools each block and
+  lock (design/native/MEMORY.md §8). Without it memcheck sees a few big pages
+  and helgrind sees no lock at all.
+- `BURI_MEMCHECK` or `BURI_HELGRIND` makes `native/shared.rs` run every
+  program the suite built under that tool (`native/valgrind.rs`), with its
+  report in `runs/`. `buri` and cargo aren't.
 - `BURI_CONFORMANCE_BUILD` is `stencil` (the default), `llvm-debug` or
   `llvm-release`.
 - `report` writes one draft issue per distinct error to `issues/`. An error is
   its kind and its first named frame past the allocator, so one bug reached by
   many programs is one issue.
-- The workflow files a draft from `main` only, and only when no open issue has
+- A workflow files a draft from `main` only, and only when no open issue has
   its signature in the title. Elsewhere it prints the issue it would file.
-- A definite leak is an error, except in the runtime's unit tests, some of
-  which leave a block behind on purpose.
-- `native/memcheck.supp` holds the suppressions, each with its reason. None
-  covers Buri code or `cli/runtime`.
-- arm64 runs the compiled programs too. Its port of memcheck reports
-  uninitialised values in safe Rust under the runtime's tests, so those run on
-  x86_64.
+- Memcheck: a definite leak is an error, except in the runtime's unit tests,
+  some of which leave a block behind on purpose. `native/memcheck.supp` holds
+  the suppressions, each with its reason.
+- Helgrind: a race with an access in tokio, `std`'s threads, locks and
+  channels, or musl's `malloc` and threads is ordered by code helgrind can't
+  see, and `report` drops it. `valgrind.rs`'s `UNSEEN` lists each with its
+  reason. The two `rt::` rows that park a thousand tasks don't run: helgrind
+  shadows each task's 64 MiB stack and runs out of memory.
+- arm64 runs memcheck's compiled programs too. Its port reports uninitialised
+  values in safe Rust under the runtime's tests, so those run on x86_64.
 
-A run takes about ten minutes, most of it the build.
+A memcheck run takes about ten minutes and a race run a few, most of each
+the build.
 
 ### The five-minute budget
 

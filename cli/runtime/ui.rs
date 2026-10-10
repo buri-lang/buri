@@ -92,7 +92,7 @@ use crate::abort::die;
 use crate::list::{Release, Retain};
 use crate::memory::{buri_rt_stack_acquire, buri_rt_stack_release};
 use crate::value::{list_of_strs, str_of, BuriList, BuriStr};
-use std::sync::Mutex;
+use crate::sync::Mutex;
 
 /// The per-value **equality** glue: answers whether two values of one type are
 /// the same value, by the comparison `==` makes at that type. Null where the
@@ -390,14 +390,14 @@ static THEME: Mutex<String> = Mutex::new(String::new());
 /// Lock, recovering from poisoning, for the reason `testing.rs`'s `lock` gives:
 /// the language has no threads, so a poisoned lock means this runtime already
 /// panicked and failing a second time on top of the first helps nobody.
-fn lock() -> std::sync::MutexGuard<'static, Graph> {
+fn lock() -> crate::sync::MutexGuard<'static, Graph> {
     match GRAPH.lock() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
     }
 }
 
-fn theme_lock() -> std::sync::MutexGuard<'static, String> {
+fn theme_lock() -> crate::sync::MutexGuard<'static, String> {
     match THEME.lock() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
@@ -1752,7 +1752,7 @@ struct FakeClock {
 static CLOCK: Mutex<FakeClock> =
     Mutex::new(FakeClock { now: 0, issued: 0, due: std::collections::BTreeMap::new() });
 
-fn clock() -> std::sync::MutexGuard<'static, FakeClock> {
+fn clock() -> crate::sync::MutexGuard<'static, FakeClock> {
     match CLOCK.lock() {
         Ok(c) => c,
         Err(poisoned) => poisoned.into_inner(),
@@ -1907,7 +1907,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_headless_watch(
 /// the whole of the isolation `platform/effect/testing`'s header promises.
 static RECORDERS: Mutex<Vec<(Vec<String>, Vec<i64>)>> = Mutex::new(Vec::new());
 
-fn recorders() -> std::sync::MutexGuard<'static, Vec<(Vec<String>, Vec<i64>)>> {
+fn recorders() -> crate::sync::MutexGuard<'static, Vec<(Vec<String>, Vec<i64>)>> {
     match RECORDERS.lock() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
@@ -2036,7 +2036,7 @@ mod tests {
     /// first and starts from an empty graph.
     static ONE_GRAPH_AT_A_TIME: Mutex<()> = Mutex::new(());
 
-    fn alone() -> std::sync::MutexGuard<'static, ()> {
+    fn alone() -> crate::sync::MutexGuard<'static, ()> {
         let guard = match ONE_GRAPH_AT_A_TIME.lock() {
             Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),

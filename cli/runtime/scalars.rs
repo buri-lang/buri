@@ -73,7 +73,7 @@
 )]
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use crate::sync::{Mutex, MutexGuard};
 
 /// The shortest view worth indexing, in bytes. A shorter one is walked: the
 /// walk is short, and keeping it out means a burst of small strings cannot

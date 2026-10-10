@@ -178,7 +178,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use crate::sync::{Condvar, Mutex, MutexGuard};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -2200,7 +2201,8 @@ mod shutdown {
     use std::os::unix::io::AsRawFd;
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-    use std::sync::{Mutex, OnceLock};
+    use crate::sync::Mutex;
+    use std::sync::OnceLock;
 
     /// `SIGINT` — a person at a terminal. Two on both platforms this runtime
     /// is built for; `ARCHITECTURE.md` §9 admits Linux and macOS and no third.
@@ -2999,7 +3001,8 @@ mod sockets {
     use std::io::Write;
     use std::os::unix::io::{AsRawFd, RawFd};
     use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-    use std::sync::{Arc, Mutex, MutexGuard};
+    use crate::sync::{Mutex, MutexGuard};
+    use std::sync::Arc;
     use std::task::Poll;
 
     use tokio::io::unix::AsyncFd;

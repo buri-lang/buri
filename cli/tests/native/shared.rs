@@ -77,16 +77,16 @@ pub fn ran_command(cmd: &mut Command) -> Ran {
 }
 
 /// [`ran_checked`] for a program built with `build`, a backend and profile
-/// such as `stencil debug`, which a memcheck report names.
+/// such as `stencil debug`, which a Valgrind report names.
 pub fn ran_built(binary: &Path, build: &str) -> Ran {
     let mut cmd = Command::new(binary);
     heap_checked(&mut cmd);
     ran_as(&mut cmd, build)
 }
 
-/// Runs `cmd`, under memcheck when `BURI_MEMCHECK` asks (`memcheck.rs`).
+/// Runs `cmd`, under Valgrind when `BURI_MEMCHECK` or `BURI_HELGRIND` asks (`valgrind.rs`).
 fn ran_as(cmd: &mut Command, build: &str) -> Ran {
-    let out = crate::memcheck::output(cmd, build).unwrap_or_else(|| cmd.output().unwrap());
+    let out = crate::valgrind::output(cmd, build).unwrap_or_else(|| cmd.output().unwrap());
     Ran {
         status: out.status.code().unwrap_or(-1),
         stdout: String::from_utf8_lossy(&out.stdout).to_string(),
@@ -369,7 +369,8 @@ impl RefusedPort {
 /// to the operating system and not to the program under test.
 pub fn spawned(binary: &Path) -> std::process::Child {
     started(
-        Command::new(binary)
+        crate::valgrind::command(binary, "a server")
+            .unwrap_or_else(|| Command::new(binary))
             .env("BURI_RT_HEAP_CHECK", "1")
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped()),
