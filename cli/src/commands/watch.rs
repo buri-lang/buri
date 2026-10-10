@@ -15,6 +15,11 @@
 //!   * **`.git/`, `target/` and `node_modules/` are not watched**, without an
 //!     ignore list, because they are not inputs anybody declared.
 //!
+//! One crawl exists, and only under `check_during_build`: `unused-source` reads
+//! a package's directory, so each selected package's is listed every sweep
+//! with the lint's own enumeration, which skips dot-directories, `.buri/`
+//! among them (buri-lang/buri#285).
+//!
 //! The incrementality is the cache's rather than the loop's. A pass re-runs the
 //! whole invocation; a suite whose inputs did not move is served from the cache
 //! and costs a hash of its sources, and a suite whose inputs moved is re-run.
@@ -61,14 +66,16 @@ const SWEEP: Duration = Duration::from_millis(150);
 ///
 ///   * every path `actions::contribute` enumerates for every member of the
 ///     target's closure — the rule's entry point, its `sources`, its
-///     its generators' `inputs`, and its `testing/` sources;
+///     `testing/` sources, and every file its generators are worked out from:
+///     their `inputs`, the schemas their checks read, and their tools;
 ///   * every path `actions::test_key` enumerates — the suite's `sources`, the
 ///     goldens in its package's `test/__snapshots__`, and the closure of every
 ///     library its `test { dependencies }` and `testing { dependencies }` name;
 ///   * every file of each repository platform the target's outputs name, and
 ///     its dependencies' sources, as `actions::platform_inputs` enumerates;
 ///   * every `BUILD.buri` in the repository;
-///   * the repository's `REPO.buri`.
+///   * the repository's `REPO.buri`;
+///   * under `check_during_build`, what `unused-source` reads ([`listings`]).
 ///
 /// The first three are exactly the inputs the keys are computed from, so a change
 /// that does not move a key does not exist as far as the loop is concerned. The
@@ -84,7 +91,7 @@ const SWEEP: Duration = Duration::from_millis(150);
 ///
 /// Sorted and deduplicated: two targets in one repository share most of their
 /// closure, and the same file must not be swept twice.
-pub fn inputs(session: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
+pub fn inputs(session: &Session, targets: &[TargetId]) -> Watched {
     let mut out: BTreeSet<PathBuf> = BTreeSet::new();
     out.insert(session.root.join("REPO.buri"));
     for id in session.workspace.ids() {
@@ -132,7 +139,33 @@ pub fn inputs(session: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
             out.insert(package.dir.join(rel));
         }
     }
-    out.into_iter().collect()
+    let listings = listings(session, targets, &mut out);
+    Watched { files: out.into_iter().collect(), listings }
+}
+
+/// What `check_during_build`'s `unused-source` reads beyond the keys: each
+/// selected package's directory, listed rather than stated, and, while one of
+/// them holds a file a check elsewhere may read, every file each generator rule
+/// is worked out from (buri-lang/buri#285).
+fn listings(session: &Session, targets: &[TargetId], out: &mut BTreeSet<PathBuf>) -> Vec<Listing> {
+    if !session.workspace.repo.lint.check_during_build {
+        return Vec::new();
+    }
+    let packages: BTreeSet<_> = targets.iter().map(|t| t.package).collect();
+    // The same every-generator set for whichever package needs it, so it is
+    // worked out once.
+    let reads = packages
+        .iter()
+        .map(|&package| crate::commands::lint::package_reads(session, package).1)
+        .find(|files| !files.is_empty());
+    out.extend(reads.unwrap_or_default());
+    packages
+        .into_iter()
+        .map(|package| Listing {
+            dir: session.workspace.package(package).dir.clone(),
+            extensions: crate::commands::lint::generator_extensions(session, package),
+        })
+        .collect()
 }
 
 /// Every file one rule declares, which is every file `actions::contribute`
@@ -142,15 +175,15 @@ pub fn inputs(session: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
 fn declared_sources(session: &Session, member: TargetId, out: &mut BTreeSet<PathBuf>) {
     let package = session.workspace.package(member.package);
     out.insert(package.build_path.clone());
+    // A generator's inputs, and what its checks read: a schema is in the
+    // check's key whatever its extension, without being anybody's input.
+    out.extend(crate::build::generators::worked_out_from(&session.workspace, member));
     let dir = &package.dir;
     match member.kind {
         RuleKind::Library => {
             out.insert(dir.join("lib.buri"));
             if let Some(lib) = &package.build.library {
                 for x in lib.sources.iter() {
-                    out.insert(dir.join(&x.value));
-                }
-                for x in lib.generators.iter().flat_map(|g| g.inputs.iter()) {
                     out.insert(dir.join(&x.value));
                 }
                 if let Some(testing) = &lib.testing {
@@ -165,9 +198,6 @@ fn declared_sources(session: &Session, member: TargetId, out: &mut BTreeSet<Path
             out.insert(dir.join("main.buri"));
             if let Some(bin) = &package.build.binary {
                 for x in bin.sources.iter() {
-                    out.insert(dir.join(&x.value));
-                }
-                for x in bin.generators.iter().flat_map(|g| g.inputs.iter()) {
                     out.insert(dir.join(&x.value));
                 }
             }
@@ -209,64 +239,107 @@ fn stamp(path: &Path) -> Stamp {
     }
 }
 
+/// What a pass hands the loop to watch: files to `stat`, and directories to
+/// list.
+#[derive(Clone, PartialEq, Eq, Default, Debug)]
+pub struct Watched {
+    pub files: Vec<PathBuf>,
+    pub listings: Vec<Listing>,
+}
+
+/// A package directory listed every sweep, for the files `unused-source` could
+/// report in it ([`crate::commands::lint::listing`]).
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct Listing {
+    pub dir: PathBuf,
+    /// The extensions the package's generators read, besides `.buri` and
+    /// `.proto`.
+    pub extensions: BTreeSet<String>,
+}
+
+impl Listing {
+    fn list(&self) -> BTreeSet<PathBuf> {
+        crate::commands::lint::listing(&self.dir, &self.extensions)
+            .into_iter()
+            .map(|rel| self.dir.join(rel))
+            .collect()
+    }
+}
+
 /// One sweep of the declared set.
 #[derive(Clone, PartialEq, Eq, Default, Debug)]
-pub struct Snapshot(BTreeMap<PathBuf, Stamp>);
+pub struct Snapshot {
+    stamps: BTreeMap<PathBuf, Stamp>,
+    listed: BTreeMap<Listing, BTreeSet<PathBuf>>,
+}
 
 impl Snapshot {
-    /// Stats every path. The order is the map's, so two sweeps of one set
-    /// compare field by field with no sorting.
-    pub fn sweep(paths: &[PathBuf]) -> Snapshot {
-        Snapshot(paths.iter().map(|p| (p.clone(), stamp(p))).collect())
+    /// Stats every file and lists every directory. The order is the maps', so
+    /// two sweeps of one set compare field by field with no sorting.
+    pub fn sweep(set: &Watched) -> Snapshot {
+        Snapshot {
+            stamps: set.files.iter().map(|p| (p.clone(), stamp(p))).collect(),
+            listed: set.listings.iter().map(|l| (l.clone(), l.list())).collect(),
+        }
     }
 
-    pub fn paths(&self) -> Vec<PathBuf> {
-        self.0.keys().cloned().collect()
+    /// The set this snapshot sweeps.
+    pub fn watched(&self) -> Watched {
+        Watched { files: self.stamps.keys().cloned().collect(), listings: self.listed.keys().cloned().collect() }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.stamps.is_empty()
     }
 
     /// The paths whose stamp differs, sorted. A path only one side names counts
     /// as changed: a source that appeared or a source that went away is exactly
-    /// the thing that has to wake the loop.
+    /// the thing that has to wake the loop. So does a file a listing found on
+    /// one side only.
     pub fn difference(&self, other: &Snapshot) -> Vec<PathBuf> {
         let mut out = Vec::new();
-        for (path, stamp) in &other.0 {
-            if self.0.get(path) != Some(stamp) {
+        for (path, stamp) in &other.stamps {
+            if self.stamps.get(path) != Some(stamp) {
                 out.push(path.clone());
             }
         }
-        for path in self.0.keys() {
-            if !other.0.contains_key(path) {
+        for path in self.stamps.keys() {
+            if !other.stamps.contains_key(path) {
                 out.push(path.clone());
             }
+        }
+        let none = BTreeSet::new();
+        for (listing, found) in &other.listed {
+            out.extend(found.symmetric_difference(self.listed.get(listing).unwrap_or(&none)).cloned());
         }
         out.sort();
         out.dedup();
         out
     }
 
-    /// Adopts a new declared set, keeping the stamp already held for a path
-    /// that is in both and stating a new one for a path that has just been
-    /// declared.
+    /// Adopts a new declared set, keeping what is already held for a file or a
+    /// listing that is in both and sweeping one that has just been declared.
     ///
-    /// The stamp for an old path is kept rather than re-taken, so that an edit
-    /// that landed *while* a pass was running is still seen on the next sweep
-    /// rather than being absorbed by the rebase. An empty set is not adopted:
-    /// that is what a pass whose `Session` would not open returns, and forgetting
-    /// what to watch would mean the loop could never see the file that fixes it.
-    pub fn rebase(&mut self, paths: &[PathBuf]) {
-        if paths.is_empty() {
+    /// What is held is kept rather than re-taken, so that an edit that landed
+    /// *while* a pass was running is still seen on the next sweep rather than
+    /// being absorbed by the rebase. An empty set is not adopted: that is what a
+    /// pass whose `Session` would not open returns, and forgetting what to
+    /// watch would mean the loop could never see the file that fixes it.
+    pub fn rebase(&mut self, set: &Watched) {
+        if set.files.is_empty() {
             return;
         }
-        let mut next = BTreeMap::new();
-        for path in paths {
-            let held = self.0.get(path).cloned();
-            next.insert(path.clone(), held.unwrap_or_else(|| stamp(path)));
+        let mut stamps = BTreeMap::new();
+        for path in &set.files {
+            let held = self.stamps.get(path).cloned();
+            stamps.insert(path.clone(), held.unwrap_or_else(|| stamp(path)));
         }
-        self.0 = next;
+        let mut listed = BTreeMap::new();
+        for listing in &set.listings {
+            let held = self.listed.get(listing).cloned();
+            listed.insert(listing.clone(), held.unwrap_or_else(|| listing.list()));
+        }
+        *self = Snapshot { stamps, listed };
     }
 }
 
@@ -284,7 +357,7 @@ pub struct Pass {
     pub code: i32,
     /// The declared set this pass computed, for the next sweep. Empty when the
     /// pass could not open a repository, in which case the previous set stands.
-    pub inputs: Vec<PathBuf>,
+    pub inputs: Watched,
     /// Failures, accepted diffs, and the summary line — exactly what the pass
     /// would have printed without `--watch`.
     pub output: String,
@@ -379,19 +452,20 @@ impl Watch {
                 self.say(&header);
             }
             let result = pass(&trigger);
+            // The one window in the loop, and it is only the opening pass's:
+            // the set is not known until a pass has computed it, so the first
+            // stamps are taken after the first pass rather than before it, and
+            // an edit made *during* that pass is one the loop already accounted
+            // for. Every pass after it keeps the stamps it already held, so an
+            // edit that lands mid-run is seen on the next sweep. Before the
+            // pass is printed, so an edit made after reading it always is.
+            watched.rebase(&result.inputs);
             if !result.quiet {
                 if !self.header_first {
                     self.say(&header);
                 }
                 print!("{}", result.output);
             }
-            // The one window in the loop, and it is only the opening pass's:
-            // the set is not known until a pass has computed it, so the first
-            // stamps are taken after the first pass rather than before it, and
-            // an edit made *during* that pass is one the loop already accounted
-            // for. Every pass after it keeps the stamps it already held, so an
-            // edit that lands mid-run is seen on the next sweep.
-            watched.rebase(&result.inputs);
             armed(n);
             if self.passes.is_some_and(|k| n >= k) || watched.is_empty() {
                 return result.code;
@@ -419,13 +493,13 @@ impl Watch {
     /// and answers with what moved across the whole disturbance. `None` once a
     /// signal asks the loop to stop.
     fn settle(&self, watched: &mut Snapshot) -> Option<Vec<PathBuf>> {
-        let paths = watched.paths();
+        let set = watched.watched();
         loop {
             std::thread::sleep(self.interval);
             if crate::commands::interrupt::asked().is_some() {
                 return None;
             }
-            let moved = Snapshot::sweep(&paths);
+            let moved = Snapshot::sweep(&set);
             if moved == *watched {
                 continue;
             }
@@ -435,7 +509,7 @@ impl Watch {
             let mut quiet = moved;
             loop {
                 std::thread::sleep(self.interval);
-                let again = Snapshot::sweep(&paths);
+                let again = Snapshot::sweep(&set);
                 if again == quiet {
                     break;
                 }
@@ -505,6 +579,10 @@ fn clock() -> String {
 mod tests {
     use super::*;
 
+    fn files(paths: &[PathBuf]) -> Watched {
+        Watched { files: paths.to_vec(), listings: Vec::new() }
+    }
+
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("buri-watch-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -519,16 +597,17 @@ mod tests {
         let dir = scratch("presence");
         let path = dir.join("a.buri");
         let paths = vec![path.clone()];
+        let set = files(&paths);
 
-        let before = Snapshot::sweep(&paths);
+        let before = Snapshot::sweep(&set);
         assert!(before.difference(&before).is_empty(), "a sweep differs from itself");
 
         let _ = std::fs::write(&path, "x");
-        let present = Snapshot::sweep(&paths);
+        let present = Snapshot::sweep(&set);
         assert_eq!(before.difference(&present), paths);
 
         let _ = std::fs::remove_file(&path);
-        let gone = Snapshot::sweep(&paths);
+        let gone = Snapshot::sweep(&set);
         assert_eq!(present.difference(&gone), paths);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -548,11 +627,11 @@ mod tests {
         let path = dir.join("a.buri");
         let paths = vec![path.clone()];
         let _ = std::fs::write(&path, "one");
-        let before = Snapshot::sweep(&paths);
+        let before = Snapshot::sweep(&files(&paths));
         // A length change, so that a filesystem with second-granularity
         // timestamps is not what this is measuring.
         let _ = std::fs::write(&path, "one two");
-        assert_eq!(before.difference(&Snapshot::sweep(&paths)), paths);
+        assert_eq!(before.difference(&Snapshot::sweep(&files(&paths))), paths);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -565,17 +644,18 @@ mod tests {
         let old = dir.join("a.buri");
         let new = dir.join("b.buri");
         let _ = std::fs::write(&old, "one");
-        let mut watched = Snapshot::sweep(std::slice::from_ref(&old));
+        let mut watched = Snapshot::sweep(&files(std::slice::from_ref(&old)));
 
         // The edit that lands during the pass.
         let _ = std::fs::write(&old, "one two");
-        watched.rebase(&[old.clone(), new.clone()]);
-        let changed = watched.difference(&Snapshot::sweep(&[old.clone(), new.clone()]));
+        let both = files(&[old.clone(), new.clone()]);
+        watched.rebase(&both);
+        let changed = watched.difference(&Snapshot::sweep(&both));
         assert_eq!(changed, vec![old.clone()], "a rebase swallowed an edit");
 
-        let held = watched.paths();
-        watched.rebase(&[]);
-        assert_eq!(watched.paths(), held, "an empty set was adopted");
+        let held = watched.watched();
+        watched.rebase(&Watched::default());
+        assert_eq!(watched.watched(), held, "an empty set was adopted");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -624,7 +704,7 @@ mod tests {
         let mut seen = Vec::new();
         let code = w.drive(|t| {
             seen.push((t.pass, t.changed.len()));
-            Pass { code: 7, inputs: vec![path.clone()], output: String::new(), quiet: true }
+            Pass { code: 7, inputs: files(std::slice::from_ref(&path)), output: String::new(), quiet: true }
         });
         assert_eq!(code, 7);
         assert_eq!(seen, vec![(1, 0)]);
@@ -656,7 +736,7 @@ mod tests {
         w.drive_armed(
             |t| {
                 triggers.push(t.changed.iter().map(|p| w.relative(p)).collect());
-                Pass { code: 0, inputs: vec![path.clone()], output: String::new(), quiet: true }
+                Pass { code: 0, inputs: files(std::slice::from_ref(&path)), output: String::new(), quiet: true }
             },
             |pass| {
                 if pass == 1 {
@@ -689,7 +769,7 @@ mod tests {
         };
         let code = w.drive(|_| Pass {
             code: 1,
-            inputs: vec![path.clone()],
+            inputs: files(std::slice::from_ref(&path)),
             output: "0 passed, 1 failed, 0 skipped (0.0s)\n".into(),
             quiet: false,
         });

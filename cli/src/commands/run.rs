@@ -275,7 +275,7 @@ fn rebuild(
     // back no input set, which is what makes the loop keep watching the one it
     // already had — including the file whose repair is what it is waiting for.
     let stalled =
-        |code| watch::Pass { code, inputs: Vec::new(), output: String::new(), quiet: false };
+        |code| watch::Pass { code, inputs: watch::Watched::default(), output: String::new(), quiet: false };
     sources.begin_round();
     let Ok(opened) = session::resume_or_exit(sources) else { return stalled(2) };
     let Ok((mut session, targets)) = session::resolve_in(opened, &args.targets) else {

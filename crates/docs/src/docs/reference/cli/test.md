@@ -262,19 +262,26 @@ With `--watch`, `buri test` runs the same invocation again every time one of its
 inputs changes, until you interrupt it.
 
 **What it watches**, for every selected target: its closure's entry points,
-`sources`, generator `inputs` and `testing/` sources; the suite's own `sources`;
-every `BUILD.buri` in the repository; and `REPO.buri`. That is the same declared
-list the cache keys are already made of. The loop polls each file with one
-`stat` every 150 ms, so it acts on a save between 150 and 300 ms after it lands,
-and a burst of writes becomes one run rather than twelve. Neither interval is
-configurable. Nothing the toolchain writes can wake the loop, because build
-output goes under `.buri/`, which is nobody's declared input.
+`sources` and `testing/` sources; every file its generators read, whatever the
+extension: their `inputs`, the schemas a check reads, and the tools; the suite's
+own `sources`; every `BUILD.buri` in the repository; and `REPO.buri`. That is the
+same declared list the cache keys are already made of. The loop polls each file
+with one `stat` every 150 ms, so it acts on a save between 150 and 300 ms after
+it lands, and a burst of writes becomes one run rather than twelve. Neither
+interval is configurable. Nothing the toolchain writes can wake the loop,
+because build output goes under `.buri/`, which is nobody's declared input.
 
 **A new file is not watched until something declares it.** Sources are explicit
 lists rather than globs, so a file you have just created is an input of nothing.
 The loop does watch the `BUILD.buri` that will name it: run `buri gen`, and the
 loop sees the build file change and picks the new source up with everything
 else.
+
+**With `lint { check_during_build: true }`**, the loop also lists each selected
+package's directory every sweep, so a file `unused-source` would report
+appearing or going away starts a run. It reads no file to do it. When such a
+file could be a schema another package's check reads, the loop also watches
+every file the repository's generators read.
 
 **One line separates each run**, carrying the time that triggered it, which run
 it is, and the file that moved:

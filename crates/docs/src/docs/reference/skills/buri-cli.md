@@ -133,10 +133,12 @@ Builds the targets with their `test.sources`, runs every `test` declaration,
 and prints one line per failure plus a summary. See the `buri-testing` skill.
 
 `--watch` re-runs whenever a declared input changes: the closure's entry points,
-`sources`, generator `inputs` and `testing/` sources; the suite's `sources`;
-every `BUILD.buri`; and `REPO.buri`. It polls every 150 ms, so a burst of writes
-is one run, and a run with nothing to do prints nothing. **A new file isn't
-watched until something declares it** — run `buri gen`. A `BUILD.buri` that
+`sources` and `testing/` sources; every file its generators read; the suite's
+`sources`; every `BUILD.buri`; and `REPO.buri`. It polls every 150 ms, so a
+burst of writes is one run, and a run with nothing to do prints nothing. **A new
+file isn't watched until something declares it** — run `buri gen` — unless
+`check_during_build` is on: then a file `unused-source` would report appearing
+in a selected package starts a run. A `BUILD.buri` that
 stops parsing prints its diagnostics and the loop keeps going. `--watch` is
 refused with `--force`, and for `test`, when stdout isn't a terminal.
 
