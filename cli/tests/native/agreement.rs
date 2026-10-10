@@ -1856,6 +1856,35 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// `a * b + c` rounds twice. Each operand pair below is one where a fused
+/// multiply-add, rounding once, prints something else: `5.551115123125783e-17`
+/// for the first line instead of `0.0`.
+#[test]
+fn a_multiply_then_an_add_rounds_twice() {
+    rows_or_skip!();
+    agree(
+        "multiply then add",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+fn mulAdd(a: F64, b: F64, c: F64): F64 { a * b + c }
+fn mulSub(a: F64, b: F64, c: F64): F64 { c - a * b }
+fn mulAdd32(a: F32, b: F32, c: F32): F32 { a * b + c }
+fn mulSub32(a: F32, b: F32, c: F32): F32 { c - a * b }
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let third: F64 = 1.0 / 3.0;
+  let third32: F32 = 1.0 / 3.0;
+  let _ = io.println(host.stdout, "${mulAdd(0.1, 10.0, -1.0)} ${mulAdd(third, 3.0, -1.0)} ${mulSub(0.1, 10.0, 1.0)} ${mulSub(third, 3.0, 1.0)}").ignore();
+  let _ = io.println(host.stdout, "${mulAdd32(0.1, 10.0, -1.0).toF64()} ${mulAdd32(third32, 3.0, -1.0).toF64()} ${mulSub32(0.1, 10.0, 1.0).toF64()} ${mulSub32(third32, 3.0, 1.0).toF64()}").ignore();
+  .Ok(())
+}
+"#,
+        "0.0 0.0 0.0 0.0\n0.0 0.0 0.0 0.0\n",
+    );
+}
+
 /// A `[T]` inside a derived `Show`, which used to be a named gap.
 ///
 /// It was `row_09_derived_show_of_a_list_is_a_gap` beside an `#[ignore]`d

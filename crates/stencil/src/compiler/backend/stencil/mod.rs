@@ -1463,6 +1463,25 @@ mod tests {
         assert!(missing.is_empty(), "x86-64 has no {missing:?}");
     }
 
+    /// **No arm64 stencil fuses a multiply and an add.** A fused `a * b + c`
+    /// rounds once where LLVM and JavaScript round twice, so it prints
+    /// different bits. Baseline x86-64 has no FMA, so arm64 is where it can happen.
+    #[test]
+    fn no_stencil_fuses_a_multiply_and_an_add() {
+        for t in [abi::StencilTarget::MacosArm64, abi::StencilTarget::LinuxArm64] {
+            let Ok(lib) = load(t) else { continue };
+            for s in lib.iter() {
+                for w in s.code.as_chunks::<4>().0 {
+                    let w = u32::from_le_bytes(*w);
+                    // `fmadd`/`fmsub`/`fnmadd`/`fnmsub`, then vector `fmla`/`fmls`.
+                    let scalar = w & 0xff00_0000 == 0x1f00_0000;
+                    let vector = w & 0xbf20_fc00 == 0x0e20_cc00;
+                    assert!(!scalar && !vector, "{} fuses: {w:#010x} in {}", s.name, t.slug());
+                }
+            }
+        }
+    }
+
     /// And the spilled constants are actually carried, rather than the three
     /// families having quietly stopped needing them: a `cvt/u2f` with no
     /// `ConstRef` would be a stencil reading `.rodata` that is not there.
