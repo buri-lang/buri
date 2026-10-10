@@ -1,0 +1,32 @@
+error: "//libs/x/data.json" names no file (libs/x/data.json.buri) [unknown-module]
+ --> libs/x/lib.buri:1:6
+  |
+1 | from "//libs/x/data.json" export { data };
+  |      ^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    There's no search path and no fallback, so a path never has two candidates.
+
+error: JSON has no comments [json-syntax]
+ --> libs/x/shape.schema:2:5
+  |
+2 |     // A comment, which JSONC reads and JSON does not.
+  |     ^^
+  |
+  = fix: delete the comment, or rename the file to `.jsonc` or `.json5`
+
+    The extension decides what a file may hold:
+
+                       .json  .jsonc  .json5
+      Comments         no     yes     yes
+      Trailing commas  no     yes     yes
+      JSON5 syntax     no     no      yes
+
+    JSON5 syntax is single-quoted strings, unquoted keys, hexadecimal numbers,
+    Infinity and NaN. A key written twice in one object is an error in all
+    three, because nothing says which one wins.
+
+    A file that does not parse is neither checked nor formatted, and the
+    generator that lists it does not run.
+

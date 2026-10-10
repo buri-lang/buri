@@ -901,8 +901,11 @@ fn check_json(
         None => None,
     };
     let check = crate::languages::Check::prepare(languages, rel, text.to_string(), schema, read);
+    // And the dialect each schema is read in, which REPO.buri's extensions
+    // decide rather than its bytes (buri-lang/buri#281).
     for (path, contents) in &check.reads {
         k.input(path, contents.as_bytes());
+        k.input(&format!("{path} dialect"), format!("{:?}", languages.dialect_of(path)).as_bytes());
     }
     let key = k.finish();
     let cache = Cache::open(&session.root);
