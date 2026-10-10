@@ -172,8 +172,11 @@ const KEPT_BY_BYTES: bool = cfg!(target_os = "macos");
 
 /// A native run links every suite it builds into one runner. A cold run's
 /// files written are left out: on Linux it also writes the musl sysroot.
-fn native() -> [String; 8] {
+fn native(release: bool) -> [String; 8] {
     let runner = u64::from(!KEPT_BY_BYTES);
+    // Under LLVM's `-O3`, `//lib/c`'s runner folds to the bytes of a runner an
+    // earlier step linked, so on macOS the store already holds it.
+    let filtered = u64::from(!(release && KEPT_BY_BYTES));
     [
         "suites built 3, objects compiled 10, links 1, new executables launched 1, test processes 3".into(),
         "suites reused 3, files written 0".into(),
@@ -188,7 +191,7 @@ fn native() -> [String; 8] {
             9 + runner
         ),
         format!(
-            "suites built 1, objects compiled 1, objects restored 4, links 1, new executables launched 1, \
+            "suites built 1, objects compiled 1, objects restored 4, links 1, new executables launched {filtered}, \
              test processes 1, files written {}",
             4 + runner
         ),
@@ -214,7 +217,7 @@ const JAVASCRIPT: [&str; 8] = [
 /// The default: the stencil backend.
 #[test]
 fn a_native_test_run_does_the_pinned_work() {
-    scenarios(&repo("counted-native"), &[], native());
+    scenarios(&repo("counted-native"), &[], native(false));
 }
 
 /// LLVM, under `backend-llvm`. A toolchain without it refuses, having built
@@ -229,7 +232,7 @@ fn a_native_release_test_run_does_the_pinned_work() {
     }
     first.ok();
     std::fs::remove_dir_all(scratch.path(".buri")).unwrap();
-    scenarios(&scratch, &["--release"], native());
+    scenarios(&scratch, &["--release"], native(true));
 }
 
 #[test]
