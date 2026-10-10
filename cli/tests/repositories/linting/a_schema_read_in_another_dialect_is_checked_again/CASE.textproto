@@ -1,0 +1,47 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+#
+# `shape.schema` holds a comment. Which dialect reads it is REPO.buri's to say,
+# and neither its bytes nor the data file's move when REPO.buri does.
+
+doc: "a schema whose extension REPO.buri gives to another language is checked again in that dialect, by lint and by build, with nothing cleaned in between (buri-lang/buri#281)"
+
+run {
+  args: ["lint"]
+  exit: 1
+  golden: "json.txt"
+}
+
+edit {
+  file: "REPO.buri"
+  replace: "# No language block: a `.schema` file is read as plain JSON.\n"
+  with: "language {\n    name: \"jsonc\"\n    extensions: [\".schema\"]\n}\n"
+}
+
+run {
+  args: ["lint"]
+  exit: 0
+}
+
+run {
+  args: ["build"]
+  exit: 0
+}
+
+edit {
+  file: "REPO.buri"
+  replace: "language {\n    name: \"jsonc\"\n    extensions: [\".schema\"]\n}\n"
+  with: "# No language block: a `.schema` file is read as plain JSON.\n"
+}
+
+run {
+  args: ["lint"]
+  exit: 1
+  golden: "json.txt"
+}
+
+run {
+  args: ["build"]
+  exit: 1
+  golden: "json_build.txt"
+}
