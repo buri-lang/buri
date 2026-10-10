@@ -22,23 +22,23 @@ class Buri < Formula
   homepage REPO
   license "MIT"
 
-  version "0.3.30" # nightly:version
+  version "0.3.31" # nightly:version
 
   on_macos do
     on_arm do
       url "#{REPO}/releases/download/v#{version}/buri-#{version}-aarch64-apple-darwin.tar.gz"
-      sha256 "d31bf19505b36a241f636e852636110e68f189b576ee9fa6fee16a3e242cb48c" # nightly:sha256:aarch64-apple-darwin
+      sha256 "c480399c9fab5d03aef08f273dad818cf45fc9352ed5e6ccb99dce7195add65a" # nightly:sha256:aarch64-apple-darwin
     end
   end
 
   on_linux do
     on_arm do
       url "#{REPO}/releases/download/v#{version}/buri-#{version}-aarch64-unknown-linux-musl.tar.gz"
-      sha256 "678b4702abe0bd286d890202201dfcbca4d0c402c1e129e894e30c1fe5f2d231" # nightly:sha256:aarch64-unknown-linux-musl
+      sha256 "68d9b8c39dad1628ec14b7ec59e4d79f03d76d04f804ed828eb709a38b1e8523" # nightly:sha256:aarch64-unknown-linux-musl
     end
     on_intel do
       url "#{REPO}/releases/download/v#{version}/buri-#{version}-x86_64-unknown-linux-musl.tar.gz"
-      sha256 "ea2aaafb2576c4723712b47eed0987d9908b80e160fce77b22ddb556bda3f358" # nightly:sha256:x86_64-unknown-linux-musl
+      sha256 "8b4e8463fffa740ad558893b7bd93665fd40a47de0e79371a38785802efc97ba" # nightly:sha256:x86_64-unknown-linux-musl
     end
   end
 
