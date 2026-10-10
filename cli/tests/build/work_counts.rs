@@ -272,13 +272,15 @@ fn a_failing_suites_runner_stays_put_while_another_suite_is_edited() {
     // A runner per suite, so the cold run leaves `//lib/f`'s at its own path.
     let env = [("BURI_TEST_BATCH_BYTES", "1")];
     let args = ["test", "//..."];
+    // The two runners share three units, which a run emits once.
     holds_exiting(
         &scratch,
         "a cold run",
         &args,
         &env,
         1,
-        "suites built 2, objects compiled 10, links 2, new executables launched 2, test processes 2",
+        "suites built 2, objects compiled 7, objects restored 3, links 2, new executables launched 2, \
+         test processes 2",
     );
     for k in 1..=3 {
         suite_asserting(&scratch, "e", k, k);
