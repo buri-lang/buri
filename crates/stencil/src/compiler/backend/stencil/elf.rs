@@ -74,6 +74,7 @@ use super::object::{RelKind, Reloc, Section, Symbol};
 // something that reader accepts. So it is compiled here, under `cfg(test)`,
 // and nowhere else in the toolchain's module tree.
 #[cfg(test)]
+#[allow(dead_code, reason = "the tests read back only what this writer emits")]
 #[path = "elfobj.rs"]
 mod elfobj;
 
