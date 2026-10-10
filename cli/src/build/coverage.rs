@@ -193,10 +193,10 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
         let sites = lines.get(file).unwrap_or(&empty);
         let mut ordered: Vec<(&DecisionId, &Decision)> = ds.iter().collect();
         ordered.sort_by_key(|(id, d)| (d.line, d.at, id.1, id.2, id.0));
-        let mut block = 0;
+        let mut block: usize = 0;
         let mut last_line = 0;
         for (&(kind, start, end), d) in ordered {
-            block = if d.line == last_line { block + 1 } else { 0 };
+            block = if d.line == last_line { block.saturating_add(1) } else { 0 };
             last_line = d.line;
             let slot = |i| count(coverage::branch_key(file, kind, (start, end), i));
             let taken: Vec<u64> = match kind {
@@ -211,7 +211,11 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
             let times = taken.iter().fold(0u64, |a, &n| a.saturating_add(n));
             let rows = &mut f.lines;
             match rows.binary_search_by_key(&d.line, |l| l.0) {
-                Ok(i) if !sites.contains(&d.line) => rows[i].1 = rows[i].1.max(times),
+                Ok(i) if !sites.contains(&d.line) => {
+                    if let Some(row) = rows.get_mut(i) {
+                        row.1 = row.1.max(times);
+                    }
+                }
                 Ok(_) => {}
                 Err(i) => rows.insert(i, (d.line, times)),
             }
