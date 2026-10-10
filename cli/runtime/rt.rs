@@ -3154,8 +3154,10 @@ mod tests {
         // SAFETY: `p` is still live at a count of one.
         let (rc, marked) = unsafe { crate::memory::count_and_mark(p) };
         assert_eq!((rc, marked), (1, true), "a decrement was lost");
+        // Released the way generated code releases a marked block, whose last
+        // decrement orders every other thread's before the free.
         // SAFETY: the only reference.
-        unsafe { crate::memory::buri_rt_free(p) };
+        unsafe { crate::memory::buri_rt_decref(p, None) };
         crate::memory::forget_values_may_cross_tasks();
     }
 
