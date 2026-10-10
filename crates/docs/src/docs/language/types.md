@@ -19,18 +19,18 @@ There is no `null` and no `undefined`. Absence is `Option<T>`.
 Everyday code writes `Int` and `Float`; code that cares about size writes an
 exact width.
 
-```buri
-type Int = I64; // the default integer
-
-type Float = F64; // the default float
-
-type Uint = U64;
-
-type Byte = U8;
+```buri wrap=body
+let count: Int = 7; // `I64`, the default integer
+let ratio: Float = 0.5; // `F64`, the default float
+let size: Uint = 7; // `U64`
+let byte: Byte = 255; // `U8`
+let same: I64 = count;
 ```
 
 These are **aliases**: `Int` and `I64` are the same type and mix freely.
-Diagnostics print whichever spelling the program used.
+Diagnostics print whichever spelling the program used. No `struct`, `enum` or
+`type` may take an alias's name or a primitive's, because a type annotation
+always reads it as the built-in type.
 
 **Every integer type holds its whole range on every backend.** On JavaScript,
 widths up to 32 bits are a `number` and wider ones a heap-allocated `BigInt`, so

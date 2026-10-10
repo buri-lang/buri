@@ -1007,6 +1007,15 @@ impl<'a> Checker<'a> {
 
     fn declare(&mut self, module: ModuleId, name: tree::Name, sym: Sym, exported: bool) {
         let text = self.name_text(module, name);
+        // A type annotation reads a built-in name before any declaration
+        // (`elaborate`), so a type declared under one could be built but never
+        // named.
+        if matches!(sym, Sym::Ty(_) | Sym::Alias(..)) && self.builtin_type(text).is_some() {
+            self.diags.push(
+                Diagnostic::templated("built-in-type-name", name.span)
+                    .with_bind("name", text.to_string()),
+            );
+        }
         let scope = self.scope_mut(module);
         if let Some(existing) = scope.own.get(text) {
             // An inherent method's entry is only a name to re-export, and
