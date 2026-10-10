@@ -1,16 +1,16 @@
 # Branches covered by end-to-end tests, per file: covered, total, path.
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
-# total 13353 18830 (70.91%)
+# total 13466 19060 (70.65%)
 host x86_64-unknown-linux-gnu
-254 341 cli/src/build/actions.rs
+254 343 cli/src/build/actions.rs
 32 48 cli/src/build/cache.rs
 11 22 cli/src/build/counted.rs
-20 30 cli/src/build/coverage.rs
+103 124 cli/src/build/coverage.rs
 14 40 cli/src/build/exe_identity.rs
 131 178 cli/src/build/generators.rs
 150 240 cli/src/build/hosted.rs
-121 242 cli/src/build/link.rs
+119 238 cli/src/build/link.rs
 0 0 cli/src/build/musl.rs
 1 41 cli/src/build/programs.rs
 115 140 cli/src/build/regenerate.rs
@@ -23,7 +23,7 @@ host x86_64-unknown-linux-gnu
 248 292 cli/src/build/workspace.rs
 0 0 cli/src/commands/add/mod.rs
 7 8 cli/src/commands/add/skills.rs
-36 42 cli/src/commands/arguments.rs
+33 42 cli/src/commands/arguments.rs
 71 96 cli/src/commands/build.rs
 10 10 cli/src/commands/clean.rs
 83 98 cli/src/commands/format.rs
@@ -31,13 +31,13 @@ host x86_64-unknown-linux-gnu
 24 32 cli/src/commands/init.rs
 549 668 cli/src/commands/lint.rs
 36 40 cli/src/commands/lint_cache.rs
-19 24 cli/src/commands/mod.rs
+18 24 cli/src/commands/mod.rs
 34 42 cli/src/commands/query.rs
-27 54 cli/src/commands/run.rs
-14 34 cli/src/commands/serve.rs
-436 584 cli/src/commands/test.rs
+26 54 cli/src/commands/run.rs
+0 34 cli/src/commands/serve.rs
+427 580 cli/src/commands/test.rs
 3 6 cli/src/commands/version.rs
-22 42 cli/src/commands/watch.rs
+0 42 cli/src/commands/watch.rs
 0 0 cli/src/compiler/backend/mod.rs
 1 2 cli/src/compiler/backend/runtime_native.rs
 48 66 cli/src/compiler/driver.rs
@@ -63,7 +63,7 @@ host x86_64-unknown-linux-gnu
 36 44 cli/src/language_server/formatting.rs
 56 82 cli/src/language_server/inlay_hints.rs
 24 36 cli/src/language_server/links.rs
-140 162 cli/src/language_server/mod.rs
+139 160 cli/src/language_server/mod.rs
 6 6 cli/src/language_server/origins.rs
 27 32 cli/src/language_server/pull_diagnostics.rs
 16 20 cli/src/language_server/rename.rs
@@ -71,10 +71,10 @@ host x86_64-unknown-linux-gnu
 48 58 cli/src/language_server/semantic_tokens.rs
 25 56 cli/src/language_server/signature_help.rs
 88 106 cli/src/language_server/state.rs
-21 32 cli/src/language_server/sweep.rs
+18 28 cli/src/language_server/sweep.rs
 151 192 cli/src/language_server/symbols.rs
 41 46 cli/src/language_server/syntax.rs
-7 12 cli/src/main.rs
+6 12 cli/src/main.rs
 18 20 crates/backend/src/compiler/backend/counts.rs
 7 8 crates/backend/src/compiler/backend/linkage.rs
 4 8 crates/backend/src/compiler/backend/mod.rs
@@ -83,8 +83,8 @@ host x86_64-unknown-linux-gnu
 0 0 crates/backend/src/compiler/backend/task_thread.rs
 93 124 crates/diagnostics/src/diagnostics.rs
 31 46 crates/diagnostics/src/json.rs
-30 36 crates/diagnostics/src/parallel.rs
-24 36 crates/diagnostics/src/profile.rs
+29 36 crates/diagnostics/src/parallel.rs
+25 38 crates/diagnostics/src/profile.rs
 0 0 crates/docs/src/documentation/errors.rs
 30 42 crates/docs/src/documentation/frontmatter.rs
 0 0 crates/docs/src/documentation/lints.rs
@@ -101,17 +101,18 @@ host x86_64-unknown-linux-gnu
 3 4 crates/js/src/compiler/backend/js/mod.rs
 79 90 crates/js/src/compiler/backend/js/park.rs
 56 62 crates/llvm/src/compiler/backend/llvm/attrs.rs
-662 1200 crates/llvm/src/compiler/backend/llvm/emit.rs
+662 1208 crates/llvm/src/compiler/backend/llvm/emit.rs
 14 24 crates/llvm/src/compiler/backend/llvm/mod.rs
 47 54 crates/llvm/src/compiler/backend/llvm/repr.rs
 0 0 crates/llvm/src/compiler/backend/llvm/target.rs
 43 56 crates/middle/src/compiler/backend/intrinsic_keys.rs
 31 34 crates/middle/src/compiler/middle/chunks.rs
 18 24 crates/middle/src/compiler/middle/closures.rs
-40 46 crates/middle/src/compiler/middle/coverage.rs
+42 54 crates/middle/src/compiler/middle/coverage/derived.rs
+103 128 crates/middle/src/compiler/middle/coverage/mod.rs
 23 26 crates/middle/src/compiler/middle/dce.rs
 39 46 crates/middle/src/compiler/middle/decision.rs
-177 274 crates/middle/src/compiler/middle/derives.rs
+177 272 crates/middle/src/compiler/middle/derives.rs
 6 6 crates/middle/src/compiler/middle/flags.rs
 18 18 crates/middle/src/compiler/middle/forward.rs
 14 78 crates/middle/src/compiler/middle/fuse.rs
@@ -121,7 +122,7 @@ host x86_64-unknown-linux-gnu
 124 186 crates/middle/src/compiler/middle/lower.rs
 47 74 crates/middle/src/compiler/middle/lower/lists.rs
 26 34 crates/middle/src/compiler/middle/mod.rs
-185 260 crates/middle/src/compiler/middle/monomorphize.rs
+187 262 crates/middle/src/compiler/middle/monomorphize.rs
 92 126 crates/middle/src/compiler/middle/monomorphize/hand_written.rs
 618 690 crates/middle/src/compiler/middle/rc.rs
 54 78 crates/middle/src/compiler/middle/tail_calls.rs
@@ -145,7 +146,7 @@ host x86_64-unknown-linux-gnu
 24 38 crates/semantics/src/compiler/semantics/crossing.rs
 13 16 crates/semantics/src/compiler/semantics/decorative.rs
 100 134 crates/semantics/src/compiler/semantics/exhaustiveness.rs
-391 452 crates/semantics/src/compiler/semantics/expressions.rs
+392 452 crates/semantics/src/compiler/semantics/expressions.rs
 42 54 crates/semantics/src/compiler/semantics/icons.rs
 211 250 crates/semantics/src/compiler/semantics/inference.rs
 5 6 crates/semantics/src/compiler/semantics/intern.rs
@@ -153,7 +154,7 @@ host x86_64-unknown-linux-gnu
 3 4 crates/semantics/src/compiler/semantics/name.rs
 62 80 crates/semantics/src/compiler/semantics/patterns.rs
 28 28 crates/semantics/src/compiler/semantics/reactive.rs
-365 414 crates/semantics/src/compiler/semantics/resolve.rs
+367 416 crates/semantics/src/compiler/semantics/resolve.rs
 108 146 crates/semantics/src/compiler/semantics/resolve/platforms.rs
 193 232 crates/semantics/src/compiler/semantics/styles.rs
 22 26 crates/semantics/src/compiler/semantics/typed.rs
@@ -173,7 +174,7 @@ host x86_64-unknown-linux-gnu
 13 16 crates/stencil/src/compiler/backend/stencil/region.rs
 152 212 crates/stencil/src/compiler/backend/stencil/rtcall.rs
 1 2 crates/stencil/src/compiler/backend/stencil/runtime.rs
-299 420 crates/syntax/src/formatting.rs
+276 420 crates/syntax/src/formatting.rs
 28 30 crates/syntax/src/layout.rs
 25 30 crates/syntax/src/parsing/flat.rs
 157 172 crates/syntax/src/parsing/lexer.rs
