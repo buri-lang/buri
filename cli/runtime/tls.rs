@@ -1361,33 +1361,39 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     }
 
     /// [`GRAVIOLA_NEEDS`] is exactly the set `graviola` asserts in its own
-    /// `verify_cpu_features`, read out of the source cargo resolved.
+    /// `verify_cpu_features`, read out of the source `Cargo.lock` pins.
+    ///
+    /// Found on disk rather than through `cargo metadata`: that resolves the
+    /// whole workspace, so on a cold `~/.cargo` it needs crates this build never
+    /// downloaded, and `--offline` then fails.
     #[test]
     fn the_feature_check_matches_what_graviola_asserts() {
-        let cargo = std::env::var("CARGO").unwrap_or_else(|_| String::from("cargo"));
-        // Filtered to this host, so `--offline` needs no other platform's crates.
-        let host = if cfg!(target_os = "macos") {
-            format!("{}-apple-darwin", std::env::consts::ARCH)
-        } else {
-            format!("{}-unknown-linux-gnu", std::env::consts::ARCH)
-        };
-        let out = std::process::Command::new(cargo)
-            .args(["metadata", "--format-version", "1", "--offline", "--filter-platform", &host])
-            .arg("--manifest-path")
-            .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
-            .output()
-            .expect("cargo metadata runs");
-        let metadata = String::from_utf8_lossy(&out.stdout);
-        let manifest = metadata
-            .split('"')
-            .find(|field| {
-                field.ends_with("Cargo.toml")
-                    && field.contains("/graviola-")
-                    && !field.contains("rustls-graviola")
+        let lock = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../Cargo.lock"))
+            .expect("the workspace's Cargo.lock");
+        let version = lock
+            .split("[[package]]")
+            .find_map(|entry| {
+                let mut fields = entry.lines().map(str::trim);
+                fields.find(|line| *line == "name = \"graviola\"")?;
+                fields.find_map(|line| line.strip_prefix("version = \""))?.strip_suffix('"')
             })
-            .expect("cargo resolved graviola");
+            .expect("Cargo.lock pins graviola");
+        let home = std::env::var_os("CARGO_HOME").map(PathBuf::from).unwrap_or_else(|| {
+            Path::new(&std::env::var_os("HOME").expect("HOME")).join(".cargo")
+        });
+        // One directory per registry, and the build extracted graviola into one.
+        let registries = home.join("registry/src");
+        let source_dir = std::fs::read_dir(&registries)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|registry| registry.path().join(format!("graviola-{version}")))
+            .find(|dir| dir.is_dir())
+            .unwrap_or_else(|| {
+                panic!("graviola {version}'s source is not under {}", registries.display())
+            });
         let arch = if cfg!(target_arch = "x86_64") { "x86_64" } else { "aarch64" };
-        let cpu = Path::new(manifest).with_file_name(format!("src/low/{arch}/cpu.rs"));
+        let cpu = source_dir.join(format!("src/low/{arch}/cpu.rs"));
         let source = std::fs::read_to_string(&cpu).expect("graviola's cpu.rs");
         let body = source
             .split("fn verify_cpu_features()")
