@@ -167,6 +167,7 @@
 )]
 
 use crate::compiler::backend::intrinsic_keys;
+use crate::compiler::middle::flags;
 use crate::compiler::middle::lower;
 use crate::compiler::middle::monomorphize::{
     self, short_hash, ConShape, Desc, DescVariant, Func, FuncKind, Program,
@@ -670,7 +671,9 @@ fn support(program: &Program, env: &Env) -> Vec<bool> {
 fn children(d: &Desc) -> Vec<usize> {
     match d {
         Desc::Prim(_) | Desc::Unit | Desc::Opaque(_) | Desc::Reserved => Vec::new(),
-        Desc::Struct { fields, .. } => fields.iter().map(|f| f.ty).collect(),
+        Desc::Struct { fields, .. } | Desc::Flags { fields, .. } => {
+            fields.iter().map(|f| f.ty).collect()
+        }
         Desc::Enum { variants, .. } => {
             variants.iter().flat_map(|v| v.fields.iter().map(|f| f.ty)).collect()
         }
@@ -933,7 +936,9 @@ impl Generator {
     /// with a fifth `$` cannot equal one with four.
     fn symbol(&mut self, op: Op, desc: usize, shape: &str) -> String {
         let base = match self.desc(desc) {
-            Some(Desc::Struct { name, .. }) | Some(Desc::Enum { name, .. }) => name.clone(),
+            Some(Desc::Struct { name, .. })
+            | Some(Desc::Enum { name, .. })
+            | Some(Desc::Flags { name, .. }) => name.clone(),
             Some(Desc::Prim(p)) => p.name().to_string(),
             Some(Desc::Array(_)) => "list".to_string(),
             Some(Desc::Tuple(_)) => "tuple".to_string(),
@@ -993,6 +998,20 @@ impl Generator {
         let named = op.reads_names();
         match self.desc(desc) {
             Some(Desc::Prim(p)) => out.push_str(&format!("p{}", p.name())),
+            // Compared and hashed as its word, so only the operations that
+            // print names tell two of these apart.
+            Some(Desc::Flags { name, record, fields, prim }) => {
+                out.push_str(&format!("f{}(", prim.name()));
+                if named {
+                    out.push_str(name);
+                    out.push_str(if *record { "{" } else { "(" });
+                    for f in fields {
+                        out.push_str(&f.name);
+                        out.push(',');
+                    }
+                }
+                out.push(')');
+            }
             Some(Desc::Unit) => out.push('u'),
             Some(Desc::Struct { name, record, fields }) => {
                 out.push_str("s(");
@@ -1087,6 +1106,11 @@ impl Generator {
             .or_else(|| self.env.prim_of.get(&Prim::Bool))
             .cloned()
             .unwrap_or(Ty::ERROR)
+    }
+
+    /// The word a `Flags` descriptor's value is stored in.
+    fn word(&self, desc: usize, prim: Prim, fields: usize) -> flags::Word {
+        flags::Word { prim, fields, ty: self.ty_of(desc), bool_ty: self.bool_ty(), span: Span::NONE }
     }
 
     fn local_expr(&self, id: LocalId, ty: &Ty) -> Expr {
@@ -1258,6 +1282,7 @@ impl Generator {
                 bool_ty,
                 Span::NONE,
             )),
+            Desc::Flags { prim, .. } => Some(self.prim_test(PrimOp::Eq, *prim, a, b)),
             Desc::Unit => Some(Expr::new(ExprKind::Bool(true), bool_ty, Span::NONE)),
             Desc::Struct { fields, .. } => {
                 let parts: Vec<(usize, usize)> =
@@ -1441,7 +1466,7 @@ impl Generator {
         let descs = std::rc::Rc::clone(&self.descs);
         match descs.get(desc)? {
             Desc::Prim(p) if p.is_float() => self.compare_float(desc, *p, a, b),
-            Desc::Prim(p) => {
+            Desc::Prim(p) | Desc::Flags { prim: p, .. } => {
                 let otherwise = self.order_lit(ORDER_EQUAL)?;
                 self.compare_prim(*p, a, b, otherwise)
             }
@@ -1855,6 +1880,25 @@ impl Generator {
                 Some(self.intrinsic("derivePrimShow", vec![ty], vec![x], str_ty))
             }
             Desc::Unit => Some(self.str_lit("()")),
+            Desc::Flags { name, record, fields, prim } => {
+                let word = self.word(desc, *prim, fields.len());
+                let open = if *record { format!("{name} {{ ") } else { format!("{name}(") };
+                let mut parts: Vec<TemplatePart> = vec![TemplatePart::Text(open)];
+                for (i, f) in fields.iter().enumerate() {
+                    if i > 0 {
+                        parts.push(TemplatePart::Text(", ".into()));
+                    }
+                    if *record {
+                        parts.push(TemplatePart::Text(format!("{}: ", f.name)));
+                    }
+                    let bit = word.bit(x.clone(), i);
+                    let shown =
+                        self.intrinsic("derivePrimShow", vec![word.bool_ty], vec![bit], str_ty);
+                    parts.push(TemplatePart::Hole(shown));
+                }
+                parts.push(TemplatePart::Text(if *record { " }" } else { ")" }.to_string()));
+                Some(self.joined(parts))
+            }
             Desc::Struct { name, record, fields } => {
                 // A struct with no fields is still written with its delimiters:
                 // `Hollow {}` is a value and `Hollow` is a type. `$show` renders
@@ -2114,6 +2158,22 @@ impl Generator {
                 Some(self.intrinsic("derivePrimJson", vec![ty], vec![x], json))
             }
             Desc::Unit => self.json_lit("Null", Vec::new()),
+            Desc::Flags { record, fields, prim, .. } => {
+                let word = self.word(desc, *prim, fields.len());
+                let mut items: Vec<(String, Expr)> = Vec::new();
+                for (i, f) in fields.iter().enumerate() {
+                    let bit = word.bit(x.clone(), i);
+                    let one = self.intrinsic("derivePrimJson", vec![word.bool_ty], vec![bit], json);
+                    items.push((f.name.clone(), one));
+                }
+                if *record {
+                    let obj = self.json_members(items);
+                    self.json_lit("Object", vec![obj])
+                } else {
+                    let arr = self.json_array(items.into_iter().map(|(_, v)| v).collect());
+                    self.json_lit("Array", vec![arr])
+                }
+            }
             Desc::Struct { record, fields, .. } => {
                 let mut members: Vec<(String, Expr)> = Vec::new();
                 let mut items: Vec<Expr> = Vec::new();
@@ -2377,6 +2437,17 @@ impl Generator {
                 let items: Vec<usize> = fields.iter().map(|f| f.ty).collect();
                 self.decode_array(&ty, je, pe, &items, Build::Struct(ty), frame)
             }
+            Desc::Flags { record, fields, prim, .. } => {
+                let build = Build::Flags(self.word(desc, *prim, fields.len()));
+                if *record {
+                    let members: Vec<(String, usize)> =
+                        fields.iter().map(|f| (f.name.clone(), f.ty)).collect();
+                    self.decode_object(&ty, je, pe, &members, build, frame)
+                } else {
+                    let items: Vec<usize> = fields.iter().map(|f| f.ty).collect();
+                    self.decode_array(&ty, je, pe, &items, build, frame)
+                }
+            }
             Desc::Tuple(es) => self.decode_array(&ty, je, pe, es, Build::Tuple(ty), frame),
             Desc::Array(elem) => self.decode_list(&ty, *elem, je, pe, frame),
             Desc::Enum { variants, .. } => self.decode_enum(&ty, variants, je, pe, frame),
@@ -2487,6 +2558,7 @@ impl Generator {
                 Some(Expr::new(ExprKind::StructLit { con, targs, fields: vals }, ty, Span::NONE))
             }
             Build::Tuple(ty) => Some(Expr::new(ExprKind::Tuple(vals), ty, Span::NONE)),
+            Build::Flags(word) => Some(word.pack(vals)),
             Build::Variant(ty, vi) => self.enum_lit(&ty, vi, vals),
         }
     }
@@ -2887,6 +2959,11 @@ impl Generator {
                 let ty = self.ty_of(desc);
                 Some(self.intrinsic("derivePrimHash", vec![ty], vec![h, x], acc))
             }
+            // The word, hashed as a primitive of its width hashes.
+            Desc::Flags { prim, .. } => {
+                let ty = self.env.prim_of.get(prim).cloned().unwrap_or(Ty::ERROR);
+                Some(self.intrinsic("derivePrimHash", vec![ty], vec![h, x], acc))
+            }
             // `$hashInto` sees `()` as the number zero, and this is what keeps
             // the two backends' `hash()` the same number.
             Desc::Unit => Some(self.mix(h, 0)),
@@ -3010,7 +3087,12 @@ impl Generator {
     /// operands twice, so at a call site whose operand is a call it becomes a
     /// function instead.
     fn at(&mut self, op: Op, desc: usize, args: Vec<Expr>) -> Option<Expr> {
-        let prim = matches!(self.desc(desc), Some(Desc::Prim(_)));
+        // A `Flags` word compares and hashes as a primitive does.
+        let prim = match self.desc(desc) {
+            Some(Desc::Prim(_)) => true,
+            Some(Desc::Flags { .. }) => !op.reads_names(),
+            _ => false,
+        };
         let unit = matches!(self.desc(desc), Some(Desc::Unit));
         // A leaf expansion may write an operand twice (`a < b`, then `a > b`)
         // or not at all (`()` is equal to `()`). A primitive's writes each
@@ -3089,6 +3171,8 @@ enum Build {
     Struct(Ty),
     Tuple(Ty),
     Variant(Ty, usize),
+    /// A `derive Flags` word, packed from its decoded `Bool`s.
+    Flags(flags::Word),
 }
 
 /// `Order`'s variants, in declaration order (`core/order`).

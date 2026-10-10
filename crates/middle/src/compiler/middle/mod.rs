@@ -62,6 +62,7 @@ pub mod coverage;
 pub mod dce;
 pub mod decision;
 pub mod derives;
+pub mod flags;
 pub mod forward;
 pub mod fuse;
 pub mod inline;

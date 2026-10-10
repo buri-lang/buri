@@ -26,7 +26,7 @@ fn write(at: &Path, body: &str) {
 }
 
 /// A repository holding one library, `//lib`, whose test source is `test`.
-fn repository(name: &str, test: &str) -> PathBuf {
+pub(crate) fn repository(name: &str, test: &str) -> PathBuf {
     let repo = workspace(name);
     write(&repo.join("REPO.buri"), "");
     write(
@@ -42,7 +42,7 @@ fn repository(name: &str, test: &str) -> PathBuf {
 
 /// `buri test //lib` on every backend, as `(backend, exit status, stdout,
 /// stderr)`.
-fn every_backend(repo: &Path) -> Vec<(&'static str, i32, String, String)> {
+pub(crate) fn every_backend(repo: &Path) -> Vec<(&'static str, i32, String, String)> {
     let mut modes = crate::e2e::build_modes();
     modes.push(("js", &["--output=js"]));
     modes

@@ -1,0 +1,12 @@
+error: `Access` does not implement `Flags` [missing-impl]
+  --> cmd/flags_none_without_derive/main.buri:14:30
+   |
+14 |   let _ = io.println(ctx, "${flags.none<Access>().read}").ignore();
+   |                              ^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: add `derive Flags for Access;` in that type's own module
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

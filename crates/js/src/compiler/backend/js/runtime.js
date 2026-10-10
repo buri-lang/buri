@@ -130,7 +130,26 @@ function $f64(n) {
 // --- The structural operations `derive` stands for ---------------------------
 //
 // A descriptor is [kind, ...]. Kinds: 0 primitive, 1 unit, 2 struct, 3 enum,
-// 4 array, 5 tuple, 6 opaque.
+// 4 array, 5 tuple, 6 opaque, 7 option, 8 flags.
+//
+// A `derive Flags` struct is a number, or a `BigInt` past 32 fields, so `$eq`,
+// `$cmp` and `$hashInto` take it as they take any integer. The walks that name
+// fields read it as the struct of booleans it stands for, through the two
+// functions its descriptor names, so a program with no such struct carries
+// neither: [8, struct, masks, $unflag, $flag], with `masks[i]` field `i`'s bit.
+function $unflag(v, masks) {
+  const out = new Array(masks.length);
+  for (let i = 0; i < masks.length; i++) out[i] = (v & masks[i]) != 0;
+  return out;
+}
+
+// The masks are disjoint, so adding them is or-ing them, and a sum stays
+// non-negative where `|` would turn bit 31 into a sign.
+function $flag(xs, masks) {
+  let v = masks[0] - masks[0];
+  for (let i = 0; i < masks.length; i++) if (xs[i]) v += masks[i];
+  return v;
+}
 
 // `==` at a float, where the operands cannot be written twice. SPEC 7.2 rules
 // `NaN == NaN`, so this is `===` widened by exactly one pair. It is not
@@ -385,6 +404,7 @@ function $show(v, d) {
   if (k === 7) {
     return v === undefined ? ".None" : ".Some(" + $show($val(v), d[1]) + ")";
   }
+  if (k === 8) return $show(d[3](v, d[2]), d[1]);
   if (k === 4) return "[" + $showEach(v, d[1]) + "]";
   if (k === 5) return "(" + $showArgs(v, d[1]) + ")";
   return $str(v);
@@ -470,6 +490,7 @@ function $json_of(v, d) {
   }
   // [7, payload] — an `Option`, which is its payload or `null`.
   if (k === 7) return v === undefined ? [0] : $json_of($val(v), d[1]);
+  if (k === 8) return $json_of(d[3](v, d[2]), d[1]);
   if (k === 4) return [4, $jsonEach(v, d[1])];
   if (k === 5) return [4, $jsonArgs(v, d[1])];
   return [0];
@@ -612,6 +633,7 @@ function $json_into(j, d, p) {
   }
   if (k === 3) return $jsonVariantInto(j, d, p);
   if (k === 7) return j[0] === 0 ? undefined : $some($json_into(j, d[1], p));
+  if (k === 8) return d[4]($json_into(j, d[1], p), d[2]);
   if (k === 4) {
     if (j[0] !== 4) $jsonWrong(p, "an array", j);
     const xs = j[1];

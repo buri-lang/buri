@@ -969,6 +969,32 @@ is written by hand prints the way that `impl` says, inside any derived type.
 the type alone but not where it's nested. `core/json` documents the JSON
 mapping.
 
+`derive Flags` stores a struct whose fields are all `Bool` as one unsigned word
+with a bit per field: a `U8` up to 8 fields, then `U16`, `U32` and `U64`, and
+at most 64. Fields still read as `x.read` and update as `Access { ..x, read:
+true }`. The `Flags` trait in `core/flags` adds the set operations, and
+`flags.none` and `flags.all` build the two ends:
+
+```buri
+# from "core/flags" import * as flags;
+# from "core/flags" import { Flags };
+
+derive Flags, Equal, Ordered, Show for Access;
+struct Access {
+    read: Bool,
+    write: Bool,
+}
+
+# fn demo(): Bool {
+    let editor = Access { ..flags.none<Access>(), write: true };
+    editor.union(flags.all<Access>()).count() == 2
+# }
+```
+
+`Equal`, `Ordered` and `Hash` compare the word, ordering as a plain struct's
+derived `Ordered` does. `Show`, `ToJson` and `FromJson` read and write the plain
+struct. `Flags` can only be derived.
+
 #### 5.12.4 Operators are trait methods
 
 | Operator | Trait method |

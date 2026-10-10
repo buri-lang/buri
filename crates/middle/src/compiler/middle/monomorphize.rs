@@ -131,6 +131,10 @@ pub enum Desc {
     Unit,
     /// Rendered as `Name { field: .., .. }` or `Name(..)`.
     Struct { name: String, record: bool, fields: Vec<DescField> },
+    /// A `derive Flags` struct, stored as the word `prim`: compared, ordered
+    /// and hashed as that word, and shown and encoded as the struct of `Bool`s
+    /// it stands for. Field `i` of `n` is bit `n - 1 - i` (`middle::flags`).
+    Flags { name: String, record: bool, fields: Vec<DescField>, prim: Prim },
     Enum { name: String, variants: Vec<DescVariant> },
     Array(usize),
     Tuple(Vec<usize>),
@@ -1761,6 +1765,9 @@ impl Monomorphizer<'_> {
                     return typed::Expr::new(ExprKind::Error, e.ty, e.span);
                 };
                 let resolved: Vec<Ty> = call_targs.iter().map(|t| self.sub(t, targs)).collect();
+                if let Some(word) = self.flags_constant(id, &e.ty, e.span) {
+                    return word;
+                }
                 let args = self.rewrite_all(args, targs);
                 let slot = self.request(Key::Fn(id, resolved));
                 ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(slot as u32)), args }
@@ -1828,19 +1835,28 @@ impl Monomorphizer<'_> {
                 callee: Box::new(self.rewrite(*callee, targs)),
                 args: self.rewrite_all(args, targs),
             },
-            ExprKind::StructLit { con, targs: st, fields } => ExprKind::StructLit {
-                con,
-                targs: st.iter().map(|t| self.sub(t, targs)).collect(),
-                fields: self.rewrite_all(fields, targs),
-            },
-            ExprKind::StructUpdate { con, base, updates } => ExprKind::StructUpdate {
-                con,
-                base: Box::new(self.rewrite(*base, targs)),
-                updates: updates
+            ExprKind::StructLit { con, targs: st, fields } => {
+                let fields = self.rewrite_all(fields, targs);
+                if let Some(word) = self.flags_word(&e.ty, e.span) {
+                    return word.pack(fields);
+                }
+                ExprKind::StructLit {
+                    con,
+                    targs: st.iter().map(|t| self.sub(t, targs)).collect(),
+                    fields,
+                }
+            }
+            ExprKind::StructUpdate { con, base, updates } => {
+                let base = self.rewrite(*base, targs);
+                let updates: Vec<(usize, typed::Expr)> = updates
                     .into_iter()
                     .map(|(i, v)| (i, self.rewrite(v, targs)))
-                    .collect(),
-            },
+                    .collect();
+                if let Some(word) = self.flags_word(&e.ty, e.span) {
+                    return word.update(base, updates);
+                }
+                ExprKind::StructUpdate { con, base: Box::new(base), updates }
+            }
             ExprKind::EnumLit { con, targs: et, variant, args } => ExprKind::EnumLit {
                 con,
                 targs: et.iter().map(|t| self.sub(t, targs)).collect(),
@@ -1850,7 +1866,11 @@ impl Monomorphizer<'_> {
             ExprKind::Tuple(xs) => ExprKind::Tuple(self.rewrite_all(xs, targs)),
             ExprKind::Array(xs) => ExprKind::Array(self.rewrite_all(xs, targs)),
             ExprKind::Field { base, index } => {
-                ExprKind::Field { base: Box::new(self.rewrite(*base, targs)), index }
+                let base = self.rewrite(*base, targs);
+                if let Some(word) = self.flags_word(&base.ty, e.span) {
+                    return word.bit(base, index);
+                }
+                ExprKind::Field { base: Box::new(base), index }
             }
             ExprKind::TupleIndex { base, index } => {
                 ExprKind::TupleIndex { base: Box::new(self.rewrite(*base, targs)), index }
@@ -2176,6 +2196,12 @@ impl Monomorphizer<'_> {
             (op @ ("Add" | "Subtract" | "Multiply" | "Divide" | "Remainder" | "Negate"), _) => {
                 self.derived_operator(op, recv, all, span)
             }
+            ("Flags", _) => {
+                all.pop(); // the descriptor, which the word does not need
+                let Some(word) = self.flags_word(recv, span) else { return ExprKind::Error };
+                let method = self.tables().trait_(trait_id).methods.get(method).map(|m| m.name.clone());
+                self.flags_method(word, method.as_deref().unwrap_or(""), all)
+            }
             _ => {
                 self.diags.push(
                     Diagnostic::templated("trait-not-derivable", span)
@@ -2183,6 +2209,105 @@ impl Monomorphizer<'_> {
                 );
                 ExprKind::Error
             }
+        }
+    }
+
+    /// The word a `derive Flags` type is stored in, when `ty` is one.
+    fn flags_word(&self, ty: &Ty, span: Span) -> Option<crate::compiler::middle::flags::Word> {
+        let prim = self.tables().flags_word_of(ty)?;
+        let fields = ty.head().map_or(0, |con| self.tables().tycon(con).fields().len());
+        let bool_ty = self.tables().prim(Prim::Bool);
+        Some(crate::compiler::middle::flags::Word { prim, fields, ty: *ty, bool_ty, span })
+    }
+
+    /// `flags.none<T>()` and `flags.all<T>()`, which are the word with no bit
+    /// and with every bit set. `None` for any other call.
+    fn flags_constant(&self, id: FnId, ty: &Ty, span: Span) -> Option<typed::Expr> {
+        let info = self.tables().fn_info(id);
+        if info.self_ty.is_some() || !info.intrinsic {
+            return None;
+        }
+        let module = self.module_paths.get(info.module.index())?;
+        if module != crate::compiler::semantics::resolve::FLAGS_MODULE {
+            return None;
+        }
+        let word = self.flags_word(ty, span)?;
+        match info.name.as_str() {
+            "none" => Some(word.lit(0)),
+            "all" => Some(word.lit(word.all())),
+            _ => None,
+        }
+    }
+
+    /// One `Flags` method, as operations on the word.
+    fn flags_method(
+        &mut self,
+        word: crate::compiler::middle::flags::Word,
+        method: &str,
+        mut args: Vec<typed::Expr>,
+    ) -> ExprKind {
+        use typed::PrimOp;
+        let b = if args.len() > 1 { args.pop() } else { None };
+        let Some(a) = args.pop() else { return ExprKind::Error };
+        let both = |b: Option<typed::Expr>| b.map_or_else(Vec::new, |b| vec![a.clone(), b]);
+        let e = match method {
+            "union" => word.op(PrimOp::BitOr, both(b)),
+            "intersect" => word.op(PrimOp::BitAnd, both(b)),
+            "symmetricDifference" => word.op(PrimOp::BitXor, both(b)),
+            "difference" | "isSubsetOf" => {
+                let Some(b) = b else { return ExprKind::Error };
+                let outside = word.op(PrimOp::BitXor, vec![b, word.lit(word.all())]);
+                let left = word.op(PrimOp::BitAnd, vec![a, outside]);
+                if method == "difference" {
+                    left
+                } else {
+                    word.test(PrimOp::Eq, left, word.lit(0))
+                }
+            }
+            "complement" => word.op(PrimOp::BitXor, vec![a, word.lit(word.all())]),
+            "isEmpty" => word.test(PrimOp::Eq, a, word.lit(0)),
+            "count" => return self.flags_count(word, a),
+            _ => return ExprKind::Error,
+        };
+        e.kind
+    }
+
+    /// How many bits are set: one test per field, added up. The value is bound
+    /// once, because each test reads it.
+    fn flags_count(&mut self, word: crate::compiler::middle::flags::Word, a: typed::Expr) -> ExprKind {
+        let int = self.tables().prim(Prim::I64);
+        let span = word.span;
+        let x = self.new_local("flags", word.ty, span);
+        let read = || typed::Expr::new(ExprKind::Local(x), word.ty, span);
+        let one = |v: u128| typed::Expr::new(ExprKind::Int(typed::Magnitude::new(v), false), int, span);
+        let sum = (0..word.fields)
+            .map(|i| {
+                typed::Expr::new(
+                    ExprKind::If {
+                        cond: Box::new(word.bit(read(), i)),
+                        then: Box::new(one(1)),
+                        else_: Box::new(one(0)),
+                    },
+                    int,
+                    span,
+                )
+            })
+            .reduce(|acc, b| {
+                typed::Expr::new(
+                    ExprKind::Prim { op: typed::PrimOp::Add, prim: Prim::I64, args: vec![acc, b] },
+                    int,
+                    span,
+                )
+            })
+            .unwrap_or_else(|| one(0));
+        let bind = typed::Pattern {
+            kind: typed::PatKind::Bind { local: x, sub: None },
+            ty: word.ty,
+            span,
+        };
+        ExprKind::Block {
+            stmts: vec![typed::Stmt::Let { pattern: bind, value: a, span }],
+            tail: Some(Box::new(sum)),
         }
     }
 
@@ -2289,6 +2414,18 @@ impl Monomorphizer<'_> {
                 let tycon = checked.tables.tycon(*con);
                 match &tycon.def {
                     TyDef::Prim(p) => Desc::Prim(*p),
+                    TyDef::Struct { fields, record } if checked.tables.flags_word(*con).is_some() => {
+                        let bool_desc = self.descriptor(&checked.tables.prim(Prim::Bool));
+                        Desc::Flags {
+                            name: tycon.name.clone(),
+                            record: *record,
+                            fields: fields
+                                .iter()
+                                .map(|f| DescField { name: f.name.clone(), ty: bool_desc })
+                                .collect(),
+                            prim: checked.tables.flags_word(*con).unwrap_or(Prim::U64),
+                        }
+                    }
                     TyDef::Struct { fields, record } => {
                         let described: Vec<DescField> = fields
                             .iter()

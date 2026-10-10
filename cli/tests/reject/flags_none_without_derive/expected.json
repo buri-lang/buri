@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Access` does not implement `Flags`","code":"missing-impl","location":{"file":"cmd/flags_none_without_derive/main.buri","line":14,"column":30,"endLine":14,"endColumn":50,"text":"  let _ = io.println(ctx, \"${flags.none<Access>().read}\").ignore();"},"fix":"add `derive Flags for Access;` in that type's own module","notes":[],"related":[]}

@@ -1,0 +1,969 @@
+// `derive Flags` — a struct of `Bool`s, packed one bit to a field.
+//
+// The value is a word, so every place a value can live is exercised: a field,
+// a list, an enum payload, a map key, a closure's capture and a task's result.
+// The widths straddle 8, 16, 32 and 64 flags, where the word grows.
+
+from "core/flags" import * as flags;
+from "core/flags" import { Flags };
+from "core/json" import * as json;
+from "core/json" import { DecodeError, FromJson, Json, ToJson };
+from "core/list" import * as list;
+from "core/map" import * as map;
+from "core/order" import { Order };
+from "core/set" import * as set;
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Tasks };
+from "platform/effect/testing" import { alloc, tasks };
+
+derive Flags, Equal, Hash, Ordered, Show, ToJson, FromJson for Access;
+struct Access {
+    read: Bool,
+    write: Bool,
+    share: Bool,
+    delete: Bool,
+}
+
+// The same fields, unpacked, for "the same answer as a plain struct".
+derive Equal, Hash, Ordered, Show, ToJson, FromJson for Plain;
+struct Plain {
+    read: Bool,
+    write: Bool,
+    share: Bool,
+    delete: Bool,
+}
+
+derive Flags, Equal, Show, ToJson, FromJson for Pair;
+struct Pair(Bool, Bool);
+
+derive Flags, Equal, Show for Tagged;
+struct Tagged<T> {
+    on: Bool,
+    off: Bool,
+}
+
+/// A flags value beside a byte, as a field.
+derive Equal, Show for Held;
+struct Held {
+    access: Access,
+    tag: U8,
+}
+
+enum Event {
+    Granted(Access),
+    Revoked { before: Access, after: Access },
+    Nothing,
+}
+
+let ADMIN: Access = Access { read: true, write: true, share: true, delete: false };
+
+fn editor(): Access {
+    Access { ..flags.none<Access>(), read: true, write: true }
+}
+
+fn plain(a: Access): Plain {
+    Plain { read: a.read, write: a.write, share: a.share, delete: a.delete }
+}
+
+/// The sixteen values, by the bits of `i`: `read` is bit 0.
+fn access(i: Int): Access {
+    Access {
+        read: i % 2 == 1,
+        write: i / 2 % 2 == 1,
+        share: i / 4 % 2 == 1,
+        delete: i / 8 % 2 == 1,
+    }
+}
+
+fn every<C: Allocator>(ctx: C): [Access] {
+    list.range(ctx, 0, 16).map(ctx, access)
+}
+
+// --- getters and setters --------------------------------------------------------
+
+test "a field reads its own flag and no other" {
+    let a = Access { read: true, write: false, share: true, delete: false };
+    assert.isTrue(a.read);
+    assert.isFalse(a.write);
+    assert.isTrue(a.share);
+    assert.isFalse(a.delete);
+}
+
+test "struct update sets and clears one flag" {
+    let a = editor();
+    let shared = Access { ..a, share: true };
+    assert.isTrue(shared.share);
+    assert.isTrue(shared.read);
+    let readOnly = Access { ..shared, write: false };
+    assert.isFalse(readOnly.write);
+    assert.isTrue(readOnly.read);
+    assert.isTrue(readOnly.share);
+    // The base is a value: updating it changed nothing it held.
+    assert.isTrue(a.write);
+    assert.isFalse(a.share);
+}
+
+test "an update can set several flags, from computed values" {
+    let yes = editor().read;
+    let a = Access { ..flags.none<Access>(), delete: yes, share: !yes };
+    assert.isTrue(a.delete);
+    assert.isFalse(a.share);
+    assert.equal(a.count(), 1);
+}
+
+test "a literal's fields can be computed" {
+    let n = 3;
+    let a = Access { read: n > 1, write: n > 5, share: n == 3, delete: n < 0 };
+    assert.equal(a, Access { ..flags.none<Access>(), read: true, share: true });
+}
+
+test "a constant is a flags value" {
+    assert.isTrue(ADMIN.share);
+    assert.isFalse(ADMIN.delete);
+    assert.equal(ADMIN.count(), 3);
+}
+
+// --- none and all ---------------------------------------------------------------
+
+test "none has every flag false, and all every flag true" {
+    let none = flags.none<Access>();
+    let all = flags.all<Access>();
+    assert.isFalse(none.read || none.write || none.share || none.delete);
+    assert.isTrue(all.read && all.write && all.share && all.delete);
+}
+
+test "none and all take their type from where they are used" {
+    let none: Access = flags.none();
+    let all: Pair = flags.all();
+    assert.isTrue(none.isEmpty());
+    assert.isTrue(all.0 && all.1);
+}
+
+// --- the set operations ---------------------------------------------------------
+
+test "union, intersect, difference and symmetricDifference" {
+    let a = Access { ..flags.none<Access>(), read: true, write: true };
+    let b = Access { ..flags.none<Access>(), write: true, share: true };
+    assert.equal(a.union(b), Access { ..b, read: true });
+    assert.equal(a.intersect(b), Access { ..flags.none<Access>(), write: true });
+    assert.equal(a.difference(b), Access { ..flags.none<Access>(), read: true });
+    assert.equal(b.difference(a), Access { ..flags.none<Access>(), share: true });
+    assert.equal(a.symmetricDifference(b), Access {
+        ..flags.none<Access>(),
+        read: true,
+        share: true,
+    });
+}
+
+test "complement flips every flag and only the flags there are" {
+    let a = Access { ..flags.none<Access>(), read: true };
+    let c = a.complement();
+    assert.equal(c, Access { ..flags.all<Access>(), read: false });
+    assert.equal(c.count(), 3);
+    assert.equal(c.complement(), a);
+    assert.equal(flags.none<Access>().complement(), flags.all<Access>());
+}
+
+test "isSubsetOf" {
+    let owner = flags.all<Access>();
+    assert.isTrue(editor().isSubsetOf(owner));
+    assert.isFalse(owner.isSubsetOf(editor()));
+    assert.isTrue(editor().isSubsetOf(editor()));
+    assert.isTrue(flags.none<Access>().isSubsetOf(editor()));
+    assert.isFalse(
+        Access { ..flags.none<Access>(), delete: true }.isSubsetOf(editor()),
+    );
+}
+
+test "isEmpty and count" {
+    assert.isTrue(flags.none<Access>().isEmpty());
+    assert.isFalse(editor().isEmpty());
+    assert.equal(flags.none<Access>().count(), 0);
+    assert.equal(editor().count(), 2);
+    assert.equal(flags.all<Access>().count(), 4);
+}
+
+test "the example from the proposal" {
+    let none = flags.none<Access>();
+    let owner = flags.all<Access>();
+    let e = Access { ..none, read: true, write: true };
+    assert.isTrue(
+        e.write
+            && e.isSubsetOf(owner)
+            && owner.difference(e) == Access { ..none, share: true, delete: true }
+            && e.union(owner).count() == 4,
+    );
+}
+
+// --- Equal, Hash, Ordered, Show -------------------------------------------------
+
+test "equality is equality of every flag" {
+    assert.isTrue(
+        editor() == Access { ..flags.none<Access>(), write: true, read: true },
+    );
+    assert.isTrue(editor() != flags.all<Access>());
+}
+
+test "equal values hash alike, and every value hashes like itself" {
+    assert.equal(
+        editor().hash(),
+        Access { ..flags.none<Access>(), write: true, read: true }.hash(),
+    );
+    assert.notEqual(editor().hash(), flags.all<Access>().hash());
+    // Pinned, so every backend gives the same number.
+    assert.equal(flags.none<Access>().hash(), 84696351);
+    assert.equal(editor().hash(), 151806827);
+}
+
+test "the order is a plain struct's: the first field decides first" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let mismatches = list
+        .range(ctx, 0, 256)
+        .filter(ctx, fn(i) => {
+            let a = access(i / 16);
+            let b = access(i % 16);
+            a.compare(b) != plain(a).compare(plain(b))
+        });
+    assert.equal(mismatches.length(), 0);
+    let first = Access { ..flags.none<Access>(), read: true };
+    let rest = Access { ..flags.all<Access>(), read: false };
+    assert.isTrue(rest < first);
+    assert.equal(first.compare(rest), Order.Greater);
+}
+
+test "sorting flags values sorts them as plain structs" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let packed = every(ctx).sort(ctx).map(ctx, plain);
+    let unpacked = every(ctx).map(ctx, plain).sort(ctx);
+    assert.equal(packed, unpacked);
+}
+
+test "show prints the plain struct" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        editor().show(ctx),
+        "Access { read: true, write: true, share: false, delete: false }",
+    );
+    assert.equal(
+        plain(editor()).show(ctx),
+        "Plain { read: true, write: true, share: false, delete: false }",
+    );
+    assert.equal(Pair(true, false).show(ctx), "Pair(true, false)");
+    assert.equal(str.format(ctx, "${flags.none<Pair>()}"), "Pair(false, false)");
+}
+
+test "toJson is an object of booleans, like the plain struct's" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = json.stringify(ctx, json.encode(ctx, editor()));
+    assert.equal(
+        text,
+        "{\"read\":true,\"write\":true,\"share\":false,\"delete\":false}",
+    );
+    assert.equal(text, json.stringify(ctx, json.encode(ctx, plain(editor()))));
+    assert.equal(
+        json.stringify(ctx, json.encode(ctx, Pair(false, true))),
+        "[false,true]",
+    );
+}
+
+/// The document `text` is. Every text here is a literal, so `.Null` is
+/// unreachable.
+fn doc<C: Allocator>(ctx: C, text: Str): Json {
+    match (json.parse(ctx, text)) {
+        .Ok(v) => v,
+        .Err(_e) => Json.Null,
+    }
+}
+
+test "fromJson reads back what toJson wrote, for every value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let wrong = every(ctx).filterCtx(ctx, fn(c, a) => {
+        let back: Result<Access, DecodeError> = json.decode(c, json.encode(c, a));
+        back != .Ok(a)
+    });
+    assert.equal(wrong.length(), 0);
+    let p: Result<Pair, DecodeError> = json.decode(
+        ctx,
+        json.encode(ctx, Pair(true, false)),
+    );
+    assert.equal(p, .Ok(Pair(true, false)));
+}
+
+test "fromJson reads the members in any order, and ignores others" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text =
+        "{\"delete\":true,\"extra\":1,\"share\":false,\"write\":true,\"read\":false}";
+    let a: Result<Access, DecodeError> = json.decode(ctx, doc(ctx, text));
+    assert.equal(a, .Ok(Access { ..flags.none<Access>(), write: true, delete: true }));
+    let b: Result<Plain, DecodeError> = json.decode(ctx, doc(ctx, text));
+    assert.equal(b.map(fn(x) => x.delete && x.write && !x.read), .Ok(true));
+}
+
+test "fromJson names the flag it could not read" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let missing: Result<Access, DecodeError> = json.decode(
+        ctx,
+        doc(ctx, "{\"read\":true,\"write\":true,\"delete\":false}"),
+    );
+    assert.equal(missing, .Err(.Missing { path: "$.share" }));
+    let number: Result<Access, DecodeError> = json.decode(
+        ctx,
+        doc(ctx, "{\"read\":true,\"write\":1,\"share\":true,\"delete\":false}"),
+    );
+    assert.equal(
+        number,
+        .Err(.WrongType { path: "$.write", wanted: "a boolean", found: "a number" }),
+    );
+    let array: Result<Access, DecodeError> = json.decode(ctx, doc(ctx, "[true]"));
+    assert.equal(
+        array,
+        .Err(.WrongType { path: "$", wanted: "an object", found: "an array" }),
+    );
+}
+
+test "a tuple struct's flags are an array" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let short: Result<Pair, DecodeError> = json.decode(ctx, doc(ctx, "[true]"));
+    assert.equal(
+        short,
+        .Err(.WrongType {
+            path: "$",
+            wanted: "an array of length 2",
+            found: "an array",
+        }),
+    );
+    let text: Result<Pair, DecodeError> = json.decode(ctx, doc(ctx, "[true, \"no\"]"));
+    assert.equal(
+        text,
+        .Err(.WrongType { path: "$[1]", wanted: "a boolean", found: "a string" }),
+    );
+    let object: Result<Pair, DecodeError> = json.decode(ctx, doc(ctx, "{}"));
+    assert.equal(
+        object,
+        .Err(.WrongType { path: "$", wanted: "an array", found: "an object" }),
+    );
+}
+
+test "flags decode inside a list and an Option" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs: Result<[Option<Access>], DecodeError> = json.decode(
+        ctx,
+        doc(
+            ctx,
+            "[null, {\"read\":true,\"write\":true,\"share\":false,\"delete\":false}]",
+        ),
+    );
+    assert.equal(xs, .Ok([.None, .Some(editor())]));
+}
+
+test "the widest words round-trip through JSON" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let wide = W64 { ..flags.none<W64>(), f0: true, f63: true };
+    let back: Result<W64, DecodeError> = json.decode(ctx, json.encode(ctx, wide));
+    assert.equal(back, .Ok(wide));
+    assert.containsText(
+        json.stringify(ctx, json.encode(ctx, wide)),
+        "\"f62\":false,\"f63\":true}",
+    );
+    let mid = W33 { ..flags.all<W33>(), f32: false };
+    let again: Result<W33, DecodeError> = json.decode(ctx, json.encode(ctx, mid));
+    assert.equal(again, .Ok(mid));
+}
+
+// --- where a value lives --------------------------------------------------------
+
+test "a tuple struct reads by position" {
+    let p = Pair(true, false);
+    assert.isTrue(p.0);
+    assert.isFalse(p.1);
+    assert.equal(Pair(false, false).union(p), p);
+}
+
+test "a phantom type parameter packs the same at every argument" {
+    let a: Tagged<Int> = Tagged { on: true, off: false };
+    let b: Tagged<Str> = Tagged { on: true, off: false };
+    assert.isTrue(a.on && b.on);
+    assert.equal(a.complement(), Tagged { on: false, off: true });
+    assert.equal(b.union(flags.all<Tagged<Str>>()).count(), 2);
+}
+
+test "as a field beside a byte" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let h = Held { access: editor(), tag: 7 };
+    let g = Held { ..h, access: Access { ..h.access, delete: true } };
+    assert.isTrue(g.access.delete);
+    assert.equal(g.tag, 7);
+    assert.isFalse(h.access.delete);
+    assert.equal(
+        g.show(ctx),
+        "Held { access: Access { read: true, write: true, share: false, delete: true }, tag: 7 }",
+    );
+}
+
+test "in a list" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = list.repeat(ctx, editor(), 1000);
+    let all = xs.map(ctx, fn(a) => Access { ..a, delete: true });
+    assert.equal(all.length(), 1000);
+    assert.equal(assert.some(all.get(999)).count(), 3);
+    assert.equal(all.fold(fn(n, a) => n + a.count(), 0), 3000);
+    assert.equal([flags.none<Pair>(), Pair(true, true)], [
+        Pair(false, false),
+        flags.all<Pair>(),
+    ]);
+}
+
+test "in an enum payload and an Option" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let events = [
+        Event.Granted(editor()),
+        Event.Revoked { before: flags.all<Access>(), after: editor() },
+        Event.Nothing,
+    ];
+    let lost = events.map(ctx, fn(e) => {
+        match (e) {
+            .Granted(_) => 0,
+            .Revoked { before, after } => before.difference(after).count(),
+            .Nothing => -1,
+        }
+    });
+    assert.equal(lost, [0, 2, -1]);
+    let found: Option<Access> = .Some(editor());
+    assert.equal(found.map(fn(a) => a.write), .Some(true));
+    assert.equal(found, .Some(editor()));
+}
+
+test "as a map key and a set member" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let names = map
+        .empty<Access, Str>()
+        .insert(ctx, editor(), "editor")
+        .insert(ctx, flags.all<Access>(), "owner")
+        .insert(ctx, flags.none<Access>(), "nobody");
+    assert.equal(
+        names.get(Access { ..flags.none<Access>(), read: true, write: true }),
+        .Some("editor"),
+    );
+    assert.equal(names.get(flags.all<Access>()), .Some("owner"));
+    assert.equal(names.length(), 3);
+    let s = set.of(ctx, every(ctx).map(ctx, fn(a) => Access { ..a, delete: false }));
+    assert.equal(s.length(), 8);
+}
+
+test "captured by a closure" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let base = editor();
+    let grant = fn(a: Access) => a.union(base);
+    assert.equal(grant(Access { ..flags.none<Access>(), delete: true }).count(), 3);
+    let xs = [flags.none<Access>(), flags.all<Access>()].map(ctx, grant);
+    assert.equal(xs, [editor(), flags.all<Access>()]);
+}
+
+test "as what a task answers" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let answers = tasks.parallel(ctx, every(ctx), fn(c, i, a) => a.complement());
+    assert.equal(answers.map(ctx, fn(a) => a.count()).fold(fn(n, k) => n + k, 0), 32);
+    assert.equal(tasks.scope(ctx, fn(c, here) => editor()), editor());
+}
+
+/// Recursion keeps a flags value on the stack, one per frame.
+fn grow(a: Access, steps: Int): Access {
+    if (steps == 0) {
+        a
+    } else if (a.read) {
+        grow(Access { ..a, read: false, write: true }, steps - 1)
+    } else {
+        grow(Access { ..a, read: true, share: !a.share }, steps - 1)
+    }
+}
+
+test "passed down a recursion" {
+    assert.equal(grow(flags.none<Access>(), 5), Access {
+        ..flags.none<Access>(),
+        read: true,
+        write: true,
+        share: true,
+    });
+}
+
+// --- patterns -------------------------------------------------------------------
+
+fn describe(a: Access): Str {
+    match (a) {
+        Access { read: false, write: false, .. } => "none",
+        Access { read: true, write: false, .. } => "reader",
+        Access { delete: true, .. } => "owner",
+        Access { share, .. } => if (share) { "sharer" } else { "writer" },
+    }
+}
+
+test "a struct pattern tests flags and binds them" {
+    assert.equal(describe(flags.none<Access>()), "none");
+    assert.equal(describe(Access { ..flags.none<Access>(), read: true }), "reader");
+    assert.equal(describe(flags.all<Access>()), "owner");
+    assert.equal(describe(Access { ..editor(), share: true }), "sharer");
+    assert.equal(describe(editor()), "writer");
+    let Access { read, delete, .. } = editor();
+    assert.isTrue(read);
+    assert.isFalse(delete);
+}
+
+test "a nested pattern and an or-pattern" {
+    let pick = fn(e: Option<Access>) => {
+        match (e) {
+            .Some(Access { read: true, write: true | false, delete: d, .. }) => {
+                if (d) { 2 } else { 1 }
+            },
+            .Some(_) => 0,
+            .None => -1,
+        }
+    };
+    assert.equal(pick(.Some(editor())), 1);
+    assert.equal(pick(.Some(flags.all<Access>())), 2);
+    assert.equal(pick(.Some(flags.none<Access>())), 0);
+    assert.equal(pick(.None), -1);
+    match (Pair(true, false)) {
+        Pair(true, b) => assert.isFalse(b),
+        Pair(false, _) => assert.isTrue(false),
+    };
+}
+
+test "an or-pattern of flags binds from whichever alternative matched" {
+    let either = fn(a: Access) => {
+        match (a) {
+            Access { read: true, share: s, .. } | Access { write: true, share: s, .. } => {
+                s
+            },
+            _ => false,
+        }
+    };
+    assert.isTrue(either(Access { ..flags.none<Access>(), write: true, share: true }));
+    assert.isFalse(either(editor()));
+    assert.isFalse(either(Access { ..flags.none<Access>(), share: true }));
+}
+
+// --- the word grows at 8, 16, 32 and 64 flags -----------------------------------
+
+derive Flags, Equal, Hash, Ordered, Show for W8;
+struct W8 {
+    f0: Bool,
+    f1: Bool,
+    f2: Bool,
+    f3: Bool,
+    f4: Bool,
+    f5: Bool,
+    f6: Bool,
+    f7: Bool,
+}
+
+derive Flags, Equal, Hash, Ordered, Show for W9;
+struct W9 {
+    f0: Bool,
+    f1: Bool,
+    f2: Bool,
+    f3: Bool,
+    f4: Bool,
+    f5: Bool,
+    f6: Bool,
+    f7: Bool,
+    f8: Bool,
+}
+
+derive Flags, Equal, Hash, Ordered, Show for W16;
+struct W16 {
+    f0: Bool,
+    f1: Bool,
+    f2: Bool,
+    f3: Bool,
+    f4: Bool,
+    f5: Bool,
+    f6: Bool,
+    f7: Bool,
+    f8: Bool,
+    f9: Bool,
+    f10: Bool,
+    f11: Bool,
+    f12: Bool,
+    f13: Bool,
+    f14: Bool,
+    f15: Bool,
+}
+
+derive Flags, Equal, Hash, Ordered, Show for W17;
+struct W17 {
+    f0: Bool,
+    f1: Bool,
+    f2: Bool,
+    f3: Bool,
+    f4: Bool,
+    f5: Bool,
+    f6: Bool,
+    f7: Bool,
+    f8: Bool,
+    f9: Bool,
+    f10: Bool,
+    f11: Bool,
+    f12: Bool,
+    f13: Bool,
+    f14: Bool,
+    f15: Bool,
+    f16: Bool,
+}
+
+derive Flags, Equal, Hash, Ordered, Show for W32;
+struct W32 {
+    f0: Bool,
+    f1: Bool,
+    f2: Bool,
+    f3: Bool,
+    f4: Bool,
+    f5: Bool,
+    f6: Bool,
+    f7: Bool,
+    f8: Bool,
+    f9: Bool,
+    f10: Bool,
+    f11: Bool,
+    f12: Bool,
+    f13: Bool,
+    f14: Bool,
+    f15: Bool,
+    f16: Bool,
+    f17: Bool,
+    f18: Bool,
+    f19: Bool,
+    f20: Bool,
+    f21: Bool,
+    f22: Bool,
+    f23: Bool,
+    f24: Bool,
+    f25: Bool,
+    f26: Bool,
+    f27: Bool,
+    f28: Bool,
+    f29: Bool,
+    f30: Bool,
+    f31: Bool,
+}
+
+derive Flags, Equal, Hash, Ordered, Show, ToJson, FromJson for W33;
+struct W33 {
+    f0: Bool,
+    f1: Bool,
+    f2: Bool,
+    f3: Bool,
+    f4: Bool,
+    f5: Bool,
+    f6: Bool,
+    f7: Bool,
+    f8: Bool,
+    f9: Bool,
+    f10: Bool,
+    f11: Bool,
+    f12: Bool,
+    f13: Bool,
+    f14: Bool,
+    f15: Bool,
+    f16: Bool,
+    f17: Bool,
+    f18: Bool,
+    f19: Bool,
+    f20: Bool,
+    f21: Bool,
+    f22: Bool,
+    f23: Bool,
+    f24: Bool,
+    f25: Bool,
+    f26: Bool,
+    f27: Bool,
+    f28: Bool,
+    f29: Bool,
+    f30: Bool,
+    f31: Bool,
+    f32: Bool,
+}
+
+derive Flags, Equal, Hash, Ordered, Show, ToJson, FromJson for W64;
+struct W64 {
+    f0: Bool,
+    f1: Bool,
+    f2: Bool,
+    f3: Bool,
+    f4: Bool,
+    f5: Bool,
+    f6: Bool,
+    f7: Bool,
+    f8: Bool,
+    f9: Bool,
+    f10: Bool,
+    f11: Bool,
+    f12: Bool,
+    f13: Bool,
+    f14: Bool,
+    f15: Bool,
+    f16: Bool,
+    f17: Bool,
+    f18: Bool,
+    f19: Bool,
+    f20: Bool,
+    f21: Bool,
+    f22: Bool,
+    f23: Bool,
+    f24: Bool,
+    f25: Bool,
+    f26: Bool,
+    f27: Bool,
+    f28: Bool,
+    f29: Bool,
+    f30: Bool,
+    f31: Bool,
+    f32: Bool,
+    f33: Bool,
+    f34: Bool,
+    f35: Bool,
+    f36: Bool,
+    f37: Bool,
+    f38: Bool,
+    f39: Bool,
+    f40: Bool,
+    f41: Bool,
+    f42: Bool,
+    f43: Bool,
+    f44: Bool,
+    f45: Bool,
+    f46: Bool,
+    f47: Bool,
+    f48: Bool,
+    f49: Bool,
+    f50: Bool,
+    f51: Bool,
+    f52: Bool,
+    f53: Bool,
+    f54: Bool,
+    f55: Bool,
+    f56: Bool,
+    f57: Bool,
+    f58: Bool,
+    f59: Bool,
+    f60: Bool,
+    f61: Bool,
+    f62: Bool,
+    f63: Bool,
+}
+
+test "8 flags" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let none = flags.none<W8>();
+    let all = flags.all<W8>();
+    let first = W8 { ..none, f0: true };
+    let last = W8 { ..none, f7: true };
+    assert.equal(all.count(), 8);
+    assert.isTrue(none.isEmpty());
+    assert.isTrue(last.f7 && !last.f0 && first.f0 && !first.f7);
+    assert.equal(last.complement().count(), 7);
+    assert.isFalse(last.complement().f7);
+    assert.equal(all.difference(last), last.complement());
+    assert.equal(last.symmetricDifference(all), last.complement());
+    assert.equal(last.union(first).count(), 2);
+    assert.isTrue(last.isSubsetOf(all) && !all.isSubsetOf(last));
+    assert.isTrue(first > last && none < last && last < all);
+    assert.equal(all.compare(all), Order.Equal);
+    assert.notEqual(first.hash(), last.hash());
+    assert.equal(last.hash(), 67918732);
+    assert.equal(first.hash(), 2232128415);
+    assert.startsWith(first.show(ctx), "W8 { f0: true, f1: false, ");
+    assert.containsText(last.show(ctx), ", f7: true }");
+}
+
+test "9 flags" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let none = flags.none<W9>();
+    let all = flags.all<W9>();
+    let first = W9 { ..none, f0: true };
+    let last = W9 { ..none, f8: true };
+    assert.equal(all.count(), 9);
+    assert.isTrue(none.isEmpty());
+    assert.isTrue(last.f8 && !last.f0 && first.f0 && !first.f8);
+    assert.equal(last.complement().count(), 8);
+    assert.isFalse(last.complement().f8);
+    assert.equal(all.difference(last), last.complement());
+    assert.equal(last.symmetricDifference(all), last.complement());
+    assert.equal(last.union(first).count(), 2);
+    assert.isTrue(last.isSubsetOf(all) && !all.isSubsetOf(last));
+    assert.isTrue(first > last && none < last && last < all);
+    assert.equal(all.compare(all), Order.Equal);
+    assert.notEqual(first.hash(), last.hash());
+    assert.equal(last.hash(), 67918732);
+    assert.equal(first.hash(), 84593183);
+    assert.startsWith(first.show(ctx), "W9 { f0: true, f1: false, ");
+    assert.containsText(last.show(ctx), ", f8: true }");
+}
+
+test "16 flags" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let none = flags.none<W16>();
+    let all = flags.all<W16>();
+    let first = W16 { ..none, f0: true };
+    let last = W16 { ..none, f15: true };
+    assert.equal(all.count(), 16);
+    assert.isTrue(none.isEmpty());
+    assert.isTrue(last.f15 && !last.f0 && first.f0 && !first.f15);
+    assert.equal(last.complement().count(), 15);
+    assert.isFalse(last.complement().f15);
+    assert.equal(all.difference(last), last.complement());
+    assert.equal(last.symmetricDifference(all), last.complement());
+    assert.equal(last.union(first).count(), 2);
+    assert.isTrue(last.isSubsetOf(all) && !all.isSubsetOf(last));
+    assert.isTrue(first > last && none < last && last < all);
+    assert.equal(all.compare(all), Order.Equal);
+    assert.notEqual(first.hash(), last.hash());
+    assert.equal(last.hash(), 67918732);
+    assert.equal(first.hash(), 71490847);
+    assert.startsWith(first.show(ctx), "W16 { f0: true, f1: false, ");
+    assert.containsText(last.show(ctx), ", f15: true }");
+}
+
+test "17 flags" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let none = flags.none<W17>();
+    let all = flags.all<W17>();
+    let first = W17 { ..none, f0: true };
+    let last = W17 { ..none, f16: true };
+    assert.equal(all.count(), 17);
+    assert.isTrue(none.isEmpty());
+    assert.isTrue(last.f16 && !last.f0 && first.f0 && !first.f16);
+    assert.equal(last.complement().count(), 16);
+    assert.isFalse(last.complement().f16);
+    assert.equal(all.difference(last), last.complement());
+    assert.equal(last.symmetricDifference(all), last.complement());
+    assert.equal(last.union(first).count(), 2);
+    assert.isTrue(last.isSubsetOf(all) && !all.isSubsetOf(last));
+    assert.isTrue(first > last && none < last && last < all);
+    assert.equal(all.compare(all), Order.Equal);
+    assert.notEqual(first.hash(), last.hash());
+    assert.equal(last.hash(), 67918732);
+    assert.equal(first.hash(), 111107359);
+    assert.startsWith(first.show(ctx), "W17 { f0: true, f1: false, ");
+    assert.containsText(last.show(ctx), ", f16: true }");
+}
+
+test "32 flags" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let none = flags.none<W32>();
+    let all = flags.all<W32>();
+    let first = W32 { ..none, f0: true };
+    let last = W32 { ..none, f31: true };
+    assert.equal(all.count(), 32);
+    assert.isTrue(none.isEmpty());
+    assert.isTrue(last.f31 && !last.f0 && first.f0 && !first.f31);
+    assert.equal(last.complement().count(), 31);
+    assert.isFalse(last.complement().f31);
+    assert.equal(all.difference(last), last.complement());
+    assert.equal(last.symmetricDifference(all), last.complement());
+    assert.equal(last.union(first).count(), 2);
+    assert.isTrue(last.isSubsetOf(all) && !all.isSubsetOf(last));
+    assert.isTrue(first > last && none < last && last < all);
+    assert.equal(all.compare(all), Order.Equal);
+    assert.notEqual(first.hash(), last.hash());
+    assert.equal(last.hash(), 67918732);
+    assert.equal(first.hash(), 2232179999);
+    assert.startsWith(first.show(ctx), "W32 { f0: true, f1: false, ");
+    assert.containsText(last.show(ctx), ", f31: true }");
+}
+
+test "33 flags" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let none = flags.none<W33>();
+    let all = flags.all<W33>();
+    let first = W33 { ..none, f0: true };
+    let last = W33 { ..none, f32: true };
+    assert.equal(all.count(), 33);
+    assert.isTrue(none.isEmpty());
+    assert.isTrue(last.f32 && !last.f0 && first.f0 && !first.f32);
+    assert.equal(last.complement().count(), 32);
+    assert.isFalse(last.complement().f32);
+    assert.equal(all.difference(last), last.complement());
+    assert.equal(last.symmetricDifference(all), last.complement());
+    assert.equal(last.union(first).count(), 2);
+    assert.isTrue(last.isSubsetOf(all) && !all.isSubsetOf(last));
+    assert.isTrue(first > last && none < last && last < all);
+    assert.equal(all.compare(all), Order.Equal);
+    assert.notEqual(first.hash(), last.hash());
+    assert.equal(last.hash(), 67918732);
+    assert.equal(first.hash(), 276207162);
+    assert.startsWith(first.show(ctx), "W33 { f0: true, f1: false, ");
+    assert.containsText(last.show(ctx), ", f32: true }");
+}
+
+test "64 flags" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let none = flags.none<W64>();
+    let all = flags.all<W64>();
+    let first = W64 { ..none, f0: true };
+    let last = W64 { ..none, f63: true };
+    assert.equal(all.count(), 64);
+    assert.isTrue(none.isEmpty());
+    assert.isTrue(last.f63 && !last.f0 && first.f0 && !first.f63);
+    assert.equal(last.complement().count(), 63);
+    assert.isFalse(last.complement().f63);
+    assert.equal(all.difference(last), last.complement());
+    assert.equal(last.symmetricDifference(all), last.complement());
+    assert.equal(last.union(first).count(), 2);
+    assert.isTrue(last.isSubsetOf(all) && !all.isSubsetOf(last));
+    assert.isTrue(first > last && none < last && last < all);
+    assert.equal(all.compare(all), Order.Equal);
+    assert.notEqual(first.hash(), last.hash());
+    assert.equal(last.hash(), 67918732);
+    assert.equal(first.hash(), 3400595383);
+    assert.startsWith(first.show(ctx), "W64 { f0: true, f1: false, ");
+    assert.containsText(last.show(ctx), ", f63: true }");
+}

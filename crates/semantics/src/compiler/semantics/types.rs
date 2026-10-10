@@ -403,8 +403,11 @@ impl TraitInfo {
 /// rejects the `impl`; this is here so that no diagnostic elsewhere offers
 /// writing one as the fix.
 pub fn is_derive_only(trait_name: &str) -> bool {
-    matches!(trait_name, "ToJson" | "FromJson")
+    matches!(trait_name, "ToJson" | "FromJson" | "Flags")
 }
+
+/// The most fields a `derive Flags` type may have: one bit each, in a `U64`.
+pub const FLAGS_MAX: usize = 64;
 
 /// "add `derive T for X;` in that type's own module, or write `impl ...`" —
 /// minus the half that is not available.
@@ -1107,6 +1110,41 @@ impl Tables {
 
     pub fn prim(&self, p: Prim) -> Ty {
         self.prim_entry(p).1
+    }
+
+    /// The word a `derive Flags` struct is stored in: the smallest unsigned
+    /// integer with a bit per field. `None` for every other type, and for one
+    /// whose `derive` was refused.
+    ///
+    /// Field `i` of `n` is bit `n - 1 - i`, so the first field is the most
+    /// significant and comparing the words is a plain struct's derived order.
+    pub fn flags_word(&self, con: TyConId) -> Option<Prim> {
+        let TyDef::Struct { fields, .. } = &self.tycon(con).def else { return None };
+        if fields.is_empty() || fields.len() > FLAGS_MAX {
+            return None;
+        }
+        let tr = self.traits_of_con(con).iter().find(|t| self.trait_(**t).name == "Flags")?;
+        if !self.impls.get(&(*tr, con))?.is_derived() {
+            return None;
+        }
+        let bool_ty = self.prim(Prim::Bool);
+        if fields.iter().any(|f| f.ty != bool_ty) {
+            return None;
+        }
+        Some(match fields.len() {
+            0..=8 => Prim::U8,
+            9..=16 => Prim::U16,
+            17..=32 => Prim::U32,
+            _ => Prim::U64,
+        })
+    }
+
+    /// [`Tables::flags_word`] of a type's head.
+    pub fn flags_word_of(&self, ty: &Ty) -> Option<Prim> {
+        match ty.kind() {
+            TyKind::Con(id, _) => self.flags_word(*id),
+            _ => None,
+        }
     }
 
     pub fn as_prim(&self, ty: &Ty) -> Option<Prim> {

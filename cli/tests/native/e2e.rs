@@ -135,6 +135,34 @@ pub(crate) fn probed_backends() -> Vec<(&'static str, ProbedBuild)> {
     out
 }
 
+/// A build like [`ProbedBuild`], with the caller's own probe linked in.
+pub(crate) type ProbedWith<'a> = Box<dyn Fn(&str, &str) -> PathBuf + 'a>;
+
+/// [`probed_backends`], with a probe of the caller's own linked in — for
+/// `flags.rs`, whose probe reads bytes as well as blocks.
+pub(crate) fn probed_builds(probe: &str) -> Vec<(&'static str, ProbedWith<'_>)> {
+    let mut out: Vec<(&'static str, ProbedWith<'_>)> = Vec::new();
+    #[cfg(feature = "backend-stencil")]
+    if crate::stencil::supported() {
+        out.push((
+            "stencil",
+            Box::new(move |name: &str, source: &str| {
+                crate::stencil::build_with(&format!("{name}-stencil"), source, Some(probe))
+            }),
+        ));
+    }
+    #[cfg(feature = "backend-llvm")]
+    if ready() {
+        out.push((
+            "llvm",
+            Box::new(move |name: &str, source: &str| {
+                crate::llvm::build_at(&format!("{name}-llvm"), source, Some(probe), Profile::Release)
+            }),
+        ));
+    }
+    out
+}
+
 /// Every native backend built in that can run here, by name, with the
 /// `buri build` flags that select it — for `reproducible.rs`.
 pub(crate) fn build_modes() -> Vec<(&'static str, &'static [&'static str])> {

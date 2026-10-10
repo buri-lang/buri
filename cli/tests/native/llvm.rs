@@ -886,6 +886,32 @@ fn the_float_order_holds_at_both_profiles() {
     }
 }
 
+/// **`derive Flags` holds at both pipelines** (#282): the conformance file the
+/// other two backends run, as one linked test binary under the heap check.
+#[test]
+fn the_flags_file_holds_at_both_profiles() {
+    skip_unless_executable!();
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/conformance/lib/collections/test/flags.buri");
+    let source = std::fs::read_to_string(path).unwrap();
+    let declared = source.matches("\ntest \"").count();
+    for profile in [Profile::Release, Profile::Debug] {
+        let name = format!("flags-{}", profile.name());
+        let binary = build_tests_at(&name, "main.buri", &source, profile);
+        let mut cmd = Command::new(&binary);
+        cmd.env("BURI_TEST_FROM", "0");
+        let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
+        let returned = ran.stdout.lines().filter(|l| l.contains("\"left\":1")).count();
+        assert!(
+            ran.status == 0 && returned == declared,
+            "at {}, {returned} of {declared} blocks returned:\n{}\n{}",
+            profile.name(),
+            ran.stdout,
+            ran.stderr
+        );
+    }
+}
+
 /// Every integer width, including `I128` — whose division and remainder are a
 /// call to `buri_rt_i128_divmod` with the operands split into pairs of `u64`
 /// and the results read back through out-pointers (`cli/runtime/lib.rs`).

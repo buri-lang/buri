@@ -435,7 +435,9 @@ const PACKAGES: &[Case] = &[
     // integer calendar arithmetic and `core/str`, with the clock appearing
     // nowhere. Every answer is a timestamp somebody else wrote down.
     included("calendar/timestamps.buri"),
-    included("collections/bitset.buri"),
+    // `derive Flags`: a struct of `Bool`s stored as one word, in every place a
+    // value lives, at every width, through `Show`, JSON and `Ordered`.
+    included("collections/flags.buri"),
     // It was the one file the backend compiled and got *wrong*, held out under
     // the retired `Wrong` reason until the day three premature-release defects
     // behind it were fixed: `middle/rc.rs`'s

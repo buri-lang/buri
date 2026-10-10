@@ -1,0 +1,17 @@
+error: `Permission` cannot derive `Flags`: it is an enum [flags-not-struct]
+ --> cmd/flags_not_struct/main.buri:8:1
+  |
+8 | derive Flags for Permission;
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a `Flags` type stores one bit per field, and an enum's value is one variant
+  = fix: write a struct with a `Bool` field per flag, or drop `Flags` from this `derive`
+
+    A set of an enum's cases is a struct with a Bool per case:
+
+      derive Flags for Permissions;
+      struct Permissions {
+          read: Bool,
+          write: Bool,
+      }
+

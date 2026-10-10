@@ -614,7 +614,8 @@ impl Syntactic {
         for (i, d) in program.descriptors.iter().enumerate() {
             let Some(ty) = lookup(i, &ty_of) else { continue };
             match d {
-                Desc::Prim(p) => {
+                // A `derive Flags` struct is its word.
+                Desc::Prim(p) | Desc::Flags { prim: p, .. } => {
                     prim_of.insert(ty, *p);
                 }
                 Desc::Struct { fields, .. } => {

@@ -179,6 +179,9 @@ impl Meters {
 - Every `impl` function takes `self` first, and no other function may. An
   `impl` may appear only in its type's module.
 - Struct update: `User { ..u, secret: secret.of("new") }`. Field shorthand: `User { id }`.
+- `derive Flags` (`core/flags`) packs a struct of `Bool`s into one word. Fields
+  read and update as usual; `flags.none<T>()`, `flags.all<T>()`, `a.union(b)`,
+  `a.isSubsetOf(b)` and `a.count()` do the rest. It replaces `core/bitset`.
 
 ## Expressions
 
@@ -286,15 +289,12 @@ grammar. `buri format` has one layout and no options: four-space indent, sorted
 leading imports, one struct field or enum variant per line.
 
 **The third slash publishes.** `//` and nesting `/* */` are never rendered.
-`///` above a declaration is a **documentation comment**, and `//!` at the top
-of a file documents the module; `buri docs <module>`, editor hover and
-`buri docs search` read them. Put what a *caller* needs in `///` above the
-`export fn`, `struct`, `enum`, field or variant, and keep `//` for the body's
-reader. A `//!` below the first item is `module-doc-not-first`.
+`///` above a declaration documents it and `//!` at the top of a file documents
+the module, for `buri docs <module>`, hover and `buri docs search`. Put what a
+*caller* needs there. A `//!` below the first item is `module-doc-not-first`.
 
 ## When something does not compile
 
 Every diagnostic ends with a bracketed code such as `[missing-impl]`.
-`buri docs error <code>` explains it with a program that provokes it, and
-`buri docs error` lists them all. Lint findings work the same way:
-`buri docs lint <code>`.
+`buri docs error <code>` explains one with a program that provokes it, and
+`buri docs error` lists them all; `buri docs lint <code>` explains a lint.

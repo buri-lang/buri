@@ -4,5 +4,5 @@ error: `Measurable` cannot be derived [trait-not-derivable]
 10 | derive Measurable for Point;
    |        ^^^^^^^^^^
    |
-   = derivable: `Equal`, `Ordered`, `Show`, `Hash`, `ToJson`, `FromJson`, `Add`, `Subtract`, `Multiply`, `Divide`, `Remainder` and `Negate`
+   = derivable: `Equal`, `Ordered`, `Show`, `Hash`, `ToJson`, `FromJson`, `Add`, `Subtract`, `Multiply`, `Divide`, `Remainder`, `Negate` and `Flags`
    = fix: write `impl Measurable for ... { ... }` by hand

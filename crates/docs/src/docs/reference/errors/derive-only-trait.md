@@ -1,7 +1,7 @@
 ---
 title: Some traits are derived, never implemented
 message: `{trait}` is derived, not implemented
-note: a derived encoder is a fold over the type's shape, and would encode a hand-written one structurally rather than calling it — so an `impl` would be obeyed at the top of a document and ignored inside it
+note: '{reason}'
 fix: write `derive {trait} for {type};` instead
 ---
 # Some traits are derived, never implemented
@@ -26,11 +26,14 @@ impl ToJson for Point {
 }
 ```
 
+`core/json`'s `ToJson` and `FromJson`, and `core/flags`'s `Flags`, are always
+derived.
+
 One runtime walker encodes every derived type by its shape. So encoding a
 `Date` directly would call a hand-written `impl ToJson for Date`, but encoding
-an `Appointment` that holds a `Date` would walk straight past it. One value,
-two encodings.
+an `Appointment` that holds a `Date` would walk straight past it. For a
+different document, convert to another type first, through a function visible
+at the call site.
 
-For a different document, convert to another type first, through a function
-visible at the call site. Only `core/json`'s `ToJson` and `FromJson` work this
-way.
+`Flags`'s operations work on the word `derive Flags` packs the fields into, so
+there is nothing for an `impl` to say.
