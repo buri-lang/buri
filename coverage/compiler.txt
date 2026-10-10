@@ -2,32 +2,32 @@
 # Branches gate; lines and regions are context.
 
 crate                             branches                      lines                    regions         
-cli                              4373/6292   69.50%       25069/30036   83.46%       50279/60510   83.09%
+cli                              4389/6302   69.64%       25152/30103   83.55%       50465/60663   83.19%
 crates/backend                       65/90   72.22%           284/385   73.77%           507/649   78.12%
-crates/diagnostics                 179/244   73.36%         1281/1490   85.97%         2299/2638   87.15%
+crates/diagnostics                 181/244   74.18%         1283/1490   86.11%         2301/2638   87.23%
 crates/docs                        197/304   64.80%           678/942   71.97%         1316/1776   74.10%
 crates/hash                          17/18   94.44%           209/261   80.08%           386/497   77.67%
 crates/js                        1060/1342   78.99%         5091/5554   91.66%       10566/11717   90.18%
 crates/llvm                       779/1348   57.79%         6019/7842   76.75%       13485/18392   73.32%
 crates/middle                    1904/2515   75.71%       11404/13825   82.49%       25263/32180   78.51%
-crates/project                    875/1418   61.71%         4286/5394   79.46%        9023/11757   76.75%
+crates/project                    877/1418   61.85%         4289/5394   79.51%        9027/11757   76.78%
 crates/semantics                 1768/2156   82.00%       10572/11338   93.24%       21311/23271   91.58%
 crates/stdlib                        12/14   85.71%            90/144   62.50%           182/300   60.67%
 crates/stencil                   1283/2033   63.11%         6994/9316   75.08%       14548/19168   75.90%
 crates/syntax                    1017/1298   78.35%         5632/6268   89.85%       11849/13517   87.66%
-total                          13529/19072   70.94%       77609/92795   83.63%     161014/196372   81.99%
+total                          13549/19082   71.00%       77697/92862   83.67%     161206/196525   82.03%
 
 cli/src                           branches                      lines                    regions         
-build                            1325/1935   68.48%         7561/9195   82.23%       15734/19045   82.61%
+build                            1327/1935   68.58%         7562/9195   82.24%       15737/19045   82.63%
 commands/add                           7/8   87.50%             64/75   85.33%           105/128   82.03%
-commands/arguments                   34/42   80.95%            98/118   83.05%           149/177   84.18%
+commands/arguments                   35/42   83.33%           101/118   85.59%           155/177   87.57%
 commands/build                       71/96   73.96%           318/429   74.13%           629/749   83.98%
 commands/clean                       10/10  100.00%             30/33   90.91%             41/44   93.18%
 commands/format                      83/98   84.69%           302/309   97.73%           582/604   96.36%
 commands/generate                    28/34   82.35%           208/212   98.11%           492/513   95.91%
 commands/init                        24/32   75.00%           109/121   90.08%           181/214   84.58%
 commands/interrupt                     1/2   50.00%             16/21   76.19%             25/29   86.21%
-commands/lint                      549/668   82.19%         2409/2493   96.63%         4684/4869   96.20%
+commands/lint                      550/668   82.34%         2417/2503   96.56%         4699/4887   96.15%
 commands/lint_cache                  36/40   90.00%           379/385   98.44%           782/855   91.46%
 commands/mod                         19/24   79.17%           250/261   95.79%           383/400   95.75%
 commands/query                       34/42   80.95%           119/129   92.25%           233/253   92.09%
@@ -35,11 +35,11 @@ commands/run                         37/56   66.07%           241/287   83.97%  
 commands/serve                       16/36   44.44%            98/130   75.38%           182/250   72.80%
 commands/test                      431/580   74.31%         2528/2852   88.64%         5094/5827   87.42%
 commands/version                       3/6   50.00%             12/22   54.55%             11/28   39.29%
-commands/watch                       28/48   58.33%           171/217   78.80%           301/406   74.14%
-compiler                           238/290   82.07%         1294/1426   90.74%         2397/2650   90.45%
+commands/watch                       30/50   60.00%           209/249   83.94%           395/484   81.61%
+compiler                           239/290   82.41%         1295/1426   90.81%         2398/2650   90.49%
 documentation                      255/769   33.16%         1638/3644   44.95%         2954/6861   43.05%
-language_server                  1138/1464   77.73%         7181/7620   94.24%       14789/15989   92.49%
-main                                  6/12   50.00%             43/57   75.44%            77/100   77.00%
+language_server                  1146/1472   77.85%         7206/7645   94.26%       14846/16046   92.52%
+main                                  7/12   58.33%             50/57   87.72%            87/100   87.00%
 
 The 30 files with the most uncovered branches:
 
@@ -54,7 +54,7 @@ uncovered          branches           file
       144           276/420   65.71%  crates/syntax/src/formatting.rs
       133            41/174   23.56%  cli/src/documentation/examples.rs
       119           119/238   50.00%  cli/src/build/link.rs
-      119           549/668   82.19%  cli/src/commands/lint.rs
+      118           550/668   82.34%  cli/src/commands/lint.rs
       115           529/644   82.14%  crates/syntax/src/parsing/parser.rs
        95           123/218   56.42%  crates/docs/src/documentation/markdown.rs
        95           177/272   65.07%  crates/middle/src/compiler/middle/derives.rs
@@ -73,4 +73,4 @@ uncovered          branches           file
        60           152/212   71.70%  crates/stencil/src/compiler/backend/stencil/rtcall.rs
        49           367/416   88.22%  crates/semantics/src/compiler/semantics/resolve.rs
        47           131/178   73.60%  cli/src/build/generators.rs
-       44           248/292   84.93%  cli/src/build/workspace.rs
+       44           115/159   72.33%  cli/src/documentation/mod.rs
