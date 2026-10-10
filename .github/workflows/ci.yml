@@ -349,6 +349,46 @@ jobs:
           key: goals-corpora-${{ runner.os }}-${{ hashFiles('cli/benches/pinned/mixed-1M.txt', 'cli/benches/pinned/mixed-100k.txt') }}
       - run: nix develop .#perf -c cargo bench -p buri --bench compiler -- --goals=count
 
+  # The native conformance set built by the release backend, with the heap check
+  # stencil's run has (cli/tests/README.md, "The tree"). The `test` matrix runs
+  # it on stencil only, so an LLVM-only failure reached nothing but the memcheck
+  # job, where Valgrind's exit status hid it. The flake's `perf` shell pins LLVM
+  # 21, which is why this one blocks and `release` doesn't. The set is eight
+  # shards, run side by side.
+  llvm-conformance:
+    name: llvm conformance (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: blacksmith-8vcpu-ubuntu-2404, arch: x86_64 }
+          - { os: blacksmith-8vcpu-ubuntu-2404-arm, arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      BURI_CONFORMANCE_BUILD: llvm-release
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: llvm-conformance-${{ matrix.arch }}
+      # The runtime archive `cli/build.rs` builds, which rust-cache drops (see
+      # the `test` job).
+      - uses: actions/cache@v6
+        with:
+          path: target/debug/build
+          key: llvm-conformance-buildscript-${{ matrix.arch }}-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: llvm-conformance-buildscript-${{ matrix.arch }}-
+      # The `.proto` generator runs under a JavaScript runtime.
+      - uses: oven-sh/setup-bun@v2
+      # `NIX_HARDENING_ENABLE=` for memcheck.yml's reason: the shell's clang
+      # would ask musl for fortify's `__*_chk`.
+      - run: nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm --test native -- conformance::the_native_set_passes
+
   # The throughput goals, timed: lines a second on a machine like a developer's,
   # failing only below a goal itself. Parse only warns, because it has under
   # 1.2x headroom and noise could fail it; check and dev compile have over 3x.
