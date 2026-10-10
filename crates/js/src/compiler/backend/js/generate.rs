@@ -3075,7 +3075,13 @@ impl<'a> Gen<'a> {
                     p if p.is_bigint() => "I",
                     _ => "i",
                 };
-                Expr::Array(vec![Expr::Num(0.0), Expr::Str(tag.into())])
+                let mut desc = vec![Expr::Num(0.0), Expr::Str(tag.into())];
+                // Decoding needs the type itself: an integer's bounds, and
+                // whether a float is an `F32` (`runtime.js`'s `$json_into`).
+                if p.is_integer() || *p == Prim::F32 {
+                    desc.push(Expr::Str(p.name().into()));
+                }
+                Expr::Array(desc)
             }
             Desc::Unit => Expr::Array(vec![Expr::Num(1.0)]),
             Desc::Struct { name, record, fields } => Expr::Array(vec![

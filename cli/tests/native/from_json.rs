@@ -687,3 +687,167 @@ export fn main(host: NativeHost): Result<(), Str> {
          [1,2]\n",
     );
 }
+
+/// A sized integer takes exactly the whole numbers its type holds: both bounds
+/// decode, one past either is `WrongType … "an integer"`, at every width. A
+/// 64-bit bound is read as the double a document can say, so `2^63` is past
+/// `I64`'s and `2^64` past `U64`'s.
+#[test]
+fn a_sized_integer_refuses_a_number_past_its_bounds() {
+    rows_or_skip!();
+    agree(
+        "from json integer bounds",
+        r#"
+from "core/io" import * as io;
+from "core/json" import * as json;
+from "core/json" import { DecodeError, FromJson, Json };
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+derive FromJson, Show for Small;
+struct Small {
+    b: U8,
+}
+
+fn read<T: FromJson + Show, C: Allocator + Stdout>(ctx: C, text: Str, witness: Option<T>): () {
+    let r: Result<T, DecodeError> = json.decode(ctx, json.parse(ctx, text).withDefault(Json.Null));
+    io.println(ctx, "${text} ${r.show(ctx)}").ignore()
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let i8: Option<I8> = .None;
+    let _ = read(ctx, "-129", i8);
+    let _ = read(ctx, "-128", i8);
+    let _ = read(ctx, "127", i8);
+    let _ = read(ctx, "128", i8);
+    let i16: Option<I16> = .None;
+    let _ = read(ctx, "-32769", i16);
+    let _ = read(ctx, "-32768", i16);
+    let _ = read(ctx, "32767", i16);
+    let _ = read(ctx, "32768", i16);
+    let i32: Option<I32> = .None;
+    let _ = read(ctx, "-2147483649", i32);
+    let _ = read(ctx, "-2147483648", i32);
+    let _ = read(ctx, "2147483647", i32);
+    let _ = read(ctx, "2147483648", i32);
+    let i64: Option<I64> = .None;
+    let _ = read(ctx, "-9223372036854777856", i64);
+    let _ = read(ctx, "-9223372036854775808", i64);
+    let _ = read(ctx, "9223372036854774784", i64);
+    let _ = read(ctx, "9223372036854775808", i64);
+    let _ = read(ctx, "9007199254740993", i64);
+    let _ = read(ctx, "1e300", i64);
+    let u8: Option<U8> = .None;
+    let _ = read(ctx, "-1", u8);
+    let _ = read(ctx, "0", u8);
+    let _ = read(ctx, "255", u8);
+    let _ = read(ctx, "256", u8);
+    let u16: Option<U16> = .None;
+    let _ = read(ctx, "-1", u16);
+    let _ = read(ctx, "65535", u16);
+    let _ = read(ctx, "65536", u16);
+    let u32: Option<U32> = .None;
+    let _ = read(ctx, "-1", u32);
+    let _ = read(ctx, "4294967295", u32);
+    let _ = read(ctx, "4294967296", u32);
+    let u64: Option<U64> = .None;
+    let _ = read(ctx, "-1", u64);
+    let _ = read(ctx, "0", u64);
+    let _ = read(ctx, "18446744073709549568", u64);
+    let _ = read(ctx, "18446744073709551616", u64);
+    let small: Option<Small> = .None;
+    let _ = read(ctx, "{\"b\":300}", small);
+    let _ = read(ctx, "{\"b\":1.5}", small);
+    .Ok(())
+}
+"#,
+        "-129 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         -128 .Ok(-128)\n\
+         127 .Ok(127)\n\
+         128 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         -32769 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         -32768 .Ok(-32768)\n\
+         32767 .Ok(32767)\n\
+         32768 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         -2147483649 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         -2147483648 .Ok(-2147483648)\n\
+         2147483647 .Ok(2147483647)\n\
+         2147483648 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         -9223372036854777856 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         -9223372036854775808 .Ok(-9223372036854775808)\n\
+         9223372036854774784 .Ok(9223372036854774784)\n\
+         9223372036854775808 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         9007199254740993 .Ok(9007199254740992)\n\
+         1e300 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         -1 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         0 .Ok(0)\n\
+         255 .Ok(255)\n\
+         256 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         -1 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         65535 .Ok(65535)\n\
+         65536 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         -1 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         4294967295 .Ok(4294967295)\n\
+         4294967296 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         -1 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         0 .Ok(0)\n\
+         18446744073709549568 .Ok(18446744073709549568)\n\
+         18446744073709551616 .Err(.WrongType { path: \"$\", wanted: \"an integer\", found: \"a number\" })\n\
+         {\"b\":300} .Err(.WrongType { path: \"$.b\", wanted: \"an integer\", found: \"a number\" })\n\
+         {\"b\":1.5} .Err(.WrongType { path: \"$.b\", wanted: \"an integer\", found: \"a number\" })\n",
+    );
+}
+
+/// An `F32` holds the binary32 nearest the number, so `0.1` shows all the
+/// digits of the double that binary32 widens to, and a number past `F32`'s
+/// range is infinite.
+#[test]
+fn an_f32_rounds_to_binary32() {
+    rows_or_skip!();
+    agree(
+        "from json f32",
+        r#"
+from "core/io" import * as io;
+from "core/json" import * as json;
+from "core/json" import { DecodeError, FromJson, Json };
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+derive FromJson, Show for Q;
+struct Q {
+    x: F32,
+}
+
+fn read<T: FromJson + Show, C: Allocator + Stdout>(ctx: C, text: Str, witness: Option<T>): () {
+    let r: Result<T, DecodeError> = json.decode(ctx, json.parse(ctx, text).withDefault(Json.Null));
+    io.println(ctx, "${r.show(ctx)}").ignore()
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let q: Option<Q> = .None;
+    let _ = read(ctx, "{\"x\":0.1}", q);
+    let f: Option<F32> = .None;
+    let _ = read(ctx, "16777217", f);
+    let _ = read(ctx, "1e39", f);
+    let _ = read(ctx, "-1e-50", f);
+    let back: Result<F32, DecodeError> = json.decode(ctx, json.parse(ctx, "0.1").withDefault(Json.Null));
+    let tenth: F32 = 0.1;
+    let _ = io.println(ctx, "${back == .Ok(tenth)}").ignore();
+    .Ok(())
+}
+"#,
+        ".Ok(Q { x: 0.10000000149011612 })\n\
+         .Ok(16777216.0)\n\
+         .Ok(inf)\n\
+         .Ok(-0.0)\n\
+         true\n",
+    );
+}

@@ -2427,17 +2427,48 @@ impl Generator {
                 let read = self.match_(first, arms, ret);
                 self.choose(one, read, otherwise.clone(), ret)
             }
-            // A whole number the type holds: rounded into the type and back,
-            // it is still the number the document wrote.
+            // A whole number the type holds: inside its bounds, and rounded
+            // into the type and back, still the number the document wrote.
+            // Each bound is zero or a power of two, so it is exact as a double.
             p => {
                 let n = frame.local("n", ty);
                 let into = format!("number.F64.wrapTo{}", p.name());
-                let rounded = self.rt(&into, vec![xe.clone()], *ty);
+                let mut rounded = self.rt(&into, vec![xe.clone()], *ty);
+                let float = |v: f64| Expr::new(ExprKind::Float(v), payload_ty, Span::NONE);
+                // The upper half of `U64` is past what both native backends'
+                // float-to-integer conversion reaches, which saturates at
+                // `2^63 - 1`; it is read as its distance from `2^63` instead,
+                // which is exact.
+                if p == Prim::U64 {
+                    let half = 2f64.powi(63);
+                    let args = vec![xe.clone(), float(half)];
+                    let less = ExprKind::Prim { op: PrimOp::Sub, prim: Prim::F64, args };
+                    let less = Expr::new(less, payload_ty, Span::NONE);
+                    let low = self.rt(&into, vec![less], *ty);
+                    let top = typed::Magnitude::new(1u128 << 63);
+                    let top = Expr::new(ExprKind::Int(top, false), *ty, Span::NONE);
+                    let sum = ExprKind::Prim { op: PrimOp::Add, prim: Prim::U64, args: vec![low, top] };
+                    let upper = self.prim_test(PrimOp::Ge, Prim::F64, xe.clone(), float(half));
+                    rounded = self.choose(upper, Expr::new(sum, *ty, Span::NONE), rounded, *ty);
+                }
                 let out = format!("number.{}.toF64", p.name());
                 let back = self.rt(&out, vec![self.local_expr(n, ty)], payload_ty);
+                let bits = i32::try_from(p.bits()).unwrap_or(64);
+                let (low, past) = if p.is_signed() {
+                    (-(2f64.powi(bits - 1)), 2f64.powi(bits - 1))
+                } else {
+                    (0.0, 2f64.powi(bits))
+                };
+                let above = self.prim_test(PrimOp::Ge, Prim::F64, xe.clone(), float(low));
+                let below = self.prim_test(PrimOp::Lt, Prim::F64, xe.clone(), float(past));
                 let whole = self.prim_test(PrimOp::Eq, Prim::F64, back, xe);
+                let both = |a: Expr, b: Expr| {
+                    let kind = ExprKind::And { lhs: Box::new(a), rhs: Box::new(b) };
+                    Expr::new(kind, self.bool_ty(), Span::NONE)
+                };
+                let fits = both(both(above, below), whole);
                 let got = self.ok(ty, self.local_expr(n, ty))?;
-                let checked = self.choose(whole, got, otherwise.clone(), ret);
+                let checked = self.choose(fits, got, otherwise.clone(), ret);
                 self.block(vec![self.let_(n, *ty, rounded)], checked)
             }
         };
