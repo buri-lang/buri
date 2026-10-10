@@ -1,0 +1,51 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+#
+# `staging/` is not a package, so a file waiting there is nobody's business
+# until a `move` puts it in `libs/shapes`.
+
+doc: "with check_during_build, build and test report a stray file appearing and stop reporting it once it goes, with nothing cleaned in between (buri-lang/buri#281)"
+
+run {
+  args: ["build", "//libs/shapes"]
+  exit: 0
+}
+
+run {
+  args: ["test", "//libs/shapes"]
+  exit: 0
+}
+
+move {
+  from: "staging/stray.json"
+  to: "libs/shapes/stray.json"
+}
+
+run {
+  args: ["build", "//libs/shapes"]
+  exit: 0
+  golden: "build.txt"
+}
+
+run {
+  args: ["test", "//libs/shapes"]
+  exit: 0
+  golden: "test.txt"
+}
+
+move {
+  from: "libs/shapes/stray.json"
+  to: "staging/stray.json"
+}
+
+run {
+  args: ["build", "//libs/shapes"]
+  exit: 0
+  golden: "clean_build.txt"
+}
+
+run {
+  args: ["test", "//libs/shapes"]
+  exit: 0
+  golden: "clean_test.txt"
+}

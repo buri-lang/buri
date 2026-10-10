@@ -1,0 +1,4 @@
+# The catalogue runs during build and test too.
+lint {
+    check_during_build: true
+}
