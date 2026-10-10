@@ -57,10 +57,14 @@ impl Tool {
 
     /// The tool's flags, past the shared ones.
     ///
-    /// Memcheck: an error fails the program, and a definite leak is an error.
-    /// A leaked Buri value is the heap check's to report, but a block nothing
-    /// points to is a bug either way. Helgrind: a race is `report`'s to judge,
-    /// because some are ordered by code it can't see ([`UNSEEN`]).
+    /// Memcheck: a definite leak is an error. A leaked Buri value is the heap
+    /// check's to report, but a block nothing points to is a bug either way.
+    /// Helgrind: a race is `report`'s to judge, because some are ordered by
+    /// code it can't see ([`UNSEEN`]).
+    ///
+    /// Neither sets `--error-exitcode`. An error reaches `report` through the
+    /// XML, and the exit status stays the program's, so a test's own failure
+    /// is never hidden behind Valgrind's.
     ///
     /// Helgrind also reads a move of the stack pointer by less than
     /// `--max-stackframe` as the stack growing or shrinking, and marks the
@@ -72,7 +76,6 @@ impl Tool {
     fn flags(self) -> &'static [&'static str] {
         match self {
             Tool::Memcheck => &[
-                "--error-exitcode=1",
                 "--leak-check=full",
                 "--show-leak-kinds=definite",
                 "--errors-for-leak-kinds=definite",
@@ -236,6 +239,52 @@ pub fn report(dir: &Path) -> usize {
     count
 }
 
+/// A draft issue for each test that failed in `log`, a test binary's output
+/// under `tool`: the test's own failure, which no Valgrind error causes.
+///
+/// Each is `(signature, draft)`. The signature is the tool, build and test, so
+/// a test failing again is the issue already open.
+pub fn failures(log: &str, tool: &str, build: &str, run: &str) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    let mut lines = log.lines().peekable();
+    while let Some(line) = lines.next() {
+        let Some(name) = line.strip_prefix("---- ").and_then(|l| l.strip_suffix(" stdout ----")) else {
+            continue;
+        };
+        let mut output = Vec::new();
+        while let Some(next) = lines.peek() {
+            if next.starts_with("---- ") || *next == "failures:" {
+                break;
+            }
+            output.push(*next);
+            lines.next();
+        }
+        let output = output.join("\n");
+        let signature = fnv(&format!("test failure\n{tool}\n{build}\n{name}"));
+        let draft = format!(
+            "{tool}: test failed: {name} ({build}) [{signature}]\n\
+             The scheduled {tool} job ran this test and it failed on its own, apart \
+             from any Valgrind error.\n\n\
+             - **Test:** `{name}`\n\
+             - **Build:** {build}\n\
+             - **Run:** {run}\n\n\
+             ```text\n{output}\n```\n",
+            output = output.trim(),
+        );
+        found.push((signature, draft));
+    }
+    found
+}
+
+/// FNV-1a over `key`, as 12 hex digits: no toolchain update changes it.
+fn fnv(key: &str) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in key.bytes() {
+        h = (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{:012x}", h >> 16)
+}
+
 /// One error: its kind, its report as text, the function names of its stacks
 /// in order, innermost first, each stack's frames with their places, and the
 /// suppression that would silence it.
@@ -356,13 +405,7 @@ impl Error {
     /// The kind and the culprit, hashed. The same bug at another line, from
     /// another caller, build or program has the same signature.
     pub fn signature(&self) -> String {
-        let key = format!("{}\n{}", self.kind, self.culprit());
-        // FNV-1a, which no toolchain update changes.
-        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-        for b in key.bytes() {
-            h = (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3);
-        }
-        format!("{:012x}", h >> 16)
+        fnv(&format!("{}\n{}", self.kind, self.culprit()))
     }
 
     /// The issue: a title line, then the body.
@@ -586,4 +629,36 @@ fn a_race_ordered_by_code_helgrind_cannot_see_is_not_ours() {
     let drops: String = (0..10).map(|_| frame("drop_glue")).collect();
     let arc = errors(&race(&(drops + &frame("<alloc::sync::Arc<buri_rt::rt::Task>>::drop_slow"))));
     assert_eq!(arc[0].unseen_order(), Some("an Arc's last drop"));
+}
+
+#[test]
+fn a_failed_test_is_its_own_draft() {
+    let log = "running 2 tests
+test conformance::shard_7 ... FAILED
+test conformance::shard_6 ... ok
+
+failures:
+
+---- conformance::shard_7 stdout ----
+
+thread 'conformance::shard_7' panicked at cli/tests/native/conformance.rs:1443:5:
+1 files failed:
+`numbers/integers.buri` exited 1:
+assert.equal failed
+
+failures:
+    conformance::shard_7
+
+test result: FAILED. 1 passed; 1 failed
+";
+    let found = failures(log, "memcheck", "llvm release", "https://run");
+    assert_eq!(found.len(), 1);
+    let (signature, draft) = &found[0];
+    assert!(draft.starts_with(&format!(
+        "memcheck: test failed: conformance::shard_7 (llvm release) [{signature}]\n"
+    )));
+    assert!(draft.contains("`numbers/integers.buri` exited 1:\nassert.equal failed\n```"));
+    assert!(draft.contains("https://run"));
+    assert_ne!(*signature, failures(log, "memcheck", "stencil debug", "https://run")[0].0);
+    assert!(failures("test result: ok. 2 passed", "memcheck", "stencil debug", "").is_empty());
 }

@@ -3,12 +3,15 @@
 //! ```text
 //! cargo run -q -p buri --example valgrind -- tests <memcheck|helgrind> <dir> <build> <test binary> [args]
 //! cargo run -q -p buri --example valgrind -- report <dir>
+//! cargo run -q -p buri --example valgrind -- failed <memcheck|helgrind> <dir> <build> <log> <run url>
 //! ```
 //!
 //! `tests` runs a Rust test binary under the tool with the flags the test
 //! harness uses, less memcheck's leak check, and exits as it did. `report`
 //! writes a draft issue per distinct error in `<dir>/issues`, prints each
-//! title, and exits 1 when there was an error.
+//! title, and exits 1 when there was an error. `failed` reads a test binary's
+//! output, writes a draft per test that failed on its own, prints each title,
+//! and exits 1 when one did.
 
 #![allow(
     clippy::print_stdout,
@@ -62,13 +65,27 @@ fn main() -> ExitCode {
             println!("{errors} error(s), {} distinct", titles.len());
             if errors == 0 { ExitCode::SUCCESS } else { ExitCode::FAILURE }
         }
+        ["failed", tool, dir, build, log, run] => {
+            let Some(tool) = valgrind::Tool::named(tool) else { return usage() };
+            let issues = Path::new(dir).join("issues");
+            std::fs::create_dir_all(&issues).unwrap();
+            let log = std::fs::read_to_string(log).unwrap_or_default();
+            let found = valgrind::failures(&log, tool.name(), build, run);
+            for (signature, draft) in &found {
+                println!("{}", draft.lines().next().unwrap_or_default());
+                std::fs::write(issues.join(format!("{signature}.md")), draft).unwrap();
+            }
+            println!("{} test(s) failed on their own", found.len());
+            if found.is_empty() { ExitCode::SUCCESS } else { ExitCode::FAILURE }
+        }
         _ => usage(),
     }
 }
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: valgrind tests <memcheck|helgrind> <dir> <build> <test binary> [args] | valgrind report <dir>"
+        "usage: valgrind tests <memcheck|helgrind> <dir> <build> <test binary> [args] | valgrind report <dir> \
+         | valgrind failed <memcheck|helgrind> <dir> <build> <log> <run url>"
     );
     ExitCode::from(2)
 }

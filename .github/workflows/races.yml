@@ -79,9 +79,11 @@ jobs:
       # Four at a time: a program under helgrind holds gigabytes.
       - name: Programs that run on more than one thread
         if: matrix.shard != 'runtime'
-        run: >-
-          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native --
-          ${{ matrix.filters }} --test-threads=4
+        run: |
+          set -euo pipefail
+          mkdir -p "$BURI_HELGRIND"
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- \
+            ${{ matrix.filters }} --test-threads=4 2>&1 | tee -a "$BURI_HELGRIND/tests.log"
       # Less the two rows that park a thousand tasks or more: helgrind shadows
       # each task's 64 MiB stack mapping and runs out of memory. memcheck.yml
       # runs them.
@@ -89,10 +91,19 @@ jobs:
         if: matrix.shard == 'runtime'
         run: |
           set -euo pipefail
+          mkdir -p "$BURI_HELGRIND"
           tests="$(nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri-rt-tests --features valgrind --no-run --message-format=json-render-diagnostics \
             | jq -r 'select(.profile.test == true) | .executable | select(. != null)')"
           nix develop .#perf -c target/debug/examples/valgrind tests helgrind "$BURI_HELGRIND" 'runtime unit tests' "$tests" rt:: \
-            --skip a_thousand_parked_tasks --skip the_resident_set_of_ten_thousand_parked_tasks --test-threads=1
+            --skip a_thousand_parked_tasks --skip the_resident_set_of_ten_thousand_parked_tasks --test-threads=1 \
+            2>&1 | tee -a "$BURI_HELGRIND/tests.log"
+      # memcheck.yml's step of the same name.
+      - name: Tests that failed on their own
+        if: always()
+        run: |
+          [ -e "$BURI_HELGRIND/tests.log" ] || exit 0
+          nix develop .#perf -c target/debug/examples/valgrind failed helgrind "$BURI_HELGRIND" '${{ matrix.shard }}' \
+            "$BURI_HELGRIND/tests.log" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
       - name: Report
         if: always()
         run: nix develop .#perf -c target/debug/examples/valgrind report "$BURI_HELGRIND"
