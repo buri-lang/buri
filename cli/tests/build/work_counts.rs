@@ -314,3 +314,135 @@ fn a_runner_an_earlier_run_started_is_not_a_new_executable() {
     first.run(&["clean"]).ok();
     holds_exiting(&first, "a run after buri clean", &args, &env, 0, again);
 }
+
+/// Two runners, each with a failing suite that isn't its first: `server`
+/// suites `a`, `d` and `e`, then `client` suites `b` and `c`, which may not
+/// share one. `d` and `c` fail.
+fn two_runners_failing(name: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
+    scratch.write(
+        "REPO.buri",
+        "tag {\n  name: \"server\"\n  doc: \"runs on infrastructure we operate\"\n  \
+         forbids { tags: [\"client\"] }\n}\n\n\
+         tag {\n  name: \"client\"\n  doc: \"ships to a user's machine\"\n}\n",
+    );
+    let suites = [("a", "server", 0), ("d", "server", 1), ("e", "server", 0), ("b", "client", 0), ("c", "client", 1)];
+    for (s, tag, want) in suites {
+        scratch.write(
+            &format!("lib/{s}/BUILD.buri"),
+            &format!(
+                "library {{\n    tags: [\"{tag}\"]\n    test {{\n        sources: [\"test/{s}.buri\"]\n    }}\n}}\n"
+            ),
+        );
+        scratch.write(&format!("lib/{s}/lib.buri"), "export fn same(k: Int): Int {\n    k\n}\n");
+        suite_asserting(&scratch, s, 0, want);
+    }
+    scratch
+}
+
+/// Each step of [`failing_groups`]: what it changes, then the run.
+enum Step {
+    Edit(&'static str, u32, u32),
+    Run(&'static str, &'static [&'static str]),
+}
+
+const ALL: &[&str] = &["//..."];
+const FILTERED: &[&str] = &["//...", "--filter=d"];
+
+const FAILING_GROUPS: [Step; 15] = [
+    Step::Run("a cold run", ALL),
+    Step::Run("a rerun", ALL),
+    Step::Edit("e", 1, 1),
+    Step::Run("an edit", ALL),
+    Step::Edit("e", 2, 2),
+    Step::Run("another edit", ALL),
+    Step::Edit("e", 3, 4),
+    Step::Run("an edit that fails", ALL),
+    Step::Run("a rerun with three failing", ALL),
+    Step::Edit("e", 4, 4),
+    Step::Run("an edit that passes again", ALL),
+    // `//lib/b` is the first suite in the runner that holds the failing `//lib/c`. A
+    // value no earlier edit used, so its runner holds bytes no earlier run started.
+    Step::Edit("b", 5, 5),
+    Step::Run("an edit to a failing suite's runner-mate", ALL),
+    Step::Run("a filtered run", FILTERED),
+    Step::Run("the same filtered run", FILTERED),
+];
+
+/// Runs [`FAILING_GROUPS`] then a rerun, holding each run to its line of `want`.
+fn failing_groups(scratch: &Scratch, extra: &[&str], want: [&str; 11]) {
+    let mut want = want.into_iter();
+    let runs = FAILING_GROUPS.iter().chain([&Step::Run("a rerun after the filtered runs", ALL)]);
+    for step in runs {
+        match *step {
+            Step::Edit(s, k, w) => suite_asserting(scratch, s, k, w),
+            Step::Run(scenario, given) => {
+                let args: Vec<&str> = ["test"].iter().chain(given).chain(extra).copied().collect();
+                holds_exiting(scratch, scenario, &args, &[], 1, want.next().expect("a count per run"));
+            }
+        }
+    }
+}
+
+/// A failing suite's runner starts again on every run, and only a link is a new
+/// executable: an edit launches one, a rerun or a whole run after a filtered
+/// one none. The first edit's runner holds one suite where the cold run's held
+/// three, which changes `core_testing_assert`'s object (PERFORMANCE.md §6.80).
+const NATIVE_FAILING: [&str; 11] = [
+    // The two runners share three units, which a run emits once.
+    "suites built 5, objects compiled 13, objects restored 3, links 2, new executables launched 2, \
+     test processes 5",
+    "suites reused 3, suites restored 2, test processes 2, files written 0",
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 2, objects restored 3, links 1, \
+     new executables launched 1, test processes 3",
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, links 1, \
+     new executables launched 1, test processes 3",
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, links 1, \
+     new executables launched 1, test processes 3",
+    "suites reused 2, suites restored 3, test processes 3, files written 0",
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, links 1, \
+     new executables launched 1, test processes 3",
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, links 1, \
+     new executables launched 1, test processes 3",
+    "suites built 1, objects compiled 1, objects restored 4, links 1, new executables launched 1, test processes 1",
+    "suites restored 1, test processes 1, files written 0",
+    "suites reused 3, suites restored 2, test processes 2, files written 0",
+];
+
+const JAVASCRIPT_FAILING: [&str; 11] = [
+    "suites built 5, test processes 5",
+    "suites reused 3, suites restored 2, test processes 2, files written 0",
+    "suites built 1, suites reused 2, suites restored 2, test processes 3, files written 2",
+    "suites built 1, suites reused 2, suites restored 2, test processes 3, files written 2",
+    "suites built 1, suites reused 2, suites restored 2, test processes 3, files written 3",
+    "suites reused 2, suites restored 3, test processes 3, files written 0",
+    "suites built 1, suites reused 2, suites restored 2, test processes 3, files written 2",
+    "suites built 1, suites reused 2, suites restored 2, test processes 3, files written 2",
+    "suites built 1, test processes 1, files written 3",
+    "suites restored 1, test processes 1, files written 0",
+    // `//lib/d`'s whole bundle again, where its filtered one was. A bundle has no launch check.
+    "suites reused 3, suites restored 2, test processes 2, files written 1",
+];
+
+#[test]
+fn a_native_failing_suites_runner_is_never_a_new_executable_again() {
+    failing_groups(&two_runners_failing("counted-failing-groups"), &[], NATIVE_FAILING);
+}
+
+#[test]
+fn a_native_release_failing_suites_runner_is_never_a_new_executable_again() {
+    let scratch = two_runners_failing("counted-failing-groups-release");
+    let first = scratch.run(&["test", "//lib/a", "--release"]);
+    if first.stderr.contains("test-run-unavailable") {
+        first.exits(1);
+        return;
+    }
+    first.ok();
+    std::fs::remove_dir_all(scratch.path(".buri")).unwrap();
+    failing_groups(&scratch, &["--release"], NATIVE_FAILING);
+}
+
+#[test]
+fn a_javascript_failing_suites_bundle_is_written_only_when_it_changes() {
+    failing_groups(&two_runners_failing("counted-failing-groups-js"), &["--output=js"], JAVASCRIPT_FAILING);
+}

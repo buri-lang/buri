@@ -794,10 +794,16 @@ fn drive(
     out: &mut Out,
 ) -> Tally {
     RULE_PATHS.with(|paths| paths.borrow_mut().clear());
+    TAKEN.with(|taken| taken.borrow_mut().clear());
     let mut tally = Tally::default();
+    // Every suite, unfiltered, on the host: a binary kept by an earlier run is
+    // one this run starts again, or nobody's.
+    let whole = args.flags.filter.is_none()
+        && args.flags.output.is_none()
+        && plans.len() == session.workspace.targets().into_iter().filter(|&t| has_tests(session, t)).count();
     // Held for the pass, so no link this pass writes over a restored binary
     // the next pass will start again.
-    let _restored = rerun(session, slots, queue);
+    let _restored = rerun(session, slots, queue, whole);
     batch(session, args, slots, queue, &mut tally.shared_build);
     for i in 0..slots.len() {
         solo(session, args, pre, slots, i, queue, &mut tally.shared_build);
@@ -1235,7 +1241,7 @@ fn solo(
         label: session.workspace.label(target),
         limit,
         on_timeout: timed_out(session, target, limit),
-        private: actions::private_test_binary(session, target, &output),
+        private: private_test_binary(session, target, &output),
         output,
         js,
         snapshot_dir: snapshot_dir(session, target),
@@ -1467,7 +1473,7 @@ fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Share
         paints,
         limit,
         on_timeout,
-        remember: Some((link, std::sync::Arc::new(sheet))),
+        remember: Some((link, std::sync::Arc::new(sheet), ran_at(&shared.root, &binary))),
         alone: Some(label),
         build,
     };
@@ -1475,6 +1481,12 @@ fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Share
         let program = binary.path().display().to_string();
         let snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, written);
         let done = run_alone(&program, &spec, &seeds, &snapshots, shared);
+        // A failing verdict isn't cached, so the next run starts this binary again.
+        if let Done::Answer { answer, built: Some(_), .. } = &done {
+            if !answer.as_ref().is_ok_and(|ran| ran.cases.iter().all(|c| matches!(c.verdict, Verdict::Passed))) {
+                binary.keep();
+            }
+        }
         drop(binary);
         return match done {
             Done::Answer { slot, answer, notes, built, .. } => Done::Answer { slot, answer, explain, notes, built },
@@ -2385,6 +2397,9 @@ enum Again {
 /// One suite's place in a test binary the link cache holds.
 struct Linked {
     link: crate::build::cache::ActionKey,
+    /// Where the binary ran, under the repository root, so a run after starts
+    /// it there again rather than as a new file.
+    at: std::path::PathBuf,
     /// The program's stylesheet, written beside the binary for a snapshot.
     sheet: String,
     paints: bool,
@@ -2406,7 +2421,7 @@ enum Recalled {
 
 /// The shape of a build record, so that a change to the encoding is a miss
 /// rather than a misreading.
-const BUILD_FORMAT: &[u8] = b"buri-test-build-3\n";
+const BUILD_FORMAT: &[u8] = b"buri-test-build-4\n";
 
 /// Writes down what a suite's build left, under `at`.
 ///
@@ -2439,6 +2454,7 @@ fn remember(
         Built::Linked(l) => {
             out.push(2);
             put_text(&mut out, l.link.as_str());
+            put_text(&mut out, &l.at.to_string_lossy());
             put_text(&mut out, &l.sheet);
             out.push(u8::from(l.paints));
             put_skipped(&mut out, &l.skipped);
@@ -2686,6 +2702,7 @@ fn recall(
         1 => Some(Recalled::Nothing { skipped: read_skipped(&mut r)? }),
         2 => {
             let link = crate::build::cache::ActionKey::parse(&r.text()?)?;
+            let at = std::path::PathBuf::from(r.text()?);
             let sheet = r.text()?;
             let paints = r.byte()? == 1;
             let skipped = read_skipped(&mut r)?;
@@ -2694,7 +2711,7 @@ fn recall(
                 ranges.push((count(&mut r)?, count(&mut r)?));
             }
             let roots = read_roots(&mut r, &mut session.map, &mut anchors, &root)?;
-            Some(Recalled::Linked(Box::new(Linked { link, sheet, paints, skipped, ranges, roots })))
+            Some(Recalled::Linked(Box::new(Linked { link, at, sheet, paints, skipped, ranges, roots })))
         }
         3 => {
             let bundle = crate::build::cache::ActionKey::parse(&r.text()?)?;
@@ -2710,8 +2727,13 @@ fn recall(
 /// [`Job::Served`] per binary, so members of one batch share one copy of it
 /// again, and one [`Job::Bundled`] per bundle. Answers the binaries' holds on
 /// the shared runner file.
-fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue) -> Vec<std::sync::Arc<actions::Claim>> {
-    let mut jobs: Vec<ServedJob> = Vec::new();
+///
+/// A binary still where it ran starts from there, so it isn't a new file. In a
+/// `whole` run that starts none at the shared runner file, links may write
+/// over a binary kept there ([`actions::release_kept_runner`]).
+fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue, whole: bool) -> Vec<std::sync::Arc<actions::Claim>> {
+    // Each binary, where it ran, and its first member's target and output.
+    let mut found: Vec<(ServedJob, std::path::PathBuf, TargetId, crate::build::buildfile::Output)> = Vec::new();
     for (i, slot) in slots.iter_mut().enumerate() {
         if slot.answer.is_some() || slot.queued {
             continue;
@@ -2734,7 +2756,7 @@ fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue) -> Vec<std::sync:
                 continue;
             }
         };
-        let Linked { link, sheet, paints, skipped, ranges, roots } = *linked;
+        let Linked { link, at, sheet, paints, skipped, ranges, roots } = *linked;
         let output = crate::build::buildfile::Output::for_platform(slot.platform, Span::NONE);
         let seeds = std::sync::Arc::new(seeds_at(&ranges, seed_of(&slot.key)));
         let spec = MemberSpec {
@@ -2752,24 +2774,74 @@ fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue) -> Vec<std::sync:
             alone: None,
             build: None,
         };
-        match jobs.iter_mut().find(|j| j.link == link) {
-            Some(job) => job.members.push((spec, seeds)),
+        match found.iter_mut().find(|(j, ..)| j.link == link) {
+            Some((job, ..)) => job.members.push((spec, seeds)),
             None => {
-                let private = actions::private_test_binary(session, target, &output);
-                jobs.push(ServedJob {
-                    binary: actions::restored_test_binary(&session.root, &output, private, &link),
-                    link,
-                    sheet,
-                    members: vec![(spec, seeds)],
-                });
+                let job = ServedJob { binary: None, link, sheet, members: vec![(spec, seeds)] };
+                found.push((job, session.root.join(at), target, output));
             }
         }
     }
-    let claims = jobs.iter().filter_map(|job| job.binary.as_ref()?.claim()).collect();
-    for job in jobs {
+    // Every binary still where it ran stays there, before any other is put in
+    // a file one of them might be in.
+    let kept: Vec<Option<actions::TestBinary>> = found
+        .iter()
+        .map(|(job, at, _, output)| actions::kept_test_binary(&session.root, output, at, &job.link))
+        .collect();
+    for binary in kept.iter().flatten() {
+        reserve(binary.path().to_path_buf());
+    }
+    if whole && kept.iter().flatten().all(|b| b.claim().is_none()) {
+        let platform = crate::compiler::driver::host_native_platform();
+        let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+        actions::release_kept_runner(&session.root, &output);
+    }
+    let mut claims = Vec::new();
+    for ((mut job, _, target, output), binary) in found.into_iter().zip(kept) {
+        job.binary = binary.or_else(|| {
+            let private = private_test_binary(session, target, &output);
+            reserve(private.clone());
+            actions::restored_test_binary(&session.root, &output, private, &job.link)
+        });
+        claims.extend(job.binary.as_ref().and_then(actions::TestBinary::claim));
         queue.push(Job::Served(Box::new(job)), 0);
     }
     claims
+}
+
+thread_local! {
+    /// The private files this pass's binaries run from, so no two share one:
+    /// emptied when [`drive`] starts.
+    static TAKEN: std::cell::RefCell<Vec<std::path::PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn reserve(path: std::path::PathBuf) {
+    TAKEN.with(|taken| taken.borrow_mut().push(path));
+}
+
+fn is_reserved(path: &std::path::Path) -> bool {
+    TAKEN.with(|taken| taken.borrow().iter().any(|p| p == path))
+}
+
+/// Where a test binary whose first suite is `target` goes when the shared
+/// runner file is taken: [`actions::private_test_binary`], or a name beside it
+/// when a binary this pass restored runs from there.
+fn private_test_binary(
+    session: &Session,
+    target: TargetId,
+    output: &crate::build::buildfile::Output,
+) -> std::path::PathBuf {
+    let own = actions::private_test_binary(session, target, output);
+    let mut path = own.clone();
+    let mut n = 1;
+    while is_reserved(&path) {
+        n += 1;
+        path = own.with_extension(n.to_string());
+    }
+    if path != own {
+        reserve(path.clone());
+    }
+    path
 }
 
 /// The seeds a suite's processes are handed when its blocks are `ranges` of a
@@ -3589,7 +3661,7 @@ fn queue_batch(
             .collect(),
         keys: member_slots.iter().filter_map(|&i| key_of(i)).collect(),
         labels: members.iter().map(|&t| session.workspace.label(t)).collect(),
-        privates: members.iter().map(|&t| actions::private_test_binary(session, t, &output)).collect(),
+        privates: members.iter().map(|&t| private_test_binary(session, t, &output)).collect(),
         dirs: members.iter().map(|&t| snapshot_dir(session, t)).collect(),
         platform,
         output,
@@ -3945,9 +4017,9 @@ struct MemberSpec {
     /// suite that declared a limit is not in a batch.
     limit: Option<u32>,
     on_timeout: Diagnostics,
-    /// The `link` key and stylesheet of a binary this run linked, so the
-    /// member's answer can record it. `None` for a binary run again.
-    remember: Option<(crate::build::cache::ActionKey, std::sync::Arc<String>)>,
+    /// The `link` key, stylesheet and file of a binary this run linked, so the
+    /// member's answer can record them. `None` for a binary run again.
+    remember: Option<(crate::build::cache::ActionKey, std::sync::Arc<String>, std::path::PathBuf)>,
     /// The suite's label, when the binary is its own and was just linked
     /// ([`run_solo`]). A process that ends without a verdict then runs the
     /// suite again one process at a time ([`run_alone`]), rather than sending
@@ -3980,10 +4052,11 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, tell: &Tell, shared: &S
     let sheet = std::sync::Arc::new(sheet);
     let seeds = std::sync::Arc::new(seeds);
     let first = members.first().map_or(usize::MAX, |m| m.slot);
+    let at = ran_at(&shared.root, &binary);
     let members = members
         .into_iter()
         .map(|mut m| {
-            m.remember = Some((link.clone(), std::sync::Arc::clone(&sheet)));
+            m.remember = Some((link.clone(), std::sync::Arc::clone(&sheet), at.clone()));
             m.build = Some(build);
             (m, std::sync::Arc::clone(&seeds))
         })
@@ -4168,6 +4241,12 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
     if spec.paints {
         shared.release(&spec.snapshot_dir, spec.slot);
     }
+    // A failing verdict isn't cached, so the next run starts this binary again.
+    let all = gathered_of(&gathered);
+    if all.timed_out || all.verdicts.iter().any(|(_, b)| matches!(b, Block::Failed { .. })) {
+        binary.keep();
+    }
+    drop(all);
     match answer_member(&gathered, &spec, shared) {
         Done::Abandoned { .. } if spec.alone.is_some() => {
             // A binary that could not start once would not start again.
@@ -4383,11 +4462,17 @@ fn run_pulled(
     Pulled::Ran { verdicts, notes }
 }
 
+/// Where `binary` runs, under `root`, for its record.
+fn ran_at(root: &std::path::Path, binary: &actions::TestBinary) -> std::path::PathBuf {
+    binary.path().strip_prefix(root).map(std::path::Path::to_path_buf).unwrap_or_default()
+}
+
 /// The record of a member's place in a binary this run linked.
 fn linked_of(spec: &MemberSpec) -> Option<Built> {
-    let (link, sheet) = spec.remember.as_ref()?;
+    let (link, sheet, at) = spec.remember.as_ref()?;
     Some(Built::Linked(Box::new(Linked {
         link: link.clone(),
+        at: at.clone(),
         sheet: sheet.to_string(),
         paints: spec.paints,
         skipped: spec.skipped.clone(),

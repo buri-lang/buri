@@ -2785,6 +2785,15 @@ impl TestBinary {
         &self.path
     }
 
+    /// Asks for it to stay where it is for a later run, which will start it
+    /// again ([`kept_test_binary`]). At the shared runner file, no link writes
+    /// over it until a run takes it back without asking this.
+    pub fn keep(&self) {
+        if let Some(claim) = &self.claim {
+            claim.keep.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
     /// Its hold on the shared runner file, for a caller that keeps the file
     /// past the binary's last process.
     pub fn claim(&self) -> Option<std::sync::Arc<Claim>> {
@@ -2795,10 +2804,20 @@ impl TestBinary {
 /// One process's hold on the shared runner file.
 pub struct Claim {
     lock: PathBuf,
+    /// [`TestBinary::keep`].
+    keep: std::sync::atomic::AtomicBool,
+    /// Says the file is kept: only a run that starts it again takes it.
+    kept: PathBuf,
 }
 
 impl Drop for Claim {
     fn drop(&mut self) {
+        // Settled before the lock goes, so no link claims the file in between.
+        if self.keep.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = std::fs::OpenOptions::new().create_new(true).write(true).open(&self.kept);
+        } else {
+            let _ = std::fs::remove_file(&self.kept);
+        }
         let _ = std::fs::remove_file(&self.lock);
     }
 }
@@ -2831,12 +2850,25 @@ const CLAIM_STALE: std::time::Duration = std::time::Duration::from_secs(900);
 /// two `buri test` processes in one repository do not share a file, they take
 /// turns at one and the loser is merely slower.
 ///
+/// A failing suite's binary there is kept ([`TestBinary::keep`]): its verdict
+/// isn't cached, so the next run starts it again, and rewritten it would be a
+/// new file. Only that run takes the file back ([`kept_test_binary`]).
+///
 /// The shared file in `dir` where this process can take it, and `private` where
 /// it cannot. `private` is the caller's because a batched run has no one package
 /// to derive it from (see [`native_test_batch`]).
 fn claim_runner(dir: &std::path::Path, private: PathBuf) -> TestBinary {
+    if dir.join(KEPT).exists() {
+        if let Some(parent) = private.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        return TestBinary { path: private, claim: None };
+    }
     claim_runner_after(dir, private, CLAIM_STALE)
 }
+
+/// Beside the shared runner file while it holds a kept binary.
+const KEPT: &str = ".test-runner.kept";
 
 /// The same, with the staleness bound named, so that "a claim this old is a
 /// crashed process's" is a rule a test can state rather than one it has to wait
@@ -2860,7 +2892,11 @@ fn claim_runner_after(
         let _ = std::fs::remove_file(&lock);
     }
     match std::fs::OpenOptions::new().create_new(true).write(true).open(&lock) {
-        Ok(_) => TestBinary { path: dir.join("test-runner"), claim: Some(std::sync::Arc::new(Claim { lock })) },
+        Ok(_) => {
+            let keep = std::sync::atomic::AtomicBool::new(false);
+            let claim = Claim { lock, keep, kept: dir.join(KEPT) };
+            TestBinary { path: dir.join("test-runner"), claim: Some(std::sync::Arc::new(claim)) }
+        }
         Err(_) => {
             if let Some(parent) = private.parent() {
                 let _ = std::fs::create_dir_all(parent);
@@ -2920,9 +2956,8 @@ pub fn link_test_binary(
 }
 
 /// Where the test binary a run before this one linked under `link` will run
-/// from: `private` when it already holds the bytes, so starting it isn't a new
-/// file, and otherwise the shared runner file where this process can take it
-/// ([`claim_runner`]).
+/// from when it isn't kept ([`kept_test_binary`]): the shared runner file where
+/// this process can take it, and `private` where it can't ([`claim_runner`]).
 ///
 /// Asked before any of this run's links claim the shared file, so which binary
 /// gets it doesn't depend on which thread is first. `None` when the cache no
@@ -2934,11 +2969,39 @@ pub fn restored_test_binary(
     private: PathBuf,
     link: &ActionKey,
 ) -> Option<TestBinary> {
-    let entry = Cache::open(root).entry(link)?;
-    if link::holds_same(&entry, &private) {
-        return Some(TestBinary { path: private, claim: None });
-    }
+    Cache::open(root).entry(link)?;
     Some(claim_runner(&root.join(".buri/out").join(output.dir()), private))
+}
+
+/// The test binary a run before this one linked under `link`, still at `at`,
+/// where it ran. Starting it there again isn't a new file. The shared runner
+/// file is claimed, kept or not. `None` when `at` holds something else, or
+/// another process holds the shared file.
+pub fn kept_test_binary(
+    root: &std::path::Path,
+    output: &Output,
+    at: &std::path::Path,
+    link: &ActionKey,
+) -> Option<TestBinary> {
+    let dir = root.join(".buri/out").join(output.dir());
+    if !at.starts_with(&dir) || !link::holds_same(&Cache::open(root).entry(link)?, at) {
+        return None;
+    }
+    if at != dir.join("test-runner") {
+        return Some(TestBinary { path: at.to_path_buf(), claim: None });
+    }
+    let binary = claim_runner_after(&dir, PathBuf::new(), CLAIM_STALE);
+    binary.claim.is_some().then_some(binary)
+}
+
+/// Lets links write over the shared runner file again, for a run of every
+/// suite that starts no binary there: none is failing in it any more.
+pub fn release_kept_runner(root: &std::path::Path, output: &Output) {
+    let dir = root.join(".buri/out").join(output.dir());
+    if dir.join(KEPT).exists() {
+        // Released at once, unkept.
+        drop(claim_runner_after(&dir, PathBuf::new(), CLAIM_STALE));
+    }
 }
 
 /// Puts the test binary a run before this one linked under `link` at
@@ -3536,6 +3599,21 @@ mod tests {
         let after = claim_runner(&dir, private("e"));
         assert_eq!(after.path(), dir.join("test-runner"));
         drop(after);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A kept binary holds the shared file against links until a claim on it
+    /// is released unkept.
+    #[test]
+    fn a_kept_runner_is_left_to_the_run_that_starts_it_again() {
+        let dir = std::env::temp_dir().join(format!("buri-runner-kept-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let failing = claim_runner(&dir, dir.join("a/test"));
+        failing.keep();
+        drop(failing);
+        assert_eq!(claim_runner(&dir, dir.join("b/test")).path(), dir.join("b/test"));
+        drop(claim_runner_after(&dir, PathBuf::new(), CLAIM_STALE));
+        assert_eq!(claim_runner(&dir, dir.join("b/test")).path(), dir.join("test-runner"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
