@@ -36,35 +36,7 @@ use std::process::ExitCode;
 /// six hundred fields overflowed.
 const STACK: usize = buri::parallel::STACK;
 
-/// The coverage gate's build only: `buri run`'s server and the `--watch` loops
-/// stop by a signal, so they write their profile before dying of it. `buri run`
-/// puts its own handlers over these once it starts a program, and that path
-/// exits normally.
-#[cfg(buri_coverage)]
-fn write_profile_on_signals() {
-    unsafe extern "C" {
-        fn signal(sig: i32, handler: usize) -> usize;
-        fn raise(sig: i32) -> i32;
-    }
-    extern "C" fn written(sig: i32) {
-        arguments::write_coverage_profile();
-        // SAFETY: the default disposition back, then the signal again, so the
-        // process ends the way it would have.
-        unsafe {
-            signal(sig, 0);
-            raise(sig);
-        }
-    }
-    // SIGHUP, SIGINT and SIGTERM.
-    for sig in [1, 2, 15] {
-        // SAFETY: an ordinary `signal` call with a function of ours.
-        unsafe { signal(sig, written as *const () as usize) };
-    }
-}
-
 fn main() -> ExitCode {
-    #[cfg(buri_coverage)]
-    write_profile_on_signals();
     // A `println!` whose reader has gone ends the process, from whichever
     // thread it ran on, before anything unwinds.
     let report = std::panic::take_hook();
