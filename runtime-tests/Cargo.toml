@@ -37,7 +37,7 @@ net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:rustls-graviola", "dep:gravi
 net-h3 = ["net", "dep:quinn"]
 crypto = ["dep:getrandom", "dep:ring", "ring/alloc"]
 paint = ["dep:taffy", "dep:cosmic-text", "dep:tiny-skia"]
-memcheck = []
+valgrind = []
 
 [lints]
 workspace = true

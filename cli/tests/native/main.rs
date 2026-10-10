@@ -166,9 +166,9 @@ mod shard;
 // of the file is what makes the unread rest of it free.
 mod shared;
 
-// The scheduled memcheck job's hook: `shared` runs each program it built
-// under memcheck when `BURI_MEMCHECK` is set.
-mod memcheck;
+// The scheduled Valgrind jobs' hook: `shared` runs each program it built
+// under memcheck or helgrind when `BURI_MEMCHECK` or `BURI_HELGRIND` is set.
+mod valgrind;
 
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod agreement;

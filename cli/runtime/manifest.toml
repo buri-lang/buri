@@ -379,9 +379,9 @@ net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:rustls-graviola", "dep:gravi
 net-h3 = ["net", "dep:quinn"]
 crypto = ["dep:getrandom", "dep:ring", "ring/alloc"]
 paint = ["dep:taffy", "dep:cosmic-text", "dep:tiny-skia"]
-# Off: the client requests that let memcheck see each block, which `buri`'s
-# own `memcheck` feature turns on (design/native/MEMORY.md §8).
-memcheck = []
+# Off: the client requests that show Valgrind's tools each block and lock, which
+# `buri`'s own `valgrind` feature turns on (design/native/MEMORY.md §8).
+valgrind = []
 
 # The flags that used to be spelled out in `cli/build.rs`'s `rustc` command
 # line, in the one place a `cargo build --release` reads them from. Each is a

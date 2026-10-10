@@ -44,7 +44,7 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
-use std::sync::Mutex;
+use crate::sync::Mutex;
 use std::time::Duration;
 
 /// How long a dial may take, all of it: the name lookup and the connect.

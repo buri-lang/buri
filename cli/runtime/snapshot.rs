@@ -57,8 +57,8 @@ pub unsafe extern "C" fn buri_rt_host_testing_install_themes(
 }
 
 /// The custom-property block the last `installThemes` resolved to.
-fn variables_lock() -> std::sync::MutexGuard<'static, String> {
-    static VARIABLES: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+fn variables_lock() -> crate::sync::MutexGuard<'static, String> {
+    static VARIABLES: crate::sync::Mutex<String> = crate::sync::Mutex::new(String::new());
     VARIABLES.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 

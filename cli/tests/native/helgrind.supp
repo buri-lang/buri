@@ -1,0 +1,3 @@
+# Helgrind suppressions (cli/tests/native/valgrind.rs). Every entry says why it
+# is not a race in Buri or its runtime. A race in Buri code or in cli/runtime is
+# never suppressed here: it is annotated where the runtime orders it, or filed.

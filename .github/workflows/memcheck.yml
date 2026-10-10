@@ -1,17 +1,17 @@
 name: Memcheck
 
 # Compiled Buri programs and the native runtime under Valgrind's memcheck, twice
-# a day (design/native/MEMORY.md §8, cli/tests/README.md "Memcheck"). Each
+# a day (design/native/MEMORY.md §8, cli/tests/README.md "Valgrind"). Each
 # distinct error becomes one GitHub issue, labelled `planned` and `urgent`.
 #
 # * **The workload** is the native conformance set built three ways, the
 #   backend-agreement and at-scale rows on both native backends, and the
 #   runtime's unit tests. `BURI_MEMCHECK` makes `cli/tests/native/shared.rs`
 #   run each program it built under memcheck; the runtime's tests are one
-#   program, run by the same tool.
-# * **`--features memcheck`** builds a runtime that, under memcheck, takes
+#   program, run by `cli/examples/valgrind.rs`.
+# * **`--features valgrind`** builds a runtime that, under memcheck, takes
 #   every block from the system allocator one at a time, annotated where
-#   memcheck can't see `malloc` (`cli/runtime/allocator.rs`, `valgrind`).
+#   memcheck can't see `malloc` (`cli/runtime/valgrind.rs`).
 # * **Issues are filed from `main` only.** A run on any other ref prints the
 #   issues it would have filed.
 #
@@ -81,16 +81,16 @@ jobs:
       # `__*_chk`, and a step that changed it would rebuild the runtime.
       - name: Build
         run: |
-          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,memcheck --test native --no-run
-          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo build -p buri --features backend-llvm,memcheck --example memcheck
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native --no-run
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo build -p buri --features backend-llvm,valgrind --example valgrind
       - name: The conformance set, ${{ matrix.shard }}
         if: startsWith(matrix.shard, 'stencil') || startsWith(matrix.shard, 'llvm')
         env:
           BURI_CONFORMANCE_BUILD: ${{ matrix.shard == 'stencil-debug' && 'stencil' || matrix.shard }}
-        run: nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,memcheck --test native -- conformance::the_native_set_passes
+        run: nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- conformance::the_native_set_passes
       - name: The agreement and at-scale rows
         if: matrix.shard == 'agreement'
-        run: "nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,memcheck --test native -- agreement:: at_scale::"
+        run: "nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- agreement:: at_scale::"
       - name: The runtime's unit tests
         if: matrix.shard == 'runtime'
         env:
@@ -99,12 +99,12 @@ jobs:
           BURI_B9_PARKED: "1000"
         run: |
           set -euo pipefail
-          tests="$(nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri-rt-tests --features memcheck --no-run --message-format=json-render-diagnostics \
+          tests="$(nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri-rt-tests --features valgrind --no-run --message-format=json-render-diagnostics \
             | jq -r 'select(.profile.test == true) | .executable | select(. != null)')"
-          nix develop .#perf -c target/debug/examples/memcheck tests "$BURI_MEMCHECK" 'runtime unit tests' "$tests" --test-threads=1
+          nix develop .#perf -c target/debug/examples/valgrind tests memcheck "$BURI_MEMCHECK" 'runtime unit tests' "$tests" --test-threads=1
       - name: Report
         if: always()
-        run: nix develop .#perf -c target/debug/examples/memcheck report "$BURI_MEMCHECK"
+        run: nix develop .#perf -c target/debug/examples/valgrind report "$BURI_MEMCHECK"
       - if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -120,34 +120,12 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     permissions:
+      contents: read
       issues: write
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+      - uses: ./.github/actions/file-issues
         with:
           pattern: memcheck-*
-          path: reports
-      - name: File one issue per new error
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          FILE: ${{ github.ref == 'refs/heads/main' }}
-        run: |
-          set -euo pipefail
-          mkdir -p drafts
-          # The same signature from two shards is one draft.
-          find reports -path '*/issues/*.md' -exec cp -n {} drafts/ \;
-          for draft in drafts/*.md; do
-            [ -e "$draft" ] || { echo "no errors"; break; }
-            signature="$(basename "$draft" .md)"
-            title="$(head -n 1 "$draft")"
-            tail -n +2 "$draft" > body.md
-            open="$(gh issue list --state open --search "\"[$signature]\" in:title" --json number --jq length)"
-            if [ "$open" != 0 ]; then
-              echo "already open: $title"
-            elif [ "$FILE" = true ]; then
-              gh issue create --title "$title" --body-file body.md --label planned --label urgent
-            else
-              echo "would file (not on main): $title"
-              cat body.md
-            fi
-          done

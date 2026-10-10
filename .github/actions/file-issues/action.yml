@@ -1,0 +1,45 @@
+name: File Valgrind issues
+description: >
+  One issue per draft the Valgrind jobs left in their artifacts, labelled
+  `planned` and `urgent`, and none for a draft whose signature an open issue's
+  title already carries. Files from main only; elsewhere it prints each issue.
+  The calling job needs `issues: write`.
+
+inputs:
+  pattern:
+    description: The artifacts to read, as download-artifact's `pattern`.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v7
+      with:
+        pattern: ${{ inputs.pattern }}
+        path: reports
+    - name: File one issue per new error
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        FILE: ${{ github.ref == 'refs/heads/main' }}
+      run: |
+        set -euo pipefail
+        mkdir -p drafts
+        # The same signature from two shards is one draft.
+        find reports -path '*/issues/*.md' -exec cp -n {} drafts/ \;
+        for draft in drafts/*.md; do
+          [ -e "$draft" ] || { echo "no errors"; break; }
+          signature="$(basename "$draft" .md)"
+          title="$(head -n 1 "$draft")"
+          tail -n +2 "$draft" > body.md
+          open="$(gh issue list --state open --search "\"[$signature]\" in:title" --json number --jq length)"
+          if [ "$open" != 0 ]; then
+            echo "already open: $title"
+          elif [ "$FILE" = true ]; then
+            gh issue create --title "$title" --body-file body.md --label planned --label urgent
+          else
+            echo "would file (not on main): $title"
+            cat body.md
+          fi
+        done

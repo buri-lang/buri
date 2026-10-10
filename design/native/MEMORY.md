@@ -1144,12 +1144,14 @@ into the runtime (needing every `buri_rt_*` producer to take two more
 arguments). Both are two-backend changes, and doing one backend alone breaks
 the one property the module has: that the numbers agree.
 
-## 8. Under memcheck
+## 8. Under Valgrind
 
-`.github/workflows/memcheck.yml` runs compiled programs and the runtime's tests
-under Valgrind's memcheck twice a day, and files each distinct error as an issue
-labelled `planned` and `urgent`. cli/tests/README.md, "Memcheck", says how to
-run it.
+Two workflows run compiled programs and the runtime's tests under Valgrind twice
+a day, and file each distinct error as an issue labelled `planned` and
+`urgent`: `memcheck.yml` for memory errors and `races.yml` for data races and
+lock-order inversions. cli/tests/README.md, "Valgrind", says how to run them.
+
+### Memcheck
 
 Memcheck tracks `malloc` and `free`, and this runtime mostly avoids them: blocks
 come from pages (§5.4) and go back to per-thread caches. A Linux program is
@@ -1171,8 +1173,8 @@ once they exist the mode adds nothing but a flag to forget. The question is a
 request only memcheck answers, so a program from a memcheck build needs no
 setting, and under cachegrind it runs the allocator that ships.
 
-**Behind a feature.** `cargo build -p buri --features memcheck` builds a
-toolchain whose runtime carries all this. Without the feature none of it is in
+**Behind a feature.** `cargo build -p buri --features valgrind` builds a
+toolchain whose runtime carries all this, and helgrind's half below. Without the feature none of it is in
 the binary. Compiled in always, the annotations cost 1.5 KB of hello world on
 Linux, and an inlined check kept `dealloc` out of the cache's sweep: `run/tree`
 ran 9% more instructions.
@@ -1185,3 +1187,31 @@ the quarantine.
 **What it can't see.** A scope's arena (`core/alloc::scoped`) is bump-allocated
 in a mapping, so a block inside one isn't tracked, and neither is the Buri data
 stack. Stencil-built code has no function names, so its frames read `???`.
+
+### Helgrind
+
+Helgrind orders two threads' accesses by the locks and thread starts it sees,
+and the runtime hides both: its `Mutex` and `Condvar` are `std`'s futexes, and
+a static musl binary's `pthread_create` and `malloc` lock aren't intercepted.
+So under helgrind the runtime tells it what it can't see:
+
+- `cli/runtime/sync.rs` wraps `std`'s `Mutex` and `Condvar` and reports each
+  lock and unlock as a lock's, so the scheduler's queue orders what it hands
+  over, and a lock-order inversion is reported.
+- The lock-free hand-offs say what they order: a shared block's last decrement
+  after every other, a task's end before its joiner reads the answer, a latch's
+  arrivals before its waiter, a park before its wake-up, and a thread's start
+  after what started it.
+- The flags threads store and poll without a lock aren't checked: helgrind
+  orders an atomic's read-modify-write but not its plain loads and stores.
+- A block from musl's `malloc` starts fresh, so what a thread did at the same
+  address before it was freed races with nothing.
+
+A race with an access in code that orders itself with something helgrind
+can't see is dropped from the report: tokio, `std`'s threads, futex locks and
+channels, and musl's `malloc` and threads. `UNSEEN` in
+`cli/tests/native/valgrind.rs` lists each.
+
+**Helgrind, not DRD.** DRD finds data races but no lock-order inversion. On the
+fan-out programs, before any annotation, the two reported a similar number of
+false races, and the annotations are the same requests for both.

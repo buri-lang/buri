@@ -683,6 +683,9 @@ mod switch;
 #[cfg(feature = "paint")]
 mod snapshot;
 mod splice;
+/// `Mutex` and `Condvar`, reported to helgrind as locks under the `valgrind`
+/// feature and `std`'s own without it.
+mod sync;
 mod tcp;
 mod testing;
 mod text;

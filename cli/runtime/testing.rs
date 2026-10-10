@@ -70,7 +70,7 @@
 
 use crate::value::{list_of_bytes, list_of_headers, list_of_strs, str_of, BuriList, BuriStr};
 use crate::BURI_OK;
-use std::sync::Mutex;
+use crate::sync::Mutex;
 
 /// One live handle's state.
 ///
@@ -322,7 +322,7 @@ static TABLE: Mutex<Vec<Slot>> = Mutex::new(Vec::new());
 /// Lock, recovering from poisoning, for the reason `host.rs`'s `lock` gives:
 /// the language has no threads, so a poisoned lock means this runtime already
 /// panicked and failing a second time on top of the first helps nobody.
-fn lock() -> std::sync::MutexGuard<'static, Vec<Slot>> {
+fn lock() -> crate::sync::MutexGuard<'static, Vec<Slot>> {
     match TABLE.lock() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
@@ -3676,7 +3676,7 @@ struct Runner {
 static RUNNER: Mutex<Runner> = Mutex::new(Runner { at: -1, shown: None });
 
 /// Lock, recovering from poisoning, for the reason [`lock`] gives.
-fn runner() -> std::sync::MutexGuard<'static, Runner> {
+fn runner() -> crate::sync::MutexGuard<'static, Runner> {
     match RUNNER.lock() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
@@ -4487,7 +4487,7 @@ struct Replay {
 static REPLAY: Mutex<Replay> = Mutex::new(Replay { pass: 0, total: 1, note: None });
 
 /// Lock, recovering from poisoning, for the reason [`lock`] gives.
-fn replay() -> std::sync::MutexGuard<'static, Replay> {
+fn replay() -> crate::sync::MutexGuard<'static, Replay> {
     match REPLAY.lock() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
@@ -4598,7 +4598,7 @@ pub extern "C" fn buri_rt_test_replay(index: i64) -> u8 {
 //   answer, so the program stops with [`NESTED`], as `runtime.js` does.
 
 use crate::list::{Release, Retain};
-use std::sync::{Condvar, MutexGuard};
+use crate::sync::{Condvar, MutexGuard};
 use std::thread::ThreadId;
 
 /// `runtime.js`'s message, word for word.
@@ -5260,7 +5260,7 @@ mod tests {
     /// it minted itself.
     static ONE_RUNNER: Mutex<()> = Mutex::new(());
 
-    fn one_runner_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    fn one_runner_at_a_time() -> crate::sync::MutexGuard<'static, ()> {
         match ONE_RUNNER.lock() {
             Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),

@@ -13,7 +13,7 @@
 //! claim one. A `Random` that promised unpredictability would need to say so in
 //! its own documentation and would be a different effect.
 
-use std::sync::Mutex;
+use crate::sync::Mutex;
 
 static STATE: Mutex<Option<[u64; 4]>> = Mutex::new(None);
 

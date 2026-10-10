@@ -1,0 +1,120 @@
+name: Races
+
+# Concurrent Buri programs and the runtime's scheduler under Valgrind's
+# helgrind, twice a day (design/native/MEMORY.md §8, cli/tests/README.md
+# "Valgrind"). Each distinct data race or lock-order inversion becomes one
+# GitHub issue, labelled `planned` and `urgent`, filed from `main` only.
+#
+# * **The workload** is the fan-out, task, scope and actor rows, `process.start`
+#   with several children, and the runtime's `rt::` tests, on stencil and
+#   LLVM. `BURI_HELGRIND` makes `cli/tests/native/shared.rs` run each program
+#   it built under helgrind.
+# * **`--features valgrind`** builds a runtime that tells helgrind what it
+#   can't see for itself: `std`'s futex locks, and the atomics the runtime
+#   hands work between threads with (`cli/runtime/sync.rs`, `valgrind.rs`).
+#
+# Minute 11, an hour off memcheck's, so the two don't queue for runners.
+
+on:
+  schedule:
+    - cron: "11 4,16 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: races-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
+  # No silent skip: `cli/tests/harness/ci.rs` panics on one.
+  BURI_CI: 1
+
+jobs:
+  races:
+    name: races (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # The fan-outs, and the scopes, actors and shared values agreement
+        # asks about, and `process.start`. Not the servers: their rows hold
+        # them to deadlines a server twenty times slower misses, and nearly all
+        # they share between threads is tokio's. Not `at_scale`'s trees: at
+        # that size helgrind takes past the hour.
+        include:
+          - { shard: tasks, filters: "fan_out:: at_scale::fan_outs_of_every_width started::" }
+          - { shard: agreement, filters: "agreement::" }
+          - { shard: runtime }
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 60
+    env:
+      BURI_HELGRIND: ${{ github.workspace }}/target/helgrind
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: memcheck-x86_64
+      # The runtime archive `cli/build.rs` builds, which rust-cache drops (see
+      # ci.yml's `test` job).
+      - uses: actions/cache@v6
+        with:
+          path: target/debug/build
+          key: memcheck-buildscript-x86_64-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: memcheck-buildscript-x86_64-
+      - uses: oven-sh/setup-bun@v2
+      # `NIX_HARDENING_ENABLE=` for memcheck.yml's reason.
+      - name: Build
+        run: |
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native --no-run
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo build -p buri --features backend-llvm,valgrind --example valgrind
+      # Four at a time: a program under helgrind holds gigabytes.
+      - name: Programs that run on more than one thread
+        if: matrix.shard != 'runtime'
+        run: >-
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native --
+          ${{ matrix.filters }} --test-threads=4
+      # Less the two rows that park a thousand tasks or more: helgrind shadows
+      # each task's 64 MiB stack mapping and runs out of memory. memcheck.yml
+      # runs them.
+      - name: The scheduler's unit tests
+        if: matrix.shard == 'runtime'
+        run: |
+          set -euo pipefail
+          tests="$(nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri-rt-tests --features valgrind --no-run --message-format=json-render-diagnostics \
+            | jq -r 'select(.profile.test == true) | .executable | select(. != null)')"
+          nix develop .#perf -c target/debug/examples/valgrind tests helgrind "$BURI_HELGRIND" 'runtime unit tests' "$tests" rt:: \
+            --skip a_thousand_parked_tasks --skip the_resident_set_of_ten_thousand_parked_tasks --test-threads=1
+      - name: Report
+        if: always()
+        run: nix develop .#perf -c target/debug/examples/valgrind report "$BURI_HELGRIND"
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: helgrind-${{ matrix.shard }}
+          path: target/helgrind
+          retention-days: 14
+          if-no-files-found: ignore
+
+  file:
+    needs: races
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/actions
+      - uses: ./.github/actions/file-issues
+        with:
+          pattern: helgrind-*
