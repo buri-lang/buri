@@ -710,10 +710,11 @@ mod tests {
 
         // The word the layout calls the return address is one: a context whose
         // `ret` would take a zero is a frame `prepare` built and the switch
-        // never wrote through.
-        // SAFETY: `home` is a frame the switch just saved, so its `FRAME.words`
-        // words are written and this thread owns them.
-        let returns_to = unsafe { home.cast::<usize>().add(FRAME.ret).read() };
+        // never wrote through. Read from `away`, not `home`: the switch back
+        // popped `home`'s frame, so it is dead stack below this one's.
+        // SAFETY: `away` is a frame the switch saved inside `block`, which is
+        // still live and which nothing has run on since.
+        let returns_to = unsafe { away.cast::<usize>().add(FRAME.ret).read() };
         assert_ne!(returns_to, 0, "the saved frame's return word is empty");
     }
 

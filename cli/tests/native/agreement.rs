@@ -4287,6 +4287,66 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// **Parallel steps share one actor**, on every backend: each step builds a
+/// list and sends it, so the actor's state and messages change threads on the
+/// natives. Order varies, so the program prints only counts and sums.
+#[test]
+fn parallel_steps_send_lists_to_one_actor_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.parallel into an actor",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Stepped };
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/tasks" import * as tasks;
+
+enum Note {
+  Add([Int]),
+  Get,
+}
+
+fn keeper<C: Allocator + Tasks>(): Actor<C, [[Int]], Note, [[Int]]> {
+  Actor {
+    state: [],
+    step: fn(c, held, note) => {
+      match (note) {
+        .Add(xs) => Stepped { state: held.push(c, xs), answer: [] },
+        .Get => Stepped { state: held, answer: held },
+      }
+    },
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let kept = actor.start(ctx, keeper());
+  let sent = tasks.parallel(ctx, list.range(ctx, 0, 64), fn(c, i, x) => {
+    match (kept.sendMessage(c, .Add(list.range(c, 0, x + 1)))) {
+      .Ok(_answer) => 1,
+      .Err(_gone) => 0,
+    }
+  });
+  let all = match (kept.sendMessage(ctx, .Get)) {
+    .Ok(held) => held,
+    .Err(_gone) => [],
+  };
+  let _ = kept.stop(ctx).ignore();
+  let sum = all.fold(fn(a, xs) => a + xs.fold(fn(b, y) => b + y, 0), 0);
+  let _ = io.println(
+    ctx,
+    "sent ${sent.fold(fn(a, n) => a + n, 0)} kept ${all.length()} sum ${sum}",
+  ).ignore();
+  .Ok(())
+}
+"#,
+        "sent 64 kept 64 sum 43680\n",
+    );
+}
+
 /// **A `*Ctx` combinator waits for a step that waits**, on every backend, and
 /// answers the same list either way.
 ///
