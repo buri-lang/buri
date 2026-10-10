@@ -31,7 +31,6 @@
 //! `elf.rs` under `cfg(test)`, so that this crate's ELF *writer* is checked
 //! against the same reader.
 
-#![allow(dead_code)]
 #![allow(
     clippy::arithmetic_side_effects,
     reason = "every sum here is an offset into an object file this same build \
@@ -71,21 +70,16 @@ pub const EM_AARCH64: u16 = 183;
 // aarch64 relocation types (the AArch64 ELF psABI, §4.6). These are the exact
 // counterparts of the Mach-O kinds `machobj.rs` names, and the mapping is
 // one-to-one but for the branch, which ELF splits by instruction.
-pub const R_AARCH64_ABS64: u32 = 257;
 pub const R_AARCH64_CALL26: u32 = 283;
 pub const R_AARCH64_JUMP26: u32 = 282;
 pub const R_AARCH64_ADR_PREL_PG_HI21: u32 = 275;
 pub const R_AARCH64_ADD_ABS_LO12_NC: u32 = 277;
-pub const R_AARCH64_LDST64_ABS_LO12_NC: u32 = 286;
 pub const R_AARCH64_ADR_GOT_PAGE: u32 = 311;
 pub const R_AARCH64_LD64_GOT_LO12_NC: u32 = 312;
 
 // x86-64 relocation types (the x86-64 psABI, §4.4.1).
-pub const R_X86_64_64: u32 = 1;
 pub const R_X86_64_PC32: u32 = 2;
 pub const R_X86_64_GOTPCREL: u32 = 9;
-pub const R_X86_64_32: u32 = 10;
-pub const R_X86_64_32S: u32 = 11;
 pub const R_X86_64_PLT32: u32 = 4;
 /// `R_X86_64_GOTPCREL` with a promise that the instruction is one of the forms
 /// a linker may relax. Clang emits it for `mov sym@GOTPCREL(%rip), %reg`, which

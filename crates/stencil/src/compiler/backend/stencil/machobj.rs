@@ -11,7 +11,6 @@
 //! Nothing here is general: it reads exactly the shapes `clang -c` emits for the
 //! stencil sources, and returns an error rather than guessing on anything else.
 
-#![allow(dead_code)]
 #![allow(
     clippy::arithmetic_side_effects,
     reason = "every sum here is an offset into an object file this same build \
@@ -27,25 +26,19 @@ pub const LC_SEGMENT_64: u32 = 0x19;
 pub const LC_SYMTAB: u32 = 0x02;
 
 // arm64 relocation types (mach-o/arm64/reloc.h).
-pub const ARM64_RELOC_UNSIGNED: u8 = 0;
-pub const ARM64_RELOC_SUBTRACTOR: u8 = 1;
 pub const ARM64_RELOC_BRANCH26: u8 = 2;
 pub const ARM64_RELOC_PAGE21: u8 = 3;
 pub const ARM64_RELOC_PAGEOFF12: u8 = 4;
 pub const ARM64_RELOC_GOT_LOAD_PAGE21: u8 = 5;
 pub const ARM64_RELOC_GOT_LOAD_PAGEOFF12: u8 = 6;
-pub const ARM64_RELOC_POINTER_TO_GOT: u8 = 7;
-pub const ARM64_RELOC_ADDEND: u8 = 10;
 
 #[derive(Clone, Debug)]
 pub struct Reloc {
     /// Byte offset within the section.
     pub addr: u32,
     pub kind: u8,
-    pub pcrel: bool,
-    pub length: u8,
-    pub external: bool,
-    /// Index into the symbol table when `external`, else a section number.
+    /// Index into the symbol table when the record is external, else a
+    /// section number.
     pub symbolnum: u32,
 }
 
@@ -131,9 +124,6 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
                         text_relocs.push(Reloc {
                             addr,
                             symbolnum: info & 0x00ff_ffff,
-                            pcrel: (info >> 24) & 1 == 1,
-                            length: ((info >> 25) & 3) as u8,
-                            external: (info >> 27) & 1 == 1,
                             kind: ((info >> 28) & 0xf) as u8,
                         });
                     }
