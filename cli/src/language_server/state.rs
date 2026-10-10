@@ -1511,6 +1511,14 @@ impl State {
         (was == now).then(|| filed.found.clone())
     }
 
+    /// The files the target owning `path` last published findings on, whether
+    /// or not its closure has moved since.
+    pub fn published_on(&mut self, path: &Path) -> Vec<String> {
+        let Some((root, target)) = self.target_key(path) else { return Vec::new() };
+        let Some(filed) = self.publish_findings.get(&(root, target)) else { return Vec::new() };
+        filed.found.keys().cloned().collect()
+    }
+
     /// Files what the two passes just found, under the closure they read.
     pub fn keep_publish(&mut self, path: &Path, found: &super::Published) {
         let Some(root) = self.root_of(path) else { return };

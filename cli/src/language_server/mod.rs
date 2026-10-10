@@ -2265,6 +2265,12 @@ fn closure_findings(state: &mut State, path: &std::path::Path, published: &mut P
         state::merge_findings(published, &found);
         return;
     }
+    // Where this target said something last time. A file the client has not
+    // opened gets no seed, so a finding gone from one is published empty here
+    // or it stays on screen (buri-lang/buri#283).
+    for uri in state.published_on(path) {
+        published.entry(uri).or_default();
+    }
     let mut found = Published::new();
     if let Some(analyzed) = state.analyze(path) {
         for d in &analyzed.analysis.diagnostics.items {

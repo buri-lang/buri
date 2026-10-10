@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a client that only listens for pushed diagnostics sees a finding on a file it has not opened appear and then cleared by an empty publish, an open file cleared as before, and nothing published twice or about a file that never had a finding (buri-lang/buri#283)"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

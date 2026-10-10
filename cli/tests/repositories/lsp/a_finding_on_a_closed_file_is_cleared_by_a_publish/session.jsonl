@@ -1,0 +1,30 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# A `!` line is the harness acting as the editor would; see harness/case.rs.
+#
+# This client never pulls and cannot be asked to: every finding reaches it as
+# a publish, and a publish is the only way one goes away. The folding range
+# requests only mark where the files move.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "trace": "verbose", "capabilities": {"workspace": {"didChangeWatchedFiles": {"dynamicRegistration": true}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "id": "buri/watchers", "result": null}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/lib.buri", "languageId": "buri", "version": 1, "text": "from \"//libs/shapes/square.schema.json\" export { Square };\n"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/foldingRange", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/lib.buri"}}}
+# A stray file appears: `unused-source` on the build file, which is not open.
+!wait 2
+!move staging/stray.json libs/shapes/stray.json
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/libs/shapes/stray.json", "type": 1}]}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/foldingRange", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/lib.buri"}}}
+# It goes away, and the build file is published empty.
+!wait 3
+!move libs/shapes/stray.json staging/stray.json
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/libs/shapes/stray.json", "type": 3}]}}
+# The same news again: nothing moved, so nothing is published.
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/libs/shapes/stray.json", "type": 3}]}}
+# The open file gets a finding on save and loses it on the next, as it always
+# has.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/lib.buri", "version": 2}, "contentChanges": [{"text": "from \"//libs/shapes/square.schema.json\" export { Circle };\n"}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/lib.buri"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/lib.buri", "version": 3}, "contentChanges": [{"text": "from \"//libs/shapes/square.schema.json\" export { Square };\n"}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/libs/shapes/lib.buri"}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
