@@ -158,3 +158,36 @@ line.
 
 `--release` reads the same runtime table, so the probe needs nothing from it.
 `buri test --release --coverage` works wherever `--release` does.
+
+## The standard library's gate
+
+```sh
+cargo run -p buri-stdlib-coverage              # measure and check
+cargo run -p buri-stdlib-coverage -- --bless   # and rewrite the baseline
+```
+
+`BURI_COVERAGE_STD=1` counts the standard library as if it were the
+repository's own source. It's a variable rather than a flag because only this
+gate wants it; the platforms stay out either way.
+
+The gate runs the conformance corpus under `--coverage=mcdc` four times:
+JavaScript, JavaScript `--release`, the stencil backend and LLVM `--release`.
+LLVM builds only under `--release`, so there's no LLVM debug run. The corpus
+pins its suites to JavaScript, so the native runs move each one to the native
+backends, except the six packages they can't build yet. The two JavaScript runs
+must count every module alike, and so must the two native ones, or the gate
+fails: a difference is a coverage bug. Their records merge into `coverage/stdlib.txt`, every module's conditions,
+decisions and branches and the 30 with the most unshown conditions, and
+`coverage/stdlib-mcdc.txt`, the baseline: conditions shown per module.
+
+A smaller share of conditions shown, in total or in any module, fails. A module
+that's new, or that has no conditions, has nothing to fall from, though a new
+one's conditions count in the total. A larger share
+anywhere is a rise: on main, CI's `stdlib-coverage` job commits the new baseline
+itself, as the compiler's coverage job does, and elsewhere it prints the commit.
+The baseline is x86_64 Linux's, so on any other host the gate prints its
+numbers and compares nothing.
+
+Each instantiation of a generic function counts on its own, as under
+`--coverage=mcdc` anywhere, so a test that calls `list.map` at a new type adds
+that instantiation's conditions.

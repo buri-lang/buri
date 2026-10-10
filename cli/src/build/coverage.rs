@@ -19,6 +19,11 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 /// The variable a test process reads the directory for its counts from.
 pub const VARIABLE: &str = "BURI_COVERAGE";
 
+/// Set to `1`, the variable that counts the standard library as if it were
+/// the repository's own source. For the standard library's own coverage gate
+/// (`coverage/stdlib`), not for users, so it isn't a flag.
+pub const STD: &str = "BURI_COVERAGE_STD";
+
 /// Where the report is written, from the repository root.
 pub const LCOV: &str = ".buri/coverage/lcov.info";
 
@@ -100,6 +105,8 @@ struct Universe {
 struct Run {
     raw: PathBuf,
     mcdc: bool,
+    /// Whether the standard library counts too ([`STD`]).
+    std: bool,
     /// By file.
     files: BTreeMap<String, Universe>,
 }
@@ -116,7 +123,8 @@ pub fn begin(root: &Path, mcdc: bool) -> Result<(), String> {
     let raw = root.join(RAW);
     let _ = std::fs::remove_dir_all(&raw);
     std::fs::create_dir_all(&raw).map_err(|e| format!("cannot create {}: {e}", raw.display()))?;
-    *run() = Some(Run { raw, mcdc, files: BTreeMap::new() });
+    let std = std::env::var_os(STD).is_some_and(|v| v == "1");
+    *run() = Some(Run { raw, mcdc, std, files: BTreeMap::new() });
     Ok(())
 }
 
@@ -138,12 +146,12 @@ fn text(map: &SourceMap, span: Span) -> String {
 /// User code is ordinary source read from disk. The standard library, the
 /// bundled platforms, generated modules and test sources never are.
 pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphize::Program) {
-    let Some(mcdc) = run().as_ref().map(|r| r.mcdc) else { return };
+    let Some((mcdc, std)) = run().as_ref().map(|r| (r.mcdc, r.std)) else { return };
     let user: HashSet<FileId> = analysis
         .loaded
         .modules
         .iter()
-        .filter(|m| matches!(m.role, Role::Source | Role::Entry) && m.disk.is_some())
+        .filter(|m| (matches!(m.role, Role::Source | Role::Entry) && m.disk.is_some()) || (std && m.role == Role::Std))
         .map(|m| m.file)
         .collect();
     let name_of = |span: Span| user.contains(&span.file).then(|| map.get(span.file).name.as_str());
@@ -346,7 +354,7 @@ fn instance_suffix(instance: &Instance) -> String {
 /// Every count the processes wrote, added up and put against the lines and
 /// decisions the suites hold: a row per file through `out`, and [`LCOV`].
 pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
-    let Some(Run { raw, mcdc, mut files }) = run().take() else { return };
+    let Some(Run { raw, mcdc, mut files, .. }) = run().take() else { return };
     let counts = counts(&raw);
     let _ = std::fs::remove_dir_all(&raw);
     let count = |key: u64| counts.get(&key).copied().unwrap_or(0);

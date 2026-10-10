@@ -239,6 +239,29 @@ fn test_coverage() {
     run_corpus(&tests_dir().join("repositories/coverage"), "coverage", 5);
 }
 
+/// `BURI_COVERAGE_STD=1` counts the standard library too, for its own MC/DC
+/// gate (`coverage/stdlib`), and still leaves the platforms out. No golden:
+/// the rows move with every edit to the standard library.
+#[test]
+fn coverage_counts_the_standard_library_only_when_asked() {
+    let scratch = Scratch::copy_of("coverage-std", &tests_dir().join("repositories/coverage/mcdc/repo"));
+    let args = ["test", "//lib/d", "--coverage=mcdc"];
+    let mine = scratch.run(&args);
+    assert_eq!(mine.code, 0, "{}", indent(&mine.all()));
+    assert!(!mine.stdout.contains("core/"), "the standard library counted unasked:\n{}", indent(&mine.stdout));
+    let all = scratch.run_with_env(&args, &[("BURI_COVERAGE_STD", "1")]);
+    assert_eq!(all.code, 0, "{}", indent(&all.all()));
+    assert!(
+        all.stdout.lines().any(|l| l.starts_with("  core/order ")),
+        "no row for the standard library:\n{}",
+        indent(&all.stdout)
+    );
+    assert!(all.stdout.lines().any(|l| l.starts_with("  lib/d/d.buri ")), "{}", indent(&all.stdout));
+    assert!(!all.stdout.contains("core/testing/"), "a platform module counted:\n{}", indent(&all.stdout));
+    let lcov = std::fs::read_to_string(scratch.path(".buri/coverage/lcov.info")).unwrap();
+    assert!(lcov.contains("SF:core/order\n"), "{lcov}");
+}
+
 /// The concurrency-and-servers surface, driven the way a person drives it: a
 /// package in a repository, a suite beside it, and one `buri` command.
 ///
