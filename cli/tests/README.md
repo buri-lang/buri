@@ -356,6 +356,9 @@ A `buri` killed by a signal writes no profile, because the profile is written
 at exit, and writing it from a signal handler counts whatever other threads
 were part-way through. So the page server and the `--watch` loops stop cleanly
 on a signal (`commands/interrupt.rs`), and everything else exits by itself.
+A test ends a `--watch` loop under `script` with Ctrl-C (`harness::ctrl_c`),
+never by killing `script`: that hangs up the terminal, and whether `buri` then
+writes its profile is a race.
 
 Process per test also means a `OnceLock` no longer shares work across a
 binary's tests. Four things still need to be shared by the whole run, so they

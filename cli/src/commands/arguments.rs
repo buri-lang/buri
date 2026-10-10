@@ -298,11 +298,21 @@ pub fn reader_gone() -> ! {
     std::process::exit(141)
 }
 
-/// Whether a panic message is `println!` finding stdout's reader gone.
+/// Ends the process if a panic message is a failed `print!`, the way [`out`]
+/// does: [`reader_gone`] when the reader has gone, an error otherwise.
 ///
 /// Every `print!` in the toolchain, on any thread, panics with it, and `main`'s
 /// panic hook asks this. The wording is the standard library's; the build
 /// suite's `closed_stdout` fails if it ever changes.
-pub fn is_reader_gone(message: &str) -> bool {
-    message.starts_with("failed printing to stdout: ") && message.ends_with("(os error 32)")
+#[expect(
+    clippy::print_stderr,
+    reason = "a failed write to stdout is the one thing that cannot be reported on stdout"
+)]
+pub fn failed_print(message: &str) {
+    let Some(why) = message.strip_prefix("failed printing to stdout: ") else { return };
+    if why.ends_with("(os error 32)") {
+        reader_gone();
+    }
+    eprintln!("error: cannot write to stdout: {why}");
+    std::process::exit(2);
 }

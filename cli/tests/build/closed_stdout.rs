@@ -6,6 +6,9 @@
 //! would close. The programs `buri` builds end promptly too, through their own
 //! failed print rather than by `SIGPIPE`.
 //!
+//! Any other failed write, such as a full disk, is an error like any other:
+//! one line on stderr and exit 2, never a panic.
+//!
 //! The hang cap is only the safety net here. What each row asserts is the
 //! status and the silence.
 use crate::harness::*;
@@ -48,7 +51,15 @@ unsafe extern "C" {
     fn pipe(fds: *mut i32) -> i32;
     fn dup2(from: i32, to: i32) -> i32;
     fn close(fd: i32) -> i32;
+    fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+    fn write(fd: i32, buf: *const std::ffi::c_void, count: usize) -> isize;
 }
+
+const F_SETFL: i32 = 4;
+#[cfg(target_os = "macos")]
+const O_NONBLOCK: i32 = 0x4;
+#[cfg(not(target_os = "macos"))]
+const O_NONBLOCK: i32 = 0o4000;
 
 /// Runs `cmd` with stdout on a pipe that has no read end anywhere, so its first
 /// write fails.
@@ -73,6 +84,34 @@ fn reader_gone(mut cmd: Command, what: &str) -> (ExitStatus, String) {
         })
     };
     // Something on 1 to start with, so the pipe gets neither 0, 1 nor 2.
+    finish(&mut spawn(cmd.stdout(Stdio::null())), what)
+}
+
+/// Runs `cmd` with stdout on a pipe that is full and won't wait, so its first
+/// write fails while the reader is still there.
+fn stdout_full(mut cmd: Command, what: &str) -> (ExitStatus, String) {
+    use std::os::unix::process::CommandExt as _;
+    // SAFETY: `pipe`, `fcntl`, `write`, `dup2` and `close` are on POSIX's
+    // async-signal-safe list, the whole of what a `pre_exec` closure may call.
+    unsafe {
+        cmd.pre_exec(|| {
+            let mut fds = [0; 2];
+            if pipe(fds.as_mut_ptr()) == -1 || fcntl(fds[1], F_SETFL, O_NONBLOCK) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            // Big writes until one doesn't fit, then single bytes until none does.
+            let bytes = [0u8; 512];
+            for size in [bytes.len(), 1] {
+                while write(fds[1], bytes.as_ptr().cast(), size) > 0 {}
+            }
+            if dup2(fds[1], 1) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            // The read end stays open in the child, so no reader has gone.
+            close(fds[1]);
+            Ok(())
+        })
+    };
     finish(&mut spawn(cmd.stdout(Stdio::null())), what)
 }
 
@@ -180,6 +219,23 @@ fn help() {
 #[test]
 fn version() {
     closes_quietly(&["version"]);
+}
+
+/// A full stdout is an error: one line, exit 2. `version` prints with
+/// `println!` and `--help` through the CLI's own writer, and both say so.
+#[test]
+fn a_full_stdout_is_an_error() {
+    let scratch = example();
+    for args in [&["version"][..], &["--help"]] {
+        let what = format!("buri {}", args.join(" "));
+        let (status, stderr) = stdout_full(buri_in(&scratch, args), &what);
+        quiet(&what, &stderr);
+        assert!(
+            status.code() == Some(2) && stderr.starts_with("error: cannot write to stdout: ") && stderr.lines().count() == 1,
+            "`{what}` ended {status}:\n{}",
+            indent(&stderr)
+        );
+    }
 }
 
 /// A program printing a million lines, stopping at the first failed print.

@@ -200,6 +200,22 @@ pub fn heap_checked(cmd: &mut Command) -> &mut Command {
     cmd.env(HEAP_CHECK.0, HEAP_CHECK.1)
 }
 
+/// Types Ctrl-C into a `--watch` loop running under `script`, and waits for it
+/// to end. Call it once the loop is waiting for an edit.
+///
+/// Killing `script` instead hangs up the terminal under `buri`, and whether
+/// `buri` then exits cleanly, panics on its next print, or dies of a second
+/// `SIGHUP` is a race. Ctrl-C keeps the terminal, so `buri` always exits by
+/// itself with 130.
+pub fn ctrl_c(child: &mut std::process::Child, what: &str) -> std::process::ExitStatus {
+    use std::io::Write as _;
+    let mut stdin = child.stdin.take().expect("`script` has a piped stdin");
+    stdin.write_all(b"\x03").expect("Ctrl-C reaches `script`");
+    let status = hang::wait_capped(child, what, hang::cap());
+    drop(stdin);
+    status
+}
+
 /// What the heap check said about a run, if what it said was a failure.
 ///
 /// Two signs, because a run reaches a caller two ways. A program run directly
