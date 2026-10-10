@@ -84,6 +84,7 @@ fn run() -> ExitCode {
     if let Some(report) = buri::profile::report(started) {
         eprint!("{report}");
     }
+    buri::build::link::settle();
     code
 }
 

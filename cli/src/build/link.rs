@@ -747,6 +747,22 @@ fn identity_of(flavour: Flavour, programs: Vec<PathBuf>) -> std::sync::Arc<Ident
     ready
 }
 
+/// Waits for the identity probes this process started and never needed.
+///
+/// [`warm`] starts one before anything knows a link will follow. A process
+/// that ends without linking left it running, so its answer went unremembered
+/// whenever the exit came first, and the next process asked again. Joining
+/// costs nothing once the answer is remembered: the probe reads one file.
+pub fn settle() {
+    let Ok(table) = PROBED.lock() else { return };
+    for (_, identity) in table.iter() {
+        let handle = identity.probe.lock().ok().and_then(|mut slot| slot.take());
+        if let Some(Ok(hashed)) = handle.map(std::thread::JoinHandle::join) {
+            let _ = identity.ready.set(format!("{}:{hashed}", identity.flavour));
+        }
+    }
+}
+
 /// Starts the linker-identity probe for `target` without needing a link.
 ///
 /// The probe runs on a thread and is joined by the first `link` key that is

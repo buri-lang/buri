@@ -593,6 +593,48 @@ fn the_c_drivers_version_is_asked_once_per_toolchain() {
     assert_eq!(asked, 3, "a different driver was not asked its version");
 }
 
+/// A run that never links still remembers the C driver's version.
+///
+/// `buri test` asks for it before it knows a link will follow. A run with
+/// nothing to link used to exit before a slow driver answered, so the next run
+/// asked again.
+#[cfg(unix)]
+#[test]
+fn a_run_that_never_links_still_remembers_the_drivers_version() {
+    let scratch = Scratch::repo("linker-version-without-a-link");
+    let log = scratch.path("driver-calls");
+    // Logged before the wait, so a call is counted however soon `buri` exits.
+    scratch.write_executable(
+        "bin/cc",
+        &format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{log}'\ncase \"$*\" in *--version*) sleep 1;; esac\nexec '{real}' \"$@\"\n",
+            log = log.display(),
+            real = real_c_driver(),
+        ),
+    );
+    let env = driver_env(&scratch);
+    let pairs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+
+    // A suite that runs on JavaScript: the pass asks, and links nothing.
+    one_suite(&scratch, 1);
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n  test { sources: [\"test/a.buri\"], backends: [JS] }\n}\n",
+    );
+    scratch.run_with_env(&["test", "//lib/a"], &pairs).ok();
+    let first = count(&log, "--version");
+
+    // The same suite, natively: a link, keyed by the driver's version.
+    one_suite(&scratch, 2);
+    if test_with_driver(&scratch, &env).is_none() {
+        crate::harness::ci::skipped("build", "this toolchain cannot run a suite on its own host");
+        return;
+    }
+    assert_eq!(first, 1, "the run that linked nothing asked the driver's version {first} times");
+    let asked = count(&log, "--version");
+    assert_eq!(asked, 1, "the driver was asked its version {asked} times; the first run's answer was lost");
+}
+
 /// A second repository links without starting the C driver.
 ///
 /// The driver is asked once, with `-###`, what linker command it would run,
