@@ -187,9 +187,11 @@ const fn word_key(word: &[u8]) -> u64 {
 }
 
 /// The multiplier of the hash that puts every key in [`WORDS`] in a slot of
-/// its own. Found by search; [`WORD_TABLE`] refuses to build, at compile time,
-/// if a new word collides, and then a new multiplier is needed.
-const WORD_HASH: u64 = 0x7e30_9881_fd1e_fd3b;
+/// its own. Found by search, among multipliers of two nonzero sixteen-bit
+/// halves, which take two instructions to load rather than four;
+/// [`WORD_TABLE`] refuses to build, at compile time, if a new word collides,
+/// and then a new multiplier is needed.
+const WORD_HASH: u64 = 0xbe48_0000_9c55_0000;
 const WORD_SLOTS: usize = 128;
 
 const fn word_slot(key: u64) -> usize {
@@ -1143,11 +1145,26 @@ impl<'a> Lexer<'a> {
         // The line breaks read since the last comment or token. Two of them
         // with nothing between is a blank line.
         let mut newlines = 0usize;
+        // `self.has_trivia || newlines >= 2`: whether the next token has
+        // something to settle before it. Kept here, so the test each token
+        // makes is one register.
+        let mut pending = self.has_trivia;
         let mut pos = self.pos;
         // The token buffer, out of `self` so that its length and capacity
         // stay in registers. An arm that hands off to a method that pushes a
         // token puts it back for the call.
         let mut records = std::mem::take(&mut self.tokens.records);
+        // What was written above the token about to be read goes to the
+        // trivia table first, keyed by the index the token is about to get.
+        macro_rules! settled {
+            () => {{
+                if pending {
+                    self.settle(newlines >= 2, records.len());
+                    pending = false;
+                }
+                newlines = 0;
+            }};
+        }
         macro_rules! handoff {
             ($call:expr) => {{
                 self.tokens.records = records;
@@ -1170,8 +1187,7 @@ impl<'a> Lexer<'a> {
             // one token, and settles what was above it first.
             let kind = match class_of(c) {
                 Class::Word => {
-                    self.gap(newlines, records.len());
-                    newlines = 0;
+                    settled!();
                     let (len, word) = scan_word(src, start);
                     pos = start.wrapping_add(len);
                     let kind = match Word::of(src, start, len, word) {
@@ -1195,6 +1211,7 @@ impl<'a> Lexer<'a> {
                 }
                 Class::Newline => {
                     newlines = newlines.wrapping_add(1);
+                    pending |= newlines >= 2;
                     pos = blanks(src, start.wrapping_add(1));
                     continue;
                 }
@@ -1204,6 +1221,7 @@ impl<'a> Lexer<'a> {
                         self.line_comment(start, newlines >= 2);
                         pos = self.pos;
                         newlines = 0;
+                        pending = self.has_trivia;
                         continue;
                     }
                     b'*' => {
@@ -1211,33 +1229,33 @@ impl<'a> Lexer<'a> {
                         self.block_comment(start, newlines >= 2);
                         pos = self.pos;
                         newlines = 0;
+                        pending = self.has_trivia;
                         continue;
                     }
                     _ => Slash,
                 },
                 Class::Nul if start >= src.len() => {
-                    self.gap(newlines, records.len());
+                    if pending {
+                        self.settle(newlines >= 2, records.len());
+                    }
                     push_plain(&mut records, Eof, start, start);
                     self.tokens.records = records;
                     self.pos = start;
                     return;
                 }
                 Class::Digit => {
-                    self.gap(newlines, records.len());
+                    settled!();
                     handoff!(self.number(start));
-                    newlines = 0;
                     continue;
                 }
                 Class::Quote => {
-                    self.gap(newlines, records.len());
+                    settled!();
                     handoff!(self.string_or_template(start));
-                    newlines = 0;
                     continue;
                 }
                 Class::Apostrophe => {
-                    self.gap(newlines, records.len());
+                    settled!();
                     handoff!(self.char_literal(start));
-                    newlines = 0;
                     continue;
                 }
                 Class::LBrace => {
@@ -1253,10 +1271,9 @@ impl<'a> Lexer<'a> {
                         // block. The hole stays on the stack until the
                         // template itself ends.
                         Some(0) => {
-                            self.gap(newlines, records.len());
+                            settled!();
                             pos = start.wrapping_add(1);
                             handoff!(self.resume_template(start));
-                            newlines = 0;
                             continue;
                         }
                         Some(open) => *open = open.saturating_sub(1),
@@ -1296,8 +1313,7 @@ impl<'a> Lexer<'a> {
             };
             // A punctuator: one byte, or two where `pair` or `wide` already
             // stepped over the first.
-            self.gap(newlines, records.len());
-            newlines = 0;
+            settled!();
             pos = pos.wrapping_add(1);
             push_plain(&mut records, kind, start, pos);
         }
@@ -1329,24 +1345,6 @@ impl<'a> Lexer<'a> {
         self.templated("unexpected-character", span)
             .bind("character", shown.to_string())
             .bind("code_point", format!("{:04X}", shown as u32));
-    }
-
-    /// What lay between the last thing read and the token at the cursor.
-    ///
-    /// Almost every token has nothing above it and no blank line before it,
-    /// and then there is nothing to record: `has_trivia` false means no
-    /// comment is waiting and no blank line is held. Everything else is out
-    /// of line.
-    ///
-    /// Settling hands whatever is waiting to the trivia table, keyed by the
-    /// token about to be pushed, so pushing it needs no second look.
-    ///
-    /// `at` is the index the next token will have.
-    #[inline]
-    fn gap(&mut self, newlines: usize, at: usize) {
-        if self.has_trivia || newlines >= 2 {
-            self.settle(newlines >= 2, at);
-        }
     }
 
     /// With nothing waiting above the token, a blank line before it is the
