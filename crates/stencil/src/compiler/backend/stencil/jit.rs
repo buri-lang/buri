@@ -339,8 +339,6 @@ pub struct Jit<'a> {
     /// functions — never in the middle of one, where it would land inside the
     /// fallthrough of the stencil being patched.
     veneer_ok: bool,
-    /// Per function: did anything in it compile to an `unsupported` stencil.
-    dirty: Vec<bool>,
     current: usize,
     /// The functions this unit generates for itself, in the order they were
     /// first asked for, and where each was laid out.
@@ -657,7 +655,6 @@ impl<'a> Jit<'a> {
             fixups: Vec::new(),
             reasons: Vec::new(),
             veneer_ok: false,
-            dirty: Vec::new(),
             current: 0,
             helpers: Vec::new(),
             helper_ix: HashMap::default(),
@@ -762,9 +759,6 @@ impl<'a> Jit<'a> {
     }
 
     pub(crate) fn push_reason(&mut self, why: String) -> u64 {
-        if let Some(d) = self.dirty.get_mut(self.current) {
-            *d = true;
-        }
         if let Some(i) = self.reasons.iter().position(|r| *r == why) {
             return i as u64;
         }
@@ -902,12 +896,11 @@ impl<'a> Jit<'a> {
     ///
     /// The frame layouts a call site needs are *not* computed here: they are a
     /// whole-program function of the program alone, so `emit_units` computes
-    /// them once and every part borrows the same slice. What is left is the two
-    /// vectors that are genuinely this part's — where each function was laid
-    /// out, and whether it has been emitted — and both are a `memset`.
+    /// them once and every part borrows the same slice. What is left is the
+    /// vector that is genuinely this part's — where each function was laid
+    /// out — and it is a `memset`.
     pub fn plan(&mut self, prog: &ir::Program) {
         self.entries = vec![0; prog.funcs.len()];
-        self.dirty = vec![false; prog.funcs.len()];
     }
 }
 
@@ -1933,59 +1926,6 @@ impl<'a> Jit<'a> {
             let name = symbol_of(prog, callee);
             self.branch_reloc(at, Target::Symbol(name.into()));
         }
-    }
-
-    /// Whether a function, or anything reachable from it, contains an
-    /// `unsupported` stencil — the honest predicate for "this test can be run".
-    ///
-    /// **This part's** answer, and a unit is emitted in parts (`mod.rs`), so a
-    /// caller wanting the unit's would have to `or` the parts' vectors together
-    /// before running the fixpoint. Nothing asks today: the emission path reads
-    /// [`Jit::reasons`] instead, which `assemble_unit` does collect across the
-    /// parts, and refuses the whole unit where any part refused anything.
-    pub fn reachable_dirty(&self, prog: &ir::Program) -> Vec<bool> {
-        let n = prog.funcs.len();
-        let mut edges: Vec<Vec<u32>> = vec![Vec::new(); n];
-        for (f, out) in prog.funcs.iter().zip(edges.iter_mut()) {
-            let ir::Body::Code(code) = &f.body else { continue };
-            for b in &code.blocks {
-                for inst in &b.insts {
-                    match inst {
-                        ir::Inst::Call { func, .. } => out.push(func.0),
-                        ir::Inst::MakeClosure { func, .. } => out.push(func.0),
-                        ir::Inst::DecRef { drop: Some(g), .. } => out.push(g.0),
-                        // An indirect call can reach anything a closure was
-                        // made of, and `MakeClosure` already recorded those.
-                        _ => {}
-                    }
-                }
-            }
-        }
-        let mut bad = self.dirty.clone();
-        let mut changed = true;
-        while changed {
-            changed = false;
-            // `bad` is `self.dirty`, which `plan` sized from the same
-            // `prog.funcs` this counted, and `edges` has one entry per
-            // function too — so "not dirty" is what a missing entry means and
-            // the fixpoint still terminates: `changed` is only set where a
-            // flag was actually written.
-            for i in 0..n {
-                if ent(&bad, i, false) {
-                    continue;
-                }
-                let reaches = edges
-                    .get(i)
-                    .is_some_and(|es| es.iter().any(|c| ent(&bad, *c as usize, false)));
-                if reaches {
-                    if let Some(b) = bad.get_mut(i) {
-                        *b = true;
-                        changed = true;
-                    }
-                }
-            }
-        }
-        bad
     }
 
     /// Where `f` was emitted inside this **part's** region. `plan` gives every
