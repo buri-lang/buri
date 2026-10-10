@@ -13,6 +13,7 @@
 //! | [`standard_library`] | `core/*` | Does the standard library typecheck against itself? |
 //! | [`corpus`] | every `.buri` in the repository | Does everything meant to compile parse, does every build file read, **is every source already what `buri format` writes**, is formatting a fixed point, is the tree-sitter grammar generated? |
 //! | [`golden_javascript`] | `golden_javascript/` | What does the backend *compile to*, construct by construct? |
+//! | [`lexing`] | scratch programs | Does the lexer read a word, an integer and a comment whole, at the edges of its fast paths? |
 //! | [`js_streams`] | four generated programs | Does everything a program printed reach the stream, whichever of the three ways it ended and whether the stream is a pipe or a file? |
 //! | [`pages`] | pages built for `web` | Does a mounted page show, hide and move what the headless double says it does, when a browser drives it? |
 //! | [`round_trip`] | `conformance/`, `example/`'s generated modules | Does `core/buri/ast`'s `parse` read back what the compiler reads — the whole corpus rewritten by `parse` then `print`, and run — and is printing a fixed point? |
@@ -54,6 +55,7 @@ mod corpus;
 mod debug_suite;
 mod golden_javascript;
 mod js_streams;
+mod lexing;
 mod pages;
 mod round_trip;
 mod scoped_bodies;
