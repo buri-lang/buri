@@ -636,7 +636,11 @@ impl Syntactic {
                     let cs = lookup(*inner, &ty_of).into_iter().collect();
                     fields_of.insert(ty, cs);
                 }
-                Desc::Tuple(_) | Desc::Array(_) | Desc::Opaque(_) | Desc::Reserved => {}
+                Desc::Tuple(_)
+                | Desc::Array(_)
+                | Desc::Members { .. }
+                | Desc::Opaque(_)
+                | Desc::Reserved => {}
             }
         }
         // Descriptors exist only for the types a structural operation reached,

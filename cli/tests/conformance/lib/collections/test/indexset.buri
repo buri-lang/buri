@@ -1,0 +1,592 @@
+// `derive Index` and `core/indexset`: a set of numbered members, one bit each.
+//
+// Members straddle the word boundaries at 63, 64, 65, 127 and 128, and reach
+// the top of `U8` and `U64`, where there is no next position. Every set is a
+// value, so each place a value lives is exercised too.
+
+from "core/indexset" import * as indexSet;
+from "core/indexset" import { Index, IndexSet };
+from "core/json" import * as json;
+from "core/json" import { DecodeError, FromJson, Json, ToJson };
+from "core/list" import * as list;
+from "core/map" import * as map;
+from "core/set" import * as set;
+from "core/tasks" import * as tasks;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Tasks };
+from "platform/effect/testing" import { alloc, tasks };
+
+derive Index, Equal, Hash, Show, ToJson, FromJson for Slot;
+struct Slot(U32);
+
+derive Index, Equal, Show, ToJson, FromJson for Seq;
+struct Seq(U64);
+
+derive Index, Equal, Show for Octet;
+struct Octet(U8);
+
+derive Index, Equal, Show for Row;
+struct Row(U16);
+
+derive Index, Equal, Show for Tagged;
+struct Tagged<T>(U32);
+
+/// A set as a field, beside a name.
+derive Equal, Hash, Show, ToJson, FromJson for Pool;
+struct Pool {
+    name: Str,
+    live: IndexSet<Slot>,
+}
+
+let TOP: U64 = 18446744073709551615;
+
+fn slots<C: Allocator>(ctx: C, ns: [U32]): IndexSet<Slot> {
+    indexSet.of(ctx, ns.map(ctx, fn(n) => Slot(n)))
+}
+
+fn numbers<C: Allocator>(ctx: C, s: IndexSet<Slot>): [U32] {
+    s.toList(ctx).map(ctx, fn(m) => m.0)
+}
+
+/// The document `text` is. Every text here is a literal, so `.Null` is
+/// unreachable.
+fn doc<C: Allocator>(ctx: C, text: Str): Json {
+    match (json.parse(ctx, text)) {
+        .Ok(v) => v,
+        .Err(_e) => Json.Null,
+    }
+}
+
+// --- empty, of and range --------------------------------------------------------
+
+test "the empty set holds nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let none = indexSet.empty<Slot>();
+    assert.isTrue(none.isEmpty());
+    assert.equal(none.count(), 0);
+    assert.isFalse(none.has(Slot(0)));
+    assert.equal(none.first(), .None);
+    assert.equal(none.last(), .None);
+    assert.equal(none.toList(ctx), []);
+    let typed: IndexSet<Seq> = indexSet.empty();
+    assert.isTrue(typed.isEmpty());
+}
+
+test "of collapses duplicates and lists members in ascending order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s = slots(ctx, [130, 3, 64, 3, 63, 65, 0, 130]);
+    assert.equal(numbers(ctx, s), [0, 3, 63, 64, 65, 130]);
+    assert.equal(s.count(), 6);
+    assert.isFalse(s.isEmpty());
+    assert.equal(slots(ctx, []), indexSet.empty<Slot>());
+}
+
+test "range is half-open, within one word and across several" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let r = indexSet.range(ctx, Slot(60), Slot(131));
+    assert.equal(r.count(), 71);
+    assert.equal(r.first(), .Some(Slot(60)));
+    assert.equal(r.last(), .Some(Slot(130)));
+    assert.isFalse(r.has(Slot(59)));
+    assert.isFalse(r.has(Slot(131)));
+    assert.isTrue(
+        r.has(Slot(63)) && r.has(Slot(64)) && r.has(Slot(127)) && r.has(Slot(128)),
+    );
+    assert.equal(numbers(ctx, indexSet.range(ctx, Slot(5), Slot(9))), [5, 6, 7, 8]);
+    assert.equal(indexSet.range(ctx, Slot(64), Slot(128)).count(), 64);
+    assert.equal(indexSet.range(ctx, Slot(0), Slot(64)).last(), .Some(Slot(63)));
+    assert.equal(indexSet.range(ctx, Slot(63), Slot(65)), slots(ctx, [63, 64]));
+}
+
+test "an empty or backwards range is the empty set" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.isTrue(indexSet.range(ctx, Slot(9), Slot(9)).isEmpty());
+    assert.isTrue(indexSet.range(ctx, Slot(70), Slot(3)).isEmpty());
+}
+
+// --- insert, remove and has -----------------------------------------------------
+
+test "insert grows the set above and below what it holds" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s = slots(ctx, [64]);
+    let up = s.insert(ctx, Slot(200));
+    assert.equal(numbers(ctx, up), [64, 200]);
+    let down = up.insert(ctx, Slot(1));
+    assert.equal(numbers(ctx, down), [1, 64, 200]);
+    let same = down.insert(ctx, Slot(64));
+    assert.equal(same, down);
+    // A set is a value: inserting into it changed nothing it held.
+    assert.equal(numbers(ctx, s), [64]);
+    assert.equal(numbers(ctx, up), [64, 200]);
+}
+
+test "insert and has at each side of a word boundary" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let edges: [U32] = [62, 63, 64, 65, 126, 127, 128, 129];
+    let s = edges.foldCtx(
+        ctx,
+        fn(c, acc: IndexSet<Slot>, n) => acc.insert(c, Slot(n)),
+        indexSet.empty<Slot>(),
+    );
+    assert.equal(numbers(ctx, s), edges);
+    let missing = list
+        .range(ctx, 0, 200)
+        .filter(ctx, fn(i) => {
+            let n = i.wrapToU32();
+            s.has(Slot(n)) != edges.contains(n)
+        });
+    assert.equal(missing, []);
+}
+
+test "remove takes one member, and nothing when it is absent" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s = slots(ctx, [3, 64, 70, 200]);
+    let fewer = s.remove(ctx, Slot(70));
+    assert.equal(numbers(ctx, fewer), [3, 64, 200]);
+    assert.equal(fewer.remove(ctx, Slot(71)), fewer);
+    assert.equal(fewer.remove(ctx, Slot(100000)), fewer);
+    assert.equal(numbers(ctx, s), [3, 64, 70, 200]);
+}
+
+test "removing the members at either end leaves a set equal to one built without them" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s = slots(ctx, [3, 64, 70, 200]);
+    let inner = s.remove(ctx, Slot(3)).remove(ctx, Slot(200));
+    assert.equal(inner, slots(ctx, [64, 70]));
+    assert.equal(inner.hash(), slots(ctx, [64, 70]).hash());
+    assert.equal(inner.first(), .Some(Slot(64)));
+    assert.equal(inner.last(), .Some(Slot(70)));
+    let gone = inner.remove(ctx, Slot(64)).remove(ctx, Slot(70));
+    assert.isTrue(gone.isEmpty());
+    assert.equal(gone, indexSet.empty<Slot>());
+}
+
+test "removing a member in a middle word keeps the others" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s = slots(ctx, [3, 100, 200]).remove(ctx, Slot(100));
+    assert.equal(numbers(ctx, s), [3, 200]);
+    assert.equal(s, slots(ctx, [3, 200]));
+    assert.equal(s.count(), 2);
+}
+
+// --- removeBelow ------------------------------------------------------------------
+
+test "removeBelow drops every member below its argument" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s = slots(ctx, [1, 63, 64, 65, 130, 300]);
+    assert.equal(numbers(ctx, s.removeBelow(ctx, Slot(64))), [64, 65, 130, 300]);
+    assert.equal(numbers(ctx, s.removeBelow(ctx, Slot(65))), [65, 130, 300]);
+    assert.equal(numbers(ctx, s.removeBelow(ctx, Slot(66))), [130, 300]);
+    assert.equal(s.removeBelow(ctx, Slot(66)), slots(ctx, [130, 300]));
+    assert.equal(s.removeBelow(ctx, Slot(0)), s);
+    assert.equal(s.removeBelow(ctx, Slot(1)), s);
+    assert.isTrue(s.removeBelow(ctx, Slot(301)).isEmpty());
+    assert.isTrue(s.removeBelow(ctx, Slot(100000)).isEmpty());
+    assert.equal(slots(ctx, [200]).removeBelow(ctx, Slot(3)), slots(ctx, [200]));
+}
+
+test "a window that moves keeps only what it covers" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let start = indexSet.range(ctx, Seq(1000000), Seq(1000128));
+    let moved = list
+        .range(ctx, 0, 1000)
+        .foldCtx(
+            ctx,
+            fn(c, acc: IndexSet<Seq>, i) => {
+                let n = 1000000 + i.wrapToU64();
+                acc.insert(c, Seq(n + 128)).removeBelow(c, Seq(n + 1))
+            },
+            start,
+        );
+    assert.equal(moved.count(), 128);
+    assert.equal(moved.first(), .Some(Seq(1001000)));
+    assert.equal(moved, indexSet.range(ctx, Seq(1001000), Seq(1001128)));
+    assert.notEqual(moved, indexSet.range(ctx, Seq(1001000), Seq(1001127)));
+    assert.notEqual(moved, indexSet.range(ctx, Seq(1001100), Seq(1001228)));
+}
+
+test "the window from the proposal" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let seen: IndexSet<Seq> = indexSet.of(ctx, [Seq(1000000), Seq(1000002)]);
+    let seen = seen.removeBelow(ctx, Seq(1000001));
+    assert.equal(seen.firstMissingFrom(Seq(1000001)), .Some(Seq(1000001)));
+    assert.equal(seen.toList(ctx), [Seq(1000002)]);
+}
+
+// --- set operations ---------------------------------------------------------------
+
+test "union holds the members of either" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let a = slots(ctx, [1, 64, 130]);
+    let b = slots(ctx, [64, 65, 500]);
+    assert.equal(numbers(ctx, a.union(ctx, b)), [1, 64, 65, 130, 500]);
+    assert.equal(a.union(ctx, b), b.union(ctx, a));
+    assert.equal(a.union(ctx, indexSet.empty<Slot>()), a);
+    assert.equal(indexSet.empty<Slot>().union(ctx, b), b);
+    assert.equal(numbers(ctx, slots(ctx, [500]).union(ctx, slots(ctx, [2]))), [2, 500]);
+}
+
+test "intersect holds the members of both" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let a = slots(ctx, [1, 64, 130, 400]);
+    let b = slots(ctx, [64, 65, 130, 500]);
+    assert.equal(numbers(ctx, a.intersect(ctx, b)), [64, 130]);
+    assert.equal(a.intersect(ctx, b), b.intersect(ctx, a));
+    assert.isTrue(slots(ctx, [1, 2]).intersect(ctx, slots(ctx, [3, 200])).isEmpty());
+    assert.isTrue(slots(ctx, [1]).intersect(ctx, slots(ctx, [300])).isEmpty());
+    assert.isTrue(a.intersect(ctx, indexSet.empty<Slot>()).isEmpty());
+    // Words at both ends of the overlap are zero, and are dropped.
+    let middle = slots(ctx, [1, 100, 300]).intersect(ctx, slots(ctx, [2, 100, 301]));
+    assert.equal(middle, slots(ctx, [100]));
+}
+
+test "difference holds the members of the first that are not in the second" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let a = slots(ctx, [1, 64, 130, 400]);
+    let b = slots(ctx, [64, 65, 130, 500]);
+    assert.equal(numbers(ctx, a.difference(ctx, b)), [1, 400]);
+    assert.equal(numbers(ctx, b.difference(ctx, a)), [65, 500]);
+    assert.equal(a.difference(ctx, indexSet.empty<Slot>()), a);
+    assert.isTrue(a.difference(ctx, a).isEmpty());
+    assert.equal(a.difference(ctx, slots(ctx, [1, 400])), slots(ctx, [64, 130]));
+}
+
+test "isSubsetOf" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let all = indexSet.range(ctx, Slot(0), Slot(200));
+    let some = slots(ctx, [0, 63, 64, 199]);
+    assert.isTrue(some.isSubsetOf(all));
+    assert.isFalse(all.isSubsetOf(some));
+    assert.isTrue(some.isSubsetOf(some));
+    assert.isTrue(indexSet.empty<Slot>().isSubsetOf(some));
+    assert.isTrue(indexSet.empty<Slot>().isSubsetOf(indexSet.empty<Slot>()));
+    assert.isFalse(some.isSubsetOf(indexSet.empty<Slot>()));
+    assert.isFalse(slots(ctx, [0, 200]).isSubsetOf(all));
+    assert.isFalse(slots(ctx, [5]).isSubsetOf(slots(ctx, [4, 6])));
+    assert.isFalse(slots(ctx, [100]).isSubsetOf(slots(ctx, [1, 64, 200])));
+    assert.isFalse(slots(ctx, [1]).isSubsetOf(slots(ctx, [64])));
+}
+
+test "count is every member, across words" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(indexSet.range(ctx, Slot(0), Slot(1000)).count(), 1000);
+    assert.equal(slots(ctx, [0, 63, 64, 127, 128]).count(), 5);
+}
+
+test "the example from the proposal" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let live: IndexSet<Slot> = indexSet.empty();
+    let live = live.insert(ctx, Slot(3)).insert(ctx, Slot(70));
+    let live = live.remove(ctx, Slot(3));
+    assert.isTrue(
+        live.has(Slot(70))
+            && live.count() == 1
+            && live
+                .union(ctx, indexSet.of(ctx, [Slot(1)]))
+                .isSubsetOf(indexSet.range(ctx, Slot(0), Slot(100))),
+    );
+}
+
+// --- first, last and firstMissingFrom -------------------------------------------
+
+test "first and last" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(slots(ctx, [63, 64]).first(), .Some(Slot(63)));
+    assert.equal(slots(ctx, [63, 64]).last(), .Some(Slot(64)));
+    assert.equal(slots(ctx, [64]).first(), .Some(Slot(64)));
+    assert.equal(slots(ctx, [127]).last(), .Some(Slot(127)));
+    assert.equal(slots(ctx, [0, 1000]).last(), .Some(Slot(1000)));
+}
+
+test "firstMissingFrom finds the first gap at or above its argument" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s = indexSet.range(ctx, Slot(0), Slot(64)).insert(ctx, Slot(65));
+    assert.equal(s.firstMissingFrom(Slot(0)), .Some(Slot(64)));
+    assert.equal(s.firstMissingFrom(Slot(64)), .Some(Slot(64)));
+    assert.equal(s.firstMissingFrom(Slot(65)), .Some(Slot(66)));
+    assert.equal(s.firstMissingFrom(Slot(500)), .Some(Slot(500)));
+    let full = indexSet.range(ctx, Slot(10), Slot(200));
+    assert.equal(full.firstMissingFrom(Slot(3)), .Some(Slot(3)));
+    assert.equal(full.firstMissingFrom(Slot(10)), .Some(Slot(200)));
+    assert.equal(indexSet.empty<Slot>().firstMissingFrom(Slot(7)), .Some(Slot(7)));
+}
+
+test "firstMissingFrom answers None when every position up to the top is held" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let bytes = list
+        .range(ctx, 0, 256)
+        .foldCtx(
+            ctx,
+            fn(c, acc: IndexSet<Octet>, i) => { acc.insert(c, Octet(i.wrapToU8())) },
+            indexSet.empty<Octet>(),
+        );
+    assert.equal(bytes.count(), 256);
+    assert.equal(bytes.firstMissingFrom(Octet(0)), .None);
+    assert.equal(
+        bytes.remove(ctx, Octet(255)).firstMissingFrom(Octet(9)),
+        .Some(Octet(255)),
+    );
+    assert.equal(bytes.last(), .Some(Octet(255)));
+    let rows = indexSet.of(ctx, [Row(65534), Row(65535)]);
+    assert.equal(rows.firstMissingFrom(Row(65534)), .None);
+    assert.equal(rows.firstMissingFrom(Row(65533)), .Some(Row(65533)));
+}
+
+// --- U64 members near 2^64 --------------------------------------------------------
+
+test "members at the top of U64" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let top = indexSet.of(ctx, [Seq(TOP), Seq(TOP - 1), Seq(TOP - 64), Seq(TOP - 200)]);
+    assert.equal(top.toList(ctx), [
+        Seq(TOP - 200),
+        Seq(TOP - 64),
+        Seq(TOP - 1),
+        Seq(TOP),
+    ]);
+    assert.isTrue(top.has(Seq(TOP)));
+    assert.isFalse(top.has(Seq(TOP - 2)));
+    assert.isFalse(top.has(Seq(0)));
+    assert.equal(top.first(), .Some(Seq(TOP - 200)));
+    assert.equal(top.last(), .Some(Seq(TOP)));
+    assert.equal(top.firstMissingFrom(Seq(TOP - 1)), .None);
+    assert.equal(top.firstMissingFrom(Seq(TOP - 64)), .Some(Seq(TOP - 63)));
+    assert.equal(
+        top.remove(ctx, Seq(TOP)).firstMissingFrom(Seq(TOP - 1)),
+        .Some(Seq(TOP)),
+    );
+    let high = top.removeBelow(ctx, Seq(TOP - 1));
+    assert.equal(high.toList(ctx), [Seq(TOP - 1), Seq(TOP)]);
+    assert.equal(high.count(), 2);
+    let ends = indexSet.range(ctx, Seq(TOP - 3), Seq(TOP));
+    assert.equal(ends.toList(ctx), [Seq(TOP - 3), Seq(TOP - 2), Seq(TOP - 1)]);
+    assert.equal(ends.union(ctx, high).count(), 4);
+    assert.isTrue(high.difference(ctx, ends).has(Seq(TOP)));
+}
+
+// --- iteration --------------------------------------------------------------------
+
+test "fold visits every member in ascending order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s = slots(ctx, [500, 3, 64, 63]);
+    // Each member is three digits of the answer, the first visited leftmost.
+    let order = s.fold(fn(acc, m) => acc * 1000 + m.0.toI64(), 0);
+    assert.equal(order, 3063064500);
+    assert.equal(s.fold(fn(n, m) => n + 1, 0), 4);
+    assert.equal(indexSet.empty<Slot>().fold(fn(n, m) => n + 1, 0), 0);
+}
+
+// --- Equal, Hash and Show -------------------------------------------------------
+
+test "sets with the same members are equal and hash alike, however built" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let byOf = slots(ctx, [70, 64, 200]);
+    let byInsert = indexSet
+        .empty<Slot>()
+        .insert(ctx, Slot(200))
+        .insert(ctx, Slot(64))
+        .insert(ctx, Slot(70));
+    let byRange = indexSet.range(ctx, Slot(0), Slot(300)).intersect(ctx, byOf);
+    let byRemove = slots(ctx, [1, 64, 70, 200, 900])
+        .remove(ctx, Slot(1))
+        .remove(ctx, Slot(900));
+    let byWindow = slots(ctx, [5, 64, 70, 200]).removeBelow(ctx, Slot(64));
+    let byUnion = slots(ctx, [64]).union(ctx, slots(ctx, [70, 200]));
+    let byDifference = slots(ctx, [0, 64, 70, 200, 600]).difference(
+        ctx,
+        slots(ctx, [0, 600]),
+    );
+    for_all([byInsert, byRange, byRemove, byWindow, byUnion, byDifference], byOf);
+    assert.notEqual(byOf, slots(ctx, [70, 64]));
+    assert.notEqual(slots(ctx, [1]), slots(ctx, [100]));
+    assert.notEqual(byOf, slots(ctx, [70, 64, 201]));
+    assert.notEqual(byOf.hash(), slots(ctx, [70, 64]).hash());
+    // Pinned, so every backend gives the same number.
+    assert.equal(indexSet.empty<Slot>().hash(), 12638153115695167455);
+    assert.equal(byOf.hash(), 16155543778495673295);
+}
+
+fn for_all(xs: [IndexSet<Slot>], expected: IndexSet<Slot>): () {
+    let wrong = xs.findIndex(fn(x) => x != expected || x.hash() != expected.hash());
+    assert.equal(wrong, .None);
+}
+
+test "show lists the members in ascending order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(slots(ctx, [70, 3]).show(ctx), "[Slot(3), Slot(70)]");
+    assert.equal(indexSet.empty<Slot>().show(ctx), "[]");
+    assert.equal(
+        Pool { name: "a", live: slots(ctx, [64]) }.show(ctx),
+        "Pool { name: \"a\", live: [Slot(64)] }",
+    );
+}
+
+// --- JSON -------------------------------------------------------------------------
+
+test "toJson is the members' list, and fromJson reads it back" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s = slots(ctx, [70, 3, 64]);
+    let text = json.stringify(ctx, json.encode(ctx, s));
+    assert.equal(text, "[[3],[64],[70]]");
+    assert.equal(text, json.stringify(ctx, json.encode(ctx, s.toList(ctx))));
+    let back: Result<IndexSet<Slot>, DecodeError> = json.decode(
+        ctx,
+        json.encode(ctx, s),
+    );
+    assert.equal(back, .Ok(s));
+    let none: Result<IndexSet<Slot>, DecodeError> = json.decode(ctx, doc(ctx, "[]"));
+    assert.equal(none, .Ok(indexSet.empty<Slot>()));
+    let top = indexSet.of(ctx, [Seq(0), Seq(4096)]);
+    let again: Result<IndexSet<Seq>, DecodeError> = json.decode(
+        ctx,
+        json.encode(ctx, top),
+    );
+    assert.equal(again, .Ok(top));
+}
+
+test "fromJson takes members in any order, and repeated" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s: Result<IndexSet<Slot>, DecodeError> = json.decode(
+        ctx,
+        doc(ctx, "[[70],[3],[70]]"),
+    );
+    assert.equal(s, .Ok(slots(ctx, [3, 70])));
+}
+
+test "fromJson names the member it could not read" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text: Result<IndexSet<Slot>, DecodeError> = json.decode(
+        ctx,
+        doc(ctx, "[[1],[\"two\"]]"),
+    );
+    assert.equal(
+        text,
+        .Err(.WrongType { path: "$[1][0]", wanted: "an integer", found: "a string" }),
+    );
+    let object: Result<IndexSet<Slot>, DecodeError> = json.decode(ctx, doc(ctx, "{}"));
+    assert.equal(
+        object,
+        .Err(.WrongType { path: "$", wanted: "an array", found: "an object" }),
+    );
+}
+
+test "a set inside a derived type encodes and decodes as its members" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let p = Pool { name: "p", live: slots(ctx, [3, 200]) };
+    let text = json.stringify(ctx, json.encode(ctx, p));
+    assert.equal(text, "{\"name\":\"p\",\"live\":[[3],[200]]}");
+    let back: Result<Pool, DecodeError> = json.decode(ctx, json.encode(ctx, p));
+    assert.equal(back, .Ok(p));
+    let wrong: Result<Pool, DecodeError> = json.decode(
+        ctx,
+        doc(ctx, "{\"name\":\"p\",\"live\":[3]}"),
+    );
+    assert.equal(
+        wrong,
+        .Err(.WrongType { path: "$.live[0]", wanted: "an array", found: "a number" }),
+    );
+    assert.equal(p.hash(), Pool { name: "p", live: slots(ctx, [200, 3]) }.hash());
+}
+
+// --- where a value lives --------------------------------------------------------
+
+test "a phantom type parameter on the member" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let a: IndexSet<Tagged<Str>> = indexSet.of(ctx, [Tagged(9), Tagged(1)]);
+    assert.equal(a.first(), .Some(Tagged(1)));
+    assert.equal(a.show(ctx), "[Tagged(1), Tagged(9)]");
+}
+
+test "in a list, a map and a set" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = list.range(ctx, 0, 100).map(ctx, fn(i) => i.wrapToU32());
+    let sets = xs.mapCtx(ctx, fn(c, n) => indexSet.range(c, Slot(n), Slot(n + 70)));
+    assert.equal(sets.fold(fn(acc, s) => acc + s.count(), 0), 7000);
+    let names = map
+        .empty<IndexSet<Slot>, Str>()
+        .insert(ctx, slots(ctx, [1, 64]), "a")
+        .insert(ctx, slots(ctx, [64]), "b");
+    assert.equal(names.get(slots(ctx, [1, 64, 2]).remove(ctx, Slot(2))), .Some("a"));
+    assert.equal(names.get(slots(ctx, [64])), .Some("b"));
+    let unique = set.of(ctx, [
+        slots(ctx, [3]),
+        slots(ctx, [3, 4]).remove(ctx, Slot(4)),
+    ]);
+    assert.equal(unique.length(), 1);
+}
+
+test "captured by a closure and answered by a task" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let held = slots(ctx, [1, 100]);
+    let holds = fn(n: U32) => held.has(Slot(n));
+    assert.equal([1, 2, 100].filter(ctx, holds), [1, 100]);
+    let counts = tasks.parallel(ctx, [held, held.insert(ctx, Slot(7))], fn(c, i, s) => {
+        s.count()
+    });
+    assert.equal(counts, [2, 3]);
+    assert.equal(tasks.scope(ctx, fn(c, here) => slots(c, [5])), slots(ctx, [5]));
+}

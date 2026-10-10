@@ -1,0 +1,28 @@
+error: `Slot` has no method `position` [unknown-method]
+  --> cmd/index_adds_no_methods/main.buri:13:38
+   |
+13 |   let _ = io.println(ctx, "${Slot(3).position()}").ignore();
+   |                                      ^^^^^^^^
+   |
+   = fix: check the spelling, or declare it in `impl Slot { ... }` in `//cmd/index_adds_no_methods/main.buri`, where the type is declared
+
+     Methods live only in the module that declares the receiver's type. Nothing
+     can add a method from outside, so for a toolchain type the fix points at
+     its page instead of an impl block you couldn't write.
+
+error: "core/indexset" does not export `position` [unknown-export]
+  --> cmd/index_adds_no_methods/main.buri:14:39
+   |
+14 |   let _ = io.println(ctx, "${indexSet.position(Slot(3))}").ignore();
+   |                                       ^^^^^^^^
+   |
+   = the module exports 20 names
+   = fix: correct the member name, or check `buri docs core/indexset`
+
+     A re-export names only what its module exports, so a library's surface is
+     never wider than the modules behind it. A namespace like fs stands for the
+     module its import named, and only that module's exports may follow the dot.
+     This covers types, bounds and impl heads too, such as list.Vector<Int> and
+     <T: order.Comparable>. If no import bound the namespace at all, the error
+     is unknown-name instead.
+

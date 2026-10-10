@@ -891,12 +891,25 @@ fn the_float_order_holds_at_both_profiles() {
 #[test]
 fn the_flags_file_holds_at_both_profiles() {
     skip_unless_executable!();
+    collections_file_holds_at_both_profiles("flags");
+}
+
+/// **`core/indexset` holds at both pipelines** (#296), as the flags file does.
+#[test]
+fn the_indexset_file_holds_at_both_profiles() {
+    skip_unless_executable!();
+    collections_file_holds_at_both_profiles("indexset");
+}
+
+/// `conformance/lib/collections/test/<file>.buri` as one linked test binary
+/// at each profile, under the heap check, with every block returning.
+fn collections_file_holds_at_both_profiles(file: &str) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/conformance/lib/collections/test/flags.buri");
+        .join(format!("tests/conformance/lib/collections/test/{file}.buri"));
     let source = std::fs::read_to_string(path).unwrap();
     let declared = source.matches("\ntest \"").count();
     for profile in [Profile::Release, Profile::Debug] {
-        let name = format!("flags-{}", profile.name());
+        let name = format!("{file}-{}", profile.name());
         let binary = build_tests_at(&name, "main.buri", &source, profile);
         let mut cmd = Command::new(&binary);
         cmd.env("BURI_TEST_FROM", "0");

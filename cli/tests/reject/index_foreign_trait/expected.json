@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Index` cannot be derived","code":"trait-not-derivable","location":{"file":"cmd/index_foreign_trait/main.buri","line":12,"column":8,"endLine":12,"endColumn":13,"text":"derive Index for Slot;"},"fix":"write `impl Index for ... { ... }` by hand","notes":["only the `Index` that `core/indexset` declares is derivable"],"related":[]}

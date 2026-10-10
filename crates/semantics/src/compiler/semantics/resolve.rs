@@ -205,13 +205,27 @@ pub struct Checked {
 /// missing because the type did not derive the trait it comes from.
 pub const DERIVABLE: &[&str] = &[
     "Equal", "Ordered", "Show", "Hash", "ToJson", "FromJson", "Add", "Subtract", "Multiply", "Divide", "Remainder", "Negate",
-    "Flags",
+    "Flags", "Index",
 ];
 
 /// The module `Flags` is declared in. A `derive Flags` changes how the type is
 /// stored, so only that trait, and not one a program happens to call `Flags`,
 /// may be derived under the name.
 pub const FLAGS_MODULE: &str = "core/flags";
+
+/// The module `Index` and `IndexSet` are declared in, for `FLAGS_MODULE`'s
+/// reason: only that `Index` says a struct is a position.
+pub const INDEX_MODULE: &str = "core/indexset";
+
+/// The module that declares a derive-only trait which changes what the
+/// compiler does with a type, and so may only be derived under its own name.
+fn compiler_trait_home(name: &str) -> Option<&'static str> {
+    match name {
+        "Flags" => Some(FLAGS_MODULE),
+        "Index" => Some(INDEX_MODULE),
+        _ => None,
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct TestCase {
@@ -2490,6 +2504,11 @@ impl<'a> Checker<'a> {
                 self.know(m, name);
             }
         }
+        if let Some(m) = self.loaded.find(INDEX_MODULE) {
+            // A derived `ToJson` or `FromJson` at an `IndexSet` reads its
+            // members, so whether it has one is a question about `K`.
+            self.know(m, "IndexSet");
+        }
         if let Some(m) = self.loaded.find("platform/effect") {
             // `Request` and `Response` are here for the entry check: a
             // platform that calls its entry fixes those two types, and the
@@ -2652,12 +2671,16 @@ impl<'a> Checker<'a> {
         // and never calls it. Rather than obey an `impl` in some positions and
         // ignore it in others, there is no hand-written one.
         let tname = self.tables.trait_(trait_id).name.clone();
-        let own_flags = tname == "Flags" && !self.declared_in(trait_id, FLAGS_MODULE);
-        if crate::compiler::semantics::types::is_derive_only(&tname) && !own_flags {
+        let own_trait =
+            compiler_trait_home(&tname).is_some_and(|home| !self.declared_in(trait_id, home));
+        if crate::compiler::semantics::types::is_derive_only(&tname) && !own_trait {
             let c = self.tables.tycon(self_con).name.clone();
             let reason = if tname == "Flags" {
                 "a `Flags` type is stored as a word with one bit per field, and its operations \
                  are that word's, so only the compiler can write them"
+            } else if tname == "Index" {
+                "an `Index` type's position is the number it wraps, which only the compiler \
+                 reads, so there is nothing for an `impl` to say"
             } else {
                 "a derived encoder is a fold over the type's shape, and would encode a \
                  hand-written one structurally rather than calling it — so an `impl` would be \
@@ -2994,10 +3017,11 @@ impl<'a> Checker<'a> {
                 continue;
             };
             let name = self.tables.trait_(trait_id).name.clone();
-            let foreign_flags = name == "Flags" && !self.declared_in(trait_id, FLAGS_MODULE);
-            if !DERIVABLE.contains(&name.as_str()) || foreign_flags {
-                let note = if foreign_flags {
-                    format!("only the `Flags` that `{FLAGS_MODULE}` declares is derivable")
+            let home = compiler_trait_home(&name);
+            let foreign = home.filter(|home| !self.declared_in(trait_id, home));
+            if !DERIVABLE.contains(&name.as_str()) || foreign.is_some() {
+                let note = if let Some(home) = foreign {
+                    format!("only the `{name}` that `{home}` declares is derivable")
                 } else {
                     format!(
                         "derivable: {}",
@@ -3076,6 +3100,10 @@ impl<'a> Checker<'a> {
         for (tr, con, span) in sorted {
             if self.tables.trait_(tr).name == "Flags" {
                 self.check_flags(con, span);
+                continue;
+            }
+            if self.tables.trait_(tr).name == "Index" {
+                self.check_index(con, span);
                 continue;
             }
             // A generic type's components are checked at each use site, where
@@ -3159,6 +3187,35 @@ impl<'a> Checker<'a> {
                 .bind("type", name)
                 .bind("count", count)
                 .bind("max", FLAGS_MAX.to_string());
+        }
+    }
+
+    /// An `Index` type is a position: a tuple struct wrapping exactly one
+    /// unsigned integer.
+    fn check_index(&mut self, con: TyConId, span: Span) {
+        let tycon = self.tables.tycon(con);
+        let name = tycon.name.clone();
+        let field = match &tycon.def {
+            TyDef::Struct { record: true, fields } if !fields.is_empty() => {
+                Err("its fields are named".to_string())
+            }
+            TyDef::Struct { fields, .. } => match fields.as_slice() {
+                [f] => Ok(f.ty),
+                _ => Err(format!("it has {}", counted(fields.len(), "field"))),
+            },
+            _ => Err("it is an enum".to_string()),
+        };
+        match field {
+            Err(reason) => {
+                self.templated("index-not-newtype", span).bind("type", name).bind("reason", reason);
+            }
+            Ok(ty) if !matches!(self.tables.as_prim(&ty), Some(Prim::U8 | Prim::U16 | Prim::U32 | Prim::U64)) => {
+                let shown = show(&self.tables, None, &tycon.generics, &ty);
+                self.templated("index-field-not-unsigned", span)
+                    .bind("type", name)
+                    .bind("field_type", shown);
+            }
+            Ok(_) => {}
         }
     }
 

@@ -27,7 +27,7 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **A hundred and sixteen of the hundred and twenty-four files are in it** — the
+//! **A hundred and twenty-one of the hundred and twenty-seven files are in it** — the
 //! number the harness prints, re-derived from it rather than incremented by hand,
 //! and one the prose has drifted from more than once. Seventeen that joined together are
 //! `core/buri/ast` and everything downstream of it — the five `buri_ast/`
@@ -438,6 +438,10 @@ const PACKAGES: &[Case] = &[
     // `derive Flags`: a struct of `Bool`s stored as one word, in every place a
     // value lives, at every width, through `Show`, JSON and `Ordered`.
     included("collections/flags.buri"),
+    // `core/indexset`: `derive Index` and the set of words over it, with
+    // members at every word boundary and at the top of `U64`, and through
+    // `Show`, JSON and `Hash`.
+    included("collections/indexset.buri"),
     // It was the one file the backend compiled and got *wrong*, held out under
     // the retired `Wrong` reason until the day three premature-release defects
     // behind it were fixed: `middle/rc.rs`'s

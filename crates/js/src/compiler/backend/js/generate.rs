@@ -3140,6 +3140,14 @@ impl<'a> Gen<'a> {
                 Expr::Array(vec![Expr::Num(7.0), Expr::ident(descriptor_name(*inner))])
             }
             Desc::Opaque(_) | Desc::Reserved => Expr::Array(vec![Expr::Num(6.0)]),
+            // [9, list, toList, of]: an `IndexSet`, read as the list of its
+            // members and built back from one.
+            Desc::Members { list, to, from } => Expr::Array(vec![
+                Expr::Num(9.0),
+                Expr::ident(descriptor_name(*list)),
+                Expr::ident(self.symbol(to.index())),
+                Expr::ident(self.symbol(from.index())),
+            ]),
             // [8, struct, masks, $unflag, $flag]: a `derive Flags` word, read
             // as the struct of `Bool`s it stands for, with the bit each field
             // is (`middle::flags`). Naming the two conversions here is what

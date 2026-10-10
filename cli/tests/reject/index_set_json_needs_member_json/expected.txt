@@ -1,0 +1,25 @@
+error: `Pool` cannot derive `ToJson`: `live` has type `IndexSet<Slot>` [underivable-field]
+  --> cmd/index_set_json_needs_member_json/main.buri:14:1
+   |
+14 | derive ToJson for Pool;
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a derived implementation is a fold over the type's components, and `IndexSet<Slot>` does not satisfy `ToJson`
+   = fix: make `Slot` satisfy `ToJson` first — `derive ToJson for Slot;` in its own module — or drop `ToJson` from this `derive`
+
+     Make the component's type satisfy the trait first, with a derive in its own
+     module or an impl, or drop the trait from this derive.
+
+error: `IndexSet<Slot>` does not implement `ToJson` [missing-impl]
+  --> cmd/index_set_json_needs_member_json/main.buri:22:47
+   |
+22 |   let _ = io.println(ctx, json.stringify(ctx, json.encode(ctx, live))).ignore();
+   |                                               ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `IndexSet<Slot>` derives `ToJson`, but `Slot` does not satisfy it, and a derived implementation is a fold over the type's components
+   = fix: make `Slot` satisfy `ToJson` first
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

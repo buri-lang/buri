@@ -408,7 +408,8 @@ at zero, where it keeps `-0.0` and `0.0` `.Equal`, as `==` does.
 [`core/set`](../../../../stdlib/src/compiler/standard_library/sources/set.buri),
 [`core/orderedmap`](../../../../stdlib/src/compiler/standard_library/sources/orderedmap.buri),
 [`core/orderedset`](../../../../stdlib/src/compiler/standard_library/sources/orderedset.buri),
-[`core/flags`](../../../../stdlib/src/compiler/standard_library/sources/flags.buri).
+[`core/flags`](../../../../stdlib/src/compiler/standard_library/sources/flags.buri),
+[`core/indexset`](../../../../stdlib/src/compiler/standard_library/sources/indexset.buri).
 
 Every one of these is a value, so every "modification" answers a new one. Each
 module states its cost rather than leaving you to guess:
@@ -420,6 +421,7 @@ module states its cost rather than leaving you to guess:
 | `core/map`, `core/set` | O(1) expected | O(b) in buckets | Buckets of association lists. Grows and rehashes past a load factor of 4. **Iteration order is unspecified and will change.** |
 | `core/orderedmap`, `core/orderedset` | O(log n) | O(log n) | A persistent B-tree, seven entries to a node. **Iteration runs in key order.** `range` and `prefix` scan at O(log n + m) rather than filtering over everything. |
 | `core/flags` | O(1) | O(1) | `derive Flags` packs a struct of up to 64 `Bool`s into a `U8`, `U16`, `U32` or `U64`, whichever is smallest. A value is copied, never allocated. |
+| `core/indexset` | O(1) | O(1) in place, O(w) shared | A bit per position in a list of `w` words, from the word of the smallest member. `union`, `intersect`, `difference` and `isSubsetOf` are O(w). |
 
 **Two keyed collections, and order is what you choose between.** `Map` hashes,
 and looks one key up faster. `OrderedMap` compares, and answers "every key between
@@ -488,8 +490,7 @@ same six over `Ordered`, plus `floor` and `ceiling`.
 fields, so `x.read` reads one and `Access { ..x, read: true }` sets one, and adds
 `union`, `intersect`, `difference`, `symmetricDifference`, `complement`,
 `isSubsetOf`, `isEmpty` and `count`. `flags.none<Access>()` and
-`flags.all<Access>()` are the two ends. A set of integers that is not known
-until run time is a `Set<Int>` or an `OrderedSet<Int>`.
+`flags.all<Access>()` are the two ends.
 
 ```buri
 from "core/flags" import * as flags;
@@ -507,8 +508,36 @@ fn canPublish(a: Access): Bool {
 }
 ```
 
+**A set of numbers known only at run time is an `IndexSet`.** `derive Index`
+marks a tuple struct over one unsigned integer as a position, and an
+`IndexSet<Slot>` holds `Slot`s a bit each. Every operation takes and answers
+`Slot`, so a `Seq` in a set of `Slot`s is a compile error.
+
+```buri
+from "core/indexset" import * as indexSet;
+from "core/indexset" import { Index, IndexSet };
+from "platform/effect" import { Allocator };
+
+derive Index, Equal for Slot;
+struct Slot(U32);
+
+fn nextFree<C: Allocator>(ctx: C, live: IndexSet<Slot>): Option<Slot> {
+    live.insert(ctx, Slot(0)).firstMissingFrom(Slot(0))
+}
+```
+
+`indexSet.empty<Slot>()`, `indexSet.of(ctx, members)` and
+`indexSet.range(ctx, start, end)` build one, the range half-open. A set has
+`insert`, `remove`, `has`, `union`, `intersect`, `difference`, `isSubsetOf`,
+`isEmpty`, `count`, `first`, `last` and `firstMissingFrom`, and `toList` and
+`fold` walk it in ascending order. The words start at the word of the smallest
+member, so a window of large, close-together numbers stays a few words, and
+`removeBelow` drops the words it moves past. A set as far apart as 0 and 2^64
+is 2^58 words, though: for a few scattered numbers, use a `Set`. `Equal` and
+`Hash` compare members, and `Show` and JSON write the members' list.
+
 `core/bitset` is gone. Its `BitSet` of named indices is a `derive Flags` struct,
-one field per index, and `has(i)` is a field read.
+one field per index, and its numbered one is an `IndexSet`.
 
 `Queue`, `Map`, `Set`, `OrderedMap` and `OrderedSet` provide `equals` rather
 than deriving `Equal`, because a derived `Equal` would compare the *representation*.

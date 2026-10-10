@@ -298,6 +298,8 @@ impl Monomorphizer<'_> {
                 None => false,
                 Some(imp) if !imp.is_derived() => self.bounds_hold(imp, ty, seen),
                 Some(_) if seen.contains(con) || self.tables().as_prim(ty).is_some() => true,
+                // A derived `Index` asks nothing of its field, as in checking.
+                Some(_) if self.tables().trait_(trait_id).name == "Index" => true,
                 Some(_) => {
                     seen.push(*con);
                     let parts = self.parts_of(ty);

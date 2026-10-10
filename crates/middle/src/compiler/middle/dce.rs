@@ -32,7 +32,7 @@
 //!
 //! Design: `design/native/ARCHITECTURE.md` §2.2.
 
-use crate::compiler::middle::monomorphize::{FuncKind, Program, ProgramRoots};
+use crate::compiler::middle::monomorphize::{Desc, FuncKind, Program, ProgramRoots};
 use crate::compiler::semantics::typed::{self, ExprKind};
 
 /// Which edges a walk takes at a chunk node.
@@ -115,6 +115,12 @@ pub fn program_roots(program: &Program) -> Vec<usize> {
     let mut cells: Vec<usize> = program.cell_equal.values().map(|f| f.index()).collect();
     cells.sort_unstable();
     roots.extend(cells);
+    // Nor is an `IndexSet`'s pair: a walk over its descriptor calls them.
+    for d in &program.descriptors {
+        if let Desc::Members { to, from, .. } = d {
+            roots.extend([to.index(), from.index()]);
+        }
+    }
     roots
 }
 

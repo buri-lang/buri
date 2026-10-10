@@ -37,7 +37,7 @@ fn measured(binary: &Path, args: &[&str]) -> (Ran, Option<u64>) {
 
 /// The instructions one operation costs, from `ops` of them against none, and
 /// the blocks all of them allocated. `args` are the program's after its mode.
-fn per_op(backend: &str, binary: &Path, mode: &str, args: &[&str], ops: u64, expected: &str) -> (Option<u64>, u64) {
+pub(crate) fn per_op(backend: &str, binary: &Path, mode: &str, args: &[&str], ops: u64, expected: &str) -> (Option<u64>, u64) {
     let (idle, idle_n) = measured(binary, &[&["none"], args].concat());
     let (busy, busy_n) = measured(binary, &[&[mode], args].concat());
     let checked = ran_command(heap_checked(std::process::Command::new(binary).args([&[mode], args].concat())));

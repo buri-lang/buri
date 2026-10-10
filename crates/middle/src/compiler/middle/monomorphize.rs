@@ -136,6 +136,11 @@ pub enum Desc {
     /// it stands for. Field `i` of `n` is bit `n - 1 - i` (`middle::flags`).
     Flags { name: String, record: bool, fields: Vec<DescField>, prim: Prim },
     Enum { name: String, variants: Vec<DescVariant> },
+    /// An `IndexSet<K>`, read by every walk as the list of its members, `list`
+    /// the descriptor of `[K]`. `to` is its `toList` and `from` is
+    /// `indexset.of`, each instantiated with `()` as its context, which no
+    /// list operation reads.
+    Members { list: usize, to: FuncIdx, from: FuncIdx },
     Array(usize),
     Tuple(Vec<usize>),
     /// `Option<T>`, whose value is the payload itself.
@@ -1781,6 +1786,9 @@ impl Monomorphizer<'_> {
                 if let Some(word) = self.flags_constant(id, &e.ty, e.span) {
                     return word;
                 }
+                if let Some(converted) = self.index_conversion(id, &resolved, &args, e.span) {
+                    return self.rewrite(converted, targs);
+                }
                 let args = self.rewrite_all(args, targs);
                 let slot = self.request(Key::Fn(id, resolved));
                 ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(slot as u32)), args }
@@ -2252,6 +2260,57 @@ impl Monomorphizer<'_> {
         }
     }
 
+    /// `core/indexset`'s `position<K>(k)` and `member<K>(p)`: the number a
+    /// `derive Index` struct wraps, widened to a `U64`, and the struct
+    /// wrapping a `U64` narrowed to its field. `None` for any other call.
+    fn index_conversion(
+        &self,
+        id: FnId,
+        resolved: &[Ty],
+        args: &[typed::Expr],
+        span: Span,
+    ) -> Option<typed::Expr> {
+        let info = self.tables().fn_info(id);
+        if info.self_ty.is_some() || !info.intrinsic {
+            return None;
+        }
+        let module = self.module_paths.get(info.module.index())?;
+        if module != crate::compiler::semantics::resolve::INDEX_MODULE {
+            return None;
+        }
+        let k = resolved.first()?;
+        let (con, k_args) = match k.kind() {
+            TyKind::Con(con, k_args) => (*con, k_args.to_vec()),
+            _ => return None,
+        };
+        let prim = self.tables().index_prim(con)?;
+        let arg = args.first()?.clone();
+        let convert = |value: typed::Expr, from: Prim, to: Prim| -> Option<typed::Expr> {
+            if from == to {
+                return Some(value);
+            }
+            let name = if to == Prim::U64 { format!("to{}", to.name()) } else { format!("wrapTo{}", to.name()) };
+            let method = self.tables().method(self.tables().prim_id(from), &name)?;
+            let call = ExprKind::CallFn {
+                func: typed::Callee::Decl { id: method, targs: Vec::new() },
+                args: vec![value],
+            };
+            Some(typed::Expr::new(call, self.tables().prim(to), span))
+        };
+        match info.name.as_str() {
+            "position" => {
+                let field = ExprKind::Field { base: Box::new(arg), index: 0 };
+                convert(typed::Expr::new(field, self.tables().prim(prim), span), prim, Prim::U64)
+            }
+            "member" => {
+                let field = convert(arg, Prim::U64, prim)?;
+                let lit = ExprKind::StructLit { con, targs: k_args, fields: vec![field] };
+                Some(typed::Expr::new(lit, *k, span))
+            }
+            _ => None,
+        }
+    }
+
     /// One `Flags` method, as operations on the word.
     fn flags_method(
         &mut self,
@@ -2404,6 +2463,22 @@ impl Monomorphizer<'_> {
         self.module_paths.get(module.index()).cloned()
     }
 
+    /// [`Desc::Members`] at `IndexSet<k>`.
+    fn members(&mut self, con: TyConId, k: Ty) -> Desc {
+        let list = self.descriptor(&Ty::array(k));
+        let to_list = self.tables().method(con, "toList").or_ice("`core/indexset` declares `IndexSet.toList`");
+        let module = self.tables().tycon(con).module;
+        let of = self
+            .tables()
+            .fns
+            .iter()
+            .position(|f| f.module == module && f.self_ty.is_none() && f.name == "of")
+            .or_ice("`core/indexset` declares `of`");
+        let to = self.request(Key::Fn(to_list, vec![k, Ty::UNIT]));
+        let from = self.request(Key::Fn(FnId(of as u32), vec![k, Ty::UNIT]));
+        Desc::Members { list, to: FuncIdx(to as u32), from: FuncIdx(from as u32) }
+    }
+
     /// Interns a runtime type descriptor. Field names and variant names are
     /// what `show` needs; `equal` and `compare` need the shape.
     fn descriptor(&mut self, ty: &Ty) -> usize {
@@ -2438,6 +2513,9 @@ impl Monomorphizer<'_> {
                                 .collect(),
                             prim: checked.tables.flags_word(*con).unwrap_or(Prim::U64),
                         }
+                    }
+                    TyDef::Struct { .. } if checked.known_types.get("IndexSet") == Some(con) => {
+                        self.members(*con, args.first().copied().unwrap_or(Ty::ERROR))
                     }
                     TyDef::Struct { fields, record } => {
                         let described: Vec<DescField> = fields

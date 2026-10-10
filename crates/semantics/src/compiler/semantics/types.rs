@@ -403,7 +403,7 @@ impl TraitInfo {
 /// rejects the `impl`; this is here so that no diagnostic elsewhere offers
 /// writing one as the fix.
 pub fn is_derive_only(trait_name: &str) -> bool {
-    matches!(trait_name, "ToJson" | "FromJson" | "Flags")
+    matches!(trait_name, "ToJson" | "FromJson" | "Flags" | "Index")
 }
 
 /// The most fields a `derive Flags` type may have: one bit each, in a `U64`.
@@ -1137,6 +1137,20 @@ impl Tables {
             17..=32 => Prim::U32,
             _ => Prim::U64,
         })
+    }
+
+    /// The unsigned integer a `derive Index` struct wraps, which is its
+    /// position. `None` for every other type, and for one whose `derive` was
+    /// refused.
+    pub fn index_prim(&self, con: TyConId) -> Option<Prim> {
+        let field = match &self.tycon(con).def {
+            TyDef::Struct { fields, record: false } => fields.first().filter(|_| fields.len() == 1)?,
+            _ => return None,
+        };
+        self.traits_of_con(con).iter().find(|t| {
+            self.trait_(**t).name == "Index" && self.impls.get(&(**t, con)).is_some_and(|i| i.is_derived())
+        })?;
+        self.as_prim(&field.ty).filter(|p| matches!(p, Prim::U8 | Prim::U16 | Prim::U32 | Prim::U64))
     }
 
     /// [`Tables::flags_word`] of a type's head.

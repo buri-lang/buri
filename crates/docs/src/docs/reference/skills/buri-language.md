@@ -179,9 +179,9 @@ impl Meters {
 - Every `impl` function takes `self` first, and no other function may. An
   `impl` may appear only in its type's module.
 - Struct update: `User { ..u, secret: secret.of("new") }`. Field shorthand: `User { id }`.
-- `derive Flags` (`core/flags`) packs a struct of `Bool`s into one word. Fields
-  read and update as usual; `flags.none<T>()`, `flags.all<T>()`, `a.union(b)`,
-  `a.isSubsetOf(b)` and `a.count()` do the rest. It replaces `core/bitset`.
+- `derive Flags` (`core/flags`) packs a struct of `Bool`s into one word, with
+  `flags.none<T>()`, `a.union(b)` and `a.count()`. `derive Index` on `struct
+  Slot(U32);` makes `IndexSet<Slot>` (`core/indexset`), a bit per member.
 
 ## Expressions
 

@@ -1,0 +1,23 @@
+error: `Cell` cannot derive `Index`: it has 2 fields [index-not-newtype]
+ --> cmd/index_several_fields/main.buri:8:1
+  |
+8 | derive Index for Cell;
+  | ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = an `Index` type's position is the one number it wraps
+  = fix: wrap exactly one unsigned integer, `struct Cell(U32);`, or drop `Index` from this `derive`
+
+    The same goes for an enum, and for a tuple struct of two fields or none.
+    Wrap the one number:
+
+      derive Index for Slot;
+      struct Slot(U32);
+
+error: `Nothing` cannot derive `Index`: it has no fields [index-not-newtype]
+  --> cmd/index_several_fields/main.buri:11:1
+   |
+11 | derive Index for Nothing;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = an `Index` type's position is the one number it wraps
+   = fix: wrap exactly one unsigned integer, `struct Nothing(U32);`, or drop `Index` from this `derive`
