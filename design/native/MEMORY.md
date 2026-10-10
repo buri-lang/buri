@@ -1187,7 +1187,11 @@ the quarantine.
 **Padding is written.** A list's glue skips an all-zero element as headroom,
 and it tests every byte, padding included. So a record the runtime hands to
 Buri code, such as `testing.rs`'s `BuriNetCall`, spells its padding as a zeroed
-field. A missed one changes no answer, so only memcheck catches it.
+field, and the LLVM backend's `store_slots` zeroes the bytes after a tag, a
+`Bool` or an `F32`, and at a struct's end (buri-lang/buri#289, #291,
+#293–#295). A tag or a `Bool` is stored widened over the padding after it, so
+that costs no extra store. A missed one changes no answer, so only memcheck
+catches it.
 
 **What it can't see.** A scope's arena (`core/alloc::scoped`) is bump-allocated
 in a mapping, so a block inside one isn't tracked, and neither is the Buri data

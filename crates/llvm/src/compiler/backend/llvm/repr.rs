@@ -578,6 +578,39 @@ pub fn extent(slots: &[Slot]) -> u32 {
     slots.iter().map(|s| s.offset.saturating_add(s.ty.size())).max().unwrap_or(0)
 }
 
+/// The bytes a value of these slots occupies in memory: its [`extent`] rounded
+/// up to its alignment, which is its layout's size, padding and all.
+pub fn padded(slots: &[Slot]) -> u32 {
+    let align = memory_align(slots);
+    extent(slots).div_ceil(align).saturating_mul(align)
+}
+
+/// The byte ranges `[start, end)` of a value's memory form that no slot covers:
+/// its padding, up to [`padded`].
+///
+/// A list's glue and the runtime ask whether an element is all zero bytes
+/// (`Unit::unless_spare`, `cli/runtime/list.rs`'s `spare`), so a store of a
+/// whole value writes these too. Only for slots that start at 0: a lone slot
+/// at an offset is part of a value, and its neighbours are someone else's.
+pub fn gaps(slots: &[Slot]) -> Vec<(u32, u32)> {
+    if slots.first().is_none_or(|s| s.offset != 0) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut at = 0u32;
+    for slot in slots {
+        if slot.offset > at {
+            out.push((at, slot.offset));
+        }
+        at = at.max(slot.offset.saturating_add(slot.ty.size()));
+    }
+    let end = padded(slots);
+    if end > at {
+        out.push((at, end));
+    }
+    out
+}
+
 /// Whether a value of these slots is held in memory ([`WIDEST_IN_REGISTERS`]).
 pub fn in_memory(slots: &[Slot]) -> bool {
     slots.len() > 1 && extent(slots) > WIDEST_IN_REGISTERS
