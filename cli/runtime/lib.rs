@@ -895,7 +895,7 @@ pub unsafe extern "C" fn buri_rt_i128_checked(
             1 => sa.checked_sub(sb),
             2 => sa.checked_mul(sb),
             // `checked_rem` alone is `None` for `MIN % -1`.
-            4 if sb == -1 => Some(0),
+
             4 => sa.checked_rem(sb),
             5 => checked_power_i128(sa, sb),
             _ => sa.checked_div(sb),
