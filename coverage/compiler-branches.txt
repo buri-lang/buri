@@ -1,7 +1,7 @@
 # Branches covered by end-to-end tests, per file: covered, total, path.
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
-# total 13549 19082 (71.00%)
+# total 13566 19102 (71.02%)
 host x86_64-unknown-linux-gnu
 254 343 cli/src/build/actions.rs
 32 48 cli/src/build/cache.rs
@@ -23,7 +23,7 @@ host x86_64-unknown-linux-gnu
 250 292 cli/src/build/workspace.rs
 0 0 cli/src/commands/add/mod.rs
 7 8 cli/src/commands/add/skills.rs
-35 42 cli/src/commands/arguments.rs
+34 42 cli/src/commands/arguments.rs
 71 96 cli/src/commands/build.rs
 10 10 cli/src/commands/clean.rs
 83 98 cli/src/commands/format.rs
@@ -75,7 +75,7 @@ host x86_64-unknown-linux-gnu
 18 28 cli/src/language_server/sweep.rs
 151 192 cli/src/language_server/symbols.rs
 41 46 cli/src/language_server/syntax.rs
-7 12 cli/src/main.rs
+6 12 cli/src/main.rs
 18 20 crates/backend/src/compiler/backend/counts.rs
 7 8 crates/backend/src/compiler/backend/linkage.rs
 4 8 crates/backend/src/compiler/backend/mod.rs
@@ -102,9 +102,9 @@ host x86_64-unknown-linux-gnu
 3 4 crates/js/src/compiler/backend/js/mod.rs
 79 90 crates/js/src/compiler/backend/js/park.rs
 56 62 crates/llvm/src/compiler/backend/llvm/attrs.rs
-662 1208 crates/llvm/src/compiler/backend/llvm/emit.rs
+675 1222 crates/llvm/src/compiler/backend/llvm/emit.rs
 14 24 crates/llvm/src/compiler/backend/llvm/mod.rs
-47 54 crates/llvm/src/compiler/backend/llvm/repr.rs
+53 60 crates/llvm/src/compiler/backend/llvm/repr.rs
 0 0 crates/llvm/src/compiler/backend/llvm/target.rs
 43 56 crates/middle/src/compiler/backend/intrinsic_keys.rs
 31 34 crates/middle/src/compiler/middle/chunks.rs
