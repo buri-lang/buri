@@ -124,20 +124,34 @@ pub fn announce(label: &str, port: u16) {
     let _ = std::io::stdout().flush();
 }
 
-/// Answers requests until the process is stopped.
+/// Answers requests until a signal asks it to stop
+/// ([`crate::commands::interrupt`]), which it checks for every [`LOOK`].
 ///
 /// A connection at a time on a thread of its own, and `Connection: close` on
 /// every answer: a browser opens several at once, and a page that is being
 /// worked on is worth no more machinery than that.
 pub fn serve(listener: &TcpListener, page: &Arc<Page>) {
-    for stream in listener.incoming() {
-        let Ok(stream) = stream else { continue };
-        let page = Arc::clone(page);
-        std::thread::spawn(move || {
-            let _ = respond(&stream, &page);
-        });
+    // Not blocking, so the loop sees a signal without a connection to wake it.
+    let _ = listener.set_nonblocking(true);
+    while crate::commands::interrupt::asked().is_none() {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                // An accepted socket inherits the listener's mode on some
+                // platforms, and `respond` reads and writes blocking.
+                let _ = stream.set_nonblocking(false);
+                let page = Arc::clone(page);
+                std::thread::spawn(move || {
+                    let _ = respond(&stream, &page);
+                });
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(LOOK),
+            Err(_) => {}
+        }
     }
 }
+
+/// How often an idle server looks for a connection or a signal.
+const LOOK: std::time::Duration = std::time::Duration::from_millis(20);
 
 fn respond(stream: &TcpStream, page: &Page) -> std::io::Result<()> {
     let mut reader = std::io::BufReader::new(stream.try_clone()?);

@@ -300,4 +300,6 @@ alone: [`buri run`](./run.md) on a page blocks either way, because it is a
 server.
 
 Interrupting the loop is how it ends, and the shell reports the interrupt rather
-than a verdict. Use plain `buri test` when you want a status to branch on.
+than a verdict: `buri` exits with 128 plus the signal. A run in progress finishes
+first; interrupt again to stop at once. Use plain `buri test` when you want a
+status to branch on.

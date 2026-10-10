@@ -323,8 +323,10 @@ pub struct Watch {
 
 impl Watch {
     /// The production loop: sweep at [`SWEEP`], run until signalled, draw the
-    /// separator.
+    /// separator. A signal ends it once the pass in progress ends
+    /// ([`crate::commands::interrupt`]).
     pub fn on(root: PathBuf, explain: bool) -> Watch {
+        crate::commands::interrupt::listen();
         Watch {
             interval: SWEEP,
             passes: None,
@@ -336,14 +338,12 @@ impl Watch {
 
     /// Runs `pass` once, then again every time the declared set moves.
     ///
-    /// The exit status is the last pass's, which is what the tests read. It is
-    /// not what a shell reports: a watch session ends when the terminal signals
-    /// it, and the status of a signalled process is the signal's. The design
-    /// asks for a clean exit 0 on Ctrl-C, and that needs a signal handler, which
-    /// needs `libc` — a dependency the bar in the workspace manifest does not
-    /// admit for a status code. So the exit status of a watch session says
-    /// nothing about the suites, `crates/docs/src/docs/reference/cli/test.md` says so, and `buri
-    /// test` without the flag is what a script branches on.
+    /// The exit status is the last pass's, which is what the tests read. A
+    /// session a signal ends exits with 128 plus the signal instead, the status
+    /// a shell shows for an interrupted command, so the exit status of a watch
+    /// session says nothing about the suites.
+    /// `crates/docs/src/docs/reference/cli/test.md` says so, and `buri test`
+    /// without the flag is what a script branches on.
     pub fn drive<F: FnMut(&Trigger) -> Pass>(&self, pass: F) -> i32 {
         self.drive_armed(pass, |_| {})
     }
@@ -396,9 +396,15 @@ impl Watch {
             if self.passes.is_some_and(|k| n >= k) || watched.is_empty() {
                 return result.code;
             }
+            if let Some(stopped) = crate::commands::interrupt::asked() {
+                return stopped;
+            }
             // The loop waits for an edit now, so give back what the pass freed.
             crate::allocator::trim();
-            changed = self.settle(&mut watched);
+            let Some(moved) = self.settle(&mut watched) else {
+                return crate::commands::interrupt::asked().unwrap_or(result.code);
+            };
+            changed = moved;
             n += 1;
         }
     }
@@ -410,11 +416,15 @@ impl Watch {
     }
 
     /// Sweeps until something moves, then until two consecutive sweeps agree,
-    /// and answers with what moved across the whole disturbance.
-    fn settle(&self, watched: &mut Snapshot) -> Vec<PathBuf> {
+    /// and answers with what moved across the whole disturbance. `None` once a
+    /// signal asks the loop to stop.
+    fn settle(&self, watched: &mut Snapshot) -> Option<Vec<PathBuf>> {
         let paths = watched.paths();
         loop {
             std::thread::sleep(self.interval);
+            if crate::commands::interrupt::asked().is_some() {
+                return None;
+            }
             let moved = Snapshot::sweep(&paths);
             if moved == *watched {
                 continue;
@@ -433,7 +443,7 @@ impl Watch {
             }
             let changed = watched.difference(&quiet);
             *watched = quiet;
-            return changed;
+            return Some(changed);
         }
     }
 

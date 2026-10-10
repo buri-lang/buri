@@ -53,6 +53,10 @@ wrote, is a 404 rather than HTML claiming to be a stylesheet.
 has free and prints the number it got. A port already in use is refused rather
 than quietly replaced.
 
+`SIGINT`, `SIGTERM` or `SIGHUP` stops the server, which exits with 128 plus the
+signal. Under `--watch` a rebuild in progress finishes first; a second signal
+stops it at once.
+
 `--watch` rebuilds on a change to a declared input — the same loop, the same
 declared set and the same 150 ms sweep [`buri test`](./test.md#watching)
 describes. The build rewrites the artifact directory in place, so the next
