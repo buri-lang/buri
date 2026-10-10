@@ -148,6 +148,12 @@ pub fn thread_instructions() -> u64 {
     os::thread_instructions()
 }
 
+/// This process's instructions retired so far, every thread's, those that
+/// have exited included: macOS only, and 0 elsewhere.
+pub fn process_instructions() -> u64 {
+    os::process().map_or(0, |p| p.instructions)
+}
+
 /// The phase this thread is in, for a worker to start in.
 pub fn current() -> Option<Phase> {
     if !enabled() {

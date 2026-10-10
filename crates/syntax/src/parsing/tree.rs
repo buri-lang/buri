@@ -80,6 +80,69 @@ pub enum Item {
 // grows a field grows every item in every file.
 const _: () = assert!(std::mem::size_of::<Item>() == 72);
 
+impl Module {
+    /// Moves this module to `to`: what parsing it as file `to` would have
+    /// given, from a parse as file `from`. A loader parses a file before it
+    /// knows the id the file will have, and this is the one place that has
+    /// to know every span a module holds.
+    pub fn refile(&mut self, from: crate::diagnostics::FileId, to: crate::diagnostics::FileId) {
+        use crate::parsing::flat::refile;
+        let at = |s: &mut Span| refile(s, from, to);
+        let name = |n: &mut Name| refile(&mut n.span, from, to);
+        for item in &mut self.items {
+            match item {
+                Item::Import(i) => {
+                    at(&mut i.path_span);
+                    if let ImportClause::Namespace(n) = &mut i.clause {
+                        name(n);
+                    }
+                    at(&mut i.span);
+                }
+                Item::ReExport(r) => {
+                    at(&mut r.path_span);
+                    at(&mut r.span);
+                }
+                Item::Fn(d) => {
+                    name(&mut d.name);
+                    at(&mut d.span);
+                }
+                Item::Struct(d) => {
+                    name(&mut d.name);
+                    at(&mut d.span);
+                }
+                Item::Enum(d) => {
+                    name(&mut d.name);
+                    at(&mut d.span);
+                }
+                Item::TypeAlias(d) => {
+                    name(&mut d.name);
+                    at(&mut d.span);
+                }
+                Item::Let(d) => {
+                    name(&mut d.name);
+                    at(&mut d.span);
+                }
+                Item::Trait(d) => {
+                    name(&mut d.name);
+                    at(&mut d.span);
+                }
+                Item::Impl(d) => at(&mut d.span),
+                Item::Derive(d) => at(&mut d.span),
+                Item::Context(d) => {
+                    name(&mut d.name);
+                    at(&mut d.span);
+                }
+                Item::Test(d) => {
+                    at(&mut d.name_span);
+                    at(&mut d.span);
+                }
+                Item::Error(span) => at(span),
+            }
+        }
+        self.tree.refile(from, to);
+    }
+}
+
 impl Item {
     pub fn span(&self) -> Span {
         match self {

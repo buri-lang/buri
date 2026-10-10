@@ -45,7 +45,14 @@ pub struct Loader<'a> {
     /// What each module path an import wrote resolved to. Resolving asks the
     /// disk whether the file is there, and one import line asked three times.
     resolved: HashMap<String, std::rc::Rc<Result<ModuleLocation, String>>>,
+    /// Files read and parsed ahead of the walk, by where they are on disk —
+    /// see [`Loader::prefetch`].
+    prefetched: HashMap<PathBuf, (String, crate::parsing::parser::Parsed)>,
 }
+
+/// The file id a file is parsed under before the walk reaches it and the
+/// source map gives it its own. No map holds this many files.
+const UNFILED: crate::diagnostics::FileId = crate::diagnostics::FileId(u32::MAX - 1);
 
 impl<'a> Loader<'a> {
     pub fn new(
@@ -69,6 +76,7 @@ impl<'a> Loader<'a> {
             entry: None,
             custom: None,
             resolved: HashMap::default(),
+            prefetched: HashMap::default(),
         }
     }
 
@@ -700,20 +708,36 @@ impl<'a> Loader<'a> {
             Some(ws) => ws.rel_of(&disk),
             None => disk.display().to_string(),
         };
-        let file = match self.map.load(&rel, &disk) {
-            Ok(f) => f,
-            Err(e) => {
-                self.diags.push(
-                    Diagnostic::error(span, format!("cannot read {rel}: {e}"))
-                        .with_fix("check the file exists and is readable"),
-                );
-                return None;
-            }
+        let ahead = match self.map.find(&rel) {
+            None => self.prefetched.remove(&disk),
+            Some(_) => None,
+        };
+        let (file, ahead) = match ahead {
+            Some((text, parsed)) => (self.map.add(rel.clone(), disk.clone(), text), Some(parsed)),
+            None => match self.map.load(&rel, &disk) {
+                Ok(f) => (f, None),
+                Err(e) => {
+                    self.diags.push(
+                        Diagnostic::error(span, format!("cannot read {rel}: {e}"))
+                            .with_fix("check the file exists and is readable"),
+                    );
+                    return None;
+                }
+            },
         };
         // A repository platform's `platform.buri` declares its entries and its
         // production structs' methods without a body.
         let bodyless = self.is_platform_surface(path);
-        let (ast, errors) = self.cache.parse(self.map.text(file), file, bodyless);
+        let (ast, errors) = match ahead {
+            Some(mut parsed) => {
+                parsed.module.refile(UNFILED, file);
+                for e in &mut parsed.errors {
+                    e.refile(UNFILED, file);
+                }
+                self.cache.adopt(file, parsed)
+            }
+            None => self.cache.parse(self.map.text(file), file, bodyless),
+        };
         self.diags.extend(errors.iter().cloned());
 
         let pkg = self.ws.and_then(|ws| ws.owning_package(&disk));
@@ -772,6 +796,7 @@ impl<'a> Loader<'a> {
         let role = importer.role;
         let importer_path = importer.path.clone();
         let importer_pkg = importer.pkg;
+        self.prefetch(imports.iter().map(|(path, _, _)| path.as_str()));
 
         for (path, span, names) in imports {
             if !self.check_import_legality(&importer_path, importer_pkg, role, &path, span, &names)
@@ -782,6 +807,67 @@ impl<'a> Loader<'a> {
             // implies, not in the importer's role.
             let target_role = self.role_for(&path);
             self.load_path(&path, target_role, span);
+        }
+    }
+
+    /// Reads and parses, side by side, the files `paths` name that this load
+    /// has not reached, so that loading each in turn finds it parsed.
+    ///
+    /// The walk itself is unchanged: it still loads each module in order, and
+    /// each file gets the id it always got, when it gets there. What it is
+    /// handed is a parse under [`UNFILED`], moved to that id, which is what
+    /// parsing it there gives — `Module::refile` is held to that. A path the
+    /// walk never loads, because its import is refused, costs a parse and
+    /// nothing else; one that cannot be read is left for the walk to report.
+    fn prefetch<'p>(&mut self, paths: impl Iterator<Item = &'p str>) {
+        let Some(ws) = self.ws else { return };
+        let mut wanted: Vec<(PathBuf, bool)> = Vec::new();
+        let mut seen = crate::hash::Set::default();
+        for path in paths {
+            if self.by_path.contains_key(path) {
+                continue;
+            }
+            let resolved = self.resolve(ws, path);
+            let Ok(ModuleLocation::InPackage(m)) = &*resolved else { continue };
+            if m.kind == ModuleKind::Generated
+                || self.by_path.contains_key(&m.path)
+                || self.prefetched.contains_key(&m.file)
+                || self.map.find(&ws.rel_of(&m.file)).is_some()
+                || !seen.insert(m.file.clone())
+            {
+                continue;
+            }
+            let bodyless = self.is_platform_surface(&m.path);
+            wanted.push((m.file.clone(), bodyless));
+        }
+        // One file is no faster read beside nothing.
+        if wanted.len() < 2 {
+            return;
+        }
+        let one = |i: usize| {
+            let (disk, bodyless) = wanted.get(i)?;
+            let text = SourceMap::read(disk).ok()?;
+            let parsed = if *bodyless {
+                crate::parsing::parser::parse_stdlib(&text, UNFILED)
+            } else {
+                crate::parsing::parser::parse(&text, UNFILED)
+            };
+            Some((text, parsed))
+        };
+        // Half the cores. Opening files and faulting in fresh memory meet in
+        // the kernel's locks, and on twelve cores twelve lanes took five times
+        // the CPU of six for no less wall time (design/PERFORMANCE.md §6.83).
+        // Each lane takes every `lanes`-th file, so one large file doesn't
+        // leave one lane running long after the rest.
+        let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+        let lanes = cores.div_ceil(2).clamp(1, wanted.len());
+        let done = crate::parallel::map(lanes, |lane| {
+            (lane..wanted.len()).step_by(lanes).map(|i| (i, one(i))).collect::<Vec<_>>()
+        });
+        for (i, ahead) in done.into_iter().flatten() {
+            if let (Some((disk, _)), Some(ahead)) = (wanted.get(i), ahead) {
+                self.prefetched.insert(disk.clone(), ahead);
+            }
         }
     }
 

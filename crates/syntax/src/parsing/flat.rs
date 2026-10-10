@@ -52,6 +52,14 @@ use crate::parsing::tree::{
     BinOp, FieldDecl, FnDecl, GenericParam, ImportSpec, Param, TupleField, UnOp, Variant,
 };
 
+/// `s`, moved from file `from` to file `to`. A span in any other file, such
+/// as [`Span::NONE`], stays where it is.
+pub fn refile(s: &mut Span, from: FileId, to: FileId) {
+    if s.file == from {
+        s.file = to;
+    }
+}
+
 /// The absent optional id.
 ///
 /// One sentinel rather than an `Option<u32>` per field, because `u32` has no
@@ -1367,6 +1375,47 @@ impl Tree {
         Tree: Arena<T>,
     {
         List::new(start, self.len_of::<T>().saturating_sub(start))
+    }
+
+    /// Moves this tree to `to`: every span in it that names `from` names `to`
+    /// instead. The expression arenas hold locations rather than spans, so
+    /// only the declaration lists are walked.
+    pub fn refile(&mut self, from: FileId, to: FileId) {
+        if self.file == from {
+            self.file = to;
+        }
+        let at = |s: &mut Span| refile(s, from, to);
+        let name = |n: &mut crate::parsing::tree::Name| refile(&mut n.span, from, to);
+        for g in &mut self.generics {
+            name(&mut g.name);
+            at(&mut g.span);
+        }
+        for p in &mut self.params {
+            name(&mut p.name);
+            at(&mut p.span);
+        }
+        for f in &mut self.fields {
+            name(&mut f.name);
+            at(&mut f.span);
+        }
+        for f in &mut self.tfields {
+            at(&mut f.span);
+        }
+        for v in &mut self.variants {
+            name(&mut v.name);
+            at(&mut v.span);
+        }
+        for m in &mut self.methods {
+            name(&mut m.name);
+            at(&mut m.span);
+        }
+        for s in &mut self.specs {
+            name(&mut s.name);
+            if let Some(alias) = &mut s.alias {
+                name(alias);
+            }
+            at(&mut s.span);
+        }
     }
 
     /// Take the lexer's doc comment lines as this tree's. A [`Docs`] the

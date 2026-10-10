@@ -110,6 +110,38 @@ fn every_source_in_the_repository_parses() {
     assert!(failures.is_empty(), "the corpus does not parse:\n{failures}");
 }
 
+/// **A file parsed before it has an id, then moved to one, is what parsing it
+/// under that id gives.** A load reads and parses a module's imports side by
+/// side, before the source map has numbered them, and `Module::refile` moves
+/// each one to its number. A span it missed would point into another file.
+/// Every `.buri` file in the repository, broken ones included, is held to it.
+#[test]
+fn a_module_parsed_ahead_and_moved_to_its_file_is_what_parsing_it_there_gives() {
+    use buri::diagnostics::FileId;
+    use buri::parsing::parser::{parse, parse_stdlib};
+    let root = repo_root();
+    let files: Vec<PathBuf> =
+        repository_files(&root).into_iter().filter(|p| p.extension().is_some_and(|x| x == "buri")).collect();
+    assert!(files.len() > 300, "found {} files; the walk is broken", files.len());
+    let (ahead, there) = (FileId(u32::MAX - 1), FileId(7));
+    let mut moved = Vec::new();
+    for path in &files {
+        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        for read in [parse, parse_stdlib] {
+            let want = read(&text, there);
+            let mut got = read(&text, ahead);
+            got.module.refile(ahead, there);
+            for e in &mut got.errors {
+                e.refile(ahead, there);
+            }
+            if format!("{:?}{:?}", want.module, want.errors) != format!("{:?}{:?}", got.module, got.errors) {
+                moved.push(path.strip_prefix(&root).unwrap_or(path).display().to_string());
+            }
+        }
+    }
+    assert!(moved.is_empty(), "a refiled parse differs from a parse in place for {moved:?}");
+}
+
 fn proto_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
