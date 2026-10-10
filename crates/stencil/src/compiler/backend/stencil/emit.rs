@@ -1251,20 +1251,6 @@ impl<'a> Jit<'a> {
         if la != Loc::Frame || lb != Loc::Frame || ld != Loc::Frame {
             return self.unsupported(format!("Binary {name} at {tag} with no register variant"));
         }
-        let key = key!["bin/", name, "/", tag, "/ff/f"];
-        if self.has(&key) {
-            self.emit(
-                &key,
-                &[
-                    ("JIT_A", V::I(a as u64)),
-                    ("JIT_B", V::I(b as u64)),
-                    ("JIT_D", V::I(d as u64)),
-                    ("JIT_CONT", V::Fall),
-                    ("JIT_CONT0", V::Fall),
-                ],
-            );
-            return;
-        }
         // The Base level has only the 64-bit and float stencils, so a narrow
         // operation is an extend, a 64-bit operation and a truncate.
         let (s0, s1, s2) = (st.scratch, st.scratch + 8, st.scratch + 16);
@@ -1330,41 +1316,17 @@ impl<'a> Jit<'a> {
                 &[("JIT_A", V::I(a as u64)), ("JIT_D", V::I(d as u64)), ("JIT_CONT", V::Fall)],
             );
         }
-        let Some((tag, bits, signed)) = prim_tag(prim) else {
+        let Some((tag, _, _)) = prim_tag(prim) else {
             return self.unsupported(format!("Unary at {prim:?}"));
         };
         let name = if op == UnOp::Neg { "neg" } else { "bnot" };
         let key = key!["un/", name, "/", tag, "/", st.loc(arg).tag(), "/", st.home(dest).tag()];
-        if self.has(&key) {
-            return self.emit(
-                &key,
-                &[("JIT_A", V::I(a as u64)), ("JIT_D", V::I(d as u64)), ("JIT_CONT", V::Fall)],
-            );
-        }
-        if st.loc(arg) != Loc::Frame || st.home(dest) != Loc::Frame {
+        if !self.has(&key) && (st.loc(arg) != Loc::Frame || st.home(dest) != Loc::Frame) {
             return self.unsupported(format!("Unary {name} at {tag} with no register variant"));
         }
-        let key = key!["un/", name, "/", tag, "/f/f"];
-        if self.has(&key) {
-            return self.emit(
-                &key,
-                &[("JIT_A", V::I(a as u64)), ("JIT_D", V::I(d as u64)), ("JIT_CONT", V::Fall)],
-            );
-        }
-        let (s0, s2) = (st.scratch, st.scratch + 16);
-        let ext = if signed { "sext" } else { "zext" };
         self.emit(
-            &key![ext, "/", bits],
-            &[("JIT_D", V::I(s0 as u64)), ("JIT_A", V::I(a as u64)), ("JIT_CONT", V::Fall)],
-        );
-        let wide = if signed { "i64" } else { "u64" };
-        self.emit(
-            &key!["un/", name, "/", wide, "/f/f"],
-            &[("JIT_A", V::I(s0 as u64)), ("JIT_D", V::I(s2 as u64)), ("JIT_CONT", V::Fall)],
-        );
-        self.emit(
-            &key!["zext/", bits],
-            &[("JIT_D", V::I(d as u64)), ("JIT_A", V::I(s2 as u64)), ("JIT_CONT", V::Fall)],
+            &key,
+            &[("JIT_A", V::I(a as u64)), ("JIT_D", V::I(d as u64)), ("JIT_CONT", V::Fall)],
         );
         let _ = (prog, code);
     }
