@@ -148,9 +148,9 @@ fn holds_exiting(scratch: &Scratch, scenario: &str, args: &[&str], env: &[(&str,
 
 /// The scenarios, in order on one repository. `extra` picks the backend and
 /// profile; `want` is each scenario's work, as [`wanted`] reads it.
-fn scenarios(scratch: &Scratch, extra: &[&str], want: [&str; 8]) {
+fn scenarios(scratch: &Scratch, extra: &[&str], want: [String; 8]) {
     let args = |given: &[&'static str]| -> Vec<&str> { ["test"].iter().chain(given).chain(extra).copied().collect() };
-    let [cold, rerun, edited_test, edited_shared, filtered, filtered_again, alone, alone_again] = want;
+    let [cold, rerun, edited_test, edited_shared, filtered, filtered_again, alone, alone_again] = want.each_ref().map(String::as_str);
     holds(scratch, "a cold run", &args(&["//..."]), cold);
     holds(scratch, "a rerun with nothing changed", &args(&["//..."]), rerun);
     scratch.edit("lib/a/test/a.buri", "a answers", "a still answers");
@@ -164,22 +164,40 @@ fn scenarios(scratch: &Scratch, extra: &[&str], want: [&str; 8]) {
     holds(scratch, "the same suite named alone again", &args(&["//lib/c"]), alone_again);
 }
 
+/// Whether a run's runner is one of the files it writes. On macOS it is a
+/// symbolic link into the store of programs macOS has checked
+/// (`build/programs.rs`), which [`files`] doesn't count. Linux checks nothing,
+/// so there is no store and the runner is a file.
+const KEPT_BY_BYTES: bool = cfg!(target_os = "macos");
+
 /// A native run links every suite it builds into one runner. A cold run's
 /// files written are left out: on Linux it also writes the musl sysroot.
-const NATIVE: [&str; 8] = [
-    "suites built 3, objects compiled 10, links 1, new executables launched 1, test processes 3",
-    "suites reused 3, files written 0",
-    "suites built 1, suites reused 2, objects compiled 2, objects restored 4, links 1, \
-     new executables launched 1, test processes 1, files written 6",
-    "suites built 2, suites reused 1, objects compiled 3, objects restored 5, links 1, \
-     new executables launched 1, test processes 2, files written 9",
-    "suites built 1, objects compiled 1, objects restored 4, links 1, new executables launched 1, \
-     test processes 1, files written 4",
-    "suites restored 1, test processes 1, files written 0",
-    // The runner's bytes match the filtered run's, so it isn't a new file.
-    "suites built 1, objects compiled 1, objects restored 4, links 1, test processes 1, files written 5",
-    "suites reused 1, files written 0",
-];
+fn native() -> [String; 8] {
+    let runner = u64::from(!KEPT_BY_BYTES);
+    [
+        "suites built 3, objects compiled 10, links 1, new executables launched 1, test processes 3".into(),
+        "suites reused 3, files written 0".into(),
+        format!(
+            "suites built 1, suites reused 2, objects compiled 2, objects restored 4, links 1, \
+             new executables launched 1, test processes 1, files written {}",
+            6 + runner
+        ),
+        format!(
+            "suites built 2, suites reused 1, objects compiled 3, objects restored 5, links 1, \
+             new executables launched 1, test processes 2, files written {}",
+            9 + runner
+        ),
+        format!(
+            "suites built 1, objects compiled 1, objects restored 4, links 1, new executables launched 1, \
+             test processes 1, files written {}",
+            4 + runner
+        ),
+        "suites restored 1, test processes 1, files written 0".into(),
+        // The runner's bytes match the filtered run's, so it isn't a new file.
+        "suites built 1, objects compiled 1, objects restored 4, links 1, test processes 1, files written 5".into(),
+        "suites reused 1, files written 0".into(),
+    ]
+}
 
 /// A JavaScript run builds a bundle per suite and links nothing.
 const JAVASCRIPT: [&str; 8] = [
@@ -196,7 +214,7 @@ const JAVASCRIPT: [&str; 8] = [
 /// The default: the stencil backend.
 #[test]
 fn a_native_test_run_does_the_pinned_work() {
-    scenarios(&repo("counted-native"), &[], NATIVE);
+    scenarios(&repo("counted-native"), &[], native());
 }
 
 /// LLVM, under `backend-llvm`. A toolchain without it refuses, having built
@@ -211,17 +229,17 @@ fn a_native_release_test_run_does_the_pinned_work() {
     }
     first.ok();
     std::fs::remove_dir_all(scratch.path(".buri")).unwrap();
-    scenarios(&scratch, &["--release"], NATIVE);
+    scenarios(&scratch, &["--release"], native());
 }
 
 #[test]
 fn a_javascript_test_run_does_the_pinned_work() {
-    scenarios(&repo("counted-js"), &["--output=js"], JAVASCRIPT);
+    scenarios(&repo("counted-js"), &["--output=js"], JAVASCRIPT.map(String::from));
 }
 
 #[test]
 fn a_javascript_release_test_run_does_the_pinned_work() {
-    scenarios(&repo("counted-js-release"), &["--output=js", "--release"], JAVASCRIPT);
+    scenarios(&repo("counted-js-release"), &["--output=js", "--release"], JAVASCRIPT.map(String::from));
 }
 
 /// Suite `s`, whose one test asserts `same(k)` is `want`.
@@ -278,6 +296,7 @@ fn a_failing_suites_runner_stays_put_while_another_suite_is_edited() {
 
 /// A runner whose bytes an earlier run already started runs from that file, in
 /// another repository or after `buri clean`, so macOS doesn't check it again.
+/// Linux checks nothing and keeps no store, so there each runner is new.
 #[test]
 fn a_runner_an_earlier_run_started_is_not_a_new_executable() {
     let first = repo("counted-kept-first");
@@ -286,8 +305,10 @@ fn a_runner_an_earlier_run_started_is_not_a_new_executable() {
     let env = [("BURI_HOME", home.as_str())];
     let args = ["test", "//..."];
     let cold = "suites built 3, objects compiled 10, links 1, test processes 3";
-    holds_exiting(&first, "a cold run", &args, &env, 0, &format!("{cold}, new executables launched 1"));
-    holds_exiting(&second, "the same tree in another repository", &args, &env, 0, cold);
+    let first_start = format!("{cold}, new executables launched 1");
+    let again = if KEPT_BY_BYTES { cold } else { first_start.as_str() };
+    holds_exiting(&first, "a cold run", &args, &env, 0, &first_start);
+    holds_exiting(&second, "the same tree in another repository", &args, &env, 0, again);
     first.run(&["clean"]).ok();
-    holds_exiting(&first, "a run after buri clean", &args, &env, 0, cold);
+    holds_exiting(&first, "a run after buri clean", &args, &env, 0, again);
 }
