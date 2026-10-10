@@ -159,32 +159,16 @@ fn a_host_array_is_never_written_through() {
 const PAIRS: usize = 12;
 const LAUNCHES: usize = 2;
 
-/// A list grown in a loop, timing **both** sizes back to back and printing one
-/// `<small ms> <large ms> <small pushes> <large pushes>` line per pair.
-///
-/// **The clock is inside the program, and the two sizes are measured next to
-/// each other.** Those are one decision. What this file asserts is a ratio, and
-/// a ratio is only about the curve if its two halves are answers about the same
-/// machine; every way this test has gone flaky has been a way of getting two
-/// answers about two machines. Process wall time is mostly starting a
-/// JavaScript runtime and warming a JIT — tens of milliseconds that are on
-/// neither curve and that a loaded box is worst at — so the program reads the
-/// clock around its own pushing instead. And the two sizes are timed thirty
-/// milliseconds apart in one process rather than in two processes seconds
-/// apart, so a burst of load is something a pair lives through together.
-///
-/// The order inside a pair alternates, so that nothing periodic in the
-/// machine can settle into always landing on the same half.
+/// A list grown in a loop: `<runs>` runs of `<size>` pushes through each of
+/// two shapes, printing how many elements that pushed.
 const GROW: &str = r#"
-from "platform/effect" import { Allocator, Clock, Stdout };
+from "core/env" import * as env;
+from "platform/effect" import { Allocator, Environment, Stdout };
 from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
-from "core/time" import * as time;
 
 struct State { total: Int, items: [Int] }
-
-struct Timing { milliseconds: Int, pushed: Int }
 
 fn build<C: Allocator>(ctx: C, i: Int, n: Int, acc: [Int]): [Int] {
   if (i >= n) { acc } else { build(ctx, i + 1, n, acc.push(ctx, i)) }
@@ -220,42 +204,13 @@ fn foldRuns<C: Allocator>(ctx: C, k: Int, runs: Int, n: Int, acc: Int): Int {
   }
 }
 
-/// One size, timed: `runs` runs of `n` pushes through each of the two shapes.
-fn timed<C: Allocator + Clock>(ctx: C, runs: Int, n: Int): Timing {
-  let started = time.now(ctx);
-  let pushed = buildRuns(ctx, 0, runs, n, 0) + foldRuns(ctx, 0, runs, n, 0);
-  let took = time.since(ctx, started);
-  Timing { milliseconds: took.milliseconds(), pushed: pushed }
-}
-
-fn say<C: Allocator + Stdout>(ctx: C, small: Timing, large: Timing): () {
-  io.println(
-    ctx,
-    "${small.milliseconds} ${large.milliseconds} ${small.pushed} ${large.pushed}",
-  ).ignore()
-}
-
-fn pairs<C: Allocator + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
-  if (k >= count) {
-    ()
-  } else {
-    let _ = if (k % 2 == 0) {
-      let small = timed(ctx, SMALL_RUNS, SMALL_SIZE);
-      let large = timed(ctx, LARGE_RUNS, LARGE_SIZE);
-      say(ctx, small, large)
-    } else {
-      let large = timed(ctx, LARGE_RUNS, LARGE_SIZE);
-      let small = timed(ctx, SMALL_RUNS, SMALL_SIZE);
-      say(ctx, small, large)
-    };
-    pairs(ctx, k + 1, count)
-  }
-}
-
 export fn main(host: NodeHost): Result<(), Str> {
-  let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
-  let _ = pairs(ctx, 0, PAIRS);
-  .Ok(())
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let args = env.arguments(ctx);
+  let runs = args.get(0).andThen(fn(s) => s.toInt()).withDefault(0);
+  let n = args.get(1).andThen(fn(s) => s.toInt()).withDefault(0);
+  let pushed = buildRuns(ctx, 0, runs, n, 0) + foldRuns(ctx, 0, runs, n, 0);
+  io.println(ctx, "${pushed}").mapErr(fn(_e) => "stdout")
 }
 "#;
 
@@ -344,65 +299,39 @@ fn median_ratio(pairs: &[Pair]) -> f64 {
     ratios[ratios.len() / 2]
 }
 
-/// Both sizes push six hundred thousand elements per timed repetition. Linear
-/// growth makes them cost the same; the copy they replaced makes the
-/// hundred-thousand one ten times the ten-thousand one, because each of its
-/// pushes copies ten times as much.
+/// Both sizes push two hundred thousand elements: runs of a thousand and runs
+/// of ten thousand. Linear growth makes them cost the same; the copy they
+/// replaced makes each push of the larger copy ten times as much.
 ///
-/// The bound is four rather than two: the point is the *shape* of the curve,
-/// and a bound tight enough to catch a constant-factor regression would be one
-/// that fails on a loaded machine. Four is not a guess at where the noise is,
-/// though — it sits in a gap that has been measured from both sides. Linear
-/// growth scores **1.2** — on an idle box, and on one carrying two whole
-/// parallel copies of this suite at a load average of three hundred on ten
-/// cores, thirty runs of which put the median between 0.92 and 1.41. That the
-/// two are the same number is the whole point of pairing. Copying scores
-/// **10.3**: this test, run unchanged against a `$list_push` with its in-place
-/// branch deleted and at a tenth of these sizes so that a quadratic program
-/// finishes at all, put every one of its twenty-four pairs between 9.2 and
-/// 10.6. There is a factor of eight between the two answers and the bound is
-/// in the middle of it.
+/// Counted rather than timed, so a loaded machine reads what an idle one does.
+/// In instructions, linear growth scores 1.0 and the copy, with
+/// `$list_push`'s in-place branch deleted, 8.7. The bound of 4 is
+/// between them. The copies are counted too, which Linux can do: none, against
+/// a billion.
 #[test]
 fn growing_a_list_in_a_loop_is_linear() {
     let scratch = Scratch::repo("js-sharing-linearity");
-    let source = GROW
-        .replace("PAIRS", &PAIRS.to_string())
-        .replace("SMALL_RUNS", "30")
-        .replace("SMALL_SIZE", "10_000")
-        .replace("LARGE_RUNS", "3")
-        .replace("LARGE_SIZE", "100_000");
     scratch.write("cmd/grow/BUILD.buri", JS_BINARY);
-    scratch.write("cmd/grow/main.buri", &source);
+    scratch.write("cmd/grow/main.buri", GROW);
     scratch.run(&["build", "//cmd/grow", "--force"]).ok();
 
-    let measured = pairs(&scratch, "cmd/grow", "600000");
-    let ratio = median_ratio(&measured);
-
-    // A repetition too short to resolve is a measurement, not a claim: the
-    // clock reports whole milliseconds, and at five of them a rounding is
-    // already a fifth of the reading. A host fast enough to trip this wants
-    // more runs per repetition, not a looser bound.
-    let mut short: Vec<u64> = measured.iter().map(|p| p.small).collect();
-    short.sort_unstable();
-    let typical = short[short.len() / 2];
-    assert!(
-        typical >= 5,
-        "the typical repetition took {typical} ms, which a whole-millisecond clock \
-         cannot resolve; raise the runs per repetition"
-    );
-    assert!(
-        ratio <= 4.0,
-        "growing a list is not linear: over {} pairs of six hundred thousand pushes, \
-         the median run in runs of a hundred thousand cost {ratio:.1} times the same \
-         work in runs of ten thousand, where linear growth scores 1.2 and copying \
-         scores about 10. The pairs, as `<ten-thousand ms> <hundred-thousand ms>`: {}",
-        measured.len(),
-        measured
-            .iter()
-            .map(|p| format!("{}/{}", p.small, p.large))
-            .collect::<Vec<_>>()
-            .join(" "),
-    );
+    let small = added(&scratch, "cmd/grow", 100, 1_000);
+    let large = added(&scratch, "cmd/grow", 10, 10_000);
+    if let Some(ratio) = ratio(&small, &large) {
+        assert!(
+            ratio <= 4.0,
+            "growing a list is not linear: two hundred thousand pushes cost {ratio:.1} \
+             times as many instructions in runs of ten thousand as in runs of a \
+             thousand, where linear growth scores 1.0 and copying 8.7"
+        );
+    }
+    for (cost, size) in [(&small, "a thousand"), (&large, "ten thousand")] {
+        assert!(
+            cost.copied < 20_000,
+            "two hundred thousand pushes in runs of {size} copied {} elements",
+            cost.copied
+        );
+    }
 }
 
 /// The same list, grown in a loop, held in a record whose **other** field is
