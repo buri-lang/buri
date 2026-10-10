@@ -5248,27 +5248,30 @@ fn coverage_under_release_counts_the_lines_the_other_backends_count() {
             }
         }
     }
+    // The MC/DC case has a test that aborts on purpose.
     let cases = [
-        ("partly_covered", "//lib/shapes", "3 passed, 0 failed"),
-        ("branch_kinds", "//lib/branches", "7 passed, 0 failed"),
+        ("partly_covered", "//lib/shapes", "--coverage", "lcov.info", "3 passed, 0 failed", 0),
+        ("branch_kinds", "//lib/branches", "--coverage", "lcov.info", "7 passed, 0 failed", 0),
+        ("mcdc", "//lib/m", "--coverage=mcdc", "mcdc.info", "6 passed, 1 failed", 1),
+        ("mcdc", "//lib/d", "--coverage=mcdc", "derived.info", "3 passed, 0 failed", 0),
     ];
-    for (name, target, passed) in cases {
+    for (name, target, flag, golden, passed, status) in cases {
         let case = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/repositories/coverage").join(name);
         let repo = workspace().join(format!("coverage-under-release-{name}"));
         let _ = std::fs::remove_dir_all(&repo);
         copy(&case.join("repo"), &repo);
 
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-        cmd.current_dir(&repo).args(["test", "--release", "--coverage", target]);
+        cmd.current_dir(&repo).args(["test", "--release", flag, target]);
         let ran = crate::shared::ran_command(&mut cmd);
         assert!(
-            ran.status == 0 && ran.stdout.contains(passed),
-            "{name}: --release --coverage:\n{}\n{}",
+            ran.status == status && ran.stdout.contains(passed),
+            "{name}: --release {flag}:\n{}\n{}",
             ran.stdout,
             ran.stderr
         );
         let lcov = std::fs::read_to_string(repo.join(".buri/coverage/lcov.info")).unwrap();
-        let expected = std::fs::read_to_string(case.join("expected/lcov.info")).unwrap();
+        let expected = std::fs::read_to_string(case.join("expected").join(golden)).unwrap();
         assert_eq!(lcov, expected, "{name}");
     }
 }

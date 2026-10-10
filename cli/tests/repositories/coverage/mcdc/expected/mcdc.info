@@ -1,0 +1,74 @@
+TN:
+SF:lib/m/m.buri
+BRDA:4,0,0,1
+BRDA:4,0,1,1
+BRDA:8,0,0,2
+BRDA:8,0,1,2
+BRDA:8,1,0,3
+BRDA:8,1,1,1
+BRDA:12,0,0,1
+BRDA:12,0,1,1
+BRDA:13,0,0,1
+BRDA:13,0,1,0
+BRDA:13,1,0,0
+BRDA:13,1,1,1
+BRDA:19,0,0,1
+BRDA:19,0,1,1
+BRDA:23,0,0,1
+BRDA:23,0,1,0
+BRDA:27,0,0 (T = I64),1
+BRDA:27,0,1 (T = I64),0
+BRDA:27,1,0 (T = Str),0
+BRDA:27,1,1 (T = Str),1
+BRDA:28,0,0 (T = I64),1
+BRDA:28,0,1 (T = I64),0
+BRDA:28,1,0 (T = Str),-
+BRDA:28,1,1 (T = Str),-
+BRDA:38,0,0 (never instantiated),-
+BRDA:38,0,1 (never instantiated),-
+BRDA:42,0,0,1000000
+BRDA:42,0,1,1
+BRF:28
+BRH:18
+MCDC:4,2,t,1,0,'a' in 'a && b'
+MCDC:4,2,f,1,0,'a' in 'a && b'
+MCDC:4,2,t,0,1,'b' in 'a && b'
+MCDC:4,2,f,0,1,'b' in 'a && b'
+MCDC:8,3,t,1,0,'a' in '(a || b) && !c'
+MCDC:8,3,f,1,0,'a' in '(a || b) && !c'
+MCDC:8,3,t,1,1,'b' in '(a || b) && !c'
+MCDC:8,3,f,1,1,'b' in '(a || b) && !c'
+MCDC:8,3,t,1,2,'!c' in '(a || b) && !c'
+MCDC:8,3,f,1,2,'!c' in '(a || b) && !c'
+MCDC:13,2,t,0,0,'flag' in 'flag || n > 5'
+MCDC:13,2,f,0,0,'flag' in 'flag || n > 5'
+MCDC:13,2,t,0,1,'n > 5' in 'flag || n > 5'
+MCDC:13,2,f,0,1,'n > 5' in 'flag || n > 5'
+MCF:14
+MCH:8
+DA:3,2
+DA:4,2
+DA:7,4
+DA:8,4
+DA:11,2
+DA:12,2
+DA:13,1
+DA:14,1
+DA:18,2
+DA:19,2
+DA:22,1
+DA:23,1
+DA:26,2
+DA:27,2
+DA:28,1
+DA:29,1
+DA:30,0
+DA:32,1
+DA:33,1
+DA:37,0
+DA:38,0
+DA:41,1000001
+DA:42,1000001
+LF:23
+LH:20
+end_of_record

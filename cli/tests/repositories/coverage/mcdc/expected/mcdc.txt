@@ -1,0 +1,10 @@
+FAIL //lib/m  test/m.buri  "a zero divisor aborts"
+  division by zero
+  --> lib/m/test/m.buri:31:1
+
+6 passed, 1 failed, 0 skipped (0.0s)
+
+mc/dc coverage       branches   conditions    decisions
+  lib/m/m.buri  18/28   64.3%  4/7   57.1%  1/3   33.3%
+  total         18/28   64.3%  4/7   57.1%  1/3   33.3%
+lcov: .buri/coverage/lcov.info

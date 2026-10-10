@@ -45,6 +45,40 @@ that load the same file share it. Its lcov line is where the choice is made: the
 number is its place among the decisions on that line, ordered by that position.
 A decision whose branches all count zero was never reached and reads `-`.
 
+## MC/DC
+
+`--coverage=mcdc` sets `Flags::mcdc` and keys its builds apart from
+`--coverage`'s. On top of the branches above:
+
+- **Conditions.** `middle::coverage::Tree` is an `&&`/`||`/`!` chain, which
+  always has two conditions or more. Each condition adds to a number that only
+  its path reaches: a true path of `a && b` is `a·T(b) + b`, a false one
+  follows the true ones, and so on up the tree. The decision becomes
+  `{ let p = <path>; coverage.hit(base + p); p < T }`, so a path is a key.
+  `Tree::decode` turns a path back into each condition's value, or `None` where
+  short-circuiting skipped it. The report pairs the paths that ran:
+  unique-cause MC/DC with masking. The right sides of `&&` and `||` come from the
+  same paths, with no probe of their own. A tree of more than 2³² paths keeps
+  its branch probes and isn't counted, and so does one in tail position whose
+  last condition can end in a call (`ends_in_tail_call`): numbering its path
+  reads the call's answer, which takes the call out of tail position.
+- **Instantiations.** `monomorphize::Program::instances` names the declaration
+  and type arguments of each generic instantiation. A key carries the
+  instantiation's name, so each one counts apart. A generic function no suite
+  instantiated is `(never instantiated)`.
+- **Aborts.** An integer `/` or `%`, or a call of a `core/bits` shift, counts
+  how often it was reached and how often execution went on, like `?`.
+- **Derived code** (`coverage::derived`). Each call of a derived `Equal`,
+  `Ordered`, `Show`, `Hash` or `ToJson` on a type the user derives it for first
+  calls a shadow function: it walks the value as the derived code does and
+  counts its decisions, and the program's call runs unchanged after it. The
+  decisions sit on the `derive`'s line, named for the operation and type, as in
+  `Equal Point, x: same`.
+
+lcov gets `MCDC` records, one group a line, because lcov tells groups on a
+line apart only by size, and `MCF`/`MCH`. lcov 2.4's man page says `MRF`/`MRH`;
+its parser reads `MCF`/`MCH`.
+
 ## Which lines count
 
 A line counts when a **site** starts on it. `middle::coverage::sites` is the

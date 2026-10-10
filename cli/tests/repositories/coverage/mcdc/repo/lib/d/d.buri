@@ -1,0 +1,18 @@
+derive Equal, Ordered, Show for Point;
+export struct Point {
+    export x: Int,
+    export y: Int,
+}
+
+derive Equal, Show for Shape;
+export enum Shape {
+    Dot(Point),
+    Line(Point, Point),
+    Empty,
+}
+
+derive Equal for Box;
+export struct Box<T> {
+    export inner: T,
+    export label: Str,
+}

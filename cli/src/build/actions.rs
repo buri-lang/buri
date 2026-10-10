@@ -1342,7 +1342,7 @@ fn suite_key(
     // An instrumented build and its verdicts are never a plain run's, or the
     // reverse (`design/COVERAGE.md`). Absent from a plain key, which keeps it.
     if flags.coverage {
-        k.input("coverage", b"1");
+        k.input("coverage", if flags.mcdc { b"mcdc" } else { b"1" });
     }
     // Sorted and deduplicated: `test_dep_edges` yields declaration order, and a
     // key must not depend on the order two `dependencies` entries were written

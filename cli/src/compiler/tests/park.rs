@@ -174,6 +174,7 @@ fn hand_built(funcs: Vec<Func>) -> Program {
         themes: false,
         chunks: Vec::new(),
         hosted: Default::default(),
+        instances: Default::default(),
     }
 }
 

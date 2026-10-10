@@ -1,0 +1,37 @@
+from "core/testing/assert" import * as assert;
+from "//lib/m" import * as m;
+
+test "both, with b never deciding" {
+    assert.equal(m.both(true, true), true);
+    assert.equal(m.both(false, true), false);
+}
+
+test "mixed, every condition deciding" {
+    assert.equal(m.mixed(true, false, false), true);
+    assert.equal(m.mixed(false, false, false), false);
+    assert.equal(m.mixed(false, true, false), true);
+    assert.equal(m.mixed(true, false, true), false);
+}
+
+test "guarded" {
+    assert.equal(m.guarded(0, true), "zero");
+    assert.equal(m.guarded(1, true), "other");
+}
+
+test "half and shifted" {
+    assert.equal(m.half(4, 2), 2);
+    assert.equal(m.shifted(2), 4);
+}
+
+test "pick at two types" {
+    assert.equal(m.pick([1], true, 0), 1);
+    assert.equal(m.pick([], false, "none"), "none");
+}
+
+test "a zero divisor aborts" {
+    assert.equal(m.half(1, 0), 0);
+}
+
+test "a tail call under || keeps its constant stack" {
+    assert.equal(m.countdown(1000000), true);
+}

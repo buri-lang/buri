@@ -1,0 +1,43 @@
+from "core/bits" import * as bits;
+
+export fn both(a: Bool, b: Bool): Bool {
+    a && b
+}
+
+export fn mixed(a: Bool, b: Bool, c: Bool): Bool {
+    (a || b) && !c
+}
+
+export fn guarded(n: Int, flag: Bool): Str {
+    match (n) {
+        0 if flag || n > 5 => "zero",
+        _ => "other",
+    }
+}
+
+export fn half(n: Int, d: Int): Int {
+    n / d
+}
+
+export fn shifted(n: Int): Int {
+    bits.shiftLeft(1, n)
+}
+
+export fn pick<T>(items: [T], first: Bool, fallback: T): T {
+    if (first) {
+        match (items[0]) {
+            .Some(x) => x,
+            .None => fallback,
+        }
+    } else {
+        fallback
+    }
+}
+
+export fn unused<T>(x: T, flag: Bool): T {
+    if (flag) { x } else { x }
+}
+
+export fn countdown(n: Int): Bool {
+    n == 0 || countdown(n - 1)
+}

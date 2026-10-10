@@ -360,7 +360,7 @@ fn one_pass(
     }
 
     if args.flags.coverage {
-        if let Err(msg) = crate::build::coverage::begin(&session.root) {
+        if let Err(msg) = crate::build::coverage::begin(&session.root, args.flags.mcdc) {
             eprintln!("error: {msg}");
             return watch::Pass { code: 2, inputs, output: out.take(), quiet: false };
         }

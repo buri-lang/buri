@@ -87,6 +87,8 @@ pub struct Flags {
     /// Count the branches each suite takes and report them after the verdicts.
     /// `buri test` only.
     pub coverage: bool,
+    /// `--coverage=mcdc`: MC/DC on top of the branches. Implies `coverage`.
+    pub mcdc: bool,
 }
 
 /// How `buri docs` prints a page.
