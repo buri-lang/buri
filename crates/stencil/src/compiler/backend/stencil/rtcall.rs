@@ -1584,12 +1584,20 @@ impl Jit<'_> {
                     "v",
                 )
             }
-            // `F32` is not here, and it is a marshalling question rather than a
-            // gap: a `crt` stencil declares every float parameter `double`, and
-            // an `F32` sits in its slot as its own thirty-two bits — so the
-            // shape `buri_rt_show_f32` wants is one this call boundary does not
-            // have. Widening first would render the `F64` and not the `F32`.
-            other => Err(format!("rendering a `{}`", other.name())),
+            // A `crt` stencil passes every float as a `double`, and an `F32`
+            // slot holds thirty-two bits. `buri_rt_show_f32` is `show_f64` of
+            // the widened value anyway, so widen it here and call that.
+            Prim::F32 => {
+                self.emit(
+                    "cvt/f322f",
+                    &[
+                        ("JIT_D", V::I(u64::from(scr))),
+                        ("JIT_A", V::I(u64::from(src))),
+                        ("JIT_CONT", V::Fall),
+                    ],
+                );
+                self.c_call(runtime::SHOW_F64, st, &[Src::Addr(dest)], &[Src::Word(scr)], dest, "v")
+            }
         }
     }
 

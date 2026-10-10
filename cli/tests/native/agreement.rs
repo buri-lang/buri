@@ -1885,6 +1885,48 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// `show` of an `F32` is `show` of the same value as an `F64`: the shortest
+/// spelling that round-trips a *double*. So `0.1` prints all seventeen digits
+/// of the binary32 it rounded to, not `0.1`. Interpolated and through a
+/// derived `Show`.
+#[test]
+fn f32_shows_as_the_widened_f64() {
+    rows_or_skip!();
+    agree(
+        "F32 show",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+export struct Q { x: F32 }
+derive Show for Q;
+
+fn zero(): F32 { 0.0 }
+fn half(x: F32): F32 { x / 2.0 }
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let tenth: F32 = 0.1;
+  let eleven: F32 = 1.1;
+  let largest: F32 = 3.4028235e38;
+  let odd: F32 = 16777217.0;
+  let tiny: F32 = 1e-45;
+  let sub: F32 = 1e-40;
+  let small: F32 = 1.17549435e-38;
+  let negZero: F32 = -0.0;
+  let one: F32 = 1.0;
+  let inf = one / zero();
+  let _ = io.println(host.stdout, "${tenth} ${eleven} ${largest} ${odd} ${half(3.0)}").ignore();
+  let _ = io.println(host.stdout, "${tiny} ${sub} ${small} ${negZero} ${zero()}").ignore();
+  let _ = io.println(host.stdout, "${zero() / zero()} ${inf} ${-inf} ${Q { x: tenth }} ${Q { x: negZero }}").ignore();
+  .Ok(())
+}
+"#,
+        "0.10000000149011612 1.100000023841858 3.4028234663852886e+38 16777216.0 1.5\n\
+         1.401298464324817e-45 9.99994610111476e-41 1.1754943508222875e-38 -0.0 0.0\n\
+         NaN inf -inf Q { x: 0.10000000149011612 } Q { x: -0.0 }\n",
+    );
+}
+
 /// A `[T]` inside a derived `Show`, which used to be a named gap.
 ///
 /// It was `row_09_derived_show_of_a_list_is_a_gap` beside an `#[ignore]`d
