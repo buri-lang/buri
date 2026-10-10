@@ -328,11 +328,6 @@ impl<'r> Registry<'r> {
         self.resources.get(resource).map(|r| self.path_of(r.file)).unwrap_or_default()
     }
 
-    /// Whether `node` is the root of the file it is in.
-    pub fn is_file_root(&self, node: &Node) -> bool {
-        self.files.iter().any(|f| std::ptr::eq(&f.root, node))
-    }
-
     fn add_resource(&mut self, file: usize, root: &'r Node, id: Option<String>) -> usize {
         let index = self.resources.len();
         if let Some(id) = &id {
