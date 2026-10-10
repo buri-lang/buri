@@ -1,0 +1,6 @@
+library {
+    sources: []
+    generators: [
+        { tool: "//tools/embed", inputs: ["w.lines"] },
+    ]
+}

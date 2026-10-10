@@ -859,6 +859,12 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
         // Nothing is invalidated by hand: the analysis is kept under a hash of
         // the bytes it read, so the file that changed has moved the key already.
         ("workspace/didChangeWatchedFiles", _) => {
+            // Every file is watched, so a build in a terminal sends thousands
+            // of these. What no analysis reads costs no hashing.
+            let changed = folders(params.get("changes"));
+            if !changed.is_empty() && changed.iter().all(|path| state.never_read(path)) {
+                return vec![];
+            }
             let mut out = republish_open(state);
             out.extend(refreshes(state));
             out
@@ -1849,17 +1855,15 @@ fn capabilities() -> Value {
     ])
 }
 
-/// Watch every file an analysis reads, in every folder, and tell me when one
-/// changes.
+/// Watch every file in every folder, and tell me when one changes.
 ///
-/// One pattern covers all four kinds: a source, a `BUILD.buri` and a
-/// `REPO.buri` all wear the `.buri` extension, and a `.proto` a `generators`
-/// entry hands to the `proto` tool becomes a module like any of them — so an
-/// edit to one is an edit to the code, and a server that did not hear about it
-/// would keep answering from the module the old schema became. `**/` in the
-/// protocol's glob matches any number of path segments *including none*, so
-/// `REPO.buri` at the root of a folder matches it as surely as
-/// `lib/money/BUILD.buri` does.
+/// One pattern, not one per file: a generator reads inputs of any extension,
+/// and `unused-source` reports a stray file wearing one, so no fixed list of
+/// extensions covers what moves a finding (buri-lang/buri#284). A change
+/// nothing reads costs a hash of the open closures, and re-analyses nothing.
+/// `**/` in the protocol's glob matches any number of path segments
+/// *including none*, so `REPO.buri` at the root of a folder matches it as
+/// surely as `lib/money/BUILD.buri` does.
 ///
 /// `kind` is spelled out as create-change-delete rather than left to its
 /// default, because all three change the answer: a build file appearing is as

@@ -772,6 +772,19 @@ impl State {
         self.roots.iter().find(|r| **r == root).cloned()
     }
 
+    /// Whether no analysis reads `path`: it is in no repository served here,
+    /// or under one's `.buri`, the toolchain's own output, or `.git`. A prefix
+    /// check, so it reads nothing from disk.
+    pub fn never_read(&self, path: &Path) -> bool {
+        !self.roots.iter().any(|root| {
+            path.strip_prefix(root).is_ok_and(|rel| {
+                !rel.components().next().is_some_and(|first| {
+                    matches!(first.as_os_str().to_str(), Some(".buri" | ".git"))
+                })
+            })
+        })
+    }
+
     /// Adds a folder, as the repository root it sits in.
     ///
     /// A client may name a subdirectory, and the repository is still the one
