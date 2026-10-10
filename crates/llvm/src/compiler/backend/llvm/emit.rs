@@ -356,6 +356,19 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.ctx.ptr_type(inkwell::AddressSpace::default())
     }
 
+    /// An integer comparison, or `false` where the builder refuses one.
+    fn icmp(
+        &self,
+        op: IntPredicate,
+        lhs: IntValue<'ctx>,
+        rhs: IntValue<'ctx>,
+        name: &str,
+    ) -> IntValue<'ctx> {
+        self.builder
+            .build_int_compare(op, lhs, rhs, name)
+            .unwrap_or_else(|_| self.ctx.bool_type().const_zero())
+    }
+
     fn rt_abort(&mut self) -> FunctionValue<'ctx> {
         let p = self.ptr_ty().into();
         let n = self.ctx.i64_type().into();
@@ -4044,10 +4057,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let immortal = word.const_int(IMMORTAL, false);
         // The saturation: `rc == IMMORTAL ? IMMORTAL : rc + 1`. One `cmov` on
         // x86-64, one `csinv` on aarch64, and `IMMORTAL` stays `IMMORTAL`.
-        let is_immortal = self
-            .builder
-            .build_int_compare(IntPredicate::EQ, rc, immortal, "rc.imm")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let is_immortal = self.icmp(IntPredicate::EQ, rc, immortal, "rc.imm");
         let next = self
             .builder
             .build_select(is_immortal, immortal, bumped, "rc.sat")
@@ -4132,14 +4142,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     .builder
                     .build_and(cap, word.const_int(CAP_SHARED_FLAG, false), &format!("{tag}.mt"))
                     .unwrap_or_else(|_| word.const_zero());
-                self.builder
-                    .build_int_compare(
-                        IntPredicate::NE,
-                        bit,
-                        word.const_zero(),
-                        &format!("{tag}.isshared"),
-                    )
-                    .unwrap_or_else(|_| self.ctx.bool_type().const_zero())
+                self.icmp(IntPredicate::NE, bit, word.const_zero(), &format!("{tag}.isshared"))
             }
             // A load that cannot be built leaves the fork unanswerable, and
             // the unshared arm is the answer that matches every block the
@@ -4159,10 +4162,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if unmarked != plain {
             self.builder.position_at_end(unmarked);
             if let Some(mask) = self.shared_mask(tag) {
-                let set = self
-                    .builder
-                    .build_int_compare(IntPredicate::NE, mask, word.const_zero(), &format!("{tag}.late"))
-                    .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+                let set =
+                    self.icmp(IntPredicate::NE, mask, word.const_zero(), &format!("{tag}.late"));
                 if let Ok(br) = self.builder.build_conditional_branch(set, shared, plain) {
                     self.unlikely(br);
                 }
@@ -4287,18 +4288,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let immortal = word.const_int(IMMORTAL, false);
         let counted_block = self.ctx.append_basic_block(state.value, "dec.counted");
-        let is_immortal = self
-            .builder
-            .build_int_compare(IntPredicate::EQ, rc, immortal, "rc.imm")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let is_immortal = self.icmp(IntPredicate::EQ, rc, immortal, "rc.imm");
         let _ = self.builder.build_conditional_branch(is_immortal, join, counted_block);
 
         self.builder.position_at_end(counted_block);
         let one = word.const_int(1, false);
-        let last = self
-            .builder
-            .build_int_compare(IntPredicate::EQ, rc, one, "rc.last")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let last = self.icmp(IntPredicate::EQ, rc, one, "rc.last");
         let free_block = self.ctx.append_basic_block(state.value, "dec.free");
         let live_block = self.ctx.append_basic_block(state.value, "dec.live");
         let _ = self.builder.build_conditional_branch(last, free_block, live_block);
@@ -5416,10 +5411,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let Ok(index) = TryInto::<IntValue<'ctx>>::try_into(phi.as_basic_value()) else {
             return self.ice("built an element loop's index that is not an integer");
         };
-        let more = self
-            .builder
-            .build_int_compare(IntPredicate::ULT, index, count, "elem.more")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let more = self.icmp(IntPredicate::ULT, index, count, "elem.more");
         let _ = self.builder.build_conditional_branch(more, body, done);
 
         self.builder.position_at_end(body);
@@ -5923,10 +5915,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .unwrap_or_else(|| i32t.const_zero());
         // `BURI_OK` is `-1`, sign-extended into the `i32` the C side returns.
         let ok = i32t.const_int(runtime::BURI_OK as u64, true);
-        let is_ok = self
-            .builder
-            .build_int_compare(IntPredicate::EQ, disc, ok, "sum.ok")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let is_ok = self.icmp(IntPredicate::EQ, disc, ok, "sum.ok");
         let some_bb = self.ctx.append_basic_block(state.value, "sum.some");
         let none_bb = self.ctx.append_basic_block(state.value, "sum.none");
         let join = self.ctx.append_basic_block(state.value, "sum.done");
@@ -6144,15 +6133,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .basic()
             .and_then(|v| v.try_into().ok())
             .unwrap_or_else(|| i32t.const_zero());
-        let is_ok = self
-            .builder
-            .build_int_compare(
-                IntPredicate::EQ,
-                disc,
-                i32t.const_int(runtime::BURI_OK as u64, true),
-                "res.ok?",
-            )
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let is_ok = self.icmp(
+            IntPredicate::EQ,
+            disc,
+            i32t.const_int(runtime::BURI_OK as u64, true),
+            "res.ok?",
+        );
         let good = self.ctx.append_basic_block(state.value, "res.good");
         let bad = self.ctx.append_basic_block(state.value, "res.bad");
         let join = self.ctx.append_basic_block(state.value, "res.done");
@@ -7186,10 +7172,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .builder
             .build_and(raw, word.const_int(STR_ASCII_FLAG, false), "str.ascii")
             .unwrap_or(raw);
-        let is_ascii = self
-            .builder
-            .build_int_compare(IntPredicate::NE, flag, word.const_zero(), "str.isascii")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let is_ascii = self.icmp(IntPredicate::NE, flag, word.const_zero(), "str.isascii");
         let Some(fast) = self.builder.get_insert_block() else { return false };
         let slow = self.ctx.append_basic_block(state.value, "len.scan");
         let join = self.ctx.append_basic_block(state.value, "len.done");
@@ -7335,15 +7318,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `0 <= n < bits`, or `buri_rt_abort_shift`.
     fn shift_guard(&mut self, state: &mut Function<'ctx>, n: IntValue<'ctx>, bits: u64) {
         let t = n.get_type();
-        let bool_ty = self.ctx.bool_type();
-        let below = self
-            .builder
-            .build_int_compare(IntPredicate::SLT, n, t.const_zero(), "sh.lo")
-            .unwrap_or_else(|_| bool_ty.const_zero());
-        let above = self
-            .builder
-            .build_int_compare(IntPredicate::SGE, n, t.const_int(bits, false), "sh.hi")
-            .unwrap_or_else(|_| bool_ty.const_zero());
+        let below = self.icmp(IntPredicate::SLT, n, t.const_zero(), "sh.lo");
+        let above = self.icmp(IntPredicate::SGE, n, t.const_int(bits, false), "sh.hi");
         let bad = self.builder.build_or(below, above, "sh.bad").unwrap_or(above);
         let abort = self.ctx.append_basic_block(state.value, "sh.abort");
         let ok = self.ctx.append_basic_block(state.value, "sh.ok");
@@ -7495,10 +7471,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .unwrap_or(cap_raw);
         // `IMMORTAL` is `u64::MAX`, so a literal or an interned constant fails
         // this test by construction and never reaches either fast path.
-        let is_one = self
-            .builder
-            .build_int_compare(IntPredicate::EQ, rc, word.const_int(1, false), "cat.one")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let is_one = self.icmp(IntPredicate::EQ, rc, word.const_int(1, false), "cat.one");
         // === G3 begin: a marked block is never unique =======================
         // `buri_rt_unique_cap`'s second half, open-coded here for the same
         // reason the first half is: this is the only uniqueness probe either
@@ -7518,17 +7491,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             Some(mask) => self.builder.build_or(cap_raw, mask, "cat.marked").unwrap_or(cap_raw),
             None => cap_raw,
         };
-        let unmarked = self
-            .builder
-            .build_int_compare(
-                IntPredicate::EQ,
-                self.builder
-                    .build_and(marked, word.const_int(CAP_SHARED_FLAG, false), "cat.mark")
-                    .unwrap_or(marked),
-                word.const_zero(),
-                "cat.unmarked",
-            )
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let unmarked = self.icmp(
+            IntPredicate::EQ,
+            self.builder
+                .build_and(marked, word.const_int(CAP_SHARED_FLAG, false), "cat.mark")
+                .unwrap_or(marked),
+            word.const_zero(),
+            "cat.unmarked",
+        );
         let is_one = self.builder.build_and(is_one, unmarked, "cat.sole").unwrap_or(is_one);
         // === G3 end =========================================================
         let _ = self.builder.build_unconditional_branch(check);
@@ -7555,10 +7525,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let base_at = self.builder.build_ptr_to_int(a_base, word, "cat.base").unwrap_or(total);
         let offset = self.builder.build_int_sub(a_at, base_at, "cat.off").unwrap_or(total);
         let end = self.builder.build_int_add(offset, total, "cat.end").unwrap_or(total);
-        let fits = self
-            .builder
-            .build_int_compare(IntPredicate::ULE, end, room, "cat.fits")
-            .unwrap_or_else(|_| bool_ty.const_zero());
+        let fits = self.icmp(IntPredicate::ULE, end, room, "cat.fits");
         let take = self.builder.build_and(unique, fits, "cat.take").unwrap_or(fits);
         let _ = self.builder.build_conditional_branch(take, inplace, fresh);
 
@@ -7600,10 +7567,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.builder.position_at_end(fresh);
         let doubled = self.builder.build_int_add(total, total, "cat.x2").unwrap_or(total);
         let floor = word.const_int(layout::GROWTH_FLOOR, false);
-        let over = self
-            .builder
-            .build_int_compare(IntPredicate::UGT, doubled, floor, "cat.big")
-            .unwrap_or_else(|_| bool_ty.const_zero());
+        let over = self.icmp(IntPredicate::UGT, doubled, floor, "cat.big");
         let wanted = self
             .builder
             .build_select(over, doubled, floor, "cat.want")
@@ -7855,10 +7819,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ("abs", Some(BasicValueEnum::IntValue(x)), _) if signed => {
                 let zero = x.get_type().const_zero();
                 let flipped = self.builder.build_int_neg(x, "abs.neg").unwrap_or(x);
-                let below = self
-                    .builder
-                    .build_int_compare(IntPredicate::SLT, x, zero, "abs.lt")
-                    .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+                let below = self.icmp(IntPredicate::SLT, x, zero, "abs.lt");
                 self.builder.build_select(below, flipped, x, "abs").unwrap_or_else(|_| x.into())
             }
             // An unsigned value is its own magnitude.
@@ -7990,15 +7951,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // of `-1` also answers, so the instruction never sees either.
             "checkedRemainder" => {
                 let bool_ty = self.ctx.bool_type();
-                let nonzero = self
-                    .builder
-                    .build_int_compare(IntPredicate::NE, b, wide.const_zero(), "ck.nz")
-                    .unwrap_or_else(|_| bool_ty.const_zero());
+                let nonzero = self.icmp(IntPredicate::NE, b, wide.const_zero(), "ck.nz");
                 let all_ones = wide.const_all_ones();
-                let is_minus_one = self
-                    .builder
-                    .build_int_compare(IntPredicate::EQ, b, all_ones, "ck.m1")
-                    .unwrap_or_else(|_| bool_ty.const_zero());
+                let is_minus_one = self.icmp(IntPredicate::EQ, b, all_ones, "ck.m1");
                 let unsafe_divisor = self
                     .builder
                     .build_or(
@@ -8028,10 +7983,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // branched around: an `sdiv` by zero is immediate undefined
                 // behaviour in LLVM even on a path whose result is discarded,
                 // so the instruction must never see it.
-                let nonzero = self
-                    .builder
-                    .build_int_compare(IntPredicate::NE, b, wide.const_zero(), "ck.nz")
-                    .unwrap_or_else(|_| bool_ty.const_zero());
+                let nonzero = self.icmp(IntPredicate::NE, b, wide.const_zero(), "ck.nz");
                 ok = nonzero;
                 let safe: IntValue<'ctx> = self
                     .builder
@@ -8054,10 +8006,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             [(IntPredicate::SGE, low), (IntPredicate::SLE, high)]
         {
             let BasicValueEnum::IntValue(bound) = bound else { continue };
-            let inside = self
-                .builder
-                .build_int_compare(predicate, value, bound, "ck.in")
-                .unwrap_or_else(|_| bool_ty.const_zero());
+            let inside = self.icmp(predicate, value, bound, "ck.in");
             ok = self.builder.build_and(ok, inside, "ck.ok").unwrap_or(ok);
         }
         let narrow = self
@@ -8127,10 +8076,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let done = self.ctx.append_basic_block(state.value, "pw.done");
 
         // A negative exponent is a fraction, which no integer type holds.
-        let negative = self
-            .builder
-            .build_int_compare(IntPredicate::SLT, e, count_ty.const_zero(), "pw.neg")
-            .unwrap_or_else(|_| bool_ty.const_zero());
+        let negative = self.icmp(IntPredicate::SLT, e, count_ty.const_zero(), "pw.neg");
         let base0 = self.widen(x, wide, prim.is_signed());
         let _ = self.builder.build_conditional_branch(negative, done, head);
 
@@ -8155,10 +8101,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.ice("built a power loop whose counters are not integers");
             return true;
         };
-        let more = self
-            .builder
-            .build_int_compare(IntPredicate::SGT, n, count_ty.const_zero(), "pw.more")
-            .unwrap_or_else(|_| bool_ty.const_zero());
+        let more = self.icmp(IntPredicate::SGT, n, count_ty.const_zero(), "pw.more");
         let _ = self.builder.build_conditional_branch(more, body, done);
 
         // One round: fold the low bit of the exponent into the accumulator.
@@ -8167,10 +8110,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .builder
             .build_and(n, count_ty.const_int(1, false), "pw.bit")
             .unwrap_or(n);
-        let odd = self
-            .builder
-            .build_int_compare(IntPredicate::NE, bit, count_ty.const_zero(), "pw.odd")
-            .unwrap_or_else(|_| bool_ty.const_zero());
+        let odd = self.icmp(IntPredicate::NE, bit, count_ty.const_zero(), "pw.odd");
         let product = self.builder.build_int_mul(acc, base, "pw.mul").unwrap_or(acc);
         let folded: IntValue<'ctx> = self
             .builder
@@ -8187,10 +8127,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .builder
             .build_right_shift(n, count_ty.const_int(1, false), false, "pw.half")
             .unwrap_or(n);
-        let again = self
-            .builder
-            .build_int_compare(IntPredicate::SGT, halved, count_ty.const_zero(), "pw.again")
-            .unwrap_or_else(|_| bool_ty.const_zero());
+        let again = self.icmp(IntPredicate::SGT, halved, count_ty.const_zero(), "pw.again");
         let _ = self.builder.build_conditional_branch(again, square, head);
 
         self.builder.position_at_end(square);
@@ -8248,15 +8185,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         high: IntValue<'ctx>,
         name: &str,
     ) -> IntValue<'ctx> {
-        let bool_ty = self.ctx.bool_type();
-        let above = self
-            .builder
-            .build_int_compare(IntPredicate::SGE, v, low, name)
-            .unwrap_or_else(|_| bool_ty.const_zero());
-        let below = self
-            .builder
-            .build_int_compare(IntPredicate::SLE, v, high, name)
-            .unwrap_or_else(|_| bool_ty.const_zero());
+        let above = self.icmp(IntPredicate::SGE, v, low, name);
+        let below = self.icmp(IntPredicate::SLE, v, high, name);
         self.builder.build_and(above, below, name).unwrap_or(below)
     }
 
@@ -8306,10 +8236,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let mut clamped = value;
         for (predicate, bound) in [(IntPredicate::SLT, low), (IntPredicate::SGT, high)] {
             let BasicValueEnum::IntValue(bound) = bound else { continue };
-            let outside = self
-                .builder
-                .build_int_compare(predicate, clamped, bound, "sat.out")
-                .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+            let outside = self.icmp(predicate, clamped, bound, "sat.out");
             clamped = self
                 .builder
                 .build_select(outside, bound, clamped, "sat.c")
@@ -8597,10 +8524,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             (IntPredicate::SLE, self.int_constant(ty, hi, false)),
         ] {
             let BasicValueEnum::IntValue(bound) = bound else { continue };
-            let inside = self
-                .builder
-                .build_int_compare(predicate, a, bound, "cvt.in")
-                .unwrap_or_else(|_| bool_ty.const_zero());
+            let inside = self.icmp(predicate, a, bound, "cvt.in");
             fits = self.builder.build_and(fits, inside, "cvt.fits").unwrap_or(fits);
         }
         (fits, self.cast(v, from, to, want))
@@ -8622,11 +8546,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return (bool_ty.const_zero(), want.const_zero());
         };
         let ty = x.get_type();
-        let cmp = |s: &Self, p, c: u64, name| {
-            s.builder
-                .build_int_compare(p, x, ty.const_int(c, false), name)
-                .unwrap_or_else(|_| bool_ty.const_zero())
-        };
+        let cmp = |s: &Self, p, c: u64, name| s.icmp(p, x, ty.const_int(c, false), name);
         let in_max = cmp(self, IntPredicate::ULE, 0x0010_ffff, "cvt.max");
         let below = cmp(self, IntPredicate::ULT, 0xd800, "cvt.lo");
         let above = cmp(self, IntPredicate::UGT, 0xdfff, "cvt.hi");
