@@ -236,7 +236,7 @@ fn test_suites() {
 /// backends, summed across suites, and never served from the cache.
 #[test]
 fn test_coverage() {
-    run_corpus(&tests_dir().join("repositories/coverage"), "coverage", 4);
+    run_corpus(&tests_dir().join("repositories/coverage"), "coverage", 5);
 }
 
 /// The concurrency-and-servers surface, driven the way a person drives it: a

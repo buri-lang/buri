@@ -190,6 +190,67 @@ BRDA:16,0,1,-
 
 It keeps a `DA` record per line too, for editors that shade lines.
 
+### MC/DC
+
+`--coverage=mcdc` is stricter. On top of the branches, it asks whether each
+condition of a decision is shown to decide the outcome on its own:
+
+```sh
+buri test //... --coverage=mcdc
+```
+
+```text
+mc/dc coverage       branches   conditions    decisions
+  lib/m/m.buri  16/26   61.5%  4/7   57.1%  1/3   33.3%
+  total         16/26   61.5%  4/7   57.1%  1/3   33.3%
+```
+
+A decision here is a chain of `&&`, `||` and `!` with at least two conditions,
+wherever it's written: an `if`, a guard, a `let`. A condition is shown when two
+runs that evaluated it to different values got different outcomes, and every
+other condition either matched or was skipped by short-circuiting in one of
+them. That's unique-cause MC/DC with masking, the form DO-178C accepts and
+clang's `-fcoverage-mcdc` implements. `a && b` tested with `(true, true)` and
+`(false, _)` takes both branches but never shows `b`. A decision counts once all
+of its conditions are shown.
+
+A decision whose last condition is a tail call, as in `n == 0 || count(n - 1)`,
+keeps its branches but isn't an MC/DC decision. Reading that call's answer would
+cost it the constant stack a tail call promises.
+
+It also counts what `--coverage` leaves out:
+
+- every instantiation of a generic function on its own, named in the lcov
+  branch, as in `0 (T = I64)`, and `(never instantiated)` when no test reached
+  one;
+- each integer `/` and `%`, and each `core/bits` shift, which went on or
+  aborted;
+- the code a `derive` stands for, on the `derive`'s line, per operation and
+  type: which variant, whether the other value is the same variant, and which
+  field an `Equal` or `Ordered` stopped at, as in `Equal Point, x: differs`.
+
+A derived operation counts where your code, a test or the standard library
+calls it on your type, and inside another of your derived types. One reached
+through a list's or an `Option`'s own walk isn't counted, and neither is one
+the runtime calls itself, such as a failing test's report.
+
+Integer overflow, indexing and the like have no abort to count: overflow is
+undefined rather than trapping, and indexing answers an `Option`.
+
+The lcov file gets an `MCDC` record per condition, both senses alike, naming the
+condition and its decision:
+
+```text
+MCDC:4,2,t,1,0,'a' in 'a && b'
+MCDC:4,2,f,1,0,'a' in 'a && b'
+MCDC:4,2,t,0,1,'b' in 'a && b'
+MCDC:4,2,f,0,1,'b' in 'a && b'
+```
+
+The standard library, the platforms and reference counting stay out. The first
+two aren't your code. Reference counting is the native backends' own business,
+absent from JavaScript and not part of what the program means.
+
 A coverage run builds its own instrumented artifacts and runs every suite, even
 one whose verdict is cached, so the counts are always this run's. Verdicts,
 output and the exit status are the same as without the flag. `--coverage` and

@@ -1,4 +1,4 @@
-error: unknown --coverage `line`; expected `branch`
+error: unknown --coverage `line`; expected `branch` or `mcdc`
 
 buri — the toolchain for the Buri language
 

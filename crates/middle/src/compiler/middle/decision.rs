@@ -474,6 +474,7 @@ mod tests {
             themes: false,
             chunks: Vec::new(),
             hosted: Default::default(),
+            instances: Default::default(),
         }
     }
 

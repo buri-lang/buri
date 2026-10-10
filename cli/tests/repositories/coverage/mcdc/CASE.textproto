@@ -1,0 +1,77 @@
+# `buri test --coverage=mcdc`: MC/DC on top of the branches. `both` takes
+# both branches of its `&&` but never shows `b` deciding the outcome, so its
+# branches are covered and its conditions aren't. `mixed` shows all three. A
+# guard with an `||` counts as a decision too. An integer `/` and a `core/bits`
+# shift each count going on and aborting, and one test aborts on a zero
+# divisor. `pick` reports each instantiation on its own, and `unused`, which
+# nothing instantiates, says so. The plain `--coverage` run beside it counts
+# none of that: `pick` once, no aborts, no conditions. Native and JavaScript
+# match one hand-checked golden. `countdown` ends its `||` in a tail call, which
+# keeps its constant stack and its branches, and so isn't an MC/DC decision.
+# `//lib/d` counts derived code.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "--coverage=mcdc shows which conditions decide their decision, per instantiation, and counts aborts"
+
+run {
+  args: ["test", "//lib/m", "--coverage=mcdc"]
+  exit: 1
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}
+
+run {
+  args: ["test", "//lib/m", "--coverage=mcdc", "--output=js"]
+  exit: 1
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}
+
+run {
+  args: ["test", "//lib/m", "--coverage"]
+  exit: 1
+  golden: "branch.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "branch.info"
+}
+
+# Derived code: each derived operation the tests call on a type with a
+# `derive`, counted on the `derive`'s line, per type a generic one is at.
+run {
+  args: ["test", "//lib/d", "--coverage=mcdc"]
+  exit: 0
+  golden: "derived.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "derived.info"
+}
+
+run {
+  args: ["test", "//lib/d", "--coverage=mcdc", "--output=js"]
+  exit: 0
+  golden: "derived.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "derived.info"
+}

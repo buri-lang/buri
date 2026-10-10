@@ -273,6 +273,7 @@ mod tests {
             shapes: Default::default(),
             chunks: Vec::new(),
             hosted: Default::default(),
+            instances: Default::default(),
             stylesheet: String::new(),
             inline_styles: false,
             inline_animations: false,

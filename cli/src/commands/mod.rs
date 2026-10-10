@@ -260,15 +260,20 @@ pub const FLAGS: &[Flag] = &[
     Flag {
         name: "coverage",
         value: Value::Optional("<kind>"),
-        choices: &["branch"],
-        blurb: "count the branches the tests take, and write .buri/coverage/lcov.info",
+        choices: &["branch", "mcdc"],
+        blurb: "count the branches the tests take, or MC/DC with `mcdc`, and write .buri/coverage/lcov.info",
         global: false,
         set: |f, v| match v {
             None | Some("branch") => {
                 f.coverage = true;
                 Ok(())
             }
-            Some(other) => Err(format!("unknown --coverage `{other}`; expected `branch`")),
+            Some("mcdc") => {
+                f.coverage = true;
+                f.mcdc = true;
+                Ok(())
+            }
+            Some(other) => Err(format!("unknown --coverage `{other}`; expected `branch` or `mcdc`")),
         },
     },
     Flag {

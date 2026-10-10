@@ -10085,6 +10085,7 @@ mod tests {
             tooltips: false,
             chunks: Vec::new(),
             hosted: Default::default(),
+            instances: Default::default(),
         };
         let tables = Tables::default();
         let ctx = Context::create();
