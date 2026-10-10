@@ -606,6 +606,7 @@ test "read sees what a function under test wrote" {
         FileSystemRead: store,
         FileSystemWrite: store,
     };
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "out")));
     assert.ok(saveText(ctx, "out/report.txt", "done"));
     assert.equal(assert.ok(store.read("out/report.txt")), "done");
 }
@@ -1787,6 +1788,7 @@ test "a timed-out first attempt is retried" {
         FileSystemWrite: files,
         Network: upstream,
     };
+    assert.ok(fs.makeDir(live, path.of(live, "app")));
     assert.ok(refreshFromUpstream(live, request));
     assert.equal(upstream.calls(), [fetch(request), fetch(request)]);
     assert.equal(assert.ok(files.read("app/cache.json")), "name = \"demo\"");
