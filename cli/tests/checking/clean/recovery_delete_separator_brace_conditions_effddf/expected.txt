@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-semicolon]
+  --> main.buri:11:25
+   |
+11 |     let flag = n * m > 3
+   |                         ^
+   |
+   = fix: write `;` here

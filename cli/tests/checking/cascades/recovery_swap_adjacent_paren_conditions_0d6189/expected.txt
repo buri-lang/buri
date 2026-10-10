@@ -1,0 +1,25 @@
+error: there is nothing named `pickAny` in scope [unknown-name]
+  --> main.buri:96:5
+   |
+96 |     pickAny(n - 1 > 0, 1, 2)
+   |     ^^^^^^^
+   |
+   = did you mean `pick`?
+   = fix: if you meant `pick`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `pickAny` in scope [unknown-name]
+   --> main.buri:100:5
+    |
+100 |     pickAny(n + 1 > 2, "yes", "no")
+    |     ^^^^^^^
+    |
+    = did you mean `pick`?
+    = fix: if you meant `pick`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: expected a type, found `,` [unexpected-token]
+   --> main.buri:146:25
+    |
+146 | fn pickAny<T>(flagBool :, yes: T, no: T): T {
+    |                         ^
+    |
+    = expected: a type
+    = actual: `,`
+    = fix: name a type here, as in `Int` or `[Str]`

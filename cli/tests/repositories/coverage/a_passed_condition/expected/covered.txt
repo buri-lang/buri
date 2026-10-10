@@ -1,0 +1,6 @@
+1 passed, 0 failed, 0 skipped (0.0s)
+
+branch coverage
+  libs/greeting/greeting.buri  2/2  100.0%
+  total                        2/2  100.0%
+lcov: .buri/coverage/lcov.info

@@ -1,0 +1,21 @@
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:13:15
+   |
+13 |     if (flag{ ) ys } else { [] }
+   |               ^
+   |
+  --> main.buri:13:13
+   |
+13 |     if (flag{ ) ys } else { [] }
+   |             ^ opened here
+   |
+   = fix: write `}` here
+error: expected `{`, found `ys` [unexpected-token]
+  --> main.buri:13:17
+   |
+13 |     if (flag{ ) ys } else { [] }
+   |                 ^^
+   |
+   = expected: `{`
+   = actual: `ys`
+   = fix: write `{` here

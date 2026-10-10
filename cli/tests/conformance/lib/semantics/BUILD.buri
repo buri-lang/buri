@@ -1,5 +1,5 @@
 library {
-    sources: ["shapes.buri"]
+    sources: ["shapes.buri", "conditions.buri"]
 
     test {
         sources: [
@@ -14,6 +14,7 @@ library {
             "test/host_testing.buri",
             "test/http.buri",
             "test/namespaces.buri",
+            "test/conditions.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`

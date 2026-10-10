@@ -3302,9 +3302,13 @@ impl<'a> Jit<'a> {
                 // either would be this block disagreeing with itself; the
                 // fusion is simply declined rather than guessed at.
                 if let Some(ir::Inst::Binary { op, prim, lhs, rhs, .. }) = block.insts.get(k) {
+                    // Immediately before: the branch reads the operands where
+                    // the comparison would have, and anything emitted between
+                    // the two can reuse or clobber where that is (#297).
                     if op.is_comparison()
                         && uses(st, *cond) == 1
                         && !ent(&p.skip, k, true)
+                        && (k + 1..n).all(|j| ent(&p.skip, j, false))
                     {
                         let a = st.loc(*lhs).tag();
                         let b = if ent(&st.folded, rhs.index(), false) {

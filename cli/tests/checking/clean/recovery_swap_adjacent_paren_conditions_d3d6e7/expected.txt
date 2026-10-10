@@ -1,0 +1,9 @@
+error: expected an expression, found `*` [unexpected-token]
+  --> main.buri:79:10
+   |
+79 |     pick(* x 2.0 > 3.0)
+   |          ^
+   |
+   = expected: an expression
+   = actual: `*`
+   = fix: write a value here

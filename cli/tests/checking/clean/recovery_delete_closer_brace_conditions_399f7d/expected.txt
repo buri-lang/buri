@@ -1,0 +1,24 @@
+error: this `if` condition is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:7:21
+  |
+7 |     if (flag { xs } else { [] }
+  |                     ^^^^
+  |
+ --> main.buri:7:8
+  |
+7 |     if (flag { xs } else { [] }
+  |        ^ opened here
+  |
+  = fix: write `)` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+   --> main.buri:164:1
+    |
+164 | 
+    | ^
+    |
+ --> main.buri:4:42
+  |
+4 | export fn heldAcrossAList(n: Int): [Int] {
+  |                                          ^ opened here
+  |
+  = fix: write `}` here

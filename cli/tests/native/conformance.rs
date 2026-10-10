@@ -27,7 +27,7 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **A hundred and fifteen of the hundred and twenty-three files are in it** — the
+//! **A hundred and sixteen of the hundred and twenty-four files are in it** — the
 //! number the harness prints, re-derived from it rather than incremented by hand,
 //! and one the prose has drifted from more than once. Seventeen that joined together are
 //! `core/buri/ast` and everything downstream of it — the five `buri_ast/`
@@ -579,6 +579,10 @@ const PACKAGES: &[Case] = &[
     // one on `ns.Enum.Variant`, the disagreement would be about the spelling
     // rather than about the value, and no backend gets to see the spelling.
     included("semantics/namespaces.buri"),
+    // A `Bool` from a comparison, branched on after other work or in another
+    // function. The stencil backend once redid the comparison at the branch,
+    // from operands that work had overwritten (buri-lang/buri#297).
+    included("semantics/conditions.buri"),
     // `core/cli`, driven end to end through `run` — which means the
     // environment double, two captured streams, and a handler reached through
     // a `fn(C, Arguments)` stored in a struct field. Nothing in it is an
@@ -1042,6 +1046,12 @@ fn linked_for_the_run(name: &str, source: &str) -> Built {
 /// or `None` for a file in the set or not in the corpus.
 pub(crate) fn excluded_because(path: &str) -> Option<&'static str> {
     PACKAGES.iter().find(|c| c.path == path).and_then(|c| c.out.as_ref()).map(Out::why)
+}
+
+/// The packages with a file out of the native set, which a whole-corpus
+/// `buri test` leaves on JavaScript.
+pub(crate) fn javascript_only_packages() -> std::collections::BTreeSet<&'static str> {
+    PACKAGES.iter().filter(|c| c.out.is_some()).filter_map(|c| c.path.split('/').next()).collect()
 }
 
 /// What the native set is built with: the development backend, unless

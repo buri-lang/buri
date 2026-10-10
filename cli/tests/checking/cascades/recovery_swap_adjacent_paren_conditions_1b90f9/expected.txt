@@ -1,0 +1,16 @@
+error: `pickNot` takes 1 argument, but 2 were given [argument-count]
+  --> main.buri:51:5
+   |
+51 |     pickNot(- n 1 > 0)
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass `pickNot` the following arguments: pickNot(flag: Bool)
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:51:16
+   |
+51 |     pickNot(- n 1 > 0)
+   |                ^
+   |
+   = fix: write `,` here

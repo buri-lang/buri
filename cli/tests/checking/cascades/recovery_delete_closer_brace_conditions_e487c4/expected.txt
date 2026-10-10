@@ -1,0 +1,48 @@
+error: there is nothing named `pickGuard` in scope [unknown-name]
+   --> main.buri:104:5
+    |
+104 |     pickGuard(n - 1 > 0, n)
+    |     ^^^^^^^^^
+    |
+    = did you mean `pickHeld`?
+    = fix: if you meant `pickHeld`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `pickOr` in scope [unknown-name]
+   --> main.buri:108:5
+    |
+108 |     pickOr(n - 1 > 0, n + 1 < 2)
+    |     ^^^^^^
+    |
+    = did you mean `pick`?
+    = fix: if you meant `pick`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `pickMixed` in scope [unknown-name]
+   --> main.buri:116:5
+    |
+116 |     pickMixed(n - 1 > 0, n * 2 < 7, n + 5 == 5)
+    |     ^^^^^^^^^
+    |
+    = did you mean `pickHeld`?
+    = fix: if you meant `pickHeld`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: this `if` branch is missing its closing `}` [unclosed-delimiter]
+   --> main.buri:147:22
+    |
+147 |     if (flag) { yes  else { no }
+    |                      ^^^^
+    |
+   --> main.buri:147:15
+    |
+147 |     if (flag) { yes  else { no }
+    |               ^ opened here
+    |
+    = fix: write `}` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+   --> main.buri:164:1
+    |
+164 | 
+    | ^
+    |
+   --> main.buri:146:45
+    |
+146 | fn pickAny<T>(flag: Bool, yes: T, no: T): T {
+    |                                             ^ opened here
+    |
+    = fix: write `}` here

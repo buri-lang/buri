@@ -1,0 +1,8 @@
+/// 1 when n - 1 is above zero, else 2.
+export fn f(n: Int): Int {
+    pick(n - 1 > 0)
+}
+
+fn pick(flag: Bool): Int {
+    if (flag) { 1 } else { 2 }
+}
