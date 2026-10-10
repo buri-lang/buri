@@ -522,7 +522,8 @@ jobs:
           if-no-files-found: ignore
 
   # The compiler's branch coverage from end-to-end tests only, which must never
-  # fall (coverage/compiler/src/main.rs). x86_64 Linux, the baseline's host.
+  # fall, in total or in any area (coverage/compiler/src/main.rs). x86_64
+  # Linux, the baseline's host.
   # `coverage-build` builds the instrumented `buri` and the tests once, so
   # every shard runs the same `buri`; each shard runs a quarter of the tests;
   # `coverage` merges the shards' profiles and gates.
@@ -614,7 +615,7 @@ jobs:
           pattern: coverage-shard-*
           path: target/shards
       - run: nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --merge=target/shards
-      # The ratchet: a rise in coverage becomes the baseline. On a push to main
+      # The ratchet: a rise in the total or an area becomes its baseline. On a push to main
       # it's committed there; anywhere else the commit is only printed. If main
       # moved meanwhile, the rise is checked again against main's baseline. A
       # push made with this job's token starts no workflow, and `[skip ci]`

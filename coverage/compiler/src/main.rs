@@ -68,6 +68,15 @@ fn main() {
     };
     let binary = gate.built().join("buri");
     let measured = gate.measure(&binary, &profiles);
+    let unmapped = unmapped(&measured);
+    if !unmapped.is_empty() {
+        eprintln!(
+            "these files are in no coverage area. Add them to `AREAS` in {}:\n  {}",
+            file!(),
+            unmapped.join("\n  ")
+        );
+        std::process::exit(1);
+    }
 
     let baseline_path = gate.root.join("coverage").join("compiler-branches.txt");
     let summary_path = gate.root.join("coverage").join("compiler.txt");
@@ -144,8 +153,9 @@ impl Gate {
         Gate { root, target, host, tools }
     }
 
-    /// The ratchet: replaces the checked-in baseline and summary with the last
-    /// measurement's when its total is higher. Per-file counts move with it.
+    /// The ratchet: raises the checked-in baseline to the last measurement
+    /// wherever the total or an area rose, and takes its per-file counts and
+    /// summary with it.
     fn raise(&self) {
         let checked_in = self.root.join("coverage").join("compiler-branches.txt");
         let measured = self.target.join("compiler-branches.txt");
@@ -153,18 +163,13 @@ impl Gate {
         let now = Baseline::parse(&std::fs::read_to_string(&measured).unwrap_or_else(|e| {
             panic!("{} can't be read ({e}); measure first", measured.display())
         }));
-        let ((was_covered, was_total), (covered, total)) = (was.total(), now.total());
-        if !rises(&was, &now) {
-            println!("coverage didn't rise above {}; the baseline stays", percent(was_covered, was_total));
+        let Some((raised, rose)) = ratchet(&was, &now) else {
+            println!("neither the total nor an area rose; the baseline stays");
             return;
-        }
-        std::fs::copy(&measured, &checked_in).unwrap();
+        };
+        std::fs::write(&checked_in, raised.render()).unwrap();
         std::fs::copy(self.target.join("compiler.txt"), self.root.join("coverage").join("compiler.txt")).unwrap();
-        println!(
-            "raised the baseline from {} to {} ({covered}/{total})",
-            percent(was_covered, was_total),
-            percent(covered, total)
-        );
+        println!("raised the baseline of {}", rose.join(", "));
     }
 
     /// The instrumented `buri` the tests run.
@@ -353,11 +358,50 @@ impl Gate {
     }
 }
 
-/// Whether `now`'s total coverage is higher than `was`'s, exactly. A baseline
-/// for another host, or none, is always lower.
-fn rises(was: &Baseline, now: &Baseline) -> bool {
-    let ((was_covered, was_total), (covered, total)) = (was.total(), now.total());
-    was.host != now.host || u128::from(covered) * u128::from(was_total) > u128::from(was_covered) * u128::from(total)
+/// `a` against `b` as fractions, exactly.
+fn cmp((a, at): (u64, u64), (b, bt): (u64, u64)) -> std::cmp::Ordering {
+    (u128::from(a) * u128::from(bt)).cmp(&(u128::from(b) * u128::from(at)))
+}
+
+/// Whether `now` sets a new baseline over `was`: there is none, there were no
+/// branches, or now a larger share is covered.
+fn rises(was: Option<(u64, u64)>, now: (u64, u64)) -> bool {
+    match was {
+        None => true,
+        Some((_, 0)) => now.1 > 0,
+        Some(was) => now.1 > 0 && cmp(now, was).is_gt(),
+    }
+}
+
+/// `was` raised by `now`: each of the total and the areas that rose takes its
+/// new count, the rest keep theirs, and the per-file counts are `now`'s. `None`
+/// when nothing rose. A baseline for another host is replaced outright. Also
+/// says what rose.
+fn ratchet(was: &Baseline, now: &Baseline) -> Option<(Baseline, Vec<String>)> {
+    if was.host != now.host {
+        return Some((now.clone(), vec![format!("host {}", now.host)]));
+    }
+    let mut rose = Vec::new();
+    let total = if rises(Some(was.total), now.total) {
+        rose.push("the total".to_string());
+        now.total
+    } else {
+        was.total
+    };
+    let mut areas = BTreeMap::new();
+    for (area, &counts) in &now.areas {
+        let old = was.areas.get(area).copied();
+        if rises(old, counts) {
+            rose.push(area.clone());
+            areas.insert(area.clone(), counts);
+        } else {
+            areas.insert(area.clone(), old.unwrap_or(counts));
+        }
+    }
+    if rose.is_empty() {
+        return None;
+    }
+    Some((Baseline { host: now.host.clone(), files: now.files.clone(), areas, total }, rose))
 }
 
 /// `path` relative to `root`. `llvm-cov report` drops the prefix every file
@@ -386,6 +430,48 @@ fn counted(path: &str) -> bool {
     }
     let mut parts = path.splitn(4, '/');
     matches!((parts.next(), parts.next(), parts.next()), (Some("crates"), Some(_), Some("src")))
+}
+
+/// The areas the gate holds apart, each by the paths that start with its
+/// prefix. The longest prefix wins, so every counted file is in exactly one.
+const AREAS: &[(&str, &str)] = &[
+    ("crates/backend/", "crates/backend"),
+    ("crates/diagnostics/", "crates/diagnostics"),
+    ("crates/docs/", "crates/docs"),
+    ("crates/hash/", "crates/hash"),
+    ("crates/js/", "crates/js"),
+    ("crates/llvm/", "crates/llvm"),
+    ("crates/middle/", "crates/middle"),
+    ("crates/project/", "crates/project"),
+    ("crates/semantics/", "crates/semantics"),
+    ("crates/stdlib/", "crates/stdlib"),
+    ("crates/stencil/", "crates/stencil"),
+    ("crates/syntax/", "crates/syntax"),
+    // `lint.rs` and `lint_cache.rs`.
+    ("cli/src/commands/lint", "cli/lint"),
+    ("cli/src/commands/format", "cli/format"),
+    ("cli/src/commands/test", "cli/test"),
+    ("cli/src/commands/run", "cli/run"),
+    ("cli/src/commands/serve", "cli/serve+watch"),
+    ("cli/src/commands/watch", "cli/serve+watch"),
+    ("cli/src/language_server/", "cli/language_server"),
+    ("cli/src/build/", "cli/build"),
+    ("cli/src/documentation/", "cli/documentation"),
+    ("cli/src/", "cli/other"),
+];
+
+/// The area `path` is in, if any.
+fn area_of(path: &str) -> Option<&'static str> {
+    AREAS
+        .iter()
+        .filter(|(prefix, _)| path.starts_with(prefix))
+        .max_by_key(|(prefix, _)| prefix.len())
+        .map(|&(_, area)| area)
+}
+
+/// The counted files in no area: a new crate, say.
+fn unmapped(files: &BTreeMap<String, Counts>) -> Vec<String> {
+    files.keys().filter(|path| area_of(path).is_none()).cloned().collect()
 }
 
 /// The profiles of the shards CI downloaded into `dir`, one directory each,
@@ -461,16 +547,6 @@ fn percent(covered: u64, total: u64) -> String {
     format!("{:.2}%", covered as f64 * 100.0 / total as f64)
 }
 
-/// The crate a source belongs to: `cli` or `crates/<name>`.
-fn crate_of(path: &str) -> String {
-    let mut parts = path.split('/');
-    match parts.next() {
-        Some("crates") => format!("crates/{}", parts.next().unwrap_or("")),
-        Some(first) => first.to_string(),
-        None => String::new(),
-    }
-}
-
 /// Where in `cli/src` a source sits: a command (`commands/lint`), a
 /// directory (`language_server`), or a file at the top (`json`).
 fn module_of(path: &str) -> Option<String> {
@@ -487,19 +563,21 @@ fn module_of(path: &str) -> Option<String> {
 
 /// `compiler.txt`: per crate, then the files with the most uncovered branches.
 fn summary(files: &BTreeMap<String, Counts>) -> String {
-    let mut crates: BTreeMap<String, Counts> = BTreeMap::new();
+    let mut areas: BTreeMap<&str, Counts> = AREAS.iter().map(|&(_, area)| (area, Counts::default())).collect();
     let mut total = Counts::default();
     for (path, counts) in files {
-        crates.entry(crate_of(path)).or_default().add(counts);
+        if let Some(area) = area_of(path) {
+            areas.entry(area).or_default().add(counts);
+        }
         total.add(counts);
     }
     let mut out = String::from(
         "# The compiler's coverage from end-to-end tests only (coverage/compiler/src/main.rs).\n\
-         # Branches gate; lines and regions are context.\n\n",
+         # Branches gate, in total and per area; lines and regions are context.\n\n",
     );
     out.push_str(&format!(
         "{:<24} {:>17} {:>8} {:>17} {:>8} {:>17} {:>8}\n",
-        "crate", "branches", "", "lines", "", "regions", ""
+        "area", "branches", "", "lines", "", "regions", ""
     ));
     let row = |name: &str, c: &Counts| {
         format!(
@@ -512,7 +590,7 @@ fn summary(files: &BTreeMap<String, Counts>) -> String {
             percent(c.regions_covered, c.regions),
         )
     };
-    for (name, counts) in &crates {
+    for (name, counts) in &areas {
         out.push_str(&row(name, counts));
     }
     out.push_str(&row("total", &total));
@@ -546,55 +624,80 @@ fn summary(files: &BTreeMap<String, Counts>) -> String {
     out
 }
 
-/// `compiler-branches.txt`: the host, then covered and total branches per file.
+/// `compiler-branches.txt`: the host, the total's and each area's covered and
+/// total branches, then each file's.
+#[derive(Clone)]
 struct Baseline {
     host: String,
+    total: (u64, u64),
+    areas: BTreeMap<String, (u64, u64)>,
     files: BTreeMap<String, (u64, u64)>,
 }
 
 impl Baseline {
-    fn of(host: &str, files: &BTreeMap<String, Counts>) -> Baseline {
-        Baseline {
-            host: host.to_string(),
-            files: files.iter().map(|(p, c)| (p.clone(), (c.branches_covered, c.branches))).collect(),
+    /// A measurement's baseline. Every area is in it, with no branches if no file is.
+    fn of(host: &str, measured: &BTreeMap<String, Counts>) -> Baseline {
+        let files: BTreeMap<String, (u64, u64)> =
+            measured.iter().map(|(p, c)| (p.clone(), (c.branches_covered, c.branches))).collect();
+        let mut areas: BTreeMap<String, (u64, u64)> =
+            AREAS.iter().map(|&(_, area)| (area.to_string(), (0, 0))).collect();
+        for (path, &(covered, total)) in &files {
+            if let Some(counts) = area_of(path).and_then(|area| areas.get_mut(area)) {
+                counts.0 += covered;
+                counts.1 += total;
+            }
         }
+        Baseline { host: host.to_string(), total: sum(files.values()), areas, files }
     }
 
     fn parse(text: &str) -> Baseline {
         let mut host = String::new();
+        let mut total = None;
+        let mut areas = BTreeMap::new();
         let mut files = BTreeMap::new();
+        let counts = |covered: &str, total: &str| Some((covered.parse().ok()?, total.parse().ok()?));
         for line in text.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
-            if let Some(h) = line.strip_prefix("host ") {
-                host = h.trim().to_string();
-                continue;
-            }
-            let mut words = line.splitn(3, ' ');
-            let (Some(covered), Some(total), Some(path)) = (words.next(), words.next(), words.next())
-            else {
-                continue;
-            };
-            if let (Ok(covered), Ok(total)) = (covered.parse(), total.parse()) {
-                files.insert(path.to_string(), (covered, total));
+            let words: Vec<&str> = line.split(' ').collect();
+            match words.as_slice() {
+                ["host", h] => host = h.trim().to_string(),
+                ["total", c, t, ..] => total = counts(c, t),
+                ["area", area, c, t, ..] => {
+                    if let Some(counts) = counts(c, t) {
+                        areas.insert(area.to_string(), counts);
+                    }
+                }
+                _ => {
+                    let mut words = line.splitn(3, ' ');
+                    let (Some(c), Some(t), Some(path)) = (words.next(), words.next(), words.next()) else {
+                        continue;
+                    };
+                    if let Some(counts) = counts(c, t) {
+                        files.insert(path.to_string(), counts);
+                    }
+                }
             }
         }
-        Baseline { host, files }
-    }
-
-    fn total(&self) -> (u64, u64) {
-        self.files.values().fold((0, 0), |(c, t), &(fc, ft)| (c + fc, t + ft))
+        // A baseline from before areas has no total line.
+        let total = total.unwrap_or_else(|| sum(files.values()));
+        Baseline { host, total, areas, files }
     }
 
     fn render(&self) -> String {
-        let (covered, total) = self.total();
         let mut out = format!(
-            "# Branches covered by end-to-end tests, per file: covered, total, path.\n\
+            "# Branches covered by end-to-end tests: covered, total, then what. The\n\
+             # gate holds the total and each area to their share; files only warn.\n\
              # CI's coverage job raises it on main; never edit a count by hand.\n\
              # coverage/compiler/src/main.rs has the rest.\n\
-             # total {covered} {total} ({})\n\
-             host {}\n",
-            percent(covered, total),
-            self.host
+             host {}\n\
+             total {} {} {}\n",
+            self.host,
+            self.total.0,
+            self.total.1,
+            percent(self.total.0, self.total.1)
         );
+        for (area, &(covered, total)) in &self.areas {
+            out.push_str(&format!("area {area} {covered} {total} {}\n", percent(covered, total)));
+        }
         for (path, (covered, total)) in &self.files {
             out.push_str(&format!("{covered} {total} {path}\n"));
         }
@@ -602,62 +705,74 @@ impl Baseline {
     }
 }
 
+fn sum<'a>(counts: impl Iterator<Item = &'a (u64, u64)>) -> (u64, u64) {
+    counts.fold((0, 0), |(c, t), &(fc, ft)| (c + fc, t + ft))
+}
+
+/// A share as its percentage and fraction: `50.00% (1/2)`.
+fn share((covered, total): (u64, u64)) -> String {
+    format!("{} ({covered}/{total})", percent(covered, total))
+}
+
 struct Verdict {
     report: String,
     failed: bool,
 }
 
-/// The total's percentage blocks. Per-file drops only warn: code that moves
-/// between files, or covered code that is deleted, lowers a file's count
-/// without lowering coverage.
+/// The total and every area block: a smaller covered share fails, compared as
+/// exact fractions. An area with no branches, then or now, has nothing to fall
+/// from. Per-file drops only warn: code that moves between files, or covered
+/// code that is deleted, lowers a file's count without lowering coverage.
 fn compare(baseline: &Baseline, now: &Baseline) -> Verdict {
-    let (was_covered, was_total) = baseline.total();
-    let (covered, total) = now.total();
-    let mut report = format!(
-        "branch coverage: {} ({was_covered}/{was_total}) in the baseline, {} ({covered}/{total}) now\n",
-        percent(was_covered, was_total),
-        percent(covered, total)
-    );
-    // covered/total against was_covered/was_total, exactly.
-    let (now_side, was_side) = (u128::from(covered) * u128::from(was_total), u128::from(was_covered) * u128::from(total));
-    let failed = now_side < was_side;
+    let mut report = format!("branch coverage: {} in the baseline, {} now\n", share(baseline.total), share(now.total));
+    let falls = |was: (u64, u64), now: (u64, u64)| was.1 > 0 && now.1 > 0 && cmp(now, was).is_lt();
 
-    let mut fell = Vec::new();
-    let mut rose = 0;
+    let mut lost: Vec<(&str, String)> = Vec::new();
     for (path, &(covered, _)) in &now.files {
         let was = baseline.files.get(path).map_or(0, |&(c, _)| c);
         if covered < was {
-            fell.push(format!("{path}: {was} -> {covered}"));
-        } else if covered > was {
-            rose += 1;
+            lost.push((path, format!("{path}: {was} -> {covered}")));
         }
     }
     for (path, &(was, _)) in &baseline.files {
         if was > 0 && !now.files.contains_key(path) {
-            fell.push(format!("{path}: {was} -> gone"));
+            lost.push((path, format!("{path}: {was} -> gone")));
         }
     }
-    if !fell.is_empty() {
+
+    let mut fell = Vec::new();
+    if falls(baseline.total, now.total) {
+        fell.push(format!("the total: {} -> {}", share(baseline.total), share(now.total)));
+    }
+    for (area, &counts) in &now.areas {
+        let Some(&was) = baseline.areas.get(area) else { continue };
+        if falls(was, counts) {
+            fell.push(format!("{area}: {} -> {}", share(was), share(counts)));
+            for (_, line) in lost.iter().filter(|(path, _)| area_of(path) == Some(area.as_str())) {
+                fell.push(format!("  {line}"));
+            }
+        }
+    }
+    let failed = !fell.is_empty();
+
+    if !lost.is_empty() {
         report.push_str(&format!(
             "\nwarning: {} file(s) cover fewer branches than the baseline. Fine if the code moved \
              or was deleted; otherwise a test stopped reaching it:\n  {}\n",
-            fell.len(),
-            fell.join("\n  ")
+            lost.len(),
+            lost.iter().map(|(_, line)| line.as_str()).collect::<Vec<_>>().join("\n  ")
         ));
     }
     if failed {
-        report.push_str(
-            "\nBranch coverage fell. Add end-to-end tests that reach the new or untested branches. \
-             Never lower the baseline to pass.\n",
-        );
-    } else if now_side > was_side {
-        report.push_str(
-            "\nBranch coverage rose. On main, CI raises the baseline to this run's numbers itself.\n",
-        );
-    } else if rose > 0 {
         report.push_str(&format!(
-            "\n{rose} file(s) cover more branches, but the total didn't rise, so the baseline \
-             stays.\n"
+            "\nBranch coverage fell:\n  {}\n\nAdd end-to-end tests that reach the new or untested \
+             branches. Never lower the baseline to pass.\n",
+            fell.join("\n  ")
+        ));
+    } else if let Some((_, rose)) = ratchet(baseline, now) {
+        report.push_str(&format!(
+            "\nBranch coverage rose: {}. On main, CI raises the baseline to this run's numbers itself.\n",
+            rose.join(", ")
         ));
     }
     Verdict { report, failed }
@@ -683,49 +798,162 @@ fn output(command: &mut Command) -> String {
 mod tests {
     use super::*;
 
+    const SYNTAX: &str = "crates/syntax/src/lexer.rs";
+    const LINT: &str = "cli/src/commands/lint.rs";
+
+    /// A run that measured `files`: covered and total branches each.
     fn baseline(files: &[(&str, u64, u64)]) -> Baseline {
-        Baseline {
-            host: "h".to_string(),
-            files: files.iter().map(|&(p, c, t)| (p.to_string(), (c, t))).collect(),
-        }
+        let measured = files
+            .iter()
+            .map(|&(path, covered, total)| {
+                (path.to_string(), Counts { branches: total, branches_covered: covered, ..Counts::default() })
+            })
+            .collect();
+        Baseline::of("h", &measured)
     }
 
     #[test]
-    fn a_lower_percentage_fails() {
-        let verdict = compare(&baseline(&[("a.rs", 5, 10)]), &baseline(&[("a.rs", 5, 11)]));
+    fn a_lower_total_share_fails_however_small() {
+        // 66.67% either way, to two places, but 666_666/1_000_000 is under 2/3.
+        let was = baseline(&[(SYNTAX, 2, 3)]);
+        let verdict = compare(&was, &baseline(&[(SYNTAX, 666_666, 1_000_000)]));
         assert!(verdict.failed, "{}", verdict.report);
+        assert!(verdict.report.contains("the total: 66.67% (2/3) -> 66.67%"), "{}", verdict.report);
+    }
+
+    #[test]
+    fn an_area_falling_fails_though_the_total_rises() {
+        let was = baseline(&[(SYNTAX, 5, 10), ("crates/syntax/src/parser.rs", 5, 10), (LINT, 0, 10)]);
+        let now = baseline(&[(SYNTAX, 4, 10), ("crates/syntax/src/parser.rs", 5, 10), (LINT, 9, 10)]);
+        let verdict = compare(&was, &now);
+        assert!(verdict.failed, "{}", verdict.report);
+        assert!(
+            verdict.report.contains(
+                "Branch coverage fell:\n  crates/syntax: 50.00% (10/20) -> 45.00% (9/20)\n    \
+                 crates/syntax/src/lexer.rs: 5 -> 4\n\n"
+            ),
+            "{}",
+            verdict.report
+        );
+        assert!(!verdict.report.contains("the total:"), "{}", verdict.report);
+    }
+
+    #[test]
+    fn an_equal_share_of_more_branches_passes() {
+        let verdict = compare(&baseline(&[(SYNTAX, 1, 2)]), &baseline(&[(SYNTAX, 5, 10)]));
+        assert!(!verdict.failed, "{}", verdict.report);
+    }
+
+    #[test]
+    fn an_area_with_no_branches_never_fails() {
+        let was = baseline(&[(SYNTAX, 5, 10), (LINT, 1, 2)]);
+        // Lint's code deleted, then new lint code that no test reaches yet.
+        assert!(!compare(&was, &baseline(&[(SYNTAX, 5, 10)])).failed);
+        let empty = baseline(&[(SYNTAX, 5, 10), (LINT, 0, 0)]);
+        assert!(!compare(&empty, &baseline(&[(SYNTAX, 10, 10), (LINT, 0, 5)])).failed);
     }
 
     #[test]
     fn code_moving_between_files_warns_and_passes() {
-        let was = baseline(&[("a.rs", 6, 10), ("b.rs", 0, 0)]);
-        let verdict = compare(&was, &baseline(&[("a.rs", 3, 5), ("b.rs", 3, 5)]));
+        let was = baseline(&[(SYNTAX, 6, 10), ("crates/syntax/src/b.rs", 0, 0)]);
+        let verdict = compare(&was, &baseline(&[(SYNTAX, 3, 5), ("crates/syntax/src/b.rs", 3, 5)]));
         assert!(!verdict.failed, "{}", verdict.report);
-        assert!(verdict.report.contains("a.rs: 6 -> 3"), "{}", verdict.report);
+        assert!(verdict.report.contains("warning: 1 file(s)"), "{}", verdict.report);
+        assert!(verdict.report.contains("lexer.rs: 6 -> 3"), "{}", verdict.report);
     }
 
     #[test]
-    fn a_gain_passes_and_says_the_baseline_rises() {
-        let verdict = compare(&baseline(&[("a.rs", 5, 10)]), &baseline(&[("a.rs", 6, 10)]));
+    fn a_gain_passes_and_names_what_rose() {
+        let was = baseline(&[(SYNTAX, 5, 10), (LINT, 5, 10)]);
+        let verdict = compare(&was, &baseline(&[(SYNTAX, 6, 10), (LINT, 5, 10)]));
         assert!(!verdict.failed);
-        assert!(verdict.report.contains("raises the baseline"), "{}", verdict.report);
+        assert!(verdict.report.contains("rose: the total, crates/syntax. On main"), "{}", verdict.report);
     }
 
     #[test]
-    fn only_a_higher_total_raises_the_baseline() {
-        let was = baseline(&[("a.rs", 5, 10)]);
-        assert!(rises(&was, &baseline(&[("a.rs", 6, 10)])));
-        assert!(!rises(&was, &baseline(&[("a.rs", 5, 10)])));
-        assert!(!rises(&was, &baseline(&[("a.rs", 10, 20), ("b.rs", 0, 1)])));
-        assert!(rises(&Baseline::parse(""), &was));
+    fn the_ratchet_raises_what_rose_and_keeps_the_rest() {
+        let was = baseline(&[(SYNTAX, 5, 10), (LINT, 5, 10)]);
+        // Only syntax rises. Lint and the total fall, which fails the gate, but
+        // the ratchet keeps their baselines anyway.
+        let now = baseline(&[(SYNTAX, 6, 10), (LINT, 1, 10)]);
+        let (raised, rose) = ratchet(&was, &now).unwrap();
+        assert_eq!(rose, ["crates/syntax"]);
+        assert_eq!(raised.total, (10, 20));
+        assert_eq!(raised.areas["crates/syntax"], (6, 10));
+        assert_eq!(raised.areas["cli/lint"], (5, 10));
+        assert_eq!(raised.areas["cli/format"], (0, 0));
+        assert_eq!(raised.files, now.files);
+
+        let (raised, rose) = ratchet(&was, &baseline(&[(SYNTAX, 5, 10), (LINT, 9, 10)])).unwrap();
+        assert_eq!(rose, ["the total", "cli/lint"]);
+        assert_eq!((raised.total, raised.areas["cli/lint"]), ((14, 20), (9, 10)));
+    }
+
+    #[test]
+    fn nothing_rising_leaves_the_baseline() {
+        let was = baseline(&[(SYNTAX, 5, 10), (LINT, 5, 10)]);
+        assert!(ratchet(&was, &baseline(&[(SYNTAX, 5, 10), (LINT, 10, 20)])).is_none());
+        assert!(ratchet(&was, &baseline(&[(SYNTAX, 5, 10), (LINT, 0, 0)])).is_none());
+    }
+
+    #[test]
+    fn a_baseline_without_areas_takes_every_area_and_keeps_its_total() {
+        let old = "host h\n5 10 crates/syntax/src/lexer.rs\n";
+        let was = Baseline::parse(old);
+        assert_eq!(was.total, (5, 10));
+        assert!(compare(&was, &baseline(&[(SYNTAX, 4, 10)])).failed);
+        let (raised, rose) = ratchet(&was, &baseline(&[(SYNTAX, 5, 10)])).unwrap();
+        assert_eq!(rose.len(), raised.areas.len());
+        assert!(ratchet(&Baseline::parse(""), &was).is_some());
     }
 
     #[test]
     fn the_baseline_round_trips() {
-        let was = baseline(&[("cli/src/a b.rs", 1, 2), ("crates/x/src/c.rs", 0, 0)]);
+        let mut was = baseline(&[("cli/src/a b.rs", 1, 2), (SYNTAX, 0, 0)]);
+        was.total = (7, 9);
         let again = Baseline::parse(&was.render());
         assert_eq!(again.host, "h");
+        assert_eq!(again.total, (7, 9));
+        assert_eq!(again.areas, was.areas);
         assert_eq!(again.files, was.files);
+        assert!(was.render().contains("\narea cli/other 1 2 50.00%\n"), "{}", was.render());
+    }
+
+    #[test]
+    fn every_file_is_in_exactly_one_area() {
+        let cases = [
+            ("crates/syntax/src/lexer.rs", "crates/syntax"),
+            ("cli/src/commands/lint.rs", "cli/lint"),
+            ("cli/src/commands/lint_cache.rs", "cli/lint"),
+            ("cli/src/commands/test.rs", "cli/test"),
+            ("cli/src/commands/serve.rs", "cli/serve+watch"),
+            ("cli/src/commands/watch.rs", "cli/serve+watch"),
+            ("cli/src/commands/build.rs", "cli/other"),
+            ("cli/src/build/link.rs", "cli/build"),
+            ("cli/src/language_server/mod.rs", "cli/language_server"),
+            ("cli/src/main.rs", "cli/other"),
+        ];
+        for (path, area) in cases {
+            assert_eq!(area_of(path), Some(area), "{path}");
+        }
+        let prefixes: std::collections::BTreeSet<&str> = AREAS.iter().map(|&(prefix, _)| prefix).collect();
+        assert_eq!(prefixes.len(), AREAS.len(), "two areas share a prefix");
+    }
+
+    #[test]
+    fn a_file_in_no_area_is_named() {
+        let files: BTreeMap<String, Counts> = [("crates/new/src/lib.rs", 1, 2), (SYNTAX, 1, 2)]
+            .into_iter()
+            .map(|(p, c, t)| (p.to_string(), Counts { branches: t, branches_covered: c, ..Counts::default() }))
+            .collect();
+        assert_eq!(unmapped(&files), ["crates/new/src/lib.rs"]);
+    }
+
+    #[test]
+    fn every_file_in_the_baseline_is_in_an_area() {
+        let checked_in = Baseline::parse(include_str!("../../compiler-branches.txt"));
+        let missing: Vec<&String> = checked_in.files.keys().filter(|path| area_of(path).is_none()).collect();
+        assert!(missing.is_empty(), "{missing:?}");
     }
 
     #[test]

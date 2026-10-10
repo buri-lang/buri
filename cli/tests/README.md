@@ -337,18 +337,28 @@ against it, and holds the compiler's branch coverage to
 the compiler in-process adds nothing, and every `buri` it starts adds its
 profile.
 
-The total only goes up. A run whose total falls fails. A run on main whose total
-rises commits the new baseline, per-file counts included, to main itself
-(`coverage: raise the baseline … [skip ci]`). Branches and pull requests print
-that commit and push nothing. A file covering fewer branches only warns, since
-moving or deleting code does that without lowering coverage.
+Coverage only goes up, in total and in each area. An area is a compiler crate
+or a part of the CLI (`lint`, `format`, `test`, `run`, `serve+watch`,
+`language_server`, `build`, `documentation`, and `other` for the rest of
+`cli/src`), and `AREAS` in `coverage/compiler/src/main.rs` maps every counted
+file to one. A run fails when the total's covered share falls, or any area's
+does, and names the area and the files in it that lost branches. A file in no
+area fails too, so a new crate needs a row. An area with no branches never
+fails. Shares compare as exact fractions.
+
+A run on main commits a new baseline to main itself (`coverage: raise the
+baseline … [skip ci]`): the total and each area that rose take this run's
+numbers, the rest keep theirs, and the per-file counts follow the run. Branches
+and pull requests print that commit and push nothing. A file covering fewer
+branches only warns, since moving or deleting code does that without lowering
+coverage.
 
 The baseline is x86_64 Linux's, so on any other host the gate prints its numbers
 and compares nothing.
 
 The gate counts everything the CLI runs: `cli/src` (every command, the build
 system, the language server, the documentation) and `crates/*/src`.
-`coverage/compiler.txt` breaks the total down by crate and by `cli/src`
+`coverage/compiler.txt` breaks the total down by area and by `cli/src`
 module. Raise coverage in the compiler and type checker first: `crates/syntax`,
 `crates/semantics`, `crates/middle` and the backends.
 
