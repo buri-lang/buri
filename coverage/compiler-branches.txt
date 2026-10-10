@@ -1,7 +1,7 @@
 # Branches covered by end-to-end tests, per file: covered, total, path.
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
-# total 13529 19072 (70.94%)
+# total 13549 19082 (71.00%)
 host x86_64-unknown-linux-gnu
 254 343 cli/src/build/actions.rs
 32 48 cli/src/build/cache.rs
@@ -20,17 +20,17 @@ host x86_64-unknown-linux-gnu
 31 36 cli/src/build/sources.rs
 10 18 cli/src/build/spawn.rs
 95 118 cli/src/build/tools.rs
-248 292 cli/src/build/workspace.rs
+250 292 cli/src/build/workspace.rs
 0 0 cli/src/commands/add/mod.rs
 7 8 cli/src/commands/add/skills.rs
-34 42 cli/src/commands/arguments.rs
+35 42 cli/src/commands/arguments.rs
 71 96 cli/src/commands/build.rs
 10 10 cli/src/commands/clean.rs
 83 98 cli/src/commands/format.rs
 28 34 cli/src/commands/generate.rs
 24 32 cli/src/commands/init.rs
 1 2 cli/src/commands/interrupt.rs
-549 668 cli/src/commands/lint.rs
+550 668 cli/src/commands/lint.rs
 36 40 cli/src/commands/lint_cache.rs
 19 24 cli/src/commands/mod.rs
 34 42 cli/src/commands/query.rs
@@ -38,11 +38,11 @@ host x86_64-unknown-linux-gnu
 16 36 cli/src/commands/serve.rs
 431 580 cli/src/commands/test.rs
 3 6 cli/src/commands/version.rs
-28 48 cli/src/commands/watch.rs
+30 50 cli/src/commands/watch.rs
 0 0 cli/src/compiler/backend/mod.rs
 1 2 cli/src/compiler/backend/runtime_native.rs
 48 66 cli/src/compiler/driver.rs
-185 218 cli/src/compiler/modules.rs
+186 218 cli/src/compiler/modules.rs
 4 4 cli/src/compiler/snapshot.rs
 0 4 cli/src/documentation/assemble.rs
 41 174 cli/src/documentation/examples.rs
@@ -64,25 +64,25 @@ host x86_64-unknown-linux-gnu
 36 44 cli/src/language_server/formatting.rs
 56 82 cli/src/language_server/inlay_hints.rs
 24 36 cli/src/language_server/links.rs
-139 160 cli/src/language_server/mod.rs
+143 164 cli/src/language_server/mod.rs
 6 6 cli/src/language_server/origins.rs
 27 32 cli/src/language_server/pull_diagnostics.rs
 16 20 cli/src/language_server/rename.rs
 41 46 cli/src/language_server/schema.rs
 48 58 cli/src/language_server/semantic_tokens.rs
 25 56 cli/src/language_server/signature_help.rs
-88 106 cli/src/language_server/state.rs
+92 110 cli/src/language_server/state.rs
 18 28 cli/src/language_server/sweep.rs
 151 192 cli/src/language_server/symbols.rs
 41 46 cli/src/language_server/syntax.rs
-6 12 cli/src/main.rs
+7 12 cli/src/main.rs
 18 20 crates/backend/src/compiler/backend/counts.rs
 7 8 crates/backend/src/compiler/backend/linkage.rs
 4 8 crates/backend/src/compiler/backend/mod.rs
 21 38 crates/backend/src/compiler/backend/runtime_native.rs
 15 16 crates/backend/src/compiler/backend/runtime_table.rs
 0 0 crates/backend/src/compiler/backend/task_thread.rs
-93 124 crates/diagnostics/src/diagnostics.rs
+95 124 crates/diagnostics/src/diagnostics.rs
 31 46 crates/diagnostics/src/json.rs
 30 36 crates/diagnostics/src/parallel.rs
 25 38 crates/diagnostics/src/profile.rs
@@ -132,7 +132,7 @@ host x86_64-unknown-linux-gnu
 82 94 crates/project/src/build/textproto.rs
 17 22 crates/project/src/build/workspace.rs
 17 28 crates/project/src/languages/json/format.rs
-37 56 crates/project/src/languages/json/mod.rs
+39 56 crates/project/src/languages/json/mod.rs
 12 20 crates/project/src/languages/json/number.rs
 41 126 crates/project/src/languages/json/regex.rs
 95 256 crates/project/src/languages/json/schema.rs
