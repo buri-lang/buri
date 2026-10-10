@@ -519,23 +519,17 @@ export fn main(host: NativeHost): Result<(), Str> {
     )
 }
 
-/// A server that answers `requests` requests, each handler sleeping for
-/// `sleep_milliseconds` before it answers.
-///
-/// **The sleep is the whole instrument.** A handler that computes proves nothing
-/// about concurrency on a machine with one processor free, and a handler that
-/// waits proves it on any machine: the acceptor's handlers overlapping take
-/// about one sleep in total, and one at a time takes `requests` of them. The gap
-/// between those two numbers is what `served_many`'s caller asserts inside.
+/// A server that answers `requests` requests. With a `gate`, each handler
+/// first dials that URL and waits for its answer, which a [`Gate`] withholds
+/// until enough handlers are waiting on it at once.
 ///
 /// How many handlers there are is not a parameter, because it is not a knob:
 /// the acceptor answers with `net.rs`'s `MAX_HANDLERS` on `Listener.handlers`
-/// and `run` fans out to it. That constant being a constant — 1024, and not a
-/// function of this machine's processor count — is what makes the timing
-/// assertion predictable, and `net.rs` says so where it is declared.
-pub fn concurrent_server(requests: usize, sleep_milliseconds: usize) -> String {
+/// and `run` fans out to it.
+pub fn concurrent_server(requests: usize, gate: Option<&str>) -> String {
+    let wait = gate.map_or(String::new(), |url| format!("let _gate = http.get(c, \"{url}\");\n      "));
     format!(
-        r#"from "platform/effect" import {{ Allocator, Clock, Listen, Stdout, Tasks }};
+        r#"from "platform/effect" import {{ Allocator, Clock, Listen, Network, Stdout, Tasks }};
 from "native" import {{ NativeHost }};
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -547,14 +541,14 @@ export fn main(host: NativeHost): Result<(), Str> {{
     Allocator: host.alloc,
     Clock: host.clock,
     Listen: host.listen,
+    Network: host.net,
     Stdout: host.stdout,
     Tasks: host.tasks,
   }};
   let plan = server.Server {{
     port: 0,
     onRequest: fn(c, request) => {{
-      let _slept = time.sleep(c, time.milliseconds({sleep}));
-      http.text(c, request.path())
+      {wait}http.text(c, request.path())
     }},
     requestLimit: .Some({requests}),
     idleTimeout: .Some(time.milliseconds(60000)),
@@ -573,10 +567,66 @@ export fn main(host: NativeHost): Result<(), Str> {{
     }},
   }}
 }}
-"#,
-        requests = requests,
-        sleep = sleep_milliseconds,
+"#
     )
+}
+
+/// A barrier for a server's handlers: an HTTP endpoint that holds every
+/// request until `width` are held at once, then answers them all.
+///
+/// Handlers that overlap meet here and go on. Handlers run one at a time
+/// never meet: the first waits alone until [`SERVER_DEADLINE`], is answered
+/// 503, and the gate closes. So the verdict is a count, not a time, and the
+/// deadline only bounds the failing run.
+pub struct Gate {
+    pub url: String,
+    held: std::thread::JoinHandle<usize>,
+}
+
+impl Gate {
+    pub fn open(width: usize) -> Gate {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a port for the gate");
+        let url = format!("http://127.0.0.1:{}/gate", listener.local_addr().unwrap().port());
+        listener.set_nonblocking(true).unwrap();
+        let held = std::thread::spawn(move || {
+            let until = std::time::Instant::now() + SERVER_DEADLINE;
+            let mut held: Vec<std::net::TcpStream> = Vec::new();
+            while held.len() < width && std::time::Instant::now() < until {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream.set_nonblocking(false).unwrap();
+                        stream.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
+                        // The request's head, so the answer comes after it.
+                        let mut head = Vec::new();
+                        let mut byte = [0u8; 1];
+                        while !head.ends_with(b"\r\n\r\n") && matches!(stream.read(&mut byte), Ok(1)) {
+                            head.extend_from_slice(&byte);
+                        }
+                        held.push(stream);
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                    Err(e) => panic!("the gate could not accept: {e}"),
+                }
+            }
+            let met = held.len();
+            let status = if met == width { "200 OK" } else { "503 Service Unavailable" };
+            for mut stream in held {
+                let _ = stream.write_all(
+                    format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").as_bytes(),
+                );
+            }
+            met
+        });
+        Gate { url, held }
+    }
+
+    /// How many requests the gate held at once.
+    pub fn met(self) -> usize {
+        self.held.join().expect("the gate finished")
+    }
 }
 
 /// Run a server binary, take the port off its first line of output, make one
@@ -657,18 +707,15 @@ pub fn served(binary: &Path, target: &str) -> (Ran, String) {
 }
 
 /// Run a server binary and make `requests` requests **at the same time**, one
-/// thread each; answer what each client got back and how long the whole
-/// exchange took.
+/// thread each, and answer what each client got back.
 ///
 /// The shape is `served`'s, with the one difference that matters: the clients
-/// all connect before any of them is answered, so a server that answers one
-/// connection at a time takes `requests` handler-sleeps and one that answers
-/// `handlers` at a time takes about `requests / handlers` of them.
+/// all connect before any of them is answered.
 ///
 /// **Every wait is bounded and every thread is joined**, for the reason
 /// `served` states: a test that could wait forever for a server is a suite that
 /// runs until CI kills it.
-pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>, std::time::Duration) {
+pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>) {
     use std::io::{BufRead, Read, Write};
     let mut child = spawned(binary);
     let stdout = child.stdout.take().expect("a piped stdout");
@@ -693,7 +740,6 @@ pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>, std::ti
         .unwrap_or_else(|e| panic!("the server announced no port within {SERVER_DEADLINE:?}: {e}"))
         .expect("the server's first line did not carry a port");
 
-    let started = std::time::Instant::now();
     let clients: Vec<_> = (0..requests)
         .map(|i| {
             std::thread::spawn(move || {
@@ -729,7 +775,6 @@ pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>, std::ti
         .collect();
     let replies: Vec<String> =
         clients.into_iter().map(|c| c.join().expect("a client finished")).collect();
-    let elapsed = started.elapsed();
 
     let status = child.wait().expect("the server exited");
     let (first, rest) = reader.join().expect("the reader thread finished");
@@ -745,7 +790,7 @@ pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>, std::ti
         ),
         stderr,
     };
-    (ran, replies, elapsed)
+    (ran, replies)
 }
 
 /// Every client got its own path back, and nobody got somebody else's.
