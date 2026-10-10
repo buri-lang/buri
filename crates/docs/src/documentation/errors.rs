@@ -165,6 +165,8 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("impl-target-not-type", "An `impl` names a declared type"),
     e!("impl-unknown-method", "An `impl` supplies only its trait's methods"),
     e!("import-missing-extension", "A non-surface module is imported by file name", &["language/modules"]),
+    e!("index-field-not-unsigned", "An `Index` type wraps an unsigned integer"),
+    e!("index-not-newtype", "An `Index` type is a tuple struct of one field"),
     e!("input-not-accepted", "A tool with a contract reads the languages it lists", &["build/tools"]),
     e!("integer-missing-digits", "A base prefix is followed by digits"),
     e!("integer-too-wide", "An integer literal fits in 128 bits"),

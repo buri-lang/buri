@@ -572,6 +572,25 @@ struct Access {
 derived `Ordered` does. `Show`, `ToJson` and `FromJson` read and write the plain
 struct. `Flags` can only be derived.
 
+`derive Index` marks a tuple struct over one unsigned integer, `U8` to `U64`, as
+a position. It adds no methods. `core/indexset`'s `IndexSet<K>` reads the
+number, and holds each member as one bit:
+
+```buri
+# from "core/indexset" import * as indexSet;
+# from "core/indexset" import { Index, IndexSet };
+# from "platform/effect" import { Allocator };
+
+derive Index, Equal for Slot;
+struct Slot(U32);
+
+# fn demo<C: Allocator>(ctx: C): Bool {
+    indexSet.of(ctx, [Slot(3), Slot(70)]).has(Slot(70))
+# }
+```
+
+`Index` can only be derived.
+
 #### 5.12.4 Operators are trait methods
 
 | Operator | Trait method |

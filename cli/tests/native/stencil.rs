@@ -2071,6 +2071,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "codegen/strings.buri",
     "codegen/tail_calls.buri",
     "collections/flags.buri",
+    "collections/indexset.buri",
     "collections/heap.buri",
     "collections/map.buri",
     "collections/orderedmap.buri",

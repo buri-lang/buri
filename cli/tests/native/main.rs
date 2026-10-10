@@ -294,6 +294,10 @@ mod from_json;
 // read off the runtime's heap statistics, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod flags;
+// What a `core/indexset` set costs: the bytes a moving window allocates, and
+// the instructions `has` and the set operations take against its size.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod indexset;
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod wrapping;
 // What an ordered map's lookups and a list's projections cost against the

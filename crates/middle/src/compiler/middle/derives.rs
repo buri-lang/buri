@@ -677,7 +677,7 @@ fn children(d: &Desc) -> Vec<usize> {
         Desc::Enum { variants, .. } => {
             variants.iter().flat_map(|v| v.fields.iter().map(|f| f.ty)).collect()
         }
-        Desc::Array(e) | Desc::Option(e) => vec![*e],
+        Desc::Array(e) | Desc::Option(e) | Desc::Members { list: e, .. } => vec![*e],
         Desc::Tuple(es) => es.clone(),
     }
 }
@@ -940,6 +940,7 @@ impl Generator {
             | Some(Desc::Enum { name, .. })
             | Some(Desc::Flags { name, .. }) => name.clone(),
             Some(Desc::Prim(p)) => p.name().to_string(),
+            Some(Desc::Members { .. }) => "IndexSet".to_string(),
             Some(Desc::Array(_)) => "list".to_string(),
             Some(Desc::Tuple(_)) => "tuple".to_string(),
             Some(Desc::Option(_)) => "option".to_string(),
@@ -1056,6 +1057,11 @@ impl Generator {
                 self.key_into(op, *e, path, out);
                 out.push(')');
             }
+            Some(Desc::Members { list, .. }) => {
+                out.push_str("m(");
+                self.key_into(op, *list, path, out);
+                out.push(')');
+            }
             Some(Desc::Option(e)) => {
                 out.push_str("o(");
                 self.key_into(op, *e, path, out);
@@ -1131,6 +1137,12 @@ impl Generator {
             ret,
             Span::NONE,
         )
+    }
+
+    /// An `IndexSet`'s members, through its `toList`, whose context is `()`.
+    fn members_of(&self, to: FuncIdx, list: usize, set: Expr) -> Expr {
+        let unit = Expr::new(ExprKind::Unit, Ty::UNIT, Span::NONE);
+        self.call(to, vec![set, unit], self.ty_of(list))
     }
 
     /// A code pointer to a generated function, for the array helpers.
@@ -1302,7 +1314,9 @@ impl Generator {
             }
             Desc::Option(inner) => self.eq_option(desc, *inner, a, b, frame),
             Desc::Enum { variants, .. } => self.eq_enum(desc, variants, a, b, frame),
-            Desc::Opaque(_) | Desc::Reserved => None,
+            // An `IndexSet` compares and hashes through the `Equal` and `Hash` it
+            // writes by hand, and has no `Ordered`.
+            Desc::Members { .. } | Desc::Opaque(_) | Desc::Reserved => None,
         }
     }
 
@@ -1494,7 +1508,9 @@ impl Generator {
             }
             Desc::Option(inner) => self.compare_option(desc, *inner, a, b, frame),
             Desc::Enum { variants, .. } => self.compare_enum(desc, variants, a, b, frame),
-            Desc::Opaque(_) | Desc::Reserved => None,
+            // An `IndexSet` compares and hashes through the `Equal` and `Hash` it
+            // writes by hand, and has no `Ordered`.
+            Desc::Members { .. } | Desc::Opaque(_) | Desc::Reserved => None,
         }
     }
 
@@ -1986,6 +2002,10 @@ impl Generator {
                 }
                 Some(self.match_(x, arms, str_ty))
             }
+            Desc::Members { list, to, .. } => {
+                let xs = self.members_of(*to, *list, x);
+                self.at(Op::Show, *list, vec![xs])
+            }
             Desc::Opaque(_) | Desc::Reserved => None,
         }
     }
@@ -2272,6 +2292,10 @@ impl Generator {
                 }
                 Some(self.match_(x, arms, json))
             }
+            Desc::Members { list, to, .. } => {
+                let xs = self.members_of(*to, *list, x);
+                self.at(Op::ToJson, *list, vec![xs])
+            }
             Desc::Opaque(_) | Desc::Reserved => None,
         }
     }
@@ -2451,6 +2475,15 @@ impl Generator {
             Desc::Tuple(es) => self.decode_array(&ty, je, pe, es, Build::Tuple(ty), frame),
             Desc::Array(elem) => self.decode_list(&ty, *elem, je, pe, frame),
             Desc::Enum { variants, .. } => self.decode_enum(&ty, variants, je, pe, frame),
+            // The members' list, then the set `indexset.of` builds from it.
+            Desc::Members { list, from, .. } => {
+                let mut stmts = Vec::new();
+                let xs = self.decode_into(*list, je, pe, &mut stmts, frame)?;
+                let unit = Expr::new(ExprKind::Unit, Ty::UNIT, Span::NONE);
+                let set = self.call(*from, vec![unit, xs], ty);
+                let done = self.ok(&ty, set)?;
+                Some(self.block(stmts, done))
+            }
             Desc::Opaque(_) | Desc::Reserved => None,
         }
     }
@@ -3035,7 +3068,9 @@ impl Generator {
                 }
                 Some(self.match_(x, arms, acc))
             }
-            Desc::Opaque(_) | Desc::Reserved => None,
+            // An `IndexSet` compares and hashes through the `Equal` and `Hash` it
+            // writes by hand, and has no `Ordered`.
+            Desc::Members { .. } | Desc::Opaque(_) | Desc::Reserved => None,
         }
     }
 

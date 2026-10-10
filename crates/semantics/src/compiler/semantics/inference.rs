@@ -1202,7 +1202,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     let derived = imp.is_derived();
                     // `Flags` asks its fields to be `Bool`s, not to be
                     // `Flags`, and `check_flags` already said whether they are.
-                    if derived && self.c.tables.trait_(tr).name == "Flags" {
+                    if derived && matches!(self.c.tables.trait_(tr).name.as_str(), "Flags" | "Index") {
                         return true;
                     }
                     if derived {
@@ -1262,17 +1262,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             TyKind::Con(_, a) => a.to_vec(),
             _ => Vec::new(),
         };
-        let tycon = self.c.tables.tycon(con);
-        let components: Vec<Ty> = match &tycon.def {
-            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty).collect(),
-            TyDef::Enum { variants } => variants
-                .iter()
-                .flat_map(|v| v.fields.iter().map(|f| f.ty))
-                .collect(),
-            TyDef::Prim(_) => Vec::new(),
-        };
-        components.into_iter().find_map(|t| {
-            let t = substitute(&t, &args, None);
+        self.derived_components(con, &args).into_iter().find_map(|t| {
             if t.head() == Some(con) || self.satisfies(&t, tr) {
                 None
             } else {
@@ -1295,8 +1285,20 @@ impl<'a, 'b> Infer<'a, 'b> {
         tr: TraitId,
         seen: &mut Vec<TyConId>,
     ) -> bool {
-        let tycon = self.c.tables.tycon(con);
-        let field_types: Vec<Ty> = match &tycon.def {
+        // `con` is already on `seen`, so a component that reaches back to it —
+        // directly, or through an array, a tuple, or another type that holds
+        // one — stops there rather than asking the question again.
+        self.derived_components(con, args).iter().all(|t| self.satisfies_seen(t, tr, seen))
+    }
+
+    /// What a derived implementation at `con<args>` folds over: its fields, or
+    /// its variants' payloads. An `IndexSet` is encoded and decoded as the
+    /// list of its members, so its one component is `K`, not its words.
+    fn derived_components(&self, con: TyConId, args: &[Ty]) -> Vec<Ty> {
+        if self.c.known_types.get("IndexSet") == Some(&con) {
+            return args.to_vec();
+        }
+        let components: Vec<Ty> = match &self.c.tables.tycon(con).def {
             TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty).collect(),
             TyDef::Enum { variants } => variants
                 .iter()
@@ -1304,13 +1306,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .collect(),
             TyDef::Prim(_) => Vec::new(),
         };
-        // `con` is already on `seen`, so a component that reaches back to it —
-        // directly, or through an array, a tuple, or another type that holds
-        // one — stops there rather than asking the question again.
-        field_types.iter().all(|t| {
-            let t = substitute(t, args, None);
-            self.satisfies_seen(&t, tr, seen)
-        })
+        components.iter().map(|t| substitute(t, args, None)).collect()
     }
 
     // -- literal ranges -----------------------------------------------------

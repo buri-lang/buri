@@ -26,8 +26,8 @@ impl ToJson for Point {
 }
 ```
 
-`core/json`'s `ToJson` and `FromJson`, and `core/flags`'s `Flags`, are always
-derived.
+`core/json`'s `ToJson` and `FromJson`, `core/flags`'s `Flags` and
+`core/indexset`'s `Index` are always derived.
 
 One runtime walker encodes every derived type by its shape. So encoding a
 `Date` directly would call a hand-written `impl ToJson for Date`, but encoding
@@ -37,3 +37,6 @@ at the call site.
 
 `Flags`'s operations work on the word `derive Flags` packs the fields into, so
 there is nothing for an `impl` to say.
+
+`Index` adds no methods: its position is the number the struct wraps, which
+`core/indexset` reads, so there is nothing for an `impl` to say either.

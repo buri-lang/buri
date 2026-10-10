@@ -1,0 +1,15 @@
+error: `Lane` cannot derive `Index`: it is an enum [index-not-newtype]
+ --> cmd/index_enum/main.buri:8:1
+  |
+8 | derive Index for Lane;
+  | ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = an `Index` type's position is the one number it wraps
+  = fix: wrap exactly one unsigned integer, `struct Lane(U32);`, or drop `Index` from this `derive`
+
+    The same goes for an enum, and for a tuple struct of two fields or none.
+    Wrap the one number:
+
+      derive Index for Slot;
+      struct Slot(U32);
+

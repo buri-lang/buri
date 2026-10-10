@@ -7,8 +7,8 @@ error: `Flags` is derived, not implemented [derive-only-trait]
    = a `Flags` type is stored as a word with one bit per field, and its operations are that word's, so only the compiler can write them
    = fix: write `derive Flags for Access;` instead
 
-     core/json's ToJson and FromJson, and core/flags's Flags, are always
-     derived.
+     core/json's ToJson and FromJson, core/flags's Flags and core/indexset's
+     Index are always derived.
 
      One runtime walker encodes every derived type by its shape. So encoding a
      Date directly would call a hand-written impl ToJson for Date, but encoding
@@ -18,6 +18,9 @@ error: `Flags` is derived, not implemented [derive-only-trait]
 
      Flags's operations work on the word derive Flags packs the fields into, so
      there is nothing for an impl to say.
+
+     Index adds no methods: its position is the number the struct wraps, which
+     core/indexset reads, so there is nothing for an impl to say either.
 
 error: `Access` does not implement `Flags` [missing-impl]
   --> cmd/flags_hand_written_impl/main.buri:25:30

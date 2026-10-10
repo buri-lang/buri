@@ -1,0 +1,437 @@
+//! core/indexset — a set of numbered members, one bit each.
+//!
+//! `derive Index` marks a tuple struct over one unsigned integer as a
+//! position. An `IndexSet<K>` of those is a list of 64-bit words with a bit per
+//! position, starting at the word of its smallest member. So a window of large,
+//! close-together numbers costs a few words, not one word per number below it.
+//!
+//! ```buri run
+//! from "core/indexset" import * as indexSet;
+//! from "core/indexset" import { Index, IndexSet };
+//! from "core/io" import * as io;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout };
+//!
+//! derive Index, Equal, Show for Slot;
+//! struct Slot(U32);
+//!
+//! export fn main(host: NodeHost): Result<(), Str> {
+//!     let ctx = context {
+//!         Allocator: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let live = indexSet.of(ctx, [Slot(3), Slot(70)]).remove(ctx, Slot(3));
+//!     let free = live.firstMissingFrom(Slot(70));
+//!     let shown = live.show(ctx);
+//!     let _ = io.println(ctx, "${shown} has ${live.count()}, next free ${free}").ignore();
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! [Slot(70)] has 1, next free .Some(Slot(71))
+//! ```
+//!
+//! **Typed members.** Every operation takes and answers `K`, so a `Seq` in a
+//! set of `Slot`s is a compile error rather than a wrong bit.
+//!
+//! **What it costs.** `has` reads one word. `union`, `intersect`, `difference`
+//! and `isSubsetOf` walk the words, not the members. A set is a value, so
+//! `insert` and `remove` answer a new one. Where nothing else holds the set,
+//! the word is written in place, as a list's `replaceAt` is; otherwise the
+//! words are copied. `removeBelow` drops whole leading words.
+//!
+//! **What the packing keeps.** `Equal` and `Hash` compare members, so two sets
+//! built differently are equal when they hold the same members. `Show`,
+//! `ToJson` and `FromJson` read and write the members as a list in ascending
+//! order, so the words never reach a wire format.
+
+from "core/bits" import * as bits;
+from "core/json" import { FromJson, ToJson };
+from "core/list" import * as list;
+from "core/order" import { Equal, Hash, Show };
+from "platform/effect" import { Allocator };
+
+/// A tuple struct over one unsigned integer, whose number is its position in
+/// an `IndexSet`. Only `derive Index` makes one, and it adds no methods.
+export trait Index {}
+
+derive ToJson, FromJson for IndexSet;
+/// A set of `K`s, a bit per position.
+export struct IndexSet<K> {
+    /// The word `words` starts at: position `p` is bit `p % 64` of word
+    /// `p / 64 - base`.
+    base: Int,
+    /// Never a zero word at either end, so one set of members has one shape.
+    words: [U64],
+}
+
+/// The number a member wraps, widened.
+fn position<K: Index>(member: K): U64;
+
+/// The member at a position. Asked only for a position a member came from, or
+/// for one that is checked against `position` afterwards.
+fn member<K: Index>(position: U64): K;
+
+/// The last word a `U64` position reaches.
+let LAST_WORD: Int = 288230376151711743;
+
+fn wordOf(p: U64): Int {
+    bits.shiftRightU64(p, 6).wrapToI64()
+}
+
+fn bitOf(p: U64): U64 {
+    bits.shiftLeftU64(1, (p & 63).wrapToI64())
+}
+
+fn positionAt(word: Int, bit: Int): U64 {
+    bits.shiftLeftU64(word.wrapToU64(), 6) | bit.wrapToU64()
+}
+
+/// Every bit at or above `bit`.
+fn bitsFrom(bit: Int): U64 {
+    ~(bits.shiftLeftU64(1, bit) - 1)
+}
+
+/// The empty set. Pure: there is nothing to allocate.
+export fn empty<K: Index>(): IndexSet<K> {
+    IndexSet { base: 0, words: list.empty<U64>() }
+}
+
+/// A set of the given members, duplicates collapsed.
+export fn of<K: Index, C: Allocator>(ctx: C, members: [K]): IndexSet<K> {
+    members.foldCtx(ctx, fn(c, acc: IndexSet<K>, m) => acc.insert(c, m), empty<K>())
+}
+
+/// Every member from `start` up to, not including, `end`: half-open, like
+/// `list.range`.
+export fn range<K: Index, C: Allocator>(ctx: C, start: K, end: K): IndexSet<K> {
+    let (first, past) = (position(start), position(end));
+    if (past <= first) {
+        empty<K>()
+    } else {
+        let last = past - 1;
+        let (lo, hi) = (wordOf(first), wordOf(last));
+        let below = bitsFrom((first & 63).wrapToI64());
+        let top = (last & 63).wrapToI64();
+        let above: U64 = if (top == 63) {
+            ~0
+        } else {
+            bits.shiftLeftU64(1, top + 1) - 1
+        };
+        let ones: U64 = ~0;
+        let full = list.repeat(ctx, ones, hi - lo + 1);
+        let low = full.replaceAt(ctx, 0, below);
+        let n = hi - lo;
+        IndexSet {
+            base: lo,
+            words: low.replaceAt(ctx, n, low.get(n).withDefault(0) & above),
+        }
+    }
+}
+
+/// The set holding the words `words` from word `base`, with the zero words at
+/// either end dropped.
+fn trimmed<K: Index, C: Allocator>(ctx: C, base: Int, words: [U64]): IndexSet<K> {
+    match (words.findIndex(fn(w) => w != 0)) {
+        .None => empty<K>(),
+        .Some(lo) => {
+            let hi = words.findLastIndex(fn(w) => w != 0).withDefault(lo);
+            if (hi - lo + 1 == words.length()) {
+                IndexSet { base, words }
+            } else {
+                IndexSet { base: base + lo, words: words.slice(ctx, lo, hi + 1) }
+            }
+        },
+    }
+}
+
+/// `op` of the two sets' words at each of `count` words from word `at`. One
+/// list, written in place.
+fn combined<K: Index, C: Allocator>(
+    ctx: C,
+    a: IndexSet<K>,
+    b: IndexSet<K>,
+    at: Int,
+    count: Int,
+    op: fn(U64, U64) => U64,
+): [U64] {
+    combinedFrom(ctx, a, b, at, op, 0, zeros(ctx, count))
+}
+
+fn combinedFrom<K: Index, C: Allocator>(
+    ctx: C,
+    a: IndexSet<K>,
+    b: IndexSet<K>,
+    at: Int,
+    op: fn(U64, U64) => U64,
+    i: Int,
+    out: [U64],
+): [U64] {
+    if (i >= out.length()) {
+        out
+    } else {
+        let w = op(a.wordAt(at + i), b.wordAt(at + i));
+        combinedFrom(ctx, a, b, at, op, i + 1, out.replaceAt(ctx, i, w))
+    }
+}
+
+/// `count` zero words.
+fn zeros<C: Allocator>(ctx: C, count: Int): [U64] {
+    list.repeat(ctx, 0, count)
+}
+
+impl<K: Index> IndexSet<K> {
+    /// The word at absolute word index `at`, zero outside the set.
+    fn wordAt(self, at: Int): U64 {
+        self.words.get(at - self.base).withDefault(0)
+    }
+
+    /// One past the last word.
+    fn end(self): Int {
+        self.base + self.words.length()
+    }
+
+    export fn has(self, member: K): Bool {
+        let p = position(member);
+        self.wordAt(wordOf(p)) & bitOf(p) != 0
+    }
+
+    export fn isEmpty(self): Bool {
+        self.words.isEmpty()
+    }
+
+    /// How many members. One count of set bits per word.
+    export fn count(self): Int {
+        self.words.fold(fn(n, w) => n + bits.popCountU64(w), 0)
+    }
+
+    export fn insert<C: Allocator>(self, ctx: C, member: K): IndexSet<K> {
+        let p = position(member);
+        let (at, bit) = (wordOf(p), bitOf(p));
+        let i = at - self.base;
+        if (self.words.isEmpty()) {
+            IndexSet { base: at, words: [bit] }
+        } else if (i < 0) {
+            let front = [bit].concat(ctx, zeros(ctx, -i - 1));
+            IndexSet { base: at, words: front.concat(ctx, self.words) }
+        } else if (i >= self.words.length()) {
+            let grown = self.words.concat(ctx, zeros(ctx, i - self.words.length()));
+            IndexSet { base: self.base, words: grown.push(ctx, bit) }
+        } else {
+            let old = self.words.get(i).withDefault(0);
+            if (old & bit != 0) {
+                self
+            } else {
+                IndexSet {
+                    base: self.base,
+                    words: self.words.replaceAt(ctx, i, old | bit),
+                }
+            }
+        }
+    }
+
+    export fn remove<C: Allocator>(self, ctx: C, member: K): IndexSet<K> {
+        let p = position(member);
+        let i = wordOf(p) - self.base;
+        let old = self.words.get(i).withDefault(0);
+        let bit = bitOf(p);
+        if (old & bit == 0) {
+            self
+        } else {
+            let words = self.words.replaceAt(ctx, i, old & ~bit);
+            // A word left empty is dropped if it is at an end. `trimmed` reads
+            // from each end, so a word in the middle costs it two reads.
+            if (old == bit) {
+                trimmed(ctx, self.base, words)
+            } else {
+                IndexSet { base: self.base, words }
+            }
+        }
+    }
+
+    /// The members at or above `member`. Whole words below it are dropped.
+    export fn removeBelow<C: Allocator>(self, ctx: C, member: K): IndexSet<K> {
+        let p = position(member);
+        let i = wordOf(p) - self.base;
+        if (i < 0) {
+            self
+        } else if (i >= self.words.length()) {
+            empty<K>()
+        } else {
+            let kept = if (i == 0) { self.words } else { self.words.drop(ctx, i) };
+            let first = kept.get(0).withDefault(0);
+            let masked = first & bitsFrom((p & 63).wrapToI64());
+            if (masked == first) {
+                IndexSet { base: self.base + i, words: kept }
+            } else {
+                trimmed(ctx, self.base + i, kept.replaceAt(ctx, 0, masked))
+            }
+        }
+    }
+
+    /// The smallest member.
+    export fn first(self): Option<K> {
+        self
+            .words
+            .first()
+            .map(fn(w) => member(positionAt(self.base, bits.trailingZerosU64(w))))
+    }
+
+    /// The largest member.
+    export fn last(self): Option<K> {
+        let at = self.end() - 1;
+        self
+            .words
+            .last()
+            .map(fn(w) => member(positionAt(at, 63 - bits.leadingZerosU64(w))))
+    }
+
+    /// The smallest position at or above `member` that the set does not hold,
+    /// or `.None` when every one up to `K`'s largest is held.
+    export fn firstMissingFrom(self, member: K): Option<K> {
+        let p = position(member);
+        let at = wordOf(p);
+        self.missingFrom(at, ~self.wordAt(at) & bitsFrom((p & 63).wrapToI64()))
+    }
+
+    /// The first missing position from word `at`, whose missing bits not yet
+    /// passed are `open`.
+    fn missingFrom(self, at: Int, open: U64): Option<K> {
+        if (open != 0) {
+            let p = positionAt(at, bits.trailingZerosU64(open));
+            let m: K = member(p);
+            if (position(m) == p) { .Some(m) } else { .None }
+        } else if (at >= LAST_WORD) {
+            .None
+        } else {
+            self.missingFrom(at + 1, ~self.wordAt(at + 1))
+        }
+    }
+
+    /// The members of either.
+    export fn union<C: Allocator>(self, ctx: C, other: IndexSet<K>): IndexSet<K> {
+        if (self.words.isEmpty()) {
+            other
+        } else if (other.words.isEmpty()) {
+            self
+        } else {
+            let a = self;
+            let lo = if (a.base < other.base) { a.base } else { other.base };
+            let hi = if (a.end() > other.end()) { a.end() } else { other.end() };
+            IndexSet {
+                base: lo,
+                words: combined(ctx, a, other, lo, hi - lo, fn(x, y) => x | y),
+            }
+        }
+    }
+
+    /// The members of both.
+    export fn intersect<C: Allocator>(self, ctx: C, other: IndexSet<K>): IndexSet<K> {
+        let a = self;
+        let lo = if (a.base > other.base) { a.base } else { other.base };
+        let hi = if (a.end() < other.end()) { a.end() } else { other.end() };
+        if (hi <= lo) {
+            empty<K>()
+        } else {
+            trimmed(ctx, lo, combined(ctx, a, other, lo, hi - lo, fn(x, y) => x & y))
+        }
+    }
+
+    /// The members of `self` that are not in `other`.
+    export fn difference<C: Allocator>(self, ctx: C, other: IndexSet<K>): IndexSet<K> {
+        let words = combined(
+            ctx,
+            self,
+            other,
+            self.base,
+            self.words.length(),
+            fn(x, y) => x & ~y,
+        );
+        trimmed(ctx, self.base, words)
+    }
+
+    /// Whether every member here is in `other` too.
+    export fn isSubsetOf(self, other: IndexSet<K>): Bool {
+        if (self.words.isEmpty()) {
+            true
+        } else if (self.base < other.base || self.end() > other.end()) {
+            false
+        } else {
+            self.subsetFrom(other, 0)
+        }
+    }
+
+    fn subsetFrom(self, other: IndexSet<K>, i: Int): Bool {
+        match (self.words.get(i)) {
+            .None => true,
+            .Some(w) => {
+                if (w & ~other.wordAt(self.base + i) != 0) {
+                    false
+                } else {
+                    self.subsetFrom(other, i + 1)
+                }
+            },
+        }
+    }
+
+    /// Every member, in ascending order.
+    export fn toList<C: Allocator>(self, ctx: C): [K] {
+        self.listFrom(ctx, 0, self.words.get(0).withDefault(0), list.empty<K>())
+    }
+
+    fn listFrom<C: Allocator>(self, ctx: C, i: Int, w: U64, acc: [K]): [K] {
+        if (w != 0) {
+            let m: K = member(positionAt(self.base + i, bits.trailingZerosU64(w)));
+            self.listFrom(ctx, i, w & w - 1, acc.push(ctx, m))
+        } else if (i + 1 < self.words.length()) {
+            self.listFrom(ctx, i + 1, self.words.get(i + 1).withDefault(0), acc)
+        } else {
+            acc
+        }
+    }
+
+    /// `step` over every member, in ascending order. Pure, like a list's
+    /// `fold`.
+    export fn fold<B>(self, step: fn(B, K) => B, init: B): B {
+        self.foldFrom(step, 0, self.words.get(0).withDefault(0), init)
+    }
+
+    fn foldFrom<B>(self, step: fn(B, K) => B, i: Int, w: U64, acc: B): B {
+        if (w != 0) {
+            let m: K = member(positionAt(self.base + i, bits.trailingZerosU64(w)));
+            self.foldFrom(step, i, w & w - 1, step(acc, m))
+        } else if (i + 1 < self.words.length()) {
+            self.foldFrom(step, i + 1, self.words.get(i + 1).withDefault(0), acc)
+        } else {
+            acc
+        }
+    }
+}
+
+/// The same members. The words have no zero word at either end, so one set of
+/// members has one `base` and one list of words.
+impl<K: Index> Equal for IndexSet<K> {
+    fn equal(self, other: IndexSet<K>): Bool {
+        self.base == other.base && self.words == other.words
+    }
+}
+
+/// FNV-1a over the base and the words, so equal sets hash alike.
+impl<K: Index> Hash for IndexSet<K> {
+    fn hash(self): U64 {
+        let prime: U64 = 1099511628211;
+        let seed = (14695981039346656037 ^ self.base.wrapToU64()).wrappingMultiply(
+            prime,
+        );
+        self.words.fold(fn(h, w) => (h ^ w).wrappingMultiply(prime), seed)
+    }
+}
+
+/// The members as a list, in ascending order: `[Slot(3), Slot(70)]`.
+impl<K: Index + Show> Show for IndexSet<K> {
+    fn show<C: Allocator>(self, ctx: C): Str {
+        let shown = self.toList(ctx).mapCtx(ctx, fn(c, m) => m.show(c)).join(ctx, ", ");
+        ["[", shown, "]"].join(ctx, "")
+    }
+}

@@ -1,0 +1,43 @@
+error: `Index` is derived, not implemented [derive-only-trait]
+  --> cmd/index_hand_written_impl/main.buri:10:1
+   |
+10 | impl Index for Slot {}
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = an `Index` type's position is the number it wraps, which only the compiler reads, so there is nothing for an `impl` to say
+   = fix: write `derive Index for Slot;` instead
+
+     core/json's ToJson and FromJson, core/flags's Flags and core/indexset's
+     Index are always derived.
+
+     One runtime walker encodes every derived type by its shape. So encoding a
+     Date directly would call a hand-written impl ToJson for Date, but encoding
+     an Appointment that holds a Date would walk straight past it. For a
+     different document, convert to another type first, through a function
+     visible at the call site.
+
+     Flags's operations work on the word derive Flags packs the fields into, so
+     there is nothing for an impl to say.
+
+     Index adds no methods: its position is the number the struct wraps, which
+     core/indexset reads, so there is nothing for an impl to say either.
+
+error: `Slot` does not implement `Index` [missing-impl]
+  --> cmd/index_hand_written_impl/main.buri:14:30
+   |
+14 |   let _ = io.println(ctx, "${indexSet.empty<Slot>().count()}").ignore();
+   |                              ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: add `derive Index for Slot;` in that type's own module
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+
+error: `Slot` does not implement `Index` [missing-impl]
+  --> cmd/index_hand_written_impl/main.buri:14:30
+   |
+14 |   let _ = io.println(ctx, "${indexSet.empty<Slot>().count()}").ignore();
+   |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: add `derive Index for Slot;` in that type's own module

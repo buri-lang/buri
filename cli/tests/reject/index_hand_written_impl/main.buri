@@ -1,0 +1,16 @@
+// EXPECT: `Index` is derived, not implemented
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+from "core/indexset" import * as indexSet;
+from "core/indexset" import { Index };
+
+struct Slot(U32);
+
+impl Index for Slot {}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "${indexSet.empty<Slot>().count()}").ignore();
+  .Ok(())
+}

@@ -1,0 +1,36 @@
+error: expected `Slot`, found `Seq` [type-mismatch]
+  --> cmd/index_mixed_types/main.buri:17:39
+   |
+17 |   let _ = io.println(ctx, "${live.has(Seq(70))}").ignore();
+   |                                       ^^^^^^^ the parameter type is `Slot`
+   |
+   = expected: `Slot`
+   = actual: `Seq`
+
+     Numbers don't convert on their own
+     ──────────────────────────────────
+
+     There is no implicit widening or narrowing, so convert explicitly. A
+     widening conversion such as .toI64() on an I32 is exact. A narrowing one
+     returns a Result, because not every value fits.
+
+     A bare literal is reported as Int or Float when nothing pins its type.
+     Annotate it, as in let x: U8 = 1 or let x: F64 = 1.0, and it takes any type
+     of the same kind.
+
+     A .Variant is a variant
+     ───────────────────────
+
+     A leading dot takes its enum from its position, so a position that isn't an
+     enum can't resolve it. expected is the type to write instead. The found
+     side names the variant, not a type, because the compiler won't guess an
+     enum from the payload.
+
+error: expected `Slot`, found `Seq` [type-mismatch]
+  --> cmd/index_mixed_types/main.buri:19:46
+   |
+19 |   let _ = io.println(ctx, "${live.union(ctx, seqs).count()}").ignore();
+   |                                              ^^^^ the parameter type is `Slot`
+   |
+   = expected: `Slot`
+   = actual: `Seq`

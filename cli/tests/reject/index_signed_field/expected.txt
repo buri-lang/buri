@@ -1,0 +1,22 @@
+error: `Row` cannot derive `Index`: it wraps `I32` [index-field-not-unsigned]
+ --> cmd/index_signed_field/main.buri:8:1
+  |
+8 | derive Index for Row;
+  | ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a position is never negative, so an `Index` type wraps a `U8`, `U16`, `U32` or `U64`
+  = fix: wrap an unsigned integer, or drop `Index` from this `derive`
+
+    Pick the unsigned width that holds every row:
+
+      derive Index for Row;
+      struct Row(U32);
+
+error: `Weight` cannot derive `Index`: it wraps `F64` [index-field-not-unsigned]
+  --> cmd/index_signed_field/main.buri:12:1
+   |
+12 | derive Index for Weight;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a position is never negative, so an `Index` type wraps a `U8`, `U16`, `U32` or `U64`
+   = fix: wrap an unsigned integer, or drop `Index` from this `derive`

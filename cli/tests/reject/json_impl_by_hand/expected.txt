@@ -7,8 +7,8 @@ error: `ToJson` is derived, not implemented [derive-only-trait]
    = a derived encoder is a fold over the type's shape, and would encode a hand-written one structurally rather than calling it — so an `impl` would be obeyed at the top of a document and ignored inside it
    = fix: write `derive ToJson for Point;` instead
 
-     core/json's ToJson and FromJson, and core/flags's Flags, are always
-     derived.
+     core/json's ToJson and FromJson, core/flags's Flags and core/indexset's
+     Index are always derived.
 
      One runtime walker encodes every derived type by its shape. So encoding a
      Date directly would call a hand-written impl ToJson for Date, but encoding
@@ -18,6 +18,9 @@ error: `ToJson` is derived, not implemented [derive-only-trait]
 
      Flags's operations work on the word derive Flags packs the fields into, so
      there is nothing for an impl to say.
+
+     Index adds no methods: its position is the number the struct wraps, which
+     core/indexset reads, so there is nothing for an impl to say either.
 
 error: `Point` does not implement `ToJson` [missing-impl]
   --> cmd/json_impl_by_hand/main.buri:19:47
