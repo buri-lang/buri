@@ -219,23 +219,14 @@ const WORD_TABLE: [(u64, Option<Word>); WORD_SLOTS] = {
 };
 
 impl Word {
-    /// What the identifier-shaped run of `len` bytes at the start of `rest`
-    /// is, or `None` for an ordinary identifier.
-    ///
-    /// `rest` runs on past the word, so that where eight bytes are there the
-    /// key is one load and a mask rather than a loop over the word's bytes.
-    fn of(rest: &[u8], len: usize) -> Option<Word> {
-        let word = rest.get(..len).unwrap_or(&[]);
+    /// What the identifier-shaped run of `len` bytes at `start` is, or `None`
+    /// for an ordinary identifier. `key` is the run as [`scan_word`] read it:
+    /// its first eight bytes, zero above the last.
+    fn of(src: &[u8], start: usize, len: usize, key: u64) -> Option<Word> {
         if len > 8 {
+            let word = src.get(start..start.saturating_add(len)).unwrap_or(&[]);
             return (word == b"unreachable").then_some(Word::Reserved);
         }
-        let key = match rest.first_chunk::<8>() {
-            Some(eight) => {
-                let unused = 64usize.wrapping_sub(len.wrapping_mul(8)) as u32;
-                u64::from_le_bytes(*eight) & u64::MAX.checked_shr(unused).unwrap_or(0)
-            }
-            None => word_key(word),
-        };
         match WORD_TABLE.get(word_slot(key)) {
             Some(&(k, found)) if k == key => found,
             _ => None,
@@ -1060,20 +1051,17 @@ impl<'a> Lexer<'a> {
         self.errors.last_mut().or_ice("the diagnostic just pushed is still there")
     }
 
-    /// Append one token.
+    /// Append one token, from `start` to the cursor.
     ///
-    /// This runs once per token in the file and is the lexer's whole write
-    /// side, so it is three stores and one predictable branch: everything
-    /// about the rare token that has something written above it is behind
-    /// [`Lexer::has_trivia`] and outlined, because a body large enough to be
-    /// worth a call is a body the ten call sites pay a call for.
+    /// What was written above it is already attached: every arm of
+    /// [`Lexer::run`] that reads a token calls [`Lexer::gap`] first, and pushes
+    /// exactly one token after it.
     #[inline]
     fn push(&mut self, kind: TokenKind, pay: u32, start: usize) {
-        if self.has_trivia {
-            self.attach_trivia();
-        }
+        debug_assert!(!self.has_trivia, "a token pushed without `gap` before it");
         self.tokens.push(kind, pay, Location { start: start as u32, end: self.pos as u32 });
     }
+
 
     /// Hand what was written above the next token to the trivia table.
     ///
@@ -1082,8 +1070,7 @@ impl<'a> Lexer<'a> {
     /// arithmetic on five fields lives here rather than in [`Lexer::push`].
     #[cold]
     #[inline(never)]
-    fn attach_trivia(&mut self) {
-        let at = self.tokens.len() as u32;
+    fn attach_trivia(&mut self, at: u32) {
         self.trivia.push((
             at,
             Trivia {
@@ -1140,95 +1127,129 @@ impl<'a> Lexer<'a> {
     ///
     /// Whitespace, comments and every token start are arms of the same
     /// `match`, so deciding what the next byte begins is one jump per token.
-    /// Skipping trivia used to be a loop of its own in front of the token
-    /// dispatch, and a punctuator a third `match` behind it: three
-    /// unpredictable branches per token where one will do.
+    ///
+    /// The cursor is a local rather than `self.pos`, so it stays in a register
+    /// through the common arms. An arm that hands off to a method writes it to
+    /// `self.pos` first and reads it back after.
     fn run(&mut self) {
         use TokenKind::*;
+        let src = self.src;
         // The line breaks read since the last comment or token. Two of them
         // with nothing between is a blank line.
         let mut newlines = 0usize;
+        let mut pos = self.pos;
+        // The token buffer, out of `self` so that its length and capacity
+        // stay in registers. An arm that hands off to a method that pushes a
+        // token puts it back for the call.
+        let mut records = std::mem::take(&mut self.tokens.records);
+        macro_rules! handoff {
+            ($call:expr) => {{
+                self.tokens.records = records;
+                self.pos = pos;
+                $call;
+                pos = self.pos;
+                records = std::mem::take(&mut self.tokens.records);
+            }};
+        }
         loop {
-            let mut start = self.pos;
-            let mut c = self.peek();
+            let mut c = byte_at(src, pos);
             // One space is what follows most tokens, so it is stepped over
             // here rather than by a trip through the `match`.
             if c == b' ' {
-                start = start.saturating_add(1);
-                self.pos = start;
-                c = self.peek();
+                pos = pos.wrapping_add(1);
+                c = byte_at(src, pos);
             }
+            let start = pos;
             // Whitespace and comments go round again; every other arm reads
             // one token, and settles what was above it first.
-            let kind = match c {
+            let kind = match class_of(c) {
+                Class::Word => {
+                    self.gap(newlines, records.len());
+                    newlines = 0;
+                    let (len, word) = scan_word(src, start);
+                    pos = start.wrapping_add(len);
+                    let kind = match Word::of(src, start, len, word) {
+                        None => Ident,
+                        Some(Word::Kind(kind)) => kind,
+                        Some(Word::Reserved) => {
+                            self.pos = pos;
+                            self.reserved(start);
+                            Ident
+                        }
+                    };
+                    push_plain(&mut records, kind, start, pos);
+                    continue;
+                }
                 // A run of blanks — an indentation, mostly — is stepped over
                 // in a loop of its own rather than one trip round this
                 // `match` per byte.
-                b' ' | b'\t' | b'\r' => {
-                    self.pos = start.saturating_add(blanks(self.src, start));
+                Class::Blank => {
+                    pos = blanks(src, start);
                     continue;
                 }
-                b'\n' => {
-                    newlines = newlines.saturating_add(1);
-                    let next = start.saturating_add(1);
-                    self.pos = next.saturating_add(blanks(self.src, next));
+                Class::Newline => {
+                    newlines = newlines.wrapping_add(1);
+                    pos = blanks(src, start.wrapping_add(1));
                     continue;
                 }
-                b'/' if self.peek_at(1) == b'/' => {
-                    self.line_comment(start, newlines >= 2);
-                    newlines = 0;
-                    continue;
-                }
-                b'/' if self.peek_at(1) == b'*' => {
-                    self.block_comment(start, newlines >= 2);
-                    newlines = 0;
-                    continue;
-                }
-                0 if start >= self.src.len() => {
-                    self.gap(newlines);
-                    self.push(Eof, 0, start);
+                Class::Slash => match byte_at(src, pos.wrapping_add(1)) {
+                    b'/' => {
+                        self.pos = pos;
+                        self.line_comment(start, newlines >= 2);
+                        pos = self.pos;
+                        newlines = 0;
+                        continue;
+                    }
+                    b'*' => {
+                        self.pos = pos;
+                        self.block_comment(start, newlines >= 2);
+                        pos = self.pos;
+                        newlines = 0;
+                        continue;
+                    }
+                    _ => Slash,
+                },
+                Class::Nul if start >= src.len() => {
+                    self.gap(newlines, records.len());
+                    push_plain(&mut records, Eof, start, start);
+                    self.tokens.records = records;
+                    self.pos = start;
                     return;
                 }
-                b'0'..=b'9' => {
-                    self.gap(newlines);
-                    self.number(start);
+                Class::Digit => {
+                    self.gap(newlines, records.len());
+                    handoff!(self.number(start));
                     newlines = 0;
                     continue;
                 }
-                b'"' => {
-                    self.gap(newlines);
-                    self.string_or_template(start);
+                Class::Quote => {
+                    self.gap(newlines, records.len());
+                    handoff!(self.string_or_template(start));
                     newlines = 0;
                     continue;
                 }
-                b'\'' => {
-                    self.gap(newlines);
-                    self.char_literal(start);
+                Class::Apostrophe => {
+                    self.gap(newlines, records.len());
+                    handoff!(self.char_literal(start));
                     newlines = 0;
                     continue;
                 }
-                b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
-                    self.gap(newlines);
-                    self.ident(start);
-                    newlines = 0;
-                    continue;
-                }
-                b'{' => {
+                Class::LBrace => {
                     if let Some(open) = self.holes.last_mut() {
                         *open = open.saturating_add(1);
                     }
                     LBrace
                 }
-                b'}' => {
+                Class::RBrace => {
                     match self.holes.last_mut() {
                         // The innermost thing open is a hole, so this `}`
                         // resumes template text rather than terminating a
                         // block. The hole stays on the stack until the
                         // template itself ends.
                         Some(0) => {
-                            self.gap(newlines);
-                            self.pos = start.saturating_add(1);
-                            self.resume_template(start);
+                            self.gap(newlines, records.len());
+                            pos = start.wrapping_add(1);
+                            handoff!(self.resume_template(start));
                             newlines = 0;
                             continue;
                         }
@@ -1241,67 +1262,48 @@ impl<'a> Lexer<'a> {
                     }
                     RBrace
                 }
-                b'(' => LParen,
-                b')' => RParen,
-                b'[' => LBracket,
-                b']' => RBracket,
-                b',' => Comma,
-                b';' => Semi,
-                b':' => self.pair(b':', ColonColon, Colon),
-                b'.' => self.pair(b'.', DotDot, Dot),
-                b'@' => At,
-                b'=' => match self.peek_at(1) {
-                    b'>' => self.wide(FatArrow),
-                    b'=' => self.wide(EqEq),
+                Class::One => one_byte(c),
+                Class::Colon => pair(src, &mut pos, b':', ColonColon, Colon),
+                Class::Dot => pair(src, &mut pos, b'.', DotDot, Dot),
+                Class::Equals => match byte_at(src, pos.wrapping_add(1)) {
+                    b'>' => wide(&mut pos, FatArrow),
+                    b'=' => wide(&mut pos, EqEq),
                     _ => Eq,
                 },
-                b'!' => self.pair(b'=', BangEq, Bang),
-                b'<' => self.pair(b'=', LtEq, Lt),
+                Class::Bang => pair(src, &mut pos, b'=', BangEq, Bang),
+                Class::Less => pair(src, &mut pos, b'=', LtEq, Lt),
                 // No `>>` token: `Wrapper<Wrapper<Int>>` closes with two `>`.
-                b'>' => self.pair(b'=', GtEq, Gt),
-                b'+' => Plus,
-                b'-' => Minus,
-                b'*' => Star,
-                b'/' => Slash,
-                b'%' => Percent,
-                b'&' => self.pair(b'&', AndAnd, And),
-                b'|' => self.pair(b'|', OrOr, Or),
-                b'^' => Caret,
-                b'~' => Tilde,
+                Class::Greater => pair(src, &mut pos, b'=', GtEq, Gt),
+                Class::Amp => pair(src, &mut pos, b'&', AndAnd, And),
+                Class::Pipe => pair(src, &mut pos, b'|', OrOr, Or),
                 // `??` is not an operator, and is still one token: read as two
                 // `?`s it would be a double `try`, and the parser would report
                 // something other than what was written. There is no `?.`
                 // token, so `x?.field` is `x` `?` `.` `field`.
-                b'?' => self.pair(b'?', QuestionQuestion, Question),
-                _ => {
+                Class::Question => pair(src, &mut pos, b'?', QuestionQuestion, Question),
+                Class::Nul | Class::Other => {
+                    self.pos = pos;
                     self.unexpected(start);
+                    pos = self.pos;
                     continue;
                 }
             };
             // A punctuator: one byte, or two where `pair` or `wide` already
             // stepped over the first.
-            self.gap(newlines);
+            self.gap(newlines, records.len());
             newlines = 0;
-            self.pos = self.pos.saturating_add(1);
-            self.push(kind, 0, start);
+            pos = pos.wrapping_add(1);
+            push_plain(&mut records, kind, start, pos);
         }
     }
 
-    /// A punctuator that is `two` when `next` follows its first byte and `one`
-    /// otherwise.
-    fn pair(&mut self, next: u8, two: TokenKind, one: TokenKind) -> TokenKind {
-        if self.peek_at(1) == next {
-            self.wide(two)
-        } else {
-            one
-        }
-    }
-
-    /// A two-byte punctuator: step over the first byte, and the caller steps
-    /// over the second as it would over a one-byte one.
-    fn wide(&mut self, kind: TokenKind) -> TokenKind {
-        self.pos = self.pos.saturating_add(1);
-        kind
+    /// A word the language reserves, reported where it was written.
+    #[cold]
+    #[inline(never)]
+    fn reserved(&mut self, start: usize) {
+        let span = self.span(start);
+        let word = self.slice(start, self.pos).to_string();
+        self.templated("reserved-word", span).bind("word", word);
     }
 
     /// A character the grammar has no use for.
@@ -1329,10 +1331,15 @@ impl<'a> Lexer<'a> {
     /// and then there is nothing to record: `has_trivia` false means no
     /// comment is waiting and no blank line is held. Everything else is out
     /// of line.
+    ///
+    /// Settling hands whatever is waiting to the trivia table, keyed by the
+    /// token about to be pushed, so pushing it needs no second look.
+    ///
+    /// `at` is the index the next token will have.
     #[inline]
-    fn gap(&mut self, newlines: usize) {
+    fn gap(&mut self, newlines: usize, at: usize) {
         if self.has_trivia || newlines >= 2 {
-            self.settle(newlines >= 2);
+            self.settle(newlines >= 2, at);
         }
     }
 
@@ -1342,11 +1349,14 @@ impl<'a> Lexer<'a> {
     /// than a comment about the first declaration.
     #[cold]
     #[inline(never)]
-    fn settle(&mut self, blank: bool) {
+    fn settle(&mut self, blank: bool, at: usize) {
         if self.run_empty() {
             self.hold_blank(blank);
         } else {
             self.detached = blank;
+        }
+        if self.has_trivia {
+            self.attach_trivia(at as u32);
         }
     }
 
@@ -1377,9 +1387,7 @@ impl<'a> Lexer<'a> {
         // legal only before the first token; `check` reports one that appears
         // later, where a reader would take it for a `///` typo.
         let is_module_doc = self.peek_at(2) == b'!';
-        // A `char` pattern finds the line break with `memchr`, a word at a time.
-        let rest = self.text.get(self.pos..).unwrap_or("");
-        self.pos = self.pos.saturating_add(rest.find('\n').unwrap_or(rest.len()));
+        self.pos = line_end(self.src, self.pos);
         let raw = self.slice(start, self.pos);
         if is_module_doc {
             let span = self.span(start);
@@ -1397,7 +1405,7 @@ impl<'a> Lexer<'a> {
             if self.run_empty() {
                 self.hold_blank(blank);
             }
-            let end = start.saturating_add(raw.trim_end().len());
+            let end = start.saturating_add(trimmed_end(raw).len());
             let column = self.column(start);
             self.pending_comments.push(Comment {
                 at: Location { start: start as u32, end: end as u32 },
@@ -1442,23 +1450,12 @@ impl<'a> Lexer<'a> {
         self.has_trivia = true;
     }
 
-    fn ident(&mut self, start: usize) {
-        let rest = self.src.get(start..).unwrap_or(&[]);
-        let len = rest.iter().position(|c| !is_ident_continue(*c)).unwrap_or(rest.len());
-        self.pos = start.saturating_add(len);
-        match Word::of(rest, len) {
-            Some(Word::Kind(kind)) => self.push(kind, 0, start),
-            Some(Word::Reserved) => {
-                let span = self.span(start);
-                let word = self.slice(start, self.pos).to_string();
-                self.templated("reserved-word", span).bind("word", word);
-                self.push(TokenKind::Ident, 0, start);
-            }
-            None => self.push(TokenKind::Ident, 0, start),
-        }
-    }
-
     fn number(&mut self, start: usize) {
+        if let Some((value, end)) = plain_decimal(self.src, start) {
+            self.pos = end;
+            self.push_int(u128::from(value), start);
+            return;
+        }
         // Radix prefixes. `0x`, `0o`, `0b` are integers only.
         if self.peek() == b'0' && matches!(self.peek_at(1), b'x' | b'X' | b'o' | b'O' | b'b' | b'B')
         {
@@ -1604,10 +1601,7 @@ impl<'a> Lexer<'a> {
                     // A `$` with no `{` after it is content, so the first step
                     // is unconditional: without it this would stop on the same
                     // byte forever.
-                    self.pos = self.pos.saturating_add(1);
-                    while matches!(self.src.get(self.pos), Some(c) if Lexer::plain_str_byte(*c)) {
-                        self.pos = self.pos.saturating_add(1);
-                    }
+                    self.pos = plain_str_end(self.src, self.pos.saturating_add(1));
                 }
             }
         }
@@ -1748,10 +1742,275 @@ fn without_underscores(s: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-/// How many spaces, tabs and carriage returns `src` has from `at` on.
+/// What a byte begins, for [`Lexer::run`]'s dispatch: one load and one jump
+/// for every token, where a `match` on the byte tested the letters first and
+/// then jumped.
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum Class {
+    Word,
+    Blank,
+    Newline,
+    Slash,
+    Nul,
+    Digit,
+    Quote,
+    Apostrophe,
+    LBrace,
+    RBrace,
+    /// A punctuator that is one byte whatever follows: [`one_byte`].
+    One,
+    Colon,
+    Dot,
+    Equals,
+    Bang,
+    Less,
+    Greater,
+    Amp,
+    Pipe,
+    Question,
+    Other,
+}
+
+const CLASSES: [Class; 256] = {
+    let mut table = [Class::Other; 256];
+    let mut c = 0usize;
+    while c < 256 {
+        let class = match c as u8 {
+            b'a'..=b'z' | b'A'..=b'Z' | b'_' => Class::Word,
+            b' ' | b'\t' | b'\r' => Class::Blank,
+            b'\n' => Class::Newline,
+            b'/' => Class::Slash,
+            0 => Class::Nul,
+            b'0'..=b'9' => Class::Digit,
+            b'"' => Class::Quote,
+            b'\'' => Class::Apostrophe,
+            b'{' => Class::LBrace,
+            b'}' => Class::RBrace,
+            b'(' | b')' | b'[' | b']' | b',' | b';' | b'@' | b'+' | b'-' | b'*' | b'%' | b'^' | b'~' => {
+                Class::One
+            }
+            b':' => Class::Colon,
+            b'.' => Class::Dot,
+            b'=' => Class::Equals,
+            b'!' => Class::Bang,
+            b'<' => Class::Less,
+            b'>' => Class::Greater,
+            b'&' => Class::Amp,
+            b'|' => Class::Pipe,
+            b'?' => Class::Question,
+            _ => Class::Other,
+        };
+        if let Some((_, [entry, ..])) = table.split_at_mut_checked(c) {
+            *entry = class;
+        }
+        c = c.wrapping_add(1);
+    }
+    table
+};
+
+#[inline]
+fn class_of(c: u8) -> Class {
+    CLASSES.get(usize::from(c)).copied().unwrap_or(Class::Other)
+}
+
+/// The punctuator a [`Class::One`] byte is.
+#[inline]
+fn one_byte(c: u8) -> TokenKind {
+    use TokenKind::*;
+    match c {
+        b'(' => LParen,
+        b')' => RParen,
+        b'[' => LBracket,
+        b']' => RBracket,
+        b',' => Comma,
+        b';' => Semi,
+        b'@' => At,
+        b'+' => Plus,
+        b'-' => Minus,
+        b'*' => Star,
+        b'%' => Percent,
+        b'^' => Caret,
+        _ => Tilde,
+    }
+}
+
+/// Append a token with no payload: a word or a punctuator, nine tokens in ten.
+#[inline]
+fn push_plain(records: &mut Vec<Record>, kind: TokenKind, start: usize, end: usize) {
+    let loc = Location { start: start as u32, end: end as u32 };
+    records.push(Record { loc, kind, pay: [0; 3] });
+}
+
+/// The byte at `at`, or 0 past the end.
+#[inline]
+fn byte_at(src: &[u8], at: usize) -> u8 {
+    src.get(at).copied().unwrap_or(0)
+}
+
+/// A punctuator that is `two` when `next` follows its first byte at `*pos`,
+/// with `*pos` stepped onto that second byte, and `one` otherwise.
+#[inline]
+fn pair(src: &[u8], pos: &mut usize, next: u8, two: TokenKind, one: TokenKind) -> TokenKind {
+    if byte_at(src, pos.wrapping_add(1)) == next {
+        wide(pos, two)
+    } else {
+        one
+    }
+}
+
+/// A two-byte punctuator: step over the first byte, and the caller steps over
+/// the second as it would over a one-byte one.
+#[inline]
+fn wide(pos: &mut usize, kind: TokenKind) -> TokenKind {
+    *pos = pos.wrapping_add(1);
+    kind
+}
+
+/// Eight copies of a byte, one per lane of a `u64`.
+const fn lanes(b: u8) -> u64 {
+    (b as u64).wrapping_mul(0x0101_0101_0101_0101)
+}
+
+const HIGH: u64 = lanes(0x80);
+
+/// How long the word starting at `start` is, and its first eight bytes as
+/// one integer, zero above the last: the key [`Word::of`] looks it up by.
+/// The byte at `start` begins a word, so it is at least one long.
+///
+/// Most words are short, so the bytes after the first are tested one at a
+/// time against [`IDENT_CONTINUE`], inside the eight-byte load the key comes
+/// from.
+#[inline]
+fn scan_word(src: &[u8], start: usize) -> (usize, u64) {
+    let Some(chunk) = src.get(start..).and_then(|rest| rest.first_chunk::<8>()) else {
+        return scan_word_at_the_end(src, start);
+    };
+    let mut len = 1usize;
+    while let Some(&c) = chunk.get(len) {
+        if !is_ident_continue(c) {
+            let key = u64::from_le_bytes(*chunk) & (1u64 << len.wrapping_mul(8)).wrapping_sub(1);
+            return (len, key);
+        }
+        len = len.wrapping_add(1);
+    }
+    let mut at = start.wrapping_add(8);
+    while src.get(at).is_some_and(|c| is_ident_continue(*c)) {
+        at = at.wrapping_add(1);
+    }
+    (at.wrapping_sub(start), u64::from_le_bytes(*chunk))
+}
+
+/// [`scan_word`] in the last eight bytes of the file.
+#[cold]
+fn scan_word_at_the_end(src: &[u8], start: usize) -> (usize, u64) {
+    let mut at = start.wrapping_add(1);
+    while src.get(at).is_some_and(|c| is_ident_continue(*c)) {
+        at = at.wrapping_add(1);
+    }
+    (at.wrapping_sub(start), word_key(src.get(start..at).unwrap_or(&[])))
+}
+
+/// The integer literal at `start` and where it ends, when it is the common
+/// kind: at most nineteen decimal digits, which a `u64` holds, and nothing
+/// after them that would make it something else. Read in the one pass that
+/// finds its end. `None` sends it to [`Lexer::number`]'s general path.
+#[inline]
+fn plain_decimal(src: &[u8], start: usize) -> Option<(u64, usize)> {
+    let mut value = 0u64;
+    let mut at = start;
+    while let Some(d) = src.get(at).filter(|c| c.is_ascii_digit()) {
+        if at.wrapping_sub(start) == 19 {
+            return None;
+        }
+        value = value.wrapping_mul(10).wrapping_add(u64::from(d.wrapping_sub(b'0')));
+        at = at.wrapping_add(1);
+    }
+    // A separator, a fraction, an exponent or a radix prefix: the general path.
+    match byte_at(src, at) {
+        b'_' | b'.' | b'e' | b'E' | b'x' | b'X' | b'o' | b'O' | b'b' | b'B' => None,
+        _ => Some((value, at)),
+    }
+}
+
+/// Where the run of ordinary string content from `at` ends: at the first
+/// `"`, `\`, `$` or line break, eight bytes at a time. None of the four can
+/// be part of a longer UTF-8 sequence.
+#[inline]
+fn plain_str_end(src: &[u8], at: usize) -> usize {
+    let mut at = at;
+    while let Some(chunk) = src.get(at..).and_then(|rest| rest.first_chunk::<8>()) {
+        let w = u64::from_le_bytes(*chunk);
+        let stops = (*b"\"\\$\n")
+            .map(|b| {
+                let x = w ^ lanes(b);
+                x.wrapping_sub(lanes(1)) & !x & HIGH
+            })
+            .iter()
+            .fold(0, |all, one| all | one);
+        // A borrow only ever marks a lane above a true match, in the same
+        // test, so the lowest mark of all four is the first stop.
+        if stops != 0 {
+            return at.wrapping_add((stops.trailing_zeros() / 8) as usize);
+        }
+        at = at.wrapping_add(8);
+    }
+    while src.get(at).is_some_and(|c| Lexer::plain_str_byte(*c)) {
+        at = at.wrapping_add(1);
+    }
+    at
+}
+
+/// Where the line that `at` is on ends: the next line break, or the end of
+/// the file. Eight bytes at a time; a line break is never part of a longer
+/// UTF-8 sequence, so a byte search finds what a `char` search would.
+#[inline]
+fn line_end(src: &[u8], at: usize) -> usize {
+    let mut at = at;
+    while let Some(chunk) = src.get(at..).and_then(|rest| rest.first_chunk::<8>()) {
+        let x = u64::from_le_bytes(*chunk) ^ lanes(b'\n');
+        // The lowest lane that was a line break; a borrow only ever marks a
+        // lane above one, so the lowest mark is exact.
+        let breaks = x.wrapping_sub(lanes(1)) & !x & HIGH;
+        if breaks != 0 {
+            return at.wrapping_add((breaks.trailing_zeros() / 8) as usize);
+        }
+        at = at.wrapping_add(8);
+    }
+    while src.get(at).is_some_and(|c| *c != b'\n') {
+        at = at.wrapping_add(1);
+    }
+    at
+}
+
+/// `s` without its trailing whitespace, as `str::trim_end` gives it. A line
+/// almost always ends in an ASCII character that is not a blank, and then
+/// there is nothing to decode.
+#[inline]
+fn trimmed_end(s: &str) -> &str {
+    match s.as_bytes().last() {
+        Some(&c) if c.is_ascii() && !c.is_ascii_whitespace() && c != 0x0b => s,
+        _ => s.trim_end(),
+    }
+}
+
+/// Where the run of spaces, tabs and carriage returns from `at` ends. Spaces
+/// are stepped over eight at a time, since an indentation is mostly them.
+#[inline]
 fn blanks(src: &[u8], at: usize) -> usize {
-    let rest = src.get(at..).unwrap_or(&[]);
-    rest.iter().position(|c| !matches!(c, b' ' | b'\t' | b'\r')).unwrap_or(rest.len())
+    let mut at = at;
+    while let Some(chunk) = src.get(at..).and_then(|rest| rest.first_chunk::<8>()) {
+        let other = u64::from_le_bytes(*chunk) ^ lanes(b' ');
+        if other != 0 {
+            at = at.wrapping_add((other.trailing_zeros() / 8) as usize);
+            break;
+        }
+        at = at.wrapping_add(8);
+    }
+    while matches!(src.get(at), Some(b' ' | b'\t' | b'\r')) {
+        at = at.wrapping_add(1);
+    }
+    at
 }
 
 /// Which bytes continue a word: a letter, a digit, or `_`. One load per byte
@@ -1989,7 +2248,7 @@ fn doc_at(start: usize, raw: &str) -> Location {
     let after = raw.get(3..).unwrap_or("");
     let body = after.strip_prefix(' ').unwrap_or(after);
     let from = start.saturating_add(raw.len().saturating_sub(body.len()));
-    let to = from.saturating_add(body.trim_end().len());
+    let to = from.saturating_add(trimmed_end(body).len());
     Location { start: from as u32, end: to as u32 }
 }
 
