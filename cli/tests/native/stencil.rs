@@ -2097,6 +2097,8 @@ const CORPUS_COMPILES: &[&str] = &[
     "generators/failure.buri",
     "generators/wire.buri",
     "http/messages.buri",
+    "json/decoding.buri",
+    "json/encoding.buri",
     "environment/env.buri",
     "filesystem/fs.buri",
     "filesystem/parents.buri",

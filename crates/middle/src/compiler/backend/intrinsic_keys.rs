@@ -40,14 +40,31 @@ pub fn prim_trait_op(key: &str) -> bool {
 
 /// Whether a key has a body on every native backend with no table row or
 /// open-coded sequence of its own: a loop `middle::lower` builds, a `core/bits`
-/// operation, a derive leaf, a `number.<T>.<op>` operation, or a
-/// [`prim_trait_op`]. Each backend's `implemented` adds what it claims alone.
+/// operation, a derive leaf, a `number.<T>.<op>` operation, a
+/// [`prim_trait_op`], or `json.decode`, whose body `middle::derives` writes.
+/// Each backend's `implemented` adds what it claims alone.
 pub fn native_body(key: &str) -> bool {
     crate::compiler::middle::lower::lowers(key)
         || bits_op(key)
         || prim_trait_op(key)
         || derive_key(key).is_some()
         || numeric_key(key)
+        || key == crate::compiler::middle::derives::JSON_DECODE
+        || prim_to_json(key).is_some()
+}
+
+/// `ToJson::toJson` called on a primitive itself — `bool.toJson`,
+/// `character.toJson`, `str.toJson`, `number.U8.toJson` — and the primitive.
+/// `middle::derives` gives each the body `derivePrimJson`, which is what a
+/// derived `ToJson` reaches at the same field.
+pub fn prim_to_json(key: &str) -> Option<Prim> {
+    match key.split('.').collect::<Vec<_>>().as_slice() {
+        ["bool", "toJson"] => Some(Prim::Bool),
+        ["character", "toJson"] => Some(Prim::Char),
+        ["str", "toJson"] => Some(Prim::Str),
+        ["number", name, "toJson"] => Prim::all().iter().copied().find(|p| p.name() == *name),
+        _ => None,
+    }
 }
 
 /// `core/lazy`'s one declaration, and the node the split pass leaves where a

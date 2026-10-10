@@ -1342,7 +1342,7 @@ fn a_release_run_this_toolchain_cannot_produce_is_refused() {
 /// It used to be rerouted onto JavaScript with a note on stderr, which is how a
 /// named gap becomes a wrong answer: the suite passes, on a backend nobody
 /// chose, and the note goes into a stream a passing run's reader does not read
-/// (buri-lang/buri#4). `json.decode` is the gap here because no native backend
+/// (buri-lang/buri#4). `math.ln` is the gap here because no native backend
 /// has a body for it and the corpus already says so — if that ever changes,
 /// this test fails by passing the first run, which is the right way round.
 #[test]
@@ -1353,14 +1353,9 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
     scratch.write(
         "lib/g/test/g.buri",
         "from \"core/testing/assert\" import * as assert;\n\
-         from \"platform/effect/testing\" import { alloc };\n\
-         from \"platform/effect\" import { Allocator };\n\
-         from \"core/json\" import * as json;\n\
-         \ntest \"decodes\" {\n\
-         \x20 let ctx = context { Allocator: alloc() };\n\
-         \x20 let parsed = assert.ok(json.parse(ctx, \"1\"));\n\
-         \x20 let n: Float = assert.ok(json.decode(ctx, parsed));\n\
-         \x20 assert.equal(n, 1.0);\n}\n",
+         from \"core/math\" import * as math;\n\
+         \ntest \"logs\" {\n\
+         \x20 assert.equal(math.ln(1.0), 0.0);\n}\n",
     );
 
     let run = scratch.run(&["test", "//lib/g"]);
@@ -1373,7 +1368,7 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
     }
     assert!(
         run.stderr.contains("cannot run natively")
-            && run.stderr.contains("no implementation of json.decode"),
+            && run.stderr.contains("no implementation of math.ln"),
         "a native gap did not refuse the suite:\n{}",
         indent(&run.all())
     );

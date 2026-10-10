@@ -1,4 +1,5 @@
-//! A generated `Show`, `Equal`, `Ordered`, `Hash` and `ToJson` per type.
+//! A generated `Show`, `Equal`, `Ordered`, `Hash`, `ToJson` and `FromJson` per
+//! type.
 //!
 //! JavaScript walks a type descriptor at run time — `$D0`, `$D1`, and the
 //! generic `$eq`/`$show`/`$json_of` that read them — because a megamorphic walk
@@ -28,9 +29,9 @@
 //!   a value.
 //!
 //! This pass replaces the first two with direct calls to generated functions
-//! and answers the third without generating a walker for it: `json.decode`'s
-//! descriptor is recorded, and the test reporter's becomes a call to a
-//! generated `Show` (§ *What is scaffolded*).
+//! and gives the third a body: `json.decode` calls a generated decoder
+//! (§ *Decoding*), and the test reporter calls a generated `Show`
+//! (§ *What is scaffolded*).
 //!
 //! # The shape of a generated function
 //!
@@ -43,6 +44,8 @@
 //! show_Point(x: Point): Str               = "Point { x: ${show_I64(x.0)}, y: ${show_Str(x.1)} }"
 //! json_Point(x: Point): Json              = .Object([("x", json_I64(x.0)), ..])
 //! hash_Point(h: U64, x: Point): U64       = hash_Str(hash_I64(mix(h, 2), x.0), x.1)
+//! dec_Point(j: Json, p: Str): Result<Point, DecodeError>
+//!     = match j { .Object(es) => { let x = dec_I64(member(es, "x", p)?, "${p}.x")?; .. }, .. }
 //! ```
 //!
 //! Field access is by index, which is what `middle::layout` turns into an
@@ -86,8 +89,9 @@
 //! | `deriveArrayHash` | `(U64, [T], fn(U64, T) -> U64) -> U64` — mixes the length, then each element |
 //!
 //! Eight names in total, and they are the entire run-time surface a derived
-//! conformance needs. That is the contract both native backends implement; it
-//! is stated here because this pass is the only thing that emits them.
+//! conformance needs. It is stated here because this pass is the only thing
+//! that emits them. `middle::lower` builds every `deriveArray*` loop but
+//! `deriveArrayHash` (`lower/lists.rs`), and the backends answer the rest.
 //!
 //! ## Agreement with JavaScript
 //!
@@ -117,17 +121,26 @@
 //! the reason above; a backend that keyed on nominal identity rather than on
 //! layout would be the thing that broke, and `layout::of` is not that.
 //!
+//! # Decoding
+//!
+//! `json.decode(ctx, value)` gets the body `dec_T(value, "$")`, and `dec_T`
+//! is `runtime.js`'s `$json_into` at one shape: the same mapping, and on
+//! failure the same `DecodeError` with the same path and the same words. The
+//! path is the second parameter, so a nested decoder is handed `"${p}.x"` or
+//! `"${p}[0]"`.
+//!
+//! The types a decoder names come off the `json.decode` it answers —
+//! `Json` is its parameter, and `Result` and `DecodeError` are its result —
+//! plus `Option`, which indexing a list answers and which
+//! `monomorphize::Shapes::option` carries. Three helpers are minted once
+//! ([`Helper`]), and a list decodes in a loop of its own
+//! ([`Generator::decode_each`]).
+//!
+//! `ToJson::toJson` called on a primitive itself (`str.toJson`) is an
+//! intrinsic too, and gets `derivePrimJson` as its body.
+//!
 //! # What is scaffolded
 //!
-//! * **`FromJson`.** `json.decode` stays a `FuncKind::Intrinsic` carrying
-//!   `Func::desc`, and this pass records which descriptors it needs in
-//!   [`Derives::from_json`]. A generated decoder has to *construct*
-//!   `Result<T, DecodeError>` values, which means naming `core/json`'s type
-//!   constructors — and this pass is handed a [`Program`], which has no type
-//!   table (`middle::native` takes no `Tables`). Encoding needs no such thing
-//!   because `Json`'s own type constructor arrives on the `structuralToJson`
-//!   call site; decoding has no call site to read one from. Closing it is a
-//!   change to `middle::native`'s signature.
 //! * **The test reporter.** `testing_assert.report` is handed a descriptor the
 //!   same way, and this pass answers it in place: where a `Show` was generated
 //!   at that descriptor's type, `reporter_body` gives the intrinsic a body that
@@ -153,6 +166,7 @@
               subtraction is a `saturating_sub` on a path depth."
 )]
 
+use crate::compiler::backend::intrinsic_keys;
 use crate::compiler::middle::lower;
 use crate::compiler::middle::monomorphize::{
     self, short_hash, ConShape, Desc, DescVariant, Func, FuncKind, Program,
@@ -180,7 +194,7 @@ const RANKED_COMPARE_MIN: usize = 8;
 /// `opt`'s jump threading is quadratic in those tests.
 const EAGER_FIELDS_MAX: usize = 8;
 
-/// The five operations a `derive` can stand for, once monomorphization has
+/// The six operations a `derive` can stand for, once monomorphization has
 /// resolved it.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Op {
@@ -189,6 +203,9 @@ pub enum Op {
     Show,
     ToJson,
     Hash,
+    /// Reached through `json.decode` rather than through a call site, so it is
+    /// not in [`Op::all`].
+    FromJson,
 }
 
 impl Op {
@@ -200,6 +217,7 @@ impl Op {
             Op::Show => "structuralShow",
             Op::ToJson => "structuralToJson",
             Op::Hash => "structuralHash",
+            Op::FromJson => JSON_DECODE,
         }
     }
 
@@ -211,13 +229,14 @@ impl Op {
             Op::Show => "show",
             Op::ToJson => "json",
             Op::Hash => "hash",
+            Op::FromJson => "dec",
         }
     }
 
     /// Whether the operation *prints* names, which is what decides whether two
     /// layout-identical types may share one generated function.
     fn reads_names(self) -> bool {
-        matches!(self, Op::Show | Op::ToJson)
+        matches!(self, Op::Show | Op::ToJson | Op::FromJson)
     }
 
     /// How many values of the described type the generated function takes.
@@ -226,6 +245,8 @@ impl Op {
         match self {
             Op::Eq | Op::Compare => 2,
             Op::Show | Op::ToJson | Op::Hash => 1,
+            // It makes one rather than taking one.
+            Op::FromJson => 0,
         }
     }
 
@@ -278,8 +299,7 @@ pub struct Derives {
     pub declined: Vec<(Op, usize, Declined)>,
     /// How many call sites became direct calls.
     pub rewritten: usize,
-    /// Descriptors `json.decode` was handed. `FromJson` is not generated — see
-    /// the module docs.
+    /// Descriptors `json.decode` was handed, each of which gets a decoder.
     pub from_json: Vec<usize>,
 }
 
@@ -291,13 +311,35 @@ pub fn run(program: &mut Program) -> Derives {
     for (op, desc) in wanted {
         g.request(op, desc);
     }
+    for desc in g.out.from_json.clone() {
+        g.request(Op::FromJson, desc);
+    }
     g.drain();
     let built = g.finish();
     program.funcs.extend(built.funcs);
     route_cells(program, &built.routed);
     let mut out = built.out;
     rewrite(program, &built.routed, &built.hash_ty, &mut out);
+    for f in &mut program.funcs {
+        prim_to_json_body(f);
+    }
     out
+}
+
+/// Gives `ToJson::toJson` at a primitive — `str.toJson`, `number.U8.toJson` —
+/// the body `derivePrimJson(self)`, which is the leaf a derived `ToJson`
+/// reaches at a field of that type.
+fn prim_to_json_body(f: &mut Func) {
+    if f.intrinsic_key().and_then(intrinsic_keys::prim_to_json).is_none() {
+        return;
+    }
+    let Some(this) = f.params.first().copied() else { return };
+    let Some(ty) = f.locals.get(this.index()).map(|l| l.ty) else { return };
+    let x = Expr::new(ExprKind::Local(this), ty, Span::NONE);
+    let name = String::from("derivePrimJson");
+    let body = ExprKind::Intrinsic { name, targs: vec![ty], args: vec![x] };
+    let ret = f.ret;
+    f.set_body(Expr::new(body, ret, Span::NONE));
 }
 
 /// Records, per reactive cell type, the generated `Equal` a backend hands the
@@ -359,7 +401,7 @@ fn collect(program: &Program, out: &mut Derives) -> Vec<(Op, usize)> {
     };
     for f in &program.funcs {
         if let (Some(key), Some(d)) = (f.intrinsic_key(), f.desc) {
-            if key == "json.decode" {
+            if key == JSON_DECODE {
                 if !out.from_json.contains(&d) {
                     out.from_json.push(d);
                 }
@@ -429,6 +471,28 @@ struct Env {
     /// `Json`'s variant order, if the program described the type; otherwise the
     /// order `core/json` declares.
     json_variants: Vec<String>,
+    /// What a decoder spells, where the program calls `json.decode`.
+    decoding: Option<Decoding>,
+}
+
+/// The types a generated decoder names, read off the `json.decode` it answers:
+/// `decode(ctx, value: Json): Result<T, DecodeError>`.
+#[derive(Clone, Copy)]
+struct Decoding {
+    json: Ty,
+    result: TyConId,
+    error: Ty,
+    option: TyConId,
+}
+
+impl Decoding {
+    fn of(program: &Program) -> Option<Decoding> {
+        let f = program.funcs.iter().find(|f| f.intrinsic_key() == Some(JSON_DECODE))?;
+        let json = f.locals.get(f.params.get(1)?.index())?.ty;
+        let TyKind::Con(result, args) = f.ret.kind() else { return None };
+        let error = *args.get(1)?;
+        Some(Decoding { json, result: *result, error, option: program.shapes.option? })
+    }
 }
 
 /// `core/json`'s declaration order, which `runtime.js` also hard-codes and for
@@ -549,7 +613,7 @@ impl Env {
         if let Some(b) = prim_of.get(&Prim::Bool).cloned() {
             result.entry(Op::Eq).or_insert(b);
         }
-        Env { ty_of, prim_of, result, json_variants }
+        Env { ty_of, prim_of, result, json_variants, decoding: Decoding::of(program) }
     }
 
     fn ty(&self, desc: usize) -> Option<&Ty> {
@@ -706,7 +770,23 @@ struct Generator {
     queue: Vec<(Op, usize, FuncIdx)>,
     /// Arity to the shared string joiner of that arity ([`Generator::joiner`]).
     joiners: HashMap<usize, FuncIdx>,
+    /// The three helpers every decoder shares ([`Generator::helper`]).
+    helpers: HashMap<Helper, FuncIdx>,
+    /// The runtime operations decoders call, by key and parameter types
+    /// ([`Generator::runtime`]).
+    runtime: HashMap<(String, Vec<Ty>), FuncIdx>,
     out: Derives,
+}
+
+/// A function every generated decoder shares, minted on first use.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Helper {
+    /// `found(j: Json): Str` — what the document held, for the message.
+    Found,
+    /// `wrong(p: Str, wanted: Str, j: Json): DecodeError`.
+    Wrong,
+    /// `member(es: [(Str, Json)], key: Str, p: Str, i: Int): Result<Json, DecodeError>`.
+    Member,
 }
 
 impl Generator {
@@ -725,6 +805,8 @@ impl Generator {
             routed: HashMap::default(),
             queue: Vec::new(),
             joiners: HashMap::default(),
+            helpers: HashMap::default(),
+            runtime: HashMap::default(),
             out: Derives::default(),
         }
     }
@@ -772,13 +854,14 @@ impl Generator {
             self.decline(op, desc, why);
             return None;
         }
-        if self.env.result(op).is_none() {
+        let Some(ret) = self.op_ret(op, desc) else {
             self.decline(op, desc, Declined::NoResultType);
             return None;
-        }
-        // `Hash` threads an accumulator whose type is its own result type, and
-        // `ToJson` writes object keys, so both need `Str` as well.
-        if op == Op::ToJson && !self.env.prim_of.contains_key(&Prim::Str) {
+        };
+        // `ToJson` writes object keys and `FromJson` reads them, so both need
+        // `Str` as well.
+        let keyed = matches!(op, Op::ToJson | Op::FromJson);
+        if keyed && !self.env.prim_of.contains_key(&Prim::Str) {
             self.decline(op, desc, Declined::NoResultType);
             return None;
         }
@@ -790,7 +873,6 @@ impl Generator {
         // The slot is reserved *before* the body is built, so a recursive type
         // finds itself rather than recursing forever.
         let idx = FuncIdx(u32::try_from(self.base + self.funcs.len()).unwrap_or(u32::MAX));
-        let ret = self.env.result(op).cloned().unwrap_or(Ty::ERROR);
         let name = self.symbol(op, desc, &shape);
         // Qualified with the module that declares the type, so that
         // `lower::unit_name` puts the function in that module's codegen unit.
@@ -816,6 +898,16 @@ impl Generator {
         self.out.instances.push(Instance { op, desc, func: idx, shape });
         self.queue.push((op, desc, idx));
         Some(idx)
+    }
+
+    /// What the instance at `desc` answers. Every operation but `FromJson`
+    /// answers one type whatever it is at; a decoder answers
+    /// `Result<T, DecodeError>` at its own `T`.
+    fn op_ret(&self, op: Op, desc: usize) -> Option<Ty> {
+        match op {
+            Op::FromJson => self.decoded(&self.ty_of(desc)),
+            _ => self.env.result(op).cloned(),
+        }
     }
 
     fn decline(&mut self, op: Op, desc: usize, why: Declined) {
@@ -1125,6 +1217,12 @@ impl Generator {
                 let x = frame.param("x", &ty);
                 let (he, xe) = (self.local_expr(h, &acc), self.local_expr(x, &ty));
                 self.hash(desc, he, xe, &mut frame)?
+            }
+            Op::FromJson => {
+                let json = self.env.decoding?.json;
+                let j = frame.param("j", &json);
+                let p = frame.param("p", &self.str_ty());
+                self.decode(desc, j, p, &mut frame)?
             }
         };
         Some((frame, expr))
@@ -2118,6 +2216,620 @@ impl Generator {
         }
     }
 
+    // -- decoding -----------------------------------------------------------
+    //
+    // `runtime.js`'s `$json_into`, one function per shape. Every decoder is
+    // `(j: Json, p: Str): Result<T, DecodeError>`, where `p` is the path `j`
+    // sits at, and a failure is the `DecodeError` the walk there throws: the
+    // same path and the same words.
+
+    /// `Result<T, DecodeError>`.
+    fn decoded(&self, ty: &Ty) -> Option<Ty> {
+        let d = self.env.decoding?;
+        Some(Ty::con(d.result, [*ty, d.error]))
+    }
+
+    fn json_ty(&self) -> Ty {
+        self.env.decoding.map(|d| d.json).unwrap_or(Ty::ERROR)
+    }
+
+    fn error_ty(&self) -> Ty {
+        self.env.decoding.map(|d| d.error).unwrap_or(Ty::ERROR)
+    }
+
+    fn option_of(&self, ty: Ty) -> Option<Ty> {
+        Some(Ty::con(self.env.decoding?.option, [ty]))
+    }
+
+    fn prim_ty(&self, p: Prim) -> Ty {
+        self.env.prim_of.get(&p).cloned().unwrap_or(Ty::ERROR)
+    }
+
+    fn int_lit(&self, n: usize) -> Expr {
+        let v = typed::Magnitude::new(n as u128);
+        Expr::new(ExprKind::Int(v, false), self.prim_ty(Prim::I64), Span::NONE)
+    }
+
+    fn plus_one(&self, i: Expr) -> Expr {
+        let args = vec![i, self.int_lit(1)];
+        let int = self.prim_ty(Prim::I64);
+        Expr::new(ExprKind::Prim { op: PrimOp::Add, prim: Prim::I64, args }, int, Span::NONE)
+    }
+
+    fn ok(&self, ty: &Ty, v: Expr) -> Option<Expr> {
+        self.enum_lit(&self.decoded(ty)?, RESULT_OK, vec![v])
+    }
+
+    fn fail(&self, ty: &Ty, e: Expr) -> Option<Expr> {
+        self.enum_lit(&self.decoded(ty)?, RESULT_ERR, vec![e])
+    }
+
+    /// `.Err(.WrongType { path: p, wanted, found: found(j) })` at `ty`.
+    fn wrong(&mut self, ty: &Ty, p: Expr, wanted: &str, j: Expr) -> Option<Expr> {
+        let f = self.helper(Helper::Wrong)?;
+        let e = self.call(f, vec![p, self.str_lit(wanted), j], self.error_ty());
+        self.fail(ty, e)
+    }
+
+    /// `.Err(.UnknownVariant { path: p, tag })` at `ty`.
+    fn unknown(&self, ty: &Ty, p: Expr, tag: Expr) -> Option<Expr> {
+        let e = self.enum_lit(&self.error_ty(), DECODE_UNKNOWN_VARIANT, vec![p, tag])?;
+        self.fail(ty, e)
+    }
+
+    /// `p` with a literal suffix: `$.name`, `$[0]`.
+    fn path(&self, p: Expr, suffix: &str) -> Expr {
+        self.template_of(vec![TemplatePart::Hole(p), TemplatePart::Text(suffix.to_string())])
+    }
+
+    /// `x?` on a `Result`, which leaves the decoder with the same error.
+    fn tried(&self, x: Expr, payload: Ty) -> Expr {
+        let kind = ExprKind::Try { base: Box::new(x), kind: typed::OptionOrResult::Result };
+        Expr::new(kind, payload, Span::NONE)
+    }
+
+    fn binding(&self, local: LocalId, ty: Ty) -> Pattern {
+        Pattern { kind: PatKind::Bind { local, sub: None }, ty, span: Span::NONE }
+    }
+
+    fn let_(&self, local: LocalId, ty: Ty, value: Expr) -> typed::Stmt {
+        typed::Stmt::Let { pattern: self.binding(local, ty), value, span: Span::NONE }
+    }
+
+    fn block(&self, stmts: Vec<typed::Stmt>, tail: Expr) -> Expr {
+        let ty = tail.ty;
+        Expr::new(ExprKind::Block { stmts, tail: Some(Box::new(tail)) }, ty, Span::NONE)
+    }
+
+    /// `xs[i]`, which is an `Option`.
+    fn index(&self, xs: Expr, i: Expr, elem: Ty) -> Option<Expr> {
+        let kind = ExprKind::Index { base: Box::new(xs), index: Box::new(i), elem };
+        Some(Expr::new(kind, self.option_of(elem)?, Span::NONE))
+    }
+
+    /// `match j { .V(x) => then, _ => otherwise }` over a `Json`, binding the
+    /// payload to `x` where there is one.
+    fn on_json(
+        &self,
+        j: Expr,
+        variant: &str,
+        x: Option<(LocalId, Ty)>,
+        then: Expr,
+        otherwise: Expr,
+    ) -> Option<Expr> {
+        let json = self.json_ty();
+        let vi = self.env.json_variant(variant)?;
+        let pat = match x {
+            Some((l, t)) => self.variant_pattern(&json, vi, &[(0, l, t)])?,
+            None => self.tag_pattern(&json, vi)?,
+        };
+        let ty = then.ty;
+        Some(self.match_(j, vec![self.arm(pat, then), self.arm(self.wild(&json), otherwise)], ty))
+    }
+
+    /// `let v = decode(j, p)?;`, and `v`.
+    fn decode_into(
+        &mut self,
+        desc: usize,
+        j: Expr,
+        p: Expr,
+        stmts: &mut Vec<typed::Stmt>,
+        frame: &mut Frame,
+    ) -> Option<Expr> {
+        let ty = self.ty_of(desc);
+        let f = self.request(Op::FromJson, desc)?;
+        let call = self.call(f, vec![j, p], self.decoded(&ty)?);
+        let v = frame.local("v", &ty);
+        stmts.push(self.let_(v, ty, self.tried(call, ty)));
+        Some(self.local_expr(v, &ty))
+    }
+
+    /// The body of one decoder.
+    fn decode(&mut self, desc: usize, j: LocalId, p: LocalId, frame: &mut Frame) -> Option<Expr> {
+        let ty = self.ty_of(desc);
+        let je = self.local_expr(j, &self.json_ty());
+        let pe = self.local_expr(p, &self.str_ty());
+        let descs = std::rc::Rc::clone(&self.descs);
+        match descs.get(desc)? {
+            Desc::Prim(prim) => self.decode_prim(*prim, &ty, je, pe, frame),
+            Desc::Unit => {
+                let unit = Expr::new(ExprKind::Unit, ty, Span::NONE);
+                let then = self.ok(&ty, unit)?;
+                let otherwise = self.wrong(&ty, pe, "null", je.clone())?;
+                self.on_json(je, "Null", None, then, otherwise)
+            }
+            Desc::Option(inner) => {
+                // `null` is absent, and anything else is the payload.
+                let none = self.enum_lit(&ty, OPTION_NONE, Vec::new())?;
+                let absent = self.ok(&ty, none)?;
+                let mut stmts = Vec::new();
+                let v = self.decode_into(*inner, je.clone(), pe, &mut stmts, frame)?;
+                let some = self.enum_lit(&ty, OPTION_SOME, vec![v])?;
+                let present = self.block(stmts, self.ok(&ty, some)?);
+                self.on_json(je, "Null", None, absent, present)
+            }
+            Desc::Struct { record: true, fields, .. } => {
+                let members: Vec<(String, usize)> =
+                    fields.iter().map(|f| (f.name.clone(), f.ty)).collect();
+                self.decode_object(&ty, je, pe, &members, Build::Struct(ty), frame)
+            }
+            Desc::Struct { record: false, fields, .. } => {
+                let items: Vec<usize> = fields.iter().map(|f| f.ty).collect();
+                self.decode_array(&ty, je, pe, &items, Build::Struct(ty), frame)
+            }
+            Desc::Tuple(es) => self.decode_array(&ty, je, pe, es, Build::Tuple(ty), frame),
+            Desc::Array(elem) => self.decode_list(&ty, *elem, je, pe, frame),
+            Desc::Enum { variants, .. } => self.decode_enum(&ty, variants, je, pe, frame),
+            Desc::Opaque(_) | Desc::Reserved => None,
+        }
+    }
+
+    /// A primitive: the one `Json` variant it is written as and, for a number,
+    /// whether the type holds it.
+    fn decode_prim(
+        &mut self,
+        prim: Prim,
+        ty: &Ty,
+        je: Expr,
+        pe: Expr,
+        frame: &mut Frame,
+    ) -> Option<Expr> {
+        let (variant, payload, wanted) = match prim {
+            Prim::Bool => ("Bool", Prim::Bool, "a boolean"),
+            Prim::Str | Prim::Template => ("Str", Prim::Str, "a string"),
+            Prim::Char => ("Str", Prim::Str, "a one-character string"),
+            p if p.is_float() => ("Num", Prim::F64, "a number"),
+            _ => ("Num", Prim::F64, "an integer"),
+        };
+        let payload_ty = self.prim_ty(payload);
+        let x = frame.local("x", &payload_ty);
+        let xe = self.local_expr(x, &payload_ty);
+        let otherwise = self.wrong(ty, pe, wanted, je.clone())?;
+        let ret = otherwise.ty;
+        let then = match prim {
+            Prim::Bool | Prim::Str | Prim::Template | Prim::F64 => self.ok(ty, xe)?,
+            Prim::F32 => {
+                let narrowed = self.rt("number.F64.wrapToF32", vec![xe], *ty);
+                self.ok(ty, narrowed)?
+            }
+            // One Unicode scalar value, which is one step of `str.length`.
+            Prim::Char => {
+                let int = self.prim_ty(Prim::I64);
+                let len = self.rt("str.length", vec![xe.clone()], int);
+                let one = self.prim_test(PrimOp::Eq, Prim::I64, len, self.int_lit(1));
+                let opt = self.option_of(*ty)?;
+                let args = vec![xe, self.int_lit(0)];
+                let first = self.rt("str.charAt", args, opt);
+                let c = frame.local("c", ty);
+                let some = self.variant_pattern(&opt, OPTION_SOME, &[(0, c, *ty)])?;
+                let got = self.ok(ty, self.local_expr(c, ty))?;
+                let arms = vec![self.arm(some, got), self.arm(self.wild(&opt), otherwise.clone())];
+                let read = self.match_(first, arms, ret);
+                self.choose(one, read, otherwise.clone(), ret)
+            }
+            // A whole number the type holds: rounded into the type and back,
+            // it is still the number the document wrote.
+            p => {
+                let n = frame.local("n", ty);
+                let into = format!("number.F64.wrapTo{}", p.name());
+                let rounded = self.rt(&into, vec![xe.clone()], *ty);
+                let out = format!("number.{}.toF64", p.name());
+                let back = self.rt(&out, vec![self.local_expr(n, ty)], payload_ty);
+                let whole = self.prim_test(PrimOp::Eq, Prim::F64, back, xe);
+                let got = self.ok(ty, self.local_expr(n, ty))?;
+                let checked = self.choose(whole, got, otherwise.clone(), ret);
+                self.block(vec![self.let_(n, *ty, rounded)], checked)
+            }
+        };
+        self.on_json(je, variant, Some((x, payload_ty)), then, otherwise)
+    }
+
+    /// A value built from its decoded parts.
+    fn build(&self, build: Build, vals: Vec<Expr>) -> Option<Expr> {
+        match build {
+            Build::Struct(ty) => {
+                let con = ty.head()?;
+                let targs = match ty.kind() {
+                    TyKind::Con(_, a) => a.to_vec(),
+                    _ => Vec::new(),
+                };
+                Some(Expr::new(ExprKind::StructLit { con, targs, fields: vals }, ty, Span::NONE))
+            }
+            Build::Tuple(ty) => Some(Expr::new(ExprKind::Tuple(vals), ty, Span::NONE)),
+            Build::Variant(ty, vi) => self.enum_lit(&ty, vi, vals),
+        }
+    }
+
+    /// An object with these members, in any order, and any others ignored.
+    fn decode_object(
+        &mut self,
+        ty: &Ty,
+        je: Expr,
+        pe: Expr,
+        members: &[(String, usize)],
+        build: Build,
+        frame: &mut Frame,
+    ) -> Option<Expr> {
+        let json = self.json_ty();
+        let entries_ty = Ty::array(Ty::tuple([self.str_ty(), json]));
+        let es = frame.local("es", &entries_ty);
+        let member = self.helper(Helper::Member)?;
+        let found_ty = self.decoded(&json)?;
+        let mut stmts = Vec::new();
+        let mut vals = Vec::new();
+        for (name, d) in members {
+            let args = vec![
+                self.local_expr(es, &entries_ty),
+                self.str_lit(name),
+                pe.clone(),
+                self.int_lit(0),
+            ];
+            let found = self.call(member, args, found_ty);
+            let m = frame.local("m", &json);
+            stmts.push(self.let_(m, json, self.tried(found, json)));
+            let at = self.path(pe.clone(), &format!(".{name}"));
+            vals.push(self.decode_into(*d, self.local_expr(m, &json), at, &mut stmts, frame)?);
+        }
+        let then = self.block(stmts, self.ok(ty, self.build(build, vals)?)?);
+        let otherwise = self.wrong(ty, pe, "an object", je.clone())?;
+        self.on_json(je, "Object", Some((es, entries_ty)), then, otherwise)
+    }
+
+    /// An array of exactly one element per item, each its own type.
+    fn decode_array(
+        &mut self,
+        ty: &Ty,
+        je: Expr,
+        pe: Expr,
+        items: &[usize],
+        build: Build,
+        frame: &mut Frame,
+    ) -> Option<Expr> {
+        let json = self.json_ty();
+        let xs_ty = Ty::array(json);
+        let xs = frame.local("xs", &xs_ty);
+        let mut elems = Vec::new();
+        let mut stmts = Vec::new();
+        let mut vals = Vec::new();
+        for (i, d) in items.iter().enumerate() {
+            let e = frame.local("e", &json);
+            elems.push(self.binding(e, json));
+            let at = self.path(pe.clone(), &format!("[{i}]"));
+            vals.push(self.decode_into(*d, self.local_expr(e, &json), at, &mut stmts, frame)?);
+        }
+        let exact = Pattern {
+            kind: PatKind::Array { elems, rest: typed::ArrayRest::None },
+            ty: xs_ty,
+            span: Span::NONE,
+        };
+        let got = self.block(stmts, self.ok(ty, self.build(build, vals)?)?);
+        let wanted = format!("an array of length {}", items.len());
+        let short = self.wrong(ty, pe.clone(), &wanted, je.clone())?;
+        let then = self.match_(
+            self.local_expr(xs, &xs_ty),
+            vec![self.arm(exact, got), self.arm(self.wild(&xs_ty), short)],
+            self.decoded(ty)?,
+        );
+        let otherwise = self.wrong(ty, pe, "an array", je.clone())?;
+        self.on_json(je, "Array", Some((xs, xs_ty)), then, otherwise)
+    }
+
+    /// `[T]`: an array, each element at `p[i]`.
+    fn decode_list(
+        &mut self,
+        ty: &Ty,
+        elem: usize,
+        je: Expr,
+        pe: Expr,
+        frame: &mut Frame,
+    ) -> Option<Expr> {
+        let xs_ty = Ty::array(self.json_ty());
+        let xs = frame.local("xs", &xs_ty);
+        let each = self.decode_each(ty, elem)?;
+        let empty = Expr::new(ExprKind::Array(Vec::new()), *ty, Span::NONE);
+        let args = vec![self.local_expr(xs, &xs_ty), pe.clone(), self.int_lit(0), empty];
+        let then = self.call(each, args, self.decoded(ty)?);
+        let otherwise = self.wrong(ty, pe, "an array", je.clone())?;
+        self.on_json(je, "Array", Some((xs, xs_ty)), then, otherwise)
+    }
+
+    /// `each(xs: [Json], p: Str, i: Int, acc: [T]): Result<[T], DecodeError>`,
+    /// which decodes from element `i` on. It is the loop `middle::tail_calls`
+    /// makes of a function that tail-calls itself, written out because that
+    /// pass has already run.
+    fn decode_each(&mut self, ty: &Ty, elem: usize) -> Option<FuncIdx> {
+        let json = self.json_ty();
+        let xs_ty = Ty::array(json);
+        let int = self.prim_ty(Prim::I64);
+        let str_ty = self.str_ty();
+        let ret = self.decoded(ty)?;
+        let mut frame = Frame::new();
+        let xs = frame.param("xs", &xs_ty);
+        let p = frame.param("p", &str_ty);
+        let i = frame.param("i", &int);
+        let acc = frame.param("acc", ty);
+        let xse = self.local_expr(xs, &xs_ty);
+        let pe = self.local_expr(p, &str_ty);
+        let ie = self.local_expr(i, &int);
+        let acce = self.local_expr(acc, ty);
+        let at = self.index(xse.clone(), ie.clone(), json)?;
+        let opt = at.ty;
+        let e = frame.local("e", &json);
+        let some = self.variant_pattern(&opt, OPTION_SOME, &[(0, e, json)])?;
+        let shown = self.intrinsic("derivePrimShow", vec![int], vec![ie.clone()], str_ty);
+        let path = self.template_of(vec![
+            TemplatePart::Hole(pe.clone()),
+            TemplatePart::Text("[".into()),
+            TemplatePart::Hole(shown),
+            TemplatePart::Text("]".into()),
+        ]);
+        let mut stmts = Vec::new();
+        let v = self.decode_into(elem, self.local_expr(e, &json), path, &mut stmts, &mut frame)?;
+        // `push` is declared with a context, which is dropped by position before
+        // the runtime sees it (`runtime_table::Arg::Dropped`), so `()` stands in.
+        let unit = Expr::new(ExprKind::Unit, Ty::UNIT, Span::NONE);
+        let pushed = self.rt("list.push", vec![acce.clone(), unit, v], *ty);
+        let args = vec![xse, pe, self.plus_one(ie), pushed];
+        let again = Expr::new(ExprKind::Continue { func: None, entry: 0, args }, ret, Span::NONE);
+        let step = self.block(stmts, again);
+        let done = self.ok(ty, acce)?;
+        let arms = vec![self.arm(some, step), self.arm(self.wild(&opt), done)];
+        let body = self.match_(at, arms, ret);
+        let body = Expr::new(ExprKind::Loop { entries: vec![body] }, ret, Span::NONE);
+        let name = format!("$derive$decs${}", short_hash(&self.shape_key(Op::FromJson, elem)));
+        Some(self.mint(&name, frame, body, ret))
+    }
+
+    /// An enum, externally tagged: a variant with no fields is its name, and
+    /// one with fields is `{"Name": payload}`.
+    fn decode_enum(
+        &mut self,
+        ty: &Ty,
+        variants: &[DescVariant],
+        je: Expr,
+        pe: Expr,
+        frame: &mut Frame,
+    ) -> Option<Expr> {
+        let str_ty = self.str_ty();
+        let json = self.json_ty();
+        let ret = self.decoded(ty)?;
+        let named_pat = |name: &str| Pattern {
+            kind: PatKind::Str(name.to_string()),
+            ty: str_ty,
+            span: Span::NONE,
+        };
+
+        // A bare name.
+        let s = frame.local("s", &str_ty);
+        let se = self.local_expr(s, &str_ty);
+        let mut arms = Vec::new();
+        for (vi, v) in variants.iter().enumerate() {
+            let body = if v.fields.is_empty() {
+                self.ok(ty, self.enum_lit(ty, vi, Vec::new())?)?
+            } else {
+                let wanted = format!("an object naming {}'s fields", v.name);
+                self.wrong(ty, pe.clone(), &wanted, je.clone())?
+            };
+            arms.push(self.arm(named_pat(&v.name), body));
+        }
+        arms.push(self.arm(self.wild(&str_ty), self.unknown(ty, pe.clone(), se.clone())?));
+        let bare = self.match_(se, arms, ret);
+
+        // `{"Name": payload}`.
+        let pair_ty = Ty::tuple([str_ty, json]);
+        let entries_ty = Ty::array(pair_ty);
+        let es = frame.local("es", &entries_ty);
+        let pair = frame.local("pair", &pair_ty);
+        let name = frame.local("name", &str_ty);
+        let inner = frame.local("inner", &json);
+        let pair_e = self.local_expr(pair, &pair_ty);
+        let name_e = self.local_expr(name, &str_ty);
+        let inner_e = self.local_expr(inner, &json);
+        let mut arms = Vec::new();
+        for (vi, v) in variants.iter().enumerate() {
+            let body = if v.fields.is_empty() {
+                self.wrong(ty, pe.clone(), &format!("the string {}", v.name), je.clone())?
+            } else {
+                let q = frame.local("q", &str_ty);
+                let qe = self.local_expr(q, &str_ty);
+                let build = Build::Variant(*ty, vi);
+                let payload = if v.record {
+                    let members: Vec<(String, usize)> =
+                        v.fields.iter().map(|f| (f.name.clone(), f.ty)).collect();
+                    self.decode_object(ty, inner_e.clone(), qe, &members, build, frame)?
+                } else {
+                    let items: Vec<usize> = v.fields.iter().map(|f| f.ty).collect();
+                    self.decode_array(ty, inner_e.clone(), qe, &items, build, frame)?
+                };
+                let at = self.path(pe.clone(), &format!(".{}", v.name));
+                self.block(vec![self.let_(q, str_ty, at)], payload)
+            };
+            arms.push(self.arm(named_pat(&v.name), body));
+        }
+        arms.push(self.arm(self.wild(&str_ty), self.unknown(ty, pe.clone(), name_e.clone())?));
+        let by_name = self.match_(name_e, arms, ret);
+        let one = self.block(
+            vec![
+                self.let_(name, str_ty, self.project(pair_e.clone(), 0, true, str_ty)),
+                self.let_(inner, json, self.project(pair_e, 1, true, json)),
+            ],
+            by_name,
+        );
+        let single = Pattern {
+            kind: PatKind::Array {
+                elems: vec![self.binding(pair, pair_ty)],
+                rest: typed::ArrayRest::None,
+            },
+            ty: entries_ty,
+            span: Span::NONE,
+        };
+        let wanted = "an object with one member, naming the variant";
+        let many = self.wrong(ty, pe.clone(), wanted, je.clone())?;
+        let tagged = self.match_(
+            self.local_expr(es, &entries_ty),
+            vec![self.arm(single, one), self.arm(self.wild(&entries_ty), many)],
+            ret,
+        );
+
+        let neither = self.wrong(ty, pe, "a string or an object", je.clone())?;
+        let object = self.on_json(je.clone(), "Object", Some((es, entries_ty)), tagged, neither)?;
+        self.on_json(je, "Str", Some((s, str_ty)), bare, object)
+    }
+
+    /// A function every decoder shares, minted on first use.
+    fn helper(&mut self, which: Helper) -> Option<FuncIdx> {
+        if let Some(f) = self.helpers.get(&which) {
+            return Some(*f);
+        }
+        let json = self.json_ty();
+        let str_ty = self.str_ty();
+        let error = self.error_ty();
+        let mut frame = Frame::new();
+        let (name, body) = match which {
+            Helper::Found => {
+                let j = frame.param("j", &json);
+                let mut arms = Vec::new();
+                for (variant, said) in [
+                    ("Null", "null"),
+                    ("Bool", "a boolean"),
+                    ("Num", "a number"),
+                    ("Str", "a string"),
+                    ("Array", "an array"),
+                ] {
+                    let pat = self.tag_pattern(&json, self.env.json_variant(variant)?)?;
+                    arms.push(self.arm(pat, self.str_lit(said)));
+                }
+                arms.push(self.arm(self.wild(&json), self.str_lit("an object")));
+                ("$derive$found", self.match_(self.local_expr(j, &json), arms, str_ty))
+            }
+            Helper::Wrong => {
+                let found = self.helper(Helper::Found)?;
+                let p = frame.param("p", &str_ty);
+                let wanted = frame.param("wanted", &str_ty);
+                let j = frame.param("j", &json);
+                let said = self.call(found, vec![self.local_expr(j, &json)], str_ty);
+                let args =
+                    vec![self.local_expr(p, &str_ty), self.local_expr(wanted, &str_ty), said];
+                ("$derive$wrong", self.enum_lit(&error, DECODE_WRONG_TYPE, args)?)
+            }
+            Helper::Member => {
+                let ret = self.decoded(&json)?;
+                let int = self.prim_ty(Prim::I64);
+                let pair_ty = Ty::tuple([str_ty, json]);
+                let entries_ty = Ty::array(pair_ty);
+                let es = frame.param("es", &entries_ty);
+                let key = frame.param("key", &str_ty);
+                let p = frame.param("p", &str_ty);
+                let i = frame.param("i", &int);
+                let ese = self.local_expr(es, &entries_ty);
+                let keye = self.local_expr(key, &str_ty);
+                let pe = self.local_expr(p, &str_ty);
+                let ie = self.local_expr(i, &int);
+                let at = self.index(ese.clone(), ie.clone(), pair_ty)?;
+                let opt = at.ty;
+                let pair = frame.local("pair", &pair_ty);
+                let pair_e = self.local_expr(pair, &pair_ty);
+                let some = self.variant_pattern(&opt, OPTION_SOME, &[(0, pair, pair_ty)])?;
+                let k = self.project(pair_e.clone(), 0, true, str_ty);
+                let same = self.prim_test(PrimOp::Eq, Prim::Str, k, keye.clone());
+                let here = self.ok(&json, self.project(pair_e, 1, true, json))?;
+                let args = vec![ese, keye.clone(), pe.clone(), self.plus_one(ie)];
+                let again =
+                    Expr::new(ExprKind::Continue { func: None, entry: 0, args }, ret, Span::NONE);
+                let step = self.choose(same, here, again, ret);
+                let at_path = self.template_of(vec![
+                    TemplatePart::Hole(pe),
+                    TemplatePart::Text(".".into()),
+                    TemplatePart::Hole(keye),
+                ]);
+                let missing = self.enum_lit(&error, DECODE_MISSING, vec![at_path])?;
+                let none = self.fail(&json, missing)?;
+                let arms = vec![self.arm(some, step), self.arm(self.wild(&opt), none)];
+                let body = self.match_(at, arms, ret);
+                let looped = Expr::new(ExprKind::Loop { entries: vec![body] }, ret, Span::NONE);
+                ("$derive$member", looped)
+            }
+        };
+        let ret = body.ty;
+        let f = self.mint(name, frame, body, ret);
+        self.helpers.insert(which, f);
+        Some(f)
+    }
+
+    /// A call to the runtime operation `key`, through a function of its own.
+    ///
+    /// A function rather than an `ExprKind::Intrinsic`, because both backends
+    /// build a `number.*` conversion as a function's whole body and nowhere
+    /// else, and because `middle::rc` reads how `list.push` treats its
+    /// receiver off the function.
+    fn rt(&mut self, key: &str, args: Vec<Expr>, ret: Ty) -> Expr {
+        let params: Vec<Ty> = args.iter().map(|a| a.ty).collect();
+        let f = self.runtime(key, params, ret);
+        self.call(f, args, ret)
+    }
+
+    fn runtime(&mut self, key: &str, params: Vec<Ty>, ret: Ty) -> FuncIdx {
+        let slot = (key.to_string(), params);
+        if let Some(f) = self.runtime.get(&slot) {
+            return *f;
+        }
+        let mut frame = Frame::new();
+        for (i, t) in slot.1.iter().enumerate() {
+            frame.param(&format!("p{i}"), t);
+        }
+        let idx = FuncIdx(u32::try_from(self.base + self.funcs.len()).unwrap_or(u32::MAX));
+        let symbol = format!("$derive$rt${}${}", key.replace('.', "$"), self.runtime.len());
+        self.funcs.push(Func {
+            symbol: symbol.clone(),
+            debug_name: symbol,
+            params: frame.params,
+            locals: frame.locals,
+            kind: FuncKind::Intrinsic(key.to_string()),
+            ret,
+            desc: None,
+            span: Span::NONE,
+        });
+        self.runtime.insert(slot, idx);
+        idx
+    }
+
+    /// Adds a finished function. Unqualified, so it lands in the root codegen
+    /// unit with the joiners.
+    fn mint(&mut self, name: &str, frame: Frame, body: Expr, ret: Ty) -> FuncIdx {
+        let idx = FuncIdx(u32::try_from(self.base + self.funcs.len()).unwrap_or(u32::MAX));
+        self.funcs.push(Func {
+            symbol: name.to_string(),
+            debug_name: name.to_string(),
+            params: frame.params,
+            locals: frame.locals,
+            kind: FuncKind::Body(body),
+            ret,
+            desc: None,
+            span: Span::NONE,
+        });
+        idx
+    }
+
     // -- hashing ------------------------------------------------------------
 
     fn hash_ty(&self) -> Ty {
@@ -2308,6 +3020,8 @@ impl Generator {
                 let (h, x) = (args.next()?, args.next()?);
                 self.hash(desc, h, x, &mut frame)
             }
+            // A decoder binds the payload it reads, so it is never a leaf.
+            Op::FromJson => None,
         };
         // A leaf never allocates a local; if one appeared, the expression
         // would be referring to a frame nobody kept.
@@ -2327,6 +3041,24 @@ fn one(args: &[Expr]) -> Option<Expr> {
 /// `Option`'s variants, in declaration order (`core/option`).
 const OPTION_SOME: usize = 0;
 const OPTION_NONE: usize = 1;
+
+/// `Result`'s variants, in declaration order (`core/result`).
+const RESULT_OK: usize = 0;
+const RESULT_ERR: usize = 1;
+
+/// `DecodeError`'s variants, in `core/json`'s declaration order, which
+/// `runtime.js` hard-codes too.
+const DECODE_MISSING: usize = 0;
+const DECODE_WRONG_TYPE: usize = 1;
+const DECODE_UNKNOWN_VARIANT: usize = 2;
+
+/// What a decoder builds from the parts it decoded.
+#[derive(Clone, Copy)]
+enum Build {
+    Struct(Ty),
+    Tuple(Ty),
+    Variant(Ty, usize),
+}
 
 /// `Order`'s variants, in declaration order (`core/order`).
 const ORDER_LESS: usize = 0;
@@ -2357,7 +3089,17 @@ fn rewrite(
     for i in 0..program.funcs.len() {
         let Some(f) = program.funcs.get(i) else { continue };
         let (Some(key), Some(d)) = (f.intrinsic_key().map(str::to_owned), f.desc) else { continue };
-        if key == "json.decode" {
+        if key == JSON_DECODE {
+            let Some(decoder) = routed.get(&(Op::FromJson, d)).copied() else { continue };
+            // The decoder's second parameter is the path, which is a `Str`.
+            let path_ty = program
+                .funcs
+                .get(decoder.index())
+                .and_then(|g| g.locals.get(g.params.get(1)?.index()))
+                .map(|l| l.ty);
+            if let (Some(path_ty), Some(f)) = (path_ty, program.funcs.get_mut(i)) {
+                decoder_body(f, decoder, path_ty);
+            }
             continue;
         }
         let Some(show) = routed.get(&(Op::Show, d)).copied() else { continue };
@@ -2365,6 +3107,20 @@ fn rewrite(
             reporter_body(f, &key, show);
         }
     }
+}
+
+/// Gives `json.decode(ctx, value)` the body `decoder(value, "$")`: the path
+/// starts at the document, as `$json_decode`'s does.
+fn decoder_body(f: &mut Func, decoder: FuncIdx, path_ty: Ty) {
+    let Some(value) = f.params.get(1).copied() else { return };
+    let Some(json) = f.locals.get(value.index()).map(|l| l.ty) else { return };
+    let args = vec![
+        Expr::new(ExprKind::Local(value), json, Span::NONE),
+        Expr::new(ExprKind::Str("$".to_string()), path_ty, Span::NONE),
+    ];
+    let call = ExprKind::CallFn { func: Callee::Func(decoder), args };
+    let ret = f.ret;
+    f.set_body(Expr::new(call, ret, Span::NONE));
 }
 
 /// Gives the test runner's two reporting intrinsics a body that renders their
@@ -2442,6 +3198,10 @@ fn reporter_body(f: &mut Func, key: &str, show: FuncIdx) {
         f.set_body(body);
     }
 }
+
+/// The key `core/json`'s bodyless `decode` monomorphizes to. Natively this
+/// pass gives it a body (`decoder_body`), so no backend emits it.
+pub const JSON_DECODE: &str = "json.decode";
 
 /// `report`, with both values rendered: `(kind, actual, expected) -> ()`, and
 /// it does not return. Named here because both native backends lower it and

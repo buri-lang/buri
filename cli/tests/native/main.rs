@@ -278,6 +278,8 @@ mod growth;
 // keyed `core/crypto` functions over one, and buri-lang/buri#226's example.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod secret;
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod from_json;
 // What an ordered map's lookups and a list's projections cost against the
 // width of the element: instructions and blocks counted rather than timed, on
 // every backend built in.

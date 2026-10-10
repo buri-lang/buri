@@ -346,6 +346,9 @@ pub struct Shapes {
     pub ctxs: Vec<Vec<Ty>>,
     /// Which types can hand over a capability. See [`Effects`].
     pub effects: Effects,
+    /// `Option`, which a generated decoder spells to index a list
+    /// (`middle::derives`).
+    pub option: Option<TyConId>,
 }
 
 /// What one type constructor is made of.
@@ -477,7 +480,7 @@ fn shapes_of(tables: &Tables) -> Shapes {
             })
             .collect(),
     };
-    Shapes { cons, ctxs, effects }
+    Shapes { cons, ctxs, effects, option: None }
 }
 
 /// What a queued instance is.
@@ -599,7 +602,10 @@ pub fn run(
         m.build(key, slot);
     }
 
-    let shapes = shapes_of(&checked.tables);
+    let shapes = Shapes {
+        option: checked.known_types.get("Option").copied(),
+        ..shapes_of(&checked.tables)
+    };
     // What the program's styles are, and whether it has a theme at all. Asked
     // of the built functions rather than of the source, because a library's
     // unused styles are exactly what must not ship — and because the two flags

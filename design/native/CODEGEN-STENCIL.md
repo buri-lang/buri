@@ -1062,11 +1062,6 @@ answer.
   of two `Str`s the backend would have to build. This subsumes float→integer
   entirely: no float-to-integer conversion is exact, so every one of them is
   this shape.
-* **`json.*`, and `ToJson::toJson` called directly on a primitive.**
-  `json.decode` is a descriptor-driven walker, and the five `bool.toJson` /
-  `character.toJson` / `str.toJson` / `number.<T>.toJson` keys are the trait's own
-  leaves. `derivePrimJson` is not on this line: both backends build `Json`'s
-  primitive arm (VALUE-MODEL.md §12 row 10).
 * **`core/math`'s thirteen transcendentals**, which are refused rather than
   unwritten; `cli/runtime/math.rs` argues it.
 
