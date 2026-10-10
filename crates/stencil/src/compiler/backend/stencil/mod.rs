@@ -344,11 +344,10 @@ impl Backend for Stencil {
     /// toolchain whose `linux-arm64` stencils had changed serve a cached
     /// `linux-arm64` object built from the old ones, which is a wrong artifact
     /// rather than a slow build.
-    /// Its fork reads only the block's bit, and it never fans out
-    /// (`asm::FRAMES_PER_THREAD`), so it never makes the statement that would
-    /// let the runtime begin sharing.
+    /// In a program that can fan out, every count's fork reads the mask
+    /// (`emit.rs`'s `rc_key`).
     fn forks_read_shared_mask(&self) -> bool {
-        false
+        true
     }
 
     fn identity(&self) -> String {
@@ -464,6 +463,7 @@ impl Backend for Stencil {
             frames: &frames,
             root: &root,
             target,
+            shares: runtime::shares_counts(&lowered),
         };
         let wanted: Vec<usize> = (0..lowered.units.len())
             .filter(|i| units.wants(u32::try_from(*i).unwrap_or(0)))
@@ -665,6 +665,9 @@ struct Whole<'a> {
     frames: &'a [jit::FrameSig],
     root: &'a Root,
     target: abi::StencilTarget,
+    /// `runtime::shares_counts`: whether the program can fan out, so its
+    /// counts read `buri_rt_shared_mask` and its entry point says so.
+    shares: bool,
 }
 
 /// How many of a unit's functions one part holds.
@@ -797,8 +800,9 @@ fn emit_part<'a>(
     part: usize,
     members: &[usize],
 ) -> (Part, jit::Scratch<'a>) {
-    let Whole { lib, program, tables, frames, target, .. } = *w;
+    let Whole { lib, program, tables, frames, target, shares, .. } = *w;
     let mut j = jit::Jit::new(lib, tables, frames, target, scratch, part);
+    j.shares = shares;
     j.compile_part(program, members);
     // A refused IR shape is a diagnostic naming the shape, never an artifact
     // that aborts when it reaches it. The emission is finished first — the
@@ -817,7 +821,7 @@ fn assemble_unit(
     members: &[usize],
     parts: Vec<Part>,
 ) -> Result<Emitted, Vec<String>> {
-    let Whole { program, tables, frames, root, target, .. } = *w;
+    let Whole { program, tables, frames, root, target, shares, .. } = *w;
 
     // Every part's refusals, in part order and then in the order that part met
     // them, which is the order one pass over the unit would have met them in.
@@ -866,11 +870,8 @@ fn assemble_unit(
     // other would leave a symbol nothing defines. `task_thread.rs` is the
     // signature; `asm::thread_entry` is this backend's half of it.
     let mut shims: Vec<(String, asm::Shim)> = Vec::new();
-    // G3: `middle::rc::crosses_tasks`'s whole-program answer, which is the one
-    // fact an entry point states that no `Func` in it carries. `asm::Marking`
-    // is where the argument for *not* making the call from a backend that
-    // cannot fan out is written down.
-    let marking = asm::Marking::of(program.crosses_tasks);
+    // The one fact an entry point states that no `Func` in it carries.
+    let marking = asm::Marking::of(shares);
     match root {
         Root::Main(idx) if members.contains(idx) => {
             let sym = jit::symbol_of(program, u32::try_from(*idx).unwrap_or(0));

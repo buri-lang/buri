@@ -813,65 +813,45 @@ fn install_guard(a: &mut Asm) {
 /// spelled here because a bare `0` in an argument register says nothing.
 const PROT_NONE: u64 = 0;
 
-/// Whether the artifact tells the runtime that **its values may cross a task
-/// boundary**, which is `middle::rc::crosses_tasks`'s whole-program answer
+/// Whether the artifact tells the runtime that **its values may cross to a
+/// second thread**, which is `runtime::shares_counts`'s whole-program answer
 /// carried to the one place in an artifact that is not a function of any one
 /// `Func`: its entry point.
 ///
-/// [`Marking::ValuesMayCrossTasks`] emits a `bl buri_rt_values_may_cross_tasks`
-/// immediately after `buri_rt_argv_init`. That statement lets the runtime
-/// begin sharing at its first fan-out, after which every block counts as
-/// marked, so every reference operation takes G2's atomic arm and no in-place
-/// write fires on a borrowed value.
+/// [`Marking::ValuesMayCrossTasks`] emits `bl buri_rt_values_may_cross_tasks`
+/// and `bl buri_rt_frames_are_per_thread` right after `buri_rt_argv_init`.
+/// Together they let the runtime fan out: a step's entry thunk takes a Buri
+/// stack of its own on a task (`glue.rs`), and the program's counts read
+/// `buri_rt_shared_mask` (`emit.rs`'s `rc_key`), so a block allocated before
+/// the first fan-out is counted atomically after it.
 ///
-/// **This backend asks for the mark only where it can fan out**, which today
-/// is nowhere: [`FRAMES_PER_THREAD`] is false. Without a frame of its own a
-/// second thread never enters Buri code here — `rt::fan_out` and a scope's
-/// side-by-side tasks are both gated on `buri_rt_frames_are_per_thread`, and
-/// `core/actor` steps on whichever thread drives it, which is the one thread
-/// there is — so no block is ever reached from two threads at once, and the
-/// mark buys nothing. It used to be made anyway, on the argument that it cost
-/// an `or` per allocation and an atomic count. Measured, it was more: every
-/// reference operation on the atomic arm, and no in-place growth, came to 7 %
-/// of the CPU of a batch of database tests that reached `core/actor`.
-///
-/// The day this backend gives each thread a frame, [`FRAMES_PER_THREAD`] brings
-/// the statement back, and it is **not** the one edit: a block allocated
-/// before sharing began carries no bit, so this backend's fork and its
-/// `Str` concatenation must then read `buri_rt_shared_mask` the way the
-/// release backend's do (`runtime::SHARED_MASK`, buri-lang/buri#243), and its
-/// `Backend::forks_read_shared_mask` must say so.
+/// A program that can't fan out says nothing, keeps the plain fork and pays
+/// nothing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Marking {
     /// No statement: the program allocates unmarked blocks and counts them
-    /// non-atomically, which is every program that does not use `core/tasks`.
+    /// non-atomically, and `Tasks.parallel` runs its steps in order.
     None,
-    /// `buri_rt_values_may_cross_tasks()`, once, before the first block.
+    /// Both statements, once, before the first block.
     ValuesMayCrossTasks,
 }
 
-/// Whether this backend's entry points say `buri_rt_frames_are_per_thread`:
-/// whether a second thread entering Buri code gets a frame of its own. Not
-/// yet — see [`program_entry`] — and so a program built here is never marked
-/// ([`Marking`]).
-pub const FRAMES_PER_THREAD: bool = false;
-
 impl Marking {
     /// What an entry point of a program says about itself, given
-    /// `middle::rc::crosses_tasks`'s answer for it.
-    pub fn of(crosses_tasks: bool) -> Marking {
-        if crosses_tasks && FRAMES_PER_THREAD {
+    /// `runtime::shares_counts`'s answer for it.
+    pub fn of(shares: bool) -> Marking {
+        if shares {
             Marking::ValuesMayCrossTasks
         } else {
             Marking::None
         }
     }
 
-    /// The runtime symbol to call at startup, if any.
-    fn symbol(self) -> Option<&'static str> {
+    /// The runtime symbols to call at startup.
+    fn symbols(self) -> &'static [&'static str] {
         match self {
-            Marking::None => Option::None,
-            Marking::ValuesMayCrossTasks => Some(runtime::VALUES_MAY_CROSS_TASKS),
+            Marking::None => &[],
+            Marking::ValuesMayCrossTasks => &[runtime::VALUES_MAY_CROSS_TASKS, runtime::FRAMES_PER_THREAD],
         }
     }
 }
@@ -883,14 +863,8 @@ impl Marking {
 /// has — `.Ok(())` flushes and exits 0, `.Err(msg)` writes `msg` to standard
 /// error, flushes and exits 1.
 ///
-/// **One call that entry point makes and this one does not**, and the omission
-/// is the decision: `buri_rt_frames_are_per_thread`. A program built here has
-/// a single Buri stack — [`STACK_SYMBOL`], guarded by `install_guard` — so a
-/// second thread entering Buri code has nowhere of its own to put a frame, and
-/// `Tasks.parallel` runs its steps one after another on the calling thread
-/// instead of fanning them out. `cli/runtime/lib.rs` §6 makes that call the
-/// optional one for exactly this reason: silence is the safe answer. Track B's
-/// per-thread Buri stack (B7) is what lets this entry point make it too.
+/// The process's own thread keeps one Buri stack, [`STACK_SYMBOL`], guarded
+/// by `install_guard`. A step that runs on a task takes its own ([`Marking`]).
 ///
 /// The target picks the machine and nothing else: the two bodies below are the
 /// same program in two instruction sets, and a difference between them that is
@@ -911,7 +885,7 @@ fn program_entry_arm64(callee: &str, result: Option<MainResult>, marking: Markin
     let mut a = Asm::new();
     a.stp_fp_lr();
     a.bl_symbol(runtime::ARGV_INIT);
-    if let Some(sym) = marking.symbol() {
+    for sym in marking.symbols() {
         a.bl_symbol(sym);
     }
     install_guard(&mut a);
@@ -1003,7 +977,7 @@ fn test_entry_arm64(tests: &[String], marking: Marking) -> Asm {
     let mut a = Asm::new();
     a.stp_fp_lr();
     a.bl_symbol(runtime::ARGV_INIT);
-    if let Some(sym) = marking.symbol() {
+    for sym in marking.symbols() {
         a.bl_symbol(sym);
     }
     install_guard(&mut a);
@@ -1056,7 +1030,7 @@ fn program_entry_x86_64(callee: &str, result: Option<MainResult>, marking: Marki
     // `argc` and `argv` are already in `edi` and `rsi`, and `push` writes
     // neither, so this call comes before anything else at all.
     a.call_symbol(runtime::ARGV_INIT);
-    if let Some(sym) = marking.symbol() {
+    for sym in marking.symbols() {
         a.call_symbol(sym);
     }
     install_guard_x86_64(&mut a);
@@ -1121,7 +1095,7 @@ fn test_entry_x86_64(tests: &[String], marking: Marking) -> X86 {
     let mut a = X86::new();
     a.push_rbp();
     a.call_symbol(runtime::ARGV_INIT);
-    if let Some(sym) = marking.symbol() {
+    for sym in marking.symbols() {
         a.call_symbol(sym);
     }
     install_guard_x86_64(&mut a);
@@ -1521,21 +1495,9 @@ mod tests {
         );
     }
 
-    /// **No entry point here declares that its threads have frames of their
-    /// own**, and the omission is the safety property rather than an oversight.
-    ///
-    /// `cli/runtime/lib.rs` §6 makes `buri_rt_frames_are_per_thread` the one
-    /// optional call, and the LLVM backend makes it. A program built here has a
-    /// single Buri stack — [`STACK_SYMBOL`] — and a runtime-driven step works in
-    /// a frame its *call site* set aside, so two steps of one `Tasks.parallel`
-    /// would share it and one that suspends would still be holding it. Making
-    /// the call would turn that into two threads writing the same frame; not
-    /// making it is `parallel` running its steps one at a time, which is what
-    /// the four shims above already show and what this asserts on purpose.
-    ///
-    /// The two-directional half is `cli/tests/native/llvm.rs`'s
-    /// `the_attribute_discipline_reaches_the_optimized_ir`, which asserts the
-    /// other backend does make it. B7 is what lets this test be deleted.
+    /// **An entry point that wasn't asked to mark says nothing about its
+    /// frames.** A program that can't fan out keeps `Tasks.parallel` in order
+    /// and its counts plain, so neither statement is made.
     #[test]
     fn no_entry_point_here_declares_per_thread_frames() {
         let shims = [
@@ -1548,29 +1510,22 @@ mod tests {
             let called = names(shim);
             assert!(
                 called.iter().all(|(_, n)| n != runtime::FRAMES_PER_THREAD),
-                "a shim told the runtime its threads have frames of their own: {called:?}"
+                "an unmarked shim told the runtime its threads have frames of their own: {called:?}"
             );
         }
     }
 
-    /// **Every entry point here states whether its values may cross a task
-    /// boundary**, and the state it is asked for is the state it emits.
-    ///
-    /// The sibling of `no_entry_point_here_declares_per_thread_frames`, and
-    /// the two are deliberately opposite in shape: that one asserts a call is
-    /// *never* made, because a Buri frame here is the call site's and that is a
-    /// property of the backend; this one asserts the call is made exactly when
-    /// asked, because whether a block can be reached from two threads is a
-    /// property of the *program* and is the same fact on both backends.
+    /// **Every entry point here states whether its values may cross to a
+    /// second thread**, and the state it is asked for is the state it emits:
+    /// both statements, right after `buri_rt_argv_init` and before the stack
+    /// guard and the root, because the latch decides the header of every block
+    /// allocated after it (`cli/runtime/lib.rs` §6).
     ///
     /// Both directions, on all four shims, because either half alone would
-    /// pass on a shim that ignored its argument. And the **position** is
-    /// asserted too: `cli/runtime/lib.rs` §6 makes the order part of the
-    /// contract — the latch decides the header of every block allocated after
-    /// it — so the call goes after `buri_rt_argv_init` and before the stack
-    /// guard and the root.
+    /// pass on a shim that ignored its argument.
     #[test]
     fn an_entry_point_says_whether_its_values_may_cross_a_task_boundary() {
+        let said = [runtime::VALUES_MAY_CROSS_TASKS, runtime::FRAMES_PER_THREAD];
         for target in [ARM64, X86_64] {
             let shims = [
                 (
@@ -1586,39 +1541,34 @@ mod tests {
                 let quiet: Vec<String> = names(silent).into_iter().map(|(_, n)| n).collect();
                 let loud: Vec<String> = names(marking).into_iter().map(|(_, n)| n).collect();
                 assert!(
-                    !quiet.iter().any(|n| n == runtime::VALUES_MAY_CROSS_TASKS),
+                    !quiet.iter().any(|n| said.contains(&n.as_str())),
                     "a shim marked a program that did not ask to be marked: {quiet:?}"
                 );
-                let at = loud
-                    .iter()
-                    .position(|n| n == runtime::VALUES_MAY_CROSS_TASKS)
-                    .unwrap_or_else(|| panic!("a shim did not mark: {loud:?}"));
                 let init = loud
                     .iter()
                     .position(|n| n == runtime::ARGV_INIT)
                     .expect("a shim did not initialise the runtime");
-                assert!(init < at, "the mark came before the runtime was initialised: {loud:?}");
-                assert_eq!(at, init + 1, "something ran between the two: {loud:?}");
-                // The one call is the whole of the difference.
-                let without: Vec<&String> =
-                    loud.iter().filter(|n| *n != runtime::VALUES_MAY_CROSS_TASKS).collect();
+                assert_eq!(
+                    loud.get(init + 1..init + 3).map(<[String]>::to_vec),
+                    Some(said.iter().map(|n| String::from(*n)).collect()),
+                    "the statements don't follow the runtime's initialisation: {loud:?}"
+                );
+                // The two calls are the whole of the difference.
+                let without: Vec<&String> = loud.iter().filter(|n| !said.contains(&n.as_str())).collect();
                 assert_eq!(
                     without,
                     quiet.iter().collect::<Vec<&String>>(),
-                    "marking changed something other than the one call"
+                    "marking changed something other than the two calls"
                 );
             }
         }
     }
 
-    /// A program that crosses tasks is marked only by an entry point that also
-    /// gives each thread a frame, and this backend's do not yet.
+    /// A program is marked exactly when it can fan out.
     #[test]
     fn a_program_is_marked_only_where_its_threads_have_frames() {
         assert_eq!(Marking::of(false), Marking::None);
-        let expected =
-            if FRAMES_PER_THREAD { Marking::ValuesMayCrossTasks } else { Marking::None };
-        assert_eq!(Marking::of(true), expected);
+        assert_eq!(Marking::of(true), Marking::ValuesMayCrossTasks);
     }
 
     /// A `main` answering `()` never inspects the return area, so it calls the

@@ -49,10 +49,9 @@ signature's:
 | Backend | Today |
 |---|---|
 | JavaScript | Started together and awaited together, so two tasks that *wait* overlap; two that compute do not, because the engine has one thread |
-| Native, `--release` | Each task on a thread of its own, so waiting and computing both overlap |
-| Native, `buri run` | Sequential, in index order, on the calling thread |
+| Native | Each task on a thread of its own, so waiting and computing both overlap |
 
-All three answer the same list, which is the point of fixing the order.
+Both answer the same list, which is the point of fixing the order.
 
 ## `scope` and `spawn` run work in the background
 
@@ -110,17 +109,12 @@ ends, so a loop stops by finding its socket closed, or by asking an actor
 whether to carry on. An abort is a write to standard error and an exit
 ([effects](../language/effects.md)), never something a second task survives.
 
-In a native `--release` build a spawned task starts at once, on a thread of its
-own, while the body keeps running. Everywhere else — `buri run`, JavaScript, and
-tests on every backend — the body runs first, then the scope runs what was
-spawned in rounds, one round for whatever the last one spawned, until nothing is
-waiting. So spawned tasks overlap on JavaScript and run one after another under
-`buri run`. A task spawned *after* the body has returned — which on a page is
-what a handler does — runs on the task that spawned it.
-
-So under `buri run` a task that never ends starves the ones behind it. Spawn a
-socket loop and then a timer, and the timer never starts. Build with
-`--release`, or run on JavaScript, and both run.
+In a native program a spawned task starts at once, on a thread of its own,
+while the body keeps running. On JavaScript and in tests the body runs first,
+then the scope runs what was spawned in rounds, one round for whatever the last
+one spawned, until nothing is waiting. A task spawned *after* the body has
+returned — which on a page is what a handler does — runs on the task that
+spawned it.
 
 ## A timer needs no scope
 
@@ -178,10 +172,7 @@ that answers `.Err`, an abort and `exitWith` end the program at once.
 **A timer fires while the program waits.** On JavaScript it's a `setTimeout`.
 A native program fires it on `main`'s thread whenever that thread waits — a
 sleep, a fetch, a `parallel` being joined — and after `main` returns. It never
-interrupts code that is computing. Under `buri run` a server's workers wait on
-`main`'s thread for a connection, so a timer started there fires once the
-server stops. Build with `--release`, where the workers have threads of their
-own, and it fires on time.
+interrupts code that is computing.
 
 ## An actor is a value
 

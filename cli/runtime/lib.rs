@@ -724,8 +724,7 @@ pub const BURI_OK: i32 = -1;
 ///
 /// `false` until an entry point says otherwise, and the conservative answer is
 /// the one that costs nothing: a runtime that believes frames are shared runs
-/// `rt::buri_rt_host_tasks_parallel`'s steps one at a time, which is what it
-/// did before there was a fan-out at all.
+/// `rt::buri_rt_host_tasks_parallel`'s steps one at a time.
 static FRAMES_PER_THREAD: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
@@ -743,13 +742,11 @@ static FRAMES_PER_THREAD: std::sync::atomic::AtomicBool =
 ///   the depth a task may recurse to is the same number on both backends;
 ///   before it, it was a thread's 512 KiB stack, which is the
 ///   asymmetry `reports/wave6-b7b8.md` §5.2 recorded.
-/// * The **frame-threaded** backend does not, and must not until each thread
-///   owns a Buri stack (track B, B7). Today a program has exactly one, the
-///   `buri$stencil$stack` block its `main` guards, and an entry thunk works in a
-///   frame the *call site* set aside — so two steps of one `parallel` would
-///   share it, and one that suspends would still be holding it. Sequential is
-///   not a limitation of that backend's scheduler; it is the truth about where
-///   its frames are.
+/// * The **frame-threaded** backend calls it for a program that can fan out.
+///   `main`'s thread keeps the `buri$stencil$stack` block its `main` guards,
+///   and a step's entry thunk on a task works on a Buri stack of the task's
+///   own (`memory::buri_rt_step_stack_acquire`), so two steps never share a
+///   frame and one that parks keeps its own.
 /// * A toolchain built without `net` has no scheduler to tell, and this is then
 ///   a store nobody loads.
 ///

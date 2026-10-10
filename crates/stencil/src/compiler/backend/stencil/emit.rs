@@ -1115,19 +1115,22 @@ impl<'a> Jit<'a> {
         glue: Option<String>,
     ) -> Result<(), String> {
         match (op, glue) {
-            (Op::Retain, _) => {
-                self.emit("incref", &[("JIT_A", V::I(u64::from(at))), ("JIT_CONT", V::Fall)])
+            (Op::Retain, _) => self.incref(at),
+            (Op::Release, Some(g)) => {
+                let (key, mask) = self.rc_key("decref/drop", "decref/drop/shared");
+                self.emit(
+                    key,
+                    &[
+                        ("JIT_A", V::I(u64::from(at))),
+                        ("JIT_M", V::Sym(g)),
+                        mask,
+                        ("JIT_CONT0", V::Fall),
+                    ],
+                )
             }
-            (Op::Release, Some(g)) => self.emit(
-                "decref/drop",
-                &[
-                    ("JIT_A", V::I(u64::from(at))),
-                    ("JIT_M", V::Sym(g)),
-                    ("JIT_CONT0", V::Fall),
-                ],
-            ),
             (Op::Release, None) => {
-                self.emit("decref/free", &[("JIT_A", V::I(u64::from(at))), ("JIT_CONT0", V::Fall)])
+                let (key, mask) = self.rc_key("decref/free", "decref/free/shared");
+                self.emit(key, &[("JIT_A", V::I(u64::from(at))), mask, ("JIT_CONT0", V::Fall)])
             }
             (Op::Copy, glue) => {
                 let g = glue.map_or(Src::Imm(0), Src::Sym);
@@ -1135,6 +1138,27 @@ impl<'a> Jit<'a> {
             }
         }
         Ok(())
+    }
+
+    /// A retain of the block whose pointer is at frame offset `at`.
+    pub(crate) fn incref(&mut self, at: u32) {
+        let (key, mask) = self.rc_key("incref", "incref/shared");
+        self.emit(key, &[("JIT_A", V::I(u64::from(at))), mask, ("JIT_CONT", V::Fall)]);
+    }
+
+    /// The count stencil to use, and the binding for its mask hole.
+    ///
+    /// A program that can fan out ([`Jit::shares`]) ORs `buri_rt_shared_mask`
+    /// into the bit its fork tests, so a block allocated before the first
+    /// fan-out is counted atomically after it (buri-lang/buri#243). Any other
+    /// program keeps the plain stencil; the plain one has no `R` hole, so the
+    /// binding is never read.
+    fn rc_key(&self, plain: &'static str, shared: &'static str) -> (&'static str, (&'static str, V)) {
+        if self.shares {
+            (shared, ("JIT_R", V::Ext(runtime::SHARED_MASK)))
+        } else {
+            (plain, ("JIT_R", V::I(0)))
+        }
     }
 
     /// A comparison of two `Str`s, through one helper. The six orderings are
@@ -2484,7 +2508,7 @@ impl<'a> Jit<'a> {
                 return;
             };
             self.mv(ret0, last, 24);
-            self.emit("incref", &[("JIT_A", V::I(u64::from(ret0))), ("JIT_CONT", V::Fall)]);
+            self.incref(ret0);
             self.emit("ret", &[]);
             return;
         }

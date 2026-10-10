@@ -176,9 +176,7 @@
 //! On JavaScript a timer is a `setTimeout`. A native program fires it on
 //! `main`'s thread whenever that thread waits — a sleep, a fetch, a `parallel`
 //! being joined — and after `main` returns, never in the middle of code that
-//! is computing. Under `buri run` a server's workers wait on `main`'s thread,
-//! so a timer started there fires once the server stops; under `--release` it
-//! fires on time (`design/native/DECISIONS.md`).
+//! is computing.
 
 from "core/alloc" import * as alloc;
 from "core/time" import { Duration };

@@ -96,12 +96,13 @@
 //! are true, and they are different facts:
 //!
 //! * `lib.rs`'s `buri_rt_frames_are_per_thread` — a thread entering Buri
-//!   code gets frames of its own. A property of the *backend*: the LLVM one
-//!   says it, the frame-threaded one does not until each thread owns a Buri
-//!   stack (track B, B7).
+//!   code gets frames of its own. The LLVM backend's frames are machine
+//!   frames; the frame-threaded backend's step thunk takes a Buri stack of the
+//!   task's own.
 //! * `memory::buri_rt_values_may_cross_tasks` — a block this program allocates
-//!   may be reached from two threads, so it is marked. A property of the
-//!   *program*, and both backends say it for the programs it is true of.
+//!   may be reached from two threads, so its counts read the shared mask. A
+//!   property of the *program*, and both backends say it for the programs it
+//!   is true of, alongside the first.
 //!
 //! Where either is missing the steps run one after another on the calling
 //! thread, in index order, answering the same `[B]`. The order promise is
@@ -2682,9 +2683,7 @@ pub extern "C" fn buri_rt_tasks_scope_ran(handle: i64) -> u8 {
 //
 // So a timer never runs beside code that is computing; it runs where the
 // program would otherwise be idle, on the one thread whose Buri stack is not a
-// task's. A program built by the development backend runs its fan-outs on that
-// thread too, so a step that blocks inside a server's accept holds its timers
-// until it returns (`design/native/DECISIONS.md`).
+// task's.
 
 /// The entry thunk a timer's body is reached through: [`StepEntry`]'s four
 /// words, with the handle as the index-sized element.

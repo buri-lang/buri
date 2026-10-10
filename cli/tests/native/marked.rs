@@ -17,9 +17,7 @@
 //!
 //! The other rows share a list between tasks and then grow it on more than one
 //! of them at once. Each task's answer must be the old list and its own
-//! element, and the old list must read as it did. On the development backend
-//! the tasks run one after another, and the rows reach the same answers with
-//! no contention.
+//! element, and the old list must read as it did.
 
 use crate::shared::{exited_instructions, probed, ran_checked, Ran};
 

@@ -205,6 +205,8 @@ mod fan_out;
 #[cfg(feature = "backend-llvm")]
 mod llvm;
 mod runtime;
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod side_by_side;
 #[cfg(feature = "backend-stencil")]
 mod stencil;
 // Scalar indices into long strings: the work counted rather than timed, and the

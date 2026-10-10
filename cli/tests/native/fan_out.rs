@@ -1,9 +1,6 @@
 //! What `tasks.parallel` costs the scheduler, natively, on the release backend:
 //! the threads a fan-out wakes, counted rather than timed, through the
 //! runtime's `buri_rt_tasks_dispatch_wakes`.
-//!
-//! The copy-and-patch backend runs a fan-out's steps one after another on the
-//! calling thread, so only the release backend has anything to count.
 
 use crate::shared::{probed, ran_checked, ALLOC_PROBE};
 
