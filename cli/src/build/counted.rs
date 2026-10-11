@@ -33,10 +33,12 @@ pub enum Count {
     NewExecutables,
     /// A process running tests, native or JavaScript.
     TestProcesses,
+    /// A byte of a source read to key an action.
+    KeyedBytes,
 }
 
 /// One past the last `Count`, so the tables below have a slot for each.
-const COUNTS_LEN: usize = Count::TestProcesses as usize + 1;
+const COUNTS_LEN: usize = Count::KeyedBytes as usize + 1;
 
 const NAMES: [&str; COUNTS_LEN] = [
     "suites built",
@@ -47,6 +49,7 @@ const NAMES: [&str; COUNTS_LEN] = [
     "links",
     "new executables launched",
     "test processes",
+    "bytes keyed",
 ];
 
 static COUNTS: [AtomicU64; COUNTS_LEN] = [const { AtomicU64::new(0) }; COUNTS_LEN];
@@ -54,10 +57,14 @@ static COUNTS: [AtomicU64; COUNTS_LEN] = [const { AtomicU64::new(0) }; COUNTS_LE
 /// Executables this run wrote as new files and has not started yet.
 static FRESH: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
-#[expect(clippy::indexing_slicing, reason = "`COUNTS` is `COUNTS_LEN` long, one slot per `Count`")]
 pub fn add(count: Count) {
+    add_n(count, 1);
+}
+
+#[expect(clippy::indexing_slicing, reason = "`COUNTS` is `COUNTS_LEN` long, one slot per `Count`")]
+pub fn add_n(count: Count, n: u64) {
     if crate::profile::enabled() {
-        COUNTS[count as usize].fetch_add(1, Relaxed);
+        COUNTS[count as usize].fetch_add(n, Relaxed);
     }
 }
 
