@@ -715,15 +715,14 @@ fn cut(len: usize) -> Vec<(usize, usize)> {
     let step = len.div_ceil(count).max(1);
     let mut out = Vec::with_capacity(count);
     let mut lo = 0usize;
-    while lo < len {
+    loop {
         let hi = lo.saturating_add(step).min(len);
         out.push((lo, hi));
         lo = hi;
+        if lo >= len {
+            return out;
+        }
     }
-    if out.is_empty() {
-        out.push((0, 0));
-    }
-    out
 }
 
 /// Every wanted unit's parts, as one flat work list.
