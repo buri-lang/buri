@@ -12,5 +12,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         Entropy: host.entropy,
     };
     let key = crypto.randomBytes(ctx, 32);
-    io.println(ctx, "${crypto.seal(ctx, secret.of(key), [], []).length()}").mapErr(fn(_e) => "could not write")
+    io
+        .println(ctx, "${crypto.seal(ctx, secret.of(key), [], []).length()}")
+        .mapErr(fn(_e) => "could not write")
 }
