@@ -13,6 +13,7 @@ use crate::compiler::backend::intrinsic_keys;
 use crate::compiler::middle::monomorphize::{self, FuncKind, Program};
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, Stmt};
 use crate::compiler::semantics::types::{LocalId, Ty, TyKind};
+use crate::diagnostics::Invariant as _;
 use crate::hash::Set as HashSet;
 
 /// Whether an intrinsic key names a host operation that **blocks**: the call
@@ -407,8 +408,7 @@ pub fn parkability(program: &Program) -> Parking {
     let addressed = address_taken(program);
     let lets: Vec<Vec<(LocalId, &Expr)>> =
         program.funcs.iter().map(|f| f.body().map(fn_lets).unwrap_or_default()).collect();
-    for (i, f) in program.funcs.iter().enumerate() {
-        let Some(slot) = w.resolved.get_mut(i) else { continue };
+    for (i, (f, slot)) in program.funcs.iter().zip(w.resolved.iter_mut()).enumerate() {
         if !addressed.get(i).copied().unwrap_or(true) {
             for p in &f.params {
                 slot.insert(*p);
@@ -452,12 +452,12 @@ pub fn parkability(program: &Program) -> Parking {
         changed = false;
 
         for &(target, from, args) in &edges {
-            let Some(tf) = program.funcs.get(target) else { continue };
-            for (j, a) in args.iter().enumerate() {
+            let tf = program.funcs.get(target).or_ice("an edge's target is a function slot");
+            // A call passes one argument per parameter, and so does a jump.
+            for (a, &p) in args.iter().zip(&tf.params) {
                 if !is_fn_ty(&a.ty) || !w.value_parks(from, a) {
                     continue;
                 }
-                let Some(p) = tf.params.get(j).copied() else { continue };
                 if w.parking.get_mut(target).is_some_and(|s| s.insert(p)) {
                     changed = true;
                 }
@@ -520,22 +520,16 @@ pub fn parkability(program: &Program) -> Parking {
             // colour `mapCtx` at another. Two call sites that share an
             // instantiation and disagree share the answer, which is the
             // direction that costs a microtask rather than a result.
-            if let FuncKind::Intrinsic(key) = &f.kind {
-                let stepped = intrinsic_keys::ctx_step_key(key)
-                    && f.params.iter().any(|p| w.parking.get(i).is_some_and(|s| s.contains(*p)));
-                if stepped {
-                    if let Some(slot) = w.parks.get_mut(i) {
-                        *slot = true;
-                    }
-                    changed = true;
-                    continue;
+            let parks = match &f.kind {
+                FuncKind::Intrinsic(key) => {
+                    intrinsic_keys::ctx_step_key(key)
+                        && f.params.iter().any(|p| w.parking.get(i).is_some_and(|s| s.contains(*p)))
                 }
-            }
-            let Some(body) = f.body() else { continue };
-            if w.body_parks(i, body) {
-                if let Some(slot) = w.parks.get_mut(i) {
-                    *slot = true;
-                }
+                FuncKind::Body(body) => w.body_parks(i, body),
+                FuncKind::Unbuilt => false,
+            };
+            if parks {
+                *w.parks.get_mut(i).or_ice("the column has a row per function") = true;
                 changed = true;
             }
         }

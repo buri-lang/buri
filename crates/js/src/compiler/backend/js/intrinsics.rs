@@ -103,11 +103,11 @@ impl<'a> Gen<'a> {
         // The four structural operations are defined for every primitive, and
         // the runtime implements them once rather than per type.
         match parts.last().copied() {
-            Some("equal") if args.len() == 2 => {
+            Some("equal") => {
                 let (x, y) = (args.first()?, args.get(1)?);
                 Some(Expr::bin(BinOp::StrictEq, x.clone(), y.clone()))
             }
-            Some("compare") if args.len() == 2 => Some(
+            Some("compare") => Some(
                 compare_inline(args.first()?, args.get(1)?)
                     .unwrap_or_else(|| Expr::call(Expr::ident("$cmp"), args.to_vec())),
             ),
