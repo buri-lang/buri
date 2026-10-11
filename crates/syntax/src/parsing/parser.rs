@@ -1972,6 +1972,11 @@ impl<'a> Parser<'a> {
         let at = self.tree.len_of::<Param>();
         let mut first = true;
         while !self.list_ended(Punctuation::RParen) {
+            // `fn one(: Int`: no parameter starts with `:`, so this is the
+            // return type's, and the list's `)` is what went missing.
+            if first && self.is(Punctuation::Colon) {
+                break;
+            }
             let start = self.span();
             let (kind, name) = if self.is_keyword(Keyword::SelfValue) {
                 let span = self.bump();

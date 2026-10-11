@@ -1,4 +1,4 @@
-// EXPECT: expected an identifier, found `:`
+// EXPECT: this parameter list is missing its closing `)`
 export fn one(: Int {
   1
 }
