@@ -1,6 +1,7 @@
 # What `--coverage=mcdc` leaves to branches. `wide` has 2^33 paths, more
 # than a key can number, and `tailIf` ends its `||` in an `if` that can end in
 # a tail call. Each keeps a probe on every right side and adds no condition.
+# `tailIfPlain`'s `if` ends in no call on either side, so it is a decision.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 

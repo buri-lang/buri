@@ -1,1 +1,1 @@
-from "//lib/w/w.buri" export { tailIf, wide };
+from "//lib/w/w.buri" export { tailIf, tailIfPlain, wide };
