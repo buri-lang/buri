@@ -1793,6 +1793,9 @@ fn read_request(
         match stream.read(&mut chunk) {
             Ok(0) => return Err(400),
             Ok(n) => buffer.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+            // Linux doesn't restart a read with a deadline after a signal or a
+            // stop and continue. The client did nothing, so read again.
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(_) => return Err(408),
         }
     };
@@ -1826,6 +1829,7 @@ fn read_request(
         match stream.read(&mut chunk) {
             Ok(0) => return Err(400),
             Ok(n) => body.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(_) => return Err(408),
         }
     }
