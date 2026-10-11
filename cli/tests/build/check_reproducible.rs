@@ -191,3 +191,24 @@ done
         .exits(2)
         .says("error: //cmd/app disappeared between two builds of one tree");
 }
+
+/// A target the build refuses for its policy is refused by the check too,
+/// rather than called reproducible.
+#[test]
+fn a_target_the_build_refuses_is_not_reproducible() {
+    let scratch = written("check-reproducible-private", "node");
+    scratch.edit(
+        "lib/text/BUILD.buri",
+        "visibility: [\"//visibility:public\"]",
+        "",
+    );
+    scratch
+        .run(&["build", "//cmd/app"])
+        .exits(1)
+        .says("[visibility-violation]");
+    scratch
+        .run(&["build", "--check-reproducible", "--verbose", "//cmd/app"])
+        .exits(1)
+        .says("[visibility-violation]")
+        .silent_about("is reproducible");
+}
