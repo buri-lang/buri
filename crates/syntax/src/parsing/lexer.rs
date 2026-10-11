@@ -1359,9 +1359,9 @@ impl<'a> Lexer<'a> {
         } else {
             self.detached = blank;
         }
-        if self.has_trivia {
-            self.attach_trivia(at as u32);
-        }
+        // Something is always held here: a run of comments, or the blank line
+        // that made the caller's `pending` true.
+        self.attach_trivia(at as u32);
     }
 
     /// The column `at` sits at, counting from zero.
@@ -1699,10 +1699,9 @@ impl<'a> Lexer<'a> {
         if end != StrEnd::Unterminated {
             return;
         }
-        let at = self.tokens.len().saturating_sub(1);
-        if let Ok(at) = u32::try_from(at) {
-            self.tokens.unterminated.push(at);
-        }
+        // A token index fits a `u32` the way the payload index `push` takes does.
+        let at = self.tokens.len().saturating_sub(1) as u32;
+        self.tokens.unterminated.push(at);
     }
 
     fn char_literal(&mut self, start: usize) {

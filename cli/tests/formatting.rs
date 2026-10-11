@@ -87,9 +87,8 @@ mod pinned;
 
 use buri::build::textproto;
 use buri::diagnostics::{FileId, SourceMap};
-use buri::formatting::{
-    comment_shape, formatted as laid_out, source, token_shape, Dialect, Shape,
-};
+use buri::formatting::{formatted as laid_out, source, Dialect};
+use harness::shape::{comment_shape, token_shape, Shape};
 use harness::{case_dirs, tests_dir, Golden, Scratch};
 use std::path::{Path, PathBuf};
 

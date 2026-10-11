@@ -779,24 +779,14 @@ impl<'a> Parser<'a> {
         self.before = self.tokens.loc(self.at(pos.saturating_sub(1)));
     }
 
-    /// The cooked text of the string token under the cursor, or nothing when
-    /// the cursor is not on one.
+    /// The cooked text of the string or template piece under the cursor. Every
+    /// caller has checked that the cursor is on one.
     ///
     /// An identifier is not one of these: its text is the source under its
     /// span, so it is borrowed rather than owned and there is nothing to copy.
     /// See [`Parser::expect_name`].
     fn text_here(&self) -> &str {
-        let pos = self.at(self.pos);
-        if !matches!(
-            self.tokens.kind(pos),
-            TokenKind::Str
-                | TokenKind::TemplateHead
-                | TokenKind::TemplateSpan
-                | TokenKind::TemplateTail
-        ) {
-            return "";
-        }
-        self.tokens.str_at(pos)
+        self.tokens.str_at(self.at(self.pos))
     }
 
     /// The text under the cursor, copied onto the end of the tree's cooked
