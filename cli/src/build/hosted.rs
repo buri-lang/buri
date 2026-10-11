@@ -839,9 +839,7 @@ pub fn bundle(program: &str, file: &str, exports: &Exports, structs: &[String]) 
         out.push('\n');
     }
     out.push_str(program);
-    if !program.ends_with('\n') {
-        out.push('\n');
-    }
+    out.push('\n');
     out.push_str(&format!("var {host};\n"));
     let (open, close) = if exports.waits {
         ("const $buri$platform = await (async () => {\n", "})();\n")

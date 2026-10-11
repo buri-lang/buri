@@ -21,7 +21,7 @@ use crate::compiler::middle::monomorphize;
 use crate::compiler::middle::{ir, layout, lower};
 use crate::compiler::modules::Unit;
 use crate::compiler::semantics::types::Tables;
-use crate::diagnostics::{Diagnostic, Diagnostics, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
 use std::path::{Path, PathBuf};
 
 pub struct Artifact {
@@ -57,7 +57,7 @@ pub fn build_target(
 fn copy_assets(session: &Session, target: TargetId, output: &Output, diagnostics: &mut Diagnostics) -> bool {
     let Some(rule) = platform_rule(session, output) else { return true };
     let path = artifact_path(session, target, output);
-    let Some(into) = path.parent() else { return true };
+    let into = path.parent().or_ice("an artifact's path is a file in its output's directory");
     for asset in &rule.assets {
         let destination = into.join(&asset.value);
         crate::build::create_parent(&destination);
@@ -271,7 +271,7 @@ fn monomorphized_entry(
     diagnostics.extend(std::mem::take(&mut analysis.diagnostics.items));
 
     let Some(entry) = analysis.checked.entries.get(&name).copied() else {
-        diagnostics.push(missing_entry(session, target, output, &analysis.checked));
+        diagnostics.push(missing_main(session, target, output));
         return Err(std::mem::take(diagnostics));
     };
 
@@ -289,39 +289,13 @@ fn monomorphized_entry(
     Ok((analysis, program))
 }
 
-/// "This output enters through a function that is not there."
-///
-/// Two diagnostics rather than one, because they are two mistakes. A binary
-/// with no `main` has not written its entry point yet; an output naming an
-/// `entry` that `main.buri` does not export has written the name twice and
-/// spelled it differently once, so its page offers what the module does export.
-pub fn missing_entry(
-    session: &Session,
-    target: TargetId,
-    output: &Output,
-    checked: &crate::compiler::semantics::resolve::Checked,
-) -> Diagnostic {
-    let package = session.workspace.package(target.package).label();
-    let name = output.entry_name();
-    if output.entry.is_none() {
-        return Diagnostic::templated("missing-main", Span::NONE)
-            .with_bind("package", package)
-            .with_bind("entry", name);
-    }
-    let mut exported: Vec<&str> = checked.entries.keys().map(String::as_str).collect();
-    exported.sort_unstable();
-    let mut d = Diagnostic::templated("unknown-entry-function", output.span)
-        .with_bind("entry", name)
-        .with_bind("package", package);
-    if let Some(near) = crate::build::buildfile::nearest(name, &exported) {
-        d = d.with_note(format!("did you mean `{near}`?"));
-    }
-    if exported.is_empty() {
-        d = d.with_note("`main.buri` exports no function at all");
-    } else {
-        d = d.with_note(format!("`main.buri` exports: {}", exported.join(", ")));
-    }
-    d
+/// `missing-main`: the binary doesn't export the function its output enters
+/// through by default. An output that names its function in `entries` and
+/// misses was refused by the checker already, as `unknown-entry-function`.
+pub fn missing_main(session: &Session, target: TargetId, output: &Output) -> Diagnostic {
+    Diagnostic::templated("missing-main", Span::NONE)
+        .with_bind("package", session.workspace.package(target.package).label())
+        .with_bind("entry", output.entry_name())
 }
 
 pub fn compile_artifact(
@@ -414,9 +388,6 @@ fn host_file(
     analysis: &crate::compiler::driver::Analysis,
     diagnostics: &mut Diagnostics,
 ) -> Result<Option<HostFile>, Diagnostics> {
-    if !output.platform().is_javascript() {
-        return Ok(None);
-    }
     let point = output.entry_point();
     let (module, js) = match &output.custom {
         Some(custom) => (format!("//{}/platform.buri", custom.package_path()), custom.js.clone()),
@@ -442,7 +413,10 @@ fn host_file(
     };
     let file = match &output.custom {
         Some(custom) => {
-            let Some((pid, _)) = session.workspace.platform_rule(&custom.label.value) else { return Ok(None) };
+            let (pid, _) = session
+                .workspace
+                .platform_rule(&custom.label.value)
+                .or_ice("loading the repository resolved every platform an output names");
             let disk = session.workspace.package(pid).dir.join(&js);
             let rel = session.workspace.rel_of(&disk);
             match session.map.load(&rel, &disk) {
@@ -458,7 +432,8 @@ fn host_file(
         }
         None => {
             let name = output.platform().slug();
-            let Some(text) = crate::build::platforms::file(name, &js) else { return Ok(None) };
+            let text = crate::build::platforms::file(name, &js)
+                .or_ice("a bundled platform's `js` file is embedded with its build file");
             session.map.embedded(&format!("{name}/{js}"), text)
         }
     };
@@ -511,8 +486,9 @@ pub fn first_difference(a: &[u8], b: &[u8]) -> Option<usize> {
     (a.len() != b.len()).then_some(common)
 }
 
-/// The key for one action on one target. Paths are repository-relative, so two
-/// checkouts in different directories produce identical keys.
+/// The key for one action on one target, over every byte of its sources. Paths
+/// are repository-relative, so two checkouts in different directories produce
+/// identical keys.
 pub fn action_key(
     session: &Session,
     target: TargetId,
@@ -520,8 +496,7 @@ pub fn action_key(
     flags: &Flags,
     action: Action,
 ) -> ActionKey {
-    let content = if action == Action::Test { Content::Program } else { Content::Bytes };
-    action_key_as(session, target, output, flags, action, content)
+    action_key_as(session, target, output, flags, action, Content::Bytes)
 }
 
 /// [`action_key`], with how the closure's sources are read named.
@@ -1086,9 +1061,7 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
             if let (Some(memo), Some(at)) = (memo.as_mut(), path(i)) {
                 memo.insert(at, bytes.clone());
             }
-            if let Some(slot) = contents.get_mut(i) {
-                *slot = Some(bytes);
-            }
+            *contents.get_mut(i).or_ice("`missing` holds positions in `contents`") = Some(bytes);
         }
     }
     let contents: Vec<Option<std::sync::Arc<Vec<u8>>>> = contents.into_iter().map(Option::flatten).collect();
@@ -1153,23 +1126,20 @@ pub fn rule_files(workspace: &crate::build::workspace::Workspace, member: Target
     let mut files: Vec<String> = vec![entry.to_string()];
     match member.kind {
         RuleKind::Library => {
-            if let Some(lib) = &package.build.library {
-                files.extend(lib.sources.iter().map(|x| x.value.clone()));
-                if let Some(testing) = &lib.testing {
-                    files.push("testing/lib.buri".into());
-                    files.extend(testing.sources.iter().map(|x| x.value.clone()));
-                }
+            let lib = package.build.library.as_ref().or_ice("a library target's package has a library rule");
+            files.extend(lib.sources.iter().map(|x| x.value.clone()));
+            if let Some(testing) = &lib.testing {
+                files.push("testing/lib.buri".into());
+                files.extend(testing.sources.iter().map(|x| x.value.clone()));
             }
         }
         RuleKind::Binary => {
-            if let Some(bin) = &package.build.binary {
-                files.extend(bin.sources.iter().map(|x| x.value.clone()));
-            }
+            let bin = package.build.binary.as_ref().or_ice("a binary target's package has a binary rule");
+            files.extend(bin.sources.iter().map(|x| x.value.clone()));
         }
         RuleKind::Tool => {
-            if let Some(tool) = &package.build.tool {
-                files.extend(tool.sources.iter().map(|x| x.value.clone()));
-            }
+            let tool = package.build.tool.as_ref().or_ice("a tool target's package has a tool rule");
+            files.extend(tool.sources.iter().map(|x| x.value.clone()));
         }
     }
     files.extend(crate::build::generators::inputs(workspace, member));
@@ -1520,16 +1490,9 @@ pub fn emit_all(
             }
         }
     }
-    if text.is_empty() {
-        diagnostics.push(Diagnostic::error(
-            Span::NONE,
-            String::from("internal error: the backend emitted no codegen unit"),
-        ));
-        return Err(std::mem::take(diagnostics));
-    }
-    let chunks = text.split_off(1);
-    match text.into_iter().next() {
-        Some(module) => Ok((module, chunks)),
+    let mut text = text.into_iter();
+    match text.next() {
+        Some(module) => Ok((module, text.collect())),
         None => {
             diagnostics.push(Diagnostic::error(
                 Span::NONE,
@@ -1942,11 +1905,9 @@ pub fn no_native_artifact(gap: &NativeGap, span: Span) -> Diagnostic {
 fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, String)> {
     // Grouped in one pass rather than scanned once per unit: the filter was
     // `units * funcs`, which is the whole program re-walked for every unit.
-    let mut members: Vec<Vec<usize>> = vec![Vec::new(); program.units.len()];
+    let mut members: Vec<Vec<(usize, &ir::Func)>> = vec![Vec::new(); program.units.len()];
     for (i, func) in program.funcs.iter().enumerate() {
-        if let Some(slot) = members.get_mut(func.unit as usize) {
-            slot.push(i);
-        }
+        members.get_mut(func.unit as usize).or_ice("every function is in one of the program's units").push((i, func));
     }
     let elsewhere = crate::compiler::backend::linkage::named_elsewhere(program);
     // A unit at a time, over the cores this machine has. Each unit's two hashes
@@ -1963,12 +1924,11 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
             let name = program.units.get(u).cloned().unwrap_or_default();
             let mut text = String::new();
             let mut types: Vec<usize> = Vec::new();
-            for at in members.get(u).map(Vec::as_slice).unwrap_or_default() {
-                let Some(func) = program.funcs.get(*at) else { continue };
+            for &(at, func) in members.get(u).map(Vec::as_slice).unwrap_or_default() {
                 program.render_func_into(func, &mut text);
                 // The LLVM backend drops a function no other unit names
                 // (`backend::linkage`), so who names it is part of the object.
-                if elsewhere.get(*at).copied().unwrap_or(false) {
+                if elsewhere.get(at).copied().unwrap_or(false) {
                     text.push_str("named elsewhere\n");
                 }
                 collect_types(func, &mut types);
@@ -2179,11 +2139,7 @@ where
     for (i, flight) in theirs {
         flight.wait();
         match keys.get(i).and_then(|(_, key)| cache.get_checked(key)) {
-            Some(bytes) => {
-                if let Some(hit) = hits.get_mut(i) {
-                    *hit = Some(bytes);
-                }
-            }
+            Some(bytes) => *hits.get_mut(i).or_ice("`hits` has a slot per key") = Some(bytes),
             None => failed.push(i),
         }
     }
@@ -2215,7 +2171,7 @@ where
     let units: Vec<u32> = wanted.iter().filter_map(|&i| u32::try_from(i).ok()).collect();
     let emitted = emit(&units)?;
     for &i in wanted {
-        let Some((name, key)) = keys.get(i) else { continue };
+        let (name, key) = keys.get(i).or_ice("a wanted unit is a position in `keys`");
         let object = object_name(name);
         let Some(unit) = emitted.iter().find(|e| e.name == object || e.name == *name) else {
             let mut diagnostics = Diagnostics::new();
@@ -2226,10 +2182,8 @@ where
             return Err(diagnostics);
         };
         cache.put_checked(key, &unit.bytes);
-        if let (Some(hit), Some(fresh)) = (hits.get_mut(i), fresh.get_mut(i)) {
-            *hit = Some(unit.bytes.clone());
-            *fresh = true;
-        }
+        *hits.get_mut(i).or_ice("`hits` has a slot per key") = Some(unit.bytes.clone());
+        *fresh.get_mut(i).or_ice("`fresh` has a slot per key") = true;
     }
     Ok(())
 }
@@ -2282,7 +2236,7 @@ impl Flights {
         let mut theirs = Vec::new();
         let mut flights = Flights::map();
         for &i in missing {
-            let Some((_, key)) = keys.get(i) else { continue };
+            let (_, key) = keys.get(i).or_ice("a missing unit is a position in `keys`");
             let name = cache.path(key);
             match flights.get(&name) {
                 Some(flight) => theirs.push((i, std::sync::Arc::clone(flight))),
@@ -3457,14 +3411,13 @@ pub fn check_platform(
     diagnostics.push(d);
 }
 
-/// The outputs a `build` invocation should produce for one target.
+/// The outputs a `build` invocation should produce for one binary. Every
+/// caller skips libraries and tools, which have none.
 pub fn selected_outputs(session: &Session, target: TargetId, flags: &Flags) -> Vec<Output> {
-    if target.kind != RuleKind::Binary {
-        return Vec::new();
-    }
-    let Some(bin) = &session.workspace.package(target.package).build.binary else {
-        return Vec::new();
-    };
+    let bin = (target.kind == RuleKind::Binary)
+        .then_some(&session.workspace.package(target.package).build.binary)
+        .and_then(Option::as_ref)
+        .or_ice("only a binary has outputs, and every caller passes one");
     let mut outputs = bin.outputs.clone();
     if outputs.is_empty() {
         // A binary with no declared output still builds for the host, which is
