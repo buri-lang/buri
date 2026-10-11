@@ -81,7 +81,8 @@ done
 #   integer_too_wide,
 #   not_a_tuple_index             a bound on a literal's value (128 bits, a
 #                                 tuple's arity); a grammar has no arithmetic.
-#   module_doc_not_first          `//!` must come first; a comment is an extra
+#   module_doc_not_first,
+#   a_late_module_doc_...         `//!` must come first; a comment is an extra
 #                                 to the grammar, so its position is nothing
 #                                 the grammar can see.
 #   not_a_scalar_value,
@@ -104,6 +105,7 @@ cli/tests/reject/declaration_without_a_body/main.buri
 cli/tests/reject/float_as_a_tuple_index/main.buri
 cli/tests/reject/integer_too_wide/main.buri
 cli/tests/reject/module_doc_not_first/main.buri
+cli/tests/repositories/syntax/a_late_module_doc_leaves_the_file_as_written/repo/lib/notes/lib.buri
 cli/tests/reject/not_a_scalar_value/main.buri
 cli/tests/reject/not_a_tuple_index/main.buri
 cli/tests/reject/unbraced_unicode_escape/main.buri
