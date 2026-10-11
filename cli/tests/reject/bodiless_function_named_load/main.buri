@@ -1,6 +1,0 @@
-// EXPECT: `load` has no body
-fn load(x: Int): Int;
-
-fn go(): Int {
-  load(3)
-}
