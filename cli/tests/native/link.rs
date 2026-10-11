@@ -37,7 +37,7 @@
 use buri::build::actions;
 use buri::build::buildfile::{Arch, Platform};
 use buri::build::cache::{ActionKey, Cache};
-use buri::build::link::{self, Row};
+use buri::build::link::{self, LibcMode, Row};
 use buri::commands::arguments::BuildMode;
 use buri::compiler::backend::{Emitted, LinkOptions, Profile, Target};
 use std::path::{Path, PathBuf};
@@ -219,10 +219,42 @@ fn the_manifest_records_where_every_object_came_from() {
     let rows = rows(&units, &[true, false]);
     ok(link::run(&units, &rows, &linker, &dir.join("app"), &options(target)));
 
-    let read = link::read_manifest(&dir.join("link")).expect("a manifest was written");
+    let read = crate::product_link::manifest(&dir.join("link")).expect("a manifest was written");
     assert_eq!(read, rows);
     assert_eq!(read[0].status(), "cached");
     assert_eq!(read[1].status(), "run");
+}
+
+/// The harness links with the product's own flags, stages what they name, and
+/// compiles for the target it links for.
+///
+/// Asserted as agreement with `platform_flags` rather than against spelled-out
+/// flags or a triple: two spellings of one line is the divergence, not the
+/// check. Only the baked tier names a compile target, because there the driver
+/// is the host's own `cc` and the triple is a flag.
+#[test]
+fn the_harness_links_and_compiles_for_the_products_target() {
+    let Some(target) = linkable() else {
+        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        return;
+    };
+    let cc = link::select(target).unwrap();
+    let dir = workspace("product-link");
+    assert_eq!(crate::product_link::args(&dir), cc.platform_flags());
+    let compile = crate::product_link::compile_args();
+    if cc.libc() != LibcMode::MuslBaked {
+        assert!(compile.is_empty(), "a compile flag escaped the baked tier: {compile:?}");
+        return;
+    }
+    assert!(dir.join("musl/lib/rcrt1.o").exists(), "the static-PIE crt was not staged");
+    assert!(dir.join("musl/lib/libc.a").exists(), "musl's libc.a was not staged");
+    let named = |flags: &[String]| flags.iter().find(|f| f.starts_with("--target=")).cloned();
+    assert_eq!(
+        named(&compile),
+        named(&cc.platform_flags()),
+        "the compile and the link name two different targets"
+    );
+    assert!(named(&compile).is_some(), "the baked tier named no target at all");
 }
 
 /// Two links of the same objects, in two different directories, produce
@@ -483,12 +515,11 @@ fn a_link_reads_the_caches_objects_where_they_are() {
     assert!(staged.is_empty(), "the link copied the cache's objects: {staged:?}");
 }
 
-/// An unchanged unit's object is not rewritten. "Swap only the object files
-/// that changed" is delivered above the linker rather than inside it — no
-/// shipping linker links incrementally — and this is the whole of what the
-/// `unchanged` parameter buys.
+/// Without a cache, a link directory's objects hold the units' bytes, even
+/// where a row says the unit came from a cache: the rows are a record, never a
+/// licence to link stale bytes.
 #[test]
-fn an_unchanged_object_is_left_where_it_was() {
+fn a_staged_object_holds_its_units_bytes() {
     let Some(target) = linkable() else {
         crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
         return;
@@ -500,21 +531,13 @@ fn an_unchanged_object_is_left_where_it_was() {
     ok(link::run(&units, &rows(&units, &[false, false]), &linker, &out, &options(target)));
 
     let staged = dir.join("link/lib_answer.o");
-    let before = std::fs::metadata(&staged).unwrap().modified().unwrap();
-    // A marker only a rewrite could remove, because a modification time on a
-    // fast filesystem can be the same to the nanosecond either way.
-    std::fs::write(&staged, &units[0].bytes).unwrap();
     ok(link::run(&units, &rows(&units, &[true, false]), &linker, &out, &options(target)));
     assert_eq!(
         std::fs::read(&staged).unwrap(),
         units[0].bytes,
         "the staged object is not the unit's bytes"
     );
-    let _ = before;
 
-    // And a unit whose bytes moved *is* rewritten, even when the caller claimed
-    // it was unchanged — the parameter is a hint about work to skip, never a
-    // licence to link stale bytes.
     let moved = emit(&dir, "lib_answer", &library(4));
     let units = vec![moved, emit(&dir, "main", MAIN)];
     ok(link::run(&units, &rows(&units, &[true, true]), &linker, &out, &options(target)));

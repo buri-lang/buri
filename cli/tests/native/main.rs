@@ -153,6 +153,9 @@ mod websocket;
 #[path = "../harness/shard.rs"]
 mod shard;
 
+#[path = "../harness/product_link.rs"]
+mod product_link;
+
 // What more than one backend suite needs: the allocation probe, the shape a
 // run produces, the conformance corpus as a repository, and the product's own
 // link line. One copy, because what those suites assert is that the backends

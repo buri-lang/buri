@@ -254,13 +254,12 @@ pub trait Linker {
     fn name(&self) -> &'static str;
     fn version(&self) -> String;
 
-    /// Combines units into the final artifact at `out`. `unchanged` names the
-    /// units whose bytes are byte-identical to the previous link, which a linker
-    /// may use and may ignore.
+    /// Combines units into the final artifact at `out`. A unit the cache holds
+    /// is linked from the cache's file, so nothing tells a linker which units
+    /// are unchanged.
     fn link(
         &self,
         units: &[Emitted],
-        unchanged: &[usize],
         out: &Path,
         opts: &LinkOptions<'_>,
     ) -> Result<(), Diagnostics>;

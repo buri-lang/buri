@@ -290,28 +290,29 @@ pub fn runtime_archive_for(units: &[Emitted]) -> RuntimeArchive {
     if !runtime_native::AVAILABLE {
         return RuntimeArchive::Omitted;
     }
-    let needle = runtime_native::SYMBOL_PREFIX.as_bytes();
-    if units.iter().any(|unit| mentions(&unit.bytes, needle)) {
+    if units.iter().any(|unit| mentions_runtime(&unit.bytes)) {
         RuntimeArchive::Linked
     } else {
         RuntimeArchive::Omitted
     }
 }
 
-/// Whether `haystack` contains `needle`.
+/// Whether `haystack` contains the runtime's symbol prefix.
 ///
 /// `windows(n).any(..)` would say the same thing and compare at every offset;
 /// this compares only where the first byte matches, which over a few megabytes
 /// of object is the difference between a scan and a memory-bandwidth-bound
 /// one. `get(i..)` rather than `[i..]` because this repository's lints deny
-/// indexing, and the slice cannot be empty here in any case.
-fn mentions(haystack: &[u8], needle: &[u8]) -> bool {
-    let Some(first) = needle.first() else { return true };
+/// indexing.
+fn mentions_runtime(haystack: &[u8]) -> bool {
+    const PREFIX: &[u8] = runtime_native::SYMBOL_PREFIX.as_bytes();
+    // Evaluated at compile time: an empty prefix fails the build, never a link.
+    const FIRST: u8 = *PREFIX.first().expect("the runtime's symbol prefix has a first byte");
     haystack
         .iter()
         .enumerate()
-        .filter(|(_, byte)| *byte == first)
-        .any(|(i, _)| haystack.get(i..).is_some_and(|rest| rest.starts_with(needle)))
+        .filter(|(_, byte)| **byte == FIRST)
+        .any(|(i, _)| haystack.get(i..).is_some_and(|rest| rest.starts_with(PREFIX)))
 }
 
 // ---------------------------------------------------------------------------
@@ -366,26 +367,6 @@ fn manifest_text(rows: &[Row]) -> String {
         out.push('\n');
     }
     out
-}
-
-/// The manifest as rows, or `None` when there is no readable one.
-///
-/// A line that is not three fields is skipped rather than refused: the manifest
-/// is a record of a build, not an input to one, and a truncated one is a reason
-/// to know less rather than a reason to fail.
-pub fn read_manifest(dir: &Path) -> Option<Vec<Row>> {
-    let text = std::fs::read_to_string(dir.join("manifest")).ok()?;
-    let mut rows = Vec::new();
-    for line in text.lines() {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        let [unit, key, status] = fields.as_slice() else { continue };
-        rows.push(Row {
-            unit: (*unit).to_string(),
-            key: (*key).to_string(),
-            cached: *status == "cached",
-        });
-    }
-    Some(rows)
 }
 
 /// `.buri/link/<name>`, the directory one output's links run in.
@@ -769,8 +750,7 @@ pub fn settle() {
 /// the first suite instead — the thread then runs beside the front end of the
 /// whole pass rather than beside one suite's.
 ///
-/// A target this host cannot link has no probe to start, and saying so is not
-/// this function's job: the run reaches [`select`] and is refused there.
+/// The caller has already asked [`can_link`], as [`select`] requires.
 pub fn warm(target: Target) {
     let _ = select(target);
 }
@@ -782,18 +762,14 @@ pub fn warm(target: Target) {
 /// to exist before the directory it will work in has a name.
 /// [`CDriver::in_dir`] closes the loop.
 ///
+/// `target` is one [`can_link`] accepts. Every caller refuses the others first,
+/// through `actions::native_gap` or `buri test`'s `native_ready`.
+///
 /// `Err` names the thing that is missing, in the form a diagnostic wants. There
-/// are three ways to get one: a target this host cannot link, a `cc` that is
-/// not installed — which no fallback story covers, because there is no link at
-/// all without a C driver — and a Linux host that cannot produce a hermetic
-/// executable ([`libc_for`]).
+/// are two ways to get one: a `cc` that is not installed — which no fallback
+/// story covers, because there is no link at all without a C driver — and a
+/// Linux host that cannot produce a hermetic executable ([`libc_for`]).
 pub fn select(target: Target) -> Result<CDriver, Refusal> {
-    if !can_link(target) {
-        return Err(Refusal::new(
-            format!("this toolchain cannot link {} artifacts on this machine", target.platform.machine()),
-            "build for this machine's platform, or run the build on one of the target's",
-        ));
-    }
     let name = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
     let Some(driver) = spawn::resolve(&name) else {
         return Err(Refusal::new(
@@ -1279,7 +1255,10 @@ fn stage_baked(dir: &Path, store: Option<&Cache>, files: &[(&str, &[u8])]) -> st
 /// `name` (which carries their digest), and `dest` is a hard link to that
 /// entry. A link directory staged this way costs the disk nothing the cache
 /// has not already paid for. Without a cache, or if the cache cannot take the
-/// entry, they are written in place ([`stage_bytes`]).
+/// entry, they are written in place ([`replace_with`]).
+///
+/// `dest` is never there yet: a link directory starts with nothing but the
+/// objects of the last link ([`run`]).
 ///
 /// A `checked` entry that no longer holds `bytes` is written again
 /// ([`holds`]); any other is checked by its length only ([`Cache::entry`]).
@@ -1290,7 +1269,7 @@ fn stage_constant(
     dest: &Path,
     checked: bool,
 ) -> std::io::Result<()> {
-    let Some(cache) = store else { return stage_bytes(bytes, dest) };
+    let Some(cache) = store else { return replace_with(dest, bytes) };
     let key = ActionKey::of(name.as_bytes());
     let entry = cache.entry(&key).filter(|entry| !checked || holds(entry, bytes)).or_else(|| {
         cache.put(&key, bytes);
@@ -1298,7 +1277,7 @@ fn stage_constant(
     });
     match entry {
         Some(entry) => stage_from(&entry, dest),
-        None => stage_bytes(bytes, dest),
+        None => replace_with(dest, bytes),
     }
 }
 
@@ -1328,41 +1307,15 @@ fn holds(path: &Path, bytes: &[u8]) -> bool {
 /// [`stage_sysroot`]'s shape, over the cache's files rather than the baked
 /// constants: the names are the same eleven, because the linker looks for them
 /// by those names whichever tier staged them. Each is hard-linked from that
-/// cache where the filesystem allows it ([`stage_file`]), and skipped when a
-/// file of the same length is already there — the cross link directory is
-/// reused by a `--watch` loop too.
+/// cache where the filesystem allows it ([`stage_from`]).
 fn stage_cross_sysroot(cross: &Cross, dir: &Path) -> std::io::Result<()> {
     let src = cross.dir().join("musl").join("lib");
     let lib = dir.join("musl").join("lib");
     std::fs::create_dir_all(&lib)?;
     for (name, _) in musl::FILES {
-        stage_file(&src.join(name), &lib.join(name))?;
+        stage_from(&src.join(name), &lib.join(name))?;
     }
     Ok(())
-}
-
-/// Writes `bytes` to `dest`, skipping the write when a file of the same length
-/// is already there.
-///
-/// The size check rather than a byte comparison because the callers pass a
-/// constant of this binary or a file from the content-addressed `~/.buri` cache:
-/// a file in the link directory whose length matches came from the same source
-/// and cannot be a different one that happens to weigh the same.
-fn stage_bytes(bytes: &[u8], dest: &Path) -> std::io::Result<()> {
-    if std::fs::metadata(dest).map(|m| m.len()).ok() != Some(bytes.len() as u64) {
-        replace_with(dest, bytes)?;
-    }
-    Ok(())
-}
-
-/// [`stage_bytes`] for a source that is a file — the cross archive and the cross
-/// sysroot members, which are too large to hold in memory just to compare.
-fn stage_file(src: &Path, dest: &Path) -> std::io::Result<()> {
-    let len = std::fs::metadata(src)?.len();
-    if std::fs::metadata(dest).map(|m| m.len()).ok() == Some(len) {
-        return Ok(());
-    }
-    stage_from(src, dest)
 }
 
 /// Puts the file at `src` at `dest`, hard-linked where the filesystem allows
@@ -1371,17 +1324,11 @@ fn stage_file(src: &Path, dest: &Path) -> std::io::Result<()> {
 /// `src` is a file nothing writes to once it exists: a cache entry, or the
 /// cross runtime in `~/.buri`. A hard link is the same file under a second
 /// name, so a link directory staged this way costs only its directory entries.
-/// A `dest` that is already `src` is left alone.
 ///
 /// **Nothing is ever written through `dest`.** It may be a hard link to a
-/// cache entry from an earlier link, and writing into it would change that
-/// entry. So an old `dest` is removed before the link is made, and a copy is
+/// cache entry, and writing into it would change that entry. So a copy is
 /// made beside it and renamed over it ([`replace_with`]'s rule).
 fn stage_from(src: &Path, dest: &Path) -> std::io::Result<()> {
-    if same_file(src, dest) {
-        return Ok(());
-    }
-    let _ = std::fs::remove_file(dest);
     match std::fs::hard_link(src, dest) {
         Ok(()) => Ok(()),
         Err(_) => stage_after_a_failed_link(src, dest),
@@ -1394,8 +1341,14 @@ fn stage_from(src: &Path, dest: &Path) -> std::io::Result<()> {
 // processes stage one key at once, so whether it does is timing.
 #[cfg_attr(buri_coverage, coverage(off))]
 fn stage_after_a_failed_link(src: &Path, dest: &Path) -> std::io::Result<()> {
-    if same_file(src, dest) {
-        return Ok(());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(a), Ok(b)) = (std::fs::metadata(src), std::fs::metadata(dest)) {
+            if a.dev() == b.dev() && a.ino() == b.ino() {
+                return Ok(());
+            }
+        }
     }
     let fresh = beside(dest);
     let copied = std::fs::copy(src, &fresh).and_then(|_| std::fs::rename(&fresh, dest));
@@ -1403,23 +1356,6 @@ fn stage_after_a_failed_link(src: &Path, dest: &Path) -> std::io::Result<()> {
         let _ = std::fs::remove_file(&fresh);
     }
     copied
-}
-
-/// Whether two paths name one file.
-fn same_file(a: &Path, b: &Path) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        match (std::fs::metadata(a), std::fs::metadata(b)) {
-            (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
-            _ => false,
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (a, b);
-        false
-    }
 }
 
 /// Writes `bytes` to a new file renamed over `dest`, rather than into `dest`.
@@ -1433,164 +1369,6 @@ fn replace_with(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
         let _ = std::fs::remove_file(&fresh);
     }
     written
-}
-
-/// The driver a harness should spawn to link the way the product does, and the
-/// arguments it should pass.
-///
-/// **A harness that links more permissively than the product is a harness that
-/// cannot see the product's bugs.** That sentence is already in
-/// `tests/native/stencil.rs`, written the day a hand-rolled `cc -o out *.o
-/// libburi_rt.a` passed every program in the file while `buri test` failed 977
-/// of 997 conformance tests on the same emitter — the harness had left off
-/// `-dead_strip`. Nine harnesses across five test files were each spelling the
-/// product's flags out again, which means nine places for the next flag to be
-/// added in eight of them; this is the one place.
-///
-/// [`product_link_args`] **stages** whatever the link needs into `dir` — today
-/// the musl sysroot — and returns the non-object arguments in the order the
-/// product passes them, which is *after* the objects and the archive. The paths
-/// in them are relative, exactly as they are in the product, so the command
-/// must be run with `current_dir(dir)`; that is not a quirk of the helper but
-/// the reproducibility discipline of [`CDriver::link`] itself
-/// (ARCHITECTURE.md §7), and a harness that ran the driver somewhere else would
-/// again be linking differently from the product.
-///
-/// An empty list on a host that cannot link at all — no `cc`, or the hermetic
-/// refusal. That is not permissiveness: the product cannot link there either,
-/// and the harness's own driver invocation is about to fail for the same
-/// reason.
-pub fn product_link_args(dir: &Path) -> Vec<String> {
-    let Some(platform) = host_platform() else { return Vec::new() };
-    let target = Target { platform, arch: host_arch() };
-    let Ok(driver) = select(target) else { return Vec::new() };
-    if driver.libc == LibcMode::MuslBaked {
-        let _ = stage_sysroot(dir, None);
-    }
-    driver.platform_flags()
-}
-
-/// The driver [`product_link_args`]'s arguments are for.
-///
-/// A separate function and not a tuple, because most callers want only the
-/// arguments: `$CC` is the driver on every host but one. The exception is the
-/// `musl-clang` tier, where the *program* is the answer to "which libc" and a
-/// harness that kept spawning `$CC` would link against glibc while the product
-/// linked against musl — the divergence this pair exists to close.
-pub fn product_link_driver() -> Option<PathBuf> {
-    let platform = host_platform()?;
-    select(Target { platform, arch: host_arch() }).ok().map(|cc| cc.driver)
-}
-
-/// The arguments a **compile** needs in order to agree with the link
-/// [`product_link_args`] describes.
-///
-/// The pair above answers "how does the product link"; a harness that also
-/// *compiles* — the C probe `tests/native/llvm.rs` and `tests/native/stencil.rs`
-/// link beside the emitted objects — has a second question, and until this
-/// function it answered it by accident. The probe was compiled by the product's
-/// driver for the driver's **own default target**, which on a Debian host is
-/// glibc, and then linked against the baked musl sysroot. It works, and it
-/// works for a reason that does not generalize: those probes are a dozen lines
-/// that call `printf` and touch no type whose layout a libc chooses. The first
-/// probe to name a `struct stat`, a `pthread_mutex_t` or an `off_t` would be
-/// compiled against one libc's idea of it and linked against another's, and the
-/// symptom would be a corrupt field rather than an error.
-///
-/// **Only the baked tier has anything to say.** There the driver is the host's
-/// own `cc` and `--target=` is the entire mechanism by which it is pointed at
-/// musl (`CDriver::libc_flags`), so a compile that omits it is compiling for
-/// a different target from the one being linked for. On the `musl-clang` tier
-/// the driver *is* the musl compiler — that is what tier 2 selects it for — and
-/// there is nothing to point. On `BURI_MUSL=off`, and on macOS, the compile and
-/// the link already name one target and a flag here would be the divergence
-/// rather than the fix.
-///
-/// Empty on a host that cannot link at all, for [`product_link_args`]'s reason:
-/// the compile that follows is about to fail for the same cause.
-pub fn product_compile_args() -> Vec<String> {
-    let Some(platform) = host_platform() else { return Vec::new() };
-    let target = Target { platform, arch: host_arch() };
-    let Ok(driver) = select(target) else { return Vec::new() };
-    if driver.libc != LibcMode::MuslBaked {
-        return Vec::new();
-    }
-    // The same rendering the link's `--target=` is built from, and taken from
-    // the same function: two spellings of one triple would be the divergence
-    // this exists to close.
-    crate::compiler::backend::triple_text(target)
-        .map(|triple| vec![format!("--target={triple}")])
-        .unwrap_or_default()
-}
-
-/// Links a test harness's objects with [`CDriver::link`]'s command line, for a
-/// test that needs a program to run and isn't asking about the link.
-///
-/// The linker runs directly with the line the driver printed once
-/// ([`Replay`]), as in the product. The driver runs only where there's no line
-/// to replay or replaying it failed. A harness that started the driver for
-/// every link paid for the `cc` wrapper's bash and `clang` on each one.
-///
-/// `dir` is the directory [`product_link_args`] staged, and it must also hold
-/// the runtime archive as [`runtime_native::ARCHIVE_NAME`]. The archive is
-/// linked whether the objects name it or not. The objects and `out` are
-/// absolute paths. The command is kept between processes even though a
-/// harness has no cache, because nearly every test is a process of its own.
-pub fn product_link(
-    dir: &Path,
-    objects: &[PathBuf],
-    out: &Path,
-) -> std::io::Result<std::process::Output> {
-    let platform = host_platform()
-        .ok_or_else(|| std::io::Error::other("this machine has no native platform to link for"))?;
-    let cc = select(Target { platform, arch: host_arch() })
-        .map_err(|refusal| std::io::Error::other(refusal.message))?
-        .in_dir(dir.to_path_buf());
-    let runtime = RuntimeArchive::Linked;
-    let names: Vec<String> = objects.iter().map(|o| o.to_string_lossy().into_owned()).collect();
-    let args = cc.driver_args(&names, runtime);
-    let replay = cc.replay(&args, &names, runtime, true);
-    if let Some(replay) = &replay {
-        if let Some(argv) = writing_to(replay.argv(&names), out) {
-            let mut direct = Command::new(&replay.program);
-            cc.pin(&mut direct);
-            if let Ok(done) = spawn::output(direct.args(argv)) {
-                if done.status.success() {
-                    return Ok(done);
-                }
-            }
-        }
-    }
-    let argv = writing_to(args, out)
-        .ok_or_else(|| std::io::Error::other("the driver's arguments name no `-o artifact`"))?;
-    let mut command = Command::new(&cc.driver);
-    cc.pin(&mut command);
-    let done = spawn::output(command.args(argv))?;
-    if done.status.success() && replay.is_some() {
-        // The replay failed where the driver did not, so it is stale.
-        cc.forget_replay(runtime, true);
-    }
-    Ok(done)
-}
-
-/// `argv` writing `out` rather than `artifact`. `None` unless `-o artifact`
-/// appears exactly once.
-fn writing_to<T: Into<std::ffi::OsString>>(
-    argv: Vec<T>,
-    out: &Path,
-) -> Option<Vec<std::ffi::OsString>> {
-    let mut argv: Vec<std::ffi::OsString> = argv.into_iter().map(Into::into).collect();
-    let at: Vec<usize> = argv
-        .iter()
-        .enumerate()
-        .skip(1)
-        .zip(&argv)
-        .filter(|((_, arg), flag)| *flag == "-o" && *arg == "artifact")
-        .map(|((i, _), _)| i)
-        .collect();
-    let [at] = at.as_slice() else { return None };
-    *argv.get_mut(*at)? = out.into();
-    Some(argv)
 }
 
 // ---------------------------------------------------------------------------
@@ -1658,6 +1436,11 @@ impl CDriver {
         self.libc
     }
 
+    /// The program this link starts: `$CC`, or `cc`.
+    pub fn driver(&self) -> &Path {
+        &self.driver
+    }
+
     /// The object's filename for one unit, rejecting anything that is not one.
     ///
     /// `Emitted::name` is documented as "stable, deterministic, and a
@@ -1669,7 +1452,7 @@ impl CDriver {
     }
 
     /// The flags that are the platform's, in the order the design states them.
-    fn platform_flags(&self) -> Vec<String> {
+    pub fn platform_flags(&self) -> Vec<String> {
         let mut flags: Vec<String> = Vec::new();
         match self.target.platform {
             Platform::Macos => {
@@ -1977,18 +1760,15 @@ impl CDriver {
     /// Writes the objects and the runtime archive into the link directory and
     /// runs the driver over them.
     ///
-    /// `unchanged` is used for exactly what it can honestly buy. No shipping
-    /// linker links incrementally — mold rejected it as irreproducible, LLD
-    /// calls it a non-goal, and Zig's Mach-O in-place patcher is unfinished —
-    /// so "swap only the files that changed"
-    /// happens *above* the linker: an object whose bytes are already on disk is
-    /// not rewritten, and the link itself is always full. The saving that
-    /// matters is upstream of here, in the codegen units that were never
-    /// re-emitted.
+    /// No shipping linker links incrementally — mold rejected it as
+    /// irreproducible, LLD calls it a non-goal, and Zig's Mach-O in-place
+    /// patcher is unfinished — so the link itself is always full. An object the
+    /// cache holds is linked where it is, so only the units this build emitted
+    /// are written. The saving that matters is upstream of here, in the codegen
+    /// units that were never re-emitted.
     pub fn link(
         &self,
         units: &[Emitted],
-        unchanged: &[usize],
         out: &Path,
         _opts: &LinkOptions<'_>,
     ) -> Result<(), Diagnostics> {
@@ -2012,7 +1792,6 @@ impl CDriver {
         // command line depends on, and which `parallel::map` preserves. A
         // program of several hundred units is several hundred `open`/`read`
         // round trips over eight megabytes.
-        let skip: std::collections::HashSet<usize> = unchanged.iter().copied().collect();
         #[expect(
             clippy::result_large_err,
             reason = "every error ends up in `diagnostics` as a `Diagnostic`, and boxing it would \
@@ -2042,20 +1821,12 @@ impl CDriver {
             if let Some(entry) = entry {
                 return Ok(entry);
             }
-            // An unchanged unit's bytes came from the cache, so the file on
-            // disk — if there is one — already holds them. Everything else is
-            // written unconditionally.
-            //
-            // `unchanged` is a hint about work to skip, so the bytes are
-            // checked rather than taken on the caller's word.
-            let already = skip.contains(&i) && already_holds(&path, &unit.bytes);
-            if !already {
-                if let Err(e) = replace_with(&path, &unit.bytes) {
-                    return Err(Diagnostic::error(
-                        Span::NONE,
-                        format!("cannot write {}: {e}", path.display()),
-                    ));
-                }
+            // A unit this build emitted, or a link with no cache.
+            if let Err(e) = replace_with(&path, &unit.bytes) {
+                return Err(Diagnostic::error(
+                    Span::NONE,
+                    format!("cannot write {}: {e}", path.display()),
+                ));
             }
             Ok(path)
         });
@@ -2110,7 +1881,7 @@ impl CDriver {
             // wrote to disk.
             let archive = self.dir.join(runtime_native::ARCHIVE_NAME);
             let written = match (&self.cross, &self.store) {
-                (Some(cross), _) => stage_file(&cross.archive(), &archive),
+                (Some(cross), _) => stage_from(&cross.archive(), &archive),
                 (None, store) => stage_constant(
                     store.as_ref(),
                     &format!("runtime archive {}", crate::build::actions::runtime_archive_hash()),
@@ -2259,7 +2030,7 @@ impl CDriver {
     /// own linker and its SDK through `PATH`, `DEVELOPER_DIR` and `SDKROOT`, so
     /// clearing them would make the link fail rather than deterministic. What
     /// is pinned instead is everything that could reach the *bytes*.
-    fn pin(&self, command: &mut Command) {
+    pub fn pin(&self, command: &mut Command) {
         command.current_dir(&self.dir);
         command.env("SOURCE_DATE_EPOCH", spawn::SOURCE_DATE_EPOCH);
         command.env("TZ", "UTC");
@@ -2268,7 +2039,11 @@ impl CDriver {
     }
 
     /// The driver's arguments for a link of these objects, in order.
-    fn driver_args(&self, objects: &[String], runtime: RuntimeArchive) -> Vec<std::ffi::OsString> {
+    pub fn driver_args(
+        &self,
+        objects: &[String],
+        runtime: RuntimeArchive,
+    ) -> Vec<std::ffi::OsString> {
         let mut args: Vec<std::ffi::OsString> = Vec::new();
         if let Some(flag) = self.flavour.driver_flag() {
             args.push(flag.into());
@@ -2315,7 +2090,7 @@ impl CDriver {
 /// driver still decides every flag, crt object and library; it just decides
 /// once per toolchain instead of once per link.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Replay {
+pub struct Replay {
     program: PathBuf,
     /// The linker's arguments up to the first object.
     before: Vec<String>,
@@ -2327,7 +2102,12 @@ struct Replay {
 const OBJECTS: &str = "\u{1}objects";
 
 impl Replay {
-    fn argv(&self, objects: &[String]) -> Vec<String> {
+    /// The linker the driver would have started.
+    pub fn program(&self) -> &Path {
+        &self.program
+    }
+
+    pub fn argv(&self, objects: &[String]) -> Vec<String> {
         let mut argv = self.before.clone();
         argv.extend(objects.iter().cloned());
         argv.extend(self.after.iter().cloned());
@@ -2350,10 +2130,9 @@ impl Replay {
         let mut argv = unquote(line)?.into_iter();
         let program = PathBuf::from(argv.next()?);
         let argv: Vec<String> = argv.collect();
-        if objects.is_empty() {
-            return None;
-        }
-        let mut at = argv.windows(objects.len()).enumerate().filter(|(_, w)| *w == objects);
+        // At least one wide, so no objects at all match no window and are
+        // refused like objects the driver split.
+        let mut at = argv.windows(objects.len().max(1)).enumerate().filter(|(_, w)| *w == objects);
         let (Some((start, _)), None) = (at.next(), at.next()) else { return None };
         let (before, rest) = argv.split_at_checked(start)?;
         Some(Replay { program, before: before.to_vec(), after: rest.get(objects.len()..)?.to_vec() })
@@ -2478,7 +2257,7 @@ impl CDriver {
     /// Held under one lock, so that parallel first links wait for one capture
     /// rather than each running their own. `keep` is whether the command is
     /// kept between processes ([`replay_record`]).
-    fn replay(
+    pub fn replay(
         &self,
         args: &[std::ffi::OsString],
         objects: &[String],
@@ -2520,7 +2299,7 @@ impl CDriver {
 
     /// Stops replaying this link's command, in this process and, where `keep`
     /// says it was kept, between processes.
-    fn forget_replay(&self, runtime: RuntimeArchive, keep: bool) {
+    pub fn forget_replay(&self, runtime: RuntimeArchive, keep: bool) {
         let key = self.replay_key(runtime);
         let mut table = REPLAYS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         table.retain(|(k, _)| k != key.as_str());
@@ -2544,22 +2323,6 @@ impl CDriver {
 /// [`CDriver::link`] asks for this only when it has a cache.
 fn replay_record(key: &ActionKey) -> Option<PathBuf> {
     Some(runtime_cross::buri_home().ok()?.join("link-replay").join(key.as_str()))
-}
-
-/// Whether the file already holds exactly these bytes.
-///
-/// The length is checked first, so the common case — a file whose contents
-/// genuinely moved — is not read back before being overwritten. The *bytes*
-/// are then compared rather than the length alone: skipping a write is a
-/// saving and never a licence to leave stale bytes, which is what
-/// `an_unchanged_object_is_left_where_it_was` holds this to.
-///
-/// This is the *object* staging half of that rule, where the bytes are in
-/// memory already because the backend just emitted them. The artifact half is
-/// [`place_from`], where they are not.
-fn already_holds(path: &Path, bytes: &[u8]) -> bool {
-    std::fs::metadata(path).is_ok_and(|m| m.len() == bytes.len() as u64)
-        && std::fs::read(path).is_ok_and(|on_disk| on_disk == bytes)
 }
 
 /// A linked artifact on disk, owned by this process until something takes it.
@@ -2635,8 +2398,9 @@ pub fn holds_same(src: &Path, dest: &Path) -> bool {
     let (Ok(mut source), Ok(mut existing)) = (std::fs::File::open(src), std::fs::File::open(dest)) else {
         return false;
     };
+    // The lengths first, so a binary that moved isn't read.
     let len = |f: &std::fs::File| f.metadata().map(|m| m.len()).ok();
-    len(&source).is_some() && len(&source) == len(&existing) && same_contents(&mut source, &mut existing).unwrap_or(false)
+    len(&source) == len(&existing) && same_contents(&mut source, &mut existing).unwrap_or(false)
 }
 
 /// Puts `src`'s bytes at `dest` as an executable. Answers how many bytes it is.
@@ -2735,9 +2499,8 @@ fn command_line(command: &Command) -> String {
 /// The whole link step: the manifest, then the linker.
 ///
 /// Separate from [`CDriver::link`] because the manifest is the build system's
-/// record and not the linker's input — a linker that ignored `unchanged`
-/// entirely would still owe the reader a manifest, and `--explain`'s per-unit
-/// lines come from these rows rather than from anything a linker returns.
+/// record and not the linker's input: `--explain`'s per-unit lines come from
+/// these rows rather than from anything a linker returns.
 ///
 /// The link runs in a directory of its own ([`CDriver::private`]), which then
 /// takes the shared directory's place ([`publish`]). So `linker.dir()` is
@@ -2753,26 +2516,16 @@ pub fn run(
     let work = linker.private();
     // A directory a killed process of the same id left behind.
     let _ = std::fs::remove_dir_all(work.dir());
-    let unchanged: Vec<usize> =
-        rows.iter().enumerate().filter(|(_, r)| r.cached).map(|(i, _)| i).collect();
-    // The last link's directory, taken whole. Its objects this link still
-    // names stay, and staging finds each is already the cache's file or holds
-    // the bytes; everything else in it goes. Hard-linking every object into a
-    // fresh directory cost about half a millisecond each on APFS.
+    // The last link's directory, taken whole: its objects this link still
+    // names stay, and everything else in it goes. Hard-linking every object
+    // into a fresh directory cost about half a millisecond each on APFS.
     if std::fs::rename(linker.dir(), work.dir()).is_ok() {
         keep_only_objects(work.dir(), units);
     } else {
         let _ = std::fs::create_dir_all(work.dir());
-        // An unchanged object the last link left is the same file again, so the
-        // link's own check finds it there rather than writing the bytes anew.
-        for unit in unchanged.iter().filter_map(|&i| units.get(i)) {
-            if let (Some(prior), Some(path)) = (linker.object_path(&unit.name), work.object_path(&unit.name)) {
-                let _ = std::fs::hard_link(prior, path);
-            }
-        }
     }
     let _ = std::fs::write(work.dir().join("manifest"), manifest_text(rows));
-    let linked = work.link(units, &unchanged, out, opts);
+    let linked = work.link(units, out, opts);
     publish(work.dir(), linker.dir());
     if let Err(mut diagnostics) = linked {
         // What a failure names is the directory a reader can still `cd` into.
@@ -2838,19 +2591,12 @@ mod tests {
         ]
     }
 
-    /// The manifest is the answer to "which objects changed", so it has to
-    /// survive a round trip through a file. Alignment is cosmetic and the
-    /// reader must not depend on it, which is what splitting on whitespace
-    /// means.
+    /// The manifest is the answer to "which objects changed": one row per unit,
+    /// names aligned. `tests/native/link.rs` reads one back.
     #[test]
-    fn a_manifest_round_trips() {
+    fn a_manifest_lines_up_its_rows() {
         let text = manifest_text(&rows());
         assert_eq!(text, "core_list 3f9a1c2b8d4e cached\nmain      8b2e01f4c7a9 run\n");
-        let dir = std::env::temp_dir().join(format!("buri-manifest-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("a temporary directory");
-        std::fs::write(dir.join("manifest"), &text).expect("writing the manifest");
-        assert_eq!(read_manifest(&dir).as_deref(), Some(rows().as_slice()));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Where a placement test works, named for the test so that two of them
@@ -2947,20 +2693,18 @@ mod tests {
     /// The substring search the archive decision rests on, at the offsets that
     /// break a hand-rolled one.
     ///
-    /// `mentions` compares only where the first byte matches, so the cases that
-    /// matter are a match at the very end, a run of first-byte matches that go
-    /// nowhere, and a needle longer than what is left.
+    /// `mentions_runtime` compares only where the first byte matches, so the
+    /// cases that matter are a match at the very end, a run of first-byte
+    /// matches that go nowhere, and a prefix longer than what is left.
     #[test]
     fn a_runtime_symbol_is_found_wherever_it_sits() {
-        let needle = b"buri_rt_";
-        assert!(mentions(b"buri_rt_flush", needle), "a match at offset zero");
-        assert!(mentions(b"\0\0_buri_rt_alloc\0", needle), "a match in the middle");
-        assert!(mentions(b"xxxburi_rt_", needle), "a match that ends the haystack");
-        assert!(!mentions(b"buri_rt", needle), "a prefix of the needle is not the needle");
-        assert!(!mentions(b"", needle), "an empty object mentions nothing");
-        assert!(!mentions(b"bbbbbbbb", needle), "first-byte matches that go nowhere");
-        assert!(!mentions(b"buri_rtX", needle), "one byte short");
-        assert!(mentions(b"", b""), "an empty needle is everywhere");
+        assert!(mentions_runtime(b"buri_rt_flush"), "a match at offset zero");
+        assert!(mentions_runtime(b"\0\0_buri_rt_alloc\0"), "a match in the middle");
+        assert!(mentions_runtime(b"xxxburi_rt_"), "a match that ends the haystack");
+        assert!(!mentions_runtime(b"buri_rt"), "a prefix of the prefix is not the prefix");
+        assert!(!mentions_runtime(b""), "an empty object mentions nothing");
+        assert!(!mentions_runtime(b"bbbbbbbb"), "first-byte matches that go nowhere");
+        assert!(!mentions_runtime(b"buri_rtX"), "one byte short");
     }
 
     /// The decision itself, over objects this test writes: the answer is the
@@ -2988,14 +2732,6 @@ mod tests {
             runtime_archive_for(&[unit(b"printf"), unit(b"buri_rt_alloc")]),
             RuntimeArchive::Linked
         );
-    }
-
-    /// A missing manifest is `None` rather than an empty build.
-    #[test]
-    fn no_manifest_is_not_an_empty_one() {
-        let dir = std::env::temp_dir().join(format!("buri-no-manifest-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(read_manifest(&dir), None);
     }
 
     /// A unit name is a filename. Anything else would write outside the link
@@ -3156,65 +2892,7 @@ mod tests {
             let on_disk = std::fs::read(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert_eq!(on_disk.len(), bytes.len(), "{name} was staged at the wrong length");
         }
-        // Twice is the same eleven files: a `--watch` pass must not rewrite
-        // 6.6 MB it already wrote.
-        stage_sysroot(&dir, None).expect("staging the sysroot again");
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// The harness helper is the product's own command line, not a copy of it.
-    ///
-    /// A harness that links more permissively than the product is a harness
-    /// that cannot see the product's bugs, so what this asserts is identity
-    /// with `platform_flags` rather than the presence of any particular flag —
-    /// the flags themselves are the test above's subject.
-    #[test]
-    fn the_harness_helper_is_the_products_own_flags() {
-        let Some(host) = host_platform() else { return };
-        let Ok(cc) = select(Target { platform: host, arch: host_arch() }) else { return };
-        let dir = std::env::temp_dir().join(format!("buri-helper-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("a temporary directory");
-        assert_eq!(product_link_args(&dir), cc.platform_flags());
-        // And it staged what those flags name, so a caller that runs the
-        // driver in `dir` finds them.
-        if cc.libc() == LibcMode::MuslBaked {
-            assert!(dir.join("musl/lib/rcrt1.o").exists(), "the static-PIE crt was not staged");
-            assert!(dir.join("musl/lib/libc.a").exists(), "musl's libc.a was not staged");
-        }
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// A harness compiles for the target it links for.
-    ///
-    /// Only the baked tier has anything to say, and there it says the whole
-    /// thing: the driver is the host's own `cc` and the triple is a flag, so a
-    /// probe compiled without it is an object for a different target from the
-    /// one on the link line. Asserted as *agreement with*
-    /// [`CDriver::platform_flags`] rather than against a spelled-out triple,
-    /// for the reason the test above gives — two spellings of one triple is the
-    /// divergence, not the check.
-    #[test]
-    fn the_harness_compiles_for_the_target_it_links_for() {
-        let Some(host) = host_platform() else { return };
-        let Ok(cc) = select(Target { platform: host, arch: host_arch() }) else { return };
-        let compile = product_compile_args();
-        let named = |flags: &[String]| {
-            flags.iter().find(|f| f.starts_with("--target=")).cloned()
-        };
-        if cc.libc() != LibcMode::MuslBaked {
-            // macOS, the `musl-clang` tier and `BURI_MUSL=off` all compile and
-            // link with one driver for one target already, and a flag here
-            // would be the divergence rather than the fix.
-            assert!(compile.is_empty(), "a compile flag escaped the baked tier: {compile:?}");
-            return;
-        }
-        assert_eq!(
-            named(&compile),
-            named(&cc.platform_flags()),
-            "the compile and the link name two different targets"
-        );
-        assert!(named(&compile).is_some(), "the baked tier named no target at all");
     }
 
     fn strings(items: &[&str]) -> Vec<String> {
@@ -3252,6 +2930,7 @@ mod tests {
         for stderr in refused {
             assert_eq!(Replay::from_dry_run(stderr, &objects), None, "{stderr}");
         }
+        assert_eq!(Replay::from_dry_run(stderr, &[]), None, "a link of no objects");
         assert_eq!(Replay::from_text(""), None, "an empty entry means no replay");
     }
 
@@ -3259,7 +2938,8 @@ mod tests {
     #[test]
     fn a_replayed_link_matches_the_drivers() {
         let Some(host) = host_platform() else { return };
-        let Ok(cc) = select(Target { platform: host, arch: host_arch() }) else { return };
+        let target = Target { platform: host, arch: host_arch() };
+        let Ok(cc) = select(target) else { return };
         let root = scratch("replay");
         let (direct, driven) = (root.join("direct"), root.join("driven"));
         for dir in [&direct, &driven] {
@@ -3269,7 +2949,12 @@ mod tests {
         std::fs::write(&source, "int main(void) { return 0; }\n").expect("writing main.c");
         let object = root.join("main.o");
         let compiled = Command::new(&cc.driver)
-            .args(product_compile_args())
+            .args(
+                (cc.libc() == LibcMode::MuslBaked)
+                    .then(|| crate::compiler::backend::triple_text(target))
+                    .flatten()
+                    .map(|t| format!("--target={t}")),
+            )
             .arg("-c")
             .arg(&source)
             .arg("-o")
@@ -3285,13 +2970,12 @@ mod tests {
 
         let cc = cc.in_dir(direct.clone());
         let out = root.join("out-direct");
-        let target = Target { platform: host, arch: host_arch() };
         let opts = LinkOptions {
             profile: crate::compiler::backend::Profile::Debug,
             target,
             unit_prefix: "t",
         };
-        assert!(cc.link(std::slice::from_ref(&unit), &[], &out, &opts).is_ok(), "the replayed link");
+        assert!(cc.link(std::slice::from_ref(&unit), &out, &opts).is_ok(), "the replayed link");
         let runtime = runtime_archive_for(std::slice::from_ref(&unit));
         let names = strings(&["main.o"]);
         let replayed = cc.replay(&cc.driver_args(&names, runtime), &names, runtime, true);
