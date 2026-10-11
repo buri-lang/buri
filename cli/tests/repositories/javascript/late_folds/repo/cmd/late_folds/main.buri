@@ -87,6 +87,32 @@ fn pickedCallAndYes(t: Bool, a: Int, b: Int): Bool {
     if (t) { a < b } else { big(b) } && yes()
 }
 
+fn pickedCallFirstAndYes(t: Bool, a: Int, b: Int): Bool {
+    if (t) { big(b) } else { a < b } && yes()
+}
+
+fn countdown(n: Int, xs: [Int], acc: Int): Int {
+    if (n <= 0) {
+        acc
+    } else {
+        countdown(
+            match (xs.get(n)) {
+                .Some(k) => k,
+                .None => n - 1,
+            },
+            xs,
+            acc + n,
+        )
+    }
+}
+
+fn swapped(a: Int, b: Int, n: Int): Int {
+    let p = (a, b);
+    let q = (p.0 + 1, p.1 * 2);
+    let r = (q.1, q.0);
+    if (n > 1000) { swapped(a, b, n - 1) } else { r.0 * 10 + r.1 }
+}
+
 fn eighteen(): I32 {
     let z: I32 = 18;
     z.negate()
@@ -185,6 +211,19 @@ export fn main(host: NodeHost): Result<(), Str> {
             "pickedCallAndYes(false, 1, 20) = ${pickedCallAndYes(f, n1, n20)}",
         )
         .ignore();
+    let _ = io
+        .println(
+            ctx,
+            "pickedCallFirstAndYes(true, 1, 20) = ${pickedCallFirstAndYes(t, n1, n20)}",
+        )
+        .ignore();
+    let _ = io
+        .println(
+            ctx,
+            "countdown(3, [0, 0, 0, 1], 0) = ${countdown(n3, [0, 0, 0, n1], 0)}",
+        )
+        .ignore();
+    let _ = io.println(ctx, "swapped(1, 3, 4) = ${swapped(n1, n3, n4)}").ignore();
     let _ = io.println(ctx, "eighteen() / 3 = ${eighteen() / 3}").ignore();
     let _ = io
         .println(ctx, "complementAndNegation(6) = ${complementAndNegation(6)}")
