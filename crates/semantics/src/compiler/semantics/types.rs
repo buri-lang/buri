@@ -806,12 +806,10 @@ impl Tables {
         for (i, name) in members.iter().enumerate() {
             map.entry((*name).to_owned()).or_insert(i);
         }
-        if self.member_index.len() <= id.index() {
-            self.member_index.resize_with(id.index().saturating_add(1), || None);
-        }
-        if let Some(slot) = self.member_index.get_mut(id.index()) {
-            *slot = Some(Box::new(map));
-        }
+        // Never shrinks, so a type indexed again keeps the ones after it.
+        self.member_index.resize_with(id.index().saturating_add(1), || None);
+        *self.member_index.get_mut(id.index()).or_ice("only the checker's own types are indexed") =
+            Some(Box::new(map));
     }
 
     /// The index for `id`, when there is one and it is the list the caller
@@ -850,20 +848,14 @@ impl Tables {
         Ty::con(con, (0..arity).map(|i| Ty::param(i as u32)))
     }
 
-    /// Records a conformance, unless there is one already. Returns whether it
-    /// was recorded, so a caller that wants `entry().or_insert()`'s behaviour
-    /// gets it and one that has already reported the duplicate can ignore it.
-    pub fn add_impl(&mut self, info: ImplInfo) -> bool {
-        let key = (info.trait_id, info.self_con);
-        if self.impls.contains_key(&key) {
-            return false;
-        }
+    /// Records a conformance. Each (trait, type) is recorded once: `resolve`
+    /// refuses a second `impl` or `derive` before it gets here, and the
+    /// built-in ones are registered once each.
+    pub fn add_impl(&mut self, info: ImplInfo) {
         let list = self.traits_by_con.get_or_default(info.self_con);
-        if let Err(at) = list.binary_search(&info.trait_id) {
-            list.insert(at, info.trait_id);
-        }
-        self.impls.insert(key, info);
-        true
+        let at = list.partition_point(|t| *t < info.trait_id);
+        list.insert(at, info.trait_id);
+        self.impls.insert((info.trait_id, info.self_con), info);
     }
 
     /// The method `name` on `con`, whether declared there or supplied by an
@@ -1006,18 +998,16 @@ impl Tables {
         // declares far more `Int`s than `Option`s. Listing them once keeps the
         // fixpoint off the primitives entirely rather than walking every empty
         // field list once per pass.
-        let generic: Vec<usize> = self
+        let generic: Vec<(usize, &TyCon)> = self
             .tycons
             .iter()
             .enumerate()
             .skip(settled)
             .filter(|(_, c)| !c.generics.is_empty())
-            .map(|(i, _)| i)
             .collect();
         loop {
             let mut changed = false;
-            for &index in &generic {
-                let Some(con) = self.tycons.get(index) else { continue };
+            for &(index, con) in &generic {
                 let arity = con.generics.len();
                 // A struct has fields and no variants; an enum the reverse.
                 // Both accessors answer `&[]` for the other shape, so this is
@@ -1032,10 +1022,12 @@ impl Tables {
                         if rows.provides(index, i) || !rows.occurs_provided(&field.ty, i) {
                             continue;
                         }
-                        if let Some(bit) = index.checked_sub(settled).and_then(|own| table.get_mut(own)).and_then(|row| row.get_mut(i)) {
-                            *bit = true;
-                            changed = true;
-                        }
+                        *index
+                            .checked_sub(settled)
+                            .and_then(|own| table.get_mut(own))
+                            .and_then(|row| row.get_mut(i))
+                            .or_ice("an own generic constructor has a row with a bit per parameter") = true;
+                        changed = true;
                     }
                 }
             }
@@ -1115,8 +1107,8 @@ impl Tables {
     }
 
     /// The word a `derive Flags` struct is stored in: the smallest unsigned
-    /// integer with a bit per field. `None` for every other type, and for one
-    /// whose `derive` was refused.
+    /// integer with a bit per field. `None` for every other type. Asked only of
+    /// a program the checker accepted.
     ///
     /// Field `i` of `n` is bit `n - 1 - i`, so the first field is the most
     /// significant and comparing the words is a plain struct's derived order.
@@ -1125,14 +1117,9 @@ impl Tables {
         if fields.is_empty() || fields.len() > FLAGS_MAX {
             return None;
         }
-        let tr = self.traits_of_con(con).iter().find(|t| self.trait_(**t).name == "Flags")?;
-        if !self.impls.get(&(*tr, con))?.is_derived() {
-            return None;
-        }
-        let bool_ty = self.prim(Prim::Bool);
-        if fields.iter().any(|f| f.ty != bool_ty) {
-            return None;
-        }
+        // `Flags` is derive-only, and a derive with a field that isn't a
+        // `Bool` is refused, which stops the build before anything asks.
+        self.traits_of_con(con).iter().find(|t| self.trait_(**t).name == "Flags")?;
         Some(match fields.len() {
             0..=8 => Prim::U8,
             9..=16 => Prim::U16,
@@ -1249,7 +1236,9 @@ impl Tables {
     /// any instantiation. A `Prop<T>` — which stores one — still answers
     /// `true`, so an ordinary bound is still the way to capture that.
     ///
-    /// Everything else is the shape of `is_effect_carrying`.
+    /// Everything else is the shape of `is_effect_carrying`, and is asked only
+    /// of a type that predicate refused. It walks the same positions, so a
+    /// constructor that implements an effect itself never reaches here.
     pub fn may_carry_effect(&self, ty: &Ty, generics: &[GenericInfo]) -> bool {
         match ty.kind() {
             TyKind::Param(i) => match generics.get(*i as usize) {
@@ -1257,12 +1246,10 @@ impl Tables {
                 None => true,
             },
             TyKind::Ctx(_) => true,
-            TyKind::Con(id, args) => {
-                self.con_carries_effect(*id)
-                    || args.iter().enumerate().any(|(k, a)| {
-                        self.provides(*id, k) && self.may_carry_effect(a, generics)
-                    })
-            }
+            TyKind::Con(id, args) => args
+                .iter()
+                .enumerate()
+                .any(|(k, a)| self.provides(*id, k) && self.may_carry_effect(a, generics)),
             TyKind::Array(e) => self.may_carry_effect(e, generics),
             TyKind::Tuple(es) => es.iter().any(|e| self.may_carry_effect(e, generics)),
             // Spelled out rather than folded into the catch-all, because this
@@ -1299,22 +1286,22 @@ impl Subst {
     }
 
     pub fn fresh(&mut self, span: Span) -> Ty {
-        let id = TyVarId(self.slots.len() as u32);
-        self.slots.push(None);
-        self.classes.push(None);
-        self.spans.push(span);
-        Ty::var(id)
+        self.mint(None, span)
     }
 
     /// A numeric literal gets a fresh variable constrained to the integer
     /// types or the float types; ordinary unification then decides
     /// (SPEC 5.1.1).
     pub fn fresh_num(&mut self, class: NumClass, span: Span) -> Ty {
-        let ty = self.fresh(span);
-        if let TyKind::Var(id) = ty.kind() {
-            *self.class_slot(*id) = Some(class);
-        }
-        ty
+        self.mint(Some(class), span)
+    }
+
+    fn mint(&mut self, class: Option<NumClass>, span: Span) -> Ty {
+        let id = TyVarId(self.slots.len() as u32);
+        self.slots.push(None);
+        self.classes.push(class);
+        self.spans.push(span);
+        Ty::var(id)
     }
 
     /// The class slot for a variable. Every [`TyVarId`] comes from `fresh`,
@@ -1648,18 +1635,16 @@ pub fn call_signature(
 ) -> String {
     let mut out = String::from(name);
     if !generics.is_empty() {
-        out.push('<');
-        for (i, g) in generics.iter().enumerate() {
-            if i > 0 {
-                out.push_str(", ");
-            }
-            out.push_str(&g.name);
-            for (j, bound) in g.bounds.iter().enumerate() {
-                out.push_str(if j == 0 { ": " } else { " + " });
-                out.push_str(&tables.trait_(*bound).name);
-            }
-        }
-        out.push('>');
+        let shown: Vec<String> = generics
+            .iter()
+            .map(|g| {
+                let bounds: Vec<&str> = g.bounds.iter().map(|b| tables.trait_(*b).name.as_str()).collect();
+                // `T`, or `T: A + B`.
+                let colon = bounds.first().map_or("", |_| ": ");
+                format!("{}{colon}{}", g.name, bounds.join(" + "))
+            })
+            .collect();
+        let _ = write!(out, "<{}>", shown.join(", "));
     }
     out.push('(');
     for (i, p) in params.iter().enumerate() {
@@ -1674,38 +1659,6 @@ pub fn call_signature(
     }
     out.push(')');
     out
-}
-
-/// A constructor as a caller has to write it: the name and the values it holds,
-/// by position for a tuple and by field name for a record.
-///
-/// [`crate::formatting::constructor`] and [`crate::formatting::variant`] are
-/// the same rendering of syntax somebody wrote, and are what a diagnostic
-/// prints wherever there is some.
-pub fn constructor_shape(
-    tables: &Tables,
-    name: &str,
-    generics: &[GenericInfo],
-    fields: &[FieldInfo],
-    record: bool,
-) -> String {
-    let inner = fields
-        .iter()
-        .map(|f| {
-            let ty = show(tables, None, generics, &f.ty);
-            if record {
-                format!("{}: {ty}", f.name)
-            } else {
-                ty
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    if record {
-        format!("{name} {{ {inner} }}")
-    } else {
-        format!("{name}({inner})")
-    }
 }
 
 /// How a diagnostic names a type. A literal is named by the type it defaults

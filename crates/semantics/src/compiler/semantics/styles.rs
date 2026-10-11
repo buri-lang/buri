@@ -47,7 +47,7 @@ use crate::compiler::semantics::layered::Layered;
 use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, ModuleScope, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind, Magnitude};
 use crate::compiler::semantics::types::{ConstId, FnId, Tables, Ty, TyKind, TyConId};
-use crate::diagnostics::{Diagnostic, Diagnostics, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::hash::Set as HashSet;
 
 // ---------------------------------------------------------------------------
@@ -507,7 +507,8 @@ impl<'a> Extractor<'a> {
     }
 
     fn is_style(&self, ty: &Ty) -> bool {
-        matches!(ty.kind(), TyKind::Con(id, args) if *id == self.style_con && args.is_empty())
+        // `Style` takes no type arguments, so its id alone names the type.
+        matches!(ty.kind(), TyKind::Con(id, _) if *id == self.style_con)
     }
 
     fn is_style_list(&self, ty: &Ty) -> bool {
@@ -554,7 +555,8 @@ impl<'a> Extractor<'a> {
     }
 
     fn is_color(&self, ty: &Ty) -> bool {
-        matches!(ty.kind(), TyKind::Con(id, args) if Some(*id) == self.color_con && args.is_empty())
+        // `Color` takes no type arguments either.
+        matches!(ty.kind(), TyKind::Con(id, _) if Some(*id) == self.color_con)
     }
 
     /// Whether anything under `e` is a style or a list of them: the only
@@ -944,14 +946,15 @@ fn resolve_conflicts(atoms: Vec<Atom>) -> Vec<Atom> {
 ///
 /// A [`Reset`] opens it, where the program builds one of those elements.
 pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> String {
+    // `rules` names each class once: one extractor records a class once, and
+    // `Styled::after` dedupes a base's rules against the run's.
     let mut unique: Vec<&StyleRule> = Vec::new();
-    let mut seen: HashSet<&str> = HashSet::default();
     for rule in rules {
         // A rule nobody reaches is not shipped. Extraction walks every checked
         // body, including the ones monomorphization then drops, and a
         // stylesheet carrying a library's unused styles is the thing atomic
         // classes exist to avoid.
-        if used.contains(&rule.class) && seen.insert(rule.class.as_str()) {
+        if used.contains(&rule.class) {
             unique.push(rule);
         }
     }
@@ -2295,13 +2298,17 @@ fn collect(variant: usize, args: &[typed::Expr], out: &mut Reached) {
                 _ => None,
             };
             if let Some(typed::Expr { kind: ExprKind::Array(items), .. }) = list {
+                // A `Classes` literal is the extractor's: a program cannot
+                // write one, its field being private.
                 for item in items {
-                    let ExprKind::Tuple(pair) = &item.kind else { continue };
-                    if let Some(typed::Expr { kind: ExprKind::Str(class), .. }) =
-                        pair.get(1)
-                    {
-                        out.classes.insert(class.clone());
-                    }
+                    let class = match &item.kind {
+                        ExprKind::Tuple(pair) => match pair.get(1) {
+                            Some(typed::Expr { kind: ExprKind::Str(class), .. }) => Some(class),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    out.classes.insert(class.or_ice("the extractor writes each class as a `(slot, class)` pair").clone());
                 }
             }
         }

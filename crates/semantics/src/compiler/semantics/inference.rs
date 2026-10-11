@@ -300,13 +300,7 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
     let mut inf = Infer::new(c, info.module, Default::default(), Ty::UNIT);
     inf.in_main = true;
     inf.push_scope();
-    let expr = inf.check_context_body(decl.body, decl.span);
-    // A body that did not evaluate to a context type has no generated type,
-    // and then its constructor is not usable either — so neither is recorded.
-    let ctx_ty = match expr.ty.kind() {
-        TyKind::Ctx(ct) => Some(*ct),
-        _ => None,
-    };
+    let (expr, ty) = inf.check_context_body(decl.body, decl.span);
     let body = inf.finish(expr);
     // A named context is constructed by calling it, and each call builds a
     // fresh one, so the declaration becomes a nullary function.
@@ -324,9 +318,7 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
         ast: AstRef::Builtin,
         intrinsic: false,
     });
-    if let Some(ty) = ctx_ty {
-        c.tables.ctx_decl_mut(id).checked = Some(CheckedContext { ty, ctor });
-    }
+    c.tables.ctx_decl_mut(id).checked = Some(CheckedContext { ty, ctor });
     c.bodies.insert(ctor, std::sync::Arc::new(body));
 }
 
@@ -1197,10 +1189,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 d.notes.push(n);
             }
         }
-        // Kept for the next body, unless discharging one added another.
-        if self.obligations.is_empty() {
-            self.obligations = obligations;
-        }
+        // Kept for the next body. Discharging adds no obligation of its own.
+        self.obligations = obligations;
     }
 
     /// Records that this body relied on `Ty::Param(param): tr`.
@@ -1384,8 +1374,14 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn check_literal_ranges(&mut self) {
         let mut checks = std::mem::take(&mut self.lit_checks);
         for lit in checks.drain(..) {
-            let Some(p) = self.c.tables.as_prim(&self.subst.shallow(&lit.ty)) else { continue };
-            let Some((lo, hi)) = p.int_range() else { continue };
+            // `default_numerics` has run, and an integer literal's class binds it
+            // to nothing but an integer primitive.
+            let (p, (lo, hi)) = self
+                .c
+                .tables
+                .as_prim(&self.subst.shallow(&lit.ty))
+                .and_then(|p| Some((p, p.int_range()?)))
+                .or_ice("an integer literal settles at an integer primitive");
             let fits = if lit.negative {
                 p.is_signed() && (lit.value <= (lo.unsigned_abs()))
             } else {
@@ -1414,9 +1410,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.c.diags.push(d);
             }
         }
-        if self.lit_checks.is_empty() {
-            self.lit_checks = checks;
-        }
+        self.lit_checks = checks;
     }
 }
 
