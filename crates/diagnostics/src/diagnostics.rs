@@ -294,8 +294,6 @@ pub struct Edit {
 /// [`EditSet`] is built, and reported as a refusal instead.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BadEdits {
-    /// An edit for a different file than the set is for.
-    WrongFile,
     /// `start > end`.
     Inverted { start: u32, end: u32 },
     /// An offset past the end of the file.
@@ -309,7 +307,6 @@ pub enum BadEdits {
 impl std::fmt::Display for BadEdits {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BadEdits::WrongFile => write!(f, "an edit for another file"),
             BadEdits::Inverted { start, end } => {
                 write!(f, "an edit whose range runs backwards ({start}..{end})")
             }
@@ -341,7 +338,8 @@ pub struct EditSet {
 
 impl EditSet {
     /// Validates every edit against `text`, which must be the current contents
-    /// of `file`. Returns the first reason the set cannot be applied.
+    /// of `file`. Returns the first reason the set cannot be applied. Every
+    /// edit is in `file`: the one caller groups them by it.
     pub fn new(
         file: FileId,
         text: &str,
@@ -349,9 +347,6 @@ impl EditSet {
     ) -> Result<EditSet, BadEdits> {
         let mut edits: Vec<Edit> = edits.into_iter().collect();
         for e in &edits {
-            if e.at.file != file {
-                return Err(BadEdits::WrongFile);
-            }
             if e.at.start > e.at.end {
                 return Err(BadEdits::Inverted { start: e.at.start, end: e.at.end });
             }
@@ -365,8 +360,7 @@ impl EditSet {
             }
         }
         edits.sort_by_key(|e| (e.at.start, e.at.end));
-        for pair in edits.windows(2) {
-            let [first, second] = pair else { continue };
+        for (first, second) in edits.iter().zip(edits.iter().skip(1)) {
             if first.at.end > second.at.start {
                 return Err(BadEdits::Overlap {
                     first_end: first.at.end,
