@@ -1376,9 +1376,12 @@ impl Monomorphizer<'_> {
         self.locals = std::mem::take(&mut b.locals);
         b.expr = self.rewrite(b.expr, &targs);
         b.locals = std::mem::take(&mut self.locals);
+        // An entry's `js` file reads its answer by this type.
+        let ret = self.sub(&info.ret, &targs);
         let f = self.func_mut(slot);
         f.params = b.params;
         f.locals = b.locals;
+        f.ret = ret;
         f.set_body(b.expr);
     }
 
