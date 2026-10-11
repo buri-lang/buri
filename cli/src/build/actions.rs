@@ -564,11 +564,10 @@ fn unkeyed_reads_over(
     let mut members: std::collections::HashSet<TargetId> = workspace.closure(target).into_iter().collect();
     let mut extra: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     for label in workspace.custom_platforms(target) {
-        if let Some((pid, files, platform_members)) = platform_inputs(workspace, &label) {
-            let dir = &workspace.package(pid).dir;
-            extra.extend(files.iter().map(|rel| dir.join(rel)));
-            members.extend(platform_members);
-        }
+        let (pid, files, platform_members) = platform_inputs(workspace, &label);
+        let dir = &workspace.package(pid).dir;
+        extra.extend(files.iter().map(|rel| dir.join(rel)));
+        members.extend(platform_members);
     }
     let files = modules.iter().filter_map(|m| Some((m.disk.clone()?, m.pkg)));
     let worked = worked_out_over(session, generated_rules, modules.iter().copied(), |_| true);
@@ -936,7 +935,7 @@ pub fn record_clean_share(
 /// One repository platform's contribution to a key. See [`action_key`].
 fn contribute_platform(session: &Session, label: &str, closure: &[TargetId], k: &mut KeyBuilder) {
     let workspace = &session.workspace;
-    let Some((pid, files, members)) = platform_inputs(workspace, label) else { return };
+    let (pid, files, members) = platform_inputs(workspace, label);
     let package = workspace.package(pid);
     k.rule_identity(&package.label(), "platform", &files);
     for rel in &files {
@@ -956,7 +955,7 @@ fn contribute_platform(session: &Session, label: &str, closure: &[TargetId], k: 
 pub fn platform_inputs(
     workspace: &crate::build::workspace::Workspace,
     label: &str,
-) -> Option<(crate::build::workspace::PackageId, Vec<String>, Vec<TargetId>)> {
+) -> (crate::build::workspace::PackageId, Vec<String>, Vec<TargetId>) {
     let (pid, rule) = workspace.platform_rule(label);
     let mut files: Vec<String> = vec![String::from("BUILD.buri"), String::from("platform.buri")];
     files.extend(rule.sources.iter().map(|s| s.value.clone()));
@@ -972,7 +971,7 @@ pub fn platform_inputs(
     }
     members.sort();
     members.dedup();
-    Some((pid, files, members))
+    (pid, files, members)
 }
 
 /// One target's own contribution to a key: its rule identity, and the contents
@@ -2312,10 +2311,9 @@ fn linker_for(output: &Output, diagnostics: &mut Diagnostics) -> Option<link::CD
         Ok(l) => Some(l),
         Err(refusal) => {
             // The wording is `link::select`'s and not this function's. There
-            // are three refusals now — wrong platform, no `cc`, and a
-            // toolchain that cannot link hermetically — and only the module
-            // that told them apart can say which remedy belongs to which. This
-            // site's job is the span.
+            // are two refusals — no `cc`, and a toolchain that cannot link
+            // hermetically — and only the module that told them apart can say
+            // which remedy belongs to which. This site's job is the span.
             let mut d = Diagnostic::error(output.span, refusal.message);
             for note in refusal.notes {
                 d.note(note);
