@@ -1813,6 +1813,39 @@ fn a_connection_that_breaks_before_its_request_is_whole_leaves_the_listener_serv
     served_to_the_end(server.stopped());
 }
 
+/// **A server stopped and continued while a request arrives still answers it.**
+/// On Linux a stop and a continue interrupt a socket read that has a deadline,
+/// and the acceptor reads on rather than taking the client for one that
+/// stalled.
+#[test]
+fn a_server_stopped_and_continued_mid_request_still_answers_it() {
+    use std::io::{Read, Write};
+    #[cfg(target_os = "macos")]
+    const STOP_CONT: (i32, i32) = (17, 19);
+    #[cfg(not(target_os = "macos"))]
+    const STOP_CONT: (i32, i32) = (19, 18);
+    unless_ready!();
+    let binary = built("e2e-stopped-request", &resetting_server());
+    let server = Resetting::start(&binary, 1);
+    let mut socket = std::net::TcpStream::connect(("127.0.0.1", server.port)).unwrap();
+    socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).unwrap();
+    socket.write_all(b"GET /stopped HTTP/1.1\r\n").unwrap();
+    // Ten times, so the acceptor is waiting for the rest of the head for most
+    // of them.
+    for _ in 0..10 {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        crate::shared::signalling(&server.child, STOP_CONT.0);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        crate::shared::signalling(&server.child, STOP_CONT.1);
+    }
+    socket.write_all(b"host: 127.0.0.1\r\n\r\n").unwrap();
+    let mut reply = Vec::new();
+    let _ = socket.read_to_end(&mut reply);
+    let reply = String::from_utf8_lossy(&reply).to_string();
+    assert_eq!(body_of(&reply), Some("/stopped"), "the stopped request:\n{reply}");
+    served_to_the_end(server.stopped());
+}
+
 /// **A WebSocket client that resets ends only its socket.** `onClose` is told
 /// `.Abnormal`, and the worker goes back to accepting.
 #[test]
