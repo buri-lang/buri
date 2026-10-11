@@ -1,0 +1,4 @@
+// EXPECT: expected an identifier, found `export`
+struct export {
+  x: Int,
+}
