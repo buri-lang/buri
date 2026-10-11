@@ -467,3 +467,246 @@ fn a_platform_s_assets_are_copied_and_a_missing_one_is_refused() {
     scratch.run(&["build", "//cmd/app"]).ok();
     assert_eq!(scratch.read(".buri/out/platform/pair/cmd/app/style/site.css"), "body {}\n");
 }
+
+/// Sets the permission bits of `path` and everything under it.
+fn chmod_tree(path: &std::path::Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path).unwrap().flatten() {
+            chmod_tree(&entry.path(), mode);
+        }
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// A cache nothing can be written into: the build after an edit compiles,
+/// links and writes the program anyway, without keeping any of it.
+#[test]
+fn a_cache_that_cannot_be_written_still_builds() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    scratch.run(&["build", "//cmd/app"]).ok();
+    scratch.edit("cmd/app/main.buri", "ctx, \"native\"", "ctx, \"edited\"");
+    let cache = scratch.path(".buri/cache");
+    chmod_tree(&cache, 0o555);
+    let built = scratch.run(&["build", "//cmd/app"]);
+    chmod_tree(&cache, 0o755);
+    built.ok();
+    scratch.run(&["run", "//cmd/app"]).ok().says("edited");
+}
+
+/// Another toolchain's cache entries go even when there is nowhere to move
+/// them aside, and a cache whose directory can't be listed keeps its entries.
+#[test]
+fn another_toolchain_s_cache_is_emptied_without_a_trash_directory() {
+    let scratch = repository("        { platform: \"node\" },\n", NODE_MAIN);
+    scratch.run(&["build", "//cmd/app"]).ok();
+    scratch.write(".buri/cache/.toolchain", "another toolchain");
+    scratch.write(".buri/cache/stray", "another toolchain's entry\n");
+    scratch.write(".buri/cache/zz/old", "another toolchain's entry\n");
+    scratch.write(".buri/trash", "in the way\n");
+    scratch.run(&["build", "//cmd/app"]).ok();
+    assert!(!scratch.path(".buri/cache/stray").exists(), "another toolchain's file entry is still there");
+    assert!(!scratch.path(".buri/cache/zz").exists(), "another toolchain's directory is still there");
+
+    scratch.write(".buri/cache/.toolchain", "another toolchain");
+    let cache = scratch.path(".buri/cache");
+    std::fs::set_permissions(&cache, std::os::unix::fs::PermissionsExt::from_mode(0o300)).unwrap();
+    let built = scratch.run(&["build", "//cmd/app"]);
+    std::fs::set_permissions(&cache, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    built.ok().says(".buri/out/node/cmd/app/app.mjs (");
+}
+
+/// The linker's identity is remembered under `BURI_HOME`. A record cut short,
+/// one that isn't a digest, and a directory where the record goes are each
+/// asked again, and the edited program still builds and runs.
+#[test]
+fn a_damaged_linker_record_is_asked_again() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    let home = scratch.path("home").display().to_string();
+    let env = [("BURI_HOME", home.as_str())];
+    scratch.run_with_env(&["build", "//cmd/app"], &env).ok();
+    let records = || -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(scratch.path("home/linker-identity")).unwrap().flatten().map(|e| e.path()).collect()
+    };
+    assert!(!records().is_empty(), "the build remembered no linker");
+    let damage: [(&str, &dyn Fn(&std::path::Path)); 3] = [
+        ("short", &|p| std::fs::write(p, "short").unwrap()),
+        ("not hex", &|p| std::fs::write(p, "z".repeat(64)).unwrap()),
+        ("a directory", &|p| {
+            std::fs::remove_file(p).unwrap();
+            std::fs::create_dir_all(p.join("in-the-way")).unwrap();
+        }),
+    ];
+    let mut said = "native";
+    for (how, damage) in damage {
+        for record in records() {
+            damage(&record);
+        }
+        scratch.edit("cmd/app/main.buri", &format!("ctx, \"{said}\""), &format!("ctx, \"{how}\""));
+        said = how;
+        scratch.run_with_env(&["build", "//cmd/app"], &env).ok();
+        scratch.run_with_env(&["run", "//cmd/app"], &env).ok().says(how);
+    }
+}
+
+/// A cross link drives the C driver with `--target=`, so a driver that can't
+/// compile for the target is refused before anything is built.
+#[test]
+fn a_cross_link_needs_a_c_driver_that_takes_a_target() {
+    let (variant, triple) = if cfg!(target_os = "linux") && cfg!(target_arch = "x86_64") {
+        ("linux-arm64", "aarch64-unknown-linux-musl")
+    } else {
+        ("linux-x86_64", "x86_64-unknown-linux-musl")
+    };
+    let scratch = repository(&format!("        {{ platform: \"native\", variant: \"{variant}\" }},\n"), NATIVE_MAIN);
+    let cc = scratch.write_executable("fake/cc", "#!/bin/sh\nexit 1\n").display().to_string();
+    scratch
+        .run_with_env(&["build", "//cmd/app"], &[("CC", &cc)])
+        .exits(1)
+        .says(&format!("error: the C driver cannot be pointed at {triple}, so it cannot cross-link"))
+        .says("fix: install a clang that understands `--target=`, or set `CC` to one");
+}
+
+/// `BURI_MUSL` is a question about a Linux link. Elsewhere it's ignored. On
+/// Linux a value that isn't a libc is refused, `off` links against glibc
+/// through the dynamic loader, and `baked` and `system` each link with musl
+/// or say why they can't.
+#[test]
+fn buri_musl_forces_the_libc_of_a_linux_link() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    let build = |value: &str| scratch.run_with_env(&["build", "--force", "//cmd/app"], &[("BURI_MUSL", value)]);
+    if !cfg!(target_os = "linux") {
+        build("bogus").ok();
+        return;
+    }
+    build("bogus")
+        .exits(1)
+        .says("`BURI_MUSL=bogus` is not a libc this toolchain can be forced to")
+        .says("set `BURI_MUSL` to `baked`, `system` or `off`");
+    let program = || {
+        let variant = only_entry(&scratch.path(".buri/out/native"));
+        std::fs::read(scratch.path(&format!(".buri/out/native/{variant}/cmd/app/app"))).unwrap()
+    };
+    let interpreted = |bytes: &[u8]| bytes.windows(b"/ld-linux".len()).any(|w| w == b"/ld-linux");
+    // A glibc link of a musl runtime archive fails in the linker, as `off` asks.
+    for (value, glibc, refusal) in [
+        ("off", true, "error: the link failed ("),
+        ("baked", false, "its C driver does not understand `--target=`"),
+        ("system", false, "`BURI_MUSL=system` was set and no musl driver is on PATH"),
+    ] {
+        let run = build(value);
+        if run.code == 0 {
+            assert_eq!(interpreted(&program()), glibc, "BURI_MUSL={value} linked the wrong libc");
+            scratch.run_with_env(&["run", "//cmd/app"], &[("BURI_MUSL", value)]).ok().says("native");
+        } else {
+            run.exits(1).says(refusal);
+        }
+    }
+}
+
+/// A `buri` whose linker wrote no build id knows itself by the hash of its
+/// bytes, remembered under `XDG_CACHE_HOME`. Its builds are cached like any
+/// other's, whether the remembered hash is damaged or can't be written.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_buri_without_a_build_id_still_caches() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = repository("        { platform: \"node\" },\n", NODE_MAIN);
+    let mut bytes = std::fs::read(buri()).unwrap();
+    let note = bytes
+        .windows(16)
+        .position(|w| w[..4] == [4, 0, 0, 0] && w[8..12] == [3, 0, 0, 0] && &w[12..] == b"GNU\0")
+        .expect("buri carries no GNU build id");
+    // Another note kind: the loader doesn't read it, and `buri` no longer finds its id.
+    bytes[note + 8] = 0x7f;
+    let copy = scratch.path("bin/buri");
+    std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+    std::fs::write(&copy, &bytes).unwrap();
+    std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let build = |xdg: &str| {
+        let out = heap_checked(&mut std::process::Command::new(&copy))
+            .current_dir(&scratch.root)
+            .args(["build", "--color=never", "//cmd/app"])
+            .env("BURI_HOME", scratch.path("home"))
+            .env("XDG_CACHE_HOME", scratch.path(xdg))
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    assert!(!build("xdg").contains("cached"), "the first build was served from the cache");
+    assert!(build("xdg").contains("cached"), "the second build wasn't served from the cache");
+    for record in std::fs::read_dir(scratch.path("xdg/buri/exe-identity")).unwrap().flatten() {
+        std::fs::write(record.path(), "sha256:short").unwrap();
+    }
+    assert!(build("xdg").contains("cached"), "a damaged record moved the toolchain's identity");
+    scratch.write("blocked", "a file where the cache directory goes\n");
+    assert!(build("blocked").contains("cached"), "an unwritable record moved the toolchain's identity");
+}
+
+/// A cargo that logs each call to `$STAND_IN_LOG` and writes
+/// `$STAND_IN_ARCHIVE` where `cargo rustc --release` puts the runtime. Without
+/// an archive it fails as cargo does offline.
+const STAND_IN_CARGO: &str = r#"#!/bin/sh
+echo "$1" >> "$STAND_IN_LOG"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --target) target=$2; shift ;;
+    --target-dir) dir=$2; shift ;;
+  esac
+  shift
+done
+if [ -z "$STAND_IN_ARCHIVE" ]; then echo "error: no matching package named \`libc\` found" >&2; exit 101; fi
+mkdir -p "$dir/$target/release/deps" && cp "$STAND_IN_ARCHIVE" "$dir/$target/release/deps/libburi_rt.a"
+"#;
+
+/// `CARGO` builds a cross runtime into `BURI_HOME` once and later builds reuse
+/// it, until its feature list or a sysroot member is damaged. A cargo that
+/// fails is reported with its own words, and leaves nothing in the home.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_cross_runtime_is_built_once_with_cargo() {
+    crate::harness::sweep::kept::warm_cross_runtime();
+    let shared = crate::harness::sweep::kept::shared_cross_home().join("cross");
+    let archive = std::fs::read_dir(&shared)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path().join("libburi_rt.a"))
+        .find(|p| p.is_file())
+        .expect("no warm cross runtime");
+    let scratch = repository("        { platform: \"native\", variant: \"linux-x86_64\" },\n", NATIVE_MAIN);
+    let cargo = scratch.write_executable("fake/cargo", STAND_IN_CARGO).display().to_string();
+    let home = scratch.path("home").display().to_string();
+    let log = scratch.path("cargo.log").display().to_string();
+    let archive = archive.display().to_string();
+    let env = [("BURI_HOME", home.as_str()), ("CARGO", cargo.as_str()), ("STAND_IN_LOG", log.as_str())];
+    scratch
+        .run_with_env(&["build", "//cmd/app"], &env)
+        .exits(1)
+        .says("error: could not cross-build the runtime for x86_64-unknown-linux-musl")
+        .says("error: no matching package named `libc` found");
+    let left: Vec<_> = std::fs::read_dir(scratch.path("home/cross")).map(|d| d.flatten().collect()).unwrap_or_default();
+    assert!(left.is_empty(), "a failed cross build left {left:?}");
+
+    let env = [env[0], env[1], env[2], ("STAND_IN_ARCHIVE", archive.as_str())];
+    let builds = || scratch.read("cargo.log").lines().filter(|l| *l == "rustc").count();
+    let build = || {
+        scratch.run_with_env(&["build", "--force", "//cmd/app"], &env).ok();
+        let program = std::fs::read(scratch.path(".buri/out/native/linux-x86_64/cmd/app/app")).unwrap();
+        assert_eq!(program.get(..4), Some(&b"\x7fELF"[..]), "the cross build wrote no ELF program");
+    };
+    let failed = builds();
+    build();
+    assert_eq!(builds(), failed + 1, "the first cross build didn't run cargo once");
+    build();
+    assert_eq!(builds(), failed + 1, "the second cross build ran cargo again");
+    let entry = || {
+        std::fs::read_dir(scratch.path("home/cross")).unwrap().flatten().map(|e| e.path()).find(|p| p.is_dir()).unwrap()
+    };
+    std::fs::write(entry().join("features"), "another feature\n").unwrap();
+    build();
+    assert_eq!(builds(), failed + 2, "a damaged feature list was reused");
+    std::fs::remove_file(entry().join("musl/lib/crt1.o")).unwrap();
+    build();
+    assert_eq!(builds(), failed + 3, "a sysroot missing a member was reused");
+}
