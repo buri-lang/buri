@@ -90,8 +90,8 @@
 //!
 //! Eight names in total, and they are the entire run-time surface a derived
 //! conformance needs. It is stated here because this pass is the only thing
-//! that emits them. `middle::lower` builds every `deriveArray*` loop but
-//! `deriveArrayHash` (`lower/lists.rs`), and the backends answer the rest.
+//! that emits them. `middle::lower` builds every `deriveArray*` loop
+//! (`lower/lists.rs`), and the backends answer the rest.
 //!
 //! ## Agreement with JavaScript
 //!

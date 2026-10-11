@@ -1,4 +1,4 @@
-//! `core/list`'s closure operations, `get`, `zip`, `flatten` and four of the
+//! `core/list`'s closure operations, `get`, `zip`, `flatten` and the
 //! `deriveArray*` derives, lowered to loops in the IR.
 //!
 //! `cli/runtime/list.rs`'s header says why the archive has no
@@ -73,6 +73,7 @@ pub(super) fn handles(key: &str) -> bool {
             | "deriveArrayEq"
             | "deriveArrayCompare"
             | "deriveArrayShow"
+            | "deriveArrayHash"
     ) || derive_map(key).is_some()
         || intrinsic_keys::list_call(key).is_some()
 }
@@ -89,10 +90,10 @@ fn derive_map(key: &str) -> Option<intrinsic_keys::ListCall> {
 }
 
 /// Where `key`'s step is among its operands. `middle::derives` builds the
-/// `deriveArray*` calls as `(xs, ys, step)` and `(xs, step)`.
+/// `deriveArray*` calls as `(xs, ys, step)`, `(h, xs, step)` and `(xs, step)`.
 fn step_at(key: &str) -> Option<usize> {
     match key {
-        "deriveArrayEq" | "deriveArrayCompare" => Some(2),
+        "deriveArrayEq" | "deriveArrayCompare" | "deriveArrayHash" => Some(2),
         "deriveArrayShow" => Some(1),
         _ => derive_map(key).or_else(|| intrinsic_keys::list_call(key)).map(|c| c.func),
     }
@@ -234,6 +235,7 @@ impl FnLower<'_> {
                 return self.derive_array(key == "deriveArrayEq", vals, tys, step, ret)
             }
             "deriveArrayShow" => return self.derive_show(vals, tys, step, ret),
+            "deriveArrayHash" => return self.derive_hash(vals, tys, step, ret),
             _ => {}
         }
         let call = derive_map(key).or_else(|| intrinsic_keys::list_call(key))?;
@@ -686,6 +688,36 @@ impl FnLower<'_> {
         }
         self.cur = exit;
         self.code.get(exit).params.first().copied()
+    }
+
+    /// `deriveArrayHash`: the length mixed into `h`, then each element through
+    /// the element's own generated `hash`, which is how `$hashInto` walks an
+    /// array (`backend/js/runtime.js`), so both backends answer one number.
+    fn derive_hash(
+        &mut self,
+        vals: &[ValueId],
+        tys: &[Ty],
+        step: Option<FuncIdx>,
+        ret: &Ty,
+    ) -> Option<ValueId> {
+        let (&h, &xs, &f) = (vals.first()?, vals.get(1)?, vals.get(2)?);
+        let elem = elem_of(tys.get(1)?);
+        let (elem_t, ret_t) = (self.type_of(&elem), self.type_of(ret));
+        let callee = self.callee(f, step, 2);
+        let n = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
+        let sized = self.emit(ret_t, |dest| Inst::CallIntrinsic {
+            dest,
+            key: "derivePrimHash.I64".into(),
+            args: Box::new([h, n]),
+        });
+        let w = self.walk(n, &[sized]);
+        let acc = *w.vars.first()?;
+        let e = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: w.i });
+        let args = vec![Arg { value: acc, ty: *ret, owned: true }, Arg { value: e, ty: elem, owned: false }];
+        let next = self.step(&callee, args, ret_t);
+        self.again(&w, vec![next]);
+        self.end(&w);
+        Some(acc)
     }
 
     /// `deriveArrayShow`: `[a, b]`, from the element's own generated `show`.
