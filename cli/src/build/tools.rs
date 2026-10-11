@@ -33,7 +33,7 @@ use crate::build::cache::{Action, ActionKey, Cache, KeyBuilder};
 use crate::build::session::Session;
 use crate::build::workspace::{RuleKind, TargetId, Workspace};
 use crate::commands::arguments::Flags;
-use crate::diagnostics::{Diagnostic, Span};
+use crate::diagnostics::{Diagnostic, Invariant as _, Span};
 use crate::json::Value;
 use crate::languages::{Finding, Kind, Language, Said};
 use std::collections::{BTreeMap, BTreeSet};
@@ -146,8 +146,7 @@ pub fn validate(workspace: &Workspace) -> Vec<Diagnostic> {
 /// language the contract lists.
 fn accepted(workspace: &Workspace, g: &buildfile::Generator, out: &mut Vec<Diagnostic>) {
     let Ok(Tool::Repo(t)) = resolve(workspace, &g.tool.value) else { return };
-    let Some(rule) = &workspace.package(t.package).build.tool else { return };
-    let accepts = rule.accepts("generate");
+    let accepts = rule_of(workspace, t).accepts("generate");
     if accepts.is_empty() {
         return;
     }
@@ -421,11 +420,10 @@ impl Contract {
 
 /// The modules a tool's contracts become, `(language, module path)`, for one
 /// entry point.
-pub fn typed(workspace: &Workspace, tool: Tool, entry: &str) -> Vec<(String, String)> {
-    let Tool::Repo(t) = tool else { return Vec::new() };
+fn typed(workspace: &Workspace, t: TargetId, entry: &str) -> Vec<(String, String)> {
     let package = workspace.package(t.package);
-    let Some(rule) = &package.build.tool else { return Vec::new() };
-    rule.accepts(entry)
+    rule_of(workspace, t)
+        .accepts(entry)
         .iter()
         .map(|a| (a.language.value.clone(), package.module_path(&a.language.value)))
         .collect()
@@ -516,14 +514,9 @@ pub fn harness(
 
 /// What a runnable tool is compiled from: the module it imports, the package
 /// its `main` stands in, and that `main`.
-fn source(workspace: &Workspace, tool: Tool) -> Option<(Option<crate::build::workspace::PackageId>, String, String)> {
+fn source(workspace: &Workspace, tool: Tool) -> Option<Source> {
     match tool {
-        Tool::Repo(t) => {
-            let package = workspace.package(t.package);
-            let module = package.module_path("tool.buri");
-            let main = harness(&module, &|e| tool.provides(workspace, e), &|e| typed(workspace, tool, e));
-            Some((Some(t.package), package.module_path("(tool main)"), main))
-        }
+        Tool::Repo(t) => Some(repo_source(workspace, t)),
         // `format` is in-tree, so the program serves the other two. Each is the
         // standard library module of its name under `std/`.
         Tool::Proto => {
@@ -534,6 +527,22 @@ fn source(workspace: &Workspace, tool: Tool) -> Option<(Option<crate::build::wor
         }
         Tool::Json => None,
     }
+}
+
+/// [`source`], for a tool of this repository.
+fn repo_source(workspace: &Workspace, t: TargetId) -> Source {
+    let package = workspace.package(t.package);
+    let module = package.module_path("tool.buri");
+    let main = harness(&module, &|e| Tool::Repo(t).provides(workspace, e), &|e| typed(workspace, t, e));
+    (Some(t.package), package.module_path("(tool main)"), main)
+}
+
+/// The package a tool's `main` stands in, that `main`'s module path, and its text.
+type Source = (Option<crate::build::workspace::PackageId>, String, String);
+
+/// The `tool` rule of a tool target.
+pub fn rule_of(workspace: &Workspace, t: TargetId) -> &buildfile::Tool {
+    workspace.package(t.package).build.tool.as_ref().or_ice("a tool target's package has a `tool` rule")
 }
 
 /// The key of the program a tool is: its `main`, and — for a tool of this
@@ -554,7 +563,7 @@ pub fn program_key(session: &Session, tool: Tool, flags: &Flags) -> ActionKey {
     if let Some((reads, _)) = cache.get(&kept).as_deref().and_then(|r| crate::build::actions::held_record(&session.root, r)) {
         return finished(&base, &reads);
     }
-    let Ok((js, read)) = compile(session, tool) else { return base };
+    let Ok((js, read)) = compile(session, tool, repo_source(&session.workspace, t)) else { return base };
     let reads = crate::build::actions::encode_reads(
         session,
         &crate::build::actions::tool_unkeyed_reads(session, t, read.iter().map(PathBuf::as_path)),
@@ -600,11 +609,8 @@ fn place(dir: &Path, path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Compiles a tool's program: the JavaScript, and every file it read.
-fn compile(session: &Session, tool: Tool) -> Result<(String, Vec<PathBuf>), String> {
+fn compile(session: &Session, tool: Tool, (package, main_name, main): Source) -> Result<(String, Vec<PathBuf>), String> {
     let name = tool.name(&session.workspace);
-    let Some((package, main_name, main)) = source(&session.workspace, tool) else {
-        return Err(format!("`{name}` runs in-tree and has no program"));
-    };
     if let Some(why) = broken_contract(&session.workspace, tool) {
         return Err(format!("the tool does not build: {why}"));
     }
@@ -632,16 +638,16 @@ fn compile(session: &Session, tool: Tool) -> Result<(String, Vec<PathBuf>), Stri
 /// The `.mjs` a tool is compiled to, built once per [`program_key`] and kept.
 pub fn artifact(session: &Session, tool: Tool, flags: &Flags) -> Result<PathBuf, String> {
     let name = tool.name(&session.workspace);
-    if source(&session.workspace, tool).is_none() {
+    let Some(source) = source(&session.workspace, tool) else {
         return Err(format!("`{name}` runs in-tree and has no program"));
-    }
+    };
     let key = program_key(session, tool, flags);
     let dir = session.root.join(".buri/out/tools");
     let path = dir.join(format!("{}.mjs", key.as_str()));
     if path.is_file() {
         return Ok(path);
     }
-    let (js, _) = compile(session, tool)?;
+    let (js, _) = compile(session, tool, source)?;
     place(&dir, &path, js.as_bytes())?;
     Ok(path)
 }
@@ -953,17 +959,19 @@ pub fn format_in_process(kind: &Kind, text: &str) -> Option<Formatted> {
 /// Formats one file in a language, through whichever tool formats it.
 pub fn format_file(session: &Session, rel: &str, text: &str, flags: &Flags) -> Formatted {
     let refused = |t: Option<String>| t.map_or(Formatted::Refused, Formatted::Text);
-    let languages = &session.workspace.repo.languages;
-    let Some(language) = languages.of(rel) else { return Formatted::Unformatted };
-    if let Some(done) = format_in_process(&language.kind, text) {
-        return done;
-    }
+    let language = session
+        .workspace
+        .repo
+        .languages
+        .of(rel)
+        .or_ice("`buri format` and the language server send a tool only a file in a language");
     let named = match &language.kind {
         Kind::Custom(tools) => match &tools.format {
             Some(named) => named,
             None => return Formatted::Unformatted,
         },
-        _ => return Formatted::Unformatted,
+        // Neither caller sends one: each lays a built-in language out itself.
+        kind => return format_in_process(kind, text).unwrap_or(Formatted::Unformatted),
     };
     let tool = match resolve(&session.workspace, &named.value) {
         Ok(Tool::Json) => return refused(crate::languages::json::format(text, crate::languages::json::Dialect::Json)),

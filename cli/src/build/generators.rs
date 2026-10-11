@@ -25,7 +25,7 @@ use crate::build::sources::Overlay;
 use crate::build::tools::{self, Tool};
 use crate::build::workspace::{RuleKind, TargetId, Workspace};
 use crate::commands::arguments::Flags;
-use crate::diagnostics::Span;
+use crate::diagnostics::{Invariant as _, Span};
 use crate::json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -540,11 +540,8 @@ fn ask_kept(artifact: &std::path::Path, request: &str) -> Option<String> {
                 cmd.arg(artifact).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()),
             )
             .ok()?;
-            let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            };
+            let stdin = child.stdin.take().or_ice("a kept tool's input is piped");
+            let stdout = child.stdout.take().or_ice("a kept tool's output is piped");
             KeptProcess { artifact: artifact.to_path_buf(), child, stdin, stdout: std::io::BufReader::new(stdout) }
         }
     };
@@ -600,17 +597,15 @@ fn run_once(artifact: &std::path::Path, request: &str) -> Result<String, String>
         let _ = stdin.write_all(line.as_bytes());
         let _ = stdin.flush();
     });
-    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+    let drain = |mut pipe: Box<dyn std::io::Read + Send>| {
         std::thread::spawn(move || {
             let mut text = String::new();
-            if let Some(mut pipe) = pipe {
-                let _ = pipe.read_to_string(&mut text);
-            }
+            let _ = pipe.read_to_string(&mut text);
             text
         })
     };
-    let reading_out = drain(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
-    let reading_err = drain(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+    let reading_out = drain(Box::new(child.stdout.take().or_ice("a tool's output is piped")));
+    let reading_err = drain(Box::new(child.stderr.take().or_ice("a tool's standard error is piped")));
     // **Waited for, not timed.** This used to poll under a sixty-second
     // deadline and kill the tool at it, and that number could only ever measure
     // the machine: a two-thousand-field schema is five seconds on an idle
@@ -661,14 +656,12 @@ pub(crate) fn how_it_ended(status: &std::process::ExitStatus) -> String {
     if let Some(code) = status.code() {
         return format!("exited with {code}");
     }
-    #[cfg(unix)]
-    if let Some(signal) = std::os::unix::process::ExitStatusExt::signal(status) {
-        return match signal_name(signal) {
-            Some(name) => format!("was killed by {name} (signal {signal})"),
-            None => format!("was killed by signal {signal}"),
-        };
+    let signal = std::os::unix::process::ExitStatusExt::signal(status)
+        .or_ice("a waited-for process with no exit code was ended by a signal");
+    match signal_name(signal) {
+        Some(name) => format!("was killed by {name} (signal {signal})"),
+        None => format!("was killed by signal {signal}"),
     }
-    "ended without a status".to_string()
 }
 
 /// The name of a signal, for the numbers macOS and Linux agree on.
@@ -933,9 +926,9 @@ fn needs(workspace: &Workspace, target: TargetId, rules: &[TargetId]) -> Vec<Tar
         if cycle(workspace, target, tool).is_some() {
             continue;
         }
-        out.extend(
-            workspace.closure(tool).into_iter().chain([tool]).filter(|m| *m != target && rules.contains(m)),
-        );
+        // A tool's closure holds the tool itself, and not `target`, or that
+        // would be the cycle passed over above.
+        out.extend(workspace.closure(tool).into_iter().filter(|m| rules.contains(m)));
     }
     out
 }
@@ -1107,7 +1100,7 @@ fn walk_worked_out_from(
 fn run_contracts(session: &Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
     let workspace = Arc::clone(&session.workspace);
     let package = workspace.package(target.package);
-    let Some(rule) = &package.build.tool else { return };
+    let rule = tools::rule_of(&workspace, target);
     let languages = &workspace.repo.languages;
     let read = crate::languages::reader(&session.root, overlay);
     let mut seen: BTreeSet<String> = BTreeSet::new();
