@@ -1,4 +1,3 @@
-0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)
 error: `Money` derives `Add` only for a struct wrapping a number, not `Cents` [derive-operator-not-numeric]
   --> lib/ops/test/ops.buri:24:9
    |
