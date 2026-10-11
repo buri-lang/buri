@@ -1,0 +1,62 @@
+// EXPECT: this arm is unreachable
+//
+// A long match that repeats its arms. Every repeat is unreachable, and the
+// cases the match still misses are named.
+from "node" import { NodeHost };
+
+enum Abc {
+    A,
+    B,
+    C,
+}
+
+fn pick(x: Abc): Int {
+    match (x) {
+    .A => 0,
+    .A => 1,
+    .A => 2,
+    .A => 3,
+    .A => 4,
+    .A => 5,
+    .A => 6,
+    .A => 7,
+    .A => 8,
+    .A => 9,
+    .A => 10,
+    .A => 11,
+    .A => 12,
+    .A => 13,
+    .A => 14,
+    .A => 15,
+    .A => 16,
+    .A => 17,
+    }
+}
+
+fn pair(x: (Abc, Abc)): Int {
+    match (x) {
+        (.A, .B) => 0,
+        (.A, .B) => 1,
+        (.A, .B) => 2,
+        (.A, .B) => 3,
+        (.A, .B) => 4,
+        (.A, .B) => 5,
+        (.A, .B) => 6,
+        (.A, .B) => 7,
+        (.A, .B) => 8,
+        (.A, .B) => 9,
+        (.A, .B) => 10,
+        (.A, .B) => 11,
+        (.A, .B) => 12,
+        (.A, .B) => 13,
+        (.A, .B) => 14,
+        (.A, .B) => 15,
+        (.A, .B) => 16,
+        (.B | .C, _) if true => 1,
+        (_, .A | .C) => 2,
+    }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    .Ok(())
+}

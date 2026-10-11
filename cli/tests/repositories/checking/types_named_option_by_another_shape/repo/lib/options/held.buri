@@ -1,0 +1,5 @@
+// `None` holds a value.
+export enum Option<T> {
+    Some(T),
+    None(T),
+}

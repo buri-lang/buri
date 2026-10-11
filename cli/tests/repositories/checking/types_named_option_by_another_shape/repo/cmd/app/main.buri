@@ -1,0 +1,52 @@
+// Five types named `Option`, none of them the prelude's shape, each built and
+// matched like any other enum.
+
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+from "//lib/options" import { Held, Just, Nothing, Pair, Twice };
+
+fn pair(o: Pair<Int, Str>): Int {
+    match (o) {
+        .Some(n) => n,
+        .None(s) => s.length(),
+    }
+}
+
+fn just(o: Just<Int>): Int {
+    match (o) {
+        .Just(n) => n,
+        .None => 0,
+    }
+}
+
+fn twice(o: Twice<Int>): Int {
+    match (o) {
+        .Some(a, b) => a + b,
+        .None => 0,
+    }
+}
+
+fn nothing(o: Nothing<Int>): Int {
+    match (o) {
+        .Some(n) => n,
+        .Nothing => -1,
+    }
+}
+
+fn held(o: Held<Int>): Int {
+    match (o) {
+        .Some(n) => n,
+        .None(n) => n * 10,
+    }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+    let _ = io.println(ctx, "pair ${pair(.None("abc"))}").ignore();
+    let _ = io.println(ctx, "just ${just(.Just(1))}").ignore();
+    let _ = io.println(ctx, "twice ${twice(.Some(2, 3))}").ignore();
+    let _ = io.println(ctx, "nothing ${nothing(.Nothing)}").ignore();
+    let _ = io.println(ctx, "held ${held(.None(4))}").ignore();
+    .Ok(())
+}

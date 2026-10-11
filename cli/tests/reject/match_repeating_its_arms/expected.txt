@@ -1,0 +1,290 @@
+error: this `match` does not cover `.B` [match-not-exhaustive]
+  --> cmd/match_repeating_its_arms/main.buri:14:5
+   |
+14 |     match (x) {
+   |     ^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.B`, or a `_` arm for everything left
+
+     Add an arm for the named case, or a _ arm for everything left.
+
+     Exhaustiveness turns a new variant into a compile error everywhere that has
+     to handle it. A _ arm opts that match out.
+
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:16:5
+   |
+16 |     .A => 1,
+   |     ^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+
+     The usual cause is an arm in the wrong place, and a dead arm reads as
+     handled.
+
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:17:5
+   |
+17 |     .A => 2,
+   |     ^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:18:5
+   |
+18 |     .A => 3,
+   |     ^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:19:5
+   |
+19 |     .A => 4,
+   |     ^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:20:5
+   |
+20 |     .A => 5,
+   |     ^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:21:5
+   |
+21 |     .A => 6,
+   |     ^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:22:5
+   |
+22 |     .A => 7,
+   |     ^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:23:5
+   |
+23 |     .A => 8,
+   |     ^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:24:5
+   |
+24 |     .A => 9,
+   |     ^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:25:5
+   |
+25 |     .A => 10,
+   |     ^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:26:5
+   |
+26 |     .A => 11,
+   |     ^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:27:5
+   |
+27 |     .A => 12,
+   |     ^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:28:5
+   |
+28 |     .A => 13,
+   |     ^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:29:5
+   |
+29 |     .A => 14,
+   |     ^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:30:5
+   |
+30 |     .A => 15,
+   |     ^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:31:5
+   |
+31 |     .A => 16,
+   |     ^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:32:5
+   |
+32 |     .A => 17,
+   |     ^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this `match` does not cover `(.B, .B)` [match-not-exhaustive]
+  --> cmd/match_repeating_its_arms/main.buri:37:5
+   |
+37 |     match (x) {
+   |     ^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `(.B, .B)`, or a `_` arm for everything left
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:39:9
+   |
+39 |         (.A, .B) => 1,
+   |         ^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:40:9
+   |
+40 |         (.A, .B) => 2,
+   |         ^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:41:9
+   |
+41 |         (.A, .B) => 3,
+   |         ^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:42:9
+   |
+42 |         (.A, .B) => 4,
+   |         ^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:43:9
+   |
+43 |         (.A, .B) => 5,
+   |         ^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:44:9
+   |
+44 |         (.A, .B) => 6,
+   |         ^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:45:9
+   |
+45 |         (.A, .B) => 7,
+   |         ^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:46:9
+   |
+46 |         (.A, .B) => 8,
+   |         ^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:47:9
+   |
+47 |         (.A, .B) => 9,
+   |         ^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:48:9
+   |
+48 |         (.A, .B) => 10,
+   |         ^^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:49:9
+   |
+49 |         (.A, .B) => 11,
+   |         ^^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:50:9
+   |
+50 |         (.A, .B) => 12,
+   |         ^^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:51:9
+   |
+51 |         (.A, .B) => 13,
+   |         ^^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:52:9
+   |
+52 |         (.A, .B) => 14,
+   |         ^^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:53:9
+   |
+53 |         (.A, .B) => 15,
+   |         ^^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
+error: this arm is unreachable [unreachable-arm]
+  --> cmd/match_repeating_its_arms/main.buri:54:9
+   |
+54 |         (.A, .B) => 16,
+   |         ^^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it

@@ -1,0 +1,5 @@
+pair 3
+just 1
+twice 5
+nothing -1
+held 40

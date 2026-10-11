@@ -1,0 +1,5 @@
+// Its first variant isn't `Some`.
+export enum Option<T> {
+    Just(T),
+    None,
+}

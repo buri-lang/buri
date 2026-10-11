@@ -1,0 +1,8 @@
+error: `size` is ambiguous as a free function [ambiguous-free-function]
+  --> cmd/three_exported_functions_sharing_a_name/main.buri:14:11
+   |
+14 |   let _ = size(1);
+   |           ^^^^
+   |
+   = it is a method on several types: `size`, `size` and `size`
+   = fix: call it on a receiver, which is what picks the one you mean
