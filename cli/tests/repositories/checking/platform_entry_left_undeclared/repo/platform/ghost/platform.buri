@@ -1,0 +1,5 @@
+from "platform/host" import { HostAllocator };
+
+export struct GhostHost {
+    export alloc: HostAllocator,
+}

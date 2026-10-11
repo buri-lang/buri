@@ -1,0 +1,24 @@
+# `//platform/ghost`'s rule names an entry, `go`, that its `platform.buri`
+# doesn't declare. The function filling it used to build unchecked, held to
+# no signature at all. Declaring the entry is the fix.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an entry the platform rule names and platform.buri doesn't declare is refused, and declaring it builds"
+
+run {
+  args: ["build", "//cmd/ghost"]
+  exit: 1
+  golden: "undeclared.txt"
+}
+
+edit {
+  file: "platform/ghost/platform.buri"
+  replace: "    export alloc: HostAllocator,\n}\n"
+  with: "    export alloc: HostAllocator,\n}\n\nexport fn go(host: GhostHost, name: Str): Str;\n"
+}
+
+run {
+  args: ["build", "//cmd/ghost"]
+  exit: 0
+}

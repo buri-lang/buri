@@ -232,6 +232,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("payload-pattern-count", "A payload pattern matches the values the variant holds"),
     e!("platform-declaration-called", "A program calls functions with bodies, not its platform's declarations", &["build/platforms"]),
     e!("platform-entry-missing-field", "A platform's entry has a name and a backend", &["build/platforms"]),
+    e!("platform-entry-undeclared", "A platform declares every entry its rule names", &["build/platforms"]),
     e!("platform-missing-entry", "A platform has an entry", &["build/platforms"]),
     e!("platform-testing-only-import", "Only an effect's testing surface keeps state", &["build/libraries"]),
     e!("platform-violation", "A target is built only for a platform its closure admits", &["build/tags"]),

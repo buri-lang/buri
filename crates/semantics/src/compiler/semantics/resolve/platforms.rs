@@ -227,10 +227,20 @@ impl<'a> Checker<'a> {
         custom: &CustomPlatform,
     ) {
         let Some(platform) = self.platform_module(custom) else { return };
-        let Some(Sym::Fn(decl)) = self.scope(platform).own.get(&custom.point).cloned() else { return };
+        let label = custom.label.value.clone();
+        let Some(Sym::Fn(decl)) = self.scope(platform).own.get(&custom.point).cloned() else {
+            let point = &custom.point;
+            self.templated("platform-entry-undeclared", d.span)
+                .bind("entry", name.to_string())
+                .bind("point", point.clone())
+                .bind("platform", label.clone())
+                .fix(format!(
+                    "declare it in `{label}`'s `platform.buri`, as `export fn {point}(host: H, ...): ...;`"
+                ));
+            return;
+        };
         let want = self.tables.fn_info(decl).clone();
         let info = self.tables.fn_info(fid).clone();
-        let label = custom.label.value.clone();
         self.refuse_entry_generics(&info, d, name);
         let host = declared_host(&self.tables, platform, &want.params);
         let wanted = self.signature_text(name, &want);
