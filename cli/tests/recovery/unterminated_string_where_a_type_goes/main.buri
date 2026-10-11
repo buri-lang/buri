@@ -1,0 +1,4 @@
+// EXPECT: unterminated string literal
+export fn label(n: "Int): Int {
+  n
+}

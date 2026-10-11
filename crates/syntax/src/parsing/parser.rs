@@ -889,6 +889,11 @@ impl<'a> Parser<'a> {
         found: impl std::fmt::Display,
         fix: impl Into<String>,
     ) -> Option<&mut Diagnostic> {
+        // A string with no closing quote is the mistake, and the lexer said so.
+        // What it stands in place of is hidden in the rest of its line.
+        if span == self.span() && self.tokens.is_unterminated(self.at(self.pos)) {
+            return None;
+        }
         if self.trial > 0 || !self.reported.insert((span.start, span.end)) {
             return None;
         }
