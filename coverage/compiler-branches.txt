@@ -3,8 +3,8 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 host x86_64-unknown-linux-gnu
-total 14093 19088 73.83%
-area cli/build 1310 1905 68.77%
+total 14195 19026 74.61%
+area cli/build 1312 1905 68.87%
 area cli/documentation 255 769 33.16%
 area cli/format 83 98 84.69%
 area cli/language_server 1146 1472 77.85%
@@ -17,14 +17,14 @@ area crates/backend 65 90 72.22%
 area crates/diagnostics 181 244 74.18%
 area crates/docs 197 304 64.80%
 area crates/hash 17 18 94.44%
-area crates/js 1062 1342 79.14%
+area crates/js 1065 1342 79.36%
 area crates/llvm 972 1374 70.74%
 area crates/middle 2085 2523 82.64%
 area crates/project 877 1418 61.85%
-area crates/semantics 1779 2164 82.21%
+area crates/semantics 1872 2102 89.06%
 area crates/stdlib 12 14 85.71%
 area crates/stencil 1438 2025 71.01%
-area crates/syntax 1032 1298 79.51%
+area crates/syntax 1036 1298 79.82%
 254 343 cli/src/build/actions.rs
 32 48 cli/src/build/cache.rs
 11 22 cli/src/build/counted.rs
@@ -42,7 +42,7 @@ area crates/syntax 1032 1298 79.51%
 31 36 cli/src/build/sources.rs
 10 18 cli/src/build/spawn.rs
 95 118 cli/src/build/tools.rs
-250 292 cli/src/build/workspace.rs
+252 292 cli/src/build/workspace.rs
 0 0 cli/src/commands/add/mod.rs
 7 8 cli/src/commands/add/skills.rs
 37 44 cli/src/commands/arguments.rs
@@ -120,7 +120,7 @@ area crates/syntax 1032 1298 79.51%
 7 10 crates/js/src/compiler/backend/js/crossing.rs
 339 400 crates/js/src/compiler/backend/js/generate.rs
 87 100 crates/js/src/compiler/backend/js/intrinsics.rs
-547 738 crates/js/src/compiler/backend/js/javascript.rs
+550 738 crates/js/src/compiler/backend/js/javascript.rs
 3 4 crates/js/src/compiler/backend/js/mod.rs
 79 90 crates/js/src/compiler/backend/js/park.rs
 57 62 crates/llvm/src/compiler/backend/llvm/attrs.rs
@@ -165,23 +165,23 @@ area crates/syntax 1032 1298 79.51%
 92 128 crates/project/src/languages/textproto/mod.rs
 0 0 crates/semantics/src/compiler/modules.rs
 48 58 crates/semantics/src/compiler/semantics/builtins.rs
-24 54 crates/semantics/src/compiler/semantics/consteval.rs
+54 54 crates/semantics/src/compiler/semantics/consteval.rs
 24 38 crates/semantics/src/compiler/semantics/crossing.rs
 13 16 crates/semantics/src/compiler/semantics/decorative.rs
-100 134 crates/semantics/src/compiler/semantics/exhaustiveness.rs
-397 452 crates/semantics/src/compiler/semantics/expressions.rs
-42 54 crates/semantics/src/compiler/semantics/icons.rs
-211 250 crates/semantics/src/compiler/semantics/inference.rs
+107 134 crates/semantics/src/compiler/semantics/exhaustiveness.rs
+411 416 crates/semantics/src/compiler/semantics/expressions.rs
+53 54 crates/semantics/src/compiler/semantics/icons.rs
+202 228 crates/semantics/src/compiler/semantics/inference.rs
 5 6 crates/semantics/src/compiler/semantics/intern.rs
 13 16 crates/semantics/src/compiler/semantics/layered.rs
 3 4 crates/semantics/src/compiler/semantics/name.rs
-62 80 crates/semantics/src/compiler/semantics/patterns.rs
+74 74 crates/semantics/src/compiler/semantics/patterns.rs
 28 28 crates/semantics/src/compiler/semantics/reactive.rs
-370 422 crates/semantics/src/compiler/semantics/resolve.rs
-108 146 crates/semantics/src/compiler/semantics/resolve/platforms.rs
+391 422 crates/semantics/src/compiler/semantics/resolve.rs
+114 148 crates/semantics/src/compiler/semantics/resolve/platforms.rs
 193 232 crates/semantics/src/compiler/semantics/styles.rs
 22 26 crates/semantics/src/compiler/semantics/typed.rs
-116 148 crates/semantics/src/compiler/semantics/types.rs
+117 148 crates/semantics/src/compiler/semantics/types.rs
 0 0 crates/semantics/src/compiler/standard_library.rs
 12 14 crates/stdlib/src/compiler/standard_library/mod.rs
 0 0 crates/stencil/src/compiler/backend/stencil/abi.rs
@@ -201,5 +201,5 @@ area crates/syntax 1032 1298 79.51%
 28 30 crates/syntax/src/layout.rs
 25 30 crates/syntax/src/parsing/flat.rs
 158 172 crates/syntax/src/parsing/lexer.rs
-535 644 crates/syntax/src/parsing/parser.rs
+539 644 crates/syntax/src/parsing/parser.rs
 2 2 crates/syntax/src/parsing/tree.rs
