@@ -727,10 +727,7 @@ export fn button<C>(config: Button<C>): Node<C> {
 fn pressHandler<C>(onPress: Option<fn(C) => ()>): fn(C, Event) => () {
     match (onPress) {
         .Some(handler) => fn(c, _event) => handler(c),
-        .None => {
-            fn(_c, _event) => {
-            }
-        },
+        .None => { fn(_c, _event) => {} },
     }
 }
 
@@ -2046,8 +2043,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
     let mem = alloc.generalPurpose();
     let scope = rootScope();
     match (node.0) {
-        .Empty => {
-        },
+        .Empty => {},
         .Text(content) => emitReactiveText(builder, content),
         .Heading(level, styles, content) => {
             let _ = emitElement(
@@ -2126,8 +2122,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = bindFocus(builder, focusKey(builder), true, focus);
             let _ = match (onFollow) {
                 .Some(handler) => registerFollow(builder, dest.read(scope), handler),
-                .None => {
-                },
+                .None => {},
             };
             let _ = registerEvents(builder, events);
             let _ = emitChildren(ctx, builder, children, state, 0);
@@ -2634,16 +2629,14 @@ fn watchFocus(builder: Builder, key: Int, focus: Focus, within: Bool): () {
                 },
             }
         },
-        .None => {
-        },
+        .None => {},
     };
     match (focus.signal) {
         .Some(signal) => {
             let _ = bindFocusSignal(builder, key, signal.index(), within);
             reactive(fn(scope) => requestFocus(builder, key, signal.get(scope)))
         },
-        .None => {
-        },
+        .None => {},
     }
 }
 
@@ -2774,8 +2767,7 @@ fn emitPickerOptions<C>(
     at: Int,
 ): () {
     match (options.get(at)) {
-        .None => {
-        },
+        .None => {},
         .Some(option) => {
             let mem = alloc.generalPurpose();
             let key = option.0;
@@ -2900,8 +2892,7 @@ fn emitSliderControl(
 fn registerEvents<C>(builder: Builder, events: Events<C>): () {
     let _ = match (events.onPressOutside) {
         .Some(handler) => registerOutside(builder, fn(c, _event) => handler(c)),
-        .None => {
-        },
+        .None => {},
     };
     let _ = match (events.onKey) {
         .Some(handler) => {
@@ -2909,8 +2900,7 @@ fn registerEvents<C>(builder: Builder, events: Events<C>): () {
                 if (handler(c, keyPressed(builder))) { claimKey(builder) } else {}
             })
         },
-        .None => {
-        },
+        .None => {},
     };
     let _ = registerPointerPhase(builder, 0, events.onPointerDown);
     let _ = registerPointerPhase(builder, 1, events.onPointerMove);
@@ -2928,8 +2918,7 @@ fn registerPointerPhase<C>(
         .Some(run) => {
             registerPointer(builder, phase, fn(c, _event) => run(c, pointerAt(builder)))
         },
-        .None => {
-        },
+        .None => {},
     }
 }
 
@@ -3105,8 +3094,7 @@ fn emitChildren<C>(
     at: Int,
 ): () {
     match (children.get(at)) {
-        .None => {
-        },
+        .None => {},
         .Some(child) => {
             let _ = emitNode(ctx, builder, child, state);
             emitChildren(ctx, builder, children, state, at + 1)
@@ -3204,8 +3192,7 @@ fn emitFieldControl(
     // field. `select` writes it, and a browser binds it to `setSelectionRange`.
     let _ = match (selection) {
         .Some(sel) => registerSelection(builder, sel.index()),
-        .None => {
-        },
+        .None => {},
     };
     let _ = emitText(builder, value);
     exitElement(builder)

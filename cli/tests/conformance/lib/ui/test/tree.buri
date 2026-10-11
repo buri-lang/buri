@@ -6553,8 +6553,7 @@ test "an outside-press wrapper is a bare div around its children" {
         ui.stack({
             styles: [.Padding(.Px(8))],
             children: [ui.text({ content: .Const("panel") })],
-            onPressOutside: .Some(fn(c) => {
-            }),
+            onPressOutside: .Some(fn(c) => {}),
         }),
     );
     assert.equal(render(ctx, tree).markup(), "e 0 class:p-8\nt 1 panel");
@@ -6575,8 +6574,7 @@ test "an unstyled outside-press wrapper is exactly a stack" {
         ui.stack({
             styles: [],
             children: [ui.text({ content: .Const("x") })],
-            onPressOutside: .Some(fn(c) => {
-            }),
+            onPressOutside: .Some(fn(c) => {}),
         }),
     );
     // No styles is no class, the way a bare stack has none.
@@ -6601,8 +6599,7 @@ test "a press inside does not fire, a press outside does, and disposal takes the
                 ui.button({
                     label: .Const("outside"),
                     styles: [],
-                    onPress: .Some(fn(c) => {
-                    }),
+                    onPress: .Some(fn(c) => {}),
                 }),
                 ui.choose(
                     .Cell(open),
@@ -6612,8 +6609,7 @@ test "a press inside does not fire, a press outside does, and disposal takes the
                             ui.button({
                                 label: .Const("inside"),
                                 styles: [],
-                                onPress: .Some(fn(c) => {
-                                }),
+                                onPress: .Some(fn(c) => {}),
                             }),
                         ],
                         onPressOutside: .Some(fn(c) => fired.update(c, fn(n) => n + 1)),
@@ -7690,8 +7686,7 @@ fn reorderable<C: Allocator + Ui + Watch>(
                             .Some(onto) => {
                                 items.set(c, moved(c, items.get(c), held.get(c), onto))
                             },
-                            .None => {
-                            },
+                            .None => {},
                         }
                     }),
                 })

@@ -54,8 +54,7 @@ test "a button's reactive styles swap in place" {
         ui.button({
             label: .Const("Go"),
             styles: [.When(.Cell(bold), [.FontWeight(.Bold)], [])],
-            onPress: .Some(fn(_c) => {
-            }),
+            onPress: .Some(fn(_c) => {}),
         }),
     );
     assert.isFalse(page.markup().contains("fw-bold"));
@@ -74,8 +73,7 @@ test "a routing link's reactive styles swap in place" {
             dest: .Const("/a"),
             children: [ui.text({ content: .Const("Go") })],
             styles: [.When(.Cell(bold), [.FontWeight(.Bold)], [])],
-            onFollow: .Some(fn(_c, _dest) => {
-            }),
+            onFollow: .Some(fn(_c, _dest) => {}),
         }),
     );
     assert.isFalse(page.markup().contains("fw-bold"));
