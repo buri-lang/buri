@@ -1016,14 +1016,10 @@ fn local_name(i: usize, original: &str) -> String {
     // Distinct per local even when a name is shadowed, which Buri allows both
     // in nested scopes and within one block. Built in one buffer.
     let mut name = String::with_capacity(original.len().saturating_add(4));
+    // A source name starts with a letter or `_`, and a generated one is a word,
+    // so the result is an identifier; with nothing kept it is still `_<i>`.
     name.extend(original.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_'));
-    if name.is_empty() || name.starts_with(|c: char| c.is_ascii_digit()) {
-        name.clear();
-        name.push('v');
-    } else {
-        name.push('_');
-    }
-    let _ = write!(name, "{i}");
+    let _ = write!(name, "_{i}");
     name
 }
 
@@ -2745,9 +2741,9 @@ impl<'a> Gen<'a> {
                     // Both are emitted with a value and the descriptor of its
                     // type, and with nothing else.
                     name @ ("structuralShow" | "structuralToJson") => {
-                        let Ok([value, desc]) = <[Expr; 2]>::try_from(a) else {
-                            crate::ice!("{name} is emitted with a value and a descriptor")
-                        };
+                        let [value, desc] = <[Expr; 2]>::try_from(a)
+                            .ok()
+                            .or_ice("a structural show is emitted with a value and a descriptor");
                         let d = match desc {
                             Expr::Num(n) => Expr::ident(descriptor_name(n as usize)),
                             other => other,
@@ -2786,11 +2782,9 @@ impl<'a> Gen<'a> {
                         Expr::Num(0.0)
                     }
                 };
-                // A host call spelled as an inline node rather than reached
-                // through an intrinsic *function*. `park::suspends` is the seed
-                // list the column itself is built from, so the two spellings
-                // cannot disagree about which of them waits.
-                if park::suspends(name) { Expr::awaited(e) } else { e }
+                // None of these waits: the one inline node that does, a lazy
+                // chunk's, has its own arm above.
+                e
             }
             ExprKind::Error => Expr::Num(0.0),
         }
