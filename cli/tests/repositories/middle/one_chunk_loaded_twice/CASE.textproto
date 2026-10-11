@@ -1,0 +1,28 @@
+# A page loads its editor lazily from two places. The editor ships in one
+# chunk, which both loads fetch, and not in the page.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "two loads of one function share one chunk"
+
+run {
+  args: ["build", "//cmd/page"]
+  exit: 0
+  golden: "built.txt"
+}
+
+file {
+  path: ".buri/out/web/cmd/page/main.0.mjs"
+  contains: "ONLY_IN_THE_CHUNK"
+}
+
+file {
+  path: ".buri/out/web/cmd/page/main.mjs"
+  absent: "ONLY_IN_THE_CHUNK"
+}
+
+path {
+  path: ".buri/out/web/cmd/page/main.1.mjs"
+  exists: false
+}
