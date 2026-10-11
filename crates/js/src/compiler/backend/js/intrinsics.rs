@@ -227,15 +227,14 @@ impl<'a> Gen<'a> {
             }
             "show" => {
                 let v = a?;
+                // `number.<T>.show` is a number's: `Bool`, `Char` and `Str`
+                // show through their own keys. An integer is a `number` or a
+                // `BigInt`, and `String` renders both in decimal with no
+                // suffix; `$str` would render the first as a float.
                 Some(if from.is_float() {
                     Expr::call(Expr::ident("$f64"), vec![v])
-                } else if from.is_integer() {
-                    // An integer is a `number` or a `BigInt`, and `String`
-                    // renders both in decimal with no suffix; `$str` would
-                    // render the first as a float.
-                    Expr::call(Expr::ident("String"), vec![v])
                 } else {
-                    Expr::call(Expr::ident("$str"), vec![v])
+                    Expr::call(Expr::ident("String"), vec![v])
                 })
             }
             "add" | "subtract" | "multiply" | "divide" | "remainder" | "negate" => {
@@ -393,28 +392,8 @@ impl<'a> Gen<'a> {
                     vec![Expr::bin(op, x, y), int_const(from, lo), upper_const(from, hi)],
                 ))
             }
-            "minValue" => {
-                if from.is_float() {
-                    return Some(if from == Prim::F32 {
-                        Expr::Num(-(f32::MAX as f64))
-                    } else {
-                        Expr::Num(f64::MIN)
-                    });
-                }
-                let (lo, _) = from.int_range()?;
-                Some(int_const(from, lo))
-            }
-            "maxValue" => {
-                if from.is_float() {
-                    return Some(if from == Prim::F32 {
-                        Expr::Num(f32::MAX as f64)
-                    } else {
-                        Expr::Num(f64::MAX)
-                    });
-                }
-                let (_, hi) = from.int_range()?;
-                Some(upper_const(from, hi))
-            }
+            // `minValue` and `maxValue` take no receiver, so a program reaches
+            // them through `number.minValue<T>()`: `numeric_free`.
             _ => None,
         }
     }
@@ -527,12 +506,10 @@ fn upper_const(p: Prim, v: u128) -> Expr {
 /// at the awkward values by construction: `NaN` is unordered, so both tests
 /// fail and the answer is Equal, and `-0.0 < 0.0` is false both ways.
 ///
-/// Only where both operands are free to duplicate. The ternary reads each of
-/// them twice, and binding them first would cost what the call cost.
+/// The ternary reads each operand twice, which is free only because both are
+/// a name or a literal: this is the body of the wrapper, over its parameters,
+/// and the expansion is too large for `inline_intrinsic` to paste anywhere.
 fn compare_inline(a: &Expr, b: &Expr) -> Option<Expr> {
-    if !a.is_pure_literal() || !b.is_pure_literal() {
-        return None;
-    }
     // Never for text. A `Str` and a `Char` are both JavaScript strings, and `<`
     // on one is UTF-16 code-unit order rather than the scalar order the
     // language specifies — so `'\u{1F600}'.compare('\u{E000}')` folded here
