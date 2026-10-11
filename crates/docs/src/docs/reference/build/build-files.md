@@ -488,7 +488,9 @@ closure.
 
 ## Dependencies
 
-- `dependencies` lists **libraries only**. A binary is not a valid dependency.
+- `dependencies` lists **libraries only**, plus a library's `testing` surface
+  and a repository platform. A binary, or a label naming no package, is
+  `unknown-dependency`.
 - **Use is what requires a dependency, and an import is not the only way to
   use.** A method resolves through its receiver's type rather than through
   scope, so
