@@ -1,19 +1,45 @@
-error: a `Size` method is called at a type nothing determines [undetermined-type]
-  --> lib/heads/test/heads.buri:29:5
+error: `Wrap<I64>` does not implement `Size` [missing-impl]
+  --> lib/heads/test/heads.buri:33:18
    |
-29 |     x.size()
-   |     ^^^^^^^^
+33 |     assert.equal(sizeOf(Wrap { value: 5 }), 3);
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = the receiver is not an instance of the type the `impl` names
-   = fix: implement the trait for the type the receiver has, or pass a receiver of the type the `impl` is written for
+   = the `impl Size` is for `Wrap<(A, Str)>`, and `Wrap<I64>` isn't one
+   = fix: pass a `Wrap<(A, Str)>`, or widen the `impl` to cover `Wrap<I64>`
 
-     Write the argument out, as in list.empty<Int>(), or use the answer
-     somewhere that says what it holds.
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
 
-     A type parameter that appears only in the answer has nothing else to pin
-     it, so the checker would resolve it to (). That matters most for a runtime
-     operation. A [T] crosses into the runtime as two words whatever T is, so
-     the compiler derives the answer's width, and the code that releases what it
-     holds, from the type argument at the call. A release generated for () frees
-     the block but nothing inside it, so its contents leak.
-
+error: `Wrap<(I64, I64, I64)>` does not implement `Size` [missing-impl]
+  --> lib/heads/test/heads.buri:34:18
+   |
+34 |     assert.equal(sizeOf(Wrap { value: (1, 2, 3) }), 3);
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the `impl Size` is for `Wrap<(A, Str)>`, and `Wrap<(I64, I64, I64)>` isn't one
+   = fix: pass a `Wrap<(A, Str)>`, or widen the `impl` to cover `Wrap<(I64, I64, I64)>`
+error: `Wrap<(I64, I64)>` does not implement `Size` [missing-impl]
+  --> lib/heads/test/heads.buri:35:18
+   |
+35 |     assert.equal(sizeOf(Wrap { value: (1, 2) }), 3);
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the `impl Size` is for `Wrap<(A, Str)>`, and `Wrap<(I64, I64)>` isn't one
+   = fix: pass a `Wrap<(A, Str)>`, or widen the `impl` to cover `Wrap<(I64, I64)>`
+error: `Call<fn(I64, I64) => I64>` does not implement `Size` [missing-impl]
+  --> lib/heads/test/heads.buri:37:18
+   |
+37 |     assert.equal(sizeOf(Call { value: g }), 3);
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the `impl Size` is for `Call<fn(I64) => A>`, and `Call<fn(I64, I64) => I64>` isn't one
+   = fix: pass a `Call<fn(I64) => A>`, or widen the `impl` to cover `Call<fn(I64, I64) => I64>`
+error: `Call<fn(Str) => I64>` does not implement `Size` [missing-impl]
+  --> lib/heads/test/heads.buri:39:18
+   |
+39 |     assert.equal(sizeOf(Call { value: h }), 3)
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the `impl Size` is for `Call<fn(I64) => A>`, and `Call<fn(Str) => I64>` isn't one
+   = fix: pass a `Call<fn(I64) => A>`, or widen the `impl` to cover `Call<fn(Str) => I64>`
