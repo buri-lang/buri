@@ -1,0 +1,1 @@
+{"severity":"error","message":"this alternative is unreachable","code":"unreachable-alternative","location":{"file":"cmd/match_alternative_of_an_empty_enum/main.buri","line":13,"column":13,"endLine":13,"endColumn":21,"text":"    .None | .Some(_) => \"nothing\","},"fix":"delete this alternative","notes":["no value fits it, because a type it matches has no values"],"related":[]}

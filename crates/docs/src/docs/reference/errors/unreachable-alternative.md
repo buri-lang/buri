@@ -1,7 +1,7 @@
 ---
 title: Every alternative of an or-pattern must be reachable
 message: this alternative is unreachable
-note: {covered_by} already covers everything it matches
+note: {why}
 fix: delete this alternative
 ---
 # Every alternative of an or-pattern must be reachable

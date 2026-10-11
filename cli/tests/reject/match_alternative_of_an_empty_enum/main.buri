@@ -1,0 +1,21 @@
+// EXPECT: no value fits it, because a type it matches has no values
+//
+// `Never` has no values, so `.Some(_)` matches nothing. Nothing above covers
+// it, so the note says why it's dead instead of naming an arm above.
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+
+enum Never {}
+
+fn describe(o: Option<Never>): Str {
+  match (o) {
+    .None | .Some(_) => "nothing",
+  }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, describe(.None)).ignore();
+  .Ok(())
+}
