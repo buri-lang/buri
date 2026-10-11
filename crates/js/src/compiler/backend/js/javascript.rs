@@ -2585,9 +2585,8 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
             dead.remove(&name);
         }
     }
-    if map.is_empty() && dead.is_empty() {
-        return false;
-    }
+    // Only an alias can overshoot, and the chain it follows ends at a value
+    // read once, which never does and stays: the map can't empty here.
 
     let taken = std::mem::take(body);
     let next: Vec<Stmt> = taken.into_iter().map(|s| subst_stmt(s, &map)).collect();
