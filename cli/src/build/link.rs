@@ -170,7 +170,7 @@ use crate::build::runtime_cross::{self, Cross};
 use crate::build::spawn;
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::{Emitted, LinkOptions, Target};
-use crate::diagnostics::{Diagnostic, Diagnostics, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -1329,32 +1329,16 @@ fn stage_cross_sysroot(cross: &Cross, dir: &Path) -> std::io::Result<()> {
 /// cache entry, and writing into it would change that entry. So a copy is
 /// made beside it and renamed over it ([`replace_with`]'s rule).
 fn stage_from(src: &Path, dest: &Path) -> std::io::Result<()> {
-    match std::fs::hard_link(src, dest) {
-        Ok(()) => Ok(()),
-        Err(_) => stage_after_a_failed_link(src, dest),
-    }
+    std::fs::hard_link(src, dest).or_else(|_| copy_in(src, dest))
 }
 
-/// [`stage_from`] once the hard link failed: a second process linking the same
-/// key staged the same file first, or the bytes are copied in.
-// Not counted by the coverage gate: the suite reaches this only when two
-// processes stage one key at once, so whether it does is timing.
-#[cfg_attr(buri_coverage, coverage(off))]
-fn stage_after_a_failed_link(src: &Path, dest: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if let (Ok(a), Ok(b)) = (std::fs::metadata(src), std::fs::metadata(dest)) {
-            if a.dev() == b.dev() && a.ino() == b.ino() {
-                return Ok(());
-            }
-        }
-    }
+/// [`stage_from`] where the filesystem won't hard-link `src`, such as a cache
+/// on another device: the bytes are copied beside `dest` and renamed over it.
+fn copy_in(src: &Path, dest: &Path) -> std::io::Result<()> {
     let fresh = beside(dest);
     let copied = std::fs::copy(src, &fresh).and_then(|_| std::fs::rename(&fresh, dest));
-    if copied.is_err() {
-        let _ = std::fs::remove_file(&fresh);
-    }
+    // Gone already unless the copy or the rename failed.
+    let _ = std::fs::remove_file(&fresh);
     copied
 }
 
@@ -1365,9 +1349,8 @@ fn stage_after_a_failed_link(src: &Path, dest: &Path) -> std::io::Result<()> {
 fn replace_with(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let fresh = beside(dest);
     let written = std::fs::write(&fresh, bytes).and_then(|()| std::fs::rename(&fresh, dest));
-    if written.is_err() {
-        let _ = std::fs::remove_file(&fresh);
-    }
+    // Gone already unless the write or the rename failed.
+    let _ = std::fs::remove_file(&fresh);
     written
 }
 
@@ -1800,12 +1783,7 @@ impl CDriver {
         let staged: Vec<Result<PathBuf, Diagnostic>> = crate::parallel::map(units.len(), |i| {
             #[expect(clippy::expect_used, reason = "`parallel::map` hands out indices below the length it was given")]
             let unit = units.get(i).expect("each index is a unit's");
-            let Some(path) = self.object_path(&unit.name) else {
-                return Err(Diagnostic::error(
-                    Span::NONE,
-                    format!("internal error: {:?} is not a codegen unit filename", unit.name),
-                ));
-            };
+            let path = self.object_path(&unit.name).or_ice("a backend names each unit as a filename");
             // The cache's own file, where it holds these bytes: the linker
             // reads it where it is, so a link directory costs the disk nothing
             // the cache has not already paid for, and a cold link makes no
@@ -2550,8 +2528,8 @@ pub fn run(
 fn keep_only_objects(dir: &Path, units: &[Emitted]) {
     let names: std::collections::HashSet<&std::ffi::OsStr> =
         units.iter().map(|u| std::ffi::OsStr::new(u.name.as_str())).collect();
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    for entry in entries.filter_map(Result::ok) {
+    // A directory that can't be read leaves nothing to empty.
+    for entry in std::fs::read_dir(dir).into_iter().flatten().filter_map(Result::ok) {
         let is_file = entry.file_type().is_ok_and(|t| t.is_file());
         if is_file && names.contains(entry.file_name().as_os_str()) {
             continue;

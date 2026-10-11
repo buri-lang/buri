@@ -408,15 +408,16 @@ impl Cache {
         let p = self.path(key);
         crate::build::create_parent(&p);
         let tmp = p.with_extension(temporary_extension());
+        // Read before the move: `src` stops being there, and `tmp` is this
+        // process's own file.
+        let len = std::fs::metadata(src).map_or(0, |meta| meta.len());
         let staged = std::fs::rename(src, &tmp).is_ok()
             || (std::fs::copy(src, &tmp).is_ok() && {
                 let _ = std::fs::remove_file(src);
                 true
             });
         if staged {
-            if let Ok(meta) = std::fs::metadata(&tmp) {
-                tag::set(&tmp, &meta.len().to_le_bytes());
-            }
+            tag::set(&tmp, &len.to_le_bytes());
             let _ = std::fs::rename(&tmp, &p);
         }
         let _ = std::fs::remove_file(&tmp);
