@@ -43,11 +43,13 @@ fn generated() -> Vec<(String, String)> {
         let mcdc = mode == 1;
         let mut lcov = String::new();
         let mut rows = Vec::new();
-        for (i, p) in packages.iter().enumerate() {
-            let file = format!("lib/s{i:02}/g.buri");
-            let (text, row) = generator::lcov(&file, &p.expect[mode], mcdc);
+        // In the report's order: by file.
+        let mut counted: Vec<&(String, [generator::Expect; 2])> = packages.iter().flat_map(|p| &p.counted).collect();
+        counted.sort_by(|a, b| a.0.cmp(&b.0));
+        for (file, expect) in counted {
+            let (text, row) = generator::lcov(file, &expect[mode], mcdc);
             lcov.push_str(&text);
-            rows.push((file, row));
+            rows.push((file.clone(), row));
         }
         let mut failures: Vec<&String> = packages.iter().flat_map(|p| &p.failures).collect();
         failures.sort();

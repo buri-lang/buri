@@ -1,62 +1,50 @@
-from "core/bits" import * as bits;
+derive Equal, Ordered, Show for E;
+export enum E {
+    A,
+    B(Int),
+    C(Int, Int),
+}
 
-export fn f0(n: Int, acc: Int): Int {
+derive Equal for R;
+export struct R {
+    export f0: Int,
+    export f1: Bool,
+    export f2: Int,
+}
+
+export fn f0(a: Bool, b: Bool, c: Bool): Int {
+    if (!a || !(b && !c)) { 1 } else { 0 }
+}
+
+export fn f1(a: Bool, n: Int, d: Int): Bool {
+    a && n / d > 3
+}
+
+export fn f2(a: Bool, p: R, q: R): Bool {
+    a && p == q
+}
+
+export fn f3(n: Int, acc: Int): Int {
     if (n == 0) {
         acc
     } else {
-        let step = if (n % 4 == 2) { 1 } else { 0 };
-        f0(n - 1, acc + step)
+        let step = if (n % 4 == 0) { 1 } else { 0 };
+        f3(n - 1, acc + step)
     }
 }
 
-export fn f1(items: [Int]): Int {
-    items.fold(fn(acc, x) => if (x > 4) { acc + x } else { acc }, 0)
+export fn f4(a: Bool, n: Int, d: Int): Bool {
+    a && n / d > 0
 }
 
-export fn f2(n: Int, flag: Bool): Int {
-    match (n) {
-        0 => 10,
-        1 => 11,
-        2 => 12,
-        _ => 99,
-    }
+export fn f5(a: Bool, n: Int, d: Int): Bool {
+    a && n / d > 2
 }
 
-export fn f3(a: Bool, n: Int): Bool {
-    a && f3big(n)
+export fn f6(items: [Int]): Int {
+    items.fold(fn(acc, x) => if (x > 1) { acc + x } else { acc }, 0)
 }
 
-fn f3big(n: Int): Bool {
-    n > 8
-}
-
-export fn f4(n: Int, acc: Int): Int {
-    if (n == 0) {
-        acc
-    } else {
-        let step = if (n % 3 == 0) { 1 } else { 0 };
-        f4(n - 1, acc + step)
-    }
-}
-
-export fn f5(n: Int, acc: Int): Int {
-    if (n == 0) {
-        acc
-    } else {
-        let step = if (n % 2 == 0) { 1 } else { 0 };
-        f5(n - 1, acc + step)
-    }
-}
-
-export fn f6(n: Int): Int {
-    bits.shiftLeft(1, n)
-}
-
-export fn f7(n: Int): Int {
-    if (n == 0) {
-        0
-    } else {
-        let here = if (n % 3 == 1) { 1 } else { 0 };
-        here + f7(n - 1)
-    }
+export fn f7(items: [Int]): Int {
+    items.fold(fn(acc, x) => if (x > 5) { acc + x } else { acc }, 0)
 }

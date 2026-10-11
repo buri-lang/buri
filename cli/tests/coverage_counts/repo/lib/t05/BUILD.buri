@@ -1,0 +1,8 @@
+library {
+    sources: ["t.buri"]
+    dependencies: ["//lib/s05"]
+
+    test {
+        sources: ["test/t.buri"]
+    }
+}

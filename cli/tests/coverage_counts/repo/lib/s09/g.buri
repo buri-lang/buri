@@ -1,65 +1,58 @@
-from "core/bits" import * as bits;
-
-derive Equal, Show for E;
-export enum E {
-    A,
-    B(Int),
-    C(Int, Int),
-}
-
-derive Equal, Show for R;
-export struct R {
-    export f0: Int,
-}
-
-export fn f0(a: Bool): Int {
-    if (!a) {
-        let r = 1;
-        r
-    } else {
-        let r = 0;
-        r
+export fn f0(n: Int, flag: Bool): Int {
+    match (n) {
+        0 if flag => 10,
+        1 => 11,
+        2 => 12,
+        k if k > 8 && !flag => 100,
+        _ => 99,
     }
 }
 
-export fn f1(a: Bool, p: R, q: R): Bool {
-    a && p == q
+export fn f1(items: [Int]): Int {
+    items.fold(fn(acc, x) => if (x > 0) { acc + x } else { acc }, 0)
 }
 
-export fn f2<T>(flag: Bool, x: T, y: T): T {
-    if (flag) {
-        let r = x;
-        r
+export fn f2(a: Bool, b: Bool, c: Bool): Bool {
+    a && (b || c)
+}
+
+export fn f3(n: Int, acc: Int): Int {
+    if (n == 0) {
+        acc
     } else {
-        let r = y;
-        r
+        let step = if (n % 5 == 2) { 1 } else { 0 };
+        f3(n - 1, acc + step)
     }
 }
 
-export fn f3(n: Int): Int {
-    bits.shiftLeft(1, n)
+fn f4check(n: Int): Result<Int, Str> {
+    if (n < 0) { .Err("negative") } else { .Ok(n) }
 }
 
-export fn f4(a: Bool, b: Bool): Int {
-    if (a || b) {
-        let r = 1;
-        r
-    } else {
-        let r = 0;
-        r
-    }
+export fn f4(a: Int, b: Int): Result<Int, Str> {
+    let x = f4check(a)?;
+    let y = f4check(b)?;
+    .Ok(x + y)
 }
 
-export fn f5<T>(flag: Bool, x: T, y: T): T {
-    if (flag) {
-        let r = x;
-        r
+export fn f5(n: Int, acc: Int): Int {
+    if (n == 0) {
+        acc
     } else {
-        let r = y;
-        r
+        let step = if (n % 3 == 2) { 1 } else { 0 };
+        f5(n - 1, acc + step)
     }
 }
 
 export fn f6(n: Int): Int {
-    bits.shiftLeft(1, n)
+    if (n == 0) {
+        0
+    } else {
+        let here = if (n % 3 == 1) { 1 } else { 0 };
+        here + f6(n - 1)
+    }
+}
+
+export fn f7(a: Bool, b: Bool, c: Bool): Bool {
+    a || b && c
 }

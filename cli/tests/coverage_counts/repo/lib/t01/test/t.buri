@@ -1,0 +1,67 @@
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//lib/s01" import * as g;
+from "//lib/s01" import { E, R };
+from "//lib/t01" import * as t;
+
+test "f0" {
+    assert.equal(g.f0(3), 8);
+}
+
+test "f1" {
+    assert.equal(g.f1(1, true), 99);
+}
+
+test "f2" {
+    assert.equal(g.f2(1), 0);
+    assert.equal(g.f2(5), 1);
+    assert.equal(g.f2(24), 6);
+    assert.equal(g.f2(3), 1);
+}
+
+test "f3" {
+    assert.equal(g.f3(21), 7);
+    assert.equal(g.f3(4), 1);
+    assert.equal(g.f3(29), 9);
+}
+
+test "f4" {
+    assert.equal(g.f4(4), 1);
+    assert.equal(g.f4(25), 8);
+}
+
+test "f5" {
+    let p1 = R { f0: 1 };
+    let q1 = R { f0: -2 };
+    assert.equal(g.f5(true, p1, q1), false);
+    let p2 = R { f0: 1 };
+    let q2 = R { f0: -1 };
+    assert.equal(g.f5(false, p2, q2), false);
+}
+
+test "derived" {
+    assert.equal(E.B(2) == E.B(2), true);
+    let a0 = R { f0: 0 };
+    let b0 = R { f0: 0 };
+    assert.equal(a0 == b0, true);
+    let a1 = R { f0: 1 };
+    let b1 = R { f0: 1 };
+    assert.equal(a1 == b1, true);
+    let a2 = R { f0: 1 };
+    let b2 = R { f0: -1 };
+    assert.equal(a2 == b2, false);
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(E.C(2, 2).show(ctx), ".C(2, 2)");
+}
+
+test "pick" {
+    assert.equal(t.pick(true), 1);
+    assert.equal(t.pick(false), 0);
+    assert.equal(t.pick(true), 1);
+    assert.equal(t.pick(false), 0);
+    assert.equal(t.pick(true), 1);
+    assert.equal(t.pick(true), 1);
+}

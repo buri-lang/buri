@@ -1,22 +1,18 @@
-derive Equal, Show for E;
+derive Equal, Ordered, Show for E;
 export enum E {
     A,
     B(Int),
     C(Int, Int),
 }
 
-derive Equal for R;
+derive Equal, Show for R;
 export struct R {
-    export f0: E,
+    export f0: Bool,
+    export f1: Bool,
 }
 
-export fn f0(n: Int, flag: Bool): Int {
-    match (n) {
-        0 => 10,
-        1 => 11,
-        2 => 12,
-        _ => 99,
-    }
+export fn f0(a: Bool, p: R, q: R): Bool {
+    a && p == q
 }
 
 export fn f1<T>(flag: Bool, x: T, y: T): T {
@@ -29,21 +25,23 @@ export fn f1<T>(flag: Bool, x: T, y: T): T {
     }
 }
 
-export fn f2(a: Bool, p: R, q: R): Bool {
-    a && p == q
+export fn f2(a: Bool, n: Int): Bool {
+    a && f2big(n)
 }
 
-fn f3check(n: Int): Result<Int, Str> {
-    if (n < 0) { .Err("negative") } else { .Ok(n) }
+fn f2big(n: Int): Bool {
+    n > 9
 }
 
-export fn f3(a: Int, b: Int): Result<Int, Str> {
-    let x = f3check(a)?;
-    let y = f3check(b)?;
-    .Ok(x + y)
+export fn f3(items: [Int]): Int {
+    items.fold(fn(acc, x) => if (x > 3) { acc + x } else { acc }, 0)
 }
 
-export fn f4<T>(flag: Bool, x: T, y: T): T {
+export fn f4(a: Bool, b: Bool, c: Bool): Bool {
+    !a && !b || c
+}
+
+export fn f5<T>(flag: Bool, x: T, y: T): T {
     if (flag) {
         let r = x;
         r
@@ -51,4 +49,16 @@ export fn f4<T>(flag: Bool, x: T, y: T): T {
         let r = y;
         r
     }
+}
+
+export fn f6(a: Bool, n: Int, d: Int): Bool {
+    a && n / d > 3
+}
+
+export fn f7(a: Bool, n: Int): Bool {
+    a && f7big(n)
+}
+
+fn f7big(n: Int): Bool {
+    n > 4
 }

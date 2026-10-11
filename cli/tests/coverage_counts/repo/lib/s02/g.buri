@@ -1,24 +1,32 @@
-export fn f0(items: [Int]): Int {
-    items.fold(fn(acc, x) => if (x > 5) { acc + x } else { acc }, 0)
+derive Equal, Ordered, Show for E;
+export enum E {
+    A,
+    B(Int),
+    C(Int, Int),
 }
 
-export fn f1(n: Int, flag: Bool): Int {
-    match (n) {
-        0 => 10,
-        1 if flag => 11,
-        2 => 12,
-        k if k > 3 && !flag => 100,
-        _ => 99,
+derive Equal, Ordered for R;
+export struct R {
+    export f0: Bool,
+    export f1: Bool,
+}
+
+export fn f0<T>(flag: Bool, x: T, y: T): T {
+    if (flag) {
+        let r = x;
+        r
+    } else {
+        let r = y;
+        r
     }
 }
 
-export fn f2(n: Int, flag: Bool): Int {
-    match (n) {
-        0 => 10,
-        1 => 11,
-        2 => 12,
-        _ => 99,
-    }
+export fn f1(items: [Int]): Int {
+    items.fold(fn(acc, x) => if (x > 3) { acc + x } else { acc }, 0)
+}
+
+export fn f2(a: Bool, p: R, q: R): Bool {
+    a && p == q
 }
 
 export fn f3<T>(flag: Bool, x: T, y: T): T {
@@ -31,22 +39,32 @@ export fn f3<T>(flag: Bool, x: T, y: T): T {
     }
 }
 
-export fn f4(n: Int, flag: Bool): Int {
-    match (n) {
-        0 => 10,
-        1 => 11,
-        2 => 12,
-        k if k > 3 && !flag => 100,
-        _ => 99,
+export fn f4(n: Int): Int {
+    if (n == 0) {
+        0
+    } else {
+        let here = if (n % 5 == 1) { 1 } else { 0 };
+        here + f4(n - 1)
     }
 }
 
-export fn f5<T>(flag: Bool, x: T, y: T): T {
-    if (flag) {
-        let r = x;
-        r
+export fn f5(a: Bool, b: Bool): Int {
+    if (!a && b) { 1 } else { 0 }
+}
+
+export fn f6(a: Bool, n: Int): Bool {
+    a && f6big(n)
+}
+
+fn f6big(n: Int): Bool {
+    n > 5
+}
+
+export fn f7(n: Int): Int {
+    if (n == 0) {
+        0
     } else {
-        let r = y;
-        r
+        let here = if (n % 3 == 2) { 1 } else { 0 };
+        here + f7(n - 1)
     }
 }

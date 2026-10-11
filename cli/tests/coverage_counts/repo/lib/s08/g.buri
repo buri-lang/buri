@@ -1,24 +1,15 @@
-from "core/bits" import * as bits;
-
-derive Equal, Show for E;
-export enum E {
-    A,
-    B(Int),
-    C(Int, Int),
+fn f0check(n: Int): Result<Int, Str> {
+    if (n < 0) { .Err("negative") } else { .Ok(n) }
 }
 
-derive Equal, Show for R;
-export struct R {
-    export f0: Int,
-    export f1: E,
+export fn f0(a: Int, b: Int): Result<Int, Str> {
+    let x = f0check(a)?;
+    let y = f0check(b)?;
+    .Ok(x + y)
 }
 
-export fn f0(n: Int): Int {
-    bits.shiftLeft(1, n)
-}
-
-export fn f1(a: Bool, b: Bool, c: Bool, d: Bool): Int {
-    if (!(!a || b && (!c && d))) { 1 } else { 0 }
+export fn f1(a: Int, b: Int): Int {
+    a / b
 }
 
 export fn f2(n: Int, flag: Bool): Int {
@@ -30,14 +21,22 @@ export fn f2(n: Int, flag: Bool): Int {
     }
 }
 
-export fn f3(a: Bool, p: R, q: R): Bool {
-    a && p == q
+fn f3check(n: Int): Result<Int, Str> {
+    if (n < 0) { .Err("negative") } else { .Ok(n) }
 }
 
-export fn f4(a: Int, b: Int): Int {
-    a / b
+export fn f3(a: Int, b: Int): Result<Int, Str> {
+    let x = f3check(a)?;
+    let y = f3check(b)?;
+    .Ok(x + y)
 }
 
-export fn f5(a: Bool, b: Bool, c: Bool, d: Bool): Int {
-    if (a || !b && c || d) { 1 } else { 0 }
+export fn f4(a: Bool, b: Bool, c: Bool, d: Bool): Int {
+    if (!a || !(b && !c) && d) {
+        let r = 1;
+        r
+    } else {
+        let r = 0;
+        r
+    }
 }
