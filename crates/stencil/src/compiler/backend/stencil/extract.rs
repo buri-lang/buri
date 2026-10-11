@@ -39,7 +39,7 @@
 use super::elfobj as elf;
 use super::machobj as macho;
 use super::library::{Hole, HoleKind, Site, SiteKind, Stencil};
-use super::library::{refuse_hole_name, refuse_stencil_name};
+use super::names::{refuse_hole_name, refuse_stencil_name};
 
 const NOP: u32 = 0xd503_201f;
 

@@ -52,6 +52,7 @@
 //!   sources.rs  the stencil generators — compiled by `cli/build.rs` only
 //!   extract.rs  clang's object into stencils, and the four folds — likewise
 //!   machobj.rs  a Mach-O reader, for `extract` — likewise
+//!   names.rs    the names a compiler invents, which `extract` refuses — likewise
 //!   elfobj.rs   an ELF reader, for `extract` — likewise, and by `elf.rs`
 //!               under `cfg(test)`, which is what checks the writer
 //!   x86.rs      the x86-64 half of `extract` — likewise
@@ -156,6 +157,8 @@ pub mod glue;
 pub mod jit;
 pub mod library;
 pub mod lists;
+#[cfg(test)]
+mod names;
 pub mod object;
 pub mod region;
 pub mod rtcall;
@@ -164,11 +167,11 @@ pub mod runtime;
 use crate::build::buildfile::{Arch, Platform};
 use crate::compiler::backend::task_thread;
 use crate::compiler::backend::{Backend, Emitted, Options, Target, Units};
-use crate::compiler::middle::layout::{EnumRepr, Layouts, Repr};
+use crate::compiler::middle::layout::{EnumRepr, Layouts};
 use crate::compiler::middle::monomorphize::{Program, ProgramRoots};
 use crate::compiler::middle::{ir, lower};
 use crate::compiler::semantics::types::Tables;
-use crate::diagnostics::{Diagnostic, Diagnostics, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Invariant, Span};
 use std::sync::OnceLock;
 
 /// The stencil libraries, built by `cli/build.rs` — one per
@@ -627,28 +630,15 @@ pub fn supported(target: Target) -> Result<abi::StencilTarget, String> {
 /// kinds of thing.
 const ENTRY_SYMBOL: &str = "main";
 
-/// The C door into one root, or `None` for a root this backend has no record
-/// shape for yet.
+/// The C door into one root.
 ///
-/// **Nullary only, deliberately.** `task_thread.rs`'s `state` is passed and not
-/// read, so a root that took arguments would have to read them out of a record
-/// whose layout nothing has decided — and deciding it here, with no call site
-/// to fill it, is exactly the guess `cli/runtime/rt.rs` §1 refuses to make
-/// about the task table. Every Buri root *is* nullary (`main(): Result<(),
-/// Str>` and a `test` block both), so the `None` arm is unreachable today and
-/// is here so that the day it is reachable is a missing symbol rather than a
-/// door that reads uninitialised bytes.
-fn thread_door(
-    target: abi::StencilTarget,
-    frames: &[jit::FrameSig],
-    idx: usize,
-    sym: &str,
-) -> Option<asm::Shim> {
-    let frame = frames.get(idx)?;
-    if !frame.params.is_empty() {
-        return None;
-    }
-    Some(asm::thread_entry(target, sym, frame.ret_size))
+/// **Nullary only.** `task_thread.rs`'s `state` is passed and not read, and
+/// every Buri root takes no arguments (`main(): Result<(), Str>` and a `test`
+/// block both), so there is no record of arguments to read.
+fn thread_door(target: abi::StencilTarget, frames: &[jit::FrameSig], idx: usize, sym: &str) -> asm::Shim {
+    let frame = frames.get(idx).filter(|f| f.params.is_empty());
+    let frame = frame.or_ice("a root has a frame and takes no arguments");
+    asm::thread_entry(target, sym, frame.ret_size)
 }
 
 /// One codegen unit, from IR to object bytes.
@@ -879,9 +869,7 @@ fn assemble_unit(
                 String::from(ENTRY_SYMBOL),
                 asm::program_entry(target, &sym, main_result(program, tables, *idx), marking),
             ));
-            if let Some(door) = thread_door(target, frames, *idx, &sym) {
-                shims.push((String::from(task_thread::MAIN_ENTRY), door));
-            }
+            shims.push((String::from(task_thread::MAIN_ENTRY), thread_door(target, frames, *idx, &sym)));
         }
         Root::Tests(tests) if tests.first().is_some_and(|i| members.contains(i)) => {
             let names: Vec<String> = tests
@@ -890,9 +878,7 @@ fn assemble_unit(
                 .collect();
             shims.push((String::from(ENTRY_SYMBOL), asm::test_entry(target, &names, marking)));
             for (i, (t, sym)) in tests.iter().zip(&names).enumerate() {
-                if let Some(door) = thread_door(target, frames, *t, sym) {
-                    shims.push((task_thread::test_entry(i), door));
-                }
+                shims.push((task_thread::test_entry(i), thread_door(target, frames, *t, sym)));
             }
         }
         _ => {}
@@ -923,9 +909,8 @@ fn assemble_unit(
     for (i, entry) in members.iter().zip(&entries) {
         let sym = jit::symbol_of(program, u32::try_from(*i).unwrap_or(0));
         let at = want(&mut symbols, &mut index, &sym);
-        if let Some(s) = symbols.get_mut(at) {
-            s.defined = Some(object::Definition { section: 0, offset: *entry });
-        }
+        let s = symbols.get_mut(at).or_ice("`want` answers a symbol it holds");
+        s.defined = Some(object::Definition { section: 0, offset: *entry });
     }
 
     // The functions the unit generated for itself (`glue.rs`). Drop and copy
@@ -941,11 +926,10 @@ fn assemble_unit(
         });
         let name = if repeat { format!("{}$again{}", h.name, glue.len()) } else { h.name };
         let ix = want(&mut symbols, &mut index, &name);
-        if let Some(s) = symbols.get_mut(ix) {
-            s.defined = Some(object::Definition { section: CODE, offset: h.at });
-            s.global = h.shared && !repeat;
-            s.weak = s.global;
-        }
+        let s = symbols.get_mut(ix).or_ice("`want` answers a symbol it holds");
+        s.defined = Some(object::Definition { section: CODE, offset: h.at });
+        s.global = h.shared && !repeat;
+        s.weak = s.global;
         if h.shared {
             glue.push((ix, h.at, h.end));
         }
@@ -997,10 +981,9 @@ fn assemble_unit(
         });
     }
     let anchor = want(&mut symbols, &mut index, POOL_ANCHOR);
-    if let Some(s) = symbols.get_mut(anchor) {
-        s.defined = Some(object::Definition { section: POOL, offset: 0 });
-        s.global = false;
-    }
+    let s = symbols.get_mut(anchor).or_ice("`want` answers a symbol it holds");
+    s.defined = Some(object::Definition { section: POOL, offset: 0 });
+    s.global = false;
 
     // The three sections a unit has, under whichever container's names. Only
     // the spelling differs: a Mach-O section is `segment,section` and an ELF
@@ -1059,9 +1042,8 @@ fn assemble_unit(
             let at = code.len() as u64;
             code.extend_from_slice(&shim.bytes);
             let ix = want(&mut symbols, &mut index, &name);
-            if let Some(s) = symbols.get_mut(ix) {
-                s.defined = Some(object::Definition { section: 0, offset: at });
-            }
+            let s = symbols.get_mut(ix).or_ice("`want` answers a symbol it holds");
+            s.defined = Some(object::Definition { section: 0, offset: at });
             for (off, kind, target, addend) in shim.relocs {
                 let sym = want(&mut symbols, &mut index, &name_of(program, &target));
                 out.push(object::Reloc {
@@ -1085,18 +1067,15 @@ fn assemble_unit(
             data: Vec::new(),
         });
         let stack = want(&mut symbols, &mut index, asm::STACK_SYMBOL);
-        if let Some(s) = symbols.get_mut(stack) {
-            s.defined = Some(object::Definition { section: STACK, offset: 0 });
-        }
+        let s = symbols.get_mut(stack).or_ice("`want` answers a symbol it holds");
+        s.defined = Some(object::Definition { section: STACK, offset: 0 });
     }
 
     if target.is_elf() {
         let first = sections.len();
         sections.extend(carve(&mut code, &mut symbols, &mut out, &glue, first));
     }
-    if let Some(s) = sections.first_mut() {
-        s.data = code;
-    }
+    sections.first_mut().or_ice("a unit has its code section").data = code;
     let bytes = if target.is_elf() {
         elf::write(target, &sections, &symbols, &out)
     } else {
@@ -1195,13 +1174,11 @@ const STACK: usize = 2;
 /// success unconditionally, which is `llvm/emit.rs::entry_point`'s rule too.
 fn main_result(program: &ir::Program, tables: &Tables, idx: usize) -> Option<asm::MainResult> {
     let f = program.funcs.get(idx)?;
-    let ir::Type::Agg(id) = f.sig.rets.first().copied()? else { return None };
+    // The language makes `main` answer `Result<(), Str>`.
+    let id = jit::agg_of(f.sig.rets.first().copied()?);
     let mut layouts = Layouts::new(tables);
     let l = layouts.of(program.type_info(id).ty);
-    if l.size == 0 {
-        return None;
-    }
-    let Repr::Enum { repr, variants } = &l.repr else { return None };
+    let (repr, variants) = jit::enum_of(&l);
     // `.Err(msg)`'s payload is a `Str` at the variant's first field.
     let payload = variants.get(1).and_then(|v| v.first()).copied().unwrap_or(0);
     let message = (payload, payload.saturating_add(8), payload.saturating_add(16));
@@ -1304,7 +1281,7 @@ mod tests {
             for s in lib.iter() {
                 for h in &s.holes {
                     assert_eq!(
-                        library::outlining_artifact(&h.name),
+                        names::outlining_artifact(&h.name),
                         None,
                         "{}: {} reaches {}",
                         t.slug(),
