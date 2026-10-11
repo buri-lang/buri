@@ -1,6 +1,7 @@
 // Float arithmetic the minifier folds into a constant it then has to print:
 // both infinities, NaN of either sign, a number shortest in exponent form, and
-// a remainder by zero, which JavaScript answers and the folder leaves alone.
+// a remainder by zero, which JavaScript answers and the folder leaves alone,
+// and a choice between `-0` and `0`, which are different values.
 
 from "core/io" import * as io;
 from "core/number" import * as number;
@@ -31,6 +32,10 @@ fn remainderByZero(a: F64): F64 {
     a % 0.0
 }
 
+fn signedZero(negative: Bool): F64 {
+    if (negative) { 0.0.negate() } else { 0.0 }
+}
+
 export fn main(host: NodeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
@@ -42,5 +47,11 @@ export fn main(host: NodeHost): Result<(), Str> {
     let _ = io.println(ctx, "negatedNotANumber() = ${negatedNotANumber()}").ignore();
     let _ = io.println(ctx, "small() = ${small()}").ignore();
     let _ = io.println(ctx, "remainderByZero(5.0) = ${remainderByZero(5.0)}").ignore();
+    let _ = io
+        .println(ctx, "1 / signedZero(true) = ${1.0 / signedZero(true)}")
+        .ignore();
+    let _ = io
+        .println(ctx, "1 / signedZero(false) = ${1.0 / signedZero(false)}")
+        .ignore();
     .Ok(())
 }
