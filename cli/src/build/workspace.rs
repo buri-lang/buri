@@ -822,7 +822,12 @@ impl Workspace {
         if from == to.package {
             return true;
         }
-        let Some(lib) = &self.package(to.package).build.library else { return false };
+        let lib = self
+            .package(to.package)
+            .build
+            .library
+            .as_ref()
+            .or_ice("a dependency edge ends at a library");
         let from_path = &self.package(from).path;
         lib.visibility.iter().any(|v| v.value.allows(from_path))
     }
@@ -869,14 +874,16 @@ impl Workspace {
     }
 
     /// The repository platform a label names: its package and its rule.
-    /// `None` for a label naming no `platform` rule under `//platform/`.
-    pub fn platform_rule(&self, label: &str) -> Option<(PackageId, &buildfile::PlatformRule)> {
-        let path = label.strip_prefix("//")?;
-        if !is_platform_directory(path) {
-            return None;
-        }
-        let id = self.package_by_path(path)?;
-        Some((id, self.package(id).build.platform.as_ref()?))
+    ///
+    /// Every label asked about names one: loading drops an output whose label
+    /// names no `platform` rule under `//platform/` ([`resolve_custom_outputs`]),
+    /// and [`Self::every_platform`] lists only those rules.
+    pub fn platform_rule(&self, label: &str) -> (PackageId, &buildfile::PlatformRule) {
+        label
+            .strip_prefix("//")
+            .and_then(|path| self.package_by_path(path))
+            .and_then(|id| Some((id, self.package(id).build.platform.as_ref()?)))
+            .or_ice("loading the repository resolved every platform an output names")
     }
 
     /// Everything an output of `target` for `platform` is built from: the
@@ -885,11 +892,10 @@ impl Workspace {
     pub fn policy_members(&self, target: TargetId, platform: &OutputPlatform) -> Vec<TargetId> {
         let mut members = self.closure(target);
         if let OutputPlatform::Repository { label, .. } = platform {
-            if let Some((_, rule)) = self.platform_rule(label) {
-                for dep in &rule.dependencies {
-                    if let Some(t) = self.dep_target(&dep.value) {
-                        members.extend(self.closure(t));
-                    }
+            let (_, rule) = self.platform_rule(label);
+            for dep in &rule.dependencies {
+                if let Some(t) = self.dep_target(&dep.value) {
+                    members.extend(self.closure(t));
                 }
             }
         }
@@ -956,11 +962,12 @@ impl Workspace {
     /// The platforms a target's suite runs on, one per backend its `test`
     /// block names: the host for `NATIVE`, and for `JS` the first bundled
     /// JavaScript platform the target's outputs name, or else admits. Empty
-    /// when the block names none.
+    /// when the block names no backend.
     pub fn suite_platforms(&self, target: TargetId) -> Vec<Platform> {
-        let Some(suite) = self.package(target.package).test_suite(target.kind) else {
-            return Vec::new();
-        };
+        let suite = self
+            .package(target.package)
+            .test_suite(target.kind)
+            .or_ice("`buri test` runs only a target with a `test` block");
         let allowed = self.platforms(target);
         let admits = |p: &Platform| allowed.contains(&OutputPlatform::Bundled(*p));
         let declared: Vec<Platform> = match (target.kind, &self.package(target.package).build.binary) {

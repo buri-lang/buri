@@ -273,12 +273,12 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
         tables: mcdc.then_some(tables),
     };
     for d in coverage::branches(program, &options) {
-        if let Some((name, line)) = line_of(d.span) {
-            let id = (coverage::Kind::Derived, d.span.start, d.span.end, Some(d.label));
-            let group = (d.group, d.order);
-            let decision = Decision { line, at: d.span.start, branches: d.branches.len(), names: d.branches, group };
-            files.entry(name.to_string()).or_default().decisions.insert(id, decision);
-        }
+        let (name, line) =
+            line_of(d.span).or_ice("a derived decision is built only in a file `file_of` names");
+        let id = (coverage::Kind::Derived, d.span.start, d.span.end, Some(d.label));
+        let group = (d.group, d.order);
+        let decision = Decision { line, at: d.span.start, branches: d.branches.len(), names: d.branches, group };
+        files.entry(name.to_string()).or_default().decisions.insert(id, decision);
     }
     for (file, set) in lines {
         files.entry(file).or_default().lines = set;
