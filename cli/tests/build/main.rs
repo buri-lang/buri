@@ -58,6 +58,7 @@ mod harness;
 #[allow(dead_code)]
 mod generate;
 
+mod checking;
 mod closed_stdout;
 mod custom_platforms;
 mod example;
