@@ -219,7 +219,7 @@ The merge keys a branch by file, line and lcov's block and branch numbers:
 
 - A branch counts as covered when any platform took it.
 - A branch only some platforms compile counts once, among their branches.
-- A line whose platforms list different branches counts each platform's apart,
+- Platforms that list different branches on a line count theirs apart,
   because the numbers on it may no longer name the same branch. Merging them
   could call one branch covered because a different one ran.
 

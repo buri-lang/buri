@@ -182,17 +182,19 @@ fn a_fall_in_an_area_fails_and_names_it() {
 #[test]
 fn a_rise_names_what_rose_and_the_ratchet_commits_it() {
     let repo = Repo::new("rise");
-    repo.baseline(&format!(
-        "{THREE}total 1 2 50.00%\narea crates/syntax 1 2 50.00%\n1 2 crates/syntax/src/lexer.rs\n"
-    ));
+    let half = file(LEXER, &[(3, 1)], &[(3, 0, 0, 1), (3, 0, 1, 0)]);
     let both = file(LEXER, &[(3, 1)], &[(3, 0, 0, 1), (3, 0, 1, 1)]);
-    let none = file(LEXER, &[(3, 1)], &[(3, 0, 0, 0), (3, 0, 1, 0)]);
-    repo.everywhere(&none, &both, &none);
+    repo.everywhere(&half, &half, &half);
+    passed(&repo.merge());
+    passed(&repo.run("--raise"));
+    assert!(repo.read("coverage/compiler-branches.txt").contains("\narea crates/syntax 1 2 50.00%\n"));
+
+    repo.everywhere(&half, &both, &half);
     let out = passed(&repo.merge());
     assert!(out.contains("Branch coverage rose: the total, crates/syntax."), "{out}");
 
     let out = passed(&repo.run("--raise"));
-    assert!(out.contains("raised the baseline of the total, crates/syntax"), "{out}");
+    assert!(out.contains("raised the baseline of the total, crates/syntax\n"), "{out}");
     let checked_in = repo.read("coverage/compiler-branches.txt");
     assert!(checked_in.contains("\narea crates/syntax 2 2 100.00%\n"), "{checked_in}");
     assert_eq!(repo.read("coverage/compiler.txt"), repo.read("target/coverage/compiler.txt"));
