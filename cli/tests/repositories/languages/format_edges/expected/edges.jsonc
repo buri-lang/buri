@@ -1,0 +1,26 @@
+// Above the root.
+
+// After a blank line.
+/* A block comment
+ * whose lines start with stars.
+ */
+{
+    "$schema": "any.schema.json",
+    "a": [
+        1 // beside
+        // below the last
+
+        // after a blank line
+    ],
+    "b": {
+        // only a comment
+    },
+    "c": [],
+    "d": {}
+    // the object's last
+}
+// After the root.
+
+// After a blank line.
+/* A block comment
+   whose lines do not start with stars. */

@@ -1,0 +1,75 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "3d",
+    "description": "The first line.\n\nA line after a blank one.",
+    "type": "object",
+    "properties": {
+        "$schema": { "type": "string" },
+        "2fa": { "type": "boolean" },
+        "type": { "type": "string" },
+        "!!!": { "type": "integer" },
+        "maybe": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+        "level": { "enum": ["low", "high", null] },
+        "num": { "type": ["integer", "number"] },
+        "nothing": { "type": ["null"] },
+        "inferred": { "properties": { "a": { "type": "integer" } }, "required": ["a"] },
+        "ints": { "items": { "const": 1 } },
+        "floats": { "type": "array", "items": { "const": 1.5 } },
+        "flags": { "type": "array", "items": { "const": true } },
+        "units": { "type": "array", "items": { "const": null } },
+        "words": { "type": "array", "items": { "const": "w" } },
+        "none": { "type": "array", "items": { "type": "string" } },
+        "empty": { "type": "object", "properties": {} },
+        "first": {
+            "title": "Str",
+            "type": "object",
+            "properties": { "x": { "type": "string" } }
+        },
+        "second": {
+            "title": "Str",
+            "type": "object",
+            "properties": { "y": { "type": "string" } }
+        },
+        "closed": {
+            "type": "object",
+            "properties": { "a": { "type": "string" } },
+            "unevaluatedProperties": false
+        },
+        "control": { "type": "string" },
+        "shape": {
+            "oneOf": [
+                { "$ref": "#/$defs/1st" },
+                {
+                    "type": "object",
+                    "properties": {
+                        "$schema": { "type": "string" },
+                        "kind": { "const": "bare" }
+                    },
+                    "required": ["kind"]
+                }
+            ]
+        },
+        "shapes": { "type": "array", "items": { "$ref": "#/$defs/shape" } }
+    },
+    "required": [
+        "2fa",
+        "type",
+        "!!!",
+        "num",
+        "nothing",
+        "inferred",
+        "ints",
+        "none",
+        "empty",
+        "shape",
+        "shapes"
+    ],
+    "$defs": {
+        "1st": {
+            "type": "object",
+            "properties": { "kind": { "const": "first" }, "n": { "type": "integer" } },
+            "required": ["kind", "n"]
+        },
+        "shape": { "$ref": "#/properties/shape" }
+    }
+}

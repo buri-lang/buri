@@ -1,0 +1,7 @@
+library {
+    generators: [
+        { tool: "json", inputs: ["edges.schema.json", "edges.json"] },
+    ]
+
+    visibility: ["//visibility:public"]
+}

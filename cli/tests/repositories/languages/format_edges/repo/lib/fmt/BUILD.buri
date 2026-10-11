@@ -1,0 +1,7 @@
+library {
+    generators: [
+        { tool: "proto", inputs: ["edges.proto", "unclosed.proto"] },
+        { tool: "textproto", inputs: ["edges.txtpb", "unclosed.txtpb", "bad_list.txtpb", "bad_name.txtpb"] },
+        { tool: "//tools/gen", inputs: ["edges.jsonc"] },
+    ]
+}

@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "every way a contract is refused: two tools with different contracts reading one file, an accepts entry missing a field, naming an unknown language, a language twice, a language with no generate, or proto, a type_schema outside the repository, and a type_schema with no Buri type, which the tool reports and its consumer sees as a tool that did not build"
+doc: "every way a contract is refused: two tools with different contracts reading one file, an accepts entry missing a field, naming an unknown language, a language twice, a language with no generate, or proto, a type_schema outside the repository or not there, and a type_schema with no Buri type, which the tool reports and its consumer sees as a tool that did not build"
 
 # `//tools/a` reads `config.json` under `//schemas/names.schema.json`, a `//`
 # type_schema.
@@ -108,9 +108,22 @@ run {
   golden: "not_local.txt"
 }
 
+# A local type_schema that is not there.
 edit {
   file: "tools/b/BUILD.buri"
   replace: "type_schema: \"https://example.com/b.schema.json\""
+  with: "type_schema: \"missing.schema.json\""
+}
+
+run {
+  args: ["build", "//tools/b"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+edit {
+  file: "tools/b/BUILD.buri"
+  replace: "type_schema: \"missing.schema.json\""
   with: "type_schema: \"b.schema.json\""
 }
 
