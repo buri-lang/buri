@@ -1,0 +1,14 @@
+# A generic instantiated at two tuples whose tags meet, and derived equality
+# at two tuples whose tags meet. The second of each pair takes a wider tag, so
+# both run their own body on both backends.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "two functions whose short tags collide keep two bodies"
+
+run {
+  args: ["test", "//lib/tags", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
