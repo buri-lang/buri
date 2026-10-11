@@ -484,16 +484,9 @@ pub fn run(
             new_bodies.push((id, typed::Body::clone(body)));
         }
     }
-    // A style extracted where a node is given it leaves what it read alone,
-    // but that still has to be a style the stylesheet can hold. A first walk
-    // refuses what can't be, and the second extracts without refusing again.
-    if ex.flow.reached != ex.flow.demanded {
-        ex.mode = Mode::Checking;
-        ex.walk(&mut new_consts, &mut new_bodies);
-        ex.recorded.clear();
-        ex.mode = Mode::Quiet;
-    }
-    let (const_rules, body_rules) = ex.walk(&mut new_consts, &mut new_bodies);
+    ex.walk(&mut new_consts, &mut new_bodies, true);
+    ex.recorded.clear();
+    let (const_rules, body_rules) = ex.walk(&mut new_consts, &mut new_bodies, false);
     let styled = Styled { const_rules, body_rules, ..Styled::default() };
     for (id, init) in new_consts {
         consts.insert(id, init);
@@ -530,7 +523,7 @@ enum Mode {
     Rewrite,
     /// Refuses what [`Flow::reached`] says a node reads, and rewrites nothing.
     Checking,
-    /// Extracts after `Checking`, so refuses nothing a second time.
+    /// Extracts a declaration `Checking` walked, so refuses nothing.
     Quiet,
 }
 
@@ -638,20 +631,37 @@ impl<'a> Extractor<'a> {
         &mut self,
         consts: &mut [(ConstId, typed::Expr)],
         bodies: &mut [(FnId, typed::Body)],
+        checking: bool,
     ) -> (Vec<StyleRule>, Vec<StyleRule>) {
-        let all = self.mode == Mode::Checking;
         for (id, init) in consts.iter_mut() {
-            self.owner = Owner::Const(*id);
-            let sink = self.flow.reaches(self.owner, &Pos::At(Some(Demand::Const(*id))), false, all);
-            self.visit(init, sink, Cond::default());
+            self.declaration(Owner::Const(*id), Demand::Const(*id), init, checking);
         }
         let const_rules = std::mem::take(&mut self.rules);
         for (id, body) in bodies.iter_mut() {
-            self.owner = Owner::Fn(*id);
-            let sink = self.flow.reaches(self.owner, &Pos::At(Some(Demand::Ret(*id))), false, all);
-            self.visit(&mut body.expr, sink, Cond::default());
+            self.declaration(Owner::Fn(*id), Demand::Ret(*id), &mut body.expr, checking);
         }
         (const_rules, std::mem::take(&mut self.rules))
+    }
+
+    /// One declaration, whose value goes to `top`.
+    ///
+    /// A style extracted where a node is given it leaves what it read alone,
+    /// but that still has to be a style the stylesheet can hold. So a
+    /// declaration where that happens is walked twice: `checking` refuses what
+    /// can't be, and then the extracting walk refuses nothing a second time.
+    fn declaration(&mut self, owner: Owner, top: Demand, e: &mut typed::Expr, checking: bool) {
+        let top = Pos::At(Some(top));
+        let touched = self.flow.touched.contains(&owner)
+            || self.flow.reaches(owner, &top, false, true) != self.flow.reaches(owner, &top, false, false);
+        self.mode = match (checking, touched) {
+            (true, false) => return,
+            (true, true) => Mode::Checking,
+            (false, true) => Mode::Quiet,
+            (false, false) => Mode::Rewrite,
+        };
+        self.owner = owner;
+        let sink = self.flow.reaches(owner, &top, false, checking);
+        self.visit(e, sink, Cond::default());
     }
 
     /// A `[Style]` — the shape every widget takes and the shape both branches
@@ -976,6 +986,47 @@ fn atom(variant: usize, sub: u32, cond: Cond, (abbreviation, key, blocks): Decla
     Some((Atom { slot: slot(variant, sub, cond)?, class }, rule))
 }
 
+/// What reads what, each read marked when it's under a style extracted where
+/// it stands.
+#[derive(Default)]
+struct Edges {
+    reads: HashMap<Demand, Vec<(Demand, bool)>>,
+    /// The declarations holding such a style.
+    stops: HashSet<Owner>,
+}
+
+impl Edges {
+    fn add(&mut self, from: Demand, to: Demand, stopped: bool) {
+        self.reads.entry(from).or_default().push((to, stopped));
+    }
+
+    /// Everything a node reads, through the marked reads too when `all`.
+    fn closure(&self, all: bool) -> HashSet<Demand> {
+        let mut found = HashSet::default();
+        let mut work = vec![Demand::Node];
+        while let Some(d) = work.pop() {
+            if found.insert(d) {
+                let reads = self.reads.get(&d).into_iter().flatten();
+                work.extend(reads.filter(|(_, stopped)| all || !stopped).map(|(to, _)| *to));
+            }
+        }
+        found
+    }
+}
+
+/// Whether `e` reads a local, a constant or a function: what a style
+/// extracted where it stands would otherwise demand.
+fn reads(e: &typed::Expr) -> bool {
+    let mut found = matches!(
+        e.kind,
+        ExprKind::Local(_) | ExprKind::Const(_) | ExprKind::CallFn { .. } | ExprKind::FnRef(_) | ExprKind::CallTrait { .. }
+    );
+    typed::children(e, &mut |child| found = found || reads(child));
+    found
+}
+
+
+
 /// What decides whether a position's value reaches a node.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Demand {
@@ -1008,6 +1059,9 @@ enum Pos {
     Bound(Vec<LocalId>),
 }
 
+/// The pattern a `let` binds and the value it binds it to.
+type Let<'a> = (&'a typed::Pattern, &'a typed::Expr);
+
 /// Which values reach a node, found before anything is rewritten.
 ///
 /// It reads backwards from each node. A node's argument is demanded, and so is
@@ -1026,8 +1080,11 @@ struct Flow<'a> {
     consts: &'a ConstMap,
     /// The parameters of each body this run reads.
     params: HashMap<FnId, Vec<LocalId>>,
-    /// Each `let`-bound local: the pattern that binds it, and its value.
-    lets: HashMap<(Owner, LocalId), (&'a typed::Pattern, &'a typed::Expr)>,
+    /// Each `let`-bound local of the declarations a fold has read: the pattern
+    /// that binds it, and its value.
+    lets: RefCell<HashMap<(Owner, LocalId), Let<'a>>>,
+    /// The declarations whose `let`s are in `lets`.
+    indexed: RefCell<HashSet<Owner>>,
     /// The value each local a fold has read folded to, if it did.
     statics: RefCell<HashMap<(Owner, LocalId), Option<Value>>>,
     /// What a node reads, past the styles extracted where a node is given them.
@@ -1035,6 +1092,8 @@ struct Flow<'a> {
     /// What a node reads through those as well: every one of them still has to
     /// be a style the stylesheet can hold, so [`Mode::Checking`] walks these.
     reached: HashSet<Demand>,
+    /// The declarations holding such a style, or a local only it reads.
+    touched: HashSet<Owner>,
 }
 
 impl<'a> Flow<'a> {
@@ -1053,69 +1112,51 @@ impl<'a> Flow<'a> {
             bodies,
             consts,
             params: HashMap::default(),
-            lets: HashMap::default(),
+            lets: RefCell::default(),
+            indexed: RefCell::default(),
             statics: RefCell::default(),
             demanded: HashSet::default(),
             reached: HashSet::default(),
+            touched: HashSet::default(),
         };
-        for (id, init) in walked.unsettled_constants(consts) {
-            flow.collect_lets(Owner::Const(id), init);
-        }
         for (id, body) in walked.unsettled(bodies) {
             flow.params.insert(id, body.params.clone());
-            flow.collect_lets(Owner::Fn(id), &body.expr);
         }
-        flow.demanded = flow.closure(walked, true);
-        flow.reached = flow.closure(walked, false);
+        let mut edges = Edges::default();
+        for (id, init) in walked.unsettled_constants(consts) {
+            flow.edges(Owner::Const(id), init, Some(Demand::Const(id)), false, &mut edges);
+        }
+        for (id, body) in walked.unsettled(bodies) {
+            if let Some((t, m)) = tables.fn_info(id).impl_of {
+                edges.add(Demand::Method(t, m), Demand::Ret(id), false);
+            }
+            flow.edges(Owner::Fn(id), &body.expr, Some(Demand::Ret(id)), false, &mut edges);
+        }
+        flow.demanded = edges.closure(false);
+        flow.reached = edges.closure(true);
+        flow.touched = std::mem::take(&mut edges.stops);
+        for d in flow.reached.difference(&flow.demanded) {
+            if let Demand::Local(owner, _) = d {
+                flow.touched.insert(*owner);
+            }
+        }
         flow
     }
 
-    /// Everything a node reads, past a style extracted where it's given when
-    /// `stop`.
-    fn closure(&self, walked: &Walked, stop: bool) -> HashSet<Demand> {
-        let mut edges: HashMap<Demand, Vec<Demand>> = HashMap::default();
-        for (id, init) in walked.unsettled_constants(self.consts) {
-            self.edges(Owner::Const(id), init, Some(Demand::Const(id)), stop, &mut edges);
-        }
-        for (id, body) in walked.unsettled(self.bodies) {
-            if let Some((t, m)) = self.tables.fn_info(id).impl_of {
-                edges.entry(Demand::Method(t, m)).or_default().push(Demand::Ret(id));
-            }
-            self.edges(Owner::Fn(id), &body.expr, Some(Demand::Ret(id)), stop, &mut edges);
-        }
-        let mut found = HashSet::default();
-        let mut work = vec![Demand::Node];
-        while let Some(d) = work.pop() {
-            if found.insert(d) {
-                work.extend(edges.get(&d).into_iter().flatten().copied());
-            }
-        }
-        found
-    }
-
-    /// Whether `e` is a style, or a list of them, that extracts whole where it
-    /// stands.
+    /// Whether `e` is a style, or a list of them, that reads something and
+    /// extracts whole where it stands.
     fn extracts(&self, owner: Owner, e: &typed::Expr) -> bool {
+        if !(self.is_style(&e.ty) || self.is_style_list(&e.ty)) || !reads(e) {
+            return false;
+        }
+        let Some(value) = self.fold(owner, e) else { return false };
+        // A list folds to an array, and a style never does.
+        let items = match &value {
+            Value::Array(items) => &items[..],
+            one => std::slice::from_ref(one),
+        };
         let mut atoms = Vec::new();
-        if self.is_style(&e.ty) {
-            return self.fold(owner, e).is_some_and(|v| flatten(&v, Cond::default(), &mut atoms).is_some());
-        }
-        self.is_style_list(&e.ty)
-            && matches!(self.fold(owner, e), Some(Value::Array(items))
-                if items.iter().all(|v| flatten(v, Cond::default(), &mut atoms).is_some()))
-    }
-
-    fn collect_lets(&mut self, owner: Owner, e: &'a typed::Expr) {
-        if let ExprKind::Block { stmts, .. } = &e.kind {
-            for stmt in stmts {
-                if let typed::Stmt::Let { pattern, value, .. } = stmt {
-                    pattern.each_bind(&mut |l| {
-                        self.lets.insert((owner, l), (pattern, value));
-                    });
-                }
-            }
-        }
-        typed::children(e, &mut |child| self.collect_lets(owner, child));
+        items.iter().all(|v| flatten(v, Cond::default(), &mut atoms).is_some())
     }
 
     fn is_style(&self, ty: &Ty) -> bool {
@@ -1129,19 +1170,8 @@ impl<'a> Flow<'a> {
 
     /// The value `e` denotes at compile time, reading the `let`s of `owner`.
     fn fold(&self, owner: Owner, e: &typed::Expr) -> Option<Value> {
-        let mut env = Env::default();
-        self.read_lets(owner, e, &mut env);
-        Folder::new(self.tables, self.bodies, self.consts).eval(e, &env)
-    }
-
-    /// Binds in `env` every local `e` reads whose `let` folds.
-    fn read_lets(&self, owner: Owner, e: &typed::Expr, env: &mut Env) {
-        if let ExprKind::Local(l) = e.kind {
-            if let Some(value) = self.static_local(owner, l) {
-                env.insert(l, value);
-            }
-        }
-        typed::children(e, &mut |child| self.read_lets(owner, child, env));
+        let lets = |l| self.static_local(owner, l);
+        Folder::new(self.tables, self.bodies, self.consts).eval(e, &Env::reading(&lets))
     }
 
     fn static_local(&self, owner: Owner, l: LocalId) -> Option<Value> {
@@ -1149,7 +1179,14 @@ impl<'a> Flow<'a> {
         if let Some(known) = self.statics.borrow().get(&key) {
             return known.clone();
         }
-        let (pattern, value) = *self.lets.get(&key)?;
+        if self.indexed.borrow_mut().insert(owner) {
+            let root = match owner {
+                Owner::Fn(id) => self.bodies.get(&id).map(|body| &body.expr),
+                Owner::Const(id) => self.consts.get(&id),
+            };
+            root.into_iter().for_each(|root| self.index(owner, root));
+        }
+        let (pattern, value) = *self.lets.borrow().get(&key)?;
         // A closure that names its own `let` gives up rather than recursing.
         self.statics.borrow_mut().insert(key, None);
         let folded = self.fold(owner, value).and_then(|v| bound(pattern, &v, l));
@@ -1157,20 +1194,28 @@ impl<'a> Flow<'a> {
         folded
     }
 
-    /// Records what `e` reads when its value goes to `ctx`, and the same for
-    /// everything under it.
-    fn edges(
-        &self,
-        owner: Owner,
-        e: &typed::Expr,
-        ctx: Option<Demand>,
-        stop: bool,
-        out: &mut HashMap<Demand, Vec<Demand>>,
-    ) {
-        // Extracted where it stands, so it reads nothing.
-        if stop && ctx.is_some() && self.extracts(owner, e) {
-            return;
+    fn index(&self, owner: Owner, e: &'a typed::Expr) {
+        if let ExprKind::Block { stmts, .. } = &e.kind {
+            for stmt in stmts {
+                if let typed::Stmt::Let { pattern, value, .. } = stmt {
+                    pattern.each_bind(&mut |l| {
+                        self.lets.borrow_mut().insert((owner, l), (pattern, value));
+                    });
+                }
+            }
         }
+        typed::children(e, &mut |child| self.index(owner, child));
+    }
+
+    /// Records what `e` reads when its value goes to `ctx`, and the same for
+    /// everything under it. Under a style `stopped` where a node is given it,
+    /// only [`Flow::reached`] reads it.
+    fn edges(&self, owner: Owner, e: &typed::Expr, ctx: Option<Demand>, stopped: bool, out: &mut Edges) {
+        let stops = !stopped && ctx.is_some() && self.extracts(owner, e);
+        if stops {
+            out.stops.insert(owner);
+        }
+        let stopped = stopped || stops;
         if let Some(d) = ctx {
             let read = match &e.kind {
                 ExprKind::Local(l) => Some(Demand::Local(owner, *l)),
@@ -1182,7 +1227,9 @@ impl<'a> Flow<'a> {
                 ExprKind::CallTrait { trait_id, method, .. } => Some(Demand::Method(*trait_id, *method)),
                 _ => None,
             };
-            out.entry(d).or_default().extend(read);
+            if let Some(read) = read {
+                out.add(d, read, stopped);
+            }
         }
         let mut positions = self.positions(e).into_iter();
         typed::children(e, &mut |child| {
@@ -1194,12 +1241,12 @@ impl<'a> Flow<'a> {
                 Pos::Bound(locals) => locals.first().map(|first| {
                     let first = Demand::Local(owner, *first);
                     for l in locals.iter().skip(1) {
-                        out.entry(Demand::Local(owner, *l)).or_default().push(first);
+                        out.add(Demand::Local(owner, *l), first, stopped);
                     }
                     first
                 }),
             };
-            self.edges(owner, child, child_ctx, stop, out);
+            self.edges(owner, child, child_ctx, stopped, out);
         });
     }
 
