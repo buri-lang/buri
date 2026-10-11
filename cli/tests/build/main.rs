@@ -20,6 +20,7 @@
 //! | [`monorepo`] | scratch | A large repository's shape, scaled down: what a warm run, a comment edit and a generator's input edit may not redo, and that a link does not start the C driver. |
 //! | [`profile`] | scratch | That `BURI_PROFILE=1` reports each phase a run went through, that a run without it prints nothing extra, and that checking and emitting large shapes is linear in their size. |
 //! | [`scheduling`] | scratch | That suites build and run side by side, report in suite order, and are reused across an edit that cannot change them. |
+//! | [`stencil`] | `repositories/stencil/` | That programs reaching the debug backend's rarer paths build and do what the language says. |
 //! | [`verbose`] | `repositories/testing/verbose/` | What `buri test --verbose`'s goldens blank out: the unit each time is spelled in, build times against the run, verdicts cached before there were times, and the list each pass of a watch loop prints. |
 //! | [`watch`] | scratch | What `buri watch` declares as its input set, and what it re-runs when one of them moves. |
 //! | [`serving`] | `repositories/serving/` | That `buri run` on a page builds the artifact and serves it — the shell for every route, the files beside it as themselves, and `--watch` rebuilding into the next request. |
@@ -73,6 +74,7 @@ mod profile;
 mod repositories;
 mod scheduling;
 mod serving;
+mod stencil;
 mod verbose;
 mod watch;
 mod web_storage;

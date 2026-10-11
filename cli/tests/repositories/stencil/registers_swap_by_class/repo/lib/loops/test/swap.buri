@@ -1,0 +1,32 @@
+from "core/testing/assert" import * as assert;
+
+fn swapInts(n: Int, a: Int, b: Int): Int {
+    if (n == 0) { a * 10 + b } else { swapInts(n - 1, b, a) }
+}
+
+fn swapFloats(n: Int, a: F64, b: F64): F64 {
+    if (n == 0) { a * 10.0 + b } else { swapFloats(n - 1, b, a) }
+}
+
+fn swapBoth(n: Int, a: Int, x: F64, b: Int, y: F64): F64 {
+    if (n == 0) {
+        x * 2.0 + y + a.toF64() * 100.0 + b.toF64() * 1000.0
+    } else {
+        swapBoth(n - 1, b, y, a, x)
+    }
+}
+
+test "two integers swap on each pass" {
+    assert.equal(swapInts(3, 1, 2), 21);
+    assert.equal(swapInts(4, 1, 2), 12);
+}
+
+test "two floats swap on each pass" {
+    assert.equal(swapFloats(3, 1.0, 2.0), 21.0);
+    assert.equal(swapFloats(4, 1.0, 2.0), 12.0);
+}
+
+test "two integers and two floats swap on each pass" {
+    assert.equal(swapBoth(1, 1, 2.0, 3, 4.0), 1310.0);
+    assert.equal(swapBoth(2, 1, 2.0, 3, 4.0), 3108.0);
+}
