@@ -464,6 +464,9 @@ pub struct Infer<'a, 'b> {
     pub(crate) lit_checks: Vec<LitCheck<'b>>,
     /// Template holes, checked after defaulting so `"${1 + 1}"` is fine.
     pub(crate) hole_checks: Vec<(Ty, Span)>,
+    /// Context bindings, held to their `impl`'s head after defaulting, so
+    /// `Out { t: 1 }` meets `impl Stdout for Out<Str>` as an `Out<I64>`.
+    pub(crate) binding_checks: Vec<(Ty, TraitId, Span)>,
     /// Calls to a bodyless declaration — an intrinsic the runtime supplies —
     /// with the type arguments the call site instantiated it at.
     pub(crate) erased_calls: Vec<(FnId, Vec<Ty>, Span)>,
@@ -582,6 +585,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             bounds_used: Default::default(),
             lit_checks,
             hole_checks: Vec::new(),
+            binding_checks: Vec::new(),
             erased_calls: Vec::new(),
             role,
             in_effect_impl: false,
@@ -639,6 +643,15 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn finish(mut self, expr: typed::Expr) -> typed::Body {
         // Only if nothing constrains a literal does the default apply.
         self.subst.default_numerics(&self.c.tables);
+        for (ty, tr, span) in std::mem::take(&mut self.binding_checks) {
+            let ty = self.subst.resolve(&ty);
+            let uncovered = ty.head().and_then(|con| self.c.tables.impls.get(&(tr, con))).is_some_and(|imp| {
+                !head_covers(&imp.head, &ty, imp.generics.len(), false)
+            });
+            if uncovered {
+                self.obligations.push((ty, tr, span));
+            }
+        }
         self.discharge_obligations();
         self.check_literal_ranges();
         self.check_template_holes();
