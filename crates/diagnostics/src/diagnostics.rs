@@ -77,6 +77,17 @@ macro_rules! ice {
     ($($arg:tt)*) => { $crate::diagnostics::ice(&format!($($arg)*)) };
 }
 
+/// `assert!` for an invariant, without the panic.
+///
+/// Reads as the claim it is — `invariant(seen.is_empty(), "every block was
+/// visited once")` — and fails the way [`ice`] does rather than the way
+/// `assert!` does.
+pub fn invariant(holds: bool, what: &str) {
+    if !holds {
+        ice(what);
+    }
+}
+
 /// `.expect(…)` for an invariant, without the panic.
 ///
 /// Reads as the claim it is — `or_ice("every id in this table was minted by
@@ -86,21 +97,17 @@ pub trait Invariant<T> {
     fn or_ice(self, what: &str) -> T;
 }
 
+// No `match` here: the failure is a closure, so [`invariant`] holds the one
+// failure side the coverage gate counts.
 impl<T> Invariant<T> for Option<T> {
     fn or_ice(self, what: &str) -> T {
-        match self {
-            Some(v) => v,
-            None => ice(what),
-        }
+        self.unwrap_or_else(|| ice(what))
     }
 }
 
 impl<T, E: std::fmt::Display> Invariant<T> for Result<T, E> {
     fn or_ice(self, what: &str) -> T {
-        match self {
-            Ok(v) => v,
-            Err(e) => ice(&format!("{what}: {e}")),
-        }
+        self.unwrap_or_else(|e| ice(&format!("{what}: {e}")))
     }
 }
 

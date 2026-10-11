@@ -104,6 +104,13 @@ fn command() -> ExitCode {
         }
     };
 
+    // Test hook: lets an end-to-end test see the internal-error report, which
+    // otherwise only a compiler bug reaches.
+    buri::diagnostics::invariant(
+        std::env::var_os("BURI_INTERNAL_ERROR_TEST").is_none(),
+        "BURI_INTERNAL_ERROR_TEST asked for an internal error",
+    );
+
     if matches!(args.command.as_str(), "help" | "--help" | "-h") {
         arguments::out(&commands::usage());
         return ExitCode::from(0);
