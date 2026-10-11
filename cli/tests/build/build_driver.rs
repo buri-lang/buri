@@ -810,10 +810,13 @@ fn a_buri_without_a_build_id_still_caches() {
 
 /// A cargo that logs each call to `$STAND_IN_LOG` and writes
 /// `$STAND_IN_ARCHIVE` where `cargo rustc --release` puts the runtime. Without
-/// an archive it fails as cargo does offline.
+/// an archive it fails as cargo does offline. With `$STAND_IN_THEIRS`, a build
+/// first copies that cross runtime to `$STAND_IN_PUBLISH`, as another build
+/// finishing first would.
 #[cfg(target_os = "macos")]
 const STAND_IN_CARGO: &str = r#"#!/bin/sh
 echo "$1" >> "$STAND_IN_LOG"
+command=$1
 while [ $# -gt 0 ]; do
   case "$1" in
     --target) target=$2; shift ;;
@@ -822,6 +825,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 if [ -z "$STAND_IN_ARCHIVE" ]; then echo "error: no matching package named \`libc\` found" >&2; exit 101; fi
+if [ "$command" = rustc ] && [ -n "$STAND_IN_THEIRS" ]; then cp -R "$STAND_IN_THEIRS" "$STAND_IN_PUBLISH"; fi
 mkdir -p "$dir/$target/release/deps" && cp "$STAND_IN_ARCHIVE" "$dir/$target/release/deps/libburi_rt.a"
 "#;
 
@@ -879,6 +883,16 @@ fn a_cross_runtime_is_built_once_with_cargo() {
     // Both rounds of a reproducibility check link against the one runtime.
     scratch.run_with_env(&["build", "--check-reproducible", "//cmd/app"], &env).ok();
     assert_eq!(builds(), failed + 3, "a reproducibility check built the cross runtime again");
+    // Another build that publishes the runtime while this one builds it wins,
+    // and this one links against theirs.
+    let ours = entry();
+    let theirs = scratch.path("theirs").display().to_string();
+    std::fs::rename(&ours, &theirs).unwrap();
+    let ours = ours.display().to_string();
+    let racing = [env[0], env[1], env[2], env[3], env[4], ("STAND_IN_THEIRS", theirs.as_str()), ("STAND_IN_PUBLISH", ours.as_str())];
+    scratch.run_with_env(&["build", "--force", "//cmd/app"], &racing).ok();
+    assert_eq!(builds(), failed + 4, "the racing build didn't run cargo");
+    assert!(std::path::Path::new(&ours).join("libburi_rt.a").is_file(), "the published runtime is gone");
 }
 
 /// A failing native suite runs again from the runner it was linked into. One
