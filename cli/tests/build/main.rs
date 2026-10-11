@@ -17,6 +17,7 @@
 //! | [`example`] | `example/` | The worked monorepo — the largest body of Buri here — builds, tests, lints and formats clean. |
 //! | [`incrementality`] | scratch | What the cache may and may not do, read off the `--explain` transcript. |
 //! | [`hermeticity`] | scratch | That a spawn is deterministic, that a perturbed environment changes neither bytes nor verdicts, and that concurrent builds leave the cache intact. |
+//! | [`generator_failures`] | scratch | What a build says when a tool process answers nothing, dies, says too much or needs files outside the repository; tools built from each other; contracts and request types the loader refuses. |
 //! | [`generators`] | scratch | That a generated module reaches the host's native backend and its linker, and that the generator the toolchain ships is compiled once per repository. |
 //! | [`heap`] | scratch | That the heap check every suite here runs under is really on — in a `buri run` artifact and in the binary `buri test` spawns — and that a program which really leaks is really reported. |
 //! | [`host_files`] | `repositories/custom-platforms/cloudflare_kv/` | That a platform's `js` file is read for its exports however it is written, cut off or malformed, and that the module built from it still answers. |
@@ -71,6 +72,7 @@ mod closed_stdout;
 mod custom_platforms;
 mod diagnostics_paths;
 mod example;
+mod generator_failures;
 mod generators;
 mod heap;
 mod host_files;
