@@ -1,0 +1,67 @@
+from "core/testing/assert" import * as assert;
+
+fn add(a: Int, on: Bool): Int {
+    if (on) { a + 3000000000 } else { a }
+}
+
+fn subtract(a: Int, on: Bool): Int {
+    if (on) { a - 3000000001 } else { a }
+}
+
+fn divide(a: Int, on: Bool): Int {
+    if (on) { a / 3000000003 } else { a }
+}
+
+fn remainder(a: Int, on: Bool): Int {
+    if (on) { a % 3000000004 } else { a }
+}
+
+fn below(a: Int, on: Bool): Bool {
+    if (on) { a < 3000000005 } else { false }
+}
+
+fn same(a: Int, on: Bool): Bool {
+    if (on) { a == 3000000006 } else { false }
+}
+
+fn masked(a: U64, on: Bool): U64 {
+    if (on) { a & 4026531840 } else { a }
+}
+
+fn joined(a: U64, on: Bool): U64 {
+    if (on) { a | 2147483648 } else { a }
+}
+
+fn flipped(a: U64, on: Bool): U64 {
+    if (on) { a ^ 4294967295 } else { a }
+}
+
+fn unsignedAdd(a: U64, on: Bool): U64 {
+    if (on) { a + 3000000000 } else { a }
+}
+
+test "integer literals past 31 bits" {
+    assert.equal(add(1, true), 3000000001);
+    assert.equal(add(-3000000000, true), 0);
+    assert.equal(subtract(3000000001, true), 0);
+    assert.equal(subtract(1, true), -3000000000);
+    assert.equal(divide(9000000009, true), 3);
+    assert.equal(divide(-3000000003, true), -1);
+    assert.equal(remainder(3000000005, true), 1);
+    assert.equal(remainder(7, true), 7);
+    assert.isTrue(below(3000000004, true));
+    assert.isFalse(below(3000000005, true));
+    assert.isTrue(same(3000000006, true));
+    assert.isFalse(same(3000000007, true));
+}
+
+test "unsigned literals past 31 bits" {
+    assert.equal(masked(4294967295, true), 4026531840);
+    assert.equal(masked(268435455, true), 0);
+    assert.equal(joined(1, true), 2147483649);
+    assert.equal(joined(2147483648, true), 2147483648);
+    assert.equal(flipped(4294967295, true), 0);
+    assert.equal(flipped(1, true), 4294967294);
+    assert.equal(unsignedAdd(1, true), 3000000001);
+    assert.equal(unsignedAdd(1294967295, true), 4294967295);
+}
