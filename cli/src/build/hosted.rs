@@ -242,8 +242,9 @@ fn count_params(lexemes: &[Lexeme], open: usize) -> Option<(usize, usize)> {
                     commas = commas.saturating_add(1);
                 }
             }
-            _ if depth >= 1 => any = true,
-            _ => {}
+            // Inside the list: the `(` at `open` made the depth one, and the
+            // `)` that brings it back to zero returned above.
+            _ => any = true,
         }
         i = i.saturating_add(1);
     }
@@ -475,7 +476,7 @@ pub fn read(src: &str) -> Exports {
                 continue;
             }
             Token::Ident(w) if depth == 0 && w == "export" => {
-                i = export(src, &lexemes, i, &mut found);
+                i = export(src, &lexemes, i, l, &mut found);
                 continue;
             }
             _ => {}
@@ -524,9 +525,9 @@ fn program_import(lexemes: &[Lexeme], start: usize, end: usize, program: &str) -
     (parts.join(" "), named)
 }
 
-/// One `export` statement starting at `i`; answers where reading resumes.
-fn export(src: &str, lexemes: &[Lexeme], i: usize, found: &mut Exports) -> usize {
-    let Some(at) = lexemes.get(i) else { return i.saturating_add(1) };
+/// One `export` statement starting at `i`, whose keyword is `at`; answers
+/// where reading resumes.
+fn export(src: &str, lexemes: &[Lexeme], i: usize, at: &Lexeme, found: &mut Exports) -> usize {
     let word = |k: usize| match lexemes.get(k).map(|l| &l.token) {
         Some(Token::Ident(w)) => Some(w.clone()),
         _ => None,
@@ -814,12 +815,9 @@ pub fn gaps(exports: &Exports, needed: &[Needed]) -> Vec<Gap> {
 pub fn bundle(program: &str, file: &str, exports: &Exports, structs: &[String]) -> String {
     let mut body = String::new();
     let mut cursor = 0usize;
-    let mut edits = exports.edits.clone();
-    edits.sort_by_key(|Edit::Replace { start, .. }| *start);
-    for Edit::Replace { start, end, with } in &edits {
-        if *start < cursor {
-            continue;
-        }
+    // `read` walks the file once and resumes past each edit, so the edits are
+    // in file order and never overlap.
+    for Edit::Replace { start, end, with } in &exports.edits {
         body.push_str(file.get(cursor..*start).unwrap_or_default());
         body.push_str(with);
         cursor = *end;
