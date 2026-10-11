@@ -148,6 +148,14 @@ fn languages() {
     run_corpus(&tests_dir().join("repositories/languages"), "languages", 5);
 }
 
+/// What the lexer and the formatter do with source no other corpus can hold:
+/// a file that is one open comment, and numbers whose value must survive their
+/// underscores.
+#[test]
+fn syntax() {
+    run_corpus(&tests_dir().join("repositories/syntax"), "syntax", 2);
+}
+
 /// `tool` rules: every way a tool name or a tool's entry points are refused;
 /// `contract_generate` is a tool with a json contract reading typed values,
 /// `contract_errors` every way a contract is refused, `json_generate` is

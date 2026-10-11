@@ -1,0 +1,16 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an underscore may sit anywhere in a number's digits, its fraction and its exponent included, and changes nothing about the value"
+
+run {
+  args: ["run", "//cmd/numbers"]
+  exit: 0
+  golden: "run.txt"
+  stream: OUT
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}

@@ -1,0 +1,27 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a file that is one block comment never closed has no declaration to keep a region in, so buri format leaves the whole file as written and --check fails, while buri build points at where the comment opened"
+
+run {
+  args: ["format"]
+  exit: 0
+  golden: "format.txt"
+}
+
+file {
+  path: "lib/notes/lib.buri"
+  golden: "lib.buri"
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 1
+  golden: "check.txt"
+}
+
+run {
+  args: ["build", "//lib/notes"]
+  exit: 1
+  golden: "build.txt"
+}
