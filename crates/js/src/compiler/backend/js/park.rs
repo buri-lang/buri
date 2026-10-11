@@ -50,20 +50,13 @@ use crate::hash::Set as HashSet;
 /// the other seed of the same column.
 pub fn suspends(key: &str) -> bool {
     key.starts_with("host.HostFileSystem")
-        // Every `Listen` operation waits on something outside the program: a
-        // bind resolves a name, an accept waits for a client — the longest wait
-        // a program can make — and a respond writes to a socket a peer may be
-        // reading slowly. By prefix for the filesystem's reason, and because a
-        // fifth operation added here should not need an edit there to be
-        // correct. `host.HostSockets` is deliberately absent: a frame is
-        // enqueued rather than delivered, which is the whole of what
-        // `socketSendText` promises.
-        || key.starts_with("host.HostListen.")
-        // The client half of the same story, and both of its operations wait:
+        // `Listen` is absent because the checker refuses it on this backend
+        // (`effect-not-on-backend`). Both client operations wait:
         // `connectSocket` resolves a name, opens a connection and finishes a
         // handshake, and `connectReceive` is where a client sits between
-        // messages — `listenReceive`'s wait from the other end. By prefix for
-        // `HostListen`'s reason.
+        // messages. By prefix for the filesystem's reason. `host.HostSockets`
+        // is deliberately absent: a frame is enqueued rather than delivered,
+        // which is the whole of what `socketSendText` promises.
         || key.starts_with("host.HostWebSocketClient.")
         // Starting a program and waiting for it is the longest wait a process
         // can make on purpose. The effect has one method, so this is a
