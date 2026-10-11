@@ -2167,7 +2167,7 @@ where
     F: FnMut(&[u32]) -> Result<Vec<Emitted>, Diagnostics>,
 {
     let mut hits: Vec<Option<Vec<u8>>> =
-        keys.iter().map(|(_, k)| if force { None } else { cache.get(k) }).collect();
+        keys.iter().map(|(_, k)| if force { None } else { cache.get_checked(k) }).collect();
     let mut fresh = vec![false; keys.len()];
     // `keys` is in unit order, because `unit_hashes` walks `Program::units`, so
     // a position in it is the `Func::unit` the backend selects on.
@@ -2178,7 +2178,7 @@ where
     let mut failed = Vec::new();
     for (i, flight) in theirs {
         flight.wait();
-        match keys.get(i).and_then(|(_, key)| cache.get(key)) {
+        match keys.get(i).and_then(|(_, key)| cache.get_checked(key)) {
             Some(bytes) => {
                 if let Some(hit) = hits.get_mut(i) {
                     *hit = Some(bytes);
@@ -2225,7 +2225,7 @@ where
             ));
             return Err(diagnostics);
         };
-        cache.put(key, &unit.bytes);
+        cache.put_checked(key, &unit.bytes);
         if let (Some(hit), Some(fresh)) = (hits.get_mut(i), fresh.get_mut(i)) {
             *hit = Some(unit.bytes.clone());
             *fresh = true;

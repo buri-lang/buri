@@ -306,6 +306,18 @@ impl Cache {
         std::fs::read(self.path(key)).ok()
     }
 
+    /// [`Cache::get`] for an entry [`Cache::put_checked`] stored, or `None`
+    /// when its bytes are no longer the ones stored, as a crash or a full disk
+    /// can leave them. The caller then rebuilds it, as for a miss.
+    pub fn get_checked(&self, key: &ActionKey) -> Option<Vec<u8>> {
+        let path = self.path(key);
+        let bytes = std::fs::read(&path).ok()?;
+        match tag::get(&path) {
+            Some(tag) if tag != tag::of(&bytes) => None,
+            _ => Some(bytes),
+        }
+    }
+
     /// Where an entry is, when there is one, for a reader that would rather
     /// stream it than hold it.
     ///
@@ -321,9 +333,17 @@ impl Cache {
     /// lock, and for the same reason: entries arrive by `rename`, so a reader
     /// that has opened one holds that whole entry even if a concurrent writer
     /// renames another over the name.
+    ///
+    /// An entry that no longer has the length it was stored with is not there.
+    /// Only the length, so the check is one call beside the `stat`, and an
+    /// artifact of a hundred megabytes is not read.
     pub fn entry(&self, key: &ActionKey) -> Option<PathBuf> {
         let path = self.path(key);
-        path.is_file().then_some(path)
+        let len = std::fs::metadata(&path).ok().filter(std::fs::Metadata::is_file)?.len();
+        match tag::get(&path) {
+            Some(tag) if tag.get(..8) != Some(&len.to_le_bytes()[..]) => None,
+            _ => Some(path),
+        }
     }
 
     /// Stores an entry, with no lock: any number of processes and threads may
@@ -334,11 +354,24 @@ impl Cache {
     /// ([`temporary_extension`]), so two writers never share a file; the
     /// rename is atomic, and two writers of one key write the same bytes
     /// because the key names them, so whichever rename lands last is right.
+    ///
+    /// Tagged with its length, so that [`Cache::entry`] notices it cut short.
     pub fn put(&self, key: &ActionKey, data: &[u8]) {
+        self.put_tagged(key, data, &(data.len() as u64).to_le_bytes());
+    }
+
+    /// [`Cache::put`], tagged with the bytes' hash too, so that
+    /// [`Cache::get_checked`] notices them changed.
+    pub fn put_checked(&self, key: &ActionKey, data: &[u8]) {
+        self.put_tagged(key, data, &tag::of(data));
+    }
+
+    fn put_tagged(&self, key: &ActionKey, data: &[u8], tag: &[u8]) {
         let p = self.path(key);
         crate::build::create_parent(&p);
         let tmp = p.with_extension(temporary_extension());
         if std::fs::write(&tmp, data).is_ok() {
+            tag::set(&tmp, tag);
             let _ = std::fs::rename(&tmp, &p);
         }
         let _ = std::fs::remove_file(&tmp);
@@ -381,9 +414,86 @@ impl Cache {
                 true
             });
         if staged {
+            if let Ok(meta) = std::fs::metadata(&tmp) {
+                tag::set(&tmp, &meta.len().to_le_bytes());
+            }
             let _ = std::fs::rename(&tmp, &p);
         }
         let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+/// What an entry was when it was stored, kept beside its bytes as an extended
+/// attribute: its length, then, from [`Cache::put_checked`], its hash.
+///
+/// An attribute rather than a header or a second file, because the linker reads
+/// an object entry where it is (`build::link`), and a second file per entry is
+/// a second write per entry. A filesystem without extended attributes keeps no
+/// tag, and its entries are taken as they are, as they always were.
+mod tag {
+    use std::ffi::{c_char, CString};
+    use std::hash::Hasher as _;
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::path::Path;
+
+    const NAME: &std::ffi::CStr = c"user.buri.entry";
+
+    /// `bytes`' length and hash.
+    pub fn of(bytes: &[u8]) -> [u8; 16] {
+        let mut hasher = crate::hash::FxHasher::default();
+        hasher.write(bytes);
+        let mut tag = [0; 16];
+        let (len, hash) = tag.split_at_mut(8);
+        len.copy_from_slice(&(bytes.len() as u64).to_le_bytes());
+        hash.copy_from_slice(&hasher.finish().to_le_bytes());
+        tag
+    }
+
+    /// Tags the file at `path`, best effort.
+    pub fn set(path: &Path, tag: &[u8]) {
+        let Ok(path) = CString::new(path.as_os_str().as_bytes()) else { return };
+        // SAFETY: two NUL-terminated strings and a buffer of the length given.
+        unsafe {
+            setxattr(path.as_ptr(), NAME.as_ptr(), tag.as_ptr(), tag.len(), 0, 0);
+        }
+    }
+
+    /// The tag on the file at `path`, if it has one.
+    pub fn get(path: &Path) -> Option<Vec<u8>> {
+        let path = CString::new(path.as_os_str().as_bytes()).ok()?;
+        let mut tag = vec![0; 16];
+        // SAFETY: two NUL-terminated strings and a buffer of the length given.
+        let n = unsafe { getxattr(path.as_ptr(), NAME.as_ptr(), tag.as_mut_ptr(), tag.len(), 0, 0) };
+        tag.truncate(usize::try_from(n).ok()?);
+        Some(tag)
+    }
+
+    // `path`, `name`, `value`, `size`, then macOS's `position` and `options`.
+    #[cfg(target_os = "macos")]
+    unsafe extern "C" {
+        fn setxattr(path: *const c_char, name: *const c_char, value: *const u8, size: usize, at: u32, opt: i32) -> i32;
+        fn getxattr(path: *const c_char, name: *const c_char, value: *mut u8, size: usize, at: u32, opt: i32) -> isize;
+    }
+
+    #[cfg(target_os = "linux")]
+    unsafe extern "C" {
+        #[link_name = "setxattr"]
+        fn linux_setxattr(path: *const c_char, name: *const c_char, value: *const u8, size: usize, flags: i32) -> i32;
+        #[link_name = "getxattr"]
+        fn linux_getxattr(path: *const c_char, name: *const c_char, value: *mut u8, size: usize) -> isize;
+    }
+
+    /// Linux's, which take no position or options, called as macOS's are.
+    #[cfg(target_os = "linux")]
+    unsafe fn setxattr(path: *const c_char, name: *const c_char, value: *const u8, size: usize, _: u32, _: i32) -> i32 {
+        // SAFETY: the caller's arguments, passed on.
+        unsafe { linux_setxattr(path, name, value, size, 0) }
+    }
+
+    #[cfg(target_os = "linux")]
+    unsafe fn getxattr(path: *const c_char, name: *const c_char, value: *mut u8, size: usize, _: u32, _: i32) -> isize {
+        // SAFETY: the caller's arguments, passed on.
+        unsafe { linux_getxattr(path, name, value, size) }
     }
 }
 

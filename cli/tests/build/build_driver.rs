@@ -1,7 +1,8 @@
 //! What `buri build` does around the compiler: checking a native artifact
 //! is reproducible, refusing an output this machine can't build, writing an
-//! artifact where something is in the way, the C driver and linker a link
-//! runs through, and the program store macOS runs test runners from.
+//! artifact where something is in the way, a cache that rotted, the C driver
+//! and linker a link runs through, and the program store macOS runs test
+//! runners from.
 use crate::harness::*;
 
 const NATIVE_MAIN: &str = r#"from "core/io" import * as io;
@@ -108,6 +109,61 @@ fn a_cache_lock_a_crashed_build_left_is_taken() {
     scratch.run(&["build", "--explain", "//cmd/app"]).ok().says("run    link //cmd/app node");
     // A build that waited the lock out goes on without taking it.
     assert!(!lock.exists(), "the stale lock is still there");
+}
+
+/// Every entry in the cache cut to half its length, as a crash or a full disk
+/// can leave it: the next build rebuilds what it needs, and the program runs.
+#[test]
+fn a_truncated_cache_is_rebuilt_without_a_clean() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    scratch.run(&["build", "//cmd/app"]).ok();
+    let entries = cache_entries(&scratch);
+    assert!(!entries.is_empty(), "the build cached nothing");
+    for entry in &entries {
+        let file = std::fs::File::options().write(true).open(entry).unwrap();
+        file.set_len(file.metadata().unwrap().len() / 2).unwrap();
+    }
+    scratch.run(&["build", "//cmd/app"]).ok();
+    scratch.run(&["run", "//cmd/app"]).ok().says("native");
+}
+
+/// Every object file in the cache overwritten with zeros, its length kept:
+/// a build after an edit compiles those units again rather than linking the
+/// zeros.
+#[test]
+fn a_cached_object_overwritten_in_place_is_compiled_again() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    scratch.run(&["build", "//cmd/app"]).ok();
+    let mut zeroed = 0;
+    for entry in cache_entries(&scratch) {
+        let bytes = std::fs::read(&entry).unwrap();
+        if is_relocatable_object(&bytes) {
+            std::fs::write(&entry, vec![0; bytes.len()]).unwrap();
+            zeroed += 1;
+        }
+    }
+    assert!(zeroed > 0, "the cache holds no object files");
+    scratch.edit("cmd/app/main.buri", "ctx, \"native\"", "ctx, \"edited\"");
+    scratch.run(&["build", "//cmd/app"]).ok();
+    scratch.run(&["run", "//cmd/app"]).ok().says("edited");
+}
+
+/// The files under `.buri/cache`'s two-character directories, which is where
+/// its entries are.
+fn cache_entries(scratch: &Scratch) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    for dir in std::fs::read_dir(scratch.path(".buri/cache")).unwrap().flatten() {
+        let Ok(entries) = std::fs::read_dir(dir.path()) else { continue };
+        out.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_file()));
+    }
+    out
+}
+
+/// A Mach-O or ELF object file, not yet linked.
+fn is_relocatable_object(bytes: &[u8]) -> bool {
+    let at = |range: std::ops::Range<usize>| bytes.get(range).unwrap_or_default();
+    (at(0..4) == [0xcf, 0xfa, 0xed, 0xfe] && at(12..16) == [1, 0, 0, 0])
+        || (at(0..4) == *b"\x7fELF" && at(16..18) == [1, 0])
 }
 
 /// `CC` names the C driver the link runs through, by name on `PATH` or by

@@ -10,7 +10,7 @@
 //! | [`repositories`] | `repositories/` | One repository per build-system rule, each with a manifest of what the CLI does in it and the output that produces. |
 //! | [`diagnostics_paths`] | scratch | That the JSON an editor sends is read as written, a source too big to hold is refused, a long line of wide characters is cut between them, and a damaged build record is passed over. |
 //! | [`custom_platforms`] | `repositories/custom-platforms/` | That a repository platform's artifact answers when the host it was written for calls it, and that editing its `js` file rebuilds it. |
-//! | [`build_driver`] | scratch | What `buri build` does around the compiler: `--check-reproducible` on a native artifact, an output this machine can't build, an artifact path something else holds, the C driver and linker a link runs through, and the macOS program store. |
+//! | [`build_driver`] | scratch | What `buri build` does around the compiler: `--check-reproducible` on a native artifact, an output this machine can't build, an artifact path something else holds, a cache that rotted, the C driver and linker a link runs through, and the macOS program store. |
 //! | [`build_rules`] | scratch | The build graph's rarer shapes — misplaced platform rules, imports that name no module, outputs that collide — and what `gen` leaves alone or keeps from an unsaved editor buffer. |
 //! | [`closed_stdout`] | `example/` | That a reader leaving early, as `head -1` does, ends every command by `SIGPIPE`, quietly, and that a pipe left open prints what a file would. |
 //! | [`example`] | `example/` | The worked monorepo — the largest body of Buri here — builds, tests, lints and formats clean. |
