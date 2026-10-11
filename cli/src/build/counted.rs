@@ -35,7 +35,10 @@ pub enum Count {
     TestProcesses,
 }
 
-const NAMES: [&str; 8] = [
+/// One past the last `Count`, so the tables below have a slot for each.
+const COUNTS_LEN: usize = Count::TestProcesses as usize + 1;
+
+const NAMES: [&str; COUNTS_LEN] = [
     "suites built",
     "suites restored",
     "suites reused",
@@ -46,16 +49,15 @@ const NAMES: [&str; 8] = [
     "test processes",
 ];
 
-static COUNTS: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
+static COUNTS: [AtomicU64; COUNTS_LEN] = [const { AtomicU64::new(0) }; COUNTS_LEN];
 
 /// Executables this run wrote as new files and has not started yet.
 static FRESH: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
+#[expect(clippy::indexing_slicing, reason = "`COUNTS` is `COUNTS_LEN` long, one slot per `Count`")]
 pub fn add(count: Count) {
     if crate::profile::enabled() {
-        if let Some(n) = COUNTS.get(count as usize) {
-            n.fetch_add(1, Relaxed);
-        }
+        COUNTS[count as usize].fetch_add(1, Relaxed);
     }
 }
 
