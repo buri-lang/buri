@@ -180,10 +180,9 @@ impl<'p> Rows<'p> {
         self.len == 0
     }
 
+    /// Row `at`. Every caller asks for a row below `len`, and `cells` holds
+    /// exactly `len` rows, so the cells alone bound it.
     fn get(&self, at: usize) -> Option<&[&'p Pat]> {
-        if at >= self.len {
-            return None;
-        }
         let start = at.checked_mul(self.width)?;
         self.cells.get(start..start.checked_add(self.width)?)
     }
@@ -210,10 +209,8 @@ impl<'p> Rows<'p> {
     }
 
     fn truncate(&mut self, len: usize) {
-        if len < self.len {
-            self.cells.truncate(len.saturating_mul(self.width));
-            self.len = len;
-        }
+        self.len = self.len.min(len);
+        self.cells.truncate(self.len.saturating_mul(self.width));
     }
 
     /// The first `k` rows, as rows of their own.
@@ -490,17 +487,15 @@ impl<'p> Matrix<'p> {
     /// A guarded arm covers nothing, so its rows come out again once its own
     /// alternatives have been asked about each other. Rebuilding the index is
     /// the whole cost, and only a guarded arm with an alternation pays it.
+    ///
+    /// Only the reachability loop's matrix is truncated, and always below its
+    /// length: a guarded arm with an alternation pushed a row for each.
     fn truncate(&mut self, len: usize) {
-        if len >= self.rows.len() {
-            return;
-        }
         self.rows.truncate(len);
         if self.index.is_some() {
             self.build_index();
         }
-        if let Some(memo) = &self.memo {
-            memo.borrow_mut().clear();
-        }
+        self.memo.as_ref().or_ice("the reachability loop's matrix memoizes").borrow_mut().clear();
     }
 
     fn build_index(&mut self) {
@@ -891,7 +886,7 @@ impl<'a> Ctx<'a> {
 /// where `specialize` distributes it, and is not reported branch by branch.
 fn alternatives_of(p: &Pattern, out: &mut Vec<(Span, Pat)>) {
     match &p.kind {
-        PatKind::Or(alts) if !alts.is_empty() => {
+        PatKind::Or(alts) => {
             for a in alts {
                 alternatives_of(a, out);
             }
@@ -921,7 +916,7 @@ fn plainly_covered(
     }
     #[derive(Clone, Copy, PartialEq)]
     enum Of {
-        Enum(TyConId, usize),
+        Enum(TyConId),
         Bool,
         Literal,
     }
@@ -937,8 +932,8 @@ fn plainly_covered(
         let key = match (&p.kind, of) {
             (PatKind::Wild | PatKind::Bind { sub: None, .. }, _) => return Some(None),
             (PatKind::Bind { sub: Some(s), .. }, _) => return head(s, of),
-            (PatKind::Variant { con, variant, fields }, Of::Enum(e, n))
-                if *con == e && *variant < n && fields.iter().all(|f| names_only(&f.pattern)) =>
+            (PatKind::Variant { con, variant, fields }, Of::Enum(e))
+                if *con == e && fields.iter().all(|f| names_only(&f.pattern)) =>
             {
                 Key::Variant(*variant)
             }
@@ -955,7 +950,7 @@ fn plainly_covered(
 
     let TyKind::Con(con, _) = scrutinee.kind() else { return false };
     let (of, finite) = match &tables.tycon(*con).def {
-        TyDef::Enum { variants } => (Of::Enum(*con, variants.len()), Some(variants.len())),
+        TyDef::Enum { variants } => (Of::Enum(*con), Some(variants.len())),
         TyDef::Prim(Prim::Bool) => (Of::Bool, Some(2)),
         TyDef::Prim(_) => (Of::Literal, None),
         TyDef::Struct { .. } => return false,

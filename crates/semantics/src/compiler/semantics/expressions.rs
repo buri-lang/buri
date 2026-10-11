@@ -477,7 +477,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if !self.may_build_context() {
                     self.templated("misplaced-context", span);
                 }
-                self.check_context_body(body, span)
+                self.check_context_body(body, span).0
             }
             V::Lambda { params, ret, body, span } => {
                 self.check_lambda(params, ret, body, span, expected)
@@ -3286,11 +3286,12 @@ impl<'a, 'b> Infer<'a, 'b> {
         )
     }
 
+    /// A `context { ... }` body, and the context type it builds.
     pub(crate) fn check_context_body(
         &mut self,
         body: CtxBodyId,
         span: Span,
-    ) -> typed::Expr {
+    ) -> (typed::Expr, CtxTypeId) {
         let mut bindings: Vec<(TraitId, typed::Expr)> = Vec::new();
         // The effects bound explicitly here, as opposed to inherited from a
         // spread.
@@ -3411,7 +3412,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             bindings: bindings.iter().map(|(t, e)| (*t, self.subst.resolve(&e.ty))).collect(),
         };
         let id = self.c.tables.intern_ctx_type(ctx_ty);
-        typed::Expr::new(typed::ExprKind::CtxLit { bindings }, Ty::ctx(id), span)
+        (typed::Expr::new(typed::ExprKind::CtxLit { bindings }, Ty::ctx(id), span), id)
     }
 
     /// The effect a loaded module exports under `name`, and the path a file
@@ -3504,40 +3505,38 @@ fn signature_of_fn(c: &Checker, id: FnId) -> String {
 
 /// What a tuple struct's constructor takes, as a caller has to write it.
 ///
-/// The declaration's own syntax where there is some, through the printer
-/// `buri docs` and the language server's hover already use; the table where
-/// there is none.
+/// The declaration's own syntax, through the printer `buri docs` and the
+/// language server's hover already use.
 fn shape_of_struct(c: &Checker, con: TyConId) -> String {
     let info = c.tables.tycon(con);
-    let declared = c.module(info.module).ast.items.iter().find_map(|item| match item {
-        tree::Item::Struct(d) if d.name.span == info.span => {
-            crate::formatting::constructor(c.tree(info.module), d)
-        }
-        _ => None,
-    });
-    declared.unwrap_or_else(|| {
-        let record = matches!(info.def, TyDef::Struct { record: true, .. });
-        constructor_shape(&c.tables, &info.name, &info.generics, info.fields(), record)
-    })
+    c.module(info.module)
+        .ast
+        .items
+        .iter()
+        .find_map(|item| match item {
+            tree::Item::Struct(d) if d.name.span == info.span => {
+                crate::formatting::constructor(c.tree(info.module), d)
+            }
+            _ => None,
+        })
+        .or_ice("a tuple struct is declared in its module, and its body is that declaration's")
 }
 
 /// The same for one variant of an enum, whose declaration is the enum's.
 fn shape_of_variant(c: &Checker, con: TyConId, index: usize) -> String {
     let info = c.tables.tycon(con);
-    let declared = c.module(info.module).ast.items.iter().find_map(|item| match item {
-        tree::Item::Enum(d) if d.name.span == info.span => c
-            .tree(info.module).list(d.variants)
-            .get(index)
-            .map(|v| crate::formatting::variant(c.tree(info.module), v)),
-        _ => None,
-    });
-    match (declared, info.variants().get(index)) {
-        (Some(shape), _) => shape,
-        (None, Some(v)) => {
-            constructor_shape(&c.tables, &v.name, &info.generics, &v.fields, v.record)
-        }
-        (None, None) => info.name.clone(),
-    }
+    c.module(info.module)
+        .ast
+        .items
+        .iter()
+        .find_map(|item| match item {
+            tree::Item::Enum(d) if d.name.span == info.span => c
+                .tree(info.module).list(d.variants)
+                .get(index)
+                .map(|v| crate::formatting::variant(c.tree(info.module), v)),
+            _ => None,
+        })
+        .or_ice("an enum is declared in its module, and its variants are that declaration's")
 }
 
 /// The same for a method reached through a bound, whose declaration is the

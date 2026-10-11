@@ -1459,9 +1459,12 @@ impl<'a> Checker<'a> {
                         );
                     }
                     tree::Item::Fn(d) => {
-                        let Some(sym) = self.scope(id).own.get(t.name(d.name)).cloned() else {
-                            continue;
-                        };
+                        let sym = self
+                            .scope(id)
+                            .own
+                            .get(t.name(d.name))
+                            .cloned()
+                            .or_ice("`collect_declarations` declared every function under its name");
                         let fid = match sym {
                             Sym::Fn(f) => f,
                             Sym::Overloaded(fs) => {
@@ -1551,9 +1554,7 @@ impl<'a> Checker<'a> {
     /// which is exactly the half it used to see.
     fn check_ctx_rules(&mut self) {
         for pending in std::mem::take(&mut self.pending_ctx_rules) {
-            let Some((params, generics)) = self.ctx_rule_signature(pending) else {
-                continue;
-            };
+            let (params, generics) = self.ctx_rule_signature(pending);
             // Whether there is anything to say is decided from a borrow; only
             // saying it needs owned copies. This runs once per signature in
             // the program, the standard library included, and the answer is
@@ -1571,25 +1572,23 @@ impl<'a> Checker<'a> {
 
     /// The two things rule 26 reads, wherever the signature was written.
     ///
-    /// The slot of a `Signature` is minted from the very list it indexes, so
-    /// today it cannot miss; the lookup is total anyway rather than an `ice`,
-    /// because a later pass that rewrote a trait's methods would otherwise
-    /// turn a stale slot into a crash instead of a skipped check.
-    fn ctx_rule_signature(
-        &self,
-        pending: PendingCtxRule,
-    ) -> Option<(&[ParamInfo], &[GenericInfo])> {
+    /// The slot of a `Signature` is minted from the list it indexes, which
+    /// only the trait's own declaration writes, once.
+    fn ctx_rule_signature(&self, pending: PendingCtxRule) -> (&[ParamInfo], &[GenericInfo]) {
         match pending {
             PendingCtxRule::Free(fid, _, _) | PendingCtxRule::Method(fid) => {
                 let info = self.tables.fn_info(fid);
-                Some((&info.params, &info.generics))
+                (&info.params, &info.generics)
             }
-            PendingCtxRule::Signature(trait_id, slot) => self
-                .tables
-                .trait_(trait_id)
-                .methods
-                .get(slot)
-                .map(|m| (m.params.as_slice(), m.generics.as_slice())),
+            PendingCtxRule::Signature(trait_id, slot) => {
+                let m = self
+                    .tables
+                    .trait_(trait_id)
+                    .methods
+                    .get(slot)
+                    .or_ice("a trait's slots are minted from the methods its declaration wrote");
+                (m.params.as_slice(), m.generics.as_slice())
+            }
         }
     }
 
@@ -1610,7 +1609,7 @@ impl<'a> Checker<'a> {
             self.entry = Some(fid);
         }
         let Some(tree::Item::Fn(d)) = self.module(module).ast.items.get(item as usize) else {
-            return;
+            crate::ice!("a free function's rule is recorded with its own `fn` item");
         };
         let d = d.clone();
         // Asked of every output the binary declares, not of the one being
@@ -1754,19 +1753,19 @@ impl<'a> Checker<'a> {
     /// function leaves the function it *did* name an ordinary one, which may
     /// then not build a context.
     fn check_declared_entries(&mut self) {
-        let entry_modules: Vec<ModuleId> = (0..self.loaded.modules.len() as u32)
+        let Some(ws) = self.ws else { return };
+        let entry_modules: Vec<(ModuleId, PackageId)> = (0..self.loaded.modules.len() as u32)
             .map(ModuleId)
-            .filter(|m| self.module(*m).role == Role::Entry && self.module(*m).pkg.is_some())
+            .filter(|m| self.module(*m).role == Role::Entry)
+            .filter_map(|m| Some((m, self.module(m).pkg?)))
             .collect();
-        for module in entry_modules {
-            self.check_declared_entries_of(module);
+        for (module, pkg) in entry_modules {
+            self.check_declared_entries_of(ws, module, pkg);
         }
     }
 
     /// [`Checker::check_declared_entries`] for one binary's entry module.
-    fn check_declared_entries_of(&mut self, module: ModuleId) {
-        let Some(ws) = self.ws else { return };
-        let Some(pkg) = self.module(module).pkg else { return };
+    fn check_declared_entries_of(&mut self, ws: &'a dyn Packages, module: ModuleId, pkg: PackageId) {
         let target = TargetId { package: pkg, kind: RuleKind::Binary };
         let own = self.module_entries.get(&module);
         let mut exported: Vec<String> = own.map(|m| m.keys().cloned().collect()).unwrap_or_default();
@@ -2655,11 +2654,13 @@ impl<'a> Checker<'a> {
 
         // An `impl` may appear only in the defining module of its type.
         let owner = self.tables.tycon(self_con).module;
-        let is_prim = match self.tables.tycon(self_con).def {
+        // A primitive's owner is the synthetic module, and its `impl` belongs
+        // in the module that defines it.
+        let at_home = match self.tables.tycon(self_con).def {
             TyDef::Prim(p) => standard_library::defining_module(p) == self.module(module).path,
-            _ => false,
+            _ => owner == module,
         };
-        if owner != module && !is_prim {
+        if !at_home {
             let name = self.tables.tycon(self_con).name.clone();
             let at = self.tree(module).type_span(d.self_ty);
             self.templated("impl-outside-type-module", at)
@@ -2743,7 +2744,9 @@ impl<'a> Checker<'a> {
         let mut supplied = vec![None; trait_methods.len()];
         for (sub, method) in self.tree(module).list(d.methods).iter().enumerate() {
             let mname = self.name_text(module, method.name);
-            let Some(slot) = trait_methods.iter().position(|m| m.name == mname) else {
+            let Some((slot, (cell, declared))) =
+                supplied.iter_mut().zip(&trait_methods).enumerate().find(|(_, (_, m))| m.name == mname)
+            else {
                 let t = self.tables.trait_(trait_id).name.clone();
                 let n = mname.to_string();
                 self.templated("impl-unknown-method", method.name.span)
@@ -2761,8 +2764,6 @@ impl<'a> Checker<'a> {
             // asked before. A caller reaching this method through a bound is
             // typechecked against the *trait's* declaration, so a disagreement
             // here is a promise the body does not keep.
-            let declared =
-                trait_methods.get(slot).or_ice("`slot` is a position in `trait_methods`");
             self.check_impl_signature(
                 trait_id,
                 declared,
@@ -2793,9 +2794,7 @@ impl<'a> Checker<'a> {
             self.pending_ctx_rules.push(PendingCtxRule::Method(fid));
             // A method supplied twice is reported by `register_method` below,
             // as `duplicate-method`, the way one declared twice anywhere is.
-            if let Some(cell) = supplied.get_mut(slot) {
-                *cell = Some(fid);
-            }
+            *cell = Some(fid);
             self.register_method(self_con, mname, fid, method.name.span);
         }
 
