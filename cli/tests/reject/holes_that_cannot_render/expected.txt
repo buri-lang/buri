@@ -5,7 +5,7 @@ error: `T` cannot be interpolated [not-interpolatable]
    |                              ^
    |
    = a hole holds a primitive — `Int`, `Float`, `Bool`, `Char`, `Str` — or a value whose `Show` is derived
-   = fix: render it first, for instance with `.show(ctx)`
+   = fix: give `T` a `Show` bound, as in `T: Show`, and call it in the hole, as in `${x.show(ctx)}`
 
      Add derive Show for Point; to Point's own module and this compiles,
      printing what p.show(ctx) produces.
@@ -25,7 +25,7 @@ error: `()` cannot be interpolated [not-interpolatable]
    |                              ^
    |
    = a hole holds a primitive — `Int`, `Float`, `Bool`, `Char`, `Str` — or a value whose `Show` is derived
-   = fix: render it first, for instance with `.show(ctx)`
+   = fix: drop the hole: there's nothing in it to show
 error: `a context` cannot be interpolated [not-interpolatable]
   --> cmd/holes_that_cannot_render/main.buri:34:35
    |
@@ -33,7 +33,7 @@ error: `a context` cannot be interpolated [not-interpolatable]
    |                                   ^^^
    |
    = a hole holds a primitive — `Int`, `Float`, `Bool`, `Char`, `Str` — or a value whose `Show` is derived
-   = fix: render it first, for instance with `.show(ctx)`
+   = fix: drop the hole: there's nothing in it to show
 error: `Reading` cannot be interpolated [not-interpolatable]
   --> cmd/holes_that_cannot_render/main.buri:34:42
    |
