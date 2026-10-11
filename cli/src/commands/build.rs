@@ -515,12 +515,11 @@ fn check_native(
                 return Err(1);
             }
         };
-        let written = round_dir.join(package_path).join(artifact);
-        if let Some(parent) = written.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                eprintln!("error: cannot write {}: {e}", written.display());
-                return Err(2);
-            }
+        let into = round_dir.join(package_path);
+        let written = into.join(artifact);
+        if let Err(e) = std::fs::create_dir_all(&into) {
+            eprintln!("error: cannot write {}: {e}", written.display());
+            return Err(2);
         }
         let prefix = session.workspace.package(target.package).path.clone();
         let opts = crate::compiler::backend::LinkOptions {
