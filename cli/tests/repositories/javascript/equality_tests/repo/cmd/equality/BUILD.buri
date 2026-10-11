@@ -1,3 +1,5 @@
 binary {
-  outputs: [{ platform: "node" }]
+    outputs: [
+        { platform: "node" },
+    ]
 }
