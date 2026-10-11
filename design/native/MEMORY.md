@@ -1146,10 +1146,11 @@ the one property the module has: that the numbers agree.
 
 ## 8. Under Valgrind
 
-Two workflows run compiled programs and the runtime's tests under Valgrind twice
-a day, and file each distinct error as an issue labelled `planned` and
-`urgent`: `memcheck.yml` for memory errors and `races.yml` for data races and
-lock-order inversions. cli/tests/README.md, "Valgrind", says how to run them.
+Two workflows run compiled programs and the runtime's tests under Valgrind on
+every commit to main and every pull request, and file each distinct error as an
+issue labelled `planned` and `urgent`: `memcheck.yml` for memory errors and
+`races.yml` for data races and lock-order inversions. cli/tests/README.md,
+"Valgrind", says how to run them.
 
 ### Memcheck
 
