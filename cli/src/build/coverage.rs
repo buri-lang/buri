@@ -318,14 +318,18 @@ fn render(tree: &coverage::Tree, conditions: &[String], next: &mut usize) -> (St
 fn counts(raw: &Path) -> HashMap<u64, u64> {
     let mut counts: HashMap<u64, u64> = HashMap::new();
     for text in std::fs::read_dir(raw).into_iter().flatten().flatten().filter_map(|e| std::fs::read_to_string(e.path()).ok()) {
-        for line in text.lines() {
-            let Some((key, count)) = line.split_once(' ') else { continue };
-            let (Ok(key), Ok(count)) = (key.parse::<u64>(), count.parse::<u64>()) else { continue };
+        for (key, count) in text.lines().filter_map(record) {
             let n = counts.entry(key).or_insert(0);
             *n = n.saturating_add(count);
         }
     }
     counts
+}
+
+/// A `key count` line, or `None` for one a process cut short.
+fn record(line: &str) -> Option<(u64, u64)> {
+    let (key, count) = line.split_once(' ')?;
+    Some((key.parse().ok()?, count.parse().ok()?))
 }
 
 /// One file's report.
