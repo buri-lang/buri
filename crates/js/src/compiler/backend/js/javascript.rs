@@ -3044,13 +3044,34 @@ impl std::hash::Hash for FuncKey<'_> {
 
 impl PartialEq for FuncKey<'_> {
     fn eq(&self, other: &Self) -> bool {
+        let encoded = |body: &[Stmt]| {
+            let mut e = Encoding::default();
+            hash_stmts(body, &mut e);
+            e.0
+        };
         self.params == other.params
             && self.is_async == other.is_async
-            && same_stmts(self.body, other.body)
+            && encoded(self.body) == encoded(other.body)
     }
 }
 
 impl Eq for FuncKey<'_> {}
+
+/// A `Hasher` that keeps every byte it is fed. `hash_stmts` writes each node's
+/// discriminant and every field, lengths first, so two bodies feed it the same
+/// bytes exactly when their trees are the same.
+#[derive(Default)]
+struct Encoding(Vec<u8>);
+
+impl std::hash::Hasher for Encoding {
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.extend_from_slice(bytes);
+    }
+
+    fn finish(&self) -> u64 {
+        0
+    }
+}
 
 /// A number's bits, with every `NaN` the same one.
 fn num_bits(n: f64) -> u64 {
@@ -3101,7 +3122,10 @@ fn hash_stmt<H: std::hash::Hasher>(s: &Stmt, h: &mut H) {
         Stmt::Expr(e) | Stmt::Throw(e) | Stmt::ExportDefault(e) => hash_expr(e, h),
         Stmt::Block(body) => hash_stmts(body, h),
         Stmt::Raw(src) => src.hash(h),
-        Stmt::RawDecl(decl) => decl.name.hash(h),
+        Stmt::RawDecl(decl) => {
+            decl.name.hash(h);
+            decl.src.hash(h);
+        }
         Stmt::Break | Stmt::Continue => {}
     }
 }
@@ -3176,108 +3200,6 @@ fn hash_expr<H: std::hash::Hasher>(e: &Expr, h: &mut H) {
             hash_stmts(body, h);
         }
         Expr::Await(x) | Expr::Spread(x) => hash_expr(x, h),
-    }
-}
-
-fn same_stmts(a: &[Stmt], b: &[Stmt]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| same_stmt(x, y))
-}
-
-fn same_opt(a: Option<&Expr>, b: Option<&Expr>) -> bool {
-    match (a, b) {
-        (Some(a), Some(b)) => same_expr(a, b),
-        (None, None) => true,
-        _ => false,
-    }
-}
-
-fn same_stmt(a: &Stmt, b: &Stmt) -> bool {
-    match (a, b) {
-        (
-            Stmt::Var { kind: k1, name: n1, init: i1 },
-            Stmt::Var { kind: k2, name: n2, init: i2 },
-        ) => k1 == k2 && n1 == n2 && same_opt(i1.as_ref(), i2.as_ref()),
-        (
-            Stmt::Func { name: n1, params: p1, body: b1, is_async: a1 },
-            Stmt::Func { name: n2, params: p2, body: b2, is_async: a2 },
-        ) => n1 == n2 && p1 == p2 && a1 == a2 && same_stmts(b1, b2),
-        (Stmt::Return(x), Stmt::Return(y)) => same_opt(x.as_ref(), y.as_ref()),
-        (
-            Stmt::If { cond: c1, then: t1, else_: e1 },
-            Stmt::If { cond: c2, then: t2, else_: e2 },
-        ) => same_expr(c1, c2) && same_stmts(t1, t2) && same_stmts(e1, e2),
-        (Stmt::While { cond: c1, body: b1 }, Stmt::While { cond: c2, body: b2 }) => {
-            same_expr(c1, c2) && same_stmts(b1, b2)
-        }
-        (Stmt::Switch { disc: d1, cases: c1 }, Stmt::Switch { disc: d2, cases: c2 }) => {
-            same_expr(d1, d2)
-                && c1.len() == c2.len()
-                && c1.iter().zip(c2).all(|((l1, b1), (l2, b2))| {
-                    same_opt(l1.as_ref(), l2.as_ref()) && same_stmts(b1, b2)
-                })
-        }
-        (Stmt::Expr(x), Stmt::Expr(y))
-        | (Stmt::Throw(x), Stmt::Throw(y))
-        | (Stmt::ExportDefault(x), Stmt::ExportDefault(y)) => same_expr(x, y),
-        (Stmt::Block(x), Stmt::Block(y)) => same_stmts(x, y),
-        (Stmt::Raw(x), Stmt::Raw(y)) => x == y,
-        (Stmt::RawDecl(x), Stmt::RawDecl(y)) => x.name == y.name && x.src == y.src,
-        (Stmt::Break, Stmt::Break) | (Stmt::Continue, Stmt::Continue) => true,
-        _ => false,
-    }
-}
-
-fn same_exprs(a: &[Expr], b: &[Expr]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| same_expr(x, y))
-}
-
-fn same_expr(a: &Expr, b: &Expr) -> bool {
-    match (a, b) {
-        (Expr::Num(x), Expr::Num(y)) => num_bits(*x) == num_bits(*y),
-        (Expr::BigInt(x), Expr::BigInt(y))
-        | (Expr::Str(x), Expr::Str(y))
-        | (Expr::Ident(x), Expr::Ident(y)) => x == y,
-        (Expr::Bool(x), Expr::Bool(y)) => x == y,
-        (Expr::Null, Expr::Null) | (Expr::Undefined, Expr::Undefined) => true,
-        (Expr::Array(x), Expr::Array(y)) | (Expr::Seq(x), Expr::Seq(y)) => same_exprs(x, y),
-        (Expr::Object(x), Expr::Object(y)) => {
-            x.len() == y.len()
-                && x.iter().zip(y).all(|((k1, v1), (k2, v2))| k1 == k2 && same_expr(v1, v2))
-        }
-        (Expr::Member { obj: o1, prop: p1 }, Expr::Member { obj: o2, prop: p2 }) => {
-            p1 == p2 && same_expr(o1, o2)
-        }
-        (Expr::Index { obj: a1, index: b1 }, Expr::Index { obj: a2, index: b2 })
-        | (Expr::Assign { target: a1, value: b1 }, Expr::Assign { target: a2, value: b2 }) => {
-            same_expr(a1, a2) && same_expr(b1, b2)
-        }
-        (Expr::Call { callee: c1, args: x }, Expr::Call { callee: c2, args: y })
-        | (Expr::New { callee: c1, args: x }, Expr::New { callee: c2, args: y }) => {
-            same_expr(c1, c2) && same_exprs(x, y)
-        }
-        (Expr::Unary { op: o1, operand: x }, Expr::Unary { op: o2, operand: y }) => {
-            o1 == o2 && same_expr(x, y)
-        }
-        (
-            Expr::Binary { op: o1, lhs: l1, rhs: r1 },
-            Expr::Binary { op: o2, lhs: l2, rhs: r2 },
-        ) => o1 == o2 && same_expr(l1, l2) && same_expr(r1, r2),
-        (
-            Expr::Cond { test: t1, cons: c1, alt: a1 },
-            Expr::Cond { test: t2, cons: c2, alt: a2 },
-        ) => same_expr(t1, t2) && same_expr(c1, c2) && same_expr(a1, a2),
-        (
-            Expr::Arrow { params: p1, body: b1, is_async: a1 },
-            Expr::Arrow { params: p2, body: b2, is_async: a2 },
-        ) => p1 == p2 && a1 == a2 && same_expr(b1, b2),
-        (
-            Expr::ArrowBlock { params: p1, body: b1, is_async: a1 },
-            Expr::ArrowBlock { params: p2, body: b2, is_async: a2 },
-        ) => p1 == p2 && a1 == a2 && same_stmts(b1, b2),
-        (Expr::Await(x), Expr::Await(y)) | (Expr::Spread(x), Expr::Spread(y)) => {
-            same_expr(x, y)
-        }
-        _ => false,
     }
 }
 
