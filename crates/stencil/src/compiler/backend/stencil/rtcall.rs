@@ -121,8 +121,6 @@ pub(crate) struct Leaf {
 pub(crate) enum Src {
     /// The word at a frame offset, already whole.
     Word(u32),
-    /// A narrow field of an aggregate, zero-extended into the register.
-    Narrow(u32, u32),
     /// A literal.
     Imm(u64),
     /// The address of a frame offset.
@@ -222,14 +220,13 @@ impl Jit<'_> {
             if extra == Extra::Press && i + 1 == args.len() {
                 continue;
             }
+            // An integer leaf is a whole word (`leaves`).
             for leaf in self.leaves(prog, t)? {
                 let at = slot + leaf.offset;
                 if leaf.float {
                     floats.push(Src::Word(at));
-                } else if leaf.width == 8 {
-                    ints.push(Src::Word(at));
                 } else {
-                    ints.push(Src::Narrow(at, leaf.width));
+                    ints.push(Src::Word(at));
                 }
             }
         }
@@ -313,12 +310,11 @@ impl Jit<'_> {
             let base = st.scratch + CARG_WORD * 8;
             for (srcs, at) in [(&mut ints, base), (&mut floats, base + MAX_INT as u32 * 8)] {
                 for (i, src) in srcs.iter_mut().enumerate() {
-                    let (from, width) = match *src {
-                        Src::Word(from) => (from, 8),
-                        Src::Narrow(from, width) => (from, width),
+                    let from = match *src {
+                        Src::Word(from) => from,
                         _ => continue,
                     };
-                    if from < end && dslot < from + width {
+                    if from < end && dslot < from + 8 {
                         let to = at + i as u32 * 8;
                         self.marshal(to, src);
                         *src = Src::Word(to);
@@ -334,13 +330,11 @@ impl Jit<'_> {
                 Some(o)
             }
             Ret::Out => {
+                // Every `Ret::Out` row answers a `Str` or a list, which has
+                // bytes to write.
                 let width = self.width_of(prog, dty);
-                // A zero-sized result has no bytes to write, and a parameter
-                // for one is a thing the two sides can disagree about for free.
-                if width > 0 {
-                    self.clear_slot(dslot, width);
-                    ints.push(Src::Addr(dslot));
-                }
+                self.clear_slot(dslot, width);
+                ints.push(Src::Addr(dslot));
                 None
             }
             Ret::Void | Ret::NoReturn | Ret::Scalar | Ret::Int(_) | Ret::Res | Ret::ResMsg => None,
@@ -374,7 +368,8 @@ impl Jit<'_> {
                     self.result_shape(prog, dty).or_ice("a `Ret::Res` row answers a `Result`");
                 let err_l = self.layouts_of(err_ty);
                 let ok_bytes = self.ok_payload_bytes(prog, dty, ok);
-                if !l.variant(ok).is_empty() && ok_bytes > 0 {
+                // A payload with bytes is a field of the `Ok` variant.
+                if ok_bytes > 0 {
                     ints.push(Src::Addr(dslot + super::lists::payload_at(&l, ok)));
                 }
                 // `E`'s own shape, as one question: an enum error is named by
@@ -759,7 +754,6 @@ impl Jit<'_> {
     pub(crate) fn marshal(&mut self, at: u32, src: &Src) {
         match src.clone() {
             Src::Word(from) => self.mv(at, from, 8),
-            Src::Narrow(from, w) => self.load_w(at, from, w),
             Src::Imm(v) => self.imm_to(at, v),
             Src::Sym(name) => self.emit(
                 "imm/64",
