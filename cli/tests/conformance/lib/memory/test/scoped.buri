@@ -574,7 +574,7 @@ test "a scope forwards tasks" {
 test "a scope forwards sockets" {
     let ctx = context {
         Allocator: alloc.generalPurpose(),
-        Sockets: Quiet { },
+        Sockets: Quiet {},
     };
     assert.equal(alloc.scoped(ctx, fn(c) => pushed(c)), 1);
 }

@@ -1902,7 +1902,7 @@ impl<'t> Build<'t> {
     fn name_list(&mut self, head: &str, specs: &[ImportSpec]) -> Doc<'t> {
         let names = spec_list(self.tree(), specs);
         if names.is_empty() {
-            return text(format!("{head} {{  }};"));
+            return text(format!("{head} {{}};"));
         }
         group(cat(vec![
             text(format!("{head} {{")),
@@ -2325,7 +2325,7 @@ impl<'t> Build<'t> {
                             Doc::HardLine,
                             text("}"),
                         ]),
-                        None => cat(vec![h, text("{ }")]),
+                        None => cat(vec![h, text("{}")]),
                     };
                 }
                 // The elements in source order: the spread, if any, comes first.
@@ -2450,16 +2450,14 @@ impl<'t> Build<'t> {
                         text(") {"),
                     ])));
                     let body = self.block_lines(then);
-                    v.push(nest(cat(vec![Doc::Line, body])));
-                    v.push(Doc::Line);
+                    branch(&mut v, body);
                     lead = "} else if (";
                     node = else_;
                 }
                 ExprView::Block { block, .. } => {
                     let body = self.block_lines(block);
                     v.push(text("} else {"));
-                    v.push(nest(cat(vec![Doc::Line, body])));
-                    v.push(Doc::Line);
+                    branch(&mut v, body);
                     v.push(text("}"));
                     break;
                 }
@@ -2816,6 +2814,14 @@ fn with_comment<'s>(c: Option<Doc<'s>>, d: Doc<'s>) -> Doc<'s> {
     match c {
         Some(c) => cat(vec![c, Doc::HardLine, d]),
         None => d,
+    }
+}
+
+/// A branch of an `if` chain between its braces; an empty one closes up.
+fn branch<'s>(v: &mut Vec<Doc<'s>>, body: Doc<'s>) {
+    if !matches!(body, Doc::Concat(ref b) if b.is_empty()) {
+        v.push(nest(cat(vec![Doc::Line, body])));
+        v.push(Doc::Line);
     }
 }
 
@@ -3354,6 +3360,9 @@ fn pattern_str(t: &Tree, p: PatId) -> String {
                 .collect();
             if pay.rest {
                 parts.push("..".into());
+            }
+            if parts.is_empty() {
+                return format!("{base} {{}}");
             }
             format!("{base} {{ {} }}", parts.join(", "))
         }

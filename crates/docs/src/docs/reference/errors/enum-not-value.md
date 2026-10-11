@@ -10,6 +10,6 @@ enum Colour {
 }
 
 fn go(): Colour {
-    Colour { }
+    Colour {}
 }
 ```

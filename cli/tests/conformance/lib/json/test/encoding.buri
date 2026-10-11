@@ -168,7 +168,7 @@ test "a struct with nothing in it is an empty object" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(text(ctx, Hollow { }), "{}");
+    assert.equal(text(ctx, Hollow {}), "{}");
 }
 
 test "one of everything" {

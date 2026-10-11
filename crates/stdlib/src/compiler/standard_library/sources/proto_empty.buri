@@ -15,7 +15,7 @@ export struct Empty {}
 
 /// Every field at its proto3 default: what a message of no bytes decodes to.
 export fn defaultEmpty(): Empty {
-    Empty { }
+    Empty {}
 }
 
 /// How many bytes `encodeEmpty` writes.
@@ -108,7 +108,7 @@ export fn decodeEmptyJsonAt<C: Allocator>(
     path: Str,
 ): Result<Empty, ProtoError> {
     match (doc) {
-        .Object(_entries) => { .Ok(Empty { }) },
+        .Object(_entries) => { .Ok(Empty {}) },
         _ => .Err(.BadJson { path: path, wanted: "an object" }),
     }
 }

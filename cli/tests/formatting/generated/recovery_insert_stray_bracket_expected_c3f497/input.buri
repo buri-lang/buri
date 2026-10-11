@@ -17,7 +17,7 @@ fn patterns(x: Int, f: Float, xs: [Int], e: E): Int {
     };
     match (e) {
         .A() => 1,
-        .B {  } => 2,
+        .B {} => 2,
         .B { x, .. } => x,
         .C { x: y, .. } => y,
         _ => 3,

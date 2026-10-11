@@ -2432,8 +2432,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     );
                     let _ = emitText(builder, text.read(scope));
                     exitElement(builder)
-                } else {
-                };
+                } else {};
                 endRegion(builder)
             });
             exitElement(builder)
@@ -2752,8 +2751,7 @@ fn emitPicker<C>(
         let group = focusKey(builder);
         let _ = attachFocus(builder, group, false);
         watchFocus(builder, group, Focus { signal: focus.signal, order: .None }, true)
-    } else {
-    };
+    } else {};
     let _ = registerEvents(builder, events);
     let _ = emitPickerOptions(ctx, builder, options, value, focus.order, state, 0);
     exitElement(builder)
@@ -2908,7 +2906,7 @@ fn registerEvents<C>(builder: Builder, events: Events<C>): () {
     let _ = match (events.onKey) {
         .Some(handler) => {
             registerKey(builder, fn(c, _event) => {
-                if (handler(c, keyPressed(builder))) { claimKey(builder) } else {  }
+                if (handler(c, keyPressed(builder))) { claimKey(builder) } else {}
             })
         },
         .None => {
@@ -3052,8 +3050,7 @@ fn emitAnnounced<C>(
     let _ = announce(builder, at, current, decorative);
     let _ = if (asksFocus(focus)) {
         bindFocus(builder, focusKey(builder), false, focus)
-    } else {
-    };
+    } else {};
     let _ = registerEvents(builder, events);
     let _ = emitChildren(ctx, builder, children, state, 0);
     exitElement(builder)
@@ -3063,9 +3060,9 @@ fn emitAnnounced<C>(
 /// the current page while `current` holds, and that it and everything in it
 /// is hidden when it is decorative. A constant registers no watcher.
 fn announce(builder: Builder, at: I64, current: Prop<Bool>, decorative: Bool): () {
-    let _ = if (decorative) { markDecorative(builder) } else {  };
+    let _ = if (decorative) { markDecorative(builder) } else {};
     match (current) {
-        .Const(on) => { if (on) { markCurrent(builder, at, true) } else {  } },
+        .Const(on) => { if (on) { markCurrent(builder, at, true) } else {} },
         _ => reactive(fn(scope) => markCurrent(builder, at, current.read(scope))),
     }
 }
@@ -3233,8 +3230,7 @@ fn emitMark(builder: Builder, kind: ToggleKind, on: Bool): () {
                     "",
                     elementBody(mem, [], ["mark:tick", "width:100%", "height:100%"]),
                 )
-            } else {
-            }
+            } else {}
         },
     }
 }
@@ -3248,8 +3244,7 @@ fn emitDot(builder: Builder, on: Bool): () {
             "",
             elementBody(mem, [], ["mark:dot", "width:50%", "height:50%"]),
         )
-    } else {
-    }
+    } else {}
 }
 
 /// The `range:<min> <max> <value>` declaration a slider carries, escaped the way
