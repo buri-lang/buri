@@ -7,20 +7,20 @@ core/actor                           0/0       -         0/0       -       230/4
 core/alloc                           0/0       -         0/0       -           3/4   75.0%
 core/bigint                        21/21  100.0%       10/10  100.0%       148/168   88.1%
 core/bool                            0/0       -         0/0       -          5/12   41.7%
-core/buri/ast                    146/266   54.9%       28/63   44.4%     1189/1457   81.6%
+core/buri/ast                    150/268   56.0%       28/64   43.8%     1193/1457   81.9%
 core/bytes                         22/28   78.6%        8/14   57.1%       206/349   59.0%
 core/character                     12/12  100.0%         3/3  100.0%         38/42   90.5%
 core/cli                             1/2   50.0%         0/1    0.0%       117/127   92.1%
 core/codegen                         0/0       -         0/0       -         26/28   92.9%
-core/compression                   16/31   51.6%        5/14   35.7%       172/208   82.7%
+core/compression                   16/31   51.6%        5/14   35.7%       172/198   86.9%
 core/crypto                        17/26   65.4%        4/11   36.4%       130/168   77.4%
 core/csv                           12/12  100.0%         5/5  100.0%         50/52   96.2%
 core/date                          42/52   80.8%       13/17   76.5%       277/332   83.4%
 core/decimal                        9/10   90.0%         4/5   80.0%        93/114   81.6%
 core/env                             0/0       -         0/0       -           6/6  100.0%
-core/hash                            0/0       -         0/0       -         12/24   50.0%
+core/hash                            0/0       -         0/0       -         12/14   85.7%
 core/heap                            0/0       -         0/0       -         49/56   87.5%
-core/indexset                        6/6  100.0%         3/3  100.0%       156/208   75.0%
+core/indexset                        6/6  100.0%         3/3  100.0%       156/200   78.0%
 core/io                              0/0       -         0/0       -           5/6   83.3%
 core/json                          27/38   71.1%        7/15   46.7%       255/307   83.1%
 core/list                            0/0       -         0/0       -       275/326   84.4%
@@ -37,7 +37,7 @@ core/order                           0/0       -         0/0       -         38/
 core/orderedmap                      0/0       -         0/0       -      830/2003   41.4%
 core/orderedset                      0/0       -         0/0       -         14/16   87.5%
 core/path                          18/21   85.7%        7/10   70.0%       139/150   92.7%
-core/proto                         47/96   49.0%       10/35   28.6%       468/613   76.3%
+core/proto                         47/96   49.0%       10/35   28.6%       468/609   76.8%
 core/proto/any                       0/4    0.0%         0/2    0.0%          7/42   16.7%
 core/proto/duration                  0/4    0.0%         0/2    0.0%          7/30   23.3%
 core/proto/empty                     0/0       -         0/0       -           1/8   12.5%
@@ -50,7 +50,7 @@ core/random                          1/2   50.0%         0/1    0.0%         27/
 core/result                          0/0       -         0/0       -       296/570   51.9%
 core/secret                          0/0       -         0/0       -           0/0       -
 core/set                             0/0       -         0/0       -         13/14   92.9%
-core/simd                            2/8   25.0%         0/2    0.0%       111/170   65.3%
+core/simd                            2/8   25.0%         0/2    0.0%       111/154   72.1%
 core/str                           71/76   93.4%       21/26   80.8%       406/455   89.2%
 core/tasks                           0/0       -         0/0       -         15/66   22.7%
 core/testing/check                   0/0       -         0/0       -          8/10   80.0%
@@ -65,12 +65,12 @@ ui/signal                            0/0       -         0/0       -           0
 ui/style                             0/0       -         0/0       -           1/6   16.7%
 ui/theme                             0/0       -         0/0       -         19/24   79.2%
 ui/web                               0/0       -         0/0       -           3/4   75.0%
-total                           591/1013   58.3%     160/371   43.1%    8617/13702   62.9%
+total                           595/1015   58.6%     160/372   43.0%    8621/13654   63.1%
 
 The 30 modules with the most unshown conditions:
 
  unshown          conditions  module
-     120     146/266   54.9%  core/buri/ast
+     118     150/268   56.0%  core/buri/ast
       80        7/87    8.0%  std/codegen/proto
       49       47/96   49.0%  core/proto
       46       44/90   48.9%  std/codegen/proto/schema
