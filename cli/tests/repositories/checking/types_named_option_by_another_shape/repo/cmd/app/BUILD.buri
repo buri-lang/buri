@@ -1,0 +1,4 @@
+binary {
+    dependencies: ["//lib/options"]
+    outputs: [{ platform: "node" }]
+}

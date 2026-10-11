@@ -1,0 +1,5 @@
+// Two type parameters.
+export enum Option<A, B> {
+    Some(A),
+    None(B),
+}

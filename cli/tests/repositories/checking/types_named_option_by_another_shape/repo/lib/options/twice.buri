@@ -1,0 +1,5 @@
+// `Some` holds two values.
+export enum Option<T> {
+    Some(T, T),
+    None,
+}

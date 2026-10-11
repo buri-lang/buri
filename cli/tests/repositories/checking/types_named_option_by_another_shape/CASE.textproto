@@ -1,0 +1,15 @@
+# A module may declare its own `Option`. `//lib/options` declares five, each
+# a different shape from the prelude's: two type parameters, a first variant
+# that isn't `Some`, a `Some` with two values, a second variant that isn't
+# `None`, and a `None` that holds a value. Each one is laid out and matched as
+# the ordinary enum it is, not as the prelude's `Option`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a type named Option that isn't the prelude's shape is an ordinary enum"
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "ran.txt"
+}

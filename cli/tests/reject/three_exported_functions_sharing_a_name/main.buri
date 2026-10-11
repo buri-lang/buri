@@ -1,0 +1,16 @@
+// EXPECT: `size` is ambiguous as a free function
+//
+// The same refusal as `ambiguous_free_function`, with three declarations, all
+// exported.
+from "node" import { NodeHost };
+
+export fn size(x: Int): Int { x }
+
+export fn size(x: Str): Int { 0 }
+
+export fn size(x: Bool): Int { 1 }
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let _ = size(1);
+  .Ok(())
+}

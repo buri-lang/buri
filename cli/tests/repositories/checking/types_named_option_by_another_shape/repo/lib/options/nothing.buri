@@ -1,0 +1,5 @@
+// Its second variant isn't `None`.
+export enum Option<T> {
+    Some(T),
+    Nothing,
+}
