@@ -1,0 +1,21 @@
+# Where an effect may be declared, and what it owes.
+#
+#   * `//platform/effect/beep` declares `Beep`. Its testing surface declares
+#     an effect of its own, which only an effect package's production code
+#     may, and implements nothing, so `Beep` has no test implementation. The
+#     platform's `HostBeep` implements it, which doesn't count.
+#   * `//platform/effect/hum` has no `testing` block at all, so `Hum` has no
+#     test implementation anywhere.
+#   * `//lib/tools` declares an effect in a source under `testing/`, which
+#     isn't an effect package either, and has a `platform.buri` that is only a
+#     library file, where a function needs a body.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an effect is declared only in an effect package's production code, and each one has a test implementation in its own testing surface"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}

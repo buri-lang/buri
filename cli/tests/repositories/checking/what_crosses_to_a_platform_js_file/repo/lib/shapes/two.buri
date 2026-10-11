@@ -1,0 +1,5 @@
+// Named `Result`, with its first variant misnamed.
+export enum Result<T, E> {
+    Fine(T),
+    Err(E),
+}

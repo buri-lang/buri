@@ -1,0 +1,26 @@
+platform {
+    entry {
+        name: "first"
+        backend: NATIVE
+    }
+    entry {
+        name: "second"
+        backend: NATIVE
+    }
+    entry {
+        name: "third"
+        backend: NATIVE
+    }
+    entry {
+        name: "fourth"
+        backend: NATIVE
+    }
+    entry {
+        name: "fifth"
+        backend: NATIVE
+    }
+    entry {
+        name: "sixth"
+        backend: NATIVE
+    }
+}

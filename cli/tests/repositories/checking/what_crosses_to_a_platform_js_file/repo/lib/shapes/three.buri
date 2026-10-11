@@ -1,0 +1,5 @@
+// Named `Result`, whose success carries two values.
+export enum Result<T, E> {
+    Ok(T, T),
+    Err(E),
+}

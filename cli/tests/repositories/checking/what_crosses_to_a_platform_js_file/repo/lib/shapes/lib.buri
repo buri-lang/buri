@@ -1,0 +1,5 @@
+from "//lib/shapes/one.buri" export { Result as One };
+from "//lib/shapes/two.buri" export { Result as Two };
+from "//lib/shapes/three.buri" export { Result as Three };
+from "//lib/shapes/four.buri" export { Result as Four };
+from "//lib/shapes/five.buri" export { Result as Five };

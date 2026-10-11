@@ -1,0 +1,12 @@
+binary {
+    outputs: [
+        { platform: "//platform/bare", entries: [
+            { name: "first", function: "one" },
+            { name: "second", function: "two" },
+            { name: "third", function: "three" },
+            { name: "fourth", function: "four" },
+            { name: "fifth", function: "five" },
+            { name: "sixth", function: "six" },
+        ] },
+    ]
+}

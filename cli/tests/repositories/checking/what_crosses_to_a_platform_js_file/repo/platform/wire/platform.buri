@@ -1,0 +1,48 @@
+// What crosses to the `js` file and back: a record does, and a record that
+// holds itself, an optional optional, a `Result` handed in, a `Result` whose
+// error isn't a `Str`, and types that are only named `Result` don't.
+from "platform/host" import { HostAllocator };
+from "//lib/shapes" import { Five, Four, One, Three, Two };
+
+export struct WireHost {
+    export alloc: HostAllocator,
+    export tick: HostTick,
+}
+
+trait Ticker {
+    fn tick(self, at: Char): Char;
+}
+
+struct HostTick {}
+
+impl Ticker for HostTick {
+    fn tick(self, at: Char): Char;
+}
+
+export struct Point {
+    export x: Int,
+    export y: Int,
+}
+
+export struct Tree {
+    export kids: [Tree],
+}
+
+export fn point(host: WireHost, at: Point): Str;
+
+export fn tree(host: WireHost, root: Tree): Str;
+
+export fn nested(host: WireHost, maybe: Option<Option<Int>>): Str;
+
+export fn taking(host: WireHost, given: Result<Int, Str>): Str;
+
+export fn answering(host: WireHost): Result<Int, Int>;
+
+export fn shapes(
+    host: WireHost,
+    one: One<Int>,
+    two: Two<Int, Str>,
+    three: Three<Int, Str>,
+): Str;
+
+export fn more(host: WireHost, four: Four<Int, Str>, five: Five<Int, Str>): Str;

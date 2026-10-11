@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//lib/shapes", "//platform/wire"]
+    outputs: [
+        { platform: "//platform/wire" },
+    ]
+}

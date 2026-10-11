@@ -1,0 +1,4 @@
+/// A test effect, which the testing surface may not declare.
+export effect Spy {
+    fn seen(self): Int;
+}

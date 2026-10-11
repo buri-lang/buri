@@ -1,0 +1,25 @@
+from "//platform/bare" import { BareHost };
+
+export fn one(name: Option<Str>): Result<(), Str> {
+    .Ok(())
+}
+
+export fn two(host: BareHost): Str {
+    "two"
+}
+
+export fn three(names: [Str], host: BareHost): Result<(), Str> {
+    .Ok(())
+}
+
+export fn four(host: BareHost, extra: Int): Result<(), Str> {
+    .Ok(())
+}
+
+export fn five(host: Missing): Result<(), Str> {
+    .Ok(())
+}
+
+export fn six(host: BareHost): Result<(), Str> {
+    .Ok(())
+}

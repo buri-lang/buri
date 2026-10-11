@@ -1,0 +1,9 @@
+// EXPECT: `main` must return `Result<(), Str>`
+//
+// The process's exit code is all a program answers, so its success carries
+// nothing: `Result<Int, Str>` is refused.
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<Int, Str> {
+  .Ok(0)
+}

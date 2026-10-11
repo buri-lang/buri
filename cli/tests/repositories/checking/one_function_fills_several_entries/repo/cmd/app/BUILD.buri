@@ -1,0 +1,14 @@
+binary {
+    outputs: [
+        { platform: "//platform/pair", entries: [
+            { name: "left", function: "greet" },
+            { name: "right", function: "greet" },
+        ] },
+        { platform: "//platform/solo", artifact_name: "one", entries: [
+            { name: "go", function: "greet" },
+        ] },
+        { platform: "//platform/solo", artifact_name: "two", entries: [
+            { name: "go", function: "greet" },
+        ] },
+    ]
+}

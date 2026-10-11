@@ -1,0 +1,7 @@
+platform {
+    entry {
+        name: "go"
+        backend: JS
+        js: "go.mjs"
+    }
+}

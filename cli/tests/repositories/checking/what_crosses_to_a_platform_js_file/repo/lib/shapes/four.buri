@@ -1,0 +1,5 @@
+// Named `Result`, with its second variant misnamed.
+export enum Result<T, E> {
+    Ok(T),
+    Failed(E),
+}

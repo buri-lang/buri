@@ -1,0 +1,8 @@
+// EXPECT: `main` must return `Result<(), Str>`
+//
+// A failed program prints its error to stderr, so the error is a `Str`.
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Int> {
+  .Ok(())
+}

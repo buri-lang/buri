@@ -1,0 +1,105 @@
+error: `Char` cannot cross to JavaScript, as `HostTick.tick`'s answer [type-not-crossable]
+  --> platform/wire/platform.buri:19:8
+   |
+19 |     fn tick(self, at: Char): Char;
+   |        ^^^^
+   |
+   = the JS backend crosses `Str`, `Bool`, `F64`, integers, `[U8]`, lists, tuples, `Option`, `()`, structs, `Request` and `Response`, and `Result<T, Str>` as a whole answer
+   = fix: take or answer a type from the crossing table, such as a struct of them
+
+     An entry's js file and the methods it implements meet Buri at a boundary,
+     and only these types cross it:
+
+       Buri                 JavaScript
+       Str, Bool, F64       string, boolean, number
+       Int, other integers  bigint
+       [U8]                 Uint8Array
+       [T], a tuple         Array
+       Option<T>, ()        the value, or undefined
+       Result<T, Str>       the value, or a thrown Error
+       a struct             a plain object of its fields
+       Request, Response    the Fetch standard's
+
+     Result crosses only as a whole answer. Option<Option<T>> and Option<()>
+     don't cross, because Some(None) and Some(()) would be undefined too.
+
+error: `Char` cannot cross to JavaScript, as `HostTick.tick`'s parameter `at` [type-not-crossable]
+  --> platform/wire/platform.buri:19:19
+   |
+19 |     fn tick(self, at: Char): Char;
+   |                   ^^^^^^^^
+   |
+   = the JS backend crosses `Str`, `Bool`, `F64`, integers, `[U8]`, lists, tuples, `Option`, `()`, structs, `Request` and `Response`, and `Result<T, Str>` as a whole answer
+   = fix: take or answer a type from the crossing table, such as a struct of them
+error: `Tree` cannot cross to JavaScript, as `tree`'s parameter `root` [type-not-crossable]
+  --> platform/wire/platform.buri:33:32
+   |
+33 | export fn tree(host: WireHost, root: Tree): Str;
+   |                                ^^^^^^^^^^
+   |
+   = the JS backend crosses `Str`, `Bool`, `F64`, integers, `[U8]`, lists, tuples, `Option`, `()`, structs, `Request` and `Response`, and `Result<T, Str>` as a whole answer
+   = fix: take or answer a type from the crossing table, such as a struct of them
+error: `Option<Option<I64>>` cannot cross to JavaScript, as `nested`'s parameter `maybe` [type-not-crossable]
+  --> platform/wire/platform.buri:35:34
+   |
+35 | export fn nested(host: WireHost, maybe: Option<Option<Int>>): Str;
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the JS backend crosses `Str`, `Bool`, `F64`, integers, `[U8]`, lists, tuples, `Option`, `()`, structs, `Request` and `Response`, and `Result<T, Str>` as a whole answer
+   = fix: take or answer a type from the crossing table, such as a struct of them
+error: `Result<I64, Str>` cannot cross to JavaScript, as `taking`'s parameter `given` [type-not-crossable]
+  --> platform/wire/platform.buri:37:34
+   |
+37 | export fn taking(host: WireHost, given: Result<Int, Str>): Str;
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the JS backend crosses `Str`, `Bool`, `F64`, integers, `[U8]`, lists, tuples, `Option`, `()`, structs, `Request` and `Response`, and `Result<T, Str>` as a whole answer
+   = fix: take or answer a type from the crossing table, such as a struct of them
+error: `Result<I64, I64>` cannot cross to JavaScript, as `answering`'s answer [type-not-crossable]
+  --> platform/wire/platform.buri:39:11
+   |
+39 | export fn answering(host: WireHost): Result<Int, Int>;
+   |           ^^^^^^^^^
+   |
+   = the JS backend crosses `Str`, `Bool`, `F64`, integers, `[U8]`, lists, tuples, `Option`, `()`, structs, `Request` and `Response`, and `Result<T, Str>` as a whole answer
+   = fix: take or answer a type from the crossing table, such as a struct of them
+error: `Result<I64>` cannot cross to JavaScript, as `shapes`'s parameter `one` [type-not-crossable]
+  --> platform/wire/platform.buri:43:5
+   |
+43 |     one: One<Int>,
+   |     ^^^^^^^^^^^^^
+   |
+   = the JS backend crosses `Str`, `Bool`, `F64`, integers, `[U8]`, lists, tuples, `Option`, `()`, structs, `Request` and `Response`, and `Result<T, Str>` as a whole answer
+   = fix: take or answer a type from the crossing table, such as a struct of them
+error: `Result<I64, Str>` cannot cross to JavaScript, as `shapes`'s parameter `two` [type-not-crossable]
+  --> platform/wire/platform.buri:44:5
+   |
+44 |     two: Two<Int, Str>,
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = the JS backend crosses `Str`, `Bool`, `F64`, integers, `[U8]`, lists, tuples, `Option`, `()`, structs, `Request` and `Response`, and `Result<T, Str>` as a whole answer
+   = fix: take or answer a type from the crossing table, such as a struct of them
+error: `Result<I64, Str>` cannot cross to JavaScript, as `shapes`'s parameter `three` [type-not-crossable]
+  --> platform/wire/platform.buri:45:5
+   |
+45 |     three: Three<Int, Str>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the JS backend crosses `Str`, `Bool`, `F64`, integers, `[U8]`, lists, tuples, `Option`, `()`, structs, `Request` and `Response`, and `Result<T, Str>` as a whole answer
+   = fix: take or answer a type from the crossing table, such as a struct of them
+error: `Result<I64, Str>` cannot cross to JavaScript, as `more`'s parameter `four` [type-not-crossable]
+  --> platform/wire/platform.buri:48:32
+   |
+48 | export fn more(host: WireHost, four: Four<Int, Str>, five: Five<Int, Str>): Str;
+   |                                ^^^^^^^^^^^^^^^^^^^^
+   |
+   = the JS backend crosses `Str`, `Bool`, `F64`, integers, `[U8]`, lists, tuples, `Option`, `()`, structs, `Request` and `Response`, and `Result<T, Str>` as a whole answer
+   = fix: take or answer a type from the crossing table, such as a struct of them
+error: `Result<I64, Str>` cannot cross to JavaScript, as `more`'s parameter `five` [type-not-crossable]
+  --> platform/wire/platform.buri:48:54
+   |
+48 | export fn more(host: WireHost, four: Four<Int, Str>, five: Five<Int, Str>): Str;
+   |                                                      ^^^^^^^^^^^^^^^^^^^^
+   |
+   = the JS backend crosses `Str`, `Bool`, `F64`, integers, `[U8]`, lists, tuples, `Option`, `()`, structs, `Request` and `Response`, and `Result<T, Str>` as a whole answer
+   = fix: take or answer a type from the crossing table, such as a struct of them

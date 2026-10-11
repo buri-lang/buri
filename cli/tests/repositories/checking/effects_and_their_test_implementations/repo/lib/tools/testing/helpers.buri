@@ -1,0 +1,4 @@
+/// An effect in a library, which only an effect package may declare.
+export effect Odd {
+    fn odd(self): Int;
+}

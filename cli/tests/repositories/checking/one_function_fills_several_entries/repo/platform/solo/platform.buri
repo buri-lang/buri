@@ -1,0 +1,3 @@
+from "//platform/pair" import { PairHost };
+
+export fn go(host: PairHost, name: Str): Str;

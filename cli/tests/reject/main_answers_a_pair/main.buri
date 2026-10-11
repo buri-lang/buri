@@ -1,0 +1,13 @@
+// EXPECT: `main` must return `Result<(), Str>`
+//
+// The same two type arguments aren't enough: the answer has to be a `Result`.
+from "node" import { NodeHost };
+
+struct Pair<A, B> {
+  first: A,
+  second: B,
+}
+
+export fn main(host: NodeHost): Pair<(), Str> {
+  Pair { first: (), second: "" }
+}

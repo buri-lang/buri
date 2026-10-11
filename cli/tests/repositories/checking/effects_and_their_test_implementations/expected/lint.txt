@@ -1,0 +1,143 @@
+warning: Hum is imported but not used [unused-import]
+ --> cmd/app/main.buri:3:39
+  |
+3 | from "//platform/effect/hum" import { Hum };
+  |                                       ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+warning: Spy is imported but not used [unused-import]
+ --> cmd/app/test/app_test.buri:2:48
+  |
+2 | from "//platform/effect/beep/testing" import { Spy };
+  |                                                ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: //lib/tools has a testing/ directory and no `testing` block [undeclared-testing-surface]
+ --> lib/tools/BUILD.buri:1:1
+  |
+1 | library {
+  | ^
+  |
+  = the block is what puts the surface in the build; without it nothing compiles testing/lib.buri and no dependent can name it
+  = fix: add a `testing { }` block to the library rule in lib/tools/BUILD.buri — empty if the entry point is the whole of it — or delete the directory
+warning: nothing reaches `thrice` [dead-code]
+ --> lib/tools/platform.buri:3:11
+  |
+3 | export fn thrice(n: Int): Int;
+  |           ^^^^^^
+  |
+  = production code is reached from a library's surface or from a binary's `main`, and a declaration nothing reaches is a declaration nothing runs
+  = fix: delete it, or re-export it from lib/tools/lib.buri to put it on the library's surface
+
+    Inside a library, export means "visible to this library", and lib.buri
+    decides what leaves it. An export that lib.buri doesn't re-export and no
+    sibling imports is reached by nothing. The two fixes are opposites, so
+    decide which applies:
+
+    - It's meant to be published. Add it to the lib.buri re-export of its
+    module. The rule never reports a name on the surface.
+
+    - It's dead. Delete it, along with whatever existed only to support it.
+
+    A module under testing/ is measured against testing/lib.buri instead.
+
+    Using it from a test is not a fix, because a test is not a use. Test it
+    through the function the library publishes. If the logic needs its own
+    tests, make it its own published module.
+
+    The rule only looks at module-level declarations. Fields and variants are
+    unused-field's and unused-variant's job, and test sources and test
+    declarations are never reported. It also stays quiet:
+
+    - in a binary, which has no surface;
+    - for a module imported with import * as, which reaches every name it exports;
+    - in a package with a file the parser couldn't read whole, since the missing
+    part might hold the import.
+
+error: `thrice` has no body [missing-body]
+ --> lib/tools/platform.buri:3:30
+  |
+3 | export fn thrice(n: Int): Int;
+  |                              ^
+  |
+  = a function declaration outside a trait or effect needs a block
+  = fix: give it one: `{ ... }`. Only the bundled standard library declares a signature with no body, for an operation the runtime supplies
+error: an effect is declared only in an effect package, under `//platform/effect/` [effect-outside-effect-directory]
+ --> lib/tools/testing/helpers.buri:2:1
+  |
+2 | export effect Odd {
+  | ^^^^^^^^^^^^^^^^^^^
+  |
+  = an effect package holds an effect, its wrapper functions and a `testing` surface, and every platform can share it
+  = fix: move it into a library under `//platform/effect/`, such as `//platform/effect/kv`, or declare it as a plain `trait`
+
+    An effect is authority, so where one is declared is fixed. Effects live
+    apart from platforms, so two platforms can offer one effect and a library
+    bounded by it runs on both:
+
+      platform/effect/kv/lib.buri           effect Kv, and get and put
+      platform/effect/kv/testing/lib.buri   TestKv
+
+warning: nothing reaches `Odd` [dead-code]
+ --> lib/tools/testing/helpers.buri:2:15
+  |
+2 | export effect Odd {
+  |               ^^^
+  |
+  = production code is reached from a library's surface or from a binary's `main`, and a declaration nothing reaches is a declaration nothing runs
+  = fix: delete it, or re-export it from lib/tools/lib.buri to put it on the library's surface
+error: `Beep` has no test implementation in `//platform/effect/beep/testing` [effect-missing-test-implementation]
+ --> platform/effect/beep/lib.buri:2:15
+  |
+2 | export effect Beep {
+  |               ^^^^
+  |
+  = an effect package ships a `testing` surface with a type that implements each of its effects
+  = fix: give the library rule a `testing` block, and `impl Beep for` a type in `testing/lib.buri`
+
+    A test plugs in a test implementation where production binds a host's field,
+    so an effect without one is an effect nobody can test. Keep its state in
+    core/platforms/testing/state, which only an effect's testing surface may
+    import:
+
+      from "core/map" import * as map;
+      from "core/map" import { Map };
+      from "core/platforms/testing/state" import * as state;
+      from "//platform/effect/kv" import { Kv };
+
+      export struct TestKv {
+          store: state.State<Map<(Str, Str), Str>>,
+      }
+
+      impl Kv for TestKv {
+          fn get(self, namespace: Str, key: Str): Option<Str> {
+              state.read(self.store).get((namespace, key))
+          }
+
+          fn put(self, namespace: Str, key: Str, value: Str): () {
+              state.update(self.store, fn(c, m) => (m.insert(c, (namespace, key), value), ()))
+          }
+      }
+
+      export fn kv(): TestKv {
+          TestKv { store: state.new(map.empty()) }
+      }
+
+error: an effect is declared only in an effect package, under `//platform/effect/` [effect-outside-effect-directory]
+ --> platform/effect/beep/testing/lib.buri:2:1
+  |
+2 | export effect Spy {
+  | ^^^^^^^^^^^^^^^^^^^
+  |
+  = an effect package holds an effect, its wrapper functions and a `testing` surface, and every platform can share it
+  = fix: move it into a library under `//platform/effect/`, such as `//platform/effect/kv`, or declare it as a plain `trait`
+error: `Hum` has no test implementation in `//platform/effect/hum/testing` [effect-missing-test-implementation]
+ --> platform/effect/hum/lib.buri:2:15
+  |
+2 | export effect Hum {
+  |               ^^^
+  |
+  = an effect package ships a `testing` surface with a type that implements each of its effects
+  = fix: give the library rule a `testing` block, and `impl Hum for` a type in `testing/lib.buri`

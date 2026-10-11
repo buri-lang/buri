@@ -1,0 +1,22 @@
+# `//platform/bare`'s entries are `NATIVE` with no `js` file, so each starts
+# itself: it takes its host alone and answers `Result<(), Str>`. `first`
+# takes no host, `second` answers a `Str`, `third` takes something before its
+# host, `fourth`'s filler takes one parameter too many, `fifth`'s takes a host
+# of a type that doesn't exist, and `sixth` is declared with an answer that
+# doesn't exist. Each unknown type is told where it's written, and nowhere
+# else.
+#
+# The host is checked once however many entries take it: `ui` is an effect
+# the native backend lacks, `dice` is the platform's own and needs a `js`
+# file, `maybe` isn't a production struct, and `quiet` is a production struct
+# with nothing to implement, which is fine.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an entry with no js file is held to taking its host alone and answering Result<(), Str>, and its host's fields are checked once"
+
+run {
+  args: ["lint", "//cmd/bare"]
+  exit: 1
+  golden: "lint.txt"
+}

@@ -1,0 +1,9 @@
+platform {
+    dependencies: ["//platform/effect/beep"]
+
+    entry {
+        name: "main"
+        backend: JS
+        js: "main.mjs"
+    }
+}
