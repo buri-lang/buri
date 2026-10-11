@@ -3,6 +3,25 @@
 
 doc: "buri format at the edges of each language it lays out: a byte-order mark, a tab, a comment where a line ends, between a name and its value, inside a list, after the last value or with no line break at the end; empty and commented blocks and lists; every number and string spelling; options with nested values and comments; an empty file in each, and files that do not read, left as they are"
 
+# The checked-in REPO.buri is formatted, as every one is; these undo it.
+edit {
+  file: "REPO.buri"
+  replace: "# Two tags"
+  with: "\n\n# Two tags"
+}
+
+edit {
+  file: "REPO.buri"
+  replace: "tag {\n    name: \"a\"\n}\n\ntag {"
+  with: "tag { name: \"a\" }\ntag {"
+}
+
+edit {
+  file: "REPO.buri"
+  replace: "}\n\nlint {"
+  with: "}\nlint {"
+}
+
 run {
   args: ["format"]
   exit: 0

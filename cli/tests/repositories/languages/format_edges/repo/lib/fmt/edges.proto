@@ -32,7 +32,7 @@ message Options {
   int64 j = 10 [default = 0x1F];
   string k = 11 [default = 'single \' quoted'];
   int32 l = 12 [(a.b) = {}];
-  repeated .edges.v1.Empty m = 13 [(c) = 1_000, (d) = 1-2, (e) = { a: . }];
+  repeated .edges.v1.Empty m = 13 [(c) = 1_000, (d) = 1-2, (g) = 0x1-2, (e) = { a: . }];
   option (z) = (1);
   option (ratio) = 1/2;
   option (some.thing).other = { a: 1 };

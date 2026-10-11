@@ -41,7 +41,7 @@ const ROWS: &[(&str, &str, &str)] = &[
     ("lib/x/BUILD.buri", "binary { outputs: [{ platform: \"node\" }] platforms: [\"node\"] }", "binary-field"),
     ("lib/x/BUILD.buri", "library { visibility: [\"//visibility:friends\"] }", "unknown-visibility `//visibility:friends` is not a visibility"),
     // The text format itself, written wrong.
-    ("lib/x/BUILD.buri", "library {} }", "build-file-syntax expected a field"),
+    ("lib/x/BUILD.buri", "library {} }", "build-file-syntax expected a field name, found `}`"),
     ("lib/x/BUILD.buri", "library { backends: [QQQQ] }\n# a comment with no line break after it", "build-unknown-word `QQQQ` is not a backend"),
     ("lib/x/BUILD.buri", "library { sources: [\"a", "build-file-syntax unterminated string"),
     ("lib/x/BUILD.buri", "library { sources: [\"a\\", "build-file-syntax unterminated string"),
@@ -72,8 +72,8 @@ fn build_file_fields_written_wrong() {
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }
 
-/// `//cmd/...` in a library's `visibility` admits a package below `//cmd`, and
-/// refuses one beside it.
+/// `//cmd/...` in a library's `visibility` admits `//cmd` and a package below
+/// it, and refuses one beside it.
 #[test]
 fn a_recursive_visibility_admits_the_packages_below_it() {
     let s = Scratch::repo("recursive-visibility");
@@ -85,6 +85,10 @@ fn a_recursive_visibility_admits_the_packages_below_it() {
         "from \"node\" import { NodeHost };\nfrom \"//lib/x\" import { answer };\n\nexport fn main(_host: NodeHost): Result<(), Str> {\n    let _ = answer;\n    .Ok(())\n}\n",
     );
     s.run(&["build", "//cmd/app"]).ok();
+    // `//cmd` itself is inside `//cmd/...` too.
+    s.write("cmd/BUILD.buri", &s.read("cmd/app/BUILD.buri"));
+    s.write("cmd/main.buri", &s.read("cmd/app/main.buri"));
+    s.run(&["build", "//cmd"]).ok();
     s.write("tools/app/BUILD.buri", "binary {\n    dependencies: [\"//lib/x\"]\n\n    outputs: [{ platform: \"node\" }]\n}\n");
     s.write("tools/app/main.buri", &s.read("cmd/app/main.buri"));
     s.run(&["build", "//tools/app"]).exits(1).says("visibility");
