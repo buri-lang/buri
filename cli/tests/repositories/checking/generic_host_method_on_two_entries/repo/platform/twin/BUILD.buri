@@ -1,0 +1,12 @@
+platform {
+    entry {
+        name: "left"
+        backend: JS
+        js: "left.mjs"
+    }
+    entry {
+        name: "right"
+        backend: JS
+        js: "right.mjs"
+    }
+}

@@ -1,0 +1,20 @@
+from "platform/host" import { HostAllocator };
+
+export struct TwinHost {
+    export alloc: HostAllocator,
+    export echo: HostEcho,
+}
+
+trait Echo {
+    fn echo<T>(self, value: T): T;
+}
+
+struct HostEcho {}
+
+impl Echo for HostEcho {
+    fn echo<T>(self, value: T): T;
+}
+
+export fn left(host: TwinHost, name: Str): Str;
+
+export fn right(host: TwinHost, name: Str): Str;

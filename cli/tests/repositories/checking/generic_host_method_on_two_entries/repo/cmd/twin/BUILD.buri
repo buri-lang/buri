@@ -1,0 +1,8 @@
+binary {
+    outputs: [
+        { platform: "//platform/twin", entries: [
+            { name: "left", function: "greet" },
+            { name: "right", function: "greet" },
+        ] },
+    ]
+}

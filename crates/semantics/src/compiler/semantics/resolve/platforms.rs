@@ -448,11 +448,13 @@ impl<'a> Checker<'a> {
             let struct_name = self.tables.tycon(con).name.clone();
             for method in methods {
                 let info = self.tables.fn_info(method).clone();
-                let generic = info.generics.first().map(|g| g.name.clone());
-                if let Some(param) = generic.filter(|_| !self.already(info.span, "type-not-crossable")) {
-                    self.templated("type-not-crossable", info.span)
-                        .bind("type", param)
-                        .bind("place", format!("`{struct_name}.{}`", info.name));
+                // A generic method is told once, however many entries reach it.
+                if let Some(generic) = info.generics.first() {
+                    if !self.already(info.span, "type-not-crossable") {
+                        self.templated("type-not-crossable", info.span)
+                            .bind("type", generic.name.clone())
+                            .bind("place", format!("`{struct_name}.{}`", info.name));
+                    }
                     continue;
                 }
                 self.check_crossing_of(&info, 1, &format!("`{struct_name}.{}`", info.name));

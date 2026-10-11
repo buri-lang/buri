@@ -1,0 +1,31 @@
+# `//platform/twin` has two `JS` entries sharing one host, whose `HostEcho`
+# has a generic method. A type parameter can't cross to JavaScript, and the
+# method is told so once, though both entries reach it. Lint used to say it
+# again, about the parameter, with the type spelled `?0`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a generic method on a host struct two entries share is refused once"
+
+run {
+  args: ["lint", "//cmd/twin"]
+  exit: 1
+  golden: "generic.txt"
+}
+
+edit {
+  file: "platform/twin/platform.buri"
+  replace: "    fn echo<T>(self, value: T): T;\n}\n\nstruct"
+  with: "    fn echo(self, value: Str): Str;\n}\n\nstruct"
+}
+
+edit {
+  file: "platform/twin/platform.buri"
+  replace: "    fn echo<T>(self, value: T): T;"
+  with: "    fn echo(self, value: Str): Str;"
+}
+
+run {
+  args: ["build", "//cmd/twin"]
+  exit: 0
+}
