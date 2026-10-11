@@ -310,13 +310,14 @@ fn resolve(host: &str, port: u16, deadline: Duration) -> Result<Vec<SocketAddr>,
 ///
 /// A name often resolves to an IPv6 and an IPv4 address, and a server may
 /// listen on only one of them (`localhost` is the everyday case). Each address
-/// gets the whole deadline; the last failure is the answer.
-fn dial(addrs: &[SocketAddr], deadline: Duration) -> Result<TcpStream, NetFail> {
-    let mut last = NetFail::Refused;
+/// gets the whole deadline; the last failure is the answer. Every client in this
+/// runtime dials through here.
+pub(crate) fn dial_any(addrs: &[SocketAddr], deadline: Duration) -> std::io::Result<TcpStream> {
+    let mut last = std::io::Error::from(std::io::ErrorKind::ConnectionRefused);
     for addr in addrs {
         match TcpStream::connect_timeout(addr, deadline) {
             Ok(sock) => return Ok(sock),
-            Err(e) => last = io_fail(&e),
+            Err(e) => last = e,
         }
     }
     Err(last)
@@ -411,7 +412,7 @@ fn fetch_within(
 
     let addrs = resolve(url.host, url.port, deadline)?;
 
-    let sock = dial(&addrs, deadline)?;
+    let sock = dial_any(&addrs, deadline).map_err(|e| io_fail(&e))?;
     sock.set_read_timeout(Some(deadline)).map_err(|e| io_fail(&e))?;
     sock.set_write_timeout(Some(deadline)).map_err(|e| io_fail(&e))?;
     // A request/response exchange is one write and one read, so Nagle can only

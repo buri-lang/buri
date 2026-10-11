@@ -123,7 +123,11 @@ impl Serving {
 /// a session's script is the script for that session and not a race between
 /// them.
 pub fn serving(sessions: Vec<Vec<Step>>) -> Serving {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
+    serving_on(TcpListener::bind(("127.0.0.1", 0)).expect("a bound port"), sessions)
+}
+
+/// [`serving`], on a listener the caller bound.
+pub fn serving_on(listener: TcpListener, sessions: Vec<Vec<Step>>) -> Serving {
     let port = listener.local_addr().expect("the bound port").port();
     let thread = std::thread::spawn(move || {
         let mut log = Vec::new();

@@ -3904,15 +3904,15 @@ mod client {
         })
     }
 
-    /// The address to dial, found within the deadline.
+    /// The addresses to dial, in the resolver's order, found within the deadline.
     ///
     /// A name lookup is the one step of a dial no socket option can bound —
     /// `http.rs`'s `resolve` says why at length — so it happens on a thread of
     /// its own and this one waits for it. An address literal, which is what
     /// every loopback row below is, skips the whole arrangement.
-    fn resolve(host: &str, port: u16) -> Result<SocketAddr, ServeErr> {
+    fn resolve(host: &str, port: u16) -> Result<Vec<SocketAddr>, ServeErr> {
         if let Ok(ip) = host.parse::<IpAddr>() {
-            return Ok(SocketAddr::new(ip, port));
+            return Ok(vec![SocketAddr::new(ip, port)]);
         }
         let name = host.to_string();
         let found = within("the name lookup", move || {
@@ -3926,9 +3926,7 @@ mod client {
                 ServeFail::Transport,
                 format!("{host} could not be resolved: {e}"),
             )),
-            Ok(addrs) => addrs.into_iter().next().ok_or_else(|| {
-                ServeErr::new(ServeFail::Transport, format!("there is no address for {host}"))
-            }),
+            Ok(addrs) => Ok(addrs),
         }
     }
 
@@ -3969,8 +3967,8 @@ mod client {
 
     /// A connected socket with a deadline on every step of getting one.
     fn dial(host: &str, port: u16) -> Result<TcpStream, ServeErr> {
-        let addr = resolve(host, port)?;
-        let sock = TcpStream::connect_timeout(&addr, DEADLINE)
+        let addrs = resolve(host, port)?;
+        let sock = crate::http::dial_any(&addrs, DEADLINE)
             .map_err(|e| ServeErr::io(&e, &format!("dialling {host}:{port}")))?;
         sock.set_read_timeout(Some(DEADLINE))
             .and_then(|()| sock.set_write_timeout(Some(DEADLINE)))
