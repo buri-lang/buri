@@ -722,13 +722,10 @@ impl<'a> Jit<'a> {
             }
             // JSON's one number type is a double, so every numeric primitive
             // widens to `F64` — the same narrowing `$json_of` does with
-            // `Number(v)`, and lossy in the same place. A 128-bit value is
-            // refused here rather than rounded, because `convert` has no
-            // sixteen-byte-to-float step and inventing one at the call site is
-            // how two backends stop agreeing.
+            // `Number(v)`, and lossy in the same place.
             JsonArm::Num => {
                 let scratch = st.scratch;
-                self.convert(st, prim, Prim::F64, a, scratch)?;
+                self.convert(st, prim, Prim::F64, a, scratch);
                 self.store_w(d + off, scratch, 8);
                 Ok(())
             }
@@ -2066,15 +2063,12 @@ impl<'a> Jit<'a> {
                         || op == "toChar");
                 // An inexact `toX` answers a `Result` (SPEC 6.2.1), so it
                 // is a range test and two arms rather than a cast.
-                let done = if exact {
-                    self.convert(st, prim, to, p(0), ret0)
+                if exact {
+                    self.convert(st, prim, to, p(0), ret0);
                 } else {
-                    self.convert_checked(prog, fi, st, prim, to, p(0), ret0)
-                };
-                match done {
-                    Err(why) => self.unsupported(why),
-                    Ok(()) => self.emit("ret", &[]),
+                    self.convert_checked(prog, fi, st, prim, to, p(0), ret0);
                 }
+                self.emit("ret", &[]);
                 return;
             }
             // `Hash::hash` takes no accumulator, so it is the seeded form
@@ -2538,8 +2532,8 @@ impl Jit<'_> {
         to: Prim,
         src: u32,
         dest: u32,
-    ) -> Result<(), String> {
-        let kind = checked_kind(from, to).or_ice("a checked conversion is between two numbers");
+    ) {
+        let kind = checked_kind(from, to);
         let ty = prog.type_info(ret_agg(prog, fi)).ty;
         let error_ty = match ty.kind() {
             TyKind::Con(_, arguments) => arguments.get(1).copied(),
@@ -2574,7 +2568,7 @@ impl Jit<'_> {
                     self.imm_num(bound, from, pattern);
                     self.cmp_to(tag, op, src, bound, verdict, err);
                 }
-                self.convert(st, from, to, src, dest + ok_at)?;
+                self.convert(st, from, to, src, dest + ok_at);
             }
             // A float source, which has three ways not to fit where an integer
             // one has two: it can be fractional, it can be `NaN`, and it can be
@@ -2591,7 +2585,7 @@ impl Jit<'_> {
             CheckedKind::FloatToInt => {
                 let v = self.as_f64(st, from, src);
                 let (to_lo, to_hi) = to.int_range().or_ice("an integer has a range");
-                let (_, tw, _) = num_tag(to);
+                let (ttag, tw, _) = num_tag(to);
                 #[allow(
                     clippy::cast_precision_loss,
                     reason = "every integer type's lower bound is zero or a negative power \
@@ -2600,10 +2594,11 @@ impl Jit<'_> {
                 let lo = to_lo as f64;
                 #[allow(
                     clippy::cast_precision_loss,
-                    reason = "every `hi + 1` here is a power of two at most 2^64, which a \
-                              double holds exactly; that is the property the bound relies on"
+                    reason = "every `hi + 1` here is a power of two at most 2^128, which a \
+                              double holds exactly, and `U128`'s saturated `hi` rounds up to \
+                              it; that is the property the bound relies on"
                 )]
-                let over = (to_hi + 1) as f64;
+                let over = to_hi.saturating_add(1) as f64;
                 self.imm_num(bound, Prim::F64, u128::from(lo.to_bits()));
                 self.cmp_to("f64", "lt", v, bound, verdict, err);
                 self.imm_num(bound, Prim::F64, u128::from(over.to_bits()));
@@ -2612,13 +2607,21 @@ impl Jit<'_> {
                 // through a double says whether the value was an integer at
                 // all. `NaN` never gets this far — it fails both comparisons
                 // above the way JavaScript's `isInteger` fails it.
-                let raw = st.scratch + (super::rtcall::RAW_WORD + 1) * 8;
                 let back = st.scratch + (super::rtcall::RAW_WORD + 2) * 8;
-                let unsigned = !to.is_signed();
-                self.cvt(if unsigned { "cvt/f2u" } else { "cvt/f2i" }, raw, v);
-                self.cvt(if unsigned { "cvt/u2f" } else { "cvt/i2f" }, back, raw);
-                self.cmp_to("f64", "ne", back, v, verdict, err);
-                self.narrow(raw, dest + ok_at, tw);
+                if tw == 128 {
+                    // Two words, so the value goes straight into the `.Ok`.
+                    let ok = dest + ok_at;
+                    self.cvt(&key!["cvt/to/", ttag, "/f"], ok, v);
+                    self.cvt(&key!["cvt/from/", ttag, "/f"], back, ok);
+                    self.cmp_to("f64", "ne", back, v, verdict, err);
+                } else {
+                    let raw = st.scratch + (super::rtcall::RAW_WORD + 1) * 8;
+                    let unsigned = !to.is_signed();
+                    self.cvt(if unsigned { "cvt/f2u" } else { "cvt/f2i" }, raw, v);
+                    self.cvt(if unsigned { "cvt/u2f" } else { "cvt/i2f" }, back, raw);
+                    self.cmp_to("f64", "ne", back, v, verdict, err);
+                    self.narrow(raw, dest + ok_at, tw);
+                }
             }
             // `U32 -> Char`, where the target is a set of scalar values rather
             // than a range: everything above U+10FFFF is out, and so is the
@@ -2635,7 +2638,7 @@ impl Jit<'_> {
                 self.emit("jump", &[("JIT_T", V::Blk(err))]);
                 let here = self.region.code_addr();
                 st.place(scalar, here);
-                self.convert(st, from, to, src, dest + ok_at)?;
+                self.convert(st, from, to, src, dest + ok_at);
             }
             // `F64 -> F32`, which fails only where the value does not survive
             // as a finite binary32. Asked of the answer rather than of the
@@ -2666,7 +2669,6 @@ impl Jit<'_> {
         self.store_disc(&result, dest, 1);
         let here = self.region.code_addr();
         st.place(done, here);
-        Ok(())
     }
 
     /// `frame[verdict] = frame[a] <op> frame[b]`, and a branch to `target`
@@ -2694,7 +2696,7 @@ impl Jit<'_> {
     }
 
     /// One `cvt/*` stencil, which every conversion here is a sequence of.
-    fn cvt(&mut self, key: &'static str, dest: u32, src: u32) {
+    fn cvt<'k>(&mut self, key: impl Into<KeyArg<'k>>, dest: u32, src: u32) {
         self.emit(
             key,
             &[
@@ -3141,7 +3143,8 @@ impl Jit<'_> {
     /// the *source* if it is signed, because a slot holds it zero-extended and
     /// the bits above its own width are zero rather than its sign; then narrow
     /// to the target, which is the same zero-extension at the new width. A
-    /// 128-bit type on either side is refused, because it does not fit a slot.
+    /// 128-bit type on either side has stencils of its own, because it is two
+    /// words rather than one.
     fn convert(
         &mut self,
         st: &Fn2,
@@ -3149,7 +3152,7 @@ impl Jit<'_> {
         to: Prim,
         src: u32,
         dest: u32,
-    ) -> Result<(), String> {
+    ) {
         let (ftag, fw, fsigned) = num_tag(from);
         let (ttag, tw, _) = num_tag(to);
         // The sixteen-byte types, first, because everything below assumes a
@@ -3157,11 +3160,13 @@ impl Jit<'_> {
         if fw == 128 || tw == 128 {
             if fw == 128 && tw == 128 {
                 self.mv(dest, src, 16);
-                return Ok(());
+                return;
             }
             if tw == 128 {
                 if from.is_float() {
-                    return Err(format!("a conversion from `{}`", from.name()));
+                    let wide = self.as_f64(st, from, src);
+                    self.cvt(&key!["cvt/to/", ttag, "/f"], dest, wide);
+                    return;
                 }
                 let wide = st.scratch + super::rtcall::SPARE_WORD * 8;
                 let at = self.widen(src, wide, fw, fsigned);
@@ -3173,7 +3178,7 @@ impl Jit<'_> {
                         ("JIT_CONT", V::Fall),
                     ],
                 );
-                return Ok(());
+                return;
             }
             let key = if to.is_float() {
                 key!["cvt/from/", ftag, "/f"]
@@ -3198,14 +3203,14 @@ impl Jit<'_> {
                     ],
                 );
             }
-            return Ok(());
+            return;
         }
         match (from.is_float(), to.is_float()) {
             (true, true) => {
                 let key = if to == Prim::F32 { "cvt/f2f32" } else { "cvt/f322f" };
                 if from == to {
                     self.mv(dest, src, 8);
-                    return Ok(());
+                    return;
                 }
                 self.emit(
                     key,
@@ -3215,7 +3220,6 @@ impl Jit<'_> {
                         ("JIT_CONT", V::Fall),
                     ],
                 );
-                Ok(())
             }
             (false, true) => {
                 let wide = st.scratch + super::rtcall::SPARE_WORD * 8;
@@ -3239,7 +3243,6 @@ impl Jit<'_> {
                         ],
                     );
                 }
-                Ok(())
             }
             // Float to integer truncates toward zero and keeps the low bits,
             // with `NaN` and the infinities at zero — `sources.rs`'s `cvt/f2i`,
@@ -3258,7 +3261,6 @@ impl Jit<'_> {
                 let raw = st.scratch + super::rtcall::RAW_WORD * 8 + 8;
                 self.cvt("cvt/f2i", raw, wide);
                 self.narrow(raw, dest, tw);
-                Ok(())
             }
             (false, false) => {
                 let wide = st.scratch + super::rtcall::SPARE_WORD * 8;
@@ -3275,7 +3277,6 @@ impl Jit<'_> {
                         ],
                     );
                 }
-                Ok(())
             }
         }
     }

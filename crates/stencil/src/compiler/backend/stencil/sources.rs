@@ -1010,6 +1010,21 @@ fn wide(o: &mut Out) {
                  (u128_t)AT(uint64_t, _JIT_A)); TAIL; }"
             ),
         );
+        // A double's low 128 bits after truncation toward zero, built from its
+        // mantissa and exponent: the 128-bit `cvt/f2i`. `NaN` and the
+        // infinities have the largest exponent, so they land at zero with
+        // every value whose low 128 bits are all zero. Signed and unsigned
+        // are the same bits.
+        o.push(
+            &format!("cvt/to/{tag}/f"),
+            String::from(
+                "void $NAME(ARGS) { uint64_t bits = AT(uint64_t, _JIT_A); \
+                 int e = (int)((bits >> 52) & 0x7ff) - 1075; \
+                 u128_t m = (u128_t)((bits & 0xfffffffffffffULL) | 0x10000000000000ULL); \
+                 u128_t r = (e >= 128 || e <= -64) ? 0 : e >= 0 ? m << e : m >> -e; \
+                 wr128(fp, OFF(_JIT_D), (bits >> 63) ? 0 - r : r); TAIL; }",
+            ),
+        );
         o.push(
             &format!("cvt/from/{tag}/f"),
             format!(

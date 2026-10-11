@@ -14,7 +14,6 @@
 //! instructions. `core/list`'s closure keys are no backend's at all —
 //! `middle::lower` builds them as loops (`lower/lists.rs`).
 
-use crate::compiler::semantics::builtins::conversion_is_exact;
 use crate::compiler::semantics::types::{Prim, Tables, Ty, TyKind};
 
 /// The `Equal`/`Ordered`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
@@ -213,16 +212,13 @@ pub fn conversion_target(op: &str) -> Option<Prim> {
 /// SPEC 6.2.1 gives one rule — `x.toT()` answers `Result<T, RangeError>`
 /// wherever not every `x` fits a `T` — and the rule reaches four different
 /// questions, because "does not fit" is not one machine test. Both backends
-/// switch on it to emit the range check, and [`numeric_key`] asks it whether a
-/// key with an inexact target has a body, so a claim never outruns an
-/// implementation.
+/// switch on it to emit the range check.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum CheckedKind {
     /// Both integers: a range at the source's own width.
     Ints,
     /// A float into an integer, which can also be fractional, `NaN` or
-    /// infinite. Refused past sixty-four bits, where neither backend has a
-    /// single conversion for it.
+    /// infinite.
     FloatToInt,
     /// `U32 -> Char`: not a range but a set, with the surrogate block cut out
     /// of the middle of it.
@@ -231,25 +227,21 @@ pub enum CheckedKind {
     ToF32,
 }
 
-/// Which fallible shape a conversion is, or `None` when the pair is exact,
-/// modular, or one no backend has a body for (a float into a 128-bit integer).
-pub fn checked_kind(from: Prim, to: Prim) -> Option<CheckedKind> {
-    if from.is_integer() && to.is_integer() {
-        return (!conversion_is_exact(from, to)).then_some(CheckedKind::Ints);
-    }
-    if from.is_float() && to.is_integer() && to.bits() <= 64 {
-        return Some(CheckedKind::FloatToInt);
-    }
+/// Which fallible shape an inexact conversion is.
+pub fn checked_kind(from: Prim, to: Prim) -> CheckedKind {
     // `U32` is the only source the language declares `toChar` on
     // (`semantics/builtins.rs`), and both backends test the bounds at that
     // width.
     if to == Prim::Char {
-        return Some(CheckedKind::ToChar);
+        CheckedKind::ToChar
+    } else if to.is_float() {
+        // `F64 -> F32`, the one float target that is not exact.
+        CheckedKind::ToF32
+    } else if from.is_float() {
+        CheckedKind::FloatToInt
+    } else {
+        CheckedKind::Ints
     }
-    if from == Prim::F64 && to == Prim::F32 {
-        return Some(CheckedKind::ToF32);
-    }
-    None
 }
 
 /// The `number.<T>.<op>` operations both native backends emit a body for,
@@ -263,9 +255,7 @@ pub fn checked_kind(from: Prim, to: Prim) -> Option<CheckedKind> {
 ///
 /// The list is what the backends dispatch on, not `number.*`: claiming a key
 /// with no body would turn a diagnostic that names the operation into one that
-/// names an IR shape. That is why a conversion is claimed only where it is
-/// exact or [`checked_kind`] names its range test — `F64.toI128` has no body
-/// on either backend.
+/// names an IR shape. Every conversion the language declares has a body.
 pub fn numeric_key(key: &str) -> bool {
     if key == "number.minValue" || key == "number.maxValue" {
         return true;
@@ -321,12 +311,7 @@ pub fn numeric_key(key: &str) -> bool {
     }
     // `U32.toChar` answers a `Result<Char, RangeError>` and `Char` is not a
     // numeric target, so [`conversion_target`] does not name it.
-    if op == "toChar" {
-        return checked_kind(prim, Prim::Char).is_some();
-    }
-    conversion_target(op).is_some_and(|to| {
-        op.starts_with("wrapTo") || conversion_is_exact(prim, to) || checked_kind(prim, to).is_some()
-    })
+    op == "toChar" || conversion_target(op).is_some()
 }
 
 /// Which loop a closure-taking `list.*` key is.
