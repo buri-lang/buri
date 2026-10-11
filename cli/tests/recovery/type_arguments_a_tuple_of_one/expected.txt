@@ -1,0 +1,12 @@
+error [type-mismatch] 6:22-8:2
+message: expected `I64`, found `(I64)`
+
+error [tuple-element-count] 7:8-7:14
+message: a tuple type has two elements or more
+fix: drop the parentheses for one element, or write `()` for none
+note: `(x)` is grouping and `()` is unit
+
+error [type-mismatch] 7:16-7:17
+message: expected `(I64)`, found `Int`
+note: an integer literal defaults to `Int` but takes any integer type, and `(I64)` is not one
+
