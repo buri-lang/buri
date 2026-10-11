@@ -1,9 +1,0 @@
-error: expected `(`, found `@` [unexpected-token]
- --> main.buri:2:9
-  |
-2 |   match @ (x) {
-  |         ^
-  |
-  = expected: `(`
-  = actual: `@`
-  = fix: write `(` here

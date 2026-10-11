@@ -1,0 +1,45 @@
+error: expected `Str`, found `IoError` [type-mismatch]
+  --> lib/recovery_delete_closer_paren_expected_7ce058/main.buri:46:49
+   |
+46 | export fn main(host: NodeHost): Result<(), Str> {
+   |                                                 ^ the declared return type is `Str`
+   |
+   = expected: `Str`
+   = actual: `IoError`
+error: `rendered` takes 3 arguments, but 2 were given [argument-count]
+  --> lib/recovery_delete_closer_paren_expected_7ce058/main.buri:60:18
+   |
+60 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>", label)).mapErr(
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 2
+   = fix: `rendered` requires a `label` parameter: rendered<C: Allocator + Clock>(ctx: C, render: fn(C, Str) => Str, label: Str)
+error: `format` takes 2 arguments, but 3 were given [argument-count]
+  --> lib/recovery_delete_closer_paren_expected_7ce058/main.buri:60:44
+   |
+60 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>", label)).mapErr(
+   |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass `format` the following arguments: format<C: Allocator>(ctx: C, template: Template)
+error: `Str` has no method `mapErr` [unknown-method]
+  --> lib/recovery_delete_closer_paren_expected_7ce058/main.buri:60:76
+   |
+60 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>", label)).mapErr(
+   |                                                                            ^^^^^^
+   |
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_expected_7ce058/main.buri:63:1
+   |
+63 | }
+   | ^
+   |
+  --> lib/recovery_delete_closer_paren_expected_7ce058/main.buri:60:12
+   |
+60 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>", label)).mapErr(
+   |            ^ opened here
+   |
+   = fix: write `)` here

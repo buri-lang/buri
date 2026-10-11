@@ -1,0 +1,4 @@
+/// a documented import
+from "core/list" import extra { List }
+
+;

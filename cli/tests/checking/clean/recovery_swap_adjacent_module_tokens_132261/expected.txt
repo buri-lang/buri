@@ -1,0 +1,9 @@
+error: expected `impl`, found `Token` [unexpected-token]
+  --> main.buri:31:1
+   |
+31 | Token impl {
+   | ^^^^^
+   |
+   = expected: `impl`
+   = actual: `Token`
+   = fix: write `impl` first: `impl Token`

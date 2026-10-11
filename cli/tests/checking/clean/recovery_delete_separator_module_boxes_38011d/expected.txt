@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-semicolon]
+ --> main.buri:9:32
+  |
+9 | from "core/str" import * as str
+  |                                ^
+  |
+  = fix: write `;` here

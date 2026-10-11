@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_expected_2b669e/main.buri:29:21
+   |
+29 |     str.format(ctx, , "== ${label} ==")
+   |                     ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

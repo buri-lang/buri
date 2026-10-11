@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-comma]
+ --> main.buri:3:18
+  |
+3 |     let b = [1, 2 3];
+  |                  ^
+  |
+  = fix: write `,` here

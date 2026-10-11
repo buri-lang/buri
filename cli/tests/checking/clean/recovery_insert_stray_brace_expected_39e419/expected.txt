@@ -1,0 +1,9 @@
+error: expected a pattern, found `@` [unexpected-token]
+  --> main.buri:10:9
+   |
+10 |         @ '\u{1}' => 8,
+   |         ^
+   |
+   = expected: a pattern
+   = actual: `@`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

@@ -1,0 +1,7 @@
+error: a function parameter ends with `,` [missing-comma]
+ --> main.buri:1:52
+  |
+1 | export fn valid(hour: Int, minute: Int, second: Int millisecond: Int): Bool {
+  |                                                    ^
+  |
+  = fix: write `,` here

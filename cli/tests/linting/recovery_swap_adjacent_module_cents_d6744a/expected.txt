@@ -1,0 +1,17 @@
+warning: str is imported but not used [unused-import]
+ --> lib/recovery_swap_adjacent_module_cents_d6744a/lib.buri:8:29
+  |
+8 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: expected an identifier, found `export` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_cents_d6744a/lib.buri:14:4
+   |
+14 | fn export fromCents(c: I64): Cents {
+   |    ^^^^^^
+   |
+   = expected: an identifier
+   = actual: `export`
+   = fix: write `export` before `fn`

@@ -1,7 +1,0 @@
-error: a statement ends with `;` [missing-semicolon]
- --> main.buri:5:12
-  |
-5 |   let b = 2
-  |            ^
-  |
-  = fix: write `;` here

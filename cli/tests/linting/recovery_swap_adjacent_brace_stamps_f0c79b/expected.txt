@@ -1,0 +1,17 @@
+error: expected `:`, found `export` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_stamps_f0c79b/lib.buri:14:10
+   |
+14 |     mark export: Str,
+   |          ^^^^^^
+   |
+   = expected: `:`
+   = actual: `export`
+   = fix: write `:` here
+warning: nothing uses `Ghost` [unused-type]
+  --> lib/recovery_swap_adjacent_brace_stamps_f0c79b/lib.buri:18:8
+   |
+18 | struct Ghost {
+   |        ^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface

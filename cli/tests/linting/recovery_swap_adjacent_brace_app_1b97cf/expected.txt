@@ -1,0 +1,17 @@
+warning: this branch is nested 5 levels deep [deep-nesting]
+  --> lib/recovery_swap_adjacent_brace_app_1b97cf/main.buri:14:21
+   |
+14 |                     if (n > 10000) { "huge" } else { "large" }
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
+   = fix: pull the inner branch into a named function, or replace the ladder with one `match`
+error: expected `else`, found `if` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_1b97cf/main.buri:34:7
+   |
+34 |     } if else (n == 2) {
+   |       ^^
+   |
+   = expected: `else`
+   = actual: `if`
+   = fix: delete it — the `else` branch follows

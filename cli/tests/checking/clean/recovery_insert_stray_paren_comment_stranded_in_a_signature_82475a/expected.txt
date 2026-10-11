@@ -1,0 +1,9 @@
+error: expected `:`, found `?` [unexpected-token]
+ --> main.buri:4:4
+  |
+4 |   b? : Int,
+  |    ^
+  |
+  = expected: `:`
+  = actual: `?`
+  = fix: write `:` here

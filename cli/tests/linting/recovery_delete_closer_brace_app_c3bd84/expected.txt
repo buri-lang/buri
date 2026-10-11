@@ -1,0 +1,36 @@
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_delete_closer_brace_app_c3bd84/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: `palette` takes no arguments, but 1 was given [argument-count]
+   --> lib/recovery_delete_closer_brace_app_c3bd84/main.buri:153:17
+    |
+153 |     let shade = palette(.get(3).withDefault("none");
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = expected: 0
+    = actual: 1
+    = fix: pass `palette` the following arguments: palette()
+error: `.get` needs a known expected type [untyped-variant]
+   --> lib/recovery_delete_closer_brace_app_c3bd84/main.buri:153:25
+    |
+153 |     let shade = palette(.get(3).withDefault("none");
+    |                         ^^^^
+    |
+    = fix: write the qualified form, as in `Option.get(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+   --> lib/recovery_delete_closer_brace_app_c3bd84/main.buri:153:52
+    |
+153 |     let shade = palette(.get(3).withDefault("none");
+    |                                                    ^
+    |
+   --> lib/recovery_delete_closer_brace_app_c3bd84/main.buri:153:24
+    |
+153 |     let shade = palette(.get(3).withDefault("none");
+    |                        ^ opened here
+    |
+    = fix: write `)` here

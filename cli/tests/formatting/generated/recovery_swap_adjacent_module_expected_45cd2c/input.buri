@@ -1,5 +1,0 @@
-export let oneInt : = 1;
-
-export fn f(): Pairing {
-    one
-}

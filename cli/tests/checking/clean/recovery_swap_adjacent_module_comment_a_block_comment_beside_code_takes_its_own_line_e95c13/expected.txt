@@ -1,9 +1,0 @@
-error: expected `enum`, found `E` [unexpected-token]
- --> main.buri:5:1
-  |
-5 | E enum { A /* inside */, B }
-  | ^
-  |
-  = expected: `enum`
-  = actual: `E`
-  = fix: write `enum` first: `enum E`

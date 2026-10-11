@@ -1,0 +1,33 @@
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_paren_app_9f8985/main.buri:15:16
+   |
+15 | fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_paren_app_9f8985/main.buri:22:13
+   |
+22 | fn shout<C: Allocator + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |             ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Clock` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_paren_app_9f8985/main.buri:22:25
+   |
+22 | fn shout<C: Allocator + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                         ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+error: expected `=>`, found `str` [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_app_9f8985/main.buri:60:41
+   |
+60 |     whisper(ctx, rendered(ctx, fn(c, l) str =>.format(c, "<${l}>"), label)).mapErr(
+   |                                         ^^^
+   |
+   = expected: `=>`
+   = actual: `str`
+   = fix: write `=>` here

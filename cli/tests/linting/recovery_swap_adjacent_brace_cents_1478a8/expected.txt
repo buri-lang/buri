@@ -1,9 +1,0 @@
-error: expected `let`, found `doubled` [unexpected-token]
- --> lib/recovery_swap_adjacent_brace_cents_1478a8/lib.buri:8:5
-  |
-8 |     doubled let = n * 2;
-  |     ^^^^^^^
-  |
-  = expected: `let`
-  = actual: `doubled`
-  = fix: write `let` first: `let doubled`

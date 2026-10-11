@@ -1,0 +1,16 @@
+error: expected a type, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_module_expected_cd6637/main.buri:23:45
+   |
+23 | fn announce<C: Stdout>(ctx: C, label: Str): , Result<(), IoError> {
+   |                                             ^
+   |
+   = expected: a type
+   = actual: `,`
+   = fix: name a type here, as in `Int` or `[Str]`
+error: there is nothing named `announce` in scope [unknown-name]
+  --> lib/recovery_insert_stray_module_expected_cd6637/main.buri:44:13
+   |
+44 |     let _ = announce(ctx, label).mapErr(fn(_e) => {
+   |             ^^^^^^^^
+   |
+   = fix: declare `announce`, or import it — a name is in scope only from this module's own declarations and its imports

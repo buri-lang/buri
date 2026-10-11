@@ -1,0 +1,20 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_module_cents_739b5a/lib.buri:3:1
+  |
+3 | @ }
+  | ^
+  |
+ --> lib/recovery_insert_stray_module_cents_739b5a/lib.buri:1:34
+  |
+1 | export fn fromCents(n: I64): I64 {
+  |                                  ^ opened here
+  |
+  = fix: write `}` here
+warning: `scaled` is bound and never used [unused-variable]
+ --> lib/recovery_insert_stray_module_cents_739b5a/lib.buri:9:9
+  |
+9 |     let scaled = n * 100;
+  |         ^^^^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place

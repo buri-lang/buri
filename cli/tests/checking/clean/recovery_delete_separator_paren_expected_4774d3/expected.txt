@@ -1,0 +1,7 @@
+error: a variant payload field ends with `,` [missing-comma]
+ --> main.buri:4:26
+  |
+4 |     Triangle(Float, Float Float),
+  |                          ^
+  |
+  = fix: write `,` here

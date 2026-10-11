@@ -1,0 +1,22 @@
+error: expected `I64`, found `(I64, I64)` [type-mismatch]
+ --> main.buri:1:38
+  |
+1 | fn nested(t: ((Int, Int), Int)): Int {
+  |                                      ^ the declared return type is `I64`
+  |
+  = expected: `I64`
+  = actual: `(I64, I64)`
+error: there is nothing named `extra` in scope [unknown-name]
+ --> main.buri:2:6
+  |
+2 |     (extra t.0).1
+  |      ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a tuple element ends with `,` [missing-comma]
+ --> main.buri:2:11
+  |
+2 |     (extra t.0).1
+  |           ^
+  |
+  = fix: write `,` here

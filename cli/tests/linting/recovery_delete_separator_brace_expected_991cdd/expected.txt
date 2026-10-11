@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_delete_separator_brace_expected_991cdd/main.buri:49:65
+   |
+49 |         .mapErr(fn(_e) => "could not write to standard output")?
+   |                                                                 ^
+   |
+   = fix: write `;` here

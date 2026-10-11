@@ -1,0 +1,9 @@
+error: expected an identifier, found `export` [unexpected-token]
+ --> main.buri:4:7
+  |
+4 | trait export T {}
+  |       ^^^^^^
+  |
+  = expected: an identifier
+  = actual: `export`
+  = fix: write `export` before `trait`

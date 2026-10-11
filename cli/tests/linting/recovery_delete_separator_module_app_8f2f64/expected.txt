@@ -1,0 +1,15 @@
+error: an import declaration ends with `;` [missing-semicolon]
+ --> lib/recovery_delete_separator_module_app_8f2f64/main.buri:5:30
+  |
+5 | from "core/io" import * as io
+  |                              ^
+  |
+  = fix: write `;` here
+warning: this comment is marked `TODO` [todo-comment]
+ --> lib/recovery_delete_separator_module_app_8f2f64/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker

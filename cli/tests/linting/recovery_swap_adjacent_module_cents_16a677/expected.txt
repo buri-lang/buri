@@ -1,9 +1,0 @@
-error: expected an identifier, found `export` [unexpected-token]
- --> lib/recovery_swap_adjacent_module_cents_16a677/lib.buri:4:4
-  |
-4 | fn export fromCents(c: I64): Cents {
-  |    ^^^^^^
-  |
-  = expected: an identifier
-  = actual: `export`
-  = fix: write `export` before `fn`

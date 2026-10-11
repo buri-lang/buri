@@ -1,0 +1,23 @@
+error: `println` takes 2 arguments, but 3 were given [argument-count]
+  --> lib/recovery_insert_stray_brace_expected_71af54/main.buri:24:5
+   |
+24 |     io.println(ctx, "-- ${label}"extra )
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass `println` the following arguments: println<C: Stdout>(ctx: C, text: Template)
+error: a call argument ends with `,` [missing-comma]
+  --> lib/recovery_insert_stray_brace_expected_71af54/main.buri:24:34
+   |
+24 |     io.println(ctx, "-- ${label}"extra )
+   |                                  ^
+   |
+   = fix: write `,` here
+error: there is nothing named `extra` in scope [unknown-name]
+  --> lib/recovery_insert_stray_brace_expected_71af54/main.buri:24:34
+   |
+24 |     io.println(ctx, "-- ${label}"extra )
+   |                                  ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

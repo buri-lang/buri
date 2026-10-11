@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+  --> lib/recovery_delete_separator_paren_expected_50cde9/main.buri:36:19
+   |
+36 |     str.format(ctx "== ${label} ==")
+   |                   ^
+   |
+   = fix: write `,` here

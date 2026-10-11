@@ -1,0 +1,17 @@
+warning: this comment is marked `TODO` [todo-comment]
+ --> lib/recovery_swap_adjacent_brace_cents_df594f/lib.buri:5:4
+  |
+5 | // TODO: decide what a negative amount formats as
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected `let`, found `scaled` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_cents_df594f/lib.buri:11:5
+   |
+11 |     scaled let = n * 100;
+   |     ^^^^^^
+   |
+   = expected: `let`
+   = actual: `scaled`
+   = fix: write `let` first: `let scaled`

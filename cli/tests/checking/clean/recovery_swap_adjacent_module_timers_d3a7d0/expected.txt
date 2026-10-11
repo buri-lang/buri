@@ -1,0 +1,9 @@
+error: expected `test`, found a string literal [unexpected-token]
+  --> main.buri:82:1
+   |
+82 | "a cancelled timer never fires" test {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: `test`
+   = actual: a string literal
+   = fix: write `test` first: `test "a cancelled timer never fires"`

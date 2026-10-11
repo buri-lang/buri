@@ -1,0 +1,9 @@
+error: expected `{`, found `?` [unexpected-token]
+  --> main.buri:52:62
+   |
+52 | test "an update keeps the boxed field and frees the old box" ? {
+   |                                                              ^
+   |
+   = expected: `{`
+   = actual: `?`
+   = fix: write `{` here

@@ -1,0 +1,9 @@
+error: expected `(`, found `,` [unexpected-token]
+   --> main.buri:135:8
+    |
+135 |     if , (flag == false) { 2 } else { 1 }
+    |        ^
+    |
+    = expected: `(`
+    = actual: `,`
+    = fix: write `(` here

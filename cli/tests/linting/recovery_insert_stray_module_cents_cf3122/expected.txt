@@ -1,0 +1,20 @@
+warning: this comment is marked `TODO` [todo-comment]
+ --> lib/recovery_insert_stray_module_cents_cf3122/lib.buri:5:4
+  |
+5 | // TODO: decide what a negative amount formats as
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_module_cents_cf3122/lib.buri:13:1
+   |
+13 | @ }
+   | ^
+   |
+  --> lib/recovery_insert_stray_module_cents_cf3122/lib.buri:10:31
+   |
+10 | export fn format(n: I64): Str {
+   |                               ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,16 @@
+error: there is nothing named `describe` in scope [unknown-name]
+  --> lib/recovery_insert_stray_module_app_fb1582/main.buri:15:21
+   |
+15 |     io.println(ctx, describe()).mapErr(fn(_e) => "could not write to standard output")
+   |                     ^^^^^^^^
+   |
+   = fix: declare `describe`, or import it — a name is in scope only from this module's own declarations and its imports
+error: expected `(`, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_module_app_fb1582/main.buri:18:12
+   |
+18 | fn describe, (): Str {
+   |            ^
+   |
+   = expected: `(`
+   = actual: `,`
+   = fix: write `(` here

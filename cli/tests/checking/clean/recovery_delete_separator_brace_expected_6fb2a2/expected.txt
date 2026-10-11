@@ -1,0 +1,7 @@
+error: an enum variant ends with `,` [missing-comma]
+ --> main.buri:2:18
+  |
+2 |     Circle(Float)
+  |                  ^
+  |
+  = fix: write `,` here

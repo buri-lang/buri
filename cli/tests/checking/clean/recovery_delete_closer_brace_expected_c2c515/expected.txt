@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:9:1
+  |
+9 | }
+  | ^
+  |
+ --> main.buri:8:11
+  |
+8 |     }).abs(
+  |           ^ opened here
+  |
+  = fix: write `)` here

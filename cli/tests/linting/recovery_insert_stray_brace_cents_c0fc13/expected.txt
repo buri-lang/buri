@@ -1,0 +1,17 @@
+warning: this comment is marked `TODO` [todo-comment]
+ --> lib/recovery_insert_stray_brace_cents_c0fc13/lib.buri:5:4
+  |
+5 | // TODO: decide what a negative amount formats as
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected `;`, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_cents_c0fc13/lib.buri:11:20
+   |
+11 |     let scaled = n @ * 100;
+   |                    ^
+   |
+   = expected: `;`
+   = actual: `@`
+   = fix: write `;` here

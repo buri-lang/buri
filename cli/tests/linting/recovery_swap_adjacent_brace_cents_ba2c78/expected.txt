@@ -1,0 +1,17 @@
+error: expected a type, found `,` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_cents_ba2c78/lib.buri:11:17
+   |
+11 |     entriesI64 :,
+   |                 ^
+   |
+   = expected: a type
+   = actual: `,`
+   = fix: name a type here, as in `Int` or `[Str]`
+warning: nothing uses `Tally` [unused-type]
+  --> lib/recovery_swap_adjacent_brace_cents_ba2c78/lib.buri:14:6
+   |
+14 | enum Tally {
+   |      ^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface

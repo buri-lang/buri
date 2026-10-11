@@ -1,0 +1,17 @@
+error: expected `:`, found `ctx` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_stamp_20ea4f/lib.buri:17:34
+   |
+17 | export fn stamp<C: Stdout>(extra ctx: C, label: Str): Result<(), IoError> {
+   |                                  ^^^
+   |
+   = expected: `:`
+   = actual: `ctx`
+   = fix: write `:` here
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_insert_stray_paren_stamp_20ea4f/lib.buri:24:19
+   |
+24 | export fn note<C: Allocator // it will allocate once the sink is real
+   |                   ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound

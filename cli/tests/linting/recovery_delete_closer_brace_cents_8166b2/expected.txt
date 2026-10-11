@@ -1,0 +1,28 @@
+warning: nothing reads `Entry.packer` [unused-field]
+  --> lib/recovery_delete_closer_brace_cents_8166b2/lib.buri:16:5
+   |
+16 |     packer: Str,
+   |     ^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+warning: nothing reads `Entry.note` [unused-field]
+  --> lib/recovery_delete_closer_brace_cents_8166b2/lib.buri:17:5
+   |
+17 |     note: Option<Str>,
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_cents_8166b2/lib.buri:24:1
+   |
+24 | export fn total(e: Entry): I64 {
+   | ^^^^^^
+   |
+  --> lib/recovery_delete_closer_brace_cents_8166b2/lib.buri:20:36
+   |
+20 | export fn entry(cents: I64): Entry {
+   |                                    ^ opened here
+   |
+   = fix: write `}` here

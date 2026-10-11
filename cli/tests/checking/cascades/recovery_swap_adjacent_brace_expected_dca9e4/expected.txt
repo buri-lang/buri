@@ -1,0 +1,27 @@
+error: this `match` does not cover `_` [match-not-exhaustive]
+ --> main.buri:2:13
+  |
+2 |     let b = match (f) {
+  |             ^^^^^^^^^^^ not covered
+  |
+  = exhaustiveness is not attempted over integer or string ranges
+  = fix: add a `_` arm
+error: a match arm is `pattern => expression` [missing-arrow]
+ --> main.buri:3:12
+  |
+3 |         1.5 1 =>,
+  |            ^
+  |
+  = fix: write `=>` here
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:3:15
+  |
+3 |         1.5 1 =>,
+  |               ^^
+  |
+ --> main.buri:2:23
+  |
+2 |     let b = match (f) {
+  |                       ^ opened here
+  |
+  = fix: write `}` here

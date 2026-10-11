@@ -1,0 +1,16 @@
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> main.buri:52:15
+   |
+52 |         .Ok(s) , => s,
+   |               ^
+   |
+   = fix: write `=>` here
+error: expected a pattern, found `=>` [unexpected-token]
+  --> main.buri:52:18
+   |
+52 |         .Ok(s) , => s,
+   |                  ^^
+   |
+   = expected: a pattern
+   = actual: `=>`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

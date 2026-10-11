@@ -1,0 +1,9 @@
+error: expected a struct literal's type, found `{` [unexpected-token]
+ --> main.buri:7:5
+  |
+7 |     { Flags verbose: args.any(fn(a) => a == "--verbose") }
+  |     ^
+  |
+  = expected: a struct literal's type
+  = actual: `{`
+  = fix: write the type before the brace: `Flags {`

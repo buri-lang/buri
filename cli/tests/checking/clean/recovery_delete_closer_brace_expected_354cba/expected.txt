@@ -1,0 +1,12 @@
+error: this tuple is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:27:1
+   |
+27 | }
+   | ^
+   |
+  --> main.buri:26:25
+   |
+26 |     (a < b || b < c) == (a < c
+   |                         ^ opened here
+   |
+   = fix: write `)` here

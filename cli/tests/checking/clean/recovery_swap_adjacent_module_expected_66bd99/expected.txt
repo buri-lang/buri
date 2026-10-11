@@ -1,0 +1,9 @@
+error: expected `:`, found `Float` [unexpected-token]
+ --> main.buri:1:7
+  |
+1 | fn g()Float : {
+  |       ^^^^^
+  |
+  = expected: `:`
+  = actual: `Float`
+  = fix: write `:` here

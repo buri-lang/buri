@@ -1,0 +1,59 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_swap_adjacent_brace_app_179644/main.buri:16:24
+   |
+16 | fn width<C: Allocator>(ctx: C, label: Str): Int {
+   |                        ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: expected a pattern, found `=` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_179644/main.buri:39:9
+   |
+39 |     let = ctx context {
+   |         ^
+   |
+   = expected: a pattern
+   = actual: `=`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_brace_app_179644/main.buri:44:22
+   |
+44 |     let _ = announce(ctx, label).mapErr(fn(_e) => {
+   |                      ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_brace_app_179644/main.buri:48:18
+   |
+48 |         .println(ctx, "${banner(ctx, label)} is ${width(ctx, label)} wide")
+   |                  ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_brace_app_179644/main.buri:48:33
+   |
+48 |         .println(ctx, "${banner(ctx, label)} is ${width(ctx, label)} wide")
+   |                                 ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_brace_app_179644/main.buri:48:57
+   |
+48 |         .println(ctx, "${banner(ctx, label)} is ${width(ctx, label)} wide")
+   |                                                         ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_brace_app_179644/main.buri:51:18
+   |
+51 |         .println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label))
+   |                  ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_brace_app_179644/main.buri:51:32
+   |
+51 |         .println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label))
+   |                                ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

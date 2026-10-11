@@ -1,0 +1,42 @@
+error: this `struct` body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:2:21
+  |
+2 |     export name: Str@ ,
+  |                     ^
+  |
+ --> main.buri:1:21
+  |
+1 | export struct Route {
+  |                     ^ opened here
+  |
+  = fix: write `}` here
+error: expected a declaration, found `path` [unexpected-token]
+ --> main.buri:3:12
+  |
+3 |     export path: Str,
+  |            ^^^^
+  |
+  = expected: a declaration
+  = actual: `path`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: `Route` has no field `path` [unknown-field]
+  --> main.buri:10:48
+   |
+10 |         "/entries" => Route { name: "entries", path },
+   |                                                ^^^^
+   |
+   = fix: check the spelling, or name a field the type declares
+error: `Route` has no field `path` [unknown-field]
+  --> main.buri:11:46
+   |
+11 |         "/health" => Route { name: "health", path },
+   |                                              ^^^^
+   |
+   = fix: check the spelling, or name a field the type declares
+error: `Route` has no field `path` [unknown-field]
+  --> main.buri:12:40
+   |
+12 |         _ => Route { name: "fallback", path },
+   |                                        ^^^^
+   |
+   = fix: check the spelling, or name a field the type declares

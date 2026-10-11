@@ -1,0 +1,15 @@
+warning: this drops a `Result` by hand [hand-rolled-ignore]
+  --> lib/recovery_delete_separator_brace_app_01e62b/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_delete_separator_brace_app_01e62b/main.buri:56:28
+   |
+56 |     let _ = say(ctx, "one")
+   |                            ^
+   |
+   = fix: write `;` here

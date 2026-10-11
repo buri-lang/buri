@@ -1,0 +1,9 @@
+error: expected an identifier, found `export` [unexpected-token]
+ --> main.buri:7:4
+  |
+7 | fn export f(): Int {
+  |    ^^^^^^
+  |
+  = expected: an identifier
+  = actual: `export`
+  = fix: write `export` before `fn`

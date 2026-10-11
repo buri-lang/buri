@@ -1,5 +1,0 @@
-context Console { // why
-  ..base, // the rest
-  Stdout: out()extra , // printing
-  // the end
-}

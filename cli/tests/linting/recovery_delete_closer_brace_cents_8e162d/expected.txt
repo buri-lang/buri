@@ -1,0 +1,21 @@
+error: expected an identifier, found a string literal [unexpected-token]
+  --> lib/recovery_delete_closer_brace_cents_8e162d/lib.buri:10:18
+   |
+10 |     if (n == 0 { "zero" } else { "some" }
+   |                  ^^^^^^
+   |
+   = expected: an identifier
+   = actual: a string literal
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_cents_8e162d/lib.buri:12:1
+   |
+12 | 
+   | ^
+   |
+ --> lib/recovery_delete_closer_brace_cents_8e162d/lib.buri:8:31
+  |
+8 | export fn format(n: I64): Str {
+  |                               ^ opened here
+  |
+  = fix: write `}` here

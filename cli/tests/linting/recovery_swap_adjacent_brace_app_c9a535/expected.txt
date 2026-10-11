@@ -1,0 +1,37 @@
+warning: `spell` is 45 lines long [oversized-function]
+  --> lib/recovery_swap_adjacent_brace_app_c9a535/main.buri:56:4
+   |
+56 | fn spell(n: I64): Str {
+   |    ^^^^^
+   |
+   = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+   = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_app_c9a535/main.buri:57:15
+   |
+57 |     match (n{ )
+   |               ^
+   |
+  --> lib/recovery_swap_adjacent_brace_app_c9a535/main.buri:57:13
+   |
+57 |     match (n{ )
+   |             ^ opened here
+   |
+   = fix: write `}` here
+error: expected `{`, found `0` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_c9a535/main.buri:58:9
+   |
+58 |         0 => "zero",
+   |         ^
+   |
+   = expected: `{`
+   = actual: `0`
+   = fix: write `{` here
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_swap_adjacent_brace_app_c9a535/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own

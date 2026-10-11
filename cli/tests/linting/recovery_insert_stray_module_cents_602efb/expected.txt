@@ -1,0 +1,9 @@
+error: expected an identifier, found `?` [unexpected-token]
+ --> lib/recovery_insert_stray_module_cents_602efb/lib.buri:5:15
+  |
+5 | export struct ? Cents(export I64);
+  |               ^
+  |
+  = expected: an identifier
+  = actual: `?`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

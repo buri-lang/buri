@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:36:34
+   |
+36 |     assert.notEqual(bigint.of(42) bigint.of(-42));
+   |                                  ^
+   |
+   = fix: write `,` here

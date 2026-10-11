@@ -1,0 +1,17 @@
+error: expected `;`, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_a75b0a/main.buri:14:6
+   |
+14 |     }, ;
+   |      ^
+   |
+   = expected: `;`
+   = actual: `,`
+   = fix: write `;` here
+warning: `ctx` is bound to something other than a context [ctx-rebinding]
+  --> lib/recovery_insert_stray_brace_app_a75b0a/main.buri:19:5
+   |
+19 |     let ctx = "not a context";
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `ctx` is where a function's effects arrive, and a repository in which it means that everywhere is one where a reader can tell what a function may do by reading its signature
+   = fix: give the binding a name of its own

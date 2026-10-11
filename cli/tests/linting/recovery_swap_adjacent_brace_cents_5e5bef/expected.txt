@@ -1,0 +1,40 @@
+warning: nothing reads `Ledger.seal` [unused-field]
+  --> lib/recovery_swap_adjacent_brace_cents_5e5bef/lib.buri:13:5
+   |
+13 |     seal: Str,
+   |     ^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+error: an expression statement is legal only in a test source [statement-outside-test]
+  --> lib/recovery_swap_adjacent_brace_cents_5e5bef/lib.buri:21:5
+   |
+21 |     cents 5 +
+   |     ^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `I64`, not `()` [statement-not-unit]
+  --> lib/recovery_swap_adjacent_brace_cents_5e5bef/lib.buri:21:5
+   |
+21 |     cents 5 +
+   |     ^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_swap_adjacent_brace_cents_5e5bef/lib.buri:21:10
+   |
+21 |     cents 5 +
+   |          ^
+   |
+   = fix: write `;` here
+error: expected an expression, found `}` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_cents_5e5bef/lib.buri:22:1
+   |
+22 | }
+   | ^
+   |
+   = expected: an expression
+   = actual: `}`
+   = fix: write a value here

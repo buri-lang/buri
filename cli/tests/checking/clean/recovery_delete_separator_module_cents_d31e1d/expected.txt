@@ -1,7 +1,0 @@
-error: a derived trait ends with `,` [missing-comma]
-  --> main.buri:12:22
-   |
-12 | derive Equal, Ordered Show for Cents;
-   |                      ^
-   |
-   = fix: write `,` here

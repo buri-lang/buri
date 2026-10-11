@@ -1,0 +1,20 @@
+warning: this drops a `Result` by hand [hand-rolled-ignore]
+  --> lib/recovery_delete_closer_brace_app_c0ba1a/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: this variant payload pattern is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_c0ba1a/main.buri:34:21
+   |
+34 |         .Err(_error => 1,
+   |                     ^^
+   |
+  --> lib/recovery_delete_closer_brace_app_c0ba1a/main.buri:34:13
+   |
+34 |         .Err(_error => 1,
+   |             ^ opened here
+   |
+   = fix: write `)` here

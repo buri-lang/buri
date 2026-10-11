@@ -1,0 +1,25 @@
+warning: this comment is marked `TODO` [todo-comment]
+ --> lib/recovery_swap_adjacent_module_cents_c086c0/lib.buri:5:4
+  |
+5 | // TODO: decide what a negative amount formats as
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected an identifier, found `export` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_cents_c086c0/lib.buri:10:4
+   |
+10 | fn export format(n: I64): Str {
+   |    ^^^^^^
+   |
+   = expected: an identifier
+   = actual: `export`
+   = fix: write `export` before `fn`
+warning: `scaled` is bound and never used [unused-variable]
+  --> lib/recovery_swap_adjacent_module_cents_c086c0/lib.buri:11:9
+   |
+11 |     let scaled = n * 100;
+   |         ^^^^^^
+   |
+   = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+   = fix: use it, delete the `let`, or write `_` in its place

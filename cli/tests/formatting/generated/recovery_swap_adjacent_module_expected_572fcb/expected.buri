@@ -1,0 +1,17 @@
+struct P {
+    x: Int,
+    /* beside a field */
+    y: Int,
+}
+
+fn f(a: Int): Int {
+    let x = 1;
+    /* beside code */
+    x + a
+}
+
+E enum {
+    A,
+    /* inside */
+    B,
+}

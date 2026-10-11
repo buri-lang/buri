@@ -1,0 +1,28 @@
+warning: this branch is nested 5 levels deep [deep-nesting]
+  --> lib/recovery_insert_stray_paren_app_55a4b9/main.buri:14:21
+   |
+14 |                     if (n @ > 10000) { "huge" } else { "large" }
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
+   = fix: pull the inner branch into a named function, or replace the ladder with one `match`
+error: expected `Bool`, found `I64` [type-mismatch]
+  --> lib/recovery_insert_stray_paren_app_55a4b9/main.buri:14:25
+   |
+14 |                     if (n @ > 10000) { "huge" } else { "large" }
+   |                         ^ an `if` condition is `Bool`
+   |
+   = expected: `Bool`
+   = actual: `I64`
+error: this `if` condition is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_paren_app_55a4b9/main.buri:14:27
+   |
+14 |                     if (n @ > 10000) { "huge" } else { "large" }
+   |                           ^
+   |
+  --> lib/recovery_insert_stray_paren_app_55a4b9/main.buri:14:24
+   |
+14 |                     if (n @ > 10000) { "huge" } else { "large" }
+   |                        ^ opened here
+   |
+   = fix: write `)` here

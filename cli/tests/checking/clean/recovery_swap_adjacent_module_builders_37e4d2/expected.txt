@@ -1,0 +1,18 @@
+error: expected a declaration, found `field` [unexpected-token]
+  --> main.buri:70:8
+   |
+70 | export field fn(base: ast.Expr, text: Str): ast.Expr {
+   |        ^^^^^
+   |
+   = expected: a declaration
+   = actual: `field`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected an identifier, found `(` [unexpected-token]
+  --> main.buri:70:16
+   |
+70 | export field fn(base: ast.Expr, text: Str): ast.Expr {
+   |                ^
+   |
+   = expected: an identifier
+   = actual: `(`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:9:1
+  |
+9 | 
+  | ^
+  |
+ --> main.buri:6:42
+  |
+6 | export fn parseFlags(args: [Str]): Flags {
+  |                                          ^ opened here
+  |
+  = fix: write `}` here

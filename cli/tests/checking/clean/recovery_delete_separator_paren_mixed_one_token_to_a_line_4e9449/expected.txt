@@ -1,7 +1,0 @@
-error: a function parameter ends with `,` [missing-comma]
- --> main.buri:7:4
-  |
-7 | Int
-  |    ^
-  |
-  = fix: write `,` here

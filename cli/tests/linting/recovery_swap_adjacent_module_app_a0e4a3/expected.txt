@@ -1,0 +1,24 @@
+warning: this is a table of the sixteen hexadecimal digits [hand-rolled-hex-digits]
+  --> lib/recovery_swap_adjacent_module_app_a0e4a3/main.buri:12:5
+   |
+12 |     '0',
+   |     ^^^
+   |
+   = `character.fromDigit(n, 16)` is a digit and `character.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `character.fromDigit`, `number.toHex` or `bytes.toHex`
+error: expected a type, found `=` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_a0e4a3/main.buri:30:10
+   |
+30 | let B64: = Str "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+   |          ^
+   |
+   = expected: a type
+   = actual: `=`
+   = fix: name a type here, as in `Int` or `[Str]`
+error: there is nothing named `B64` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_module_app_a0e4a3/main.buri:49:47
+   |
+49 |         .println(ctx, "${hexByte(ctx, 171)} ${B64.charAt(0).withDefault('?')}")
+   |                                               ^^^
+   |
+   = fix: declare `B64`, or import it — a name is in scope only from this module's own declarations and its imports

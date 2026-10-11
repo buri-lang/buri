@@ -1,0 +1,24 @@
+error: expected `{`, found `extra` [unexpected-token]
+ --> lib/recovery_insert_stray_module_app_cb8002/main.buri:5:23
+  |
+5 | from "core/io" import extra * as io;
+  |                       ^^^^^
+  |
+  = expected: `{`
+  = actual: `extra`
+  = fix: write `{` here
+warning: this comment is marked `TODO` [todo-comment]
+ --> lib/recovery_insert_stray_module_app_cb8002/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: there is nothing named `io` in scope [unknown-name]
+  --> lib/recovery_insert_stray_module_app_cb8002/main.buri:19:5
+   |
+19 |     io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")
+   |     ^^
+   |
+   = fix: declare `io`, or import it — a name is in scope only from this module's own declarations and its imports

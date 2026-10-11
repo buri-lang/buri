@@ -1,7 +1,0 @@
-error: a function parameter ends with `,` [missing-comma]
-  --> main.buri:41:51
-   |
-41 | export fn pointsAt<C: Allocator>(ctx: C, text: Str d: Diagnostic): Str {
-   |                                                   ^
-   |
-   = fix: write `,` here

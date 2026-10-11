@@ -1,0 +1,17 @@
+error: expected a declaration, found `extra` [unexpected-token]
+ --> lib/recovery_insert_stray_module_app_dd5ef1/main.buri:7:1
+  |
+7 | extra from "node" import { NodeHost };
+  | ^^^^^
+  |
+  = expected: a declaration
+  = actual: `extra`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+warning: `ctx` is bound to something other than a context [ctx-rebinding]
+  --> lib/recovery_insert_stray_module_app_dd5ef1/main.buri:19:5
+   |
+19 |     let ctx = "not a context";
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `ctx` is where a function's effects arrive, and a repository in which it means that everywhere is one where a reader can tell what a function may do by reading its signature
+   = fix: give the binding a name of its own

@@ -1,0 +1,27 @@
+warning: this drops a `Result` by hand [hand-rolled-ignore]
+  --> lib/recovery_insert_stray_brace_app_ffc18d/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: `NodeHost` does not implement `Stdout` [missing-impl]
+  --> lib/recovery_insert_stray_brace_app_ffc18d/main.buri:54:17
+   |
+54 |         Stdout: host@ .stdout,
+   |                 ^^^^
+   |
+   = fix: bind a value whose type has `impl Stdout for ...`; an effect is an ordinary interface, so a test double is a struct with those methods
+error: this context is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_app_ffc18d/main.buri:54:21
+   |
+54 |         Stdout: host@ .stdout,
+   |                     ^
+   |
+  --> lib/recovery_insert_stray_brace_app_ffc18d/main.buri:53:23
+   |
+53 |     let ctx = context {
+   |                       ^ opened here
+   |
+   = fix: write `}` here

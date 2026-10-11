@@ -1,0 +1,9 @@
+error: expected `:`, found `export` [unexpected-token]
+ --> main.buri:4:7
+  |
+4 |     b export: Int,
+  |       ^^^^^^
+  |
+  = expected: `:`
+  = actual: `export`
+  = fix: write `:` here

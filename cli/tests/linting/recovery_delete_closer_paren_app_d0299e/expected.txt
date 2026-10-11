@@ -1,0 +1,50 @@
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_delete_closer_paren_app_d0299e/main.buri:15:16
+   |
+15 | fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_delete_closer_paren_app_d0299e/main.buri:22:13
+   |
+22 | fn shout<C: Allocator + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |             ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Clock` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_delete_closer_paren_app_d0299e/main.buri:22:25
+   |
+22 | fn shout<C: Allocator + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                         ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+error: a `Result` may not be discarded [result-discarded]
+  --> lib/recovery_delete_closer_paren_app_d0299e/main.buri:57:5
+   |
+57 |     let _ = whisper(ctx, banner(ctx, label).mapErr(fn(_e) => {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
+error: `Str` has no method `mapErr` [unknown-method]
+  --> lib/recovery_delete_closer_paren_app_d0299e/main.buri:57:45
+   |
+57 |     let _ = whisper(ctx, banner(ctx, label).mapErr(fn(_e) => {
+   |                                             ^^^^^^
+   |
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_d0299e/main.buri:59:8
+   |
+59 |     })?;
+   |        ^
+   |
+  --> lib/recovery_delete_closer_paren_app_d0299e/main.buri:57:20
+   |
+57 |     let _ = whisper(ctx, banner(ctx, label).mapErr(fn(_e) => {
+   |                    ^ opened here
+   |
+   = fix: write `)` here

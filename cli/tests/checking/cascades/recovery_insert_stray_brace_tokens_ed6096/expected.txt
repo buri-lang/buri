@@ -1,0 +1,81 @@
+error: this `enum` is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:22:12
+   |
+22 |     Surface? ,
+   |            ^
+   |
+  --> main.buri:20:19
+   |
+20 | export enum Token {
+   |                   ^ opened here
+   |
+   = fix: write `}` here
+error: `Token` has no variant `OnSurface` [unknown-variant]
+  --> main.buri:40:13
+   |
+40 |             .OnSurface => style.token("kit", "onSurface"),
+   |             ^^^^^^^^^^
+   |
+   = did you mean `.Surface`?
+   = fix: if you meant `.Surface`, use that; if not, `Token`'s declaration lists its variants
+error: `Token` has no variant `Edge` [unknown-variant]
+  --> main.buri:41:13
+   |
+41 |             .Edge => style.token("kit", "edge"),
+   |             ^^^^^
+   |
+   = its variants are `Surface`
+   = fix: name a variant the enum declares
+error: `Token` has no variant `Accent` [unknown-variant]
+  --> main.buri:42:13
+   |
+42 |             .Accent => style.token("kit", "accent"),
+   |             ^^^^^^^
+   |
+   = its variants are `Surface`
+   = fix: name a variant the enum declares
+error: `Token` is a type, not a value [type-not-value]
+  --> main.buri:60:10
+   |
+60 |         (Token.OnSurface.color(), f(.OnSurface)),
+   |          ^^^^^
+   |
+   = fix: construct one, as in `Point { x: 1, y: 2 }`, or name a value
+error: `Token` has no variant `OnSurface` [unknown-variant]
+  --> main.buri:60:37
+   |
+60 |         (Token.OnSurface.color(), f(.OnSurface)),
+   |                                     ^^^^^^^^^^
+   |
+   = did you mean `.Surface`?
+   = fix: if you meant `.Surface`, use that; if not, `Token`'s declaration lists its variants
+error: `Token` is a type, not a value [type-not-value]
+  --> main.buri:61:10
+   |
+61 |         (Token.Edge.color(), f(.Edge)),
+   |          ^^^^^
+   |
+   = fix: construct one, as in `Point { x: 1, y: 2 }`, or name a value
+error: `Token` has no variant `Edge` [unknown-variant]
+  --> main.buri:61:32
+   |
+61 |         (Token.Edge.color(), f(.Edge)),
+   |                                ^^^^^
+   |
+   = its variants are `Surface`
+   = fix: name a variant the enum declares
+error: `Token` is a type, not a value [type-not-value]
+  --> main.buri:62:10
+   |
+62 |         (Token.Accent.color(), f(.Accent)),
+   |          ^^^^^
+   |
+   = fix: construct one, as in `Point { x: 1, y: 2 }`, or name a value
+error: `Token` has no variant `Accent` [unknown-variant]
+  --> main.buri:62:34
+   |
+62 |         (Token.Accent.color(), f(.Accent)),
+   |                                  ^^^^^^^
+   |
+   = its variants are `Surface`
+   = fix: name a variant the enum declares

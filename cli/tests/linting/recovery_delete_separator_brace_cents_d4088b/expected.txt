@@ -1,7 +1,0 @@
-error: a record field ends with `,` [missing-comma]
- --> lib/recovery_delete_separator_brace_cents_d4088b/lib.buri:7:23
-  |
-7 |     export amount: I64
-  |                       ^
-  |
-  = fix: write `,` here

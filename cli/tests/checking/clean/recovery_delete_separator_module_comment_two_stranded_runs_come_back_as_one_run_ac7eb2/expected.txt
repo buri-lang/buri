@@ -1,7 +1,0 @@
-error: a re-export declaration ends with `;` [missing-semicolon]
- --> main.buri:6:2
-  |
-6 | }
-  |  ^
-  |
-  = fix: write `;` here

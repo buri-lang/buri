@@ -1,0 +1,15 @@
+warning: this comment is marked `TODO` [todo-comment]
+ --> lib/recovery_delete_separator_brace_cents_8ae810/lib.buri:5:4
+  |
+5 | // TODO: decide what a negative amount formats as
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_delete_separator_brace_cents_8ae810/lib.buri:11:25
+   |
+11 |     let scaled = n * 100
+   |                         ^
+   |
+   = fix: write `;` here

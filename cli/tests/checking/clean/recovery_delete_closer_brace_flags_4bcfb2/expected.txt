@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:7:57
+  |
+7 |     Flags { verbose: args.any(fn(a) => a == "--verbose" }
+  |                                                         ^
+  |
+ --> main.buri:7:30
+  |
+7 |     Flags { verbose: args.any(fn(a) => a == "--verbose" }
+  |                              ^ opened here
+  |
+  = fix: write `)` here

@@ -1,0 +1,9 @@
+error: expected `{`, found a string literal [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_cents_c037d4/lib.buri:10:33
+   |
+10 |     if (n == 0) { "zero" } else "some" { }
+   |                                 ^^^^^^
+   |
+   = expected: `{`
+   = actual: a string literal
+   = fix: write `{` here

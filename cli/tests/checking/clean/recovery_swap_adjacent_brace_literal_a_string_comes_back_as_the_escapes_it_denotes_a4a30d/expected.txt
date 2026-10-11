@@ -1,0 +1,9 @@
+error: expected `{`, found a string literal [unexpected-token]
+  --> main.buri:13:15
+   |
+13 |     match (s) "\r\n" { => 1, "\u{7f}" => 2, "\u{41}" => 3, _ => 0 }
+   |               ^^^^^^
+   |
+   = expected: `{`
+   = actual: a string literal
+   = fix: write `{` here

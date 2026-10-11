@@ -1,7 +1,0 @@
-error: a statement ends with `;` [missing-semicolon]
- --> main.buri:5:25
-  |
-5 |     let flag = n - 1 > 0
-  |                         ^
-  |
-  = fix: write `;` here

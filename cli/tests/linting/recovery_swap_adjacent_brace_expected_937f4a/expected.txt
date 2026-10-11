@@ -1,0 +1,9 @@
+error: expected an expression, found `_` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_expected_937f4a/main.buri:44:5
+   |
+44 |     _ let = announce(ctx, label).mapErr(fn(_e) => {
+   |     ^
+   |
+   = expected: an expression
+   = actual: `_`
+   = fix: write a value here

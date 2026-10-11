@@ -1,0 +1,36 @@
+warning: `announce` is 49 lines long [oversized-function]
+  --> lib/recovery_delete_closer_module_expected_a99604/main.buri:15:4
+   |
+15 | fn announce<C: Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |    ^^^^^^^^
+   |
+   = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+   = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_delete_closer_module_expected_a99604/main.buri:16:35
+   |
+16 |     io.println(ctx, "-- ${label}")
+   |                                   ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `shout` [unexpected-token]
+  --> lib/recovery_delete_closer_module_expected_a99604/main.buri:22:4
+   |
+22 | fn shout<C: Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |    ^^^^^
+   |
+   = expected: `(`
+   = actual: `shout`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_expected_a99604/main.buri:64:1
+   |
+64 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_module_expected_a99604/main.buri:15:65
+   |
+15 | fn announce<C: Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                                                                 ^ opened here
+   |
+   = fix: write `}` here

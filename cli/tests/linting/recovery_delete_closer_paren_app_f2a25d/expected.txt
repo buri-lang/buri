@@ -1,0 +1,41 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_delete_closer_paren_app_f2a25d/main.buri:16:24
+   |
+16 | fn width<C: Allocator>(ctx: C, label: Str): Int {
+   |                        ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_f2a25d/main.buri:52:23
+   |
+52 |         .mapErr(fn(_e => "could not write to standard output")
+   |                       ^^
+   |
+  --> lib/recovery_delete_closer_paren_app_f2a25d/main.buri:52:19
+   |
+52 |         .mapErr(fn(_e => "could not write to standard output")
+   |                   ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found `}` [unexpected-token]
+  --> lib/recovery_delete_closer_paren_app_f2a25d/main.buri:53:1
+   |
+53 | }
+   | ^
+   |
+   = expected: `=>`
+   = actual: `}`
+   = fix: write `=>` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_f2a25d/main.buri:54:1
+   |
+54 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_paren_app_f2a25d/main.buri:38:49
+   |
+38 | export fn main(host: NodeHost): Result<(), Str> {
+   |                                                 ^ opened here
+   |
+   = fix: write `}` here

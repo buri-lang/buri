@@ -1,0 +1,23 @@
+error: a record field ends with `,` [missing-comma]
+  --> lib/recovery_delete_separator_brace_cents_0d3903/lib.buri:14:22
+   |
+14 |     export cents: I64
+   |                      ^
+   |
+   = fix: write `,` here
+warning: nothing reads `Entry.packer` [unused-field]
+  --> lib/recovery_delete_separator_brace_cents_0d3903/lib.buri:16:5
+   |
+16 |     packer: Str,
+   |     ^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+warning: nothing reads `Entry.note` [unused-field]
+  --> lib/recovery_delete_separator_brace_cents_0d3903/lib.buri:17:5
+   |
+17 |     note: Option<Str>,
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it

@@ -1,0 +1,65 @@
+error: expected `import`, found `*` [unexpected-token]
+  --> main.buri:15:18
+   |
+15 | from "core/simd" * import as simd;
+   |                  ^
+   |
+   = expected: `import`
+   = actual: `*`
+   = fix: write `import` here
+error: there is nothing named `simd` in scope [unknown-name]
+  --> main.buri:19:18
+   |
+19 |     assert.equal(simd.f32x4(1.9, -1.9, 0.0, 7.0).toInt(), simd.i32x4(1, -1, 0, 7));
+   |                  ^^^^
+   |
+   = fix: declare `simd`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `simd` in scope [unknown-name]
+  --> main.buri:19:59
+   |
+19 |     assert.equal(simd.f32x4(1.9, -1.9, 0.0, 7.0).toInt(), simd.i32x4(1, -1, 0, 7));
+   |                                                           ^^^^
+   |
+   = fix: declare `simd`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `simd` in scope [unknown-name]
+  --> main.buri:20:18
+   |
+20 |     assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5).toInt(), simd.i32x4(0, 0, -2, 2));
+   |                  ^^^^
+   |
+   = fix: declare `simd`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `simd` in scope [unknown-name]
+  --> main.buri:20:60
+   |
+20 |     assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5).toInt(), simd.i32x4(0, 0, -2, 2));
+   |                                                            ^^^^
+   |
+   = fix: declare `simd`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `simd` in scope [unknown-name]
+  --> main.buri:21:18
+   |
+21 |     assert.equal(simd.ZERO_FLOAT.toInt(), simd.ZERO_INT);
+   |                  ^^^^
+   |
+   = fix: declare `simd`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `simd` in scope [unknown-name]
+  --> main.buri:21:43
+   |
+21 |     assert.equal(simd.ZERO_FLOAT.toInt(), simd.ZERO_INT);
+   |                                           ^^^^
+   |
+   = fix: declare `simd`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `simd` in scope [unknown-name]
+  --> main.buri:26:15
+   |
+26 |     let far = simd.f32x4(nan, 1.0e300, -1.0e300, 3.0);
+   |               ^^^^
+   |
+   = fix: declare `simd`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `simd` in scope [unknown-name]
+  --> main.buri:35:13
+   |
+35 |     let v = simd.i32x4(1, -2, 300, 0);
+   |             ^^^^
+   |
+   = fix: declare `simd`, or import it — a name is in scope only from this module's own declarations and its imports
