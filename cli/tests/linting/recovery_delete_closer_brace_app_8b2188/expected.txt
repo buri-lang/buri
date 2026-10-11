@@ -20,7 +20,8 @@ error: `Template` has no method `mapErr` [unknown-method]
 20 |         .mapErr(fn(_e) => "could not write to standard output")
    |          ^^^^^^
    |
-   = fix: check the spelling — `buri docs core/number` lists every method `Template` has
+   = tuples, function types, and `Template` have no defining module, so they have no methods
+   = fix: there is no module to declare `mapErr` in, so write a free function taking the value, or wrap it in a struct of yours and give that the method
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_brace_app_8b2188/main.buri:21:1
    |

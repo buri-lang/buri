@@ -1,0 +1,13 @@
+error: `Template` has no method `show` [unknown-method]
+  --> cmd/template_has_no_methods/main.buri:16:33
+   |
+16 |   let _ = io.println(ctx, inner.show(ctx)).ignore();
+   |                                 ^^^^
+   |
+   = tuples, function types, and `Template` have no defining module, so they have no methods
+   = fix: there is no module to declare `show` in, so write a free function taking the value, or wrap it in a struct of yours and give that the method
+
+     Methods live only in the module that declares the receiver's type. Nothing
+     can add a method from outside, so for a toolchain type the fix points at
+     its page instead of an impl block you couldn't write.
+

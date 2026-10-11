@@ -1834,6 +1834,13 @@ impl<'a, 'b> Infer<'a, 'b> {
         let home = self.method_home(recv);
         let mut near = None;
         match recv.kind() {
+            _ if self.has_no_module(recv) => {
+                notes.push(
+                    "tuples, function types, and `Template` have no defining module, so they \
+                     have no methods"
+                        .into(),
+                );
+            }
             TyKind::Param(i) => {
                 let g = self.generics.get(*i as usize).cloned();
                 match g {
@@ -1871,13 +1878,6 @@ impl<'a, 'b> Infer<'a, 'b> {
                     ));
                 }
             }
-            TyKind::Tuple(_) | TyKind::Fn(..) => {
-                notes.push(
-                    "tuples, function types, and `Template` have no defining module, so they \
-                     have no methods"
-                        .into(),
-                );
-            }
             _ => {}
         }
         let fix = match &near {
@@ -1896,6 +1896,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         if let Some(fix) = fix {
             d.fix(fix);
         }
+    }
+
+    /// Whether a type has no module to declare a method in (SPEC 6.7.3).
+    fn has_no_module(&self, ty: &Ty) -> bool {
+        matches!(ty.kind(), TyKind::Tuple(_) | TyKind::Fn(..)) || self.as_prim(ty) == Some(Prim::Template)
     }
 
     /// Where a receiver's methods live: its defining module, that module's
@@ -1951,7 +1956,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 "add a bound to `{shown}` that declares `{name}`, or call one the bounds it \
                  already carries declare"
             )),
-            TyKind::Tuple(_) | TyKind::Fn(..) => Some(format!(
+            _ if self.has_no_module(recv) => Some(format!(
                 "there is no module to declare `{name}` in, so write a free function taking \
                  the value, or wrap it in a struct of yours and give that the method"
             )),
