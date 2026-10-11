@@ -3,16 +3,16 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
-total 14525 18720 77.59%
-area cli/build 1524 1859 81.98%
+total 14700 18706 78.58%
+area cli/build 1525 1859 82.03%
 area cli/documentation 255 769 33.16%
-area cli/format 83 98 84.69%
+area cli/format 84 98 85.71%
 area cli/language_server 1150 1472 78.12%
 area cli/lint 586 708 82.77%
 area cli/other 483 594 81.31%
 area cli/run 38 56 67.86%
 area cli/serve+watch 47 86 54.65%
-area cli/test 433 580 74.66%
+area cli/test 436 580 75.17%
 area crates/backend 80 88 90.91%
 area crates/diagnostics 198 232 85.34%
 area crates/docs 197 304 64.80%
@@ -21,11 +21,11 @@ area crates/js 1015 1104 91.94%
 area crates/llvm 973 1374 70.82%
 area crates/middle 2086 2523 82.68%
 area crates/project 878 1418 61.92%
-area crates/semantics 1872 2102 89.06%
+area crates/semantics 1875 2102 89.20%
 area crates/stdlib 12 12 100.00%
 area crates/stencil 1560 2025 77.04%
-area crates/syntax 1037 1298 79.89%
-266 329 cli/src/build/actions.rs
+area crates/syntax 1204 1284 93.77%
+267 329 cli/src/build/actions.rs
 37 52 cli/src/build/cache.rs
 16 20 cli/src/build/counted.rs
 86 94 cli/src/build/coverage.rs
@@ -49,7 +49,7 @@ area crates/syntax 1037 1298 79.89%
 37 44 cli/src/commands/arguments.rs
 74 90 cli/src/commands/build.rs
 10 10 cli/src/commands/clean.rs
-83 98 cli/src/commands/format.rs
+84 98 cli/src/commands/format.rs
 28 34 cli/src/commands/generate.rs
 24 32 cli/src/commands/init.rs
 1 2 cli/src/commands/interrupt.rs
@@ -59,7 +59,7 @@ area crates/syntax 1037 1298 79.89%
 34 42 cli/src/commands/query.rs
 38 56 cli/src/commands/run.rs
 16 36 cli/src/commands/serve.rs
-433 580 cli/src/commands/test.rs
+436 580 cli/src/commands/test.rs
 3 6 cli/src/commands/version.rs
 31 50 cli/src/commands/watch.rs
 0 0 cli/src/compiler/backend/mod.rs
@@ -178,8 +178,8 @@ area crates/syntax 1037 1298 79.89%
 3 4 crates/semantics/src/compiler/semantics/name.rs
 74 74 crates/semantics/src/compiler/semantics/patterns.rs
 28 28 crates/semantics/src/compiler/semantics/reactive.rs
-391 422 crates/semantics/src/compiler/semantics/resolve.rs
-114 148 crates/semantics/src/compiler/semantics/resolve/platforms.rs
+392 422 crates/semantics/src/compiler/semantics/resolve.rs
+116 148 crates/semantics/src/compiler/semantics/resolve/platforms.rs
 193 232 crates/semantics/src/compiler/semantics/styles.rs
 22 26 crates/semantics/src/compiler/semantics/typed.rs
 117 148 crates/semantics/src/compiler/semantics/types.rs
@@ -198,9 +198,9 @@ area crates/syntax 1037 1298 79.89%
 14 16 crates/stencil/src/compiler/backend/stencil/region.rs
 159 212 crates/stencil/src/compiler/backend/stencil/rtcall.rs
 1 2 crates/stencil/src/compiler/backend/stencil/runtime.rs
-285 420 crates/syntax/src/formatting.rs
+379 412 crates/syntax/src/formatting.rs
 28 30 crates/syntax/src/layout.rs
 25 30 crates/syntax/src/parsing/flat.rs
-158 172 crates/syntax/src/parsing/lexer.rs
-539 644 crates/syntax/src/parsing/parser.rs
+165 168 crates/syntax/src/parsing/lexer.rs
+605 642 crates/syntax/src/parsing/parser.rs
 2 2 crates/syntax/src/parsing/tree.rs
