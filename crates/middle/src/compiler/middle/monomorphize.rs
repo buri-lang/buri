@@ -891,7 +891,10 @@ impl<'a> Monomorphizer<'a> {
             return None;
         }
         let production = tycon.fields().iter().all(|field| match field.ty.kind() {
-            TyKind::Con(c, a) => a.is_empty() && self.tables().tycon(*c).fields().is_empty(),
+            TyKind::Con(c, a) => {
+                let field = self.tables().tycon(*c);
+                a.is_empty() && matches!(field.def, TyDef::Struct { .. }) && field.fields().is_empty()
+            }
             _ => false,
         });
         production.then_some(*con)
