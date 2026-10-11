@@ -1326,20 +1326,18 @@ fn stage_cross_sysroot(cross: &Cross, dir: &Path) -> std::io::Result<()> {
 /// name, so a link directory staged this way costs only its directory entries.
 ///
 /// **Nothing is ever written through `dest`.** It may be a hard link to a
-/// cache entry, and writing into it would change that entry. So a copy is
-/// made beside it and renamed over it ([`replace_with`]'s rule).
+/// cache entry from an earlier link, and writing into it would change that
+/// entry. So the link or copy is made beside it and renamed over it
+/// ([`replace_with`]'s rule). Two processes staging one key then take the same
+/// path whichever is first, and `dest` is never missing.
 fn stage_from(src: &Path, dest: &Path) -> std::io::Result<()> {
-    std::fs::hard_link(src, dest).or_else(|_| copy_in(src, dest))
-}
-
-/// [`stage_from`] where the filesystem won't hard-link `src`, such as a cache
-/// on another device: the bytes are copied beside `dest` and renamed over it.
-fn copy_in(src: &Path, dest: &Path) -> std::io::Result<()> {
     let fresh = beside(dest);
-    let copied = std::fs::copy(src, &fresh).and_then(|_| std::fs::rename(&fresh, dest));
-    // Gone already unless the copy or the rename failed.
+    let staged = std::fs::hard_link(src, &fresh)
+        .or_else(|_| std::fs::copy(src, &fresh).map(drop))
+        .and_then(|()| std::fs::rename(&fresh, dest));
+    // Still there after a failure, or after a rename onto the same file.
     let _ = std::fs::remove_file(&fresh);
-    copied
+    staged
 }
 
 /// Writes `bytes` to a new file renamed over `dest`, rather than into `dest`.
