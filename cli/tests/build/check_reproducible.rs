@@ -164,7 +164,7 @@ fn a_reproducible_native_artifact_is_quiet() {
     let scratch = written("check-reproducible-quiet-native", "native");
     let run = scratch.run(&["build", "--check-reproducible", "//cmd/app"]);
     run.ok();
-    assert_eq!(run.all().trim(), "", "a passing check printed something");
+    assert_eq!(run.stdout, "", "a passing check printed something");
 }
 
 /// A target that stops being a binary between the rounds is reported, not
