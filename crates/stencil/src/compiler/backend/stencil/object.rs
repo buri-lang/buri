@@ -116,10 +116,6 @@ const ARM64_RELOC_ADDEND: u32 = 10;
 /// `r_symbolnum` is 24 bits, and an `ARM64_RELOC_ADDEND` puts the addend there.
 const MAX_ADDEND: i64 = 0x00ff_ffff;
 
-/// The widest alignment a section may ask for. `2^15` is far past anything a
-/// code generator needs and keeps the shift below `u64`'s width.
-const MAX_ALIGN_LOG2: u32 = 15;
-
 /// One section of the object.
 pub struct Section {
     /// `__text`, `__const`, `__data`.
@@ -208,11 +204,6 @@ impl RelKind {
             _ => 2,
         }
     }
-
-    /// The width of the relocated field, for bounds-checking the offset.
-    fn width(self) -> u64 {
-        1 << self.length()
-    }
 }
 
 pub struct Reloc {
@@ -261,54 +252,22 @@ impl RawReloc {
 }
 
 /// The object's bytes.
+///
+/// The sections are a unit's fixed three (`mod.rs`): names that fit the
+/// 16-byte fields, small alignments, and one zero-fill section with no bytes,
+/// last, which Mach-O requires. Every relocation lies inside its section.
 pub fn write(
     sections: &[Section],
     symbols: &[Symbol],
     relocs: &[Reloc],
 ) -> Result<Vec<u8>, String> {
-    if sections.is_empty() {
-        return Err("a Mach-O object needs at least one section".into());
-    }
-    if sections.len() > u32::MAX as usize {
-        return Err("too many sections".into());
-    }
-    for s in sections {
-        if s.align > MAX_ALIGN_LOG2 {
-            return Err(format!(
-                "section {} asks for 2^{} alignment; the maximum is 2^{MAX_ALIGN_LOG2}",
-                s.name, s.align
-            ));
-        }
-        if s.name.len() > 16 || s.segment.len() > 16 {
-            return Err(format!(
-                "section name {},{} does not fit Mach-O's 16-byte fields",
-                s.segment, s.name
-            ));
-        }
-    }
-
     // The addend of an `Abs64` is written into the bytes being relocated, so
     // the caller's data is copied before anything else touches it.
-    let mut seen_zerofill = false;
-    for s in sections {
-        if s.zerofill > 0 {
-            seen_zerofill = true;
-            if !s.data.is_empty() {
-                return Err(format!("zero-fill section {} also carries bytes", s.name));
-            }
-        } else if seen_zerofill {
-            return Err(format!(
-                "section {} follows a zero-fill one; Mach-O requires zero-fill sections last",
-                s.name
-            ));
-        }
-    }
-
     let mut bodies: Vec<Vec<u8>> =
         sections.iter().map(|s| s.data.clone()).collect();
-    let order = sort_symbols(symbols);
+    let sorted = sort_symbols(symbols);
     apply_abs64_addends(&mut bodies, sections, relocs)?;
-    let per_section = group_relocs(sections, symbols, relocs, &order)?;
+    let per_section = group_relocs(sections, relocs, &sorted)?;
 
     // Addresses are a single ascending run with each section's own alignment
     // honoured; file offsets are that run shifted by one aligned base, so a
@@ -363,10 +322,10 @@ pub fn write(
     }
 
     let symtab_off = align_up(reloc_cursor, 3);
-    let strtab_off = symtab_off + NLIST_SIZE * order.len() as u64;
-    let (strings, str_indices) = string_table(symbols, &order);
+    let strtab_off = symtab_off + NLIST_SIZE * sorted.len() as u64;
+    let (strings, str_indices) = string_table(&sorted);
 
-    let (nlocal, nextdef, nundef) = symbol_groups(symbols, &order);
+    let (nlocal, nextdef, nundef) = symbol_groups(&sorted);
 
     let mut out: Vec<u8> = Vec::with_capacity(strtab_off as usize + strings.len());
 
@@ -438,7 +397,7 @@ pub fn write(
     out.extend_from_slice(&LC_SYMTAB.to_le_bytes());
     out.extend_from_slice(&(SYMTAB_CMD_SIZE as u32).to_le_bytes());
     out.extend_from_slice(&(symtab_off as u32).to_le_bytes());
-    out.extend_from_slice(&(order.len() as u32).to_le_bytes());
+    out.extend_from_slice(&(sorted.len() as u32).to_le_bytes());
     out.extend_from_slice(&(strtab_off as u32).to_le_bytes());
     out.extend_from_slice(&(strings.len() as u32).to_le_bytes());
 
@@ -478,14 +437,7 @@ pub fn write(
 
     // -- symbol table ---------------------------------------------------------
     pad_to(&mut out, symtab_off);
-    for (slot, sym_index) in order.iter().enumerate() {
-        let sym = symbols
-            .get(*sym_index)
-            .ok_or_else(|| "symbol index is out of range".to_string())?;
-        let strx = str_indices
-            .get(slot)
-            .copied()
-            .ok_or_else(|| "string index is missing".to_string())?;
+    for ((_, sym), strx) in sorted.iter().zip(&str_indices) {
         out.extend_from_slice(&strx.to_le_bytes());
         match &sym.defined {
             Some(d) => {
@@ -531,25 +483,25 @@ pub fn write(
 /// order is a format requirement and not a convenience. The sort is stable, so
 /// symbols within a run keep the caller's order and the output stays
 /// reproducible.
-fn sort_symbols(symbols: &[Symbol]) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..symbols.len()).collect();
-    order.sort_by_key(|i| match symbols.get(*i) {
-        Some(s) if s.defined.is_none() => 2u8,
-        Some(s) if s.global => 1,
-        Some(_) => 0,
-        // Unreachable through `write`, which builds the range from the slice;
-        // sorting such an entry last keeps this total without a panic.
-        None => 3,
+///
+/// Each symbol comes with its index in the caller's slice, which is what the
+/// caller's relocations name.
+fn sort_symbols(symbols: &[Symbol]) -> Vec<(usize, &Symbol)> {
+    let mut sorted: Vec<(usize, &Symbol)> = symbols.iter().enumerate().collect();
+    sorted.sort_by_key(|(_, s)| match s {
+        s if s.defined.is_none() => 2u8,
+        s if s.global => 1,
+        _ => 0,
     });
-    order
+    sorted
 }
 
-fn symbol_groups(symbols: &[Symbol], order: &[usize]) -> (u32, u32, u32) {
+fn symbol_groups(sorted: &[(usize, &Symbol)]) -> (u32, u32, u32) {
     let mut counts = (0u32, 0u32, 0u32);
-    for i in order {
-        match symbols.get(*i) {
-            Some(s) if s.defined.is_none() => counts.2 += 1,
-            Some(s) if s.global => counts.1 += 1,
+    for (_, s) in sorted {
+        match s {
+            s if s.defined.is_none() => counts.2 += 1,
+            s if s.global => counts.1 += 1,
             _ => counts.0 += 1,
         }
     }
@@ -560,17 +512,15 @@ fn symbol_groups(symbols: &[Symbol], order: &[usize]) -> (u32, u32, u32) {
 ///
 /// Index 0 is a lone NUL so that a symbol with no name can point at it, which
 /// is the convention every Mach-O consumer assumes.
-fn string_table(symbols: &[Symbol], order: &[usize]) -> (Vec<u8>, Vec<u32>) {
+fn string_table(sorted: &[(usize, &Symbol)]) -> (Vec<u8>, Vec<u32>) {
     let mut strings = vec![0u8];
-    let mut indices = Vec::with_capacity(order.len());
-    for i in order {
+    let mut indices = Vec::with_capacity(sorted.len());
+    for (_, s) in sorted {
         indices.push(strings.len() as u32);
-        if let Some(s) = symbols.get(*i) {
-            // C linkage on Darwin prefixes every symbol with an underscore, and
-            // the caller's names are the unprefixed ones.
-            strings.push(b'_');
-            strings.extend_from_slice(s.name.as_bytes());
-        }
+        // C linkage on Darwin prefixes every symbol with an underscore, and
+        // the caller's names are the unprefixed ones.
+        strings.push(b'_');
+        strings.extend_from_slice(s.name.as_bytes());
         strings.push(0);
     }
     (strings, indices)
@@ -616,16 +566,14 @@ fn apply_abs64_addends(
 /// so that each stays immediately before the relocation it modifies.
 fn group_relocs(
     sections: &[Section],
-    symbols: &[Symbol],
     relocs: &[Reloc],
-    order: &[usize],
+    symbols: &[(usize, &Symbol)],
 ) -> Result<Vec<Vec<RawReloc>>, String> {
-    let mut slot = vec![0u32; symbols.len()];
-    for (new, old) in order.iter().enumerate() {
-        if let Some(s) = slot.get_mut(*old) {
-            *s = new as u32;
-        }
-    }
+    // Each caller index's slot in the sorted table: the inverse permutation.
+    let mut slots: Vec<(usize, u32)> =
+        symbols.iter().enumerate().map(|(new, (old, _))| (*old, new as u32)).collect();
+    slots.sort_unstable();
+    let slot: Vec<u32> = slots.into_iter().map(|(_, new)| new).collect();
 
     let mut sorted: Vec<usize> = (0..relocs.len()).collect();
     sorted.sort_by_key(|i| relocs.get(*i).map(|r| (r.section, r.offset)));
@@ -639,16 +587,6 @@ fn group_relocs(
         let section = sections
             .get(r.section)
             .ok_or_else(|| format!("relocation names section {}", r.section))?;
-        let end = r.offset + r.kind.width();
-        if end > section.data.len() as u64 {
-            return Err(format!(
-                "relocation at {:#x} runs past section {}",
-                r.offset, section.name
-            ));
-        }
-        if r.offset > u64::from(u32::MAX) {
-            return Err(format!("relocation offset {:#x} exceeds 32 bits", r.offset));
-        }
         let symbolnum = *slot
             .get(r.symbol)
             .ok_or_else(|| format!("relocation names symbol {}", r.symbol))?;

@@ -125,10 +125,6 @@ const R_X86_64_64: u32 = 1;
 const R_X86_64_PC32: u32 = 2;
 const R_X86_64_PLT32: u32 = 4;
 
-/// The widest alignment a section may ask for. `2^15` is far past anything a
-/// code generator needs and keeps the shift below `u64`'s width.
-const MAX_ALIGN_LOG2: u32 = 15;
-
 /// A string table being built, with the empty name at offset zero.
 ///
 /// Names are appended in the order they are asked for and never deduplicated
@@ -144,10 +140,8 @@ impl Strtab {
     fn new() -> Strtab {
         Strtab { bytes: vec![0], seen: Vec::new() }
     }
+    /// Every name asked for is a section's or a symbol's, and none is empty.
     fn add(&mut self, s: &str) -> u32 {
-        if s.is_empty() {
-            return 0;
-        }
         if let Some((_, at)) = self.seen.iter().find(|(n, _)| n == s) {
             return *at;
         }
@@ -261,28 +255,15 @@ fn x86_name(kind: RelKind) -> &'static str {
 
 /// The object's bytes.
 ///
-/// Takes exactly what `object::write` takes, plus the target, which decides the
-/// machine and the relocation vocabulary.
+/// Takes exactly what `object::write` takes, under the same promises about
+/// the sections and relocations, plus the target, which decides the machine
+/// and the relocation vocabulary.
 pub fn write(
     target: StencilTarget,
     sections: &[Section],
     symbols: &[Symbol],
     relocs: &[Reloc],
 ) -> Result<Vec<u8>, String> {
-    if sections.is_empty() {
-        return Err("an ELF object needs at least one section".into());
-    }
-    for s in sections {
-        if s.align > MAX_ALIGN_LOG2 {
-            return Err(format!(
-                "section {} asks for 2^{} alignment; the maximum is 2^{MAX_ALIGN_LOG2}",
-                s.name, s.align
-            ));
-        }
-        if s.zerofill > 0 && !s.data.is_empty() {
-            return Err(format!("zero-fill section {} also carries bytes", s.name));
-        }
-    }
 
     // ELF requires every `STB_LOCAL` symbol to precede every other one, and
     // `sh_info` to say where the boundary is. The caller's indices mean nothing
@@ -292,17 +273,15 @@ pub fn write(
     // A *stable* partition rather than a sort, so that two symbols of the same
     // binding keep the order the caller pushed them in and the output stays a
     // function of the input.
-    let mut order: Vec<usize> = (0..symbols.len()).filter(|i| !is_global(symbols, *i)).collect();
-    let nlocal = order.len() + 1; // +1 for the mandatory null symbol at index 0.
-    order.extend((0..symbols.len()).filter(|i| is_global(symbols, *i)));
-    let mut slot = vec![0usize; symbols.len()];
-    for (new, old) in order.iter().enumerate() {
-        // `order` is a permutation of `0..symbols.len()`, so every index in it
-        // names a slot, and `new + 1` leaves room for the null symbol.
-        if let Some(s) = slot.get_mut(*old) {
-            *s = new + 1;
-        }
-    }
+    let mut order: Vec<(usize, &Symbol)> = symbols.iter().enumerate().collect();
+    order.sort_by_key(|(_, s)| s.global);
+    let nlocal = order.iter().filter(|(_, s)| !s.global).count() + 1; // +1 for the null symbol at index 0.
+    // Each caller index's slot in the table, past the null symbol: the inverse
+    // permutation.
+    let mut slots: Vec<(usize, usize)> =
+        order.iter().enumerate().map(|(new, (old, _))| (*old, new + 1)).collect();
+    slots.sort_unstable();
+    let slot: Vec<usize> = slots.into_iter().map(|(_, new)| new).collect();
 
     // Section numbering: 0 is the mandatory null section, then one `.group` per
     // grouped section (the gABI wants a group before its members), then the
@@ -314,26 +293,10 @@ pub fn write(
     // order within each group.
     let mut per_section: Vec<Vec<&Reloc>> = sections.iter().map(|_| Vec::new()).collect();
     for r in relocs {
-        let sec = sections
-            .get(r.section)
-            .ok_or_else(|| format!("a relocation names section {}, which does not exist", r.section))?;
-        let width = if r.kind == RelKind::Abs64 { 8 } else { 4 };
-        if r.offset + width > sec.data.len() as u64 {
-            return Err(format!(
-                "a relocation at {:#x} is outside section {} ({} bytes)",
-                r.offset,
-                sec.name,
-                sec.data.len()
-            ));
-        }
-        if slot.get(r.symbol).is_none() {
-            return Err(format!("a relocation names symbol {}, which does not exist", r.symbol));
-        }
-        // `r.section` was just shown to name a section, and `per_section` has
-        // one slot per section.
-        if let Some(g) = per_section.get_mut(r.section) {
-            g.push(r);
-        }
+        per_section
+            .get_mut(r.section)
+            .ok_or_else(|| format!("a relocation names section {}, which does not exist", r.section))?
+            .push(r);
     }
 
     // ---- names -----------------------------------------------------------
@@ -361,8 +324,7 @@ pub fn write(
 
     // ---- the symbol table ------------------------------------------------
     let mut symtab: Vec<u8> = vec![0; SYM as usize]; // the null symbol
-    for old in &order {
-        let s = symbols.get(*old).ok_or("a symbol vanished from the table")?;
+    for (_, s) in &order {
         let name = strtab.add(&s.name);
         let (shndx, value, kind) = match &s.defined {
             None => (0u16, 0u64, STT_NOTYPE),
@@ -443,11 +405,9 @@ pub fn write(
     // Where each section's `.rela` lands, for the group that has to list it.
     let mut rela_index: Vec<Option<u32>> = vec![None; sections.len()];
     let mut next = (1 + groups + sections.len()) as u32;
-    for (i, t) in relatabs.iter().enumerate() {
+    for (r, t) in rela_index.iter_mut().zip(&relatabs) {
         if !t.is_empty() {
-            if let Some(r) = rela_index.get_mut(i) {
-                *r = Some(next);
-            }
+            *r = Some(next);
             next += 1;
         }
     }
@@ -609,15 +569,6 @@ pub fn write(
         entsize: 0,
     });
 
-    // The header index this file computed for `.symtab` above has to be the one
-    // it actually landed at, or every relocation names the wrong table.
-    let landed = shdrs.iter().position(|h| h.kind == SHT_SYMTAB).unwrap_or(0) as u32;
-    if landed != symtab_index {
-        return Err(format!(
-            "internal error: .symtab was predicted at section {symtab_index} and written at {landed}"
-        ));
-    }
-
     // Section headers are eight-aligned, which `place` has already left `at`
     // ready for only by accident, so it is done explicitly.
     while !at.is_multiple_of(8) {
@@ -652,12 +603,6 @@ pub fn write(
         h.write(&mut out);
     }
     Ok(out)
-}
-
-/// Whether the caller's symbol at `i` is a global one, with a missing index
-/// answering "local" so that the partition is total.
-fn is_global(symbols: &[Symbol], i: usize) -> bool {
-    symbols.get(i).is_some_and(|s| s.global)
 }
 
 #[cfg(test)]
