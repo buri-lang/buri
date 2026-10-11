@@ -51,7 +51,7 @@ impl Held {
         let path = self.file(point, n);
         // A writer that won't wait is refused until `buri` has the FIFO open.
         let started = std::time::Instant::now();
-        let held = loop {
+        let mut held = loop {
             if let Ok(file) = std::fs::OpenOptions::new().write(true).custom_flags(O_NONBLOCK).open(&path) {
                 break file;
             }
@@ -59,7 +59,8 @@ impl Held {
             std::thread::sleep(Duration::from_millis(5));
         };
         between();
-        drop(held);
+        // The byte lets `buri` go (`cli/src/hold.rs`).
+        std::io::Write::write_all(&mut held, b"\n").expect("the held point takes its byte");
     }
 
     fn file(&self, point: &str, n: usize) -> PathBuf {
