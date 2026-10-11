@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
-total 14575 18182 80.16%
+total 14382 17742 81.06%
 area cli/build 1525 1859 82.03%
 area cli/documentation 255 769 33.16%
 area cli/format 84 98 85.71%
@@ -23,7 +23,7 @@ area crates/middle 1914 2055 93.14%
 area crates/project 878 1418 61.92%
 area crates/semantics 1919 2046 93.79%
 area crates/stdlib 12 12 100.00%
-area crates/stencil 1560 2025 77.04%
+area crates/stencil 1367 1585 86.25%
 area crates/syntax 1205 1284 93.85%
 267 329 cli/src/build/actions.rs
 37 52 cli/src/build/cache.rs
@@ -188,15 +188,15 @@ area crates/syntax 1205 1284 93.85%
 0 0 crates/stencil/src/compiler/backend/stencil/abi.rs
 30 38 crates/stencil/src/compiler/backend/stencil/asm.rs
 52 64 crates/stencil/src/compiler/backend/stencil/elf.rs
-481 666 crates/stencil/src/compiler/backend/stencil/emit.rs
-111 144 crates/stencil/src/compiler/backend/stencil/glue.rs
-568 685 crates/stencil/src/compiler/backend/stencil/jit.rs
-10 30 crates/stencil/src/compiler/backend/stencil/library.rs
-21 26 crates/stencil/src/compiler/backend/stencil/lists.rs
-58 74 crates/stencil/src/compiler/backend/stencil/mod.rs
+390 444 crates/stencil/src/compiler/backend/stencil/emit.rs
+88 98 crates/stencil/src/compiler/backend/stencil/glue.rs
+541 629 crates/stencil/src/compiler/backend/stencil/jit.rs
+10 16 crates/stencil/src/compiler/backend/stencil/library.rs
+18 20 crates/stencil/src/compiler/backend/stencil/lists.rs
+46 50 crates/stencil/src/compiler/backend/stencil/mod.rs
 55 68 crates/stencil/src/compiler/backend/stencil/object.rs
 14 16 crates/stencil/src/compiler/backend/stencil/region.rs
-159 212 crates/stencil/src/compiler/backend/stencil/rtcall.rs
+122 140 crates/stencil/src/compiler/backend/stencil/rtcall.rs
 1 2 crates/stencil/src/compiler/backend/stencil/runtime.rs
 379 412 crates/syntax/src/formatting.rs
 28 30 crates/syntax/src/layout.rs
