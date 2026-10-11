@@ -172,7 +172,7 @@ fn scan_runtime_names() -> HashSet<String> {
     // A byte scan: the runtime is mostly ASCII but its comments are not, so
     // this never slices the string at a position it has not checked.
     for i in 0..bytes.len() {
-        let Some(rest) = bytes.get(i..) else { continue };
+        let rest = bytes.get(i..).or_ice("`i` is below the length");
         for kw in [b"function $".as_slice(), b"const $".as_slice(), b"let $".as_slice()] {
             if rest.starts_with(kw) {
                 // The keyword ends with the `$` that begins the name.
@@ -184,9 +184,10 @@ fn scan_runtime_names() -> HashSet<String> {
                 {
                     j = j.saturating_add(1);
                 }
-                if let Some(Ok(name)) = bytes.get(start..j).map(std::str::from_utf8) {
-                    out.insert(name.to_string());
-                }
+                let name = src
+                    .get(start..j)
+                    .or_ice("a declaration's name is the ASCII the scan just stepped over");
+                out.insert(name.to_string());
             }
         }
     }
@@ -629,9 +630,8 @@ impl<'a> Gen<'a> {
         // the host hands back, and an `async` function returns that through
         // the promise its caller is already awaiting.
         let is_async = self.parks(fi);
-        if let Some(marks) = self.sharing.funcs.get(fi).map(|plan| self.marks_for(f, plan)) {
-            self.func.marks = marks;
-        }
+        let plan = self.sharing.funcs.get(fi).or_ice("the sharing plan has a row per function");
+        self.func.marks = self.marks_for(f, plan);
         let mut params: Vec<String> =
             f.params.iter().map(|p| self.local_name_of(p)).collect();
 
@@ -715,16 +715,12 @@ impl<'a> Gen<'a> {
             let Some(i) = name.strip_prefix("$k").and_then(|n| n.parse::<usize>().ok()) else {
                 return;
             };
-            if let Some(global) = names.get(i) {
-                name.clone_from(global);
-            }
+            name.clone_from(names.get(i).or_ice("a constant holds only constants shared before it"));
         };
+        // Each passed `intern`'s test on the worker, so it is shared here too.
         for mut c in consts {
             javascript::rename_idents_in_expr(&mut c, &mut |n| rename(&names, n));
-            let Expr::Ident(name) = self.intern(c) else {
-                crate::ice!("a constant a worker shared is one this generator shares too")
-            };
-            names.push(name);
+            names.push(self.share(c));
         }
         javascript::rename_idents(std::slice::from_mut(&mut decl), &mut |n| rename(&names, n));
         decl
@@ -766,7 +762,7 @@ fn split_chunks(
     let mut moved: Vec<(String, Vec<usize>)> = Vec::new();
     for (n, chunk) in program.chunks.iter().enumerate() {
         for member in &chunk.members {
-            let Some(f) = program.funcs.get(*member) else { continue };
+            let f = program.funcs.get(*member).or_ice("a chunk member is a function slot");
             match moved.iter_mut().find(|(s, _)| *s == f.symbol) {
                 Some((_, chunks)) => chunks.push(n),
                 None => moved.push((f.symbol.clone(), vec![n])),
@@ -790,9 +786,8 @@ fn split_chunks(
             continue;
         }
         for n in mine {
-            if let Some(body) = bodies.get_mut(*n) {
-                body.push(s.clone());
-            }
+            let body = bodies.get_mut(*n).or_ice("a chunk number counts the program's chunks");
+            body.push(s.clone());
         }
     }
 
@@ -1096,22 +1091,23 @@ impl<'a> Gen<'a> {
     /// Only aggregates built entirely from literals qualify, and one built
     /// inside a `context { .. }` never does — a context is a live effect
     /// handle, and the runtime *does* write through those.
-    fn intern(&mut self, e: Expr) -> Expr {
-        if self.in_context {
-            return e;
+    fn intern(&mut self, items: Vec<Expr>) -> Expr {
+        if self.in_context || items.is_empty() || !items.iter().all(shareable) {
+            return Expr::Array(items);
         }
-        let Expr::Array(items) = &e else { return e };
-        if items.is_empty() || !items.iter().all(shareable) {
-            return e;
-        }
+        Expr::ident(self.share(Expr::Array(items)))
+    }
+
+    /// The name of the shared constant `e`, made if it is new.
+    fn share(&mut self, e: Expr) -> String {
         let key = javascript::print(&[Stmt::Expr(e.clone())], false);
         if let Some(i) = self.const_index.get(&key) {
-            return Expr::ident(const_name(*i));
+            return const_name(*i);
         }
         let i = self.consts.len();
         self.consts.push(e);
         self.const_index.insert(key, i);
-        Expr::ident(const_name(i))
+        const_name(i)
     }
 
     // -----------------------------------------------------------------------
@@ -1349,7 +1345,8 @@ fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
         let bits = p.bits();
         // The folder computes in an `i128`, so a width it cannot hold every
         // value of stays an operation rather than becoming a wrong literal.
-        if bits == 0 || bits > 64 {
+        // Only integers reach here, so `bits` is at least 8.
+        if bits > 64 {
             return None;
         }
         let masked = v & ((1i128 << bits) - 1);
@@ -1361,11 +1358,8 @@ fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
         if p.is_bigint() {
             return Some(Expr::BigInt(signed.to_string()));
         }
-        let f = signed as f64;
-        if f as i128 != signed {
-            return None;
-        }
-        Some(Expr::Num(f))
+        // At most 32 bits, which a double holds exactly.
+        Some(Expr::Num(signed as f64))
     };
     let lit = |e: &Expr| -> Option<i128> {
         match e {
@@ -1384,7 +1378,7 @@ fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
     if !matches!(op, PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor) {
         return None;
     }
-    let [a, b] = args else { return None };
+    let [a, b] = <&mut [Expr; 2]>::try_from(args).ok().or_ice(BINARY_ARITY);
     if let (Some(x), Some(y)) = (lit(a), lit(b)) {
         return narrow(match op {
             PrimOp::BitAnd => x & y,
@@ -1667,7 +1661,7 @@ impl<'a> Gen<'a> {
                     // dying parent is (`$fromShared`). Unmarked, a push onto a
                     // piece of a kept tuple wrote through it.
                     let apart = !matches!(pattern.kind, PatKind::Bind { sub: None, .. });
-                    let v = if (apart || Self::subject_uses(pattern) > 1) && !v.is_duplicable() {
+                    let v = if apart && !v.is_duplicable() {
                         let t = self.fresh();
                         out.push(Stmt::Var {
                             kind: VarKind::Const,
@@ -2048,31 +2042,6 @@ impl<'a> Gen<'a> {
         acc
     }
 
-    /// How many times [`Self::bind`] would spell the subject for this pattern.
-    ///
-    /// One per name it reaches, because every declaration it emits holds a path
-    /// that starts at the subject — so a pattern binding nothing spells it zero
-    /// times and `(a, b)` spells it twice. The caller that hands `bind` an
-    /// expression rather than a name needs the count: an expression written
-    /// twice is evaluated twice.
-    ///
-    /// An or-pattern answers zero: its bindings are assigned inside its test,
-    /// which reads a subject already bound to a name.
-    fn subject_uses(pattern: &typed::Pattern) -> usize {
-        match &pattern.kind {
-            PatKind::Bind { sub, .. } => 1 + sub.as_deref().map_or(0, Self::subject_uses),
-            PatKind::Tuple(ps) => ps.iter().map(Self::subject_uses).sum(),
-            PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
-                fields.iter().map(|f| Self::subject_uses(&f.pattern)).sum()
-            }
-            PatKind::Array { elems, rest } => {
-                let bound = usize::from(matches!(rest, typed::ArrayRest::Bound(_)));
-                elems.iter().map(Self::subject_uses).sum::<usize>() + bound
-            }
-            _ => 0,
-        }
-    }
-
     /// Emits `const` declarations for everything a pattern binds.
     fn bind(&mut self, pattern: &typed::Pattern, subject: &Expr, out: &mut Vec<Stmt>) {
         match &pattern.kind {
@@ -2389,7 +2358,7 @@ impl<'a> Gen<'a> {
             }
             ExprKind::CallTrait { .. } => Expr::Num(0.0),
             ExprKind::StructLit { fields, .. } => {
-                let a = Expr::Array(self.exprs(fields, out));
+                let a = self.exprs(fields, out);
                 self.intern(a)
             }
             ExprKind::StructUpdate { con, base, updates } => {
@@ -2474,12 +2443,11 @@ impl<'a> Gen<'a> {
                 } else {
                     let mut items = vec![Expr::Num(*variant as f64)];
                     items.extend(self.exprs(args, out));
-                    let a = Expr::Array(items);
-                    self.intern(a)
+                    self.intern(items)
                 }
             }
             ExprKind::Tuple(xs) | ExprKind::Array(xs) => {
-                let a = Expr::Array(self.exprs(xs, out));
+                let a = self.exprs(xs, out);
                 self.intern(a)
             }
             ExprKind::Field { base, index } | ExprKind::TupleIndex { base, index } => {
