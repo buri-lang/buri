@@ -1,0 +1,27 @@
+// Tests only.
+from "core/testing/assert" import * as assert;
+
+enum Shape {
+    Dot,
+    Line(Int, Int),
+    Box { w: Int, h: Int },
+}
+
+// The `Line` arms collapse on their first field; the lone guarded `Box` arm
+// can fail, so the match stays a chain.
+fn weigh(s: Shape, heavy: Bool): Int {
+    match (s) {
+        .Line(1, _) => 1,
+        .Line(_, _) => 2,
+        .Box { w, h } if heavy => w * h,
+        _ => 0,
+    }
+}
+
+test "a guarded arm after arms that collapse on one field" {
+    assert.equal(weigh(Shape.Line(1, 4), false), 1);
+    assert.equal(weigh(Shape.Line(3, 4), false), 2);
+    assert.equal(weigh(Shape.Box { w: 2, h: 3 }, true), 6);
+    assert.equal(weigh(Shape.Box { w: 2, h: 3 }, false), 0);
+    assert.equal(weigh(Shape.Dot, true), 0);
+}

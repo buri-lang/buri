@@ -1,0 +1,105 @@
+// Tests only.
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+struct Bag {
+    items: [Int],
+    label: Str,
+}
+
+fn bag(): Bag {
+    Bag { items: [1, 2], label: "bag" }
+}
+
+// The guard reads the field the update replaces.
+fn guarded<C: Allocator>(ctx: C, b: Bag, k: Int): Bag {
+    Bag {
+        ..b,
+        items: match (k) {
+            0 if b.items.length() > 1 => b.items.push(ctx, 9),
+            _ => [],
+        },
+    }
+}
+
+// One arm reads the field and the other does not.
+fn uneven<C: Allocator>(ctx: C, b: Bag, k: Int): Bag {
+    Bag {
+        ..b,
+        items: match (k) {
+            0 => b.items.push(ctx, 7),
+            _ => [k],
+        },
+    }
+}
+
+// Every arm reads the field once; one arm has a guard of its own.
+fn even<C: Allocator>(ctx: C, b: Bag, k: Int): Bag {
+    Bag {
+        ..b,
+        items: match (k) {
+            n if n > 3 => b.items.push(ctx, n),
+            _ => b.items.push(ctx, 0),
+        },
+    }
+}
+
+fn half(n: Int): Result<Int, Str> {
+    if (n % 2 == 0) { .Ok(n / 2) } else { .Err("odd") }
+}
+
+// The replacement can leave early, before or after the field is read.
+fn early<C: Allocator>(ctx: C, b: Bag, k: Int): Result<Bag, Str> {
+    .Ok(Bag { ..b, items: b.items.push(ctx, half(k)?), label: "early" })
+}
+
+fn late<C: Allocator>(ctx: C, b: Bag, k: Int): Result<Bag, Str> {
+    .Ok(Bag { ..b, label: if (half(k)? > 0) { "late" } else { b.label } })
+}
+
+// The replaced field is read, but only borrowed, before the replacement can
+// leave early.
+fn counted<C: Allocator>(ctx: C, b: Bag, k: Int): Result<Bag, Str> {
+    .Ok(Bag { ..b, items: [b.items.length(), half(k)?] })
+}
+
+// Fields of another record of the same type.
+fn mix<C: Allocator>(ctx: C, b: Bag, o: Bag): Bag {
+    Bag { ..b, items: o.items.push(ctx, b.items.length()), label: o.label }
+}
+
+test "a functional update reading another record and a borrowed field" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(counted(ctx, bag(), 4).isOk(), true);
+    assert.equal(counted(ctx, bag(), 3).isOk(), false);
+    let m = mix(ctx, bag(), Bag { items: [5], label: "other" });
+    assert.equal(m.items, [5, 2]);
+    assert.equal(m.label, "other");
+}
+
+test "a functional update whose replacement matches on something" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(guarded(ctx, bag(), 0).items, [1, 2, 9]);
+    assert.equal(guarded(ctx, bag(), 1).items, []);
+    assert.equal(uneven(ctx, bag(), 0).items, [1, 2, 7]);
+    assert.equal(uneven(ctx, bag(), 2).items, [2]);
+    assert.equal(even(ctx, bag(), 5).items, [1, 2, 5]);
+    assert.equal(even(ctx, bag(), 1).items, [1, 2, 0]);
+    assert.equal(guarded(ctx, bag(), 0).label, "bag");
+}
+
+test "a functional update whose replacement can leave early" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(early(ctx, bag(), 4).isOk(), true);
+    assert.equal(early(ctx, bag(), 3).isOk(), false);
+    assert.equal(late(ctx, bag(), 4).isOk(), true);
+    assert.equal(late(ctx, bag(), 0).isOk(), true);
+    assert.equal(late(ctx, bag(), 3).isOk(), false);
+}

@@ -1,0 +1,13 @@
+# Contexts built inside generic functions, binding a type parameter rather than
+# a concrete type. Both backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a context over a type parameter answers alike on both backends"
+
+run {
+  args: ["test", "//lib/ctxs", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

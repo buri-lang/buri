@@ -1,0 +1,14 @@
+# Functional updates of a record the update is the last use of: replacements
+# that match with guards, read the replaced field on some paths only, read
+# another record, or leave early with `?`. Both backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "functional updates of a dying record keep every field's value on both backends"
+
+run {
+  args: ["test", "//lib/updates", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

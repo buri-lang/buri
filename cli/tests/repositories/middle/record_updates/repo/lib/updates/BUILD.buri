@@ -1,0 +1,8 @@
+library {
+    sources: []
+
+    test {
+        sources: ["test/updates.buri"]
+        backends: [NATIVE, JS]
+    }
+}
