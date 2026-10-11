@@ -1,0 +1,21 @@
+# Bitwise operators the generator folds at a known width, and the ones it
+# leaves to run. Debug and release both minify.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "bitwise folds at each width keep what the program means"
+
+run {
+  args: ["run", "//cmd/bitwise_folds"]
+  exit: 0
+  stream: OUT
+  golden: "run.txt"
+}
+
+run {
+  args: ["run", "--release", "//cmd/bitwise_folds"]
+  exit: 0
+  stream: OUT
+  golden: "run.txt"
+}

@@ -1,0 +1,56 @@
+// Bitwise operators at each width: a signed narrow pair, a 128-bit pair the
+// folder leaves alone, `x & 0` with and without an effect in `x`, and an
+// operand combined with itself.
+
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+fn andI8(a: I8, b: I8): I8 {
+    a & b
+}
+
+fn orI128(a: I128, b: I128): I128 {
+    a | b
+}
+
+fn andI32(a: I32, b: I32): I32 {
+    a & b
+}
+
+fn xorI32(a: I32, b: I32): I32 {
+    a ^ b
+}
+
+fn orI32(a: I32, b: I32): I32 {
+    a | b
+}
+
+fn andZero(a: I32): I32 {
+    a & 0
+}
+
+fn withItself(a: I32): I32 {
+    (a & a) + (a ^ a)
+}
+
+fn noisy<C: Allocator + Stdout>(ctx: C): I32 {
+    let _ = io.println(ctx, "noisy ran").ignore();
+    7
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "andI8(-3, -100) = ${andI8(-3, -100)}").ignore();
+    let _ = io.println(ctx, "orI128(5, 9) = ${orI128(5, 9)}").ignore();
+    let _ = io.println(ctx, "andI32(12, 10) = ${andI32(12, 10)}").ignore();
+    let _ = io.println(ctx, "xorI32(12, 10) = ${xorI32(12, 10)}").ignore();
+    let _ = io.println(ctx, "orI32(12, 10) = ${orI32(12, 10)}").ignore();
+    let _ = io.println(ctx, "andZero(5) = ${andZero(5)}").ignore();
+    let _ = io.println(ctx, "withItself(9) = ${withItself(9)}").ignore();
+    let _ = io.println(ctx, "noisy(ctx) & 0 = ${noisy(ctx) & 0}").ignore();
+    .Ok(())
+}

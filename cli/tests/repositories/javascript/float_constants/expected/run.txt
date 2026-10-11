@@ -1,0 +1,6 @@
+huge() = inf
+tiny() = -inf
+notANumber() = NaN
+negatedNotANumber() = NaN
+small() = 5e-13
+remainderByZero(5.0) = NaN
