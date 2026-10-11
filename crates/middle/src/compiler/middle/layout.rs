@@ -193,18 +193,6 @@ pub const CLOSURE_ENV: usize = 1;
 /// A pointer, on every target this compiles for.
 const POINTER: u32 = 8;
 
-/// How deep inline nesting may go before this decides it is looking at a cycle
-/// the recursion rule failed to cut.
-///
-/// It is a fuse and not a limit. [`Layouts::boxes`] cuts every cycle in the type
-/// graph, so reaching this is an internal inconsistency rather than a deeply
-/// nested program, and the number is set well above anything a program can
-/// reach so that it never turns *legal* input into an error: the parser caps a
-/// written type at `parser::MAX_DEPTH` (256), and a chain of declarations that
-/// long would exhaust `main.rs`'s 256 MiB stack in `substitute` before it
-/// reached here. Having the fuse means an inconsistency is a named internal
-/// error rather than a compiler that does not terminate.
-const MAX_NESTING: u32 = 4096;
 
 // ---------------------------------------------------------------------------
 // Layouts
@@ -491,7 +479,12 @@ pub struct Layouts<'a> {
     /// and the layout handles are one worker's own — so this is
     /// the only handle that pays for it.
     cycles: Arc<Cycles>,
-    depth: u32,
+    /// The types whose layout is being built, outermost first. One of them
+    /// met again inside itself is a cycle [`Layouts::boxes`] failed to cut,
+    /// which no program can cause: it is reported rather than left to loop.
+    /// How deep the nesting goes is not limited; a chain of declarations
+    /// each holding the last is as deep as the program is long.
+    open: Set<Ty>,
     /// See [`Layouts::glue_key`].
     glue_keys: Map<Ty, GlueKey>,
 }
@@ -517,7 +510,7 @@ impl<'a> Layouts<'a> {
             memo: Map::default(),
             table: Vec::new(),
             cycles,
-            depth: 0,
+            open: Set::default(),
             glue_keys: Map::default(),
         }
     }
@@ -595,14 +588,13 @@ impl<'a> Layouts<'a> {
         if let Some(&id) = self.memo.get(ty) {
             return id;
         }
-        self.depth = self.depth.saturating_add(1);
         crate::diagnostics::invariant(
-            self.depth <= MAX_NESTING,
-            "a type nested deeper than the layout table's fuse: a recursive type reached \
-             middle::layout without an indirection to cut it",
+            self.open.insert(*ty),
+            "a type inside itself in middle::layout: a recursive type reached it without \
+             an indirection to cut it",
         );
         let layout = self.build(ty);
-        self.depth = self.depth.saturating_sub(1);
+        self.open.remove(ty);
         let id = self.table.len();
         self.table.push(Rc::new(layout));
         self.memo.insert(*ty, id);
