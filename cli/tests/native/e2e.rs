@@ -2683,6 +2683,42 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
     assert_eq!(peer.join().expect("the peer thread"), "ping\n", "the program sent something else");
 }
 
+/// **A dial by name tries each address the name resolves to until one
+/// answers.** `localhost`'s first address refuses and a later one listens.
+#[test]
+fn a_native_binary_dials_the_next_address_when_the_first_refuses() {
+    unless_ready!();
+    use std::io::{Read, Write};
+    let binary = built(
+        "e2e-tcp-client-next-address",
+        &tcp_client().replace("\"127.0.0.1\"", "\"localhost\""),
+    );
+    crate::shared::admitted(&binary);
+    let (listener, _refusing) = crate::shared::localhost_second_listens();
+    let port = listener.local_addr().expect("the bound port").port();
+    let peer = std::thread::spawn(move || {
+        let (mut socket, _) = listener.accept().expect("a dial");
+        socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a read deadline");
+        let mut byte = [0_u8; 1];
+        while crate::shared::read_on(&mut socket, &mut byte).expect("the request") == 1 && byte != *b"\n" {}
+        socket.write_all(b"pong\n").expect("the answer");
+    });
+    let mut child = crate::shared::started(
+        std::process::Command::new(&binary)
+            .arg(port.to_string())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()),
+    );
+    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let mut stdout = String::new();
+    child.stdout.take().expect("a piped stdout").read_to_string(&mut stdout).expect("stdout");
+    let mut stderr = String::new();
+    child.stderr.take().expect("a piped stderr").read_to_string(&mut stderr).expect("stderr");
+    assert_eq!(status.code(), Some(0), "stdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.starts_with("got pong"), "stdout:\n{stdout}\nstderr:\n{stderr}");
+    peer.join().expect("the peer thread");
+}
+
 #[test]
 fn a_native_binary_touches_files_and_reads_its_own_arguments() {
     unless_ready!();
@@ -5857,6 +5893,36 @@ fn a_client_handed_a_signature_for_another_handshake_refuses_it() {
         !said.stdout.contains("client opened") && !said.stdout.contains("client closed"),
         "a hook ran for a socket that never opened.\nthe client said:\n{}",
         said.stdout
+    );
+}
+
+/// **A client dials each address a name resolves to until one answers.**
+/// `localhost`'s first address refuses and a later one listens.
+#[test]
+fn a_client_dials_the_next_address_when_the_first_refuses() {
+    unless_ready!();
+    use crate::websocket::{Heard, Step};
+    let client = built(
+        "e2e-client-dial-next-address",
+        &dialling_client().replace("ws://127.0.0.1:", "ws://localhost:"),
+    );
+    crate::shared::admitted(&client);
+    let (listener, _refusing) = crate::shared::localhost_second_listens();
+    let port = listener.local_addr().expect("the bound port").port();
+    let serving = crate::websocket::serving_on(
+        listener,
+        vec![vec![Step::Hear, Step::Text(String::from("back")), Step::Bye(1000)]],
+    );
+    let said = dialled_client(&client, port);
+    assert!(
+        said.stdout.contains("client opened 101") && said.stdout.contains("client heard back"),
+        "the client exited {}.\nstdout:\n{}\nstderr:\n{}",
+        said.status, said.stdout, said.stderr
+    );
+    assert_eq!(said.status, 0, "stderr:\n{}", said.stderr);
+    assert_eq!(
+        serving.heard(),
+        vec![vec![Heard::Text(String::from("hi")), Heard::Closed(Some(1000))]]
     );
 }
 

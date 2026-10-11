@@ -847,6 +847,43 @@ unsafe extern "C" {
     fn setsockopt(fd: i32, level: i32, name: i32, value: *const core::ffi::c_void, len: u32) -> i32;
 }
 
+/// A port where the first address `localhost` resolves to refuses and a later
+/// one listens.
+///
+/// The order is whatever this host's resolver answers, which is the order the
+/// program under test dials in too. The refusing address:port is the local end
+/// of a connection this holds: no listener is there, so a dial is refused at
+/// once, and the kernel hands that port to no other bind while it is in use.
+pub fn localhost_second_listens() -> (std::net::TcpListener, Refusing) {
+    use std::net::ToSocketAddrs;
+    let found: Vec<std::net::IpAddr> = ("localhost", 0)
+        .to_socket_addrs()
+        .expect("localhost resolves")
+        .map(|a| a.ip())
+        .collect();
+    let first = *found.first().expect("an address for localhost");
+    let Some(later) = found.iter().copied().find(|ip| *ip != first) else {
+        panic!("localhost resolves only to {found:?}, and this row needs two addresses");
+    };
+    for _ in 0..100 {
+        let far = std::net::TcpListener::bind((first, 0)).expect("a bound port");
+        let near = std::net::TcpStream::connect(far.local_addr().expect("the bound port"))
+            .expect("a loopback connection");
+        let (accepted, _) = far.accept().expect("the loopback connection");
+        let port = near.local_addr().expect("the connected port").port();
+        if let Ok(listener) = std::net::TcpListener::bind((later, port)) {
+            return (listener, Refusing { _near: near, _far: accepted });
+        }
+    }
+    panic!("no port was free on both {first} and {later}");
+}
+
+/// The connection [`localhost_second_listens`] holds its refusing port with.
+pub struct Refusing {
+    _near: std::net::TcpStream,
+    _far: std::net::TcpStream,
+}
+
 /// One `read` that a signal can't end early. Linux doesn't restart a socket
 /// read that has a deadline after a signal, and this process takes signals it
 /// never asked for, so an `Interrupted` is the syscall's and not the peer's.

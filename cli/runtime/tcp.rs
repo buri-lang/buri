@@ -102,15 +102,15 @@ unsafe fn refuse(tag: i32, message: &str, out_err: *mut BuriStr) -> i32 {
     tag
 }
 
-/// The address to dial, found within the deadline.
+/// The addresses to dial, in the resolver's order, found within the deadline.
 ///
 /// `http.rs`'s `resolve`, and the argument is that file's in full: `getaddrinfo`
 /// is the one step of a dial the socket options cannot bound, so it runs on a
 /// thread of its own and this one waits. An address literal skips the whole
 /// arrangement — there is nobody to ask.
-fn resolve(host: &str, port: u16) -> Result<SocketAddr, (i32, String)> {
+fn resolve(host: &str, port: u16) -> Result<Vec<SocketAddr>, (i32, String)> {
     if let Ok(ip) = host.parse::<IpAddr>() {
-        return Ok(SocketAddr::new(ip, port));
+        return Ok(vec![SocketAddr::new(ip, port)]);
     }
     let name = host.to_string();
     let (answer, wait) = std::sync::mpsc::channel();
@@ -125,7 +125,7 @@ fn resolve(host: &str, port: u16) -> Result<SocketAddr, (i32, String)> {
         })
         .map_err(|e| (6, format!("a name lookup needs a thread, and one could not start: {e}")))?;
     match wait.recv_timeout(DIAL) {
-        Ok(Ok(addrs)) => addrs.into_iter().next().ok_or((0, String::new())),
+        Ok(Ok(addrs)) => Ok(addrs),
         Ok(Err(e)) => Err((0, format!("could not resolve {host}: {e}"))),
         Err(RecvTimeoutError::Timeout) => {
             Err((6, format!("the name lookup for {host} did not answer in {DIAL:?}")))
@@ -186,8 +186,8 @@ pub unsafe extern "C" fn buri_rt_host_tcp_connect(
         // SAFETY: the caller promises a writable destination.
         return unsafe { refuse(6, &format!("{port} is not a port number"), out_err) };
     };
-    let address = match resolve(&host, port) {
-        Ok(address) => address,
+    let addresses = match resolve(&host, port) {
+        Ok(addresses) => addresses,
         // SAFETY: as above.
         Err((tag, message)) => return unsafe { refuse(tag, &message, out_err) },
     };
@@ -195,7 +195,7 @@ pub unsafe extern "C" fn buri_rt_host_tcp_connect(
     // these entries wait on the descriptor rather than on the reactor, so they
     // say it for themselves.
     crate::host::about_to_block();
-    let stream = match TcpStream::connect_timeout(&address, DIAL) {
+    let stream = match crate::http::dial_any(&addresses, DIAL) {
         Ok(stream) => stream,
         // SAFETY: as above.
         Err(e) => return unsafe { fail(&e, out_err) },
