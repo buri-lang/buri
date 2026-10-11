@@ -1,0 +1,9 @@
+andI8(-3, -100) = -100
+orI128(5, 9) = 13
+andI32(12, 10) = 8
+xorI32(12, 10) = 6
+orI32(12, 10) = 14
+andZero(5) = 0
+withItself(9) = 9
+noisy ran
+noisy(ctx) & 0 = 0

@@ -1,0 +1,190 @@
+// Booleans the minifier folds: a test against a literal, `&&` and `||` with
+// a constant side, a branch whose arms are constants, and nested branches
+// that share an arm. A call is never syntactically a boolean, so each fold
+// meets one as well as a comparison.
+
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+fn big(n: Int): Bool {
+    n > 10
+}
+
+fn negZero(): Int {
+    0.negate()
+}
+
+fn notLess(a: Int, b: Int): Bool {
+    !(a < b)
+}
+
+fn notNot(a: Int, b: Int): Bool {
+    !(!(a < b))
+}
+
+fn notNotCall(a: Int): Bool {
+    !(!big(a))
+}
+
+fn ltIsTrue(a: Int, b: Int): Bool {
+    (a < b) == true
+}
+
+fn ltIsFalse(a: Int, b: Int): Bool {
+    (a < b) == false
+}
+
+fn trueIsLt(a: Int, b: Int): Bool {
+    true == (a < b)
+}
+
+fn falseIsLt(a: Int, b: Int): Bool {
+    false == (a < b)
+}
+
+fn callAndTrue(a: Int): Bool {
+    big(a) && true
+}
+
+fn callAndFalse(a: Int): Bool {
+    big(a) && false
+}
+
+fn callOrFalse(a: Int): Bool {
+    big(a) || false
+}
+
+fn callOrTrue(a: Int): Bool {
+    big(a) || true
+}
+
+fn nameOrTrue(a: Bool): Bool {
+    a || true
+}
+
+fn selfOr(a: Bool): Bool {
+    a || a
+}
+
+fn selfAnd(a: Bool): Bool {
+    a && a
+}
+
+fn both(a: Bool, b: Bool): Bool {
+    if (a) { b } else { false }
+}
+
+fn either(a: Bool, b: Bool): Bool {
+    if (a) { true } else { b }
+}
+
+fn neither(a: Bool, b: Bool): Bool {
+    if (a) { false } else { b }
+}
+
+fn orNot(a: Bool, b: Bool): Bool {
+    if (a) { b } else { true }
+}
+
+fn condTrueFalse(a: Int): Bool {
+    if (big(a)) { true } else { false }
+}
+
+fn condFalseTrue(a: Int): Bool {
+    if (big(a)) { false } else { true }
+}
+
+fn condFalseFalse(a: Int): Bool {
+    if (big(a)) { false } else { false }
+}
+
+fn sameArms(a: Bool, x: Int): Int {
+    if (a) { x } else { x }
+}
+
+fn sameArmsAfterCall(a: Int): Int {
+    if (big(a)) { 1 } else { 1 }
+}
+
+fn sharedElse(a: Bool, b: Bool, x: Int, y: Int): Int {
+    if (a) { if (b) { x } else { y } } else { y }
+}
+
+fn sharedThen(a: Bool, b: Bool, x: Int, y: Int): Int {
+    if (a) { x } else { if (b) { x } else { y } }
+}
+
+fn sharedElseAfterCall(a: Bool, b: Int, x: Int, y: Int): Int {
+    if (a) { if (big(b)) { x } else { y } } else { y }
+}
+
+fn sharedThenAfterCall(a: Bool, b: Int, x: Int, y: Int): Int {
+    if (a) { x } else { if (big(b)) { x } else { y } }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "negZero() = ${negZero()}").ignore();
+    let _ = io.println(ctx, "notLess(1, 2) = ${notLess(1, 2)}").ignore();
+    let _ = io.println(ctx, "notNot(1, 2) = ${notNot(1, 2)}").ignore();
+    let _ = io.println(ctx, "notNotCall(20) = ${notNotCall(20)}").ignore();
+    let _ = io.println(ctx, "ltIsTrue(1, 2) = ${ltIsTrue(1, 2)}").ignore();
+    let _ = io.println(ctx, "ltIsFalse(1, 2) = ${ltIsFalse(1, 2)}").ignore();
+    let _ = io.println(ctx, "trueIsLt(2, 1) = ${trueIsLt(2, 1)}").ignore();
+    let _ = io.println(ctx, "falseIsLt(2, 1) = ${falseIsLt(2, 1)}").ignore();
+    let _ = io.println(ctx, "callAndTrue(20) = ${callAndTrue(20)}").ignore();
+    let _ = io.println(ctx, "callAndFalse(20) = ${callAndFalse(20)}").ignore();
+    let _ = io.println(ctx, "callOrFalse(1) = ${callOrFalse(1)}").ignore();
+    let _ = io.println(ctx, "callOrTrue(1) = ${callOrTrue(1)}").ignore();
+    let _ = io.println(ctx, "nameOrTrue(false) = ${nameOrTrue(false)}").ignore();
+    let _ = io.println(ctx, "selfOr(true) = ${selfOr(true)}").ignore();
+    let _ = io.println(ctx, "selfAnd(false) = ${selfAnd(false)}").ignore();
+    let _ = io.println(ctx, "both(true, false) = ${both(true, false)}").ignore();
+    let _ = io.println(ctx, "either(false, true) = ${either(false, true)}").ignore();
+    let _ = io.println(ctx, "neither(true, true) = ${neither(true, true)}").ignore();
+    let _ = io.println(ctx, "orNot(false, false) = ${orNot(false, false)}").ignore();
+    let _ = io.println(ctx, "condTrueFalse(20) = ${condTrueFalse(20)}").ignore();
+    let _ = io.println(ctx, "condFalseTrue(20) = ${condFalseTrue(20)}").ignore();
+    let _ = io.println(ctx, "condFalseFalse(20) = ${condFalseFalse(20)}").ignore();
+    let _ = io.println(ctx, "sameArms(true, 4) = ${sameArms(true, 4)}").ignore();
+    let _ = io.println(ctx, "sameArmsAfterCall(3) = ${sameArmsAfterCall(3)}").ignore();
+    let _ = io
+        .println(
+            ctx,
+            "sharedElse(true, false, 1, 2) = ${sharedElse(true, false, 1, 2)}",
+        )
+        .ignore();
+    let _ = io
+        .println(
+            ctx,
+            "sharedThen(false, true, 1, 2) = ${sharedThen(false, true, 1, 2)}",
+        )
+        .ignore();
+    let _ = io
+        .println(
+            ctx,
+            "sharedElseAfterCall(true, 20, 1, 2) = ${sharedElseAfterCall(
+                true,
+                20,
+                1,
+                2,
+            )}",
+        )
+        .ignore();
+    let _ = io
+        .println(
+            ctx,
+            "sharedThenAfterCall(false, 3, 1, 2) = ${sharedThenAfterCall(
+                false,
+                3,
+                1,
+                2,
+            )}",
+        )
+        .ignore();
+    .Ok(())
+}
