@@ -1,7 +1,22 @@
 library {
     generators: [
-        { tool: "proto", inputs: ["edges.proto", "broken_comment.proto", "broken_string.proto", "empty.proto"] },
-        { tool: "textproto", inputs: ["edges.txtpb", "broken_string.txtpb", "broken_list.txtpb", "broken_name.txtpb", "empty.txtpb", "broken_eof.txtpb", "broken_symbol.txtpb", "broken_value.txtpb", "broken_number.txtpb"] },
+        { tool: "proto", inputs: [
+            "edges.proto",
+            "broken_comment.proto",
+            "broken_string.proto",
+            "empty.proto",
+        ] },
+        { tool: "textproto", inputs: [
+            "edges.txtpb",
+            "broken_string.txtpb",
+            "broken_list.txtpb",
+            "broken_name.txtpb",
+            "empty.txtpb",
+            "broken_eof.txtpb",
+            "broken_symbol.txtpb",
+            "broken_value.txtpb",
+            "broken_number.txtpb",
+        ] },
         { tool: "//tools/gen", inputs: ["edges.jsonc"] },
     ]
 }

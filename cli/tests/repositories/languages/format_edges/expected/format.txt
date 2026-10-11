@@ -1,5 +1,4 @@
 formatted REPO.buri
-formatted lib/fmt/BUILD.buri
 formatted lib/fmt/edges.jsonc
 formatted lib/fmt/edges.proto
 formatted lib/fmt/edges.txtpb
