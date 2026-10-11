@@ -2345,11 +2345,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
         // The fields are what this needs; copying the `TyCon` for them copied
         // its name and its generics too, per literal.
-        let (is_struct, arity) = {
-            let tycon = self.c.tables.tycon(con);
-            (matches!(tycon.def, TyDef::Struct { .. }), tycon.arity())
-        };
-        if !is_struct {
+        if !matches!(self.c.tables.tycon(con).def, TyDef::Struct { .. }) {
             let n = self.c.tables.tycon(con).name.clone();
             self.templated("enum-not-value", head_span)
                 .bind("type", n.clone())
@@ -2357,13 +2353,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             return self.error_expr(span);
         }
 
-        let targs: Vec<Ty> = match explicit {
-            Some(ts) if ts.len() == arity => ts,
-            _ => match expected.map(|t| self.resolve(t).kind()) {
-                Some(TyKind::Con(c, ts)) if *c == con => ts.to_vec(),
-                _ => (0..arity).map(|_| self.fresh(span)).collect(),
-            },
-        };
+        let targs = self.struct_type_args(con, explicit, expected, head_span, span);
         self.build_struct_lit(con, targs, spread, fields, span)
     }
 

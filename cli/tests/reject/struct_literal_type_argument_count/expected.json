@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Cell` takes 1 type argument, but 2 were given","code":"type-argument-count","location":{"file":"cmd/struct_literal_type_argument_count/main.buri","line":10,"column":3,"endLine":10,"endColumn":17,"text":"  Cell<Int, Str> { value: 1 }"},"fix":"supply exactly 1 type argument","notes":[],"related":[]}

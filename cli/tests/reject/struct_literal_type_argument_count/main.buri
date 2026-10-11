@@ -1,0 +1,11 @@
+// EXPECT: `Cell` takes 1 type argument, but 2 were given
+//
+// A struct literal's head may name its type arguments, and then it has to
+// name as many as the struct declares.
+struct Cell<T> {
+  value: T,
+}
+
+fn make(): Cell<Int> {
+  Cell<Int, Str> { value: 1 }
+}

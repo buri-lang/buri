@@ -1,0 +1,7 @@
+error: `Cell` takes 1 type argument, but 2 were given [type-argument-count]
+  --> cmd/struct_literal_type_argument_count/main.buri:10:3
+   |
+10 |   Cell<Int, Str> { value: 1 }
+   |   ^^^^^^^^^^^^^^
+   |
+   = fix: supply exactly 1 type argument
