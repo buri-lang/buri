@@ -705,6 +705,7 @@ fn a_buri_without_a_build_id_still_caches() {
 /// A cargo that logs each call to `$STAND_IN_LOG` and writes
 /// `$STAND_IN_ARCHIVE` where `cargo rustc --release` puts the runtime. Without
 /// an archive it fails as cargo does offline.
+#[cfg(target_os = "macos")]
 const STAND_IN_CARGO: &str = r#"#!/bin/sh
 echo "$1" >> "$STAND_IN_LOG"
 while [ $# -gt 0 ]; do
