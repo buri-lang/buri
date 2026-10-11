@@ -111,7 +111,8 @@ fn a_cache_lock_a_crashed_build_left_is_taken() {
 }
 
 /// `CC` names the C driver the link runs through, by name on `PATH` or by
-/// path, and one that isn't there is refused by the name it was given.
+/// path, and one that isn't there is refused by the name it was given. On
+/// Ubuntu `cc` is a gcc, so the link goes through the machine's `musl-gcc`.
 #[test]
 fn the_link_runs_through_the_c_driver_cc_names() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
@@ -139,12 +140,15 @@ fn the_link_runs_through_the_c_driver_cc_names() {
 
 /// A C driver whose link fails: the build and `--check-reproducible` both
 /// say the link failed, with the linker's own words and the command to rerun.
+/// The driver compiles, so on Linux it passes for a clang that can target musl
+/// rather than giving way to the machine's `musl-gcc`.
 #[test]
 fn a_failing_link_reports_the_linker_s_output() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
     let cc = scratch.write_executable(
         "fake/cc",
-        "#!/bin/sh\ncase \"$*\" in\n  *--version*) echo \"fake cc 1.0\"; exit 0 ;;\nesac\n\
+        "#!/bin/sh\ncase \"$*\" in\n  *--version*) echo \"fake cc 1.0\"; exit 0 ;;\n  \
+         *\" -c \"*) cat >/dev/null; exit 0 ;;\nesac\n\
          echo \"fake-ld: error: this linker links nothing\" >&2\nexit 1\n",
     );
     let cc = cc.display().to_string();
@@ -351,11 +355,16 @@ exec "$REAL_CC" "$@"
 /// commands, a linker named by a relative path or a script, a command that
 /// doesn't name the objects, or one that fails when it runs. Each still links
 /// a program that runs, from scratch and again.
+///
+/// The driver forwards to the `CC` this suite was given. On Linux a `cc` that
+/// is a gcc can't target musl, so the link would skip the driver for `musl-gcc`.
 #[test]
 fn a_dry_run_the_link_cannot_replay_goes_through_the_driver() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
     let driver = scratch.write_executable("fake/cc", DRY_RUN_DRIVER).display().to_string();
-    let real = std::process::Command::new("sh").args(["-c", "command -v cc"]).output().unwrap();
+    let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
+    let real =
+        std::process::Command::new("sh").args(["-c", &format!("command -v '{real_cc}'")]).output().unwrap();
     let real = String::from_utf8_lossy(&real.stdout).trim().to_string();
     for mode in ["error", "two", "relative", "script", "no-objects", "failing"] {
         let home = scratch.path(&format!("home-{mode}")).display().to_string();
