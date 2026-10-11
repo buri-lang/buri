@@ -9,6 +9,7 @@ library {
             "outside.json",
             "missing.json",
             "draft7.json",
+            "draft6_ref.json",
             "invalid.json",
             "broken_ref.json",
         ] },

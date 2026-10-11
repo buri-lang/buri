@@ -161,14 +161,6 @@ pub fn check(
             Err(finding) => findings.push(finding),
         }
     }
-    // The schema a data file names states its own draft.
-    if let Some(schema) = schemas.iter().find(|s| Some(&s.path) == target.as_ref()) {
-        if let Some(own) = schema.root.get("$schema") {
-            if !own.as_str().is_some_and(is_2020_12) {
-                findings.push(Finding::new("json-schema-draft-unsupported", &schema.path, own.span, vec![("draft", own.as_str().map_or_else(|| own.raw.clone(), str::to_string))]));
-            }
-        }
-    }
     if !findings.is_empty() {
         return findings;
     }

@@ -461,7 +461,7 @@ impl<'r> Registry<'r> {
             return self.problem(file, m.key_span, format!("`{key}` is not a JSON Schema 2020-12 keyword"), *remedy);
         }
         match key {
-            "$schema" if !pointer.is_empty() => {
+            "$schema" => {
                 if !v.as_str().is_some_and(is_2020_12) {
                     self.problems.push(Finding::new(
                         "json-schema-draft-unsupported",
