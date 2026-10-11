@@ -86,6 +86,16 @@ pub enum V {
     Fall,
 }
 
+impl V {
+    /// The literal, where this is one.
+    fn imm(&self) -> Option<u64> {
+        match self {
+            V::I(x) => Some(*x),
+            _ => None,
+        }
+    }
+}
+
 /// A stencil key, built without allocating ([`key!`]).
 ///
 /// The library's longest name is 31 bytes, its fold and swap suffixes
@@ -1194,49 +1204,30 @@ impl Loops {
                 if !dom.may_loop(h, p) {
                     continue;
                 }
+                // `h` dominates `p`, so the walk back from `p` meets the header
+                // before it could meet the entry, and every predecessor of a
+                // block it takes in is taken in too: the loop is closed by
+                // construction. A block nothing reaches has no predecessors
+                // and never runs, so taking one in costs nothing.
                 epoch += 1;
                 let inside = |stamp: &[u32], x: usize| ent(stamp, x, epoch) == epoch;
                 members.clear();
                 put(stamp, h, epoch);
                 members.push(h);
+                stack.clear();
                 if p != h {
                     put(stamp, p, epoch);
                     members.push(p);
+                    stack.push(p);
                 }
-                stack.clear();
-                stack.push(p);
-                let mut ok = true;
                 while let Some(x) = stack.pop() {
-                    if x == h {
-                        continue;
-                    }
-                    if x >= nb {
-                        ok = false;
-                        break;
-                    }
-                    let ps = preds.of(x);
-                    if ps.is_empty() {
-                        ok = false; // reached the entry: not a natural loop
-                        break;
-                    }
-                    for q in ps.iter().map(|q| *q as usize) {
+                    for q in preds.of(x).iter().map(|q| *q as usize) {
                         if !inside(stamp, q) {
                             put(stamp, q, epoch);
                             members.push(q);
                             stack.push(q);
                         }
                     }
-                }
-                if !ok || inside(stamp, 0) {
-                    continue;
-                }
-                // Every way into the loop is through the header.
-                let closed = members.iter().all(|x| {
-                    *x == h
-                        || (*x < nb && preds.of(*x).iter().all(|q| inside(stamp, *q as usize)))
-                });
-                if !closed {
-                    continue;
                 }
                 if members.iter().any(|x| ent(barrier, *x, false)) {
                     continue;
@@ -1491,12 +1482,7 @@ impl<'a> Jit<'a> {
                 len -= tail_bytes;
             }
         }
-        let Some(bytes) = s.code.get(..len) else {
-            crate::diagnostics::ice(&format!(
-                "stencil: stencil {key} is {} bytes, shorter than the tail branch it names",
-                s.code.len()
-            ));
-        };
+        let bytes = s.code.get(..len).or_ice("a stencil is longer than the tail branch it names");
         let at = self.region.put(bytes);
         let end = at + len as u64;
         // The read-only bytes clang spilled, which are not holes and take no
@@ -1641,9 +1627,7 @@ impl<'a> Jit<'a> {
                 }
             }
             HoleKind::Imm32 => {
-                let V::I(x) = *v else {
-                    crate::diagnostics::ice(&format!("stencil: hole {} takes a literal", h.name));
-                };
+                let x = v.imm().or_ice("a small-literal hole is bound to a literal");
                 if !self.target.is_arm64() {
                     // One instruction rewritten in place, where A64 rewrites a
                     // pair. `lo12` is an A64 fold's output and is always empty
@@ -1671,12 +1655,7 @@ impl<'a> Jit<'a> {
                     // The stencil builder only ever produces `lo12` for
                     // offset-shaped holes, so anything else here is a library
                     // that does not match this emitter.
-                    let V::I(x) = *v else {
-                        crate::diagnostics::ice(&format!(
-                            "stencil: hole {} was folded into an imm12 but is not an offset",
-                            h.name
-                        ));
-                    };
+                    let x = v.imm().or_ice("a hole folded into an imm12 is bound to an offset");
                     for (o, scale) in &h.lo12 {
                         self.patch_lo12(at + *o as u64, x as u32, *scale);
                     }
@@ -2890,11 +2869,10 @@ impl<'a> Jit<'a> {
         cross: &mut [bool],
         region: &mut Vec<bool>,
     ) -> (usize, usize) {
+        // A promoted loop keeps at least two values in registers.
+        const _: () = assert!(super::abi::CPS_REGISTER_COUNT >= 2);
         let nb = code.blocks.len();
         let register_count = super::abi::CPS_REGISTER_COUNT;
-        if register_count < 2 || nb == 0 {
-            return (0, 0);
-        }
         // Only a back edge into a block with parameters can make a candidate
         // below, and most functions have none: they skip the tables.
         let back_edge = code.blocks.iter().enumerate().any(|(p, b)| {
