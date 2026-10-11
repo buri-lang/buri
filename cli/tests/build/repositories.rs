@@ -58,6 +58,13 @@ fn cli_contract() {
     run_corpus(&tests_dir().join("repositories/cli"), "cli", 19);
 }
 
+/// The refusals a native build names by operation: what a cross runtime
+/// without networking or cryptography can't compile.
+#[test]
+fn operation_refusals() {
+    run_corpus(&tests_dir().join("repositories/diagnostics"), "diagnostics", 1);
+}
+
 /// CLI.md's `query`: what the graph says, asked without building anything.
 /// Its own corpus because the answers are the recorded output rather than a
 /// diagnostic — a query that has stopped working prints a plausible wrong
