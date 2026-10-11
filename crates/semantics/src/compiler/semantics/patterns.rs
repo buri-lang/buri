@@ -148,14 +148,14 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // bound by the first is reused rather than redeclared.
                     if let Some(scope) = self.or_scope.as_mut() {
                         scope.current = scope.first.clone().unwrap_or_default();
+                        scope.named.clear();
                     }
                     let checked = self.check_pattern(*alt, &ty);
-                    let bound = self
+                    let (bound, mut these) = self
                         .or_scope
                         .as_ref()
-                        .map(|s| s.current.clone())
+                        .map(|s| (s.current.clone(), s.named.clone()))
                         .unwrap_or_default();
-                    let mut these: Vec<String> = bound.keys().cloned().collect();
                     these.sort();
                     match &names {
                         None => {
@@ -223,6 +223,12 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
     }
 
+    fn name_or_binding(&mut self, name: &str) {
+        if let Some(scope) = self.or_scope.as_mut() {
+            scope.named.push(name.to_string());
+        }
+    }
+
     /// The local this name binds to, shared across an or-pattern's
     /// alternatives.
     ///
@@ -233,6 +239,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// shorthand, an array rest — because a form that mints its own local
     /// silently miscompiles rather than failing to compile.
     fn shared_local(&mut self, name: &str, ty: &Ty, span: Span) -> LocalId {
+        self.name_or_binding(name);
         match self.or_alternative_local(name) {
             Some(existing) => {
                 let existing_ty = self.local_ty(existing);

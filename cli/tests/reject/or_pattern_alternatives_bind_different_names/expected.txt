@@ -1,0 +1,28 @@
+error: or-pattern alternatives must bind the same names [or-pattern-bindings]
+  --> cmd/or_pattern_alternatives_bind_different_names/main.buri:18:18
+   |
+18 |     .Circle(r) | .Square(side) => 1,
+   |                  ^^^^^^^^^^^^^
+   |
+   = this alternative does not bind `r`; it binds `side`, which the others do not
+   = fix: bind the same names in every alternative, or split this into separate arms
+
+     An arm has one body, and it can use only the names every alternative binds,
+     at the same type.
+
+error: or-pattern alternatives must bind the same names [or-pattern-bindings]
+  --> cmd/or_pattern_alternatives_bind_different_names/main.buri:19:19
+   |
+19 |     .Rect(w, h) | .Frame(w, _) => w,
+   |                   ^^^^^^^^^^^^
+   |
+   = this alternative does not bind `h`
+   = fix: bind the same names in every alternative, or split this into separate arms
+error: or-pattern alternatives must bind the same names [or-pattern-bindings]
+  --> cmd/or_pattern_alternatives_bind_different_names/main.buri:20:18
+   |
+20 |     .Box(w, _) | .Cell(w, h) => w,
+   |                  ^^^^^^^^^^^
+   |
+   = it binds `h`, which the others do not
+   = fix: bind the same names in every alternative, or split this into separate arms

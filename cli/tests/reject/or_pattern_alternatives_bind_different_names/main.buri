@@ -1,0 +1,22 @@
+// EXPECT: or-pattern alternatives must bind the same names
+//
+// Every alternative of an or-pattern binds the same names, or the arm's body
+// would read a name one of them never bound. The note says which side is
+// short: the first arm both drops `r` and adds `side`, the second drops `h`,
+// and the third adds it.
+enum Shape {
+  Circle(Int),
+  Square(Int),
+  Rect(Int, Int),
+  Frame(Int, Int),
+  Box(Int, Int),
+  Cell(Int, Int),
+}
+
+fn size(s: Shape): Int {
+  match (s) {
+    .Circle(r) | .Square(side) => 1,
+    .Rect(w, h) | .Frame(w, _) => w,
+    .Box(w, _) | .Cell(w, h) => w,
+  }
+}

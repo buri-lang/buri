@@ -1,0 +1,14 @@
+// EXPECT: this alternative does not bind `h`
+//
+// `.Frame(w)` binds no `h`, so the arm's body can't read one. Accepted, the
+// program read a value that was never there.
+enum Shape {
+  Rect(Int, Int),
+  Frame(Int),
+}
+
+fn height(s: Shape): Int {
+  match (s) {
+    .Rect(w, h) | .Frame(w) => h,
+  }
+}
