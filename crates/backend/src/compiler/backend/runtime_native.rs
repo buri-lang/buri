@@ -72,18 +72,19 @@ fn snake_into(segment: &str, out: &mut String) {
 }
 
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
+use crate::diagnostics::Invariant;
 
-/// The byte offset, inside an enum error `E`, of the `Str` its
-/// message-carrying variants hold, or `None` for an `E` with nowhere to put one.
+/// The byte offset, inside a tagged enum error `E`, of the `Str` its
+/// message-carrying variants hold, or `None` for an `E` that is not one.
 ///
 /// This is `cli/runtime/lib.rs` §2.1's **message** shape: *where* the message
 /// goes. *Whether* an entry writes one is a column of the runtime table
 /// (`Ret::ResMsg`), because two entries answering one `Result<Str, IoError>`
 /// can differ: one meets an `EISDIR`, the other is a map in memory.
 ///
-/// `E` qualifies when:
+/// A bare enum has no payload area. Every tagged error the runtime table
+/// answers has this shape, and a tagged `E` without it is a bug in the table:
 ///
-/// * it is a **tagged** enum, since a bare one has no payload area;
 /// * every variant carries either nothing or **one field at the payload
 ///   area's start**, and at least one carries that field;
 /// * the payload area is 24 bytes, which is a `Str` (VALUE-MODEL.md §3).
@@ -102,15 +103,10 @@ pub fn error_message_offset(err: &Layout) -> Option<u32> {
         return None;
     };
     let carries = |fields: &Vec<u32>| fields.len() == 1 && fields.first() == Some(payload);
-    if !variants.iter().all(|fields| fields.is_empty() || carries(fields)) {
-        return None;
-    }
-    if !variants.iter().any(carries) {
-        return None;
-    }
-    if err.size.checked_sub(*payload) != Some(STR_BYTES) {
-        return None;
-    }
+    let shaped = "a tagged error the runtime answers keeps one `Str` at its payload's start";
+    variants.iter().all(|fields| fields.is_empty() || carries(fields)).then_some(()).or_ice(shaped);
+    variants.iter().any(carries).then_some(()).or_ice(shaped);
+    (err.size.checked_sub(*payload) == Some(STR_BYTES)).then_some(()).or_ice(shaped);
     Some(*payload)
 }
 
@@ -300,9 +296,8 @@ mod tests {
     // -- §2.1's message shape ------------------------------------------------
     //
     // Over layouts built by hand rather than over `IoError`'s, and deliberately:
-    // what is under test is the *rule*, and every one of the four ways to fail
-    // it has to be reachable from somewhere. `middle/layout.rs` produces the
-    // first of them from `platform/effect`'s own declaration, and
+    // what is under test is the *rule*. A tagged error outside it is a bug in
+    // the runtime table and stops the build, and
     // `the_message_shape_is_the_one_io_error_has` in `runtime_table.rs` is what
     // ties the rule to that type.
 
@@ -336,21 +331,6 @@ mod tests {
     fn every_payload_variant_holding_one_str_is_the_message_shape() {
         let net_error = tagged(32, vec![vec![], vec![], vec![8], vec![8], vec![]]);
         assert_eq!(error_message_offset(&net_error), Some(8));
-    }
-
-    /// A variant with two fields has no single place for a message.
-    #[test]
-    fn a_variant_with_two_fields_is_not_the_message_shape() {
-        let two = tagged(32, vec![vec![], vec![8], vec![8, 16]]);
-        assert_eq!(error_message_offset(&two), None);
-    }
-
-    /// A payload that is not 24 bytes is not a `Str`, whatever else it is —
-    /// one `Int` here, which is the shape a `.Code(Int)` variant would have.
-    #[test]
-    fn a_payload_that_is_not_a_str_is_not_the_message_shape() {
-        let int_payload = tagged(16, vec![vec![], vec![8]]);
-        assert_eq!(error_message_offset(&int_payload), None);
     }
 
     /// A bare enum has no payload area at all, which is every error the shape
