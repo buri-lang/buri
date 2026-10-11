@@ -9,7 +9,7 @@ pub mod formatting;
 pub mod layout;
 pub mod parsing;
 
-use buri_diagnostics::{diagnostics, ice};
+use buri_diagnostics::diagnostics;
 use buri_hash::hash;
 
 mod compiler {

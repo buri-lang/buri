@@ -87,7 +87,7 @@ mod mutation;
 use buri::compiler::driver;
 use buri::compiler::modules::Role;
 use buri::diagnostics::{Diagnostic, FileId, Severity, SourceMap};
-use buri::formatting::{token_shape, Shape};
+use harness::shape::{token_shape, Shape};
 use harness::{case_dirs, indent, require_annotation, shard, tests_dir, Golden, Scratch};
 use mutation::{Kind, Mutation, Source};
 use std::collections::BTreeMap;

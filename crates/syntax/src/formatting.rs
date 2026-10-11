@@ -86,7 +86,7 @@ use crate::parsing::flat::{
     ArmData, BlockId, CtxBodyId, ExprId, ExprView, InitData, Kind, LambdaParamData, Location,
     PartView, PatId, PatView, StmtKind, Tree, TypeId, TypeView,
 };
-use crate::parsing::lexer::{lex, Comment, TokenKind};
+use crate::parsing::lexer::Comment;
 use crate::parsing::parser::Kept;
 use crate::parsing::tree::*;
 use std::fmt::Write as _;
@@ -276,7 +276,7 @@ pub fn formatted(text: &str, dialect: Dialect) -> Option<Formatted> {
     // The comments the output must keep, read off the parse before the
     // printer takes them.
     let tree = &parsed.module.tree;
-    let mut before = shapes_of(text, &kept, |d| tree.doc_lines(d), false);
+    let mut before = shapes_of(text, &kept, |d| tree.doc_lines(d));
     let mut tv = Comments::read(text, kept, &parsed.module.tree);
     let out = render(
         &Build { tv: &mut tv, t: &parsed.module.tree, src: text, broken: &broken }
@@ -298,7 +298,7 @@ pub fn formatted(text: &str, dialect: Dialect) -> Option<Formatted> {
     // set is compared rather than the sequence, because the leading import run
     // is sorted and a comment travels with the import it sits above.
     let tree = &check.module.tree;
-    let mut afterwards = shapes_of(&out, &kept, |d| tree.doc_lines(d), false);
+    let mut afterwards = shapes_of(&out, &kept, |d| tree.doc_lines(d));
     before.sort();
     afterwards.sort();
     if before != afterwards {
@@ -1327,10 +1327,7 @@ fn import_group(path: &str) -> u8 {
 /// The clause breaks the tie between two imports of the same module — which is
 /// legal, and is how a module takes both a namespace and a name from one path.
 /// `*` sorts before `{`, so the namespace form leads.
-fn import_key(t: &Tree, item: &&Item) -> (u8, String, String) {
-    let Item::Import(i) = item else {
-        crate::ice!("import_key orders the leading import run, which `take_while` proved holds only imports")
-    };
+fn import_key(t: &Tree, i: &Import) -> (u8, String, String) {
     let clause = match &i.clause {
         ImportClause::Namespace(n) => format!("* as {}", t.name(*n)),
         ImportClause::Named(specs) => format!("{{ {} }}", spec_list(t, t.list(*specs)).join(", ")),
@@ -1612,7 +1609,15 @@ impl<'t> Build<'t> {
         // make and somebody else has to review. Sorting here rather than
         // reporting it as a lint is the same argument the rest of this file
         // makes: a canonical layout is not a finding.
-        let run = m.items.iter().take_while(|i| matches!(i, Item::Import(_))).count();
+        let mut head: Vec<(&Item, &Import)> = m
+            .items
+            .iter()
+            .map_while(|item| match item {
+                Item::Import(i) => Some((item, i)),
+                _ => None,
+            })
+            .collect();
+        let run = head.len();
         let written = Written::of(&m.items);
         // `run` is a count of a prefix of `m.items`, so the split is always the
         // one asked for.
@@ -1635,10 +1640,9 @@ impl<'t> Build<'t> {
             }
         }
 
-        let mut head: Vec<&Item> = imports.iter().collect();
-        head.sort_by_key(|i| import_key(self.tree(), i));
+        head.sort_by_key(|(_, i)| import_key(self.tree(), i));
 
-        for (i, item) in head.iter().enumerate() {
+        for (i, (item, _)) in head.iter().enumerate() {
             let first = i == 0 && m.docs.is_empty() && !header;
             // The run is one block. The standard library still sorts before
             // the repository, because that order says something — what every
@@ -3387,16 +3391,14 @@ fn pattern_list(t: &Tree, ps: &[PatId]) -> String {
 
 // -- what formatting must not change ---------------------------------------
 
-/// One element of what a file is made of, as far as the formatter is
-/// concerned.
+/// One comment of a file, as far as the formatter is concerned.
 ///
-/// A comment is a element in its own right rather than a property of the token
+/// A comment is an element in its own right rather than a property of the token
 /// it precedes, because that is exactly the confusion that let the formatter
 /// delete one: trivia keyed by a *declaration's* offset is trivia that has
 /// nowhere to go when the offset is a statement inside a body.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum Shape {
-    Token(String),
+enum Shape {
     /// `//` and `/* */`, with each line trimmed — re-indenting a block comment
     /// is a layout change, not a loss.
     Comment(String),
@@ -3406,73 +3408,27 @@ pub enum Shape {
     ModuleDoc(String),
 }
 
-/// Reads the tokens *and the comments* of a file, so the formatter can tell
-/// whether it changed anything meaningful.
-pub fn token_shape(text: &str) -> Vec<Shape> {
-    shapes(text, true)
-}
-
-/// `tokens` is whether the token half is wanted at all.
-///
-/// It is a parameter rather than a filter over the result because rendering a
-/// token as a `Shape` allocates a `String` for it, and `comment_shape` — which
-/// every call to [`source`] makes twice, on the input and on its own output —
-/// discarded every one of them immediately.
-fn shapes(text: &str, tokens: bool) -> Vec<Shape> {
-    let lexed = lex(text, FileId(0));
-    let kept = Kept { tokens: lexed.tokens, trivia: lexed.trivia, module_docs: lexed.module_docs };
-    let docs = lexed.docs;
-    shapes_of(text, &kept, |d| doc_run(text, &docs, d), tokens)
-}
-
-/// The text of a run of doc lines, from the lexer's list of where each is.
-fn doc_run<'s>(text: &'s str, lines: &'s [Location], d: crate::parsing::flat::Docs) -> impl Iterator<Item = &'s str> {
-    let a = d.start as usize;
-    let run = lines.get(a..a.saturating_add(d.len as usize)).unwrap_or(&[]);
-    run.iter().map(|at| text.get(at.start as usize..at.end as usize).unwrap_or(""))
-}
-
-/// The same, over a lex already in hand, with `doc_lines` reading a run of
-/// `///` lines.
+/// The comments of a lexed file in source order, with `doc_lines` reading a run
+/// of `///` lines: what formatting must keep exactly.
 fn shapes_of<'s, I: Iterator<Item = &'s str>>(
     text: &'s str,
     lexed: &Kept<'_>,
     doc_lines: impl Fn(crate::parsing::flat::Docs) -> I,
-    tokens: bool,
 ) -> Vec<Shape> {
     let mut out: Vec<Shape> = Vec::new();
     for (at, _) in &lexed.module_docs {
         let line = text.get(at.start as usize..at.end as usize).unwrap_or("");
         out.push(Shape::ModuleDoc(line.trim().to_string()));
     }
-    // The trivia table is keyed by token index and in ascending order of it,
-    // so one cursor walks it beside the tokens and the shape stays in source
-    // order without a search per token.
-    let mut trivia = lexed.trivia.iter().peekable();
-    for i in 0..lexed.tokens.len() {
-        if let Some((_, tv)) = trivia.next_if(|(at, _)| *at as usize == i) {
-            for c in &tv.comments {
-                out.push(Shape::Comment(trim_lines(c.text(text))));
-            }
-            for d in doc_lines(tv.docs) {
-                out.push(Shape::Doc(d.trim().to_string()));
-            }
+    for (_, tv) in &lexed.trivia {
+        for c in &tv.comments {
+            out.push(Shape::Comment(trim_lines(c.text(text))));
         }
-        if tokens && lexed.tokens.kind(i) != TokenKind::Eof {
-            out.push(Shape::Token(lexed.tokens.describe(i)));
+        for d in doc_lines(tv.docs) {
+            out.push(Shape::Doc(d.trim().to_string()));
         }
     }
     out
-}
-
-/// The comments alone, in source order.
-///
-/// This is the half of the shape formatting must preserve *exactly*. The token
-/// half may legally change: the formatter drops a redundant parenthesis, an
-/// optional trailing comma and an empty type-argument list, and adds a required
-/// comma.
-pub fn comment_shape(text: &str) -> Vec<Shape> {
-    shapes(text, false)
 }
 
 fn trim_lines(s: &str) -> String {
@@ -3490,6 +3446,13 @@ fn trim_lines(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The comments of `text`, read the way [`formatted`] reads them.
+    fn comment_shape(text: &str) -> Vec<Shape> {
+        let (parsed, kept) = read(text, Dialect::Source);
+        let tree = &parsed.module.tree;
+        shapes_of(text, &kept, |d| tree.doc_lines(d))
+    }
 
     /// Every line of `out` is inside the margin.
     #[track_caller]

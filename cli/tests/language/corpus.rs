@@ -687,7 +687,7 @@ fn formatting_keeps_every_comment() {
         let text = std::fs::read_to_string(path).unwrap();
         let once = buri::formatting::source_unchecked(&text);
         let (mut before, mut after) =
-            (buri::formatting::comment_shape(&text), buri::formatting::comment_shape(&once));
+            (harness::shape::comment_shape(&text), harness::shape::comment_shape(&once));
         comments += before.len();
         before.sort();
         after.sort();
