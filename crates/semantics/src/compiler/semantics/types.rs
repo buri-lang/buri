@@ -414,6 +414,8 @@ pub const FLAGS_MAX: usize = 64;
 pub fn conformance_fix(trait_name: &str, shown: &str) -> String {
     if is_derive_only(trait_name) {
         format!("add `derive {trait_name} for {shown};` in that type's own module")
+    } else if !crate::compiler::semantics::resolve::DERIVABLE.contains(&trait_name) {
+        format!("write `impl {trait_name} for {shown} {{ ... }}` in that type's own module")
     } else {
         format!(
             "add `derive {trait_name} for {shown};` in that type's own module, or write \

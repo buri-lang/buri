@@ -1,0 +1,22 @@
+// EXPECT: `Dog` does not implement `Speak`
+//
+// `Speak` is the program's own trait, which nothing derives, so the fix is
+// an `impl` alone.
+from "node" import { NodeHost };
+
+trait Speak {
+  fn speak(self): Int;
+}
+
+struct Dog {
+  age: Int,
+}
+
+fn talk<T: Speak>(x: T): Int {
+  x.speak()
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let _ = talk(Dog { age: 3 });
+  .Ok(())
+}
