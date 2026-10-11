@@ -1423,13 +1423,11 @@ fn reads_ident(e: &Expr, name: &str) -> bool {
         Expr::Cond { test, cons, alt } => {
             reads_ident(test, name) || reads_ident(cons, name) || reads_ident(alt, name)
         }
-        Expr::Assign { target, value } => {
-            reads_ident(target, name) || reads_ident(value, name)
-        }
         Expr::Arrow { body, .. } => reads_ident(body, name),
         // A closure body is not walked, so a capture is assumed to read
-        // everything: the conservative answer is the safe one here.
-        Expr::ArrowBlock { .. } => true,
+        // everything: the conservative answer is the safe one here. No
+        // argument assigns, so an assignment gets the same answer unwalked.
+        Expr::ArrowBlock { .. } | Expr::Assign { .. } => true,
         Expr::Await(x) => reads_ident(x, name),
         Expr::Spread(x) => reads_ident(x, name),
         _ => false,
