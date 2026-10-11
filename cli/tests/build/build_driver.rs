@@ -541,18 +541,17 @@ fn a_damaged_linker_record_is_asked_again() {
         std::fs::read_dir(scratch.path("home/linker-identity")).unwrap().flatten().map(|e| e.path()).collect()
     };
     assert!(!records().is_empty(), "the build remembered no linker");
-    let damage: [(&str, &dyn Fn(&std::path::Path)); 3] = [
-        ("short", &|p| std::fs::write(p, "short").unwrap()),
-        ("not hex", &|p| std::fs::write(p, "z".repeat(64)).unwrap()),
-        ("a directory", &|p| {
-            std::fs::remove_file(p).unwrap();
-            std::fs::create_dir_all(p.join("in-the-way")).unwrap();
-        }),
-    ];
     let mut said = "native";
-    for (how, damage) in damage {
+    for how in ["short", "not hex", "a directory"] {
         for record in records() {
-            damage(&record);
+            match how {
+                "short" => std::fs::write(&record, "short").unwrap(),
+                "not hex" => std::fs::write(&record, "z".repeat(64)).unwrap(),
+                _ => {
+                    std::fs::remove_file(&record).unwrap();
+                    std::fs::create_dir_all(record.join("in-the-way")).unwrap();
+                }
+            }
         }
         scratch.edit("cmd/app/main.buri", &format!("ctx, \"{said}\""), &format!("ctx, \"{how}\""));
         said = how;
