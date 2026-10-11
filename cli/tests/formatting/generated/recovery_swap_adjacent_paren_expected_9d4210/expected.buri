@@ -1,3 +1,0 @@
-export fn f(aInt :, b: Int): Int {
-    a + b
-}

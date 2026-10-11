@@ -1,0 +1,3 @@
+derive Equal for extra
+
+Pair<Int>;

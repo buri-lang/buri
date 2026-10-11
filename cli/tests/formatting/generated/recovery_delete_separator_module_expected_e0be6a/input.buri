@@ -1,0 +1,1 @@
+derive Equal for Pair<Int>

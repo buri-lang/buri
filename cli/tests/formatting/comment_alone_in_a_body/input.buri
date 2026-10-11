@@ -1,0 +1,10 @@
+trait T { /* only a comment */ }
+
+impl T for P {
+  /* a comment in an impl */
+}
+
+fn h(): Int {
+  /* only a comment */
+  1
+}

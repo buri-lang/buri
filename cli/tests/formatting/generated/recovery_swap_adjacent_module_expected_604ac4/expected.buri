@@ -1,0 +1,1 @@
+derive Equal Pair for<Int>;
