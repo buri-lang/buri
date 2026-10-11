@@ -1,0 +1,7 @@
+from "platform/host" import { HostAllocator };
+
+export struct BrokenHost {
+    export alloc: HostAllocator,
+}
+
+export fn start(host: BrokenHost, name: Nope): Missing;

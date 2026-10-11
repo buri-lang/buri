@@ -1,0 +1,7 @@
+platform {
+    entry {
+        name: "start"
+        backend: JS
+        js: "start.mjs"
+    }
+}

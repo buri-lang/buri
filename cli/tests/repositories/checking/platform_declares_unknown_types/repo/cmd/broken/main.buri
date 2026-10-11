@@ -1,0 +1,5 @@
+from "//platform/broken" import { BrokenHost };
+
+export fn start(host: BrokenHost, name: Str): Str {
+    name
+}

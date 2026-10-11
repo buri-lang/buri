@@ -1,0 +1,18 @@
+error: there is no type `Nope` [unknown-type]
+ --> platform/broken/platform.buri:7:41
+  |
+7 | export fn start(host: BrokenHost, name: Nope): Missing;
+  |                                         ^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+
+    Types are nominal, with no structural fallback, so a misspelling can't
+    quietly become a different type that happens to fit.
+
+error: there is no type `Missing` [unknown-type]
+ --> platform/broken/platform.buri:7:48
+  |
+7 | export fn start(host: BrokenHost, name: Nope): Missing;
+  |                                                ^^^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling

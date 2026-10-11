@@ -270,9 +270,11 @@ impl<'a> Checker<'a> {
             _ => {}
         }
         let skip = usize::from(host.is_some());
+        // An unknown type on either side was reported where it was written.
+        let agree = |a: &Ty, b: &Ty| a == b || a.is_error() || b.is_error();
         let same = info.params.len() == want.params.len()
-            && info.params.iter().zip(&want.params).skip(skip).all(|(a, b)| a.ty == b.ty || a.ty.is_error())
-            && (info.ret == want.ret || info.ret.is_error());
+            && info.params.iter().zip(&want.params).skip(skip).all(|(a, b)| agree(&a.ty, &b.ty))
+            && agree(&info.ret, &want.ret);
         if !same {
             self.templated("entry-signature-mismatch", d.span)
                 .bind("entry", name.to_string())

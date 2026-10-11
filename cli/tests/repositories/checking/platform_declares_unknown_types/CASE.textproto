@@ -1,0 +1,24 @@
+# A platform whose `platform.buri` names a type that doesn't exist is told so
+# where it wrote it. The entry that fills the declaration isn't also told to
+# match a signature with `<error>` in it, which nobody could write.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an unknown type in a platform's entry declaration is reported once, in platform.buri, and not again against the entry"
+
+run {
+  args: ["build", "//cmd/broken"]
+  exit: 1
+  golden: "unknown_types.txt"
+}
+
+edit {
+  file: "platform/broken/platform.buri"
+  replace: "export fn start(host: BrokenHost, name: Nope): Missing;"
+  with: "export fn start(host: BrokenHost, name: Str): Str;"
+}
+
+run {
+  args: ["build", "//cmd/broken"]
+  exit: 0
+}
