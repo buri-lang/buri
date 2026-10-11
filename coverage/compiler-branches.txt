@@ -3,18 +3,18 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
-total 14503 16364 88.63%
-area cli/build 1612 1763 91.44%
+total 14495 16176 89.61%
+area cli/build 1616 1633 98.96%
 area cli/documentation 256 769 33.29%
 area cli/format 85 98 86.73%
-area cli/language_server 1150 1472 78.12%
-area cli/lint 586 708 82.77%
-area cli/other 489 594 82.32%
+area cli/language_server 1151 1472 78.19%
+area cli/lint 588 708 83.05%
+area cli/other 500 594 84.18%
 area cli/run 38 56 67.86%
-area cli/serve+watch 45 80 56.25%
+area cli/serve+watch 45 78 57.69%
 area cli/test 437 580 75.34%
-area crates/backend 80 88 90.91%
-area crates/diagnostics 205 230 89.13%
+area crates/backend 68 68 100.00%
+area crates/diagnostics 191 194 98.45%
 area crates/docs 197 304 64.80%
 area crates/hash 18 18 100.00%
 area crates/js 1022 1062 96.23%
@@ -25,35 +25,35 @@ area crates/semantics 1972 2018 97.72%
 area crates/stdlib 12 12 100.00%
 area crates/stencil 1235 1298 95.15%
 area crates/syntax 1209 1234 97.97%
-259 287 cli/src/build/actions.rs
-43 46 cli/src/build/cache.rs
-16 20 cli/src/build/counted.rs
-83 88 cli/src/build/coverage.rs
-28 34 cli/src/build/exe_identity.rs
-162 168 cli/src/build/generators.rs
+254 259 cli/src/build/actions.rs
+44 44 cli/src/build/cache.rs
+14 14 cli/src/build/counted.rs
+80 80 cli/src/build/coverage.rs
+30 32 cli/src/build/exe_identity.rs
+164 164 cli/src/build/generators.rs
 230 230 cli/src/build/hosted.rs
-165 222 cli/src/build/link.rs
+156 162 cli/src/build/link.rs
 0 0 cli/src/build/mod.rs
 0 0 cli/src/build/musl.rs
-32 41 cli/src/build/programs.rs
-120 124 cli/src/build/regenerate.rs
-28 33 cli/src/build/runtime_cross.rs
+35 37 cli/src/build/programs.rs
+124 124 cli/src/build/regenerate.rs
+31 33 cli/src/build/runtime_cross.rs
 2 2 cli/src/build/runtime_src.rs
 8 8 cli/src/build/session.rs
-31 36 cli/src/build/sources.rs
-11 14 cli/src/build/spawn.rs
-106 108 cli/src/build/tools.rs
-288 302 cli/src/build/workspace.rs
+28 28 cli/src/build/sources.rs
+14 14 cli/src/build/spawn.rs
+108 108 cli/src/build/tools.rs
+294 294 cli/src/build/workspace.rs
 0 0 cli/src/commands/add/mod.rs
 7 8 cli/src/commands/add/skills.rs
 37 44 cli/src/commands/arguments.rs
-79 90 cli/src/commands/build.rs
+90 90 cli/src/commands/build.rs
 10 10 cli/src/commands/clean.rs
 85 98 cli/src/commands/format.rs
 28 34 cli/src/commands/generate.rs
 24 32 cli/src/commands/init.rs
 1 2 cli/src/commands/interrupt.rs
-550 668 cli/src/commands/lint.rs
+552 668 cli/src/commands/lint.rs
 36 40 cli/src/commands/lint_cache.rs
 19 24 cli/src/commands/mod.rs
 34 42 cli/src/commands/query.rs
@@ -61,7 +61,7 @@ area crates/syntax 1209 1234 97.97%
 16 36 cli/src/commands/serve.rs
 437 580 cli/src/commands/test.rs
 3 6 cli/src/commands/version.rs
-29 44 cli/src/commands/watch.rs
+29 42 cli/src/commands/watch.rs
 0 0 cli/src/compiler/backend/mod.rs
 1 2 cli/src/compiler/backend/runtime_native.rs
 48 66 cli/src/compiler/driver.rs
@@ -80,7 +80,7 @@ area crates/syntax 1209 1234 97.97%
 13 16 cli/src/language_server/color.rs
 138 174 cli/src/language_server/completion.rs
 4 8 cli/src/language_server/conformance.rs
-24 26 cli/src/language_server/convert.rs
+25 26 cli/src/language_server/convert.rs
 12 16 cli/src/language_server/execute_command.rs
 58 66 cli/src/language_server/features.rs
 53 78 cli/src/language_server/file_operations.rs
@@ -99,16 +99,16 @@ area crates/syntax 1209 1234 97.97%
 153 192 cli/src/language_server/symbols.rs
 41 46 cli/src/language_server/syntax.rs
 7 12 cli/src/main.rs
-18 20 crates/backend/src/compiler/backend/counts.rs
+16 16 crates/backend/src/compiler/backend/counts.rs
 6 6 crates/backend/src/compiler/backend/linkage.rs
 8 8 crates/backend/src/compiler/backend/mod.rs
-33 38 crates/backend/src/compiler/backend/runtime_native.rs
-15 16 crates/backend/src/compiler/backend/runtime_table.rs
+24 24 crates/backend/src/compiler/backend/runtime_native.rs
+14 14 crates/backend/src/compiler/backend/runtime_table.rs
 0 0 crates/backend/src/compiler/backend/task_thread.rs
-103 118 crates/diagnostics/src/diagnostics.rs
+96 96 crates/diagnostics/src/diagnostics.rs
 44 44 crates/diagnostics/src/json.rs
-25 26 crates/diagnostics/src/parallel.rs
-33 42 crates/diagnostics/src/profile.rs
+24 24 crates/diagnostics/src/parallel.rs
+27 30 crates/diagnostics/src/profile.rs
 0 0 crates/docs/src/documentation/errors.rs
 30 42 crates/docs/src/documentation/frontmatter.rs
 0 0 crates/docs/src/documentation/lints.rs
@@ -170,9 +170,9 @@ area crates/syntax 1209 1234 97.97%
 34 34 crates/semantics/src/compiler/semantics/crossing.rs
 13 16 crates/semantics/src/compiler/semantics/decorative.rs
 98 98 crates/semantics/src/compiler/semantics/exhaustiveness.rs
-415 420 crates/semantics/src/compiler/semantics/expressions.rs
+417 422 crates/semantics/src/compiler/semantics/expressions.rs
 53 54 crates/semantics/src/compiler/semantics/icons.rs
-238 244 crates/semantics/src/compiler/semantics/inference.rs
+236 242 crates/semantics/src/compiler/semantics/inference.rs
 5 6 crates/semantics/src/compiler/semantics/intern.rs
 13 16 crates/semantics/src/compiler/semantics/layered.rs
 3 4 crates/semantics/src/compiler/semantics/name.rs
