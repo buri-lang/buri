@@ -3270,7 +3270,11 @@ impl<'a> Checker<'a> {
                 if matches!(self.tables.tycon(*id).def, TyDef::Prim(Prim::Template)) {
                     return false;
                 }
-                if !self.tables.impls.contains_key(&(tr, *id)) {
+                let Some(imp) = self.tables.impls.get(&(tr, *id)) else { return false };
+                // A hand-written `impl` may be for one instance only.
+                if !imp.is_derived()
+                    && !crate::compiler::semantics::inference::head_covers(&imp.head, ty, imp.generics.len(), true)
+                {
                     return false;
                 }
                 args.iter().all(|a| self.component_can_satisfy(a, tr, owner))

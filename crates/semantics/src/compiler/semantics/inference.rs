@@ -1120,6 +1120,17 @@ impl<'a, 'b> Infer<'a, 'b> {
                             ));
                         }
                     }
+                } else if let Some(imp) = self
+                    .c
+                    .tables
+                    .impls
+                    .get(&(tr, con))
+                    .filter(|imp| !head_covers(&imp.head, &ty, imp.generics.len(), false))
+                {
+                    // The `impl` is for another instance of the constructor.
+                    let head = show(&self.c.tables, None, &imp.generics, &imp.head);
+                    note = Some(format!("the `impl {trait_name}` is for `{head}`, and `{shown}` isn't one"));
+                    fix = Some(format!("pass a `{head}`, or widen the `impl` to cover `{shown}`"));
                 } else if let Some((imp, (param, arg, missing))) = self
                     .c
                     .tables
@@ -1272,7 +1283,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                         seen.pop();
                         return ok;
                     }
-                    return self.unmet_impl_bound(imp, ty, seen).is_none();
+                    return head_covers(&imp.head, ty, imp.generics.len(), false)
+                        && self.unmet_impl_bound(imp, ty, seen).is_none();
                 }
                 false
             }
@@ -1781,6 +1793,49 @@ fn mentions_param(ty: &Ty, i: u32) -> bool {
         TyKind::Fn(ps, r) => ps.iter().any(|p| mentions_param(p, i)) || mentions_param(r, i),
         _ => false,
     }
+}
+
+/// Whether an `impl`'s head names `ty`: `Box<Int>` covers `Box<Int>` and not
+/// `Box<Str>`, and `Twin<T, T>` covers `Twin<Int, Int>` and not `Twin<Int, Str>`.
+///
+/// A part of `ty` inference hasn't settled, or that is already an error,
+/// matches anything. So does a type parameter of `ty`'s own when `open`: a
+/// `derive` is checked before its type arguments are known.
+pub(crate) fn head_covers(head: &Ty, ty: &Ty, generics: usize, open: bool) -> bool {
+    fn go(head: &Ty, ty: &Ty, bound: &mut [Option<Ty>], open: bool) -> bool {
+        if head == ty {
+            return true;
+        }
+        match (head.kind(), ty.kind()) {
+            (_, TyKind::Var(_) | TyKind::Error | TyKind::SelfTy) => true,
+            (_, TyKind::Param(_)) if open => true,
+            (TyKind::Param(i), _) => match bound.get_mut(*i as usize) {
+                Some(Some(first)) => {
+                    let first = *first;
+                    go(&first, ty, &mut [], open)
+                }
+                Some(slot) => {
+                    *slot = Some(*ty);
+                    true
+                }
+                None => false,
+            },
+            (TyKind::Con(x, xs), TyKind::Con(y, ys)) => {
+                x == y && xs.len() == ys.len() && xs.iter().zip(ys.iter()).all(|(h, t)| go(h, t, bound, open))
+            }
+            (TyKind::Tuple(xs), TyKind::Tuple(ys)) => {
+                xs.len() == ys.len() && xs.iter().zip(ys.iter()).all(|(h, t)| go(h, t, bound, open))
+            }
+            (TyKind::Array(h), TyKind::Array(t)) => go(h, t, bound, open),
+            (TyKind::Fn(xs, a), TyKind::Fn(ys, b)) => {
+                xs.len() == ys.len()
+                    && xs.iter().zip(ys.iter()).all(|(h, t)| go(h, t, bound, open))
+                    && go(a, b, bound, open)
+            }
+            _ => false,
+        }
+    }
+    go(head, ty, &mut vec![None; generics], open)
 }
 
 /// Binds an `impl`'s type parameters by matching its head against a type the
