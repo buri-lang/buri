@@ -70,6 +70,7 @@ mod build_command;
 mod build_corners;
 mod build_driver;
 mod check_reproducible;
+mod reproducible_files;
 mod checking;
 mod build_rules;
 mod build_files;

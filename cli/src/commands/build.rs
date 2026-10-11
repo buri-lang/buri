@@ -21,6 +21,7 @@ use crate::build::actions;
 use crate::build::session::{self, open_or_exit};
 use crate::build::workspace::RuleKind;
 use crate::commands::arguments;
+use crate::diagnostics::Invariant;
 
 pub fn command_build(args: &arguments::Args) -> i32 {
     if args.flags.check_reproducible {
@@ -183,8 +184,8 @@ fn foreign(output: &crate::build::buildfile::Output, diagnostics: &crate::diagno
     const HOST_REFUSALS: [&str; 3] =
         ["native-artifact-unavailable", "networking-unavailable", "cryptography-unavailable"];
     let mut errors = diagnostics.items.iter().filter(|d| d.is_error()).peekable();
-    errors.peek().is_some()
-        && errors.all(|d| d.code.as_deref().is_some_and(|c| HOST_REFUSALS.contains(&c)))
+    errors.peek().or_ice("a build that failed reports an error");
+    errors.all(|d| d.code.as_deref().is_some_and(|c| HOST_REFUSALS.contains(&c)))
         && !crate::build::link::is_host_target(actions::target_of(output))
 }
 
