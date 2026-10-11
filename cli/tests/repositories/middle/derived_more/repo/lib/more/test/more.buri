@@ -1,0 +1,82 @@
+// Tests only.
+from "core/json" import * as json;
+from "core/json" import { DecodeError, FromJson, Json };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+derive Show, Equal for Marker;
+struct Marker {
+    nothing: (),
+}
+
+derive Show for Signal;
+enum Signal {
+    Tick(()),
+    Count(Int),
+}
+
+test "a field that always shows the same text" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(Marker { nothing: () }.show(ctx), "Marker { nothing: () }");
+    assert.equal(Signal.Tick(()).show(ctx), ".Tick(())");
+    assert.equal(Signal.Count(2).show(ctx), ".Count(2)");
+}
+
+derive Show, Equal for Pair;
+struct Pair<A, B> {
+    first: A,
+    second: B,
+}
+
+test "a generic struct derives at each of its instances" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        Pair { first: 1, second: "a" }.show(ctx),
+        "Pair { first: 1, second: \"a\" }",
+    );
+    assert.equal(
+        Pair { first: true, second: 2 }.show(ctx),
+        "Pair { first: true, second: 2 }",
+    );
+    assert.equal(
+        Pair { first: 1, second: "a" } == Pair { first: 1, second: "b" },
+        false,
+    );
+}
+
+derive FromJson, Show for Size;
+struct Size {
+    width: Int,
+    height: Int,
+}
+
+derive FromJson, Show for Place;
+struct Place {
+    name: Str,
+    x: Int,
+}
+
+fn doc<C: Allocator>(ctx: C, text: Str): Json {
+    json.parse(ctx, text).withDefault(Json.Null)
+}
+
+test "two decoders read the same kinds of member" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let size: Result<Size, DecodeError> = json.decode(
+        ctx,
+        doc(ctx, "{\"width\":2,\"height\":3}"),
+    );
+    let place: Result<Place, DecodeError> = json.decode(
+        ctx,
+        doc(ctx, "{\"name\":\"here\",\"x\":4}"),
+    );
+    assert.equal(size.show(ctx), ".Ok(Size { width: 2, height: 3 })");
+    assert.equal(place.show(ctx), ".Ok(Place { name: \"here\", x: 4 })");
+}

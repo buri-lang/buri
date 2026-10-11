@@ -1,0 +1,14 @@
+# Chains of list combinators the native backends fuse into one traversal, and
+# the chains they must leave alone: a context that is built rather than read,
+# a step that can exit early, steps that capture. Both backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "fused and unfused list pipelines answer alike on both backends"
+
+run {
+  args: ["test", "//lib/chains", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

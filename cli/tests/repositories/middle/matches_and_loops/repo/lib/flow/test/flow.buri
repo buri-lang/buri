@@ -1,0 +1,203 @@
+// Tests only.
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+// -- matches ------------------------------------------------------------------
+
+fn sign(n: Int, strict: Bool): Str {
+    match (n) {
+        1 if strict => "one, strictly",
+        -1 => "minus one",
+        0 if strict => "zero, strictly",
+        -0 => "zero",
+        1 => "one",
+        _ => "other",
+    }
+}
+
+test "a failed guard on a literal goes on to the next literal that can match" {
+    assert.equal(sign(1, true), "one, strictly");
+    assert.equal(sign(1, false), "one");
+    assert.equal(sign(-1, true), "minus one");
+    assert.equal(sign(0, true), "zero, strictly");
+    assert.equal(sign(0, false), "zero");
+    assert.equal(sign(7, false), "other");
+}
+
+fn greet(s: Str, loud: Bool): Str {
+    match (s) {
+        "hi" if loud => "HI",
+        "hi" => "hi",
+        "yo" => "yo",
+        _ => "?",
+    }
+}
+
+test "two arms on one string, the first guarded" {
+    assert.equal(greet("hi", true), "HI");
+    assert.equal(greet("hi", false), "hi");
+    assert.equal(greet("yo", true), "yo");
+    assert.equal(greet("x", true), "?");
+}
+
+enum Shape {
+    Dot,
+    Line(Int, Int),
+    Box { w: Int, h: Int },
+}
+
+fn describe(s: Shape): Str {
+    match (s) {
+        .Line(0, _) => "flat start",
+        .Line(_, 0) => "flat end",
+        .Line(_, _) => "line",
+        .Box { w: 1, h: 1 } => "unit box",
+        .Box { w: 2, h: _ } => "two wide",
+        .Box { w: _, h: _ } => "box",
+        .Dot => "dot",
+    }
+}
+
+test "arms that test different fields of one variant" {
+    assert.equal(describe(Shape.Line(0, 5)), "flat start");
+    assert.equal(describe(Shape.Line(5, 0)), "flat end");
+    assert.equal(describe(Shape.Line(5, 5)), "line");
+    assert.equal(describe(Shape.Box { w: 1, h: 1 }), "unit box");
+    assert.equal(describe(Shape.Box { w: 2, h: 9 }), "two wide");
+    assert.equal(describe(Shape.Box { w: 3, h: 9 }), "box");
+    assert.equal(describe(Shape.Dot), "dot");
+}
+
+fn weigh(s: Shape, heavy: Bool): Int {
+    match (s) {
+        .Line(1, b) => b,
+        .Line(2, b) => b * 2,
+        .Box { w, h } if heavy => w * h * 10,
+        .Box { w, h } => w * h,
+        _ => 0,
+    }
+}
+
+test "a guarded arm after arms that collapse on one field" {
+    assert.equal(weigh(Shape.Line(1, 4), false), 4);
+    assert.equal(weigh(Shape.Line(2, 4), false), 8);
+    assert.equal(weigh(Shape.Line(3, 4), false), 0);
+    assert.equal(weigh(Shape.Box { w: 2, h: 3 }, true), 60);
+    assert.equal(weigh(Shape.Box { w: 2, h: 3 }, false), 6);
+    assert.equal(weigh(Shape.Dot, true), 0);
+}
+
+fn first_big(xs: [Int], limit: Int): Int {
+    match (xs) {
+        [x, ..] if x > limit => x,
+        [_, y, ..] if y > limit => y,
+        whole @ [_, _, ..] => whole.length(),
+        [_] => 1,
+        [] => 0,
+    }
+}
+
+test "a binding around a list pattern" {
+    assert.equal(first_big([9, 1], 5), 9);
+    assert.equal(first_big([1, 9], 5), 9);
+    assert.equal(first_big([1, 2, 3], 5), 3);
+    assert.equal(first_big([1], 5), 1);
+    assert.equal(first_big([], 5), 0);
+}
+
+// -- recursion that becomes a loop ---------------------------------------------
+
+// `odd` never reads its label.
+fn even(n: Int, label: Str): Str {
+    if (n == 0) { label } else { odd(n - 1, label) }
+}
+
+fn odd(n: Int, label: Str): Str {
+    if (n == 0) { "odd" } else { even(n - 1, "even") }
+}
+
+test "a member of a tail-recursive group that never reads a parameter" {
+    assert.equal(even(4, "start"), "even");
+    assert.equal(even(0, "start"), "start");
+    assert.equal(odd(3, "start"), "even");
+    assert.equal(odd(4, "start"), "odd");
+}
+
+// The two take the same parameters in a different order.
+fn ping(n: Int, tag: Str): Str {
+    if (n <= 0) { tag } else { pong(tag, n - 1) }
+}
+
+fn pong(tag: Str, n: Int): Str {
+    if (n <= 0) { "pong" } else { ping(n - 1, tag) }
+}
+
+test "a tail-recursive group whose members order their parameters differently" {
+    assert.equal(ping(3, "x"), "pong");
+    assert.equal(ping(2, "x"), "x");
+    assert.equal(pong("y", 1), "y");
+}
+
+// Each member captures a local of its own and a parameter it rebinds.
+fn up<C: Allocator>(ctx: C, n: Int, acc: [Int]): [Int] {
+    let step = 10;
+    if (n == 0) { acc } else { down(ctx, n - 1, acc.map(ctx, fn(x) => x + step + n)) }
+}
+
+fn down<C: Allocator>(ctx: C, n: Int, acc: [Int]): [Int] {
+    if (n == 0) { acc } else { up(ctx, n - 1, acc.map(ctx, fn(x) => x - n)) }
+}
+
+test "closures inside a tail-recursive group see each step's own values" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(up(ctx, 3, [0, 1]), [22, 23]);
+    assert.equal(down(ctx, 2, [0]), [9]);
+}
+
+fn count_down(n: Int, seen: [Int]): Int {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    if (n == 0) {
+        seen.map(ctx, fn(x) => x * n).length()
+    } else {
+        count_down(n - 1, seen.map(ctx, fn(x) => x + n))
+    }
+}
+
+test "a closure inside a self-recursive loop captures that iteration's parameter" {
+    assert.equal(count_down(3, [1, 2]), 2);
+}
+
+// -- inlining -------------------------------------------------------------------
+
+fn twice(x: Int): Int {
+    x * 2
+}
+
+fn total(n: Int): Int {
+    if (n == 0) { 0 } else { twice(n) + total(n - 1) }
+}
+
+test "a recursive function that calls a small one" {
+    assert.equal(total(4), 20);
+}
+
+fn head_or(xs: [Int], fallback: Int): Int {
+    match (xs) {
+        all @ [first, ..] => first + all.length(),
+        [] => fallback,
+    }
+}
+
+fn use_head(xs: [Int]): Int {
+    head_or(xs, -1) + 1
+}
+
+test "a binding around a pattern survives being inlined" {
+    assert.equal(use_head([5, 6]), 8);
+    assert.equal(use_head([]), 0);
+}

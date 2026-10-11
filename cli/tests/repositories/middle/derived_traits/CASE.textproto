@@ -1,0 +1,14 @@
+# Derived Show, Equal, Ordered, Hash and the JSON pair over shapes the
+# generated functions treat specially: enums past eight variants, tuple
+# structs, empty structs. Both backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "derived operations over unusual shapes answer alike on both backends"
+
+run {
+  args: ["test", "//lib/derived", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

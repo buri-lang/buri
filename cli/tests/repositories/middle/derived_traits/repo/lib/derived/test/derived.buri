@@ -1,0 +1,162 @@
+// Tests only.
+from "core/json" import * as json;
+from "core/json" import { DecodeError, FromJson, Json, ToJson };
+from "core/order" import { Order };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+derive Equal, Ordered, Show, Hash for Mixed;
+enum Mixed {
+    A,
+    B(Int),
+    C,
+    D { x: Int, y: Str },
+    E,
+    F(Str),
+    G,
+    H,
+    I(Bool),
+    J,
+}
+
+derive Equal, Ordered for Bare;
+enum Bare {
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+}
+
+derive Equal, Ordered for Full;
+enum Full {
+    A(Int),
+    B(Int),
+    C(Int),
+    D(Int),
+    E(Int),
+    F(Int),
+    G(Int),
+    H(Int),
+    I(Int),
+}
+
+fn name(o: Order): Str {
+    match (o) {
+        .Less => "lt",
+        .Equal => "eq",
+        .Greater => "gt",
+    }
+}
+
+test "an enum of ten variants orders by variant, then by payload" {
+    assert.equal(name(Mixed.A.compare(Mixed.J)), "lt");
+    assert.equal(name(Mixed.J.compare(Mixed.B(1))), "gt");
+    assert.equal(name(Mixed.B(2).compare(Mixed.B(1))), "gt");
+    assert.equal(
+        name(Mixed.D { x: 1, y: "a" }.compare(Mixed.D { x: 1, y: "b" })),
+        "lt",
+    );
+    assert.equal(name(Mixed.F("s").compare(Mixed.F("s"))), "eq");
+    assert.equal(name(Mixed.I(false).compare(Mixed.I(true))), "lt");
+    assert.equal(name(Mixed.C.compare(Mixed.C)), "eq");
+    assert.equal(Mixed.D { x: 1, y: "a" } == Mixed.D { x: 1, y: "a" }, true);
+}
+
+test "an enum of nine bare variants orders by variant alone" {
+    assert.equal(name(Bare.A.compare(Bare.I)), "lt");
+    assert.equal(name(Bare.H.compare(Bare.B)), "gt");
+    assert.equal(name(Bare.E.compare(Bare.E)), "eq");
+}
+
+test "an enum of nine variants that all carry a payload orders by payload within one" {
+    assert.equal(name(Full.A(9).compare(Full.I(1))), "lt");
+    assert.equal(name(Full.C(2).compare(Full.C(1))), "gt");
+    assert.equal(name(Full.H(5).compare(Full.H(5))), "eq");
+}
+
+test "an enum of ten variants shows and hashes each one" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(Mixed.D { x: 1, y: "a" }.show(ctx), ".D { x: 1, y: \"a\" }");
+    assert.equal(Mixed.F("s").show(ctx), ".F(\"s\")");
+    assert.equal(Mixed.J.show(ctx), ".J");
+    assert.equal(Mixed.B(3).hash() == Mixed.B(3).hash(), true);
+    assert.equal(Mixed.B(3).hash() == Mixed.B(4).hash(), false);
+    assert.equal(
+        Mixed.D { x: 1, y: "a" }.hash() == Mixed.D { x: 1, y: "b" }.hash(),
+        false,
+    );
+}
+
+derive Equal, Show, Hash for Point;
+struct Point(Int, Str);
+
+derive Equal, Show for Hollow;
+struct Hollow();
+
+test "a tuple struct shows its fields without names" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(Point(1, "x").show(ctx), "Point(1, \"x\")");
+    assert.equal(Point(1, "x") == Point(1, "x"), true);
+    assert.equal(Point(1, "x").hash() == Point(2, "x").hash(), false);
+}
+
+test "an empty tuple struct shows as its name and parentheses" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(Hollow().show(ctx), "Hollow()");
+    assert.equal(Hollow() == Hollow(), true);
+}
+
+test "a derived inequality is the negated equality" {
+    assert.equal(Point(1, "x") != Point(1, "y"), true);
+    assert.equal(Point(1, "x") != Point(1, "x"), false);
+}
+
+derive Show for Holder;
+struct Holder {
+    pair: (Int, Str),
+}
+
+test "a tuple inside a struct shows in parentheses" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(Holder { pair: (1, "a") }.show(ctx), "Holder { pair: (1, \"a\") }");
+}
+
+derive FromJson, ToJson, Show for Item;
+struct Item {
+    name: Str,
+    tags: [Str],
+    size: Option<Int>,
+}
+
+test "a derived decoder reads what the derived encoder wrote" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let item = Item { name: "a", tags: ["x", "y"], size: .Some(3) };
+    let text = json.stringify(ctx, item.toJson(ctx));
+    assert.equal(text, "{\"name\":\"a\",\"tags\":[\"x\",\"y\"],\"size\":3}");
+    let back: Result<Item, DecodeError> = json.decode(
+        ctx,
+        json.parse(ctx, text).withDefault(Json.Null),
+    );
+    assert.equal(
+        back.show(ctx),
+        ".Ok(Item { name: \"a\", tags: [\"x\", \"y\"], size: .Some(3) })",
+    );
+    let bad: Result<Item, DecodeError> = json.decode(ctx, Json.Num(1.0));
+    assert.equal(bad.isOk(), false);
+}

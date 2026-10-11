@@ -1,0 +1,14 @@
+# A mutually tail-recursive group whose wider member's extra parameter is
+# captured by a closure the narrower member never runs. Both backends run every
+# block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a closure in one member of a tail-recursive group sees its own parameter"
+
+run {
+  args: ["test", "//lib/groups", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

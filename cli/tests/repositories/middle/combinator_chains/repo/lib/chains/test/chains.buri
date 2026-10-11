@@ -1,0 +1,105 @@
+// Tests only.
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+fn half(x: Int): Result<Int, Str> {
+    if (x % 2 == 0) { .Ok(x / 2) } else { .Err("odd") }
+}
+
+test "the length of a filter given a fresh context counts the kept elements" {
+    let xs = [1, 2, 3, 4, 5];
+    let n = xs
+        .filter(
+            context {
+                Allocator: alloc(),
+            },
+            fn(x) => x > 2,
+        )
+        .length();
+    assert.equal(n, 3);
+}
+
+test "a map given a fresh context still feeds the fold after it" {
+    let xs = [1, 2, 3];
+    let total = xs
+        .map(
+            context {
+                Allocator: alloc(),
+            },
+            fn(x) => x * 10,
+        )
+        .fold(fn(a, x) => a + x, 0);
+    assert.equal(total, 60);
+}
+
+test "a map over the same element type feeds a fold" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = [1, 2, 3];
+    assert.equal(xs.map(ctx, fn(x) => x + 1).fold(fn(a, x) => a + x, 0), 9);
+}
+
+test "steps that capture names keep them when fused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let k = 2;
+    let j = 100;
+    let xs = [1, 2, 3];
+    let total = xs.map(ctx, fn(x) => x * k).fold(fn(a, x) => a + x + k + j, 0);
+    assert.equal(total, 318);
+}
+
+test "a step that can exit early is not spliced into the next" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = [2, 4, 5];
+    let halves = xs
+        .map(ctx, fn(x): Result<Int, Str> => .Ok(half(x)? + 1))
+        .fold(
+            fn(a: Int, r: Result<Int, Str>) => {
+                match (r) {
+                    .Ok(v) => a + v,
+                    .Err(_) => a + 1000,
+                }
+            },
+            0,
+        );
+    assert.equal(halves, 1005);
+}
+
+fn twice(xs: [Int], step: fn(Int) => Int): [Int] {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    xs.map(ctx, step).map(ctx, step)
+}
+
+test "one lambda passed twice is applied twice" {
+    assert.equal(twice([1, 2], fn(x) => x * 3), [9, 18]);
+}
+
+test "counting, any and all over a filter" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = [1, 2, 3, 4, 5, 6];
+    assert.equal(xs.filter(ctx, fn(x) => x % 2 == 0).count(fn(x) => x > 2), 2);
+    assert.equal(xs.filter(ctx, fn(x) => x > 3).any(fn(x) => x == 5), true);
+    assert.equal(xs.filter(ctx, fn(x) => x > 3).all(fn(x) => x > 4), false);
+    assert.equal(xs.map(ctx, fn(x) => x * 2).all(fn(x) => x % 2 == 0), true);
+}
+
+fn tenfold(x: Int): Int {
+    x * 10
+}
+
+test "a map whose step is a named function still feeds the fold" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal([1, 2].map(ctx, tenfold).fold(fn(a, x) => a + x, 1), 31);
+}

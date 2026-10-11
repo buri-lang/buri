@@ -1,0 +1,14 @@
+# A derived arithmetic operator is the operation on the one number a struct
+# wraps. A struct of two numbers, or one wrapping another newtype, is refused
+# when the program is built, with the error naming the operator and the type.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a derived operator on anything but a struct of one number is refused at build time"
+
+run {
+  args: ["test", "//lib/ops", "--force"]
+  exit: 1
+  golden: "test.txt"
+}
