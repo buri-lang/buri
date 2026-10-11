@@ -1,0 +1,5 @@
+// EXPECT: missing its closing
+fn f(): [Int] {
+  let b = [1, 2, 3];
+  b]
+}

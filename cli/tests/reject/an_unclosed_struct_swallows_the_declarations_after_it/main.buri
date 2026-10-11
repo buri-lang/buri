@@ -1,0 +1,18 @@
+// EXPECT: expected an identifier, found `derive`
+from "core/str" import * as str;
+
+struct Chain {
+  v: [Int],
+
+derive Equal, Show for Chain;
+export struct Tree {
+  names: [Str],
+}
+enum Shape { Dot }
+type Pair = (Int, Int);
+const LIMIT: Int = 3;
+trait Named { fn name(self): Str; }
+effect Clock { fn now(self): Int; }
+impl Named for Tree { fn name(self): Str { "tree" } }
+fn first(): Int { 1 }
+test "it reads" { }
