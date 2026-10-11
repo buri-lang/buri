@@ -973,22 +973,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let cty = self.resolve(&c.ty);
                 match cty.kind() {
                     TyKind::Fn(params, ret) => {
-                        let checked = if params.len() == args.len() {
-                            self.check_args(args, params)
-                        } else {
-                            let shown = self.show_ty(&Ty::func(params.iter().copied(), *ret));
-                            let fill: Vec<ParamInfo> =
-                                params.iter().map(|t| unnamed_slot(t, span)).collect();
-                            let checked = self.check_unpaired(args);
-                            let call = Miscounted {
-                                fill: &fill,
-                                types: params,
-                                args,
-                                checked: &checked,
-                            };
-                            self.report_argument_count_mismatch(span, &shown, &call);
-                            checked
-                        };
+                        let checked = self.check_value_args(params, ret, args, span);
                         typed::Expr::new(
                             typed::ExprKind::CallValue { callee: Box::new(c), args: checked },
                             *ret,
@@ -1009,6 +994,20 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     /// Arguments are evaluated left to right before the call, and each is
     /// checked against its parameter's type so that a literal is pinned by it.
+    /// The arguments of a call through a value of type `fn(params) => ret`,
+    /// with a wrong count reported against the type.
+    fn check_value_args(&mut self, params: &[Ty], ret: &Ty, args: &[ExprId], span: Span) -> Vec<typed::Expr> {
+        if params.len() == args.len() {
+            return self.check_args(args, params);
+        }
+        let shown = self.show_ty(&Ty::func(params.iter().copied(), *ret));
+        let fill: Vec<ParamInfo> = params.iter().map(|t| unnamed_slot(t, span)).collect();
+        let checked = self.check_unpaired(args);
+        let call = Miscounted { fill: &fill, types: params, args, checked: &checked };
+        self.report_argument_count_mismatch(span, &shown, &call);
+        checked
+    }
+
     fn check_args(&mut self, args: &[ExprId], params: &[Ty]) -> Vec<typed::Expr> {
         let mut out = Vec::with_capacity(args.len());
         self.check_args_into(args, params, &mut out);
@@ -1374,7 +1373,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     typed::Expr::new(typed::ExprKind::Field { base: Box::new(recv), index: i }, fty, span);
                 return match self.resolve(&fty).kind() {
                     TyKind::Fn(params, ret) => {
-                        let checked = self.check_args(args, params);
+                        let checked = self.check_value_args(params, ret, args, span);
                         typed::Expr::new(
                             typed::ExprKind::CallValue { callee: Box::new(base_hir), args: checked },
                             *ret,

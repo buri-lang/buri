@@ -1,0 +1,1 @@
+{"severity":"error","message":"this function takes 1 argument, but 2 were given","code":"argument-count","location":{"file":"cmd/function_field_given_too_many_arguments/main.buri","line":10,"column":3,"endLine":10,"endColumn":14,"text":"  h.run(1, 2)"},"expected":"1","actual":"2","fix":"pass this function the following arguments: fn(I64) => I64","notes":[],"related":[]}
