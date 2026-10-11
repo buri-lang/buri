@@ -1,5 +1,6 @@
 # Float constants the minifier folds and prints: infinities, NaN of either
-# sign, an exponent, and a choice between `-0` and `0`. Debug and release both minify.
+# sign, an exponent, a choice between `-0` and `0`, and a negated integer
+# zero, which converts to `0.0`. Debug and release both minify.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
