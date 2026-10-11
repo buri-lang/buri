@@ -175,13 +175,15 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
             if targs.is_empty() {
                 continue;
             }
-            let shown: Vec<String> = targs.iter().map(|t| types::show(tables, None, &[], t)).collect();
-            let label = if info.generics.len() == shown.len() {
-                info.generics.iter().zip(&shown).map(|(g, t)| format!("{} = {t}", g.name)).collect::<Vec<_>>().join(", ")
-            } else {
-                shown.join(", ")
-            };
-            instances.insert(slot, label);
+            // One type argument per generic, the impl's first: monomorphization
+            // builds an instance from exactly those.
+            let label: Vec<String> = info
+                .generics
+                .iter()
+                .zip(targs)
+                .map(|(g, t)| format!("{} = {}", g.name, types::show(tables, None, &[], t)))
+                .collect();
+            instances.insert(slot, label.join(", "));
         }
     }
     let mut note = |body: &typed::Expr, instance: Instance, traps: Option<&dyn Fn(&typed::Expr) -> bool>| {
