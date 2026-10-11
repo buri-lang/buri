@@ -215,6 +215,18 @@ Linux and arm64 macOS and gates the merge:
   for all of them. CI uploads those as `coverage-baseline`, so main's
   uncovered branches can be read without running the suite.
 
+Every branch counts, races included. A side a race decides would be covered
+on some runs and not others, so a test decides the race instead:
+
+- `BURI_HOLD=<dir>` holds `buri` at a named point (`cli/src/hold.rs`). A FIFO
+  there makes it wait for the test, as each sweep of a watch loop does, and a
+  file of signal numbers has `buri run` raise them before or after it starts
+  its program.
+- A file a concurrent run would hold, such as the shared test runner's lock,
+  is written by the test.
+- Code a race shouldn't steer is written so the race picks data, not a
+  branch: `stage_from` always links beside its target and renames over it.
+
 A branch side is keyed by where its function starts, its condition's span,
 which of the function's conditions with that span it is, and the side:
 
