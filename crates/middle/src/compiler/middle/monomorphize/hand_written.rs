@@ -383,7 +383,11 @@ impl Monomorphizer<'_> {
     /// A struct's fields as one list, or an enum's variants' payloads as one
     /// list each, with the type's arguments substituted in.
     fn parts_of(&self, ty: &Ty) -> Vec<Vec<Part>> {
-        let TyKind::Con(con, args) = ty.kind() else { return Vec::new() };
+        let (con, args) = match ty.kind() {
+            TyKind::Con(con, args) => Some((con, args)),
+            _ => None,
+        }
+        .or_ice("only a struct or an enum has parts");
         let part = |name: &str, t: &Ty| Part { name: name.to_string(), ty: self.sub(t, args) };
         match &self.tables().tycon(*con).def {
             TyDef::Struct { fields, .. } => {
@@ -452,7 +456,7 @@ impl Monomorphizer<'_> {
     ) {
         self.locals = Vec::new();
         let x = self.new_local("x", ty, Span::NONE);
-        let Some(d) = self.deriving(trait_id, ctx, unbounded) else { return };
+        let d = self.deriving(trait_id, ctx, unbounded).or_ice("only a derivable trait is requested");
         let y = d.op.binary().then(|| self.new_local("y", ty, Span::NONE));
         let mut params = vec![x];
         params.extend(y);
@@ -491,7 +495,7 @@ impl Monomorphizer<'_> {
         self.locals = Vec::new();
         let list = Ty::array(elem);
         let xs = self.new_local("xs", list, Span::NONE);
-        let Some(d) = self.deriving(trait_id, ctx, unbounded) else { return };
+        let d = self.deriving(trait_id, ctx, unbounded).or_ice("only a derivable trait is requested");
         let acc = self.new_local("acc", d.ret, Span::NONE);
         let mut params = vec![xs, acc];
         params.extend(d.ctx.map(|(c, _)| c));

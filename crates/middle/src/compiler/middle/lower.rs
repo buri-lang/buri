@@ -1474,9 +1474,8 @@ impl FnLower<'_> {
         }
         let (rendered, _) = self.render(ty, parts);
         let mut it = rendered.into_iter();
-        let Some((mut acc, mut acc_is_mine)) = it.next() else {
-            return self.constant(ty, Const::Str(Box::default()));
-        };
+        // A template is written with at least one part.
+        let (mut acc, mut acc_is_mine) = it.next().or_ice("a template has a part");
         for (next, next_is_mine) in it {
             let joined = self.emit(ty, |dest| Inst::CallIntrinsic {
                 dest,
