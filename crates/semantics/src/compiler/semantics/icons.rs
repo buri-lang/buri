@@ -202,8 +202,9 @@ fn problem(text: &str) -> Option<String> {
         return Some("an icon's artwork has to be an `<svg>`, and this one holds no tag at all".into());
     };
     if first.name != "svg" || first.closing {
+        let slash = if first.closing { "/" } else { "" };
         return Some(format!(
-            "an icon's artwork has to start with an `<svg>`, and this one starts with `<{}>`",
+            "an icon's artwork has to start with an `<svg>`, and this one starts with `<{slash}{}>`",
             first.name
         ));
     }
