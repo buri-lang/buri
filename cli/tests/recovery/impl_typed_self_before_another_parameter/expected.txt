@@ -1,0 +1,6 @@
+error [typed-self] 5:17-5:24
+message: `self` is written without a type
+fix: delete the annotation, leaving `self`
+edit: 5:13-5:24 "self"
+note: the type is the one the `impl` head names, or the implementing type inside a `trait`
+

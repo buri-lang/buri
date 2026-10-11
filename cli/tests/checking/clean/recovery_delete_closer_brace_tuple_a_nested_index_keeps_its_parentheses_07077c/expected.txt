@@ -1,0 +1,19 @@
+error: `.0.1` lexes as a float, not two tuple indices [float-tuple-index]
+ --> main.buri:1:43
+  |
+1 | fn nested(t: ((Int, Int), Int)): Int { (t.0.1 }
+  |                                           ^^^
+  |
+  = fix: parenthesize the first index: `(t.0).1`
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:2:1
+  |
+2 | 
+  | ^
+  |
+ --> main.buri:1:38
+  |
+1 | fn nested(t: ((Int, Int), Int)): Int { (t.0.1 }
+  |                                      ^ opened here
+  |
+  = fix: write `}` here

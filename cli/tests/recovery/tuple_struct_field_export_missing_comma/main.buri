@@ -1,0 +1,2 @@
+// EXPECT: a tuple-struct field ends with `,`
+export struct Pair(Int export Str);

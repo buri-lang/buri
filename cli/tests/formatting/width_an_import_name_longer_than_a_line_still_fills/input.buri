@@ -1,0 +1,2 @@
+from "core/list" import { aVeryLongImportedNameThatGoesOnAndOnAndOnAndOnAndOnAndOnAndOnAndOnAndOnAndOnAndOn, b };
+from "core/map" import { a, bVeryLongImportedNameThatGoesOnAndOnAndOnAndOnAndOnAndOnAndOnAndOnAndOnAndOnAndOn };

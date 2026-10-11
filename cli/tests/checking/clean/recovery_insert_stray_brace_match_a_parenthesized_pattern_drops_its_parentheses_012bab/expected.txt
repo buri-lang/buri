@@ -1,0 +1,12 @@
+error: this `match` scrutinee is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:2:11
+  |
+2 |   match (x, ) {
+  |           ^
+  |
+ --> main.buri:2:9
+  |
+2 |   match (x, ) {
+  |         ^ opened here
+  |
+  = fix: write `)` here

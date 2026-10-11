@@ -1,0 +1,3 @@
+// EXPECT: a character literal holds exactly one Unicode scalar value
+export fn letter(): Char {
+  'ab

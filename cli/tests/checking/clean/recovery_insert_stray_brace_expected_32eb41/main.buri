@@ -1,0 +1,10 @@
+fn patterns(f: Float, xs: [Int]): Int {
+    let b = match (f) {
+        1.5 => 1,
+        @ _ => 2,
+    };
+    match (xs) {
+        [a, b] => a,
+        _ => 0,
+    }
+}

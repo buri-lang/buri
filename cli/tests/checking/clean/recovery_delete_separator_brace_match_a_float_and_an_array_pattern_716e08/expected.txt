@@ -1,0 +1,7 @@
+error: a match arm ends with `,` [missing-comma]
+ --> main.buri:3:27
+  |
+3 |   match (xs) { [a, b] => a _ => 0 }
+  |                           ^
+  |
+  = fix: write `,` here

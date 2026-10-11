@@ -1,0 +1,7 @@
+error: an enum variant ends with `,` [missing-comma]
+ --> main.buri:5:11
+  |
+5 | enum E { A /* inside */ B }
+  |           ^
+  |
+  = fix: write `,` here

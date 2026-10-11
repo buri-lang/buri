@@ -1,0 +1,18 @@
+error: expected an expression, found `}` [unexpected-token]
+ --> main.buri:1:44
+  |
+1 | fn g(): Float { 1.000_5 + 1e1_0 + 2.5E+3 + } 1e-2
+  |                                            ^
+  |
+  = expected: an expression
+  = actual: `}`
+  = fix: write a value here
+error: expected a declaration, found `1e-2` [unexpected-token]
+ --> main.buri:1:46
+  |
+1 | fn g(): Float { 1.000_5 + 1e1_0 + 2.5E+3 + } 1e-2
+  |                                              ^^^^
+  |
+  = expected: a declaration
+  = actual: `1e-2`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

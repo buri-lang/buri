@@ -1,0 +1,21 @@
+error: expected an identifier, found `_` [unexpected-token]
+ --> main.buri:3:44
+  |
+3 | fn match_headed(x: Int): Int { (match (x { _ => 1 }).abs() }
+  |                                            ^
+  |
+  = expected: an identifier
+  = actual: `_`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:4:1
+  |
+4 | 
+  | ^
+  |
+ --> main.buri:3:30
+  |
+3 | fn match_headed(x: Int): Int { (match (x { _ => 1 }).abs() }
+  |                              ^ opened here
+  |
+  = fix: write `}` here

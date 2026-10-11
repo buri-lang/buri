@@ -1,0 +1,3 @@
+fn nested(t: ((Int, Int)Int ,)): Int {
+    (t.0).1
+}

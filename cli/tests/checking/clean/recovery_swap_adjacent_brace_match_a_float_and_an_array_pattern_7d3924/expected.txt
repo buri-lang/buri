@@ -1,0 +1,9 @@
+error: expected `{`, found `1.5` [unexpected-token]
+ --> main.buri:2:21
+  |
+2 |   let b = match (f) 1.5 { => 1, _ => 2 };
+  |                     ^^^
+  |
+  = expected: `{`
+  = actual: `1.5`
+  = fix: write `{` here

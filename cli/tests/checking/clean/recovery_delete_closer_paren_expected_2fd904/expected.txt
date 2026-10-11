@@ -1,0 +1,12 @@
+error: this `if` branch is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:2:21
+  |
+2 |     (if (true) { 1  else { 2 }).abs()
+  |                     ^^^^
+  |
+ --> main.buri:2:16
+  |
+2 |     (if (true) { 1  else { 2 }).abs()
+  |                ^ opened here
+  |
+  = fix: write `}` here

@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:1:49
+  |
+1 | fn g(): Float { 1.000_5 + 1e1_0 + 2.5E+3 + 1e-2 , }
+  |                                                 ^
+  |
+ --> main.buri:1:15
+  |
+1 | fn g(): Float { 1.000_5 + 1e1_0 + 2.5E+3 + 1e-2 , }
+  |               ^ opened here
+  |
+  = fix: write `}` here

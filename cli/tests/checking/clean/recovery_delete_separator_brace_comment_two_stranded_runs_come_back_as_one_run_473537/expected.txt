@@ -1,7 +1,0 @@
-error: an import name ends with `,` [missing-comma]
- --> main.buri:3:9
-  |
-3 |     fold
-  |         ^
-  |
-  = fix: write `,` here

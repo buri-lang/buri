@@ -1,0 +1,7 @@
+error: an array-pattern element ends with `,` [missing-comma]
+ --> main.buri:7:11
+  |
+7 |         [a b] => a,
+  |           ^
+  |
+  = fix: write `,` here

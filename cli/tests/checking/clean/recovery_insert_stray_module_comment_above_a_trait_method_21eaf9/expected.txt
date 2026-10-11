@@ -1,0 +1,9 @@
+error: expected `fn`, found `extra` [unexpected-token]
+ --> main.buri:5:1
+  |
+5 | extra }
+  | ^^^^^
+  |
+  = expected: `fn`
+  = actual: `extra`
+  = fix: write `fn` here

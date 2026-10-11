@@ -1,0 +1,9 @@
+error: expected an identifier, found `1.5` [unexpected-token]
+ --> main.buri:3:9
+  |
+3 |         1.5 => 1,
+  |         ^^^
+  |
+  = expected: an identifier
+  = actual: `1.5`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

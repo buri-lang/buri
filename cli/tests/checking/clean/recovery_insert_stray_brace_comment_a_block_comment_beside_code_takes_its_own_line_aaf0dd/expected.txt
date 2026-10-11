@@ -1,0 +1,9 @@
+error: expected `:`, found `y` [unexpected-token]
+ --> main.buri:1:47
+  |
+1 | struct P { x: Int, /* beside a field */ extra y: Int }
+  |                                               ^
+  |
+  = expected: `:`
+  = actual: `y`
+  = fix: write `:` here

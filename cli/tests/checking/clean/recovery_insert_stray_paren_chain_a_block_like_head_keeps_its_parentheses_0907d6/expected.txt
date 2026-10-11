@@ -1,0 +1,12 @@
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:3:52
+  |
+3 | fn match_headed(x: Int): Int { (match (x) { _ => 1 @ }).abs() }
+  |                                                    ^
+  |
+ --> main.buri:3:43
+  |
+3 | fn match_headed(x: Int): Int { (match (x) { _ => 1 @ }).abs() }
+  |                                           ^ opened here
+  |
+  = fix: write `}` here

@@ -1,0 +1,9 @@
+error: expected `{`, found `_` [unexpected-token]
+ --> main.buri:3:43
+  |
+3 | fn match_headed(x: Int): Int { (match (x) _ { => 1 }).abs() }
+  |                                           ^
+  |
+  = expected: `{`
+  = actual: `_`
+  = fix: write `{` here

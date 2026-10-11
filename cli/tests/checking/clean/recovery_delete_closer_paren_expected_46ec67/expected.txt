@@ -1,0 +1,12 @@
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:8:5
+  |
+8 |     ).abs()
+  |     ^
+  |
+ --> main.buri:6:16
+  |
+6 |     (match (x) {
+  |                ^ opened here
+  |
+  = fix: write `}` here

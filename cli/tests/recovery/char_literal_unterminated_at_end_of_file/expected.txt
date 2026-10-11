@@ -1,0 +1,9 @@
+error [unterminated-character] 3:3-3:4
+message: unterminated character literal
+fix: close it with `'`
+
+error [unclosed-delimiter] 3:4-3:4
+message: this function body is missing its closing `}`
+fix: write `}` here
+related: 2:26-2:27 opened here
+

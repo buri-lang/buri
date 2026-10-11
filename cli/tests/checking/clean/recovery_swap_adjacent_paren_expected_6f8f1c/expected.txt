@@ -1,0 +1,21 @@
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:2:16
+  |
+2 |     (if (true{ ) 1 } else { 2 }).abs()
+  |                ^
+  |
+ --> main.buri:2:14
+  |
+2 |     (if (true{ ) 1 } else { 2 }).abs()
+  |              ^ opened here
+  |
+  = fix: write `}` here
+error: expected `{`, found `1` [unexpected-token]
+ --> main.buri:2:18
+  |
+2 |     (if (true{ ) 1 } else { 2 }).abs()
+  |                  ^
+  |
+  = expected: `{`
+  = actual: `1`
+  = fix: write `{` here

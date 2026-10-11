@@ -1,0 +1,12 @@
+error: this `if` branch is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:1:42
+  |
+1 | fn block_headed(): Int { (if (true) { 1  else { 2 }).abs() }
+  |                                          ^^^^
+  |
+ --> main.buri:1:37
+  |
+1 | fn block_headed(): Int { (if (true) { 1  else { 2 }).abs() }
+  |                                     ^ opened here
+  |
+  = fix: write `}` here

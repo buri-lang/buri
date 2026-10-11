@@ -1,0 +1,9 @@
+error: expected `:`, found `(` [unexpected-token]
+ --> main.buri:1:12
+  |
+1 | fn nested(t( :(Int, Int), Int)): Int { (t.0).1 }
+  |            ^
+  |
+  = expected: `:`
+  = actual: `(`
+  = fix: write `:` here

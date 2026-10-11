@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-semicolon]
+ --> main.buri:2:41
+  |
+2 |   let b = match (f) { 1.5 => 1, _ => 2 }
+  |                                         ^
+  |
+  = fix: write `;` here

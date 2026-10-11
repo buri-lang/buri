@@ -1,0 +1,9 @@
+error: expected `enum`, found `E` [unexpected-token]
+  --> main.buri:13:1
+   |
+13 | E enum {
+   | ^
+   |
+   = expected: `enum`
+   = actual: `E`
+   = fix: write `enum` first: `enum E`

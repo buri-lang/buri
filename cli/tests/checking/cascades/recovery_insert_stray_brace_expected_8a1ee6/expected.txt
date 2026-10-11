@@ -1,0 +1,16 @@
+error: a tuple has two elements or more [tuple-element-count]
+ --> main.buri:6:5
+  |
+6 |     (match (x) {
+  |     ^^^^^^^^^^^^
+  |
+  = `(x)` is grouping and `()` is unit
+  = fix: drop the parentheses for one element, or write `()` for none
+error: `(Int)` has no method `abs` [unknown-method]
+ --> main.buri:8:10
+  |
+8 |     }, ).abs()
+  |          ^^^
+  |
+  = tuples, function types, and `Template` have no defining module, so they have no methods
+  = fix: there is no module to declare `abs` in, so write a free function taking the value, or wrap it in a struct of yours and give that the method

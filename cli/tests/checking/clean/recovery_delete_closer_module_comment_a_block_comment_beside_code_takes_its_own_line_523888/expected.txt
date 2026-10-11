@@ -1,0 +1,12 @@
+error: this `enum` is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:6:1
+  |
+6 | 
+  | ^
+  |
+ --> main.buri:5:8
+  |
+5 | enum E { A /* inside */, B 
+  |        ^ opened here
+  |
+  = fix: write `}` here

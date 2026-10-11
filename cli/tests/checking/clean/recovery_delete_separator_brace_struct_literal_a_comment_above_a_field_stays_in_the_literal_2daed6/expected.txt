@@ -1,7 +1,0 @@
-error: a record field ends with `,` [missing-comma]
- --> main.buri:2:11
-  |
-2 |     x: Int
-  |           ^
-  |
-  = fix: write `,` here

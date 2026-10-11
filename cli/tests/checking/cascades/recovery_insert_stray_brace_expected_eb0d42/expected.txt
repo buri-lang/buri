@@ -1,0 +1,15 @@
+error: a tuple has two elements or more [tuple-element-count]
+ --> main.buri:2:5
+  |
+2 |     (t.0, ).1
+  |     ^^^^^^^
+  |
+  = `(x)` is grouping and `()` is unit
+  = fix: drop the parentheses for one element, or write `()` for none
+error: a 1-tuple has no element 1 [unknown-tuple-element]
+ --> main.buri:2:13
+  |
+2 |     (t.0, ).1
+  |             ^
+  |
+  = fix: the elements are `.0` through `.0`
