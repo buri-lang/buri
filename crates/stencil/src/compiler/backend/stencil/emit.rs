@@ -311,7 +311,7 @@ impl<'a> Jit<'a> {
                 self.binary(st, *dest, *op, *prim, *lhs, *rhs)
             }
             Inst::Call { dest, func, args } => {
-                self.call(prog, code, st, std::slice::from_ref(dest), func.0, args)
+                self.call(prog, code, st, *dest, func.0, args)
             }
             Inst::CallIndirect { dest, callee, args } => {
                 self.call_indirect(prog, code, st, std::slice::from_ref(dest), *callee, args)
@@ -1312,7 +1312,7 @@ impl<'a> Jit<'a> {
         prog: &ir::Program,
         code: &ir::Code,
         st: &mut Fn2,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         func: u32,
         args: &[ir::ValueId],
     ) {
@@ -1344,7 +1344,7 @@ impl<'a> Jit<'a> {
                 if let Some(entry) = super::runtime::entry(&key) {
                     let list: Vec<(u32, ir::Type)> =
                         args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
-                    let dest = dests.first().map(|d| (st.at(*d), code.ty_of(*d)));
+                    let dest = (st.at(dest), code.ty_of(dest));
                     if let Err(why) = self.rt_call(prog, st, entry, dest, &list) {
                         self.unsupported(why);
                     }
@@ -1354,8 +1354,7 @@ impl<'a> Jit<'a> {
         }
         let base = st.frame.size;
         let callee = self.frame_sig_of(func as usize);
-        for (i, a) in args.iter().enumerate() {
-            let Some(off) = callee.params.get(i) else { continue };
+        for (a, off) in args.iter().zip(&callee.params) {
             // A zero-sized argument — a lifted lambda's empty environment —
             // has no bytes for the callee to read.
             if self.width_of(prog, code.ty_of(*a)) == 0 {
@@ -1373,11 +1372,9 @@ impl<'a> Jit<'a> {
                 ("JIT_CONT0", V::Fall),
             ],
         );
-        for (i, d) in dests.iter().enumerate() {
-            let Some(off) = callee.ret.get(i) else { continue };
-            let n = self.slot_bytes_of(prog, code.ty_of(*d));
-            self.mv(st.at(*d), base + *off, n);
-        }
+        let off = callee.ret.first().or_ice("a signature has one result (middle/ir.rs)");
+        let n = self.slot_bytes_of(prog, code.ty_of(dest));
+        self.mv(st.at(dest), base + *off, n);
     }
 
     fn call_indirect(
@@ -1510,7 +1507,7 @@ impl<'a> Jit<'a> {
                 };
                 let list: Vec<(u32, ir::Type)> =
                     args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
-                if let Err(why) = self.rt_call(prog, st, entry, Some((d, code.ty_of(dest))), &list) {
+                if let Err(why) = self.rt_call(prog, st, entry, (d, code.ty_of(dest)), &list) {
                     self.unsupported(why);
                 }
             }
@@ -2400,7 +2397,8 @@ impl<'a> Jit<'a> {
             .enumerate()
             .map(|(i, t)| (fs.params.get(i).copied().unwrap_or(0), *t))
             .collect();
-        let dest = f.sig.rets.first().map(|t| (fs.ret.first().copied().unwrap_or(0), *t));
+        let ret = f.sig.rets.first().or_ice("a signature has one result (middle/ir.rs)");
+        let dest = (fs.ret.first().copied().unwrap_or(0), *ret);
         match self.rt_call(prog, st, entry, dest, &args) {
             Ok(()) => true,
             Err(why) => {
