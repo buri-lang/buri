@@ -1,0 +1,15 @@
+// EXPECT: `Wrap` takes 1 type argument, but 2 were given
+//
+// Type arguments written on a tuple struct's constructor say what it holds,
+// the same as on a function or a struct literal. They're checked, not dropped.
+struct Wrap<T>(T);
+
+fn named(): Int {
+  let w = Wrap<Str>(1);
+  1
+}
+
+fn counted(): Int {
+  let w = Wrap<Int, Str>(1);
+  1
+}

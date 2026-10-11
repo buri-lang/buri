@@ -712,6 +712,34 @@ impl<'a, 'b> Infer<'a, 'b> {
         targs
     }
 
+    /// A struct's type arguments: the written ones, else the expected type's,
+    /// else fresh variables. A written list of the wrong length is reported.
+    fn struct_type_args(
+        &mut self,
+        con: TyConId,
+        explicit: Option<Vec<Ty>>,
+        expected: Option<&Ty>,
+        head_span: Span,
+        span: Span,
+    ) -> Vec<Ty> {
+        let arity = self.c.tables.tycon(con).arity();
+        match explicit {
+            Some(ts) if ts.len() == arity => return ts,
+            Some(ts) => {
+                let name = self.c.tables.tycon(con).name.clone();
+                self.templated("type-argument-count", head_span)
+                    .bind("subject", format!("`{name}`"))
+                    .bind("expected", counted(arity, "type argument"))
+                    .bind("given", were_given(ts.len()));
+            }
+            None => {}
+        }
+        match expected.map(|t| self.resolve(t).kind()) {
+            Some(TyKind::Con(c, ts)) if *c == con => ts.to_vec(),
+            _ => (0..arity).map(|_| self.fresh(span)).collect(),
+        }
+    }
+
     /// The written type arguments when there are `want` of them, and fresh
     /// variables otherwise.
     fn type_args(&mut self, want: usize, explicit: Option<Vec<Ty>>, span: Span) -> Vec<Ty> {
@@ -828,18 +856,14 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn construct_tuple_struct(
         &mut self,
         con: TyConId,
+        explicit: Option<Vec<Ty>>,
         args: &[ExprId],
         span: Span,
         expected: Option<&Ty>,
+        head_span: Span,
     ) -> typed::Expr {
-        let (arity, fields) = {
-            let tycon = self.c.tables.tycon(con);
-            (tycon.arity(), tycon.fields().to_vec())
-        };
-        let targs: Vec<Ty> = match expected.map(|t| self.resolve(t).kind()) {
-            Some(TyKind::Con(c, ts)) if *c == con => ts.to_vec(),
-            _ => (0..arity).map(|_| self.fresh(span)).collect(),
-        };
+        let fields = self.c.tables.tycon(con).fields().to_vec();
+        let targs = self.struct_type_args(con, explicit, expected, head_span, span);
         // A struct with any private field cannot be constructed from scratch
         // outside its module.
         for i in 0..fields.len() {
@@ -910,7 +934,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.construct_variant(con, index, args, span, expected, head_span)
             }
             Some(Static::TupleStruct(con)) => {
-                self.construct_tuple_struct(con, args, span, expected)
+                let head_span = self.tree().span(callee);
+                self.construct_tuple_struct(con, explicit, args, span, expected, head_span)
             }
             Some(Static::Context(cid)) => {
                 if !args.is_empty() {
