@@ -77,6 +77,7 @@ use crate::compiler::backend::task_thread;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{Layouts, CAP_MASK, CLOSURE_ENV};
 use crate::compiler::semantics::types::Ty;
+use crate::diagnostics::Invariant;
 
 /// One generated function.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -861,11 +862,8 @@ impl Jit<'_> {
     /// The whole stride rather than the value's `size`, so the last frame word
     /// holds the slot's own bytes rather than whatever the frame held before.
     fn unless_spare(&mut self, stride: u32, skip: u32) {
-        let words = round8(stride) / 8;
-        if !stride.is_multiple_of(8) {
-            // The load fills the low bytes of the last word and no more.
-            self.imm_to(G_VALUE + (words - 1) * 8, 0);
-        }
+        // A counted element holds a pointer, so its stride is whole words.
+        let words = stride / 8;
         self.elem_load(G_VALUE, G_PTR, G_INDEX, stride, stride);
         let any = if words > 1 {
             self.first_nonzero_word(words);
@@ -1138,11 +1136,7 @@ impl Jit<'_> {
     /// difference between `platform/host`'s allocators and
     /// `platform/effect/testing`'s.
     fn entry_thunk(&mut self, params: Vec<Ty>, ret: Ty, index: Option<usize>) {
-        let Some(elem) = params.last().cloned() else {
-            self.unsupported(String::from("a runtime-driven step taking no argument"));
-            self.emit("ret", &[]);
-            return;
-        };
+        let elem = *params.last().or_ice("a runtime-driven step takes its element");
         let widths: Vec<u32> =
             params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (ctx_at, _) = state_shape(&widths, index);
@@ -1338,13 +1332,7 @@ impl Jit<'_> {
     /// ownership column says it consumes its parameter, which is
     /// [`Jit::thunk`]'s reconciliation at a call with exactly one caller.
     fn equal_thunk(&mut self, prog: &ir::Program, ty: Ty, func: u32) {
-        let Some(f) = prog.funcs.get(func as usize) else {
-            self.unsupported(format!(
-                "an equality over function {func}, which is not in the program"
-            ));
-            self.emit("ret", &[]);
-            return;
-        };
+        let f = prog.funcs.get(func as usize).or_ice("an equality's function is in its program");
         let facts = f.facts.params.clone();
         let ret_ty = f.sig.rets.first().copied();
         let callee = self.frame_sig_of(func as usize);
@@ -1369,9 +1357,8 @@ impl Jit<'_> {
             if counted && facts.get(i) == Some(&ir::Ownership::Own) {
                 self.walk_rc(&mut st, &ty, at, Op::Retain, 0);
             }
-            if let Some(to) = callee.params.get(i).copied() {
-                self.mv(cbase + to, at, slot);
-            }
+            let to = callee.params.get(i).or_ice("an equality takes two values");
+            self.mv(cbase + to, at, slot);
         }
         self.emit(
             "call",
@@ -1382,9 +1369,8 @@ impl Jit<'_> {
                 ("JIT_CONT0", V::Fall),
             ],
         );
-        if let Some(from) = callee.ret.first().copied().filter(|_| ret_size > 0) {
-            self.elem_store(cbase + from, Q_OUT, Q_ZERO, 8, ret_size);
-        }
+        let from = callee.ret.first().or_ice("an equality answers a `Bool`");
+        self.elem_store(cbase + from, Q_OUT, Q_ZERO, 8, ret_size);
         self.emit("ret", &[]);
         self.resolve_helper_blocks(base, &st);
     }
@@ -1451,11 +1437,7 @@ impl Jit<'_> {
     ///  * the environment record is **retained** where the callee owns it,
     ///    because those bytes belong to the closure's block.
     fn thunk(&mut self, prog: &ir::Program, func: u32, args: u32, boxed: bool) {
-        let Some(f) = prog.funcs.get(func as usize) else {
-            self.unsupported(format!("a closure over function {func}, which is not in the program"));
-            self.emit("ret", &[]);
-            return;
-        };
+        let f = prog.funcs.get(func as usize).or_ice("a closure's function is in its program");
         let sig_params = f.sig.params.clone();
         let sig_rets = f.sig.rets.clone();
         let facts = f.facts.params.clone();
@@ -1495,29 +1477,23 @@ impl Jit<'_> {
             }
             let owns = boxed && facts.first() == Some(&ir::Ownership::Own);
             if owns {
-                if let Some(ty) = sig_params.first().and_then(|t| source_ty(prog, *t)) {
-                    if self.rc_counted(&ty) {
-                        self.walk_rc(&mut st, &ty, to, Op::Retain, 0);
-                    }
-                }
+                let ty = sig_params.first().and_then(|t| source_ty(prog, *t));
+                let ty = ty.or_ice("a boxed environment is a record");
+                self.walk_rc(&mut st, &ty, to, Op::Retain, 0);
             }
         }
 
         // The arguments, and the ones the callee borrows, kept for the release
         // after the call.
         let mut borrowed: Vec<(u32, Ty)> = Vec::new();
-        for (j, t) in sig_params.iter().enumerate().skip(skip) {
-            let Some(from) = params.get(j - skip).copied() else { continue };
-            let Some(to) = callee.params.get(j).copied() else { continue };
+        for (j, (t, to)) in sig_params.iter().zip(&callee.params).enumerate().skip(skip) {
+            let from = *params.get(j - skip).or_ice("a thunk has a slot per argument");
             let n = self.slot_bytes_of(prog, *t);
             self.mv(cbase + to, from, n);
-            if facts.get(j) != Some(&ir::Ownership::Borrow) {
-                continue;
-            }
-            if let Some(ty) = source_ty(prog, *t) {
-                if self.rc_counted(&ty) {
-                    borrowed.push((from, ty));
-                }
+            // Only a counted value has an ownership to borrow.
+            if facts.get(j) == Some(&ir::Ownership::Borrow) {
+                let ty = source_ty(prog, *t).or_ice("a borrowed argument is counted");
+                borrowed.push((from, ty));
             }
         }
 
@@ -1530,12 +1506,9 @@ impl Jit<'_> {
                 ("JIT_CONT0", V::Fall),
             ],
         );
-        for (i, t) in sig_rets.iter().enumerate() {
-            let (Some(to), Some(from)) = (rets.get(i).copied(), callee.ret.get(i).copied()) else {
-                continue;
-            };
+        for ((t, to), from) in sig_rets.iter().zip(&rets).zip(&callee.ret) {
             let n = self.slot_bytes_of(prog, *t);
-            self.mv(to, cbase + from, n);
+            self.mv(*to, cbase + from, n);
         }
         // The caller handed over a count the callee did not consume. Without
         // this every step of a `list.map` over a `[Str]` leaks one block per
