@@ -10,7 +10,9 @@ struct Named {
 }
 
 impl Allocator for Named {
-    fn allocate(self, bytes: Int): Region { Region(bytes + self.name.length()) }
+    fn allocate(self, bytes: Int): Region {
+        Region(bytes + self.name.length())
+    }
 }
 
 test "a step is handed a context that owns a count" {
