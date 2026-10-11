@@ -213,3 +213,24 @@ test "a wide uncounted value goes through parallel" {
     let out = tasks.parallel(ctx, [grid(1), grid(2)], fn(_c, i, g) => g.0 + g.39 + i);
     assert.equal(out, [2, 5]);
 }
+
+// Wide, with one count in it.
+struct Labelled {
+    name: Str,
+    grid: Grid,
+}
+
+fn names(items: [Labelled]): Int {
+    items.fold(fn(n, l) => n + l.grid.0, 0)
+}
+
+test "a wide value with one count is shared" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let one = Labelled { name: str.format(ctx, "${1}"), grid: grid(2) };
+    let many = [one, one, one];
+    assert.equal(names(many), 6);
+    assert.equal(many.map(ctx, fn(l) => l.name), ["1", "1", "1"]);
+    assert.equal(one.name, "1");
+}
