@@ -527,14 +527,15 @@ struct Looping {
 }
 
 impl Looping {
-    fn start(scratch: &Scratch, target: &str) -> Looping {
+    /// `buri test <args> --watch`.
+    fn start(scratch: &Scratch, args: &[&str]) -> Looping {
         use std::io::Read as _;
         let buri = env!("CARGO_BIN_EXE_buri");
         let mut cmd = std::process::Command::new("script");
         if cfg!(target_os = "macos") {
-            cmd.args(["-q", "/dev/null", buri, "test", target, "--watch"]);
+            cmd.args(["-q", "/dev/null", buri, "test"]).args(args).arg("--watch");
         } else {
-            cmd.args(["-qec", &format!("{buri} test {target} --watch"), "/dev/null"]);
+            cmd.args(["-qec", &format!("{buri} test {} --watch", args.join(" ")), "/dev/null"]);
         }
         let mut child = cmd
             .current_dir(&scratch.root)
@@ -559,14 +560,22 @@ impl Looping {
 
     /// Reads until pass `n`'s separator is drawn.
     fn until_pass(&mut self, n: usize) {
+        self.until(&format!("pass {n} never started"), |seen| separator_at(seen, n).is_some());
+    }
+
+    /// Reads until pass `n` has printed its summary, which a pass under
+    /// `--explain` prints after its separator.
+    fn until_summary(&mut self, n: usize) {
+        self.until(&format!("pass {n} never finished"), |seen| {
+            separator_at(seen, n).is_some_and(|at| seen[at..].contains(" passed, "))
+        });
+    }
+
+    fn until(&mut self, what: &str, done: impl Fn(&str) -> bool) {
         // A guard against a loop that never wakes, not a measurement.
         let deadline = std::time::Instant::now() + Duration::from_secs(240);
-        while separator_at(&self.seen, n).is_none() {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "pass {n} never started:\n{}",
-                indent(&self.seen)
-            );
+        while !done(&self.seen) {
+            assert!(std::time::Instant::now() < deadline, "{what}:\n{}", indent(&self.seen));
             if let Ok(bytes) = self.lines.recv_timeout(Duration::from_millis(100)) {
                 self.seen.push_str(&String::from_utf8_lossy(&bytes).replace('\r', ""));
             }
@@ -617,7 +626,7 @@ fn a_stray_file_coming_and_going_starts_a_pass_each_way() {
         "watch-stray",
         &tests_dir().join("repositories/linting/a_stray_file_is_seen_during_build/repo"),
     );
-    let mut looping = Looping::start(&scratch, "//libs/shapes");
+    let mut looping = Looping::start(&scratch, &["//libs/shapes"]);
     looping.until_pass(1);
     std::fs::rename(scratch.path("staging/stray.json"), scratch.path("libs/shapes/stray.json")).unwrap();
     looping.until_pass(2);
@@ -648,7 +657,7 @@ fn a_schema_with_an_extension_of_its_own_starts_a_pass() {
         &tests_dir().join("repositories/linting/a_schema_read_in_another_dialect_is_checked_again/repo"),
     );
     scratch.write("REPO.buri", "lint {\n    check_during_build: true\n}\n");
-    let mut looping = Looping::start(&scratch, "//libs/x");
+    let mut looping = Looping::start(&scratch, &["//libs/x"]);
     looping.until_pass(1);
     scratch.write("libs/x/shape.schema", "{ \"title\": \"Shape\", \"type\": \"object\" }\n");
     looping.until_pass(2);
@@ -669,7 +678,7 @@ fn an_input_elsewhere_that_stops_reading_a_schema_starts_a_pass() {
         &tests_dir().join("repositories/linting/a_schema_nothing_reads_any_more_is_reported/repo"),
     );
     scratch.write("REPO.buri", "lint {\n    check_during_build: true\n}\n");
-    let mut looping = Looping::start(&scratch, "//libs/a");
+    let mut looping = Looping::start(&scratch, &["//libs/a"]);
     looping.until_pass(1);
     scratch.edit("libs/b/b.json", "//libs/a/shared.schema.json", "//libs/a/own.schema.json");
     looping.until_pass(2);
@@ -681,6 +690,23 @@ fn an_input_elsewhere_that_stops_reading_a_schema_starts_a_pass() {
         "{}",
         indent(&looping.seen)
     );
+    looping.stop();
+}
+
+/// **Under `--explain` a separator heads its pass**: the explain lines stream
+/// while the pass runs, so a separator drawn after them would sit underneath
+/// the transcript it names.
+#[test]
+fn under_explain_a_separator_heads_its_pass() {
+    let scratch = two_suites("watch-explain");
+    let mut looping = Looping::start(&scratch, &["//lib/a", "--explain"]);
+    looping.until_summary(1);
+    scratch.write("lib/a/lib.buri", &library("20 + 1"));
+    looping.until_summary(2);
+
+    let second = &looping.seen[separator_at(&looping.seen, 2).unwrap()..];
+    assert!(looping.separator(2).contains("lib/a/lib.buri"), "{}", indent(&looping.seen));
+    assert_eq!(status(second, "test //lib/a"), "run", "{}", indent(&looping.seen));
     looping.stop();
 }
 
