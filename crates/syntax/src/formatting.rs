@@ -1103,10 +1103,9 @@ impl Comments {
         let mut entries = Vec::new();
         let mut beside_code = Vec::new();
         for (at, t) in kept.trivia {
+            // The lexer keys a run by the token under it, and the last token
+            // is the end of the file, so `at` is always a token.
             let at = at as usize;
-            if at >= tokens.len() {
-                continue;
-            }
             // Only the first comment of a run can be the one beside the code:
             // everything after it is on a line of its own by construction.
             //
@@ -1618,7 +1617,7 @@ impl<'t> Build<'t> {
             })
             .collect();
         let run = head.len();
-        let written = Written::of(&m.items);
+        let written: Vec<u32> = m.items.iter().map(|i| i.span().start).collect();
         // `run` is a count of a prefix of `m.items`, so the split is always the
         // one asked for.
         let (imports, declarations) = m.items.split_at_checked(run).unwrap_or((&m.items, &[]));
@@ -2735,35 +2734,11 @@ fn record<'s>(head: &str, items: Vec<(Doc<'s>, Doc<'s>)>, trailing: Option<Doc<'
 ///
 /// A comment beside a declaration must be claimed by that declaration and not
 /// by the one under it, and the leading import run is printed *sorted* — so the
-/// question is about the order the items were written in, which is the order
-/// they are in here.
-fn written_after(items: &Written, start: u32) -> u32 {
-    let starts = &items.starts;
-    if items.sorted {
-        let i = starts.partition_point(|s| *s < start);
-        if starts.get(i) != Some(&start) {
-            return u32::MAX;
-        }
-        return starts.get(i.saturating_add(1)).copied().unwrap_or(u32::MAX);
-    }
-    let mut after = starts.iter().skip_while(|s| **s != start);
-    after.next();
-    after.next().copied().unwrap_or(u32::MAX)
-}
-
-/// Where each declaration begins, in the order they were written, and whether
-/// that order is ascending — so [`written_after`] can binary search it.
-struct Written {
-    starts: Vec<u32>,
-    sorted: bool,
-}
-
-impl Written {
-    fn of(items: &[Item]) -> Written {
-        let starts: Vec<u32> = items.iter().map(|i| i.span().start).collect();
-        let sorted = starts.windows(2).all(|w| matches!(w, [a, b] if a < b));
-        Written { starts, sorted }
-    }
+/// question is about the order the items were written in. `starts` is that
+/// order, which is ascending: the parser reads the items front to back.
+fn written_after(starts: &[u32], start: u32) -> u32 {
+    let i = starts.partition_point(|s| *s <= start);
+    starts.get(i).copied().unwrap_or(u32::MAX)
 }
 
 /// The declarations, with each `derive` moved to sit directly on the type it

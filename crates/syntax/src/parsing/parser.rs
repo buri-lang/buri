@@ -1293,9 +1293,6 @@ impl<'a> Parser<'a> {
     #[cold]
     #[inline(never)]
     fn unterminated(&mut self, construct: &str) -> PResult<Span> {
-        if self.trial > 0 {
-            return Err(Bail);
-        }
         if self.after_an_unterminated_string() {
             return Ok(self.prev_span());
         }
@@ -1322,9 +1319,6 @@ impl<'a> Parser<'a> {
     fn expect_arrow(&mut self) -> PResult<()> {
         if self.eat(Punctuation::FatArrow) {
             return Ok(());
-        }
-        if self.trial > 0 {
-            return Err(Bail);
         }
         if self.after_an_unterminated_string() {
             return Err(Bail);
@@ -1455,8 +1449,7 @@ impl<'a> Parser<'a> {
     /// the rest of the file instead of turning every later use of it into a
     /// name nobody misspelled.
     fn exchanged_binding(&mut self) -> bool {
-        if self.trial > 0
-            || !matches!(self.peek(), TokenKind::Ident | TokenKind::KeywordCtx)
+        if !matches!(self.peek(), TokenKind::Ident | TokenKind::KeywordCtx)
             || self.kind_at(self.pos.saturating_add(1)) != TokenKind::of_keyword(Keyword::Let)
             || !matches!(self.kind_at(self.pos.saturating_add(2)), TokenKind::Colon | TokenKind::Eq)
         {
@@ -1777,8 +1770,9 @@ impl<'a> Parser<'a> {
             Some(Keyword::Context) => {
                 Item::Context(self.context_decl(exported, docs, start)?)
             }
-            // `from "..." export { ... }` after a stray `export`.
-            Some(Keyword::From) if exported => {
+            // `from "..." export { ... }` after a stray `export`: an unexported
+            // `from` was read as an import before the `export` was looked for.
+            Some(Keyword::From) => {
                 let span = self.span();
                 self.templated("leading-export", span);
                 return Err(Bail);
@@ -1830,8 +1824,7 @@ impl<'a> Parser<'a> {
     /// wrote.
     fn exchanged_head(&mut self) -> bool {
         let keyword = self.kind_at(self.pos.saturating_add(1));
-        if self.trial > 0
-            || !head_takes(keyword, self.peek())
+        if !head_takes(keyword, self.peek())
             || head_takes(keyword, self.kind_at(self.pos.saturating_add(2)))
         {
             return false;
@@ -1856,8 +1849,7 @@ impl<'a> Parser<'a> {
     }
 
     fn export_after_the_keyword(&mut self) -> bool {
-        if self.trial > 0
-            || self.peek().as_keyword().is_none()
+        if self.peek().as_keyword().is_none()
             || self.kind_at(self.pos.saturating_add(1)) != TokenKind::KeywordExport
             || self.kind_at(self.pos.saturating_add(2)) != TokenKind::Ident
         {
