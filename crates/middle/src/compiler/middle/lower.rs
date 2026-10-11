@@ -289,12 +289,9 @@ fn facts(plan: &rc::FuncPlan, dispatch: bool) -> Facts {
 
 /// What a function returns.
 ///
-/// Not `monomorphize::Func::ret`, which is only filled in for an intrinsic
-/// (`monomorphize.rs:398`) and is `()` for every function with a body — and
-/// for the merged function `tail_calls` builds out of a group, which copies
-/// it. The body's own type is the answer that is always right, and for a body
-/// that is a `Loop` it is the type of an entry: the loop expression carries
-/// the same unfilled `ret` its function does.
+/// Not `monomorphize::Func::ret`, which not every pass that writes a function
+/// fills in. The body's own type is the answer that is always
+/// right, and for a body that is a `Loop` it is the type of an entry.
 fn returns(f: &crate::compiler::middle::monomorphize::Func) -> Ty {
     let Some(body) = f.body() else { return f.ret };
     match &body.kind {
