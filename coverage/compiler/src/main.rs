@@ -501,8 +501,8 @@ impl Lcov {
 
 /// Each file's coverage over every platform: a line or branch is covered if
 /// any platform's tests took it. Platforms agree on a line's branches unless
-/// `cfg` changed them, so a line whose platforms list different branches
-/// counts each platform's apart.
+/// `cfg` changed them, so platforms that list different branches on a line
+/// count theirs apart.
 fn merge(platforms: &BTreeMap<String, Lcov>) -> BTreeMap<String, Counts> {
     let paths: BTreeSet<&String> = platforms.values().flat_map(|p| p.files.keys()).collect();
     let mut files = BTreeMap::new();
@@ -530,17 +530,18 @@ fn merge(platforms: &BTreeMap<String, Lcov>) -> BTreeMap<String, Counts> {
                 by_line.entry(at).or_default().push(branches);
             }
         }
-        for each in by_line.values() {
-            let agree = each.windows(2).all(|pair| pair[0].keys().eq(pair[1].keys()));
-            if agree {
-                counts.branches += each[0].len() as u64;
-                let taken = each[0].keys().filter(|key| each.iter().any(|p| p[key] > 0));
-                counts.branches_covered += taken.count() as u64;
-            } else {
-                for platform in each {
-                    counts.branches += platform.len() as u64;
-                    counts.branches_covered += platform.values().filter(|&&t| t > 0).count() as u64;
+        for each in by_line.into_values() {
+            // Platforms that list the same branches on the line merge.
+            let mut agreeing: BTreeMap<Vec<(u32, u32)>, BTreeMap<(u32, u32), bool>> = BTreeMap::new();
+            for platform in each {
+                let merged = agreeing.entry(platform.keys().copied().collect()).or_default();
+                for (key, taken) in platform {
+                    *merged.entry(key).or_default() |= taken > 0;
                 }
+            }
+            for merged in agreeing.values() {
+                counts.branches += merged.len() as u64;
+                counts.branches_covered += merged.values().filter(|&&taken| taken).count() as u64;
             }
         }
         files.insert(path.clone(), counts);
