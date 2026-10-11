@@ -1,0 +1,13 @@
+// EXPECT: this one starts with `</svg>`
+//
+// The diagnostic quotes the tag as written, so a closing tag reads as one.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.image({ source: .Const("</svg><svg></svg>"), alt: .Decorative, styles: [] }), [])
+}
