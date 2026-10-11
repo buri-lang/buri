@@ -132,7 +132,7 @@ fn a_module_parsed_ahead_and_moved_to_its_file_is_what_parsing_it_there_gives() 
             let mut got = read(&text, ahead);
             got.module.refile(there);
             for e in &mut got.errors {
-                e.refile(ahead, there);
+                e.refile(there);
             }
             if format!("{:?}{:?}", want.module, want.errors) != format!("{:?}{:?}", got.module, got.errors) {
                 moved.push(path.strip_prefix(&root).unwrap_or(path).display().to_string());
