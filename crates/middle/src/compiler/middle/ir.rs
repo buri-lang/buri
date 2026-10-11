@@ -1616,14 +1616,13 @@ impl Program {
 }
 
 /// `n` in decimal, without going through `fmt`.
+#[expect(clippy::indexing_slicing, reason = "a `u64` has at most twenty decimal digits, one per slot of `buf`")]
 fn num(out: &mut String, mut n: u64) {
     let mut buf = [0u8; 20];
     let mut at = buf.len();
     loop {
         at = at.saturating_sub(1);
-        if let Some(slot) = buf.get_mut(at) {
-            *slot = b'0'.saturating_add((n % 10) as u8);
-        }
+        buf[at] = b'0'.saturating_add((n % 10) as u8);
         n /= 10;
         if n == 0 {
             break;
@@ -1701,12 +1700,10 @@ fn term_into(t: &Term, out: &mut String) {
                 target_into(t, out);
             }
         }
+        // Every function answers one value.
         Term::Return(vs) => {
-            out.push_str("return");
-            if !vs.is_empty() {
-                out.push(' ');
-                values(out, vs);
-            }
+            out.push_str("return ");
+            values(out, vs);
         }
         Term::Unreachable => out.push_str("unreachable"),
     }
