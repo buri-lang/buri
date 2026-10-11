@@ -210,9 +210,10 @@ Linux and arm64 macOS and gates the merge:
 - `--build` builds each platform's instrumented `buri` and its tests once.
 - `--shard=i/n` runs part of the tests and writes what they took to
   `coverage.txt`, from `llvm-cov export`'s JSON.
-- `--merge=<dir>` merges every shard, gates, and writes each platform's lcov to
-  `target/coverage/lcov/<host>.lcov`. CI uploads those as `coverage-baseline`,
-  so main's uncovered branches can be read without running the suite.
+- `--merge=<dir>` merges every shard, gates, and writes lcov to
+  `target/coverage/lcov`: `<host>.lcov` for each platform and `merged.lcov`
+  for all of them. CI uploads those as `coverage-baseline`, so main's
+  uncovered branches can be read without running the suite.
 
 A branch side is keyed by where its function starts, its condition's span,
 which of the function's conditions with that span it is, and the side:

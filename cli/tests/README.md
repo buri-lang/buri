@@ -355,7 +355,13 @@ coverage.
 The baseline merges x86_64 Linux, arm64 Linux and arm64 macOS: a branch counts
 when any of them took it (`design/COVERAGE.md`). A local run measures one host,
 so it prints its numbers and compares nothing. CI's `coverage-baseline`
-artifact has each platform's lcov.
+artifact has lcov for each platform and for all of them merged, so the branches
+no test reaches can be read off main without running the suite:
+
+```sh
+gh run download <run> -n coverage-baseline -D /tmp/coverage
+awk -F'[:,]' '/^SF:/ {f = $2} /^BRDA:/ && $NF == 0 {print f ":" $2}' /tmp/coverage/lcov/merged.lcov   # file:line of each side no platform took
+```
 
 The gate counts everything the CLI runs: `cli/src` (every command, the build
 system, the language server, the documentation) and `crates/*/src`.
