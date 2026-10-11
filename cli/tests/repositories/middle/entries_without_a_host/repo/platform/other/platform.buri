@@ -1,0 +1,16 @@
+// A platform whose structs another platform's entries take first.
+from "platform/host" import { HostAllocator };
+
+export struct OtherHost {
+    export alloc: HostAllocator,
+}
+
+export struct Named {
+    export name: Str,
+}
+
+export struct Tagged {
+    export tags: [Str],
+}
+
+export fn start(host: OtherHost): Result<(), Str>;
