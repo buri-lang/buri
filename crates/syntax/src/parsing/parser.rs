@@ -1389,6 +1389,15 @@ impl<'a> Parser<'a> {
             self.bump();
             return Ok(self.bump());
         }
+        // `fn export()`: the modifier where the name goes is read as the name,
+        // or the declaration's rest would be read as one `export` starts. An
+        // `export` before a keyword starts the next declaration, after a
+        // missing closer.
+        if self.is_keyword(Keyword::Export)
+            && self.kind_at(self.pos.saturating_add(1)).as_keyword().is_none()
+        {
+            return Ok(self.bump());
+        }
         Err(Bail)
     }
 
