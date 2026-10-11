@@ -202,8 +202,9 @@ pub struct Registry<'r> {
     by_file: HashMap<String, usize>,
     /// Which resource a node is the root of.
     root_of: HashMap<*const Node, usize>,
-    /// Where each schema node sits: its file and its JSON pointer.
-    location: HashMap<*const Node, (usize, String)>,
+    /// Where each schema node sits: its file, its JSON pointer, and the
+    /// resource it is in.
+    location: HashMap<*const Node, (usize, String, usize)>,
     regexes: HashMap<String, Regex>,
     problems: Vec<Finding>,
 }
@@ -398,7 +399,7 @@ impl<'r> Registry<'r> {
         if self.location.contains_key(&(node as *const Node)) {
             return;
         }
-        self.location.insert(node as *const Node, (file, pointer.clone()));
+        self.location.insert(node as *const Node, (file, pointer.clone(), resource));
         let members = match &node.value {
             Value::Bool(_) => return,
             Value::Object(members, _) => members,
@@ -586,8 +587,11 @@ impl<'r> Registry<'r> {
                     _ => return Err(Unresolved::NoTarget),
                 };
             }
-            // A pointer into an embedded resource lands in that resource.
-            let owner = self.root_of.get(&(node as *const Node)).copied().unwrap_or(target);
+            // A pointer into an embedded resource lands in that resource, at
+            // its root or anywhere inside it.
+            let ptr = node as *const Node;
+            let inside = self.location.get(&ptr).map(|(_, _, r)| *r);
+            let owner = self.root_of.get(&ptr).copied().or(inside).unwrap_or(target);
             return Ok((owner, node));
         }
         let node = r.anchors.get(&fragment).or_else(|| r.dynamic_anchors.get(&fragment)).ok_or(Unresolved::NoTarget)?;
@@ -611,7 +615,7 @@ impl<'r> Registry<'r> {
 
     fn keyword_location(&self, schema: &Node, keyword: &str) -> String {
         match self.location.get(&(schema as *const Node)) {
-            Some((file, pointer)) => format!("{}#{pointer}/{}", self.path_of(*file), escape_pointer(keyword)),
+            Some((file, pointer, _)) => format!("{}#{pointer}/{}", self.path_of(*file), escape_pointer(keyword)),
             None => keyword.to_string(),
         }
     }

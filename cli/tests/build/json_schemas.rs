@@ -89,6 +89,9 @@ const VALUES: &[(&str, &str, &str)] = &[
     (r#"{"multipleOf": 0.12345678901234567890123456789012345678}"#, "0.24691357802469135780246913578024691356", ""),
     (r#"{"multipleOf": 1.2345678901234567890123456789012345678e-300}"#, "1e308", "`1e308` is not a multiple of `1.2345678901234567890123456789012345678e-300`"),
     (r##"{"$ref": "#/%24defs/str"}"##, "1", "expected a string, found an integer"),
+    // A pointer into an embedded resource resolves what it lands on against
+    // that resource's `$id`, so `c.json` is the `$id` beside it.
+    (r##"{"$defs": {"a": {"$id": "http://x.example/a.json", "$defs": {"b": {"$ref": "c.json"}, "c": {"$id": "http://x.example/c.json", "type": "string"}}}}, "$ref": "#/properties/v{N}/$defs/a/$defs/b"}"##, "5", "expected a string, found an integer"),
     (r#"{"type": "string"}"#, "'a long string of more than forty characters, cut short'", ""),
     (r#"{"const": 1}"#, "'a long string of more than forty characters, cut short'", "expected `1`, found `'a long string of more than forty charac…`"),
 ];
