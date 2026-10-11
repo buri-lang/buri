@@ -120,19 +120,10 @@ pub fn parse(text: &str, file: FileId) -> Parsed {
         blank: false,
         depth: 0,
     };
+    // At the top level, `fields` recovers from every mistake and stops only
+    // at the end of the text.
     let fields = p.fields(None);
     let trailing = std::mem::take(&mut p.comments);
-    if p.position < p.src.len() {
-        let span = Span::new(file, p.position, p.src.len());
-        p.errors.push(
-            Diagnostic::templated("build-file-syntax", span)
-                .with_bind("problem", "expected a field")
-                .with_bind(
-                    "remedy",
-                    "a build file is a list of `name: value` and `name { ... }` fields",
-                ),
-        );
-    }
     Parsed { document: Document { fields, trailing }, errors: p.errors }
 }
 
