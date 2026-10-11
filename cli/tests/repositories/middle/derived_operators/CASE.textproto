@@ -11,4 +11,5 @@ run {
   args: ["test", "//lib/ops", "--force"]
   exit: 1
   golden: "test.txt"
+  stream: ERR
 }
