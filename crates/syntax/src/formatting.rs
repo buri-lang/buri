@@ -348,8 +348,8 @@ enum Doc<'s> {
     Blank,
     Nest(Box<Doc<'s>>),
     Group(group::Group<'s>),
-    /// Items and the separators between them, alternating, broken only where
-    /// the next item would not fit.
+    /// Items with a `Line` between each two, broken only where the next item
+    /// would not fit.
     Fill(Vec<Doc<'s>>),
     IfBreak(Box<Doc<'s>>, Box<Doc<'s>>),
     /// Nothing is printed; the enclosing group cannot be flat.
@@ -552,14 +552,25 @@ enum Slot<'t> {
 /// import in the suite was hand-wrapped into.
 fn filled(items: Vec<Doc>) -> Doc {
     let last = items.len().saturating_sub(1);
-    let mut parts = Vec::new();
-    for (i, it) in items.into_iter().enumerate() {
+    let items = items
+        .into_iter()
+        .enumerate()
+        .map(|(i, it)| if i == last { it } else { cat(vec![it, text(",")]) })
+        .collect();
+    Doc::Fill(items)
+}
+
+/// The separator between two items of a `Fill`.
+static LINE: Doc<'static> = Doc::Line;
+
+/// A `Fill`'s items, with their separators, onto a measuring stack.
+fn push_filled<'a>(local: &mut Vec<Frame<'a>>, ind: usize, mode: Mode, items: &'a [Doc<'a>]) {
+    for (i, x) in items.iter().enumerate().rev() {
+        local.push((ind, mode, Cmd::One(x)));
         if i > 0 {
-            parts.push(Doc::Line);
+            local.push((ind, mode, Cmd::One(&LINE)));
         }
-        parts.push(if i == last { it } else { cat(vec![it, text(",")]) });
     }
-    Doc::Fill(parts)
 }
 
 // -- the layout pass -------------------------------------------------------
@@ -571,7 +582,7 @@ enum Mode {
 }
 
 /// One entry of the work stack: a document, or the tail of a `Fill` being
-/// consumed two items at a time.
+/// consumed one item at a time.
 #[derive(Clone, Copy)]
 enum Cmd<'a> {
     One(&'a Doc<'a>),
@@ -627,10 +638,8 @@ fn fits<'a>(
             },
         };
         let d = match cmd {
-            Cmd::Fill(parts) => {
-                for p in parts.iter().rev() {
-                    local.push((ind, mode, Cmd::One(p)));
-                }
+            Cmd::Fill(items) => {
+                push_filled(local, ind, mode, items);
                 continue;
             }
             Cmd::One(d) => d,
@@ -650,11 +659,7 @@ fn fits<'a>(
                     local.push((ind, mode, Cmd::One(x)));
                 }
             }
-            Doc::Fill(xs) => {
-                for x in xs.iter().rev() {
-                    local.push((ind, mode, Cmd::One(x)));
-                }
-            }
+            Doc::Fill(xs) => push_filled(local, ind, mode, xs),
             Doc::Nest(x) => local.push((ind.saturating_add(1), mode, Cmd::One(x))),
             Doc::Line => {
                 if mode == Mode::Break {
@@ -858,33 +863,27 @@ fn render(doc: &Doc) -> String {
     out
 }
 
-/// One step of `Fill`: place the first item, then decide the separator after
-/// it by whether the item *after* that would still fit.
+/// One step of `Fill`: place the first item, then decide the line after it
+/// by whether the item *after* that would still fit.
 fn fill_step<'a>(
     stack: &mut Vec<Frame<'a>>,
     local: &mut Vec<Frame<'a>>,
     ind: usize,
     mode: Mode,
-    parts: &'a [Doc],
+    items: &'a [Doc],
     rem: usize,
 ) {
-    let Some((content, after_content)) = parts.split_first() else { return };
+    let Some((content, tail)) = items.split_first() else { return };
     let content_fits = fits(&[], &[(ind, Mode::Flat, Cmd::One(content))], local, rem, false);
-    let Some((ws, tail)) = after_content.split_first() else {
-        stack.push((ind, if content_fits { Mode::Flat } else { Mode::Break }, Cmd::One(content)));
-        return;
-    };
     let Some(next) = tail.first() else {
-        let m = if content_fits { Mode::Flat } else { Mode::Break };
-        stack.push((ind, m, Cmd::One(ws)));
-        stack.push((ind, m, Cmd::One(content)));
+        stack.push((ind, if content_fits { Mode::Flat } else { Mode::Break }, Cmd::One(content)));
         return;
     };
     let pair = fits(
         &[],
         &[
             (ind, Mode::Flat, Cmd::One(next)),
-            (ind, Mode::Flat, Cmd::One(ws)),
+            (ind, Mode::Flat, Cmd::One(&LINE)),
             (ind, Mode::Flat, Cmd::One(content)),
         ],
         local,
@@ -893,13 +892,13 @@ fn fill_step<'a>(
     );
     stack.push((ind, mode, Cmd::Fill(tail)));
     if pair {
-        stack.push((ind, Mode::Flat, Cmd::One(ws)));
+        stack.push((ind, Mode::Flat, Cmd::One(&LINE)));
         stack.push((ind, Mode::Flat, Cmd::One(content)));
     } else if content_fits {
-        stack.push((ind, Mode::Break, Cmd::One(ws)));
+        stack.push((ind, Mode::Break, Cmd::One(&LINE)));
         stack.push((ind, Mode::Flat, Cmd::One(content)));
     } else {
-        stack.push((ind, Mode::Break, Cmd::One(ws)));
+        stack.push((ind, Mode::Break, Cmd::One(&LINE)));
         stack.push((ind, Mode::Break, Cmd::One(content)));
     }
 }
@@ -1019,31 +1018,6 @@ impl Trivia {
         matches!(self, Trivia::Run { detached: true, .. })
     }
 
-    /// The first comment of this run, if it has one.
-    fn first_comment(&self) -> Option<&Comment> {
-        match self {
-            Trivia::Blank { .. } => None,
-            Trivia::Run { comments, .. } => comments.first(),
-        }
-    }
-
-    /// Takes it out, and moves the run's paragraph break onto whatever is now
-    /// first: the blank line above a run is a fact about its first line.
-    fn take_first_comment(&mut self) -> Option<Comment> {
-        let Trivia::Run { comments, blank, .. } = self else { return None };
-        if comments.is_empty() {
-            return None;
-        }
-        let taken = comments.remove(0);
-        *blank = comments.first().is_some_and(|c| c.blank_before);
-        Some(taken)
-    }
-
-    /// Whether this run has been emptied: every comment taken and no `///`.
-    fn is_empty_run(&self) -> bool {
-        matches!(self, Trivia::Run { comments, docs, .. } if comments.is_empty() && docs.lines().is_empty())
-    }
-
     /// Whether any `///` line was written in this run.
     fn documented(&self) -> bool {
         match self {
@@ -1139,38 +1113,45 @@ impl Comments {
         // entries from `lo` up to the first one at or past `hi` can hold one.
         let beside = &self.beside_code;
         let start = self.first_at(lo);
-        let mut found = None;
-        for (i, e) in self.entries.iter().enumerate().skip(start) {
-            let hit = !e.claimed
-                && e.trivia.first_comment().is_some_and(|c| {
-                    (lo..hi).contains(&c.offset) && beside.binary_search(&c.offset).is_ok()
-                });
-            if hit {
-                found = Some(i);
-                break;
+        for e in self.entries.iter_mut().skip(start) {
+            let at = e.trivia.at();
+            match &mut e.trivia {
+                Trivia::Run { comments, docs, blank, detached, .. }
+                    if !e.claimed
+                        && comments.first().is_some_and(|c| {
+                            (lo..hi).contains(&c.offset) && beside.binary_search(&c.offset).is_ok()
+                        }) =>
+                {
+                    // The run's paragraph break moves onto whatever is now
+                    // first: the blank line above a run is a fact about its
+                    // first line.
+                    let taken = comments.remove(0);
+                    *blank = comments.first().is_some_and(|c| c.blank_before);
+                    // A run that was only that comment has nothing left to
+                    // say, unless a blank line was written between it and the
+                    // token below — which is a paragraph break somebody typed,
+                    // and comes back.
+                    if comments.is_empty() && docs.lines().is_empty() {
+                        if *detached {
+                            e.trivia = Trivia::Blank { at };
+                        } else {
+                            e.claimed = true;
+                        }
+                    }
+                    return Some(taken);
+                }
+                _ => {}
             }
-            if e.trivia.at() >= hi {
+            if at >= hi {
                 break;
             }
         }
-        let entry = self.entries.get_mut(found?)?;
-        let taken = entry.trivia.take_first_comment()?;
-        // A run that was only that comment has nothing left to say, unless a
-        // blank line was written between it and the token below — which is a
-        // paragraph break somebody typed, and comes back.
-        if entry.trivia.is_empty_run() {
-            if entry.trivia.detached() {
-                entry.trivia = Trivia::Blank { at: entry.trivia.at() };
-            } else {
-                entry.claimed = true;
-            }
-        }
-        Some(taken)
+        None
     }
 
-    /// Whether the run above the token at `at` is a comment about the file
-    /// rather than about that token: ordinary comments, separated from it by a
-    /// blank line, and no `///`.
+    /// The run above the token at `at`, marked as put back, when it is a
+    /// comment about the file rather than about that token: ordinary comments,
+    /// separated from it by a blank line, and no `///`.
     ///
     /// The blank line is what a person means by it. The absence of `///` is
     /// what the printer needs: a run that documents something is printed with
@@ -1180,13 +1161,16 @@ impl Comments {
     /// another import's comments printed under it — and comments print before
     /// doc lines, so the next read of the file would swap the two and `format`
     /// would not be a fixed point.
-    fn is_file_header(&self, at: u32) -> bool {
-        self.at(at).iter().any(|e| match &e.trivia {
-            Trivia::Run { at: a, comments, detached, .. } => {
-                *a == at && !comments.is_empty() && *detached && !e.trivia.documented()
-            }
-            Trivia::Blank { .. } => false,
-        })
+    fn take_file_header(&mut self, at: u32) -> Option<Trivia> {
+        let i = self.first_at(at);
+        let e = self.entries.get_mut(i).filter(|e| e.trivia.at() == at)?;
+        let header = matches!(&e.trivia, Trivia::Run { comments, detached, .. }
+            if !comments.is_empty() && *detached && !e.trivia.documented());
+        if !header {
+            return None;
+        }
+        e.claimed = true;
+        Some(e.trivia.clone())
     }
 
     /// The trivia written above the token at `at`, marked as put back.
@@ -1629,13 +1613,11 @@ impl<'t> Build<'t> {
         let mut header = false;
         if let Some(first) = imports.first() {
             let at = first.span().start;
-            if self.tv.is_file_header(at) {
-                if let Some(t) = self.tv.take(at) {
-                    let d = self.trivia_doc(std::slice::from_ref(&t));
-                    parts.push(d);
-                    parts.push(Doc::HardLine);
-                    header = true;
-                }
+            if let Some(t) = self.tv.take_file_header(at) {
+                let d = self.trivia_doc(std::slice::from_ref(&t));
+                parts.push(d);
+                parts.push(Doc::HardLine);
+                header = true;
             }
         }
 
@@ -2645,7 +2627,7 @@ impl<'t> Build<'t> {
 /// its own to spill into — all on one line, **hugging** so that the head of the
 /// call stays on its line while that argument breaks, or one argument to a
 /// line — and the plain bracketed form otherwise.
-fn args_doc<'s>(mut ds: Vec<Doc<'s>>, hug: bool) -> Doc<'s> {
+fn args_doc<'s>(ds: Vec<Doc<'s>>, hug: bool) -> Doc<'s> {
     // The earlier arguments have to fit on the head line for a hug to mean
     // anything, so one that breaks rules it out. An empty list has no last
     // argument to hug either.
@@ -2655,19 +2637,18 @@ fn args_doc<'s>(mut ds: Vec<Doc<'s>>, hug: bool) -> Doc<'s> {
     // the plain form first and returning it meant every call in the program
     // paid for a copy of every one of its arguments' documents, and a
     // document is the whole subtree.
-    let hugs = hug && ds.split_last().is_some_and(|(_, earlier)| !earlier.iter().any(breaks));
-    if !hugs {
-        return bracketed("(", ds, ")");
-    }
-    let plain = bracketed("(", ds.clone(), ")");
-    let Some(last) = ds.pop() else { return plain };
+    let (last, earlier) = match ds.split_last() {
+        Some((last, earlier)) if hug && !earlier.iter().any(breaks) => (last, earlier),
+        _ => return bracketed("(", ds, ")"),
+    };
     let mut v = vec![text("(")];
-    for d in ds {
-        v.push(d);
+    for d in earlier {
+        v.push(d.clone());
         v.push(text(", "));
     }
-    v.push(force(last));
+    v.push(force(last.clone()));
     v.push(text(")"));
+    let plain = bracketed("(", ds, ")");
     Doc::Alt { flat: Box::new(plain.clone()), next: Box::new(cat(v)), rest: vec![plain] }
 }
 
