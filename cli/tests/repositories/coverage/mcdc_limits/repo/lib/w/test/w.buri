@@ -1,0 +1,12 @@
+from "core/testing/assert" import * as assert;
+from "//lib/w" import * as w;
+
+test "wide" {
+    assert.equal(w.wide(true, false), true);
+    assert.equal(w.wide(false, false), false);
+}
+
+test "a tail call inside an if" {
+    assert.equal(w.tailIf(false, 2), true);
+    assert.equal(w.tailIf(true, 0), true);
+}

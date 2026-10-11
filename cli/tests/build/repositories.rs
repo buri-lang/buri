@@ -236,7 +236,7 @@ fn test_suites() {
 /// backends, summed across suites, and never served from the cache.
 #[test]
 fn test_coverage() {
-    run_corpus(&tests_dir().join("repositories/coverage"), "coverage", 5);
+    run_corpus(&tests_dir().join("repositories/coverage"), "coverage", 7);
 }
 
 /// `BURI_COVERAGE_STD=1` counts the standard library too, for its own MC/DC
@@ -260,6 +260,23 @@ fn coverage_counts_the_standard_library_only_when_asked() {
     assert!(!all.stdout.contains("core/testing/"), "a platform module counted:\n{}", indent(&all.stdout));
     let lcov = std::fs::read_to_string(scratch.path(".buri/coverage/lcov.info")).unwrap();
     assert!(lcov.contains("SF:core/order\n"), "{lcov}");
+}
+
+/// A report that can't be written says why, after the verdicts it leaves as
+/// they were.
+#[test]
+fn coverage_says_when_it_cannot_write_the_report() {
+    let scratch = Scratch::copy_of("coverage-unwritable", &tests_dir().join("repositories/coverage/partly_covered/repo"));
+    std::fs::create_dir_all(scratch.path(".buri/coverage/lcov.info")).unwrap();
+    let ran = scratch.run(&["test", "//lib/shapes", "--coverage"]);
+    assert_eq!(ran.code, 0, "{}", indent(&ran.all()));
+    assert!(ran.stdout.contains("3 passed, 0 failed"), "{}", indent(&ran.stdout));
+    assert!(
+        ran.stdout.contains("coverage: cannot write .buri/coverage/lcov.info: "),
+        "no word of the report it couldn't write:\n{}",
+        indent(&ran.stdout)
+    );
+    assert!(!ran.stdout.contains("branch coverage"), "a summary of a report nobody has:\n{}", indent(&ran.stdout));
 }
 
 /// The concurrency-and-servers surface, driven the way a person drives it: a
