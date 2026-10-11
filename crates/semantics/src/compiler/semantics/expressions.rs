@@ -2065,9 +2065,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn derivable_trait_declaring(&self, name: &str) -> Option<String> {
         crate::compiler::semantics::resolve::DERIVABLE.iter().find_map(|t| {
             let info = self.c.tables.traits.iter().find(|info| info.name == **t)?;
-            if info.method_index(name).is_none() {
-                return None;
-            }
+            info.method_index(name)?;
             Some(info.name.clone())
         })
     }
