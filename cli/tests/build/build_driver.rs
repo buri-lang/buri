@@ -297,6 +297,24 @@ fn a_test_runner_claim_a_crashed_run_left_is_taken() {
     assert!(lock.exists(), "a live run's claim was taken");
 }
 
+/// A tag's `doc` is how a policy says why, so a tag without one breaks the
+/// policy with no reason under it.
+#[test]
+fn a_tag_without_a_doc_gives_no_reason() {
+    for (case, target, code) in [
+        ("platform_violation", "//cmd/web", "[platform-violation]"),
+        ("tag_violation", "//cmd/web", "[tag-conflict]"),
+    ] {
+        let scratch = Scratch::copy_of("build-driver-tags", &tests_dir().join(format!("repositories/tags/{case}/repo")));
+        let repo = scratch.read("REPO.buri");
+        let undocumented: String =
+            repo.lines().filter(|l| !l.trim_start().starts_with("doc:")).map(|l| format!("{l}\n")).collect();
+        assert_ne!(repo, undocumented, "{case} documents no tag");
+        scratch.write("REPO.buri", &undocumented);
+        scratch.run(&["lint", target]).exits(1).says(code).silent_about("\": ");
+    }
+}
+
 /// A binary at the repository's root is named after the root's directory.
 #[test]
 fn a_binary_at_the_root_is_named_after_its_directory() {
