@@ -82,9 +82,9 @@ error: `oneOf` has no Buri type [json-untyped-keyword]
    = a `oneOf` is typed only when every branch is an object with one required property whose `const` string names it
    = fix: describe the value with a construct that has a type
 error: `$ref` has no Buri type [json-untyped-keyword]
-  --> lib/edges/edges.schema.json:67:51
+  --> lib/edges/edges.schema.json:69:51
    |
-67 |     "$defs": { "x": { "$ref": "#/$defs/y" }, "y": { "$ref": "#/$defs/x" },
+69 |     "$defs": { "x": { "$ref": "#/$defs/y" }, "y": { "$ref": "#/$defs/x" },
    |                                                   ^^^^^^^^^^^^^^^^^^^^^^^
    |
    = the references loop without reaching an object

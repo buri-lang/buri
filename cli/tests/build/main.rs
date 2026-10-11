@@ -70,6 +70,7 @@ mod build_command;
 mod build_driver;
 mod checking;
 mod build_rules;
+mod build_files;
 mod closed_stdout;
 mod custom_platforms;
 mod diagnostics_paths;

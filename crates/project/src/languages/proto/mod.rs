@@ -557,8 +557,8 @@ mod tests {
             assert_eq!(format(&once).as_deref(), Some(once.as_str()), "{} is not a fixed point", path.display());
             assert_eq!(meaning(&once), meaning(&text), "{} changed meaning", path.display());
         }
-        // Only the fixtures broken on purpose: a message or a string that
-        // never closes.
-        assert!(refused.iter().all(|p| p.ends_with("/broken.proto")), "{refused:?}");
+        // Only the fixtures broken on purpose, each named `broken…`: a
+        // message, a comment or a string that never closes.
+        assert!(refused.iter().all(|p| p.rsplit('/').next().is_some_and(|n| n.starts_with("broken"))), "{refused:?}");
     }
 }

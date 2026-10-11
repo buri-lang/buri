@@ -571,12 +571,11 @@ mod tests {
             assert_eq!(comments(&once), comments(&text), "{} lost a comment", path.display());
         }
         // The repository-case manifests are text format files too. Only the
-        // fixtures broken on purpose are refused: a string that never closes,
-        // and a list missing its comma.
-        assert!(
-            refused.iter().all(|p| p.ends_with("/broken.txtpb") || p.ends_with("/syntax.txtpb")),
-            "{refused:?}"
-        );
+        // fixtures broken on purpose are refused, each named `broken…` but
+        // one: a string that never closes, a list missing its comma, a name
+        // or a value that is a stray symbol.
+        let name = |p: &String| p.rsplit('/').next().unwrap_or_default().to_string();
+        assert!(refused.iter().all(|p| name(p).starts_with("broken") || p.ends_with("/syntax.txtpb")), "{refused:?}");
     }
 
     #[test]

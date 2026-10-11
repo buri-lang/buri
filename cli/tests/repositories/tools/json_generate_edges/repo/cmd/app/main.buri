@@ -19,7 +19,10 @@ export fn main(host: NodeHost): Result<(), Str> {
         )
         .mapErr(failed)?;
     let _ = io
-        .println(ctx, "${e.empty} ${e.first} ${e.second} ${e.closed} ${e.control}")
+        .println(
+            ctx,
+            "${e.empty} ${e.first} ${e.second} ${e.closed} ${e.control} ${e.below} ${e.under}",
+        )
         .mapErr(failed)?;
     let _ = io.println(ctx, "${e.nothing == ()} ${e.units.isSome()}").mapErr(failed)?;
     io.println(ctx, "${e.shape} ${e.shapes}").mapErr(failed)

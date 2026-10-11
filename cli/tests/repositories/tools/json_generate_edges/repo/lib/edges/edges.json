@@ -19,6 +19,8 @@
     "second": {},
     "closed": { "a": "a" },
     "control": "a\u0001b",
+    "below": -5,
+    "under": -1.5,
     "shape": { "kind": "first", "n": 7 },
     "shapes": [{ "kind": "bare" }]
 }
