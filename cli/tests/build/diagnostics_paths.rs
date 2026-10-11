@@ -198,3 +198,14 @@ fn a_damaged_build_record_is_passed_over() {
     scratch.run(&["build", "//cmd/app"]).ok().says("cached");
     scratch.run(&["run", "//cmd/app"]).ok().says("native");
 }
+
+/// The formatter keeps a literal's printable characters, wide ones too, and
+/// writes an invisible one as an escape.
+#[test]
+fn a_literal_s_invisible_character_is_written_as_an_escape() {
+    let scratch = Scratch::repo("diagnostics-literal-escape");
+    scratch.write("lib/a/BUILD.buri", "library {}\n");
+    scratch.write("lib/a/lib.buri", "export fn f(): Str {\n    \"café \u{200b}\"\n}\n");
+    scratch.run(&["format", "lib/a/lib.buri"]).ok();
+    assert_eq!(scratch.read("lib/a/lib.buri"), "export fn f(): Str {\n    \"café \\u{200b}\"\n}\n");
+}
