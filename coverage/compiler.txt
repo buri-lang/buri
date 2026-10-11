@@ -8,12 +8,12 @@ cli/documentation                  256/769   33.29%         1557/3475   44.81%
 cli/format                           85/98   86.73%           287/293   97.95%
 cli/language_server              1150/1472   78.12%         6774/7177   94.38%
 cli/lint                           586/708   82.77%         2637/2723   96.84%
-cli/other                          489/594   82.32%         2500/2768   90.32%
+cli/other                          489/594   82.32%         2503/2771   90.33%
 cli/run                              38/56   67.86%           218/263   82.89%
 cli/serve+watch                      45/80   56.25%           279/343   81.34%
 cli/test                           437/580   75.34%         2371/2668   88.87%
 crates/backend                       80/88   90.91%           323/366   88.25%
-crates/diagnostics                 203/228   89.04%         1336/1456   91.76%
+crates/diagnostics                 205/230   89.13%         1345/1457   92.31%
 crates/docs                        197/304   64.80%           634/889   71.32%
 crates/hash                          18/18  100.00%           241/294   81.97%
 crates/js                        1022/1062   96.23%         4816/5042   95.52%
@@ -24,7 +24,7 @@ crates/semantics                 1972/2018   97.72%       10688/10996   97.20%
 crates/stdlib                        12/12  100.00%           108/120   90.00%
 crates/stencil                   1235/1298   95.15%         7750/8169   94.87%
 crates/syntax                    1209/1234   97.97%         5877/6052   97.11%
-total                          14501/16362   88.63%       80622/86553   93.15%
+total                          14503/16364   88.63%       80634/86557   93.16%
 
 cli/src                           branches                      lines         
 build                            1612/1763   91.44%         8167/8613   94.82%
@@ -48,7 +48,7 @@ commands/watch                       29/44   65.91%           184/217   84.79%
 compiler                           240/290   82.76%         1245/1371   90.81%
 documentation                      256/769   33.29%         1557/3475   44.81%
 language_server                  1150/1472   78.12%         6774/7177   94.38%
-main                                  7/12   58.33%             48/55   87.27%
+main                                  7/12   58.33%             51/58   87.93%
 
 The 30 files with the most uncovered branches:
 
@@ -81,5 +81,5 @@ uncovered          branches           file
        18           602/620   97.10%  crates/middle/src/compiler/middle/rc.rs
        16             54/70   77.14%  cli/src/language_server/build_files.rs
        15             29/44   65.91%  cli/src/commands/watch.rs
-       15           101/116   87.07%  crates/diagnostics/src/diagnostics.rs
+       15           103/118   87.29%  crates/diagnostics/src/diagnostics.rs
        14           288/302   95.36%  cli/src/build/workspace.rs
