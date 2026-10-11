@@ -1739,7 +1739,11 @@ impl<'a> Jit<'a> {
     /// branch, and the twin is found by index rather than by building its
     /// name.
     pub(crate) fn arm_key<'k>(&mut self, base: impl Into<KeyArg<'k>>, fall: &str) -> KeyArg<'k> {
-        let base = base.into();
+        self.arm_key_of(base.into(), fall)
+    }
+
+    /// [`Jit::arm_key`], once for every spelling of a key.
+    fn arm_key_of<'k>(&mut self, base: KeyArg<'k>, fall: &str) -> KeyArg<'k> {
         let Some(at) = self.index_of(base) else {
             // Not a stencil itself, so it has no twin to find by index.
             let (KeyArg::Literal(name) | KeyArg::Spelled(name)) = base else { return base };
