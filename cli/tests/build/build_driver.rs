@@ -163,12 +163,27 @@ fn a_failing_link_reports_the_linker_s_output() {
 }
 
 /// `BURI_LINKER` picks the linker the driver runs, `cc` being the driver's own
-/// default, and each links a program that runs.
+/// default, and each links a program that runs. A linker the machine doesn't
+/// have fails the link by name, with the way back to the driver's own.
 #[test]
 fn buri_linker_picks_the_linker() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    let lld = if cfg!(target_os = "macos") { "ld64.lld" } else { "ld.lld" };
+    let has_lld = std::process::Command::new("sh")
+        .args(["-c", &format!("command -v {lld}")])
+        .output()
+        .unwrap()
+        .status
+        .success();
     for linker in ["cc", "system", "lld", "anything else"] {
-        scratch.run_with_env(&["build", "//cmd/app"], &[("BURI_LINKER", linker)]).ok();
+        let run = scratch.run_with_env(&["build", "//cmd/app"], &[("BURI_LINKER", linker)]);
+        if linker == "lld" && !has_lld {
+            run.exits(1)
+                .says("error: the link failed (cc+lld)")
+                .says("fix: if the C compiler does not understand the chosen linker, set `BURI_LINKER=cc`");
+            continue;
+        }
+        run.ok();
         let variant = only_entry(&scratch.path(".buri/out/native"));
         let out = std::process::Command::new(scratch.path(&format!(".buri/out/native/{variant}/cmd/app/app")))
             .output()
