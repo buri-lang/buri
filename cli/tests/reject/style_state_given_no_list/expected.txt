@@ -1,0 +1,9 @@
+error: `On` holds 2 values, but 1 was given [payload-count]
+  --> cmd/style_state_given_no_list/main.buri:10:18
+   |
+10 |   let s: Style = .On(State.Hover);
+   |                  ^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: `On` is missing its second value: On(State, [Style])

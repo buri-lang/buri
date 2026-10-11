@@ -1,0 +1,9 @@
+error: `When` holds 3 values, but none were given [payload-count]
+  --> cmd/style_when_given_nothing/main.buri:10:18
+   |
+10 |   let s: Style = .When();
+   |                  ^^^^^
+   |
+   = expected: 3
+   = actual: 0
+   = fix: pass `When` the following values: When(Prop<Bool>, [Style], [Style])

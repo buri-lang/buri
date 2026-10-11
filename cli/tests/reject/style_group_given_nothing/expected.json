@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Group` holds 1 value, but none were given","code":"payload-count","location":{"file":"cmd/style_group_given_nothing/main.buri","line":13,"column":18,"endLine":13,"endColumn":24,"text":"  let s: Style = .Group();"},"expected":"1","actual":"0","fix":"`Group` is missing its first value: Group([Style])","notes":[],"related":[]}

@@ -1,0 +1,31 @@
+// What the stylesheet makes of names it can't hold and values it can't use.
+
+from "platform/effect" import { Allocator, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import * as style;
+from "ui/style" import { Color, Edge, Style };
+from "web" import { WebHost };
+
+let accent: Color = .Rgb(29, 78, 216);
+
+let padded: Style = .Padding(.Px(8));
+
+fn card(): [Style] {
+    [.Padding(.Px(8)), .Background(accent)]
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+    let styles: [Style] = [
+        padded,
+        .FontFamily(.Named("Inter Tight")),
+        .FontFamily(.Named("")),
+        .FontFamily(.Named("Comic; Sans")),
+        .Bleed(Edge.Top, .Rem(-1.0)),
+        .Bleed(Edge.Bottom, .Rem(2.0)),
+        .Foreground(style.token("card-lib", "surface")),
+        .BorderColor(style.token("cardlib", "edge-line")),
+        .CaretColor(style.token("", "ink")),
+    ];
+    ui.mount(ctx, ui.stack({ styles: card(), children: [ui.stack({ styles: styles, children: [] })] }), [])
+}

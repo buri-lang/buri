@@ -1,0 +1,9 @@
+error: `Group` holds 1 value, but none were given [payload-count]
+  --> cmd/style_group_given_nothing/main.buri:13:18
+   |
+13 |   let s: Style = .Group();
+   |                  ^^^^^^
+   |
+   = expected: 1
+   = actual: 0
+   = fix: `Group` is missing its first value: Group([Style])

@@ -1,0 +1,12 @@
+// EXPECT: expected `[Style]`, found `Int`
+// PLATFORM: WEB
+from "platform/effect" import { Allocator, Ui, Watch };
+from "web" import { WebHost };
+from "ui/node" import * as ui;
+from "ui/style" import { Style };
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let s: Style = .Group(5);
+  ui.mount(ctx, ui.stack({ styles: [s], children: [] }), [])
+}

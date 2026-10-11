@@ -1,0 +1,25 @@
+# What the stylesheet makes of names it can't hold and values it can't use.
+#
+#   * A font family with a plain name is a rule. An empty name, or one with a
+#     `;` in it, would need escaping, so it stays an inline style.
+#   * A bleed is outwards, so a negative one bleeds nothing.
+#   * A token whose namespace or name isn't plain letters and digits gets a
+#     digest for a class name, and still reads its custom property.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "the stylesheet holds only names it built itself, bleeds only outwards, and digests token names a class can't spell"
+
+run {
+  args: ["build", "//cmd/page"]
+  exit: 0
+}
+
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: "{font-family:\"Inter Tight\",ui-sans-serif,sans-serif}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  absent: "\"Comic; Sans\",ui-sans-serif" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: ".bleed-top-rn1{margin-block-start:0px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: ".bleed-bottom-r2{margin-block-end:-2rem}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: "{color:var(--card-lib-surface)}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  absent: "t_card-lib" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: "{border-color:var(--cardlib-edge-line)}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  absent: "t_cardlib_edge-line" }
