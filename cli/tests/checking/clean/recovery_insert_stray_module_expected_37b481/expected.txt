@@ -1,0 +1,9 @@
+error: expected `:`, found `,` [unexpected-token]
+ --> main.buri:1:10
+  |
+1 | let LIMIT, : Int = 1; // beside the binding
+  |          ^
+  |
+  = expected: `:`
+  = actual: `,`
+  = fix: write `:` here

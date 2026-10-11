@@ -1,0 +1,28 @@
+error: expected an expression, found `;` [unexpected-token]
+ --> main.buri:2:17
+  |
+2 |   let unit = {  ;
+  |                 ^
+  |
+  = expected: an expression
+  = actual: `;`
+  = fix: write a value here
+error: a statement ends with `;` [missing-semicolon]
+ --> main.buri:8:2
+  |
+8 | }
+  |  ^
+  |
+  = fix: write `;` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:9:1
+  |
+9 | 
+  | ^
+  |
+ --> main.buri:1:18
+  |
+1 | fn f(n: Int): () {
+  |                  ^ opened here
+  |
+  = fix: write `}` here

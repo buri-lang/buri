@@ -1,0 +1,8 @@
+fn f(n: Int): () {
+  extra let unit = {  };
+  match (n) {
+    1 => {
+    },
+    _ => unit,
+  }
+}

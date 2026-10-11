@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+ --> main.buri:1:18
+  |
+1 | let LIMIT: Int = ? 1; // beside the binding
+  |                  ^
+  |
+  = expected: an expression
+  = actual: `?`
+  = fix: write a value here

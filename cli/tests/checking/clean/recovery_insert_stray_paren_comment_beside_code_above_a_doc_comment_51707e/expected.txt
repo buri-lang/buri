@@ -1,0 +1,9 @@
+error: expected a type, found `@` [unexpected-token]
+ --> main.buri:3:13
+  |
+3 | fn twice(n: @ Int): Int { n * 2 }
+  |             ^
+  |
+  = expected: a type
+  = actual: `@`
+  = fix: name a type here, as in `Int` or `[Str]`

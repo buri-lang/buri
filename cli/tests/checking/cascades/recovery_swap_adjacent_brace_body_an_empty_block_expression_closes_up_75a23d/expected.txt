@@ -1,0 +1,16 @@
+error: expected a pattern, found `=` [unexpected-token]
+ --> main.buri:2:7
+  |
+2 |   let = unit {  };
+  |       ^
+  |
+  = expected: a pattern
+  = actual: `=`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `unit` in scope [unknown-name]
+ --> main.buri:6:10
+  |
+6 |     _ => unit,
+  |          ^^^^
+  |
+  = fix: declare `unit`, or import it — a name is in scope only from this module's own declarations and its imports

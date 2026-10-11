@@ -1,0 +1,8 @@
+fn f(n: Int): () {
+  unit let = {  };
+  match (n) {
+    1 => {
+    },
+    _ => unit,
+  }
+}

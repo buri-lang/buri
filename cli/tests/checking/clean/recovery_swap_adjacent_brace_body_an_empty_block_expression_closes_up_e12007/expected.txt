@@ -1,0 +1,9 @@
+error: expected `let`, found `unit` [unexpected-token]
+ --> main.buri:2:3
+  |
+2 |   unit let = {  };
+  |   ^^^^
+  |
+  = expected: `let`
+  = actual: `unit`
+  = fix: write `let` first: `let unit`

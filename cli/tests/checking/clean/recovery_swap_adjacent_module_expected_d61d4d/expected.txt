@@ -1,0 +1,9 @@
+error: expected `fn`, found `twice` [unexpected-token]
+ --> main.buri:4:1
+  |
+4 | twice fn(n: Int): Int {
+  | ^^^^^
+  |
+  = expected: `fn`
+  = actual: `twice`
+  = fix: write `fn` first: `fn twice`
