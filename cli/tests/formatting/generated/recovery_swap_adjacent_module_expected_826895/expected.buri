@@ -1,0 +1,5 @@
+struct Point {
+    x: Int,
+}
+
+Eq derive for Self;

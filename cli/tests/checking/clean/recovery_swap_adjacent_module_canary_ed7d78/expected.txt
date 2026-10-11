@@ -1,9 +1,0 @@
-error: expected `test`, found a string literal [unexpected-token]
-  --> main.buri:11:1
-   |
-11 | "the canary holds" test {
-   | ^^^^^^^^^^^^^^^^^^
-   |
-   = expected: `test`
-   = actual: a string literal
-   = fix: write `test` first: `test "the canary holds"`

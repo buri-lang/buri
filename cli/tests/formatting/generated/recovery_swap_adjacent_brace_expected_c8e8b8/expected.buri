@@ -1,0 +1,10 @@
+// A comment about the file.
+/// Documents the import.
+
+from "core/list" import { }
+
+map;
+
+fn f(): Int {
+    1
+}

@@ -1,0 +1,7 @@
+fn f(n: Int): () {
+    let unit = {};
+    ( matchn) {
+        1 => {},
+        _ => unit,
+    }
+}

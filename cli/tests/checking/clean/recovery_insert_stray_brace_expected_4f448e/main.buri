@@ -1,5 +1,0 @@
-export fn f(): Int {
-    // this line does not survive
-    let x = 1;
-    ? x
-}

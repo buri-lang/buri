@@ -1,0 +1,6 @@
+struct Pair(Int, Int);
+
+/* stranded */
+twice fn(n: Int): Int {
+    n * 2
+}

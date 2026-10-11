@@ -1,0 +1,5 @@
+struct Pair(Int, Int);
+
+Trio struct(Int, Int, Int);
+/// stranded
+/// stranded too

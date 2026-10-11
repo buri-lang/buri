@@ -1,0 +1,7 @@
+error: a `let` declaration ends with `;` [missing-semicolon]
+ --> main.buri:1:19
+  |
+1 | let LIMIT: Int = 1 // beside the binding
+  |                   ^
+  |
+  = fix: write `;` here

@@ -1,7 +1,0 @@
-error: an import declaration ends with `;` [missing-semicolon]
-  --> main.buri:12:77
-   |
-12 | from "platform/effect/testing" import { elapse, headless, observer, render }
-   |                                                                             ^
-   |
-   = fix: write `;` here

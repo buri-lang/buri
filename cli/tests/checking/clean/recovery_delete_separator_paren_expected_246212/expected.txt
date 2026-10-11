@@ -1,0 +1,7 @@
+error: a tuple-struct field ends with `,` [missing-comma]
+ --> main.buri:1:16
+  |
+1 | struct Pair(Int Int);
+  |                ^
+  |
+  = fix: write `,` here

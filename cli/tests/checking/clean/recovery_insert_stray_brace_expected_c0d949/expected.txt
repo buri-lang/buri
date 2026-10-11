@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:2:9
+  |
+2 |     (-n), .abs()
+  |         ^
+  |
+ --> main.buri:1:27
+  |
+1 | fn magnitude(n: Int): Int {
+  |                           ^ opened here
+  |
+  = fix: write `}` here

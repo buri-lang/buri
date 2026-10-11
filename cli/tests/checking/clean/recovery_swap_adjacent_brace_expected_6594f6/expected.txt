@@ -1,0 +1,21 @@
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:3:15
+  |
+3 |     match (n{ )
+  |               ^
+  |
+ --> main.buri:3:13
+  |
+3 |     match (n{ )
+  |             ^ opened here
+  |
+  = fix: write `}` here
+error: expected `{`, found `1` [unexpected-token]
+ --> main.buri:4:9
+  |
+4 |         1 => {},
+  |         ^
+  |
+  = expected: `{`
+  = actual: `1`
+  = fix: write `{` here

@@ -1,0 +1,12 @@
+error: this tuple is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:1:39
+  |
+1 | fn magnitude(n: Int): Int { (-n.abs() }
+  |                                       ^
+  |
+ --> main.buri:1:29
+  |
+1 | fn magnitude(n: Int): Int { (-n.abs() }
+  |                             ^ opened here
+  |
+  = fix: write `)` here

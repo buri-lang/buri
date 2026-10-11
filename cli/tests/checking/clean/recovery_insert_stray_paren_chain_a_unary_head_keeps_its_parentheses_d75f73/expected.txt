@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+ --> main.buri:1:31
+  |
+1 | fn magnitude(n: Int): Int { (-@ n).abs() }
+  |                               ^
+  |
+  = expected: an expression
+  = actual: `@`
+  = fix: write a value here

@@ -1,0 +1,6 @@
+let LIMIT: Int = 1, ; // beside the binding
+
+/// Documents `twice`.
+fn twice(n: Int): Int {
+    n * 2
+}

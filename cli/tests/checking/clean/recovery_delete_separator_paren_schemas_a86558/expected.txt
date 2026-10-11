@@ -1,7 +1,0 @@
-error: a call argument ends with `,` [missing-comma]
-  --> main.buri:33:47
-   |
-33 |     proto.generate(ctx, FILE, schema.parse(ctx text, FILE).schema, [
-   |                                               ^
-   |
-   = fix: write `,` here

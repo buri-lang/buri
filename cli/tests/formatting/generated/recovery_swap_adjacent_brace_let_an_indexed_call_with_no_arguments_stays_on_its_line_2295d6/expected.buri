@@ -1,0 +1,8 @@
+fn zero(): [Int] { [0}
+
+]
+
+fn first(): Int {
+    let n = zero()[0];
+    n
+}
