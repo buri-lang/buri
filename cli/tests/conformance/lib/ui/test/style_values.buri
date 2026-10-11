@@ -3,10 +3,12 @@
 // a style a node is given becomes classes in the stylesheet.
 
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Ui };
-from "platform/effect/testing" import { headless, render, stylesheet };
+from "platform/effect" import { Scope, Ui, Watch };
+from "platform/effect/testing" import { headless, observer, render, stylesheet };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import * as style;
 from "ui/style" import { Shadow, Style };
 
 /// The variant a style is, as the source spells it: a show of its own.
@@ -329,4 +331,217 @@ test "a style built from a local a node is given is a class in the sheet" {
     let n = 47;
     let _ = render(ctx, ui.stack({ styles: [.Width(.Px(n))], children: [] }));
     assert.isTrue(stylesheet().contains(".w-47{width:47px}"));
+}
+
+/// Reads its style and hands the same value to a node.
+fn label<C>(s: Style): Node<C> {
+    let wide = match (s) {
+        .Width(.Px(n)) => n > 200,
+        _ => false,
+    };
+    ui.stack({
+        styles: [s],
+        children: [
+            ui.text({ content: .Const(if (wide) { "wide" } else { "narrow" }) }),
+        ],
+    })
+}
+
+test "a parameter a match reads and a node is given is the variant it names" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(ctx, label(.Width(.Px(321))));
+    assert.equal(page.text(), "wide");
+    assert.isTrue(page.markup().contains("w-321"));
+    assert.isTrue(stylesheet().contains(".w-321{width:321px}"));
+}
+
+// --- a style a node is handed rather than written ------------------------------------
+
+/// A node given the one style it is handed.
+fn boxed<C>(s: Style): Node<C> {
+    ui.stack({ styles: [s], children: [] })
+}
+
+/// A node given the one style it is handed, read as a value below.
+fn held<C>(s: Style): Node<C> {
+    ui.stack({ styles: [s], children: [] })
+}
+
+/// A node given the styles it is handed.
+fn boxes<C>(styles: [Style]): Node<C> {
+    ui.stack({ styles: styles, children: [] })
+}
+
+/// A node given the style a closure it is handed answers.
+fn applied<C>(f: fn(Int) => Style): Node<C> {
+    ui.stack({ styles: [f(22)], children: [] })
+}
+
+fn eighteen(ctx: Scope): [Style] {
+    [.Width(.Px(18))]
+}
+
+/// A node given the style it is handed, or a fixed one.
+fn either<C>(wide: Bool, s: Style): Node<C> {
+    ui.stack({ styles: [if (wide) { s } else { .Width(.Px(1)) }], children: [] })
+}
+
+test "a style a parameter hands a node is its class" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    assert.equal(render(ctx, boxed(.Padding(.Px(8)))).markup(), "e 0 class:p-8");
+    assert.equal(render(ctx, boxed(.Width(.Px(-3)))).markup(), "e 0 class:w-n3");
+    assert.equal(render(ctx, boxed(.Truncate(0))).markup(), "e 0 class:trunc-0");
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".p-8{padding:8px}"));
+    assert.isTrue(sheet.contains(".w-n3{width:-3px}"));
+}
+
+test "styles a parameter hands a node are their classes, the last per property winning" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    assert.equal(
+        render(
+            ctx,
+            boxes([.Padding(.Px(9)), .Width(.Px(10)), .Padding(.Px(11))]),
+        ).markup(),
+        "e 0 class:p-11 w-10",
+    );
+    assert.equal(render(ctx, boxes([])).markup(), "e 0 ");
+    assert.isTrue(stylesheet().contains(".p-11{padding:11px}"));
+}
+
+test "a condition a parameter hands a node scopes its classes" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    assert.equal(
+        render(ctx, boxed(.On(.Hover, [.Background(.Rgb(200, 0, 0))]))).markup(),
+        "e 0 class:hover_bg-c80000",
+    );
+    assert.equal(
+        render(ctx, boxed(.At(.Medium, [.Width(.Px(12))]))).markup(),
+        "e 0 class:md_w-12",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(".hover_bg-c80000:hover{background-color:rgb(200,0,0)}"),
+    );
+    assert.isTrue(sheet.contains(".md_w-12{width:12px}"));
+}
+
+test "a choice a parameter hands a node swaps its classes" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let wide = signal(ctx, false);
+    let page = render(
+        ctx,
+        boxed(.When(.Cell(wide), [.Width(.Px(13))], [.Width(.Px(14))])),
+    );
+    assert.equal(page.markup(), "e 0 class:w-14");
+    let _ = wide.set(ctx, true);
+    assert.equal(page.markup(), "e 0 class:w-13");
+}
+
+test "a value known only at run time a parameter hands a node is a variable" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let n = signal(ctx, 15);
+    assert.equal(
+        render(ctx, boxed(.Width(.Px(n.get(ctx))))).markup(),
+        "e 0 class:w-var;--buri-w:15px",
+    );
+    assert.isTrue(stylesheet().contains(".w-var{width:var(--buri-w)}"));
+}
+
+test "a style whose class ends in a digest is its class through a parameter" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let grid = render(
+        ctx,
+        boxed(.Layout(.Grid([.Fraction(1), .Fixed(.Px(20))]))),
+    ).markup();
+    let shadow = render(
+        ctx,
+        boxed(
+            .Shadow(Shadow {
+                x: .Px(0),
+                y: .Px(1),
+                blur: .Px(2),
+                spread: .Px(0),
+                color: .Rgb(0, 0, 0),
+            }),
+        ),
+    ).markup();
+    let family = render(ctx, boxed(.FontFamily(.Named("Inter")))).markup();
+    let sheet = stylesheet();
+    assert.isTrue(grid.startsWith("e 0 class:lay-grid-"));
+    assert.isTrue(sheet.contains("{display:grid;grid-template-columns:1fr 20px}"));
+    assert.isTrue(shadow.startsWith("e 0 class:sh-"));
+    assert.isTrue(sheet.contains("{box-shadow:0px 1px 2px 0px rgb(0,0,0)}"));
+    assert.isTrue(family.startsWith("e 0 class:ff-"));
+    assert.isTrue(sheet.contains("{font-family:\"Inter\",ui-sans-serif,sans-serif}"));
+}
+
+test "a token a parameter hands a node is its class" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    assert.equal(
+        render(ctx, boxed(.Background(style.token("cardlib", "surface")))).markup(),
+        "e 0 class:bg-t_cardlib_surface",
+    );
+    let odd = render(
+        ctx,
+        boxed(.Background(style.token("card-lib", "surface"))),
+    ).markup();
+    assert.isTrue(odd.startsWith("e 0 class:bg-t_"));
+    assert.isTrue(stylesheet().contains("{background-color:var(--card-lib-surface)}"));
+}
+
+test "a style a branch hands a node is its class" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    assert.equal(render(ctx, either(true, .Width(.Px(16)))).markup(), "e 0 class:w-16");
+    assert.equal(render(ctx, either(false, .Width(.Px(17)))).markup(), "e 0 class:w-1");
+}
+
+test "a closure built elsewhere is what it answers" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let build = eighteen;
+    assert.equal(
+        render(ctx, ui.stack({ styles: [.Computed(build)], children: [] })).markup(),
+        "e 0 class:w-18",
+    );
+    assert.equal(
+        render(ctx, boxed(.Computed(fn(_scope) => [.Width(.Px(19))]))).markup(),
+        "e 0 class:w-19",
+    );
+}
+
+test "a style the compiler cannot follow to a node is a variable" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    assert.equal(
+        render(ctx, applied(fn(n) => .Width(.Px(n)))).markup(),
+        "e 0 class:w-var;--buri-w:22px",
+    );
+    let f = held;
+    assert.equal(render(ctx, held(.Width(.Px(23)))).markup(), "e 0 class:w-23");
+    assert.equal(
+        render(ctx, f(.Width(.Px(21)))).markup(),
+        "e 0 class:w-var;--buri-w:21px",
+    );
 }

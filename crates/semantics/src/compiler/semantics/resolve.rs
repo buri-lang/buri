@@ -161,6 +161,12 @@ pub struct Checked {
     /// itself (`semantics::styles`), so merging is a dedupe and never a
     /// renumbering — which is what keeps compilation local.
     pub styles: Vec<crate::compiler::semantics::styles::StyleRule>,
+    /// The classes each style left standing as a value stands for, by where
+    /// it was written: what the link step counts in its place.
+    pub style_sources: crate::compiler::semantics::styles::Sources,
+    /// `ui/style`'s `classify` and `classifyStyle`, when this compilation
+    /// loaded it: a build that is not a test's tells them not to check.
+    pub classify_fns: Option<(FnId, FnId)>,
     /// `ui/style`'s `Style`, when this compilation loaded it. The link step
     /// needs it to tell which of the rules above a program actually reaches.
     pub style_con: Option<TyConId>,
@@ -644,10 +650,11 @@ impl<'a> Checker<'a> {
             self.diags,
             &walked,
         );
-        let styles = match settled {
+        let (styles, style_sources) = match settled {
             Some(base) => found.after(&base.styled, &mut self.bodies, &mut self.const_values),
-            None => found.const_rules.into_iter().chain(found.body_rules).collect(),
+            None => (found.const_rules.into_iter().chain(found.body_rules).collect(), found.sources),
         };
+        let classify_fns = crate::compiler::semantics::styles::classifiers(self.loaded, &self.scopes);
         // `ui/theme`'s one opaque type, looked up the way `styles::run` looks
         // up `Style`: by module path in the loaded set, then by name in that
         // module's own scope. `None` for every compilation that did not load
@@ -667,6 +674,8 @@ impl<'a> Checker<'a> {
             entries: self.entries,
             tests: self.tests,
             styles,
+            style_sources,
+            classify_fns,
             style_con,
             theme_con,
             node_con,

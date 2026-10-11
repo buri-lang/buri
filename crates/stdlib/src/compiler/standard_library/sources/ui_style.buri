@@ -56,7 +56,9 @@
 //! one. **The variant order is load-bearing for that reason and for one
 //! more:** the JavaScript runtime reads a `Style` by its tag.
 
-from "platform/effect" import { Scope };
+from "core/alloc" import * as alloc;
+from "core/str" import * as str;
+from "platform/effect" import { Allocator, Scope };
 from "ui/prop" import { Prop };
 
 /// The pairs a static style was extracted into: a conflict slot, and the name
@@ -790,4 +792,730 @@ export struct Shadow {
     export spread: Length,
     /// What colour it is.
     export color: Color,
+}
+
+// ---------------------------------------------------------------------------
+// Classes at run time
+// ---------------------------------------------------------------------------
+
+/// What a style, or a list of them, comes to here.
+enum Found {
+    /// Its classes, the last per slot winning, each one the stylesheet holds.
+    Classes([(Int, Str)]),
+    /// A name the stylesheet holds no class for.
+    Missing(Str),
+    /// Not settled yet: a `When`, a `Computed`, or classes already.
+    Dynamic,
+}
+
+/// `styles` as the stylesheet's classes for them.
+///
+/// The compiler wraps a node's styles in this where the node is handed a
+/// parameter, a field or a result rather than a literal, so that every other
+/// reader of the value sees the variant the source wrote. It names each class
+/// the way the compiler does, and `known` pairs every name a value reaching
+/// here can have with the class the sheet holds for it. A name is the class
+/// itself, except where the class ends in a digest: then the name holds the
+/// text that was digested.
+///
+/// A list whose names are not all known keeps each part that is, and the rest
+/// stays a value the runtime writes inline. `strict` says the compiler saw
+/// every value that can reach here, which `unextracted` checks in a test build.
+fn classify(styles: [Style], known: [(Str, Str)], strict: Bool): [Style] {
+    classifyList(alloc.generalPurpose(), styles, known, strict, -1, -1)
+}
+
+/// `classify` for one `Style`.
+fn classifyStyle(style: Style, known: [(Str, Str)], strict: Bool): Style {
+    classifyOne(alloc.generalPurpose(), style, known, strict, -1, -1)
+}
+
+/// Stops a test build whose compiler left a style it saw out of the sheet.
+fn unextracted(strict: Bool, name: Str): ();
+
+fn classifyList<C: Allocator>(
+    ctx: C,
+    styles: [Style],
+    known: [(Str, Str)],
+    strict: Bool,
+    state: Int,
+    screen: Int,
+): [Style] {
+    match (found(ctx, styles, known, state, screen)) {
+        .Classes(pairs) => {
+            match (pairs.isEmpty()) {
+                true => [],
+                false => [.Extracted(Classes(pairs))],
+            }
+        },
+        .Missing(name) => {
+            let _ = unextracted(strict, name);
+            styles.mapCtx(ctx, fn(c, s) => {
+                classifyOne(c, s, known, strict, state, screen)
+            })
+        },
+        .Dynamic => {
+            styles.mapCtx(ctx, fn(c, s) => {
+                classifyOne(c, s, known, strict, state, screen)
+            })
+        },
+    }
+}
+
+fn classifyOne<C: Allocator>(
+    ctx: C,
+    style: Style,
+    known: [(Str, Str)],
+    strict: Bool,
+    state: Int,
+    screen: Int,
+): Style {
+    match (found(ctx, [style], known, state, screen)) {
+        .Classes(pairs) => .Extracted(Classes(pairs)),
+        .Missing(name) => {
+            let _ = unextracted(strict, name);
+            within(ctx, style, known, strict, state, screen)
+        },
+        .Dynamic => within(ctx, style, known, strict, state, screen),
+    }
+}
+
+/// A style that is not classes whole, with each part that is made classes. A
+/// condition goes into the classes of what it holds, as the compiler puts it.
+fn within<C: Allocator>(
+    ctx: C,
+    style: Style,
+    known: [(Str, Str)],
+    strict: Bool,
+    state: Int,
+    screen: Int,
+): Style {
+    match (style) {
+        .Group(items) => .Group(classifyList(ctx, items, known, strict, state, screen)),
+        .On(on, items) => {
+            .Group(classifyList(ctx, items, known, strict, stateIndex(on), screen))
+        },
+        .At(at, items) => {
+            .Group(classifyList(ctx, items, known, strict, state, screenIndex(at)))
+        },
+        .When(condition, then, otherwise) => {
+            .When(
+                condition,
+                classifyList(ctx, then, known, strict, state, screen),
+                classifyList(ctx, otherwise, known, strict, state, screen),
+            )
+        },
+        .Computed(build) => {
+            .Computed(fn(scope) => classify(build(scope), known, strict))
+        },
+        other => other,
+    }
+}
+
+fn found<C: Allocator>(
+    ctx: C,
+    styles: [Style],
+    known: [(Str, Str)],
+    state: Int,
+    screen: Int,
+): Found {
+    match (atomsIn(ctx, styles, state, screen, .Some([]))) {
+        .None => .Dynamic,
+        .Some(atoms) => {
+            named(
+                ctx,
+                atoms.foldCtx(ctx, fn(c, out, a) => place(c, out, a), []),
+                known,
+                0,
+                [],
+            )
+        },
+    }
+}
+
+/// Each atom's class, or the first name the stylesheet has none for.
+fn named<C: Allocator>(
+    ctx: C,
+    atoms: [(Int, Str)],
+    known: [(Str, Str)],
+    at: Int,
+    acc: [(Int, Str)],
+): Found {
+    match (atoms.get(at)) {
+        .None => .Classes(acc),
+        .Some(atom) => {
+            match (known.find(fn(entry) => entry.0 == atom.1)) {
+                .None => .Missing(atom.1),
+                .Some(entry) => {
+                    named(ctx, atoms, known, at + 1, acc.push(ctx, (atom.0, entry.1)))
+                },
+            }
+        },
+    }
+}
+
+/// The last atom per slot, in the slot's first position, as the compiler
+/// resolves a conflict.
+fn place<C: Allocator>(ctx: C, out: [(Int, Str)], atom: (Int, Str)): [(Int, Str)] {
+    match (out.findIndex(fn(o) => o.0 == atom.0)) {
+        .Some(i) => out.replaceAt(ctx, i, atom),
+        .None => out.push(ctx, atom),
+    }
+}
+
+fn atomsIn<C: Allocator>(
+    ctx: C,
+    styles: [Style],
+    state: Int,
+    screen: Int,
+    acc: Option<[(Int, Str)]>,
+): Option<[(Int, Str)]> {
+    styles.foldCtx(
+        ctx,
+        fn(c, sofar, style) => {
+            sofar.andThenCtx(c, fn(inner, atoms) => {
+                atomsOf(inner, style, state, screen, atoms)
+            })
+        },
+        acc,
+    )
+}
+
+/// The `(slot, name)` atoms of one style under a condition, or `.None` for
+/// one that is not settled.
+fn atomsOf<C: Allocator>(
+    ctx: C,
+    style: Style,
+    state: Int,
+    screen: Int,
+    acc: [(Int, Str)],
+): Option<[(Int, Str)]> {
+    match (style) {
+        .Group(items) => atomsIn(ctx, items, state, screen, .Some(acc)),
+        .On(on, items) => atomsIn(ctx, items, stateIndex(on), screen, .Some(acc)),
+        .At(at, items) => atomsIn(ctx, items, state, screenIndex(at), .Some(acc)),
+        .When(_, _, _) => .None,
+        .Computed(_) => .None,
+        .Extracted(_) => .None,
+        property => {
+            let (variant, sub, abbreviation, key) = declared(ctx, property);
+            // A pin keeps its `position` in a class of its own, ahead of its inset.
+            let before = match (variant) {
+                15 => acc.push(ctx, atom(ctx, 15, 4, state, screen, "pin", "out")),
+                _ => acc,
+            };
+            .Some(
+                before.push(
+                    ctx,
+                    atom(ctx, variant, sub, state, screen, abbreviation, key),
+                ),
+            )
+        },
+    }
+}
+
+/// One `(slot, name)`, slot and prefix as the compiler numbers and names them.
+fn atom<C: Allocator>(
+    ctx: C,
+    variant: Int,
+    sub: Int,
+    state: Int,
+    screen: Int,
+    abbreviation: Str,
+    key: Str,
+): (Int, Str) {
+    // `Shadows` writes the `box-shadow` `Shadow` does, so it shares the slot.
+    let property = match (variant) {
+        41 => 40,
+        other => other,
+    };
+    let slot = (property * 5 + sub) * 40 + (state + 1) * 5 + screen + 1;
+    let screens = match (screen) {
+        0 => "sm_",
+        1 => "md_",
+        2 => "lg_",
+        3 => "xl_",
+        _ => "",
+    };
+    let states = match (state) {
+        0 => "hover_",
+        1 => "focus_",
+        2 => "focuswithin_",
+        3 => "active_",
+        4 => "disabled_",
+        5 => "checked_",
+        6 => "invalid_",
+        _ => "",
+    };
+    (slot, str.format(ctx, "${screens}${states}${abbreviation}-${key}"))
+}
+
+fn stateIndex(state: State): Int {
+    match (state) {
+        .Hover => 0,
+        .Focus => 1,
+        .FocusWithin => 2,
+        .Active => 3,
+        .Disabled => 4,
+        .Checked => 5,
+        .Invalid => 6,
+    }
+}
+
+fn screenIndex(screen: Screen): Int {
+    match (screen) {
+        .Small => 0,
+        .Medium => 1,
+        .Large => 2,
+        .ExtraLarge => 3,
+    }
+}
+
+/// A property's variant, sub-key, abbreviation and key, as the compiler
+/// declares it.
+fn declared<C: Allocator>(ctx: C, style: Style): (Int, Int, Str, Str) {
+    match (style) {
+        .Layout(layout) => (6, 0, "lay", layoutKey(ctx, layout)),
+        .AlignMain(align) => (7, 0, "am", alignKey(align)),
+        .AlignCross(align) => (8, 0, "ac", crossKey(align)),
+        .AlignSelf(align) => (9, 0, "as", crossKey(align)),
+        .Wrap(on) => (10, 0, "wrap", choose(on, "wrap", "nowrap")),
+        .Scroll(axis) => {
+            (
+                11,
+                0,
+                "scroll",
+                match (axis) {
+                    .X => "x",
+                    .Y => "y",
+                    .Both => "both",
+                },
+            )
+        },
+        .Grow(n) => (12, 0, "grow", integerKey(ctx, n)),
+        .Shrink(n) => (13, 0, "shrink", integerKey(ctx, n)),
+        .Span(n) => (14, 0, "span", integerKey(ctx, n)),
+        .Pin(edge, length) => (15, edgeIndex(edge), "pin", edgeKey(ctx, edge, length)),
+        .Position(position) => {
+            (
+                16,
+                0,
+                "pos",
+                match (position) {
+                    .Flow => "flow",
+                    .Sticky => "sticky",
+                    .PinViewport => "viewport",
+                    .PinAnchor => "anchor",
+                },
+            )
+        },
+        .Gap(length) => (17, 0, "gap", lengthKey(ctx, length)),
+        .GapX(length) => (18, 0, "gapx", lengthKey(ctx, length)),
+        .GapY(length) => (19, 0, "gapy", lengthKey(ctx, length)),
+        .Padding(length) => (20, 0, "p", lengthKey(ctx, length)),
+        .PaddingX(length) => (21, 0, "px", lengthKey(ctx, length)),
+        .PaddingY(length) => (22, 0, "py", lengthKey(ctx, length)),
+        .PaddingEdge(edge, length) => {
+            (23, edgeIndex(edge), "pe", edgeKey(ctx, edge, length))
+        },
+        .Width(length) => (24, 0, "w", lengthKey(ctx, length)),
+        .Height(length) => (25, 0, "h", lengthKey(ctx, length)),
+        .MinWidth(length) => (26, 0, "minw", lengthKey(ctx, length)),
+        .MaxWidth(length) => (27, 0, "maxw", lengthKey(ctx, length)),
+        .MinHeight(length) => (28, 0, "minh", lengthKey(ctx, length)),
+        .MaxHeight(length) => (29, 0, "maxh", lengthKey(ctx, length)),
+        .AspectRatio(ratio) => (30, 0, "ar", numberKey(ctx, ratio)),
+        .Background(color) => (31, 0, "bg", colorKey(ctx, color)),
+        .Foreground(color) => (32, 0, "fg", colorKey(ctx, color)),
+        .BorderWidth(length) => (33, 0, "bw", lengthKey(ctx, length)),
+        .BorderEdge(edge, length) => {
+            (34, edgeIndex(edge), "be", edgeKey(ctx, edge, length))
+        },
+        .BorderColor(color) => (35, 0, "bc", colorKey(ctx, color)),
+        .BorderStyle(line) => {
+            (
+                36,
+                0,
+                "bs",
+                match (line) {
+                    .None => "none",
+                    .Solid => "solid",
+                    .Dashed => "dashed",
+                },
+            )
+        },
+        .Radius(length) => (37, 0, "r", lengthKey(ctx, length)),
+        .RadiusCorner(corner, length) => {
+            let (index, name) = match (corner) {
+                .TopStart => (0, "topstart"),
+                .TopEnd => (1, "topend"),
+                .BottomStart => (2, "bottomstart"),
+                .BottomEnd => (3, "bottomend"),
+            };
+            (38, index, "rc", str.format(ctx, "${name}-${lengthKey(ctx, length)}"))
+        },
+        .Opacity(value) => (39, 0, "op", numberKey(ctx, value)),
+        .Shadow(shadow) => (40, 0, "sh", digest(ctx, shadowCss(ctx, shadow))),
+        .Shadows(layers) => {
+            (
+                41,
+                0,
+                "sh",
+                digest(
+                    ctx,
+                    layers
+                        .mapCtx(ctx, fn(c, layer) => shadowCss(c, layer))
+                        .join(ctx, ","),
+                ),
+            )
+        },
+        .FontFamily(family) => {
+            (
+                42,
+                0,
+                "ff",
+                digest(ctx, match (family) {
+                    .Sans => "ui-sans-serif,system-ui,sans-serif",
+                    .Serif => "ui-serif,Georgia,serif",
+                    .Mono => "ui-monospace,SFMono-Regular,monospace",
+                    .Named(name) => {
+                        str.format(ctx, "\"${name}\",ui-sans-serif,sans-serif")
+                    },
+                }),
+            )
+        },
+        .FontSize(length) => (43, 0, "fs", lengthKey(ctx, length)),
+        .FontWeight(weight) => {
+            (
+                44,
+                0,
+                "fw",
+                match (weight) {
+                    .Regular => "regular",
+                    .Medium => "medium",
+                    .Semibold => "semibold",
+                    .Bold => "bold",
+                },
+            )
+        },
+        .Italic(on) => (45, 0, "it", choose(on, "italic", "normal")),
+        .LineHeight(value) => (46, 0, "lh", numberKey(ctx, value)),
+        .LetterSpacing(length) => (47, 0, "ls", lengthKey(ctx, length)),
+        .TextAlign(align) => (48, 0, "ta", alignKey(align)),
+        .TextCase(case) => {
+            (
+                49,
+                0,
+                "tc",
+                match (case) {
+                    .AsWritten => "aswritten",
+                    .Upper => "upper",
+                    .Lower => "lower",
+                    .Capitalize => "capitalize",
+                },
+            )
+        },
+        .TextLine(line) => {
+            (
+                50,
+                0,
+                "tl",
+                match (line) {
+                    .None => "none",
+                    .Underline => "underline",
+                    .Strike => "strike",
+                },
+            )
+        },
+        .TextWrap(wrap) => {
+            (
+                51,
+                0,
+                "tw",
+                match (wrap) {
+                    .Wrap => "wrap",
+                    .NoWrap => "nowrap",
+                    .Balance => "balance",
+                },
+            )
+        },
+        .Truncate(lines) => {
+            (
+                52,
+                0,
+                "trunc",
+                match (lines > 0) {
+                    true => integerKey(ctx, lines),
+                    false => "0",
+                },
+            )
+        },
+        .Cursor(cursor) => {
+            (
+                53,
+                0,
+                "cur",
+                match (cursor) {
+                    .Default => "default",
+                    .Pointer => "pointer",
+                    .Text => "text",
+                    .NotAllowed => "notallowed",
+                },
+            )
+        },
+        .ListMarker(marker) => {
+            (
+                54,
+                0,
+                "lm",
+                match (marker) {
+                    .None => "none",
+                    .Disc => "disc",
+                    .Decimal => "decimal",
+                },
+            )
+        },
+        .Bleed(edge, length) => {
+            (55, edgeIndex(edge), "bleed", edgeKey(ctx, edge, length))
+        },
+        .Translate(x, y) => {
+            (56, 0, "tr", str.format(ctx, "${lengthKey(ctx, x)}-${lengthKey(ctx, y)}"))
+        },
+        .Clip(on) => (57, 0, "clip", choose(on, "clip", "visible")),
+        .Passthrough(on) => (58, 0, "pass", choose(on, "none", "auto")),
+        .BackdropBlur(length) => (59, 0, "bdblur", lengthKey(ctx, length)),
+        .CaretColor(color) => (60, 0, "caret", colorKey(ctx, color)),
+        .VisuallyHidden => (61, 0, "vh", "on"),
+        .Animation(animation) => {
+            (
+                62,
+                0,
+                "anim",
+                match (animation) {
+                    .Pulse => "pulse",
+                    .Spin => "spin",
+                },
+            )
+        },
+        // `atomsOf` answers every composition itself.
+        _ => (0, 0, "", ""),
+    }
+}
+
+fn choose(on: Bool, yes: Str, no: Str): Str {
+    match (on) {
+        true => yes,
+        false => no,
+    }
+}
+
+fn layoutKey<C: Allocator>(ctx: C, layout: Layout): Str {
+    match (layout) {
+        .Column => "col",
+        .Row => "row",
+        .ColumnReverse => "colrev",
+        .RowReverse => "rowrev",
+        .Grid(tracks) => {
+            let columns = tracks
+                .mapCtx(ctx, fn(c, track) => trackCss(c, track))
+                .join(ctx, " ");
+            str.format(ctx, "grid-${digest(ctx, columns)}")
+        },
+        .Layers => "layers",
+    }
+}
+
+fn trackCss<C: Allocator>(ctx: C, track: Track): Str {
+    match (track) {
+        .Fraction(n) => str.format(ctx, "${str.fromInt(ctx, n)}fr"),
+        .Fixed(length) => lengthCss(ctx, length),
+        .Auto => "auto",
+    }
+}
+
+fn alignKey(align: Align): Str {
+    match (align) {
+        .Start => "start",
+        .Center => "center",
+        .End => "end",
+        .Stretch => "stretch",
+        .SpaceBetween => "between",
+        .SpaceAround => "around",
+        .SpaceEvenly => "evenly",
+    }
+}
+
+/// A distribution means nothing across the axis and lands on `stretch`.
+fn crossKey(align: Align): Str {
+    match (align) {
+        .Start => "start",
+        .Center => "center",
+        .End => "end",
+        _ => "stretch",
+    }
+}
+
+fn edgeIndex(edge: Edge): Int {
+    match (edge) {
+        .Top => 0,
+        .Bottom => 1,
+        .Start => 2,
+        .End => 3,
+    }
+}
+
+fn edgeKey<C: Allocator>(ctx: C, edge: Edge, length: Length): Str {
+    let name = match (edge) {
+        .Top => "top",
+        .Bottom => "bottom",
+        .Start => "start",
+        .End => "end",
+    };
+    str.format(ctx, "${name}-${lengthKey(ctx, length)}")
+}
+
+fn lengthKey<C: Allocator>(ctx: C, length: Length): Str {
+    match (length) {
+        .Px(n) => integerKey(ctx, n),
+        .Rem(n) => str.format(ctx, "r${numberKey(ctx, n)}"),
+        .Em(n) => str.format(ctx, "e${numberKey(ctx, n)}"),
+        .Percent(n) => str.format(ctx, "pc${numberKey(ctx, n)}"),
+        .Auto => "auto",
+        .Full => "full",
+    }
+}
+
+fn lengthCss<C: Allocator>(ctx: C, length: Length): Str {
+    match (length) {
+        .Px(n) => str.format(ctx, "${str.fromInt(ctx, n)}px"),
+        .Rem(n) => str.format(ctx, "${number(ctx, n)}rem"),
+        .Em(n) => str.format(ctx, "${number(ctx, n)}em"),
+        .Percent(n) => str.format(ctx, "${number(ctx, n)}%"),
+        .Auto => "auto",
+        .Full => "100%",
+    }
+}
+
+fn colorKey<C: Allocator>(ctx: C, color: Color): Str {
+    match (color) {
+        .Rgb(r, g, b) => str.format(ctx, "${hex(ctx, r)}${hex(ctx, g)}${hex(ctx, b)}"),
+        .Rgba(r, g, b, a) => {
+            str.format(
+                ctx,
+                "${hex(ctx, r)}${hex(ctx, g)}${hex(ctx, b)}a${numberKey(ctx, a)}",
+            )
+        },
+        .Token(token) => tokenKey(ctx, token),
+        .Transparent => "none",
+        .Inherit => "inherit",
+        .Faded(token, a) => {
+            str.format(ctx, "${tokenKey(ctx, token)}a${numberKey(ctx, a)}")
+        },
+    }
+}
+
+fn colorCss<C: Allocator>(ctx: C, color: Color): Str {
+    match (color) {
+        .Rgb(r, g, b) => str.format(ctx, "rgb(${channels(ctx, r, g, b)})"),
+        .Rgba(r, g, b, a) => {
+            str.format(ctx, "rgba(${channels(ctx, r, g, b)},${number(ctx, a)})")
+        },
+        .Token(token) => str.format(ctx, "var(--${token.0}-${token.1})"),
+        .Transparent => "transparent",
+        .Inherit => "inherit",
+        .Faded(token, a) => {
+            let percent = number(ctx, a * 100.0);
+            str.format(
+                ctx,
+                "color-mix(in srgb,var(--${token.0}-${token.1}) ${percent}%,transparent)",
+            )
+        },
+    }
+}
+
+fn channels<C: Allocator>(ctx: C, r: Int, g: Int, b: Int): Str {
+    str.format(
+        ctx,
+        "${str.fromInt(ctx, r)},${str.fromInt(ctx, g)},${str.fromInt(ctx, b)}",
+    )
+}
+
+fn shadowCss<C: Allocator>(ctx: C, shadow: Shadow): Str {
+    let offset = str.format(
+        ctx,
+        "${lengthCss(ctx, shadow.x)} ${lengthCss(ctx, shadow.y)}",
+    );
+    let size = str.format(
+        ctx,
+        "${lengthCss(ctx, shadow.blur)} ${lengthCss(ctx, shadow.spread)}",
+    );
+    str.format(ctx, "${offset} ${size} ${colorCss(ctx, shadow.color)}")
+}
+
+/// A namespace and a name of plain letters and digits name the class, and any
+/// other pair is digested.
+fn tokenKey<C: Allocator>(ctx: C, token: TokenReference): Str {
+    match ((plain(ctx, token.0), plain(ctx, token.1))) {
+        (true, true) => str.format(ctx, "t_${token.0}_${token.1}"),
+        _ => {
+            str.format(
+                ctx,
+                "t_${digest(ctx, str.format(ctx, "${token.0}\u{1}${token.1}"))}",
+            )
+        },
+    }
+}
+
+fn plain<C: Allocator>(ctx: C, text: Str): Bool {
+    match (text.isEmpty()) {
+        true => false,
+        false => {
+            text
+                .splitAny(
+                    ctx,
+                    "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+                )
+                .all(fn(piece) => piece.isEmpty())
+        },
+    }
+}
+
+/// The name of a class that ends in a digest: the digested text, behind a `#`
+/// no class holds. `known` pairs it with the class.
+fn digest<C: Allocator>(ctx: C, text: Str): Str {
+    str.format(ctx, "#${text}")
+}
+
+/// Two lowercase hex digits, or a name no class has for a channel out of range.
+fn hex<C: Allocator>(ctx: C, n: Int): Str {
+    let digits = "0123456789abcdef";
+    match ((n >= 0, n < 256)) {
+        (true, true) => {
+            let high = digits.slice(n / 16, n / 16 + 1);
+            let low = digits.slice(n % 16, n % 16 + 1);
+            str.format(ctx, "${high}${low}")
+        },
+        _ => "?",
+    }
+}
+
+fn integerKey<C: Allocator>(ctx: C, n: Int): Str {
+    match (n < 0) {
+        true => str.format(ctx, "n${str.fromInt(ctx, 0 - n)}"),
+        false => str.fromInt(ctx, n),
+    }
+}
+
+/// A float as the compiler renders one: a whole number has no `.0`.
+fn number<C: Allocator>(ctx: C, n: Float): Str {
+    let text = str.fromFloat(ctx, n);
+    match (text.endsWith(".0")) {
+        true => text.slice(0, text.length() - 2),
+        false => text,
+    }
+}
+
+/// A point is not legal in a class name and a minus sign reads as a range.
+fn numberKey<C: Allocator>(ctx: C, n: Float): Str {
+    number(ctx, n).replace(ctx, ".", "_").replace(ctx, "-", "n")
 }

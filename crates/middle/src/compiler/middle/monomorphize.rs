@@ -640,9 +640,31 @@ pub fn run(
     // `ui/theme` and `ui/node` both import `ui/style`, so a program with
     // either has `Style` too.
     if ui.style.is_some() {
-        for f in &mut m.funcs {
-            if let FuncKind::Body(body) = &mut f.kind {
-                crate::compiler::semantics::styles::survey(body, ui, &mut reached);
+        // `ui/style`'s own functions are how a style becomes classes at run
+        // time, and name none themselves.
+        let style_module = checked.classify_fns.map(|(classify, _)| checked.tables.fn_info(classify).module);
+        let mut skipped: crate::hash::Set<usize> = crate::hash::Set::default();
+        let mut classifiers = Vec::new();
+        for (key, slot) in &m.index {
+            if let Key::Fn(f, _) = key {
+                let info = checked.tables.fn_info(*f);
+                if Some(info.module) == style_module {
+                    skipped.insert(*slot);
+                }
+                if checked.classify_fns.is_some_and(|(a, b)| *f == a || *f == b) {
+                    classifiers.push(FuncIdx(*slot as u32));
+                }
+            }
+        }
+        // Only a test checks that the stylesheet holds every class `classify`
+        // finds a name for.
+        let unchecked = match roots {
+            Roots::Main(_) => classifiers,
+            Roots::Tests | Roots::TestsIn(_) => Vec::new(),
+        };
+        for (slot, f) in m.funcs.iter_mut().enumerate() {
+            if let (FuncKind::Body(body), false) = (&mut f.kind, skipped.contains(&slot)) {
+                crate::compiler::semantics::styles::survey(body, ui, &checked.style_sources, &unchecked, &mut reached);
             }
         }
     }

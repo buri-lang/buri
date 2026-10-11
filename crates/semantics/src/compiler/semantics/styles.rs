@@ -29,6 +29,14 @@
 //! A style that folds where a node is given it is extracted right there, so
 //! the `let`, field or function it came from keeps the variant it names.
 //!
+//! A node given a parameter, a field or a result instead has it wrapped in
+//! `ui/style`'s `classify`, which names each class the way this pass does and
+//! looks it up among the `(name, class)` pairs this pass found for the values
+//! that can reach it. Those values stay what the source wrote, and the sheet
+//! holds their classes because [`survey`] counts each one where it's written.
+//! When the pass saw every value that can reach a `classify`, a test build
+//! stops on a name it found no class for: that is a compiler bug.
+//!
 //! ## What the runtime is left with
 //!
 //! A style that folded is replaced, in the typed tree, by the
@@ -54,10 +62,10 @@
 use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{bound, Env, Folder, Value};
 use crate::compiler::semantics::layered::Layered;
-use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, ModuleScope, Walked};
+use crate::compiler::semantics::resolve::{own_fn, own_type, BodyMap, ConstMap, ModuleScope, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind, Magnitude};
-use crate::compiler::semantics::types::{ConstId, FnId, LocalId, ModuleId, Tables, TraitId, Ty, TyKind, TyConId};
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
+use crate::compiler::semantics::types::{ConstId, FnId, FuncIdx, LocalId, ModuleId, Tables, TraitId, Ty, TyKind, TyConId};
+use crate::diagnostics::{invariant, Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
 use std::cell::RefCell;
 
@@ -373,16 +381,22 @@ pub struct Styled {
     pub const_rules: Vec<StyleRule>,
     /// The rules the bodies produced, in walk order.
     pub body_rules: Vec<StyleRule>,
+    /// The classes each style that folded where no node is given it stands
+    /// for, by where it was written: what [`survey`] counts in its place.
+    pub sources: Sources,
     /// What the base's constants and bodies are once the pass has rewritten
     /// them, where it did. Empty for a run that is not a base's.
     pub consts: ConstMap,
     pub bodies: BodyMap,
 }
 
+/// The classes a style left standing as a value stands for, by its span.
+pub type Sources = HashMap<Span, Vec<String>>;
+
 impl Styled {
     /// The rules of a run over what came after `base`, merged with the base's,
     /// with the base's rewrites put back into the maps the run left them out
-    /// of.
+    /// of, and the two runs' sources together.
     ///
     /// A class names itself, so a rule both runs found is one rule, kept
     /// where it was found first.
@@ -391,7 +405,7 @@ impl Styled {
         base: &Styled,
         bodies: &mut BodyMap,
         consts: &mut ConstMap,
-    ) -> Vec<StyleRule> {
+    ) -> (Vec<StyleRule>, Sources) {
         for (id, body) in &base.bodies {
             bodies.insert(id, std::sync::Arc::clone(body));
         }
@@ -399,14 +413,18 @@ impl Styled {
             consts.insert(id, init.clone());
         }
         let mut seen: HashSet<String> = HashSet::default();
-        base.const_rules
+        let rules = base
+            .const_rules
             .iter()
             .chain(&self.const_rules)
             .chain(&base.body_rules)
             .chain(&self.body_rules)
             .filter(|r| seen.insert(r.class.clone()))
             .cloned()
-            .collect()
+            .collect();
+        let mut sources = base.sources.clone();
+        sources.extend(self.sources);
+        (rules, sources)
     }
 }
 
@@ -435,6 +453,8 @@ pub fn run(
     else {
         return (Styled::default(), None);
     };
+    let (classify, classify_style) =
+        classifiers(loaded, scopes).or_ice("`ui/style` declares `classify` and `classifyStyle`");
 
     // The interpreter reads bodies and constants as they were *before* this
     // pass rewrote any of them: folding a call into an already-extracted style
@@ -449,6 +469,8 @@ pub fn run(
         style_con,
         classes_con,
         color_con: own_type(loaded, scopes, "ui/style", "Color"),
+        classify,
+        classify_style,
         tables,
         original_bodies: bodies,
         original_consts: consts,
@@ -458,6 +480,14 @@ pub fn run(
         flow,
         owner: Owner::Fn(FnId(0)),
         mode: Mode::Rewrite,
+        wraps: false,
+        directs: HashMap::default(),
+        sources: HashMap::default(),
+        tainted: HashSet::default(),
+        extra: Edges::default(),
+        leaves: 0,
+        wrapped: Vec::new(),
+        leafy: HashSet::default(),
     };
 
     // In id order, which is the order the maps walk in, so the sheet's rule
@@ -487,7 +517,8 @@ pub fn run(
     ex.walk(&mut new_consts, &mut new_bodies, true);
     ex.recorded.clear();
     let (const_rules, body_rules) = ex.walk(&mut new_consts, &mut new_bodies, false);
-    let styled = Styled { const_rules, body_rules, ..Styled::default() };
+    ex.fill(&mut new_consts, &mut new_bodies);
+    let styled = Styled { const_rules, body_rules, sources: ex.sources, ..Styled::default() };
     for (id, init) in new_consts {
         consts.insert(id, init);
     }
@@ -497,6 +528,12 @@ pub fn run(
     (styled, Some(style_con))
 }
 
+/// `ui/style`'s `classify` and `classifyStyle`: what a style a node is given
+/// goes through where the compiler can't say which value it is.
+pub fn classifiers(loaded: &Loaded, scopes: &Layered<ModuleScope>) -> Option<(FnId, FnId)> {
+    Some((own_fn(loaded, scopes, "ui/style", "classify")?, own_fn(loaded, scopes, "ui/style", "classifyStyle")?))
+}
+
 struct Extractor<'a> {
     style_con: TyConId,
     /// `ui/style`'s `Classes`, the private-field wrapper an `Extracted`
@@ -504,6 +541,10 @@ struct Extractor<'a> {
     classes_con: TyConId,
     /// `ui/style`'s `Color`, which is how [`Extractor::alphas`] recognises one.
     color_con: Option<TyConId>,
+    /// `ui/style`'s `classify`, for a list of styles, and `classifyStyle`, for
+    /// one.
+    classify: FnId,
+    classify_style: FnId,
     tables: &'a Tables,
     original_bodies: &'a BodyMap,
     original_consts: &'a ConstMap,
@@ -514,6 +555,25 @@ struct Extractor<'a> {
     /// The declaration whose locals the walk is in.
     owner: Owner,
     mode: Mode,
+    /// Whether a style a node is given here that is not a literal goes
+    /// through `classify`: not while checking, and not inside `ui/node`, whose
+    /// callers are where its styles are written.
+    wraps: bool,
+    /// The `(name, class)` pairs of each style that folded where it was read
+    /// as a demand rather than given to a node, by that demand.
+    directs: HashMap<Demand, Vec<(String, String)>>,
+    sources: Sources,
+    /// The demands a value the compiler did not see can reach: one built from
+    /// a value known only at run time, or answered by a function this run
+    /// does not read.
+    tainted: HashSet<Demand>,
+    /// What each [`Demand::Leaf`] reads.
+    extra: Edges,
+    leaves: u32,
+    /// Each leaf, in the order its `classify` was written.
+    wrapped: Vec<Demand>,
+    /// The declarations holding one.
+    leafy: HashSet<Owner>,
 }
 
 /// What a walk does with the styles it reaches.
@@ -525,6 +585,16 @@ enum Mode {
     Checking,
     /// Extracts a declaration `Checking` walked, so refuses nothing.
     Quiet,
+}
+
+/// Where the value of an expression a walk visits goes.
+#[derive(Clone, Copy)]
+struct Sink {
+    /// The demand it answers: [`Demand::Node`] where a node is given it.
+    to: Demand,
+    /// Whether a node is given it right where it is written, rather than
+    /// through a local, a parameter, a result or a constant.
+    site: bool,
 }
 
 impl<'a> Extractor<'a> {
@@ -598,31 +668,51 @@ impl<'a> Extractor<'a> {
         found
     }
 
-    /// One expression, `sink` when a node is given its value.
-    fn visit(&mut self, e: &mut typed::Expr, sink: bool, cond: Cond) {
-        if sink && self.is_style_list(&e.ty) {
-            self.style_list(e, cond);
-            return;
-        }
-        if sink && self.is_style(&e.ty) {
-            self.style(e, cond);
-            return;
+    /// One expression, given to `sink` when it goes where a node reads.
+    fn visit(&mut self, e: &mut typed::Expr, sink: Option<Sink>, cond: Cond) {
+        if let Some(s) = sink {
+            if self.is_style_list(&e.ty) {
+                self.style_list(e, s, cond);
+                return;
+            }
+            if self.is_style(&e.ty) {
+                self.style(e, s, cond);
+                return;
+            }
         }
         self.descend(e, sink, cond);
     }
 
-    /// The children of `e`, each a sink where [`Flow::positions`] says so.
+    /// The children of `e`, each going where [`Flow::positions`] says.
     ///
     /// A condition may not escape into an expression that is not a style:
     /// `On(.Hover, [f(x)])` where `f` answers a `Style` is handled by `style`,
     /// and everything else under a condition has already been refused there.
-    fn descend(&mut self, e: &mut typed::Expr, sink: bool, cond: Cond) {
+    fn descend(&mut self, e: &mut typed::Expr, sink: Option<Sink>, cond: Cond) {
+        if let Some(s) = sink {
+            self.opaque(e, s);
+        }
+        let carries = carries(e);
+        let all = self.mode == Mode::Checking;
         let mut positions = self.flow.positions(e).into_iter();
         typed::children_mut(e, &mut |child| {
             let pos = positions.next().or_ice("`positions` names every child");
-            let reaches = self.flow.reaches(self.owner, &pos, sink, self.mode == Mode::Checking);
-            self.visit(child, reaches, cond);
+            let to = self.flow.sink(self.owner, &pos, sink, carries, all);
+            self.visit(child, to, cond);
         });
+    }
+
+    /// Marks `s` as reachable by a value this run doesn't see, where `e` is a
+    /// call whose answer it can't follow.
+    fn opaque(&mut self, e: &typed::Expr, s: Sink) {
+        let unseen = match &e.kind {
+            ExprKind::Intrinsic { .. } => true,
+            ExprKind::CallFn { func, .. } => {
+                !self.flow.params.contains_key(&func.decl().or_ice("before monomorphization a callee is a declaration"))
+            }
+            _ => false,
+        };
+        self.tainted.extend(unseen.then_some(s.to));
     }
 
     /// Walks every declaration that mentions a style, and answers the rules
@@ -634,11 +724,13 @@ impl<'a> Extractor<'a> {
         checking: bool,
     ) -> (Vec<StyleRule>, Vec<StyleRule>) {
         for (id, init) in consts.iter_mut() {
-            self.declaration(Owner::Const(*id), Demand::Const(*id), init, checking);
+            let module = self.tables.const_(*id).module;
+            self.declaration(Owner::Const(*id), Demand::Const(*id), module, init, checking);
         }
         let const_rules = std::mem::take(&mut self.rules);
         for (id, body) in bodies.iter_mut() {
-            self.declaration(Owner::Fn(*id), Demand::Ret(*id), &mut body.expr, checking);
+            let module = self.tables.fn_info(*id).module;
+            self.declaration(Owner::Fn(*id), Demand::Ret(*id), module, &mut body.expr, checking);
         }
         (const_rules, std::mem::take(&mut self.rules))
     }
@@ -649,7 +741,7 @@ impl<'a> Extractor<'a> {
     /// but that still has to be a style the stylesheet can hold. So a
     /// declaration where that happens is walked twice: `checking` refuses what
     /// can't be, and then the extracting walk refuses nothing a second time.
-    fn declaration(&mut self, owner: Owner, top: Demand, e: &mut typed::Expr, checking: bool) {
+    fn declaration(&mut self, owner: Owner, top: Demand, module: ModuleId, e: &mut typed::Expr, checking: bool) {
         let top = Pos::At(Some(top));
         let touched = self.flow.touched.contains(&owner)
             || self.flow.reaches(owner, &top, false, true) != self.flow.reaches(owner, &top, false, false);
@@ -660,13 +752,14 @@ impl<'a> Extractor<'a> {
             (false, false) => Mode::Rewrite,
         };
         self.owner = owner;
-        let sink = self.flow.reaches(owner, &top, false, checking);
+        self.wraps = !checking && !self.flow.in_ui_node(module);
+        let sink = self.flow.sink(owner, &top, None, false, checking);
         self.visit(e, sink, Cond::default());
     }
 
     /// A `[Style]` — the shape every widget takes and the shape both branches
     /// of a `When` have.
-    fn style_list(&mut self, e: &mut typed::Expr, cond: Cond) {
+    fn style_list(&mut self, e: &mut typed::Expr, s: Sink, cond: Cond) {
         // Anything else here is a type error, already reported where it was written.
         if !self.is_style_list(&e.ty) {
             return;
@@ -676,19 +769,20 @@ impl<'a> Extractor<'a> {
             // A list that extracted to nothing becomes nothing. `ui.row([], …)`
             // is the common case and it should cost the same as it did before
             // there was a stylesheet.
-            let items = if atoms.is_empty() {
-                Vec::new()
-            } else {
-                vec![self.extracted(atoms, span)]
-            };
-            if self.mode != Mode::Checking {
+            if self.extracts_at(s) {
+                let items = if atoms.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![self.extracted(&atoms, span)]
+                };
                 *e = typed::Expr::new(ExprKind::Array(items), e.ty, span);
             }
+            self.keep(e, s, atoms);
             return;
         }
         if let ExprKind::Array(items) = &mut e.kind {
             for item in items {
-                self.style(item, cond);
+                self.style(item, s, cond);
             }
             return;
         }
@@ -700,32 +794,31 @@ impl<'a> Extractor<'a> {
             );
             return;
         }
-        self.descend(e, true, cond);
+        self.leaf_or_descend(e, s, cond, self.classify);
     }
 
     /// One `Style`.
-    fn style(&mut self, e: &mut typed::Expr, cond: Cond) {
+    fn style(&mut self, e: &mut typed::Expr, s: Sink, cond: Cond) {
         if !self.is_style(&e.ty) {
             return;
         }
         if let Some(atoms) = self.fold_one(e, cond) {
-            if self.mode != Mode::Checking {
-                *e = self.extracted(atoms, e.span);
+            if self.extracts_at(s) {
+                *e = self.extracted(&atoms, e.span);
             }
+            self.keep(e, s, atoms);
             return;
         }
         // It did not fold whole. Take the composition apart and try the pieces:
         // `Group([.Padding(.Px(8)), .Computed(f)])` extracts its padding and
         // leaves the closure alone.
         let span = e.span;
-        let composition = match &mut e.kind {
-            ExprKind::EnumLit { variant, args, .. } => {
-                let found = *variant;
-                if self.composition(span, variant, args, cond) {
-                    return;
-                }
-                Some(found)
-            }
+        let property = match &mut e.kind {
+            ExprKind::EnumLit { variant, args, .. } => match self.composition(span, variant, args, s, cond) {
+                Composed::Done => return,
+                Composed::Property(variant) => Some(variant),
+                Composed::Closure => None,
+            },
             _ => None,
         };
         if !cond.is_plain() {
@@ -736,14 +829,154 @@ impl<'a> Extractor<'a> {
             );
             return;
         }
-        // A dynamic value under no condition does not fail: it is written inline
-        // as a custom property that a stylesheet rule reads (#195). This puts
-        // that rule in the sheet; the bare property is left standing for the
-        // runtime, which writes the `--buri-…` value out and takes the class.
-        if let Some(variant) = composition {
-            self.variable_rule(variant);
+        match property {
+            // A dynamic value under no condition does not fail: it is written
+            // inline as a custom property that a stylesheet rule reads (#195).
+            // This puts that rule in the sheet; the bare property is left
+            // standing for the runtime, which writes the `--buri-…` value out
+            // and takes the class.
+            Some(variant) => {
+                self.variable_rule(variant);
+                self.tainted.insert(s.to);
+                self.descend(e, Some(s), cond);
+            }
+            None => self.leaf_or_descend(e, s, cond, self.classify_style),
         }
-        self.descend(e, true, cond);
+    }
+
+    /// Whether a style that folded where `s` says becomes classes right
+    /// there: where a node is given it, and anywhere in `ui/node`. Anywhere
+    /// else it stays the value it is, for a match or a comparison to read, and
+    /// becomes classes where a node is given it.
+    fn extracts_at(&self, s: Sink) -> bool {
+        self.mode != Mode::Checking && (s.site || !self.wraps)
+    }
+
+    /// Notes what a style that folded and stays a value stands for: the
+    /// classes [`survey`] counts where it's written, and the names `classify`
+    /// looks them up by where it's read.
+    fn keep(&mut self, e: &typed::Expr, s: Sink, atoms: Vec<Atom>) {
+        if self.extracts_at(s) || self.mode == Mode::Checking {
+            return;
+        }
+        let classes: Vec<String> = atoms.iter().map(|a| a.class.clone()).collect();
+        // A constant is inlined where it's read, with the spans it was
+        // written with, so that is where `survey` meets it.
+        if let ExprKind::Const(c) = e.kind {
+            let init = self.original_consts.get(&c).or_ice("a constant that folded has a value");
+            self.sources.insert(init.span, classes.clone());
+        }
+        self.sources.insert(e.span, classes);
+        self.directs.entry(s.to).or_default().extend(atoms.into_iter().map(|a| (a.name, a.class)));
+    }
+
+    /// A style a node is given whose value isn't known here: through
+    /// `classify` where it can be, so each value it holds at run time becomes
+    /// the classes the sheet has for it. A choice is descended rather than
+    /// wrapped, so that each branch is extracted or wrapped on its own.
+    fn leaf_or_descend(&mut self, e: &mut typed::Expr, s: Sink, cond: Cond, classify: FnId) {
+        let choice = matches!(e.kind, ExprKind::If { .. } | ExprKind::Match { .. } | ExprKind::Block { .. });
+        if !self.leaf_site(s) || choice {
+            self.descend(e, Some(s), cond);
+            return;
+        }
+        let to = Demand::Leaf(self.leaves);
+        self.leaves += 1;
+        self.flow.edges(self.owner, e, Some(to), false, &mut self.extra);
+        self.descend(e, Some(Sink { to, site: false }), cond);
+        let span = e.span;
+        let ty = e.ty;
+        let value = std::mem::replace(e, typed::Expr::new(ExprKind::Error, ty, span));
+        // `fill` writes the names it can be once every declaration is walked.
+        *e = typed::Expr::new(
+            ExprKind::CallFn {
+                func: typed::Callee::Decl { id: classify, targs: Vec::new() },
+                args: vec![value, self.known(Vec::new(), span), self.boolean(true, span)],
+            },
+            ty,
+            span,
+        );
+        self.wrapped.push(to);
+        self.leafy.insert(self.owner);
+    }
+
+    /// Whether a style a node is given where `s` says, and that is not a
+    /// literal, goes through `classify`.
+    fn leaf_site(&self, s: Sink) -> bool {
+        s.site && self.wraps
+    }
+
+    /// Writes into each `classify` the names a value reaching it can have,
+    /// and whether the compiler saw every one of those values.
+    fn fill(&self, consts: &mut [(ConstId, typed::Expr)], bodies: &mut [(FnId, typed::Body)]) {
+        let mut found = self.wrapped.iter().map(|leaf| self.names(*leaf));
+        for (_, init) in consts.iter_mut().filter(|(id, _)| self.leafy.contains(&Owner::Const(*id))) {
+            self.fill_in(init, &mut found);
+        }
+        for (_, body) in bodies.iter_mut().filter(|(id, _)| self.leafy.contains(&Owner::Fn(*id))) {
+            self.fill_in(&mut body.expr, &mut found);
+        }
+        invariant(found.next().is_none(), "every leaf is one `classify` in a declaration that holds one");
+    }
+
+    /// The `classify`s under `e`, in the order [`Extractor::leaf_or_descend`]
+    /// wrote them: each one's children first.
+    fn fill_in(&self, e: &mut typed::Expr, found: &mut dyn Iterator<Item = (Vec<(String, String)>, bool)>) {
+        typed::children_mut(e, &mut |child| self.fill_in(child, found));
+        let span = e.span;
+        let ExprKind::CallFn { func, args } = &mut e.kind else { return };
+        if ![Some(self.classify), Some(self.classify_style)].contains(&func.decl()) {
+            return;
+        }
+        let (known, strict) = found.next().or_ice("every `classify` this pass wrote is one leaf");
+        match (known.is_empty(), strict) {
+            // Nothing the compiler saw can get here, so there is nothing to
+            // look up: the value is the one the runtime writes inline.
+            (true, false) => {
+                *e = std::mem::take(args).into_iter().next().or_ice("`classify` is given the style first");
+            }
+            _ => {
+                *args.get_mut(1).or_ice("`classify` is given the names second") = self.known(known, span);
+                *args.get_mut(2).or_ice("`classify` is given strictness third") = self.boolean(strict, span);
+            }
+        }
+    }
+
+    /// The names a leaf's values can have, each with its class, and whether
+    /// those are all the values it can hold.
+    fn names(&self, leaf: Demand) -> (Vec<(String, String)>, bool) {
+        let reach = closure(leaf, false, &[&self.flow.edges, &self.extra]);
+        let strict = reach.iter().all(|d| !self.tainted.contains(d) && !self.flow.open(*d));
+        let mut known: Vec<(String, String)> =
+            reach.iter().filter_map(|d| self.directs.get(d)).flatten().cloned().collect();
+        known.sort();
+        known.dedup();
+        (known, strict)
+    }
+
+    /// `[(name, class), …]`, as a typed expression.
+    fn known(&self, pairs: Vec<(String, String)>, span: Span) -> typed::Expr {
+        let text = self.tables.prim(crate::compiler::semantics::types::Prim::Str);
+        let pair = Ty::tuple([text, text]);
+        let items = pairs
+            .into_iter()
+            .map(|(name, class)| {
+                typed::Expr::new(
+                    ExprKind::Tuple(vec![
+                        typed::Expr::new(ExprKind::Str(name), text, span),
+                        typed::Expr::new(ExprKind::Str(class), text, span),
+                    ]),
+                    pair,
+                    span,
+                )
+            })
+            .collect();
+        typed::Expr::new(ExprKind::Array(items), Ty::array(pair), span)
+    }
+
+    fn boolean(&self, value: bool, span: Span) -> typed::Expr {
+        let ty = self.tables.prim(crate::compiler::semantics::types::Prim::Bool);
+        typed::Expr::new(ExprKind::Bool(value), ty, span)
     }
 
     /// Records the variable-backed rule a dynamic value at no condition needs
@@ -767,18 +1000,25 @@ impl<'a> Extractor<'a> {
     }
 
     /// Descends one composition variant, the `Style` literal at `span`.
-    /// Answers whether it handled the node.
-    fn composition(&mut self, span: Span, variant: &mut usize, args: &mut Vec<typed::Expr>, cond: Cond) -> bool {
+    fn composition(
+        &mut self,
+        span: Span,
+        variant: &mut usize,
+        args: &mut Vec<typed::Expr>,
+        s: Sink,
+        cond: Cond,
+    ) -> Composed {
         match *variant {
             STYLE_GROUP => {
-                let Some(list) = args.first_mut() else { return false };
-                self.style_list(list, cond);
-                true
+                let Some(list) = args.first_mut() else { return Composed::Done };
+                self.style_list(list, s, cond);
+                Composed::Done
             }
             STYLE_ON | STYLE_AT => {
                 // The condition is absorbed into whatever the list extracts to,
-                // so the node itself is replaced by an ordinary group. A `When`
-                // inside one survives: its two branches carry the condition.
+                // so where a node is given it the node itself is replaced by an
+                // ordinary group. A `When` inside one survives: its two
+                // branches carry the condition.
                 let chosen = args
                     .first()
                     .and_then(|selector| self.folder().eval(selector, &Env::default()))
@@ -790,7 +1030,7 @@ impl<'a> Extractor<'a> {
                         "which state or screen this applies to is not statically \
                          known",
                     );
-                    return true;
+                    return Composed::Done;
                 };
                 let inner = if *variant == STYLE_ON {
                     Cond { state: Some(chosen), screen: cond.screen }
@@ -798,25 +1038,25 @@ impl<'a> Extractor<'a> {
                     Cond { state: cond.state, screen: Some(chosen) }
                 };
                 if let Some(list) = args.get_mut(1) {
-                    self.style_list(list, inner);
+                    self.style_list(list, s, inner);
                 }
-                if self.mode != Mode::Checking {
+                if self.extracts_at(s) {
                     *variant = STYLE_GROUP;
                     args.remove(0);
                 }
-                true
+                Composed::Done
             }
             STYLE_WHEN => {
                 let mut rest = args.iter_mut();
                 // The `Prop<Bool>` is ordinary reactive data and may hold a
                 // closure with styles of its own.
                 if let Some(condition) = rest.next() {
-                    self.visit(condition, false, Cond::default());
+                    self.visit(condition, None, Cond::default());
                 }
                 for branch in rest {
-                    self.style_list(branch, cond);
+                    self.style_list(branch, s, cond);
                 }
-                true
+                Composed::Done
             }
             STYLE_COMPUTED => {
                 if !cond.is_plain() {
@@ -826,24 +1066,31 @@ impl<'a> Extractor<'a> {
                          closure cannot be scoped to a pseudo-class or to a media \
                          query",
                     );
-                    return true;
+                    return Composed::Done;
+                }
+                // A closure written here is extracted inside. One that comes
+                // from elsewhere goes through `classify` whole, which wraps
+                // it in one that extracts what it answers.
+                let written = matches!(args.first().map(|f| &f.kind), Some(ExprKind::Lambda { .. }));
+                if !written && self.leaf_site(s) {
+                    return Composed::Closure;
                 }
                 for arg in args {
-                    self.visit(arg, true, Cond::default());
+                    self.visit(arg, Some(s), Cond::default());
                 }
-                true
+                Composed::Done
             }
-            _ => false,
+            other => Composed::Property(other),
         }
     }
 
     /// `Style::Extracted(pairs)`, as a typed expression.
-    fn extracted(&self, atoms: Vec<Atom>, span: Span) -> typed::Expr {
+    fn extracted(&self, atoms: &[Atom], span: Span) -> typed::Expr {
         let int = self.tables.prim(crate::compiler::semantics::types::Prim::I64);
         let text = self.tables.prim(crate::compiler::semantics::types::Prim::Str);
         let pair = Ty::tuple([int, text]);
         let items: Vec<typed::Expr> = atoms
-            .into_iter()
+            .iter()
             .map(|a| {
                 typed::Expr::new(
                     ExprKind::Tuple(vec![
@@ -852,7 +1099,7 @@ impl<'a> Extractor<'a> {
                             int,
                             span,
                         ),
-                        typed::Expr::new(ExprKind::Str(a.class), text, span),
+                        typed::Expr::new(ExprKind::Str(a.class.clone()), text, span),
                     ]),
                     pair,
                     span,
@@ -918,6 +1165,34 @@ impl<'a> Extractor<'a> {
     }
 }
 
+/// What [`Extractor::composition`] made of a `Style` literal.
+enum Composed {
+    /// It handled it.
+    Done,
+    /// A property, which didn't fold.
+    Property(usize),
+    /// A `Computed` a node is given whose closure was written elsewhere.
+    Closure,
+}
+
+/// Whether a child of `e` that goes wherever `e` goes is given to a node
+/// right there when `e` is: a part of a value `e` builds, or a branch of the
+/// choice `e` is.
+fn carries(e: &typed::Expr) -> bool {
+    matches!(
+        e.kind,
+        ExprKind::Array(_)
+            | ExprKind::Tuple(_)
+            | ExprKind::EnumLit { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::StructUpdate { .. }
+            | ExprKind::Lambda { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::Block { .. }
+    )
+}
+
 /// One folded `Style` value into the atoms it is.
 fn flatten(v: &Value, cond: Cond, out: &mut Vec<(Atom, StyleRule)>) -> Option<()> {
     let (variant, args) = v.as_variant()?;
@@ -966,15 +1241,26 @@ fn property(variant: usize, args: &[Value], cond: Cond, out: &mut Vec<(Atom, Sty
     // later in the sheet — overrides it wherever an element has both.
     if variant == STYLE_PIN {
         let flow = ("pin", "out".to_owned(), vec![("", "position:absolute".to_owned())]);
-        out.push(atom(variant, PIN_FLOW, cond, flow)?);
+        out.push(atom(variant, PIN_FLOW, cond, flow, "out")?);
     }
     let sub = sub_key(variant, args);
-    out.push(atom(variant, sub, cond, declaration(variant, args)?)?);
+    let declared = declaration(variant, args, digest)?;
+    let (_, name, _) =
+        declaration(variant, args, preimage).or_ice("a value that declares under one digest declares under any");
+    out.push(atom(variant, sub, cond, declared, &name)?);
     Some(())
 }
 
-/// One class: its name, its slot, and the rule it puts in the sheet.
-fn atom(variant: usize, sub: u32, cond: Cond, (abbreviation, key, blocks): Declaration) -> Option<(Atom, StyleRule)> {
+/// One class: its name, its slot, and the rule it puts in the sheet. `name` is
+/// what `ui/style` spells the value as, which differs from the class's key
+/// only where that holds a digest.
+fn atom(
+    variant: usize,
+    sub: u32,
+    cond: Cond,
+    (abbreviation, key, blocks): Declaration,
+    name: &str,
+) -> Option<(Atom, StyleRule)> {
     let class = format!("{}{}-{}", cond.prefix(), abbreviation, key);
     let rule = StyleRule {
         class: class.clone(),
@@ -983,7 +1269,8 @@ fn atom(variant: usize, sub: u32, cond: Cond, (abbreviation, key, blocks): Decla
         screen: cond.screen,
         blocks,
     };
-    Some((Atom { slot: slot(variant, sub, cond)?, class }, rule))
+    let name = format!("{}{}-{}", cond.prefix(), abbreviation, name);
+    Some((Atom { slot: slot(variant, sub, cond)?, class, name }, rule))
 }
 
 /// What reads what, each read marked when it's under a style extracted where
@@ -993,25 +1280,32 @@ struct Edges {
     reads: HashMap<Demand, Vec<(Demand, bool)>>,
     /// The declarations holding such a style.
     stops: HashSet<Owner>,
+    /// The functions a call names.
+    called: HashSet<FnId>,
+    /// The functions read as values, which can then be called from anywhere.
+    referenced: HashSet<FnId>,
+    /// The locals a `let` or a pattern binds.
+    bound: Vec<(Owner, LocalId)>,
 }
 
 impl Edges {
     fn add(&mut self, from: Demand, to: Demand, stopped: bool) {
         self.reads.entry(from).or_default().push((to, stopped));
     }
+}
 
-    /// Everything a node reads, through the marked reads too when `all`.
-    fn closure(&self, all: bool) -> HashSet<Demand> {
-        let mut found = HashSet::default();
-        let mut work = vec![Demand::Node];
-        while let Some(d) = work.pop() {
-            if found.insert(d) {
-                let reads = self.reads.get(&d).into_iter().flatten();
-                work.extend(reads.filter(|(_, stopped)| all || !stopped).map(|(to, _)| *to));
-            }
+/// Everything `from` reads in `graphs`, through the marked reads too when
+/// `all`.
+fn closure(from: Demand, all: bool, graphs: &[&Edges]) -> HashSet<Demand> {
+    let mut found = HashSet::default();
+    let mut work = vec![from];
+    while let Some(d) = work.pop() {
+        if found.insert(d) {
+            let reads = graphs.iter().flat_map(|g| g.reads.get(&d)).flatten();
+            work.extend(reads.filter(|(_, stopped)| all || !stopped).map(|(to, _)| *to));
         }
-        found
     }
+    found
 }
 
 /// Whether `e` reads a local, a constant or a function: what a style
@@ -1039,6 +1333,8 @@ enum Demand {
     Const(ConstId),
     /// A trait method's result, whichever `impl` answers it.
     Method(TraitId, usize),
+    /// A style a node is given whose value goes through `classify`.
+    Leaf(u32),
 }
 
 /// The declaration a local belongs to.
@@ -1094,6 +1390,11 @@ struct Flow<'a> {
     reached: HashSet<Demand>,
     /// The declarations holding such a style, or a local only it reads.
     touched: HashSet<Owner>,
+    /// What reads what.
+    edges: Edges,
+    /// The locals every value of which this run sees bound: a `let`'s or a
+    /// pattern's, and the parameters of a function called only by name.
+    seen: HashSet<(Owner, LocalId)>,
 }
 
 impl<'a> Flow<'a> {
@@ -1118,6 +1419,8 @@ impl<'a> Flow<'a> {
             demanded: HashSet::default(),
             reached: HashSet::default(),
             touched: HashSet::default(),
+            edges: Edges::default(),
+            seen: HashSet::default(),
         };
         for (id, body) in walked.unsettled(bodies) {
             flow.params.insert(id, body.params.clone());
@@ -1132,15 +1435,39 @@ impl<'a> Flow<'a> {
             }
             flow.edges(Owner::Fn(id), &body.expr, Some(Demand::Ret(id)), false, &mut edges);
         }
-        flow.demanded = edges.closure(false);
-        flow.reached = edges.closure(true);
+        flow.demanded = closure(Demand::Node, false, &[&edges]);
+        flow.reached = closure(Demand::Node, true, &[&edges]);
         flow.touched = std::mem::take(&mut edges.stops);
         for d in flow.reached.difference(&flow.demanded) {
             if let Demand::Local(owner, _) = d {
                 flow.touched.insert(*owner);
             }
         }
+        // A function no one reads as a value is called only where its name is
+        // written, so every argument it is given is one this run sees. A
+        // method can be called through a bound from code this run doesn't
+        // read, and a generic parameter is not followed at all.
+        let closed = edges
+            .called
+            .iter()
+            .filter(|id| !edges.referenced.contains(*id))
+            .filter(|id| tables.fn_info(**id).impl_of.is_none())
+            .filter_map(|id| flow.params.get(id).map(|params| (*id, params)));
+        let seen: Vec<(Owner, LocalId)> = closed
+            .flat_map(|(id, params)| {
+                let typed = params.iter().zip(&tables.fn_info(id).params).filter(|(_, p)| !p.ty.has_params());
+                typed.map(move |(l, _)| (Owner::Fn(id), *l))
+            })
+            .collect();
+        flow.seen.extend(seen);
+        flow.seen.extend(edges.bound.drain(..));
+        flow.edges = edges;
         flow
+    }
+
+    /// Whether `d` is a local some value of which this run doesn't see.
+    fn open(&self, d: Demand) -> bool {
+        matches!(d, Demand::Local(o, l) if !self.seen.contains(&(o, l)))
     }
 
     /// Whether `e` is a style, or a list of them, that reads something and
@@ -1216,6 +1543,15 @@ impl<'a> Flow<'a> {
             out.stops.insert(owner);
         }
         let stopped = stopped || stops;
+        match &e.kind {
+            ExprKind::CallFn { func, .. } => {
+                out.called.insert(func.decl().or_ice("before monomorphization a callee is a declaration"));
+            }
+            ExprKind::FnRef(func) => {
+                out.referenced.insert(func.decl().or_ice("before monomorphization a callee is a declaration"));
+            }
+            _ => {}
+        }
         if let Some(d) = ctx {
             let read = match &e.kind {
                 ExprKind::Local(l) => Some(Demand::Local(owner, *l)),
@@ -1239,6 +1575,7 @@ impl<'a> Flow<'a> {
                 // Any one of them demanded demands the first, which stands for
                 // the value they were all bound from.
                 Pos::Bound(locals) => locals.first().map(|first| {
+                    out.bound.extend(locals.iter().map(|l| (owner, *l)));
                     let first = Demand::Local(owner, *first);
                     for l in locals.iter().skip(1) {
                         out.add(Demand::Local(owner, *l), first, stopped);
@@ -1258,6 +1595,23 @@ impl<'a> Flow<'a> {
             Pos::Same => sink,
             Pos::At(d) => d.is_some_and(|d| set.contains(&d)),
             Pos::Bound(locals) => locals.first().is_some_and(|l| set.contains(&Demand::Local(owner, *l))),
+        }
+    }
+
+    /// Where a child at `pos` sends its value when its parent's goes to
+    /// `parent`, if a node reads it: through a style extracted where it's
+    /// given too when `all`. A child a node is given right where its parent
+    /// is, `carries` says, is given it right there too.
+    fn sink(&self, owner: Owner, pos: &Pos, parent: Option<Sink>, carries: bool, all: bool) -> Option<Sink> {
+        let set = if all { &self.reached } else { &self.demanded };
+        match pos {
+            Pos::Same => parent.map(|p| Sink { to: p.to, site: p.site && carries }),
+            Pos::At(d) => d.filter(|d| set.contains(d)).map(|to| Sink { to, site: to == Demand::Node }),
+            Pos::Bound(locals) => locals
+                .first()
+                .map(|l| Demand::Local(owner, *l))
+                .filter(|d| set.contains(d))
+                .map(|to| Sink { to, site: false }),
         }
     }
 
@@ -1365,6 +1719,8 @@ impl<'a> Flow<'a> {
 struct Atom {
     slot: u32,
     class: String,
+    /// What `ui/style` names the class by.
+    name: String,
 }
 
 /// Last wins, per slot, resolved here rather than at run time — which is what
@@ -1910,6 +2266,10 @@ fn reset_in(con: TyConId, variant: usize, node_con: TyConId, role_con: Option<Ty
 /// blocks it renders to.
 type Declaration = (&'static str, String, Vec<(&'static str, String)>);
 
+/// How a key names a value with no bounded spelling: [`digest`] in a class,
+/// [`preimage`] in the name `ui/style`'s `classify` looks the class up by.
+type Digest = fn(&str) -> String;
+
 /// A property's class abbreviation, the injective key for its value, and the
 /// blocks it renders to.
 ///
@@ -1925,7 +2285,7 @@ type Declaration = (&'static str, String, Vec<(&'static str, String)>);
               the vocabulary and its lowering are read side by side. Splitting \
               it by section would put the ordering contract in two places."
 )]
-fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
+fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declaration> {
     let one = |property: &str, value: &str| vec![("", format!("{property}:{value}"))];
     let first = args.first();
     match variant {
@@ -2056,11 +2416,11 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
 
         // paint
         31 => {
-            let (css, key) = colour(first?)?;
+            let (css, key) = colour(first?, digest)?;
             Some(("bg", key, one("background-color", &css)))
         }
         32 => {
-            let (css, key) = colour(first?)?;
+            let (css, key) = colour(first?, digest)?;
             Some(("fg", key, one("color", &css)))
         }
         33 => {
@@ -2081,7 +2441,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             ))
         }
         35 => {
-            let (css, key) = colour(first?)?;
+            let (css, key) = colour(first?, digest)?;
             Some(("bc", key, one("border-color", &css)))
         }
         36 => {
@@ -2317,7 +2677,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
         // A colour like `Foreground`'s, which is the property that otherwise
         // reaches the caret.
         60 => {
-            let (css, key) = colour(first?)?;
+            let (css, key) = colour(first?, digest)?;
             Some(("caret", key, one("caret-color", &css)))
         }
         // Out of sight, in the tree: the "sr-only" clip. A one-pixel box out of
@@ -2412,7 +2772,7 @@ fn shadow(value: &Value) -> Option<String> {
     let (y, _) = length(fields.get(1)?)?;
     let (blur, _) = length(fields.get(2)?)?;
     let (spread, _) = length(fields.get(3)?)?;
-    let (colour, _) = colour(fields.get(4)?)?;
+    let (colour, _) = colour(fields.get(4)?, digest)?;
     Some(format!("{x} {y} {blur} {spread} {colour}"))
 }
 
@@ -2514,7 +2874,7 @@ fn length(value: &Value) -> Option<(String, String)> {
     }
 }
 
-fn colour(value: &Value) -> Option<(String, String)> {
+fn colour(value: &Value, digest: Digest) -> Option<(String, String)> {
     let (which, args) = value.as_variant()?;
     let channel = |v: Option<&Value>| -> Option<u8> {
         u8::try_from(v?.as_int()?).ok()
@@ -2542,7 +2902,7 @@ fn colour(value: &Value) -> Option<(String, String)> {
             let Value::Struct(parts) = args.first()? else { return None };
             let namespace = parts.first()?.as_str()?;
             let name = parts.get(1)?.as_str()?;
-            Some((format!("var(--{namespace}-{name})"), token_key(namespace, name)))
+            Some((format!("var(--{namespace}-{name})"), token_key(namespace, name, digest)))
         }
         3 => Some(("transparent".into(), "none".into())),
         4 => Some(("inherit".into(), "inherit".into())),
@@ -2557,7 +2917,7 @@ fn colour(value: &Value) -> Option<(String, String)> {
             let percent = number(args.get(1)?.as_float()? * 100.0)?;
             Some((
                 format!("color-mix(in srgb,var(--{namespace}-{name}) {percent}%,transparent)"),
-                format!("{}a{}", token_key(namespace, name), number_key(&a)),
+                format!("{}a{}", token_key(namespace, name, digest), number_key(&a)),
             ))
         }
         _ => None,
@@ -2572,7 +2932,7 @@ fn colour(value: &Value) -> Option<(String, String)> {
 /// alphabet than a string does and two different tokens must never be handed
 /// one class. The separator is a byte no Buri identifier holds, so the digest
 /// cannot be made to collide by choosing names that run together.
-fn token_key(namespace: &str, name: &str) -> String {
+fn token_key(namespace: &str, name: &str, digest: Digest) -> String {
     let plain = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric());
     if plain(namespace) && plain(name) {
         format!("t_{namespace}_{name}")
@@ -2652,6 +3012,12 @@ fn digest(text: &str) -> String {
     full.get(..8).unwrap_or(&full).to_string()
 }
 
+/// What `ui/style` names a digested value by, since it has no hash of its own:
+/// the text, behind a `#` no class holds.
+fn preimage(text: &str) -> String {
+    format!("#{text}")
+}
+
 // ---------------------------------------------------------------------------
 // Walking
 // ---------------------------------------------------------------------------
@@ -2723,8 +3089,17 @@ pub struct Reached {
 /// Read after monomorphization, over the functions a program actually kept.
 /// One walk for every question, each asked only of a type the compilation
 /// loaded, so a program that is not a user interface finds nothing.
-pub fn survey(e: &mut typed::Expr, ui: UiTypes, out: &mut Reached) {
-    match &e.kind {
+///
+/// A style left standing as a value, which [`run`] noted in `sources`, counts
+/// as the classes it stands for. A call to a `classify` in `unchecked` is told
+/// the compiler did not see every value it can be given, so a build that is
+/// not a test's never stops on one.
+pub fn survey(e: &mut typed::Expr, ui: UiTypes, sources: &Sources, unchecked: &[FuncIdx], out: &mut Reached) {
+    if let Some(classes) = sources.get(&e.span) {
+        out.classes.extend(classes.iter().cloned());
+        return;
+    }
+    match &mut e.kind {
         ExprKind::EnumLit { con, variant, args, .. } => {
             if Some(*con) == ui.style {
                 collect(*variant, args, out);
@@ -2735,9 +3110,13 @@ pub fn survey(e: &mut typed::Expr, ui: UiTypes, out: &mut Reached) {
             }
         }
         ExprKind::StructLit { con, .. } if Some(*con) == ui.theme => out.themes = true,
+        ExprKind::CallFn { func: typed::Callee::Func(f), args } if unchecked.contains(f) => {
+            let strict = args.last_mut().or_ice("`classify` is given strictness last");
+            strict.kind = ExprKind::Bool(false);
+        }
         _ => {}
     }
-    typed::children_mut(e, &mut |child| survey(child, ui, out));
+    typed::children_mut(e, &mut |child| survey(child, ui, sources, unchecked, out));
 }
 
 /// The styles one `Style` literal names, gathered for [`Reached`].
@@ -2769,10 +3148,8 @@ fn collect(variant: usize, args: &[typed::Expr], out: &mut Reached) {
         }
         // `Group` is transparent and `When` holds two lists that were
         // extracted like any other; neither is a property of its own.
-        // `On` and `At` exist only in the stylesheet — one that reached
-        // the runtime aborts there — so they are not the inline tier
-        // either, and the checker has already refused the shapes that
-        // could produce one.
+        // `On` and `At` exist only in the stylesheet: one a node is given is
+        // extracted, or goes through `classify`, which makes it classes.
         STYLE_GROUP | STYLE_WHEN | STYLE_ON | STYLE_AT => {}
         other => {
             out.inline = true;
