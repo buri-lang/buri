@@ -290,9 +290,10 @@ pub struct Program {
     /// What a repository platform's `js` file stands in for: the methods it
     /// implements, and what the artifact hands it.
     pub hosted: Hosted,
-    /// The declaration and type arguments each generic instantiation was built
-    /// from, by slot in [`Program::funcs`]. Only `buri test --coverage=mcdc`
-    /// reads it, to name the instantiation a branch ran in.
+    /// The declaration and type arguments each function was built from, by slot
+    /// in [`Program::funcs`], with none for a function that isn't generic. Only
+    /// `buri test --coverage=mcdc` reads it, to name the instantiation a branch
+    /// ran in and to read decisions off the code the probes go in.
     pub instances: HashMap<usize, (FnId, Vec<Ty>)>,
 }
 
@@ -672,7 +673,7 @@ pub fn run(
         .index
         .iter()
         .filter_map(|(key, slot)| match key {
-            Key::Fn(f, targs) if !targs.is_empty() => Some((*slot, (*f, targs.clone()))),
+            Key::Fn(f, targs) => Some((*slot, (*f, targs.clone()))),
             _ => None,
         })
         .collect();

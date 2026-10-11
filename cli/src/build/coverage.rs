@@ -160,13 +160,19 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
     let mut files: BTreeMap<String, Universe> = BTreeMap::new();
     let mut lines: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
 
-    // Under MC/DC, each instantiation of a generic function is its own.
+    // Under MC/DC, each instantiation of a generic function is its own, and a
+    // function that was built reads its decisions off the code the probes go
+    // in: a `==` that's a call when checked can be none once built.
     let mut instances: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
-    let mut instantiated: HashSet<FnId> = HashSet::new();
+    let mut built: HashMap<FnId, Vec<usize>> = HashMap::new();
     if mcdc {
         for (&slot, (id, targs)) in &program.instances {
             let info = tables.fn_info(*id);
             if !user.contains(&info.span.file) {
+                continue;
+            }
+            built.entry(*id).or_default().push(slot);
+            if targs.is_empty() {
                 continue;
             }
             let shown: Vec<String> = targs.iter().map(|t| types::show(tables, None, &[], t)).collect();
@@ -176,7 +182,6 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
                 shown.join(", ")
             };
             instances.insert(slot, label);
-            instantiated.insert(*id);
         }
     }
     let mut note = |body: &typed::Expr, instance: Instance, traps: Option<&dyn Fn(&typed::Expr) -> bool>| {
@@ -227,7 +232,7 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
             note(&body.expr, None, None);
             continue;
         }
-        if instantiated.contains(&id) {
+        if built.contains_key(&id) {
             continue;
         }
         let instance = (!tables.fn_info(id).generics.is_empty()).then(String::new);
@@ -241,9 +246,9 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
                 .is_some_and(|f| name_of(f.span).is_none() && coverage::aborts(f)),
             _ => false,
         };
-        for (slot, label) in &instances {
-            if let Some(body) = program.funcs.get(*slot).and_then(|f| f.body()) {
-                note(body, Some(label.clone()), Some(&mono_traps));
+        for &slot in built.values().flatten() {
+            if let Some(body) = program.funcs.get(slot).and_then(|f| f.body()) {
+                note(body, instances.get(&slot).cloned(), Some(&mono_traps));
             }
         }
     }

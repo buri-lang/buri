@@ -1,7 +1,7 @@
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
-from "//lib/d" import { Box, Point, Shape };
+from "//lib/d" import { Box, Point, sameWhen, Shape };
 
 test "points" {
     let p = Point { x: 1, y: 2 };
@@ -26,4 +26,11 @@ test "boxes" {
         Box { inner: "x", label: "a" } == Box { inner: "y", label: "a" },
         false,
     );
+}
+
+test "an equality in tail position" {
+    let p = Point { x: 1, y: 2 };
+    assert.equal(sameWhen(true, p, p), true);
+    assert.equal(sameWhen(true, p, Point { x: 3, y: 2 }), false);
+    assert.equal(sameWhen(false, p, p), false);
 }
