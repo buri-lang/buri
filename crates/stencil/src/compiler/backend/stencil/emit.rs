@@ -43,6 +43,7 @@ use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
 use crate::compiler::middle::layout::{EnumRepr, Repr};
 use crate::compiler::semantics::types::{Prim, Ty, TyKind};
+use crate::diagnostics::Invariant;
 
 /// How deep an inline reference-count walk goes.
 ///
@@ -316,7 +317,7 @@ impl<'a> Jit<'a> {
                 let ftys = field_types(self.tables, owner);
                 for (i, f) in fields.iter().enumerate() {
                     let w = self.width_of(prog, code.ty_of(*f));
-                    if w == 0 || i >= l.fields.len() {
+                    if w == 0 {
                         continue;
                     }
                     let off = l.field(i);
@@ -335,16 +336,14 @@ impl<'a> Jit<'a> {
                     _ => return self.unsupported("GetField of a non-aggregate".into()),
                 };
                 let w = self.width_of(prog, code.ty_of(*dest));
-                if (*index as usize) < l.fields.len() {
-                    let off = l.field(*index as usize);
-                    let src = st.at(*agg) + off;
-                    let fty = self.field_ty(owner, None, *index as usize);
-                    if fty.is_some_and(|t| self.boxes(owner, &t)) {
-                        self.unbox_from(st, st.at(*dest), src, w);
-                        return;
-                    }
-                    self.load_w(st.at(*dest), src, w);
+                let off = l.field(*index as usize);
+                let src = st.at(*agg) + off;
+                let fty = self.field_ty(owner, None, *index as usize);
+                if fty.is_some_and(|t| self.boxes(owner, &t)) {
+                    self.unbox_from(st, st.at(*dest), src, w);
+                    return;
                 }
+                self.load_w(st.at(*dest), src, w);
             }
             Inst::MakeEnum { dest, variant, fields } => {
                 self.make_enum(prog, code, st, *dest, *variant, fields)
@@ -384,16 +383,14 @@ impl<'a> Jit<'a> {
                 // separates the environment parameter from a value one: a
                 // capture-free lambda still has a leading parameter, of the
                 // unit type, and a plain `FnRef` has none at all.
-                let want = match code.ty_of(*dest) {
+                let args = match code.ty_of(*dest) {
                     ir::Type::Agg(id) => match prog.type_info(id).ty.kind() {
                         TyKind::Fn(ps, _) => Some(ps.len()),
                         _ => None,
                     },
                     _ => None,
-                };
-                let Some(args) = want else {
-                    return self.unsupported("MakeClosure of a value that is not a function".into());
-                };
+                }
+                .or_ice("a closure's IR type is a function's (middle/ir.rs)");
                 let thunk = self.helper(super::glue::Helper::Thunk {
                     func: func.0,
                     args: args as u32,
@@ -430,9 +427,7 @@ impl<'a> Jit<'a> {
             Inst::MakeArray { dest, elems } => {
                 // One allocation and `n` stores (VALUE-MODEL.md §4).
                 let d0 = st.at(*dest);
-                let Some(stride) = self.array_stride(prog, code.ty_of(*dest)) else {
-                    return self.unsupported("MakeArray of a non-list".into());
-                };
+                let stride = self.array_stride(prog, code.ty_of(*dest));
                 // One block of `n * stride` bytes with VALUE-MODEL.md §2's
                 // header, and the count beside it; the elements are stored
                 // below. `elemalloc` is `buri_rt_alloc` behind the
@@ -482,9 +477,7 @@ impl<'a> Jit<'a> {
             // and nothing else. A register-machine backend spells the same
             // three pieces; `eload` is the three of them as one stencil.
             Inst::ArrayGet { dest, array, index } => {
-                let Some((stride, w, _)) = self.array_elem(prog, code.ty_of(*array)) else {
-                    return self.unsupported("ArrayGet of a non-array".into());
-                };
+                let (stride, w, _) = self.array_elem(prog, code.ty_of(*array));
                 // The pointer is read where it lives, unless the destination
                 // shares its slot: a narrow element clears its destination
                 // first, which would clear the pointer.
@@ -505,9 +498,7 @@ impl<'a> Jit<'a> {
             // The count goes through scratch first, because the destination's
             // slot may be the one the count dies in.
             Inst::ArrayAlloc { dest, len } => {
-                let Some(stride) = self.array_stride(prog, code.ty_of(*dest)) else {
-                    return self.unsupported("ArrayAlloc of a non-list".into());
-                };
+                let stride = self.array_stride(prog, code.ty_of(*dest));
                 let (d, n) = (st.at(*dest), st.scratch);
                 self.mv(n, st.at(*len), 8);
                 self.emit(
@@ -522,9 +513,7 @@ impl<'a> Jit<'a> {
                 self.mv(d + 8, n, 8);
             }
             Inst::ArraySet { array, index, value } => {
-                let Some((stride, w, _)) = self.array_elem(prog, code.ty_of(*array)) else {
-                    return self.unsupported("ArraySet of a non-array".into());
-                };
+                let (stride, w, _) = self.array_elem(prog, code.ty_of(*array));
                 self.elem_store(st.at(*value), st.at(*array), st.at(*index), stride, w);
             }
             // `elemalloc` zeroes the block, so the elements past `len` are the
@@ -542,13 +531,8 @@ impl<'a> Jit<'a> {
             // one. Every element is retained on the way out, so the counts
             // balance against the copy's own eventual release.
             Inst::ArraySlice { dest, array, from } => {
-                let Some((stride, _, _)) = self.array_elem(prog, code.ty_of(*array)) else {
-                    return self.unsupported("ArraySlice of a non-array".into());
-                };
-                let glue = match self.element_of(prog, code.ty_of(*array)) {
-                    Some(elem) => self.element_glue(elem),
-                    None => None,
-                };
+                let (stride, _, _) = self.array_elem(prog, code.ty_of(*array));
+                let glue = self.element_glue(super::lists::element_of(prog, code.ty_of(*array)));
                 let src = st.at(*array);
                 let dst = st.at(*dest);
                 // `buri_rt_list_slice(ptr, len, start, end, stride, retain,
@@ -2430,11 +2414,9 @@ impl<'a> Jit<'a> {
     }
 
     /// The stride of `[T]`'s element, for an IR type that is a `[T]`.
-    pub(crate) fn array_stride(&mut self, prog: &ir::Program, t: ir::Type) -> Option<u64> {
-        let ir::Type::Agg(id) = t else { return None };
-        let ty = prog.type_info(id).ty;
-        let crate::compiler::semantics::types::TyKind::Array(elem) = ty.kind() else { return None };
-        Some(u64::from(self.layouts_of(*elem).stride.max(1)))
+    pub(crate) fn array_stride(&mut self, prog: &ir::Program, t: ir::Type) -> u64 {
+        let elem = super::lists::element_of(prog, t);
+        u64::from(self.layouts_of(elem).stride.max(1))
     }
 }
 
