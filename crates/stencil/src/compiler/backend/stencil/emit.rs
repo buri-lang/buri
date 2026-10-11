@@ -35,7 +35,7 @@ enum RSrc {
     Reg(u8),
     Slot(u32),
 }
-use super::jit::{Fn2, Jit, Plan, V};
+use super::jit::{agg_of, enum_of, Fn2, Jit, Plan, V};
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
 use super::glue::Helper;
 use super::runtime;
@@ -71,6 +71,19 @@ const RC_LIGHT: u32 = 4;
 /// function makes a reference operation per arm or per field it reads, so
 /// writing each one out made a match over `n` counted variants `n²` code.
 const RC_OUT_OF_LINE: u32 = 16;
+
+/// [`prim_tag`] where the operation makes the type numeric: `core/number` and
+/// `Ordered` at a primitive, never at `Str`.
+pub fn num_tag(p: Prim) -> (&'static str, u32, bool) {
+    prim_tag(p).or_ice("a numeric operation is at a type with a stencil tag")
+}
+
+/// The aggregate a function answers, for a `Body::Runtime` whose signature
+/// makes it one.
+fn ret_agg(prog: &ir::Program, fi: usize) -> ir::TypeId {
+    let ret = prog.funcs.get(fi).and_then(|f| f.sig.rets.first().copied());
+    agg_of(ret.or_ice("a runtime body is one of its program's functions, with a result"))
+}
 
 pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
     Some(match p {
@@ -704,24 +717,19 @@ impl<'a> Jit<'a> {
         arg: ir::ValueId,
         dest: ir::ValueId,
     ) -> Result<(), String> {
-        let ir::Type::Agg(id) = code.ty_of(dest) else {
-            return Err(String::from("a `derive ToJson` whose result is not an aggregate"));
-        };
+        let id = agg_of(code.ty_of(dest));
         let owner = prog.type_info(id).ty;
         let arm = json_arm(prim);
-        let Some(variant) = json_variant(self.tables, &owner, arm) else {
-            return Err(format!(
-                "a `derive ToJson` answering `{}`, which is not `core/json`'s `Json`",
-                prog.type_info(id).name
-            ));
-        };
+        let variant = json_variant(self.tables, &owner, arm)
+            .or_ice("a `derive ToJson` answers `core/json`'s `Json`");
         let l = self.layout_id_shared(prog, id);
-        let Repr::Enum { repr: EnumRepr::Tagged { tag, .. }, variants } = &l.repr else {
-            return Err(String::from("a `Json` whose layout is not a tagged enum"));
-        };
-        let Some(off) = variants.get(variant).and_then(|v| v.first()).copied() else {
-            return Err(String::from("a `Json` arm that carries no payload"));
-        };
+        let (repr, _) = enum_of(&l);
+        let tag = match repr {
+            EnumRepr::Tagged { tag, .. } => Some(*tag),
+            _ => None,
+        }
+        .or_ice("`Json` is a tagged enum");
+        let off = *l.variant(variant).first().or_ice("each `Json` arm a primitive takes carries a payload");
         let (d, a) = (st.at(dest), st.at(arg));
         self.imm_w(d, tag.size(), variant as u64);
         match arm {
@@ -819,15 +827,10 @@ impl<'a> Jit<'a> {
         dest: ir::ValueId,
         agg: ir::ValueId,
     ) {
-        let l = match code.ty_of(agg) {
-            ir::Type::Agg(id) => self.layout_id_shared(prog, id),
-            _ => return self.unsupported("GetTag of a non-aggregate".into()),
-        };
+        let l = self.layout_id_shared(prog, agg_of(code.ty_of(agg)));
         let d = st.at(dest);
         let a = st.at(agg);
-        let Repr::Enum { repr, variants } = &l.repr else {
-            return self.unsupported("GetTag of a non-enum layout".into());
-        };
+        let (repr, variants) = enum_of(&l);
         match repr {
             EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => {
                 self.load_w(d, a, tag.size())
@@ -864,6 +867,7 @@ impl<'a> Jit<'a> {
         value: ir::ValueId,
         op: Op,
     ) {
+        // A scalar has no counts.
         let ir::Type::Agg(id) = code.ty_of(value) else { return };
         // Borrowed, not cloned: a `Ty` is a tree and this is asked once per
         // reference operation in the program, which is the most common
@@ -1175,9 +1179,7 @@ impl<'a> Jit<'a> {
         if matches!(prim, Prim::Str | Prim::Template) {
             return self.str_binary(st, dest, op, lhs, rhs);
         }
-        let Some((tag, bits, signed)) = prim_tag(prim) else {
-            return self.unsupported(format!("Binary at {prim:?}"));
-        };
+        let (tag, bits, signed) = num_tag(prim);
         let name = op.name();
         let d = st.at(dest);
         let a = st.at(lhs);
@@ -1290,9 +1292,7 @@ impl<'a> Jit<'a> {
                 &[("JIT_A", V::I(a as u64)), ("JIT_D", V::I(d as u64)), ("JIT_CONT", V::Fall)],
             );
         }
-        let Some((tag, _, _)) = prim_tag(prim) else {
-            return self.unsupported(format!("Unary at {prim:?}"));
-        };
+        let (tag, _, _) = num_tag(prim);
         let name = if op == UnOp::Neg { "neg" } else { "bnot" };
         let key = key!["un/", name, "/", tag, "/", st.loc(arg).tag(), "/", st.home(dest).tag()];
         if !self.has(&key) && (st.loc(arg) != Loc::Frame || st.home(dest) != Loc::Frame) {
@@ -1804,22 +1804,16 @@ impl<'a> Jit<'a> {
         agg: ir::ValueId,
     ) -> (u32, u32, bool) {
         let base = st.at(agg);
-        if let ir::Type::Agg(id) = code.ty_of(agg) {
-            let l = self.layout_id_shared(prog, id);
-            if let Repr::Enum { repr, variants } = &l.repr {
-                return match repr {
-                    EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => {
-                        (base, tag.size(), false)
-                    }
-                    EnumRepr::Niche { null_at } => (
-                        base + null_at,
-                        variants.iter().position(|v| v.is_empty()).unwrap_or(1) as u32,
-                        true,
-                    ),
-                };
-            }
+        let l = self.layout_id_shared(prog, agg_of(code.ty_of(agg)));
+        let (repr, variants) = enum_of(&l);
+        match repr {
+            EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => (base, tag.size(), false),
+            EnumRepr::Niche { null_at } => (
+                base + null_at,
+                variants.iter().position(|v| v.is_empty()).unwrap_or(1) as u32,
+                true,
+            ),
         }
-        (base, 8, false)
     }
 
     /// A jump to a block that is nothing but a fused compare-and-branch — a
@@ -2262,34 +2256,33 @@ impl<'a> Jit<'a> {
                     }
                     return;
                 }
-                if let Some((tag, _, _)) = prim_tag(prim) {
-                    let binkey = key!["bin/", stencil_op(op), "/", tag, "/ff/f"];
-                    if nrets == 1 && self.has(&binkey) && fs.params.len() == 2 {
-                        self.emit(
-                            &binkey,
-                            &[
-                                ("JIT_A", V::I(p(0) as u64)),
-                                ("JIT_B", V::I(p(1) as u64)),
-                                ("JIT_D", V::I(ret0 as u64)),
-                                ("JIT_CONT", V::Fall),
-                                ("JIT_CONT0", V::Fall),
-                            ],
-                        );
-                        self.emit("ret", &[]);
-                        return;
-                    }
-                    if op == "negate" && fs.params.len() == 1 {
-                        self.emit(
-                            &key!["un/neg/", tag, "/f/f"],
-                            &[
-                                ("JIT_A", V::I(p(0) as u64)),
-                                ("JIT_D", V::I(ret0 as u64)),
-                                ("JIT_CONT", V::Fall),
-                            ],
-                        );
-                        self.emit("ret", &[]);
-                        return;
-                    }
+                let (tag, _, _) = num_tag(prim);
+                let binkey = key!["bin/", stencil_op(op), "/", tag, "/ff/f"];
+                if nrets == 1 && self.has(&binkey) && fs.params.len() == 2 {
+                    self.emit(
+                        &binkey,
+                        &[
+                            ("JIT_A", V::I(p(0) as u64)),
+                            ("JIT_B", V::I(p(1) as u64)),
+                            ("JIT_D", V::I(ret0 as u64)),
+                            ("JIT_CONT", V::Fall),
+                            ("JIT_CONT0", V::Fall),
+                        ],
+                    );
+                    self.emit("ret", &[]);
+                    return;
+                }
+                if op == "negate" && fs.params.len() == 1 {
+                    self.emit(
+                        &key!["un/neg/", tag, "/f/f"],
+                        &[
+                            ("JIT_A", V::I(p(0) as u64)),
+                            ("JIT_D", V::I(ret0 as u64)),
+                            ("JIT_CONT", V::Fall),
+                        ],
+                    );
+                    self.emit("ret", &[]);
+                    return;
                 }
             }
         }
@@ -2569,7 +2562,7 @@ impl Jit<'_> {
     /// `chk/<op>/<tag>` — the result and the overflow flag. Answers `false`
     /// for an operation or a width there is no stencil for.
     fn overflowing(&mut self, st: &Fn2, prim: Prim, kind: &str, a: u32, b: u32) -> bool {
-        let Some((tag, _, _)) = prim_tag(prim) else { return false };
+        let (tag, _, _) = num_tag(prim);
         if !prim.is_integer() {
             return false;
         }
@@ -2623,11 +2616,8 @@ impl Jit<'_> {
         b: u32,
         dest: u32,
     ) -> bool {
-        let Some((_, bits, _)) = prim_tag(prim) else { return false };
-        let Some(ir::Type::Agg(id)) = prog.funcs.get(fi).and_then(|f| f.sig.rets.first().copied())
-        else {
-            return false;
-        };
+        let (_, bits, _) = num_tag(prim);
+        let id = ret_agg(prog, fi);
         let l = self.layout_id_shared(prog, id);
         if !self.overflowing(st, prim, kind, a, b) {
             return false;
@@ -2693,14 +2683,13 @@ impl Jit<'_> {
         dest: u32,
     ) -> Result<(), String> {
         let refuse = || format!("Body::Runtime number.{}.to{}", from.name(), to.name());
-        let Some(kind) = checked_kind(from, to) else { return Err(refuse()) };
-        let Some(ir::Type::Agg(id)) = prog.funcs.get(fi).and_then(|f| f.sig.rets.first().copied())
-        else {
-            return Err(refuse());
-        };
-        let ty = prog.type_info(id).ty;
-        let TyKind::Con(_, arguments) = ty.kind() else { return Err(refuse()) };
-        let Some(error_ty) = arguments.get(1).cloned() else { return Err(refuse()) };
+        let kind = checked_kind(from, to).or_ice("a checked conversion is between two numbers");
+        let ty = prog.type_info(ret_agg(prog, fi)).ty;
+        let error_ty = match ty.kind() {
+            TyKind::Con(_, arguments) => arguments.get(1).copied(),
+            _ => None,
+        }
+        .or_ice("a checked conversion answers `Result<T, ConversionError>`");
         let result = self.layout_of_type(ty);
         // A niche layout puts both payloads at the same offset, and this writes
         // one of two payloads — so it is refused rather than guessed at.
@@ -2725,11 +2714,9 @@ impl Jit<'_> {
             // Integer to integer. The test is at the **source's** width, and a
             // bound the source cannot reach is not tested at all.
             CheckedKind::Ints => {
-                let (Some((tag, _, _)), Some((from_lo, from_hi)), Some((to_lo, to_hi))) =
-                    (prim_tag(from), from.int_range(), to.int_range())
-                else {
-                    return Err(refuse());
-                };
+                let (tag, _, _) = num_tag(from);
+                let (from_lo, from_hi) = from.int_range().or_ice("an integer has a range");
+                let (to_lo, to_hi) = to.int_range().or_ice("an integer has a range");
                 for (op, needed, pattern) in
                     [("lt", to_lo > from_lo, to_lo as u128), ("gt", to_hi < from_hi, to_hi)]
                 {
@@ -2755,10 +2742,8 @@ impl Jit<'_> {
             // doubles and `v >= hi + 1` is the same question with an answer.
             CheckedKind::FloatToInt => {
                 let v = self.as_f64(st, from, src);
-                let (Some((to_lo, to_hi)), Some((_, tw, _))) = (to.int_range(), prim_tag(to))
-                else {
-                    return Err(refuse());
-                };
+                let (to_lo, to_hi) = to.int_range().or_ice("an integer has a range");
+                let (_, tw, _) = num_tag(to);
                 #[allow(
                     clippy::cast_precision_loss,
                     reason = "every integer type's lower bound is zero or a negative power \
@@ -2791,7 +2776,7 @@ impl Jit<'_> {
             // than a range: everything above U+10FFFF is out, and so is the
             // surrogate block in the middle of it (`runtime.js`'s `$toChar`).
             CheckedKind::ToChar => {
-                let Some((tag, _, _)) = prim_tag(from) else { return Err(refuse()) };
+                let (tag, _, _) = num_tag(from);
                 let scalar = st.label();
                 self.imm_num(bound, from, 0x0010_ffff);
                 self.cmp_to(tag, "gt", src, bound, verdict, err, true);
@@ -2931,7 +2916,7 @@ impl Jit<'_> {
         b: u32,
         dest: u32,
     ) -> bool {
-        let Some((tag, _, signed)) = prim_tag(prim) else { return false };
+        let (tag, _, signed) = num_tag(prim);
         // Division cannot saturate: its only failures are a zero divisor and
         // `MIN / -1`, and neither has an end to run off.
         if kind == "Divide" || !self.overflowing(st, prim, kind, a, b) {
@@ -3080,7 +3065,7 @@ impl Jit<'_> {
     /// cleared, which is exact for every value including the infinities and
     /// leaves a NaN a NaN.
     fn abs_signum(&mut self, st: &mut Fn2, prim: Prim, abs: bool, a: u32, dest: u32) -> bool {
-        let Some((tag, bits, signed)) = prim_tag(prim) else { return false };
+        let (tag, bits, signed) = num_tag(prim);
         let mask = if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 };
         // A sign test at sixteen bytes reads the high half, which the `signum`
         // comparisons below cannot: they are `bin/{lt,gt}/{tag}/fi/f` and there
@@ -3188,9 +3173,7 @@ impl Jit<'_> {
     /// operand's *own* type, so a signed compare is signed and a `Float`'s is
     /// `fcmp`.
     fn compare_prim(&mut self, st: &mut Fn2, prim: Prim, a: u32, b: u32, dest: u32, w: u32) {
-        let Some((tag, _, _)) = prim_tag(prim) else {
-            return self.unsupported(format!("Ordered::compare at `{}`", prim.name()));
-        };
+        let (tag, _, _) = num_tag(prim);
         if prim.is_float() {
             return self.compare_float(st, prim, a, b, dest, w);
         }
@@ -3233,7 +3216,7 @@ impl Jit<'_> {
     /// other, so `x == NaN` is how a NaN is found, and `1 / x` is how a zero's
     /// sign is read.
     fn compare_float(&mut self, st: &mut Fn2, prim: Prim, a: u32, b: u32, dest: u32, w: u32) {
-        let Some((tag, _, _)) = prim_tag(prim) else { return };
+        let (tag, _, _) = num_tag(prim);
         let word = |k: u32| st.scratch + (super::rtcall::RAW_WORD + k) * 8;
         let (raw, constant, ia, ib) = (word(0), word(1), word(2), word(3));
         let (one, nan) = if prim == Prim::F32 {
@@ -3349,10 +3332,8 @@ impl Jit<'_> {
         src: u32,
         dest: u32,
     ) -> Result<(), String> {
-        let (Some((ftag, fw, fsigned)), Some((ttag, tw, _))) = (prim_tag(from), prim_tag(to))
-        else {
-            return Err(format!("a conversion at `{}` or `{}`", from.name(), to.name()));
-        };
+        let (ftag, fw, fsigned) = num_tag(from);
+        let (ttag, tw, _) = num_tag(to);
         // The sixteen-byte types, first, because everything below assumes a
         // value that fits one frame word.
         if fw == 128 || tw == 128 {

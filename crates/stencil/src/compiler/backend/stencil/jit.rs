@@ -548,20 +548,40 @@ fn ent<T: Copy>(t: &[T], i: usize, d: T) -> T {
     t.get(i).copied().unwrap_or(d)
 }
 
+/// The aggregate an IR value's type names, where its instruction or its
+/// function's signature makes it one (`middle/ir.rs`).
+pub(crate) fn agg_of(t: ir::Type) -> ir::TypeId {
+    match t {
+        ir::Type::Agg(id) => Some(id),
+        _ => None,
+    }
+    .or_ice("the IR gives this value an aggregate type")
+}
+
+/// An enum's representation and its variants' field offsets, for a layout the
+/// IR says is an enum's.
+pub(crate) fn enum_of(l: &Layout) -> (&EnumRepr, &[Vec<u32>]) {
+    match &l.repr {
+        Repr::Enum { repr, variants } => Some((repr, variants.as_slice())),
+        _ => None,
+    }
+    .or_ice("the IR gives this value an enum's layout")
+}
+
 /// Sets entry `i` of a side table.
 fn put<T>(t: &mut [T], i: usize, x: T) {
-    *slot(t, i) = x;
+    *ent_mut(t, i) = x;
 }
 
 /// Entry `i` of a side table, which has one entry per value, block or function
 /// of the code it was sized for.
-fn slot<T>(t: &mut [T], i: usize) -> &mut T {
+fn ent_mut<T>(t: &mut [T], i: usize) -> &mut T {
     t.get_mut(i).or_ice("a side table has an entry for every index of its code")
 }
 
 /// One more use recorded against entry `i`.
 fn bump(t: &mut [u32], i: usize) {
-    *slot(t, i) += 1;
+    *ent_mut(t, i) += 1;
 }
 
 /// A literal zero on the right of an integer `/` or `%`, which is the one
@@ -601,7 +621,7 @@ impl Default for BlockUses {
 /// Records a use of `o` at instruction `at` of block `block`. Uses arrive in
 /// instruction order, so the latest is the last.
 fn note_use(uses: &mut [BlockUses], block: u32, o: &ir::ValueId, at: usize) {
-    let u = slot(uses, o.index());
+    let u = ent_mut(uses, o.index());
     if u.block == block {
         u.count += 1;
         u.last = at;
@@ -1106,7 +1126,7 @@ impl Lists {
         self.next.clear();
         self.next.extend_from_slice(self.at.get(..n).unwrap_or_default());
         for (l, x) in pairs() {
-            let k = slot(&mut self.next, l);
+            let k = ent_mut(&mut self.next, l);
             let at = *k as usize;
             *k += 1;
             put(&mut self.items, at, x as u32);
@@ -2028,24 +2048,14 @@ impl<'a> Jit<'a> {
         for (v, pinned) in pin.iter().enumerate() {
             let Some(p) = *pinned else { continue };
             let r = find(&uf, v as u32) as usize;
-            let Some(root) = of_root.get_mut(r) else { continue };
-            // Two pinned offsets in one class would mean two values with
-            // fixed, different homes had been merged, and the second would
-            // silently win. `coalesce` refuses those merges; this says so
-            // rather than trusting it.
-            if root.is_some_and(|o| o != p) {
-                crate::diagnostics::ice(&format!(
-                    "stencil: slot class {r} is pinned at two offsets ({root:?} and {p})"
-                ));
-            }
-            *root = Some(p);
+            // `coalesce` never merges two classes pinned at different offsets.
+            put(&mut of_root, r, Some(p));
         }
         let mut wide = table(&mut self.bufs.wide, n, 0);
         for (v, w) in width.iter().enumerate() {
             let r = find(&uf, v as u32) as usize;
-            if let Some(x) = wide.get_mut(r) {
-                *x = (*x).max(*w);
-            }
+            let x = ent_mut(&mut wide, r);
+            *x = (*x).max(*w);
         }
         *slot = table(slot, n, 0);
         for (v, s) in slot.iter_mut().enumerate() {
@@ -2180,12 +2190,10 @@ impl<'a> Jit<'a> {
                 }
                 let (dest, fields, l, variant) = match i {
                     ir::Inst::MakeStruct { dest, fields } => {
-                        let ir::Type::Agg(id) = code.ty_of(*dest) else { continue };
-                        (*dest, fields, self.layout_of(prog, id), None)
+                        (*dest, fields, self.layout_of(prog, agg_of(code.ty_of(*dest))), None)
                     }
                     ir::Inst::MakeEnum { dest, variant, fields } => {
-                        let ir::Type::Agg(id) = code.ty_of(*dest) else { continue };
-                        let l = self.layout_of(prog, id);
+                        let l = self.layout_of(prog, agg_of(code.ty_of(*dest)));
                         if matches!(&l.repr, Repr::Enum { repr: EnumRepr::Bare { .. }, .. }) {
                             continue;
                         }
@@ -2193,8 +2201,7 @@ impl<'a> Jit<'a> {
                     }
                     _ => continue,
                 };
-                let ir::Type::Agg(id) = code.ty_of(dest) else { continue };
-                let owner = prog.type_info(id).ty;
+                let owner = prog.type_info(agg_of(code.ty_of(dest))).ty;
                 let offs: &[u32] = match variant {
                     None => &l.fields,
                     Some(v) => l.variant(v),
@@ -2205,7 +2212,7 @@ impl<'a> Jit<'a> {
                 let root = find(uf, dest.0);
                 let in_class = |v: &ir::ValueId| find(uf, v.0) == root;
                 for (fi, f) in fields.iter().enumerate() {
-                    let Some(&off) = offs.get(fi) else { continue };
+                    let off = *offs.get(fi).or_ice("a constructor has a field per offset");
                     let w = self.width(prog, code.ty_of(*f));
                     if w == 0
                         || !w.is_multiple_of(8)
@@ -2328,9 +2335,9 @@ impl<'a> Jit<'a> {
         for (bi, b) in code.blocks.iter().enumerate() {
             for (j, i) in b.insts.iter().enumerate() {
                 let ir::Inst::GetField { dest, agg, index } = i else { continue };
-                let ir::Type::Agg(id) = code.ty_of(*agg) else { continue };
+                let id = agg_of(code.ty_of(*agg));
                 let l = self.layout_of(prog, id);
-                let Some(&off) = l.fields.get(*index as usize) else { continue };
+                let off = l.field(*index as usize);
                 let w = self.width(prog, code.ty_of(*dest));
                 let owner = prog.type_info(id).ty;
                 if w == 0
@@ -3259,12 +3266,11 @@ impl<'a> Jit<'a> {
             for i in &block.insts {
                 if let ir::Inst::Binary { op, prim, rhs, .. } = i {
                     if let Some(k) = ent(constants, rhs.index(), None) {
-                        if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
-                            let name = op.name();
-                            let key = key!["bin/", name, "/", tag, "/fi/f"];
-                            if self.has(&key) && !zero_divisor(name, tag, k) {
-                                bump(&mut imm, rhs.index());
-                            }
+                        let (tag, _, _) = super::emit::num_tag(*prim);
+                        let name = op.name();
+                        let key = key!["bin/", name, "/", tag, "/fi/f"];
+                        if self.has(&key) && !zero_divisor(name, tag, k) {
+                            bump(&mut imm, rhs.index());
                         }
                     }
                 }
@@ -3315,12 +3321,11 @@ impl<'a> Jit<'a> {
                         } else {
                             st.loc(*rhs).tag()
                         };
-                        if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
-                            let key = key!["brcmp/", op.name(), "/", tag, "/", a, b];
-                            if self.has(&key) {
-                                put(&mut p.skip, k, true);
-                                p.cmpbr = Some((*op, *prim, *lhs, *rhs));
-                            }
+                        let (tag, _, _) = super::emit::num_tag(*prim);
+                        let key = key!["brcmp/", op.name(), "/", tag, "/", a, b];
+                        if self.has(&key) {
+                            put(&mut p.skip, k, true);
+                            p.cmpbr = Some((*op, *prim, *lhs, *rhs));
                         }
                     }
                 }
