@@ -173,6 +173,9 @@ pub struct Unit<'ctx, 'a> {
     /// built where they are asked for, because a helper is asked for in the
     /// middle of another function's body and the builder is positioned there.
     pending: Vec<Job<'ctx>>,
+    /// Intrinsics a function value names, still to be given a body
+    /// ([`Unit::runtime_body`]). Drained beside `pending`, for its reason.
+    bodies: Vec<(FunctionValue<'ctx>, FuncIdx)>,
     helpers: usize,
     /// The classifier `middle::rc` decided its own operations with — see
     /// [`Unit::rc_counted`].
@@ -222,6 +225,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             equals: Map::default(),
             env_glues: [None; 2],
             pending: Vec::new(),
+            bodies: Vec::new(),
             helpers: 0,
             rc,
             diags: Diagnostics::new(),
@@ -283,10 +287,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let func = self.program.funcs.get(idx.index())?;
         // An intrinsic is not a Buri function at all: the backend declares the
         // runtime import and defines nothing (VALUE-MODEL.md §10), so a call
-        // to one is rewritten at the call site rather than routed through a
-        // thunk.
+        // to one is rewritten at the call site. A function value has no call
+        // site, so a closure over one calls a body made of that rewrite.
         if func.intrinsic_key().is_some() {
-            return None;
+            return Some(self.runtime_body(idx, func));
         }
         let sig = self.machine_of(&func.sig);
         let ty = self.machine_type(&sig, 0);
@@ -301,6 +305,39 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         attrs::decorate(self.ctx, f, &func.facts, observed, &sig, HEAP_ALIGN);
         self.funcs.insert(idx.index(), f);
         Some(f)
+    }
+
+    /// A function of this unit's own whose one call is intrinsic `idx`, for a
+    /// closure over the intrinsic to call. Defined by [`Unit::finish`].
+    fn runtime_body(&mut self, idx: FuncIdx, func: &ir::Func) -> FunctionValue<'ctx> {
+        let sig = self.machine_of(&func.sig);
+        let ty = self.machine_type(&sig, 0);
+        let f = self.module.add_function(&func.symbol, ty, Some(Linkage::Private));
+        attrs::set_convention(f, attrs::FAST);
+        let observed = self.observed.get(idx.index()).copied().unwrap_or_else(Observed::opaque);
+        attrs::decorate(self.ctx, f, &func.facts, observed, &sig, HEAP_ALIGN);
+        self.funcs.insert(idx.index(), f);
+        self.bodies.push((f, idx));
+        f
+    }
+
+    /// [`Unit::runtime_body`]'s body: its parameters, handed to the
+    /// intrinsic, and the intrinsic's answer returned.
+    fn define_runtime_body(&mut self, value: FunctionValue<'ctx>, idx: FuncIdx) {
+        let program = self.program;
+        let Some(func) = program.funcs.get(idx.index()) else { return };
+        let [ret] = func.sig.rets.as_slice() else {
+            let n = func.sig.rets.len();
+            return self.ice(format_args!("found intrinsic {} answering {n} values", idx.0));
+        };
+        let mut code = ir::Code::new();
+        let entry = code.block(&func.sig.params);
+        let args = code.get(entry).params.clone();
+        let dest = code.value(*ret);
+        let block = code.get_mut(entry);
+        block.insts.push(ir::Inst::Call { dest, func: idx, args });
+        block.term = ir::Term::Return(vec![dest]);
+        self.define_code(idx, func, &code, value);
     }
 
     /// Declares a `buri_rt_*` entry with an explicit C signature.
@@ -516,7 +553,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let Some(code) = func.code() else { return };
         let Some(value) = self.declare(idx) else { return };
         value.set_linkage(Linkage::External);
+        self.define_code(idx, func, code, value);
+    }
 
+    /// `func`'s body, `code`, into `value`.
+    fn define_code(
+        &mut self,
+        idx: FuncIdx,
+        func: &ir::Func,
+        code: &ir::Code,
+        value: FunctionValue<'ctx>,
+    ) {
         let entry = self.ctx.append_basic_block(value, "entry");
         let blocks: Vec<BasicBlock<'ctx>> = (0..code.blocks.len())
             .map(|i| self.ctx.append_basic_block(value, &format!("b{i}")))
@@ -4520,8 +4567,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// skipped, because a declared function with no body is a link error rather
     /// than a wrong answer.
     pub fn finish(&mut self) {
-        while let Some(job) = self.pending.pop() {
-            self.define_helper(job);
+        loop {
+            if let Some((value, func)) = self.bodies.pop() {
+                self.define_runtime_body(value, func);
+            } else if let Some(job) = self.pending.pop() {
+                self.define_helper(job);
+            } else {
+                break;
+            }
         }
         self.check_terminators();
         for message in self.ices.take() {
