@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
-total 14523 16406 88.52%
+total 14501 16362 88.63%
 area cli/build 1612 1763 91.44%
 area cli/documentation 256 769 33.29%
 area cli/format 85 98 86.73%
@@ -23,7 +23,7 @@ area crates/middle 1904 2006 94.92%
 area crates/project 1341 1358 98.75%
 area crates/semantics 1972 2018 97.72%
 area crates/stdlib 12 12 100.00%
-area crates/stencil 1257 1342 93.67%
+area crates/stencil 1235 1298 95.15%
 area crates/syntax 1209 1234 97.97%
 259 287 cli/src/build/actions.rs
 43 46 cli/src/build/cache.rs
@@ -188,16 +188,16 @@ area crates/syntax 1209 1234 97.97%
 0 0 crates/stencil/src/compiler/backend/stencil/abi.rs
 24 26 crates/stencil/src/compiler/backend/stencil/asm.rs
 38 40 crates/stencil/src/compiler/backend/stencil/elf.rs
-363 382 crates/stencil/src/compiler/backend/stencil/emit.rs
-83 88 crates/stencil/src/compiler/backend/stencil/glue.rs
-505 542 crates/stencil/src/compiler/backend/stencil/jit.rs
+354 366 crates/stencil/src/compiler/backend/stencil/emit.rs
+83 86 crates/stencil/src/compiler/backend/stencil/glue.rs
+496 526 crates/stencil/src/compiler/backend/stencil/jit.rs
 4 4 crates/stencil/src/compiler/backend/stencil/library.rs
-19 20 crates/stencil/src/compiler/backend/stencil/lists.rs
-46 50 crates/stencil/src/compiler/backend/stencil/mod.rs
+18 18 crates/stencil/src/compiler/backend/stencil/lists.rs
+45 48 crates/stencil/src/compiler/backend/stencil/mod.rs
 42 44 crates/stencil/src/compiler/backend/stencil/object.rs
 12 12 crates/stencil/src/compiler/backend/stencil/region.rs
-120 132 crates/stencil/src/compiler/backend/stencil/rtcall.rs
-1 2 crates/stencil/src/compiler/backend/stencil/runtime.rs
+119 128 crates/stencil/src/compiler/backend/stencil/rtcall.rs
+0 0 crates/stencil/src/compiler/backend/stencil/runtime.rs
 388 400 crates/syntax/src/formatting.rs
 28 30 crates/syntax/src/layout.rs
 23 26 crates/syntax/src/parsing/flat.rs
