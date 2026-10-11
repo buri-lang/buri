@@ -422,12 +422,6 @@ fn ptr() -> SlotTy {
     SlotTy::Scalar(Scalar::Ptr)
 }
 
-/// How deep a reference-count walk descends before concluding the type graph
-/// has a cycle the boxing rule failed to cut. A fuse, not a limit:
-/// `Layouts::boxes` cuts every cycle, so reaching it is an inconsistency and
-/// stopping is the conservative answer — a leak rather than a stack overflow in
-/// the compiler.
-pub const RC_DEPTH: u32 = 64;
 
 /// What is inside a struct, a tuple, a context or one enum variant.
 ///
