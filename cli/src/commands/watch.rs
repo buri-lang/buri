@@ -492,6 +492,10 @@ impl Watch {
     /// Sweeps until something moves, then until two consecutive sweeps agree,
     /// and answers with what moved across the whole disturbance. `None` once a
     /// signal asks the loop to stop.
+    // Not counted by the coverage gate: whether a sweep finds nothing, catches
+    // a write half done, or meets a signal is decided by when a test's edit or
+    // Ctrl-C lands against the sweep timer, which is timing, not the test.
+    #[cfg_attr(buri_coverage, coverage(off))]
     fn settle(&self, watched: &mut Snapshot) -> Option<Vec<PathBuf>> {
         let set = watched.watched();
         loop {
