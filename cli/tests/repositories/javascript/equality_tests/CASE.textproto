@@ -1,0 +1,21 @@
+# `a == b && a == 1` folded to `false`: the minifier read `b` as a constant
+# different from `1`. Debug and release both minify, so both run.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "two equality tests on one value fold to false only when both sides are different constants"
+
+run {
+  args: ["run", "//cmd/equality"]
+  exit: 0
+  stream: OUT
+  golden: "run.txt"
+}
+
+run {
+  args: ["run", "--release", "//cmd/equality"]
+  exit: 0
+  stream: OUT
+  golden: "run.txt"
+}
