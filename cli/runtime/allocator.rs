@@ -240,6 +240,7 @@ fn reserve() -> *mut u8 {
     let base = if p.addr() == usize::MAX {
         ptr::without_provenance_mut(NO_RANGE)
     } else {
+        os::reserved(p, RANGE + PAGE);
         p.wrapping_add(p.addr().wrapping_neg() % PAGE)
     };
     let unreserved = ptr::without_provenance_mut(UNRESERVED);
@@ -308,6 +309,8 @@ fn new_page(heap: *mut Heap, c: usize) -> *mut Page {
         let page = unsafe { base.add(index * PAGE) };
         if released.is_some() {
             os::reuse(page);
+        } else if index % os::DUMPED == 0 {
+            os::used(page);
         }
         page
     };
@@ -525,13 +528,42 @@ mod os {
 
     #[cfg(target_os = "linux")]
     pub fn reuse(_page: *mut u8) {}
+
+    /// Pages [`used`] marks at a time.
+    pub const DUMPED: usize = 64;
+
+    /// `MADV_DONTDUMP` over the whole range. A core holds every readable
+    /// mapping, and `systemd-coredump` ignores `ulimit -c`, so without this
+    /// each crash wrote all 32 GiB.
+    #[cfg(target_os = "linux")]
+    pub fn reserved(range: *mut u8, len: usize) {
+        // SAFETY: the mapping `reserve` just made, whole.
+        unsafe { madvise(range, len, 16) };
+    }
+
+    /// `MADV_DODUMP` over the [`DUMPED`] pages from `page`, the first of them
+    /// handed out, so a core still holds the heap a program used.
+    #[cfg(target_os = "linux")]
+    pub fn used(page: *mut u8) {
+        // SAFETY: the range's page count is a multiple of `DUMPED`, so these
+        // pages lie inside the mapping.
+        unsafe { madvise(page, DUMPED * PAGE, 17) };
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn reserved(_range: *mut u8, _len: usize) {}
+
+    #[cfg(target_os = "macos")]
+    pub fn used(_page: *mut u8) {}
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod os {
     pub const RELEASES: bool = false;
+    pub const DUMPED: usize = 64;
     pub fn release(_page: *mut u8) {}
     pub fn reuse(_page: *mut u8) {}
+    pub fn used(_page: *mut u8) {}
 }
 
 /// What Valgrind's tools are told, and how this allocator steps aside for them.
