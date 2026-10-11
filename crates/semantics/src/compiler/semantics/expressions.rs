@@ -2977,6 +2977,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             self.c.diags.push(d);
             return self.error_expr(span);
         }
+        // A literal in `ty` settles later, and may settle outside the `impl`'s head.
+        self.obligations.push((ty, tid, span));
         let index = self.c.tables.trait_(tid).method_index(method).unwrap_or(0);
         let sig = self
             .c
@@ -3391,6 +3393,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                         "bind a value whose type has `impl {eff} for ...`; an effect is an \
                          ordinary interface, so a test double is a struct with those methods"
                     ));
+            } else {
+                self.binding_checks.push((vty, tid, value_span));
             }
             // An explicit binding replaces a spread's rather than duplicating
             // it; two explicit bindings of one effect is an error.
