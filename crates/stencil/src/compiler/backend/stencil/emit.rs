@@ -627,9 +627,7 @@ impl<'a> Jit<'a> {
         };
         let ftys = variant_types(self.tables, owner, variant as usize);
         let d = st.at(dest);
-        let Repr::Enum { repr, variants } = &l.repr else {
-            return self.unsupported("MakeEnum of a non-enum layout".into());
-        };
+        let (repr, variants) = super::jit::enum_of(&l);
         let offs: &[u32] = variants.get(variant as usize).map_or(&[], Vec::as_slice);
         match repr {
             EnumRepr::Bare { tag } => self.imm_w(d, tag.size(), variant as u64),
@@ -1419,23 +1417,20 @@ impl<'a> Jit<'a> {
                 self.str_concat(st, strs, d);
             }
             _ => {
+                // `middle::derives` names each leaf by its primitive's type, and
+                // `prim_of_name` knows every primitive.
+                const PRIM: &str = "a derived leaf is at a primitive type";
                 if let Some(t) = key.strip_prefix("derivePrimHash.") {
-                    let Some(prim) = prim_of_name(t) else {
-                        return self.unsupported(format!("derivePrimHash.{t}"));
-                    };
+                    let prim = prim_of_name(t).or_ice(PRIM);
                     return self.hash_prim(st, prim, arg(st, 0), arg(st, 1), d);
                 }
                 if let Some(t) = key.strip_prefix("derivePrimShow.") {
-                    let Some(prim) = prim_of_name(t) else {
-                        return self.unsupported(format!("derivePrimShow.{t}"));
-                    };
+                    let prim = prim_of_name(t).or_ice(PRIM);
                     return self.show_prim(st, prim, arg(st, 0), d, true);
                 }
                 if let Some(t) = key.strip_prefix("derivePrimJson.") {
-                    let Some(a) = args.first().copied() else { return };
-                    let Some(prim) = prim_of_name(t) else {
-                        return self.unsupported(format!("derivePrimJson.{t}"));
-                    };
+                    let a = args.first().copied().or_ice("a JSON leaf takes its value");
+                    let prim = prim_of_name(t).or_ice(PRIM);
                     if let Err(why) = self.json_prim(prog, code, st, prim, a, dest) {
                         self.unsupported(why);
                     }
@@ -2030,142 +2025,141 @@ impl<'a> Jit<'a> {
         // `number.<T>.<op>`, which the native backends open-code.
         let parts: Vec<&str> = key.split('.').collect();
         if let ["number", tname, op] = *parts.as_slice() {
-            if let Some(prim) = prim_of_name(tname) {
-                // `Bounded::minValue` and `Bounded::maxValue`. The type comes
-                // from the key — `middle::lower`'s `bounded_key` puts it there,
-                // because the methods take no argument and the IR type of the
-                // result has lost the signedness that separates `0` from
-                // `-128`. The bounds are the **type's**, not JavaScript's
-                // exactly-representable ones: `exact_int_range` is the
-                // JavaScript backend's business alone.
-                if matches!(op, "minValue" | "maxValue") {
-                    let low = op == "minValue";
-                    match bound_pattern(prim, low) {
-                        Some(bits) => {
-                            self.imm_num(ret0, prim, bits);
-                            self.emit("ret", &[]);
-                        }
-                        None => self.unsupported(format!("Body::Runtime {key}")),
+            let prim = prim_of_name(tname).or_ice("`core/number` defines only primitives");
+            // `Bounded::minValue` and `Bounded::maxValue`. The type comes
+            // from the key — `middle::lower`'s `bounded_key` puts it there,
+            // because the methods take no argument and the IR type of the
+            // result has lost the signedness that separates `0` from
+            // `-128`. The bounds are the **type's**, not JavaScript's
+            // exactly-representable ones: `exact_int_range` is the
+            // JavaScript backend's business alone.
+            if matches!(op, "minValue" | "maxValue") {
+                let low = op == "minValue";
+                match bound_pattern(prim, low) {
+                    Some(bits) => {
+                        self.imm_num(ret0, prim, bits);
+                        self.emit("ret", &[]);
                     }
-                    return;
+                    None => self.unsupported(format!("Body::Runtime {key}")),
                 }
-                // A conversion is named by its target: `toU8`, `wrapToI32`,
-                // `toChar`. Between two integers it is a truncation and a
-                // re-widening, because a frame slot holds an integer
-                // zero-extended at its own width — so the source is
-                // sign-extended first where it is signed, and masked to the
-                // target's width after.
-                let to = if op == "toChar" { Some(Prim::Char) } else { conversion_target(op) };
-                if let Some(to) = to {
-                    // An **aggregate** result is the whole of the test, and it
-                    // is the same one `llvm/emit.rs::numeric` makes before its
-                    // `toChar` arm: an exact
-                    // conversion answers the target type and an inexact one
-                    // answers `Result<T, RangeError>` (SPEC 6.2.1), so the
-                    // result's *shape* says which this is without a second
-                    // table. `U32.toChar` is the case that needs it — not every
-                    // `U32` is a scalar value — and casting anyway would have
-                    // written a `Char` into a `Result` and called it success.
-                    let wide = matches!(
-                        prog.funcs.get(fi).and_then(|f| f.sig.rets.first()),
-                        Some(ir::Type::Agg(_))
-                    );
-                    let exact = !wide
-                        && (op.starts_with("wrapTo")
-                            || crate::compiler::semantics::builtins::conversion_is_exact(prim, to)
-                            || op == "toChar");
-                    // An inexact `toX` answers a `Result` (SPEC 6.2.1), so it
-                    // is a range test and two arms rather than a cast.
-                    let done = if exact {
-                        self.convert(st, prim, to, p(0), ret0)
-                    } else {
-                        self.convert_checked(prog, fi, st, prim, to, p(0), ret0)
-                    };
-                    match done {
-                        Err(why) => self.unsupported(why),
-                        Ok(()) => self.emit("ret", &[]),
+                return;
+            }
+            // A conversion is named by its target: `toU8`, `wrapToI32`,
+            // `toChar`. Between two integers it is a truncation and a
+            // re-widening, because a frame slot holds an integer
+            // zero-extended at its own width — so the source is
+            // sign-extended first where it is signed, and masked to the
+            // target's width after.
+            let to = if op == "toChar" { Some(Prim::Char) } else { conversion_target(op) };
+            if let Some(to) = to {
+                // An **aggregate** result is the whole of the test, and it
+                // is the same one `llvm/emit.rs::numeric` makes before its
+                // `toChar` arm: an exact
+                // conversion answers the target type and an inexact one
+                // answers `Result<T, RangeError>` (SPEC 6.2.1), so the
+                // result's *shape* says which this is without a second
+                // table. `U32.toChar` is the case that needs it — not every
+                // `U32` is a scalar value — and casting anyway would have
+                // written a `Char` into a `Result` and called it success.
+                let wide = matches!(
+                    prog.funcs.get(fi).and_then(|f| f.sig.rets.first()),
+                    Some(ir::Type::Agg(_))
+                );
+                let exact = !wide
+                    && (op.starts_with("wrapTo")
+                        || crate::compiler::semantics::builtins::conversion_is_exact(prim, to)
+                        || op == "toChar");
+                // An inexact `toX` answers a `Result` (SPEC 6.2.1), so it
+                // is a range test and two arms rather than a cast.
+                let done = if exact {
+                    self.convert(st, prim, to, p(0), ret0)
+                } else {
+                    self.convert_checked(prog, fi, st, prim, to, p(0), ret0)
+                };
+                match done {
+                    Err(why) => self.unsupported(why),
+                    Ok(()) => self.emit("ret", &[]),
+                }
+                return;
+            }
+            // `Hash::hash` takes no accumulator, so it is the seeded form
+            // (`cli/runtime/hash.rs`), and a float hashes through the
+            // double it widens to.
+            if op == "hash" {
+                let seed = fs.param_end;
+                self.imm_to(seed, runtime::HASH_SEED);
+                self.hash_prim(st, prim, seed, p(0), ret0);
+                self.emit("ret", &[]);
+                return;
+            }
+            // `Checked`, `Saturating`, `Wrapping`, `abs` and `signum`,
+            // which `core/number` declares without a body and every backend
+            // open-codes. `llvm/emit.rs::numeric` is the twin, and the
+            // bound each one checks is the **type's own range** — SPEC
+            // 6.2.2 and VALUE-MODEL.md §12 row 2.
+            if let Some(kind) = op.strip_prefix("checked") {
+                self.checked(prog, fi, st, prim, kind, p(0), p(1), ret0);
+                self.emit("ret", &[]);
+                return;
+            }
+            if let Some(kind) = op.strip_prefix("saturating") {
+                self.saturating(st, prim, kind, p(0), p(1), ret0);
+                self.emit("ret", &[]);
+                return;
+            }
+            // Wrapping **is** the machine operation: two's complement at
+            // the operand's own width is what an `i8` addition already
+            // does, and a frame slot holds the answer re-truncated.
+            if let Some(kind) = op.strip_prefix("wrapping") {
+                self.wrapping(prim, kind, p(0), p(1), ret0);
+                self.emit("ret", &[]);
+                return;
+            }
+            if matches!(op, "abs" | "signum") {
+                self.abs_signum(st, prim, op == "abs", p(0), ret0);
+                self.emit("ret", &[]);
+                return;
+            }
+            // `Ordered::compare` answers an `Order`, which is an enum and not a
+            // register, so it is taken before the binary-operator table
+            // below could refuse it for having no `bin/compare` stencil.
+            if op == "compare" {
+                match self.ret_tag(prog, fi) {
+                    Some(w) => {
+                        self.compare_prim(st, prim, p(0), p(1), ret0, w);
+                        self.emit("ret", &[]);
                     }
-                    return;
+                    None => self.unsupported(format!("Body::Runtime {key}")),
                 }
-                // `Hash::hash` takes no accumulator, so it is the seeded form
-                // (`cli/runtime/hash.rs`), and a float hashes through the
-                // double it widens to.
-                if op == "hash" {
-                    let seed = fs.param_end;
-                    self.imm_to(seed, runtime::HASH_SEED);
-                    self.hash_prim(st, prim, seed, p(0), ret0);
-                    self.emit("ret", &[]);
-                    return;
-                }
-                // `Checked`, `Saturating`, `Wrapping`, `abs` and `signum`,
-                // which `core/number` declares without a body and every backend
-                // open-codes. `llvm/emit.rs::numeric` is the twin, and the
-                // bound each one checks is the **type's own range** — SPEC
-                // 6.2.2 and VALUE-MODEL.md §12 row 2.
-                if let Some(kind) = op.strip_prefix("checked") {
-                    self.checked(prog, fi, st, prim, kind, p(0), p(1), ret0);
-                    self.emit("ret", &[]);
-                    return;
-                }
-                if let Some(kind) = op.strip_prefix("saturating") {
-                    self.saturating(st, prim, kind, p(0), p(1), ret0);
-                    self.emit("ret", &[]);
-                    return;
-                }
-                // Wrapping **is** the machine operation: two's complement at
-                // the operand's own width is what an `i8` addition already
-                // does, and a frame slot holds the answer re-truncated.
-                if let Some(kind) = op.strip_prefix("wrapping") {
-                    self.wrapping(prim, kind, p(0), p(1), ret0);
-                    self.emit("ret", &[]);
-                    return;
-                }
-                if matches!(op, "abs" | "signum") {
-                    self.abs_signum(st, prim, op == "abs", p(0), ret0);
-                    self.emit("ret", &[]);
-                    return;
-                }
-                // `Ordered::compare` answers an `Order`, which is an enum and not a
-                // register, so it is taken before the binary-operator table
-                // below could refuse it for having no `bin/compare` stencil.
-                if op == "compare" {
-                    match self.ret_tag(prog, fi) {
-                        Some(w) => {
-                            self.compare_prim(st, prim, p(0), p(1), ret0, w);
-                            self.emit("ret", &[]);
-                        }
-                        None => self.unsupported(format!("Body::Runtime {key}")),
-                    }
-                    return;
-                }
-                let (tag, _, _) = num_tag(prim);
-                let binkey = key!["bin/", stencil_op(op), "/", tag, "/ff/f"];
-                if nrets == 1 && self.has(&binkey) && fs.params.len() == 2 {
-                    self.emit(
-                        &binkey,
-                        &[
-                            ("JIT_A", V::I(p(0) as u64)),
-                            ("JIT_B", V::I(p(1) as u64)),
-                            ("JIT_D", V::I(ret0 as u64)),
-                            ("JIT_CONT", V::Fall),
-                            ("JIT_CONT0", V::Fall),
-                        ],
-                    );
-                    self.emit("ret", &[]);
-                    return;
-                }
-                if op == "negate" && fs.params.len() == 1 {
-                    self.emit(
-                        &key!["un/neg/", tag, "/f/f"],
-                        &[
-                            ("JIT_A", V::I(p(0) as u64)),
-                            ("JIT_D", V::I(ret0 as u64)),
-                            ("JIT_CONT", V::Fall),
-                        ],
-                    );
-                    self.emit("ret", &[]);
-                    return;
-                }
+                return;
+            }
+            let (tag, _, _) = num_tag(prim);
+            let binkey = key!["bin/", stencil_op(op), "/", tag, "/ff/f"];
+            if nrets == 1 && self.has(&binkey) && fs.params.len() == 2 {
+                self.emit(
+                    &binkey,
+                    &[
+                        ("JIT_A", V::I(p(0) as u64)),
+                        ("JIT_B", V::I(p(1) as u64)),
+                        ("JIT_D", V::I(ret0 as u64)),
+                        ("JIT_CONT", V::Fall),
+                        ("JIT_CONT0", V::Fall),
+                    ],
+                );
+                self.emit("ret", &[]);
+                return;
+            }
+            if op == "negate" && fs.params.len() == 1 {
+                self.emit(
+                    &key!["un/neg/", tag, "/f/f"],
+                    &[
+                        ("JIT_A", V::I(p(0) as u64)),
+                        ("JIT_D", V::I(ret0 as u64)),
+                        ("JIT_CONT", V::Fall),
+                    ],
+                );
+                self.emit("ret", &[]);
+                return;
             }
         }
         if self.runtime_intrinsic(prog, fi, &key, fs, st) {
@@ -2267,7 +2261,7 @@ impl<'a> Jit<'a> {
         st: &mut Fn2,
     ) -> bool {
         let Some(entry) = super::runtime::entry(key) else { return false };
-        let Some(f) = prog.funcs.get(fi) else { return false };
+        let f = prog.funcs.get(fi).or_ice("a body is one of its program's functions");
         let args: Vec<(u32, ir::Type)> = f
             .sig
             .params
@@ -2330,13 +2324,16 @@ impl Jit<'_> {
         b: u32,
         tag: Option<u32>,
     ) -> bool {
-        let Some((module, op)) = key.split_once('.') else { return false };
+        let (module, op) = key.split_once('.').or_ice("a runtime key is `module.name`");
         let prim = match module {
             "bool" => Prim::Bool,
             "character" => Prim::Char,
             "str" => Prim::Str,
             _ => return false,
         };
+        // `str`'s `equal`, `compare` and `hash` are runtime rows, which
+        // `runtime_intrinsic` answers before this is asked, and only a `Char`
+        // has a `toU32`.
         match op {
             // `show` is `$str`, not `$show`: the trait method renders the value
             // and the *derived* one quotes it.
@@ -2347,7 +2344,7 @@ impl Jit<'_> {
             // A frame slot holds a `Bool` and a `Char` zero-extended, so both
             // compare at sixty-four bits whatever their own width is, and
             // `false` sorting before `true` is what an unsigned compare says.
-            "equal" if prim != Prim::Str => {
+            "equal" => {
                 self.emit(
                     "bin/eq/u64/ff/f",
                     &[
@@ -2359,7 +2356,7 @@ impl Jit<'_> {
                 );
                 true
             }
-            "compare" if prim != Prim::Str => {
+            "compare" => {
                 let raw = st.scratch + super::rtcall::RAW_WORD * 8;
                 let entry: &[(&'static str, u64)] =
                     &[("bin/lt/u64/ff/f", LESS), ("bin/gt/u64/ff/f", GREATER)];
@@ -2402,7 +2399,7 @@ impl Jit<'_> {
             // basis. A `Char` is one *string* of one character, so an astral
             // scalar is two mixes and the runtime owns that; a `Bool` is one
             // mix of its low word.
-            "hash" if prim != Prim::Str => {
+            "hash" => {
                 let symbol =
                     if prim == Prim::Char { runtime::HASH_CHAR } else { runtime::MIX };
                 let seed = st.scratch + super::rtcall::SPARE_WORD * 8;
@@ -2413,7 +2410,7 @@ impl Jit<'_> {
             }
             // `Char::toU32` is the representation: a `Char` **is** a `U32`
             // holding a Unicode scalar value.
-            "toU32" if prim == Prim::Char => {
+            "toU32" => {
                 self.mv(d, a, 8);
                 true
             }
@@ -2550,7 +2547,6 @@ impl Jit<'_> {
         src: u32,
         dest: u32,
     ) -> Result<(), String> {
-        let refuse = || format!("Body::Runtime number.{}.to{}", from.name(), to.name());
         let kind = checked_kind(from, to).or_ice("a checked conversion is between two numbers");
         let ty = prog.type_info(ret_agg(prog, fi)).ty;
         let error_ty = match ty.kind() {
@@ -2558,21 +2554,13 @@ impl Jit<'_> {
             _ => None,
         }
         .or_ice("a checked conversion answers `Result<T, ConversionError>`");
+        // `middle::layout` gives a niche only to an `Option`, so the result
+        // keeps a tag and each payload at its own offset. The error is
+        // `core/number`'s `RangeError`: its value, then its target.
         let result = self.layout_of_type(ty);
-        // A niche layout puts both payloads at the same offset, and this writes
-        // one of two payloads — so it is refused rather than guessed at.
-        if !matches!(
-            result.repr,
-            Repr::Enum { repr: EnumRepr::Bare { .. } | EnumRepr::Tagged { .. }, .. }
-        ) {
-            return Err(refuse());
-        }
         let error = self.layout_of_type(error_ty);
-        if error.fields.len() != 2 {
-            return Err(refuse());
-        }
         let ok_at = super::lists::payload_at(&result, 0);
-        let Some(err_at) = result.variant(1).first().copied() else { return Err(refuse()) };
+        let err_at = result.variant(1).first().copied().or_ice("`.Err` carries its error");
 
         let bound = st.scratch + super::rtcall::SPARE_WORD * 8;
         let verdict = st.scratch;
@@ -3390,11 +3378,8 @@ impl Jit<'_> {
         // The one-operand family: three counts and the byte reversal, none of
         // which takes a shift count and so none of which needs the range check.
         if matches!(stem, "popCount" | "leadingZeros" | "trailingZeros" | "byteSwap") {
+            // `sources.rs` generates every width `core/bits` declares.
             let k = key!["bits/", stem, "/", width];
-            if !self.has(&k) {
-                self.unsupported(format!("CallIntrinsic {key}"));
-                return true;
-            }
             self.emit(
                 &k,
                 &[
@@ -3405,13 +3390,9 @@ impl Jit<'_> {
             );
             return true;
         }
-        let Some(count) = count else { return false };
+        let count = count.or_ice("a shift or a rotate takes its count");
         self.shift_count_check(st, count, width);
         let key2 = key!["bits/", stem, "/", width];
-        if !self.has(&key2) {
-            self.unsupported(format!("CallIntrinsic {key}"));
-            return true;
-        }
         let _ = unsigned;
         self.emit(
             &key2,
