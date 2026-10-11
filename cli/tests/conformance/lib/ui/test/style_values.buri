@@ -108,6 +108,40 @@ fn styled<C>(): Node<C> {
     ui.stack({ styles: [.Width(.Px(321))], children: [] })
 }
 
+/// A generic helper, so both calls below share its body.
+fn second<T>(xs: [T], fallback: T): T {
+    match (xs.get(1)) {
+        .Some(x) => x,
+        .None => fallback,
+    }
+}
+
+fn picked<C>(): Node<C> {
+    ui.stack({
+        styles: [second([.Width(.Px(5)), .Height(.Px(6))], .Width(.Px(7)))],
+        children: [],
+    })
+}
+
+trait Tinted {
+    fn tint(self): Style;
+}
+
+enum Swatch {
+    Red,
+}
+
+impl Tinted for Swatch {
+    fn tint(self): Style {
+        .On(.Hover, [.Background(.Rgb(200, 0, 0))])
+    }
+}
+
+/// A node styled through a bound, so `tint` is called on a type not yet known.
+fn tinted<C, T: Tinted>(t: T): Node<C> {
+    ui.stack({ styles: [t.tint()], children: [] })
+}
+
 test "a static composition takes the arm that names it" {
     assert.equal(kind(.Group([])), "Group");
     assert.equal(kind(.On(.Hover, [.Width(.Px(1))])), "On");
@@ -227,4 +261,26 @@ test "a static style a node is given is still a class in the sheet" {
     let _ = render(ctx, styled());
     assert.isTrue(stylesheet().contains(".w-321{width:321px}"));
     assert.equal(kind(.Width(.Px(321))), "Width");
+}
+
+test "a style a trait method answers through a bound is a class in the sheet" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let _ = render(ctx, tinted(Swatch.Red));
+    assert.isTrue(
+        stylesheet().contains(".hover_bg-c80000:hover{background-color:rgb(200,0,0)}"),
+    );
+}
+
+test "a generic helper a node reads through leaves its other callers' styles alone" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let _ = render(ctx, picked());
+    assert.isTrue(stylesheet().contains(".h-6{height:6px}"));
+    assert.equal(
+        kind(second([.Width(.Px(5)), .Height(.Px(6))], .Width(.Px(7)))),
+        "Height",
+    );
 }

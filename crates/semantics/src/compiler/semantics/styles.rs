@@ -54,7 +54,7 @@ use crate::compiler::semantics::consteval::{Env, Folder, Value};
 use crate::compiler::semantics::layered::Layered;
 use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, ModuleScope, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind, Magnitude};
-use crate::compiler::semantics::types::{ConstId, FnId, LocalId, ModuleId, Tables, Ty, TyKind, TyConId};
+use crate::compiler::semantics::types::{ConstId, FnId, LocalId, ModuleId, Tables, TraitId, Ty, TyKind, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
 
@@ -944,6 +944,8 @@ enum Demand {
     /// A function's result.
     Ret(FnId),
     Const(ConstId),
+    /// A trait method's result, whichever `impl` answers it.
+    Method(TraitId, usize),
 }
 
 /// The declaration a local belongs to.
@@ -968,7 +970,8 @@ enum Pos {
 ///
 /// It reads backwards from each node. A node's argument is demanded, and so is
 /// whatever an expression in a demanded position reads: a local's value, a
-/// called function's result, a parameter's argument at every call.
+/// called function's result, a parameter's argument at every call. A call
+/// through a trait bound reads every `impl` of the method.
 struct Flow<'a> {
     tables: &'a Tables,
     ui_node: Option<ModuleId>,
@@ -994,6 +997,9 @@ impl<'a> Flow<'a> {
             flow.edges(Owner::Const(id), init, Some(Demand::Const(id)), &mut edges);
         }
         for (id, body) in walked.unsettled(bodies) {
+            if let Some((t, m)) = tables.fn_info(id).impl_of {
+                edges.entry(Demand::Method(t, m)).or_default().push(Demand::Ret(id));
+            }
             flow.edges(Owner::Fn(id), &body.expr, Some(Demand::Ret(id)), &mut edges);
         }
         let mut work = vec![Demand::Node];
@@ -1016,6 +1022,7 @@ impl<'a> Flow<'a> {
                     let f = func.decl().or_ice("before monomorphization a callee is a declaration");
                     self.params.contains_key(&f).then_some(Demand::Ret(f))
                 }
+                ExprKind::CallTrait { trait_id, method, .. } => Some(Demand::Method(*trait_id, *method)),
                 _ => None,
             };
             out.entry(d).or_default().extend(read);
@@ -1070,13 +1077,24 @@ impl<'a> Flow<'a> {
             ExprKind::CallValue { args, .. } => std::iter::once(Pos::Same).chain(args.iter().map(|_| Pos::Same)).collect(),
             ExprKind::CallFn { func, args } => {
                 let f = func.decl().or_ice("before monomorphization a callee is a declaration");
-                if self.in_ui_node(self.tables.fn_info(f).module) {
+                let info = self.tables.fn_info(f);
+                if self.in_ui_node(info.module) {
                     return all(Pos::At(Some(Demand::Node)), args.len());
                 }
                 match self.params.get(&f) {
+                    // A parameter whose type is generic carries every caller's
+                    // values, so it can't say which of them reach a node. It
+                    // passes this call's on, the way an unread function does.
                     Some(params) => params
                         .iter()
-                        .map(|l| Pos::At(Some(Demand::Local(Owner::Fn(f), *l))))
+                        .zip(&info.params)
+                        .map(|(l, p)| {
+                            if p.ty.has_params() {
+                                Pos::Same
+                            } else {
+                                Pos::At(Some(Demand::Local(Owner::Fn(f), *l)))
+                            }
+                        })
                         .chain(std::iter::repeat(Pos::At(None)))
                         .take(args.len())
                         .collect(),
@@ -1085,6 +1103,8 @@ impl<'a> Flow<'a> {
                     None => all(Pos::Same, args.len()),
                 }
             }
+            // A method called through a bound answers what its `impl` does,
+            // which may be any of its arguments.
             ExprKind::CallTrait { args, .. }
             | ExprKind::Intrinsic { args, .. }
             | ExprKind::Tuple(args)
