@@ -371,7 +371,8 @@ impl Expr {
             (Expr::Ident(a), Expr::Ident(b)) => a == b,
             (Expr::Str(a), Expr::Str(b)) => a == b,
             (Expr::Bool(a), Expr::Bool(b)) => a == b,
-            (Expr::Num(a), Expr::Num(b)) => a == b,
+            // By bits: `-0 == 0`, but they are different values.
+            (Expr::Num(a), Expr::Num(b)) => a.to_bits() == b.to_bits(),
             (Expr::BigInt(a), Expr::BigInt(b)) => a == b,
             (Expr::Null, Expr::Null) | (Expr::Undefined, Expr::Undefined) => true,
             (Expr::Member { obj: a, prop: p }, Expr::Member { obj: b, prop: q }) => {
@@ -791,10 +792,10 @@ fn exclusive_equalities(lhs: &Expr, rhs: &Expr) -> bool {
     else {
         return false;
     };
-    // An identifier is a pure literal but not a constant: `x === y && x === 1`
-    // holds when `y` is 1.
-    let constant = |e: &Expr| e.is_pure_literal() && !matches!(e, Expr::Ident(_));
-    a.same_as(b) && constant(av) && constant(bv) && !av.same_as(bv)
+    // Compared as `===` does, where `-0` is `0`. An identifier has no key:
+    // `x === y && x === 1` holds when `y` is 1.
+    a.same_as(b)
+        && matches!((LiteralKey::of(av), LiteralKey::of(bv)), (Some(x), Some(y)) if x != y)
 }
 
 fn simplify_cond(mut test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr>) -> Expr {
