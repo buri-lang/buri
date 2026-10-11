@@ -1,3 +1,4 @@
 from "//lib/m/m.buri" export {
-    both, countdown, guarded, half, halfIf, mixed, neither, pick, shifted, unused,
+    both, countdown, guarded, half, halfIf, halveAny, mixed, neither, pick, shifted,
+    unused,
 };

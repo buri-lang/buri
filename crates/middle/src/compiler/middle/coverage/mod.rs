@@ -497,17 +497,20 @@ pub fn branches(program: &mut Program, options: &Options) -> Vec<derived::Derive
 }
 
 /// Whether a function outside the user's source is one a call to can abort: a
-/// `core/bits` shift, or a body that is an integer `/` or `%`, as a generic
-/// `a / b` reaches at an integer type.
+/// `core/bits` shift, or an integer type's `divide` or `remainder`, which a
+/// generic `a / b` reaches at that type.
 pub fn aborts(f: &crate::compiler::middle::monomorphize::Func) -> bool {
-    match &f.kind {
-        FuncKind::Intrinsic(key) => key.starts_with("bits.shift"),
-        FuncKind::Body(body) => matches!(
-            &body.kind,
-            ExprKind::Prim { op: PrimOp::Div | PrimOp::Rem, prim, .. } if prim.is_integer()
-        ),
-        FuncKind::Unbuilt => false,
-    }
+    let FuncKind::Intrinsic(key) = &f.kind else { return false };
+    key.starts_with("bits.shift") || divides(key)
+}
+
+/// Whether an intrinsic is `number.<integer>.divide` or `.remainder`.
+fn divides(key: &str) -> bool {
+    let mut parts = key.split('.');
+    let (Some("number"), Some(prim), Some("divide" | "remainder"), None) = (parts.next(), parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    Prim::all().iter().any(|p| p.is_integer() && p.name() == prim)
 }
 
 struct Branches<'a> {

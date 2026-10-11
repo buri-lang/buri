@@ -3,7 +3,8 @@
 # branches are covered and its conditions aren't. `mixed` shows all three. A
 # guard with an `||` counts as a decision too. An integer `/` and a `core/bits`
 # shift each count going on and aborting, and two tests abort on a zero
-# divisor, one inside an `&&`, whose right side still counts as run. `pick`
+# divisor, one inside an `&&`, whose right side still counts as run, and one
+# test aborts in `halveAny`, a generic `/` at `Int`. `pick`
 # reports each instantiation on its own, and `unused`, which nothing
 # instantiates, says so. The plain `--coverage` run beside it counts
 # none of that: `pick` once, no aborts, no conditions. Native and JavaScript

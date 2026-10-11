@@ -68,8 +68,9 @@ A decision whose branches all count zero was never reached and reads `-`.
   and type arguments of each generic instantiation. A key carries the
   instantiation's name, so each one counts apart. A generic function no suite
   instantiated is `(never instantiated)`.
-- **Aborts.** An integer `/` or `%`, or a call of a `core/bits` shift, counts
-  how often it was reached and how often execution went on, like `?`.
+- **Aborts.** An integer `/` or `%`, a call of a `core/bits` shift, or a
+  generic `/` or `%` at an integer type counts how often it was reached and
+  how often execution went on, like `?`.
 - **Derived code** (`coverage::derived`). Each call of a derived `Equal`,
   `Ordered`, `Show`, `Hash` or `ToJson` on a type the user derives it for first
   calls a shadow function: it walks the value as the derived code does and

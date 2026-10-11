@@ -49,3 +49,7 @@ export fn neither(a: Bool, b: Bool): Bool {
 export fn halfIf(a: Bool, n: Int, d: Int): Bool {
     a && n / d > 0
 }
+
+export fn halveAny<T: Divide>(n: T, d: T): T {
+    n / d
+}
