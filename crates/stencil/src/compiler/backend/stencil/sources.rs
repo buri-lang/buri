@@ -39,7 +39,7 @@ use super::extract::{
     extract, extract_elf_arm64, fold_addressing, fold_cond, fold_imm, swap_arms,
 };
 use super::machobj as macho;
-use super::library::{Library, Stencil};
+use super::library::{Builder, Stencil};
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::Mutex;
@@ -1727,7 +1727,7 @@ pub fn build_all(
     dir: &std::path::Path,
     jobs: usize,
     targets: &[StencilTarget],
-) -> Vec<Result<Library, String>> {
+) -> Vec<Result<Builder, String>> {
     let plans: Vec<Result<Plan, String>> = targets.iter().map(|t| plan(dir, cc, *t)).collect();
     // One slot per shard of every planned target, filled by whichever worker
     // took it.
@@ -1807,7 +1807,7 @@ fn assemble(
     cc: &str,
     plan: &Plan,
     done: &[Result<Vec<Stencil>, String>],
-) -> Result<Library, String> {
+) -> Result<Builder, String> {
     let target = plan.target;
     let shards = &plan.shards;
     let mut byname: HashMap<String, Stencil> = HashMap::new();
@@ -1816,7 +1816,7 @@ fn assemble(
             byname.insert(st.name.clone(), st.clone());
         }
     }
-    let mut lib = Library::new(config(target));
+    let mut lib = Builder::new(config(target));
     for sh in shards.iter() {
         for (key, name) in sh.keys.iter().zip(sh.names.iter()) {
             let Some(base) = byname.get(name) else {
