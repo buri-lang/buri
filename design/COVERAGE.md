@@ -61,7 +61,9 @@ A decision whose branches all count zero was never reached and reads `-`.
   same paths, with no probe of their own. A tree of more than 2³² paths keeps
   its branch probes and isn't counted, and so does one in tail position whose
   last condition can end in a call (`ends_in_tail_call`): numbering its path
-  reads the call's answer, which takes the call out of tail position.
+  reads the call's answer, which takes the call out of tail position. A
+  function that was built is judged on the built code, where a derived `==` is
+  no call; one nothing built, on its checked body.
 - **Instantiations.** `monomorphize::Program::instances` names the declaration
   and type arguments of each generic instantiation. A key carries the
   instantiation's name, so each one counts apart. A generic function no suite

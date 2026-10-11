@@ -16,3 +16,7 @@ export struct Box<T> {
     export inner: T,
     export label: Str,
 }
+
+export fn sameWhen(a: Bool, p: Point, q: Point): Bool {
+    a && p == q
+}

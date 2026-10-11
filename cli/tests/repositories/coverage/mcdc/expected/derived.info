@@ -1,7 +1,7 @@
 TN:
 SF:lib/d/d.buri
-BRDA:1,0,Equal Point, x: same,2
-BRDA:1,0,Equal Point, x: differs,1
+BRDA:1,0,Equal Point, x: same,3
+BRDA:1,0,Equal Point, x: differs,2
 BRDA:1,1,Ordered Point, x: equal,1
 BRDA:1,1,Ordered Point, x: decides,0
 BRDA:7,0,Equal Shape, variant: Dot,1
@@ -22,13 +22,21 @@ BRDA:14,0,Equal Box<I64>, inner: same,1
 BRDA:14,0,Equal Box<I64>, inner: differs,0
 BRDA:14,1,Equal Box<Str>, inner: same,0
 BRDA:14,1,Equal Box<Str>, inner: differs,1
-BRF:22
-BRH:10
-MCF:0
-MCH:0
-DA:1,3
+BRDA:21,0,0,2
+BRDA:21,0,1,1
+BRF:24
+BRH:12
+MCDC:21,2,t,1,0,'a' in 'a && p == q'
+MCDC:21,2,f,1,0,'a' in 'a && p == q'
+MCDC:21,2,t,1,1,'p == q' in 'a && p == q'
+MCDC:21,2,f,1,1,'p == q' in 'a && p == q'
+MCF:4
+MCH:4
+DA:1,5
 DA:7,2
 DA:14,1
-LF:3
-LH:3
+DA:20,3
+DA:21,3
+LF:5
+LH:5
 end_of_record

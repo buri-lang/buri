@@ -1,1 +1,1 @@
-from "//lib/d/d.buri" export { Box, Point, Shape };
+from "//lib/d/d.buri" export { Box, Point, sameWhen, Shape };
