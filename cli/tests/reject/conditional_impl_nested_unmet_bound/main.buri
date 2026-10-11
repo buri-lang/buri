@@ -1,0 +1,28 @@
+// EXPECT: `Labelled<Labelled<Plain>>` does not implement `Measurable`
+//
+// The outer impl's bound asks the inner `Labelled<Plain>`, whose own bound
+// asks `Plain`, which is not `Measurable`.
+struct Plain(Int);
+
+struct Labelled<T>(T);
+
+trait Measurable {
+  fn size(self): Int;
+}
+
+impl<T: Measurable> Measurable for Labelled<T> {
+  fn size(self): Int {
+    self.0.size()
+  }
+}
+
+fn total<T: Measurable>(x: T): Int {
+  x.size()
+}
+
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let _n = total(Labelled(Labelled(Plain(1))));
+  .Ok(())
+}

@@ -3382,8 +3382,13 @@ impl<'a, 'b> Infer<'a, 'b> {
             let value = self.check_expr(ExprId(binding.value), None);
             let vty = self.resolve(&value.ty);
             // Every binding's right side is a value whose type implements that
-            // effect — ordinary nominal conformance.
-            if !self.satisfies(&vty, tid) {
+            // effect — ordinary nominal conformance. A type with an `impl` of
+            // the effect is held to it after defaulting, bounds and all, so
+            // `Out { t: 1 }` meets `impl Stdout for Out<Str>` as an `Out<I64>`
+            // and `Guarded<StaticFs>` meets `impl<C: FileSystemWrite>` with
+            // `StaticFs` in hand.
+            let has_impl = vty.head().is_some_and(|con| self.c.tables.impls.contains_key(&(tid, con)));
+            if !has_impl && !self.satisfies(&vty, tid) {
                 let shown = self.show_ty(&vty);
                 let eff = self.c.tables.trait_(tid).name.clone();
                 self.templated("missing-impl", value_span)
@@ -3394,7 +3399,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                          ordinary interface, so a test double is a struct with those methods"
                     ));
             } else {
-                self.binding_checks.push((vty, tid, value_span));
+                self.obligations.push((vty, tid, value_span));
             }
             // An explicit binding replaces a spread's rather than duplicating
             // it; two explicit bindings of one effect is an error.

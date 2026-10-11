@@ -949,6 +949,32 @@ A supplied method's signature, including its type parameters and their bounds,
 must match the trait's with `Self` read as the implementing type. So `compare`
 may write `Version` or `Self` for `other`.
 
+A bound on an `impl`'s type parameter is a condition:
+
+```buri
+# from "platform/effect" import { Clock };
+#
+# struct Delayed<C>(C);
+#
+impl<C: Clock> Clock for Delayed<C> {
+#     fn nowMilliseconds(self): I64 {
+#         self.0.nowMilliseconds() + 1000
+#     }
+#
+#     fn sleepMilliseconds(self, milliseconds: Int): () {
+#         self.0.sleepMilliseconds(milliseconds)
+#     }
+#
+#     fn monotonicNanoseconds(self): I64 {
+#         self.0.monotonicNanoseconds()
+#     }
+}
+```
+
+`Delayed<C>` is a `Clock` only where `C` is one. Every place that asks for a
+`Clock`, a bound or a `context { Clock: ... }` binding, checks the condition
+too, so `Delayed<Str>` is rejected there.
+
 #### 5.12.3 `derive` generates the implementation
 
 ```buri
