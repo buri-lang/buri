@@ -76,6 +76,7 @@ mod hermeticity;
 mod incrementality;
 mod init;
 mod instances;
+mod javascript;
 mod loading;
 mod many_findings;
 mod monorepo;

@@ -1,0 +1,7 @@
+twoConstants(1) = false
+oneConstantTwice(1) = true
+twoValues(1, 2) = true
+variableFirst(1, 1) = true
+variableSecond(1, 1) = true
+variableSecond(1, 2) = false
+twoTexts("a") = false
