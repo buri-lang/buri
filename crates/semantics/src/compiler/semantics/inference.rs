@@ -1542,6 +1542,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                          by hand, so a hole cannot render it structurally"
                     ))
                     .with_fix("call it in the hole, as in `${x.show(ctx)}`");
+            } else if self.c.tables.as_prim(&resolved) == Some(Prim::Template) {
+                // A `Template` has no `show`; `str.format` is what makes a `Str`.
+                d = d.with_fix(
+                    "turn it into a `Str` first, as in `${str.format(ctx, x)}`, with \
+                     `from \"core/str\" import * as str;`",
+                );
             } else if undeclared {
                 d = d.with_fix(format!(
                     "add `derive Show for {shown};` in that type's own module, or render it \
