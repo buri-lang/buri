@@ -1172,9 +1172,8 @@ impl Jit<'_> {
             if self.rc_counted(&elem) {
                 self.walk_rc(&mut st, &elem, E_ELEM, Op::Retain, 0);
             }
-            if let Some(to) = param_at.last().copied() {
-                self.mv(to, E_ELEM, elem_slot);
-            }
+            let to = param_at.last().copied().or_ice("a step takes the element it is handed");
+            self.mv(to, E_ELEM, elem_slot);
         }
         self.mv(frame + ret_slot, E_CLOS + ENV_WORD, 8);
         self.emit(
