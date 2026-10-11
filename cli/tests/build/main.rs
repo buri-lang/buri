@@ -64,6 +64,7 @@ mod build_driver;
 mod checking;
 mod closed_stdout;
 mod custom_platforms;
+mod diagnostics_paths;
 mod example;
 mod generators;
 mod heap;

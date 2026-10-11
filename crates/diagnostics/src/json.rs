@@ -380,6 +380,7 @@ impl<'a> Parser<'a> {
         if self.b.get(self.i) == Some(&b'\\')
             && self.b.get(self.i.saturating_add(1)) == Some(&b'u')
         {
+            let next = self.i;
             self.i = self.i.saturating_add(2);
             let lo = self.hex4()?;
             if (0xDC00..0xE000).contains(&lo) {
@@ -391,6 +392,9 @@ impl<'a> Parser<'a> {
                     .saturating_add(lo.saturating_sub(0xDC00));
                 return Ok(char::from_u32(c).unwrap_or('\u{fffd}'));
             }
+            // Not a low surrogate: that escape is a character of its own, read
+            // next, and only `hi` is replaced.
+            self.i = next;
         }
         Ok('\u{fffd}')
     }
