@@ -132,5 +132,46 @@ fn an_executable_that_differs_between_two_links_is_not_reproducible() {
         .exits(1)
         .says("error: //cmd/app is not reproducible")
         .says("/cmd/app/app differs between two builds of the same tree, first at byte ")
-        .says("the objects above say whether this is a codegen difference or a link one");
+        .says("the objects above say whether this is a codegen difference or a link one")
+        .says(&format!("= the objects are the same in both builds, so the difference may come from the linker, `CC={driver}`"))
+        .silent_about("toolchain bug");
+    let forced = [env.as_slice(), &[("BURI_LINKER", "cc")]].concat();
+    scratch
+        .run_with_env(&["build", "--check-reproducible", "//cmd/app"], &forced)
+        .exits(1)
+        .says(&format!("may come from the linker, `CC={driver}` with `BURI_LINKER=cc`"))
+        .silent_about("toolchain bug");
+}
+
+/// A `cc` found on `PATH` is the machine's, not this toolchain's, so a link
+/// that differs is put down to it by path.
+#[cfg(target_os = "macos")]
+#[test]
+fn an_executable_the_machine_s_linker_made_differ_names_that_linker() {
+    let scratch = repository("build-command-path-linker", "native", NATIVE_MAIN);
+    let driver = scratch.write_executable("fake/cc", COUNTING_DRIVER).display().to_string();
+    let real =
+        std::process::Command::new("sh").args(["-c", "command -v cc"]).output().unwrap();
+    let real = String::from_utf8_lossy(&real.stdout).trim().to_string();
+    let path = format!("{}:{}", scratch.path("fake").display(), std::env::var("PATH").unwrap_or_default());
+    let count = scratch.path("count").display().to_string();
+    let home = scratch.path("home").display().to_string();
+    let mut cmd = buri_command();
+    cmd.args(["build", "--check-reproducible", "//cmd/app", "--color=never"])
+        .current_dir(&scratch.root)
+        .env_remove("CC")
+        .env_remove("BURI_LINKER")
+        .envs([("PATH", path.as_str()), ("REAL_CC", real.as_str()), ("FAKE_COUNT", count.as_str()), ("BURI_HOME", home.as_str())]);
+    let what = "buri build --check-reproducible //cmd/app".to_string();
+    let out = hang::capped_output(cmd, &what, hang::cap());
+    let run = Run {
+        code: out.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        what,
+    };
+    run.heap_ok()
+        .exits(1)
+        .says(&format!("= the objects are the same in both builds, so the difference may come from the linker, `{driver}`"))
+        .silent_about("toolchain bug");
 }
