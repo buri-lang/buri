@@ -325,6 +325,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("unknown-method", "A method is one its type declares"),
     e!("unknown-module", "A module path names exactly one file"),
     e!("unknown-name", "Every name resolves to a declaration"),
+    e!("unknown-dependency", "A dependency names a library", &["build/build-files"]),
     e!("unknown-platform", "A platform is bundled or a repository's `platform` rule", &["build/build-files"]),
     e!("unknown-platform-variant", "A variant is one its platform declares", &["build/build-files"]),
     e!("unknown-positional-field", "A tuple struct's fields are numbered from zero"),

@@ -246,6 +246,7 @@ impl Workspace {
         // reader.
         diagnostics.extend(crate::build::tools::validate(&workspace));
         diagnostics.extend(check_platform_labels(&workspace));
+        diagnostics.extend(check_dependency_labels(&workspace));
         diagnostics.extend(check_platform_reach(&workspace));
         Ok(workspace)
     }
@@ -1297,6 +1298,77 @@ fn check_platform_labels(workspace: &Workspace) -> Vec<Diagnostic> {
         }
     }
     out
+}
+
+/// `unknown-dependency` for each `dependencies` entry naming neither a
+/// library, a library's `testing` surface, nor a repository platform. The
+/// reader can't see another build file, so this runs once every one is read.
+fn check_dependency_labels(workspace: &Workspace) -> Vec<Diagnostic> {
+    let mut known: Vec<String> = Vec::new();
+    for p in &workspace.packages {
+        if let Some(lib) = &p.build.library {
+            known.push(format!("//{}", p.path));
+            if lib.testing.is_some() {
+                known.push(format!("//{}/testing", p.path));
+            }
+        }
+        if p.build.platform.is_some() && is_platform_directory(&p.path) {
+            known.push(format!("//{}", p.path));
+        }
+    }
+    let known_refs: Vec<&str> = known.iter().map(String::as_str).collect();
+    let mut out = Vec::new();
+    for p in &workspace.packages {
+        let b = &p.build;
+        fn suites(test: &Option<buildfile::TestSuite>) -> impl Iterator<Item = &Spanned<String>> {
+            test.iter().flat_map(|t| t.dependencies.iter())
+        }
+        let mut lists: Vec<&Spanned<String>> = Vec::new();
+        if let Some(l) = &b.library {
+            lists.extend(&l.dependencies);
+            lists.extend(suites(&l.test));
+            lists.extend(l.testing.iter().flat_map(|t| t.dependencies.iter()));
+        }
+        if let Some(bin) = &b.binary {
+            lists.extend(&bin.dependencies);
+            lists.extend(suites(&bin.test));
+        }
+        if let Some(t) = &b.tool {
+            lists.extend(&t.dependencies);
+            lists.extend(suites(&t.test));
+        }
+        lists.extend(b.platform.iter().flat_map(|r| r.dependencies.iter()));
+        for dep in lists {
+            if known.contains(&dep.value) {
+                continue;
+            }
+            out.push(unknown_dependency(workspace, dep, &known_refs));
+        }
+    }
+    out
+}
+
+/// Why `dep` names no library, and the one it may have meant.
+fn unknown_dependency(workspace: &Workspace, dep: &Spanned<String>, known: &[&str]) -> Diagnostic {
+    let mut d = Diagnostic::templated("unknown-dependency", dep.span).with_bind("dependency", dep.value.as_str());
+    let why = match dep.value.strip_prefix("//") {
+        None => String::from("a dependency is a `//` label, as in \"//lib/money\""),
+        Some(path) => match (workspace.package_by_path(path), path.strip_suffix("/testing")) {
+            (Some(id), _) => format!(
+                "{} declares no `library` rule, and only a library can be depended on",
+                workspace.package(id).label()
+            ),
+            (None, Some(owner)) if workspace.package_by_path(owner).is_some() => {
+                format!("//{owner} declares no `testing` surface")
+            }
+            (None, _) => format!("no package is at `{path}`"),
+        },
+    };
+    d = d.with_note(why);
+    if let Some(near) = buildfile::nearest(&dep.value, known) {
+        d = d.with_fix(crate::diagnostics::candidate_fix(near, "drop it, or name a library this repository has"));
+    }
+    d
 }
 
 /// A platform is shared code, so its `dependencies` name no app's package.
