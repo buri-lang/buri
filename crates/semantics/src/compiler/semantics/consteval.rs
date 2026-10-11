@@ -135,8 +135,10 @@ pub struct Folder<'a> {
 /// One frame of locals. A fold never sees an outer frame: a lambda is not
 /// folded, and a call's body reads only its own parameters.
 #[derive(Default)]
-pub struct Env {
+pub struct Env<'f> {
     locals: HashMap<LocalId, Value>,
+    /// Answers a local the frame doesn't bind: the `let`s around the fold.
+    outer: Option<&'f dyn Fn(LocalId) -> Option<Value>>,
 }
 
 impl<'a> Folder<'a> {
@@ -183,7 +185,7 @@ impl<'a> Folder<'a> {
             ExprKind::Bool(b) => Some(Value::Bool(*b)),
             ExprKind::Unit => Some(Value::Unit),
 
-            ExprKind::Local(l) => env.locals.get(l).cloned(),
+            ExprKind::Local(l) => env.locals.get(l).cloned().or_else(|| env.outer.and_then(|outer| outer(*l))),
             ExprKind::Const(id) => self.eval_const(*id),
 
             ExprKind::Tuple(xs) => Some(Value::Tuple(self.eval_all(xs, env)?)),
@@ -223,7 +225,7 @@ impl<'a> Folder<'a> {
             }
 
             ExprKind::Block { stmts, tail } => {
-                let mut inner = Env { locals: env.locals.clone() };
+                let mut inner = Env { locals: env.locals.clone(), outer: env.outer };
                 for stmt in stmts {
                     match stmt {
                         Stmt::Let { pattern, value, .. } => {
@@ -251,7 +253,7 @@ impl<'a> Folder<'a> {
             ExprKind::Match { scrutinee, arms } => {
                 let value = self.eval(scrutinee, env)?;
                 for arm in arms {
-                    let mut inner = Env { locals: env.locals.clone() };
+                    let mut inner = Env { locals: env.locals.clone(), outer: env.outer };
                     if !matches_pattern(&arm.pattern, &value, &mut inner) {
                         continue;
                     }
@@ -402,9 +404,9 @@ pub fn is_inlinable(tables: &Tables, id: FnId) -> bool {
 const OPTION_SOME: usize = 0;
 const OPTION_NONE: usize = 1;
 
-impl Env {
-    pub fn insert(&mut self, local: LocalId, value: Value) {
-        self.locals.insert(local, value);
+impl<'f> Env<'f> {
+    pub fn reading(outer: &'f dyn Fn(LocalId) -> Option<Value>) -> Env<'f> {
+        Env { locals: HashMap::default(), outer: Some(outer) }
     }
 }
 
