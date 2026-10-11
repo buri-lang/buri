@@ -160,3 +160,51 @@ fn regenerating_a_tool_s_build_file_changes_nothing() {
     );
     run.ok().says("//tools/t: BUILD.buri is already what buri gen would write").silent_about("workspace/applyEdit");
 }
+
+/// The command regenerates the build file the editor holds, unsaved edits
+/// and all, since the edit it sends replaces that buffer whole: a comment
+/// typed but not saved survives it.
+#[test]
+fn regenerating_keeps_what_the_editor_has_not_saved() {
+    let scratch = Scratch::copy_of("regenerate-unsaved", &tests_dir().join("repositories/lsp/a_command_regenerates_a_build_file/repo"));
+    let run = scratch.run_with_stdin(
+        &["lsp"],
+        &session(
+            &scratch,
+            &[
+                INITIALIZE,
+                INITIALIZED,
+                r##"{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri", "languageId": "buri", "version": 1, "text": "# not saved yet\nbinary {\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n"}}}"##,
+                r#"{"jsonrpc": "2.0", "id": 2, "method": "workspace/executeCommand", "params": {"command": "buri.regenerateBuildFile", "arguments": ["file://<scratch>/cmd/app/main.buri", "//cmd/app"]}}"#,
+                r#"{"jsonrpc": "2.0", "id": "buri/applyEdit/1", "result": {"applied": true}}"#,
+                SHUTDOWN,
+                EXIT,
+            ],
+        ),
+    );
+    run.ok()
+        .says(r##""newText":"# not saved yet\nbinary {\n    dependencies: [\"//lib/money\"]"##)
+        .says("+ dependencies: //lib/money");
+}
+
+/// An unsaved build file that doesn't parse is refused, with the reason,
+/// rather than replaced by a regeneration of the copy on disk.
+#[test]
+fn regenerating_an_unsaved_build_file_that_does_not_parse_is_refused() {
+    let scratch = Scratch::copy_of("regenerate-broken", &tests_dir().join("repositories/lsp/a_command_regenerates_a_build_file/repo"));
+    let run = scratch.run_with_stdin(
+        &["lsp"],
+        &session(
+            &scratch,
+            &[
+                INITIALIZE,
+                INITIALIZED,
+                r#"{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri", "languageId": "buri", "version": 1, "text": "binary {\n    outputs: [[\n        { platform: \"node\" },\n    ]\n}\n"}}}"#,
+                r#"{"jsonrpc": "2.0", "id": 2, "method": "workspace/executeCommand", "params": {"command": "buri.regenerateBuildFile", "arguments": ["file://<scratch>/cmd/app/main.buri", "//cmd/app"]}}"#,
+                SHUTDOWN,
+                EXIT,
+            ],
+        ),
+    );
+    run.ok().says(r#""id":2,"jsonrpc":"2.0""#).says("unterminated").silent_about("workspace/applyEdit");
+}

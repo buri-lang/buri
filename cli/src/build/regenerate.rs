@@ -72,11 +72,12 @@ fn regenerate_reading(
     read: &mut Read,
 ) -> Result<Option<Update>, Diagnostic> {
     let p = session.workspace.package(package);
-    let build_path = p.build_path.clone();
     let dir = p.dir.clone();
     let package_path = p.path.clone();
     let file_id = p.build_file_id;
-    let original = std::fs::read_to_string(&build_path).unwrap_or_default();
+    // The text the workspace was loaded from: an editor's unsaved buffer, when
+    // it holds one, as for every other file.
+    let original = session.map.text(file_id).to_string();
 
     // A `BUILD.buri` must already exist, with the rule blocks. `buri gen`
     // never creates a build file and never adds a rule: deciding that a
