@@ -1,0 +1,7 @@
+// EXPECT: unterminated string literal
+export fn count(s: Str): Int {
+  match (s) {
+    "one => 1,
+    _ => 2,
+  }
+}
