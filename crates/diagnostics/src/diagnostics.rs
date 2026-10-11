@@ -578,7 +578,7 @@ impl Diagnostic {
     }
 
     pub fn secondary_span(&mut self, span: Span, label: impl Into<String>) -> &mut Diagnostic {
-        (!span.is_none()).then_some(()).or_ice("a secondary span points into a file");
+        invariant(!span.is_none(), "a secondary span points into a file");
         self.secondary_spans.push(SecondarySpan { span, label: label.into() });
         self
     }

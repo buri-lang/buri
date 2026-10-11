@@ -72,7 +72,7 @@ fn snake_into(segment: &str, out: &mut String) {
 }
 
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
-use crate::diagnostics::Invariant;
+use crate::diagnostics::invariant;
 
 /// The byte offset, inside a tagged enum error `E`, of the `Str` its
 /// message-carrying variants hold, or `None` for an `E` that is not one.
@@ -104,9 +104,9 @@ pub fn error_message_offset(err: &Layout) -> Option<u32> {
     };
     let carries = |fields: &Vec<u32>| fields.len() == 1 && fields.first() == Some(payload);
     let shaped = "a tagged error the runtime answers keeps one `Str` at its payload's start";
-    variants.iter().all(|fields| fields.is_empty() || carries(fields)).then_some(()).or_ice(shaped);
-    variants.iter().any(carries).then_some(()).or_ice(shaped);
-    (err.size.checked_sub(*payload) == Some(STR_BYTES)).then_some(()).or_ice(shaped);
+    invariant(variants.iter().all(|fields| fields.is_empty() || carries(fields)), shaped);
+    invariant(variants.iter().any(carries), shaped);
+    invariant(err.size.checked_sub(*payload) == Some(STR_BYTES), shaped);
     Some(*payload)
 }
 
