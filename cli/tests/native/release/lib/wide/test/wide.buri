@@ -268,3 +268,26 @@ test "a step whose context is wide" {
     let out = tasks.parallel(ctx, [1, 2], fn(c, i, n) => str.format(c, "${i}${n}"));
     assert.equal(out, ["01", "12"]);
 }
+
+// Wide, with an equality that keeps `self`: it goes into a list.
+struct Kept {
+    row: Row,
+}
+
+impl Equal for Kept {
+    fn equal(self, other: Self): Bool {
+        [self].length() == 1 && self.row.a == other.row.a
+    }
+}
+
+test "a wide signal compares with an equality that keeps its operand" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let cell = signal(ctx, Kept { row: row(ctx, 1) });
+    cell.set(ctx, Kept { row: row(ctx, 1) });
+    cell.set(ctx, Kept { row: row(ctx, 2) });
+    assert.equal(cell.get(ctx).row.l, "2");
+}
