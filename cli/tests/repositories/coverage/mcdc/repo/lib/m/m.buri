@@ -41,3 +41,7 @@ export fn unused<T>(x: T, flag: Bool): T {
 export fn countdown(n: Int): Bool {
     n == 0 || countdown(n - 1)
 }
+
+export fn neither(a: Bool, b: Bool): Bool {
+    !(a || b)
+}

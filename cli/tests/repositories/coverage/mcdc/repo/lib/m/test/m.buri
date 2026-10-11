@@ -11,6 +11,9 @@ test "mixed, every condition deciding" {
     assert.equal(m.mixed(false, false, false), false);
     assert.equal(m.mixed(false, true, false), true);
     assert.equal(m.mixed(true, false, true), false);
+    assert.equal(m.neither(false, false), true);
+    assert.equal(m.neither(true, false), false);
+    assert.equal(m.neither(false, true), false);
 }
 
 test "guarded" {

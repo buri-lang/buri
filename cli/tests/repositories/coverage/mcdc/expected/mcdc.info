@@ -28,8 +28,10 @@ BRDA:38,0,0 (never instantiated),-
 BRDA:38,0,1 (never instantiated),-
 BRDA:42,0,0,1000000
 BRDA:42,0,1,1
-BRF:28
-BRH:18
+BRDA:46,0,0,2
+BRDA:46,0,1,1
+BRF:30
+BRH:20
 MCDC:4,2,t,1,0,'a' in 'a && b'
 MCDC:4,2,f,1,0,'a' in 'a && b'
 MCDC:4,2,t,0,1,'b' in 'a && b'
@@ -44,8 +46,12 @@ MCDC:13,2,t,0,0,'flag' in 'flag || n > 5'
 MCDC:13,2,f,0,0,'flag' in 'flag || n > 5'
 MCDC:13,2,t,0,1,'n > 5' in 'flag || n > 5'
 MCDC:13,2,f,0,1,'n > 5' in 'flag || n > 5'
-MCF:14
-MCH:8
+MCDC:46,2,t,1,0,'a' in '!(a || b)'
+MCDC:46,2,f,1,0,'a' in '!(a || b)'
+MCDC:46,2,t,1,1,'b' in '!(a || b)'
+MCDC:46,2,f,1,1,'b' in '!(a || b)'
+MCF:18
+MCH:12
 DA:3,2
 DA:4,2
 DA:7,4
@@ -69,6 +75,8 @@ DA:37,0
 DA:38,0
 DA:41,1000001
 DA:42,1000001
-LF:23
-LH:20
+DA:45,3
+DA:46,3
+LF:25
+LH:22
 end_of_record

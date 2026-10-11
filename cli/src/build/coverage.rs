@@ -195,7 +195,7 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
         });
         if traps.is_some() {
             coverage::trees(body, &mut |tree| {
-                let Some(span) = tree_span(&tree) else { return };
+                let Some(span) = tree.span() else { return };
                 if !tree.counted() {
                     return;
                 }
@@ -307,15 +307,6 @@ fn render(tree: &coverage::Tree, conditions: &[String], next: &mut usize) -> (St
             (format!("{l} || {}", operand(r, 0, next)), 0)
         }
         coverage::Tree::Not(x) => (format!("!{}", operand(x, 2, next)), 2),
-    }
-}
-
-/// The span a decision is named by: its outermost `&&` or `||`.
-fn tree_span(tree: &coverage::Tree) -> Option<Span> {
-    match tree {
-        coverage::Tree::And(_, _, s) | coverage::Tree::Or(_, _, s) => Some(*s),
-        coverage::Tree::Not(x) => tree_span(x),
-        coverage::Tree::Condition(_) => None,
     }
 }
 
