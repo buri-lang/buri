@@ -481,6 +481,9 @@ impl<'a> Gen<'a> {
 /// 6.2.1).
 fn represent(v: Expr, from: Prim, to: Prim) -> Expr {
     if to == Prim::F32 {
+        if from.is_bigint() {
+            return Expr::call(Expr::ident("$bigToF32"), vec![v]);
+        }
         let widened = represent(v, from, Prim::F64);
         return Expr::call(Expr::member(Expr::ident("Math"), "fround"), vec![widened]);
     }
