@@ -12,7 +12,7 @@ cli/other                          484/594   81.48%         2476/2767   89.48%
 cli/run                              38/56   67.86%           218/263   82.89%
 cli/serve+watch                      47/86   54.65%           296/364   81.32%
 cli/test                           437/580   75.34%         2371/2668   88.87%
-crates/backend                       80/88   90.91%           323/361   89.47%
+crates/backend                       80/88   90.91%           324/361   89.75%
 crates/diagnostics                 198/232   85.34%         1325/1461   90.69%
 crates/docs                        197/304   64.80%           634/889   71.32%
 crates/hash                          18/18  100.00%           241/294   81.97%
@@ -22,9 +22,9 @@ crates/middle                    1914/2055   93.14%       12358/12843   96.22%
 crates/project                    878/1418   61.92%         4117/5168   79.66%
 crates/semantics                 1919/2046   93.79%       10554/10955   96.34%
 crates/stdlib                        12/12  100.00%           108/120   90.00%
-crates/stencil                   1560/2025   77.04%         8097/8979   90.18%
+crates/stencil                   1367/1585   86.25%         7930/8522   93.05%
 crates/syntax                    1205/1284   93.85%         5902/6113   96.55%
-total                          14575/18182   80.16%       80001/88259   90.64%
+total                          14382/17742   81.06%       79835/87802   90.93%
 
 cli/src                           branches                      lines         
 build                            1525/1859   82.03%         7831/8578   91.29%
@@ -55,20 +55,19 @@ The 30 files with the most uncovered branches:
 uncovered          branches           file
       379          849/1228   69.14%  crates/llvm/src/compiler/backend/llvm/emit.rs
       254             0/254    0.00%  cli/src/documentation/grammar.rs
-      185           481/666   72.22%  crates/stencil/src/compiler/backend/stencil/emit.rs
       161            95/256   37.11%  crates/project/src/languages/json/schema.rs
       143           437/580   75.34%  cli/src/commands/test.rs
       133            41/174   23.56%  cli/src/documentation/examples.rs
       118           550/668   82.34%  cli/src/commands/lint.rs
-      117           568/685   82.92%  crates/stencil/src/compiler/backend/stencil/jit.rs
        95           123/218   56.42%  crates/docs/src/documentation/markdown.rs
        88           100/188   53.19%  crates/project/src/languages/json/syntax.rs
+       88           541/629   86.01%  crates/stencil/src/compiler/backend/stencil/jit.rs
        85            41/126   32.54%  crates/project/src/languages/json/regex.rs
        77           157/234   67.09%  cli/src/build/link.rs
        68             30/98   30.61%  cli/src/documentation/layout.rs
        62           267/329   81.16%  cli/src/build/actions.rs
        57           513/570   90.00%  crates/js/src/compiler/backend/js/javascript.rs
-       53           159/212   75.00%  crates/stencil/src/compiler/backend/stencil/rtcall.rs
+       54           390/444   87.84%  crates/stencil/src/compiler/backend/stencil/emit.rs
        47           131/178   73.60%  cli/src/build/generators.rs
        46           180/226   79.65%  crates/middle/src/compiler/middle/monomorphize.rs
        44           115/159   72.33%  cli/src/documentation/mod.rs
@@ -79,7 +78,8 @@ uncovered          branches           file
        36           148/184   80.43%  crates/project/src/build/buildfile.rs
        36            92/128   71.88%  crates/project/src/languages/textproto/mod.rs
        36           606/642   94.39%  crates/syntax/src/parsing/parser.rs
-       33           111/144   77.08%  crates/stencil/src/compiler/backend/stencil/glue.rs
        33           379/412   91.99%  crates/syntax/src/formatting.rs
        31           187/218   85.78%  cli/src/compiler/modules.rs
        31             25/56   44.64%  cli/src/language_server/signature_help.rs
+       27           337/364   92.58%  crates/js/src/compiler/backend/js/generate.rs
+       26             56/82   68.29%  cli/src/language_server/inlay_hints.rs
