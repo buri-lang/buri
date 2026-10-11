@@ -2696,10 +2696,8 @@ fn read_through_locals(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
     let mut table: HashMap<String, Vec<Expr>> = cands
         .into_iter()
         .filter(|(name, items)| {
+            // `Reads` holds at least the read that made it.
             let Some(reads) = uses.get(name).and_then(|u| u.reads()) else { return false };
-            if reads.is_empty() {
-                return false;
-            }
             // Every read accounted for: `uses` counts bare reads of the name,
             // and each of ours is one, so a mismatch means something else read
             // it in a shape the survey did not recognise.
