@@ -282,7 +282,8 @@ impl<'a> Gen<'a> {
             if site.op != rc::RcOp::IncRef {
                 continue;
             }
-            let Some(&(key, is_local_read)) = nodes.get(site.node.index()) else { continue };
+            let &(key, is_local_read) =
+                nodes.get(site.node.index()).or_ice("a site names a node of the body's preorder");
             match site.target {
                 // A projection: the value this node produces is a second
                 // reference to something a parent still holds.
