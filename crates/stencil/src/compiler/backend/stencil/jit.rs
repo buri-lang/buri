@@ -2681,12 +2681,11 @@ impl<'a> Jit<'a> {
                     if let Some(ir::Inst::Unary { op: ir::UnOp::FromBool, dest: z, .. }) =
                         b.insts.get(r)
                     {
-                        if let Some(zr) = read_at(*z) {
-                            if alone(*z, pin) && zr.count == ent(uses, z.index(), 0) {
-                                end = end.max(zr.last);
-                                alias = Some(*z);
-                            }
-                        }
+                        // Read once, by the instruction after it (`ir::UnOp::FromBool`),
+                        // so it is a class of its own and nothing pinned it.
+                        let zr = read_at(*z).or_ice("a counted `Bool` is read in its block");
+                        end = end.max(zr.last);
+                        alias = Some(*z);
                     }
                 }
                 if !pure(j + 1, (end + 1).min(last)) {
