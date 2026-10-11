@@ -1,0 +1,36 @@
+// EXPECT: `Delayed<C>` implements `Clock` only when `C` satisfies `Clock`, and here `C` is `Plain`
+//
+// A named context checks its bindings the way an anonymous one does.
+from "platform/effect" import { Clock };
+from "node" import { NodeHost };
+
+struct Plain(Int);
+
+struct Delayed<C>(C);
+
+fn delayed<C>(inner: C): Delayed<C> {
+  Delayed(inner)
+}
+
+impl<C: Clock> Clock for Delayed<C> {
+  fn nowMilliseconds(self): I64 {
+    self.0.nowMilliseconds() + 1000
+  }
+
+  fn sleepMilliseconds(self, milliseconds: Int): () {
+    self.0.sleepMilliseconds(milliseconds)
+  }
+
+  fn monotonicNanoseconds(self): I64 {
+    self.0.monotonicNanoseconds()
+  }
+}
+
+context Late {
+  Clock: delayed(Plain(1)),
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let _ctx = Late();
+  .Ok(())
+}

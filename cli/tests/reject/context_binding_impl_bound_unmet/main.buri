@@ -1,0 +1,34 @@
+// EXPECT: `Delayed<C>` implements `Clock` only when `C` satisfies `Clock`, and here `C` is `Plain`
+//
+// A context binding asks for an impl the way a bound does, so the impl's own
+// bound is checked here too, not just its head.
+from "platform/effect" import { Clock };
+from "node" import { NodeHost };
+
+struct Plain(Int);
+
+struct Delayed<C>(C);
+
+fn delayed<C>(inner: C): Delayed<C> {
+  Delayed(inner)
+}
+
+impl<C: Clock> Clock for Delayed<C> {
+  fn nowMilliseconds(self): I64 {
+    self.0.nowMilliseconds() + 1000
+  }
+
+  fn sleepMilliseconds(self, milliseconds: Int): () {
+    self.0.sleepMilliseconds(milliseconds)
+  }
+
+  fn monotonicNanoseconds(self): I64 {
+    self.0.monotonicNanoseconds()
+  }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let clock = delayed(Plain(1));
+  let _ctx = context { Clock: clock };
+  .Ok(())
+}

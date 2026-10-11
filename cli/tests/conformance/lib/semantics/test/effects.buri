@@ -1754,6 +1754,18 @@ test "my own attenuator may wrap my own implementation" {
     assert.equal(assert.err(saveText(ctx, "k", "w")), IoError.Other("guarded"));
 }
 
+test "my own attenuator may wrap itself, and reads when the innermost one does" {
+    // `impl<C: FileSystemRead>` asks the inner wrapper, which asks the double.
+    let disk = guarded(guarded(fs().files([("a", "A")])));
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.equal(assert.ok(loadText(ctx, "a")), "A");
+    assert.equal(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
+}
+
 test "my own attenuator may wrap the runner's attenuator" {
     let disk = guarded(fs().files([("a", "A")]).readOnly());
     let ctx = context {
