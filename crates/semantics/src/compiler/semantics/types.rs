@@ -1382,7 +1382,7 @@ impl Subst {
         *ty = self.resolve(ty);
     }
 
-    fn occurs(&self, id: TyVarId, ty: &Ty) -> bool {
+    pub(crate) fn occurs(&self, id: TyVarId, ty: &Ty) -> bool {
         if !ty.has_vars() {
             return false;
         }
