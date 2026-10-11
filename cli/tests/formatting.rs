@@ -29,7 +29,7 @@
 //! Four claims per case, each its own test so that a failure names which of
 //! them broke:
 //!
-//! 1. `format(input) == expected`, byte for byte.
+//! 1. `buri format` turns input into expected, byte for byte.
 //! 2. `format(expected) == expected`. A shape that moves when it is formatted
 //!    again is a *formatter* bug and is reported as one, rather than as an
 //!    expectation somebody got wrong. A `recovery_` output does not parse, and
@@ -90,7 +90,7 @@ use buri::diagnostics::{FileId, SourceMap};
 use buri::formatting::{
     comment_shape, formatted as laid_out, source, token_shape, Dialect, Shape,
 };
-use harness::{case_dirs, tests_dir, Golden};
+use harness::{case_dirs, tests_dir, Golden, Scratch};
 use std::path::{Path, PathBuf};
 
 /// The floor stops a mis-set path from turning the whole suite into a pass.
@@ -310,17 +310,46 @@ fn expected(dir: &Path, from_input: &str) -> String {
     read(&path)
 }
 
+/// Through `buri format` itself: every source case is a file in one scratch
+/// repository, formatted by one run. A build file case stays in-process,
+/// because a `BUILD.buri` in a repository is a package.
 #[test]
 fn formatting_produces_the_expected_output() {
     let mut g = Golden::new();
     let cases = cases();
+    let repo = Scratch::repo("formatting-cases");
+    for dir in &cases {
+        let case = name(dir);
+        if !is_textproto(&case) {
+            repo.write(&scratch_path(&case), &read(&dir.join("input.buri")));
+        }
+    }
+    let run = repo.run(&["format", "cases"]);
+    run.ok();
     for dir in &cases {
         let case = name(dir);
         let input = dir.join("input.buri");
-        let out = formatted(&format!("{case}/input.buri"), &input, &read(&input));
+        // The in-process read says whether the case parses as its name claims.
+        let in_process = formatted(&format!("{case}/input.buri"), &input, &read(&input));
+        let out = if is_textproto(&case) { in_process } else { repo.read(&scratch_path(&case)) };
         g.check(&dir.join("expected.buri"), &format!("{case}/expected.buri"), &out);
+        let named = run.all().contains(&format!("{}: has a syntax error", scratch_path(&case)));
+        if named != is_recovery(&case) {
+            let says = if named { "says" } else { "never says" };
+            g.fail(format!("{case}: `buri format` {says} it has a syntax error"));
+        }
     }
     g.finish("formatting", cases.len());
+}
+
+/// Where a source case sits in the scratch repository. A standard-library case
+/// is a platform's surface, the one file outside `core/*` read as one.
+fn scratch_path(case: &str) -> String {
+    if is_signatures(case) {
+        format!("cases/{case}/platform.buri")
+    } else {
+        format!("cases/{case}.buri")
+    }
 }
 
 /// Formatting an output again must not move it.
