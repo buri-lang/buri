@@ -1,0 +1,24 @@
+yesIsCall(20) = true
+callAndYes(20) = true
+callAndNo(20) = false
+callOrNo(1) = false
+callOrYes(1) = true
+pickYesYes(1) = true
+pickNoNo(20) = false
+pickYesNo(20) = true
+pickZeroes(20) = 0
+notNotCall(20) = true
+notLessPick(1, 4, 3, 20) = 20
+sharedElseCall(20, 1, 3, 4) = 4
+sharedThenCall(false, 1, 3, 4) = 4
+pickedAndYes(true, 1, 3) = true
+pickedCallAndYes(false, 1, 20) = true
+eighteen() / 3 = -6
+complementAndNegation(6) = -8
+wideAnd() = 5
+narrowOr() = -127
+noisy ran
+noisy(ctx, 3) & 0 = 0
+pick(xs, 1) = 2
+notANumber(3) = NaN
+three
