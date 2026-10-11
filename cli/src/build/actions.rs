@@ -2098,8 +2098,9 @@ fn collect_types(func: &ir::Func, out: &mut Vec<usize>) {
 ///   costs, because the backend re-emitted every unit and every object but one
 ///   was thrown away.
 /// - A backend may return more objects than were asked for — the default
-///   `emit_units` does — because the selection here is by name. It never
-///   returns fewer.
+///   `emit_units` does — because the selection here is by name. It may not
+///   return fewer: a unit that missed and has no object is the internal error
+///   below.
 ///
 /// The `Emitted::key` a backend attaches, if it attaches one, is *replaced* by
 /// the one the build system computed. That is not a slight: the cache is the build system's, and
@@ -2171,10 +2172,14 @@ where
     for &i in wanted {
         let (name, key) = keys.get(i).or_ice("a wanted unit is a position in `keys`");
         let object = object_name(name);
-        let unit = emitted
-            .iter()
-            .find(|e| e.name == object || e.name == *name)
-            .or_ice("a backend emits an object for every unit it is asked for");
+        let Some(unit) = emitted.iter().find(|e| e.name == object || e.name == *name) else {
+            let mut diagnostics = Diagnostics::new();
+            diagnostics.push(Diagnostic::error(
+                Span::NONE,
+                format!("internal error: the backend emitted no object for unit `{name}`"),
+            ));
+            return Err(diagnostics);
+        };
         cache.put_checked(key, &unit.bytes);
         *hits.get_mut(i).or_ice("`hits` has a slot per key") = Some(unit.bytes.clone());
         *fresh.get_mut(i).or_ice("`fresh` has a slot per key") = true;
