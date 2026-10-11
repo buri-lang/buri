@@ -1,0 +1,16 @@
+// EXPECT: expected `[Style]`, found `Int`
+//
+// The number is the one mistake. That it isn't a list of styles the
+// stylesheet can read is the same mistake, so it isn't reported again.
+// PLATFORM: WEB
+from "platform/effect" import { Allocator, Ui, Watch };
+from "web" import { WebHost };
+from "ui/node" import * as ui;
+from "ui/style" import { Screen, State, Style };
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let on: Style = .On(State.Hover, 5);
+  let at: Style = .At(Screen.Large, 5);
+  ui.mount(ctx, ui.stack({ styles: [on, at], children: [] }), [])
+}
