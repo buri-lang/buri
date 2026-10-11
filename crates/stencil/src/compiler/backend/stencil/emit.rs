@@ -2196,11 +2196,7 @@ impl<'a> Jit<'a> {
         // copy is a second name for one block rather than a second reference
         // to it, and without the retain the second drop is a double free.
         if key == "str.format" {
-            let Some(last) = fs.params.last().copied() else {
-                self.unsupported("Body::Runtime str.format with no argument".into());
-                self.emit("ret", &[]);
-                return;
-            };
+            let last = fs.params.last().copied().or_ice("`str.format` takes the template it answers");
             self.mv(ret0, last, 24);
             self.incref(ret0);
             self.emit("ret", &[]);
@@ -2576,7 +2572,7 @@ impl Jit<'_> {
                         continue;
                     }
                     self.imm_num(bound, from, pattern);
-                    self.cmp_to(tag, op, src, bound, verdict, err, true);
+                    self.cmp_to(tag, op, src, bound, verdict, err);
                 }
                 self.convert(st, from, to, src, dest + ok_at)?;
             }
@@ -2609,9 +2605,9 @@ impl Jit<'_> {
                 )]
                 let over = (to_hi + 1) as f64;
                 self.imm_num(bound, Prim::F64, u128::from(lo.to_bits()));
-                self.cmp_to("f64", "lt", v, bound, verdict, err, true);
+                self.cmp_to("f64", "lt", v, bound, verdict, err);
                 self.imm_num(bound, Prim::F64, u128::from(over.to_bits()));
-                self.cmp_to("f64", "ge", v, bound, verdict, err, true);
+                self.cmp_to("f64", "ge", v, bound, verdict, err);
                 // In range, so the truncation is exact and the round trip back
                 // through a double says whether the value was an integer at
                 // all. `NaN` never gets this far — it fails both comparisons
@@ -2621,7 +2617,7 @@ impl Jit<'_> {
                 let unsigned = !to.is_signed();
                 self.cvt(if unsigned { "cvt/f2u" } else { "cvt/f2i" }, raw, v);
                 self.cvt(if unsigned { "cvt/u2f" } else { "cvt/i2f" }, back, raw);
-                self.cmp_to("f64", "ne", back, v, verdict, err, true);
+                self.cmp_to("f64", "ne", back, v, verdict, err);
                 self.narrow(raw, dest + ok_at, tw);
             }
             // `U32 -> Char`, where the target is a set of scalar values rather
@@ -2631,11 +2627,11 @@ impl Jit<'_> {
                 let (tag, _, _) = num_tag(from);
                 let scalar = st.label();
                 self.imm_num(bound, from, 0x0010_ffff);
-                self.cmp_to(tag, "gt", src, bound, verdict, err, true);
+                self.cmp_to(tag, "gt", src, bound, verdict, err);
                 self.imm_num(bound, from, 0xd800);
-                self.cmp_to(tag, "lt", src, bound, verdict, scalar, true);
+                self.cmp_to(tag, "lt", src, bound, verdict, scalar);
                 self.imm_num(bound, from, 0xdfff);
-                self.cmp_to(tag, "gt", src, bound, verdict, scalar, true);
+                self.cmp_to(tag, "gt", src, bound, verdict, scalar);
                 self.emit("jump", &[("JIT_T", V::Blk(err))]);
                 let here = self.region.code_addr();
                 st.place(scalar, here);
@@ -2653,8 +2649,8 @@ impl Jit<'_> {
                 for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
                     let survived = st.label();
                     self.imm_num(bound, Prim::F64, u128::from(infinite.to_bits()));
-                    self.cmp_to("f64", "ne", back, bound, verdict, survived, true);
-                    self.cmp_to("f64", "ne", src, bound, verdict, err, true);
+                    self.cmp_to("f64", "ne", back, bound, verdict, survived);
+                    self.cmp_to("f64", "ne", src, bound, verdict, err);
                     let here = self.region.code_addr();
                     st.place(survived, here);
                 }
@@ -2673,23 +2669,14 @@ impl Jit<'_> {
         Ok(())
     }
 
-    /// `frame[verdict] = frame[a] <op> frame[b]`, and the branch to `target`
-    /// that answer takes. `when` says on which of the two it leaves.
+    /// `frame[verdict] = frame[a] <op> frame[b]`, and a branch to `target`
+    /// when the answer is true.
     #[allow(
         clippy::too_many_arguments,
         reason = "a comparison and its branch: the two operands, where the answer \
-                  lands, the width to compare at, and the arm that leaves"
+                  lands, the width to compare at, and where a true answer goes"
     )]
-    fn cmp_to(
-        &mut self,
-        tag: &str,
-        op: &str,
-        a: u32,
-        b: u32,
-        verdict: u32,
-        target: u32,
-        when: bool,
-    ) {
+    fn cmp_to(&mut self, tag: &str, op: &str, a: u32, b: u32, verdict: u32, target: u32) {
         self.emit(
             &key!["bin/", op, "/", tag, "/ff/f"],
             &[
@@ -2699,12 +2686,10 @@ impl Jit<'_> {
                 ("JIT_CONT", V::Fall),
             ],
         );
-        let brkey = self.arm_key("br/f", if when { "JIT_F" } else { "JIT_T" });
-        let (t, f) =
-            if when { (V::Blk(target), V::Fall) } else { (V::Fall, V::Blk(target)) };
+        let brkey = self.arm_key("br/f", "JIT_F");
         self.emit(
             brkey,
-            &[("JIT_A", V::I(u64::from(verdict))), ("JIT_T", t), ("JIT_F", f)],
+            &[("JIT_A", V::I(u64::from(verdict))), ("JIT_T", V::Blk(target)), ("JIT_F", V::Fall)],
         );
     }
 
@@ -2838,13 +2823,13 @@ impl Jit<'_> {
         true
     }
 
-    /// `frame[d] = frame[a] < 0`, at the operand's own signedness.
+    /// `frame[d] = frame[a] < 0` for a signed operand.
     ///
     /// At sixteen bytes there is no immediate stencil — `_JIT_K` is one word —
     /// so the sign test is a signed compare of the **high** half, which is the
     /// same question one instruction narrower.
     fn lt_zero(&mut self, d: u32, a: u32, tag: &str) {
-        let (key, at) = if tag == "i128" || tag == "u128" {
+        let (key, at) = if tag == "i128" {
             (key!["bin/lt/i64/fi/f"], a + 8)
         } else {
             (key!["bin/lt/", tag, "/fi/f"], a)
@@ -2901,7 +2886,7 @@ impl Jit<'_> {
     /// cleared, which is exact for every value including the infinities and
     /// leaves a NaN a NaN.
     fn abs_signum(&mut self, st: &mut Fn2, prim: Prim, abs: bool, a: u32, dest: u32) {
-        let (tag, bits, signed) = num_tag(prim);
+        let (tag, bits, _) = num_tag(prim);
         let mask = if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 };
         // A sign test at sixteen bytes reads the high half, which the `signum`
         // comparisons below cannot: they are `bin/{lt,gt}/{tag}/fi/f` and there
@@ -2921,10 +2906,8 @@ impl Jit<'_> {
                 );
                 return;
             }
+            // The checker declares `abs` on signed integers and floats only.
             self.mv(dest, a, if bits > 64 { 16 } else { 8 });
-            if !signed {
-                return;
-            }
             let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
             self.lt_zero(scr, a, tag);
             let skip = st.label();
