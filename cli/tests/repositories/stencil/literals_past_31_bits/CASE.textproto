@@ -1,0 +1,15 @@
+# Arithmetic, comparisons and masks against literals between 2^31 and 2^32.
+# On x86-64 such a literal fits a 32-bit `mov` only zero-extended, which is a
+# different instruction from the sign-extended one a smaller literal takes.
+# Both backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "literals past 31 bits agree on both backends"
+
+run {
+  args: ["test", "//lib/literals", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
