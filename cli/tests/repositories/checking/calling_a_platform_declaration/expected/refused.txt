@@ -1,0 +1,27 @@
+error: `load` is declared by `//platform/kit` with no body, so there is nothing to call [platform-declaration-called]
+ --> cmd/app/main.buri:4:16
+  |
+4 |     let read = load;
+  |                ^^^^
+  |
+  = a platform's `platform.buri` declares its entries for the platform to call, and nothing implements a declaration with no body
+  = fix: call a function with a body. The program fills an entry with a function of its own, and the platform calls it
+
+    An entry's declaration is the signature a platform calls. The program fills
+    it with a function of its own, named in its BUILD.buri, and calls that
+    function directly when it needs to:
+
+      binary {
+          outputs: [
+              { platform: "//platform/kit", entries: [{ name: "load", function: "fill" }] },
+          ]
+      }
+
+error: `load` is declared by `//platform/kit` with no body, so there is nothing to call [platform-declaration-called]
+ --> cmd/app/main.buri:5:9
+  |
+5 |     if (load(host, 3) > read(host, 1)) { name } else { "" }
+  |         ^^^^^^^^^^^^^
+  |
+  = a platform's `platform.buri` declares its entries for the platform to call, and nothing implements a declaration with no body
+  = fix: call a function with a body. The program fills an entry with a function of its own, and the platform calls it

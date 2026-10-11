@@ -1,0 +1,11 @@
+from "//platform/kit" import { KitHost, load };
+
+export fn main(host: KitHost, name: Str): Str {
+    let read = load;
+    if (load(host, 3) > read(host, 1)) { name } else { "" }
+}
+
+/// What fills the platform's `load`, and what the program calls.
+export fn fill(host: KitHost, n: Int): Int {
+    n
+}

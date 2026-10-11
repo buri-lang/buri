@@ -230,6 +230,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("pattern-type-mismatch", "A pattern matches the matched value's shape"),
     e!("payload-count", "A constructor is given the values it holds"),
     e!("payload-pattern-count", "A payload pattern matches the values the variant holds"),
+    e!("platform-declaration-called", "A program calls functions with bodies, not its platform's declarations", &["build/platforms"]),
     e!("platform-entry-missing-field", "A platform's entry has a name and a backend", &["build/platforms"]),
     e!("platform-missing-entry", "A platform has an entry", &["build/platforms"]),
     e!("platform-testing-only-import", "Only an effect's testing surface keeps state", &["build/libraries"]),
