@@ -84,9 +84,7 @@ pub fn explained(status: Status, action: Action) {
 /// Notes that `path` is an executable just written as a new file.
 pub fn placed(path: &Path) {
     if crate::profile::enabled() {
-        if let Ok(path) = std::fs::canonicalize(path) {
-            FRESH.lock().unwrap_or_else(PoisonError::into_inner).push(path);
-        }
+        FRESH.lock().unwrap_or_else(PoisonError::into_inner).extend(std::fs::canonicalize(path).ok());
     }
 }
 
@@ -96,9 +94,10 @@ pub fn moved(from: &Path, to: Option<&Path>) {
     if !crate::profile::enabled() {
         return;
     }
-    let Ok(from) = std::fs::canonicalize(from) else { return };
+    // A path that doesn't resolve is none of the noted ones, which all did.
+    let from = std::fs::canonicalize(from).ok();
     let mut fresh = FRESH.lock().unwrap_or_else(PoisonError::into_inner);
-    let Some(at) = fresh.iter().position(|p| *p == from) else { return };
+    let Some(at) = fresh.iter().position(|p| from.as_ref() == Some(p)) else { return };
     fresh.swap_remove(at);
     if let Some(to) = to.and_then(|to| std::fs::canonicalize(to).ok()) {
         fresh.push(to);
@@ -110,9 +109,9 @@ pub fn started(program: &std::ffi::OsStr) {
     if !crate::profile::enabled() {
         return;
     }
-    let Ok(program) = std::fs::canonicalize(program) else { return };
+    let program = std::fs::canonicalize(program).ok();
     let mut fresh = FRESH.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some(at) = fresh.iter().position(|p| *p == program) {
+    if let Some(at) = fresh.iter().position(|p| program.as_ref() == Some(p)) {
         fresh.swap_remove(at);
         drop(fresh);
         add(Count::NewExecutables);

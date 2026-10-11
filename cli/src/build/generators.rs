@@ -28,6 +28,7 @@ use crate::commands::arguments::Flags;
 use crate::diagnostics::{Invariant as _, Span};
 use crate::json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -894,16 +895,22 @@ fn prepare_rules(session: &mut Session, flags: &Flags, overlay: &Overlay, target
             break;
         }
         build_tools(session, &ready, flags);
+        // Each worker takes the next rule until none is left, this thread too,
+        // so a helper that does not start leaves its rules to the others.
+        let next = AtomicUsize::new(0);
+        let work = || {
+            while let Some(&target) = ready.get(next.fetch_add(1, Ordering::Relaxed)) {
+                run(session, target, flags, overlay);
+            }
+        };
         std::thread::scope(|scope| {
-            for &target in &ready {
-                let started = std::thread::Builder::new()
+            for _ in 1..ready.len() {
+                let _ = std::thread::Builder::new()
                     .name("buri-generate".into())
                     .stack_size(crate::parallel::STACK)
-                    .spawn_scoped(scope, move || run(session, target, flags, overlay));
-                if started.is_err() {
-                    run(session, target, flags, overlay);
-                }
+                    .spawn_scoped(scope, work);
             }
+            work();
         });
         done.extend(ready);
         waiting = rest;
@@ -1280,8 +1287,8 @@ fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overla
         for input in &generator.inputs {
             let full = package.dir.join(&input.value);
             let rel = workspace.rel_of(&full);
-            match input_text(overlay, &full) {
-                Ok(text) => inputs.push((rel, text)),
+            match checks.texts.get(&full).or_ice("`Checks::start` read every input") {
+                Ok(text) => inputs.push((rel, text.clone())),
                 Err(e) => {
                     unreadable = true;
                     fingerprint.push_str(&format!("unreadable {rel}: {}\n", e.kind()));
@@ -1322,7 +1329,7 @@ fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overla
         let contracts: Vec<Option<tools::Contract>> =
             inputs.iter().map(|(rel, _)| contract_of(&workspace, tool, rel)).collect();
         let mut failed = false;
-        for (((rel, text), contract), input) in inputs.iter().zip(&contracts).zip(&generator.inputs) {
+        for (((rel, _), contract), input) in inputs.iter().zip(&contracts).zip(&generator.inputs) {
             let kind = workspace.repo.languages.of(rel).map(|l| &l.kind);
             let identity = contract.as_ref().zip(kind).map(|(c, k)| c.identity(k));
             match checks.contracts.get(rel) {
@@ -1350,7 +1357,7 @@ fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overla
                     checks.contracts.insert(rel.clone(), (identity, generator.tool.value.clone()));
                 }
             }
-            let (key, found) = checks.check(session, rel, text, contract.as_ref(), &read, flags);
+            let (key, found) = checks.check(rel, contract.as_ref());
             if let Some(key) = key {
                 fingerprint.push_str(key.as_str());
                 fingerprint.push('\n');
@@ -1424,9 +1431,11 @@ struct Checks {
     contracts: BTreeMap<String, (Option<String>, String)>,
     findings: Vec<(crate::languages::Finding, Span)>,
     reads: BTreeSet<String>,
-    /// Checks run ahead of [`Checks::check`] by [`Checks::start`], each with
-    /// the text it checked.
-    started: BTreeMap<(String, Option<tools::Contract>), (String, Option<tools::Checked>)>,
+    /// Checks run ahead of [`Checks::check`] by [`Checks::start`].
+    started: BTreeMap<(String, Option<tools::Contract>), Option<tools::Checked>>,
+    /// Each input's text as [`Checks::start`] read it, so the rule checks and
+    /// generates from one read of each file.
+    texts: BTreeMap<std::path::PathBuf, std::io::Result<String>>,
 }
 
 /// An input's text: the editor's, where it has unsaved text, or the file's.
@@ -1450,7 +1459,7 @@ impl Checks {
     /// Each check is a process of the checking tool's own, and the rule asks
     /// for them one at a time, so a rule with many inputs used to wait for one
     /// process after another. [`Checks::check`] takes the answer started here
-    /// for the same file, contract and text, so what a rule records is what it
+    /// for the same file and contract, so what a rule records is what it
     /// recorded before: only when each answer was worked out has changed.
     fn start(
         &mut self,
@@ -1468,7 +1477,10 @@ impl Checks {
             for input in &generator.inputs {
                 let full = package.dir.join(&input.value);
                 let rel = workspace.rel_of(&full);
-                let Ok(text) = input_text(overlay, &full) else { continue };
+                let held =
+                    self.texts.entry(full.clone()).or_insert_with(|| input_text(overlay, &full));
+                let Ok(text) = held else { continue };
+                let text = text.clone();
                 let contract = contract_of(workspace, tool, &rel);
                 if !asks.iter().any(|(r, _, c)| *r == rel && *c == contract) {
                     asks.push((rel, text, contract));
@@ -1479,30 +1491,22 @@ impl Checks {
             let (rel, text, contract) = asks.get(i)?;
             tools::check_file(session, rel, text, contract.as_ref(), read, flags)
         });
-        for ((rel, text, contract), answer) in asks.into_iter().zip(answers) {
-            self.started.insert((rel, contract), (text, answer));
+        for ((rel, _, contract), answer) in asks.into_iter().zip(answers) {
+            self.started.insert((rel, contract), answer);
         }
     }
 
-    /// Checks one input in a language this repository knows, and answers with
-    /// the key the verdict is cached under. A file no tool checks has neither.
-    fn check(
-        &mut self,
-        session: &Session,
-        rel: &str,
-        text: &str,
-        contract: Option<&tools::Contract>,
-        read: &dyn Fn(&str) -> Option<String>,
-        flags: &Flags,
-    ) -> (Option<ActionKey>, Vec<crate::languages::Finding>) {
+    /// One input's check, as [`Checks::start`] ran it: the key the verdict is
+    /// cached under, and what it found. A file no tool checks has neither.
+    fn check(&mut self, rel: &str, contract: Option<&tools::Contract>) -> Verdict {
         let at = (rel.to_string(), contract.cloned());
         if let Some(known) = self.done.get(&at) {
             return known.clone();
         }
-        let checked = match self.started.remove(&at) {
-            Some((checked_text, checked)) if checked_text == text => checked,
-            _ => tools::check_file(session, rel, text, contract, read, flags),
-        };
+        let checked = self
+            .started
+            .remove(&at)
+            .or_ice("`Checks::start` checked each readable input under its contract");
         let answer = match checked {
             Some(checked) => {
                 self.reads.extend(checked.asked);
