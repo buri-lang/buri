@@ -624,27 +624,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 ));
                 self.error_expr(span)
             }
-            Some(Sym::Overloaded(fs)) => {
-                let names: Vec<String> = fs
-                    .iter()
-                    .map(|f| {
-                        let i = self.c.tables.fn_info(*f);
-                        match &i.self_ty {
-                            Some(c) => format!("{}.{}", self.c.tables.tycon(*c).name, i.name),
-                            None => i.name.clone(),
-                        }
-                    })
-                    .collect();
-                self.templated("ambiguous-free-function", span).bind("name", name).note(format!(
-                    "it is a method on several types: {}",
-                    diagnostics::names(&names)
-                ));
-                self.error_expr(span)
-            }
-            Some(Sym::Ty(_))
-            | Some(Sym::Trait(_))
-            | Some(Sym::Namespace(_))
-            | Some(Sym::Alias(..)) => {
+            Some(Sym::Ty(_)) | Some(Sym::Trait(_)) | Some(Sym::Alias(..)) => {
                 self.templated("type-not-value", span).bind("name", name);
                 self.error_expr(span)
             }

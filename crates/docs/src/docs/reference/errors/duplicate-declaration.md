@@ -26,5 +26,17 @@ struct Point {
 }
 ```
 
+```buri fail code=duplicate-declaration
+fn size(a: Int): Int {
+    a
+}
+
+fn size(a: Str): Int {
+    0
+}
+```
+
 Rename one of them. Two things with one name in one scope leave a reference
-to that name with no answer.
+to that name with no answer. There is no overloading: two functions of one
+name are refused like two structs. Methods in different `impl`s are fine,
+because a receiver picks one.

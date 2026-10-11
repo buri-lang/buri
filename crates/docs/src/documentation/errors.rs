@@ -64,7 +64,6 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("accepts-missing-generate", "A contract language needs a `generate`", &["build/tools"]),
     e!("accepts-unknown-language", "A contract names a declared language", &["build/tools"]),
     e!("alpha-out-of-range", "A colour's alpha is a fraction from 0 to 1", &["guides/user-interfaces"]),
-    e!("ambiguous-free-function", "A method called as a free function names one type"),
     e!("ambiguous-source", "A source two rules reach is listed explicitly", &["build/build-files"]),
     e!("ambiguous-trait-method", "A method two bounds share needs qualifying"),
     e!("argument-count", "A call passes the arguments its callee declares"),

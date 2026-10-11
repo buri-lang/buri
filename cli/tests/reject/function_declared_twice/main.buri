@@ -1,0 +1,15 @@
+// EXPECT: `size` is declared twice
+//
+// A second top-level function of one name is refused where it's written, and
+// points back at the first. The first keeps the name, so `size(4)` checks.
+fn size(a: Int): Int {
+  a
+}
+
+fn size(a: Str): Int {
+  0
+}
+
+fn go(): Int {
+  size(4)
+}

@@ -1,0 +1,20 @@
+// EXPECT: `grow` is declared twice
+//
+// Each declaration after the first is refused on its own, and each points
+// back at the first. The name stays a value, and means the first.
+fn grow(a: Int): Int {
+  a
+}
+
+fn grow(a: Str): Int {
+  0
+}
+
+fn grow(a: Bool): Int {
+  1
+}
+
+fn go(): Int {
+  let f = grow;
+  f(1)
+}

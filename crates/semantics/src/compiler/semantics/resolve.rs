@@ -41,12 +41,6 @@ pub enum Sym {
     Trait(TraitId),
     Const(ConstId),
     Context(ContextDeclId),
-    /// A `import * as list` namespace.
-    Namespace(ModuleId),
-    /// Several methods of that name exist on different types. Usable as a
-    /// method, ambiguous as a free function — which is the shape `core/number`'s
-    /// per-type conversions would have if they were written out.
-    Overloaded(Vec<FnId>),
     /// A method declared in an `impl` block, carrying its receiver type as
     /// written. The name exists in the module's scope only so that a library's
     /// `lib.buri` can put it on the surface; a method is never callable as a
@@ -917,6 +911,11 @@ impl<'a> Checker<'a> {
                 self.declare(module, d.name, Sym::Trait(id), d.exported);
             }
             tree::Item::Fn(d) => {
+                // A function refused as a redeclaration is never added, so
+                // nothing checks its body against a signature nobody can call.
+                if self.refuse_redeclaration(module, d.name) {
+                    return;
+                }
                 // Built as the `Arc` the declaration keeps, and nothing at all
                 // for a function with no generics, which is most of them.
                 let written = t.list(d.generics);
@@ -1030,46 +1029,41 @@ impl<'a> Checker<'a> {
                     .with_bind("name", text.to_string()),
             );
         }
-        let scope = self.scope_mut(module);
-        if let Some(existing) = scope.own.get(text) {
-            // An inherent method's entry is only a name to re-export, and
-            // nothing resolves through it, so a declaration of the same name
-            // takes its place, as it does when it comes first.
-            if matches!(existing, Sym::Method(_)) {
-                scope.own.insert(text.to_string(), sym.clone());
-                if exported {
-                    scope.exports.insert(text.to_string(), sym);
-                }
-                return;
-            }
-            // Two methods of the same name on different types are the shape
-            // `core/number`'s conversions have; anything else is a redeclaration.
-            if let (Sym::Fn(a), Sym::Fn(b)) = (existing.clone(), &sym) {
-                scope.own.insert(text.to_string(), Sym::Overloaded(vec![a, *b]));
-                if exported {
-                    scope.exports.insert(text.to_string(), Sym::Overloaded(vec![a, *b]));
-                }
-                return;
-            }
-            if let (Sym::Overloaded(mut fs), Sym::Fn(b)) = (existing.clone(), &sym) {
-                fs.push(*b);
-                scope.own.insert(text.to_string(), Sym::Overloaded(fs.clone()));
-                if exported {
-                    scope.exports.insert(text.to_string(), Sym::Overloaded(fs));
-                }
-                return;
-            }
-            self.diags.push(
-                Diagnostic::templated("duplicate-declaration", name.span)
-                    .with_bind("declaration", format!("`{text}`"))
-                    .with_fix("rename one of them; a name has one meaning in a module"),
-            );
+        if self.refuse_redeclaration(module, name) {
             return;
         }
+        let scope = self.scope_mut(module);
         scope.own.insert(text.to_string(), sym.clone());
         if exported {
             scope.exports.insert(text.to_string(), sym);
         }
+    }
+
+    /// Whether `name` already names a declaration of `module`, reporting the
+    /// second one against the first when it does. The first keeps the name.
+    ///
+    /// An inherent method's entry is only a name to re-export, and nothing
+    /// resolves through it, so a declaration of the same name takes its place.
+    fn refuse_redeclaration(&mut self, module: ModuleId, name: tree::Name) -> bool {
+        let text = self.name_text(module, name);
+        let first = match self.scope(module).own.get(text) {
+            None | Some(Sym::Method(_)) => return false,
+            Some(Sym::Ty(c)) => self.tables.tycon(*c).span,
+            Some(Sym::Fn(f)) => self.tables.fn_info(*f).span,
+            Some(Sym::Trait(t)) => self.tables.trait_(*t).span,
+            Some(Sym::Const(c)) => self.tables.const_(*c).span,
+            Some(Sym::Context(c)) => self.tables.ctx_decl(*c).span,
+            Some(Sym::Alias(m, n)) => self
+                .alias_decl_span(*m, n)
+                .or_ice("a module's own alias is declared in it"),
+        };
+        self.diags.push(
+            Diagnostic::templated("duplicate-declaration", name.span)
+                .with_bind("declaration", format!("`{text}`"))
+                .with_fix("rename one of them; a name has one meaning in a module")
+                .with_secondary_span(first, "first declared here"),
+        );
+        true
     }
 
     // -----------------------------------------------------------------------
@@ -1465,19 +1459,12 @@ impl<'a> Checker<'a> {
                             .get(t.name(d.name))
                             .cloned()
                             .or_ice("`collect_declarations` declared every function under its name");
-                        let fid = match sym {
-                            Sym::Fn(f) => f,
-                            Sym::Overloaded(fs) => {
-                                match fs
-                                    .iter()
-                                    .find(|f| self.tables.fn_info(**f).span == d.name.span)
-                                {
-                                    Some(f) => *f,
-                                    None => continue,
-                                }
-                            }
-                            _ => continue,
-                        };
+                        // A refused redeclaration was never added, and the
+                        // name is the first declaration's.
+                        let Sym::Fn(fid) = sym else { continue };
+                        if self.tables.fn_info(fid).span != d.name.span {
+                            continue;
+                        }
                         self.elaborate_fn_signature(id, index as u32, fid, d);
                     }
                     tree::Item::Let(d) => {
