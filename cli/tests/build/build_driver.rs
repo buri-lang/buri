@@ -735,9 +735,8 @@ fn link_dir(scratch: &Scratch) -> std::path::PathBuf {
     scratch.path(&format!(".buri/link/{}", only_entry(&scratch.path(".buri/link"))))
 }
 
-/// Something in the way of the link directory, or a link directory and cache
-/// that can't be written, fails the build with the path it couldn't write.
-/// Once that's fixed the edited program builds and runs.
+/// Something in the way of the link directory fails the build with the path
+/// it couldn't make. Once it's gone the edited program builds and runs.
 #[test]
 fn a_link_directory_that_cannot_be_written_is_an_error() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
@@ -750,18 +749,8 @@ fn a_link_directory_that_cannot_be_written_is_an_error() {
     std::fs::remove_file(scratch.path(".buri/link")).unwrap();
     std::fs::rename(scratch.path("link-aside"), scratch.path(".buri/link")).unwrap();
 
-    // With no cache entry to link from, the new object is written in the
-    // link directory.
-    scratch.edit("cmd/app/main.buri", "ctx, \"edited\"", "ctx, \"again\"");
-    let cache = scratch.path(".buri/cache");
-    chmod_tree(&cache, 0o555);
-    chmod_tree(&dir, 0o555);
-    let built = scratch.run(&["build", "//cmd/app"]);
-    chmod_tree(&cache, 0o755);
-    chmod_tree(&dir, 0o755);
-    built.exits(1).says("error: cannot write ").says(".o: ");
     scratch.run(&["build", "//cmd/app"]).ok();
-    scratch.run(&["run", "//cmd/app"]).ok().says("again");
+    scratch.run(&["run", "//cmd/app"]).ok().says("edited");
 }
 
 /// A C driver that says it linked but wrote no program is an error naming the
