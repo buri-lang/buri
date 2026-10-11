@@ -296,7 +296,7 @@ impl Jit<'_> {
         }
 
         if extra == Extra::Walk {
-            self.walk_extra(prog, st, args, &mut ints);
+            self.walk_extra(prog, st, entry, args, &mut ints);
         }
 
         if extra == Extra::Press {
@@ -1025,6 +1025,7 @@ impl Jit<'_> {
         &mut self,
         prog: &ir::Program,
         st: &mut Fn2,
+        entry: &Entry,
         args: &[(u32, ir::Type)],
         ints: &mut Vec<Src>,
     ) {
@@ -1289,7 +1290,7 @@ fn last_closure(prog: &ir::Program, args: &[(u32, ir::Type)]) -> (u32, Ty, &'sta
     let (fslot, fty) = *args.last().or_ice("an `Extra` row takes its closure last");
     let ty = source_ty(prog, fty).or_ice("a closure has a source type");
     match ty.kind() {
-        TyKind::Fn(params, ret) => Some((fslot, ty, params, *ret)),
+        TyKind::Fn(params, ret) => Some((fslot, ty, *params, *ret)),
         _ => None,
     }
     .or_ice("an `Extra` row's last argument is a function")
