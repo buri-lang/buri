@@ -284,6 +284,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends clang musl-dev musl-tools
           rustup target add "$(uname -m)-unknown-linux-musl"
       - run: cargo clippy --workspace --exclude buri-llvm --all-targets
+      # Without its tests, `buri` builds as it ships: without `test-hooks`.
+      - run: cargo clippy -p buri
 
   # The validation gate: compile every corpus and measure nothing. `--profile
   # validate` is the point of the job — the root `Cargo.toml` declares it, and it
@@ -764,6 +766,26 @@ jobs:
       - run: nix flake check --all-systems --no-build
       - run: nix build .#from-source
       - run: ./result/bin/buri version
+      # The shipped toolchain is built without `test-hooks`, so the variables a
+      # test drives `buri` with do nothing: no internal error, and the test's
+      # own time rather than the 2.5 s the hold file sets.
+      - name: test hooks are off
+        run: |
+          buri="$PWD/result/bin/buri"
+          cd "$(mktemp -d)"
+          held="$(mktemp -d)"
+          touch REPO.buri
+          mkdir -p lib/edge/test
+          printf 'library {\n    test {\n        sources: ["test/edge.buri"]\n    }\n}\n' > lib/edge/BUILD.buri
+          printf 'export fn one(): Int {\n    1\n}\n' > lib/edge/lib.buri
+          printf 'from "core/testing/assert" import * as assert;\nfrom "//lib/edge" import { one };\n\ntest "one is one" {\n    assert.equal(one(), 1);\n}\n' > lib/edge/test/edge.buri
+          BURI_INTERNAL_ERROR_TEST=1 "$buri" build
+          echo 2460000000 > "$held/time-1"
+          BURI_HOLD="$held" "$buri" test --verbose | tee out.txt
+          if grep -q ' 2\.5 s$' out.txt; then
+            echo "BURI_HOLD set a test's time in a shipped build" >&2
+            exit 1
+          fi
 
   # protobuf's own conformance suite against the codecs the proto generator
   # writes. The runner is a C++ test binary nixpkgs doesn't package, so the

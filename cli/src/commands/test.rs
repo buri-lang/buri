@@ -1019,19 +1019,16 @@ fn list_suite(session: &Session, target: TargetId, platform: Platform, outcome: 
 
 /// A test's time: whole microseconds under a millisecond, milliseconds to one
 /// decimal under a second, then seconds to one decimal.
-///
-/// Each unit is written and the time picks one, so the machine's speed picks
-/// data rather than a branch. The unit test below covers each unit.
 fn duration(ns: u64) -> String {
-    let ms = ns.saturating_add(50_000) / 100_000;
-    let s = ns.saturating_add(50_000_000) / 100_000_000;
-    let unit = usize::from(ns >= 1_000_000).saturating_add(usize::from(ms >= 10_000));
-    let each = [
-        format!("{} µs", ns / 1_000),
-        format!("{}.{} ms", ms / 10, ms % 10),
-        format!("{}.{} s", s / 10, s % 10),
-    ];
-    each.into_iter().nth(unit).unwrap_or_default()
+    if ns < 1_000_000 {
+        return format!("{} µs", ns / 1_000);
+    }
+    let tenths = ns.saturating_add(50_000) / 100_000;
+    if tenths < 10_000 {
+        return format!("{}.{} ms", tenths / 10, tenths % 10);
+    }
+    let tenths = ns.saturating_add(50_000_000) / 100_000_000;
+    format!("{}.{} s", tenths / 10, tenths % 10)
 }
 
 /// The pool's queue, of the jobs below.
@@ -3215,11 +3212,18 @@ fn text_of(value: &Value, name: &str) -> Option<String> {
 /// How long a block or a test took, where its record says. A record cached
 /// before tests were timed has `ms` instead, which was always 0.
 fn nanoseconds_of(value: &Value) -> Option<u64> {
-    match value.get("ns") {
+    let ns = match value.get("ns") {
         Some(Value::Int(n)) => u64::try_from(*n).ok(),
         _ => None,
-    }
+    };
+    #[cfg(feature = "test-hooks")]
+    let ns = ns.map(|ns| TIMED.time(ns));
+    ns
 }
+
+/// Where a test sets the time `buri test` reads ([`crate::hold`]).
+#[cfg(feature = "test-hooks")]
+static TIMED: crate::hold::Point = crate::hold::Point::new("time");
 
 /// A field of a record that is a block index.
 fn index_of(value: &Value, name: &str) -> Option<usize> {

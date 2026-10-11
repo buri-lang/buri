@@ -36,6 +36,7 @@ pub mod build;
 pub mod commands;
 pub mod compiler;
 pub mod documentation;
+#[cfg(feature = "test-hooks")]
 pub mod hold;
 pub mod language_server;
 
