@@ -69,7 +69,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rustls::pki_types::{
     CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
@@ -235,24 +235,42 @@ pub fn connect(sock: TcpStream, host: &str) -> Result<TlsStream, NetFail> {
 
     bound(&sock);
 
+    let until = deadline_of(&sock);
     let mut stream = StreamOwned::new(conn, sock);
-    // `complete_io` drives the handshake until it has nothing left to send or
-    // to wait for. The bound is not expected to be reached — one call is
-    // normally the whole handshake — and it is here because a peer that leaves
-    // the connection wanting neither a read nor a write would otherwise be an
-    // infinite loop rather than an error.
+    match handshaken(&mut stream.conn, &mut stream.sock, until) {
+        Ok(true) => Ok(stream),
+        Ok(false) => Err(NetFail::Transport(String::from("tls: the handshake did not finish"))),
+        Err(e) => Err(handshake_failure(&e, &source)),
+    }
+}
+
+/// Drive a handshake to its end, and answer whether it got there.
+///
+/// `complete_io` drives the handshake until it has nothing left to send or to
+/// wait for. The bound on rounds is not expected to be reached — one call is
+/// normally the whole handshake — and it is here because a peer that leaves the
+/// connection wanting neither a read nor a write would otherwise be an infinite
+/// loop rather than an error.
+fn handshaken<D>(
+    conn: &mut rustls::ConnectionCommon<D>,
+    io: &mut (impl std::io::Read + std::io::Write),
+    until: Instant,
+) -> std::io::Result<bool> {
+    let _ = until;
     let mut rounds = 0;
-    while stream.conn.is_handshaking() {
-        stream
-            .conn
-            .complete_io(&mut stream.sock)
-            .map_err(|e| handshake_failure(&e, &source))?;
+    while conn.is_handshaking() {
+        conn.complete_io(io)?;
         rounds += 1;
         if rounds > 8 {
-            return Err(NetFail::Transport(String::from("tls: the handshake did not finish")));
+            return Ok(false);
         }
     }
-    Ok(stream)
+    Ok(true)
+}
+
+/// When a handshake on `sock` has to be over by: its read deadline from now.
+fn deadline_of(sock: &TcpStream) -> Instant {
+    Instant::now() + sock.read_timeout().ok().flatten().unwrap_or(HANDSHAKE_DEADLINE)
 }
 
 /// What a handshake gets if its socket carries no deadline of its own.
@@ -544,15 +562,12 @@ pub fn accept(
     let mut conn = ServerConnection::new(config)
         .map_err(|e| format!("tls: the connection could not be started: {e}"))?;
     bound(sock);
-    let mut rounds = 0;
-    while conn.is_handshaking() {
-        conn.complete_io(sock).map_err(|e| format!("tls: the handshake failed: {e}"))?;
-        rounds += 1;
-        if rounds > 8 {
-            return Err(String::from("tls: the handshake did not finish"));
-        }
+    let until = deadline_of(sock);
+    match handshaken(&mut conn, sock, until) {
+        Ok(true) => Ok(conn),
+        Ok(false) => Err(String::from("tls: the handshake did not finish")),
+        Err(e) => Err(format!("tls: the handshake failed: {e}")),
     }
-    Ok(conn)
 }
 
 /// A handshaken `rustls` connection over a **tokio** socket, spelled in the two
@@ -1461,5 +1476,84 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         // Whitespace is a line break in a PEM file and nothing else.
         assert_eq!(base64("TW\nFu").unwrap(), b"Man");
         assert!(base64("TWF*").is_none());
+    }
+
+    /// A transport whose next `left` writes are interrupted before they write
+    /// anything, the way Linux interrupts a socket write that has a deadline
+    /// when the process is stopped and continued.
+    struct Interrupting<T> {
+        io: T,
+        left: usize,
+    }
+
+    impl<T: Read> Read for Interrupting<T> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.io.read(buf)
+        }
+    }
+
+    impl<T: Write> Write for Interrupting<T> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.left > 0 {
+                self.left -= 1;
+                return Err(std::io::ErrorKind::Interrupted.into());
+            }
+            self.io.write(buf)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.io.flush()
+        }
+    }
+
+    /// An interrupted handshake step is taken again, and the handshake finishes.
+    #[test]
+    fn an_interrupted_handshake_finishes() {
+        let certificate = bundle("leaf-interrupted", LEAF_PEM);
+        let key = bundle("leaf-key-interrupted", LEAF_KEY_PEM);
+        let config = Arc::new(server_config(&certificate, &key, Vec::new()).expect("a config"));
+        let mut roots = RootCertStore::empty();
+        for der in certificates_in(CA_PEM) {
+            roots.add(CertificateDer::from(der)).expect("the test CA");
+        }
+        let (port, listeners) = loopback();
+        let served = std::thread::spawn(move || {
+            let sock = accept_within(&listeners, PATIENCE).expect("a connection");
+            sock.set_read_timeout(Some(PATIENCE)).unwrap();
+            let mut conn = ServerConnection::new(config).unwrap();
+            let mut io = Interrupting { io: sock, left: 3 };
+            handshaken(&mut conn, &mut io, Instant::now() + PATIENCE).map_err(|e| e.to_string())
+        });
+        let config = ClientConfig::builder_with_provider(provider())
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let name = ServerName::try_from("localhost").unwrap();
+        let conn = ClientConnection::new(Arc::new(config), name).unwrap();
+        let sock = TcpStream::connect(("127.0.0.1", port)).expect("the loopback server");
+        sock.set_read_timeout(Some(PATIENCE)).unwrap();
+        let mut stream = StreamOwned::new(conn, sock);
+        let client = handshaken(&mut stream.conn, &mut stream.sock, Instant::now() + PATIENCE);
+        assert_eq!(served.join().unwrap(), Ok(true), "the server's handshake");
+        assert!(matches!(client, Ok(true)), "the client's handshake: {client:?}");
+        let _ = std::fs::remove_file(certificate);
+        let _ = std::fs::remove_file(key);
+    }
+
+    /// An interruption once the deadline has passed is the deadline running
+    /// out.
+    #[test]
+    fn an_interruption_past_the_deadline_is_a_timeout() {
+        let config = ClientConfig::builder_with_provider(provider())
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(RootCertStore::empty())
+            .with_no_client_auth();
+        let name = ServerName::try_from("localhost").unwrap();
+        let mut conn = ClientConnection::new(Arc::new(config), name).unwrap();
+        let mut io = Interrupting { io: std::io::Cursor::new(Vec::new()), left: usize::MAX };
+        let answer = handshaken(&mut conn, &mut io, Instant::now());
+        assert_eq!(answer.map_err(|e| e.kind()), Err(std::io::ErrorKind::TimedOut));
     }
 }

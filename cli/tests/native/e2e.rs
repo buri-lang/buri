@@ -1862,6 +1862,49 @@ fn a_websocket_client_that_resets_ends_only_its_socket() {
     served_to_the_end(server.stopped());
 }
 
+/// **A TLS server stopped and continued mid-handshake still finishes it.** On
+/// Linux a stop and a continue interrupt the handshake's socket read, and the
+/// acceptor reads on rather than dropping the client.
+#[test]
+fn a_tls_server_stopped_and_continued_mid_handshake_still_answers_it() {
+    use std::io::Write;
+    #[cfg(target_os = "macos")]
+    const STOP_CONT: (i32, i32) = (17, 19);
+    #[cfg(not(target_os = "macos"))]
+    const STOP_CONT: (i32, i32) = (19, 18);
+    unless_ready!();
+    let (certificate, key, _absent) = crate::shared::tls_identity("e2e-stopped-tls");
+    let binary = built("e2e-tls-stopped", &tls_running_server(&certificate, &key));
+    let running = crate::shared::announced(&binary);
+    let hello = client_hello(&["h2", "http/1.1"]);
+    let mut socket = std::net::TcpStream::connect(("127.0.0.1", running.2)).unwrap();
+    socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).unwrap();
+    socket.write_all(&hello[..10]).unwrap();
+    // Ten times, so the acceptor is waiting for the rest of the hello for most
+    // of them.
+    for _ in 0..10 {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        crate::shared::signalling(&running.0, STOP_CONT.0);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        crate::shared::signalling(&running.0, STOP_CONT.1);
+    }
+    socket.write_all(&hello[10..]).unwrap();
+    let mut back = Vec::new();
+    let mut chunk = [0u8; 4096];
+    while !Until::ARecord.satisfied(&back) {
+        match crate::shared::read_on(&mut socket, &mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(read) => back.extend_from_slice(&chunk[..read]),
+        }
+    }
+    assert_eq!(chose(&back).as_deref(), Some("h2"), "the stopped handshake: {back:?}");
+
+    crate::shared::signalling(&running.0, crate::shared::SIGTERM);
+    let out = crate::shared::finished(running);
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert!(out.stdout.ends_with("served\n"), "`run` did not answer `.Ok`:\n{}", out.stdout);
+}
+
 /// **A TLS client that resets mid-handshake ends only its connection.** The
 /// next `ClientHello` on the same port is answered, and the listener drains to
 /// `.Ok`.
@@ -5590,6 +5633,76 @@ fn a_client_handed_a_signature_for_another_handshake_refuses_it() {
         !said.stdout.contains("client opened") && !said.stdout.contains("client closed"),
         "a hook ran for a socket that never opened.\nthe client said:\n{}",
         said.stdout
+    );
+}
+
+/// **A client stopped and continued while its handshake answer arrives still
+/// reads all of it.** On Linux a stop and a continue interrupt a socket read
+/// that has a deadline, and the dial reads on rather than giving up.
+#[test]
+fn a_client_stopped_and_continued_mid_handshake_reads_the_whole_answer() {
+    use std::io::Write;
+    #[cfg(target_os = "macos")]
+    const STOP_CONT: (i32, i32) = (17, 19);
+    #[cfg(not(target_os = "macos"))]
+    const STOP_CONT: (i32, i32) = (19, 18);
+    unless_ready!();
+    let client = built("e2e-client-dial-stopped", &dialling_client());
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
+    let port = listener.local_addr().expect("the bound port").port();
+    listener.set_nonblocking(true).expect("a non-blocking listener");
+    let mut child = crate::shared::started(
+        std::process::Command::new(&client)
+            .arg(port.to_string())
+            .env("BURI_RT_HEAP_CHECK", "1")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()),
+    );
+    let give_up_at = std::time::Instant::now() + crate::shared::SERVER_DEADLINE;
+    let mut socket = loop {
+        match listener.accept() {
+            Ok((socket, _from)) => break socket,
+            Err(e) => {
+                assert!(std::time::Instant::now() < give_up_at, "the client never dialled: {e}");
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    };
+    socket.set_nonblocking(false).expect("a blocking socket");
+    socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a deadline");
+    socket.set_write_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a deadline");
+    let mut head: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 512];
+    while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+        match crate::shared::read_on(&mut socket, &mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+        }
+    }
+    socket.write_all(b"HTTP/1.1 404 Not Found\r\n").expect("the status line");
+    // Ten times, so the client is waiting for the rest of the head for most of
+    // them.
+    for _ in 0..10 {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        crate::shared::signalling(&child, STOP_CONT.0);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        crate::shared::signalling(&child, STOP_CONT.1);
+    }
+    socket
+        .write_all(b"content-length: 0\r\nconnection: close\r\n\r\n")
+        .expect("the rest of the head");
+    drop(socket);
+    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let (mut stdout, mut stderr) = (String::new(), String::new());
+    if let Some(mut out) = child.stdout.take() {
+        let _ = std::io::Read::read_to_string(&mut out, &mut stdout);
+    }
+    if let Some(mut err) = child.stderr.take() {
+        let _ = std::io::Read::read_to_string(&mut err, &mut stderr);
+    }
+    assert!(
+        status.success() && stdout.contains("client refused: .Transport") && stdout.contains("404"),
+        "the stopped client did not read the whole answer ({status}).\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
 }
 
