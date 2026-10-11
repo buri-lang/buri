@@ -64,9 +64,8 @@
     reason = "the sums here are byte offsets inside a frame this file lays out \
               immediately above, from slot widths `middle::layout` computed for \
               types already in memory, plus the scratch words `SCRATCH_BYTES` \
-              names. `frame_bytes` is the one that could overflow a machine \
-              instruction's field and it is checked against `MAX_GLUE_FRAME` \
-              before anything is emitted"
+              names. A glue frame holds at most one `eload` width of value, \
+              so it stays far inside one `sub sp` immediate (`glue_stub`)"
 )]
 
 use super::asm::{Asm, RAX, RCX, RDI, RDX, RSI, RSP, SP, X86};
@@ -200,19 +199,6 @@ pub const ENV_WORD: u32 = (CLOSURE_ENV as u32) * 8;
 /// constant, so that a sequence which fits one frame fits the other.
 const SCRATCH_BYTES: u32 = super::jit::SCRATCH_WORDS as u32 * 8;
 
-/// The widest frame a glue stub can make.
-///
-/// The stub forms it with `sub sp, sp, #imm`, whose immediate is twelve bits
-/// unshifted. No glue asks for more: a glue frame holds at most 64 bytes of
-/// value, because anything wider is walked in place (`Jit::walk_in_place`).
-/// The stub still refuses a wider frame rather than emit an immediate that
-/// does not fit.
-///
-/// x86-64's `sub rsp, imm32` has no such limit and is held to the same number
-/// anyway, so both targets walk the same values the same way. Keeping every
-/// glue frame under a page is also what lets the stub go without a stack
-/// probe: one `sub` this size cannot step over a guard page.
-const MAX_GLUE_FRAME: u32 = 4080;
 
 fn round8(n: u32) -> u32 {
     (n + 7) & !7
@@ -430,9 +416,7 @@ impl Jit<'_> {
             return self.walk_glue_in_place(ty, op);
         }
         let frame = frame_for(size);
-        if !self.glue_stub(frame) {
-            return;
-        }
+        self.glue_stub(frame);
         let mut st = self.glue_frame(frame, G_VALUE + round8(size));
         self.imm_to(G_INDEX, 0);
         self.elem_load(G_VALUE, G_PTR, G_INDEX, 8, size);
@@ -454,9 +438,7 @@ impl Jit<'_> {
     fn walk_glue_in_place(&mut self, ty: Ty, op: Op) {
         let window = if op == Op::Copy { self.in_place_window(&ty) } else { 8 };
         let frame = frame_for(window);
-        if !self.glue_stub(frame) {
-            return;
-        }
+        self.glue_stub(frame);
         let mut st = self.glue_frame(frame, G_VALUE + window);
         // One, so that an indexed load at stride `offset` reads `G_PTR + offset`.
         self.imm_to(G_INDEX, 1);
@@ -775,9 +757,7 @@ impl Jit<'_> {
         // [`Jit::unless_spare`] reads every byte of the slot.
         let window = if wide { 8 } else { round8(stride) };
         let frame = frame_for(window);
-        if !self.glue_stub(frame) {
-            return;
-        }
+        self.glue_stub(frame);
         let mut st = self.glue_frame(frame, G_VALUE + window);
         // `cap` lives eight bytes below the payload pointer, so the header
         // address is formed first and read as an ordinary indexed load.
@@ -1027,22 +1007,16 @@ impl Jit<'_> {
     /// the C argument stored into its first slot, and a `bl` into the
     /// frame-threaded code that follows.
     ///
-    /// Answers `false` when the frame is wider than one `sub sp` immediate can
-    /// name, in which case nothing has been emitted and the caller has already
-    /// recorded a refusal.
-    fn glue_stub(&mut self, frame: u32) -> bool {
-        if frame > MAX_GLUE_FRAME {
-            self.unsupported(format!(
-                "a value needing {frame} bytes of drop glue frame, past what one \
-                 `sub sp` immediate names"
-            ));
-            // The refusal is the whole answer: a unit with one emits no object.
-            self.emit("ret", &[]);
-            return false;
-        }
+    /// The stub forms the frame with `sub sp, sp, #imm`, whose immediate is
+    /// twelve bits unshifted. Every frame fits: a glue frame holds at most the
+    /// widest `eload` (64 bytes) of value, because anything wider is walked in
+    /// place (`Jit::walk_in_place`). Keeping it under a page is also what lets
+    /// the stub go without a stack probe: one `sub` this size cannot step over
+    /// a guard page.
+    fn glue_stub(&mut self, frame: u32) {
         if !self.target.is_arm64() {
             self.glue_stub_x86_64(frame);
-            return true;
+            return;
         }
         let mut a = Asm::new();
         a.str_pre16(30, SP);
@@ -1056,7 +1030,6 @@ impl Jit<'_> {
         a.ret();
         let (bytes, _) = a.finish();
         self.region.put(&bytes);
-        true
     }
 
     /// [`Jit::glue_stub`] for SysV x86-64.
