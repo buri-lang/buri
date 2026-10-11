@@ -1,0 +1,14 @@
+# A match whose arms on one variant collapse into a test of one field, followed
+# by a guarded arm that keeps the whole match a chain. Both backends run every
+# block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a match that cannot become a decision tree still answers alike on both backends"
+
+run {
+  args: ["test", "//lib/trees", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

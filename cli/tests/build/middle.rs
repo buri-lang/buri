@@ -12,5 +12,5 @@ use crate::harness::*;
 
 #[test]
 fn the_middle_end() {
-    run_corpus(&tests_dir().join("repositories/middle"), "middle", 9);
+    run_corpus(&tests_dir().join("repositories/middle"), "middle", 12);
 }
