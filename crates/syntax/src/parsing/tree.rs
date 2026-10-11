@@ -82,13 +82,13 @@ const _: () = assert!(std::mem::size_of::<Item>() == 72);
 
 impl Module {
     /// Moves this module to `to`: what parsing it as file `to` would have
-    /// given, from a parse as file `from`. A loader parses a file before it
-    /// knows the id the file will have, and this is the one place that has
-    /// to know every span a module holds.
-    pub fn refile(&mut self, from: crate::diagnostics::FileId, to: crate::diagnostics::FileId) {
+    /// given. A loader parses a file before it knows the id the file will
+    /// have, and this is the one place that has to know every span a module
+    /// holds. Every span a parse makes is in the file it parsed.
+    pub fn refile(&mut self, to: crate::diagnostics::FileId) {
         use crate::parsing::flat::refile;
-        let at = |s: &mut Span| refile(s, from, to);
-        let name = |n: &mut Name| refile(&mut n.span, from, to);
+        let at = |s: &mut Span| refile(s, to);
+        let name = |n: &mut Name| refile(&mut n.span, to);
         for item in &mut self.items {
             match item {
                 Item::Import(i) => {
@@ -139,7 +139,7 @@ impl Module {
                 Item::Error(span) => at(span),
             }
         }
-        self.tree.refile(from, to);
+        self.tree.refile(to);
     }
 }
 

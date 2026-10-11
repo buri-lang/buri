@@ -730,7 +730,7 @@ impl<'a> Loader<'a> {
         let bodyless = self.is_platform_surface(path);
         let (ast, errors) = match ahead {
             Some(mut parsed) => {
-                parsed.module.refile(UNFILED, file);
+                parsed.module.refile(file);
                 for e in &mut parsed.errors {
                     e.refile(UNFILED, file);
                 }

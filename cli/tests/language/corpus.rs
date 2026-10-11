@@ -130,7 +130,7 @@ fn a_module_parsed_ahead_and_moved_to_its_file_is_what_parsing_it_there_gives() 
         for read in [parse, parse_stdlib] {
             let want = read(&text, there);
             let mut got = read(&text, ahead);
-            got.module.refile(ahead, there);
+            got.module.refile(there);
             for e in &mut got.errors {
                 e.refile(ahead, there);
             }
