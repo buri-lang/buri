@@ -1,0 +1,23 @@
+error: expected an identifier, found `,` [unexpected-token]
+ --> cmd/enum_starting_with_a_comma/main.buri:3:3
+  |
+3 |   ,
+  |   ^
+  |
+  = expected: an identifier
+  = actual: `,`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: an enum variant ends with `,` [missing-comma]
+ --> cmd/enum_starting_with_a_comma/main.buri:3:4
+  |
+3 |   ,
+  |    ^
+  |
+  = fix: write `,` here
+
+    An editor's quick fix and buri lint --fix both write the , for you.
+
+    Every comma-separated list works the same way, even when an element ends in
+    a brace: a match arm whose body is a block still ends with ,. Without it, A
+    => x followed by -1 => y reads as x - 1 (design/grammar-rationale.md 12.12).
+

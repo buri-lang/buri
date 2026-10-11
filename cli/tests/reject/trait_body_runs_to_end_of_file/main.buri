@@ -1,0 +1,3 @@
+// EXPECT: this `trait` body is missing its closing `}`
+trait Shape {
+  fn area(self): Int;

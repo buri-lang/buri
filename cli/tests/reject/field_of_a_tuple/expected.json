@@ -1,0 +1,1 @@
+{"severity":"error","message":"`(Int, Int)` has no field `first`","code":"unknown-field","location":{"file":"cmd/field_of_a_tuple/main.buri","line":8,"column":16,"endLine":8,"endColumn":21,"text":"  let _ = pair.first;"},"fix":"check the spelling, or name a field the type declares","notes":[],"related":[]}

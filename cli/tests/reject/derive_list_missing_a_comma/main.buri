@@ -1,0 +1,4 @@
+// EXPECT: a derived trait ends with `,`
+struct P { x: Int }
+
+derive Equal Show for P;

@@ -1,0 +1,1 @@
+{"severity":"error","message":"expected `:`, found `Int`","code":"unexpected-token","location":{"file":"cmd/trait_method_missing_its_colon/main.buri","line":6,"column":17,"endLine":6,"endColumn":20,"text":"  fn area(self) Int;"},"expected":"`:`","actual":"`Int`","fix":"write `:` here","notes":[],"related":[]}

@@ -1,0 +1,1 @@
+{"severity":"error","message":"expected `let`, found `sum`","code":"unexpected-token","location":{"file":"cmd/binding_name_written_before_let/main.buri","line":6,"column":3,"endLine":6,"endColumn":6,"text":"  sum let = 1;"},"expected":"`let`","actual":"`sum`","fix":"write `let` first: `let sum`","notes":[],"related":[]}

@@ -1,0 +1,1 @@
+{"severity":"error","message":"expected `:`, found `Int`","code":"unexpected-token","location":{"file":"cmd/impl_method_missing_colon_and_body/main.buri","line":8,"column":16,"endLine":8,"endColumn":19,"text":"  fn get(self) Int;"},"expected":"`:`","actual":"`Int`","fix":"write `:` here","notes":[],"related":[]}

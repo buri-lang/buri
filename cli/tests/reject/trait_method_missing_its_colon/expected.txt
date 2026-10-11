@@ -1,0 +1,9 @@
+error: expected `:`, found `Int` [unexpected-token]
+ --> cmd/trait_method_missing_its_colon/main.buri:6:17
+  |
+6 |   fn area(self) Int;
+  |                 ^^^
+  |
+  = expected: `:`
+  = actual: `Int`
+  = fix: write `:` here

@@ -1,0 +1,4 @@
+// EXPECT: "nowhere/thing" is not a module path
+from "nowhere/thing" import { x };
+
+fn main(): Int { 1 }

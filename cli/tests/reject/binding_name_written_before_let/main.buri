@@ -1,0 +1,8 @@
+// EXPECT: expected `let`, found `sum`
+//
+// The name and the keyword are exchanged. The fix writes `let` first, and the
+// name stays bound, so its use on the next line is no second error.
+fn total(): Int {
+  sum let = 1;
+  sum
+}

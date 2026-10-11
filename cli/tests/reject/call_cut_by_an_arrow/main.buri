@@ -1,0 +1,9 @@
+// EXPECT: this call is missing its closing `)`
+//
+// A `=>` can't follow an argument, so the call's `)` is missing there. The
+// late `)` is found past the nested parentheses, whatever they hold.
+fn g(a: Int): Int { a }
+
+fn f(): Int {
+  g(1 => (export))
+}

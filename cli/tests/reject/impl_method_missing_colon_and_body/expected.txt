@@ -1,0 +1,9 @@
+error: expected `:`, found `Int` [unexpected-token]
+ --> cmd/impl_method_missing_colon_and_body/main.buri:8:16
+  |
+8 |   fn get(self) Int;
+  |                ^^^
+  |
+  = expected: `:`
+  = actual: `Int`
+  = fix: write `:` here

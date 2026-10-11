@@ -1,0 +1,8 @@
+// EXPECT: this parameter list is missing its closing `)`
+//
+// `self: Int;` reads as a parameter list whose `)` is missing, so `: Int` is
+// the return type rather than an old-style annotation on `self`.
+trait Shape {
+  fn area(self: Int;
+  fn sides(self): Int;
+}

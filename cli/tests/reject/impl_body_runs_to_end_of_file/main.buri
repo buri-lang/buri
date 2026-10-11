@@ -1,0 +1,5 @@
+// EXPECT: this `impl` body is missing its closing `}`
+struct Box(Int);
+
+impl Box {
+  fn get(self): Int { 1 }

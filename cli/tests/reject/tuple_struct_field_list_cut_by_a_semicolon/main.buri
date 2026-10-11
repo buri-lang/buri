@@ -1,0 +1,5 @@
+// EXPECT: this tuple-struct field list is missing its closing `)`
+//
+// Fields are separated by commas. A `;` ends the declaration, so the list is
+// cut short there and what follows is read as the next declaration.
+struct Pair(Int; Str);

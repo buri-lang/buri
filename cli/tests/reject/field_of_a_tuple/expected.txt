@@ -1,0 +1,11 @@
+error: `(Int, Int)` has no field `first` [unknown-field]
+ --> cmd/field_of_a_tuple/main.buri:8:16
+  |
+8 |   let _ = pair.first;
+  |                ^^^^^
+  |
+  = fix: check the spelling, or name a field the type declares
+
+    There's no structural typing and no inheritance. A value has exactly the
+    fields its declaration lists.
+
