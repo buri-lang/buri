@@ -1,0 +1,8 @@
+// EXPECT: one error at the `=`, and the declarations written inside the body are skipped with it
+fn local(): Int = {
+  const limit = 1;
+  type Pair = (Int, Int);
+  trait Named {}
+  effect Log {}
+  limit
+}

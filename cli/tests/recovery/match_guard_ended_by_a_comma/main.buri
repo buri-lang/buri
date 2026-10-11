@@ -1,0 +1,10 @@
+// EXPECT: the guard ends at the `,` with no `=>`, so the arm before it reads on
+export enum Sign { Negative, Zero, Positive }
+
+export fn rank(s: Sign): Int {
+  match (s) {
+    .Negative => 1
+    .Zero if (true),
+    _ => 3,
+  }
+}

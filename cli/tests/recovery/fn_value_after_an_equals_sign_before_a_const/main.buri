@@ -1,0 +1,3 @@
+// EXPECT: one error at the `=`, and the `const` after it is read as the binding it starts
+fn one(): Int = 1
+const LIMIT: Int = 2;

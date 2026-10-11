@@ -1,0 +1,6 @@
+// EXPECT: `<>` names no type, so it reads as a comparison
+fn same<T>(x: T): T { x }
+
+export fn f(): Int {
+  same<>(1)
+}

@@ -1,0 +1,5 @@
+error [missing-comma] 8:19-8:19
+message: a match arm ends with `,`
+fix: write `,` here
+edit: 8:19-8:19 ","
+

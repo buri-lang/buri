@@ -1,0 +1,6 @@
+// EXPECT: a statement ends with `;`, and the `context` after it is a statement of its own
+export fn f(): Int {
+  let x = 1
+  context {};
+  x
+}

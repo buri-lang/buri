@@ -223,6 +223,10 @@ const UNFORMATTED_BY_DESIGN: &[(&str, &str)] = &[
          a label; it is indented wrongly on purpose so both forms have something to find",
     ),
     (
+        "cli/tests/repositories/syntax/a_late_module_doc_leaves_the_file_as_written/repo/lib/notes",
+        "a `//!` below a declaration, which `build::repositories::syntax` asks `buri format` about",
+    ),
+    (
         "cli/tests/repositories/syntax/an_open_comment_is_left_as_written/repo/lib/notes",
         "a file that is one block comment never closed, which `build::repositories::syntax` \
          asks `buri format` about",

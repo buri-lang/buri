@@ -1,0 +1,3 @@
+fn magnitude(n: Int): Int {
+    (-n).abs()
+}

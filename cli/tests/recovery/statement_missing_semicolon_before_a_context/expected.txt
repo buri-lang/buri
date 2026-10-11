@@ -1,0 +1,20 @@
+error [missing-semicolon] 3:12-3:12
+message: a statement ends with `;`
+fix: write `;` here
+edit: 3:12-3:12 ";"
+
+error [statement-outside-test] 4:3-4:14
+message: an expression statement is legal only in a test source
+fix: bind it: `let _ = ...;`, or make it the block's result expression
+note: a block is `let`s followed by a result expression
+
+error [misplaced-context] 4:3-4:13
+message: a context may not be constructed here
+fix: build it in the entry and pass it down as a `ctx` parameter, or make this a test source, where a context may be built per test
+note: only in an entry's body, in a test source, or in a test-only module — and never inside a lambda, since a closure that could mint authority would make the capture rule meaningless
+
+error [statement-not-unit] 4:3-4:14
+message: this statement has type `a context`, not `()`
+fix: bind it with `let _ = ...;`
+note: only an expression whose type is `()` may stand alone; bind anything else
+
