@@ -11,5 +11,5 @@ use crate::harness::*;
 
 #[test]
 fn the_debug_backend() {
-    run_corpus(&tests_dir().join("repositories/stencil"), "stencil", 6);
+    run_corpus(&tests_dir().join("repositories/stencil"), "stencil", 7);
 }

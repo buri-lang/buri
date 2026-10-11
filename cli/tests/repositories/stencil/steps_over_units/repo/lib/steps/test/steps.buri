@@ -1,0 +1,21 @@
+from "core/tasks" import * as tasks;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Tasks };
+from "platform/effect/testing" import { alloc, tasks };
+
+test "a step over units answers each index" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let units: [()] = [(), (), ()];
+    assert.equal(tasks.parallel(ctx, units, fn(c, i, u) => i), [0, 1, 2]);
+}
+
+test "a step answering units answers one per element" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    assert.equal(tasks.parallel(ctx, [1, 2], fn(c, i, x) => ()).length(), 2);
+}

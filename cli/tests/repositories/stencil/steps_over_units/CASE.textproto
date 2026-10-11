@@ -1,0 +1,14 @@
+# A runtime-driven step over zero-sized elements, and one answering them:
+# `tasks.parallel` hands the step no bytes for a `()`. Both backends run every
+# block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a parallel step over units, and one answering units, agree on both backends"
+
+run {
+  args: ["test", "//lib/steps", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

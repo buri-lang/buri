@@ -5,8 +5,19 @@ struct Id {
     bytes: [U8],
 }
 
+derive Equal, Hash for Tags;
+struct Tags {
+    names: [Str],
+}
+
 test "an identifier over bytes hashes" {
     let a = Id { bytes: [1, 2, 3] };
     let b = Id { bytes: [1, 2, 3] };
+    assert.equal(a.hash(), b.hash());
+}
+
+test "tags over names hash" {
+    let a = Tags { names: ["x"] };
+    let b = Tags { names: ["x"] };
     assert.equal(a.hash(), b.hash());
 }
