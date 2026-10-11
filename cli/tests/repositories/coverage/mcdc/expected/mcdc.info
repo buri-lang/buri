@@ -30,8 +30,12 @@ BRDA:42,0,0,1000000
 BRDA:42,0,1,1
 BRDA:46,0,0,2
 BRDA:46,0,1,1
-BRF:30
-BRH:20
+BRDA:50,0,0,1
+BRDA:50,0,1,1
+BRDA:50,1,0,0
+BRDA:50,1,1,1
+BRF:34
+BRH:23
 MCDC:4,2,t,1,0,'a' in 'a && b'
 MCDC:4,2,f,1,0,'a' in 'a && b'
 MCDC:4,2,t,0,1,'b' in 'a && b'
@@ -50,7 +54,11 @@ MCDC:46,2,t,1,0,'a' in '!(a || b)'
 MCDC:46,2,f,1,0,'a' in '!(a || b)'
 MCDC:46,2,t,1,1,'b' in '!(a || b)'
 MCDC:46,2,f,1,1,'b' in '!(a || b)'
-MCF:18
+MCDC:50,2,t,0,0,'a' in 'a && n / d > 0'
+MCDC:50,2,f,0,0,'a' in 'a && n / d > 0'
+MCDC:50,2,t,0,1,'n / d > 0' in 'a && n / d > 0'
+MCDC:50,2,f,0,1,'n / d > 0' in 'a && n / d > 0'
+MCF:22
 MCH:12
 DA:3,2
 DA:4,2
@@ -77,6 +85,8 @@ DA:41,1000001
 DA:42,1000001
 DA:45,3
 DA:46,3
-LF:25
-LH:22
+DA:49,2
+DA:50,2
+LF:27
+LH:24
 end_of_record

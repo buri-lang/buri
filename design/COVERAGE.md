@@ -57,8 +57,8 @@ A decision whose branches all count zero was never reached and reads `-`.
   `{ let p = <path>; coverage.hit(base + p); p < T }`, so a path is a key.
   `Tree::decode` turns a path back into each condition's value, or `None` where
   short-circuiting skipped it. The report pairs the paths that ran:
-  unique-cause MC/DC with masking. The right sides of `&&` and `||` come from the
-  same paths, with no probe of their own. A tree of more than 2³² paths keeps
+  unique-cause MC/DC with masking. The right sides of `&&` and `||` keep their
+  probes, so an abort partway through still counts what it reached. A tree of more than 2³² paths keeps
   its branch probes and isn't counted, and so does one in tail position whose
   last condition can end in a call (`ends_in_tail_call`): numbering its path
   reads the call's answer, which takes the call out of tail position. A
