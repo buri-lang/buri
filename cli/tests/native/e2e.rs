@@ -1781,7 +1781,10 @@ fn a_client_that_resets_before_its_answer_leaves_the_listener_serving() {
         crate::shared::reset(held);
         server.release();
         let reply = server.asked("/after");
-        assert_eq!(body_of(&reply), Some("/after"), "workers {workers}, the next client:\n{reply}");
+        if body_of(&reply) != Some("/after") {
+            let (code, said, stderr) = server.stopped();
+            panic!("workers {workers}, the next client got {reply:?}.\nexit {code:?}\nstdout:\n{said}\nstderr:\n{stderr}");
+        }
         served_to_the_end(server.stopped());
     }
 }
