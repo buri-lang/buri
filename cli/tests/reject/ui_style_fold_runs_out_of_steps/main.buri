@@ -1,0 +1,18 @@
+// EXPECT: this style is not statically known
+//
+// `fan(20)` makes a million calls. The folder stops long before that, so the
+// length isn't known at compile time and can't be a hover rule.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+fn fan(n: Int): Int {
+  if (n == 0) { 1 } else { fan(n - 1) + fan(n - 1) }
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack({ styles: [.On(.Hover, [.Gap(.Px(fan(20)))])], children: [] }), [])
+}

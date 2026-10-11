@@ -1,0 +1,27 @@
+error: `Second` holds 2 values, but 1 was given [payload-count]
+  --> cmd/second_constructor_given_the_wrong_count/main.buri:19:11
+   |
+19 |   let s = Second(1);
+   |           ^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass `Second` the following values: Second(Int, Int)
+error: `B` holds 1 value, but 2 were given [payload-count]
+  --> cmd/second_constructor_given_the_wrong_count/main.buri:20:11
+   |
+20 |   let b = Two.B(1, 2);
+   |           ^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass `B` the following values: B(Int)
+error: `C` holds 1 value, but 2 were given [payload-count]
+  --> cmd/second_constructor_given_the_wrong_count/main.buri:21:11
+   |
+21 |   let c = Two.C(1, 2);
+   |           ^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass `C` the following values: C { w: Int }

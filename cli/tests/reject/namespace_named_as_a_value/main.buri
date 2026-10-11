@@ -1,0 +1,7 @@
+// EXPECT: `io` is a module namespace; name a member of it
+from "core/io" import * as io;
+
+fn go(): Int {
+  let a = io;
+  1
+}

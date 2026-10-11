@@ -1,0 +1,38 @@
+error: an expression statement is legal only in a test source [statement-outside-test]
+  --> cmd/ui_style_fold_through_a_statement/main.buri:12:3
+   |
+12 |   ();
+   |   ^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+
+     A test source is the one exception, which lets assert.equal(...) stand
+     alone: there any expression of type () may stand as a statement ending in
+     ;, including a match or an if whose branches all assert.
+
+     A Result can't be dropped either way, per result-discarded, so a statement
+     of type Result needs both .ignore() and let _ =:
+
+       export fn main(host: NativeHost): Result<(), Str> {
+           let ctx = context {
+               Allocator: host.alloc,
+               Stdout: host.stdout,
+           };
+           let _ = io.println(ctx, "ready").ignore();
+           .Ok(())
+       }
+
+error: this style is not statically known, and `On` and `At` exist only in the stylesheet [style-not-static]
+  --> cmd/ui_style_fold_through_a_statement/main.buri:18:50
+   |
+18 |   ui.mount(ctx, ui.stack({ styles: [.On(.Hover, [.Gap(.Px(noted(4)))])], children: [] }), [])
+   |                                                  ^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write the value out, or make it a module-level `let`, or apply it outside the `On`/`At`, where it can be an inline style
+
+     A style the compiler can't evaluate usually falls back to an inline style,
+     where Computed already lives. On and At can't: :hover and @media have no
+     inline form. They exist only as stylesheet rules, which the compiler writes
+     at compile time.
+

@@ -1,0 +1,1 @@
+{"severity":"error","message":"this `match` does not cover `_`","code":"match-not-exhaustive","location":{"file":"cmd/match_on_int_missing_a_catch_all/main.buri","line":3,"column":3,"endLine":6,"endColumn":4,"text":"  match (n) {","label":"not covered"},"fix":"add a `_` arm","notes":["exhaustiveness is not attempted over integer or string ranges"],"related":[]}

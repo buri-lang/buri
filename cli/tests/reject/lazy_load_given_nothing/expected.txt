@@ -1,0 +1,9 @@
+error: `load` takes 1 argument, but none were given [argument-count]
+ --> cmd/lazy_load_given_nothing/main.buri:5:11
+  |
+5 |   let l = lazy.load();
+  |           ^^^^^^^^^^^
+  |
+  = expected: 1
+  = actual: 0
+  = fix: `load` requires a `transform` parameter: load<F>(transform: F)

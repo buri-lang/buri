@@ -1,0 +1,9 @@
+error: `toJson` takes 1 argument, but none were given [argument-count]
+ --> cmd/builtin_method_given_too_few_arguments/main.buri:5:11
+  |
+5 |   let j = 5.toJson();
+  |           ^^^^^^^^^^
+  |
+  = expected: 1
+  = actual: 0
+  = fix: `toJson` requires a `ctx` parameter: toJson<C: Allocator>(self, ctx: C)

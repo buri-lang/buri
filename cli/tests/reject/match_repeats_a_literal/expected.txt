@@ -1,0 +1,12 @@
+error: this arm is unreachable [unreachable-arm]
+ --> cmd/match_repeats_a_literal/main.buri:5:5
+  |
+5 |     1 => 20,
+  |     ^^^^^^^
+  |
+  = the arms before it already cover everything it matches
+  = fix: delete it, or move it above the arm that subsumes it
+
+    The usual cause is an arm in the wrong place, and a dead arm reads as
+    handled.
+

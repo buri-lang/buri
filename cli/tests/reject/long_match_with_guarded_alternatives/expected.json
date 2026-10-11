@@ -1,0 +1,1 @@
+{"severity":"error","message":"this arm is unreachable","code":"unreachable-arm","location":{"file":"cmd/long_match_with_guarded_alternatives/main.buri","line":32,"column":5,"endLine":32,"endColumn":13,"text":"    .C => 22,"},"fix":"delete it, or move it above the arm that subsumes it","notes":["the arms before it already cover everything it matches"],"related":[]}

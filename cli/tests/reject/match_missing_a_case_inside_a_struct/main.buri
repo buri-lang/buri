@@ -1,0 +1,8 @@
+// EXPECT: `Wrap(false)`
+struct Wrap(Bool);
+
+fn go(w: Wrap): Int {
+  match (w) {
+    Wrap(true) => 1,
+  }
+}

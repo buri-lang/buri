@@ -1,0 +1,14 @@
+error: this `match` does not cover `.Rect { w: _, h: _ }` [match-not-exhaustive]
+ --> cmd/match_missing_a_record_variant/main.buri:8:3
+  |
+8 |   match (s) {
+  |   ^^^^^^^^^^^ not covered
+  |
+  = every `match` must cover its scrutinee's type
+  = fix: add an arm for `.Rect { w: _, h: _ }`, or a `_` arm for everything left
+
+    Add an arm for the named case, or a _ arm for everything left.
+
+    Exhaustiveness turns a new variant into a compile error everywhere that has
+    to handle it. A _ arm opts that match out.
+

@@ -1,0 +1,24 @@
+// EXPECT: `Point` has no field `z`
+//
+// A pattern can name a field or a variant its type doesn't have, and each is
+// reported where it's written.
+struct Point {
+  x: Int,
+  y: Int,
+}
+
+enum Size {
+  Small,
+  Large,
+}
+
+fn go(p: Point, s: Size): Int {
+  let a = match (p) {
+    Point { x, z } => x,
+  };
+  let b = match (s) {
+    Size.Huge => 1,
+    _ => 2,
+  };
+  a + b
+}

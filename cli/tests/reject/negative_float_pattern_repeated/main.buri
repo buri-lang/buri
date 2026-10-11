@@ -1,0 +1,8 @@
+// EXPECT: this arm is unreachable
+fn go(f: Float): Int {
+  match (f) {
+    -1.5 => 1,
+    -1.5 => 2,
+    _ => 3,
+  }
+}

@@ -1,0 +1,7 @@
+// EXPECT: `load` takes 1 argument, but none were given
+from "core/lazy" import * as lazy;
+
+fn go(): Int {
+  let l = lazy.load();
+  1
+}

@@ -1,0 +1,1 @@
+{"severity":"error","message":"`load` takes 1 argument, but none were given","code":"argument-count","location":{"file":"cmd/lazy_load_given_nothing/main.buri","line":5,"column":11,"endLine":5,"endColumn":22,"text":"  let l = lazy.load();"},"expected":"1","actual":"0","fix":"`load` requires a `transform` parameter: load<F>(transform: F)","notes":[],"related":[]}

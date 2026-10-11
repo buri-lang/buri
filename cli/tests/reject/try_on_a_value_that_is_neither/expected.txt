@@ -1,0 +1,25 @@
+error: `?` takes a `Result` or an `Option`, found `Box<I64>` [try-operand]
+  --> cmd/try_on_a_value_that_is_neither/main.buri:10:11
+   |
+10 |   let v = b?;
+   |           ^^
+   |
+   = fix: `?` propagates a failure; this value is neither a `Result` nor an `Option`
+error: `?` takes a `Result` or an `Option`, found `Pair<I64, Str>` [try-operand]
+  --> cmd/try_on_a_value_that_is_neither/main.buri:15:11
+   |
+15 |   let v = p?;
+   |           ^^
+   |
+   = fix: `?` propagates a failure; this value is neither a `Result` nor an `Option`
+error: there is nothing named `missing` in scope [unknown-name]
+  --> cmd/try_on_a_value_that_is_neither/main.buri:20:11
+   |
+20 |   let v = missing?;
+   |           ^^^^^^^
+   |
+   = fix: declare `missing`, or import it — a name is in scope only from this module's own declarations and its imports
+
+     There is no prelude. A module sees only what it declares and what its own
+     imports name, which is why the suggestion is trustworthy.
+

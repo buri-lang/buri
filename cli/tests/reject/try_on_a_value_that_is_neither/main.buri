@@ -1,0 +1,22 @@
+// EXPECT: `?` takes a `Result` or an `Option`, found `Box<I64>`
+//
+// A generic type with one argument isn't an `Option`, and one with two isn't
+// a `Result`. An operand that's already an error isn't reported again.
+struct Box<T>(T);
+
+struct Pair<A, B>(A, B);
+
+fn fromBox(b: Box<Int>): Option<Int> {
+  let v = b?;
+  .None
+}
+
+fn fromPair(p: Pair<Int, Str>): Result<Int, Str> {
+  let v = p?;
+  .Ok(1)
+}
+
+fn fromNothing(): Option<Int> {
+  let v = missing?;
+  .None
+}

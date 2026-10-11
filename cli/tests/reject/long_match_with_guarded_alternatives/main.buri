@@ -1,0 +1,34 @@
+// EXPECT: this arm is unreachable
+//
+// Enough arms that the checker indexes them by their first constructor, and a
+// guarded alternation that makes it ask the alternatives about each other.
+enum Key {
+  A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T,
+}
+
+fn go(k: Key, on: Bool): Int {
+  match (k) {
+    .A | .B if on => 1,
+    .A => 2,
+    .B => 3,
+    .C => 4,
+    .D => 5,
+    .E => 6,
+    .F => 7,
+    .G => 8,
+    .H => 9,
+    .I => 10,
+    .J => 11,
+    .K => 12,
+    .L => 13,
+    .M => 14,
+    .N => 15,
+    .O => 16,
+    .P => 17,
+    .Q | .R if on => 18,
+    .Q | .R => 19,
+    .S => 20,
+    .T => 21,
+    .C => 22,
+  }
+}

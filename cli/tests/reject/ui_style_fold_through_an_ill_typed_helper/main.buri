@@ -1,0 +1,39 @@
+// EXPECT: `Str` cannot be indexed
+//
+// A helper the checker already refused is not folded as well: the hover rule
+// that calls it is reported as not statically known, and nothing else.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+struct Size {
+  w: Int,
+  h: Int,
+}
+
+fn first(s: Str): Int {
+  match (s[0]) {
+    .Some(_) => 1,
+    .None => 2,
+  }
+}
+
+fn pairs(p: (Int, Int)): Int {
+  let (a, b, c) = p;
+  a
+}
+
+fn twice(n: Int): Int {
+  n * 2
+}
+
+fn wider(n: Int): Int {
+  Size { ..n, w: 1 }.w
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack({ styles: [.On(.Hover, [.Gap(.Px(first("ab"))), .Width(.Px(wider(3))), .Height(.Px(pairs((1, 2)))), .MinWidth(.Px(twice(1, 2)))])], children: [] }), [])
+}

@@ -1,0 +1,12 @@
+error: `_0` has no method `size` [unknown-method]
+ --> cmd/lambda_parameter_with_no_type_yet/main.buri:3:22
+  |
+3 |   let f = fn(q) => q.size();
+  |                      ^^^^
+  |
+  = fix: check the spelling, or declare it in `impl _0 { ... }` in that type's own module
+
+    Methods live only in the module that declares the receiver's type. Nothing
+    can add a method from outside, so for a toolchain type the fix points at its
+    page instead of an impl block you couldn't write.
+

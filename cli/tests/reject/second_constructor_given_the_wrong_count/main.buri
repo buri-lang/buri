@@ -1,0 +1,23 @@
+// EXPECT: `Second` holds 2 values, but 1 was given
+//
+// The fix quotes the constructor as declared, found among the module's other
+// declarations of its kind.
+struct First(Int);
+
+struct Second(Int, Int);
+
+enum One {
+  A,
+}
+
+enum Two {
+  B(Int),
+  C { w: Int },
+}
+
+fn go(): Int {
+  let s = Second(1);
+  let b = Two.B(1, 2);
+  let c = Two.C(1, 2);
+  1
+}

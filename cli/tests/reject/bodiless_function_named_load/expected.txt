@@ -1,0 +1,8 @@
+error: `load` has no body [missing-body]
+ --> cmd/bodiless_function_named_load/main.buri:2:21
+  |
+2 | fn load(x: Int): Int;
+  |                     ^
+  |
+  = a function declaration outside a trait or effect needs a block
+  = fix: give it one: `{ ... }`. Only the bundled standard library declares a signature with no body, for an operation the runtime supplies

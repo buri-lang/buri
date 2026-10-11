@@ -1,0 +1,8 @@
+// EXPECT: `between` takes 3 arguments, but 2 were given
+fn between(n: Int, lo: Int, hi: Int): Bool {
+  n >= lo && n <= hi
+}
+
+fn go(): Bool {
+  between(5, missing)
+}
