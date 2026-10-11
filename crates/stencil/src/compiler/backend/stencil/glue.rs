@@ -70,7 +70,6 @@
 )]
 
 use super::asm::{Asm, RAX, RCX, RDI, RDX, RSI, RSP, SP, X86};
-use super::emit::RC_DEPTH;
 use super::jit::{Fn2, FrameSig, Jit, V};
 use super::rtcall::Src;
 use crate::compiler::backend::counts::{Field, Op, Site};
@@ -437,9 +436,7 @@ impl Jit<'_> {
         self.imm_to(G_INDEX, 0);
         self.elem_load(G_VALUE, G_PTR, G_INDEX, 8, size);
         let base = self.fixups_len();
-        if let Err(why) = self.walk_rc(&mut st, &ty, G_VALUE, op, 0) {
-            self.unsupported(why);
-        }
+        self.walk_rc(&mut st, &ty, G_VALUE, op, 0);
         if op == Op::Copy {
             self.imm_to(G_INDEX, 0);
             self.elem_store(G_VALUE, G_PTR, G_INDEX, 8, size);
@@ -463,13 +460,10 @@ impl Jit<'_> {
         // One, so that an indexed load at stride `offset` reads `G_PTR + offset`.
         self.imm_to(G_INDEX, 1);
         let base = self.fixups_len();
-        let walked = if op == Op::Copy {
-            self.walk_in_place(&mut st, &ty, op)
+        if op == Op::Copy {
+            self.walk_in_place(&mut st, &ty, op);
         } else {
-            self.walk_through(&mut st, &ty, 0, op, 0)
-        };
-        if let Err(why) = walked {
-            self.unsupported(why);
+            self.walk_through(&mut st, &ty, 0, op, 0);
         }
         self.emit("ret", &[]);
         self.resolve_helper_blocks(base, &st);
@@ -481,20 +475,17 @@ impl Jit<'_> {
     ///
     /// The same walk as `Jit::walk_rc`, site for site and depth for depth, with
     /// offsets relative to the pointer instead of the frame.
-    fn walk_through(&mut self, st: &mut Fn2, ty: &Ty, at: u32, op: Op, depth: u32) -> Result<(), String> {
-        if depth > RC_DEPTH {
-            return Err(String::from("a reference-counted type nested past the walk's depth"));
-        }
+    fn walk_through(&mut self, st: &mut Fn2, ty: &Ty, at: u32, op: Op, depth: u32) {
         let sites = self.rc_sites(ty);
         for site in sites.iter() {
             match site {
                 Site::Block { offset, glue } => {
-                    self.load_through(G_VALUE, at + offset, 8)?;
-                    self.block_op(st, G_VALUE, glue, op)?;
+                    self.load_through(G_VALUE, at + offset, 8);
+                    self.block_op(st, G_VALUE, glue, op);
                 }
-                Site::Field(f) => self.field_through(st, f, at, op, depth)?,
+                Site::Field(f) => self.field_through(st, f, at, op, depth),
                 Site::Tagged { tag, arms } => {
-                    self.load_through(G_SPARE, at, tag.size())?;
+                    self.load_through(G_SPARE, at, tag.size());
                     let done = st.label();
                     for (i, arm) in arms.iter().enumerate() {
                         let next = st.label();
@@ -509,7 +500,7 @@ impl Jit<'_> {
                             ],
                         );
                         for f in arm.fields.iter() {
-                            self.field_through(st, f, at, op, depth)?;
+                            self.field_through(st, f, at, op, depth);
                         }
                         // The last arm's `next` is `done`, so it falls there.
                         if i + 1 < arms.len() {
@@ -522,7 +513,7 @@ impl Jit<'_> {
                     st.place(done, here);
                 }
                 Site::Guarded { null_at, ty } => {
-                    self.load_through(G_SPARE, at + null_at, 8)?;
+                    self.load_through(G_SPARE, at + null_at, 8);
                     let skip = st.label();
                     let key = self.arm_key("brcmp/eq/u64/fi", "JIT_F");
                     self.emit(
@@ -534,22 +525,21 @@ impl Jit<'_> {
                             ("JIT_F", V::Fall),
                         ],
                     );
-                    self.walk_through(st, ty, at, op, depth + 1)?;
+                    self.walk_through(st, ty, at, op, depth + 1);
                     let here = self.region.code_addr();
                     st.place(skip, here);
                 }
             }
         }
-        Ok(())
     }
 
     /// One field of [`Jit::walk_through`]'s value, by `Jit::walk_field`'s
     /// rules: a box is one pointer, a heavy compound field deep in the walk
     /// goes to its type's glue by address, and anything else is walked inline.
-    fn field_through(&mut self, st: &mut Fn2, f: &Field, at: u32, op: Op, depth: u32) -> Result<(), String> {
+    fn field_through(&mut self, st: &mut Fn2, f: &Field, at: u32, op: Op, depth: u32) {
         let at = at + f.offset;
         if f.boxed {
-            self.load_through(G_VALUE, at, 8)?;
+            self.load_through(G_VALUE, at, 8);
             let here = Field { offset: 0, ..f.clone() };
             return self.walk_field(st, &here, G_VALUE, op, depth);
         }
@@ -557,7 +547,7 @@ impl Jit<'_> {
             let addr = self.address_of(at);
             let sym = self.helper(Helper::Walk { ty: f.ty, op });
             self.c_call_sym(sym, st, &[Src::Word(addr)]);
-            return Ok(());
+            return;
         }
         self.walk_through(st, &f.ty, at, op, depth + 1)
     }
@@ -567,10 +557,7 @@ impl Jit<'_> {
     ///
     /// `x9`–`x11` on arm64 and `rax`, `rdx` on x86-64 are as free between a
     /// glue body's stencils as [`Jit::first_nonzero_word`]'s register.
-    fn load_through(&mut self, dst: u32, offset: u32, bytes: u32) -> Result<(), String> {
-        if !matches!(bytes, 1 | 2 | 4 | 8) {
-            return Err(format!("a {bytes}-byte tag read through a pointer"));
-        }
+    fn load_through(&mut self, dst: u32, offset: u32, bytes: u32) {
         if !self.target.is_arm64() {
             let mut a = X86::new();
             a.ldr(RDX, RDI, G_PTR);
@@ -583,7 +570,7 @@ impl Jit<'_> {
             a.str_off(RAX, RDI, dst);
             let (code, _) = a.finish();
             self.region.put(&code);
-            return Ok(());
+            return;
         }
         let mut a = Asm::new();
         a.ldr(10, 0, G_PTR);
@@ -604,7 +591,6 @@ impl Jit<'_> {
         a.str_off(9, 0, dst);
         let (code, _) = a.finish();
         self.region.put(&code);
-        Ok(())
     }
 
     /// The widest stretch [`Jit::walk_in_place`] copies into the frame for a
@@ -659,11 +645,11 @@ impl Jit<'_> {
     /// Only the value's own sites are read through the pointer, so every
     /// offset here is relative to `G_PTR`: anything deeper is inside a field
     /// that was copied in or handed on.
-    fn walk_in_place(&mut self, st: &mut Fn2, ty: &Ty, op: Op) -> Result<(), String> {
+    fn walk_in_place(&mut self, st: &mut Fn2, ty: &Ty, op: Op) {
         let sites = self.rc_sites(ty);
         for site in sites.iter() {
             match site {
-                Site::Field(f) => self.field_in_place(st, f, op)?,
+                Site::Field(f) => self.field_in_place(st, f, op),
                 Site::Tagged { tag, arms } => {
                     self.load_at(G_SPARE, 0, tag.size());
                     let done = st.label();
@@ -680,7 +666,7 @@ impl Jit<'_> {
                             ],
                         );
                         for f in arm.fields.iter() {
-                            self.field_in_place(st, f, op)?;
+                            self.field_in_place(st, f, op);
                         }
                         // The last arm's `next` is `done`, so it falls there.
                         if i + 1 < arms.len() {
@@ -706,38 +692,36 @@ impl Jit<'_> {
                         ],
                     );
                     let payload = Field { offset: 0, boxed: false, ty: *ty };
-                    self.field_in_place(st, &payload, op)?;
+                    self.field_in_place(st, &payload, op);
                     let here = self.region.code_addr();
                     st.place(skip, here);
                 }
                 // A `Str`, a `[T]` and a closure are a few words, so a value
                 // with one of these at its top is never this wide.
                 Site::Block { .. } => {
-                    return Err(String::from("a counted block too wide for a glue frame"));
+                    return self.unsupported(String::from("a counted block too wide for a glue frame"));
                 }
             }
         }
-        Ok(())
     }
 
     /// One counted field of the value at `G_PTR`: loaded into the frame and
     /// walked there when one load copies it, and handed to its type's glue
     /// when none does.
-    fn field_in_place(&mut self, st: &mut Fn2, f: &Field, op: Op) -> Result<(), String> {
+    fn field_in_place(&mut self, st: &mut Fn2, f: &Field, op: Op) {
         let width = self.field_width(f);
         if !self.one_load(width) {
             let at = self.address_of(f.offset);
             let sym = self.helper(Helper::Walk { ty: f.ty, op });
             self.c_call_sym(sym, st, &[Src::Word(at)]);
-            return Ok(());
+            return;
         }
         self.load_at(G_VALUE, f.offset, width);
         let here = Field { offset: 0, ..f.clone() };
-        self.walk_field(st, &here, G_VALUE, op, 0)?;
+        self.walk_field(st, &here, G_VALUE, op, 0);
         if op == Op::Copy {
             self.elem_store(G_VALUE, G_PTR, G_INDEX, f.offset, width);
         }
-        Ok(())
     }
 
     /// The frame word holding `G_PTR + offset`: `G_PTR` itself at zero, and
@@ -838,9 +822,7 @@ impl Jit<'_> {
             self.c_call_sym(sym, &st, &[Src::Word(G_SPARE)]);
         } else {
             self.unless_spare(stride, next);
-            if let Err(why) = self.walk_rc(&mut st, &ty, G_VALUE, op, 0) {
-                self.unsupported(why);
-            }
+            self.walk_rc(&mut st, &ty, G_VALUE, op, 0);
             if op == Op::Copy {
                 self.elem_store(G_VALUE, G_PTR, G_INDEX, stride, size);
             }
@@ -1221,9 +1203,7 @@ impl Jit<'_> {
             // so the step's is taken here — the same retain `middle::lower`'s
             // list loops place before a call through a closure.
             if self.rc_counted(&elem) {
-                if let Err(why) = self.walk_rc(&mut st, &elem, E_ELEM, Op::Retain, 0) {
-                    self.unsupported(why);
-                }
+                self.walk_rc(&mut st, &elem, E_ELEM, Op::Retain, 0);
             }
             if let Some(to) = param_at.last().copied() {
                 self.mv(to, E_ELEM, elem_slot);
@@ -1387,9 +1367,7 @@ impl Jit<'_> {
                 self.elem_load(at, from, Q_ZERO, 8, size);
             }
             if counted && facts.get(i) == Some(&ir::Ownership::Own) {
-                if let Err(why) = self.walk_rc(&mut st, &ty, at, Op::Retain, 0) {
-                    self.unsupported(why);
-                }
+                self.walk_rc(&mut st, &ty, at, Op::Retain, 0);
             }
             if let Some(to) = callee.params.get(i).copied() {
                 self.mv(cbase + to, at, slot);
@@ -1519,9 +1497,7 @@ impl Jit<'_> {
             if owns {
                 if let Some(ty) = sig_params.first().and_then(|t| source_ty(prog, *t)) {
                     if self.rc_counted(&ty) {
-                        if let Err(why) = self.walk_rc(&mut st, &ty, to, Op::Retain, 0) {
-                            self.unsupported(why);
-                        }
+                        self.walk_rc(&mut st, &ty, to, Op::Retain, 0);
                     }
                 }
             }
@@ -1565,9 +1541,7 @@ impl Jit<'_> {
         // this every step of a `list.map` over a `[Str]` leaks one block per
         // element, which is exactly what it did.
         for (at, ty) in borrowed {
-            if let Err(why) = self.walk_rc(&mut st, &ty, at, Op::Release, 0) {
-                self.unsupported(why);
-            }
+            self.walk_rc(&mut st, &ty, at, Op::Release, 0);
         }
         self.emit("ret", &[]);
         self.resolve_helper_blocks(base, &st);

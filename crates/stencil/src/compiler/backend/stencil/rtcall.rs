@@ -1045,7 +1045,7 @@ impl Jit<'_> {
         // use, and without this the environment would be freed under a memo
         // that has not run yet.
         if self.rc_counted(&ty) {
-            self.walk_rc(st, &ty, state, Op::Retain, 0)?;
+            self.walk_rc(st, &ty, state, Op::Retain, 0);
         }
         let stride = u64::from(self.layouts_of(*ret).stride);
         let release = self.value_release(*ret);
@@ -1208,7 +1208,7 @@ impl Jit<'_> {
         // The graph keeps the closure, so the graph owes it a reference — taken
         // here, at the handler's last use, exactly as `compute_extra` takes one.
         if self.rc_counted(&ty) {
-            self.walk_rc(st, &ty, state, Op::Retain, 0)?;
+            self.walk_rc(st, &ty, state, Op::Retain, 0);
         }
         let thunk =
             self.helper(super::glue::Helper::Entry { params: params.to_vec(), ret: *ret, index: None });

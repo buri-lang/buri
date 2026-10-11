@@ -44,11 +44,12 @@ use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
 use crate::compiler::middle::layout::{EnumRepr, Repr};
 use crate::compiler::semantics::types::{Prim, Ty, TyKind};
 
-/// How deep the reference-count walk goes before it refuses.
+/// How deep an inline reference-count walk goes.
 ///
-/// A recursive type reaches itself through a **box**, and a box is refused by
-/// the walk anyway, so this bounds the walk rather than the type — it is a
-/// second belt on a case the first one already stops.
+/// [`Jit::field_out_of_line`] sends every compound field two levels short of
+/// this into its type's glue, so a walk ends here at the latest: one level for
+/// a niche `Option`'s payload and one for that payload's `Str`, `[T]` or
+/// closure fields.
 pub(crate) const RC_DEPTH: u32 = 8;
 
 /// How many levels of a compound type's counted-pointer walk are emitted
@@ -888,19 +889,16 @@ impl<'a> Jit<'a> {
         // A heavy walk goes through the type's glue, so that a function
         // holding `n` reference operations on an enum of `n` counted variants
         // is not `n²` tests (PERFORMANCE.md §6.32).
-        let done = if self.rc_weight(ty) > RC_OUT_OF_LINE {
-            self.walk_out_of_line(st, *ty, at, op)
+        if self.rc_weight(ty) > RC_OUT_OF_LINE {
+            self.walk_out_of_line(st, *ty, at, op);
         } else {
-            self.walk_rc(st, ty, at, op, 0)
-        };
-        if let Err(why) = done {
-            self.unsupported(why);
+            self.walk_rc(st, ty, at, op, 0);
         }
     }
 
     /// `op` over a value's counted blocks through its type's glue,
     /// `fn(*mut u8)`, handed the value's address.
-    fn walk_out_of_line(&mut self, st: &mut Fn2, ty: Ty, at: u32, op: Op) -> Result<(), String> {
+    fn walk_out_of_line(&mut self, st: &mut Fn2, ty: Ty, at: u32, op: Op) {
         let sym = self.helper(Helper::Walk { ty, op });
         let addr = st.scratch + (super::rtcall::RAW_WORD + 3) * 8;
         self.emit(
@@ -912,7 +910,6 @@ impl<'a> Jit<'a> {
             ],
         );
         self.c_call_sym(sym, st, &[Src::Word(addr)]);
-        Ok(())
     }
 
     /// `op` over one value's counted blocks, at frame offset `at`
@@ -922,10 +919,10 @@ impl<'a> Jit<'a> {
     /// stores it back where the pointer was. Nothing in a copy increments a
     /// count: *a copy is not a share*.
     ///
-    /// `depth` bounds the walk, and [`Jit::walk_field`] is what keeps it from
-    /// being reached: a recursive type reaches itself through a **box**, which
-    /// is a leaf here, and a deep non-recursive one goes out of line into its
-    /// own glue.
+    /// `depth` is how far into the walk this is, and never passes
+    /// [`RC_DEPTH`]: a recursive type reaches itself through a **box**, which is
+    /// a leaf here, and a deep non-recursive one goes out of line into its own
+    /// glue.
     pub(crate) fn walk_rc(
         &mut self,
         st: &mut Fn2,
@@ -933,15 +930,12 @@ impl<'a> Jit<'a> {
         at: u32,
         op: Op,
         depth: u32,
-    ) -> Result<(), String> {
-        if depth > RC_DEPTH {
-            return Err(String::from("a reference-counted type nested past the walk's depth"));
-        }
+    ) {
         let sites = self.rc_sites(ty);
         for site in sites.iter() {
             match site {
-                Site::Block { offset, glue } => self.block_op(st, at + offset, glue, op)?,
-                Site::Field(f) => self.walk_field(st, f, at, op, depth)?,
+                Site::Block { offset, glue } => self.block_op(st, at + offset, glue, op),
+                Site::Field(f) => self.walk_field(st, f, at, op, depth),
                 // One arm per variant that owns something, dispatched on the
                 // tag the same way a `match` is.
                 //
@@ -986,7 +980,7 @@ impl<'a> Jit<'a> {
                             );
                         }
                         for f in arm.fields.iter() {
-                            self.walk_field(st, f, at, op, depth)?;
+                            self.walk_field(st, f, at, op, depth);
                         }
                         // The last arm's `next` is `done`, so it falls there.
                         if i + 1 < arms.len() {
@@ -1014,13 +1008,12 @@ impl<'a> Jit<'a> {
                             ("JIT_F", V::Fall),
                         ],
                     );
-                    self.walk_rc(st, ty, at, op, depth + 1)?;
+                    self.walk_rc(st, ty, at, op, depth + 1);
                     let here = self.region.code_addr();
                     st.place(skip, here);
                 }
             }
         }
-        Ok(())
     }
 
     /// One field with counts in it, inside a value at `at`.
@@ -1043,7 +1036,7 @@ impl<'a> Jit<'a> {
         at: u32,
         op: Op,
         depth: u32,
-    ) -> Result<(), String> {
+    ) {
         let at = at + f.offset;
         if f.boxed {
             let glue = (op != Op::Retain && self.rc_counted(&f.ty))
@@ -1073,13 +1066,13 @@ impl<'a> Jit<'a> {
         at: u32,
         glue: &Glue,
         op: Op,
-    ) -> Result<(), String> {
+    ) {
         let glue = match glue {
             // A `Str` is `{ base, ptr, len }` and `ptr` points *into* `base`,
             // so a copy rebases as well as replaces (`buri_rt_copy_str`).
             Glue::Str if op == Op::Copy => {
                 self.c_call(runtime::COPY_STR, st, &[Src::Addr(at)], &[], 0, "v");
-                return Ok(());
+                return;
             }
             Glue::Str => None,
             // A closure's environment carries its own release in its first
@@ -1104,7 +1097,7 @@ impl<'a> Jit<'a> {
         at: u32,
         op: Op,
         glue: Option<String>,
-    ) -> Result<(), String> {
+    ) {
         match (op, glue) {
             (Op::Retain, _) => self.incref(at),
             (Op::Release, Some(g)) => {
@@ -1126,10 +1119,8 @@ impl<'a> Jit<'a> {
             (Op::Copy, glue) => {
                 let g = glue.map_or(Src::Imm(0), Src::Sym);
                 self.c_call(runtime::COPY_BLOCK, st, &[Src::Word(at), g], &[], at, "i");
-                return Ok(());
             }
         }
-        Ok(())
     }
 
     /// A retain of the block whose pointer is at frame offset `at`.
@@ -2155,9 +2146,7 @@ impl<'a> Jit<'a> {
                     let size = self.layouts_of(ty).size;
                     self.mv(ret0, p(0), size);
                     if self.rc_counted(&ty) {
-                        if let Err(why) = self.walk_rc(st, &ty, ret0, Op::Copy, 0) {
-                            self.unsupported(why);
-                        }
+                        self.walk_rc(st, &ty, ret0, Op::Copy, 0);
                     }
                 }
                 // A scalar or a unit: the move above is the whole copy, and
