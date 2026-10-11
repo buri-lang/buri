@@ -598,6 +598,10 @@ impl<'a> Extractor<'a> {
     /// A `[Style]` — the shape every widget takes and the shape both branches
     /// of a `When` have.
     fn style_list(&mut self, e: &mut typed::Expr, cond: Cond) {
+        // Anything else here is a type error, already reported where it was written.
+        if !self.is_style_list(&e.ty) {
+            return;
+        }
         if let Some(atoms) = self.fold_list(e, cond) {
             let span = e.span;
             // A list that extracted to nothing becomes nothing. `ui.row([], …)`
@@ -630,6 +634,9 @@ impl<'a> Extractor<'a> {
 
     /// One `Style`.
     fn style(&mut self, e: &mut typed::Expr, cond: Cond) {
+        if !self.is_style(&e.ty) {
+            return;
+        }
         if let Some(atoms) = self.fold_one(e, cond) {
             let span = e.span;
             *e = self.extracted(atoms, span);

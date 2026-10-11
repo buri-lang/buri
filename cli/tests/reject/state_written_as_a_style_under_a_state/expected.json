@@ -1,0 +1,1 @@
+{"severity":"error","message":"expected `Style`, found `State`","code":"type-mismatch","location":{"file":"cmd/state_written_as_a_style_under_a_state/main.buri","line":13,"column":37,"endLine":13,"endColumn":48,"text":"  let on: Style = .On(State.Hover, [State.Focus]);","label":"the element type is `Style`"},"expected":"`Style`","actual":"`State`","notes":[],"related":[]}
