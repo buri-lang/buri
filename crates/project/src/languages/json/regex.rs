@@ -147,7 +147,8 @@ impl Parser<'_> {
             if c == '|' || c == ')' {
                 break;
             }
-            let atom = self.atom(depth)?;
+            self.bump();
+            let atom = self.atom(c, depth)?;
             items.push(self.quantified(atom)?);
         }
         Ok(Node::Concat(items))
@@ -222,8 +223,8 @@ impl Parser<'_> {
         n
     }
 
-    fn atom(&mut self, depth: usize) -> Result<Node, String> {
-        let Some(c) = self.bump() else { return Err("the pattern ends early".to_string()) };
+    /// The atom `c` starts, `c` already consumed.
+    fn atom(&mut self, c: char, depth: usize) -> Result<Node, String> {
         Ok(match c {
             '.' => Node::Any,
             '^' => Node::Start,
@@ -270,7 +271,6 @@ impl Parser<'_> {
                     None => Node::Group(Box::new(inner)),
                 }
             }
-            ')' => return Err("`)` closes nothing".to_string()),
             '[' => self.class()?,
             '*' | '+' | '?' => return Err(format!("`{c}` has nothing to repeat")),
             '{' if self.braces_follow() => return Err("`{` has nothing to repeat".to_string()),

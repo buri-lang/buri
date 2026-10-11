@@ -13,6 +13,7 @@ mod suite;
 
 pub use syntax::Dialect;
 
+use crate::diagnostics::Invariant;
 use crate::languages::Finding;
 use schema::{has_scheme, is_2020_12, local_path, Registry, SchemaFile};
 use std::collections::BTreeMap;
@@ -169,7 +170,7 @@ pub fn check(
         return registry.problems().to_vec();
     }
     let (Some(target), Some(instance)) = (target, instance) else { return Vec::new() };
-    let Some(index) = schemas.iter().position(|s| s.path == target) else { return Vec::new() };
+    let index = schemas.iter().position(|s| s.path == target).or_ice("the named schema was read with the rest");
     schema::validate(&registry, index, instance)
         .into_iter()
         .map(|v| {
