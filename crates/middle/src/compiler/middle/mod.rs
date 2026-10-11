@@ -74,6 +74,8 @@ pub mod rc;
 pub mod tail_calls;
 
 use crate::compiler::middle::monomorphize::Program;
+use crate::compiler::semantics::typed::Callee;
+use crate::diagnostics::Invariant as _;
 
 /// What the shared half of the middle end is allowed to do.
 ///
@@ -186,13 +188,13 @@ struct Node {
 /// Each group is sorted, and the groups come out in a deterministic order,
 /// because build output is compared byte for byte
 /// (`two_checkouts_of_one_tree_build_identical_bytes`).
-///
-/// An edge naming a node the graph does not have is skipped: nothing in this
-/// compiler produces one, and dropping it is what the bounds check that used to
-/// stand in front of the caller's own push did.
 #[allow(
     clippy::arithmetic_side_effects,
     reason = "the counter and the edge cursor are bounded by the node and edge counts of a graph already held in memory"
+)]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "every edge names a node of the graph: both callers draw them from the program's own function indices"
 )]
 fn strongly_connected(edges: &[Vec<usize>]) -> Components {
     let n = edges.len();
@@ -204,29 +206,23 @@ fn strongly_connected(edges: &[Vec<usize>]) -> Components {
     let mut work: Vec<(usize, usize)> = Vec::new();
 
     for root in 0..n {
-        match nodes.get(root) {
-            Some(r) if r.index == usize::MAX => {}
-            _ => continue,
+        if nodes[root].index != usize::MAX {
+            continue;
         }
         work.push((root, 0));
         while let Some((v, taken)) = work.pop() {
             if taken == 0 {
-                let Some(node) = nodes.get_mut(v) else { continue };
-                node.index = next;
-                node.low = next;
-                node.on_stack = true;
+                nodes[v] = Node { index: next, low: next, on_stack: true };
                 next += 1;
                 stack.push(v);
             }
 
             // `low` is accumulated in a local and written back once, so that
             // reading a successor's row and updating this one do not overlap.
-            let Some(&Node { index, mut low, .. }) = nodes.get(v) else { continue };
+            let Node { index, mut low, .. } = nodes[v];
             let mut descended = false;
-            for (k, &w) in
-                edges.get(v).map(Vec::as_slice).unwrap_or_default().iter().enumerate().skip(taken)
-            {
-                let Some(succ) = nodes.get(w) else { continue };
+            for (k, &w) in edges[v].iter().enumerate().skip(taken) {
+                let succ = nodes[w];
                 if succ.index == usize::MAX {
                     work.push((v, k + 1));
                     work.push((w, 0));
@@ -236,37 +232,36 @@ fn strongly_connected(edges: &[Vec<usize>]) -> Components {
                     low = low.min(succ.index);
                 }
             }
-            if let Some(node) = nodes.get_mut(v) {
-                node.low = low;
-            }
+            nodes[v].low = low;
             if descended {
                 continue;
             }
 
             if low == index {
                 let start = out.members.len();
-                while let Some(w) = stack.pop() {
-                    if let Some(node) = nodes.get_mut(w) {
-                        node.on_stack = false;
-                    }
+                loop {
+                    let w = stack.pop().or_ice("`v` is still on the stack");
+                    nodes[w].on_stack = false;
                     out.members.push(w);
                     if w == v {
                         break;
                     }
                 }
-                if let Some(group) = out.members.get_mut(start..) {
-                    group.sort_unstable();
-                }
+                out.members[start..].sort_unstable();
                 out.ends.push(out.members.len());
             }
             if let Some(&(parent, _)) = work.last() {
-                if let Some(node) = nodes.get_mut(parent) {
-                    node.low = node.low.min(low);
-                }
+                nodes[parent].low = nodes[parent].low.min(low);
             }
         }
     }
     out
+}
+
+/// The function a call or a reference names. Monomorphization resolves every
+/// callee, so each pass after it sees only [`Callee::Func`].
+pub(crate) fn resolved(callee: &Callee) -> usize {
+    callee.func().or_ice("monomorphization resolved the callee").index()
 }
 
 /// The strongly connected components of a graph, each sorted, in the order
@@ -322,13 +317,5 @@ mod tests {
         let edges = vec![vec![1], vec![2], vec![]];
         let sccs = strongly_connected(&edges);
         assert!(sccs.iter().all(|s| s.len() == 1));
-    }
-
-    /// An edge out of the graph is dropped rather than indexed.
-    #[test]
-    fn an_edge_to_a_node_that_does_not_exist_is_skipped() {
-        let edges = vec![vec![7], vec![0]];
-        let sccs = strongly_connected(&edges);
-        assert_eq!(sccs.iter().count(), 2);
     }
 }

@@ -55,21 +55,16 @@ pub fn run(program: &mut Program) {
     // Only the functions the program came in with: what this pass appends is
     // already converted, because a lambda nested inside another is lifted
     // while it is still part of the outer lambda's body.
-    for i in 0..program.funcs.len() {
-        let Some(func) = program.funcs.get_mut(i) else { continue };
-        let Some(mut body) = func.take_body() else { continue };
-        let parent = Parent {
-            locals: func.locals.clone(),
-            symbol: func.symbol.clone(),
-            debug_name: func.debug_name.clone(),
+    let base = program.funcs.len();
+    let mut lifted = Vec::new();
+    for func in &mut program.funcs {
+        let Func { kind: FuncKind::Body(body), locals, symbol, debug_name, .. } = func else {
+            continue;
         };
-        let mut lifted = Vec::new();
-        convert(&mut body, &parent, program.funcs.len(), &mut lifted);
-        if let Some(func) = program.funcs.get_mut(i) {
-            func.set_body(body);
-        }
-        program.funcs.extend(lifted);
+        let parent = Parent { locals: locals.clone(), symbol: symbol.clone(), debug_name: debug_name.clone() };
+        convert(body, &parent, base, &mut lifted);
     }
+    program.funcs.extend(lifted);
 }
 
 /// What a lifted function inherits from the function it was written inside.
