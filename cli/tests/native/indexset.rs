@@ -140,10 +140,12 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
 
-/// How many times each operation runs: enough that the setup's own noise is
-/// a fraction of an instruction an operation.
-const LOOKUPS: u64 = 200_000;
-const OPS: u64 = 2000;
+/// How much work each measured run does, at either size. A process's count
+/// moves by up to a million instructions from run to run under load, so each
+/// run does at least twenty million: a million lookups, and a set operation
+/// over a million words in all.
+const LOOKUPS: u64 = 1_000_000;
+const WORDS: u64 = 1 << 20;
 
 /// **`has` reads one word, and a set operation walks the words** (#296).
 /// Against a set 64 times larger, `has` costs the same instructions, and a set
@@ -166,11 +168,12 @@ fn has_is_constant_and_set_operations_are_linear_in_words() {
                 per_op(backend, &binary, "has", &[&at, &lookups], LOOKUPS, &format!("{}\n", hits(size)));
             assert_eq!(has_blocks, 0, "{backend}, {size}: `has` allocated");
             cost.insert(("has", size), has);
+            // `size` evens over twice the span is `size / 32` words.
+            let ops = WORDS * 32 / size;
             for (mode, blocks) in [("union", 1), ("intersect", 1), ("difference", 1), ("isSubsetOf", 0)] {
-                let (n, got) = per_op(backend, &binary, mode, &[&at, &OPS.to_string()], OPS, &format!("{OPS}\n"));
+                let (n, got) = per_op(backend, &binary, mode, &[&at, &ops.to_string()], ops, &format!("{ops}\n"));
                 // The one block over is the closure `main` hands `times`.
-                assert_eq!(got / OPS, blocks, "{backend}, {size}: {OPS} of `{mode}` took {got} blocks");
-                // Per word: `size` evens over twice the span is `size / 32` words.
+                assert_eq!(got / ops, blocks, "{backend}, {size}: {ops} of `{mode}` took {got} blocks");
                 cost.insert((mode, size), n.map(|n| n * 32 / size));
             }
         }
