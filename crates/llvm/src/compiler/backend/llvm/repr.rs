@@ -62,6 +62,7 @@ use crate::compiler::middle::layout::{
     self, Cycles, EnumRepr, Layout, Layouts, Repr as LayoutRepr, Scalar,
 };
 use crate::compiler::semantics::types::{Tables, Ty, TyKind};
+use crate::diagnostics::Invariant;
 use crate::hash::Map;
 
 /// What one machine-sized piece of an aggregate is.
@@ -306,28 +307,25 @@ impl<'a> Reprs<'a> {
                 // count in them becomes nullable, because `.None` is the null
                 // this niche spends.
                 EnumRepr::Niche { .. } => {
-                    let payload = self.option_payload(ty);
-                    if let Some(payload) = payload {
-                        self.place(ty, &payload, 0, &mut slots, &mut counted);
-                        for c in &mut counted {
-                            if c.is_some() {
-                                *c = Some(Counted::Nullable);
-                            }
+                    let payload = self.option_payload(ty).or_ice("a niche is an `Option`'s");
+                    self.place(ty, &payload, 0, &mut slots, &mut counted);
+                    for c in &mut counted {
+                        if c.is_some() {
+                            *c = Some(Counted::Nullable);
                         }
                     }
                 }
                 // `tag ++ payload`, with the payload area opaque — see the
                 // module header. Counts inside it are reached by the generated
                 // drop glue, which switches on the tag first, and not by a
-                // slot walk, which is why every slot here is `None`.
+                // slot walk, which is why every slot here is `None`. An enum
+                // with no payload bytes is `Bare`.
                 EnumRepr::Tagged { tag, payload } => {
                     slots.push(Slot { offset: 0, ty: SlotTy::Scalar(*tag) });
                     counted.push(None);
                     let bytes = layout.size.saturating_sub(*payload);
-                    if bytes > 0 {
-                        slots.push(Slot { offset: *payload, ty: SlotTy::Blob(bytes) });
-                        counted.push(None);
-                    }
+                    slots.push(Slot { offset: *payload, ty: SlotTy::Blob(bytes) });
+                    counted.push(None);
                 }
             },
         }
@@ -711,19 +709,17 @@ pub fn assemble<'ctx>(
         ([], _) => ctx.struct_type(&[], false).const_zero().into(),
         ([_], [one]) => *one,
         (many, vals) => {
-            let ty = register_type(ctx, many);
-            let mut acc: BasicValueEnum<'ctx> = match ty {
-                BasicTypeEnum::StructType(s) => s.get_poison().into(),
-                other => other.const_zero(),
+            let mut acc = match register_type(ctx, many) {
+                BasicTypeEnum::StructType(s) => s.get_poison(),
+                _ => crate::diagnostics::ice("two slots or more are a struct"),
             };
             for (i, v) in vals.iter().enumerate() {
-                if let BasicValueEnum::StructValue(s) = acc {
-                    if let Ok(next) = builder.build_insert_value(s, *v, i as u32, "agg") {
-                        acc = next.as_basic_value_enum();
-                    }
-                }
+                acc = builder
+                    .build_insert_value(acc, *v, i as u32, "agg")
+                    .or_ice("the pieces fit their slots")
+                    .into_struct_value();
             }
-            acc
+            acc.into()
         }
     }
 }
@@ -902,11 +898,10 @@ fn pieces_of<'ctx>(
             let inner = element_bytes(array);
             let mut out = Vec::new();
             for k in 0..array.get_type().len() {
-                let Ok(BasicValueEnum::IntValue(element)) =
-                    builder.build_extract_value(array, k, "blob.e")
-                else {
-                    continue;
-                };
+                let element = builder
+                    .build_extract_value(array, k, "blob.e")
+                    .or_ice("a blob's elements are in range")
+                    .into_int_value();
                 let base = k.saturating_mul(inner);
                 for (offset, piece) in split(ctx, builder, element, inner, each) {
                     out.push((base.saturating_add(offset), piece));
