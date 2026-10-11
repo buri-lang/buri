@@ -1037,7 +1037,7 @@ fn libc_for(target: Target, driver: PathBuf) -> Result<(PathBuf, LibcMode), Refu
     }
     // Tier 2.
     if forced != Forced::Baked {
-        if let Some(system) = system_musl(&driver) {
+        if let Some(system) = system_musl(&driver)? {
             return agrees(system, LibcMode::MuslSystem, &triple);
         }
     }
@@ -1230,16 +1230,19 @@ fn probe_target(driver: &Path, triple: &str) -> bool {
 /// baked unwinder so that Debian's glibc `libgcc_eh.a` is never reached.
 ///
 /// The `-dumpmachine` spawn is only reached when tier 1 has already failed: a
-/// `cc` that is a gcc, which is Ubuntu's default.
-fn system_musl(driver: &Path) -> Option<PathBuf> {
-    let host = spawn::output(Command::new(driver).arg("-dumpmachine")).ok();
-    let musl_host = host.is_some_and(|out| {
-        out.status.success() && String::from_utf8_lossy(&out.stdout).contains("musl")
-    });
-    if musl_host {
-        return Some(driver.to_path_buf());
+/// `cc` that is a gcc, which is Ubuntu's default. A driver that can't run at
+/// all is refused here, rather than quietly replaced by a wrapper.
+fn system_musl(driver: &Path) -> Result<Option<PathBuf>, Refusal> {
+    let host = spawn::output(Command::new(driver).arg("-dumpmachine")).map_err(|e| {
+        Refusal::new(
+            format!("cannot run {}: {e}", driver.display()),
+            "install a C toolchain, or set `CC` to one",
+        )
+    })?;
+    if host.status.success() && String::from_utf8_lossy(&host.stdout).contains("musl") {
+        return Ok(Some(driver.to_path_buf()));
     }
-    ["musl-clang", "musl-gcc"].iter().find_map(|name| spawn::resolve(name))
+    Ok(["musl-clang", "musl-gcc"].iter().find_map(|name| spawn::resolve(name)))
 }
 
 /// Writes the baked musl sysroot into `<dir>/musl/lib`.
