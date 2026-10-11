@@ -402,6 +402,19 @@ pub fn is_inlinable(tables: &Tables, id: FnId) -> bool {
 const OPTION_SOME: usize = 0;
 const OPTION_NONE: usize = 1;
 
+impl Env {
+    pub fn insert(&mut self, local: LocalId, value: Value) {
+        self.locals.insert(local, value);
+    }
+}
+
+/// What `p` binds `local` to when it matches `v`.
+pub fn bound(p: &typed::Pattern, v: &Value, local: LocalId) -> Option<Value> {
+    let mut env = Env::default();
+    bind(p, v, &mut env)?;
+    env.locals.remove(&local)
+}
+
 /// Binds an irrefutable pattern. `None` when the pattern is one this does not
 /// model, which makes the whole fold give up rather than bind wrongly.
 fn bind(p: &typed::Pattern, v: &Value, env: &mut Env) -> Option<()> {
