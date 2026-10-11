@@ -485,7 +485,6 @@ pub fn run(
         sources: HashMap::default(),
         tainted: HashSet::default(),
         extra: Edges::default(),
-        leaves: 0,
         wrapped: Vec::new(),
         leafy: HashSet::default(),
     };
@@ -569,7 +568,6 @@ struct Extractor<'a> {
     tainted: HashSet<Demand>,
     /// What each [`Demand::Leaf`] reads.
     extra: Edges,
-    leaves: u32,
     /// Each leaf, in the order its `classify` was written.
     wrapped: Vec<Demand>,
     /// The declarations holding one.
@@ -880,8 +878,7 @@ impl<'a> Extractor<'a> {
             self.descend(e, Some(s), cond);
             return;
         }
-        let to = Demand::Leaf(self.leaves);
-        self.leaves += 1;
+        let to = Demand::Leaf(self.wrapped.len());
         self.flow.edges(self.owner, e, Some(to), false, &mut self.extra);
         self.descend(e, Some(Sink { to, site: false }), cond);
         let span = e.span;
@@ -1334,7 +1331,7 @@ enum Demand {
     /// A trait method's result, whichever `impl` answers it.
     Method(TraitId, usize),
     /// A style a node is given whose value goes through `classify`.
-    Leaf(u32),
+    Leaf(usize),
 }
 
 /// The declaration a local belongs to.
