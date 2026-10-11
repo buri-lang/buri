@@ -68,6 +68,7 @@ use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, Stmt};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
 use crate::hash::{Map as HashMap, Set as HashSet};
+use crate::diagnostics::Invariant as _;
 
 /// How one function is emitted.
 ///
@@ -134,6 +135,7 @@ fn tail_callees(e: &Expr, out: &mut Vec<usize>) {
 
 /// Whether a call sits in tail position within this expression tree — used to
 /// decide, at each node, whether to recurse with the tail flag still set.
+#[expect(clippy::indexing_slicing, reason = "a component's members are functions of the program, with one edge list and one strategy each")]
 fn analyze(program: &Program) -> Plan {
     let n = program.funcs.len();
     let mut edges: Vec<Vec<usize>> = vec![Vec::new(); n];
@@ -149,19 +151,15 @@ fn analyze(program: &Program) -> Plan {
     let mut plan = Plan { strategy: vec![Strategy::Plain; n], groups: Vec::new() };
     for scc in sccs.iter() {
         if let [f] = *scc {
-            if edges.get(f).is_some_and(|es| es.contains(&f)) {
-                if let Some(slot) = plan.strategy.get_mut(f) {
-                    *slot = Strategy::SelfLoop;
-                }
+            if edges[f].contains(&f) {
+                plan.strategy[f] = Strategy::SelfLoop;
             }
             continue;
         }
         // A statically known group of functions that tail-call each other.
         let group = plan.groups.len();
         for (i, f) in scc.iter().enumerate() {
-            if let Some(slot) = plan.strategy.get_mut(*f) {
-                *slot = Strategy::Member { group, index: i };
-            }
+            plan.strategy[*f] = Strategy::Member { group, index: i };
         }
         plan.groups.push(scc.to_vec());
     }
@@ -179,6 +177,7 @@ fn analyze(program: &Program) -> Plan {
 /// Idempotent by construction rather than by a guard: a second run finds no
 /// tail *call* left to rewrite, because [`tail_callees`] counts `CallFn` and
 /// the first run replaced each one.
+#[expect(clippy::indexing_slicing, reason = "`f` ranges over the program's functions")]
 pub fn rewrite(program: &mut Program) {
     let plan = analyze(program);
 
@@ -194,8 +193,8 @@ pub fn rewrite(program: &mut Program) {
         if !plan.is_self_loop(f) {
             continue;
         }
-        let Some(func) = program.funcs.get_mut(f) else { continue };
-        let Some(mut body) = func.take_body() else { continue };
+        let func = &mut program.funcs[f];
+        let mut body = func.take_body().or_ice("a function that tail-calls itself has a body");
         // A self-loop's slots *are* its parameters, in order.
         let identity: Vec<usize> = (0..func.params.len()).collect();
         rewrite_tails(&mut body, &|callee| (callee == f).then_some((0, &identity[..])));
@@ -215,14 +214,13 @@ pub fn rewrite(program: &mut Program) {
 /// by where they landed, which is the inliner's own manoeuvre and for the same
 /// reason: `LocalId` is an index into one function's table, so appending is the
 /// only way two bodies can share one.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "a group is two or more functions of the program; `order` has a row per member, \
+              and a member's own slots, which come first in the merged table, number no more than the group's"
+)]
 fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
-    // A member with no body cannot have had a tail call, so it cannot have
-    // been in the group; a group that somehow holds one is left alone rather
-    // than half-merged.
-    if group.iter().any(|f| program.funcs.get(*f).is_none_or(|f| f.body().is_none())) {
-        return;
-    }
-    let Some(first) = program.funcs.get(*group.first().unwrap_or(&0)) else { return };
+    let first = &program.funcs[group[0]];
     let ret = first.ret;
     let span = first.span;
 
@@ -255,8 +253,8 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
 
     let mut entries: Vec<Expr> = Vec::new();
     for (i, f) in group.iter().enumerate() {
-        let Some(func) = program.funcs.get(*f) else { return };
-        let Some(body) = func.body() else { return };
+        let func = &program.funcs[*f];
+        let body = func.body().or_ice("a member of a tail-call group has a body");
         let offset = locals.len() as u32;
         locals.extend(func.locals.iter().cloned());
         let mut body = body.clone();
@@ -265,7 +263,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
         // reads the slot rather than a copy of it. `order[i][j]` is the
         // parameter slot `j` holds for this member, which is the identity
         // wherever the members' signatures agree.
-        let Some(mine) = slots.order.get(i) else { return };
+        let mine = &slots.order[i];
         let onto: HashMap<LocalId, LocalId> = mine
             .iter()
             .enumerate()
@@ -296,12 +294,11 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
             }
         });
         let mut dead: Vec<Stmt> = Vec::new();
-        for j in 0..mine.len() {
-            let Some(&slot) = params.get(j) else { continue };
+        for &slot in &params[..mine.len()] {
             if read.contains(&slot) {
                 continue;
             }
-            let Some(local) = locals.get(slot.index()).cloned() else { continue };
+            let local = locals[slot.index()].clone();
             let bound = LocalId(locals.len() as u32);
             locals.push(typed::Local {
                 name: Name::new(&format!("{}_unread", local.name)),
@@ -366,12 +363,12 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
     // function at its own entry, so a reference to it from outside the group —
     // a call that was not in tail position, or an `FnRef` — still works.
     for (i, f) in group.iter().enumerate() {
-        let Some(func) = program.funcs.get_mut(*f) else { continue };
+        let func = &mut program.funcs[*f];
         // In *slot* order rather than the member's own: `lower::continue_`
         // hands argument `j` to slot `j` and pads what is missing, which is
         // what makes a member's slots a prefix a requirement of
         // [`shared_slots`] rather than a coincidence.
-        let Some(mine) = slots.order.get(i) else { continue };
+        let mine = &slots.order[i];
         let args: Vec<Expr> = mine
             .iter()
             .filter_map(|k| {
@@ -469,6 +466,7 @@ fn substitute_locals(e: &mut Expr, onto: &HashMap<LocalId, LocalId>) {
 ///
 /// A parameter no closure captures is left alone, and so is one the loop only
 /// ever rebinds to itself: neither can be stale.
+#[expect(clippy::indexing_slicing, reason = "a parameter is a local of the function's own table")]
 fn snapshot_captures(
     locals: &mut Vec<typed::Local>,
     params: &mut [LocalId],
@@ -481,8 +479,7 @@ fn snapshot_captures(
         typed::walk(entry, &mut |e| match &e.kind {
             ExprKind::Lambda { captures, .. } => captured.extend(captures.iter().copied()),
             ExprKind::Continue { func: None, args, .. } => {
-                for (j, arg) in args.iter().enumerate() {
-                    let Some(param) = params.get(j) else { continue };
+                for (arg, param) in args.iter().zip(params.iter()) {
                     if !matches!(&arg.kind, ExprKind::Local(l) if l == param) {
                         rebound.insert(*param);
                     }
@@ -493,21 +490,19 @@ fn snapshot_captures(
     }
 
     let mut prologue: Vec<(usize, Stmt)> = Vec::new();
-    for j in 0..params.len() {
-        let Some(&param) = params.get(j) else { continue };
+    for (j, slot) in params.iter_mut().enumerate() {
+        let param = *slot;
         if !captured.contains(&param) || !rebound.contains(&param) {
             continue;
         }
-        let Some(local) = locals.get(param.index()).cloned() else { continue };
+        let local = locals[param.index()].clone();
         let carrier = LocalId(locals.len() as u32);
         locals.push(typed::Local {
             name: Name::new(&format!("{}_loop", local.name)),
             ty: local.ty,
             span: local.span,
         });
-        if let Some(slot) = params.get_mut(j) {
-            *slot = carrier;
-        }
+        *slot = carrier;
         // Re-executed on every entry to the loop body, which is what makes the
         // binding a closure captures belong to that iteration alone.
         prologue.push((
@@ -574,6 +569,7 @@ struct Slots {
 /// caller leaves the group unmerged rather than putting two types in one slot.
 /// Issue #29 is what one slot at two types does — a `Walk` compared against
 /// `255` and released as a `U8`.
+#[expect(clippy::indexing_slicing, reason = "`k` is a position in `mine`, and `i` one in `group`")]
 fn shared_slots(program: &Program, group: &[usize]) -> Option<Slots> {
     let params: Vec<Vec<Ty>> = group
         .iter()
@@ -599,9 +595,7 @@ fn shared_slots(program: &Program, group: &[usize]) -> Option<Slots> {
                 .iter()
                 .zip(taken.iter())
                 .position(|(m, spoken)| !*spoken && m == ty)?;
-            if let Some(spoken) = taken.get_mut(k) {
-                *spoken = true;
-            }
+            taken[k] = true;
             filled.push(k);
         }
         for ((k, ty), spoken) in mine.iter().enumerate().zip(taken.iter()) {
@@ -610,9 +604,7 @@ fn shared_slots(program: &Program, group: &[usize]) -> Option<Slots> {
                 filled.push(k);
             }
         }
-        if let Some(slot) = order.get_mut(i) {
-            *slot = filled;
-        }
+        order[i] = filled;
     }
     Some(Slots { types, order })
 }

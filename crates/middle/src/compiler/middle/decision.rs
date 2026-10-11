@@ -72,6 +72,7 @@ use crate::compiler::semantics::typed::{
 };
 use crate::compiler::semantics::types::{LocalId, Ty, TyConId};
 use crate::hash::Map;
+use crate::diagnostics::Invariant as _;
 
 /// Rewrites every `Match` whose arms discriminate on a scrutinee into a tree
 /// of discriminant tests.
@@ -192,7 +193,8 @@ fn group(locals: &mut Vec<typed::Local>, arms: &mut Vec<Arm>, ty: &Ty) {
     // wide as its enum: `wide-match/20k` is one 10,000-arm match, and this was
     // 100 M head comparisons in a pass whose output is linear.
     let count = heads.len();
-    let Some(tested) = count.checked_sub(usize::from(default)) else { return };
+    // A default is one of the heads, so this cannot go below zero.
+    let tested = count.saturating_sub(usize::from(default));
     let mut group_of: Map<&Head, usize> = Map::default();
     let mut groups: Vec<Vec<usize>> = Vec::new();
     for (i, h) in heads.iter().enumerate().take(tested) {
@@ -200,9 +202,8 @@ fn group(locals: &mut Vec<typed::Local>, arms: &mut Vec<Arm>, ty: &Ty) {
             groups.push(Vec::new());
             groups.len().saturating_sub(1)
         });
-        if let Some(rows) = groups.get_mut(slot) {
-            rows.push(i);
-        }
+        #[expect(clippy::indexing_slicing, reason = "`slot` was handed out as an index into `groups`")]
+        groups[slot].push(i);
     }
     // Nothing to hoist: one test is one test however it is emitted.
     if groups.len() < 2 {
@@ -335,8 +336,11 @@ fn binds_any(p: &Pattern) -> bool {
 /// apply to.
 fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &Ty) -> Option<Arm> {
     let first = rows.first()?;
-    let PatKind::Variant { con, variant, .. } = &first.pattern.kind else { return None };
-    let (con, variant) = (*con, *variant);
+    let (con, variant) = match &first.pattern.kind {
+        PatKind::Variant { con, variant, .. } => Some((*con, *variant)),
+        _ => None,
+    }
+    .or_ice("a collapsed group tests a variant");
     let (head_ty, head_span, arm_span) =
         (first.pattern.ty, first.pattern.span, first.span);
 

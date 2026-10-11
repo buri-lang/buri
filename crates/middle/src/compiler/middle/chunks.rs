@@ -104,14 +104,10 @@ pub fn run(program: &mut Program, split: bool) {
 
     for f in 0..program.funcs.len() {
         with_body(program, f, &mut |e| {
-            let ExprKind::Intrinsic { name, .. } = &e.kind else { return };
+            let ExprKind::Intrinsic { name, .. } = &mut e.kind else { return };
             let Some(root) = intrinsic_keys::lazy_chunk_of(name) else { return };
             match split_roots.iter().position(|r| *r == root) {
-                Some(n) => {
-                    if let ExprKind::Intrinsic { name, .. } = &mut e.kind {
-                        *name = intrinsic_keys::lazy_chunk_key(n);
-                    }
-                }
+                Some(n) => *name = intrinsic_keys::lazy_chunk_key(n),
                 // Nothing to move: the artifact reaches this function anyway.
                 None => {
                     let arg = take_arg(e);
@@ -205,9 +201,9 @@ fn take_arg(e: &mut Expr) -> Expr {
 /// Bottom-up, because a `load` whose argument is itself rewritten must see the
 /// rewritten one — and because replacing a node in place while standing on its
 /// parent is what `children_mut` is for.
+#[expect(clippy::indexing_slicing, reason = "every caller ranges `f` over the program's functions")]
 fn with_body(program: &mut Program, f: usize, rewrite: &mut impl FnMut(&mut Expr)) {
-    let Some(func) = program.funcs.get_mut(f) else { return };
-    let Some(body) = func.body_mut() else { return };
+    let Some(body) = program.funcs[f].body_mut() else { return };
     walk_mut(body, rewrite);
 }
 

@@ -130,30 +130,23 @@ pub fn program_roots(program: &Program) -> Vec<usize> {
 /// function rather than two, because a chunk holding a function the artifact
 /// also holds, or missing one it needs, is the same defect as a dropped live
 /// function — and it would be found by a different piece of code.
+#[expect(clippy::indexing_slicing, reason = "a root and every callee are functions of the program")]
 pub fn reachable(program: &Program, roots: &[usize], chunks: Chunks) -> Vec<bool> {
     let mut reached = vec![false; program.funcs.len()];
     let mut work: Vec<usize> = roots.to_vec();
     for f in &work {
-        if let Some(seen) = reached.get_mut(*f) {
-            *seen = true;
-        }
+        reached[*f] = true;
     }
 
     while let Some(f) = work.pop() {
-        let Some(func) = program.funcs.get(f) else { continue };
-        let Some(body) = func.body() else { continue };
+        let Some(body) = program.funcs[f].body() else { continue };
         let mut callees = Vec::new();
         references(body, chunks, &mut callees);
         for c in callees {
-            match reached.get_mut(c) {
-                // An index the graph does not have is skipped rather than
-                // indexed: nothing in this compiler produces one, and it is
-                // not this pass's business to be the place that panics.
-                None => continue,
-                Some(seen) if *seen => continue,
-                Some(seen) => *seen = true,
+            if !reached[c] {
+                reached[c] = true;
+                work.push(c);
             }
-            work.push(c);
         }
     }
     reached

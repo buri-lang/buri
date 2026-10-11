@@ -83,6 +83,7 @@ use crate::compiler::semantics::typed::{
 };
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty, TyKind};
 use crate::diagnostics::Span;
+use crate::diagnostics::Invariant as _;
 
 /// Fuses every combinator chain in the program.
 pub fn run(program: &mut Program) {
@@ -95,14 +96,9 @@ pub fn run(program: &mut Program) {
         .collect();
     let base = program.funcs.len();
     let mut minted: Vec<Func> = Vec::new();
-    for i in 0..base {
-        let Some(func) = program.funcs.get_mut(i) else { continue };
-        let Some(mut body) = func.take_body() else { continue };
-        let mut fx = Fuse { keys: &keys, names: &names, base, minted: &mut minted };
-        fx.expr(&mut body);
-        if let Some(func) = program.funcs.get_mut(i) {
-            func.set_body(body);
-        }
+    for func in &mut program.funcs {
+        let Some(body) = func.body_mut() else { continue };
+        Fuse { keys: &keys, names: &names, base, minted: &mut minted }.expr(body);
     }
     program.funcs.extend(minted);
 }
@@ -162,21 +158,6 @@ impl Combinator {
             Combinator::Fold | Combinator::Count | Combinator::Any | Combinator::All => 1,
         }
     }
-
-    fn arity(self) -> usize {
-        match self {
-            Combinator::Map | Combinator::Filter | Combinator::Fold => 3,
-            Combinator::Count | Combinator::Any | Combinator::All => 2,
-        }
-    }
-
-    /// How many parameters the step takes.
-    fn step_params(self) -> usize {
-        match self {
-            Combinator::Fold => 2,
-            _ => 1,
-        }
-    }
 }
 
 struct Fuse<'a> {
@@ -207,13 +188,9 @@ impl Fuse<'_> {
         Some((key, idx, args))
     }
 
-    fn combinator(&self, e: &Expr) -> Option<(Combinator, FuncIdx)> {
+    fn combinator<'e>(&self, e: &'e Expr) -> Option<(Combinator, FuncIdx, &'e Vec<Expr>)> {
         let (key, idx, args) = self.key(e)?;
-        let combinator = Combinator::of(key)?;
-        if args.len() != combinator.arity() {
-            return None;
-        }
-        Some((combinator, idx))
+        Some((Combinator::of(key)?, idx, args))
     }
 
     /// One fusion at this node, or nothing.
@@ -221,10 +198,9 @@ impl Fuse<'_> {
         if self.len_of_filter(e) {
             return true;
         }
-        match self.plan(e) {
-            Some(plan) => self.rewrite(e, plan),
-            None => false,
-        }
+        let Some(plan) = self.plan(e) else { return false };
+        self.rewrite(e, plan);
+        true
     }
 
     /// `filter(xs, ctx, keep).len()` is `count(xs, keep)`: the same predicate
@@ -234,38 +210,39 @@ impl Fuse<'_> {
     /// rather than composed — and it is what puts a `len` at the end of a chain
     /// back in reach of the fusions above, which is where
     /// `range|map|filter|len` gets its traversal deleted.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "the checker gives every call its declared arity: one argument to `length`, three to `filter`"
+    )]
     fn len_of_filter(&mut self, e: &mut Expr) -> bool {
         let Some(("list.length", _, args)) = self.key(e) else { return false };
-        if args.len() != 1 {
+        let Some((Combinator::Filter, from, producer_args)) = self.combinator(&args[0]) else {
             return false;
-        }
-        let Some(inner) = args.first() else { return false };
-        let Some((Combinator::Filter, from)) = self.combinator(inner) else { return false };
-        let Some(producer_args) = call_args(inner) else { return false };
-        let Some(ctx) = producer_args.get(1) else { return false };
-        if !readonly(ctx) {
+        };
+        if !readonly(&producer_args[1]) {
             return false;
         }
         let node_ty = e.ty;
-        let Some(mut inner) = take_arg(e, 0) else { return false };
-        let Some(keep) = take_arg(&mut inner, Combinator::Filter.step_at()) else { return false };
-        let Some(source) = take_arg(&mut inner, 0) else { return false };
+        let mut inner = take_arg(e, 0);
+        let keep = take_arg(&mut inner, Combinator::Filter.step_at());
+        let source = take_arg(&mut inner, 0);
         let tys = vec![source.ty, keep.ty];
         let func = self.mint(Combinator::Count, from, tys, node_ty);
-        if let ExprKind::CallFn { func: callee, args } = &mut e.kind {
-            *callee = Callee::Func(func);
-            *args = vec![source, keep];
-        }
+        let (callee, args) = call_mut(e);
+        *callee = Callee::Func(func);
+        *args = vec![source, keep];
         true
     }
 
     /// Everything the rewrite needs to know, decided while the node is only
     /// read, so that nothing is taken apart before it is known to fuse.
+    ///
+    /// The checker has already matched every step's parameters to its
+    /// combinator's, so `map`'s and `filter`'s steps take one and `fold`'s two.
     fn plan(&self, e: &Expr) -> Option<Plan> {
-        let (consumer, consumer_idx) = self.combinator(e)?;
-        let args = call_args(e)?;
+        let (consumer, consumer_idx, args) = self.combinator(e)?;
         let source = args.first()?;
-        let (producer, _) = self.combinator(source)?;
+        let (producer, _, producer_args) = self.combinator(source)?;
         // The two shapes that are not fusions at all.
         if matches!(
             (consumer, producer),
@@ -273,10 +250,7 @@ impl Fuse<'_> {
         ) {
             return None;
         }
-        let producer_args = call_args(source)?;
-        let ExprKind::Lambda { params: consumer_params, .. } =
-            &args.get(consumer.step_at())?.kind
-        else {
+        let ExprKind::Lambda { .. } = &args.get(consumer.step_at())?.kind else {
             return None;
         };
         let ExprKind::Lambda { params: producer_params, body: producer_body, .. } =
@@ -284,16 +258,9 @@ impl Fuse<'_> {
         else {
             return None;
         };
-        if producer_params.len() != 1 || consumer_params.len() != consumer.step_params() {
-            return None;
-        }
-        let elem = *producer_params.first()?;
         // The two lambdas were written apart, so their parameters are different
-        // locals of the same table; equal ones would mean the fused step bound
-        // one slot twice.
-        if consumer_params.contains(&elem) {
-            return None;
-        }
+        // locals of the same table: the fused step binds each slot once.
+        let elem = *producer_params.first()?;
         if !movable(producer_body) {
             return None;
         }
@@ -303,13 +270,12 @@ impl Fuse<'_> {
             return None;
         }
         let producer_source = producer_args.first()?;
-        let TyKind::Array(elem_ty) = producer_source.ty.kind() else { return None };
         Some(Plan {
             consumer,
             consumer_idx,
             producer,
             elem,
-            elem_ty: *elem_ty,
+            elem_ty: elem_of(producer_source.ty),
             // A `filter` answers the list it was given, and so does a `map` from
             // a type to itself; either way the instance in hand is already over
             // the right element type and no new one is needed.
@@ -317,47 +283,33 @@ impl Fuse<'_> {
         })
     }
 
-    fn rewrite(&mut self, e: &mut Expr, plan: Plan) -> bool {
+    /// Takes apart the call [`Fuse::plan`] read, and puts the fused one in its
+    /// place.
+    #[expect(clippy::indexing_slicing, reason = "the call has its combinator's arity, which covers the step's position")]
+    fn rewrite(&mut self, e: &mut Expr, plan: Plan) {
         let node_ty = e.ty;
-        let Some(mut producer) = take_arg(e, 0) else { return false };
-        let Some(producer_step) = take_arg(&mut producer, plan.producer.step_at()) else {
-            return false;
-        };
-        let Some(source) = take_arg(&mut producer, 0) else { return false };
-        let Some(step) = take_arg(e, plan.consumer.step_at()) else { return false };
+        let mut producer = take_arg(e, 0);
+        let producer_step = take_arg(&mut producer, plan.producer.step_at());
+        let source = take_arg(&mut producer, 0);
+        let step = take_arg(e, plan.consumer.step_at());
         let span = step.span;
-        let ExprKind::Lambda { body: producer_body, captures: producer_captures, .. } =
-            producer_step.kind
-        else {
-            return false;
-        };
-        let ExprKind::Lambda {
-            params: consumer_params,
-            body: consumer_body,
-            captures: consumer_captures,
-        } = step.kind
-        else {
-            return false;
-        };
+        let (_, producer_body, producer_captures) = lambda_parts(producer_step);
+        let (consumer_params, consumer_body, consumer_captures) = lambda_parts(step);
 
         let acc_ty = consumer_body.ty;
-        let Some(body) =
-            compose(&plan, *producer_body, &consumer_params, *consumer_body, span)
-        else {
-            return false;
-        };
+        let (&bound, before) = consumer_params.split_last().or_ice("every step takes its element last");
+        let acc = before.first().copied();
+        let body = compose(&plan, *producer_body, acc, bound, *consumer_body, span);
         let mut captures = producer_captures;
         for c in consumer_captures {
             if !captures.contains(&c) {
                 captures.push(c);
             }
         }
-        let (params, param_tys) = match (plan.consumer, consumer_params.first()) {
-            (Combinator::Fold, Some(acc)) => {
-                (vec![*acc, plan.elem], vec![acc_ty, plan.elem_ty])
-            }
-            (Combinator::Fold, None) => return false,
-            _ => (vec![plan.elem], vec![plan.elem_ty]),
+        // Only `fold`'s step has an accumulator.
+        let (params, param_tys) = match acc {
+            Some(acc) => (vec![acc, plan.elem], vec![acc_ty, plan.elem_ty]),
+            None => (vec![plan.elem], vec![plan.elem_ty]),
         };
         let ret_ty = body.ty;
         let fused = Expr::new(
@@ -367,21 +319,14 @@ impl Fuse<'_> {
         );
 
         // Both slots already hold the placeholder `take_arg` left behind.
-        let Some(args) = call_args_mut(e) else { return false };
-        if let Some(a) = args.first_mut() {
-            *a = source;
-        }
-        if let Some(a) = args.get_mut(plan.consumer.step_at()) {
-            *a = fused;
-        }
+        let (callee, args) = call_mut(e);
+        args[0] = source;
+        args[plan.consumer.step_at()] = fused;
         if !plan.same_elements {
             let arg_tys: Vec<Ty> = args.iter().map(|a| a.ty).collect();
             let func = self.mint(plan.consumer, plan.consumer_idx, arg_tys, node_ty);
-            if let ExprKind::CallFn { func: callee, .. } = &mut e.kind {
-                *callee = Callee::Func(func);
-            }
+            *callee = Callee::Func(func);
         }
-        true
     }
 
     /// A fresh instance of a combinator over the source's element type.
@@ -436,25 +381,25 @@ struct Plan {
 fn compose(
     plan: &Plan,
     producer_body: Expr,
-    consumer_params: &[LocalId],
+    acc: Option<LocalId>,
+    bound: LocalId,
     consumer_body: Expr,
     span: Span,
-) -> Option<Expr> {
-    let bound = *consumer_params.last()?;
+) -> Expr {
     let ty = consumer_body.ty;
     match plan.producer {
         // `g(a, f(x))`: the consumer step's element parameter is bound to the
         // producer step's body, which reads the fused step's own parameter.
         Combinator::Map => {
             let value_ty = producer_body.ty;
-            Some(Expr::new(
+            Expr::new(
                 ExprKind::Block {
                     stmts: vec![binding(bound, value_ty, producer_body, span)],
                     tail: Some(Box::new(consumer_body)),
                 },
                 ty,
                 span,
-            ))
+            )
         }
         // The producer's predicate becomes the fused step's guard, and what the
         // step answers when the guard fails is the whole of the difference
@@ -469,15 +414,14 @@ fn compose(
                 ty,
                 span,
             );
-            let dropped = match (plan.consumer, consumer_params.first()) {
+            let dropped = match (plan.consumer, acc) {
                 // An element the filter drops leaves the accumulator alone.
-                (Combinator::Fold, Some(acc)) => Expr::new(ExprKind::Local(*acc), ty, span),
-                (Combinator::Fold, None) => return None,
+                (Combinator::Fold, Some(acc)) => Expr::new(ExprKind::Local(acc), ty, span),
                 // `all` over the kept elements is `!keep(x) || pred(x)`.
                 (Combinator::All, _) => Expr::new(ExprKind::Bool(true), ty, span),
                 _ => Expr::new(ExprKind::Bool(false), ty, span),
             };
-            Some(Expr::new(
+            Expr::new(
                 ExprKind::If {
                     cond: Box::new(producer_body),
                     then: Box::new(kept),
@@ -485,9 +429,9 @@ fn compose(
                 },
                 ty,
                 span,
-            ))
+            )
         }
-        _ => Some(consumer_body),
+        _ => consumer_body,
     }
 }
 
@@ -503,25 +447,38 @@ fn unit() -> Expr {
     Expr::new(ExprKind::Unit, Ty::UNIT, Span::default())
 }
 
-fn call_args(e: &Expr) -> Option<&Vec<Expr>> {
-    match &e.kind {
-        ExprKind::CallFn { args, .. } => Some(args),
-        _ => None,
-    }
-}
-
-fn call_args_mut(e: &mut Expr) -> Option<&mut Vec<Expr>> {
-    match &mut e.kind {
-        ExprKind::CallFn { args, .. } => Some(args),
-        _ => None,
-    }
-}
-
 /// Takes one argument out of a call, leaving a placeholder the rewrite either
 /// overwrites or discards with the node.
-fn take_arg(e: &mut Expr, at: usize) -> Option<Expr> {
-    let slot = call_args_mut(e)?.get_mut(at)?;
-    Some(std::mem::replace(slot, unit()))
+fn take_arg(e: &mut Expr, at: usize) -> Expr {
+    let slot = call_mut(e).1.get_mut(at).or_ice("a combinator call has the argument");
+    std::mem::replace(slot, unit())
+}
+
+/// The callee and arguments of a call already read as a combinator.
+fn call_mut(e: &mut Expr) -> (&mut Callee, &mut Vec<Expr>) {
+    match &mut e.kind {
+        ExprKind::CallFn { func, args } => Some((func, args)),
+        _ => None,
+    }
+    .or_ice("a combinator is a call")
+}
+
+/// A step's parameters, body and captures.
+fn lambda_parts(step: Expr) -> (Vec<LocalId>, Box<Expr>, Vec<LocalId>) {
+    match step.kind {
+        ExprKind::Lambda { params, body, captures } => Some((params, body, captures)),
+        _ => None,
+    }
+    .or_ice("a fused step is a lambda")
+}
+
+/// The element type of a combinator's source.
+fn elem_of(list: Ty) -> Ty {
+    match list.kind() {
+        TyKind::Array(elem) => Some(*elem),
+        _ => None,
+    }
+    .or_ice("a combinator's source is a list")
 }
 
 /// Whether a step's body may be spliced into another lambda.

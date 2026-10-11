@@ -22,7 +22,8 @@
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Stmt};
 use crate::compiler::semantics::types::LocalId;
 use crate::compiler::middle::monomorphize::{Func, Program};
-use crate::compiler::middle::strongly_connected;
+use crate::compiler::middle::{resolved, strongly_connected};
+use crate::diagnostics::Invariant as _;
 
 pub struct Options {
     pub inline: bool,
@@ -69,7 +70,7 @@ pub fn run(program: &mut Program, opts: &Options) -> Stats {
         return stats;
     }
     let n = program.funcs.len();
-    let mut own: Vec<Own> = program.funcs.iter().map(|f| Own::of(f, n)).collect();
+    let mut own: Vec<Own> = program.funcs.iter().map(Own::of).collect();
     // Measured once, from the original bodies: the ceiling must not move as
     // inlining grows a function, or a chain of small functions compounds.
     let limits: Vec<usize> = own.iter().map(|o| o.size * 2 + GROWTH).collect();
@@ -97,7 +98,7 @@ pub fn run(program: &mut Program, opts: &Options) -> Stats {
         }
         for ((o, f), d) in own.iter_mut().zip(&program.funcs).zip(&dirty) {
             if *d {
-                *o = Own::of(f, n);
+                *o = Own::of(f);
             }
         }
         before = Some(facts);
@@ -184,9 +185,8 @@ fn fold_expr(e: &mut Expr) -> usize {
                 ExprKind::StructLit { fields, .. } | ExprKind::Tuple(fields) => fields,
                 _ => return n,
             };
-            if index >= fields.len()
-                || !fields.iter().enumerate().all(|(i, f)| i == index || discardable(f))
-            {
+            // The checker keeps `index` inside the record or tuple it reads.
+            if !fields.iter().enumerate().all(|(i, f)| i == index || discardable(f)) {
                 return n;
             }
             Some(fields.swap_remove(index))
@@ -203,9 +203,9 @@ fn fold_expr(e: &mut Expr) -> usize {
             // Every index was just checked against this vector, which nothing
             // has resized since.
             for (i, v) in std::mem::take(updates) {
-                if let Some(slot) = fields.get_mut(i) {
-                    *slot = v;
-                }
+                #[expect(clippy::indexing_slicing, reason = "checked against `fields` just above")]
+                let slot = &mut fields[i];
+                *slot = v;
             }
             Some(Expr::new(
                 ExprKind::StructLit { con, targs, fields },
@@ -270,8 +270,7 @@ struct Own {
     size: usize,
     has_try: bool,
     /// Every function this body names, in walk order, and whether by a call
-    /// (`true`) or as a value. A callee outside the table is dropped rather
-    /// than recorded: the row it would need is the bounds check.
+    /// (`true`) or as a value.
     edges: Vec<(usize, bool)>,
     /// Holds a node [`fold_expr`] could rewrite. Without one, and with nothing
     /// pasted in since, a fold would walk the body and change nothing.
@@ -279,22 +278,14 @@ struct Own {
 }
 
 impl Own {
-    fn of(func: &Func, n: usize) -> Own {
+    fn of(func: &Func) -> Own {
         let mut own = Own { size: 0, has_try: false, edges: Vec::new(), folds: false };
         let Some(body) = func.body() else { return own };
         typed::walk(body, &mut |e| {
             own.size += 1;
             match &e.kind {
-                ExprKind::CallFn { func, .. } => {
-                    if let Some(j) = func.func().map(|c| c.index()).filter(|j| *j < n) {
-                        own.edges.push((j, true));
-                    }
-                }
-                ExprKind::FnRef(func) => {
-                    if let Some(j) = func.func().map(|c| c.index()).filter(|j| *j < n) {
-                        own.edges.push((j, false));
-                    }
-                }
+                ExprKind::CallFn { func, .. } => own.edges.push((resolved(func), true)),
+                ExprKind::FnRef(func) => own.edges.push((resolved(func), false)),
                 ExprKind::Try { .. } => own.has_try = true,
                 _ => {}
             }
@@ -330,12 +321,12 @@ impl Facts {
         let mut edges: Vec<Vec<usize>> = Vec::with_capacity(own.len());
         for o in own {
             for (j, call) in &o.edges {
-                if let Some(row) = f.per_func.get_mut(*j) {
-                    if *call {
-                        row.calls += 1;
-                    } else {
-                        row.refs += 1;
-                    }
+                #[expect(clippy::indexing_slicing, reason = "an edge names a function of the program")]
+                let row = &mut f.per_func[*j];
+                if *call {
+                    row.calls += 1;
+                } else {
+                    row.refs += 1;
                 }
             }
             edges.push(o.edges.iter().map(|(j, _)| *j).collect());
@@ -348,9 +339,9 @@ impl Facts {
         for group in strongly_connected(&edges).iter() {
             if group.len() > 1 {
                 for &i in group {
-                    if let Some(row) = f.per_func.get_mut(i) {
-                        row.recursive = true;
-                    }
+                    #[expect(clippy::indexing_slicing, reason = "a component's members are functions of the program")]
+                    let row = &mut f.per_func[i];
+                    row.recursive = true;
                 }
             }
         }
@@ -372,8 +363,9 @@ impl Facts {
 
     /// The half of [`Facts::may_inline`] that is about the callee alone, and
     /// so is fixed for a whole round.
+    #[expect(clippy::indexing_slicing, reason = "a callee is a function of the program")]
     fn inlinable(&self, callee: usize) -> bool {
-        let Some(c) = self.per_func.get(callee) else { return false };
+        let c = &self.per_func[callee];
         if c.recursive || c.has_try {
             return false;
         }
@@ -403,6 +395,7 @@ impl Facts {
 /// respect it, one pool start per level, measured slower than this on every
 /// corpus: thread start and stack teardown cost more than the work they
 /// shared. `buri test` already prepares one program per job thread.
+#[expect(clippy::indexing_slicing, reason = "`i` ranges over the program's functions, and `done` has one slot each")]
 fn inline_round(program: &mut Program, facts: &Facts, dirty: &[bool], own: &[Own]) -> Vec<usize> {
     let n = program.funcs.len();
     let mut done = vec![0usize; n];
@@ -411,17 +404,17 @@ fn inline_round(program: &mut Program, facts: &Facts, dirty: &[bool], own: &[Own
         if own.get(i).is_some_and(|o| !o.callees().any(|j| j != i && facts.inlinable(j))) {
             continue;
         }
-        let Some(func) = program.funcs.get_mut(i) else { continue };
-        let Some(mut body) = func.take_body() else { continue };
+        // Only a body calls anything, so one that got this far has one.
+        let func = &mut program.funcs[i];
+        let mut body = func.take_body().or_ice("a function that calls something has a body");
         let mut locals = std::mem::take(&mut func.locals);
         let mut size = facts.size(i);
         let mut count = 0;
         inline_expr(&mut body, i, program, facts, facts.limit(i), &mut locals, &mut size, &mut count);
-        if let Some(func) = program.funcs.get_mut(i) {
-            func.set_body(body);
-            func.locals = locals;
-        }
-        put(&mut done, i, count);
+        let func = &mut program.funcs[i];
+        func.set_body(body);
+        func.locals = locals;
+        done[i] = count;
     }
     done
 }
@@ -433,23 +426,14 @@ fn inline_round(program: &mut Program, facts: &Facts, dirty: &[bool], own: &[Own
 /// measured, so where that found nothing to fold the walk is skipped.
 fn fold_round(program: &mut Program, dirty: &[bool], inlined: &[usize], own: &[Own]) -> Vec<usize> {
     let mut folded = vec![0usize; program.funcs.len()];
-    for (i, f) in program.funcs.iter_mut().enumerate() {
+    for (i, (f, slot)) in program.funcs.iter_mut().zip(folded.iter_mut()).enumerate() {
         let pasted = inlined.get(i).is_some_and(|n| *n > 0);
         let folds = own.get(i).is_none_or(|o| o.folds);
         if dirty.get(i) == Some(&true) && (pasted || folds) {
-            if let Some(body) = f.body_mut() {
-                put(&mut folded, i, fold_expr(body));
-            }
+            *slot = fold_expr(f.body_mut().or_ice("a function with something to fold has a body"));
         }
     }
     folded
-}
-
-/// Sets entry `i`, where there is one.
-fn put<T>(t: &mut [T], i: usize, x: T) {
-    if let Some(e) = t.get_mut(i) {
-        *e = x;
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -470,10 +454,12 @@ fn inline_expr(
     });
 
     let ExprKind::CallFn { func, args } = &mut e.kind else { return };
-    let Some(callee) = func.func().map(|i| i.index()) else { return };
-    let Some(target) = program.funcs.get(callee) else { return };
+    let callee = resolved(func);
+    #[expect(clippy::indexing_slicing, reason = "a callee is a function of the program")]
+    let target = &program.funcs[callee];
     let Some(callee_body) = target.body() else { return };
-    if args.len() != target.params.len() || !facts.may_inline(caller, callee, *size, limit) {
+    // The checker gave the call one argument per parameter.
+    if !facts.may_inline(caller, callee, *size, limit) {
         return;
     }
 
