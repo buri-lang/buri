@@ -1,0 +1,107 @@
+from "core/number" import * as number;
+from "core/testing/assert" import * as assert;
+
+fn absF32(x: F32): F32 {
+    x.abs()
+}
+
+fn absF64(x: F64): F64 {
+    x.abs()
+}
+
+fn signF32(x: F32): F32 {
+    x.signum()
+}
+
+fn signF64(x: F64): F64 {
+    x.signum()
+}
+
+test "a float's abs clears its sign" {
+    let a: F32 = -2.5;
+    let b: F32 = 4.0;
+    assert.equal(absF32(a), 2.5);
+    assert.equal(absF32(b), 4.0);
+    assert.equal(absF64(-0.75), 0.75);
+    assert.equal(absF64(3.0), 3.0);
+}
+
+test "a float's signum is minus one, zero or one" {
+    let a: F32 = -2.5;
+    let b: F32 = 0.0;
+    let c: F32 = 9.0;
+    assert.equal(signF32(a), -1.0);
+    assert.equal(signF32(b), 0.0);
+    assert.equal(signF32(c), 1.0);
+    assert.equal(signF64(-7.0), -1.0);
+    assert.equal(signF64(0.0), 0.0);
+    assert.equal(signF64(7.0), 1.0);
+}
+
+fn f32ToI32(x: F32): Result<I32, number.RangeError> {
+    x.toI32()
+}
+
+fn f32ToU8(x: F32): Result<U8, number.RangeError> {
+    x.toU8()
+}
+
+fn i32ToF32(x: I32): F32 {
+    x.toF32()
+}
+
+fn u64ToF32(x: U64): F32 {
+    x.toF32()
+}
+
+fn f32ToF64(x: F32): F64 {
+    x.toF64()
+}
+
+fn wrapF32(x: F32): I16 {
+    x.wrapToI16()
+}
+
+test "an F32 converts to and from the integers" {
+    let a: F32 = 12.0;
+    let b: F32 = -3.0;
+    let c: F32 = 1.5;
+    assert.equal(assert.ok(f32ToI32(a)), 12);
+    assert.equal(assert.ok(f32ToI32(b)), -3);
+    assert.isTrue(f32ToI32(c).isErr());
+    assert.equal(assert.ok(f32ToU8(a)), 12);
+    assert.isTrue(f32ToU8(b).isErr());
+    assert.equal(f32ToF64(i32ToF32(7)), 7.0);
+    assert.equal(f32ToF64(u64ToF32(1024)), 1024.0);
+    assert.equal(wrapF32(c), 1);
+}
+
+fn i128ToF64(x: I128): F64 {
+    x.toF64()
+}
+
+fn u128ToF64(x: U128): F64 {
+    x.toF64()
+}
+
+fn i128ToU128(x: I128): Result<U128, number.RangeError> {
+    x.toU128()
+}
+
+fn u128ToI8(x: U128): Result<I8, number.RangeError> {
+    x.toI8()
+}
+
+fn i8ToI128(x: I8): I128 {
+    x.toI128()
+}
+
+test "128-bit integers convert to the other widths" {
+    assert.equal(i128ToF64(-1024), -1024.0);
+    assert.equal(u128ToF64(4096), 4096.0);
+    assert.equal(assert.ok(i128ToU128(5)), 5);
+    assert.isTrue(i128ToU128(-5).isErr());
+    assert.equal(assert.ok(u128ToI8(100)), 100);
+    assert.isTrue(u128ToI8(300).isErr());
+    assert.equal(i8ToI128(-7), -7);
+}

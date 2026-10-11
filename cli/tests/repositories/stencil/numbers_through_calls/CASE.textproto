@@ -1,0 +1,15 @@
+# Number methods whose operands arrive through a call, so nothing folds them
+# away before code generation: a float's abs and signum, conversions in and out
+# of F32 and the 128-bit widths, and shifts by a count known only at run time.
+# Both backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "number methods on values that arrive through calls agree on both backends"
+
+run {
+  args: ["test", "//lib/numbers", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

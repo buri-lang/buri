@@ -1,0 +1,53 @@
+from "core/bits" import * as bits;
+from "core/number" import * as number;
+from "core/testing/assert" import * as assert;
+
+fn i128ToF32(x: I128): F32 {
+    x.toF32()
+}
+
+fn u128ToF32(x: U128): F32 {
+    x.toF32()
+}
+
+fn f32ToF64(x: F32): F64 {
+    x.toF64()
+}
+
+test "a 128-bit integer converts to F32" {
+    assert.equal(f32ToF64(i128ToF32(-8)), -8.0);
+    assert.equal(f32ToF64(u128ToF32(8)), 8.0);
+}
+
+fn shl(x: Int, n: Int): Int {
+    bits.shiftLeft(x, n)
+}
+
+fn shr(x: Int, n: Int): Int {
+    bits.shiftRight(x, n)
+}
+
+fn rotl(x: Int, n: Int): Int {
+    bits.rotateLeft(x, n)
+}
+
+fn shlU8(x: U8, n: Int): U8 {
+    bits.shiftLeftU8(x, n)
+}
+
+fn shrU64(x: U64, n: Int): U64 {
+    bits.shiftRightU64(x, n)
+}
+
+fn pop(x: Int): Int {
+    bits.popCount(x)
+}
+
+test "shifts and rotations by counts that arrive at run time" {
+    assert.equal(shl(3, 4), 48);
+    assert.equal(shr(48, 4), 3);
+    assert.equal(rotl(1, 10), 1024);
+    assert.equal(shlU8(3, 2), 12);
+    assert.equal(shrU64(1024, 3), 128);
+    assert.equal(pop(255), 8);
+}
