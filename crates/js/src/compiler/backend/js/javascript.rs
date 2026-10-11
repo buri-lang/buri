@@ -802,7 +802,10 @@ fn both_equalities_agree(lhs: &Expr, rhs: &Expr, conjunction: bool) -> Option<bo
     if !a.same_as(b) || !a.is_pure() {
         return None;
     }
-    if !av.is_pure_literal() || !bv.is_pure_literal() || av.same_as(bv) {
+    // An identifier is a pure literal but not a constant: `x === y && x === 1`
+    // holds when `y` is 1.
+    let constant = |e: &Expr| e.is_pure_literal() && !matches!(e, Expr::Ident(_));
+    if !constant(av) || !constant(bv) || av.same_as(bv) {
         return None;
     }
     // Two different constants, so at most one test can hold.
