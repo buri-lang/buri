@@ -1,0 +1,7 @@
+// EXPECT: `xs` is bound twice in this pattern
+fn go(items: [Int]): Int {
+  match (items) {
+    [xs, ..xs] => 1,
+    _ => 0,
+  }
+}

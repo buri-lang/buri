@@ -1,0 +1,7 @@
+// EXPECT: there is no type `ServerHost`
+//
+// An entry whose host type doesn't resolve is reported where the type is
+// written, and not again as the wrong host.
+export fn main(host: ServerHost): Result<(), Str> {
+  .Ok(())
+}

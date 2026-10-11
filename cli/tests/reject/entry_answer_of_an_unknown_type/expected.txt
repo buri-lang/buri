@@ -1,0 +1,11 @@
+error: there is no type `Outcome` [unknown-type]
+ --> cmd/entry_answer_of_an_unknown_type/main.buri:4:33
+  |
+4 | export fn main(host: NodeHost): Outcome {
+  |                                 ^^^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+
+    Types are nominal, with no structural fallback, so a misspelling can't
+    quietly become a different type that happens to fit.
+

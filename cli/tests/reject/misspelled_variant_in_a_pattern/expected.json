@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Size` has no variant `Smal`","code":"unknown-variant","location":{"file":"cmd/misspelled_variant_in_a_pattern/main.buri","line":9,"column":5,"endLine":9,"endColumn":10,"text":"    .Smal => 1,"},"fix":"if you meant `.Small`, use that; if not, `Size`'s declaration lists its variants","notes":["did you mean `.Small`?"],"related":[]}

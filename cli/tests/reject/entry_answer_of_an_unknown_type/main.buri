@@ -1,0 +1,6 @@
+// EXPECT: there is no type `Outcome`
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Outcome {
+  .Ok(())
+}

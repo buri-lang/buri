@@ -1,0 +1,11 @@
+error: there is no type `ServerHost` [unknown-type]
+ --> cmd/entry_host_of_an_unknown_type/main.buri:5:22
+  |
+5 | export fn main(host: ServerHost): Result<(), Str> {
+  |                      ^^^^^^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+
+    Types are nominal, with no structural fallback, so a misspelling can't
+    quietly become a different type that happens to fit.
+

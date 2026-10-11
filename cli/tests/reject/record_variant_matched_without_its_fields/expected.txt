@@ -1,0 +1,7 @@
+error: `Large` has a payload, so the pattern needs one [missing-payload-pattern]
+  --> cmd/record_variant_matched_without_its_fields/main.buri:10:5
+   |
+10 |     .Large => 2,
+   |     ^^^^^^
+   |
+   = fix: write `.Large { .. }`, or name each field
