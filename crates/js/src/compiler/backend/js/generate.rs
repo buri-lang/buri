@@ -1405,8 +1405,9 @@ fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
             _ => None,
         };
     }
-    // Both sides the same value, read twice — so folding drops one read.
-    if a.same_as(b) && a.is_pure() {
+    // Both sides the same value, read twice, and `same_as` answers only for pure
+    // ones — so folding drops a read and nothing else.
+    if a.same_as(b) {
         return match op {
             PrimOp::BitAnd | PrimOp::BitOr => Some(a.clone()),
             _ => Some(zero_of_p()),
