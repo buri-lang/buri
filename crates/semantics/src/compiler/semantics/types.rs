@@ -1341,18 +1341,15 @@ impl Subst {
     }
 
     /// Follows bound variables until the head is not one.
+    ///
+    /// The chain always ends: `bind` runs the occurs check first, so no
+    /// variable is ever bound to a chain that leads back to it.
     pub fn shallow(&self, ty: &Ty) -> Ty {
         let mut cur = *ty;
-        let mut guard: u32 = 0;
         while let TyKind::Var(id) = cur.kind() {
             match self.get(*id) {
                 Some(next) => cur = next,
                 None => break,
-            }
-            guard = guard.saturating_add(1);
-            if guard > 1000 {
-                // The chain does not terminate.
-                return Ty::ERROR;
             }
         }
         cur
