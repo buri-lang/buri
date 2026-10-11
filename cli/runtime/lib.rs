@@ -1004,15 +1004,21 @@ pub unsafe extern "C" fn buri_rt_i128_saturating(
 /// A loopback port nothing listens on and nothing else can take, for a test
 /// of a refused dial, held for as long as this value lives.
 ///
-/// The port is the source port of a loopback connection this holds open.
-/// The kernel refuses a dial to it, because nothing listens there, and won't
-/// hand it to a bind of port 0, because the connection uses it.
+/// The port is the source port of a loopback connection this holds open, so
+/// the kernel refuses a dial to it. The connection's socket binds it before
+/// connecting, which keeps it from every other socket: neither a bind of port 0
+/// nor the source port a dial picks can be it.
 ///
-/// Binding port 0 and dropping the listener, as the dial tests once did, let
-/// the port go before the dial: about one run in two hundred under the heap
-/// check, another test's server was handed it and answered. A free port picked
-/// below the ephemeral range wasn't enough either: a process on the machine
-/// listening on that port's wildcard address answered the dial.
+/// Each earlier way failed in CI:
+/// - Binding port 0 and dropping the listener let the port go before the dial.
+///   About one run in two hundred, another test's server was handed it.
+/// - A free port below the ephemeral range was answered by a process listening
+///   on its wildcard address.
+/// - Linux hands a port that only a `connect` took to a dial to another
+///   address. A dial picked the port it was dialling and connected to itself
+///   (run 38121749107).
+/// - A port bound and never listened on is refused on Linux, but macOS drops
+///   the dial and it times out.
 #[cfg(test)]
 pub(crate) struct RefusedPort {
     pub(crate) port: u16,
@@ -1022,11 +1028,55 @@ pub(crate) struct RefusedPort {
 #[cfg(test)]
 impl RefusedPort {
     pub(crate) fn hold() -> RefusedPort {
+        use std::os::fd::FromRawFd;
+        // `struct sockaddr_in`. Apple's leads with its length.
+        #[cfg(target_vendor = "apple")]
+        type Family = u8;
+        #[cfg(not(target_vendor = "apple"))]
+        type Family = u16;
+        #[repr(C)]
+        struct SockaddrIn {
+            #[cfg(target_vendor = "apple")]
+            len: u8,
+            family: Family,
+            port: u16,
+            addr: [u8; 4],
+            zero: [u8; 8],
+        }
+        unsafe extern "C" {
+            fn socket(domain: i32, kind: i32, protocol: i32) -> i32;
+            fn bind(fd: i32, addr: *const SockaddrIn, len: u32) -> i32;
+            fn connect(fd: i32, addr: *const SockaddrIn, len: u32) -> i32;
+            fn getsockname(fd: i32, addr: *mut SockaddrIn, len: *mut u32) -> i32;
+        }
+        const AF_INET: Family = 2;
+        const SOCK_STREAM: i32 = 1;
+        let size = std::mem::size_of::<SockaddrIn>() as u32;
+        let loopback = |port: u16| SockaddrIn {
+            #[cfg(target_vendor = "apple")]
+            len: size as u8,
+            family: AF_INET,
+            port: port.to_be(),
+            addr: [127, 0, 0, 1],
+            zero: [0; 8],
+        };
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a loopback listener");
-        let client = std::net::TcpStream::connect(listener.local_addr().expect("its address"))
-            .expect("a loopback connection");
+        let to = loopback(listener.local_addr().expect("its address").port());
+        let mut from = loopback(0);
+        // SAFETY: a plain `socket` call; the descriptor is owned at once.
+        let fd = unsafe { socket(AF_INET.into(), SOCK_STREAM, 0) };
+        assert!(fd >= 0, "a socket: {}", std::io::Error::last_os_error());
+        // SAFETY: `fd` is a new descriptor nothing else owns.
+        let client = unsafe { std::net::TcpStream::from_raw_fd(fd) };
+        let mut len = size;
+        // SAFETY: the addresses and `len` are locals of the size the calls are told.
+        let connected = unsafe {
+            bind(fd, &raw const from, size) == 0
+                && connect(fd, &raw const to, size) == 0
+                && getsockname(fd, &raw mut from, &raw mut len) == 0
+        };
+        assert!(connected, "a loopback connection from a bound port: {}", std::io::Error::last_os_error());
         let (server, _) = listener.accept().expect("the connection accepted");
-        let port = client.local_addr().expect("the connection's source port").port();
-        RefusedPort { port, _held: (listener, client, server) }
+        RefusedPort { port: u16::from_be(from.port), _held: (listener, client, server) }
     }
 }
