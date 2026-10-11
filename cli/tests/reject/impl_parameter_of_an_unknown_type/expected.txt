@@ -1,0 +1,19 @@
+error: there is no type `Rate` [unknown-type]
+  --> cmd/impl_parameter_of_an_unknown_type/main.buri:10:19
+   |
+10 |   fn tax(self, n: Rate): Int;
+   |                   ^^^^
+   |
+   = did you mean `Byte`?
+   = fix: if you meant `Byte`, use that; if not, a name is in scope only from this module's own declarations and its imports
+
+     Types are nominal, with no structural fallback, so a misspelling can't
+     quietly become a different type that happens to fit.
+
+error: there is no type `Amount` [unknown-type]
+  --> cmd/impl_parameter_of_an_unknown_type/main.buri:16:21
+   |
+16 |   fn price(self, n: Amount): Int {
+   |                     ^^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling

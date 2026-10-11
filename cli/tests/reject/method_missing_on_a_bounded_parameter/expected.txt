@@ -1,0 +1,13 @@
+error: `T` has no method `render` [unknown-method]
+ --> cmd/method_missing_on_a_bounded_parameter/main.buri:3:5
+  |
+3 |   x.render()
+  |     ^^^^^^
+  |
+  = `T` is bounded by Show, and none of them declares `render`
+  = fix: add a bound to `T` that declares `render`, or call one the bounds it already carries declare
+
+    Methods live only in the module that declares the receiver's type. Nothing
+    can add a method from outside, so for a toolchain type the fix points at its
+    page instead of an impl block you couldn't write.
+

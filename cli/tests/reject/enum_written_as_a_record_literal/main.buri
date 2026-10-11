@@ -1,0 +1,8 @@
+// EXPECT: `Shape` is an enum; name a variant
+enum Shape {
+  Rect { w: Int, h: Int },
+}
+
+fn go(): Shape {
+  Shape { w: 1, h: 2 }
+}

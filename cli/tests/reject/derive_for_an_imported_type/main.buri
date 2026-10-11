@@ -1,0 +1,7 @@
+// EXPECT: `DecodeError` is not declared in this module
+//
+// A `derive` is a conformance, so like an `impl` it goes in the type's own
+// module.
+from "core/bytes" import { DecodeError };
+
+derive Hash for DecodeError;

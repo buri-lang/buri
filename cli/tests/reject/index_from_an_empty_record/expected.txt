@@ -1,0 +1,15 @@
+error: `Slot` cannot derive `Index`: it has no fields [index-not-newtype]
+ --> cmd/index_from_an_empty_record/main.buri:4:1
+  |
+4 | derive Index for Slot;
+  | ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = an `Index` type's position is the one number it wraps
+  = fix: wrap exactly one unsigned integer, `struct Slot(U32);`, or drop `Index` from this `derive`
+
+    The same goes for an enum, and for a tuple struct of two fields or none.
+    Wrap the one number:
+
+      derive Index for Slot;
+      struct Slot(U32);
+

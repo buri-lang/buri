@@ -1,0 +1,25 @@
+// EXPECT: there is no type `Amount`
+//
+// An unknown type is reported where it's written, once. The `impl` and the
+// trait aren't then said to disagree about it.
+trait Priced {
+  fn price(self, n: Int): Int;
+}
+
+trait Taxed {
+  fn tax(self, n: Rate): Int;
+}
+
+struct Item(Int);
+
+impl Priced for Item {
+  fn price(self, n: Amount): Int {
+    1
+  }
+}
+
+impl Taxed for Item {
+  fn tax(self, n: Int): Int {
+    1
+  }
+}

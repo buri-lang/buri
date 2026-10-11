@@ -1,0 +1,2 @@
+// EXPECT: there is no type `Ticket`
+derive Show for Ticket;

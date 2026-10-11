@@ -1,0 +1,7 @@
+error: `Order` already implements `Show` [duplicate-impl]
+  --> cmd/derive_after_a_hand_written_impl/main.buri:12:8
+   |
+12 | derive Show for Order;
+   |        ^^^^
+   |
+   = fix: drop it from this `derive`, or delete the hand-written `impl`

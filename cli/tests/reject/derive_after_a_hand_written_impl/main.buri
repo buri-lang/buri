@@ -1,0 +1,12 @@
+// EXPECT: `Order` already implements `Show`
+from "platform/effect" import { Allocator };
+
+struct Order(Int);
+
+impl Show for Order {
+  fn show<C: Allocator>(self, ctx: C): Str {
+    "an order"
+  }
+}
+
+derive Show for Order;

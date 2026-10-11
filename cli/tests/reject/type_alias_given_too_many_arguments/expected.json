@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Pair` takes 1 type argument, but 2 were given","code":"type-argument-count","location":{"file":"cmd/type_alias_given_too_many_arguments/main.buri","line":4,"column":13,"endLine":4,"endColumn":27,"text":"fn first(p: Pair<Int, Int>): Int {"},"fix":"supply exactly 1 type argument","notes":[],"related":[]}

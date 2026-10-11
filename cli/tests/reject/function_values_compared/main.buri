@@ -1,0 +1,8 @@
+// EXPECT: `fn(I64) => I64` does not implement `Equal`
+fn double(n: Int): Int {
+  n * 2
+}
+
+fn go(): Bool {
+  double == double
+}

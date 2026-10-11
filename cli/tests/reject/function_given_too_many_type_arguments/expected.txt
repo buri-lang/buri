@@ -1,0 +1,9 @@
+error: this function takes 1 type argument, but 2 were given [type-argument-count]
+ --> cmd/function_given_too_many_type_arguments/main.buri:7:3
+  |
+7 |   identity<Int, Str>(1)
+  |   ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = expected: 1
+  = actual: 2
+  = fix: supply exactly 1 type argument

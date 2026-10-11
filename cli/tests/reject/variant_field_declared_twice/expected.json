@@ -1,0 +1,1 @@
+{"severity":"error","message":"field `x` of `Moved` is declared twice","code":"duplicate-declaration","location":{"file":"cmd/variant_field_declared_twice/main.buri","line":3,"column":19,"endLine":3,"endColumn":25,"text":"  Moved { x: Int, x: Int },"},"fix":"rename one of them, or delete the duplicate","notes":[],"related":[]}

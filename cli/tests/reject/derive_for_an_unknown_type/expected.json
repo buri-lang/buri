@@ -1,0 +1,1 @@
+{"severity":"error","message":"there is no type `Ticket`","code":"unknown-type","location":{"file":"cmd/derive_for_an_unknown_type/main.buri","line":2,"column":17,"endLine":2,"endColumn":23,"text":"derive Show for Ticket;"},"fix":"declare it, import it, or correct the spelling","notes":[],"related":[]}

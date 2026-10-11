@@ -1,0 +1,4 @@
+// EXPECT: `(Int, Int)` has no method `sum`
+fn go(): Int {
+  (1, 2).sum()
+}

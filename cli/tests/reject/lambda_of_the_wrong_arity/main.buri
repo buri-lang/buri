@@ -1,0 +1,6 @@
+// EXPECT: expected `fn(I64) => I64`, found
+from "platform/effect" import { Allocator };
+
+fn go<C: Allocator>(ctx: C, xs: [Int]): [Int] {
+  xs.map(ctx, fn(a, b) => a)
+}

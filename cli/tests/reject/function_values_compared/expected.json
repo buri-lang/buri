@@ -1,0 +1,1 @@
+{"severity":"error","message":"`fn(I64) => I64` does not implement `Equal`","code":"missing-impl","location":{"file":"cmd/function_values_compared/main.buri","line":7,"column":3,"endLine":7,"endColumn":19,"text":"  double == double"},"fix":"bound the type parameter with `Equal`, so the method is available","notes":[],"related":[]}

@@ -1,0 +1,10 @@
+// EXPECT: `&` is defined on integers, not `Float`
+//
+// An operand nobody declared is reported once, as an unknown name, and not
+// again as the wrong type for `~` or `|`.
+fn go(): Int {
+  let a = 1.5 & 2.5;
+  let b = ~missing;
+  let c = absent | 1;
+  1
+}

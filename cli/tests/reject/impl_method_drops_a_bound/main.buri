@@ -1,0 +1,14 @@
+// EXPECT: `size` does not have the signature `Sized` declares
+from "platform/effect" import { Allocator };
+
+trait Sized {
+  fn size<C: Allocator>(self, ctx: C): Int;
+}
+
+struct Item(Int);
+
+impl Sized for Item {
+  fn size<C>(self, ctx: C): Int {
+    1
+  }
+}

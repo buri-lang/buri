@@ -1,0 +1,18 @@
+error: `size` does not have the signature `Sized` declares [impl-signature-mismatch]
+  --> cmd/impl_method_drops_a_bound/main.buri:11:11
+   |
+11 |   fn size<C>(self, ctx: C): Int {
+   |           ^ expected `C: Allocator`, found `C` with no bounds
+   |
+ --> cmd/impl_method_drops_a_bound/main.buri:5:3
+  |
+5 |   fn size<C: Allocator>(self, ctx: C): Int;
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ declared here
+  |
+  = a call through a bound is checked against the trait's declaration and dispatched to the `impl`'s method, so the two are one signature
+  = fix: give `size` the signature `Sized` declares
+
+    The code generator also rebuilds the impl method's type arguments from the
+    trait's. An impl with an extra parameter or a different type would break at
+    some later call site, if at all.
+

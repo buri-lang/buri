@@ -1,0 +1,8 @@
+error: `total` is in an `impl` block but takes no `self` [impl-missing-self]
+ --> cmd/impl_method_first_parameter_is_not_self/main.buri:5:6
+  |
+5 |   fn total(n: Int): Int {
+  |      ^^^^^
+  |
+  = an `impl` block declares methods; a function with no receiver is declared at the top level
+  = fix: give it a `self` parameter, or move it out of the `impl` block

@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Box` takes 1 type argument, but 2 were given","code":"type-argument-count","location":{"file":"cmd/derive_names_type_arguments/main.buri","line":9,"column":17,"endLine":9,"endColumn":30,"text":"derive Hash for Box<Int, Int>;"},"fix":"a `derive` names the constructor alone: `derive ... for Box;`","notes":[],"related":[]}

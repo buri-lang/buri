@@ -1,0 +1,1 @@
+{"severity":"error","message":"this function takes 1 type argument, but 2 were given","code":"type-argument-count","location":{"file":"cmd/function_given_too_many_type_arguments/main.buri","line":7,"column":3,"endLine":7,"endColumn":24,"text":"  identity<Int, Str>(1)"},"expected":"1","actual":"2","fix":"supply exactly 1 type argument","notes":[],"related":[]}

@@ -1,0 +1,1 @@
+{"severity":"error","message":"a tuple struct's name constructs one; call it","code":"tuple-struct-not-called","location":{"file":"cmd/tuple_struct_named_through_a_namespace/main.buri","line":8,"column":11,"endLine":8,"endColumn":28,"text":"  let e = bytes.DecodeError;"},"fix":"write `Name(value)`","notes":[],"related":[]}
