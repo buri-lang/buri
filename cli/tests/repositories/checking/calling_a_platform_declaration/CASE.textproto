@@ -1,0 +1,31 @@
+# `//platform/kit` declares two entries, `main` and `load`, and the program
+# fills `load` with `fill`. Calling the declaration `load`, or taking it as a
+# value, is refused where it's written: nothing implements a declaration, and
+# the build used to call that a toolchain bug. Calling `fill` is the fix.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a program that calls its platform's bodiless declaration is refused, and calling the function that fills it builds"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "refused.txt"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "    let read = load;\n    if (load(host, 3) > read(host, 1)) { name } else { \"\" }"
+  with: "    let read = fill;\n    if (fill(host, 3) > read(host, 1)) { name } else { \"\" }"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "import { KitHost, load };"
+  with: "import { KitHost };"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}

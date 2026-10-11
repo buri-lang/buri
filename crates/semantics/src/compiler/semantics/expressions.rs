@@ -684,7 +684,20 @@ impl<'a, 'b> Infer<'a, 'b> {
         nearest(name, &refs).map(|s| s.to_string())
     }
 
+    /// Refuses a use of a function a repository platform's `platform.buri`
+    /// declares with no body, such as an entry: nothing implements it.
+    fn refuse_platform_declaration(&mut self, f: FnId, span: Span) {
+        let info = self.c.tables.fn_info(f);
+        if !info.intrinsic || info.self_ty.is_some() || !self.c.is_platform_surface(info.module) {
+            return;
+        }
+        let name = info.name.clone();
+        let platform = self.c.module(info.module).path.trim_end_matches("/platform.buri").to_string();
+        self.templated("platform-declaration-called", span).bind("name", name).bind("platform", platform);
+    }
+
     fn fn_ref(&mut self, f: FnId, explicit: Option<Vec<Ty>>, span: Span) -> typed::Expr {
+        self.refuse_platform_declaration(f, span);
         let targs = self.instantiate_fn(f, explicit, span);
         let info = self.c.tables.fn_info(f);
         let params: Vec<Ty> =
@@ -1037,6 +1050,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         // The declaration is read, not owned: copying `FnInfo` here copied the
         // name, every parameter's name, and every parameter's type tree, once
         // per call site in the program.
+        self.refuse_platform_declaration(f, span);
         let targs = self.instantiate_fn(f, explicit, span);
         // A bodyless declaration is the runtime's, and its key carries no type
         // arguments: what is written here is the only record of what the value

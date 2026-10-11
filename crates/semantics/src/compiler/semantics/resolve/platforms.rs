@@ -168,7 +168,7 @@ fn bodiless_methods(tables: &Tables, con: TyConId) -> Vec<FnId> {
 
 impl<'a> Checker<'a> {
     /// Whether a module is a repository platform's `platform.buri`.
-    pub(super) fn is_platform_surface(&self, module: ModuleId) -> bool {
+    pub(crate) fn is_platform_surface(&self, module: ModuleId) -> bool {
         let Some(ws) = self.ws else { return false };
         let path = &self.module(module).path;
         path.ends_with("/platform.buri")

@@ -1,0 +1,9 @@
+binary {
+    dependencies: ["//platform/kit"]
+    outputs: [
+        { platform: "//platform/kit", entries: [
+            { name: "main", function: "main" },
+            { name: "load", function: "fill" },
+        ] },
+    ]
+}
