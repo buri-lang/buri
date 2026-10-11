@@ -303,7 +303,7 @@ impl<'a> Jit<'a> {
                 self.call_indirect(prog, code, st, std::slice::from_ref(dest), *callee, args)
             }
             Inst::CallIntrinsic { dest, key, args } => {
-                self.intrinsic(prog, code, st, std::slice::from_ref(dest), key, args)
+                self.intrinsic(prog, code, st, *dest, key, args)
             }
             Inst::MakeStruct { dest, fields } => {
                 let d = st.at(*dest);
@@ -1445,45 +1445,31 @@ impl<'a> Jit<'a> {
         }
     }
 
+    /// One `Inst::CallIntrinsic`. `middle` emits one for the keys it writes
+    /// itself — a template's `str.concat`, a derived leaf, the test runner's
+    /// hooks and a failed assertion's shown report — and every other key reaches
+    /// here as a call to its `Body::Runtime` function instead.
     fn intrinsic(
         &mut self,
         prog: &ir::Program,
         code: &ir::Code,
         st: &mut Fn2,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         key: &str,
         args: &[ir::ValueId],
     ) {
         let scr = st.scratch;
+        let d = st.at(dest);
         let arg = |st: &Fn2, i: usize| -> u32 {
             args.get(i).map(|v| st.at(*v)).unwrap_or(0)
         };
         match key {
             // A failed assertion is an abort, and the kind is what makes it
-            // attributable (`cli/runtime/testing.rs`). Every one of these is
-            // the shape `llvm/emit.rs` emits, symbol for symbol, because what
-            // `buri test` parses out of the process's output is the runtime's
-            // writing and not the backend's.
-            "testing_assert.report" => {
-                let ok = st.label();
-                let brkey = self.arm_key("br/f", "JIT_F");
-                self.emit(
-                    brkey,
-                    &[
-                        ("JIT_A", V::I(arg(st, 0) as u64)),
-                        ("JIT_T", V::Blk(ok)),
-                        ("JIT_F", V::Fall),
-                    ],
-                );
-                let (p, l) = self.str_arg(arg(st, 1), scr);
-                self.c_call(runtime::ABORT_ASSERT, st, &[p, l], &[], 0, "v");
-                let here = self.region.code_addr();
-                st.place(ok, here);
-            }
-            "testing_assert.failWith" => {
-                let (p, l) = self.str_arg(arg(st, 0), scr);
-                self.c_call(runtime::ABORT, st, &[p, l], &[], 0, "v");
-            }
+            // attributable (`cli/runtime/testing.rs`). Both are the shape
+            // `llvm/emit.rs` emits, symbol for symbol, because what `buri test`
+            // parses out of the process's output is the runtime's writing and
+            // not the backend's.
+            //
             // `failExpected<T, R>(kind, got): R` answers the bottom type: the
             // call does not come back, and the destination the IR gives it is
             // unreachable.
@@ -1491,22 +1477,6 @@ impl<'a> Jit<'a> {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
                 let (vp, vl) = self.str_arg(arg(st, 1), scr + 8);
                 self.c_call(runtime::TEST_FAIL_EXPECTED, st, &[kp, kl, vp, vl], &[], 0, "v");
-            }
-            // `failExpected<T, R>(kind, got): R` where the derive pass declined
-            // to generate a `Show` at `T` — an opaque type — so there is
-            // nothing to render `got` with and the kind is the whole of what
-            // makes the failure attributable. `llvm/emit.rs`'s arm for the key
-            // is the same abort, and `middle/derives.rs` is what decides which
-            // of the two keys a `.Some`/`.Ok` assertion lowers to.
-            //
-            // The destination is not written, for the reason
-            // `failExpectedShown`'s is not: `buri_rt_abort_assert` does not
-            // return, so every instruction the emitter lays down after this one
-            // is unreachable. A backend over a verified block-parameter IR
-            // binds zeros there; a frame slot needs no such thing.
-            "testing_assert.failExpected" => {
-                let (kp, kl) = self.str_arg(arg(st, 0), scr);
-                self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v");
             }
             "testing_assert.reportShown" => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
@@ -1521,66 +1491,28 @@ impl<'a> Jit<'a> {
                     "v",
                 );
             }
-            // `list.empty()` is two immediates: a null block and a zero count
-            // (VALUE-MODEL.md §4). A runtime call for it would allocate
-            // nothing and answer two constants.
-            "list.empty" => {
-                let Some(d) = dests.first().map(|v| st.at(*v)) else { return };
-                self.imm_to(d, 0);
-                self.imm_to(d + 8, 0);
-            }
-            // The test allocator is a **handle**, and `TestAllocator.allocate`
-            // answers the byte count it was asked for. Both are
-            // `llvm/emit.rs`'s arms exactly: `alloc` reads no state, so the
-            // handle is zero and the allocation is the request.
-            "host_testing.alloc" => {
-                let Some(d) = dests.first().map(|v| st.at(*v)) else { return };
-                self.imm_to(d, 0);
-            }
-            "host_testing.TestAllocator.allocate" => {
-                let (Some(d), Some(n)) = (
-                    dests.first().map(|v| st.at(*v)),
-                    args.get(1).map(|v| st.at(*v)),
-                ) else {
-                    return;
-                };
-                self.mv(d, n, 8);
-            }
             // `str.concat` is a runtime call with no table row, so its
             // arguments are narrowed here rather than flattened: the two
             // `Str`s and nothing else (`rtcall.rs`'s `str_concat`).
             "str.concat" => {
-                let Some(d) = dests.first().map(|v| st.at(*v)) else { return };
                 let strs = Self::concat_strs(args.len()).map(|i| arg(st, i));
                 self.str_concat(st, strs, d);
             }
             _ => {
-                if self.prim_trait(prog, code, st, dests, key, args) {
-                    return;
-                }
-                if self.bits(st, dests, key, args) {
-                    return;
-                }
                 if let Some(t) = key.strip_prefix("derivePrimHash.") {
-                    let Some(d) = dests.first().map(|v| st.at(*v)) else { return };
                     let Some(prim) = prim_of_name(t) else {
                         return self.unsupported(format!("derivePrimHash.{t}"));
                     };
                     return self.hash_prim(st, prim, arg(st, 0), arg(st, 1), d);
                 }
                 if let Some(t) = key.strip_prefix("derivePrimShow.") {
-                    let Some(d) = dests.first().map(|v| st.at(*v)) else { return };
                     let Some(prim) = prim_of_name(t) else {
                         return self.unsupported(format!("derivePrimShow.{t}"));
                     };
                     return self.show_prim(st, prim, arg(st, 0), d, true);
                 }
                 if let Some(t) = key.strip_prefix("derivePrimJson.") {
-                    let (Some(dest), Some(a)) =
-                        (dests.first().copied(), args.first().copied())
-                    else {
-                        return;
-                    };
+                    let Some(a) = args.first().copied() else { return };
                     let Some(prim) = prim_of_name(t) else {
                         return self.unsupported(format!("derivePrimJson.{t}"));
                     };
@@ -1594,8 +1526,7 @@ impl<'a> Jit<'a> {
                 };
                 let list: Vec<(u32, ir::Type)> =
                     args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
-                let dest = dests.first().map(|d| (st.at(*d), code.ty_of(*d)));
-                if let Err(why) = self.rt_call(prog, st, entry, dest, &list) {
+                if let Err(why) = self.rt_call(prog, st, entry, Some((d, code.ty_of(dest))), &list) {
                     self.unsupported(why);
                 }
             }
@@ -2435,14 +2366,10 @@ impl<'a> Jit<'a> {
             self.emit("ret", &[]);
             return;
         }
-        // The three surfaces `Lower::intrinsic` open-codes at a call site,
-        // reached here because the same key arrives two ways: spelled inline it
-        // is an `Inst::CallIntrinsic`, and spelled as a method it is a call to
-        // the `Body::Runtime` function whose body this is. Answering only the
-        // first left `character.equal`, `bits.shiftLeft` and `str.concat` refused in
-        // exactly the files that write them as methods.
+        // The surfaces this backend open-codes, which reach it as a call to
+        // the `Body::Runtime` function whose body this is.
         let ret_tag = self.ret_tag(prog, fi);
-        if self.prim_trait_at(st, &key, ret0, p(0), p(1), Some(ret_tag)) {
+        if self.prim_trait_at(st, &key, ret0, p(0), p(1), ret_tag) {
             self.emit("ret", &[]);
             return;
         }
@@ -2535,35 +2462,10 @@ fn prim_of_name(s: &str) -> Option<Prim> {
 
 impl Jit<'_> {
     /// The `Equal`/`Ordered`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
-    /// `Char::toU32`. Answers whether it handled the key.
+    /// `Char::toU32`, with their operands as frame offsets.
     ///
-    /// `llvm/emit.rs` emits the same arms for the same keys — these are four
-    /// *language* answers and two backends must not give different ones.
-    fn prim_trait(
-        &mut self,
-        prog: &ir::Program,
-        code: &ir::Code,
-        st: &mut Fn2,
-        dests: &[ir::ValueId],
-        key: &str,
-        args: &[ir::ValueId],
-    ) -> bool {
-        let Some(d) = dests.first().map(|v| st.at(*v)) else { return false };
-        let a = args.first().map(|v| st.at(*v)).unwrap_or(0);
-        let b = args.get(1).map(|v| st.at(*v)).unwrap_or(0);
-        let tag = dests.first().and_then(|v| match code.ty_of(*v) {
-            ir::Type::Agg(id) => Some(self.tag_width(prog, id)),
-            _ => None,
-        });
-        self.prim_trait_at(st, key, d, a, b, tag)
-    }
-
-    /// [`Jit::prim_trait`] with its operands as frame offsets.
-    ///
-    /// `tag` is the destination's tag width where the destination is an enum —
-    /// `compare` answers an `Order` — `Some(None)` where it is an aggregate
-    /// that is not one, and `None` where the caller has no aggregate
-    /// destination at all.
+    /// `tag` is the destination's tag width where the destination is an enum,
+    /// as `compare`'s `Order` is.
     pub(crate) fn prim_trait_at(
         &mut self,
         st: &mut Fn2,
@@ -2571,7 +2473,7 @@ impl Jit<'_> {
         d: u32,
         a: u32,
         b: u32,
-        tag: Option<Option<u32>>,
+        tag: Option<u32>,
     ) -> bool {
         let Some((module, op)) = key.split_once('.') else { return false };
         let prim = match module {
@@ -2635,7 +2537,7 @@ impl Jit<'_> {
                     let here = self.region.code_addr();
                     st.place(skip, here);
                 }
-                match tag.unwrap_or(Some(8)) {
+                match tag {
                     Some(w) => self.store_w(d, raw, w),
                     None => self.unsupported(format!("{key} into a destination that is not a tag")),
                 }
@@ -3630,7 +3532,8 @@ impl Jit<'_> {
         }
     }
 
-    /// `core/bits`, open-coded.
+    /// `core/bits`, open-coded, for the `Body::Runtime` function
+    /// `middle::lower` leaves.
     ///
     /// Every one is a single machine instruction behind a range check, which is
     /// why none is a runtime call. The check is the whole of what is not the
@@ -3640,23 +3543,6 @@ impl Jit<'_> {
     /// shared one. A machine shift *masks* the count instead, which is a
     /// different answer rather than an undefined one and would be silently
     /// wrong.
-    fn bits(
-        &mut self,
-        st: &mut Fn2,
-        dests: &[ir::ValueId],
-        key: &str,
-        args: &[ir::ValueId],
-    ) -> bool {
-        let Some(d) = dests.first().map(|v| st.at(*v)) else { return false };
-        let a = args.first().map(|v| st.at(*v)).unwrap_or(0);
-        let b = args.get(1).map(|v| st.at(*v));
-        self.bits_at(st, key, d, a, b)
-    }
-
-    /// [`Jit::bits`] with its operands as frame offsets, so that the same
-    /// sequence serves an `Inst::CallIntrinsic` and the `Body::Runtime`
-    /// function `middle::lower` leaves when the same key was spelled as a
-    /// method call.
     pub(crate) fn bits_at(
         &mut self,
         st: &mut Fn2,
