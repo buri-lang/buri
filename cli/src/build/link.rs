@@ -1226,12 +1226,11 @@ fn probe_target(driver: &Path, triple: &str) -> bool {
 /// `<arch>-alpine-linux-musl`, and there is nothing to install and nothing to
 /// swap. Everywhere else the wrapper is a separate program, and
 /// `musl-clang` is preferred over `musl-gcc` because `-static-pie` under gcc
-/// wants a `libgcc` built for musl and Debian's is not.
+/// wants a `libgcc` built for musl and Debian's is not. `libc_flags` names the
+/// baked unwinder so that Debian's glibc `libgcc_eh.a` is never reached.
 ///
-/// The `-dumpmachine` spawn is only reached when tier 1 has already failed,
-/// which on a correctly built Linux toolchain is never — so it is not on the
-/// path any normal build takes and does not need the memo [`accepts_target`]
-/// has.
+/// The `-dumpmachine` spawn is only reached when tier 1 has already failed: a
+/// `cc` that is a gcc, which is Ubuntu's default.
 fn system_musl(driver: &Path) -> Option<PathBuf> {
     let host = spawn::output(Command::new(driver).arg("-dumpmachine")).ok();
     let musl_host = host.is_some_and(|out| {
@@ -1254,10 +1253,20 @@ fn system_musl(driver: &Path) -> Option<PathBuf> {
 /// ([`stage_constant`]), the way the runtime archive is. Without one each is
 /// written in place, skipped when a file of the same length is already there.
 pub fn stage_sysroot(dir: &Path, store: Option<&Cache>) -> std::io::Result<()> {
+    stage_baked(dir, store, &musl::FILES)
+}
+
+/// Only the baked `libunwind.a`, for a link through the machine's own musl
+/// driver (see `libc_flags`).
+fn stage_unwinder(dir: &Path, store: Option<&Cache>) -> std::io::Result<()> {
+    stage_baked(dir, store, &[("libunwind.a", musl::LIBUNWIND_A)])
+}
+
+fn stage_baked(dir: &Path, store: Option<&Cache>, files: &[(&str, &[u8])]) -> std::io::Result<()> {
     let lib = dir.join("musl").join("lib");
     std::fs::create_dir_all(&lib)?;
     let digest = musl::sysroot_hash();
-    for (name, bytes) in musl::FILES {
+    for (name, bytes) in files {
         stage_constant(store, &format!("musl sysroot {digest} {name}"), bytes, &lib.join(name))?;
     }
     Ok(())
@@ -1799,8 +1808,17 @@ impl CDriver {
                 flags.push("-lunwind".into());
             }
             // The machine's musl is already the driver's own libc, so there is
-            // nothing to point it at — only the mode to ask for.
-            LibcMode::MuslSystem => flags.push("-static-pie".into()),
+            // nothing to point it at, only the mode to ask for and the
+            // unwinder. A Debian `musl-gcc` leaves unwinding to the host's
+            // `libgcc_eh.a`, built for glibc, and the link ended at `undefined
+            // symbol: _dl_find_object`. The baked `libunwind.a`, after the
+            // runtime archive, answers every `_Unwind_*` first.
+            LibcMode::MuslSystem => {
+                flags.push("-static-pie".into());
+                if musl::BAKED {
+                    flags.push("musl/lib/libunwind.a".into());
+                }
+            }
             LibcMode::Glibc => {
                 // **The `BURI_MUSL=off` path, and the only one that keeps
                 // these three.** What `std` and the runtime archive reach for,
@@ -2029,6 +2047,7 @@ impl CDriver {
         // come from `runtime_cross`'s `~/.buri` cache.
         let staged_sysroot = match (self.libc, &self.cross) {
             (LibcMode::MuslBaked, _) => stage_sysroot(&self.dir, self.store.as_ref()),
+            (LibcMode::MuslSystem, _) if musl::BAKED => stage_unwinder(&self.dir, self.store.as_ref()),
             (LibcMode::MuslCross, Some(cross)) => stage_cross_sysroot(cross, &self.dir),
             _ => Ok(()),
         };
