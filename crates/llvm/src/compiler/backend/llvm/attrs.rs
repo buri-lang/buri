@@ -171,6 +171,7 @@ use inkwell::values::{CallSiteValue, FunctionValue};
 use crate::compiler::middle::ir;
 
 use super::repr::{Machine, Slot, SlotTy};
+use crate::diagnostics::Invariant;
 use crate::compiler::middle::layout::Scalar;
 
 // ---------------------------------------------------------------------------
@@ -638,26 +639,26 @@ pub fn decorate(
 /// `sret([bytes x i8])` on a function's first parameter: the result is written
 /// through it rather than returned.
 pub fn sret(ctx: &Context, f: FunctionValue<'_>, bytes: u32) {
-    if let Some(attr) = sret_attribute(ctx, bytes) {
-        f.add_attribute(AttributeLoc::Param(0), attr);
-    }
+    f.add_attribute(AttributeLoc::Param(0), sret_attribute(ctx, bytes));
 }
 
 /// The same on a call. The call site's attribute is what the call lowering
 /// reads, so a callee with `sret` called without it is an ABI mismatch.
 pub fn sret_call(ctx: &Context, call: CallSiteValue<'_>, bytes: u32) {
-    if let Some(attr) = sret_attribute(ctx, bytes) {
-        call.add_attribute(AttributeLoc::Param(0), attr);
-    }
+    call.add_attribute(AttributeLoc::Param(0), sret_attribute(ctx, bytes));
 }
 
-fn sret_attribute(ctx: &Context, bytes: u32) -> Option<Attribute> {
-    let kind = Attribute::get_named_enum_kind_id("sret");
-    if kind == 0 {
-        return None;
-    }
+fn sret_attribute(ctx: &Context, bytes: u32) -> Attribute {
     let ty = ctx.i8_type().array_type(bytes.max(1)).as_any_type_enum();
-    Some(ctx.create_type_attribute(kind, ty))
+    ctx.create_type_attribute(kind("sret"), ty)
+}
+
+/// The kind id of an attribute. Every name this backend writes is one LLVM 21
+/// knows.
+pub fn kind(name: &str) -> u32 {
+    std::num::NonZeroU32::new(Attribute::get_named_enum_kind_id(name))
+        .or_ice("LLVM 21 knows every attribute this backend writes")
+        .get()
 }
 
 /// The value model's half of the table (CODEGEN-LLVM.md §3.2).
@@ -751,23 +752,11 @@ fn enum_attr(ctx: &Context, f: FunctionValue<'_>, name: &str, value: u64) {
 }
 
 fn enum_attr_at(ctx: &Context, f: FunctionValue<'_>, loc: AttributeLoc, name: &str, value: u64) {
-    let kind = Attribute::get_named_enum_kind_id(name);
-    // A zero kind id means this LLVM does not know the attribute. Silently
-    // skipping is right: an attribute is an optimization hint, and a toolchain
-    // that refused to build because a hint was unavailable would be trading a
-    // working artifact for a faster one.
-    if kind == 0 {
-        return;
-    }
-    f.add_attribute(loc, ctx.create_enum_attribute(kind, value));
+    f.add_attribute(loc, ctx.create_enum_attribute(kind(name), value));
 }
 
 fn call_attr(ctx: &Context, call: CallSiteValue<'_>, loc: AttributeLoc, name: &str, value: u64) {
-    let kind = Attribute::get_named_enum_kind_id(name);
-    if kind == 0 {
-        return;
-    }
-    call.add_attribute(loc, ctx.create_enum_attribute(kind, value));
+    call.add_attribute(loc, ctx.create_enum_attribute(kind(name), value));
 }
 
 #[cfg(test)]

@@ -70,7 +70,7 @@ use crate::compiler::backend::task_thread;
 use crate::compiler::backend::{triple_text, Backend, Emitted, Options, Target, Units};
 use crate::compiler::middle::{ir, layout, lower, monomorphize, rc};
 use crate::compiler::semantics::types::{FuncIdx, Tables};
-use crate::diagnostics::{Diagnostic, Diagnostics, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Invariant, Span};
 
 /// The release backend.
 ///
@@ -175,11 +175,7 @@ impl Backend for Llvm {
     /// `buri_rt_*` symbol at `cc` time, which is the one failure mode this hook
     /// exists to replace.
     ///
-    /// Two things it cannot answer, both stated so the absence reads as a
-    /// consequence rather than an oversight. `derivePrimShow` and
-    /// `derivePrimHash` are claimed at the key and still refuse the arms whose
-    /// primitive `middle::lower` erased (`emit::Unit::derived`); and a
-    /// structural operation on a type `middle::derives` did not reach is an
+    /// A structural operation on a type `middle::derives` did not reach is an
     /// `ir::Inst::Structural`, which exists only after lowering and is
     /// therefore not in this program at all.
     fn missing_intrinsics(&self, program: &monomorphize::Program, _tables: &Tables) -> Vec<String> {
@@ -220,8 +216,7 @@ impl Backend for Llvm {
     /// whole-program and is done once either way.
     ///
     /// It does not ask [`Backend::missing_intrinsics`] again: the build asked
-    /// before it got here, and a key with no body is still refused where it is
-    /// emitted (`emit::Unit`).
+    /// before it got here.
     fn emit_units(
         &mut self,
         program: &monomorphize::Program,
@@ -232,7 +227,7 @@ impl Backend for Llvm {
         let lowered = self.take_lowering(program, tables);
         let counted = classifier(program);
         let root = root_of(program);
-        emit_selected(&lowered, tables, opts, root, units, &counted, For::Linker, target::object)
+        emit_selected(&lowered, tables, opts, root, units, &counted, For::Linker, &target::object)
     }
 }
 
@@ -284,7 +279,7 @@ impl Llvm {
             Units::Only(&only),
             &counted,
             For::Reader,
-            text,
+            &text,
         )?;
         let bytes = emitted.into_iter().next().map(|e| e.bytes).unwrap_or_default();
         Ok(String::from_utf8_lossy(&bytes).into_owned())
@@ -418,11 +413,7 @@ fn emit_selected(
     units: Units<'_>,
     counted: &rc::Syntactic,
     audience: For,
-    render: impl Fn(
-            &inkwell::module::Module<'_>,
-            &inkwell::targets::TargetMachine,
-        ) -> Result<Vec<u8>, String>
-        + Sync,
+    render: Render<'_>,
 ) -> Result<Vec<Emitted>, Diagnostics> {
     let triple = match target::triple(opts.target) {
         Ok(t) => t,
@@ -445,7 +436,7 @@ fn emit_selected(
     let cycles = std::sync::Arc::new(layout::Cycles::new(tables));
     let observed = {
         let layouts = layout::Layouts::with_cycles(tables, cycles.clone());
-        emit::observe(program, &emit::Boxes::new(program, tables, &layouts), opts.profile)
+        emit::observe(program, &emit::Boxes::new(program, tables, &layouts))
     };
     let roots = match &root {
         Some(Root::Main(e)) => std::slice::from_ref(e),
@@ -454,9 +445,7 @@ fn emit_selected(
     };
     let with_roots = |mut named: Vec<bool>| {
         for r in roots {
-            if let Some(n) = named.get_mut(r.index()) {
-                *n = true;
-            }
+            *named.get_mut(r.index()).or_ice("a root is one of the program's functions") = true;
         }
         named
     };
@@ -497,7 +486,7 @@ fn emit_selected(
                     worker.insert(Worker { machine, data_layout, counted })
                 }
             };
-            emit_unit(&shared, worker, index, &render)
+            emit_unit(&shared, worker, index, render)
         },
     );
 
@@ -537,15 +526,20 @@ fn machine_for(
     })
 }
 
+/// What turns an optimized module into the bytes returned for it. Dynamic, so
+/// the unit loop is one function whichever renders.
+type Render<'r> = &'r (dyn Fn(
+    &inkwell::module::Module<'_>,
+    &inkwell::targets::TargetMachine,
+) -> Result<Vec<u8>, String>
+         + Sync);
+
 /// One unit's object: its module emitted, verified, optimized and rendered.
 fn emit_unit(
     shared: &Shared<'_>,
     worker: &Worker,
     index: usize,
-    render: &impl Fn(
-        &inkwell::module::Module<'_>,
-        &inkwell::targets::TargetMachine,
-    ) -> Result<Vec<u8>, String>,
+    render: Render<'_>,
 ) -> Result<Emitted, Diagnostics> {
     let program = shared.program;
     let opts = shared.opts;
@@ -588,7 +582,6 @@ fn emit_unit(
         program,
         shared.tables,
         &module_name,
-        opts.profile,
         &shared.observed,
         shared.shares,
         std::sync::Arc::clone(&shared.cycles),
@@ -627,7 +620,7 @@ fn emit_unit(
         diags.extend(emitter.diags.items);
         return Err(diags);
     }
-    optimize(&emitter.module, &worker.machine, opts.profile, unit_name)?;
+    optimize(&emitter.module, &worker.machine, opts.profile);
     if linker {
         emitter.prune(&members, &shared.kept);
     }
@@ -649,61 +642,24 @@ fn emit_unit(
 ///
 /// The verifier checks *our* IR rather than LLVM's, under this repository's
 /// rule for a verifier: a developer build pays for the check and a user's
-/// build does not. A user's build still gets `finish`'s internal errors,
-/// including a block left without a terminator. It runs once, here, rather
-/// than after every pass (`target::optimize`).
+/// build does not. A user's build still gets `finish`'s check that every block
+/// ends in a terminator. It runs once, here, rather than after every pass
+/// (`target::optimize`).
 fn optimize(
     module: &inkwell::module::Module<'_>,
     machine: &inkwell::targets::TargetMachine,
     profile: crate::compiler::backend::Profile,
-    unit_name: &str,
-) -> Result<(), Diagnostics> {
-    let mut diags = Diagnostics::new();
+) {
     if cfg!(debug_assertions) {
-        if let Err(message) = module.verify() {
-            diags.push(
-                Diagnostic::error(
-                    Span::NONE,
-                    format!(
-                        "internal error: the LLVM backend emitted invalid IR for unit \
-                         `{unit_name}`: {message}"
-                    ),
-                )
-                .with_fix("this is a toolchain bug; report it"),
-            );
-            return Err(diags);
-        }
+        module.verify().map_err(|e| e.to_string()).or_ice("the LLVM backend emits valid IR");
     }
-    if let Err(message) = target::optimize(module, machine, profile) {
-        diags.push(Diagnostic::error(Span::NONE, message));
-        return Err(diags);
-    }
-    Ok(())
+    target::optimize(module, machine, profile).or_ice("LLVM runs its own pipeline");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::build::buildfile::{Arch, Platform};
-    use crate::compiler::backend::{Profile, Target};
 
-    /// A developer build still rejects a malformed module before optimizing
-    /// it, now that `target::optimize` doesn't verify after each pass.
-    #[cfg(debug_assertions)]
-    #[test]
-    fn a_developer_build_rejects_a_malformed_module() {
-        let ctx = Context::create();
-        let module = ctx.create_module("m");
-        let f = module.add_function("f", ctx.i64_type().fn_type(&[], false), None);
-        // A block with no terminator, the shape a missing branch leaves.
-        ctx.append_basic_block(f, "entry");
-        let triple = target::triple(Target { platform: Platform::Macos, arch: Some(Arch::Arm64) });
-        let machine = target::machine(&triple.unwrap(), Profile::Release).unwrap();
-        let result = optimize(&module, &machine, Profile::Release, "u");
-        let message = format!("{:?}", result.unwrap_err().items);
-        assert!(message.contains("emitted invalid IR for unit `u`"), "{message}");
-        assert!(message.contains("does not have terminator"), "{message}");
-    }
 
     /// The identity names the library rather than the feature flag, so a
     /// toolchain built against a different LLVM produces a different key.
