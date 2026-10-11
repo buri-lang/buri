@@ -349,6 +349,18 @@ static inline uint64_t f64_bits(double d) { uint64_t b; memcpy(&b, &d, 8); retur
 static inline uint64_t f32_bits(float f) { uint32_t b; memcpy(&b, &f, 4); return (uint64_t)b; }
 static inline double bits_f64(uint64_t b) { double d; memcpy(&d, &b, 8); return d; }
 static inline float bits_f32(uint64_t b) { uint32_t x = (uint32_t)b; float f; memcpy(&f, &x, 4); return f; }
+// A 64-bit magnitude to binary32, rounded once. `(float)` of it is
+// `cvtsi2ssq` on x86-64, which Valgrind runs as a conversion to double and
+// then to float: two roundings, so 2^62 + 2^38 + 1 came back as 2^62 under
+// memcheck and as 2^62 + 2^39 on the hardware. Cut to 53 bits first, rounded
+// to odd (truncate, and set the lowest kept bit if anything was dropped): the
+// double is then exact, and a value rounded to odd with at least two bits
+// more than binary32's 24 rounds to binary32 as the original would.
+static inline float u64_f32(uint64_t m) {
+  int s = (m >> 53) ? 11 - __builtin_clzll(m) : 0;
+  uint64_t low = m & ((1ULL << s) - 1);
+  return (float)(double)((m - low) | ((uint64_t)(low != 0) << s));
+}
 H64(_JIT_K)
 // The two types a frame slot holds in *sixteen* bytes. Read and written with
 // `memcpy` rather than a cast, because a frame slot is only eight-aligned and a
@@ -360,6 +372,16 @@ static inline u128_t rd128(const uint64_t *fp, uintptr_t o) {
 }
 static inline void wr128(uint64_t *fp, uintptr_t o, u128_t v) {
   memcpy((char *)fp + o, &v, 16);
+}
+// A 128-bit magnitude to binary32, rounded once: its top sixty-four bits with
+// a sticky bit for the rest, through `u64_f32`, then scaled by a power of two,
+// which is exact up to the overflow to infinity that a correct rounding has too.
+static inline float u128_f32(u128_t m) {
+  uint64_t hi = (uint64_t)(m >> 64);
+  if (!hi) return u64_f32((uint64_t)m);
+  int s = 64 - __builtin_clzll(hi);
+  uint64_t top = (uint64_t)(m >> s) | (uint64_t)(((uint64_t)m << (64 - s)) != 0);
+  return u64_f32(top) * bits_f32((uint64_t)(127 + s) << 23);
 }
 static inline double imm_f64(void) { return bits_f64((uint64_t)(uintptr_t)_JIT_K); }
 static inline float imm_f32(void) { return bits_f32((uint64_t)(uintptr_t)_JIT_K); }
@@ -624,8 +646,9 @@ fn moves(o: &mut Out) {
     o.push("cvt/i2f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)(int64_t)AT(uint64_t, _JIT_A)); TAIL; }".into());
     o.push("cvt/u2f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)AT(uint64_t, _JIT_A)); TAIL; }".into());
     // Straight to binary32: through a double would round twice.
-    o.push("cvt/i2f32", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f32_bits((float)(int64_t)AT(uint64_t, _JIT_A)); TAIL; }".into());
-    o.push("cvt/u2f32", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f32_bits((float)AT(uint64_t, _JIT_A)); TAIL; }".into());
+    // `u64_f32` rather than `(float)`, so that Valgrind rounds once too.
+    o.push("cvt/i2f32", "void $NAME(ARGS) { uint64_t x = AT(uint64_t, _JIT_A); float f = u64_f32((x >> 63) ? 0 - x : x); AT(uint64_t, _JIT_D) = f32_bits((x >> 63) ? -f : f); TAIL; }".into());
+    o.push("cvt/u2f32", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f32_bits(u64_f32(AT(uint64_t, _JIT_A))); TAIL; }".into());
     // A float to a signed 64-bit integer is **modular**: truncated toward zero,
     // then its low sixty-four bits, with `NaN` and the infinities at zero, which
     // is what `wrapTo*` means on every backend (SPEC 6.2.1) and what a narrower
@@ -1034,11 +1057,19 @@ fn wide(o: &mut Out) {
                 "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = f64_bits((double){a}); TAIL; }}"
             ),
         );
-        // Straight to binary32: through a double would round twice.
+        // Straight to binary32: through a double would round twice. Through
+        // `u128_f32` rather than `(float)`, whose libgcc `__floattisf` ends in
+        // the same `cvtsi2ssq` as `u64_f32`'s note.
+        let to_f32 = if t.signed {
+            "float f = u128_f32(x < 0 ? 0 - (u128_t)x : (u128_t)x); f = x < 0 ? -f : f;"
+        } else {
+            "float f = u128_f32(x);"
+        };
         o.push(
             &format!("cvt/from/{tag}/f32"),
             format!(
-                "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = f32_bits((float){a}); TAIL; }}"
+                "void $NAME(ARGS) {{ {cty} x = {a}; {to_f32} \
+                 AT(uint64_t, _JIT_D) = f32_bits(f); TAIL; }}"
             ),
         );
         for w in [8u32, 16, 32, 64] {
