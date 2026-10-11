@@ -2786,6 +2786,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             if source.is_none() { self.bare_carrier(code, dests, entry, args) } else { None };
         let elements = Elements { source, bare, answer: self.answer_element(code, dests) };
         let Some(argv) = self.entry_args(state, code, entry, args, elements, span) else {
+            // Refused, so the unit fails. What follows still reads the answer.
+            for d in dests {
+                let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*d));
+                let none = repr::register_type(self.ctx, &slots).const_zero();
+                self.set(state, *d, none);
+            }
             return;
         };
         self.call_entry(state, code, dests, entry, argv, span);
