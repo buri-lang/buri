@@ -1,0 +1,46 @@
+// Matches that bind what nothing reads: a `..rest` under a guard, and the
+// numbers of a scrutinee the match consumes.
+from "core/testing/assert" import * as assert;
+
+fn head(xs: [Str]): Str {
+    match (xs) {
+        [x, ..rest] if x.length() > 1 => x,
+        [x, ..rest] => "short",
+        _ => "none",
+    }
+}
+
+struct Pair {
+    n: Int,
+    s: Str,
+}
+
+enum Shape {
+    Named(Int, Str),
+    Empty,
+}
+
+fn first(p: Pair): Int {
+    match (p) {
+        Pair { n, s } => n + s.length(),
+    }
+}
+
+fn sized(s: Shape): Int {
+    match (s) {
+        .Named(n, label) => n + label.length(),
+        .Empty => 0,
+    }
+}
+
+test "a rest binding nothing reads, under a guard" {
+    assert.equal(head(["ab", "c"]), "ab");
+    assert.equal(head(["a", "c"]), "short");
+    assert.equal(head([]), "none")
+}
+
+test "a consumed scrutinee's uncounted bindings" {
+    assert.equal(first(Pair { n: 2, s: "ab" }), 4);
+    assert.equal(sized(Shape.Named(3, "abc")), 6);
+    assert.equal(sized(Shape.Empty), 0)
+}

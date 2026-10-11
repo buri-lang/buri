@@ -1,0 +1,14 @@
+# A `..rest` binding that neither a guard nor its arm reads, and matches that
+# consume a struct and an enum whose bindings mix numbers and strings. Both
+# backends run every block, with the heap checked natively.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a binding nothing reads, under a guard or out of a consumed scrutinee, is released once"
+
+run {
+  args: ["test", "//lib/rest", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
