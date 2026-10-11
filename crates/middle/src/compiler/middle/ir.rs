@@ -200,7 +200,9 @@ pub enum UnOp {
     Not,
     BitNot,
     /// A `Bool` as the `I64` it counts as, `0` or `1`; `prim` is `Bool`. What
-    /// `list.count` adds per element, so that the count needs no branch.
+    /// `list.count` adds per element, so that the count needs no branch. Its
+    /// result is read once, by the add right after it, which the stencil
+    /// backend relies on.
     FromBool,
 }
 
