@@ -122,3 +122,37 @@ fn the_native_files_of_a_mixed_package_pass_under_release() {
     let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
     passes(&repo, &targets);
 }
+
+/// **A value nested seventy structs deep, with a `Str` at the bottom, keeps its
+/// count.** Generated, because the source is the same line seventy times.
+#[test]
+fn a_value_nested_seventy_structs_deep_keeps_its_count() {
+    skip_unless_executable!();
+    const DEPTH: usize = 70;
+    let repo = scratch("deep");
+    let at = repo.join("lib/deep");
+    std::fs::create_dir_all(at.join("test")).unwrap();
+    let release = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release");
+    std::fs::copy(release.join("REPO.buri"), repo.join("REPO.buri")).unwrap();
+    std::fs::copy(release.join("lib/wide/BUILD.buri"), at.join("BUILD.buri")).unwrap();
+    std::fs::write(at.join("lib.buri"), "").unwrap();
+    let mut source = String::from(
+        "from \"core/str\" import * as str;\n\
+         from \"core/testing/assert\" import * as assert;\n\
+         from \"platform/effect\" import { Allocator };\n\
+         from \"platform/effect/testing\" import { alloc };\n\n\
+         struct S0 { s: Str }\n",
+    );
+    let mut value = "S0 { s: str.format(ctx, \"${7}\") }".to_string();
+    for i in 1..=DEPTH {
+        source.push_str(&format!("struct S{i} {{ a: S{} }}\n", i - 1));
+        value = format!("S{i} {{ a: {value} }}");
+    }
+    source.push_str(&format!(
+        "\ntest \"deep\" {{\n    let ctx = context {{ Allocator: alloc() }};\n    \
+         let d = {value};\n    assert.equal(d{}.s, \"7\");\n}}\n",
+        ".a".repeat(DEPTH)
+    ));
+    std::fs::write(at.join("test/wide.buri"), source).unwrap();
+    passes(&repo, &["//lib/deep"]);
+}
