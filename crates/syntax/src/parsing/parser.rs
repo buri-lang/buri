@@ -19,7 +19,7 @@
 //! * `pattern_primary` decides binding-versus-variant on the token *after* an
 //!   identifier, never on what the identifier means (design/grammar-rationale.md 12.7).
 
-use crate::diagnostics::{Diagnostic, FileId, Span};
+use crate::diagnostics::{Diagnostic, FileId, Invariant, Span};
 use crate::parsing::flat::{
     ArmData, BlockData, BlockId, CtxBindData, CtxBodyData, CtxBodyId, Docs, ExprId,
     FieldPatData, InitData, Kind, List, LambdaParamData, Location, PartData, PatId, PatPayloadData, PatternKind,
@@ -86,16 +86,13 @@ impl Cache {
         entry
     }
 
-    /// The parse of `file`, given one made elsewhere. What [`Cache::parse`]
-    /// would hand back: a parse already kept for `file` wins.
+    /// The parse of `file`, given one made elsewhere. `file` is new to the
+    /// source map, so nothing is kept for it yet.
     pub fn adopt(
         &mut self,
         file: FileId,
         parsed: Parsed,
     ) -> (std::sync::Arc<Module>, std::sync::Arc<Vec<Diagnostic>>) {
-        if let Some(hit) = self.entries.get(&file) {
-            return hit.clone();
-        }
         let entry = (std::sync::Arc::new(parsed.module), std::sync::Arc::new(parsed.errors));
         self.entries.insert(file, entry.clone());
         entry
@@ -165,6 +162,7 @@ fn parse_inner(text: &str, file: FileId, allow_bodyless: bool) -> (Parsed, Kept<
         pos: 0,
         reported: lexed.errors.iter().map(|e| (e.span.start, e.span.end)).collect(),
         errors: lexed.errors,
+        discarded: Diagnostic::error(Span::NONE, String::new()),
         allow_bodyless,
         depth: 0,
         trial: 0,
@@ -568,6 +566,10 @@ struct Parser<'a> {
     /// — one bad token repeated, which is what a generated or truncated file
     /// looks like — took half a minute, almost all of it comparing spans.
     reported: crate::hash::Set<(u32, u32)>,
+    /// What a suppressed error is written into, so that a caller adding a
+    /// binding or an edit has a diagnostic to add it to and need not ask
+    /// whether its own was kept. Nothing reads it.
+    discarded: Diagnostic,
     allow_bodyless: bool,
     depth: u32,
     /// Non-zero while a speculative parse is running — see
@@ -853,21 +855,28 @@ impl<'a> Parser<'a> {
 
     /// Every parser error's wording lives on its page. What follows is
     /// `.bind(…)` for each `{placeholder}` the page names.
-    /// Returns `None` when the error was suppressed as a duplicate, so that a
-    /// caller adding a binding adds it to the diagnostic it just made or to
-    /// nothing at all.
-    fn templated(&mut self, code: &str, span: Span) -> Option<&mut Diagnostic> {
+    fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
         // One syntax error usually causes several; the first is the useful one.
         if self.trial > 0 || !self.reported.insert((span.start, span.end)) {
-            return None;
+            return self.discard();
         }
-        self.errors.push(Diagnostic::templated(code, span));
-        self.errors.last_mut()
+        self.keep(Diagnostic::templated(code, span))
+    }
+
+    /// The diagnostic a suppressed error is built in: see `discarded`.
+    fn discard(&mut self) -> &mut Diagnostic {
+        self.discarded = Diagnostic::error(Span::NONE, String::new());
+        &mut self.discarded
+    }
+
+    fn keep(&mut self, d: Diagnostic) -> &mut Diagnostic {
+        self.errors.push(d);
+        self.errors.last_mut().or_ice("an error was just pushed")
     }
 
     /// A syntax error is always a mismatch: the grammar admits one thing here
     /// and the source has another.
-    /// Returns `None` when the error was suppressed as a duplicate, so that a
+    /// A suppressed duplicate hands back the discarded diagnostic, so that a
     /// caller adding a note adds it to the diagnostic it just made or to
     /// nothing at all. Reaching for `errors.last_mut()` instead attached the
     /// note to whatever error happened to be last, which for a suppressed
@@ -878,24 +887,23 @@ impl<'a> Parser<'a> {
         want: impl std::fmt::Display,
         found: impl std::fmt::Display,
         fix: impl Into<String>,
-    ) -> Option<&mut Diagnostic> {
+    ) -> &mut Diagnostic {
         // A string with no closing quote is the mistake, and the lexer said so.
         // What it stands in place of is hidden in the rest of its line.
         if span == self.span() && self.tokens.is_unterminated(self.at(self.pos)) {
-            return None;
+            return self.discard();
         }
         if self.trial > 0 || !self.reported.insert((span.start, span.end)) {
-            return None;
+            return self.discard();
         }
         let (want, found) = (want.to_string(), found.to_string());
-        self.errors.push(
+        self.keep(
             Diagnostic::templated("unexpected-token", span)
                 .with_bind("expected", want.clone())
                 .with_bind("found", found.clone())
                 .with_mismatch(want, found)
                 .with_fix(fix),
-        );
-        self.errors.last_mut()
+        )
     }
 
     // The `expect` family below is a test and a `bump` when the source is
@@ -983,10 +991,7 @@ impl<'a> Parser<'a> {
     fn separator_missing(&mut self, construct: &str) {
         let prev = self.prev_span();
         let at = Span::point(prev.file, prev.end as usize);
-        if let Some(d) = self.templated("missing-comma", at) {
-            d.bind("construct", construct);
-            d.edit(at, ",");
-        }
+        self.templated("missing-comma", at).bind("construct", construct).edit(at, ",");
     }
 
     /// A leaf standing for a region that did not parse.
@@ -1033,10 +1038,7 @@ impl<'a> Parser<'a> {
             _ => return,
         };
         let span = self.span();
-        if let Some(d) = self.templated("postfix-on-block", span) {
-            d.bind("construct", what);
-            d.bind("token", token);
-        }
+        self.templated("postfix-on-block", span).bind("construct", what).bind("token", token);
     }
 
     /// Whether what the parser is standing on could begin the next declaration,
@@ -1083,11 +1085,10 @@ impl<'a> Parser<'a> {
         if !self.after_an_unterminated_string() {
             let span = self.span();
             let token = format!("`{}`", close.text());
-            if let Some(d) = self.templated("unclosed-delimiter", span) {
-                d.bind("construct", construct);
-                d.bind("token", token);
-                d.secondary_span(opened, "opened here");
-            }
+            self.templated("unclosed-delimiter", span)
+                .bind("construct", construct)
+                .bind("token", token)
+                .secondary_span(opened, "opened here");
         }
         // The closer is late rather than absent when it is still there at this
         // construct's own depth. Skipping to it is what stops the cursor from
@@ -1304,10 +1305,7 @@ impl<'a> Parser<'a> {
         }
         let prev = self.prev_span();
         let at = Span::point(prev.file, prev.end as usize);
-        if let Some(d) = self.templated("missing-semicolon", at) {
-            d.bind("construct", construct);
-            d.edit(at, ";");
-        }
+        self.templated("missing-semicolon", at).bind("construct", construct).edit(at, ";");
         Ok(prev)
     }
 
@@ -1325,9 +1323,7 @@ impl<'a> Parser<'a> {
         }
         let prev = self.prev_span();
         let at = Span::point(prev.file, prev.end as usize);
-        if let Some(d) = self.templated("missing-arrow", at) {
-            d.edit(at, " =>");
-        }
+        self.templated("missing-arrow", at).edit(at, " =>");
         if starts_expr(self.peek()) {
             Ok(())
         } else {
@@ -1461,9 +1457,7 @@ impl<'a> Parser<'a> {
         let found = self.found();
         let fix = format!("write `let` first: `let {written}`");
         let repaired = format!("let {written}");
-        if let Some(d) = self.expected(name, "`let`", &found, fix) {
-            d.edit(name.to(keyword), &repaired);
-        }
+        self.expected(name, "`let`", &found, fix).edit(name.to(keyword), &repaired);
         self.early = Some(self.at(self.pos));
         self.bump();
         true
@@ -1758,7 +1752,7 @@ impl<'a> Parser<'a> {
             // replaces it, then read on, so one error names the whole mistake.
             Some(Keyword::Const) => {
                 let keyword = self.bump();
-                self.templated("const-declaration", keyword).map(|d| d.edit(keyword, "let"));
+                self.templated("const-declaration", keyword).edit(keyword, "let");
                 Item::Let(self.let_decl_tail(exported, docs, start)?)
             }
             Some(Keyword::Trait) => {
@@ -1840,9 +1834,7 @@ impl<'a> Parser<'a> {
         let want = format!("`{written}`");
         let fix = format!("write {want} first: `{written} {}`", self.slice(early));
         let repaired = format!("{written} {}", self.slice(early));
-        if let Some(d) = self.expected(early, &want, &found, fix) {
-            d.edit(early.to(at), &repaired);
-        }
+        self.expected(early, &want, &found, fix).edit(early.to(at), &repaired);
         self.early = Some(self.at(self.pos));
         self.bump();
         true
@@ -1861,9 +1853,7 @@ impl<'a> Parser<'a> {
         let found = self.tokens.describe(self.at(self.pos.saturating_add(1)));
         let fix = format!("write `export` before `{written}`");
         let repaired = format!("export {written}");
-        if let Some(d) = self.expected(export, "an identifier", &found, fix) {
-            d.edit(keyword.to(export), &repaired);
-        }
+        self.expected(export, "an identifier", &found, fix).edit(keyword.to(export), &repaired);
         true
     }
 
@@ -1971,7 +1961,7 @@ impl<'a> Parser<'a> {
             };
             if kind == ParamKind::SelfParam && !first {
                 self.templated("self-not-first", name.span)
-                    .map(|d| d.bind("position", "a function's first parameter"));
+                    .bind("position", "a function's first parameter");
             }
             // `self` writes no type: the `impl` head, or the trait's
             // implementing type, is the one it could have.
@@ -2020,10 +2010,12 @@ impl<'a> Parser<'a> {
             return keyword;
         }
         let colon = self.bump();
-        let Ok(ty) = self.ty() else { return self.prev_span() };
+        // The trial read this type with every closer required, and the real
+        // reading only repairs more, so it reads it too.
+        let ty = self.ty().ok().or_ice("the trial read this annotation as a type");
         let end = self.tree.type_span(ty);
         self.templated("typed-self", colon.to(end))
-            .map(|d| d.edit(keyword.to(end), "self"));
+            .edit(keyword.to(end), "self");
         end
     }
 
@@ -2031,7 +2023,7 @@ impl<'a> Parser<'a> {
     /// name, so the space after `export` goes with it however wide it was.
     fn variant_export(&mut self, keyword: Span, name: Span) {
         let through_the_gap = Span { file: keyword.file, start: keyword.start, end: name.start };
-        self.templated("variant-export", keyword).map(|d| d.edit(through_the_gap, ""));
+        self.templated("variant-export", keyword).edit(through_the_gap, "");
     }
 
     fn fn_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<FnDecl> {
@@ -2052,7 +2044,7 @@ impl<'a> Parser<'a> {
             if !self.allow_bodyless {
                 let span = self.span();
                 let n = self.slice(name.span).to_string();
-                self.templated("missing-body", span).map(|d| d.bind("name", n));
+                self.templated("missing-body", span).bind("name", n);
             }
             self.bump();
             None
@@ -2276,7 +2268,6 @@ impl<'a> Parser<'a> {
         let open = self.expect(Punctuation::LBrace)?;
         let at = self.tree.len_of::<FnDecl>();
         while !self.is(Punctuation::RBrace) && !self.at_eof() {
-            let before = self.pos;
             let save = self.save();
             match self.method_sig() {
                 Ok(m) => self.tree.add(m),
@@ -2284,7 +2275,7 @@ impl<'a> Parser<'a> {
                     let depth = self.open_delimiters_since(save.pos);
                     self.restore(save);
                     self.sync_stmt(depth);
-                    if self.is(Punctuation::RBrace) || self.pos == before {
+                    if self.is(Punctuation::RBrace) {
                         break;
                     }
                 }
@@ -2317,9 +2308,7 @@ impl<'a> Parser<'a> {
         };
         let open = self.expect(Punctuation::LBrace)?;
         let at = self.tree.len_of::<FnDecl>();
-        let mut escaped = false;
         while !self.is(Punctuation::RBrace) && !self.at_eof() {
-            let before = self.pos;
             let save = self.save();
             let docs = self.docs();
             let mstart = self.span();
@@ -2346,30 +2335,18 @@ impl<'a> Parser<'a> {
                     // a method — and when that was an item keyword it could
                     // not be, so the loop resynchronized to the same token
                     // forever. `impl V { ... }` followed by any declaration
-                    // used to hang the compiler outright.
+                    // used to hang the compiler outright. `sync_stmt` always
+                    // moves here: the loop stands on neither `}` nor the end.
                     let depth = self.open_delimiters_since(save.pos);
                     self.restore(save);
                     self.sync_stmt(depth);
                     if self.is(Punctuation::RBrace) {
                         break;
                     }
-                    if self.pos == before {
-                        escaped = true;
-                        break;
-                    }
                 }
             }
         }
-        if escaped {
-            // The body is already behind us, so consuming a `}` that is not
-            // there would eat the next declaration. Report and hand the item
-            // back: the `fn` after a mangled `impl` still deserves to be
-            // parsed and type-checked.
-            let span = self.span();
-            self.templated("impl-item-not-method", span);
-        } else {
-            self.expect_close(Punctuation::RBrace, "`impl` body", open)?;
-        }
+        self.expect_close(Punctuation::RBrace, "`impl` body", open)?;
         let methods = self.tree.since(at);
         Ok(ImplDecl { docs, generics, trait_ty, self_ty, methods, span: start.to(self.prev_span()) })
     }
@@ -2697,9 +2674,7 @@ impl<'a> Parser<'a> {
             self.scratch.tys.truncate(base);
             if n < 2 {
                 let span = start.to(self.prev_span());
-                if let Some(d) = self.templated("tuple-element-count", span) {
-                    d.bind("tuple", "tuple type");
-                }
+                self.templated("tuple-element-count", span).bind("tuple", "tuple type");
             }
             let span = start.to(self.prev_span());
             return Ok(self.tree.push_type(TypeKind::Tuple, [elems.start, elems.len, 0, 0], span));
@@ -3217,9 +3192,8 @@ impl<'a> Parser<'a> {
                 let repaired = format!("{written} {{");
                 let open = self.bump();
                 let name = self.bump();
-                if let Some(d) = self.expected(brace, "a struct literal's type", &found, fix) {
-                    d.edit(brace.to(name), &repaired);
-                }
+                self.expected(brace, "a struct literal's type", &found, fix)
+                    .edit(brace.to(name), &repaired);
                 let head = self.tree.push(Kind::Ident, [0; 4], name, at);
                 return self.struct_lit_fields(head.0, open, at, open);
             }
@@ -3515,9 +3489,7 @@ impl<'a> Parser<'a> {
                     return Ok(self.error_expr(start.to(end)));
                 }
                 if self.scratch.exprs.len().saturating_sub(base) < 2 {
-                    if let Some(d) = self.templated("tuple-element-count", start.to(end)) {
-                        d.bind("tuple", "tuple");
-                    }
+                    self.templated("tuple-element-count", start.to(end)).bind("tuple", "tuple");
                 }
                 let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, base));
                 self.scratch.exprs.truncate(base);
@@ -3629,7 +3601,7 @@ impl<'a> Parser<'a> {
                             let Ok(index) = u32::try_from(value) else {
                                 let raw = self.raw();
                                 self.templated("invalid-tuple-index", index_span)
-                                    .map(|d| d.bind("literal", raw));
+                                    .bind("literal", raw);
                                 self.bump();
                                 base = self.tree.push(
                                     Kind::Error,
@@ -3651,7 +3623,7 @@ impl<'a> Parser<'a> {
                             let raw = self.raw();
                             let span = self.span();
                             self.templated("float-tuple-index", span)
-                                .map(|d| d.bind("literal", raw));
+                                .bind("literal", raw);
                             return Err(Bail);
                         }
                         _ => {
@@ -3729,7 +3701,7 @@ impl<'a> Parser<'a> {
                         self.templated("double-colon", colons);
                         return Err(Bail);
                     }
-                    self.templated("turbofish", colons).map(|d| d.edit(colons, ""));
+                    self.templated("turbofish", colons).edit(colons, "");
                     let args = self.type_args()?;
                     base = self.tree.push(
                         Kind::Generic,
@@ -4135,16 +4107,15 @@ impl<'a> Parser<'a> {
         let mut rest_kind = 0u32;
         let mut rest_name = 0u32;
         while !self.list_ended(Punctuation::RBracket) {
+            // A rest ends the list, so a second `..` is never read as one: it
+            // is a pattern after the rest, which is what is reported.
             if self.is(Punctuation::DotDot) {
-                let dd = self.bump();
+                self.bump();
                 let name = if matches!(self.peek(), TokenKind::Ident) {
                     Some(self.expect_name()?)
                 } else {
                     None
                 };
-                if rest_kind != 0 {
-                    self.templated("duplicate-rest-pattern", dd);
-                }
                 match name {
                     Some(n) => {
                         rest_kind = 2;
