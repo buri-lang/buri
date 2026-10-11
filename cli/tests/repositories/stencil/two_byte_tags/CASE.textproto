@@ -1,0 +1,14 @@
+# An enum with three hundred variants, one of which holds a `Str`. Its tag
+# takes two bytes, which no fused tag test reads, so releasing a copy walks
+# the variants the long way. Both backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an enum whose tag takes two bytes copies, matches and releases on both backends"
+
+run {
+  args: ["test", "//lib/wide", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
