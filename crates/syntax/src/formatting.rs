@@ -3323,6 +3323,8 @@ fn pattern_str(t: &Tree, p: PatId) -> String {
         PatView::LitChar { value, .. } => quote_char(value),
         PatView::LitBool { value, .. } => value.to_string(),
         PatView::Unit { .. } => "()".into(),
+        // `(a,)` without its comma is `a` in parentheses, another pattern.
+        PatView::Tuple { elems: [one], .. } => format!("({},)", pattern_str(t, *one)),
         PatView::Tuple { elems, .. } => {
             format!("({})", pattern_list(t, elems))
         }
