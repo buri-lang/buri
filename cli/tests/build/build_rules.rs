@@ -208,3 +208,284 @@ fn regenerating_an_unsaved_build_file_that_does_not_parse_is_refused() {
     );
     run.ok().says(r#""id":2,"jsonrpc":"2.0""#).says("unterminated").silent_about("workspace/applyEdit");
 }
+
+const NODE_MAIN: &str = "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n    .Ok(())\n}\n";
+const ONE: &str = "export fn one(): Int {\n    1\n}\n";
+
+/// A program that loads half of itself lazily writes that half as `app.0.mjs`.
+const LAZY_MAIN: &str = r#"from "core/io" import * as io;
+from "core/lazy" import * as lazy;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+fn later<C: Stdout>(ctx: C, _n: Int): () {
+    io.println(ctx, "later").ignore()
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let open = lazy.load(later);
+    let _ = open(ctx, 1);
+    .Ok(())
+}
+"#;
+
+/// A chunk a build with more of them left behind is removed, and a chunk
+/// that can't be written fails the build, from the cache and afresh.
+#[test]
+fn an_artifact_s_chunks_replace_the_last_build_s() {
+    let scratch = Scratch::repo("lazy-chunks");
+    scratch.write("cmd/app/BUILD.buri", JS_BINARY);
+    scratch.write("cmd/app/main.buri", LAZY_MAIN);
+    scratch.run(&["build", "//cmd/app"]).ok();
+    assert!(scratch.path(".buri/out/node/cmd/app/app.0.mjs").is_file());
+    scratch.write(".buri/out/node/cmd/app/app.1.mjs", "stale\n");
+    scratch.write(".buri/out/node/cmd/app/app.2.mjs", "stale\n");
+    scratch.run(&["build", "//cmd/app"]).ok().says("cached");
+    assert!(!scratch.path(".buri/out/node/cmd/app/app.1.mjs").exists(), "a stale chunk stays");
+    assert!(!scratch.path(".buri/out/node/cmd/app/app.2.mjs").exists(), "a stale chunk stays");
+
+    std::fs::remove_file(scratch.path(".buri/out/node/cmd/app/app.0.mjs")).unwrap();
+    std::fs::create_dir(scratch.path(".buri/out/node/cmd/app/app.0.mjs")).unwrap();
+    for args in [&["build", "//cmd/app"][..], &["build", "--force", "//cmd/app"]] {
+        scratch.run(args).exits(1).says("cannot write ").says("app.0.mjs");
+    }
+}
+
+/// Gives a path its permissions back when dropped, so the scratch tree can go.
+struct Reopen(std::path::PathBuf, u32);
+
+impl Drop for Reopen {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(self.1));
+    }
+}
+
+fn close(path: std::path::PathBuf, reopen: u32) -> Reopen {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    Reopen(path, reopen)
+}
+
+/// `gen` lists a package's own sources: not a dotfile, not a nested
+/// package's, nothing in a directory it can't read, and not a listed source
+/// that's gone. A source it can't read is still one of the package's.
+#[test]
+fn gen_lists_only_the_sources_a_package_owns() {
+    let scratch = Scratch::repo("gen-walk");
+    scratch.write("lib/a/BUILD.buri", "library {\n    visibility: [\"//...\"]\n    sources: [\"gone.buri\"]\n}\n");
+    scratch.write("lib/a/lib.buri", ONE);
+    scratch.write("lib/a/extra.buri", ONE);
+    scratch.write("lib/a/.hidden.buri", ONE);
+    scratch.write("lib/a/nested/BUILD.buri", "library {}\n");
+    scratch.write("lib/a/nested/lib.buri", ONE);
+    scratch.write("lib/a/locked/x.buri", ONE);
+    scratch.write("lib/a/sealed.buri", ONE);
+    let _dir = close(scratch.path("lib/a/locked"), 0o755);
+    let _file = close(scratch.path("lib/a/sealed.buri"), 0o644);
+    scratch.run(&["gen", "//lib/a"]).ok().says("+ sources: extra.buri, sealed.buri").says("- sources: gone.buri");
+    assert_eq!(
+        scratch.read("lib/a/BUILD.buri"),
+        "library {\n    sources: [\"extra.buri\", \"sealed.buri\"]\n    visibility: [\"//...\"]\n}\n"
+    );
+}
+
+/// In a package with only a binary, every suite is the binary's, whatever
+/// it imports.
+#[test]
+fn gen_gives_a_binary_only_package_s_suites_to_the_binary() {
+    let scratch = Scratch::repo("gen-binary-suite");
+    scratch.write("cmd/b/BUILD.buri", JS_BINARY);
+    scratch.write("cmd/b/main.buri", NODE_MAIN);
+    scratch.write("cmd/b/test/t.buri", "test \"t\" {\n}\n");
+    scratch.run(&["gen", "//cmd/b"]).ok().says("+ test.sources: test/t.buri");
+    assert!(scratch.read("cmd/b/BUILD.buri").contains("    test {\n        sources: [\"test/t.buri\"]\n    }\n"));
+}
+
+/// The editor's command leaves a platform's package as written, and rewrites
+/// an unsaved build file whose lists hold numbers from the package's files.
+#[test]
+fn regenerating_a_platform_or_an_unsaved_mistyped_build_file() {
+    let scratch = Scratch::repo("regenerate-shapes");
+    scratch.write("platform/kit/BUILD.buri", PLATFORM);
+    scratch.write("platform/kit/platform.buri", "export struct KitHost {}\nexport fn e(host: KitHost): Result<(), Str>;\n");
+    scratch.write("lib/a/BUILD.buri", "library {\n    visibility: [\"//...\"]\n}\n");
+    scratch.write("lib/a/lib.buri", ONE);
+    scratch.write("lib/a/extra.buri", ONE);
+    let command = |file: &str, label: &str| {
+        format!(
+            r#"{{"jsonrpc": "2.0", "id": 2, "method": "workspace/executeCommand", "params": {{"command": "buri.regenerateBuildFile", "arguments": ["file://<scratch>/{file}", "{label}"]}}}}"#
+        )
+    };
+    let open = |text: &str| {
+        let text = text.replace('"', "\\\"").replace('\n', "\\n");
+        format!(
+            r#"{{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {{"textDocument": {{"uri": "file://<scratch>/lib/a/BUILD.buri", "languageId": "buri", "version": 1, "text": "{text}"}}}}}}"#
+        )
+    };
+    const APPLIED: &str = r#"{"jsonrpc": "2.0", "id": "buri/applyEdit/1", "result": {"applied": true}}"#;
+    let platform = command("platform/kit/platform.buri", "//platform/kit");
+    scratch
+        .run_with_stdin(&["lsp"], &session(&scratch, &[INITIALIZE, INITIALIZED, &platform, SHUTDOWN, EXIT]))
+        .ok()
+        .says("//platform/kit: BUILD.buri is already what buri gen would write");
+
+    let numbers = open("library {\n    visibility: [\"//...\"]\n    sources: [1]\n    test {\n        sources: [2]\n    }\n}\n");
+    let library = command("lib/a/lib.buri", "//lib/a");
+    scratch
+        .run_with_stdin(&["lsp"], &session(&scratch, &[INITIALIZE, INITIALIZED, &numbers, &library, APPLIED, SHUTDOWN, EXIT]))
+        .ok()
+        .says(r#""newText":"library {\n    sources: [\"extra.buri\"]\n    visibility: [\"//...\"]\n    test {\n        sources: []\n    }\n}\n""#);
+
+    let not_a_block = open("library: 1\n");
+    scratch
+        .run_with_stdin(&["lsp"], &session(&scratch, &[INITIALIZE, INITIALIZED, &not_a_block, &library, SHUTDOWN, EXIT]))
+        .ok()
+        .says("//lib/a: BUILD.buri is already what buri gen would write")
+        .silent_about("workspace/applyEdit");
+}
+
+/// Each way two outputs land on one path names its own cause, and a page
+/// platform refuses an `artifact_name`.
+#[test]
+fn outputs_that_share_a_path_say_how() {
+    let scratch = Scratch::repo("shared-paths");
+    scratch.write(
+        "platform/many/BUILD.buri",
+        "platform {\n    entry {\n        name: \"one\"\n        backend: JS\n    }\n    entry {\n        name: \"two\"\n        \
+         backend: JS\n    }\n    entry {\n        name: \"three\"\n        backend: JS\n    }\n}\n",
+    );
+    scratch.write(
+        "platform/many/platform.buri",
+        "export struct ManyHost {}\nexport fn one(host: ManyHost): Result<(), Str>;\n\
+         export fn two(host: ManyHost): Result<(), Str>;\nexport fn three(host: ManyHost): Result<(), Str>;\n",
+    );
+    scratch.write(
+        "platform/page/BUILD.buri",
+        "platform {\n    entry {\n        name: \"main\"\n        backend: JS\n    }\n    assets: [\"index.html\"]\n}\n",
+    );
+    scratch.write("platform/page/index.html", "<html></html>\n");
+    scratch.write("platform/page/platform.buri", "export struct PageHost {}\nexport fn main(host: PageHost): Result<(), Str>;\n");
+    scratch.write("cmd/a/BUILD.buri", "binary {\n    outputs: [{ platform: \"//platform/many\", artifact_name: \"same\" }]\n}\n");
+    scratch.write(
+        "cmd/a/main.buri",
+        "from \"//platform/many\" import { ManyHost };\nexport fn one(host: ManyHost): Result<(), Str> {\n    .Ok(())\n}\n\
+         export fn two(host: ManyHost): Result<(), Str> {\n    .Ok(())\n}\nexport fn three(host: ManyHost): Result<(), Str> {\n    .Ok(())\n}\n",
+    );
+    scratch.write("cmd/b/BUILD.buri", "binary {\n    outputs: [{ platform: \"//platform/page\", artifact_name: \"x\" }]\n}\n");
+    scratch.write(
+        "cmd/b/main.buri",
+        "from \"//platform/page\" import { PageHost };\nexport fn main(host: PageHost): Result<(), Str> {\n    .Ok(())\n}\n",
+    );
+    scratch.write("cmd/c/BUILD.buri", "binary {\n    outputs: [{ platform: \"web\" }, { platform: \"web\" }]\n}\n");
+    scratch.write("cmd/c/main.buri", "from \"web\" import { WebHost };\nexport fn main(host: WebHost): Result<(), Str> {\n    .Ok(())\n}\n");
+    scratch.write(
+        "cmd/d/BUILD.buri",
+        "binary {\n    outputs: [{ platform: \"node\", artifact_name: \"d\" }, { platform: \"node\" }, { platform: \"node\", artifact_name: \"d\" }]\n}\n",
+    );
+    scratch.write("cmd/d/main.buri", NODE_MAIN);
+    let run = scratch.run(&["build", "//cmd/a", "//cmd/b", "//cmd/c", "//cmd/d"]);
+    run.exits(2)
+        .says("two artifacts of //cmd/a write `.buri/out/platform/many/cmd/a/same.mjs` [duplicate-artifact-path]")
+        .says("`//platform/many` has several entries, and `artifact_name` names each of them `same`")
+        .says("`//platform/page` names its own artifacts [misplaced-artifact-name]")
+        .says("both outputs are `web` pages, and a page's file is named after its entry")
+        .says("both outputs are `node`, in one directory, under one name");
+    assert_eq!(run.all().matches("two artifacts of //cmd/a write").count(), 1, "one written output is told about once");
+    assert_eq!(run.all().matches("two artifacts of //cmd/d write").count(), 2);
+}
+
+/// A tag that forbids one sorted after it conflicts as one sorted before
+/// does, and a binary carrying a tag nobody declared, or beside its package's
+/// library, is held to what its dependencies admit.
+#[test]
+fn policy_reads_tags_both_ways_and_a_binary_beside_a_library() {
+    let scratch = Scratch::empty("policy-shapes");
+    scratch.write(
+        "REPO.buri",
+        "tag {\n    name: \"alpha\"\n    doc: \"first\"\n\n    forbids {\n        tags: [\"beta\"]\n    }\n}\n\n\
+         tag {\n    name: \"beta\"\n    doc: \"second\"\n}\n",
+    );
+    scratch.write("lib/a/BUILD.buri", "library {\n    visibility: [\"//...\"]\n    tags: [\"alpha\"]\n}\n");
+    scratch.write("lib/a/lib.buri", ONE);
+    scratch.write("lib/b/BUILD.buri", "library {\n    visibility: [\"//...\"]\n    tags: [\"beta\"]\n}\n");
+    scratch.write("lib/b/lib.buri", ONE);
+    scratch.write("lib/web/BUILD.buri", "library {\n    visibility: [\"//...\"]\n    platforms: [\"web\"]\n}\n");
+    scratch.write("lib/web/lib.buri", ONE);
+    scratch.write(
+        "cmd/x/BUILD.buri",
+        "binary {\n    dependencies: [\"//lib/a\", \"//lib/b\"]\n    outputs: [{ platform: \"node\" }]\n}\n",
+    );
+    scratch.write("cmd/x/main.buri", &format!("from \"//lib/a\" import {{ one }};\nfrom \"//lib/b\" import {{ one as two }};\n{NODE_MAIN}"));
+    scratch.write(
+        "cmd/z/BUILD.buri",
+        "binary {\n    dependencies: [\"//lib/web\"]\n    outputs: [{ platform: \"node\" }]\n}\nlibrary {\n    visibility: [\"//...\"]\n}\n",
+    );
+    scratch.write("cmd/z/main.buri", &format!("from \"//lib/web\" import {{ one }};\n{NODE_MAIN}"));
+    scratch.write("cmd/z/lib.buri", ONE);
+    scratch.write(
+        "cmd/y/BUILD.buri",
+        "binary {\n    tags: [\"mystery\"]\n    dependencies: [\"//lib/web\"]\n    outputs: [{ platform: \"node\" }]\n}\n",
+    );
+    scratch.write("cmd/y/main.buri", &format!("from \"//lib/web\" import {{ one }};\n{NODE_MAIN}"));
+    scratch
+        .run(&["build", "//cmd/x", "//cmd/y", "//cmd/z"])
+        .exits(1)
+        .says("//cmd/x cannot contain both \"alpha\" and \"beta\" code [tag-conflict]")
+        .says("unknown tag \"mystery\" [unknown-tag]")
+        .says("//cmd/y cannot be built for node [platform-violation]")
+        .says("//cmd/z cannot be built for node [platform-violation]")
+        .says("//lib/web declares platforms web");
+}
+
+/// A library of more sources than are worth reading one at a time builds as
+/// one of a few does.
+#[test]
+fn a_library_of_forty_sources_builds() {
+    let scratch = Scratch::repo("forty-sources");
+    let names: Vec<String> = (1..=40).map(|i| format!("s{i}.buri")).collect();
+    for (i, name) in names.iter().enumerate() {
+        scratch.write(&format!("lib/many/{name}"), &format!("export fn f{i}(): Int {{\n    {i}\n}}\n"));
+    }
+    let listed: Vec<String> = names.iter().map(|n| format!("\"{n}\"")).collect();
+    scratch.write(
+        "lib/many/BUILD.buri",
+        &format!("library {{\n    visibility: [\"//...\"]\n    sources: [{}]\n}}\n", listed.join(", ")),
+    );
+    scratch.write("lib/many/lib.buri", ONE);
+    scratch.write("cmd/app/BUILD.buri", "binary {\n    dependencies: [\"//lib/many\"]\n    outputs: [{ platform: \"node\" }]\n}\n");
+    scratch.write(
+        "cmd/app/main.buri",
+        "from \"node\" import { NodeHost };\nfrom \"//lib/many\" import { one };\n\n\
+         export fn main(host: NodeHost): Result<(), Str> {\n    let _ = one();\n    .Ok(())\n}\n",
+    );
+    scratch.run(&["build", "//cmd/app"]).ok().says(".buri/out/node/cmd/app/app.mjs");
+}
+
+/// A build file that's a symbolic link makes its directory a package.
+#[test]
+fn a_symlinked_build_file_makes_a_package() {
+    let scratch = Scratch::repo("symlinked-build-file");
+    scratch.write("shared/library.txt", "library {\n    visibility: [\"//...\"]\n}\n");
+    scratch.write("lib/link/lib.buri", ONE);
+    std::os::unix::fs::symlink("../../shared/library.txt", scratch.path("lib/link/BUILD.buri")).unwrap();
+    scratch.run(&["query", "sources(//lib/link)"]).ok().says("lib/link/lib.buri");
+}
+
+/// A repository platform's dependency brings its own dependencies into the
+/// artifact.
+#[test]
+fn a_platform_s_dependency_brings_its_own() {
+    let scratch =
+        Scratch::copy_of("platform-deep", &tests_dir().join("repositories/custom-platforms/platform_dependencies/repo"));
+    scratch.write("lib/words/BUILD.buri", "library {\n    visibility: [\"//...\"]\n    dependencies: [\"//lib/deep\"]\n}\n");
+    scratch.write("lib/words/lib.buri", "from \"//lib/deep\" import { word };\n\nexport fn greeting(): Str {\n    word()\n}\n");
+    scratch.write("lib/deep/BUILD.buri", "library {\n    visibility: [\"//lib/words\"]\n}\n");
+    scratch.write("lib/deep/lib.buri", "export fn word(): Str {\n    \"hello from deep down\"\n}\n");
+    scratch.run(&["build", "//cmd/app"]).ok();
+    assert!(scratch.read(".buri/out/platform/kit/cmd/app/main.mjs").contains("hello from deep down"));
+}
