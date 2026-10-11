@@ -94,6 +94,26 @@ test "the bigint widths convert to F64 too" {
     assert.equal(d.toF64(), 340282366920938463463374607431768211455.0);
 }
 
+test "a wide integer rounds to F32 once, not through F64" {
+    // 2^100 + 2^76 + 1 is just above the midpoint of two binary32 values.
+    // Rounding to F64 first lands exactly on that midpoint, and a second
+    // rounding to even would answer 2^100. 2^62 + 2^38 + 1 is the same at 64
+    // bits.
+    let w: I64 = 4611686293305294849;
+    let x: U64 = 4611686293305294849;
+    assert.equal(w.toF32().toF64(), 4611686568183201792.0);
+    assert.equal(x.toF32().toF64(), 4611686568183201792.0);
+    let a: I128 = 1267650675786093127411026624513;
+    let b: U128 = 1267650675786093127411026624513;
+    let c: I128 = -1267650675786093127411026624513;
+    assert.equal(a.toF32().toF64(), 1267650751343956853325350043648.0);
+    assert.equal(b.toF32().toF64(), 1267650751343956853325350043648.0);
+    assert.equal(c.toF32().toF64(), -1267650751343956853325350043648.0);
+    let d: U128 = 340282366920938463463374607431768211455;
+    let inf: F64 = 1.0 / 0.0;
+    assert.equal(d.toF32().toF64(), inf);
+}
+
 test "toF64 above two to the fifty-third rounds rather than failing" {
     // SPEC 6.2.1 calls this out: `I64 -> F64` is exact to 53 bits and rounds
     // beyond, and is deliberately not routed through a `Result`.
@@ -262,6 +282,65 @@ test "F64 into an integer fails on NaN and on the infinities" {
     assert.equal(assert.err(inf.toI32()).target, "I32");
 }
 
+test "a float into a 128-bit integer succeeds on an integral value in range" {
+    let a: F64 = 1.0e30;
+    assert.equal(assert.ok(a.toI128()), 1000000000000000019884624838656);
+    assert.equal(assert.ok(a.toU128()), 1000000000000000019884624838656);
+    let b: F64 = -42.0;
+    assert.equal(assert.ok(b.toI128()), -42);
+    let min: F64 = -170141183460469231731687303715884105728.0;
+    assert.equal(assert.ok(min.toI128()), -170141183460469231731687303715884105728);
+    let top: F64 = 170141183460469231731687303715884105728.0;
+    assert.equal(assert.ok(top.toU128()), 170141183460469231731687303715884105728);
+    let c: F32 = 1267650600228229401496703205376.0;
+    assert.equal(assert.ok(c.toI128()), 1267650600228229401496703205376);
+    assert.equal(assert.ok(c.toU128()), 1267650600228229401496703205376);
+    let e: F32 = -3.0;
+    assert.equal(assert.ok(e.toI128()), -3);
+}
+
+test "negative zero into a 128-bit integer is zero" {
+    let a: F64 = -0.0;
+    assert.equal(assert.ok(a.toI128()), 0);
+    assert.equal(assert.ok(a.toU128()), 0);
+    let b: F32 = -0.0;
+    assert.equal(assert.ok(b.toI128()), 0);
+    assert.equal(assert.ok(b.toU128()), 0);
+}
+
+test "a float into a 128-bit integer fails one step past either end" {
+    // 2^127 and 2^128 are the first doubles past I128's and U128's maximum.
+    let a: F64 = 170141183460469231731687303715884105728.0;
+    assert.equal(assert.err(a.toI128()).target, "I128");
+    let b: F64 = 340282366920938463463374607431768211456.0;
+    assert.equal(assert.err(b.toU128()).target, "U128");
+    let c: F64 = -1.0;
+    assert.equal(assert.err(c.toU128()).target, "U128");
+    let d: F32 = -1.0;
+    assert.equal(assert.err(d.toU128()).target, "U128");
+}
+
+test "a float into a 128-bit integer fails on a fraction, NaN and the infinities" {
+    let a: F64 = 2.5;
+    let e: RangeError = assert.err(a.toI128());
+    assert.equal(e.value, "2.5");
+    assert.equal(e.target, "I128");
+    let nan: F64 = 0.0 / 0.0;
+    let inf: F64 = 1.0 / 0.0;
+    let ninf: F64 = -1.0 / 0.0;
+    assert.isTrue(nan.toI128().isErr());
+    assert.isTrue(nan.toU128().isErr());
+    assert.isTrue(inf.toI128().isErr());
+    assert.isTrue(inf.toU128().isErr());
+    assert.isTrue(ninf.toI128().isErr());
+    let half: F32 = 0.5;
+    let fnan: F32 = 0.0 / 0.0;
+    let finf: F32 = 1.0 / 0.0;
+    assert.isTrue(half.toU128().isErr());
+    assert.isTrue(fnan.toI128().isErr());
+    assert.isTrue(finf.toU128().isErr());
+}
+
 test "F64 into F32 goes through a Result like any other narrowing" {
     let a: F64 = 1.5;
     assert.equal(assert.ok(a.toF32()).toF64(), 1.5);
@@ -407,6 +486,34 @@ test "wrapping from a float truncates toward zero and then wraps" {
     assert.equal(c.wrapToI8(), 2);
     let d: F64 = -2.9;
     assert.equal(d.wrapToI8(), -2);
+}
+
+test "wrapping a float into 128 bits truncates toward zero and then wraps" {
+    let a: F64 = -1.5;
+    assert.equal(a.wrapToI128(), -1);
+    assert.equal(a.wrapToU128(), 340282366920938463463374607431768211455);
+    let b: F64 = 2.9;
+    assert.equal(b.wrapToI128(), 2);
+    // 2^127 is one past I128's maximum and wraps to its minimum.
+    let c: F64 = 170141183460469231731687303715884105728.0;
+    assert.equal(c.wrapToI128(), -170141183460469231731687303715884105728);
+    assert.equal(c.wrapToU128(), 170141183460469231731687303715884105728);
+    // 1e40 is past 2^128, so only its low 128 bits are left.
+    let d: F64 = 1.0e40;
+    assert.equal(d.wrapToU128(), 131811359292784863348164811482388758528);
+    let e: F32 = -2.5;
+    assert.equal(e.wrapToI128(), -2);
+    let z: F64 = -0.0;
+    assert.equal(z.wrapToI128(), 0);
+}
+
+test "NaN and the infinities wrap to zero at 128 bits" {
+    let nan: F64 = 0.0 / 0.0;
+    let inf: F64 = 1.0 / 0.0;
+    let ninf: F32 = -1.0 / 0.0;
+    assert.equal(nan.wrapToI128(), 0);
+    assert.equal(inf.wrapToU128(), 0);
+    assert.equal(ninf.wrapToI128(), 0);
 }
 
 test "wrapToF32 rounds to binary32" {
