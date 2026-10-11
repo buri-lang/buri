@@ -77,7 +77,7 @@ fn imports(analyzed: &Analyzed, path: &Path, out: &mut Vec<(u32, u32, String)>) 
         };
         let Ok(resolved) = analyzed.session.workspace.resolve_module(written) else { continue };
         let Some(in_package) = resolved.in_package() else { continue };
-        let (start, end) = inside_quotes(&analyzed.session.map.get(file).text, span);
+        let (start, end) = inside_quotes(span);
         out.push((start, end, convert::uri_of(&in_package.file)));
     }
 }
@@ -88,8 +88,8 @@ fn imports(analyzed: &Analyzed, path: &Path, out: &mut Vec<(u32, u32, String)>) 
 /// what every import diagnostic is anchored on — and a textproto entry's is
 /// the same. An underline belongs under the address rather than under the
 /// punctuation holding it.
-pub(super) fn inside_quotes(text: &str, span: crate::diagnostics::Span) -> (u32, u32) {
-    let inner = span.inside_quotes(text);
+pub(super) fn inside_quotes(span: crate::diagnostics::Span) -> (u32, u32) {
+    let inner = span.inside_quotes();
     (inner.start, inner.end)
 }
 

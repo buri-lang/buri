@@ -1065,7 +1065,7 @@ impl<'a> Loader<'a> {
             let d = Diagnostic::templated("import-missing-extension", span)
                 .with_bind("path", path)
                 .with_fix(format!("write \"{}\"", loc.path))
-                .with_edit(span.inside_quotes(self.map.text(span.file)), &loc.path);
+                .with_edit(span.inside_quotes(), &loc.path);
             self.diags.push(d);
             return false;
         }

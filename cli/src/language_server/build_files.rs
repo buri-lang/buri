@@ -78,7 +78,7 @@ pub fn links(session: &Session, path: &Path, text: &str) -> Value {
             _ => None,
         };
         if let Some(target) = target {
-            let (start, end) = super::links::inside_quotes(text, span);
+            let (start, end) = super::links::inside_quotes(span);
             found.push((start, end, convert::uri_of(&target)));
         }
     });
