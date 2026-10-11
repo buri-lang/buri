@@ -112,10 +112,8 @@ fn macho_uuid(file: &mut File, head: &[u8]) -> Option<Vec<u8>> {
         if kind == LC_UUID {
             return bytes_at(&commands, at.checked_add(8)?, 16).map(<[u8]>::to_vec);
         }
+        // A command of size zero would be read again until `count` runs out.
         let step = usize::try_from(u32_at(&commands, at.checked_add(4)?, endian)?).ok()?;
-        if step == 0 {
-            return None;
-        }
         at = at.checked_add(step)?;
     }
     None
