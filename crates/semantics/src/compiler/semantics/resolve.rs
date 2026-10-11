@@ -393,6 +393,11 @@ impl Walked {
         bodies.iter_from(self.fns_from)
     }
 
+    /// The constants the base didn't walk, in id order.
+    pub fn unsettled_constants<'m>(&self, consts: &'m ConstMap) -> impl Iterator<Item = (ConstId, &'m typed::Expr)> {
+        consts.iter_from(self.consts_from)
+    }
+
     /// The bodies a pass walks, in id order.
     pub fn functions<'m>(
         &'m self,

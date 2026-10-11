@@ -10,10 +10,16 @@ error: a `Computed` style may not appear under `On` or `At`: a closure cannot be
 ```
 
 ```buri fail code=style-not-static
+# from "ui/node" import * as ui;
+# from "ui/node" import { Node };
 # from "ui/style" import { Style };
 
 // A breakpoint is a media query. A closure cannot be put inside one.
 let wide: Style = .At(.Large, [.Computed(fn(scope) => [.Width(.Full)])]);
+
+fn banner<C>(): Node<C> {
+    ui.stack({ styles: [wide], children: [] })
+}
 ```
 
 A style the compiler can't evaluate usually falls back to an inline style, where

@@ -396,6 +396,9 @@ Two tiers, on purpose:
   media-query-scoped variant classes, mobile-first, with larger tiers overriding
   smaller, so breakpoints work in email `<style>` blocks and cost nothing at
   runtime. Native backends re-resolve `At` when the window size class changes.
+  Extraction happens only where a style reaches a node. Everywhere else a
+  `Style` is an ordinary enum, so `match (s) { .Width(_) => … }` takes the arm
+  the source names.
 - **`Computed`**: for values driven by signals (drag, cursor-follow,
   animation). The runtime applies these per element (inline styles on web) and
   keeps them out of the stylesheet. Each one re-serializes on change, so the

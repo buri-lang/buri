@@ -19,6 +19,14 @@
 //! — and the link step is a merge that cannot disagree with itself, which is
 //! what `buri build --check-reproducible` needs.
 //!
+//! ## Where a style is extracted
+//!
+//! Only where it reaches a node. To the rest of the program a `Style` is an
+//! ordinary enum: a match on one, or a comparison, sees the variant the source
+//! wrote. [`Flow`] finds the positions whose value a node is given: a field of
+//! a `ui/node` literal, an argument to a `ui/node` function, and whatever flows
+//! into one of those through a local, a parameter, a result or a constant.
+//!
 //! ## What the runtime is left with
 //!
 //! A style that folded is replaced, in the typed tree, by the
@@ -46,9 +54,9 @@ use crate::compiler::semantics::consteval::{Env, Folder, Value};
 use crate::compiler::semantics::layered::Layered;
 use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, ModuleScope, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind, Magnitude};
-use crate::compiler::semantics::types::{ConstId, FnId, Tables, Ty, TyKind, TyConId};
+use crate::compiler::semantics::types::{ConstId, FnId, LocalId, ModuleId, Tables, Ty, TyKind, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
-use crate::hash::Set as HashSet;
+use crate::hash::{Map as HashMap, Set as HashSet};
 
 // ---------------------------------------------------------------------------
 // The vocabulary's tag numbers.
@@ -399,7 +407,7 @@ impl Styled {
     }
 }
 
-/// Extracts every static style in the compilation.
+/// Extracts every static style that reaches a node.
 ///
 /// Rewrites `bodies` and `consts` in place, and answers the rules the module's
 /// styles produced, in walk order, constants' first. A build merges the answers of every module
@@ -433,6 +441,7 @@ pub fn run(
     // Copying the maps instead held a second `Arc` to every body, which made
     // the rewrite deep-copy what it changed anyway, and deep-copied every
     // constant whether it changed or not.
+    let flow = Flow::of(tables, loaded.find("ui/node"), walked, bodies, consts);
     let mut ex = Extractor {
         style_con,
         classes_con,
@@ -443,6 +452,8 @@ pub fn run(
         rules: Vec::new(),
         recorded: HashSet::default(),
         diags,
+        flow,
+        owner: Owner::Fn(FnId(0)),
     };
 
     // In id order, which is the order the maps walk in, so the sheet's rule
@@ -462,8 +473,10 @@ pub fn run(
             new_consts.push((id, init.clone()));
         }
     }
-    for (_, init) in &mut new_consts {
-        ex.walk(init, Cond::default());
+    for (id, init) in &mut new_consts {
+        ex.owner = Owner::Const(*id);
+        let sink = ex.flow.demanded.contains(&Demand::Const(*id));
+        ex.visit(init, sink, Cond::default());
     }
     let const_rules = std::mem::take(&mut ex.rules);
     let mut new_bodies: Vec<(FnId, typed::Body)> = Vec::new();
@@ -473,8 +486,10 @@ pub fn run(
             new_bodies.push((id, typed::Body::clone(body)));
         }
     }
-    for (_, body) in &mut new_bodies {
-        ex.walk(&mut body.expr, Cond::default());
+    for (id, body) in &mut new_bodies {
+        ex.owner = Owner::Fn(*id);
+        let sink = ex.flow.demanded.contains(&Demand::Ret(*id));
+        ex.visit(&mut body.expr, sink, Cond::default());
     }
     let styled = Styled { const_rules, body_rules: ex.rules, ..Styled::default() };
     for (id, init) in new_consts {
@@ -499,6 +514,9 @@ struct Extractor<'a> {
     rules: Vec<StyleRule>,
     recorded: HashSet<String>,
     diags: &'a mut Diagnostics,
+    flow: Flow<'a>,
+    /// The declaration whose locals the walk is in.
+    owner: Owner,
 }
 
 impl<'a> Extractor<'a> {
@@ -560,7 +578,7 @@ impl<'a> Extractor<'a> {
     }
 
     /// Whether anything under `e` is a style or a list of them: the only
-    /// nodes [`Extractor::walk`] rewrites or reports on.
+    /// nodes [`Extractor::visit`] rewrites or reports on.
     fn mentions_style(&self, e: &typed::Expr) -> bool {
         if self.is_style(&e.ty) || self.is_style_list(&e.ty) {
             return true;
@@ -570,21 +588,31 @@ impl<'a> Extractor<'a> {
         found
     }
 
-    /// The generic descent: anything that is not itself a style.
-    fn walk(&mut self, e: &mut typed::Expr, cond: Cond) {
-        if self.is_style_list(&e.ty) {
+    /// One expression, `sink` when a node is given its value.
+    fn visit(&mut self, e: &mut typed::Expr, sink: bool, cond: Cond) {
+        if sink && self.is_style_list(&e.ty) {
             self.style_list(e, cond);
             return;
         }
-        if self.is_style(&e.ty) {
+        if sink && self.is_style(&e.ty) {
             self.style(e, cond);
             return;
         }
-        // A condition may not escape into an expression that is not a style:
-        // `On(.Hover, [f(x)])` where `f` answers a `Style` is handled by
-        // `style`, and everything else under a condition has already been
-        // refused there.
-        typed::children_mut(e, &mut |child| self.walk(child, cond));
+        self.descend(e, sink, cond);
+    }
+
+    /// The children of `e`, each a sink where [`Flow::positions`] says so.
+    ///
+    /// A condition may not escape into an expression that is not a style:
+    /// `On(.Hover, [f(x)])` where `f` answers a `Style` is handled by `style`,
+    /// and everything else under a condition has already been refused there.
+    fn descend(&mut self, e: &mut typed::Expr, sink: bool, cond: Cond) {
+        let mut positions = self.flow.positions(e).into_iter();
+        typed::children_mut(e, &mut |child| {
+            let pos = positions.next().or_ice("`positions` names every child");
+            let reaches = self.flow.reaches(self.owner, &pos, sink);
+            self.visit(child, reaches, cond);
+        });
     }
 
     /// A `[Style]` — the shape every widget takes and the shape both branches
@@ -621,7 +649,7 @@ impl<'a> Extractor<'a> {
             );
             return;
         }
-        typed::children_mut(e, &mut |child| self.walk(child, cond));
+        self.descend(e, true, cond);
     }
 
     /// One `Style`.
@@ -663,7 +691,7 @@ impl<'a> Extractor<'a> {
         if let Some(variant) = composition {
             self.variable_rule(variant);
         }
-        typed::children_mut(e, &mut |child| self.walk(child, cond));
+        self.descend(e, true, cond);
     }
 
     /// Records the variable-backed rule a dynamic value at no condition needs
@@ -729,7 +757,7 @@ impl<'a> Extractor<'a> {
                 // The `Prop<Bool>` is ordinary reactive data and may hold a
                 // closure with styles of its own.
                 if let Some(condition) = rest.next() {
-                    typed::children_mut(condition, &mut |child| self.walk(child, Cond::default()));
+                    self.visit(condition, false, Cond::default());
                 }
                 for branch in rest {
                     self.style_list(branch, cond);
@@ -747,7 +775,7 @@ impl<'a> Extractor<'a> {
                     return true;
                 }
                 for arg in args {
-                    typed::children_mut(arg, &mut |child| self.walk(child, Cond::default()));
+                    self.visit(arg, true, Cond::default());
                 }
                 true
             }
@@ -903,6 +931,207 @@ impl<'a> Extractor<'a> {
             });
         }
         Some(Atom { slot: slot(variant, sub, cond)?, class })
+    }
+}
+
+/// What decides whether a position's value reaches a node.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Demand {
+    /// A node is given it.
+    Node,
+    /// A local of one declaration, a parameter among them.
+    Local(Owner, LocalId),
+    /// A function's result.
+    Ret(FnId),
+    Const(ConstId),
+}
+
+/// The declaration a local belongs to.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Owner {
+    Fn(FnId),
+    Const(ConstId),
+}
+
+/// Where one child's value goes, next to its parent's.
+#[derive(Clone)]
+enum Pos {
+    /// Wherever the parent's goes.
+    Same,
+    /// To this, or nowhere a node reads.
+    At(Option<Demand>),
+    /// Into these locals: a `let`'s value, or a match's scrutinee.
+    Bound(Vec<LocalId>),
+}
+
+/// Which values reach a node, found before anything is rewritten.
+///
+/// It reads backwards from each node. A node's argument is demanded, and so is
+/// whatever an expression in a demanded position reads: a local's value, a
+/// called function's result, a parameter's argument at every call.
+struct Flow<'a> {
+    tables: &'a Tables,
+    ui_node: Option<ModuleId>,
+    /// The parameters of each body this run reads.
+    params: HashMap<FnId, Vec<LocalId>>,
+    demanded: HashSet<Demand>,
+}
+
+impl<'a> Flow<'a> {
+    fn of(
+        tables: &'a Tables,
+        ui_node: Option<ModuleId>,
+        walked: &Walked,
+        bodies: &BodyMap,
+        consts: &ConstMap,
+    ) -> Flow<'a> {
+        let mut flow = Flow { tables, ui_node, params: HashMap::default(), demanded: HashSet::default() };
+        for (id, body) in walked.unsettled(bodies) {
+            flow.params.insert(id, body.params.clone());
+        }
+        let mut edges: HashMap<Demand, Vec<Demand>> = HashMap::default();
+        for (id, init) in walked.unsettled_constants(consts) {
+            flow.edges(Owner::Const(id), init, Some(Demand::Const(id)), &mut edges);
+        }
+        for (id, body) in walked.unsettled(bodies) {
+            flow.edges(Owner::Fn(id), &body.expr, Some(Demand::Ret(id)), &mut edges);
+        }
+        let mut work = vec![Demand::Node];
+        while let Some(d) = work.pop() {
+            if flow.demanded.insert(d) {
+                work.extend(edges.get(&d).into_iter().flatten().copied());
+            }
+        }
+        flow
+    }
+
+    /// Records what `e` reads when its value goes to `ctx`, and the same for
+    /// everything under it.
+    fn edges(&self, owner: Owner, e: &typed::Expr, ctx: Option<Demand>, out: &mut HashMap<Demand, Vec<Demand>>) {
+        if let Some(d) = ctx {
+            let read = match &e.kind {
+                ExprKind::Local(l) => Some(Demand::Local(owner, *l)),
+                ExprKind::Const(c) => Some(Demand::Const(*c)),
+                ExprKind::CallFn { func, .. } | ExprKind::FnRef(func) => {
+                    let f = func.decl().or_ice("before monomorphization a callee is a declaration");
+                    self.params.contains_key(&f).then_some(Demand::Ret(f))
+                }
+                _ => None,
+            };
+            out.entry(d).or_default().extend(read);
+        }
+        let mut positions = self.positions(e).into_iter();
+        typed::children(e, &mut |child| {
+            let child_ctx = match positions.next().or_ice("`positions` names every child") {
+                Pos::Same => ctx,
+                Pos::At(d) => d,
+                // Any one of them demanded demands the first, which stands for
+                // the value they were all bound from.
+                Pos::Bound(locals) => locals.first().map(|first| {
+                    let first = Demand::Local(owner, *first);
+                    for l in locals.iter().skip(1) {
+                        out.entry(Demand::Local(owner, *l)).or_default().push(first);
+                    }
+                    first
+                }),
+            };
+            self.edges(owner, child, child_ctx, out);
+        });
+    }
+
+    /// Whether a child at `pos` reaches a node, given whether its parent's
+    /// value does.
+    fn reaches(&self, owner: Owner, pos: &Pos, sink: bool) -> bool {
+        match pos {
+            Pos::Same => sink,
+            Pos::At(d) => d.is_some_and(|d| self.demanded.contains(&d)),
+            Pos::Bound(locals) => locals.first().is_some_and(|l| self.demanded.contains(&Demand::Local(owner, *l))),
+        }
+    }
+
+    fn in_ui_node(&self, module: ModuleId) -> bool {
+        self.ui_node == Some(module)
+    }
+
+    /// Where each child of `e` sends its value, in [`typed::children`]'s
+    /// order.
+    fn positions(&self, e: &typed::Expr) -> Vec<Pos> {
+        let all = |pos: Pos, n: usize| vec![pos; n];
+        let built = |con: TyConId| {
+            if self.in_ui_node(self.tables.tycon(con).module) {
+                Pos::At(Some(Demand::Node))
+            } else {
+                Pos::Same
+            }
+        };
+        match &e.kind {
+            // A closure answers what its body does, which may be any of its
+            // arguments.
+            ExprKind::CallValue { args, .. } => std::iter::once(Pos::Same).chain(args.iter().map(|_| Pos::Same)).collect(),
+            ExprKind::CallFn { func, args } => {
+                let f = func.decl().or_ice("before monomorphization a callee is a declaration");
+                if self.in_ui_node(self.tables.fn_info(f).module) {
+                    return all(Pos::At(Some(Demand::Node)), args.len());
+                }
+                match self.params.get(&f) {
+                    Some(params) => params
+                        .iter()
+                        .map(|l| Pos::At(Some(Demand::Local(Owner::Fn(f), *l))))
+                        .chain(std::iter::repeat(Pos::At(None)))
+                        .take(args.len())
+                        .collect(),
+                    // A function this run doesn't read: what it answers may
+                    // be any of its arguments.
+                    None => all(Pos::Same, args.len()),
+                }
+            }
+            ExprKind::CallTrait { args, .. }
+            | ExprKind::Intrinsic { args, .. }
+            | ExprKind::Tuple(args)
+            | ExprKind::Array(args) => all(Pos::Same, args.len()),
+            ExprKind::StructLit { con, fields: args, .. } | ExprKind::EnumLit { con, args, .. } => {
+                all(built(*con), args.len())
+            }
+            ExprKind::StructUpdate { con, updates, .. } => {
+                std::iter::once(built(*con)).chain(updates.iter().map(|_| built(*con))).collect()
+            }
+            ExprKind::Field { .. } | ExprKind::TupleIndex { .. } | ExprKind::Try { .. } | ExprKind::Lambda { .. } => {
+                vec![Pos::Same]
+            }
+            ExprKind::Index { .. } => vec![Pos::Same, Pos::At(None)],
+            ExprKind::Block { stmts, tail } => stmts
+                .iter()
+                .map(|s| match s {
+                    typed::Stmt::Let { pattern, .. } => {
+                        let mut locals = Vec::new();
+                        pattern.binds(&mut locals);
+                        Pos::Bound(locals)
+                    }
+                    typed::Stmt::Expr(_) => Pos::At(None),
+                })
+                .chain(tail.iter().map(|_| Pos::Same))
+                .collect(),
+            ExprKind::If { .. } => vec![Pos::At(None), Pos::Same, Pos::Same],
+            ExprKind::Match { arms, .. } => {
+                let mut locals = Vec::new();
+                for arm in arms {
+                    arm.pattern.binds(&mut locals);
+                }
+                let mut out = vec![Pos::Bound(locals)];
+                for arm in arms {
+                    out.extend(arm.guard.iter().map(|_| Pos::At(None)));
+                    out.push(Pos::Same);
+                }
+                out
+            }
+            // Nothing else hands a child's value on: a condition, an
+            // operator, a template, a context.
+            _ => {
+                let mut out = Vec::new();
+                typed::children(e, &mut |_| out.push(Pos::At(None)));
+                out
+            }
+        }
     }
 }
 
@@ -2225,9 +2454,10 @@ pub struct Reached {
     ///
     /// True for a `Computed`, whose list is built per run and so cannot be
     /// extracted, and for any bare property left standing: extraction rewrites
-    /// a style it could evaluate *in place* into an `Extracted`, so a property
-    /// variant that survives to here is one the compiler could not fold and
-    /// which degrades to inline rather than failing.
+    /// a style a node is given and it could evaluate *in place* into an
+    /// `Extracted`, so a property variant that survives to here is one no node
+    /// is given, or one the compiler could not fold and which degrades to
+    /// inline rather than failing.
     ///
     /// An over-approximation is safe and an under-approximation is not, so the
     /// question is asked of the tags rather than of what a tag might hold: a
