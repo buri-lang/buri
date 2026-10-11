@@ -5,3 +5,8 @@ test "a whole float fits a 128-bit integer" {
     let x: F32 = 2.0;
     assert.isTrue(fitsI128(x));
 }
+
+test "a fraction does not" {
+    let x: F32 = 2.5;
+    assert.isFalse(fitsI128(x));
+}

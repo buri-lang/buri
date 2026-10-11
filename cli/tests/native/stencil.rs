@@ -853,12 +853,12 @@ export fn main(host: NativeHost): Result<(), Str> {
 ///
 /// Shapes stay unimplemented on purpose (`backend/stencil/mod.rs`'s header), and
 /// what has to be true of every one of them is that the build stops with a
-/// sentence. A float into a 128-bit integer is the one used here: neither
-/// backend has a single conversion for it (`intrinsic_keys::checked_kind`), so
-/// `missing_intrinsics` names its key before emission starts.
+/// sentence. A step whose context owns a reference count is the one used
+/// here: the emitter names it and stops (`stencil/counted_contexts_are_refused`
+/// is the same refusal through `buri test`).
 ///
-/// A derived `Hash` over a `[T]` used to be the shape here, and is not:
-/// `middle::lower` builds its loop now.
+/// A derived `Hash` over a `[T]` and a float into a 128-bit integer used to be
+/// the shape here, and are not: both compile now.
 #[test]
 fn a_refused_shape_is_a_diagnostic_and_not_an_object() {
     if !supported() {
@@ -868,17 +868,29 @@ fn a_refused_shape_is_a_diagnostic_and_not_an_object() {
         "refusal",
         r#"
 from "native" import { NativeHost };
-from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "platform/effect" import { Allocator, Region, Tasks };
+
+// An allocator that owns a `Str`, so a context binding it owns a count.
+struct Named {
+  name: Str,
+}
+
+impl Allocator for Named {
+  fn allocate(self, bytes: Int): Region {
+    Region(bytes + self.name.length())
+  }
+}
 
 export fn main(host: NativeHost): Result<(), Str> {
-  let x: F32 = 1.5;
-  let _ = io.println(host.stdout, "${x.toI128().isOk()}").ignore();
+  let ctx = context { Allocator: Named { name: "pool" }, Tasks: host.tasks };
+  let _ = tasks.parallel(ctx, [1, 2], fn(c, i, x) => x + i);
   .Ok(())
 }
 "#,
     );
     assert!(
-        messages.iter().any(|m| m.contains("number.F32.toI128")),
+        messages.iter().any(|m| m.contains("a step whose context owns a reference count")),
         "a refusal has to name the shape: {messages:?}"
     );
 }

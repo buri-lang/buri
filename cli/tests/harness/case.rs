@@ -1008,13 +1008,9 @@ pub const A_RUN_THAT_ASSERTED_NOTHING: &[&str] = &[
     // is what the golden is read for, and the case's other two goldens carry
     // four passing blocks and a failing one.
     "ui/the_graph_and_the_tree_run_natively",
-    // The same claim for a conversion neither native backend has a body for:
-    // the suite is refused by name before code generation.
-    "testing/a_conversion_with_no_native_body_is_named",
-    // And for a step and a timer whose context owns a count, which the debug
-    // backend refuses during code generation.
+    // The same claim for a step and a timer whose context owns a count, which
+    // the debug backend refuses during code generation.
     "stencil/counted_contexts_are_refused",
-    "middle/a_small_float_into_a_wide_integer",
     // A JSON input its schema refuses stops the generator, so the suite that
     // imports what it generates does not compile. That is the claim: `buri
     // test` reports the check the way `buri build` does, and the schema
