@@ -1169,27 +1169,25 @@ const STACK: usize = 2;
 
 /// Where a `main` returning `Result<(), Str>` keeps its answer.
 ///
-/// Read off `middle::layout` here so that `asm.rs` never learns a layout rule,
-/// and `None` where there is nothing to inspect — a `main` answering `()` is a
-/// success unconditionally, which is `llvm/emit.rs::entry_point`'s rule too.
-fn main_result(program: &ir::Program, tables: &Tables, idx: usize) -> Option<asm::MainResult> {
-    let f = program.funcs.get(idx)?;
-    // The language makes `main` answer `Result<(), Str>`.
-    let id = jit::agg_of(f.sig.rets.first().copied()?);
+/// Read off `middle::layout` here so that `asm.rs` never learns a layout rule.
+fn main_result(program: &ir::Program, tables: &Tables, idx: usize) -> asm::MainResult {
+    let f = program.funcs.get(idx).or_ice("`main` is one of its program's functions");
+    let ret = f.sig.rets.first().copied();
+    let id = jit::agg_of(ret.or_ice("the checker makes `main` answer `Result<(), Str>`"));
     let mut layouts = Layouts::new(tables);
     let l = layouts.of(program.type_info(id).ty);
     let (repr, variants) = jit::enum_of(&l);
     // `.Err(msg)`'s payload is a `Str` at the variant's first field.
     let payload = variants.get(1).and_then(|v| v.first()).copied().unwrap_or(0);
     let message = (payload, payload.saturating_add(8), payload.saturating_add(16));
-    Some(match repr {
+    match repr {
         EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => {
             asm::MainResult { tag: (0, tag.size()), niche: None, message }
         }
         EnumRepr::Niche { null_at } => {
             asm::MainResult { tag: (*null_at, 8), niche: Some(*null_at), message }
         }
-    })
+    }
 }
 
 #[cfg(test)]

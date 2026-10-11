@@ -80,6 +80,7 @@ use super::object::RelKind;
 use super::region::Target;
 use super::runtime;
 use crate::compiler::backend::task_thread;
+use crate::diagnostics::Invariant;
 
 /// The symbol the program's Buri stack is emitted under.
 ///
@@ -436,9 +437,8 @@ impl Asm {
 
     fn set_word(&mut self, at: u64, w: u32) {
         let o = at as usize;
-        if let Some(slot) = self.bytes.get_mut(o..o.saturating_add(4)) {
-            slot.copy_from_slice(&w.to_le_bytes());
-        }
+        let slot = self.bytes.get_mut(o..o.saturating_add(4));
+        slot.or_ice("a branch patches a word already emitted").copy_from_slice(&w.to_le_bytes());
     }
 
     pub fn finish(self) -> (Vec<u8>, Vec<(u64, RelKind, Target)>) {
@@ -679,9 +679,8 @@ impl X86 {
         // of the field itself.
         let delta = self.at() as i64 - (p.at as i64 + 4);
         let o = p.at as usize;
-        if let Some(slot) = self.bytes.get_mut(o..o.saturating_add(4)) {
-            slot.copy_from_slice(&(delta as i32).to_le_bytes());
-        }
+        let slot = self.bytes.get_mut(o..o.saturating_add(4));
+        slot.or_ice("a branch patches a field already emitted").copy_from_slice(&(delta as i32).to_le_bytes());
     }
 
     /// `call name`, with the displacement left to the linker.
@@ -735,9 +734,8 @@ impl X86 {
 ///
 /// Read off `middle::layout` by the caller and passed in, so that this file
 /// never learns a layout rule: it is told an offset and a width and it emits
-/// the load. `None` in place of the whole struct is a zero-sized return or a
-/// return that is not an enum — a `main` answering `()` — which is a success
-/// unconditionally.
+/// the load. The checker makes every `main` answer `Result<(), Str>`, so there
+/// always is one.
 #[derive(Clone)]
 pub struct MainResult {
     /// Byte offset of the tag within the return area, and its width in bytes.
@@ -872,7 +870,7 @@ impl Marking {
 pub fn program_entry(
     target: StencilTarget,
     callee: &str,
-    result: Option<MainResult>,
+    result: MainResult,
     marking: Marking,
 ) -> Shim {
     if target.is_arm64() {
@@ -881,7 +879,7 @@ pub fn program_entry(
     program_entry_x86_64(callee, result, marking).into_shim()
 }
 
-fn program_entry_arm64(callee: &str, result: Option<MainResult>, marking: Marking) -> Asm {
+fn program_entry_arm64(callee: &str, r: MainResult, marking: Marking) -> Asm {
     let mut a = Asm::new();
     a.stp_fp_lr();
     a.bl_symbol(runtime::ARGV_INIT);
@@ -896,14 +894,6 @@ fn program_entry_arm64(callee: &str, result: Option<MainResult>, marking: Markin
     // return and the loads below need no second `adrp` pair.
     a.adrp_add_symbol(X0, STACK_SYMBOL);
     a.bl_symbol(callee);
-
-    let Some(r) = result else {
-        a.bl_symbol(runtime::RETURNED);
-        a.mov_imm(X0, 0);
-        a.ldp_fp_lr();
-        a.ret();
-        return a;
-    };
 
     let ok = match r.niche {
         Some(null_at) => {
@@ -1024,7 +1014,7 @@ fn install_guard_x86_64(a: &mut X86) {
 /// the frame pointer in `rax` rather than in the register it was handed, so the
 /// return area is read off `rax` and the message's three words go straight into
 /// the argument registers instead of through a temporary.
-fn program_entry_x86_64(callee: &str, result: Option<MainResult>, marking: Marking) -> X86 {
+fn program_entry_x86_64(callee: &str, r: MainResult, marking: Marking) -> X86 {
     let mut a = X86::new();
     a.push_rbp();
     // `argc` and `argv` are already in `edi` and `rsi`, and `push` writes
@@ -1037,14 +1027,6 @@ fn program_entry_x86_64(callee: &str, result: Option<MainResult>, marking: Marki
 
     a.lea_symbol(RDI, STACK_SYMBOL);
     a.call_symbol(callee);
-
-    let Some(r) = result else {
-        a.call_symbol(runtime::RETURNED);
-        a.mov_imm(RAX, 0);
-        a.pop_rbp();
-        a.ret();
-        return a;
-    };
 
     let ok = match r.niche {
         Some(null_at) => {
@@ -1179,12 +1161,11 @@ fn thread_entry_arm64(callee: &str, ret_bytes: u32) -> Asm {
     a.str_off(X0, SP, DOOR_BASE);
     a.bl_symbol(callee);
 
-    if ret_words(ret_bytes) > 0 {
-        a.ldr(X1, SP, DOOR_OUT);
-        for w in 0..ret_words(ret_bytes) {
-            a.ldr(X9, X0, w * 8);
-            a.str_off(X9, X1, w * 8);
-        }
+    // Every root answers something: `main` a `Result`, a test its outcome.
+    a.ldr(X1, SP, DOOR_OUT);
+    for w in 0..ret_words(ret_bytes) {
+        a.ldr(X9, X0, w * 8);
+        a.str_off(X9, X1, w * 8);
     }
 
     a.ldr(X0, SP, DOOR_BASE);
@@ -1213,12 +1194,10 @@ fn thread_entry_x86_64(callee: &str, ret_bytes: u32) -> X86 {
     a.mov_reg(RDI, RAX);
     a.call_symbol(callee);
 
-    if ret_words(ret_bytes) > 0 {
-        a.ldr(RSI, RSP, DOOR_OUT);
-        for w in 0..ret_words(ret_bytes) {
-            a.ldr(RDX, RAX, w * 8);
-            a.str_off(RDX, RSI, w * 8);
-        }
+    a.ldr(RSI, RSP, DOOR_OUT);
+    for w in 0..ret_words(ret_bytes) {
+        a.ldr(RDX, RAX, w * 8);
+        a.str_off(RDX, RSI, w * 8);
     }
 
     a.ldr(RDI, RSP, DOOR_BASE);
@@ -1254,6 +1233,9 @@ fn arg_reg_sysv(pos: usize) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A `main` whose `Result` keeps its tag in the first word.
+    const TAGGED: MainResult = MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) };
 
     /// **The thread stack is the size the runtime maps.**
     ///
@@ -1310,23 +1292,20 @@ mod tests {
         assert_eq!(named, vec![task_thread::STACK_ACQUIRE, "body", task_thread::STACK_RELEASE]);
     }
 
-    /// **A wider return area is a longer copy, and no return area is none.**
+    /// **A wider return area is a longer copy.**
     ///
     /// The copy is the door's only variable part, so its length is the one
-    /// thing about a door that depends on the callee. Zero bytes never reads
-    /// `out`, which is what makes a null one legal.
+    /// thing about a door that depends on the callee.
     #[test]
     fn the_return_copy_is_as_wide_as_the_return_area() {
         assert_eq!(ret_words(0), 0);
         assert_eq!(ret_words(1), 1);
         assert_eq!(ret_words(8), 1);
         assert_eq!(ret_words(9), 2);
-        let empty = words(thread_entry_arm64("body", 0)).len();
         let one = words(thread_entry_arm64("body", 8)).len();
         let three = words(thread_entry_arm64("body", 24)).len();
-        // One `ldr` of `out`, then a load and a store per word.
-        assert_eq!(one, empty + 3);
-        assert_eq!(three, empty + 7);
+        // A load and a store per word.
+        assert_eq!(three, one + 4);
     }
 
     /// **The door reads the argument register `task_thread::OUT` names.**
@@ -1501,8 +1480,8 @@ mod tests {
     #[test]
     fn no_entry_point_here_declares_per_thread_frames() {
         let shims = [
-            program_entry(ARM64, "buri$main", None, Marking::None),
-            program_entry(X86_64, "buri$main", None, Marking::None),
+            program_entry(ARM64, "buri$main", TAGGED, Marking::None),
+            program_entry(X86_64, "buri$main", TAGGED, Marking::None),
             test_entry(ARM64, &[String::from("t0")], Marking::None),
             test_entry(X86_64, &[String::from("t0")], Marking::None),
         ];
@@ -1529,8 +1508,8 @@ mod tests {
         for target in [ARM64, X86_64] {
             let shims = [
                 (
-                    program_entry(target, "buri$main", None, Marking::None),
-                    program_entry(target, "buri$main", None, Marking::ValuesMayCrossTasks),
+                    program_entry(target, "buri$main", TAGGED, Marking::None),
+                    program_entry(target, "buri$main", TAGGED, Marking::ValuesMayCrossTasks),
                 ),
                 (
                     test_entry(target, &[String::from("t0")], Marking::None),
@@ -1571,27 +1550,6 @@ mod tests {
         assert_eq!(Marking::of(true), Marking::ValuesMayCrossTasks);
     }
 
-    /// A `main` answering `()` never inspects the return area, so it calls the
-    /// writer for no message and exits 0 on every path.
-    #[test]
-    fn a_main_without_a_result_never_reads_the_return_area() {
-        let a = program_entry(ARM64, "buri$main", None, Marking::None);
-        assert_eq!(
-            names(a),
-            vec![
-                ("Branch26", String::from(runtime::ARGV_INIT)),
-                ("Page21", String::from(STACK_SYMBOL)),
-                ("PageOff12", String::from(STACK_SYMBOL)),
-                ("Branch26", String::from("mprotect")),
-                ("Branch26", String::from("abort")),
-                ("Page21", String::from(STACK_SYMBOL)),
-                ("PageOff12", String::from(STACK_SYMBOL)),
-                ("Branch26", String::from("buri$main")),
-                ("Branch26", String::from(runtime::RETURNED)),
-            ]
-        );
-    }
-
     /// The error arm falls through and the success arm is the branch target, so
     /// `flush` appears twice and the writer only on the first of them.
     #[test]
@@ -1599,7 +1557,7 @@ mod tests {
         let a = program_entry(
             ARM64,
             "buri$main",
-            Some(MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) }),
+            MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) },
             Marking::None,
         );
         assert_eq!(
@@ -1627,12 +1585,12 @@ mod tests {
     fn the_niche_test_is_the_opposite_of_the_tag_test() {
         let niche = program_entry_arm64(
             "m",
-            Some(MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) }),
+            MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) },
             Marking::None,
         );
         let tagged = program_entry_arm64(
             "m",
-            Some(MainResult { tag: (0, 8), niche: None, message: (8, 16, 24) }),
+            MainResult { tag: (0, 8), niche: None, message: (8, 16, 24) },
             Marking::None,
         );
         // The only compare-and-branch in either shim is the one being asked
@@ -1816,9 +1774,8 @@ mod tests {
     #[test]
     fn the_two_machines_shims_call_the_same_symbols_in_the_same_order() {
         for r in [
-            None,
-            Some(MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) }),
-            Some(MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) }),
+            MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) },
+            MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) },
         ] {
             let arm = names(program_entry(ARM64, "m", r.clone(), Marking::None));
             let x86 = names(program_entry(X86_64, "m", r, Marking::None));
@@ -1860,11 +1817,10 @@ mod tests {
     #[test]
     fn the_x86_64_shim_keeps_the_machine_stack_aligned() {
         for bytes in [
-            program_entry(X86_64, "m", None, Marking::None).bytes,
             program_entry(
                 X86_64,
                 "m",
-                Some(MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) }),
+                MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) },
                 Marking::None,
             )
             .bytes,
@@ -1906,13 +1862,13 @@ mod tests {
         let niche = program_entry(
             X86_64,
             "m",
-            Some(MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) }),
+            MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) },
             Marking::None,
         );
         let tagged = program_entry(
             X86_64,
             "m",
-            Some(MainResult { tag: (0, 8), niche: None, message: (8, 16, 24) }),
+            MainResult { tag: (0, 8), niche: None, message: (8, 16, 24) },
             Marking::None,
         );
         assert_eq!(branch(niche), Some(vec![0x0f, 0x85]));
