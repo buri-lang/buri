@@ -1,8 +1,9 @@
 name: Memcheck
 
-# Compiled Buri programs and the native runtime under Valgrind's memcheck, twice
-# a day (design/native/MEMORY.md §8, cli/tests/README.md "Valgrind"). Each
-# distinct error becomes one GitHub issue, labelled `planned` and `urgent`.
+# Compiled Buri programs and the native runtime under Valgrind's memcheck, on
+# every commit to main and every pull request, the way ci.yml runs
+# (design/native/MEMORY.md §8, cli/tests/README.md "Valgrind"). Each distinct
+# error becomes one GitHub issue, labelled `planned` and `urgent`.
 #
 # * **The workload** is the native conformance set built three ways, the
 #   backend-agreement and at-scale rows on both native backends, and the
@@ -16,19 +17,19 @@ name: Memcheck
 #   a program's exit status, so a failed test is the test's, and `failed`
 #   drafts it from the step's output.
 # * **Issues are filed from `main` only.** A run on any other ref prints the
-#   issues it would have filed.
-#
-# The schedule fires only from the default branch, at minute 41, away from the
-# top of the hour when every other schedule fires.
+#   issues it would have filed. One run per ref at a time, so two runs on main
+#   never file the same signature twice.
 
 on:
-  schedule:
-    - cron: "41 3,15 * * *"
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
+# One run per ref: a push that supersedes another cancels it.
 concurrency:
   group: memcheck-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
