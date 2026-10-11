@@ -1643,6 +1643,10 @@ fn equality_test(e: &Expr) -> Option<(&Expr, &Expr)> {
 /// of a test it recognised, and a test it recognised has at least one.
 const LABELS_NONEMPTY: &str = "case_labels answers `Some` only with a label in hand";
 
+/// Why a chain of at least [`MIN_SWITCH_CASES`] arms has a discriminant: the
+/// first `case_labels` that answered set it.
+const DISC_SET: &str = "the first arm's labels name the discriminant";
+
 /// The literals one arm accepts: `x === 1` gives one, `x === 1 || x === 2`
 /// gives two, all against the same discriminant.
 fn case_labels<'a>(test: &'a Expr, disc: &mut Option<&'a Expr>) -> Option<Vec<&'a Expr>> {
@@ -1684,7 +1688,7 @@ fn cond_chain_to_switch(s: Stmt) -> Stmt {
     if arms.len() < MIN_SWITCH_CASES {
         return s;
     }
-    let Some(disc) = disc else { return s };
+    let disc = disc.or_ice(DISC_SET);
     if !distinct(&arms) {
         return s;
     }
@@ -1783,7 +1787,7 @@ fn to_switch(s: Stmt) -> Stmt {
     if arms.len() < MIN_SWITCH_CASES {
         return s;
     }
-    let Some(disc) = disc else { return s };
+    let disc = disc.or_ice(DISC_SET);
 
     if !distinct(&arms) {
         return s;
@@ -1826,8 +1830,9 @@ fn merge_equal_cases(
         let same_as_next = printed
             .get(i.saturating_add(1))
             .is_some_and(|next| printed.get(i).is_some_and(|here| next == here));
-        let shareable = !body.is_empty() && ends_in_jump(&body) && same_as_next;
-        if shareable && label.is_some() {
+        // Every body is `switch_body`'s, which ends in a jump, and the default
+        // comes last, so a body the next one repeats is a labelled one.
+        if same_as_next {
             out.push((label, Vec::new()));
         } else {
             out.push((label, body));
