@@ -352,7 +352,7 @@ export fn mkListy(xs: [Int]): Listy {
 }
 
 export fn mkHollow(): Hollow {
-    Hollow { }
+    Hollow {}
 }
 
 /// `0.0 / 0.0`, because there is no NaN literal and a folded constant would

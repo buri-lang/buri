@@ -1628,7 +1628,7 @@ test "MY writeFile decides what a write does" {
     // call `loadText`, because this context binds no `FileSystemRead` at all.
     let ctx = context {
         Allocator: alloc(),
-        FileSystemWrite: RefusingFs { },
+        FileSystemWrite: RefusingFs {},
     };
     assert.equal(assert.err(saveText(ctx, "known.txt", "nope")), .PermissionDenied);
 }
@@ -1791,7 +1791,7 @@ test "one context binds Listen, Sockets and Network and every method is callable
         Allocator: alloc(),
         Listen: OneShotListen { bindsTo: "127.0.0.1" },
         Network: TeapotNet { body: [] },
-        Sockets: QuietSockets { },
+        Sockets: QuietSockets {},
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
     // 418 back from the fake network, and positive because the fake server bound
@@ -1808,7 +1808,7 @@ test "the same method names resolve on the context value itself" {
         Allocator: alloc(),
         Listen: OneShotListen { bindsTo: "127.0.0.1" },
         Network: TeapotNet { body: [] },
-        Sockets: QuietSockets { },
+        Sockets: QuietSockets {},
         Stdout: stdout(),
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
@@ -1920,7 +1920,7 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
     // a key as 5, a drain deadline as 6 and a socket buffer as 7.
     let ctx = context {
         Allocator: alloc(),
-        Listen: PlanListen { },
+        Listen: PlanListen {},
         Stdout: stdout(),
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
@@ -2134,7 +2134,7 @@ test "a server that will not bind is the Listen answer and not the network's" {
         Allocator: alloc(),
         Listen: OneShotListen { bindsTo: "" },
         Network: TeapotNet { body: [] },
-        Sockets: QuietSockets { },
+        Sockets: QuietSockets {},
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
     assert.equal(serveOnce(ctx, "http://example.com/ping"), 0 - 418);
@@ -2224,7 +2224,7 @@ test "a context binding two effects reaches both through bounds" {
         Allocator: alloc(),
         Listen: OneShotListen { bindsTo: "127.0.0.1" },
         Network: TeapotNet { body: [] },
-        Sockets: QuietSockets { },
+        Sockets: QuietSockets {},
         Tasks: SerialTasks { label: "serial", bias: 0 },
     };
     assert.equal(serveOnce(ctx, "http://example.com/ping"), 418);
@@ -2531,7 +2531,7 @@ test "an upgrade runs onOpen and then onClose, and the close carries a reason" {
     let ctx = context {
         Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 9, code: 1000 },
-        Sockets: QuietSockets { },
+        Sockets: QuietSockets {},
         Stdout: sink,
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
@@ -2562,7 +2562,7 @@ test "what a socket's onClose answered is what run answers" {
     let ctx = context {
         Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 9, code: 1000 },
-        Sockets: QuietSockets { },
+        Sockets: QuietSockets {},
         Stdout: sink,
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
@@ -2593,7 +2593,7 @@ test "a server that never upgraded a socket has no state to answer with" {
     let ctx = context {
         Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 0, code: 1000 },
-        Sockets: QuietSockets { },
+        Sockets: QuietSockets {},
         Stdout: sink,
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
@@ -2627,7 +2627,7 @@ fn closedWith(code: Int): Str {
     let ctx = context {
         Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 9, code: code },
-        Sockets: QuietSockets { },
+        Sockets: QuietSockets {},
         Stdout: sink,
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
@@ -2675,7 +2675,7 @@ test "a request that is not an upgrade reaches onRequest on a socket server" {
     let ctx = context {
         Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 0, code: 1000 },
-        Sockets: QuietSockets { },
+        Sockets: QuietSockets {},
         Stdout: sink,
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
@@ -2709,7 +2709,7 @@ test "an upgrade to a path the hooks do not name is an ordinary request" {
     let ctx = context {
         Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 9, code: 1000 },
-        Sockets: QuietSockets { },
+        Sockets: QuietSockets {},
         Stdout: sink,
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
@@ -2739,7 +2739,7 @@ test "the path a WebSocket names is matched exactly, with no trailing-slash forg
     let ctx = context {
         Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 9, code: 1000 },
-        Sockets: QuietSockets { },
+        Sockets: QuietSockets {},
         Stdout: sink,
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
@@ -2768,7 +2768,7 @@ test "a server with no hooks never upgrades, so an upgrade is an ordinary reques
     let ctx = context {
         Allocator: alloc(),
         Listen: Scripted { sink: sink, socket: 9, code: 1000 },
-        Sockets: QuietSockets { },
+        Sockets: QuietSockets {},
         Stdout: sink,
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
@@ -2892,7 +2892,7 @@ test "a socket handle a program wrote for itself is one that has already gone" {
     // observe the drop, and that is the point: the calls are total.
     let ctx = context {
         Allocator: alloc(),
-        Sockets: QuietSockets { },
+        Sockets: QuietSockets {},
     };
     let forged = server.Socket(4242);
     let _text = forged.send(ctx, .Text("nobody is listening"));

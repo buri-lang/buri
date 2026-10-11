@@ -75,9 +75,9 @@ test "a struct with nothing in it round-trips" {
     };
     let back: Result<Hollow, DecodeError> = json.decode(
         ctx,
-        json.encode(ctx, Hollow { }),
+        json.encode(ctx, Hollow {}),
     );
-    assert.equal(back, .Ok(Hollow { }));
+    assert.equal(back, .Ok(Hollow {}));
 }
 
 test "a payload-free enum round-trips" {

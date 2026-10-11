@@ -1,0 +1,24 @@
+error: this `if` branch is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:12:4
+   |
+12 |    else { 2 }
+   |    ^^^^
+   |
+ --> main.buri:9:15
+  |
+9 |   if (n == 0) {
+  |               ^ opened here
+  |
+  = fix: write `}` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:14:1
+   |
+14 | 
+   | ^
+   |
+ --> main.buri:8:26
+  |
+8 | export fn g(n: Int): Int {
+  |                          ^ opened here
+  |
+  = fix: write `}` here

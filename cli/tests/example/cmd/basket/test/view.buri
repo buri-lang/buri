@@ -106,7 +106,7 @@ test "an empty basket says so, and puts no list on the page" {
         Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Network: Recorded { },
+        Network: Recorded {},
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     assert.isTrue(seen.text().contains("Nothing in the basket"));
@@ -120,7 +120,7 @@ test "typing a line and submitting the form adds it" {
         Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Network: Recorded { },
+        Network: Recorded {},
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
 
@@ -143,7 +143,7 @@ test "the Add button does what submitting the form does" {
         Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Network: Recorded { },
+        Network: Recorded {},
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     let _ = seen.fill("Item", "books");
@@ -158,7 +158,7 @@ test "an amount nobody can read is quoted back, and nothing is added" {
         Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Network: Recorded { },
+        Network: Recorded {},
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     let _ = seen.fill("Item", "coffee");
@@ -177,7 +177,7 @@ test "there is no live region at all while there is nothing to say" {
         Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Network: Recorded { },
+        Network: Recorded {},
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     assert.isFalse(seen.markup().contains("role=\"alert\""));
@@ -190,7 +190,7 @@ test "settling a line moves the row rather than rebuilding it" {
         Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Network: Recorded { },
+        Network: Recorded {},
     };
     let state = newState(ctx);
     let seen = render(ctx, page(ctx, state));
@@ -215,7 +215,7 @@ test "what changes about a settled row is its class and nothing else" {
         Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Network: Recorded { },
+        Network: Recorded {},
     };
     let state = newState(ctx);
     let seen = render(ctx, page(ctx, state));
@@ -241,7 +241,7 @@ test "the running total is the sum of the lines, announced politely" {
         Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Network: Recorded { },
+        Network: Recorded {},
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     assert.isTrue(seen.text().contains("$0.00"));
@@ -258,7 +258,7 @@ test "the meter's width follows what is settled" {
         Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Network: Recorded { },
+        Network: Recorded {},
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     let _ = seen.press("Load the ledger");
@@ -290,7 +290,7 @@ test "a response that is not a 200 is reported as the number it was" {
         Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Network: Broken { },
+        Network: Broken {},
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     let _ = seen.press("Load the ledger");
@@ -305,7 +305,7 @@ test "dark mode rewrites the values and changes no class" {
         Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
-        Network: Recorded { },
+        Network: Recorded {},
     };
     let state = newState(ctx);
     // Exactly what main.buri hands to `mount`: one theme per package whose

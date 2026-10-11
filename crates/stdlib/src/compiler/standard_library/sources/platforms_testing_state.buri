@@ -84,7 +84,7 @@ export fn read<T>(s: State<T>): T {
 /// returns. Stops the program when called inside an `update` of `s` itself.
 export fn update<T, A>(s: State<T>, f: fn(StateAllocator, T) => (T, A)): A {
     let held: T = stateTake(s.0);
-    let (next, answer) = f(StateAllocator { }, held);
+    let (next, answer) = f(StateAllocator {}, held);
     let _ = statePut(s.0, alloc.copyAcross(next));
     answer
 }
