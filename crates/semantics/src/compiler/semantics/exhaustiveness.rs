@@ -848,8 +848,7 @@ impl<'a> Ctx<'a> {
     /// error path either way, and it is what lets the diagnostic point at the
     /// pattern that subsumes this one instead of waving at everything above.
     ///
-    /// `None` when no prefix covers it, which the caller cannot reach: it asks
-    /// only about an alternative it has already found useless.
+    /// `None` when it is useless even against no rows: it matches no value.
     fn covered_by(
         &self,
         rows: &Rows<'_>,
@@ -1156,14 +1155,16 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         } else if !recovered {
             for (at, rows, before) in dead {
                 let culprit = ctx.covered_by(&covering.rows, before, &rows, &types);
-                let same_arm = culprit.is_some_and(|i| i >= base);
-                let by = if same_arm {
-                    "an earlier alternative of this arm"
-                } else {
-                    "an arm above"
+                let why = match culprit {
+                    // Nothing covers it because it matches no value, as
+                    // `.Some(_)` on an `Option` of an empty enum.
+                    None => "no value fits it, because a type it matches has no values",
+                    Some(i) if i >= base => {
+                        "an earlier alternative of this arm already covers everything it matches"
+                    }
+                    Some(_) => "an arm above already covers everything it matches",
                 };
-                let mut d = Diagnostic::templated("unreachable-alternative", at)
-                    .with_bind("covered_by", by);
+                let mut d = Diagnostic::templated("unreachable-alternative", at).with_bind("why", why);
                 if let Some(span) = culprit.and_then(|i| origin.get(i)) {
                     d = d.with_secondary_span(*span, "already covered here");
                 }
