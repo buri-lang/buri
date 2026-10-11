@@ -472,7 +472,14 @@ impl<'a, 'b> Infer<'a, 'b> {
             V::Match { scrutinee, arms, span } => {
                 self.check_match(scrutinee, arms, span, expected)
             }
-            V::ContextExpr { body, span } => self.check_context_body(body, span),
+            V::ContextExpr { body, span } => {
+                // A `context` declaration's placement is resolution's to
+                // report, so only the literal is checked here.
+                if !self.may_build_context() {
+                    self.templated("misplaced-context", span);
+                }
+                self.check_context_body(body, span)
+            }
             V::Lambda { params, ret, body, span } => {
                 self.check_lambda(params, ret, body, span, expected)
             }
@@ -3293,10 +3300,6 @@ impl<'a, 'b> Infer<'a, 'b> {
         body: CtxBodyId,
         span: Span,
     ) -> typed::Expr {
-        if !self.may_build_context() {
-            self.templated("misplaced-context", span);
-        }
-
         let mut bindings: Vec<(TraitId, typed::Expr)> = Vec::new();
         // The effects bound explicitly here, as opposed to inherited from a
         // spread.

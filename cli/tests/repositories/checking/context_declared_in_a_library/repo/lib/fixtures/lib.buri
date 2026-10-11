@@ -1,0 +1,8 @@
+// A named context in a library's production code, where nothing may build
+// one. Moved under `testing/`, it compiles.
+
+export fn width(): Int {
+    80
+}
+
+context Defaults {}
