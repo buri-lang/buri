@@ -3,11 +3,11 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
-total 14495 16176 89.61%
+total 14518 16192 89.66%
 area cli/build 1616 1633 98.96%
 area cli/documentation 256 769 33.29%
 area cli/format 85 98 86.73%
-area cli/language_server 1151 1472 78.19%
+area cli/language_server 1150 1464 78.55%
 area cli/lint 588 708 83.05%
 area cli/other 500 594 84.18%
 area cli/run 38 56 67.86%
@@ -21,7 +21,7 @@ area crates/js 1022 1062 96.23%
 area crates/llvm 610 616 99.03%
 area crates/middle 1904 2006 94.92%
 area crates/project 1341 1358 98.75%
-area crates/semantics 1972 2018 97.72%
+area crates/semantics 1996 2042 97.75%
 area crates/stdlib 12 12 100.00%
 area crates/stencil 1235 1298 95.15%
 area crates/syntax 1209 1234 97.97%
@@ -93,7 +93,7 @@ area crates/syntax 1209 1234 97.97%
 16 20 cli/src/language_server/rename.rs
 41 46 cli/src/language_server/schema.rs
 48 58 cli/src/language_server/semantic_tokens.rs
-25 56 cli/src/language_server/signature_help.rs
+24 48 cli/src/language_server/signature_help.rs
 92 110 cli/src/language_server/state.rs
 18 28 cli/src/language_server/sweep.rs
 153 192 cli/src/language_server/symbols.rs
@@ -169,7 +169,7 @@ area crates/syntax 1209 1234 97.97%
 54 54 crates/semantics/src/compiler/semantics/consteval.rs
 34 34 crates/semantics/src/compiler/semantics/crossing.rs
 13 16 crates/semantics/src/compiler/semantics/decorative.rs
-98 98 crates/semantics/src/compiler/semantics/exhaustiveness.rs
+108 108 crates/semantics/src/compiler/semantics/exhaustiveness.rs
 417 422 crates/semantics/src/compiler/semantics/expressions.rs
 53 54 crates/semantics/src/compiler/semantics/icons.rs
 236 242 crates/semantics/src/compiler/semantics/inference.rs
@@ -178,9 +178,9 @@ area crates/syntax 1209 1234 97.97%
 3 4 crates/semantics/src/compiler/semantics/name.rs
 74 74 crates/semantics/src/compiler/semantics/patterns.rs
 28 28 crates/semantics/src/compiler/semantics/reactive.rs
-414 422 crates/semantics/src/compiler/semantics/resolve.rs
+410 418 crates/semantics/src/compiler/semantics/resolve.rs
 139 140 crates/semantics/src/compiler/semantics/resolve/platforms.rs
-204 204 crates/semantics/src/compiler/semantics/styles.rs
+222 222 crates/semantics/src/compiler/semantics/styles.rs
 22 26 crates/semantics/src/compiler/semantics/typed.rs
 117 120 crates/semantics/src/compiler/semantics/types.rs
 0 0 crates/semantics/src/compiler/standard_library.rs
