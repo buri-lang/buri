@@ -448,7 +448,7 @@ mod os {
         // SAFETY: `info` is larger than the 104-byte `siginfo_t`.
         let status = unsafe { waitid(P_PID, pid, &mut info, WEXITED | WNOWAIT) };
         // The caller has not reaped `pid`, and `signal` restarts an interrupted wait.
-        (status == 0).then_some(()).or_ice("`reaped` waits on a child nobody has reaped");
+        crate::diagnostics::invariant(status == 0, "`reaped` waits on a child nobody has reaped");
         let (info, ns) = rusage(i32::try_from(pid).ok()?);
         let at = |i: usize| info.get(i).copied().unwrap_or(0);
         Some((at(31), ns(at(2) + at(3))))
