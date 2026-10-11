@@ -4,8 +4,8 @@
 //! One program, `started.buri`, run natively under the heap check and on the
 //! JavaScript backend, and both must print the same lines. Its first argument
 //! picks a scenario. Nothing in it or here sleeps to sequence anything: children
-//! say they are ready through a FIFO, and the program lets them go through
-//! another.
+//! say they are ready through a file, and the program lets them go through a
+//! FIFO.
 //!
 //! The program's own streams go to files rather than pipes, so a child a failed
 //! run left behind cannot hold this harness open.

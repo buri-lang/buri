@@ -2,8 +2,8 @@
 //
 // The first argument picks a scenario and the second is a directory this run
 // owns. Nothing here sleeps to wait for anything: a child says it is ready by
-// writing its pid into a FIFO, which the program's read blocks on, and a child
-// that should exit on cue reads a FIFO the program writes.
+// writing its pid into a file, which the program reads until the line is
+// whole, and a child that should exit on cue reads a FIFO the program writes.
 
 from "core/bytes" import * as bytes;
 from "core/env" import * as env;
@@ -83,7 +83,7 @@ fn fifo<C: Allocator + Environment + FileSystemRead + Spawn>(
     if (made.code == 0) { .Ok(at) } else { .Err("mkfifo failed") }
 }
 
-/// A child that writes its pid into the FIFO `ready`, then becomes `sleep`.
+/// A child that writes its pid into the file `ready`, then becomes `sleep`.
 /// `prelude` runs first, in the shell. Its streams go to a file, so a sleeper
 /// left behind by a failure holds no pipe of the harness's open.
 fn sleeper<C: Allocator + Environment + FileSystemRead>(
@@ -97,7 +97,16 @@ fn sleeper<C: Allocator + Environment + FileSystemRead>(
     .Ok(Command { ..command, stdout: .Some(log), stderr: .Some(log) })
 }
 
-/// Starts `command` and blocks until it has written its pid into `ready`.
+/// The line a child wrote into `ready`, read until all of it is there.
+///
+/// A plain file and not a FIFO: under load, macOS now and then loses the end
+/// of a FIFO whose writer has come and gone, and a read to it never returns.
+fn untilReady<C: Allocator + FileSystemRead>(ctx: C, ready: Path): Str {
+    let text = fs.readText(ctx, ready).withDefault("");
+    if (text.endsWith("\n")) { text } else { untilReady(ctx, ready) }
+}
+
+/// Starts `command` and waits until it has written its pid into `ready`.
 fn started<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
     ctx: C,
     name: Str,
@@ -105,7 +114,7 @@ fn started<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
     ready: Path,
 ): Result<Child, Str> {
     let child = process.start(ctx, command).mapErr(fn(e) => why(e))?;
-    let said = fs.readText(ctx, ready).mapErr(fn(e) => why(e))?;
+    let said = untilReady(ctx, ready);
     let matches = said.trim().toInt() == .Some(child.id());
     let _ = say(ctx, "${name} started, id matches ${matches}")?;
     .Ok(child)
@@ -205,9 +214,9 @@ fn harness<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
     ctx: C,
     dir: Path,
 ): Result<(), Str> {
-    let readyA = fifo(ctx, dir, "a")?;
-    let readyB = fifo(ctx, dir, "b")?;
-    let readyC = fifo(ctx, dir, "c")?;
+    let readyA = dir.join(ctx, "a");
+    let readyB = dir.join(ctx, "b");
+    let readyC = dir.join(ctx, "c");
     let a = started(ctx, "a", sleeper(ctx, readyA, "")?, readyA)?;
     let b = started(ctx, "b", sleeper(ctx, readyB, "")?, readyB)?;
     let c = started(ctx, "c", sleeper(ctx, readyC, "")?, readyC)?;
@@ -233,7 +242,7 @@ fn harness<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
     let _ = waited(ctx, "b", b)?;
     let _ = tried(ctx, "c", c)?;
 
-    let againReady = fifo(ctx, dir, "a2")?;
+    let againReady = dir.join(ctx, "a2");
     let again = started(ctx, "a again", sleeper(ctx, againReady, "")?, againReady)?;
     let _ = say(ctx, "a again has a new handle ${again != a}")?;
     let _ = tried(ctx, "a again", again)?;
@@ -255,7 +264,7 @@ fn stubborn<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
     ctx: C,
     dir: Path,
 ): Result<(), Str> {
-    let ready = fifo(ctx, dir, "ready")?;
+    let ready = dir.join(ctx, "ready");
     let child = started(ctx, "stubborn", sleeper(ctx, ready, "trap '' TERM;")?, ready)?;
     let _ = signalled(ctx, "stubborn", child, .Terminate)?;
     let _ = tried(ctx, "stubborn", child)?;
@@ -273,11 +282,11 @@ fn stops<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
     if (count == 0) {
         say(ctx, "every one stopped")
     } else {
-        let ready = fifo(ctx, dir, str.format(ctx, "s${count}"))?;
+        let ready = dir.join(ctx, str.format(ctx, "s${count}"));
         let child = process
             .start(ctx, sleeper(ctx, ready, "")?)
             .mapErr(fn(e) => why(e))?;
-        let _ = fs.readText(ctx, ready).mapErr(fn(e) => why(e))?;
+        let _ = untilReady(ctx, ready);
         let _ = untilSleeping(ctx, child)?;
         let _ = child.signal(ctx, .Stop).mapErr(fn(e) => why(e))?;
         let _ = untilStopped(ctx, child, true)?;
@@ -292,7 +301,7 @@ fn paused<C: Allocator + Environment + FileSystemRead + FileSystemWrite + Spawn 
     ctx: C,
     dir: Path,
 ): Result<(), Str> {
-    let ready = fifo(ctx, dir, "ready")?;
+    let ready = dir.join(ctx, "ready");
     let go = fifo(ctx, dir, "go")?;
     let script = "echo $$ > \"$0\"; read line < \"$1\"; exit 5";
     let command = process.command(found(ctx, "sh")?, [
@@ -507,9 +516,9 @@ fn outlives<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
     ctx: C,
     dir: Path,
 ): Result<(), Str> {
-    let ready = fifo(ctx, dir, "ready")?;
+    let ready = dir.join(ctx, "ready");
     let child = process.start(ctx, sleeper(ctx, ready, "")?).mapErr(fn(e) => why(e))?;
-    let _ = fs.readText(ctx, ready).mapErr(fn(e) => why(e))?;
+    let _ = untilReady(ctx, ready);
     say(ctx, "pid ${child.id()}")
 }
 
