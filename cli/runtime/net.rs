@@ -4069,6 +4069,9 @@ mod client {
                     ));
                 }
                 Ok(n) => buffer.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+                // Linux doesn't restart a read with a deadline after a stop and
+                // continue. The server did nothing, so read again.
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(e) => return Err(ServeErr::io(&e, "reading the handshake response")),
             }
         };
