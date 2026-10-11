@@ -278,6 +278,11 @@ mod hand_written_impls;
 // backend built in and on JavaScript.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod lent_try;
+// A tail-recursive function returning a value on one path and calling itself
+// on several others, under the heap check, on every backend built in and on
+// JavaScript.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod tail_jumps;
 // A region `ui.rebuild` keys on a heap value read from a signal, rebuilt by a
 // fill, under the heap check, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
