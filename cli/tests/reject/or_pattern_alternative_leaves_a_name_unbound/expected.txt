@@ -1,0 +1,12 @@
+error: or-pattern alternatives must bind the same names [or-pattern-bindings]
+  --> cmd/or_pattern_alternative_leaves_a_name_unbound/main.buri:12:19
+   |
+12 |     .Rect(w, h) | .Frame(w) => h,
+   |                   ^^^^^^^^^
+   |
+   = this alternative does not bind `h`
+   = fix: bind the same names in every alternative, or split this into separate arms
+
+     An arm has one body, and it can use only the names every alternative binds,
+     at the same type.
+

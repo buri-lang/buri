@@ -342,6 +342,10 @@ pub(crate) struct OrScope {
     /// Bindings made by the first alternative, which the rest reuse so that a
     /// name bound by both is one local.
     pub(crate) first: Option<HashMap<String, LocalId>>,
+    /// The names the alternative being checked right now binds itself.
+    /// `current` starts each alternative holding the first one's, so it can't
+    /// say which names this one left out.
+    pub(crate) named: Vec<String>,
 }
 
 pub struct Infer<'a, 'b> {
