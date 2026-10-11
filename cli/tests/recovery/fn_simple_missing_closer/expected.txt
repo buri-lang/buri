@@ -1,4 +1,5 @@
-error [unexpected-token] 2:15-2:16
-message: expected an identifier, found `:`
-fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error [unclosed-delimiter] 2:15-2:16
+message: this parameter list is missing its closing `)`
+fix: write `)` here
+related: 2:14-2:15 opened here
 
