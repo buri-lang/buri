@@ -1,0 +1,29 @@
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui, Watch };
+from "platform/effect/testing" import { headless, observer, recorder };
+from "ui/signal" import { signal, watch };
+
+// No fields, and never equal to itself.
+struct Pulse {}
+
+impl Equal for Pulse {
+    fn equal(self, other: Pulse): Bool {
+        false
+    }
+}
+
+test "a write of a value with no bytes still asks its Equal" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let cell = signal(ctx, Pulse {});
+    let seen = recorder();
+    watch(ctx, fn(s) => {
+        let _ = cell.get(s);
+        let _ = seen.note(1);
+    });
+    cell.set(ctx, Pulse {});
+    cell.set(ctx, Pulse {});
+    assert.equal(seen.noted(), [1, 1, 1]);
+}
