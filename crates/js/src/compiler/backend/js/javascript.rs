@@ -299,8 +299,8 @@ impl Expr {
     /// time costs a load and observes nothing.
     pub fn is_duplicable(&self) -> bool {
         match self {
-            Expr::Member { obj, .. } => obj.is_duplicable(),
-            Expr::Index { obj, index } => obj.is_duplicable() && index.is_duplicable(),
+            // Every index the backend writes is a number or a loop counter.
+            Expr::Member { obj, .. } | Expr::Index { obj, .. } => obj.is_duplicable(),
             _ => self.is_pure_literal(),
         }
     }
