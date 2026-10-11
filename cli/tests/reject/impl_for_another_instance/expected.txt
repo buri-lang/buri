@@ -5,7 +5,7 @@ error: `Holder` cannot derive `Show`: `inner` has type `Box<Str>` [underivable-f
    | ^^^^^^^^^^^^^^^^^^^^^^^
    |
    = a derived implementation is a fold over the type's components, and `Box<Str>` does not satisfy `Show`
-   = fix: make `Box<Str>` satisfy `Show` first — `derive Show for Box<Str>;` in its own module, or an `impl` — or drop `Show` from this `derive`
+   = fix: the `impl Show` is for `Box<I64>` only: widen it to cover `Box<Str>`, or drop `Show` from this `derive`
 
      Make the component's type satisfy the trait first, with a derive in its own
      module or an impl, or drop the trait from this derive.

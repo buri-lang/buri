@@ -3148,6 +3148,21 @@ impl<'a> Checker<'a> {
                 let lacking_ty = self.lacking(&ty, tr, con);
                 let lacking = show(&self.tables, None, generics, &lacking_ty);
                 let home = self.toolchain_home(&lacking_ty, tr);
+                // A hand-written `impl` for another instance, as `Box<Int>` for a
+                // `Box<Str>` field: a second `impl` or a `derive` would clash with it.
+                let other_instance = match lacking_ty.kind() {
+                    TyKind::Con(id, _) => self.tables.impls.get(&(tr, *id)).filter(|imp| {
+                        !imp.is_derived()
+                            && !crate::compiler::semantics::inference::head_covers(
+                                &imp.head,
+                                &lacking_ty,
+                                imp.generics.len(),
+                                true,
+                            )
+                    }),
+                    _ => None,
+                }
+                .map(|imp| show(&self.tables, None, &imp.generics, &imp.head));
                 self.templated("underivable-field", span)
                     .bind("type", c)
                     .bind("trait", t.clone())
@@ -3157,6 +3172,11 @@ impl<'a> Checker<'a> {
                     format!(
                         "drop `{t}` from this `derive`: `{lacking}` comes from `{home}`, which \
                          leaves it out, and `buri docs {home}` says what to use instead"
+                    )
+                } else if let Some(head) = other_instance {
+                    format!(
+                        "the `impl {t}` is for `{head}` only: widen it to cover `{lacking}`, or \
+                         drop `{t}` from this `derive`"
                     )
                 } else if crate::compiler::semantics::types::is_derive_only(&t) {
                     format!(
