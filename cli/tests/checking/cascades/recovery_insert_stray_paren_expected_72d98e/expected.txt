@@ -1,0 +1,27 @@
+error: a tuple type has two elements or more [tuple-element-count]
+ --> main.buri:1:15
+  |
+1 | fn nested(t: ((Int@ , Int), Int)): Int {
+  |               ^^^^^^^^^^^^
+  |
+  = `(x)` is grouping and `()` is unit
+  = fix: drop the parentheses for one element, or write `()` for none
+error: this tuple type is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:1:19
+  |
+1 | fn nested(t: ((Int@ , Int), Int)): Int {
+  |                   ^
+  |
+ --> main.buri:1:15
+  |
+1 | fn nested(t: ((Int@ , Int), Int)): Int {
+  |               ^ opened here
+  |
+  = fix: write `)` here
+error: a 1-tuple has no element 1 [unknown-tuple-element]
+ --> main.buri:2:11
+  |
+2 |     (t.0).1
+  |           ^
+  |
+  = fix: the elements are `.0` through `.0`

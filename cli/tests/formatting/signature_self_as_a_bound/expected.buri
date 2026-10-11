@@ -1,0 +1,3 @@
+trait Shape {
+    fn same<T: Self>(self, other: T): Bool;
+}

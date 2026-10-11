@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+ --> main.buri:8:12
+  |
+8 |     }).abs(, )
+  |            ^
+  |
+  = expected: an expression
+  = actual: `,`
+  = fix: write a value here

@@ -1,0 +1,9 @@
+error: expected `;`, found `@` [unexpected-token]
+ --> main.buri:2:41
+  |
+2 |   let b = match (f) { 1.5 => 1, _ => 2 }@ ;
+  |                                         ^
+  |
+  = expected: `;`
+  = actual: `@`
+  = fix: write `;` here

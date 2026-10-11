@@ -1,0 +1,1 @@
+/* a block comment at the start */ fn f(): Int 1 { }

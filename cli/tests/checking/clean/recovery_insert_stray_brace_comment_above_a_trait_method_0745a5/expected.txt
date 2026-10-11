@@ -1,0 +1,9 @@
+error: expected `:`, found `@` [unexpected-token]
+ --> main.buri:3:16
+  |
+3 |   fn area(self)@ : Int;
+  |                ^
+  |
+  = expected: `:`
+  = actual: `@`
+  = fix: write `:` here

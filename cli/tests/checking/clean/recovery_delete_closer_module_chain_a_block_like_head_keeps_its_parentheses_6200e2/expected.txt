@@ -1,0 +1,28 @@
+error: a statement ends with `;` [missing-semicolon]
+ --> main.buri:1:60
+  |
+1 | fn block_headed(): Int { (if (true) { 1 } else { 2 }).abs() 
+  |                                                            ^
+  |
+  = fix: write `;` here
+error: expected `(`, found `match_headed` [unexpected-token]
+ --> main.buri:3:4
+  |
+3 | fn match_headed(x: Int): Int { (match (x) { _ => 1 }).abs() }
+  |    ^^^^^^^^^^^^
+  |
+  = expected: `(`
+  = actual: `match_headed`
+  = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:4:1
+  |
+4 | 
+  | ^
+  |
+ --> main.buri:1:24
+  |
+1 | fn block_headed(): Int { (if (true) { 1 } else { 2 }).abs() 
+  |                        ^ opened here
+  |
+  = fix: write `}` here

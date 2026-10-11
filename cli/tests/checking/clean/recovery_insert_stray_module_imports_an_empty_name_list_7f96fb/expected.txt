@@ -1,0 +1,9 @@
+error: expected `;`, found `?` [unexpected-token]
+ --> main.buri:1:27
+  |
+1 | from "core/list" import {}? ;
+  |                           ^
+  |
+  = expected: `;`
+  = actual: `?`
+  = fix: write `;` here

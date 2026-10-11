@@ -1,0 +1,21 @@
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:3:43
+  |
+3 | fn match_headed(x: Int): Int { (match (x{ ) _ => 1 }).abs() }
+  |                                           ^
+  |
+ --> main.buri:3:41
+  |
+3 | fn match_headed(x: Int): Int { (match (x{ ) _ => 1 }).abs() }
+  |                                         ^ opened here
+  |
+  = fix: write `}` here
+error: expected `{`, found `_` [unexpected-token]
+ --> main.buri:3:45
+  |
+3 | fn match_headed(x: Int): Int { (match (x{ ) _ => 1 }).abs() }
+  |                                             ^
+  |
+  = expected: `{`
+  = actual: `_`
+  = fix: write `{` here

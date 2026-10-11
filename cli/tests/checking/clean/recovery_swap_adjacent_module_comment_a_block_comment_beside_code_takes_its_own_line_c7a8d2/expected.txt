@@ -1,0 +1,9 @@
+error: expected `{`, found `x` [unexpected-token]
+ --> main.buri:1:10
+  |
+1 | struct P x {: Int, /* beside a field */ y: Int }
+  |          ^
+  |
+  = expected: `{`
+  = actual: `x`
+  = fix: write `{` here

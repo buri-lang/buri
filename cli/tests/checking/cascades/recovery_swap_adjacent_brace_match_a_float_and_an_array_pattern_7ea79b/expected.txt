@@ -1,0 +1,17 @@
+error: there is nothing named `a_` in scope [unknown-name]
+ --> main.buri:3:26
+  |
+3 |   match (xs) { [a, b] => a_ , => 0 }
+  |                          ^^
+  |
+  = did you mean `a`?
+  = fix: if you meant `a`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: expected a pattern, found `=>` [unexpected-token]
+ --> main.buri:3:31
+  |
+3 |   match (xs) { [a, b] => a_ , => 0 }
+  |                               ^^
+  |
+  = expected: a pattern
+  = actual: `=>`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

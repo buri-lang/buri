@@ -1,9 +1,0 @@
-error: expected a string literal, found `?` [unexpected-token]
- --> main.buri:1:6
-  |
-1 | from ? "core/str" import { concat, split };
-  |      ^
-  |
-  = expected: a string literal
-  = actual: `?`
-  = fix: quote it, as in `"core/list"`

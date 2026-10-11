@@ -1,0 +1,16 @@
+error: expected a pattern, found `?` [unexpected-token]
+ --> main.buri:3:45
+  |
+3 | fn match_headed(x: Int): Int { (match (x) { ? _ => 1 }).abs() }
+  |                                             ^
+  |
+  = expected: a pattern
+  = actual: `?`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: `_0` has no method `abs` [unknown-method]
+ --> main.buri:3:57
+  |
+3 | fn match_headed(x: Int): Int { (match (x) { ? _ => 1 }).abs() }
+  |                                                         ^^^
+  |
+  = fix: check the spelling, or declare it in `impl _0 { ... }` in that type's own module

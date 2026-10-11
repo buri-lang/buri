@@ -1,0 +1,12 @@
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:5:5
+  |
+5 |     ;
+  |     ^
+  |
+ --> main.buri:2:23
+  |
+2 |     let b = match (f) {
+  |                       ^ opened here
+  |
+  = fix: write `}` here

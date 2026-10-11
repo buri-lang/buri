@@ -1,0 +1,5 @@
+error [missing-comma] 2:23-2:23
+message: a tuple-struct field ends with `,`
+fix: write `,` here
+edit: 2:23-2:23 ","
+

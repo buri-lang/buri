@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:4:1
+  |
+4 | 
+  | ^
+  |
+ --> main.buri:1:25
+  |
+1 | fn grouped(x: Int): Int {
+  |                         ^ opened here
+  |
+  = fix: write `}` here

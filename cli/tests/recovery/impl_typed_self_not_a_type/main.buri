@@ -1,0 +1,8 @@
+// EXPECT: this parameter list is missing its closing `)`
+export struct Point { x: Int }
+
+impl Point {
+  fn area(self: 1): Int {
+    1
+  }
+}

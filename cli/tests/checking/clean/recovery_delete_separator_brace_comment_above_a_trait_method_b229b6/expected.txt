@@ -1,0 +1,7 @@
+error: a method signature ends with `;` [missing-semicolon]
+ --> main.buri:3:21
+  |
+3 |   fn area(self): Int
+  |                     ^
+  |
+  = fix: write `;` here

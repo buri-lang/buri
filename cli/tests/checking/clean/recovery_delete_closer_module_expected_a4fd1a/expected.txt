@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:1:18
+  |
+1 | fn grouped(x: Int: Int {
+  |                  ^
+  |
+ --> main.buri:1:11
+  |
+1 | fn grouped(x: Int: Int {
+  |           ^ opened here
+  |
+  = fix: write `)` here

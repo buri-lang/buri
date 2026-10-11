@@ -1,0 +1,4 @@
+// a note about the function
+
+/// what it does
+fn f(): Int { 1 }

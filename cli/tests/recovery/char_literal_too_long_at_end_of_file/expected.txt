@@ -1,0 +1,9 @@
+error [character-literal-length] 3:3-3:5
+message: a character literal holds exactly one Unicode scalar value
+fix: use a string literal for more than one
+
+error [unclosed-delimiter] 3:6-3:6
+message: this function body is missing its closing `}`
+fix: write `}` here
+related: 2:26-2:27 opened here
+

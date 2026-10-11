@@ -1,0 +1,4 @@
+derive
+    Equal, Ordered, Show, Hash, Encode, Decode, Something, SomethingElse, AnotherOne,
+    AndMore
+for Reading;

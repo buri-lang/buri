@@ -1,0 +1,9 @@
+error: expected a function body, found `let` [unexpected-token]
+ --> main.buri:3:19
+  |
+3 | fn f(a: Int): Int let { x = 1; /* beside code */ x + a }
+  |                   ^^^
+  |
+  = expected: a function body
+  = actual: `let`
+  = fix: write `{ ... }` after the return type

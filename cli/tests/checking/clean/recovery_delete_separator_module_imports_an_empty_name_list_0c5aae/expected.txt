@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-semicolon]
+ --> main.buri:1:27
+  |
+1 | from "core/list" import {}
+  |                           ^
+  |
+  = fix: write `;` here

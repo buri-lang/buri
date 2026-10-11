@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:1:17
+  |
+1 | fn f(): Int { 1 @ } // beside the last line
+  |                 ^
+  |
+ --> main.buri:1:13
+  |
+1 | fn f(): Int { 1 @ } // beside the last line
+  |             ^ opened here
+  |
+  = fix: write `}` here

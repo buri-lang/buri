@@ -1,9 +1,12 @@
-error: expected an identifier, found `:` [unexpected-token]
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
  --> main.buri:1:13
   |
 1 | export fn f(: Int {
   |             ^
   |
-  = expected: an identifier
-  = actual: `:`
-  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+ --> main.buri:1:12
+  |
+1 | export fn f(: Int {
+  |            ^ opened here
+  |
+  = fix: write `)` here

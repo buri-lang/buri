@@ -1,0 +1,9 @@
+error: expected `:`, found `)` [unexpected-token]
+ --> main.buri:3:21
+  |
+3 |   fn area(selfextra ): Int;
+  |                     ^
+  |
+  = expected: `:`
+  = actual: `)`
+  = fix: write `:` here

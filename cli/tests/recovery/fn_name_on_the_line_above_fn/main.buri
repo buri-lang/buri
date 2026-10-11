@@ -1,0 +1,5 @@
+// EXPECT: expected a declaration, found `area`
+area
+fn (): Int {
+  1
+}

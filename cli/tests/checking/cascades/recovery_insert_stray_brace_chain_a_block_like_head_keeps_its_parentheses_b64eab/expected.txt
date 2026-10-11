@@ -1,0 +1,29 @@
+error: an expression statement is legal only in a test source [statement-outside-test]
+ --> main.buri:3:32
+  |
+3 | fn match_headed(x: Int): Int { (match (x) { _ => 1 }).extra abs() }
+  |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: `Int` has no field `extra` [unknown-field]
+ --> main.buri:3:55
+  |
+3 | fn match_headed(x: Int): Int { (match (x) { _ => 1 }).extra abs() }
+  |                                                       ^^^^^
+  |
+  = fix: check the spelling, or name a field the type declares
+error: a statement ends with `;` [missing-semicolon]
+ --> main.buri:3:60
+  |
+3 | fn match_headed(x: Int): Int { (match (x) { _ => 1 }).extra abs() }
+  |                                                            ^
+  |
+  = fix: write `;` here
+error: there is nothing named `abs` in scope [unknown-name]
+ --> main.buri:3:61
+  |
+3 | fn match_headed(x: Int): Int { (match (x) { _ => 1 }).extra abs() }
+  |                                                             ^^^
+  |
+  = fix: declare `abs`, or import it — a name is in scope only from this module's own declarations and its imports

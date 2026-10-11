@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:3:15
+  |
+3 |   fn area(self: Int;
+  |               ^
+  |
+ --> main.buri:3:10
+  |
+3 |   fn area(self: Int;
+  |          ^ opened here
+  |
+  = fix: write `)` here

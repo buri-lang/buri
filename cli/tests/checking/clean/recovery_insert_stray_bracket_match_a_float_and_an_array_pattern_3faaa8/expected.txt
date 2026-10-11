@@ -1,0 +1,9 @@
+error: expected a pattern, found `,` [unexpected-token]
+ --> main.buri:3:20
+  |
+3 |   match (xs) { [a@ , b] => a, _ => 0 }
+  |                    ^
+  |
+  = expected: a pattern
+  = actual: `,`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

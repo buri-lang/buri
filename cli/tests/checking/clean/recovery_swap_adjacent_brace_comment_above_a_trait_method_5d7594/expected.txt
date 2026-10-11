@@ -1,0 +1,9 @@
+error: expected `fn`, found `area` [unexpected-token]
+ --> main.buri:3:3
+  |
+3 |   area fn(self): Int;
+  |   ^^^^
+  |
+  = expected: `fn`
+  = actual: `area`
+  = fix: write `fn` here

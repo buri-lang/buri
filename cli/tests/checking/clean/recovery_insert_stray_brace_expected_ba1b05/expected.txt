@@ -1,9 +1,0 @@
-error: expected `=`, found `,` [unexpected-token]
- --> main.buri:2:17
-  |
-2 |     let message , =
-  |                 ^
-  |
-  = expected: `=`
-  = actual: `,`
-  = fix: write `=` here

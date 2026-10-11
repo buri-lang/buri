@@ -1,0 +1,9 @@
+error: expected `else`, found `extra` [unexpected-token]
+ --> main.buri:1:43
+  |
+1 | fn block_headed(): Int { (if (true) { 1 } extra else { 2 }).abs() }
+  |                                           ^^^^^
+  |
+  = expected: `else`
+  = actual: `extra`
+  = fix: delete it — the `else` branch follows

@@ -1,0 +1,19 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:1:31
+  |
+1 | fn nested(t: ((Int, Int, Int)): Int { (t.0).1 }
+  |                               ^
+  |
+ --> main.buri:1:10
+  |
+1 | fn nested(t: ((Int, Int, Int)): Int { (t.0).1 }
+  |          ^ opened here
+  |
+  = fix: write `)` here
+error: `I64` has no field 1 [unknown-positional-field]
+ --> main.buri:1:45
+  |
+1 | fn nested(t: ((Int, Int, Int)): Int { (t.0).1 }
+  |                                             ^
+  |
+  = fix: `I64` has no fields
