@@ -1,0 +1,215 @@
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Tasks, Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, tasks };
+from "ui/signal" import { signal };
+
+derive Equal for Row;
+// Twelve `Str`s: 288 bytes, past the 256 the release backend keeps in registers.
+struct Row {
+    a: Str,
+    b: Str,
+    c: Str,
+    d: Str,
+    e: Str,
+    f: Str,
+    g: Str,
+    h: Str,
+    i: Str,
+    j: Str,
+    k: Str,
+    l: Str,
+}
+
+fn row<C: Allocator>(ctx: C, n: Int): Row {
+    let s = str.format(ctx, "${n}");
+    Row { a: s, b: s, c: s, d: s, e: s, f: s, g: s, h: s, i: s, j: s, k: s, l: s }
+}
+
+fn joined<C: Allocator>(ctx: C, r: Row): Str {
+    str.format(
+        ctx,
+        "${r.a}${r.b}${r.c}${r.d}${r.e}${r.f}${r.g}${r.h}${r.i}${r.j}${r.k}${r.l}",
+    )
+}
+
+test "a wide value goes through parallel and back" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let rows = [row(ctx, 1), row(ctx, 2)];
+    let out = tasks.parallel(ctx, rows, fn(c, i, r) => {
+        Row { ..r, l: str.format(c, "${i}") }
+    });
+    assert.equal(out.map(ctx, fn(r) => r.a == r.l), [false, false]);
+    assert.equal(joined(ctx, assert.some(out[1])), "222222222221");
+    assert.equal(joined(ctx, assert.some(out.get(0))), "111111111110");
+    assert.none(out.get(2));
+}
+
+test "a closure captures a wide value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let r = row(ctx, 3);
+    let f = fn(n: Int) => if (r.a == r.l) { n } else { 0 };
+    assert.equal([1, 2].map(ctx, f), [1, 2]);
+}
+
+test "wide values compare equal field by field" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(row(ctx, 4) == row(ctx, 4), true);
+    assert.equal(row(ctx, 4) == row(ctx, 5), false);
+}
+
+enum Shape {
+    Full(Row),
+    Empty,
+}
+
+fn label(s: Shape): Str {
+    match (s) {
+        .Full(r) => r.k,
+        .Empty => "empty",
+    }
+}
+
+test "a wide variant fills its whole payload" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(label(.Full(row(ctx, 6))), "6");
+    assert.equal(label(.Empty), "empty");
+}
+
+fn either<C: Allocator>(ctx: C, first: Bool): Row {
+    let r = if (first) { row(ctx, 7) } else { row(ctx, 8) };
+    Row { ..r, a: "x" }
+}
+
+test "a wide value joins two branches" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(joined(ctx, either(ctx, true)), "x77777777777");
+    assert.equal(joined(ctx, either(ctx, false)), "x88888888888");
+}
+
+test "a wide signal is written and read back" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let cell = signal(ctx, row(ctx, 1));
+    cell.set(ctx, row(ctx, 1));
+    cell.set(ctx, row(ctx, 2));
+    assert.equal(joined(ctx, cell.get(ctx)), "222222222222");
+}
+
+fn rotate(r: Row, n: Int): Row {
+    if (n == 0) { r } else { rotate(Row { ..r, a: r.l, l: r.a }, n - 1) }
+}
+
+test "a wide value is carried round a loop" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let r = Row { ..row(ctx, 0), a: "a", l: "l" };
+    assert.equal(rotate(r, 3).a, "l");
+    assert.equal(rotate(r, 4).a, "a");
+}
+
+fn ping(n: Int, r: Row): Str {
+    if (n == 0) { r.a } else { pong(n - 1) }
+}
+
+// Fewer parameters than `ping`, so a call into the pair pads the `Row`.
+fn pong(n: Int): Str {
+    if (n == 0) {
+        "pong"
+    } else {
+        ping(n - 1, Row {
+            a: "ping",
+            b: "",
+            c: "",
+            d: "",
+            e: "",
+            f: "",
+            g: "",
+            h: "",
+            i: "",
+            j: "",
+            k: "",
+            l: "",
+        })
+    }
+}
+
+test "two functions that tail call each other pass a wide value" {
+    assert.equal(pong(4), "pong");
+    assert.equal(pong(5), "ping");
+    assert.equal(pong(100001), "ping");
+}
+
+// Forty `Int`s: wide, and nothing in it is counted.
+struct Grid(Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int);
+
+fn grid(n: Int): Grid {
+    Grid(
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+        n,
+    )
+}
+
+test "a wide uncounted value goes through parallel" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let out = tasks.parallel(ctx, [grid(1), grid(2)], fn(_c, i, g) => g.0 + g.39 + i);
+    assert.equal(out, [2, 5]);
+}

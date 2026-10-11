@@ -221,6 +221,9 @@ mod link;
 mod fan_out;
 #[cfg(feature = "backend-llvm")]
 mod llvm;
+// Buri suites under `buri test --release`, from `release/` and the corpus.
+#[cfg(feature = "backend-llvm")]
+mod release;
 mod runtime;
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod side_by_side;
