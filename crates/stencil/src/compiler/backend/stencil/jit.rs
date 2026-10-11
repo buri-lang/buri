@@ -420,7 +420,6 @@ struct Bufs {
     def_in: Vec<(u32, u32)>,
     aliased: Vec<bool>,
     fixed: Vec<bool>,
-    quiet: Vec<bool>,
     last: Vec<(u32, u32)>,
     touched: Vec<Option<usize>>,
     opnd: Operands,
@@ -1207,19 +1206,16 @@ impl Loops {
                 // `h` dominates `p`, so the walk back from `p` meets the header
                 // before it could meet the entry, and every predecessor of a
                 // block it takes in is taken in too: the loop is closed by
-                // construction. A block nothing reaches has no predecessors
-                // and never runs, so taking one in costs nothing.
+                // construction. No block branches to itself (`ir::Code`), so
+                // `p` is not `h`.
                 epoch += 1;
                 let inside = |stamp: &[u32], x: usize| ent(stamp, x, epoch) == epoch;
                 members.clear();
                 put(stamp, h, epoch);
-                members.push(h);
+                put(stamp, p, epoch);
+                members.extend([h, p]);
                 stack.clear();
-                if p != h {
-                    put(stamp, p, epoch);
-                    members.push(p);
-                    stack.push(p);
-                }
+                stack.push(p);
                 while let Some(x) = stack.pop() {
                     for q in preds.of(x).iter().map(|q| *q as usize) {
                         if !inside(stamp, q) {
@@ -1764,10 +1760,7 @@ impl<'a> Jit<'a> {
     /// reference, which is the property the rewrite exists for.
     fn patch_pc32_imm(&mut self, field: u64, insn_end: u64, v: u32) {
         debug_assert_eq!(insn_end, field + 4);
-        if field < 3 {
-            crate::diagnostics::ice("stencil: a pc-relative field with no instruction in front");
-        }
-        let start = field - 3;
+        let start = field.checked_sub(3).or_ice("a pc-relative field has an instruction in front");
         // `ModRM.reg` and `REX.R` are where the destination register is, in
         // both the `lea` and the `mov` this rewrites.
         let rex = self.region.byte_at(start, 0);
@@ -2103,16 +2096,13 @@ impl<'a> Jit<'a> {
                 }
             }
         }
-        let alone = |v: ir::ValueId| {
-            find(uf, v.0) == v.0
-                && ent(&members, v.index(), 0) == 1
-                && ent(pin, v.index(), None).is_none()
-        };
+        // `members` counts a class at its root, so one member means a class
+        // of one.
+        let alone = |v: ir::ValueId| ent(&members, v.index(), 0) == 1 && ent(pin, v.index(), None).is_none();
         // The entry's parameters keep the slots the caller left them in.
         let entry: &[ir::ValueId] = &code.get(ir::BlockId(0)).params;
         let still = |v: ir::ValueId| {
-            find(uf, v.0) == v.0
-                && ent(&members, v.index(), 0) == 1
+            ent(&members, v.index(), 0) == 1
                 && !ent(&param, v.index(), true)
                 && (ent(pin, v.index(), None).is_none() || entry.contains(&v))
         };
@@ -2281,8 +2271,7 @@ impl<'a> Jit<'a> {
         let aliased: &[bool] = if parts { &held_parts } else { &[] };
         let entry: &[ir::ValueId] = &code.get(ir::BlockId(0)).params;
         let alone = |v: ir::ValueId| {
-            find(uf, v.0) == v.0
-                && ent(&members, v.index(), 0) == 1
+            ent(&members, v.index(), 0) == 1
                 && ent(pin, v.index(), None).is_none()
                 && !ent(aliased, v.index(), false)
         };
@@ -2290,14 +2279,11 @@ impl<'a> Jit<'a> {
         let mut fixed = table(&mut self.bufs.fixed, n, false);
         for (v, f) in fixed.iter_mut().enumerate() {
             let v = ir::ValueId(v as u32);
-            *f = find(uf, v.0) == v.0
-                && ent(&members, v.index(), 0) == 1
+            *f = ent(&members, v.index(), 0) == 1
                 && !ent(&param, v.index(), true)
                 && !ent(aliased, v.index(), false)
                 && (ent(pin, v.index(), None).is_none() || entry.contains(&v));
         }
-        // A forwarded `GetField` writes nothing.
-        let mut quiet = table(&mut self.bufs.quiet, n, false);
         for (bi, b) in code.blocks.iter().enumerate() {
             for (j, i) in b.insts.iter().enumerate() {
                 let ir::Inst::GetField { dest, agg, index } = i else { continue };
@@ -2331,12 +2317,14 @@ impl<'a> Jit<'a> {
                             last = k;
                         }
                     }
+                    // Instructions are forwarded in order, so a later result
+                    // still has a slot of its own here.
                     let writes = |k: usize| {
                         b.insts.get(k).is_some_and(|x| {
                             x.results().iter().any(|r| {
                                 let at = ent(slot, r.index(), 0);
                                 let rw = ent(width, r.index(), 8);
-                                !ent(&quiet, r.index(), false) && at < src + w && src < at + rw
+                                at < src + w && src < at + rw
                             })
                         })
                     };
@@ -2346,7 +2334,6 @@ impl<'a> Jit<'a> {
                     continue;
                 }
                 put(slot, dest.index(), src);
-                put(&mut quiet, dest.index(), true);
                 let still = ent(&fixed, agg.index(), false);
                 put(&mut fixed, dest.index(), still);
             }
@@ -2354,7 +2341,6 @@ impl<'a> Jit<'a> {
         self.bufs.members = members;
         self.bufs.param = param;
         self.bufs.fixed = fixed;
-        self.bufs.quiet = quiet;
         self.bufs.aliased = held_parts;
     }
 
@@ -2411,30 +2397,30 @@ impl<'a> Jit<'a> {
             };
             // Every table below has one entry per value of `code`, and `pi`
             // and `ai` are values of `code`, so the fallbacks are what a value
-            // from some other function would read: a width no slot has, a
-            // definition in no block, and no uses — each of which declines the
-            // merge rather than making one on a guess.
+            // from some other function would read: a definition in no block,
+            // and no uses — each of which declines the merge rather than
+            // making one on a guess. An argument has its parameter's type
+            // (`ir::verify`), so the two are as wide.
             for &(p, a) in &pairs {
                 let (pi, ai) = (p.index(), a.index());
-                if ent(width, ai, 0) != ent(width, pi, 0) {
-                    continue;
-                }
-                // Only a temporary defined in this block, used exactly once,
-                // and not already merged, is a candidate — an entry parameter
-                // too, because its slot is where the caller left it and the
-                // class can simply take that.
+                // Only a temporary defined in this block and used exactly once
+                // is a candidate — an entry parameter too, because its slot is
+                // where the caller left it and the class can simply take that.
+                // So far only the entry's parameters are pinned: a return
+                // value pinned below is read by its `Return` alone.
                 let def_a = ent(&def_block, ai, u32::MAX);
-                let entry_ok = ent(pin, ai, None).is_some() && def_a == 0 && bi == 0;
+                let entry_ok = ent(pin, ai, None).is_some() && bi == 0;
                 if !entry_ok && (ent(&is_param, ai, true) || def_a != bi as u32) {
                     continue;
                 }
-                if ent(uses, ai, 0) != 1 || find(uf, ai as u32) != ai as u32 {
+                if ent(uses, ai, 0) != 1 {
                     continue;
                 }
+                // Its one read is this edge, so `a` is still a class of its
+                // own. No edge enters the entry (`ir::Code`), so `p` is not an
+                // entry parameter, was never an argument merged here, and is
+                // not `a`.
                 let root = find(uf, pi as u32);
-                if root == ai as u32 {
-                    continue;
-                }
                 if ent(pin, ai, None).is_some()
                     && (0..n).any(|v| find(uf, v as u32) == root && ent(pin, v, None).is_some())
                 {
@@ -2450,16 +2436,13 @@ impl<'a> Jit<'a> {
             }
             for (off, v) in rets {
                 let vi = v.index();
+                // Read by the `Return` alone, so nothing reads or writes its
+                // class past its definition, and no edge merged it.
                 if ent(width, vi, 0) != 8
                     || ent(&is_param, vi, true)
                     || ent(&def_block, vi, u32::MAX) != bi as u32
                     || ent(uses, vi, 0) != 1
-                    || find(uf, vi as u32) != vi as u32
-                    || ent(pin, vi, None).is_some()
                 {
-                    continue;
-                }
-                if !self.merge_is_safe(code, opnd, bi, uf, vi as u32, v, ent(&def_idx, vi, u32::MAX)) {
                     continue;
                 }
                 // A class of one, pinned at the return area.
@@ -2530,10 +2513,10 @@ impl<'a> Jit<'a> {
             let header = code.get(t.block);
             for p2 in &latch.params {
                 let Some(k) = t.args.iter().position(|a| a == p2) else { continue };
-                let Some(&p1) = header.params.get(k) else { continue };
+                // One argument per parameter, of its type (`ir::verify`).
+                let p1 = *header.params.get(k).or_ice("an edge passes one argument per parameter");
                 if ent(uses, p2.index(), 0) != 1
                     || ent(width, p2.index(), 0) != 8
-                    || ent(width, p1.index(), 0) != 8
                     || ent(pin, p2.index(), None).is_some()
                 {
                     continue;
@@ -2568,7 +2551,7 @@ impl<'a> Jit<'a> {
                         return true;
                     }
                     let b = ent(def_block, *m as usize, u32::MAX);
-                    let Some(block) = code.blocks.get(b as usize) else { return false };
+                    let block = code.blocks.get(b as usize).or_ice("a value merged on an edge is defined");
                     // A parameter of some other block in the class is not a
                     // shape this reasons about.
                     if block.params.iter().any(|p| p.0 == *m) {
@@ -2632,9 +2615,7 @@ impl<'a> Jit<'a> {
             bump(&mut members, find(uf, v as u32) as usize);
         }
         let alone = |v: ir::ValueId, pin: &[Option<u32>]| {
-            find(uf, v.0) == v.0
-                && ent(&members, v.index(), 0) == 1
-                && ent(pin, v.index(), None).is_none()
+            ent(&members, v.index(), 0) == 1 && ent(pin, v.index(), None).is_none()
         };
         let calls_code = |func: &crate::compiler::semantics::types::FuncIdx| {
             matches!(prog.funcs.get(func.index()).map(|f| &f.body), Some(ir::Body::Code(_)))
@@ -2687,7 +2668,9 @@ impl<'a> Jit<'a> {
                 let off = *fs.ret.first().or_ice("a signature has one result (middle/ir.rs)");
                 let Some(dr) = read_at(d) else { continue };
                 let mut end = dr.last;
-                if !alone(d, pin) || dr.count != ent(uses, d.index(), 0) || dr.first <= j {
+                // A value is read after its definition (`ir::verify`), so
+                // `dr.first` is past `j`.
+                if !alone(d, pin) || dr.count != ent(uses, d.index(), 0) {
                     continue;
                 }
                 // A `Bool` read only to be counted shares the slot it is
@@ -2699,10 +2682,7 @@ impl<'a> Jit<'a> {
                         b.insts.get(r)
                     {
                         if let Some(zr) = read_at(*z) {
-                            if alone(*z, pin)
-                                && zr.count == ent(uses, z.index(), 0)
-                                && zr.first > r
-                            {
+                            if alone(*z, pin) && zr.count == ent(uses, z.index(), 0) {
                                 end = end.max(zr.last);
                                 alias = Some(*z);
                             }
@@ -2791,7 +2771,7 @@ impl<'a> Jit<'a> {
     /// every test is the one the loop takes every iteration. Reverse postorder
     /// — depth-first, `then` before `else`, reversed — puts the else-arm and
     /// the loop body immediately after the test, which is where the elision
-    /// wants them. Blocks the walk never reaches keep IR order at the end.
+    /// wants them.
     fn layout(&mut self, code: &ir::Code) -> Vec<usize> {
         let nb = code.blocks.len();
         let mut seen = table(&mut self.bufs.seen, nb, false);
@@ -2823,12 +2803,8 @@ impl<'a> Jit<'a> {
                 None => post.push(b),
             }
         }
+        // The entry reaches every block (`ir::Code`), so `post` lists them all.
         post.reverse();
-        for (b, s) in seen.iter().enumerate() {
-            if !*s {
-                post.push(b);
-            }
-        }
         self.bufs.seen = seen;
         self.bufs.stack = stack;
         post
@@ -2988,10 +2964,8 @@ impl<'a> Jit<'a> {
                     {
                         continue;
                     }
-                    let float = code.ty_of(*a) == ir::Type::F64;
-                    if float != (code.ty_of(*p) == ir::Type::F64) {
-                        continue;
-                    }
+                    // `a` has `p`'s type (`ir::verify`), so it reads the same
+                    // register file.
                     // Defined in this block by something with a register
                     // result, and nothing after it may read the register the
                     // definition is about to overwrite.
@@ -3160,14 +3134,12 @@ impl<'a> Jit<'a> {
                 if u.count != 1 || ent(total, dest.index(), 0) != 1 {
                     continue;
                 }
+                // A value is read after its definition (`ir::verify`), so its
+                // first use is past `k`, and `barrier` runs from the block's
+                // first instruction to one past its last.
                 let at = u.first;
-                // `barrier` runs from the block's first instruction to one
-                // past its last, so a use ahead of `k` always names a span
-                // inside it. A use behind `k` names an empty range instead,
-                // which is the same answer the `at <= k` test gives: no
-                // register.
-                let Some(span) = barrier.get(k..=at.min(n)) else { continue };
-                if at <= k || span.iter().any(|b| *b) {
+                let span = barrier.get(k..=at.min(n)).or_ice("a use follows its definition");
+                if span.iter().any(|b| *b) {
                     continue;
                 }
                 // The consumer has to be able to read a register operand.
@@ -3272,9 +3244,9 @@ impl<'a> Jit<'a> {
                     // Immediately before: the branch reads the operands where
                     // the comparison would have, and anything emitted between
                     // the two can reuse or clobber where that is (#297).
+                    // Only a `Const` is skipped yet, so `k` is not.
                     if op.is_comparison()
                         && uses(st, *cond) == 1
-                        && !ent(&p.skip, k, true)
                         && (k + 1..n).all(|j| ent(&p.skip, j, false))
                     {
                         let a = st.loc(*lhs).tag();
@@ -3305,7 +3277,8 @@ impl<'a> Jit<'a> {
             if let ir::Term::Switch { on, .. } = &block.term {
                 if let Some(k) = block.insts.iter().rposition(|i| i.results().contains(on)) {
                     if let Some(ir::Inst::GetTag { agg, .. }) = block.insts.get(k) {
-                        if uses(st, *on) == 1 && !ent(&p.skip, k, true) {
+                        // Only a `Const` or a fused comparison is skipped.
+                        if uses(st, *on) == 1 {
                             put(&mut p.skip, k, true);
                             p.tagsw = Some(*agg);
                         }
@@ -3493,15 +3466,10 @@ impl Dominance {
     /// The walk visits every predecessor of every block it reaches except the
     /// header, and gives up on reaching the entry or a block nothing jumps to.
     /// So it gives up exactly when one of those reaches `p` without passing
-    /// `h`, which is when `h` does not dominate `p` from the virtual root — and
-    /// always when the header is the entry, which is inside every loop body.
+    /// `h`, which is when `h` does not dominate `p` from the virtual root. No
+    /// edge enters the entry, and no block branches to itself (`ir::Code`), so
+    /// `h` is neither the entry nor `p`.
     fn may_loop(&self, h: usize, p: usize) -> bool {
-        if h == 0 {
-            return false;
-        }
-        if p == h {
-            return true;
-        }
         match (self.range.get(h).copied().flatten(), self.range.get(p).copied().flatten()) {
             // No way in reaches `p`, so the walk cannot reach one either.
             (_, None) => true,
