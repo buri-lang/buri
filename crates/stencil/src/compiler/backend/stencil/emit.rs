@@ -3180,10 +3180,10 @@ impl Jit<'_> {
                 );
                 return;
             }
-            let key = if to.is_float() {
-                key!["cvt/from/", ftag, "/f"]
-            } else {
-                key!["cvt/from/", ftag, "/", tw]
+            let key = match to {
+                Prim::F32 => key!["cvt/from/", ftag, "/f32"],
+                Prim::F64 => key!["cvt/from/", ftag, "/f"],
+                _ => key!["cvt/from/", ftag, "/", tw],
             };
             self.emit(
                 &key,
@@ -3193,16 +3193,6 @@ impl Jit<'_> {
                     ("JIT_CONT", V::Fall),
                 ],
             );
-            if to == Prim::F32 {
-                self.emit(
-                    "cvt/f2f32",
-                    &[
-                        ("JIT_D", V::I(u64::from(dest))),
-                        ("JIT_A", V::I(u64::from(dest))),
-                        ("JIT_CONT", V::Fall),
-                    ],
-                );
-            }
             return;
         }
         match (from.is_float(), to.is_float()) {
@@ -3224,25 +3214,13 @@ impl Jit<'_> {
             (false, true) => {
                 let wide = st.scratch + super::rtcall::SPARE_WORD * 8;
                 let at = self.widen(src, wide, fw, fsigned);
-                let key = if fsigned { "cvt/i2f" } else { "cvt/u2f" };
-                self.emit(
-                    key,
-                    &[
-                        ("JIT_D", V::I(u64::from(dest))),
-                        ("JIT_A", V::I(u64::from(at))),
-                        ("JIT_CONT", V::Fall),
-                    ],
-                );
-                if to == Prim::F32 {
-                    self.emit(
-                        "cvt/f2f32",
-                        &[
-                            ("JIT_D", V::I(u64::from(dest))),
-                            ("JIT_A", V::I(u64::from(dest))),
-                            ("JIT_CONT", V::Fall),
-                        ],
-                    );
-                }
+                let key = match (fsigned, to == Prim::F32) {
+                    (true, true) => "cvt/i2f32",
+                    (true, false) => "cvt/i2f",
+                    (false, true) => "cvt/u2f32",
+                    (false, false) => "cvt/u2f",
+                };
+                self.cvt(key, dest, at);
             }
             // Float to integer truncates toward zero and keeps the low bits,
             // with `NaN` and the infinities at zero — `sources.rs`'s `cvt/f2i`,

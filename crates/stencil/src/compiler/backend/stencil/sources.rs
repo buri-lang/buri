@@ -623,6 +623,9 @@ fn moves(o: &mut Out) {
     // Float/integer conversions, for `number.*.toF64` and friends.
     o.push("cvt/i2f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)(int64_t)AT(uint64_t, _JIT_A)); TAIL; }".into());
     o.push("cvt/u2f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)AT(uint64_t, _JIT_A)); TAIL; }".into());
+    // Straight to binary32: through a double would round twice.
+    o.push("cvt/i2f32", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f32_bits((float)(int64_t)AT(uint64_t, _JIT_A)); TAIL; }".into());
+    o.push("cvt/u2f32", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f32_bits((float)AT(uint64_t, _JIT_A)); TAIL; }".into());
     // A float to a signed 64-bit integer is **modular**: truncated toward zero,
     // then its low sixty-four bits, with `NaN` and the infinities at zero, which
     // is what `wrapTo*` means on every backend (SPEC 6.2.1) and what a narrower
@@ -1029,6 +1032,13 @@ fn wide(o: &mut Out) {
             &format!("cvt/from/{tag}/f"),
             format!(
                 "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = f64_bits((double){a}); TAIL; }}"
+            ),
+        );
+        // Straight to binary32: through a double would round twice.
+        o.push(
+            &format!("cvt/from/{tag}/f32"),
+            format!(
+                "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = f32_bits((float){a}); TAIL; }}"
             ),
         );
         for w in [8u32, 16, 32, 64] {
