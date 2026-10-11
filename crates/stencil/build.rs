@@ -17,7 +17,7 @@ use std::process::Command;
 // The stencil library's *builder* is compiled into this script rather than into
 // the toolchain: generating C and running a C compiler is something a build
 // does once, and the generators and a Mach-O reader are not things `buri`
-// should carry at run time. The four modules below are the halves of
+// should carry at run time. The five modules below are the halves of
 // `backend/stencil` that only this script compiles, plus the two — `abi` and
 // `library` — that both compile, which is what keeps the emitter and the
 // library it reads from disagreeing. `super::` resolves the same way in both
@@ -35,6 +35,8 @@ mod elfobj;
 mod extract;
 #[path = "src/compiler/backend/stencil/machobj.rs"]
 mod machobj;
+#[path = "src/compiler/backend/stencil/names.rs"]
+mod names;
 #[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
 #[path = "src/compiler/backend/stencil/x86.rs"]
 mod x86;

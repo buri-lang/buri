@@ -52,8 +52,9 @@
 )]
 
 use super::elfobj as elf;
+use super::names::{refuse_hole_name, refuse_stencil_name};
 use super::library::{
-    ConstRef, Hole, HoleKind, Site, SiteKind, Stencil, refuse_hole_name, refuse_stencil_name,
+    ConstRef, Hole, HoleKind, Site, SiteKind, Stencil,
 };
 
 /// `jmp rel32`.
