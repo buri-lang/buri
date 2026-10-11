@@ -1,0 +1,5 @@
+context Console { // why
+  ..base, // the rest
+  Stdout: out(, ), // printing
+  // the end
+}

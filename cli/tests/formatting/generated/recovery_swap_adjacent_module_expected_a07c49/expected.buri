@@ -1,3 +1,0 @@
-from "core/str" { import concat, split }
-
-;
