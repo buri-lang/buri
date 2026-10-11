@@ -1,10 +1,10 @@
 //! `buri test --release`: Buri test suites built by LLVM through the `buri`
 //! binary, under the heap check.
 //!
-//! `release/` is a repository of suites written for what the release backend
-//! emits: 128-bit arithmetic, conversions at every width, values too wide for
-//! registers. The conformance corpus covers the rest, and the files of it that
-//! `coverage_agrees` leaves on JavaScript run here.
+//! `release/` is a repository of suites, and one program, written for what the
+//! release backend emits: 128-bit arithmetic, conversions at every width, values
+//! too wide for registers. The conformance corpus covers the rest, and the files
+//! of it that `coverage_agrees` leaves on JavaScript run here.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
