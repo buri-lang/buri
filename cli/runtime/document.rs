@@ -618,6 +618,26 @@ pub extern "C" fn buri_rt_ui_node_exit_element(handle: i64) {
     });
 }
 
+/// `ui/style`'s `unextracted(strict, name)` — the check that a class a style
+/// names at a node is in the sheet, which the compiler arms only in a test
+/// build. `runtime.js`'s `$ui_style_unextracted`, word for word.
+///
+/// # Safety
+/// `name` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_style_unextracted(
+    strict: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    if strict != 0 {
+        // SAFETY: forwarded to the caller's promise.
+        let name = unsafe { text_of(ptr, len) };
+        crate::abort::die(&[b"compiler bug: the stylesheet has no class `", name.as_bytes(), b"`"]);
+    }
+}
+
 /// `emitText(builder, content)` — a run of text under whatever element is open.
 ///
 /// # Safety

@@ -7478,6 +7478,13 @@ function $ui_node_exitElement(builder) {
   if (doc.cursor.length > 1) doc.cursor.pop();
 }
 
+// `ui/style`'s check that a class a style names at a node is in the sheet,
+// which the compiler arms only in a test build. `cli/runtime/document.rs`'s,
+// word for word.
+function $ui_style_unextracted(strict, name) {
+  if (strict) $abort("compiler bug: the stylesheet has no class `" + name + "`");
+}
+
 function $ui_node_emitText(builder, content) {
   $scene_add($scene_of(builder), 1, "", "", content);
 }

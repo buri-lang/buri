@@ -1349,6 +1349,7 @@ pub const ENTRIES: &[Entry] = &[
     e("ui_node.emitElement", &[Scalar, Str, Str], Ret::Void),
     e("ui_node.exitElement", &[Scalar], Ret::Void),
     e("ui_node.emitText", &[Scalar, Str], Ret::Void),
+    e("ui_style.unextracted", &[Scalar, Str], Ret::Void),
     // The reactive builders (#53 phase 3). `openText` mints a run and answers
     // its handle, `patchText` writes over that run — together the native
     // `$tree_bind`. `enterDynamic` opens a region and answers its handle, and

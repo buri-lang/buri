@@ -165,7 +165,7 @@ impl FileId {
 const STANDARD_FILES: u32 = 1 << 31;
 
 /// A byte range within one file.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Span {
     pub file: FileId,
     pub start: u32,
