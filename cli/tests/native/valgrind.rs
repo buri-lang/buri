@@ -325,6 +325,9 @@ const UNSEEN: &[(&str, &str)] = &[
     ("set_size", "musl's malloc"),
     ("try_avail", "musl's malloc"),
     ("dequeue", "musl's malloc"),
+    // Its every caller holds `__malloc_lock` (mallocng `malloc.c`), and
+    // helgrind can lose the frames below it (#300).
+    ("__malloc_alloc_meta", "musl's malloc"),
     // musl's threads, likewise: creation, exit, its thread-list lock and its
     // futex waits, and `posix_spawn`'s.
     ("pthread_create", "musl's threads"),
@@ -629,6 +632,14 @@ fn a_race_ordered_by_code_helgrind_cannot_see_is_not_ours() {
     let drops: String = (0..10).map(|_| frame("drop_glue")).collect();
     let arc = errors(&race(&(drops + &frame("<alloc::sync::Arc<buri_rt::rt::Task>>::drop_slow"))));
     assert_eq!(arc[0].unseen_order(), Some("an Arc's last drop"));
+    // Helgrind can lose the rest of the stack below a frame musl inlined, so
+    // the race has only `alloc_meta`'s own frames (issue #300).
+    let meta = errors(
+        "<error><kind>Race</kind><stack>\
+         <frame><fn>__malloc_alloc_meta</fn><file>malloc.c</file><line>110</line></frame>\
+         <frame><fn>__malloc_alloc_meta</fn><file>malloc.c</file><line>42</line></frame></stack></error>",
+    );
+    assert_eq!(meta[0].unseen_order(), Some("musl's malloc"));
 }
 
 #[test]
