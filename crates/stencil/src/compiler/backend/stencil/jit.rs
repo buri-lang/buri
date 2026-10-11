@@ -52,6 +52,7 @@ use crate::compiler::backend::counts::{Counts, Site};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Layouts, Repr};
 use crate::compiler::semantics::types::{Tables, Ty};
+use crate::diagnostics::Invariant;
 use crate::hash::Map as HashMap;
 
 // ---------------------------------------------------------------------------
@@ -547,18 +548,20 @@ fn ent<T: Copy>(t: &[T], i: usize, d: T) -> T {
     t.get(i).copied().unwrap_or(d)
 }
 
-/// Sets entry `i` of a side table, where the table has one.
+/// Sets entry `i` of a side table.
 fn put<T>(t: &mut [T], i: usize, x: T) {
-    if let Some(e) = t.get_mut(i) {
-        *e = x;
-    }
+    *slot(t, i) = x;
+}
+
+/// Entry `i` of a side table, which has one entry per value, block or function
+/// of the code it was sized for.
+fn slot<T>(t: &mut [T], i: usize) -> &mut T {
+    t.get_mut(i).or_ice("a side table has an entry for every index of its code")
 }
 
 /// One more use recorded against entry `i`.
 fn bump(t: &mut [u32], i: usize) {
-    if let Some(e) = t.get_mut(i) {
-        *e += 1;
-    }
+    *slot(t, i) += 1;
 }
 
 /// A literal zero on the right of an integer `/` or `%`, which is the one
@@ -598,13 +601,12 @@ impl Default for BlockUses {
 /// Records a use of `o` at instruction `at` of block `block`. Uses arrive in
 /// instruction order, so the latest is the last.
 fn note_use(uses: &mut [BlockUses], block: u32, o: &ir::ValueId, at: usize) {
-    if let Some(u) = uses.get_mut(o.index()) {
-        if u.block == block {
-            u.count += 1;
-            u.last = at;
-        } else {
-            *u = BlockUses { block, count: 1, first: at, last: at };
-        }
+    let u = slot(uses, o.index());
+    if u.block == block {
+        u.count += 1;
+        u.last = at;
+    } else {
+        *u = BlockUses { block, count: 1, first: at, last: at };
     }
 }
 
@@ -612,16 +614,15 @@ fn note_use(uses: &mut [BlockUses], block: u32, o: &ir::ValueId, at: usize) {
 ///
 /// `uf` starts as the identity and [`Jit::coalesce`] only ever points an entry
 /// at the index of a *root*, so the walk stays inside the vector and ends at a
-/// value that is its own parent. An index the vector does not hold is in no
-/// class and is its own root.
+/// value that is its own parent.
 fn find(uf: &[u32], mut v: u32) -> u32 {
-    while let Some(&parent) = uf.get(v as usize) {
+    loop {
+        let parent = *uf.get(v as usize).or_ice("a value's slot class is in the table");
         if parent == v {
-            break;
+            return v;
         }
         v = parent;
     }
-    v
 }
 
 // ---------------------------------------------------------------------------
@@ -1088,14 +1089,12 @@ struct Lists {
 
 impl Lists {
     /// `n` lists, from `(list, item)` pairs, each list in the order its
-    /// pairs come. A pair naming a list past `n` is dropped.
+    /// pairs come.
     fn fill<I: Iterator<Item = (usize, usize)>>(&mut self, n: usize, pairs: impl Fn() -> I) {
         self.at.clear();
         self.at.resize(n + 1, 0);
         for (l, _) in pairs() {
-            if l < n {
-                bump(&mut self.at, l + 1);
-            }
+            bump(&mut self.at, l + 1);
         }
         let mut sum = 0u32;
         for a in self.at.iter_mut() {
@@ -1107,9 +1106,10 @@ impl Lists {
         self.next.clear();
         self.next.extend_from_slice(self.at.get(..n).unwrap_or_default());
         for (l, x) in pairs() {
-            let Some(k) = self.next.get_mut(l) else { continue };
-            put(&mut self.items, *k as usize, x as u32);
+            let k = slot(&mut self.next, l);
+            let at = *k as usize;
             *k += 1;
+            put(&mut self.items, at, x as u32);
         }
     }
 
@@ -1287,12 +1287,7 @@ impl<'a> Jit<'a> {
     fn function(&mut self, prog: &ir::Program, fi: usize) {
         self.current = fi;
         self.region.align_code(4);
-        let Some(f) = prog.funcs.get(fi) else {
-            crate::diagnostics::ice(&format!(
-                "stencil: unit member {fi} is past the program's {} functions",
-                prog.funcs.len()
-            ));
-        };
+        let f = prog.funcs.get(fi).or_ice("stencil: a unit's member is one of its program's functions");
         // `plan` sized `entries` and `frames` from the same `prog.funcs`, so
         // the check above is what makes both of these present.
         let entry = self.region.code_addr();
@@ -1428,8 +1423,12 @@ impl<'a> Jit<'a> {
     /// ever copied out of the library, which matters because a clone per
     /// instruction would be most of this compiler's running time.
     pub(crate) fn emit<'k>(&mut self, key: impl Into<KeyArg<'k>>, binds: &[(&str, V)]) {
+        self.emit_key(key.into(), binds);
+    }
+
+    /// [`Jit::emit`], once for every spelling of a key.
+    fn emit_key(&mut self, key: KeyArg<'_>, binds: &[(&str, V)]) {
         let lib: &'static Library = self.lib;
-        let key = key.into();
         let found = self.index_of(key).and_then(|i| Some((i, lib.stencil(i)?)));
         let (at, mut s) = match found {
             Some(found) => found,
