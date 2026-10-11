@@ -1,0 +1,5 @@
+from "//platform/twin" import { TwinHost };
+
+export fn greet(host: TwinHost, name: Str): Str {
+    name
+}
