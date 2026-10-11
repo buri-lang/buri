@@ -860,8 +860,7 @@ impl<'a> Loader<'a> {
         // the extra lanes land on efficiency cores (design/PERFORMANCE.md
         // §6.83). Each lane takes every `lanes`-th file, so one large file
         // doesn't leave one lane running long after the rest.
-        let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
-        let lanes = (cores / 3).clamp(1, wanted.len());
+        let lanes = (crate::parallel::cores() / 3).clamp(1, wanted.len());
         let done = crate::parallel::map(lanes, |lane| {
             (lane..wanted.len()).step_by(lanes).map(|i| (i, one(i))).collect::<Vec<_>>()
         });

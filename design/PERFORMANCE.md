@@ -8084,6 +8084,13 @@ Instructions aren't exact, for two reasons:
 - **Parallel runs wobble both ways**, by about ±0.4%, likely from lock
   spinning, the allocator and how the pool divides work, which all move with
   scheduling. The median of two runs is the reading there.
+- **Under load, parallel phases gain work in the kernel.** Workers running
+  side by side spend more system time as the machine gets busier, and retire
+  more instructions with it. `middle` over 2,000 lifted lambdas, in the
+  instrumented build, read 165 M on most runs and up to 198 M during a
+  coverage run. On one thread it read 162.3–163.0 M beside sixteen busy loops.
+  `BURI_THREADS=1` keeps whole-program work on one thread, for a count that
+  has to hold still; `cli/tests/build/profile.rs` sets it.
 - **A compiled program's large blocks used to move with the machine.** macOS's
   `malloc` keeps a freed block past a few KB until the kernel reclaims it, on
   the kernel's schedule. A loop that dropped and remade a 288 KB list then got

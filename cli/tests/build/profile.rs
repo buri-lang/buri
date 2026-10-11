@@ -49,9 +49,9 @@ fn host_variant() -> String {
     format!("{os}-{arch}")
 }
 
-/// `buri build` of one binary for `platform`, `native` or `node`, whose source
-/// is `items` and a `main` running `body`. Answers `phase`'s instructions.
-fn profiled(platform: &str, items: &str, body: &str, phase: &str) -> Option<f64> {
+/// A repository with one binary for `platform`, `native` or `node`, whose
+/// source is `items` and a `main` running `body`.
+fn large_shape(platform: &str, items: &str, body: &str) -> Scratch {
     let scratch = Scratch::repo("profile-large-shape");
     let output = match platform {
         "native" => format!("{{ platform: \"native\", variant: \"{}\" }}", host_variant()),
@@ -69,9 +69,37 @@ fn profiled(platform: &str, items: &str, body: &str, phase: &str) -> Option<f64>
              let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};\n{body}    .Ok(())\n}}\n"
         ),
     );
-    let run = scratch.run_with_env(&["build", "//app"], &[("BURI_PROFILE", "1")]);
+    scratch
+}
+
+/// `buri build` of [`large_shape`]. Answers `phase`'s instructions.
+///
+/// On one thread: workers running side by side meet in the kernel, and under
+/// load that added up to a fifth to a phase's count from run to run.
+fn profiled(platform: &str, items: &str, body: &str, phase: &str) -> Option<f64> {
+    let scratch = large_shape(platform, items, body);
+    let run = scratch.run_with_env(&["build", "//app"], &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")]);
     run.ok();
     phase_instructions(&run.all(), phase)
+}
+
+/// **A build on one thread writes the binary a build on every core does.**
+/// `BURI_THREADS=1` is how [`profiled`] holds its counts still.
+#[test]
+fn a_build_on_one_thread_writes_the_same_binary() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::profile", &why);
+        return;
+    }
+    let (items, body) = many_lambdas(50);
+    let scratch = large_shape("native", &items, &body);
+    let built = |env: &[(&str, &str)]| {
+        scratch.run_with_env(&["build", "//app", "--force"], env).ok();
+        std::fs::read(scratch.path(&format!(".buri/out/native/{}/app/app", host_variant()))).unwrap()
+    };
+    let (every_core, one_thread) = (built(&[]), built(&[("BURI_THREADS", "1")]));
+    assert!(!every_core.is_empty());
+    assert!(every_core == one_thread, "one thread built a different binary from every core");
 }
 
 /// Asserts that `work(2n)` is at most 2.3 times `work(n)`. Where the platform

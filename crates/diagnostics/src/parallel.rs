@@ -56,8 +56,18 @@ pub fn width(len: usize) -> usize {
     if len < WORTH_IT {
         return 1;
     }
-    let cores = std::thread::available_parallelism().map(|c| c.get()).unwrap_or(1);
-    cores.clamp(1, len)
+    cores().clamp(1, len)
+}
+
+/// The cores whole-program work spreads over: all of them, or `BURI_THREADS`
+/// where it's set. `BURI_THREADS=1` keeps that work on one thread, so a
+/// profile's instruction counts hold still under load (design/PERFORMANCE.md §8).
+pub fn cores() -> usize {
+    static CORES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CORES.get_or_init(|| {
+        let set = std::env::var("BURI_THREADS").ok().and_then(|v| v.parse::<usize>().ok()).filter(|&n| n > 0);
+        set.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |c| c.get()))
+    })
 }
 
 /// Frees `value` on a thread of its own.
