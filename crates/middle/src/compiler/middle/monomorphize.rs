@@ -2632,44 +2632,26 @@ fn self_positions(ty: &Ty) -> Vec<usize> {
 // in the tree today — and every other shape came out as a silently wrong
 // instantiation rather than as a diagnostic.
 
-/// Why an implementation's type arguments could not be rebuilt, reported at
-/// the call that would have been miscompiled.
+/// An `impl` generic the head never mentions, so no receiver can say what it
+/// is. Reported at the call that would have been miscompiled.
 #[derive(Clone, PartialEq, Eq, Debug)]
-enum TargError {
-    /// The receiver is not an instance of the `impl`'s head.
-    HeadMismatch,
-    /// The `impl` declares a generic the head never mentions, so no receiver
-    /// can say what it is.
-    Unbound(u32),
-}
+struct Unbound(u32);
 
-impl TargError {
+impl Unbound {
     fn note(&self) -> String {
-        match self {
-            TargError::HeadMismatch => {
-                "the receiver is not an instance of the type the `impl` names".into()
-            }
-            TargError::Unbound(i) => format!(
-                "the implementation's type parameter {i} is never mentioned in the type it is \
-                 written for, so the receiver does not say what it is"
-            ),
-        }
+        format!(
+            "the implementation's type parameter {} is never mentioned in the type it is \
+             written for, so the receiver does not say what it is",
+            self.0
+        )
     }
 
     /// What to do about it. The page's own fix — annotate the call — is the
     /// answer to the *other* thing it reports, a receiver whose type is not
-    /// yet known; none of these is fixed at the call site at all.
+    /// yet known; this one is not fixed at the call site at all.
     fn fix(&self) -> &'static str {
-        match self {
-            TargError::HeadMismatch => {
-                "implement the trait for the type the receiver has, or pass a receiver of the \
-                 type the `impl` is written for"
-            }
-            TargError::Unbound(_) => {
-                "mention every one of the `impl`'s type parameters in the type it is written \
-                 for, or drop the ones it does not use"
-            }
-        }
+        "mention every one of the `impl`'s type parameters in the type it is written for, or \
+         drop the ones it does not use"
     }
 }
 
@@ -2684,7 +2666,7 @@ fn instance_targs(
     recv: &Ty,
     declared: usize,
     method_targs: &[Ty],
-) -> Result<Vec<Ty>, TargError> {
+) -> Result<Vec<Ty>, Unbound> {
     // A trait has no generics of its own (`generic-effect-unsupported`), so
     // every argument the call site supplied is the method's.
     let impl_generics = declared
@@ -2692,14 +2674,14 @@ fn instance_targs(
         .or_ice("`impl-signature-mismatch` gives an impl's method its trait's generics");
 
     let mut bound: Vec<Option<Ty>> = vec![None; impl_generics];
-    if !match_head(head, recv, &mut bound) {
-        return Err(TargError::HeadMismatch);
-    }
+    match_head(head, recv, &mut bound)
+        .then_some(())
+        .or_ice("the checker refuses a receiver the `impl`'s head doesn't cover");
     let mut targs = Vec::with_capacity(declared);
     for (i, slot) in bound.into_iter().enumerate() {
         match slot {
             Some(ty) => targs.push(ty),
-            None => return Err(TargError::Unbound(i as u32)),
+            None => return Err(Unbound(i as u32)),
         }
     }
     targs.extend_from_slice(method_targs);
@@ -3451,7 +3433,7 @@ mod tests {
         assert_eq!(instance_targs(&head, &recv, 1, &[]), Ok(vec![string()]));
 
         let other = con(13, vec![string(), string()]);
-        assert_eq!(instance_targs(&head, &other, 1, &[]), Err(TargError::HeadMismatch));
+        assert!(!match_head(&head, &other, &mut [None]));
     }
 
     /// One parameter used twice has to be bound to one type.
@@ -3462,10 +3444,7 @@ mod tests {
         assert_eq!(instance_targs(&head, &same, 1, &[]), Ok(vec![int()]));
 
         let different = con(13, vec![int(), string()]);
-        assert_eq!(
-            instance_targs(&head, &different, 1, &[]),
-            Err(TargError::HeadMismatch)
-        );
+        assert!(!match_head(&head, &different, &mut [None]));
     }
 
     /// The case the `Ty::Unit` padding used to swallow: an `impl` generic the
@@ -3477,7 +3456,7 @@ mod tests {
         let point = con(11, vec![]);
         assert_eq!(
             instance_targs(&point, &point, 2, &[int()]),
-            Err(TargError::Unbound(0))
+            Err(Unbound(0))
         );
     }
 
@@ -3489,7 +3468,7 @@ mod tests {
     fn a_receiver_of_another_type_does_not_match() {
         let head = con(12, vec![p0()]);
         let recv = con(13, vec![int()]);
-        assert_eq!(instance_targs(&head, &recv, 1, &[]), Err(TargError::HeadMismatch));
+        assert!(!match_head(&head, &recv, &mut [None]));
     }
 
     // -----------------------------------------------------------------------
@@ -3683,16 +3662,11 @@ mod tests {
         assert!(self_positions(&Ty::ctx(CtxTypeId(0))).is_empty());
     }
 
-    /// Every rejection says something specific enough to act on.
+    /// The rejection says something specific enough to act on.
     #[test]
-    fn every_rejection_has_a_note() {
-        for err in [
-            TargError::HeadMismatch,
-            TargError::Unbound(0),
-        ] {
-            assert!(!err.note().is_empty(), "{err:?} has no note");
-            assert!(!err.fix().is_empty(), "{err:?} has no fix");
-        }
+    fn an_unbound_parameter_has_a_note() {
+        assert!(!Unbound(0).note().is_empty());
+        assert!(!Unbound(0).fix().is_empty());
     }
 
     // -----------------------------------------------------------------------
