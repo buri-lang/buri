@@ -1,0 +1,113 @@
+from "core/testing/assert" import * as assert;
+
+fn ignores(n: Int, x: Int): Int {
+    if (n == 0) { 0 } else { ignores(n - 1, 5) }
+}
+
+fn twoWaysBack(n: Int, acc: Int): Int {
+    if (n > 5) {
+        let y = if (acc > 3) { 1 } else { 2 };
+        twoWaysBack(n - 1, acc + y)
+    } else if (n > 0) {
+        twoWaysBack(n - 1, acc + 7)
+    } else {
+        acc
+    }
+}
+
+fn swapInts(a: Int, b: Int, n: Int): Int {
+    if (n == 0) { a * 10 + b } else { swapInts(b, a, n - 1) }
+}
+
+fn lastOf(acc: Int, xs: [Int]): Int {
+    match (xs) {
+        [a, ..rest] => lastOf(a, rest),
+        [] => acc,
+    }
+}
+
+test "a loop variable nothing reads" {
+    assert.equal(ignores(3, 1), 0);
+    assert.equal(ignores(0, 1), 0);
+}
+
+test "two ways back into one loop" {
+    assert.equal(twoWaysBack(8, 0), 2 + 2 + 1 + 35);
+    assert.equal(twoWaysBack(2, 1), 15);
+}
+
+test "two integers swap on each pass" {
+    assert.equal(swapInts(1, 2, 3), 21);
+    assert.equal(swapInts(1, 2, 4), 12);
+}
+
+test "a list loop keeps the element it took last" {
+    assert.equal(lastOf(0, [1, 2, 3]), 3);
+    assert.equal(lastOf(5, []), 5);
+}
+
+fn pastAJoin(a: Int, b: Int): Int {
+    let x = a * 3;
+    assert.isTrue(x > 0);
+    if (b > 0) { assert.equal(b, b) } else { assert.equal(a, a) };
+    x
+}
+
+test "a value defined before a join is returned after it" {
+    assert.equal(pastAJoin(2, 1), 6);
+    assert.equal(pastAJoin(3, 0), 9);
+}
+
+fn plus(q: Bool, x: U64, y: U64, b: U64): Int {
+    let a = if (q) { x + 1 } else { y };
+    if (a >= b) { 1 } else { 2 }
+}
+
+fn plusValue(q: Bool, x: U64, y: U64, b: U64): Int {
+    let a = if (q) { x + y } else { y };
+    if (a >= b) { 1 } else { 2 }
+}
+
+fn plusToLiteral(q: Bool, x: U64, y: U64): Int {
+    let a = if (q) { x + 1 } else { y };
+    if (a >= 10) { 1 } else { 2 }
+}
+
+fn plusOfSum(q: Bool, x: U64, y: U64, b: U64): Int {
+    let a = if (q) { (x + y) + 1 } else { y };
+    if (a >= b) { 1 } else { 2 }
+}
+
+fn floatLast(q: Bool, x: U64, y: U64, b: U64, f: F64): F64 {
+    let a = if (q) { let t = f + 1.0; x } else { y };
+    if (a >= b) { f } else { f + 2.0 }
+}
+
+fn testedLater(q: Bool, c: Bool, x: U64, y: U64, b: U64): Int {
+    let a = if (q) { x + 1 } else { y };
+    let z = a >= b;
+    if (c) { 1 } else { if (z) { 3 } else { 4 } }
+}
+
+test "an unsigned test after a join" {
+    assert.equal(plus(true, 1, 2, 2), 1);
+    assert.equal(plus(false, 1, 1, 2), 2);
+    assert.equal(plusValue(true, 1, 2, 3), 1);
+    assert.equal(plusValue(false, 1, 2, 3), 2);
+    assert.equal(plusToLiteral(true, 9, 2), 1);
+    assert.equal(plusToLiteral(false, 1, 2), 2);
+    assert.equal(plusOfSum(true, 1, 2, 4), 1);
+    assert.equal(plusOfSum(false, 1, 2, 3), 2);
+    assert.equal(floatLast(false, 1, 1, 2, 1.0), 3.0);
+    assert.equal(floatLast(true, 2, 1, 2, 1.0), 1.0);
+    assert.equal(testedLater(false, false, 1, 1, 2), 4);
+    assert.equal(testedLater(true, false, 1, 1, 2), 3);
+    assert.equal(testedLater(true, true, 1, 1, 2), 1);
+}
+
+fn negateWide(x: I128): I128 { -x }
+
+test "a wide negation" {
+    assert.equal(negateWide(5), -5);
+    assert.equal(negateWide(-170141183460469231731687303715884105727), 170141183460469231731687303715884105727);
+}

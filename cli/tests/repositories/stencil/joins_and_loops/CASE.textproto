@@ -1,0 +1,16 @@
+# Loops and joins in the shapes the debug backend plans around: a loop
+# variable nothing reads, two ways back into one loop, a value returned past a
+# join, unsigned tests after a join, and registers that swap. Every function is
+# called twice, so none is inlined into its test. Both backends run every
+# block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "loops and joins the debug backend plans around agree on both backends"
+
+run {
+  args: ["test", "//lib/shapes", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
