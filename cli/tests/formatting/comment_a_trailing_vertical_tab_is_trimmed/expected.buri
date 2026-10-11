@@ -1,0 +1,4 @@
+// the vertical tab after this is whitespace
+fn one(): Int {
+    1
+}
