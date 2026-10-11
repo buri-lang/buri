@@ -332,10 +332,6 @@ pub struct Admitted {
 }
 
 impl Admitted {
-    pub fn is_empty(&self) -> bool {
-        self.backends.is_empty() && self.platforms.is_empty()
-    }
-
     /// Whether every list written admits `platform`. Nothing written admits
     /// everything. A backend admits every platform it builds, a repository's
     /// own included.
@@ -1426,9 +1422,12 @@ impl Reader {
                     }
                     continue;
                 }
-                if let Some(language) = languages.all.iter_mut().find(|l| l.name == name.value) {
-                    language.extensions.push(extension);
-                }
+                let language = languages
+                    .all
+                    .iter_mut()
+                    .find(|l| l.name == name.value)
+                    .or_ice("the language is a built-in one or was declared above");
+                language.extensions.push(extension);
             }
         }
         languages
@@ -1783,13 +1782,12 @@ fn edit_distance(a: &str, b: &str) -> usize {
     let mut cur: Vec<usize> = Vec::with_capacity(prev.len());
     for (i, ca) in a.chars().enumerate() {
         cur.clear();
-        // `left` is the cell to the left in the row being built, and
-        // `windows(2)` hands out the two cells above it — the whole
-        // recurrence, with no index to get off by one.
+        // `left` is the entry to the left in the row being built, and the
+        // zipped pair is the two entries above it — the whole recurrence,
+        // with no index to get off by one.
         let mut left = i.saturating_add(1);
         cur.push(left);
-        for (cb, above) in b.iter().zip(prev.windows(2)) {
-            let [diagonal, up] = above else { break };
+        for (cb, (diagonal, up)) in b.iter().zip(prev.iter().zip(prev.iter().skip(1))) {
             let cost = usize::from(ca != *cb);
             left = up
                 .saturating_add(1)

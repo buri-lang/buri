@@ -423,7 +423,7 @@ fn value(v: &Value) -> Doc {
                     inner.push(Doc::HardLine);
                 }
                 inner.push(match &e.value {
-                    Value::Message(block) if plain(block) => inline(block),
+                    Value::Message(block) => plain(block).map_or_else(|| value(&e.value), |fields| inline(&fields)),
                     other => value(other),
                 });
                 if i + 1 < list.elements.len() {
@@ -445,27 +445,31 @@ fn value(v: &Value) -> Doc {
     }
 }
 
-/// Whether a message in a list may sit on one line: scalar fields only, and no
-/// comment anywhere in it.
-fn plain(block: &Block) -> bool {
-    block.opening.is_empty()
-        && block.items.iter().all(|item| match item {
-            Item::Comment(_) => false,
-            Item::Field(f) => f.after.is_empty() && matches!(f.value, Value::Scalar(_)),
+/// The fields of a message in a list that may sit on one line: scalar fields
+/// only, and no comment anywhere in it.
+fn plain(block: &Block) -> Option<Vec<&Field>> {
+    if !block.opening.is_empty() {
+        return None;
+    }
+    block
+        .items
+        .iter()
+        .map(|item| match item {
+            Item::Field(f) if f.after.is_empty() && matches!(f.value, Value::Scalar(_)) => Some(f),
+            _ => None,
         })
+        .collect()
 }
 
 /// `{ a: 1 b: 2 }` when it fits, and one field per line when it does not.
-fn inline(block: &Block) -> Doc {
-    if block.items.is_empty() {
+fn inline(fields: &[&Field]) -> Doc {
+    if fields.is_empty() {
         return Doc::text("{}");
     }
     let mut inner = Vec::new();
-    for item in &block.items {
+    for f in fields {
         inner.push(Doc::Line);
-        if let Item::Field(f) = item {
-            field(f, &mut inner);
-        }
+        field(f, &mut inner);
     }
     Doc::Group(vec![Doc::text("{"), Doc::Indent(inner), Doc::Line, Doc::text("}")])
 }

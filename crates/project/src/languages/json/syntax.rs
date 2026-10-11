@@ -658,7 +658,7 @@ impl<'t> Parser<'t> {
             }
             let blank_before = next.blank_before();
             let leading = std::mem::take(&mut next.comments);
-            let mut node = if open == '{' {
+            let (key, mut value) = if open == '{' {
                 let (key, key_raw) = match &next.kind {
                     Kind::Str(s) => (s.clone(), self.slice(next.span).to_string()),
                     Kind::Word(w) if self.dialect == Dialect::Json5 => (w.clone(), w.clone()),
@@ -698,8 +698,7 @@ impl<'t> Parser<'t> {
                 }));
                 value.leading = all;
                 value.blank_before = blank_before;
-                members.push(Member { key, key_raw, key_span, value });
-                None
+                (Some((key, key_raw, key_span)), value)
             } else {
                 if next.kind == Kind::Eof {
                     return Err(self.error((start, start.saturating_add(1)), "this array is never closed", "close it with `]`"));
@@ -707,20 +706,18 @@ impl<'t> Parser<'t> {
                 let mut value = self.value(next)?;
                 value.leading = leading;
                 value.blank_before = blank_before;
-                Some(value)
+                (None, value)
             };
-            if let Some(item) = node.take() {
-                items.push(item);
-            }
             let mut after = self.token()?;
-            let last = if open == '{' { members.last_mut().map(|m| &mut m.value) } else { items.last_mut() };
             // Anything between the element and its comma is the element's.
-            if let Some(last) = last {
-                if after.kind == Kind::Comma || after.kind == Kind::Close(close) {
-                    let (same_line, rest) = split_same_line(std::mem::take(&mut after.comments));
-                    last.trailing.extend(same_line);
-                    after.comments = rest;
-                }
+            if after.kind == Kind::Comma || after.kind == Kind::Close(close) {
+                let (same_line, rest) = split_same_line(std::mem::take(&mut after.comments));
+                value.trailing.extend(same_line);
+                after.comments = rest;
+            }
+            match key {
+                Some((key, key_raw, key_span)) => members.push(Member { key, key_raw, key_span, value }),
+                None => items.push(value),
             }
             match after.kind {
                 Kind::Comma => {

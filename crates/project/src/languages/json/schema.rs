@@ -22,6 +22,7 @@
 
 use super::regex::{Regex, TooCostly};
 use super::syntax::{Member, Node, Range, Value};
+use crate::diagnostics::Invariant;
 use crate::languages::Finding;
 use std::collections::{BTreeSet, HashMap};
 
@@ -70,12 +71,10 @@ pub fn local_path(from: &str, reference: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
-/// `reference` resolved against the absolute URI `base`, as RFC 3986 §5.2 does
-/// it, less queries.
+/// The relative `reference` resolved against the absolute URI `base`, as RFC
+/// 3986 §5.2 does it, less queries. Both callers handle an absolute reference
+/// first.
 fn resolve_uri(base: &str, reference: &str) -> String {
-    if has_scheme(reference) {
-        return reference.to_string();
-    }
     let base = base.split('#').next().unwrap_or_default();
     let (scheme, rest) = base.split_once(':').unwrap_or(("", base));
     if let Some(net) = reference.strip_prefix("//") {
@@ -437,10 +436,9 @@ impl<'r> Registry<'r> {
         // An anchor names the schema object it is written in.
         for key in ["$anchor", "$dynamicAnchor"] {
             let Some(name) = node.get(key).and_then(Node::as_str).filter(|n| is_anchor(n)) else { continue };
-            if let Some(r) = self.resources.get_mut(resource) {
-                let map = if key == "$anchor" { &mut r.anchors } else { &mut r.dynamic_anchors };
-                map.insert(name.to_string(), node);
-            }
+            let r = self.resources.get_mut(resource).or_ice("a walk is always inside a resource it added");
+            let map = if key == "$anchor" { &mut r.anchors } else { &mut r.dynamic_anchors };
+            map.insert(name.to_string(), node);
         }
         for m in members {
             self.keyword(m, file, &pointer, resource, refs);
@@ -693,7 +691,7 @@ struct Checker<'a, 'r> {
 
 /// Checks `instance` against the root of the schema file `schema`.
 pub fn validate(reg: &Registry, schema: usize, instance: &Node) -> Vec<Violation> {
-    let Some(root) = reg.files.get(schema).map(|f| &f.root) else { return Vec::new() };
+    let root = reg.files.get(schema).map(|f| &f.root).or_ice("the schema is one of the registry's files");
     let resource = reg.by_file.get(&reg.path_of(schema)).copied().unwrap_or(0);
     let mut c = Checker { reg, dynamic: Vec::new(), depth: 0 };
     let mut out = Vec::new();

@@ -25,6 +25,7 @@
 use super::number::Number;
 use super::schema::{Registry, SchemaFile};
 use super::syntax::{Node, Range, Value};
+use crate::diagnostics::Invariant;
 use crate::languages::Finding;
 use std::collections::{BTreeSet, HashMap};
 
@@ -146,10 +147,8 @@ fn upper_camel(s: &str) -> String {
     let mut out = String::new();
     for word in s.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()) {
         let mut chars = word.chars();
-        if let Some(first) = chars.next() {
-            out.push(first.to_ascii_uppercase());
-            out.extend(chars);
-        }
+        out.extend(chars.next().map(|c| c.to_ascii_uppercase()));
+        out.extend(chars);
     }
     match out.chars().next() {
         None => "Value".to_string(),
@@ -159,15 +158,13 @@ fn upper_camel(s: &str) -> String {
 }
 
 /// `lower` camel case, from any spelling: `max_connections` is
-/// `maxConnections`, and a keyword gets a trailing `_`.
+/// `maxConnections`, and a keyword gets a trailing `_`. [`upper_camel`] never
+/// starts with a digit, so neither does this.
 fn lower_camel(s: &str) -> String {
     let upper = upper_camel(s);
     let mut chars = upper.chars();
     let mut out: String = chars.next().map(|c| c.to_ascii_lowercase()).into_iter().collect();
     out.extend(chars);
-    if out.starts_with(|c: char| c.is_ascii_digit()) {
-        out.insert(0, 'v');
-    }
     if KEYWORDS.contains(&out.as_str()) {
         out.push('_');
     }
@@ -251,7 +248,8 @@ impl<'a, 'r> Gen<'a, 'r> {
             }
         }
         if let Some(reference) = node.get("$ref").and_then(Node::as_str) {
-            let Some((target_resource, target)) = self.reg.target(reference, resource) else { return Ty::Any };
+            let (target_resource, target) =
+                self.reg.target(reference, resource).or_ice("the check resolved every `$ref` before anything generates");
             if self.depth >= MAX_DEPTH {
                 self.refuse(&file, node.span, "$ref", "the references loop without reaching an object");
                 return Ty::Any;
@@ -268,9 +266,9 @@ impl<'a, 'r> Gen<'a, 'r> {
         }
         for keyword in ["oneOf", "anyOf"] {
             let Some(m) = node.member(keyword) else { continue };
-            let Value::Array(items, _) = &m.value.value else { continue };
+            let items = elements(&m.value);
             let is_null = |n: &Node| n.get("type").and_then(Node::as_str) == Some("null");
-            if let [a, b] = items.as_slice() {
+            if let [a, b] = items {
                 if is_null(a) != is_null(b) {
                     let other = if is_null(a) { b } else { a };
                     return self.ty(other, resource, hint).optional();
@@ -287,7 +285,7 @@ impl<'a, 'r> Gen<'a, 'r> {
             return Ty::Any;
         }
         if let Some(e) = node.member("enum") {
-            let Value::Array(items, _) = &e.value.value else { return Ty::Any };
+            let items = elements(&e.value);
             let nullable = items.iter().any(|i| matches!(i.value, Value::Null));
             let strings: Vec<&str> = items.iter().filter_map(Node::as_str).collect();
             let others = items.len().saturating_sub(strings.len()).saturating_sub(usize::from(nullable));
@@ -363,9 +361,8 @@ impl<'a, 'r> Gen<'a, 'r> {
         };
         let name = self.fresh(node.get("title").and_then(Node::as_str).unwrap_or(hint));
         self.named.insert(node as *const Node, name.clone());
-        // Placed before its fields are typed, so the root comes first.
+        // Placed before the types its fields declare, so the root comes first.
         let index = self.decls.len();
-        self.decls.push(Decl { name: name.clone(), shape: Shape::Struct(Vec::new()), docs: docs_of(node), at: (file.clone(), node.span) });
         let required: BTreeSet<&str> = match node.get("required").map(|r| &r.value) {
             Some(Value::Array(items, _)) => items.iter().filter_map(Node::as_str).collect(),
             _ => BTreeSet::new(),
@@ -387,9 +384,8 @@ impl<'a, 'r> Gen<'a, 'r> {
             let ty = if required.contains(m.key.as_str()) { ty } else { ty.optional() };
             fields.push(Field { key: m.key.clone(), name: field, ty, docs: docs_of(&m.value), at: (file.clone(), m.key_span) });
         }
-        if let Some(decl) = self.decls.get_mut(index) {
-            decl.shape = Shape::Struct(fields);
-        }
+        let decl = Decl { name: name.clone(), shape: Shape::Struct(fields), docs: docs_of(node), at: (file, node.span) };
+        self.decls.insert(index, decl);
         Ty::Named(name)
     }
 
@@ -427,8 +423,8 @@ impl<'a, 'r> Gen<'a, 'r> {
         let file = self.reg.file_of(resource);
         let name = self.fresh(node.get("title").and_then(Node::as_str).unwrap_or(hint));
         self.named.insert(node as *const Node, name.clone());
+        // Placed before the types its branches declare.
         let index = self.decls.len();
-        self.decls.push(Decl { name: name.clone(), shape: Shape::Strings(Vec::new()), docs: docs_of(node), at: (file.clone(), node.span) });
         let mut variants = Vec::new();
         let mut seen = BTreeSet::new();
         for (branch, r, ref_name) in branches {
@@ -454,14 +450,22 @@ impl<'a, 'r> Gen<'a, 'r> {
             };
             variants.push(Variant { value, name: variant, payload });
         }
-        if let Some(decl) = self.decls.get_mut(index) {
-            decl.shape = Shape::Tagged { tag, variants };
-        }
+        let decl = Decl { name: name.clone(), shape: Shape::Tagged { tag, variants }, docs: docs_of(node), at: (file, node.span) };
+        self.decls.insert(index, decl);
         Some(Ty::Named(name))
     }
 
     fn decl(&self, name: &str) -> Option<&Decl> {
         self.decls.iter().find(|d| d.name == name)
+    }
+}
+
+/// An array's elements. The check refuses a schema whose `oneOf`, `anyOf` or
+/// `enum` is anything else, so nothing else reaches here.
+fn elements(node: &Node) -> &[Node] {
+    match &node.value {
+        Value::Array(items, _) => items,
+        _ => &[],
     }
 }
 
@@ -564,8 +568,8 @@ fn generator<'a, 'r>(reg: &'a Registry<'r>) -> Gen<'a, 'r> {
 
 /// The root type of the schema file at `path`, declared.
 fn root<'r>(gen: &mut Gen<'_, 'r>, files: &'r [SchemaFile], path: &str) -> String {
-    let Some(file) = files.iter().find(|f| f.path == path) else { return String::new() };
-    let Some(resource) = gen.reg.resource_of_file(path) else { return String::new() };
+    let file = files.iter().find(|f| f.path == path).or_ice("a schema's own file is in the set it was read with");
+    let resource = gen.reg.resource_of_file(path).or_ice("every file in the set is a resource of its registry");
     let hint = file.root.get("title").and_then(Node::as_str).unwrap_or(stem(path)).to_string();
     match gen.ty(&file.root, resource, &hint) {
         Ty::Named(name) => name,
@@ -889,7 +893,7 @@ fn literal(gen: &Gen, node: &Node, ty: &Ty, indent: usize) -> String {
 }
 
 fn named(gen: &Gen, node: &Node, name: &str, indent: usize) -> String {
-    let Some(decl) = gen.decl(name) else { return json_literal(node, indent) };
+    let decl = gen.decl(name).or_ice("every type a value names was declared");
     match &decl.shape {
         Shape::Alias(ty) => literal(gen, node, ty, indent),
         Shape::Struct(fields) => struct_literal(gen, node, name, fields, indent),
@@ -900,7 +904,10 @@ fn named(gen: &Gen, node: &Node, name: &str, indent: usize) -> String {
         }
         Shape::Tagged { tag, variants } => {
             let value = node.get(tag).and_then(Node::as_str).unwrap_or_default();
-            let Some(v) = variants.iter().find(|v| v.value == value) else { return json_literal(node, indent) };
+            let v = variants
+                .iter()
+                .find(|v| v.value == value)
+                .or_ice("the check matched the value to one branch, and its tag is that branch's variant");
             match &v.payload {
                 Some(p) => format!("{name}.{}({})", v.name, named(gen, node, p, indent)),
                 None => format!("{name}.{}", v.name),
