@@ -12,3 +12,18 @@ impl Ticker for TestTicker {
 export fn ticker(): TestTicker {
     TestTicker {}
 }
+
+// Runs the callback with the number it was handed.
+export struct FnTicker<F> {
+    f: F,
+}
+
+impl<P, A> Ticker for FnTicker<fn(P) => A> {
+    fn every(self, n: Int, run: fn(FnTicker<fn(P) => A>, Int) => Int): Int {
+        run(self, n)
+    }
+}
+
+export fn fnTicker<P, A>(f: fn(P) => A): FnTicker<fn(P) => A> {
+    FnTicker { f: f }
+}

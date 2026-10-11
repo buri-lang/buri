@@ -1,6 +1,8 @@
 # A repository effect whose method takes a callback of `Self` and a number.
 # The wrapper hands it a callback of the context instead, and the test
-# implementation calls it with itself. Both backends run the block.
+# implementations call it with themselves: one a plain struct, one holding a
+# function, bound in a generic body at a function of the body's parameter.
+# Both backends run every block.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
