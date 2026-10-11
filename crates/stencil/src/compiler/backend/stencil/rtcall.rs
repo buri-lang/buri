@@ -404,14 +404,12 @@ impl Jit<'_> {
                     // out-pointer write lands on top of these zeros, because
                     // the two payloads share the destination's payload area and
                     // the call happens after this.
+                    // The message is the last 24 bytes (`error_message_offset`),
+                    // three whole words.
                     let mut off = at;
                     while off + 8 <= err_l.size {
                         self.imm_to(dslot + err_at + off, 0);
                         off += 8;
-                    }
-                    while off < err_l.size {
-                        self.imm_w(dslot + err_at + off, 1, 0);
-                        off += 1;
                     }
                 }
                 let zero_bytes = message_at.unwrap_or(err_l.size);
