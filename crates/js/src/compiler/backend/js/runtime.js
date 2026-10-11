@@ -1895,6 +1895,21 @@ function $convF32(v, target) {
   return $ok(r);
 }
 
+// A `BigInt` to binary32, rounded once. `Number` rounds to a double first, and
+// that goes wrong only where the double lands exactly halfway between two
+// binary32 values: one double toward the integer settles the tie the way a
+// single rounding would.
+const $f32Step = new Float64Array(1);
+const $f32StepBits = new BigInt64Array($f32Step.buffer);
+function $bigToF32(b) {
+  const d = Number(b);
+  $f32Step[0] = d;
+  if (($f32StepBits[0] & 0x1fffffffn) !== 0x10000000n || BigInt(d) === b) return Math.fround(d);
+  // Adding one to the bits moves away from zero, whatever the sign.
+  $f32StepBits[0] += b < 0n === b < BigInt(d) ? 1n : -1n;
+  return Math.fround($f32Step[0]);
+}
+
 // --- The platform --------------------------------------------------------------------
 //
 // **The boundary rule.** Everything past this line is a JavaScript API, and a
