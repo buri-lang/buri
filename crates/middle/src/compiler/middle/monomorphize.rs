@@ -637,7 +637,9 @@ pub fn run(
         role: checked.role_con,
     };
     let mut reached = crate::compiler::semantics::styles::Reached::default();
-    if ui.style.is_some() || ui.theme.is_some() || ui.node.is_some() {
+    // `ui/theme` and `ui/node` both import `ui/style`, so a program with
+    // either has `Style` too.
+    if ui.style.is_some() {
         for f in &mut m.funcs {
             if let FuncKind::Body(body) = &mut f.kind {
                 crate::compiler::semantics::styles::survey(body, ui, &mut reached);
