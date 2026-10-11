@@ -1322,10 +1322,14 @@ impl<'a> Checker<'a> {
             for (index, item) in items.iter().enumerate() {
                 match item {
                     tree::Item::Struct(d) => {
+                        // A redeclaration was refused, and the name keeps the first one.
                         let Some(Sym::Ty(con)) = self.scope(id).own.get(t.name(d.name)).cloned()
                         else {
                             continue;
                         };
+                        if self.tables.tycon(con).span != d.name.span {
+                            continue;
+                        }
                         let generics = self.elaborate_generics(id, t.list(d.generics));
                         self.tables.tycon_mut(con).generics = generics.clone();
                         let def = match &d.body {
@@ -1364,6 +1368,9 @@ impl<'a> Checker<'a> {
                         else {
                             continue;
                         };
+                        if self.tables.tycon(con).span != d.name.span {
+                            continue;
+                        }
                         let generics = self.elaborate_generics(id, t.list(d.generics));
                         self.tables.tycon_mut(con).generics = generics.clone();
                         let variants = t
@@ -1418,6 +1425,9 @@ impl<'a> Checker<'a> {
                         else {
                             continue;
                         };
+                        if self.tables.trait_(tid).span != d.name.span {
+                            continue;
+                        }
                         let generics = self.elaborate_generics(id, t.list(d.generics));
                         self.tables.trait_mut(tid).generics = generics.clone();
                         // A trait's `Self` is whatever type implements it,
@@ -1472,6 +1482,9 @@ impl<'a> Checker<'a> {
                         else {
                             continue;
                         };
+                        if self.tables.const_(cid).span != d.name.span {
+                            continue;
+                        }
                         let ty = self.elaborate(id, &[], d.ty);
                         self.tables.const_mut(cid).ty = ty;
                     }

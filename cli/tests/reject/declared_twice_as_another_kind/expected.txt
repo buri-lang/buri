@@ -1,0 +1,32 @@
+error: `Shape` is declared twice [duplicate-declaration]
+  --> cmd/declared_twice_as_another_kind/main.buri:12:8
+   |
+12 | struct Shape { n: I64 }
+   |        ^^^^^
+   |
+   = fix: rename one of them; a name has one meaning in a module
+
+     Rename one of them. Two things with one name in one scope leave a reference
+     to that name with no answer.
+
+error: `Color` is declared twice [duplicate-declaration]
+  --> cmd/declared_twice_as_another_kind/main.buri:16:6
+   |
+16 | enum Color { Red, Blue }
+   |      ^^^^^
+   |
+   = fix: rename one of them; a name has one meaning in a module
+error: `Named` is declared twice [duplicate-declaration]
+  --> cmd/declared_twice_as_another_kind/main.buri:20:7
+   |
+20 | trait Named {
+   |       ^^^^^
+   |
+   = fix: rename one of them; a name has one meaning in a module
+error: `Limit` is declared twice [duplicate-declaration]
+  --> cmd/declared_twice_as_another_kind/main.buri:26:5
+   |
+26 | let Limit: I64 = 3;
+   |     ^^^^^
+   |
+   = fix: rename one of them; a name has one meaning in a module
