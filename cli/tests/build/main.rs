@@ -21,6 +21,8 @@
 //! | [`generators`] | scratch | That a generated module reaches the host's native backend and its linker, and that the generator the toolchain ships is compiled once per repository. |
 //! | [`heap`] | scratch | That the heap check every suite here runs under is really on — in a `buri run` artifact and in the binary `buri test` spawns — and that a program which really leaks is really reported. |
 //! | [`host_files`] | `repositories/custom-platforms/cloudflare_kv/` | That a platform's `js` file is read for its exports however it is written, cut off or malformed, and that the module built from it still answers. |
+//! | [`json_patterns`] | scratch | What each regular expression a JSON schema's `pattern` holds matches, and why each refused one is refused. |
+//! | [`json_schema_suite`] | `json-schema/` | That `buri lint` holds JSON files to the official JSON Schema 2020-12 test suite. |
 //! | [`loading`] | scratch | That every import of a path is answered alike, however many modules write it. |
 //! | [`many_findings`] | scratch | That a file with thousands of findings publishes each once, where it is, across edits, and that `lint --fix` over a thousand of them leaves the program printing what it printed. |
 //! | [`monorepo`] | scratch | A large repository's shape, scaled down: what a warm run, a comment edit and a generator's input edit may not redo, and that a link does not start the C driver. |
@@ -81,6 +83,8 @@ mod incrementality;
 mod init;
 mod instances;
 mod javascript;
+mod json_patterns;
+mod json_schema_suite;
 mod loading;
 mod many_findings;
 mod middle;
