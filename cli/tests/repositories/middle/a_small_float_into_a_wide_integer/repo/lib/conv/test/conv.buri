@@ -1,0 +1,7 @@
+from "core/testing/assert" import * as assert;
+from "//lib/conv" import { fitsI128 };
+
+test "a whole float fits a 128-bit integer" {
+    let x: F32 = 2.0;
+    assert.isTrue(fitsI128(x));
+}

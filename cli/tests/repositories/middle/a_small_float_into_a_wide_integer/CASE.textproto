@@ -1,0 +1,14 @@
+# `F32.toI128`, a conversion neither native backend has a body for, as
+# `testing/a_conversion_with_no_native_body_is_named` is for `F64`. The suite
+# is refused by name before code generation.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a single-precision float into a 128-bit integer is refused by name before code generation"
+
+run {
+  args: ["test", "//lib/conv", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}

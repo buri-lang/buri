@@ -1,0 +1,7 @@
+/// Whether a single-precision float is a whole number a 128-bit integer can hold.
+export fn fitsI128(x: F32): Bool {
+    match (x.toI128()) {
+        .Ok(_) => true,
+        .Err(_) => false,
+    }
+}
