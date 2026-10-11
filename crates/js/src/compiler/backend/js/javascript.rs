@@ -3800,14 +3800,6 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
                 }
                 continue;
             }
-            b'/' if b.get(i + 1) == Some(&b'*') => {
-                i += 2;
-                while i + 1 < b.len() && !(b.get(i) == Some(&b'*') && b.get(i + 1) == Some(&b'/')) {
-                    i += 1;
-                }
-                i = (i + 2).min(b.len());
-                continue;
-            }
             b'"' | b'\'' | b'`' => {
                 let q = c;
                 i += 1;
@@ -3824,19 +3816,14 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
                 continue;
             }
             b'{' => depth += 1,
-            // A `function` ends at the brace that closes it.
-            b'}' if depth == 1 && matches!(current, Some((_, true))) => {
-                depth -= 1;
-                if let Some((name, _)) = current.take() {
-                    i += 1;
-                    out.push((name, src.get(start..i).unwrap_or_default().to_string()));
-                    start = i;
-                    continue;
+            b'}' | b';' => {
+                if c == b'}' {
+                    depth -= 1;
                 }
-            }
-            b'}' => depth -= 1,
-            b';' if depth == 0 && matches!(current, Some((_, false))) => {
-                if let Some((name, _)) = current.take() {
+                // A `function` ends at the brace that closes it, and a `const`
+                // or `let` at its semicolon.
+                let ends = |d: &mut (String, bool)| depth == 0 && d.1 == (c == b'}');
+                if let Some((name, _)) = current.take_if(ends) {
                     i += 1;
                     out.push((name, src.get(start..i).unwrap_or_default().to_string()));
                     start = i;
@@ -3870,10 +3857,11 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
                     {
                         j += 1;
                     }
-                    if let Some(Ok(name)) = b.get(ns..j).map(std::str::from_utf8) {
-                        current = Some((name.to_string(), is_fn));
-                        start = i;
-                    }
+                    let name = src
+                        .get(ns..j)
+                        .or_ice("a declaration's name is the ASCII the scan just stepped over");
+                    current = Some((name.to_string(), is_fn));
+                    start = i;
                     break;
                 }
             }
@@ -3916,9 +3904,9 @@ pub fn has_await(stmts: &[Stmt]) -> bool {
 }
 
 /// Removes comments and unnecessary whitespace from JavaScript source, with a
-/// tokenizer that understands strings, template literals, and both comment
-/// forms. This is what compacts the runtime; generated code goes through the
-/// AST printer instead.
+/// tokenizer that understands strings, template literals and `//` comments.
+/// This is what compacts the runtime, which writes no `/* */` comment; generated
+/// code goes through the AST printer instead.
 pub fn strip(src: &str) -> String {
     let b = src.as_bytes();
     let mut out = String::with_capacity(src.len());
@@ -3929,13 +3917,6 @@ pub fn strip(src: &str) -> String {
                 while b.get(i).is_some_and(|c| *c != b'\n') {
                     i += 1;
                 }
-            }
-            b'/' if b.get(i + 1) == Some(&b'*') => {
-                i += 2;
-                while i + 1 < b.len() && !(b.get(i) == Some(&b'*') && b.get(i + 1) == Some(&b'/')) {
-                    i += 1;
-                }
-                i = (i + 2).min(b.len());
             }
             b'"' | b'\'' | b'`' => {
                 let quote = c;
@@ -4369,10 +4350,15 @@ const $c = 1;
         assert!(out.contains("function main("), "{out}");
     }
 
+    /// `strip` and `split_declarations` read only `//` comments.
+    #[test]
+    fn the_runtime_writes_no_block_comment() {
+        assert!(!crate::compiler::backend::js::runtime_source().contains("/*"));
+    }
+
     #[test]
     fn stripping_keeps_tokens_apart() {
         assert_eq!(strip("let  a  =  1 ;"), "let a=1;");
-        assert_eq!(strip("a /* c */ + b"), "a+b");
         assert_eq!(strip("// gone\nx"), "x");
         assert_eq!(strip("return  x"), "return x");
         assert_eq!(strip("f('a  b')"), "f('a  b')");
