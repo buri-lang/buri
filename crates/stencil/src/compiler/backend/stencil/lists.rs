@@ -14,27 +14,33 @@
 
 use super::jit::{Jit, V};
 use crate::compiler::middle::ir;
+use crate::diagnostics::Invariant;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 use crate::compiler::semantics::types::{Ty, TyKind};
 
 impl Jit<'_> {
     /// A `[T]`'s stride, element width and whether the element is counted.
-    pub(crate) fn array_elem(&mut self, prog: &ir::Program, t: ir::Type) -> Option<(u32, u32, bool)> {
-        let ir::Type::Agg(id) = t else { return None };
-        let TyKind::Array(elem) = prog.type_info(id).ty.kind() else { return None };
-        let l = self.layouts_of(*elem);
-        let counted = self.rc_counted(elem);
-        Some((l.stride.max(1), l.size.max(1), counted))
+    pub(crate) fn array_elem(&mut self, prog: &ir::Program, t: ir::Type) -> (u32, u32, bool) {
+        let elem = element_of(prog, t);
+        let l = self.layouts_of(elem);
+        let counted = self.rc_counted(&elem);
+        (l.stride.max(1), l.size.max(1), counted)
     }
+}
 
-    /// The element type of a value whose IR type is a `[T]`.
-    pub(crate) fn element_of(&mut self, prog: &ir::Program, t: ir::Type) -> Option<Ty> {
-        let ir::Type::Agg(id) = t else { return None };
-        match prog.type_info(id).ty.kind() {
+/// The element type of an array instruction's `[T]` operand.
+pub(crate) fn element_of(prog: &ir::Program, t: ir::Type) -> Ty {
+    let elem = match t {
+        ir::Type::Agg(id) => match prog.type_info(id).ty.kind() {
             TyKind::Array(elem) => Some(*elem),
             _ => None,
-        }
-    }
+        },
+        _ => None,
+    };
+    elem.or_ice("an array instruction's operand is a `[T]` (middle/ir.rs)")
+}
+
+impl Jit<'_> {
 
     /// `frame[dst] = *(base + i * stride)`, `bytes` wide.
     pub(crate) fn elem_load(&mut self, dst: u32, base: u32, i: u32, stride: u32, bytes: u32) {
