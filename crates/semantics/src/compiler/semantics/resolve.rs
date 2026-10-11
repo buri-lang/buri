@@ -1801,7 +1801,6 @@ impl<'a> Checker<'a> {
     /// the loop that reports, so the two cannot drift — a `true` here is
     /// exactly one diagnostic or more there.
     fn violates_ctx_rule(&self, params: &[ParamInfo], generics: &[GenericInfo]) -> bool {
-        let mut ctx_count: usize = 0;
         let mut self_count: usize = 0;
         for (i, p) in params.iter().enumerate() {
             match p.role {
@@ -1811,10 +1810,11 @@ impl<'a> Checker<'a> {
                         return true;
                     }
                 }
+                // A second `ctx` can't be where the first one was, so its
+                // position alone breaks the rule.
                 ParamRole::Ctx => {
-                    ctx_count = ctx_count.saturating_add(1);
                     let expected = if self_count > 0 { 1 } else { 0 };
-                    if i != expected || ctx_count > 1 {
+                    if i != expected {
                         return true;
                     }
                 }
@@ -2285,10 +2285,7 @@ impl<'a> Checker<'a> {
     /// way a reader sees the other file when the cycle crosses a module.
     fn report_alias_cycle(&mut self, at: usize, decl: Span) {
         let chain: Vec<(ModuleId, String)> = self.expanding.iter().skip(at).cloned().collect();
-        // `at` came from a `position` in the same vector, so the chain has a
-        // head; the compiler cannot know that, and a cycle of no aliases is
-        // nothing to say anyway.
-        let Some(head) = chain.first().map(|(m, _)| *m) else { return };
+        let head = chain.first().map(|(m, _)| *m).or_ice("`at` is a position in `expanding`, so the chain has a head");
         if chain.iter().any(|k| self.cyclic_aliases.contains(k)) {
             return;
         }

@@ -118,10 +118,10 @@ fn classify_in(
         }
         TyKind::Con(id, args) => {
             let con = *id;
-            if Some(con) == known.request && args.is_empty() {
+            if Some(con) == known.request {
                 return Ok(Crossing::Request);
             }
-            if Some(con) == known.response && args.is_empty() {
+            if Some(con) == known.response {
                 return Ok(Crossing::Response);
             }
             if let Some(p) = tables.as_prim(ty) {

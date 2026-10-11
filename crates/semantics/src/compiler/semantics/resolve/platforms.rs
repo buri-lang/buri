@@ -97,9 +97,7 @@ pub fn js_structs(
                             reach.con(*con)
                         }
                         typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => {
-                            if let Some(id) = func.decl() {
-                                reach.fn_(id);
-                            }
+                            reach.fn_(func.decl().or_ice("a checked body names declarations: monomorphization hasn't run"));
                         }
                         _ => {}
                     }
@@ -353,41 +351,29 @@ impl<'a> Checker<'a> {
             if field.ty.is_error() {
                 continue;
             }
+            // A production struct: one of the platform's own or `platform/host`'s.
             let production = match field.ty.kind() {
                 TyKind::Con(con, args) => {
                     let tycon = self.tables.tycon(*con);
-                    let home = self.loaded.modules.get(tycon.module.index()).map(|m| m.path.as_str());
+                    // A built-in type, `Int` say, has no module.
+                    let from_host = self
+                        .loaded
+                        .modules
+                        .get(tycon.module.index())
+                        .is_some_and(|m| m.path == standard_library::HOST_STRUCTS_MODULE);
                     let a_struct = args.is_empty()
                         && matches!(tycon.def, TyDef::Struct { .. })
-                        && (tycon.module == platform || home == Some(standard_library::HOST_STRUCTS_MODULE));
-                    a_struct.then_some(tycon.fields().is_empty())
+                        && (tycon.module == platform || from_host);
+                    a_struct.then_some((*con, from_host, tycon.fields().is_empty()))
                 }
                 _ => None,
             };
-            if production != Some(true) {
-                if !self.already(field.span, "host-field-not-production") {
-                    let shown = self.shown(&field.ty);
-                    let fix = match production {
-                        Some(_) => format!(
-                            "drop `{shown}`'s fields: the CLI builds the host, and has nothing to fill them with"
-                        ),
-                        None => String::from(
-                            "use a struct from `platform/host`, or declare one with no fields in `platform.buri`; \
-                             hand anything else to the entry as a parameter",
-                        ),
-                    };
-                    self.templated("host-field-not-production", field.span)
-                        .bind("field", field.name.clone())
-                        .bind("type", shown)
-                        .bind("fix", fix);
-                }
+            let Some((con, from_host, true)) = production else {
+                self.refuse_host_field(&field, production.is_some());
                 continue;
-            }
-            let TyKind::Con(con, _) = field.ty.kind() else { continue };
-            let tycon = self.tables.tycon(*con);
-            let Some(module) = self.loaded.modules.get(tycon.module.index()) else { continue };
-            let struct_name = tycon.name.clone();
-            if module.path == standard_library::HOST_STRUCTS_MODULE {
+            };
+            let struct_name = self.tables.tycon(con).name.clone();
+            if from_host {
                 if lacking(custom.backend).contains(&struct_name.as_str()) {
                     let effects: Vec<String> = standard_library::effects_of_host_struct(&struct_name)
                         .iter()
@@ -403,9 +389,8 @@ impl<'a> Checker<'a> {
                         .bind("effects", effects.join(" and "))
                         .bind("platform", label.clone());
                 }
-            } else if tycon.module == platform
-                && custom.backend == Backend::Native
-                && !bodiless_methods(&self.tables, *con).is_empty()
+            } else if custom.backend == Backend::Native
+                && !bodiless_methods(&self.tables, con).is_empty()
                 && !self.already(field.span, "custom-effect-outside-js")
             {
                 self.templated("custom-effect-outside-js", field.span)
@@ -414,6 +399,27 @@ impl<'a> Checker<'a> {
                     .bind("platform", label.clone());
             }
         }
+    }
+
+    /// A host field that isn't a production struct, once per field: a struct
+    /// with fields of its own, or anything else.
+    fn refuse_host_field(&mut self, field: &FieldInfo, has_fields: bool) {
+        if self.already(field.span, "host-field-not-production") {
+            return;
+        }
+        let shown = self.shown(&field.ty);
+        let fix = if has_fields {
+            format!("drop `{shown}`'s fields: the CLI builds the host, and has nothing to fill them with")
+        } else {
+            String::from(
+                "use a struct from `platform/host`, or declare one with no fields in `platform.buri`; \
+                 hand anything else to the entry as a parameter",
+            )
+        };
+        self.templated("host-field-not-production", field.span)
+            .bind("field", field.name.clone())
+            .bind("type", shown)
+            .bind("fix", fix);
     }
 
     /// Whether an error with this code is already reported at this span, so a
@@ -486,7 +492,7 @@ impl<'a> Checker<'a> {
             if !t.is_effect {
                 continue;
             }
-            let Some(module) = self.loaded.modules.get(t.module.index()) else { continue };
+            let module = self.module(t.module);
             let (Some(pkg), true) = (module.pkg, is_effect_package_module(Some(ws), module)) else { continue };
             let package = ws.package(pkg);
             let has_testing = package.build.library.as_ref().is_some_and(|l| l.testing.is_some());
