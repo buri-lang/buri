@@ -580,13 +580,13 @@ and `manifest.lock`.
 
 ### Valgrind
 
-Two scheduled workflows run what this domain builds under Valgrind, Linux only,
+Two workflows run what this domain builds under Valgrind, Linux only,
 and file each distinct error as an issue labelled `planned` and `urgent`.
 
 | Workflow | Tool | Shards |
 |---|---|---|
-| `memcheck.yml`, 03:41 and 15:41 UTC | memcheck | `native::conformance`'s native set built as `stencil-debug`, `llvm-debug` and `llvm-release`; `agreement::` and `at_scale::`; `buri-rt-tests`, x86_64 only |
-| `races.yml`, 04:11 and 16:11 UTC | helgrind | `fan_out::`, `at_scale::fan_outs_of_every_width` and `started::`; `agreement::`; `buri-rt-tests`'s `rt::`. On stencil and LLVM, x86_64 only |
+| `memcheck.yml`, every commit to main and every pull request | memcheck | `native::conformance`'s native set built as `stencil-debug`, `llvm-debug` and `llvm-release`; `agreement::` and `at_scale::`; `buri-rt-tests`, x86_64 only |
+| `races.yml`, every commit to main and every pull request | helgrind | `fan_out::`, `at_scale::fan_outs_of_every_width` and `started::`; `agreement::`; `buri-rt-tests`'s `rt::`. On stencil and LLVM, x86_64 only |
 
 ```
 nix develop .#perf -c env BURI_MEMCHECK=/tmp/memcheck BURI_CONFORMANCE_BUILD=llvm-release \

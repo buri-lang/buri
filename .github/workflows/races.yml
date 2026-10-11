@@ -1,9 +1,11 @@
 name: Races
 
 # Concurrent Buri programs and the runtime's scheduler under Valgrind's
-# helgrind, twice a day (design/native/MEMORY.md §8, cli/tests/README.md
-# "Valgrind"). Each distinct data race or lock-order inversion becomes one
-# GitHub issue, labelled `planned` and `urgent`, filed from `main` only.
+# helgrind, on every commit to main and every pull request, the way ci.yml runs
+# (design/native/MEMORY.md §8, cli/tests/README.md "Valgrind"). Each distinct
+# data race or lock-order inversion becomes one GitHub issue, labelled `planned`
+# and `urgent`, filed from `main` only. One run per ref at a time, so two runs
+# on main never file the same signature twice.
 #
 # * **The workload** is the fan-out, task, scope and actor rows, `process.start`
 #   with several children, and the runtime's `rt::` tests, on stencil and
@@ -12,17 +14,17 @@ name: Races
 # * **`--features valgrind`** builds a runtime that tells helgrind what it
 #   can't see for itself: `std`'s futex locks, and the atomics the runtime
 #   hands work between threads with (`cli/runtime/sync.rs`, `valgrind.rs`).
-#
-# Minute 11, an hour off memcheck's, so the two don't queue for runners.
 
 on:
-  schedule:
-    - cron: "11 4,16 * * *"
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
+# One run per ref: a push that supersedes another cancels it.
 concurrency:
   group: races-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
