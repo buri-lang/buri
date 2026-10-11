@@ -1,0 +1,28 @@
+# `impl` heads whose arguments are a tuple and a function, dispatched through a
+# bound on both backends. Then receivers those heads don't cover: a number and
+# a tuple of three where the head holds a pair, a pair of the wrong second
+# type, and functions of the wrong arity and parameter. The build refuses them.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an impl whose head holds a tuple or a function dispatches through a bound, and refuses a receiver it doesn't cover"
+
+run {
+  args: ["test", "//lib/heads", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
+
+edit {
+  file: "lib/heads/test/heads.buri"
+  replace: "test \"an impl over a tuple\" {"
+  with: "test \"receivers the heads don't cover\" {\n    assert.equal(sizeOf(Wrap { value: 5 }), 3);\n    assert.equal(sizeOf(Wrap { value: (1, 2, 3) }), 3);\n    assert.equal(sizeOf(Wrap { value: (1, 2) }), 3);\n    let g = fn(a: Int, b: Int): Int => a;\n    assert.equal(sizeOf(Call { value: g }), 3);\n    let h = fn(a: Str): Int => 1;\n    assert.equal(sizeOf(Call { value: h }), 3)\n}\n\ntest \"an impl over a tuple\" {"
+}
+
+run {
+  args: ["test", "//lib/heads", "--force"]
+  exit: 1
+  golden: "uncovered.txt"
+  stream: ERR
+}

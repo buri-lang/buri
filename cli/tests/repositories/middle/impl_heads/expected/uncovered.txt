@@ -1,0 +1,19 @@
+error: a `Size` method is called at a type nothing determines [undetermined-type]
+  --> lib/heads/test/heads.buri:29:5
+   |
+29 |     x.size()
+   |     ^^^^^^^^
+   |
+   = the receiver is not an instance of the type the `impl` names
+   = fix: implement the trait for the type the receiver has, or pass a receiver of the type the `impl` is written for
+
+     Write the argument out, as in list.empty<Int>(), or use the answer
+     somewhere that says what it holds.
+
+     A type parameter that appears only in the answer has nothing else to pin
+     it, so the checker would resolve it to (). That matters most for a runtime
+     operation. A [T] crosses into the runtime as two words whatever T is, so
+     the compiler derives the answer's width, and the code that releases what it
+     holds, from the type argument at the call. A release generated for () frees
+     the block but nothing inside it, so its contents leak.
+

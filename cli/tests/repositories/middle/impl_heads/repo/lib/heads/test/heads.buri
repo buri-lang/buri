@@ -1,0 +1,39 @@
+// `impl`s whose heads take a tuple and a function, reached through a bound.
+from "core/testing/assert" import * as assert;
+
+trait Size {
+    fn size(self): Int;
+}
+
+struct Wrap<T> {
+    value: T,
+}
+
+impl<A> Size for Wrap<(A, Str)> {
+    fn size(self): Int {
+        self.value.1.length()
+    }
+}
+
+struct Call<T> {
+    value: T,
+}
+
+impl<A> Size for Call<fn(Int) => A> {
+    fn size(self): Int {
+        3
+    }
+}
+
+fn sizeOf<T: Size>(x: T): Int {
+    x.size()
+}
+
+test "an impl over a tuple" {
+    assert.equal(sizeOf(Wrap { value: (3, "ab") }), 2)
+}
+
+test "an impl over a function" {
+    let f = fn(n: Int): Int => n * 10;
+    assert.equal(sizeOf(Call { value: f }), 3)
+}
