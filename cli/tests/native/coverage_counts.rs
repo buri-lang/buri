@@ -164,8 +164,9 @@ fn sorted(stdout: &str) -> String {
     blocks.concat() + &rest
 }
 
-/// Both modes on one backend, against the expected files.
-fn counts(backend: &str, flags: &[&str]) {
+/// Both modes on one backend, against the expected files. LLVM's run is
+/// `llvm::coverage_counts_under_release`.
+pub(crate) fn counts(backend: &str, flags: &[&str]) {
     let repo = repository(backend);
     for (mode, name) in MODES {
         let (status, stdout, lcov) = covered(&repo, mode, flags);
@@ -210,16 +211,6 @@ fn counts_on_stencil() {
         return;
     }
     counts("stencil", &[]);
-}
-
-#[cfg(feature = "backend-llvm")]
-#[test]
-fn counts_on_llvm() {
-    if let Some(why) = crate::llvm::can_execute() {
-        crate::ci::skipped("llvm", why);
-        return;
-    }
-    counts("llvm", &["--release"]);
 }
 
 /// The report, verdicts and lcov alike, is the same bytes on every run, apart

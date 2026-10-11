@@ -5292,6 +5292,14 @@ fn coverage_under_release_counts_the_lines_the_other_backends_count() {
     }
 }
 
+/// **`--release --coverage` counts what was known by construction**: the
+/// generated packages of `coverage_counts`.
+#[test]
+fn coverage_counts_under_release() {
+    skip_unless_executable!();
+    crate::coverage_counts::counts("llvm", &["--release"]);
+}
+
 /// **`--release --coverage` changes no test's verdict** in the conformance
 /// corpus (`coverage_agrees`).
 #[cfg(feature = "backend-stencil")]
