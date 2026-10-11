@@ -29,7 +29,7 @@ use crate::compiler::semantics::layered::Layered;
 use crate::compiler::semantics::resolve::{own_fn, BodyMap, ConstMap, ModuleScope, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{FnId, Tables};
-use crate::diagnostics::{Diagnostic, Diagnostics, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
 
 /// The elements an icon may hold: a coordinate system, a group, and the shapes
 /// the painter's own SVG subset draws (`cli/runtime/image.rs`).
@@ -159,7 +159,7 @@ fn check(
         return;
     }
 
-    let Some(source) = fields.get(IMAGE_SOURCE) else { return };
+    let source = fields.get(IMAGE_SOURCE).or_ice("an `Image` literal holds every field, a missing one as an error");
     let folded = folder.eval(source, &Env::default());
     let Some(text) = folded.as_ref().and_then(const_source) else {
         refuse(

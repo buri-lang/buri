@@ -161,12 +161,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // program prints a line with now that `println` answers a
                     // `Result`.
                     if let (true, Some(at)) = (dropped_result.is_some(), slot) {
-                        if let Some(d) = self.c.diags.items.get_mut(at) {
-                            d.fix(
-                                "consume it and bind what is left: `let _ = ....ignore();` — or \
-                                 `?` to propagate, `match` to handle both cases",
-                            );
-                        }
+                        let d = self.c.diags.items.get_mut(at).or_ice("the slot is the diagnostic this statement drew");
+                        d.fix(
+                            "consume it and bind what is left: `let _ = ....ignore();` — or \
+                             `?` to propagate, `match` to handle both cases",
+                        );
                     }
                     stmts.push(typed::Stmt::Expr(e));
                 }
@@ -929,8 +928,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         let statically = self.static_ref(callee);
         if statically.is_none() {
             let bare = self.tree().strip_type_args(callee);
-            if matches!(self.tree().expr(bare), V::Field { .. }) {
-                return self.check_method_call(bare, args, explicit, span, expected);
+            if let V::Field { base, name, name_span, .. } = self.tree().expr(bare) {
+                return self.check_method_call(base, name, name_span, args, explicit, span, expected);
             }
         }
 
@@ -1018,12 +1017,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// receiver.
     fn check_args_into(&mut self, args: &[ExprId], params: &[Ty], out: &mut Vec<typed::Expr>) {
         for (i, a) in args.iter().enumerate() {
-            let want = params.get(i);
-            let checked = self.check_expr(*a, want);
-            if let Some(w) = want {
-                let aspan = self.tree().span(*a);
-                self.unify_at(aspan, &checked.ty, w, "the parameter type");
-            }
+            let want = params.get(i).or_ice("every caller pairs the arguments with as many parameters");
+            let checked = self.check_expr(*a, Some(want));
+            let aspan = self.tree().span(*a);
+            self.unify_at(aspan, &checked.ty, want, "the parameter type");
             out.push(checked);
         }
     }
@@ -1084,10 +1081,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         // list with its head removed.
         let mut param_types: &[Ty] = &params;
         if let Some(r) = receiver {
-            if let Some((want, rest)) = params.split_first() {
-                self.unify_at(r.span, &r.ty, want, "the receiver");
-                param_types = rest;
-            }
+            let (want, rest) = params.split_first().or_ice("a method takes its receiver first");
+            self.unify_at(r.span, &r.ty, want, "the receiver");
+            param_types = rest;
             hir_args.push(r);
         }
         if args.len() == expected_args {
@@ -1208,7 +1204,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// line. Then the fix prints the shape and names nothing.
     fn missing_slot(&self, call: &Miscounted<'_>) -> Option<usize> {
         let Miscounted { fill, types, args, checked, .. } = *call;
-        if checked.len().saturating_add(1) != types.len() || fill.len() != types.len() {
+        if checked.len().saturating_add(1) != types.len() {
             return None;
         }
         let mut found: Option<usize> = None;
@@ -1339,17 +1335,17 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// production of its own, and taking the one id rather than the receiver
     /// and the name separately keeps the receiver, the name and the name's
     /// span from being able to disagree.
+    #[allow(clippy::too_many_arguments, reason = "the receiver's field access, taken apart by the caller")]
     fn check_method_call(
         &mut self,
-        field: ExprId,
+        base: ExprId,
+        name: &'b str,
+        name_span: Span,
         args: &[ExprId],
         explicit: Option<Vec<Ty>>,
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
-        let V::Field { base, name, name_span, .. } = self.tree().expr(field) else {
-            crate::ice!("a method call is a field access, which is what the caller matched on")
-        };
         // `fs.appendBytes(...)` — the base is a namespace, so what is missing
         // is the member. Asked before the receiver, which has no value to check.
         if self.namespace_member_missing(base, name, name_span) {
@@ -1744,7 +1740,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let info = self.c.tables.fn_info(f);
             (info.module, info.exported, info.impl_of.is_some())
         };
-        if module.0 == u32::MAX || module == self.module {
+        if module == self.module {
             return;
         }
         // A method supplied by an `impl` is visible wherever the type is:
@@ -1794,10 +1790,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// reads two fields of it and only on the error path.
     fn check_field_visible(&mut self, con: TyConId, index: usize, span: Span) {
         let owner = self.c.tables.tycon(con).module;
-        if owner == self.module || owner.0 == u32::MAX {
+        if owner == self.module {
             return;
         }
-        let Some(f) = self.c.tables.tycon(con).fields().get(index) else { return };
+        let f = self.c.tables.tycon(con).fields().get(index).or_ice("the index is one of this struct's fields");
         if f.exported {
             return;
         }
@@ -1851,13 +1847,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if let Some(n) = &near {
                     notes.push(format!("did you mean `{n}`?"));
                 }
-                if self.c.tables.field_index(*con, name).is_some() {
-                    notes.push(format!("`{name}` is a field; a field is not called"));
-                }
                 // A method that is missing because the type did not derive the
                 // trait it comes from is a different mistake from one nobody
                 // wrote, and the fix for it is a line rather than a body.
-                if let Some(t) = self.derivable_trait_declaring(name, *con) {
+                if let Some(t) = self.derivable_trait_declaring(name) {
                     notes.push(format!(
                         "`{name}` comes from `{t}`, which `{shown}` does not implement; \
                          `derive {t} for {shown};` generates it"
@@ -2065,22 +2058,14 @@ impl<'a, 'b> Infer<'a, 'b> {
         true
     }
 
-    /// The derivable trait that declares `name`, when `con` does not implement
-    /// it. `None` when the method belongs to no such trait, or when the type
-    /// already implements the one it belongs to — in which case the method is
-    /// there and this is a different mistake.
-    fn derivable_trait_declaring(&self, name: &str, con: TyConId) -> Option<String> {
-        let implemented = self.c.tables.traits_of_con(con);
+    /// The derivable trait that declares `name`, or `None` when no such trait
+    /// does. Only asked about a method the receiver's type lacks, so the type
+    /// doesn't implement the trait: a method from an `impl` would have
+    /// resolved.
+    fn derivable_trait_declaring(&self, name: &str) -> Option<String> {
         crate::compiler::semantics::resolve::DERIVABLE.iter().find_map(|t| {
-            let (id, info) = self
-                .c
-                .tables
-                .traits
-                .iter()
-                .enumerate()
-                .find(|(_, info)| info.name == **t)?;
-            let id = TraitId(id as u32);
-            if info.method_index(name).is_none() || implemented.contains(&id) {
+            let info = self.c.tables.traits.iter().find(|info| info.name == **t)?;
+            if info.method_index(name).is_none() {
                 return None;
             }
             Some(info.name.clone())
@@ -2235,7 +2220,7 @@ impl<'a, 'b> Infer<'a, 'b> {
 
         // A variant is exported exactly when its enum is, so this fires only
         // where a private enum reached another module through a signature.
-        if owner != self.module && !variant.exported && owner.0 != u32::MAX {
+        if owner != self.module && !variant.exported {
             let t = self.c.tables.tycon(con).name.clone();
             let v = variant.name.clone();
             self.templated("private-to-module", head_span)
@@ -2419,9 +2404,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     c
                 }
             };
-            if let Some(slot) = values.get_mut(i) {
-                *slot = Some(value);
-            }
+            *values.get_mut(i).or_ice("the index is one of the declaration's fields") = Some(value);
         }
 
         match spread {
@@ -2626,7 +2609,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .clone(),
             )
         };
-        if owner != self.module && !variant.exported && owner.0 != u32::MAX {
+        if owner != self.module && !variant.exported {
             let t = self.c.tables.tycon(con).name.clone();
             let v = variant.name.clone();
             self.templated("private-to-module", head_span)
@@ -2669,9 +2652,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     c
                 }
             };
-            if let Some(slot) = values.get_mut(i) {
-                *slot = Some(value);
-            }
+            *values.get_mut(i).or_ice("the index is one of the declaration's fields") = Some(value);
         }
         let missing: Vec<String> = variant
             .fields
@@ -2888,9 +2869,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 return self.error_expr(span);
             }
-            let Some((tr, method)) = op.trait_method() else {
-                crate::ice!("every arithmetic operator names a trait method")
-            };
+            let (tr, method) = op.trait_method().or_ice("every arithmetic operator names a trait method");
             return self.operator_trait_call(tr, method, l, Some(r), span);
         }
 
@@ -2954,9 +2933,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         rhs: Option<typed::Expr>,
         span: Span,
     ) -> typed::Expr {
-        let Some(&tid) = self.c.known_traits.get(trait_name) else {
-            return self.error_expr(span);
-        };
+        let tid = *self.c.known_traits.get(trait_name).or_ice("an operator's trait is in the prelude");
         let ty = self.resolve(&lhs.ty);
         if ty.is_error() {
             return self.error_expr(span);
@@ -3018,9 +2995,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// IEEE's operator where `T` is a float.
     fn order_test(&mut self, cmp: typed::Expr, op: tree::BinOp, span: Span) -> typed::Expr {
         use tree::BinOp as B;
-        let Some(order) = self.c.order_con else {
-            return self.error_expr(span);
-        };
+        let order = self.c.order_con.or_ice("`Order` is in the prelude");
         let bool_ty = self.prim(Prim::Bool);
         let (target, when_match) = match op {
             B::Lt => ("Less", true),
@@ -3348,10 +3323,9 @@ impl<'a, 'b> Infer<'a, 'b> {
             let effect_span = effect.span();
             let binding_span = t.span_of(binding.span);
             let value_span = t.span(ExprId(binding.value));
-            let flat::TypeView::Named { path, .. } = effect else {
-                self.templated("context-binding-not-effect", effect_span)
-                    .bind("binding", "this type");
-                continue;
+            let path = match effect {
+                flat::TypeView::Named { path, .. } => path,
+                _ => crate::ice!("the parser reads a context binding's effect as a name"),
             };
             let resolved = self.c.resolve_path(self.module, path);
             let tid = match resolved {
@@ -3389,7 +3363,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let vty = self.resolve(&value.ty);
             // Every binding's right side is a value whose type implements that
             // effect — ordinary nominal conformance.
-            if !self.satisfies(&vty, tid) && !vty.is_error() {
+            if !self.satisfies(&vty, tid) {
                 let shown = self.show_ty(&vty);
                 let eff = self.c.tables.trait_(tid).name.clone();
                 self.templated("missing-impl", value_span)
@@ -3497,15 +3471,16 @@ impl<'a, 'b> Infer<'a, 'b> {
 fn signature_of_fn(c: &Checker, id: FnId) -> String {
     let info = c.tables.fn_info(id);
     if let Some((module, item)) = info.ast.item() {
-        let declared = match (info.ast, c.module(module).ast.items.get(item as usize)) {
-            (AstRef::Item { .. }, Some(tree::Item::Fn(d))) => Some(d),
-            (AstRef::Method { sub, .. }, Some(tree::Item::Impl(d))) => c.tree(module).list(d.methods).get(sub as usize),
-            (AstRef::Method { sub, .. }, Some(tree::Item::Trait(d))) => c.tree(module).list(d.methods).get(sub as usize),
-            _ => None,
+        let methods = match (info.ast, c.module(module).ast.items.get(item as usize)) {
+            (AstRef::Item { .. }, Some(tree::Item::Fn(d))) => {
+                return crate::formatting::call_signature(c.tree(module), d);
+            }
+            (AstRef::Method { sub, .. }, Some(tree::Item::Impl(d))) => (sub, d.methods),
+            (AstRef::Method { sub, .. }, Some(tree::Item::Trait(d))) => (sub, d.methods),
+            _ => crate::ice!("a function's syntax is the item or method its reference names"),
         };
-        if let Some(d) = declared {
-            return crate::formatting::call_signature(c.tree(module), d);
-        }
+        let d = c.tree(module).list(methods.1).get(methods.0 as usize).or_ice("the method is in its block");
+        return crate::formatting::call_signature(c.tree(module), d);
     }
     call_signature(&c.tables, &info.name, &info.generics, &info.params)
 }

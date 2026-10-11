@@ -154,10 +154,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 for alt in alts {
                     // Each alternative starts from the same set, so a name
                     // bound by the first is reused rather than redeclared.
-                    if let Some(scope) = self.or_scope.as_mut() {
-                        scope.current = scope.first.clone().unwrap_or_default();
-                        scope.named.clear();
-                    }
+                    let scope = self.or_scope.as_mut().or_ice("an or-pattern's scope is open");
+                    scope.current = scope.first.clone().unwrap_or_default();
+                    scope.named.clear();
                     let checked = self.check_pattern(*alt, &ty);
                     let (bound, mut these) = self
                         .or_scope
@@ -167,18 +166,15 @@ impl<'a, 'b> Infer<'a, 'b> {
                     these.sort();
                     these.dedup();
                     for name in &these {
-                        if let Some(&local) = bound.get(name) {
-                            if !joined.iter().any(|(n, _)| n == name) {
-                                joined.push((name.clone(), local));
-                            }
+                        let local = *bound.get(name).or_ice("a name the alternative binds is among its bindings");
+                        if !joined.iter().any(|(n, _)| n == name) {
+                            joined.push((name.clone(), local));
                         }
                     }
                     match &names {
                         None => {
                             names = Some(these);
-                            if let Some(scope) = self.or_scope.as_mut() {
-                                scope.first = Some(bound);
-                            }
+                            self.or_scope.as_mut().or_ice("an or-pattern's scope is open").first = Some(bound);
                         }
                         Some(first) if first != &these => {
                             let missing: Vec<&String> =
@@ -285,9 +281,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
     ) -> typed::PatKind {
         let t = self.tree();
-        let [head, rest @ ..] = path else {
-            crate::ice!("the parser builds every path pattern from at least one identifier")
-        };
+        let (head, rest) =
+            path.split_first().or_ice("the parser builds every path pattern from at least one identifier");
         let head = t.text(*head);
         // `.Variant` — the scrutinee's type supplies the enum.
         if dotted {
@@ -409,7 +404,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         // A variant is exported exactly when its enum is, so this fires only
         // where a private enum reached another module through a signature.
         let owner = self.c.tables.tycon(con).module;
-        if owner != self.module && owner.0 != u32::MAX && !variant.exported {
+        if owner != self.module && !variant.exported {
             let t = self.c.tables.tycon(con).name.clone();
             let v = variant.name.clone();
             self.templated("private-to-module", span)
@@ -430,7 +425,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         // Check visibility once for the pattern as a whole: a struct with any
         // private field cannot be destructured outside its module.
         let owner = self.c.tables.tycon(con).module;
-        if owner != self.module && owner.0 != u32::MAX {
+        if owner != self.module {
             let tycon = self.c.tables.tycon(con);
             if let Some(f) = tycon.fields().iter().find(|f| !f.exported) {
                 let (fname, name) = (f.name.clone(), tycon.name.clone());

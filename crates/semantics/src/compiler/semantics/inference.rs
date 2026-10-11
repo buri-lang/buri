@@ -97,9 +97,8 @@ fn check_bodies_the_extractor_folds(c: &mut Checker) {
             continue;
         }
         check_fn(c, id);
-        if let Some(body) = c.bodies.get(&id) {
-            callees_of(&body.expr, &mut queue);
-        }
+        let body = c.bodies.get(&id).or_ice("a function with a body was just checked");
+        callees_of(&body.expr, &mut queue);
     }
     std::mem::swap(c.diags, &mut aside);
 }
@@ -112,9 +111,7 @@ fn callees_of(e: &typed::Expr, out: &mut Vec<FnId>) {
             typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => func,
             _ => return,
         };
-        if let Some(id) = callee.decl() {
-            out.push(id);
-        }
+        out.push(callee.decl().or_ice("before monomorphization a callee is a declaration"));
     });
 }
 
@@ -170,7 +167,7 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     inf.push_scope();
     inf.params.reserve_exact(arity);
     for i in 0..arity {
-        let Some(p) = inf.c.tables.fn_info(fid).params.get(i) else { break };
+        let p = inf.c.tables.fn_info(fid).params.get(i).or_ice("the arity is the parameter count");
         let (name, ty, span, role) = (Name::new(&p.name), p.ty, p.span, p.role);
         let local = inf.bind_new(name, ty, span);
         inf.params.push(local);
@@ -195,9 +192,10 @@ fn check_fn(c: &mut Checker, fid: FnId) {
 
 fn check_const(c: &mut Checker, cid: ConstId) {
     let info = c.tables.const_(cid).clone();
-    let Some((module, index)) = info.ast.item() else { return };
-    let Some(tree::Item::Let(decl)) = c.module(module).ast.items.get(index as usize) else {
-        return;
+    let (module, index) = info.ast.item().or_ice("a constant is a module-level `let`");
+    let decl = match c.module(module).ast.items.get(index as usize) {
+        Some(tree::Item::Let(decl)) => decl,
+        _ => crate::ice!("a constant's item is its `let`"),
     };
     let mut inf = Infer::new(c, info.module, Default::default(), info.ty);
     inf.push_scope();
@@ -294,10 +292,10 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
         return;
     }
     let info = c.tables.ctx_decl(id).clone();
-    let Some((decl_module, decl_index)) = info.ast.item() else { return };
-    let Some(tree::Item::Context(decl)) = c.module(decl_module).ast.items.get(decl_index as usize)
-    else {
-        return;
+    let (decl_module, decl_index) = info.ast.item().or_ice("a named context is a module-level item");
+    let decl = match c.module(decl_module).ast.items.get(decl_index as usize) {
+        Some(tree::Item::Context(decl)) => decl,
+        _ => crate::ice!("a named context's item is its declaration"),
     };
     let mut inf = Infer::new(c, info.module, Default::default(), Ty::UNIT);
     inf.in_main = true;
@@ -813,18 +811,18 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     pub(crate) fn pop_scope(&mut self) {
-        if let Some(start) = self.scope_starts.pop() {
-            while self.shadows.len() > start {
-                let at = self.shadows.len().saturating_sub(1);
-                let (Some(prev), Some(&(hash, _))) = (self.shadows.pop(), self.scopes.get(at)) else { break };
-                if prev == NO_SHADOW {
-                    self.latest.remove(&hash);
-                } else {
-                    self.latest.insert(hash, prev);
-                }
+        let start = self.scope_starts.pop().or_ice("a scope is popped after it was pushed");
+        while self.shadows.len() > start {
+            let at = self.shadows.len().saturating_sub(1);
+            let prev = self.shadows.pop().or_ice("the loop runs while there is a shadow");
+            let &(hash, _) = self.scopes.get(at).or_ice("every shadow is a binding's");
+            if prev == NO_SHADOW {
+                self.latest.remove(&hash);
+            } else {
+                self.latest.insert(hash, prev);
             }
-            self.scopes.truncate(start);
         }
+        self.scopes.truncate(start);
     }
 
     /// Binds `id` in the innermost scope under a name with this hash.
@@ -839,7 +837,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     #[inline(never)]
     fn index_bindings(&mut self) {
         for at in self.shadows.len()..self.scopes.len() {
-            let Some(&(h, _)) = self.scopes.get(at) else { break };
+            let &(h, _) = self.scopes.get(at).or_ice("the range is the unindexed bindings");
             let prev = self.latest.insert(h, at as u32).unwrap_or(NO_SHADOW);
             self.shadows.push(prev);
         }
@@ -925,9 +923,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .with_bind("expected", wanted.clone())
                 .with_bind("found", found.clone())
                 .with_mismatch(wanted.clone(), found);
-            if !what.is_empty() {
-                d = d.with_label(format!("{what} is {wanted}"));
-            }
+            d = d.with_label(format!("{what} is {wanted}"));
             // There is no implicit promotion of any kind, and the most common
             // way to hit this is expecting one. The conversion is named
             // explicitly, because which one it is depends on whether the value
@@ -972,9 +968,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             .with_bind("found", found_shown.clone())
             .with_mismatch(wanted_shown.clone(), found_shown)
             .with_note(note);
-        if !what.is_empty() {
-            d = d.with_label(format!("{what} is {wanted_shown}"));
-        }
+        d = d.with_label(format!("{what} is {wanted_shown}"));
         self.c.diags.push(d);
     }
 
