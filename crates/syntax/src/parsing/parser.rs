@@ -2555,14 +2555,12 @@ impl<'a> Parser<'a> {
         // braces — and it is what lets a future production bail out of a trial
         // without leaving the budget spent.
         self.depth = depth;
-        match parsed {
-            Ok(args) if !args.is_empty() && self.commits_to_type_args() => Some(args),
-            _ => {
-                self.restore(save);
-                self.seek(pos);
-                None
-            }
-        }
+        let commits = matches!(parsed, Ok(args) if !args.is_empty()) && self.commits_to_type_args();
+        self.restore(save);
+        self.seek(pos);
+        // The trial reported nothing it read, so the list is read again for
+        // real: `f<(Int,)>(x)` has a mistake in it to report.
+        commits.then(|| self.type_args().ok()).flatten()
     }
 
     /// Whether a `>` that closes a plausible type-argument list is followed by

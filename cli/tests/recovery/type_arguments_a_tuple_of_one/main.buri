@@ -1,0 +1,8 @@
+// EXPECT: a tuple type has two elements or more
+fn same<T>(x: T): T {
+  x
+}
+
+export fn one(): Int {
+  same<(Int,)>(1)
+}
