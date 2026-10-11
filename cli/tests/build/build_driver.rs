@@ -337,6 +337,17 @@ fn a_test_runner_runs_from_the_program_store() {
     clean(&file);
     test(&file);
     assert_eq!(kept(), None, "a store under a file was used");
+
+    clean(&home);
+    let homeless = buri_command()
+        .current_dir(&scratch.root)
+        .args(["test", "--color=never", "//lib/one"])
+        .env_remove("HOME")
+        .env_remove("BURI_HOME")
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&homeless.stdout).contains("1 passed"), "{homeless:?}");
+    assert_eq!(kept(), None, "a run with no home used a store");
 }
 
 /// The shared test runner's claim, left by a run that crashed a day ago, is
@@ -415,6 +426,7 @@ if [ -n "$dry" ]; then
     script) echo " \"$0\"$q" >&2 ;;
     no-objects) echo ' "/usr/bin/false" "-o" "artifact"' >&2 ;;
     failing) echo " \"/usr/bin/false\"$q" >&2 ;;
+    missing) echo " \"/nowhere/ld\"$q" >&2 ;;
   esac
   exit 0
 fi
@@ -424,8 +436,8 @@ exec "$REAL_CC" "$@"
 /// The link replays the linker command a driver's dry run printed, and goes
 /// through the driver whenever that command can't be replayed: an error, two
 /// commands, a linker named by a relative path or a script, a command that
-/// doesn't name the objects, or one that fails when it runs. Each still links
-/// a program that runs, from scratch and again.
+/// doesn't name the objects, one that fails when it runs, or a linker that
+/// isn't there. Each still links a program that runs, from scratch and again.
 ///
 /// The driver forwards to the `CC` this suite was given. On Linux a `cc` that
 /// is a gcc can't target musl, so the link would skip the driver for `musl-gcc`.
@@ -437,7 +449,7 @@ fn a_dry_run_the_link_cannot_replay_goes_through_the_driver() {
     let real =
         std::process::Command::new("sh").args(["-c", &format!("command -v '{real_cc}'")]).output().unwrap();
     let real = String::from_utf8_lossy(&real.stdout).trim().to_string();
-    for mode in ["error", "two", "relative", "script", "no-objects", "failing"] {
+    for mode in ["error", "two", "relative", "script", "no-objects", "failing", "missing"] {
         let home = scratch.path(&format!("home-{mode}")).display().to_string();
         let env = [("CC", driver.as_str()), ("REAL_CC", real.as_str()), ("FAKE_DRY", mode), ("BURI_HOME", home.as_str())];
         for args in [&["build", "//cmd/app"][..], &["build", "--force", "//cmd/app"]] {
@@ -709,4 +721,98 @@ fn a_cross_runtime_is_built_once_with_cargo() {
     std::fs::remove_file(entry().join("musl/lib/crt1.o")).unwrap();
     build();
     assert_eq!(builds(), failed + 3, "a sysroot missing a member was reused");
+}
+
+/// The link directory of `//cmd/app`'s native output, under `.buri/link`.
+fn link_dir(scratch: &Scratch) -> std::path::PathBuf {
+    scratch.path(&format!(".buri/link/{}", only_entry(&scratch.path(".buri/link"))))
+}
+
+/// Something in the way of the link directory, or a link directory and cache
+/// that can't be written, fails the build with the path it couldn't write.
+/// Once that's fixed the edited program builds and runs.
+#[test]
+fn a_link_directory_that_cannot_be_written_is_an_error() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    scratch.run(&["build", "//cmd/app"]).ok();
+    let dir = link_dir(&scratch);
+    std::fs::rename(scratch.path(".buri/link"), scratch.path("link-aside")).unwrap();
+    scratch.write(".buri/link", "in the way\n");
+    scratch.edit("cmd/app/main.buri", "ctx, \"native\"", "ctx, \"edited\"");
+    scratch.run(&["build", "//cmd/app"]).exits(1).says("error: cannot create ").says(&format!("{}: ", dir.file_name().unwrap().to_string_lossy()));
+    std::fs::remove_file(scratch.path(".buri/link")).unwrap();
+    std::fs::rename(scratch.path("link-aside"), scratch.path(".buri/link")).unwrap();
+
+    // With no cache entry to link from, the new object is written in the
+    // link directory.
+    scratch.edit("cmd/app/main.buri", "ctx, \"edited\"", "ctx, \"again\"");
+    let cache = scratch.path(".buri/cache");
+    chmod_tree(&cache, 0o555);
+    chmod_tree(&dir, 0o555);
+    let built = scratch.run(&["build", "//cmd/app"]);
+    chmod_tree(&cache, 0o755);
+    chmod_tree(&dir, 0o755);
+    built.exits(1).says("error: cannot write ").says(".o: ");
+    scratch.run(&["build", "//cmd/app"]).ok();
+    scratch.run(&["run", "//cmd/app"]).ok().says("again");
+}
+
+/// A C driver that says it linked but wrote no program is an error naming the
+/// file it should have written.
+#[test]
+fn a_link_that_writes_no_program_is_an_error() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    let cc = scratch
+        .write_executable("fake/cc", "#!/bin/sh\ncase \"$*\" in *--version*) echo \"fake cc 1.0\" ;; esac\nexit 0\n")
+        .display()
+        .to_string();
+    scratch
+        .run_with_env(&["build", "//cmd/app"], &[("CC", &cc)])
+        .exits(1)
+        .says("error: the link produced no ")
+        .says("/artifact: ");
+}
+
+/// A cache on another filesystem than the repository: the linked program is
+/// copied into it rather than moved, and the next build is served from it.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_cache_on_another_filesystem_keeps_the_program() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    let elsewhere = std::path::Path::new("/dev/shm").join(format!("buri-cache-{}", std::process::id()));
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::create_dir_all(scratch.path(".buri")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, scratch.path(".buri/cache")).unwrap();
+    let first = scratch.run(&["build", "//cmd/app"]);
+    let _ = std::fs::remove_dir_all(scratch.path(".buri/out"));
+    let second = scratch.run(&["build", "//cmd/app"]);
+    let ran = scratch.run(&["run", "//cmd/app"]);
+    let _ = std::fs::remove_dir_all(&elsewhere);
+    first.ok();
+    second.ok().says("cached");
+    ran.ok().says("native");
+}
+
+/// With no lld on `PATH` the link goes through the system's own linker, and
+/// the program runs.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_mac_without_lld_links_with_the_system_linker() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    scratch.run_with_env(&["build", "//cmd/app"], &[("PATH", "/usr/bin:/bin")]).ok();
+    scratch.run_with_env(&["run", "//cmd/app"], &[("PATH", "/usr/bin:/bin")]).ok().says("native");
+}
+
+/// A built program someone made unexecutable is made executable again by the
+/// next build, which has nothing else to do.
+#[test]
+fn a_program_that_lost_its_execute_bit_gets_it_back() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    scratch.run(&["build", "//cmd/app"]).ok();
+    let variant = only_entry(&scratch.path(".buri/out/native"));
+    let program = scratch.path(&format!(".buri/out/native/{variant}/cmd/app/app"));
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o644)).unwrap();
+    scratch.run(&["build", "//cmd/app"]).ok().says("cached");
+    assert_eq!(std::fs::metadata(&program).unwrap().permissions().mode() & 0o777, 0o755);
 }
