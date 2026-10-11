@@ -1,0 +1,17 @@
+// Three entries a platform calls with no host first.
+from "//platform/other" import { Named, Tagged };
+
+export fn pick(choice: Option<Int>, fallback: Int): Int {
+    match (choice) {
+        .Some(n) => n,
+        .None => fallback,
+    }
+}
+
+export fn greet(who: Named, greeting: Str): Str {
+    if (greeting.length() > who.name.length()) { greeting } else { who.name }
+}
+
+export fn tag(tagged: Tagged, extra: Str): Int {
+    tagged.tags.length() + extra.length()
+}

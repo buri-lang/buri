@@ -1,0 +1,19 @@
+platform {
+    dependencies: ["//platform/other"]
+
+    entry {
+        name: "pick"
+        backend: JS
+        js: "pick.mjs"
+    }
+    entry {
+        name: "greet"
+        backend: JS
+        js: "greet.mjs"
+    }
+    entry {
+        name: "tag"
+        backend: JS
+        js: "tag.mjs"
+    }
+}

@@ -1,0 +1,6 @@
+platform {
+    entry {
+        name: "start"
+        backend: JS
+    }
+}

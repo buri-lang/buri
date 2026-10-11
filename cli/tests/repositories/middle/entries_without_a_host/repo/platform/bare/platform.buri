@@ -1,0 +1,9 @@
+// Entries whose first parameter is no host: an `Option`, and two structs
+// another platform declares, one of a `Str` and one of a list.
+from "//platform/other" import { Named, Tagged };
+
+export fn pick(choice: Option<Int>, fallback: Int): Int;
+
+export fn greet(who: Named, greeting: Str): Str;
+
+export fn tag(tagged: Tagged, extra: Str): Int;

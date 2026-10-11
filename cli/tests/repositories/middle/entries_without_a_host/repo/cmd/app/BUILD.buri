@@ -1,0 +1,9 @@
+binary {
+    outputs: [
+        { platform: "//platform/bare", entries: [
+            { name: "pick", function: "pick" },
+            { name: "greet", function: "greet" },
+            { name: "tag", function: "tag" },
+        ] },
+    ]
+}

@@ -12,5 +12,36 @@ use crate::harness::*;
 
 #[test]
 fn the_middle_end() {
-    run_corpus(&tests_dir().join("repositories/middle"), "middle", 12);
+    run_corpus(&tests_dir().join("repositories/middle"), "middle", 13);
+}
+
+/// Calls each entry of `repositories/middle/entries_without_a_host`.
+const DRIVE: &str = r#"
+const out = ".buri/out/platform/bare/cmd/app";
+const { default: pick } = await import(`./${out}/pick.mjs`);
+const { default: greet } = await import(`./${out}/greet.mjs`);
+const { default: tag } = await import(`./${out}/tag.mjs`);
+console.log(String(await pick(5n, 1n)), String(await pick(undefined, 1n)));
+console.log(await greet({ name: "Ada" }, "hello"), await greet({ name: "Grace" }, "hi"));
+console.log(String(await tag({ tags: ["a", "b"] }, "xyz")));
+"#;
+
+/// An entry whose first parameter is no host takes every argument it is
+/// called with and answers what its body does, whether that parameter is an
+/// `Option` or a struct another platform declares.
+#[test]
+fn an_entry_without_a_host_answers_its_caller() {
+    let scratch = Scratch::copy_of(
+        "middle-no-host",
+        &tests_dir().join("repositories/middle/entries_without_a_host/repo"),
+    );
+    scratch.run(&["build", "//cmd/app"]).ok();
+    scratch.write("drive.mjs", DRIVE);
+    let out = std::process::Command::new(js_runtime())
+        .arg(scratch.path("drive.mjs"))
+        .current_dir(&scratch.root)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "an entry failed:\n{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "5 1\nhello Grace\n5\n");
 }
