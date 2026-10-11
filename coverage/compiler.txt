@@ -12,19 +12,19 @@ cli/other                          484/594   81.48%         2476/2767   89.48%
 cli/run                              38/56   67.86%           218/263   82.89%
 cli/serve+watch                      47/86   54.65%           296/364   81.32%
 cli/test                           437/580   75.34%         2371/2668   88.87%
-crates/backend                       80/88   90.91%           324/361   89.75%
+crates/backend                       80/88   90.91%           318/361   88.09%
 crates/diagnostics                 198/232   85.34%         1325/1461   90.69%
 crates/docs                        197/304   64.80%           634/889   71.32%
 crates/hash                          18/18  100.00%           241/294   81.97%
 crates/js                        1015/1104   91.94%         4803/5059   94.94%
-crates/llvm                       973/1374   70.82%         7093/7709   92.01%
+crates/llvm                        610/616   99.03%         6696/6879   97.34%
 crates/middle                    1914/2055   93.14%       12358/12843   96.22%
 crates/project                    878/1418   61.92%         4117/5168   79.66%
 crates/semantics                 1919/2046   93.79%       10554/10955   96.34%
 crates/stdlib                        12/12  100.00%           108/120   90.00%
 crates/stencil                   1367/1585   86.25%         7930/8522   93.05%
 crates/syntax                    1205/1284   93.85%         5902/6113   96.55%
-total                          14382/17742   81.06%       79835/87802   90.93%
+total                          14019/16984   82.54%       79432/86972   91.33%
 
 cli/src                           branches                      lines         
 build                            1525/1859   82.03%         7831/8578   91.29%
@@ -53,7 +53,6 @@ main                                  7/12   58.33%             48/55   87.27%
 The 30 files with the most uncovered branches:
 
 uncovered          branches           file
-      379          849/1228   69.14%  crates/llvm/src/compiler/backend/llvm/emit.rs
       254             0/254    0.00%  cli/src/documentation/grammar.rs
       161            95/256   37.11%  crates/project/src/languages/json/schema.rs
       143           437/580   75.34%  cli/src/commands/test.rs
@@ -83,3 +82,4 @@ uncovered          branches           file
        31             25/56   44.64%  cli/src/language_server/signature_help.rs
        27           337/364   92.58%  crates/js/src/compiler/backend/js/generate.rs
        26             56/82   68.29%  cli/src/language_server/inlay_hints.rs
+       26           202/228   88.60%  crates/semantics/src/compiler/semantics/inference.rs
