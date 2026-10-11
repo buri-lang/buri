@@ -529,6 +529,15 @@ struct Looping {
 impl Looping {
     /// `buri test <args> --watch`.
     fn start(scratch: &Scratch, args: &[&str]) -> Looping {
+        Looping::start_with(scratch, args, &[])
+    }
+
+    /// The same, held before each sweep ([`crate::held`]).
+    fn held(scratch: &Scratch, args: &[&str], held: &crate::held::Held) -> Looping {
+        Looping::start_with(scratch, args, &[("BURI_HOLD", held.dir())])
+    }
+
+    fn start_with(scratch: &Scratch, args: &[&str], env: &[(&str, &Path)]) -> Looping {
         use std::io::Read as _;
         let buri = env!("CARGO_BIN_EXE_buri");
         let mut cmd = std::process::Command::new("script");
@@ -540,6 +549,7 @@ impl Looping {
         let mut child = cmd
             .current_dir(&scratch.root)
             .env("BURI_HOME", sweep::kept::shared_cross_home())
+            .envs(env.iter().copied())
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
@@ -614,6 +624,45 @@ impl Drop for Looping {
 
 fn separator_at(text: &str, n: usize) -> Option<usize> {
     text.find(&format!("  run {n} "))
+}
+
+/// **A pass waits until the tree stops moving, and runs what it settled on.**
+/// An edit, then a second one before the next sweep, are one pass over the
+/// second. A sweep that finds nothing starts nothing, and Ctrl-C between two
+/// sweeps ends the loop with 130. The test holds each sweep, so every edit and
+/// the Ctrl-C land between two of them, whatever the machine's load.
+#[test]
+fn a_pass_runs_once_the_tree_stops_moving() {
+    let scratch = two_suites("watch-held");
+    let held = crate::held::Held::new("watch-held");
+    for n in 1..=5 {
+        held.hold("sweep", n);
+    }
+    let mut looping = Looping::held(&scratch, &["//lib/a"], &held);
+    looping.until_summary(1);
+    held.at("sweep", 1, || {});
+    held.at("sweep", 2, || {
+        scratch.write("lib/a/lib.buri", &library("20"));
+    });
+    held.at("sweep", 3, || {
+        scratch.write("lib/a/lib.buri", &library("20 + 1"));
+    });
+    held.at("sweep", 4, || {});
+    looping.until_summary(2);
+    let second = looping.seen[separator_at(&looping.seen, 2).unwrap()..].to_string();
+    assert!(looping.separator(2).contains("lib/a/lib.buri"), "{}", indent(&looping.seen));
+    assert!(second.contains("1 passed, 0 failed"), "pass 2 didn't run the last edit:\n{}", indent(&looping.seen));
+
+    let mut stdin = looping.child.stdin.take().expect("`script` has a piped stdin");
+    held.at("sweep", 5, || {
+        use std::io::Write as _;
+        stdin.write_all(b"\x03").expect("Ctrl-C reaches `script`");
+        looping.until("Ctrl-C never reached the loop", |seen| seen.contains("signal again to stop now"));
+    });
+    let status = hang::wait_capped(&mut looping.child, "buri test --watch", hang::cap());
+    drop(stdin);
+    assert_eq!(status.code(), Some(130), "the loop ended {status}:\n{}", indent(&looping.seen));
+    assert!(separator_at(&looping.seen, 3).is_none(), "a pass ran after Ctrl-C:\n{}", indent(&looping.seen));
 }
 
 /// **A stray file arriving starts a pass, and so does its leaving**, under

@@ -929,8 +929,24 @@ enum Aim {
 /// row aim at a group holding nothing but processes this test started, and it
 /// is what lets [`Serving`] clean up after a row that failed.
 fn running(scratch: &Scratch) -> (Serving, String) {
-    use std::os::unix::process::CommandExt as _;
+    let mut serving = started(scratch, |command| {
+        use std::os::unix::process::CommandExt as _;
+        // SAFETY: `setpgid` is on POSIX's async-signal-safe list, which is the
+        // whole of what a `pre_exec` closure may call.
+        unsafe {
+            command.pre_exec(|| {
+                setpgid(0, 0);
+                Ok(())
+            })
+        };
+    });
+    let first = serving.first_line("buri run //cmd/program", "starting the program");
+    (serving, first)
+}
 
+/// Spawns `buri run //cmd/program` in `scratch`, set up by `with`, which puts
+/// it in a process group of its own.
+fn started(scratch: &Scratch, with: impl FnOnce(&mut std::process::Command)) -> Serving {
     let mut command = buri_command();
     command
         .current_dir(&scratch.root)
@@ -938,14 +954,7 @@ fn running(scratch: &Scratch) -> (Serving, String) {
         .arg("//cmd/program")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    // SAFETY: `setpgid` is on POSIX's async-signal-safe list, which is the
-    // whole of what a `pre_exec` closure may call.
-    unsafe {
-        command.pre_exec(|| {
-            setpgid(0, 0);
-            Ok(())
-        })
-    };
+    with(&mut command);
     let mut child = command.spawn().expect("buri starts");
     let (said, reading_out) = lines(child.stdout.take().expect("a piped stdout"));
     let (complained, reading_err) = lines(child.stderr.take().expect("a piped stderr"));
@@ -953,16 +962,14 @@ fn running(scratch: &Scratch) -> (Serving, String) {
     // As in `serving`: the child belongs to a [`Serving`] before anything waits
     // on it, so that a wait which gives up stops the row's processes on its way
     // out rather than leaving them to CI.
-    let mut serving = Serving {
+    Serving {
         child,
         port: 0,
         own_group: true,
         said,
         complained,
         readers: vec![reading_out, reading_err],
-    };
-    let first = serving.first_line("buri run //cmd/program", "starting the program");
-    (serving, first)
+    }
 }
 
 /// The port out of the program's own `port <n>` line.
@@ -1114,4 +1121,116 @@ fn a_signalled_page_server_gives_up_its_port() {
     signal(&server, Aim::AtTheWrapper, SIGTERM);
     let _ = stopped(&mut server);
     gone(&server);
+}
+
+/// **A signal reaches the program whether it lands before `buri run` has
+/// started it or after.** One that lands first is kept and sent the moment
+/// there is a program. The test raises it in `buri run` at each of the two
+/// points ([`crate::held`]), so neither is left to the scheduler.
+#[test]
+fn a_signal_reaches_the_program_before_or_after_it_starts() {
+    let Some(scratch) = native_repo("run-signal-held", SLEEPER) else { return };
+    for point in ["spawning", "started"] {
+        let held = crate::held::Held::new(&format!("run-signal-{point}"));
+        held.raise(point, 1, &[SIGTERM as u8]);
+        let mut server = started(&scratch, |command| in_own_group(command, &held));
+        let status = stopped(&mut server);
+        assert_eq!(
+            status.code(),
+            Some(128 + SIGTERM),
+            "{point}: `buri run` did not report the signal that ended its child: {status}"
+        );
+        gone(&server);
+    }
+}
+
+/// **At a terminal, `buri run` sends on only `SIGTERM`.** The terminal sends
+/// Ctrl-C to the whole group, the program included, so a second one from
+/// `buri run` would kill the drain the first started. The test raises the
+/// `SIGINT` in `buri run` once the program exists, then sends a supervisor's
+/// `SIGTERM`, which the program drains on.
+#[test]
+fn at_a_terminal_only_a_supervisors_signal_is_sent_on() {
+    let Some(scratch) = native_repo("run-signal-terminal", SERVER) else { return };
+    let held = crate::held::Held::new("run-signal-terminal");
+    held.raise("started", 1, &[SIGINT as u8]);
+    let terminal = Terminal::open();
+    let mut server = started(&scratch, |command| terminal.in_front(command, &held));
+    let first = server.first_line("buri run //cmd/program", "starting the program");
+    get(announced_port(&first), "/").ok();
+
+    signal(&server, Aim::AtTheWrapper, SIGTERM);
+    let status = stopped(&mut server);
+    assert_eq!(status.code(), Some(0), "the program was not drained once: {status}");
+    gone(&server);
+}
+
+/// `buri run` in a group of its own, held at `held`.
+fn in_own_group(command: &mut std::process::Command, held: &crate::held::Held) {
+    use std::os::unix::process::CommandExt as _;
+    command.env("BURI_HOLD", held.dir());
+    // SAFETY: `setpgid` is on POSIX's async-signal-safe list.
+    unsafe {
+        command.pre_exec(|| {
+            setpgid(0, 0);
+            Ok(())
+        })
+    };
+}
+
+/// A pseudo-terminal, for a `buri run` with a terminal in front of it.
+struct Terminal {
+    /// The side a terminal emulator holds, kept open so the terminal stays.
+    _controller: std::fs::File,
+    device: std::fs::File,
+}
+
+impl Terminal {
+    fn open() -> Terminal {
+        use std::os::fd::FromRawFd as _;
+        unsafe extern "C" {
+            fn openpty(
+                controller: *mut i32,
+                device: *mut i32,
+                name: *mut std::ffi::c_char,
+                termios: *const std::ffi::c_void,
+                size: *const std::ffi::c_void,
+            ) -> i32;
+        }
+        let (mut controller, mut device) = (-1, -1);
+        // SAFETY: two out-pointers, and no name, settings or size.
+        let opened = unsafe {
+            openpty(&mut controller, &mut device, std::ptr::null_mut(), std::ptr::null(), std::ptr::null())
+        };
+        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
+        // SAFETY: two descriptors `openpty` just opened, owned by nothing else.
+        unsafe {
+            Terminal {
+                _controller: std::fs::File::from_raw_fd(controller),
+                device: std::fs::File::from_raw_fd(device),
+            }
+        }
+    }
+
+    /// `buri run` as a terminal's session: its own session and group, with this
+    /// terminal as its standard input and controlling terminal, held at `held`.
+    fn in_front(&self, command: &mut std::process::Command, held: &crate::held::Held) {
+        use std::os::unix::process::CommandExt as _;
+        unsafe extern "C" {
+            fn setsid() -> i32;
+            fn ioctl(fd: i32, request: std::ffi::c_ulong, ...) -> i32;
+        }
+        const TIOCSCTTY: std::ffi::c_ulong = if cfg!(target_os = "macos") { 0x2000_7461 } else { 0x540E };
+        command.env("BURI_HOLD", held.dir());
+        command.stdin(self.device.try_clone().expect("a second descriptor for the terminal"));
+        // SAFETY: `setsid` and `ioctl` are on POSIX's async-signal-safe list.
+        unsafe {
+            command.pre_exec(|| {
+                if setsid() < 0 || ioctl(0, TIOCSCTTY, 0) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            })
+        };
+    }
 }
