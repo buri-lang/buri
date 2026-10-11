@@ -140,6 +140,29 @@ fn signalled<C: Allocator + Spawn + Stdout>(
     say(ctx, "${name} signal ${signalName(ctx, signal)} ok")
 }
 
+/// One `-o` column of what `ps` says about the child, trimmed.
+fn asked<C: Allocator + Environment + FileSystemRead + Spawn>(
+    ctx: C,
+    child: Child,
+    column: Str,
+): Result<Str, Str> {
+    let answer = process
+        .run(
+            ctx,
+            process.command(found(ctx, "ps")?, [
+                "-o",
+                column,
+                "-p",
+                str.format(ctx, "${child.id()}"),
+            ]),
+        )
+        .mapErr(fn(e) => why(e))?;
+    match (bytes.fromUtf8(ctx, answer.stdout)) {
+        .Ok(text) => .Ok(text.trim()),
+        .Err(_e) => .Ok(""),
+    }
+}
+
 /// Asks `ps` for the child's state until its first letter is or is not `T`.
 /// It does not sleep: a signal lands in microseconds, and `ps` is the wait.
 fn untilStopped<C: Allocator + Environment + FileSystemRead + Spawn>(
@@ -147,26 +170,23 @@ fn untilStopped<C: Allocator + Environment + FileSystemRead + Spawn>(
     child: Child,
     stopped: Bool,
 ): Result<(), Str> {
-    let ps = found(ctx, "ps")?;
-    let asked = process
-        .run(
-            ctx,
-            process.command(ps, [
-                "-o",
-                "state=",
-                "-p",
-                str.format(ctx, "${child.id()}"),
-            ]),
-        )
-        .mapErr(fn(e) => why(e))?;
-    let state = match (bytes.fromUtf8(ctx, asked.stdout)) {
-        .Ok(text) => text.trim(),
-        .Err(_e) => "",
-    };
-    if (state.startsWith("T") == stopped) {
+    if (asked(ctx, child, "state=")?.startsWith("T") == stopped) {
         .Ok(())
     } else {
         untilStopped(ctx, child, stopped)
+    }
+}
+
+/// Asks `ps` for a `sleeper`'s command until the shell has become `sleep`.
+/// macOS drops a `SIGSTOP` that lands during the exec.
+fn untilSleeping<C: Allocator + Environment + FileSystemRead + Spawn>(
+    ctx: C,
+    child: Child,
+): Result<(), Str> {
+    if (asked(ctx, child, "comm=")?.endsWith("sleep")) {
+        .Ok(())
+    } else {
+        untilSleeping(ctx, child)
     }
 }
 
@@ -195,6 +215,7 @@ fn harness<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
     let _ = tried(ctx, "b", b)?;
     let _ = tried(ctx, "c", c)?;
 
+    let _ = untilSleeping(ctx, b)?;
     let _ = signalled(ctx, "b", b, .Stop)?;
     let _ = untilStopped(ctx, b, true)?;
     let _ = say(ctx, "b is stopped")?;
@@ -241,6 +262,29 @@ fn stubborn<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
     let _ = signalled(ctx, "stubborn", child, .Kill)?;
     let _ = waited(ctx, "stubborn", child)?;
     .Ok(())
+}
+
+/// `count` sleepers, each stopped as soon as it is running `sleep`.
+fn stops<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
+    ctx: C,
+    dir: Path,
+    count: Int,
+): Result<(), Str> {
+    if (count == 0) {
+        say(ctx, "every one stopped")
+    } else {
+        let ready = fifo(ctx, dir, str.format(ctx, "s${count}"))?;
+        let child = process
+            .start(ctx, sleeper(ctx, ready, "")?)
+            .mapErr(fn(e) => why(e))?;
+        let _ = fs.readText(ctx, ready).mapErr(fn(e) => why(e))?;
+        let _ = untilSleeping(ctx, child)?;
+        let _ = child.signal(ctx, .Stop).mapErr(fn(e) => why(e))?;
+        let _ = untilStopped(ctx, child, true)?;
+        let _ = child.signal(ctx, .Kill).mapErr(fn(e) => why(e))?;
+        let _ = child.wait(ctx).mapErr(fn(e) => why(e))?;
+        stops(ctx, dir, count - 1)
+    }
 }
 
 /// Stopped, continued, and then left to finish on its own.
@@ -488,6 +532,8 @@ export fn main(host: NativeHost): Result<(), Str> {
         stubborn(ctx, dir)
     } else if (mode == "paused") {
         paused(ctx, dir)
+    } else if (mode == "stops") {
+        stops(ctx, dir, 16)
     } else if (mode == "exits") {
         exits(ctx, dir)
     } else if (mode == "files") {
