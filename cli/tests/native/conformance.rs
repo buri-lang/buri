@@ -816,6 +816,9 @@ const PACKAGES: &[Case] = &[
     // flips. Like its neighbour it runs on **both** backends: every assertion
     // reads one of those strings, never `markup()`, so it is in `BUILD.buri`'s
     // `sources` for the JavaScript run and here for this one.
+    // `Style` as an ordinary enum: matched, passed around, compared and shown
+    // as the source wrote it, and extracted only where a node is given it.
+    included("ui/style_values.buri"),
     included("ui/styling.buri"),
     // The render suite's body (#53 phase 6): `render`/`markup`/`text`/`count`/
     // `identity`/`press`/`fill`/`flip`/`submit` over the scene document both

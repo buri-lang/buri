@@ -2164,6 +2164,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "ui/reactive.buri",
     "ui/reactivity.buri",
     "ui/render.buri",
+    "ui/style_values.buri",
     "ui/styling.buri",
     "ui/theme.buri",
     "ui/timers.buri",
