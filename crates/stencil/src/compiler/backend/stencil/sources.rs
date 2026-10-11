@@ -349,13 +349,16 @@ static inline uint64_t f64_bits(double d) { uint64_t b; memcpy(&b, &d, 8); retur
 static inline uint64_t f32_bits(float f) { uint32_t b; memcpy(&b, &f, 4); return (uint64_t)b; }
 static inline double bits_f64(uint64_t b) { double d; memcpy(&d, &b, 8); return d; }
 static inline float bits_f32(uint64_t b) { uint32_t x = (uint32_t)b; float f; memcpy(&f, &x, 4); return f; }
-// A 64-bit magnitude to binary32, rounded once. `(float)` of it is
-// `cvtsi2ssq` on x86-64, which Valgrind runs as a conversion to double and
-// then to float: two roundings, so 2^62 + 2^38 + 1 came back as 2^62 under
-// memcheck and as 2^62 + 2^39 on the hardware. Cut to 53 bits first, rounded
-// to odd (truncate, and set the lowest kept bit if anything was dropped): the
-// double is then exact, and a value rounded to odd with at least two bits
-// more than binary32's 24 rounds to binary32 as the original would.
+// A 64-bit magnitude to binary32, rounded once. This and `u128_f32` exist only
+// so Valgrind answers as the hardware does; on the hardware a plain `(float)`
+// is already right. `(float)` of a 64-bit integer is `cvtsi2ssq` on x86-64,
+// which Valgrind runs as a conversion to double and then to float: two
+// roundings, so 2^62 + 2^38 + 1 came back as 2^62 under memcheck and as
+// 2^62 + 2^39 on the hardware. Cut to 53 bits first, rounded to odd (truncate,
+// and set the lowest kept bit if anything was dropped): the double is then
+// exact, and a value rounded to odd with at least two bits more than
+// binary32's 24 rounds to binary32 as the original would, so the hardware's
+// answer doesn't change.
 static inline float u64_f32(uint64_t m) {
   int s = (m >> 53) ? 11 - __builtin_clzll(m) : 0;
   uint64_t low = m & ((1ULL << s) - 1);
@@ -373,7 +376,8 @@ static inline u128_t rd128(const uint64_t *fp, uintptr_t o) {
 static inline void wr128(uint64_t *fp, uintptr_t o, u128_t v) {
   memcpy((char *)fp + o, &v, 16);
 }
-// A 128-bit magnitude to binary32, rounded once: its top sixty-four bits with
+// A 128-bit magnitude to binary32, rounded once, for Valgrind as `u64_f32` is:
+// libgcc's `__floattisf` ends in `cvtsi2ssq`. Its top sixty-four bits with
 // a sticky bit for the rest, through `u64_f32`, then scaled by a power of two,
 // which is exact up to the overflow to infinity that a correct rounding has too.
 static inline float u128_f32(u128_t m) {
