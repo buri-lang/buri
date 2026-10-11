@@ -11,6 +11,9 @@ opened { # what it is
 }
 angle < a: 1 >
 none: []
+bare: [
+  # only a comment
+]
 noted: [ # what it is
 ]
 closing: [1, 2 # after the last
