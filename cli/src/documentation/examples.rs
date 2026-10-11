@@ -1512,7 +1512,7 @@ fn build_repository(root: &std::path::Path) -> Result<Vec<BuildError>, String> {
                 let analysis =
                     driver::analyze(Some(&session.workspace), &mut session.map, &mut session.parsed, &unit);
                 if !analysis.diagnostics.has_errors() && !analysis.checked.entries.contains_key(output.entry_name()) {
-                    diagnostics.push(actions::missing_entry(&session, target, &output, &analysis.checked));
+                    diagnostics.push(actions::missing_main(&session, target, &output));
                 }
                 diagnostics.extend(analysis.diagnostics.items);
             }

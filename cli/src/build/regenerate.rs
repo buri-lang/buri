@@ -171,7 +171,7 @@ fn regenerate_reading(
             // named, so the rule that exists takes it.
             if has_binary && (tests_the_binary || !has_library) {
                 bin_tests.push(f.clone());
-            } else if has_library {
+            } else {
                 lib_tests.push(f.clone());
             }
             continue;
@@ -841,8 +841,10 @@ fn set_list(
     label: &str,
 ) {
     let (leaf, blocks) = path.split_last().or_ice("every caller names a field, so the path is never empty");
-    let Some(rule_field) = document.fields.iter_mut().find(|f| f.name == rule) else { return };
-    let Value::Message(message, _) = &mut rule_field.value else { return };
+    let Some(Value::Message(message, _)) = document.fields.iter_mut().find(|f| f.name == rule).map(|f| &mut f.value)
+    else {
+        return;
+    };
     let mut target: &mut Message = message;
     for seg in blocks {
         let i = match target.fields.iter().position(|f| f.name == *seg) {

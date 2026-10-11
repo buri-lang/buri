@@ -11,7 +11,7 @@ use crate::compiler::middle::{coverage, monomorphize};
 use crate::compiler::modules::Role;
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::{self, FnId, Prim};
-use crate::diagnostics::{FileId, SourceMap, Span};
+use crate::diagnostics::{FileId, Invariant as _, SourceMap, Span};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -113,6 +113,10 @@ struct Run {
 
 static RUN: Mutex<Option<Run>> = Mutex::new(None);
 
+/// Why [`RUN`] holds a run wherever it is read: `buri test --coverage` begins
+/// one before it compiles a suite, and reports it once, at the end.
+const BEGUN: &str = "`buri test --coverage` begins its run before compiling a suite";
+
 fn run() -> MutexGuard<'static, Option<Run>> {
     RUN.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -146,7 +150,7 @@ fn text(map: &SourceMap, span: Span) -> String {
 /// User code is ordinary source read from disk. The standard library, the
 /// bundled platforms, generated modules and test sources never are.
 pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphize::Program) {
-    let Some((mcdc, std)) = run().as_ref().map(|r| (r.mcdc, r.std)) else { return };
+    let (mcdc, std) = run().as_ref().map(|r| (r.mcdc, r.std)).or_ice(BEGUN);
     let user: HashSet<FileId> = analysis
         .loaded
         .modules
@@ -279,13 +283,13 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
     for (file, set) in lines {
         files.entry(file).or_default().lines = set;
     }
-    if let Some(r) = run().as_mut() {
-        for (file, u) in files {
-            let mine = r.files.entry(file).or_default();
-            mine.lines.extend(u.lines);
-            mine.decisions.extend(u.decisions);
-            mine.trees.extend(u.trees);
-        }
+    let mut held = run();
+    let r = held.as_mut().or_ice(BEGUN);
+    for (file, u) in files {
+        let mine = r.files.entry(file).or_default();
+        mine.lines.extend(u.lines);
+        mine.decisions.extend(u.decisions);
+        mine.trees.extend(u.trees);
     }
 }
 
@@ -358,7 +362,7 @@ fn instance_suffix(instance: &Instance) -> String {
 /// Every count the processes wrote, added up and put against the lines and
 /// decisions the suites hold: a row per file through `out`, and [`LCOV`].
 pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
-    let Some(Run { raw, mcdc, mut files, .. }) = run().take() else { return };
+    let Run { raw, mcdc, mut files, .. } = run().take().or_ice(BEGUN);
     let counts = counts(&raw);
     let _ = std::fs::remove_dir_all(&raw);
     let count = |key: u64| counts.get(&key).copied().unwrap_or(0);

@@ -1187,11 +1187,12 @@ fn resolve_custom_outputs(
                         }
                     },
                 };
-                if let Some(c) = one.custom.as_mut() {
-                    c.point = entry.name.value.clone();
-                    c.backend = entry.backend.value;
-                    c.js = entry.js.as_ref().map(|j| j.value.clone());
-                }
+                one.custom = Some(buildfile::CustomPlatform {
+                    point: entry.name.value.clone(),
+                    backend: entry.backend.value,
+                    js: entry.js.as_ref().map(|j| j.value.clone()),
+                    ..custom.clone()
+                });
                 resolved.push(one);
             }
         }
