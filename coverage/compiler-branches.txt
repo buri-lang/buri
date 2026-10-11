@@ -3,28 +3,28 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
-total 14700 18706 78.58%
+total 14575 18182 80.16%
 area cli/build 1525 1859 82.03%
 area cli/documentation 255 769 33.16%
 area cli/format 84 98 85.71%
 area cli/language_server 1150 1472 78.12%
 area cli/lint 586 708 82.77%
-area cli/other 483 594 81.31%
+area cli/other 484 594 81.48%
 area cli/run 38 56 67.86%
 area cli/serve+watch 47 86 54.65%
-area cli/test 436 580 75.17%
+area cli/test 437 580 75.34%
 area crates/backend 80 88 90.91%
 area crates/diagnostics 198 232 85.34%
 area crates/docs 197 304 64.80%
 area crates/hash 18 18 100.00%
 area crates/js 1015 1104 91.94%
 area crates/llvm 973 1374 70.82%
-area crates/middle 2086 2523 82.68%
+area crates/middle 1914 2055 93.14%
 area crates/project 878 1418 61.92%
-area crates/semantics 1875 2102 89.20%
+area crates/semantics 1919 2046 93.79%
 area crates/stdlib 12 12 100.00%
 area crates/stencil 1560 2025 77.04%
-area crates/syntax 1204 1284 93.77%
+area crates/syntax 1205 1284 93.85%
 267 329 cli/src/build/actions.rs
 37 52 cli/src/build/cache.rs
 16 20 cli/src/build/counted.rs
@@ -59,13 +59,13 @@ area crates/syntax 1204 1284 93.77%
 34 42 cli/src/commands/query.rs
 38 56 cli/src/commands/run.rs
 16 36 cli/src/commands/serve.rs
-436 580 cli/src/commands/test.rs
+437 580 cli/src/commands/test.rs
 3 6 cli/src/commands/version.rs
 31 50 cli/src/commands/watch.rs
 0 0 cli/src/compiler/backend/mod.rs
 1 2 cli/src/compiler/backend/runtime_native.rs
 48 66 cli/src/compiler/driver.rs
-186 218 cli/src/compiler/modules.rs
+187 218 cli/src/compiler/modules.rs
 4 4 cli/src/compiler/snapshot.rs
 0 4 cli/src/documentation/assemble.rs
 41 174 cli/src/documentation/examples.rs
@@ -130,26 +130,26 @@ area crates/syntax 1204 1284 93.77%
 53 60 crates/llvm/src/compiler/backend/llvm/repr.rs
 0 0 crates/llvm/src/compiler/backend/llvm/target.rs
 49 56 crates/middle/src/compiler/backend/intrinsic_keys.rs
-31 34 crates/middle/src/compiler/middle/chunks.rs
-20 24 crates/middle/src/compiler/middle/closures.rs
+29 30 crates/middle/src/compiler/middle/chunks.rs
+18 18 crates/middle/src/compiler/middle/closures.rs
 45 50 crates/middle/src/compiler/middle/coverage/derived.rs
 120 120 crates/middle/src/compiler/middle/coverage/mod.rs
-25 28 crates/middle/src/compiler/middle/dce.rs
-39 46 crates/middle/src/compiler/middle/decision.rs
-225 272 crates/middle/src/compiler/middle/derives.rs
+23 24 crates/middle/src/compiler/middle/dce.rs
+36 36 crates/middle/src/compiler/middle/decision.rs
+216 236 crates/middle/src/compiler/middle/derives.rs
 6 6 crates/middle/src/compiler/middle/flags.rs
 18 18 crates/middle/src/compiler/middle/forward.rs
-44 78 crates/middle/src/compiler/middle/fuse.rs
-80 97 crates/middle/src/compiler/middle/inline.rs
-109 150 crates/middle/src/compiler/middle/ir.rs
-54 76 crates/middle/src/compiler/middle/layout.rs
-156 186 crates/middle/src/compiler/middle/lower.rs
-56 74 crates/middle/src/compiler/middle/lower/lists.rs
-26 34 crates/middle/src/compiler/middle/mod.rs
-202 278 crates/middle/src/compiler/middle/monomorphize.rs
-98 128 crates/middle/src/compiler/middle/monomorphize/hand_written.rs
-629 690 crates/middle/src/compiler/middle/rc.rs
-54 78 crates/middle/src/compiler/middle/tail_calls.rs
+28 28 crates/middle/src/compiler/middle/fuse.rs
+64 65 crates/middle/src/compiler/middle/inline.rs
+91 114 crates/middle/src/compiler/middle/ir.rs
+54 58 crates/middle/src/compiler/middle/layout.rs
+139 144 crates/middle/src/compiler/middle/lower.rs
+39 40 crates/middle/src/compiler/middle/lower/lists.rs
+18 18 crates/middle/src/compiler/middle/mod.rs
+180 226 crates/middle/src/compiler/middle/monomorphize.rs
+100 108 crates/middle/src/compiler/middle/monomorphize/hand_written.rs
+601 620 crates/middle/src/compiler/middle/rc.rs
+40 40 crates/middle/src/compiler/middle/tail_calls.rs
 148 184 crates/project/src/build/buildfile.rs
 1 2 crates/project/src/build/platforms.rs
 82 94 crates/project/src/build/textproto.rs
@@ -167,9 +167,9 @@ area crates/syntax 1204 1284 93.77%
 0 0 crates/semantics/src/compiler/modules.rs
 48 58 crates/semantics/src/compiler/semantics/builtins.rs
 54 54 crates/semantics/src/compiler/semantics/consteval.rs
-24 38 crates/semantics/src/compiler/semantics/crossing.rs
+34 34 crates/semantics/src/compiler/semantics/crossing.rs
 13 16 crates/semantics/src/compiler/semantics/decorative.rs
-107 134 crates/semantics/src/compiler/semantics/exhaustiveness.rs
+98 110 crates/semantics/src/compiler/semantics/exhaustiveness.rs
 411 416 crates/semantics/src/compiler/semantics/expressions.rs
 53 54 crates/semantics/src/compiler/semantics/icons.rs
 202 228 crates/semantics/src/compiler/semantics/inference.rs
@@ -178,11 +178,11 @@ area crates/syntax 1204 1284 93.77%
 3 4 crates/semantics/src/compiler/semantics/name.rs
 74 74 crates/semantics/src/compiler/semantics/patterns.rs
 28 28 crates/semantics/src/compiler/semantics/reactive.rs
-392 422 crates/semantics/src/compiler/semantics/resolve.rs
-116 148 crates/semantics/src/compiler/semantics/resolve/platforms.rs
-193 232 crates/semantics/src/compiler/semantics/styles.rs
+393 418 crates/semantics/src/compiler/semantics/resolve.rs
+139 140 crates/semantics/src/compiler/semantics/resolve/platforms.rs
+204 214 crates/semantics/src/compiler/semantics/styles.rs
 22 26 crates/semantics/src/compiler/semantics/typed.rs
-117 148 crates/semantics/src/compiler/semantics/types.rs
+125 150 crates/semantics/src/compiler/semantics/types.rs
 0 0 crates/semantics/src/compiler/standard_library.rs
 12 12 crates/stdlib/src/compiler/standard_library/mod.rs
 0 0 crates/stencil/src/compiler/backend/stencil/abi.rs
@@ -202,5 +202,5 @@ area crates/syntax 1204 1284 93.77%
 28 30 crates/syntax/src/layout.rs
 25 30 crates/syntax/src/parsing/flat.rs
 165 168 crates/syntax/src/parsing/lexer.rs
-605 642 crates/syntax/src/parsing/parser.rs
+606 642 crates/syntax/src/parsing/parser.rs
 2 2 crates/syntax/src/parsing/tree.rs
