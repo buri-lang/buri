@@ -4,14 +4,18 @@ from "platform/effect" import { Allocator, Stdout };
 from "//lib/shop" import { Cart, describe, pick };
 
 export fn main(host: NodeHost): Result<(), Str> {
-    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
     let cart = Cart(5);
+    let Cart(raw) = cart;
     let picked = match (pick()) {
         .Small => 0,
         .Large { inches } => inches,
     };
     let small = describe(.Small);
     let large = describe(.Large { inches: 7 });
-    let sum = cart.audit() + cart.total() + picked + small + large;
+    let sum = cart.audit() + cart.total() + picked + small + large + raw;
     io.println(ctx, "${sum}").mapErr(fn(_e) => "could not write to standard output")
 }

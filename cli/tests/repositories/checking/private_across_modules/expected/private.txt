@@ -1,62 +1,69 @@
 error: field `0` of `Cart` is private to its module [private-to-module]
- --> cmd/app/main.buri:8:16
-  |
-8 |     let cart = Cart(5);
-  |                ^^^^^^^
-  |
-  = a struct with any private field cannot be constructed or destructured elsewhere, though functional update still works because it never names the hidden fields
-  = fix: add `export` to the field, or go through a method `Cart` provides
-
-    Add export to the declaration, or go through a method the type provides.
-
-    Without export, a declaration, field, method or variant of a private enum is
-    reachable only from its own module.
-
-    A struct with any private field can't be constructed outside its module at
-    all, because writing Scope(0) names the hidden field. That makes a private
-    field an invariant, and it's how the standard library mints a type only from
-    the inside. Functional update still works, because it never names the hidden
-    fields.
-
-error: variant `Small` of `Size` is private to its module [private-to-module]
-  --> cmd/app/main.buri:10:9
+  --> cmd/app/main.buri:11:16
    |
-10 |         .Small => 0,
+11 |     let cart = Cart(5);
+   |                ^^^^^^^
+   |
+   = a struct with any private field cannot be constructed or destructured elsewhere, though functional update still works because it never names the hidden fields
+   = fix: add `export` to the field, or go through a method `Cart` provides
+
+     Add export to the declaration, or go through a method the type provides.
+
+     Without export, a declaration, field, method or variant of a private enum
+     is reachable only from its own module.
+
+     A struct with any private field can't be constructed outside its module at
+     all, because writing Scope(0) names the hidden field. That makes a private
+     field an invariant, and it's how the standard library mints a type only
+     from the inside. Functional update still works, because it never names the
+     hidden fields.
+
+error: field `0` of `Cart` is private to its module [private-to-module]
+  --> cmd/app/main.buri:12:9
+   |
+12 |     let Cart(raw) = cart;
+   |         ^^^^^^^^^
+   |
+   = fix: add `export` to `0`, or read it through a method
+error: variant `Small` of `Size` is private to its module [private-to-module]
+  --> cmd/app/main.buri:14:9
+   |
+14 |         .Small => 0,
    |         ^^^^^^
    |
    = fix: add `export` to `Size`, or match through a function `Size`'s module provides
 error: variant `Large` of `Size` is private to its module [private-to-module]
-  --> cmd/app/main.buri:11:9
+  --> cmd/app/main.buri:15:9
    |
-11 |         .Large { inches } => inches,
+15 |         .Large { inches } => inches,
    |         ^^^^^^^^^^^^^^^^^
    |
    = fix: add `export` to `Size`, or match through a function `Size`'s module provides
 error: variant `Small` of `Size` is private to its module [private-to-module]
-  --> cmd/app/main.buri:13:26
+  --> cmd/app/main.buri:17:26
    |
-13 |     let small = describe(.Small);
+17 |     let small = describe(.Small);
    |                          ^^^^^^
    |
    = fix: add `export` to `Size`, or build the value through a function `Size`'s module provides
 error: variant `Large` of `Size` is private to its module [private-to-module]
-  --> cmd/app/main.buri:14:26
+  --> cmd/app/main.buri:18:26
    |
-14 |     let large = describe(.Large { inches: 7 });
+18 |     let large = describe(.Large { inches: 7 });
    |                          ^^^^^^
    |
    = fix: add `export` to `Size`, or build the value through a function `Size`'s module provides
 error: `audit` is private to its module [private-to-module]
-  --> cmd/app/main.buri:15:20
+  --> cmd/app/main.buri:19:20
    |
-15 |     let sum = cart.audit() + cart.total() + picked + small + large;
+19 |     let sum = cart.audit() + cart.total() + picked + small + large + raw;
    |                    ^^^^^
    |
    = fix: add `export` to `audit`'s declaration, if it is meant to be part of the API
 error: `total` is not on //lib/shop's surface [not-on-surface]
-  --> cmd/app/main.buri:15:35
+  --> cmd/app/main.buri:19:35
    |
-15 |     let sum = cart.audit() + cart.total() + picked + small + large;
+19 |     let sum = cart.audit() + cart.total() + picked + small + large + raw;
    |                                   ^^^^^
    |
    = a method call from outside a library resolves only to names its lib.buri exports

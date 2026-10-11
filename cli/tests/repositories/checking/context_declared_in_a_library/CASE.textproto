@@ -14,8 +14,8 @@ run {
 
 edit {
   file: "lib/fixtures/lib.buri"
-  replace: "context Defaults {}"
-  with: ""
+  replace: "context Defaults {"
+  with: "struct Defaults {"
 }
 
 run {

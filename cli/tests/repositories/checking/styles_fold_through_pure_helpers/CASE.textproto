@@ -1,0 +1,35 @@
+# Every length under the page's hover rule is a call to a pure helper, and the
+# compiler folds each one to the number in the stylesheet below. The last edit
+# makes one helper recurse without end, which the folder gives up on, so that
+# length is no longer a hover rule the stylesheet can hold.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "lengths computed by pure helpers fold into hover rules, and a helper that never returns is refused"
+
+run {
+  args: ["build", "//cmd/page"]
+  exit: 0
+}
+
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: "hover_w-21:hover{width:21px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: "hover_h-29:hover{height:29px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: "hover_gap-22:hover{gap:22px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: "hover_px-10:hover{padding-inline:10px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: "hover_py-32:hover{padding-block:32px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: "hover_minw-5:hover{min-width:5px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: "hover_maxw-19:hover{max-width:19px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: "hover_r-19:hover{border-radius:19px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: "hover_op-0_5:hover{opacity:0.5}" }
+
+edit {
+  file: "cmd/page/main.buri"
+  replace: "        0 => 1,"
+  with: "        0 => bucket(0),"
+}
+
+run {
+  args: ["build", "//cmd/page"]
+  exit: 1
+  golden: "endless.txt"
+}

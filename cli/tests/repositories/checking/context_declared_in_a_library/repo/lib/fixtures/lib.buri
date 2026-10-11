@@ -5,4 +5,5 @@ export fn width(): Int {
     80
 }
 
-context Defaults {}
+context Defaults {
+}
