@@ -25,6 +25,7 @@ test "half and shifted" {
     assert.equal(m.half(4, 2), 2);
     assert.equal(m.shifted(2), 4);
     assert.equal(m.halfIf(false, 1, 0), false);
+    assert.equal(m.halveAny(6, 3), 2);
 }
 
 test "pick at two types" {
@@ -42,4 +43,8 @@ test "a tail call under || keeps its constant stack" {
 
 test "a zero divisor aborts an &&" {
     assert.equal(m.halfIf(true, 1, 0), false);
+}
+
+test "a zero divisor aborts a generic division" {
+    assert.equal(m.halveAny(1, 0), 0);
 }

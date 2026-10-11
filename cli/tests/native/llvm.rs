@@ -5266,7 +5266,7 @@ fn coverage_under_release_counts_the_lines_the_other_backends_count() {
     let cases = [
         ("partly_covered", "//lib/shapes", "--coverage", "lcov.info", "3 passed, 0 failed", 0),
         ("branch_kinds", "//lib/branches", "--coverage", "lcov.info", "7 passed, 0 failed", 0),
-        ("mcdc", "//lib/m", "--coverage=mcdc", "mcdc.info", "6 passed, 2 failed", 1),
+        ("mcdc", "//lib/m", "--coverage=mcdc", "mcdc.info", "6 passed, 3 failed", 1),
         ("mcdc", "//lib/d", "--coverage=mcdc", "derived.info", "4 passed, 0 failed", 0),
         ("a_passed_condition", "//libs/greeting", "--coverage", "lcov.info", "1 passed, 0 failed", 0),
         ("a_passed_condition", "//libs/greeting", "--coverage=mcdc", "mcdc.info", "1 passed, 0 failed", 0),

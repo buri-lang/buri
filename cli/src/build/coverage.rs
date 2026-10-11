@@ -208,11 +208,16 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
             });
         }
     };
+    // As `coverage::aborts` judges a built call: a `core/bits` shift, or an
+    // integer type's `divide` or `remainder`.
     let checked_traps = |e: &typed::Expr| match &e.kind {
         typed::ExprKind::CallFn { func: typed::Callee::Decl { id, .. }, .. } => {
             let info = tables.fn_info(*id);
             let module = analysis.loaded.modules.get(info.module.index()).map(|m| m.path.as_str());
-            info.intrinsic && module == Some("core/bits") && info.name.starts_with("shift")
+            let integer = info.self_ty.is_some_and(|c| Prim::all().iter().any(|p| p.is_integer() && tables.prim_id(*p) == c));
+            info.intrinsic
+                && (module == Some("core/bits") && info.name.starts_with("shift")
+                    || integer && matches!(info.name.as_str(), "divide" | "remainder"))
         }
         _ => false,
     };
