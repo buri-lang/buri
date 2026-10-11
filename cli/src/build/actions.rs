@@ -60,9 +60,7 @@ fn copy_assets(session: &Session, target: TargetId, output: &Output, diagnostics
     let Some(into) = path.parent() else { return true };
     for asset in &rule.assets {
         let destination = into.join(&asset.value);
-        if let Some(parent) = destination.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
+        crate::build::create_parent(&destination);
         let copied = match &output.custom {
             Some(custom) => match session.workspace.platform_rule(&custom.label.value) {
                 Some((pid, _)) => std::fs::copy(session.workspace.package(pid).dir.join(&asset.value), &destination)
@@ -169,9 +167,7 @@ fn build_artifact(
                 _ => &[],
             };
             if let [module, stylesheet, chunks @ ..] = held {
-                if let Some(parent) = path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
+                crate::build::create_parent(&path);
                 if std::fs::write(&path, module).is_ok()
                     && write_companions(&path, stylesheet, chunks, &mut diagnostics)
                 {
@@ -188,9 +184,7 @@ fn build_artifact(
     let reads = encode_reads(session, &compiled.unkeyed);
     let parts = [&reads, &compiled.module, &compiled.stylesheet].into_iter().chain(&compiled.chunks);
     cache.put(&key, &encode_parts(parts.map(String::as_str)));
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
+    crate::build::create_parent(&path);
     if let Err(e) = std::fs::write(&path, &compiled.module) {
         diagnostics.push(
             Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display()))
@@ -2700,9 +2694,7 @@ fn native_from_record(
         return None;
     }
     let entry = cache.entry(&link)?;
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
+    crate::build::create_parent(path);
     let size = write_executable(&entry, path).ok()?;
     let platform = output.platform_label();
     let cached = crate::build::cache::Status::Cached;
@@ -2751,9 +2743,7 @@ fn link_cached(
     // in the cache is the executable this link would produce.
     if !flags.force {
         if let Some(entry) = cache.entry(&key) {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
+            crate::build::create_parent(path);
             if let Ok(size) = write_executable(&entry, path) {
                 explain_link(crate::build::cache::Status::Cached);
                 return Ok((key, Some(size)));
@@ -2859,9 +2849,7 @@ const CLAIM_STALE: std::time::Duration = std::time::Duration::from_secs(900);
 /// to derive it from (see [`native_test_batch`]).
 fn claim_runner(dir: &std::path::Path, private: PathBuf) -> TestBinary {
     if dir.join(KEPT).exists() {
-        if let Some(parent) = private.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
+        crate::build::create_parent(&private);
         return TestBinary { path: private, claim: None };
     }
     claim_runner_after(dir, private, CLAIM_STALE)
@@ -2898,9 +2886,7 @@ fn claim_runner_after(
             TestBinary { path: dir.join("test-runner"), claim: Some(std::sync::Arc::new(claim)) }
         }
         Err(_) => {
-            if let Some(parent) = private.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
+            crate::build::create_parent(&private);
             TestBinary { path: private, claim: None }
         }
     }

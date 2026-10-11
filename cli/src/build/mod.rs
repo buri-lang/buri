@@ -71,3 +71,11 @@ pub mod workspace;
 
 // What a repository declares, which the checker reads too, is `buri-project`'s.
 pub use buri_project::build::{buildfile, platforms, textproto};
+
+/// Makes the directory the file at `path` goes in, best effort: the write that
+/// follows reports a failure.
+pub fn create_parent(path: &std::path::Path) {
+    #[expect(clippy::expect_used, reason = "every caller names a file it joined to a directory")]
+    let parent = path.parent().expect("a file joined to a directory has a parent");
+    let _ = std::fs::create_dir_all(parent);
+}

@@ -105,7 +105,8 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         // Only a binary produces an artifact; a library or a tool is checked,
         // which is what `buri build //lib/money` means.
         if target.kind != RuleKind::Binary {
-            let Some((mut diagnostics, key)) = asked.remove(&target) else { continue };
+            // Every library and tool in `targets` asked above.
+            let (mut diagnostics, key) = asked.remove(&target).unwrap_or_default();
             let share = shared.as_ref().and_then(|s| Some((s, s.shares.get(&target)?)));
             if let (Some(key), Some((shared, share))) = (&key, share) {
                 if share.reported.is_empty() {
@@ -257,8 +258,8 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
         // output is a page, a stylesheet and a module, and "reproducible" has
         // to mean all three or it means the interesting two thirds are
         // unchecked.
-        let mut rounds: Vec<Vec<(String, Vec<u8>)>> = Vec::new();
-        for round in ["a", "b"] {
+        let mut rounds: [Vec<(String, Vec<u8>)>; 2] = Default::default();
+        for (slot, round) in rounds.iter_mut().zip(["a", "b"]) {
             // Two directories, thrown away as soon as the bytes are read back.
             // Outside the repository, because a check must not double as a
             // build and must not leave a directory in a tree it was only asked
@@ -323,16 +324,12 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
                     }
                 }
             }
-            rounds.push(staged);
+            *slot = staged;
             let _ = std::fs::remove_dir_all(&round_dir);
         }
 
         compared += 1;
-        // The loop above either pushes one round's files or returns, so there
-        // are exactly the two rounds' worth to compare.
-        let [round_a, round_b] = rounds.as_slice() else {
-            crate::ice!("each round of --check-reproducible pushes exactly one artifact set")
-        };
+        let [round_a, round_b] = &rounds;
         // A file present in one round and not the other is the same failure as
         // a byte that moved, and it is the one a companion artifact can newly
         // produce, so it is reported rather than skipped over.
@@ -483,12 +480,13 @@ fn check_native(
     /// into. Named rather than a tuple because the comparison below reads
     /// better than `rounds[0].1` does, and because the objects are the half
     /// that carries the useful report.
+    #[derive(Default)]
     struct Round {
         units: Vec<(String, Vec<u8>)>,
         exe: Vec<u8>,
     }
-    let mut rounds: Vec<Round> = Vec::new();
-    for round in ["a", "b"] {
+    let mut rounds: [Round; 2] = Default::default();
+    for (slot, round) in rounds.iter_mut().zip(["a", "b"]) {
         let round_dir =
             std::env::temp_dir().join(format!("buri-reproducible-{}-{round}", std::process::id()));
         let _ = std::fs::remove_dir_all(&round_dir);
@@ -544,13 +542,11 @@ fn check_native(
             }
         };
         let units = objects.units.into_iter().map(|u| (u.name, u.bytes)).collect();
-        rounds.push(Round { units, exe });
+        *slot = Round { units, exe };
         let _ = std::fs::remove_dir_all(&round_dir);
     }
 
-    let [a, b] = rounds.as_slice() else {
-        crate::ice!("each round of --check-reproducible pushes exactly one artifact")
-    };
+    let [a, b] = &rounds;
     let (a_units, a_exe) = (&a.units, &a.exe);
     let (b_units, b_exe) = (&b.units, &b.exe);
     let mut differed = false;

@@ -736,9 +736,8 @@ fn identity_of(flavour: Flavour, programs: Vec<PathBuf>) -> std::sync::Arc<Ident
             probe: std::sync::Mutex::new(started),
         })
     };
-    // A poisoned registry is a reason to probe again, never a reason to fail: it
-    // is a memo, and the answer it holds is one this can always compute.
-    let Ok(mut table) = PROBED.lock() else { return fresh() };
+    // Nothing panics while holding it, so it is never poisoned.
+    let mut table = PROBED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some((_, ready)) = table.iter().find(|(key, _)| *key == name) {
         return std::sync::Arc::clone(ready);
     }
@@ -754,7 +753,7 @@ fn identity_of(flavour: Flavour, programs: Vec<PathBuf>) -> std::sync::Arc<Ident
 /// whenever the exit came first, and the next process asked again. Joining
 /// costs nothing once the answer is remembered: the probe reads one file.
 pub fn settle() {
-    let Ok(table) = PROBED.lock() else { return };
+    let table = PROBED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     for (_, identity) in table.iter() {
         let handle = identity.probe.lock().ok().and_then(|mut slot| slot.take());
         if let Some(Ok(hashed)) = handle.map(std::thread::JoinHandle::join) {
@@ -1194,15 +1193,11 @@ fn refusal(triple: &str) -> Refusal {
 fn accepts_target(driver: &Path, triple: &str) -> bool {
     static ASKED: std::sync::Mutex<Vec<(String, bool)>> = std::sync::Mutex::new(Vec::new());
     let name = format!("{}\u{0}{triple}", driver.display());
-    if let Ok(table) = ASKED.lock() {
-        if let Some((_, answer)) = table.iter().find(|(key, _)| *key == name) {
-            return *answer;
-        }
+    if let Some((_, answer)) = ASKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().find(|(key, _)| *key == name) {
+        return *answer;
     }
     let answer = probe_target(driver, triple);
-    if let Ok(mut table) = ASKED.lock() {
-        table.push((name, answer));
-    }
+    ASKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, answer));
     answer
 }
 
@@ -2082,9 +2077,7 @@ impl CDriver {
             }
         }
 
-        if let Some(parent) = out.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
+        crate::build::create_parent(out);
         // The driver writes inside the link directory, and [`place_from`] puts
         // the bytes at `out`, the same way a `link` cache hit does
         // (`actions::write_executable`). Unchanged bytes leave `out` alone.
@@ -2441,7 +2434,7 @@ impl CDriver {
         keep: bool,
     ) -> Option<Replay> {
         let key = self.replay_key(runtime);
-        let mut table = REPLAYS.lock().ok()?;
+        let mut table = REPLAYS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some((_, known)) = table.iter().find(|(k, _)| k == key.as_str()) {
             return known.clone();
         }
@@ -2477,10 +2470,10 @@ impl CDriver {
     /// says it was kept, between processes.
     fn forget_replay(&self, runtime: RuntimeArchive, keep: bool) {
         let key = self.replay_key(runtime);
-        if let Ok(mut table) = REPLAYS.lock() {
-            table.retain(|(k, _)| k != key.as_str());
-            table.push((key.as_str().to_string(), None));
-        }
+        let mut table = REPLAYS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        table.retain(|(k, _)| k != key.as_str());
+        table.push((key.as_str().to_string(), None));
+        drop(table);
         if let Some(record) = replay_record(&key).filter(|_| keep) {
             remember(&record, "");
         }

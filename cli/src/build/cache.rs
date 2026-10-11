@@ -336,9 +336,7 @@ impl Cache {
     /// because the key names them, so whichever rename lands last is right.
     pub fn put(&self, key: &ActionKey, data: &[u8]) {
         let p = self.path(key);
-        if let Some(parent) = p.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
+        crate::build::create_parent(&p);
         let tmp = p.with_extension(temporary_extension());
         if std::fs::write(&tmp, data).is_ok() {
             let _ = std::fs::rename(&tmp, &p);
@@ -375,9 +373,7 @@ impl Cache {
     /// correct answer.
     pub fn put_file(&self, key: &ActionKey, src: &Path) {
         let p = self.path(key);
-        if let Some(parent) = p.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
+        crate::build::create_parent(&p);
         let tmp = p.with_extension(temporary_extension());
         let staged = std::fs::rename(src, &tmp).is_ok()
             || (std::fs::copy(src, &tmp).is_ok() && {

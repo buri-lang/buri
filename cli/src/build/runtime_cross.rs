@@ -138,15 +138,11 @@ pub fn resolve(target: Target) -> Result<Cross, link_refusal::Refusal> {
     use std::sync::Mutex;
     static MEMO: Mutex<Vec<(Target, Result<Cross, link_refusal::Refusal>)>> =
         Mutex::new(Vec::new());
-    if let Ok(memo) = MEMO.lock() {
-        if let Some((_, answer)) = memo.iter().find(|(t, _)| *t == target) {
-            return answer.clone();
-        }
+    if let Some((_, answer)) = MEMO.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().find(|(t, _)| *t == target) {
+        return answer.clone();
     }
     let answer = resolve_uncached(target);
-    if let Ok(mut memo) = MEMO.lock() {
-        memo.push((target, answer.clone()));
-    }
+    MEMO.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((target, answer.clone()));
     answer
 }
 
