@@ -1,0 +1,8 @@
+# This host's variant, and the other machine's. A mac builds Linux with a
+# runtime that has neither networking nor cryptography.
+binary {
+    outputs: [
+        { platform: "native", variant: "{{HOST_VARIANT}}" },
+        { platform: "native", variant: "{{CROSS_VARIANT}}" },
+    ]
+}

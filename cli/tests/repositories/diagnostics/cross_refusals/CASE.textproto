@@ -1,0 +1,54 @@
+# **A program the cross runtime can't answer is refused by what it uses.** A
+# mac builds Linux against a runtime with neither networking nor
+# cryptography, so each family of operations that lives behind those
+# features is named before the link:
+#
+#   * `core/actor`'s mailboxes, which park on the networking reactor;
+#   * `core/tasks`'s scopes and timers, which live beside it;
+#   * `core/crypto`'s sealing and the host's entropy.
+#
+# Each program runs on this host first, so the refusal is about the target
+# and never the program.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a cross build names the actor, task and cryptography operations its runtime lacks"
+
+run {
+  args: ["run", "//cmd/actor", "--output=native/{{HOST_VARIANT}}"]
+  exit: 0
+  golden: "actor_runs.txt"
+}
+
+run {
+  args: ["build", "//cmd/actor", "--output=native/{{CROSS_VARIANT}}"]
+  exit: 1
+  golden: "actor_cross.txt"
+  host: MACOS
+}
+
+run {
+  args: ["run", "//cmd/timer", "--output=native/{{HOST_VARIANT}}"]
+  exit: 0
+  golden: "timer_runs.txt"
+}
+
+run {
+  args: ["build", "//cmd/timer", "--output=native/{{CROSS_VARIANT}}"]
+  exit: 1
+  golden: "timer_cross.txt"
+  host: MACOS
+}
+
+run {
+  args: ["run", "//cmd/crypto", "--output=native/{{HOST_VARIANT}}"]
+  exit: 0
+  golden: "crypto_runs.txt"
+}
+
+run {
+  args: ["build", "//cmd/crypto", "--output=native/{{CROSS_VARIANT}}"]
+  exit: 1
+  golden: "crypto_cross.txt"
+  host: MACOS
+}
