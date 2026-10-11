@@ -1,0 +1,25 @@
+# A name bound inside a nested or-pattern is bound by the outer alternative
+# too, and is one value whichever way the arm matched. The edit leaves `w`
+# out of one inner alternative, which is then refused.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an or-pattern nested in another binds its names for the outer one, and an inner alternative that leaves one out is refused"
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "ran.txt"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "(.Rect(w, _) | .Frame(w), 1)"
+  with: "(.Rect(w, _) | .Frame(_), 1)"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "unbound.txt"
+}
