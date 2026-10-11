@@ -442,6 +442,50 @@ fn policy_reads_tags_both_ways_and_a_binary_beside_a_library() {
         .says("//lib/web declares platforms web");
 }
 
+/// Every `dependencies` list names a library, a library's `testing` surface,
+/// or a repository platform. Anything else is refused where it's written,
+/// with the near miss when there is one.
+#[test]
+fn a_dependency_that_names_no_library_is_refused() {
+    let scratch = Scratch::repo("unknown-dependencies");
+    scratch.write("lib/money/BUILD.buri", "library {\n    visibility: [\"//...\"]\n}\n");
+    scratch.write("lib/money/lib.buri", ONE);
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n    dependencies: [\"//lib/mony\"]\n    test {\n        dependencies: [\"//cmd/x\"]\n    }\n    \
+         testing {\n        dependencies: [\"//lib/money/testing\"]\n    }\n}\n",
+    );
+    scratch.write("lib/a/lib.buri", ONE);
+    scratch.write("lib/a/testing/lib.buri", ONE);
+    scratch.write("cmd/x/BUILD.buri", "binary {\n    dependencies: [\"lib/money\"]\n    test {\n        dependencies: [\"//nowhere\"]\n    }\n}\n");
+    scratch.write("cmd/x/main.buri", NODE_MAIN);
+    scratch.write("tools/t/BUILD.buri", "tool {\n    dependencies: [\"//tools/t\"]\n}\n");
+    scratch.write("tools/t/tool.buri", "export fn main() {}\n");
+    scratch.write("platform/kit/BUILD.buri", "platform {\n    dependencies: [\"//lib/gone\"]\n    entry {\n        name: \"e\"\n        backend: JS\n    }\n}\n");
+    scratch.write("platform/kit/platform.buri", "export struct KitHost {}\nexport fn e(host: KitHost): Result<(), Str>;\n");
+    let run = scratch.run(&["build", "//lib/money"]);
+    run.exits(2)
+        .says("error: `//lib/mony` names no library [unknown-dependency]")
+        .says("--> lib/a/BUILD.buri:2:20")
+        .says("fix: if you meant `//lib/money`, use that")
+        .says("error: `//cmd/x` names no library [unknown-dependency]")
+        .says("//cmd/x declares no `library` rule, and only a library can be depended on")
+        .says("error: `//lib/money/testing` names no library [unknown-dependency]")
+        .says("//lib/money declares no `testing` surface")
+        .says("error: `lib/money` names no library [unknown-dependency]")
+        .says("a dependency is a `//` label")
+        .says("error: `//nowhere` names no library [unknown-dependency]")
+        .says("no package is at `nowhere`")
+        .says("error: `//tools/t` names no library [unknown-dependency]")
+        .says("error: `//lib/gone` names no library [unknown-dependency]");
+
+    // A repository platform is a dependency too: a binary imports its host from it.
+    let ok = Scratch::copy_of("platform-dependency", &tests_dir().join("repositories/custom-platforms/platform_dependencies/repo"));
+    ok.write("cmd/app/BUILD.buri", "binary {\n    tags: [\"client\"]\n    dependencies: [\"//platform/kit\"]\n    outputs: [\n        { platform: \"//platform/kit\" },\n    ]\n}\n");
+    ok.write("lib/words/BUILD.buri", "library {\n    visibility: [\"//...\"]\n}\n");
+    ok.run(&["build", "//cmd/app"]).ok();
+}
+
 /// A library of more sources than are worth reading one at a time builds as
 /// one of a few does.
 #[test]
