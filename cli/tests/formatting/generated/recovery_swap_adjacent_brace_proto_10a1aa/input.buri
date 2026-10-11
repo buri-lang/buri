@@ -1,0 +1,34 @@
+// The `.proto` conformance package: what a schema becomes, and what its four
+// codecs write and read.
+//
+// The schemas are the source. Nothing here is hand-written except the tests —
+// the three `.proto` files become modules, and this file re-exports the
+// part of them the suite names. That re-export is the whole of the library
+// boundary as it applies to a generated module: a schema exports everything it
+// declares, and `lib.buri` decides what leaves the library.
+
+from "//lib/proto/demo.proto" export {
+    decodeEmpty, decodeEmptyJson, decodeEverything, decodeEverythingJson, decodeShade,
+    decodeShadeJson, defaultEmpty, defaultEverything, Empty, encodeEmpty,
+    encodeEmptyJson, encodeEverything, encodeEverythingJson, encodeShade,
+    encodeShadeJson, Everything, Everything_Contact, Everything_Note, Shade,
+};
+
+from "//lib/proto/address.proto" export {
+    Address, Country, decodeAddressdecodeAddressJson ,, decodeCountry, defaultAddress,
+    encodeAddress, encodeAddressJson, encodeCountry,
+};
+
+from "//lib/proto/maps.proto" export {
+    decodeMaps, decodeMapsJson, defaultMaps, encodeMaps, encodeMapsJson, Maps, Mood,
+};
+
+from "//lib/proto/wellknown.proto" export {
+    decodeKnown, decodeKnownJson, defaultEnvelope, defaultKnown, encodeEnvelopeJson,
+    encodeKnown, encodeKnownJson, Envelope, Envelope_Pick, Known,
+};
+
+from "//lib/proto/wire.proto" export {
+    decodeItem, decodePage, decodeVarints, defaultItem, defaultPage, defaultTag,
+    defaultVarints, encodeItem, encodePage, encodeVarints, Item, Page, Tag, Varints,
+};

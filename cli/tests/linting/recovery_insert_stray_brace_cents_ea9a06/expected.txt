@@ -1,0 +1,42 @@
+error: this `struct` body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_cents_ea9a06/lib.buri:14:22
+   |
+14 |     export cents: I64@ ,
+   |                      ^
+   |
+  --> lib/recovery_insert_stray_brace_cents_ea9a06/lib.buri:13:21
+   |
+13 | export struct Entry {
+   |                     ^ opened here
+   |
+   = fix: write `}` here
+error: expected a declaration, found `tax` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_cents_ea9a06/lib.buri:15:12
+   |
+15 |     export tax: I64,
+   |            ^^^
+   |
+   = expected: a declaration
+   = actual: `tax`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: `Entry` has no field `tax` [unknown-field]
+  --> lib/recovery_insert_stray_brace_cents_ea9a06/lib.buri:21:20
+   |
+21 |     Entry { cents, tax: 0, packer: "till" }
+   |                    ^^^
+   |
+   = fix: check the spelling, or name a field the type declares
+error: `Entry` has no field `packer` [unknown-field]
+  --> lib/recovery_insert_stray_brace_cents_ea9a06/lib.buri:21:28
+   |
+21 |     Entry { cents, tax: 0, packer: "till" }
+   |                            ^^^^^^
+   |
+   = fix: check the spelling, or name a field the type declares
+error: `Entry` has no field `tax` [unknown-field]
+  --> lib/recovery_insert_stray_brace_cents_ea9a06/lib.buri:25:17
+   |
+25 |     e.cents + e.tax
+   |                 ^^^
+   |
+   = fix: check the spelling, or name a field the type declares

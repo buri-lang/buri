@@ -1,0 +1,25 @@
+warning: nothing reads `Entry.packer` [unused-field]
+  --> lib/recovery_insert_stray_brace_cents_ed2c7b/lib.buri:16:5
+   |
+16 |     packer: Str,
+   |     ^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+warning: nothing reads `Entry.note` [unused-field]
+  --> lib/recovery_insert_stray_brace_cents_ed2c7b/lib.buri:17:5
+   |
+17 |     note: Option<Str>,
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+error: expected an expression, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_cents_ed2c7b/lib.buri:25:5
+   |
+25 |     ? e.cents + e.tax
+   |     ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here

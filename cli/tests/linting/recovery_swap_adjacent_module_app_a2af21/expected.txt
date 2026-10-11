@@ -1,0 +1,17 @@
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_module_app_a2af21/main.buri:15:16
+   |
+15 | fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+error: expected `fn`, found `shout` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_a2af21/main.buri:22:1
+   |
+22 | shout fn<C: Allocator + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   | ^^^^^
+   |
+   = expected: `fn`
+   = actual: `shout`
+   = fix: write `fn` first: `fn shout`

@@ -1,0 +1,12 @@
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+   --> main.buri:101:1
+    |
+101 | 
+    | ^
+    |
+  --> main.buri:89:53
+   |
+89 | test "a signal keeps its value across a navigation" {
+   |                                                     ^ opened here
+   |
+   = fix: write `}` here

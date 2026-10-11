@@ -1,0 +1,23 @@
+error: a match arm ends with `,` [missing-comma]
+  --> main.buri:22:32
+   |
+22 |     match (c) { '\u{feff}' => 1'\u{202E}' , => 2, '\u{a0}' => 3, '⁩' => 4, _ => 0 }
+   |                                ^
+   |
+   = fix: write `,` here
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> main.buri:22:42
+   |
+22 |     match (c) { '\u{feff}' => 1'\u{202E}' , => 2, '\u{a0}' => 3, '⁩' => 4, _ => 0 }
+   |                                          ^
+   |
+   = fix: write `=>` here
+error: expected a pattern, found `=>` [unexpected-token]
+  --> main.buri:22:45
+   |
+22 |     match (c) { '\u{feff}' => 1'\u{202E}' , => 2, '\u{a0}' => 3, '⁩' => 4, _ => 0 }
+   |                                             ^^
+   |
+   = expected: a pattern
+   = actual: `=>`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

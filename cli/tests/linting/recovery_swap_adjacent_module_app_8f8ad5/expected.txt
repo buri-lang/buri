@@ -1,0 +1,25 @@
+error: expected a string literal, found `import` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_8f8ad5/main.buri:12:6
+   |
+12 | from import "platform/effect" { Stdout };
+   |      ^^^^^^
+   |
+   = expected: a string literal
+   = actual: `import`
+   = fix: quote it, as in `"core/list"`
+error: expected a declaration, found `;` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_8f8ad5/main.buri:12:41
+   |
+12 | from import "platform/effect" { Stdout };
+   |                                         ^
+   |
+   = expected: a declaration
+   = actual: `;`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: `Stdout` is an effect, but this file does not import it [effect-not-imported]
+  --> lib/recovery_swap_adjacent_module_app_8f8ad5/main.buri:17:9
+   |
+17 |         Stdout: host.stdout,
+   |         ^^^^^^
+   |
+   = fix: import it: `from "platform/effect" import { Stdout };`

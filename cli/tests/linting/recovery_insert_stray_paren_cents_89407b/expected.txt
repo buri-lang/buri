@@ -1,0 +1,17 @@
+error: expected an identifier, found `@` [unexpected-token]
+ --> lib/recovery_insert_stray_paren_cents_89407b/lib.buri:1:21
+  |
+1 | export fn fromCents(@ n: I64): I64 {
+  |                     ^
+  |
+  = expected: an identifier
+  = actual: `@`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+warning: `scaled` is bound and never used [unused-variable]
+ --> lib/recovery_insert_stray_paren_cents_89407b/lib.buri:9:9
+  |
+9 |     let scaled = n * 100;
+  |         ^^^^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place

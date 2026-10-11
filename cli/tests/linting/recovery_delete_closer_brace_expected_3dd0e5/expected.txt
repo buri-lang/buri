@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_expected_3dd0e5/main.buri:18:1
+   |
+18 | }
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_expected_3dd0e5/main.buri:17:17
+   |
+17 |     label.length(
+   |                 ^ opened here
+   |
+   = fix: write `)` here

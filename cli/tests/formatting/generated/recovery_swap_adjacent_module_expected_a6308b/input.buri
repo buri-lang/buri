@@ -1,0 +1,6 @@
+fn literal()P : {
+    P {
+        x: 1,
+        // after the last field
+    }
+}

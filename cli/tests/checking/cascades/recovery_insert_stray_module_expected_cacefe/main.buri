@@ -1,3 +1,0 @@
-from "core/list" export { fold, map extra };
-// and the one that maps
-/// the one that folds

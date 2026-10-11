@@ -22,11 +22,11 @@
 //! 5. the kinds of the tokens either side of the site.
 //!
 //! Two mutations in the same cell are the same test, so at most
-//! [`PER_CELL`] of any cell is kept. Within a cell the candidates are ordered
-//! **shortest seed first**: a pinned case is read by a person, and the smallest
-//! file that exhibits a shape is the one worth reading. Cells are then taken
-//! round-robin, so that cutting the corpus at a smaller `total` thins every
-//! shape evenly rather than truncating the alphabet.
+//! [`PER_CELL`] of any cell is kept. Every candidate and every shape is ranked
+//! by a hash of its own text, never by its place among the others, so a seed
+//! added to the corpus displaces at most the picks it outranks. Each shape's
+//! first case comes before any second case, and within a round the hash
+//! order thins every shape evenly rather than truncating the alphabet.
 //!
 //! The whole selection is a function of the corpus, the seed and two numbers,
 //! and nothing in it reads the checked-in tree — which is what makes
@@ -209,6 +209,18 @@ fn digest(of: &str) -> String {
     format!("{:06x}", h & 0xFF_FFFF)
 }
 
+/// A rank that depends on `of` alone: FNV-1a, finished with SplitMix64's mixer.
+fn hash(of: &str) -> u64 {
+    let mut h: u64 = 0xCBF2_9CE4_8422_2325;
+    for b in of.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01B3);
+    }
+    h = (h ^ (h >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    h = (h ^ (h >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    h ^ (h >> 31)
+}
+
 /// The seed file's own name, as a case directory spells it.
 fn stem(file: &str) -> String {
     let base = file.rsplit('/').next().unwrap_or(file);
@@ -275,8 +287,8 @@ pub fn select_with(
     per_cell: usize,
     keep: &mut dyn FnMut(&Mutation) -> bool,
 ) -> Vec<Pick> {
-    // Every candidate, bucketed by cell, ordered shortest-seed-first inside it.
-    let mut cells: BTreeMap<String, Vec<(usize, String, Mutation)>> = BTreeMap::new();
+    // Every candidate, bucketed by cell, in hash order inside it.
+    let mut cells: BTreeMap<String, Vec<(u64, String, Mutation)>> = BTreeMap::new();
     for src in sources {
         if src.text.len() > SEED_BYTES {
             continue;
@@ -284,7 +296,8 @@ pub fn select_with(
         let Some(shape) = Shape::of(&src.text) else { continue };
         for m in mutations_of(src, seed, per_kind) {
             let Some(cell) = cell_of(&shape, &m) else { continue };
-            cells.entry(cell).or_default().push((src.text.len(), src.name.clone(), m));
+            let rank = hash(&format!("{}\0{}\0{}", src.name, m.what, m.source));
+            cells.entry(cell).or_default().push((rank, src.name.clone(), m));
         }
     }
     for candidates in cells.values_mut() {
@@ -292,11 +305,7 @@ pub fn select_with(
     }
 
     // At most `PER_CELL` of each cell, asking the suite about each in turn.
-    // A cell's rank inside its own row is what makes the cut below even: the
-    // rows are the mutation shapes, and taking every row's first cell before
-    // any row's second is the whole of "thins every shape evenly".
-    let mut ranks: BTreeMap<String, usize> = BTreeMap::new();
-    let mut buckets: Vec<(usize, Vec<Pick>)> = Vec::with_capacity(cells.len());
+    let mut buckets: Vec<(u64, Vec<Pick>)> = Vec::with_capacity(cells.len());
     for (cell, candidates) in cells {
         let mut taken: Vec<Pick> = Vec::new();
         for (_, _, m) in candidates {
@@ -311,17 +320,13 @@ pub fn select_with(
         if taken.is_empty() {
             continue;
         }
-        let row = cell.split(" | ").next().unwrap_or_default().to_string();
-        let rank = ranks.entry(row).or_default();
-        buckets.push((*rank, taken));
-        *rank = rank.saturating_add(1);
+        buckets.push((hash(&cell), taken));
     }
 
-    // Round-robin: every row's first cell, then every row's second, and only
-    // then a second case from any cell.
+    // Every shape's first case in hash order, and only then any second.
     let mut order: Vec<(usize, usize)> = Vec::new();
     for slot in 0..per_cell {
-        let mut round: Vec<(usize, usize, usize)> = buckets
+        let mut round: Vec<(u64, usize, usize)> = buckets
             .iter()
             .enumerate()
             .filter(|(_, (_, picks))| slot < picks.len())

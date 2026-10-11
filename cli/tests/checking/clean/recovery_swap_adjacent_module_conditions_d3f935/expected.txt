@@ -1,0 +1,9 @@
+error: expected `fn`, found `pickNested` [unexpected-token]
+   --> main.buri:138:1
+    |
+138 | pickNested fn(outer: Bool, inner: Bool): Int {
+    | ^^^^^^^^^^
+    |
+    = expected: `fn`
+    = actual: `pickNested`
+    = fix: write `fn` first: `fn pickNested`

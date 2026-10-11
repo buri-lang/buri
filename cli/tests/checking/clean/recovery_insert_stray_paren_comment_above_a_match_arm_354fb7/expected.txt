@@ -1,0 +1,12 @@
+error: this type argument list is missing its closing `>` [unclosed-delimiter]
+ --> main.buri:1:26
+  |
+1 | export fn f(x: Option<Int? >): Int {
+  |                          ^
+  |
+ --> main.buri:1:22
+  |
+1 | export fn f(x: Option<Int? >): Int {
+  |                      ^ opened here
+  |
+  = fix: write `>` here

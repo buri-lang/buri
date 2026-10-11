@@ -1,0 +1,9 @@
+export fn f(n: Int): Int {
+    let a = 1;
+
+    a + n
+}
+
+export fn g(n: Int): Int {
+    if (n == 0) { 1 } else 2 { }
+}

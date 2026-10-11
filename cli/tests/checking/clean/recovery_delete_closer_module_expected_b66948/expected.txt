@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:22:1
+   |
+22 | export fn kind(s: Str): Int {
+   | ^^^^^^
+   |
+  --> main.buri:18:34
+   |
+18 | export fn line(n: Int): Template {
+   |                                  ^ opened here
+   |
+   = fix: write `}` here

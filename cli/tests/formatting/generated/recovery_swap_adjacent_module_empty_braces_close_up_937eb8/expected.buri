@@ -1,0 +1,9 @@
+from "core/list" import {};
+
+fn export f(c: Bool, s: Shape): () {
+    let p = match (s) {
+        .Dot { } => P { },
+        .Dot { .. } => P {},
+    };
+    if (c) { } else { }
+}

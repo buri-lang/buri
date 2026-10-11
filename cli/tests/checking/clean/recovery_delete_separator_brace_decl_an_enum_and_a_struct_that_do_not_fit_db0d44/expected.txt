@@ -1,0 +1,7 @@
+error: a record field ends with `,` [missing-comma]
+ --> main.buri:3:80
+  |
+3 | export struct Wide { export first: Int, export second: Str, export third: Float export fourth: Bool }
+  |                                                                                ^
+  |
+  = fix: write `,` here

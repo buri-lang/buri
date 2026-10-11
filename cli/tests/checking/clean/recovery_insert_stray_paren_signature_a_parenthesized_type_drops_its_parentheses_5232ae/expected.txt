@@ -1,9 +1,0 @@
-error: expected `:`, found `x` [unexpected-token]
- --> main.buri:1:18
-  |
-1 | fn grouped(extra x: (Int)): Int { x }
-  |                  ^
-  |
-  = expected: `:`
-  = actual: `x`
-  = fix: write `:` here

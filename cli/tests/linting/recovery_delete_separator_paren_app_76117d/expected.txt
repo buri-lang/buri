@@ -1,0 +1,15 @@
+warning: this drops a `Result` by hand [hand-rolled-ignore]
+  --> lib/recovery_delete_separator_paren_app_76117d/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: a call argument ends with `,` [missing-comma]
+  --> lib/recovery_delete_separator_paren_app_76117d/main.buri:56:20
+   |
+56 |     let _ = say(ctx "one");
+   |                    ^
+   |
+   = fix: write `,` here

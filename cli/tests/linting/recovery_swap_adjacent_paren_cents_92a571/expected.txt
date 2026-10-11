@@ -1,0 +1,15 @@
+warning: str is imported but not used [unused-import]
+ --> lib/recovery_swap_adjacent_paren_cents_92a571/lib.buri:8:29
+  |
+8 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: a call argument ends with `,` [missing-comma]
+  --> lib/recovery_swap_adjacent_paren_cents_92a571/lib.buri:19:22
+   |
+19 |     "some".concat(ctx" cents" ,)
+   |                      ^
+   |
+   = fix: write `,` here

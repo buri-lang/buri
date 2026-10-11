@@ -1,0 +1,16 @@
+error: expected an identifier, found `>` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_4e04b7/main.buri:16:22
+   |
+16 | fn width<CAllocator :>(ctx: C, label: Str): Int {
+   |                      ^
+   |
+   = expected: an identifier
+   = actual: `>`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is nothing named `width` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_module_app_4e04b7/main.buri:48:51
+   |
+48 |         .println(ctx, "${banner(ctx, label)} is ${width(ctx, label)} wide")
+   |                                                   ^^^^^
+   |
+   = fix: declare `width`, or import it — a name is in scope only from this module's own declarations and its imports

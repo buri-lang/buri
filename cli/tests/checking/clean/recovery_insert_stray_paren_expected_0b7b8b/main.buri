@@ -1,3 +1,0 @@
-fn grouped(x@ : Int): Int {
-    x
-}

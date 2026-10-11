@@ -1,0 +1,31 @@
+error: an expression statement is legal only in a test source [statement-outside-test]
+  --> lib/recovery_swap_adjacent_brace_cents_3c9d7e/lib.buri:10:5
+   |
+10 |     if (n == 0) { "zero" } else { } "some"
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `Str`, not `()` [statement-not-unit]
+  --> lib/recovery_swap_adjacent_brace_cents_3c9d7e/lib.buri:10:5
+   |
+10 |     if (n == 0) { "zero" } else { } "some"
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: expected `Str`, found `()` [type-mismatch]
+  --> lib/recovery_swap_adjacent_brace_cents_3c9d7e/lib.buri:10:33
+   |
+10 |     if (n == 0) { "zero" } else { } "some"
+   |                                 ^^^ the other branch is `Str`
+   |
+   = expected: `Str`
+   = actual: `()`
+error: an `if` used as a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_swap_adjacent_brace_cents_3c9d7e/lib.buri:10:36
+   |
+10 |     if (n == 0) { "zero" } else { } "some"
+   |                                    ^
+   |
+   = fix: write `;` here

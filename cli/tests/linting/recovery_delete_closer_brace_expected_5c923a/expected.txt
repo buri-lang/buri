@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_expected_5c923a/main.buri:59:6
+   |
+59 |     }?;
+   |      ^
+   |
+  --> lib/recovery_delete_closer_brace_expected_5c923a/main.buri:57:52
+   |
+57 |     let _ = whisper(ctx, banner(ctx, label)).mapErr(fn(_e) => {
+   |                                                    ^ opened here
+   |
+   = fix: write `)` here

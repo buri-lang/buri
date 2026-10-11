@@ -1,0 +1,17 @@
+error: expected an identifier, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_brace_cents_dd6044/lib.buri:9:19
+  |
+9 |     entries: I64, ,
+  |                   ^
+  |
+  = expected: an identifier
+  = actual: `,`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is no type `Ledger` [unknown-type]
+  --> lib/recovery_insert_stray_brace_cents_dd6044/lib.buri:19:23
+   |
+19 | export fn describe(l: Ledger, m: Money): I64 {
+   |                       ^^^^^^
+   |
+   = did you mean `Order`?
+   = fix: if you meant `Order`, use that; if not, a name is in scope only from this module's own declarations and its imports

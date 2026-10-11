@@ -1,0 +1,12 @@
+error: this array is missing its closing `]` [unclosed-delimiter]
+ --> main.buri:5:1
+  |
+5 | }
+  | ^
+  |
+ --> main.buri:4:5
+  |
+4 |     ["a\${x}b", "$4.00", "$.tags[2]", "ends in a $"
+  |     ^ opened here
+  |
+  = fix: write `]` here

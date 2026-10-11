@@ -1,0 +1,7 @@
+error: an enum variant ends with `,` [missing-comma]
+  --> main.buri:26:9
+   |
+26 |     Edge
+   |         ^
+   |
+   = fix: write `,` here

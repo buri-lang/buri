@@ -1,0 +1,4 @@
+export fn first(t: (Int, Int)): Int {
+    extra let (a,) = t;
+    a
+}

@@ -1,0 +1,25 @@
+error: expected `{`, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_module_steps_2f100e/lib.buri:11:11
+   |
+11 | enum Step , {
+   |           ^
+   |
+   = expected: `{`
+   = actual: `,`
+   = fix: write `{` here
+error: there is no type `Step` [unknown-type]
+  --> lib/recovery_insert_stray_module_steps_2f100e/lib.buri:17:20
+   |
+17 | export fn apply(s: Step, n: I64): I64 {
+   |                    ^^^^
+   |
+   = did you mean `Str`?
+   = fix: if you meant `Str`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is no type `Step` [unknown-type]
+  --> lib/recovery_insert_stray_module_steps_2f100e/lib.buri:24:17
+   |
+24 | export fn up(): Step {
+   |                 ^^^^
+   |
+   = did you mean `Str`?
+   = fix: if you meant `Str`, use that; if not, a name is in scope only from this module's own declarations and its imports

@@ -1,0 +1,30 @@
+warning: this drops a `Result` by hand [hand-rolled-ignore]
+  --> lib/recovery_delete_separator_brace_app_f4ae41/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: expected `Result<(), Str>`, found `()` [type-mismatch]
+  --> lib/recovery_delete_separator_brace_app_f4ae41/main.buri:52:49
+   |
+52 | export fn main(host: NodeHost): Result<(), Str> {
+   |                                                 ^ the declared return type is `Result<(), Str>`
+   |
+   = expected: `Result<(), Str>`
+   = actual: `()`
+error: `()` has no method `Ok` [unknown-method]
+  --> lib/recovery_delete_separator_brace_app_f4ae41/main.buri:60:6
+   |
+60 |     .Ok(())
+   |      ^^
+   |
+   = fix: check the spelling, or declare it in `impl () { ... }` in that type's own module
+error: a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_delete_separator_brace_app_f4ae41/main.buri:60:12
+   |
+60 |     .Ok(())
+   |            ^
+   |
+   = fix: write `;` here

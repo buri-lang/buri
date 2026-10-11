@@ -1,0 +1,9 @@
+error: expected `(`, found `extra` [unexpected-token]
+ --> main.buri:6:11
+  |
+6 |     match extra (xs) {
+  |           ^^^^^
+  |
+  = expected: `(`
+  = actual: `extra`
+  = fix: write `(` here

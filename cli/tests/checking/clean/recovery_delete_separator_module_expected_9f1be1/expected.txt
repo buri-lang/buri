@@ -1,7 +1,0 @@
-error: a `struct` declaration ends with `;` [missing-semicolon]
- --> main.buri:1:28
-  |
-1 | export struct Meters(Float)
-  |                            ^
-  |
-  = fix: write `;` here

@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:16:1
+   |
+16 | 
+   | ^
+   |
+ --> main.buri:7:20
+  |
+7 | fn origin(): Point {
+  |                    ^ opened here
+  |
+  = fix: write `}` here

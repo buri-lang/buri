@@ -1,3 +1,0 @@
-export fn entries(: I64 {
-    2
-}

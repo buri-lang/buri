@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:11:1
+   |
+11 | 
+   | ^
+   |
+ --> main.buri:1:78
+  |
+1 | export fn valid(hour: Int, minute: Int, second: Int, millisecond: Int): Bool {
+  |                                                                              ^ opened here
+  |
+  = fix: write `}` here

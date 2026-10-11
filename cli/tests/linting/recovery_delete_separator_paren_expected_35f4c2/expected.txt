@@ -1,0 +1,7 @@
+error: a function parameter ends with `,` [missing-comma]
+  --> lib/recovery_delete_separator_paren_expected_35f4c2/main.buri:23:30
+   |
+23 | fn announce<C: Stdout>(ctx: C label: Str): Result<(), IoError> {
+   |                              ^
+   |
+   = fix: write `,` here

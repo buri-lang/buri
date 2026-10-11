@@ -1,9 +1,0 @@
-fn block_headed(): Int {
-    (if (true) { 1 } else { 2 }).abs()
-}
-
-fn match_headed(x: Int): Int {
-    (match (x) {
-        _ => 1@ ,
-    }).abs()
-}

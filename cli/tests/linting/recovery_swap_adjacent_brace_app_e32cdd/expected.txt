@@ -1,0 +1,16 @@
+error: expected a pattern, found `=` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_e32cdd/main.buri:19:9
+   |
+19 |     let = ctx "not a context";
+   |         ^
+   |
+   = expected: a pattern
+   = actual: `=`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_brace_app_e32cdd/main.buri:20:5
+   |
+20 |     ctx
+   |     ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

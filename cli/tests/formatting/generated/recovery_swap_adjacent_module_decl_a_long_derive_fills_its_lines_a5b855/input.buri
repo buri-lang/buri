@@ -1,0 +1,1 @@
+derive Equal, Ordered, Show, HashEncode ,, Decode, Something, SomethingElse, AnotherOne, AndMore for Reading;

@@ -1,0 +1,16 @@
+error: expected `{`, found `extra` [unexpected-token]
+ --> main.buri:8:29
+  |
+8 | from "core/buri/ast" import extra * as ast;
+  |                             ^^^^^
+  |
+  = expected: `{`
+  = actual: `extra`
+  = fix: write `{` here
+error: there is no type `ast.Origin` [unknown-type]
+  --> main.buri:49:55
+   |
+49 | export fn at<C: Allocator>(ctx: C, text: Str, origin: ast.Origin): Str {
+   |                                                       ^^^^^^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling

@@ -1,0 +1,9 @@
+error: expected a function body, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_module_app_2ca578/main.buri:21:39
+   |
+21 | export fn main(host: NodeHost): Result? <(), Str> {
+   |                                       ^
+   |
+   = expected: a function body
+   = actual: `?`
+   = fix: write `{ ... }` after the return type

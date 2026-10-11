@@ -1,0 +1,9 @@
+error: expected an identifier, found `{` [unexpected-token]
+ --> main.buri:3:15
+  |
+3 | export struct { Wide export first: Int, export second: Str, export third: Float, export fourth: Bool }
+  |               ^
+  |
+  = expected: an identifier
+  = actual: `{`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

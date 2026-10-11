@@ -1,7 +1,0 @@
-error: a call argument ends with `,` [missing-comma]
-  --> main.buri:40:33
-   |
-40 |     assert.equal(io.readAll(ctx)"\nb\n" ,);
-   |                                 ^
-   |
-   = fix: write `,` here

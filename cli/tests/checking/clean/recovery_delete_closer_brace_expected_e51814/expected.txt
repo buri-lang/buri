@@ -1,0 +1,21 @@
+error: expected an identifier, found `1.5` [unexpected-token]
+ --> main.buri:3:9
+  |
+3 |         1.5 => 1,
+  |         ^^^
+  |
+  = expected: an identifier
+  = actual: `1.5`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:11:1
+   |
+11 | 
+   | ^
+   |
+ --> main.buri:1:39
+  |
+1 | fn patterns(f: Float, xs: [Int]): Int {
+  |                                       ^ opened here
+  |
+  = fix: write `}` here

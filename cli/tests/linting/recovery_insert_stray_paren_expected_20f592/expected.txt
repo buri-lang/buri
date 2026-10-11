@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_expected_20f592/main.buri:23:27
+   |
+23 |     io.println(ctx, "!! ${, label}")
+   |                           ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

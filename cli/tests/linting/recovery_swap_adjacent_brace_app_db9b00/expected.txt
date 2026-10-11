@@ -1,0 +1,17 @@
+error: expected a pattern, found `=>` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_db9b00/main.buri:71:9
+   |
+71 |         => 13 "thirteen",
+   |         ^^
+   |
+   = expected: a pattern
+   = actual: `=>`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_swap_adjacent_brace_app_db9b00/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own

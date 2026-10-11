@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-comma]
+ --> main.buri:6:14
+  |
+6 |     961987163
+  |              ^
+  |
+  = fix: write `,` here

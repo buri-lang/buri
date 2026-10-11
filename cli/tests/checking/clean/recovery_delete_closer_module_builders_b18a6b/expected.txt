@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:70:1
+   |
+70 | export fn field(base: ast.Expr, text: Str): ast.Expr {
+   | ^^^^^^
+   |
+  --> main.buri:65:35
+   |
+65 | export fn id(text: Str): ast.Expr {
+   |                                   ^ opened here
+   |
+   = fix: write `}` here

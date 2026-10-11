@@ -1,0 +1,19 @@
+error: there is nothing named `packer` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_brace_cents_90b6f0/lib.buri:21:28
+   |
+21 |     Entry { cents, tax: 0, packer"till" : }
+   |                            ^^^^^^
+   |
+   = fix: declare `packer`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_cents_90b6f0/lib.buri:21:34
+   |
+21 |     Entry { cents, tax: 0, packer"till" : }
+   |                                  ^^^^^^
+   |
+  --> lib/recovery_swap_adjacent_brace_cents_90b6f0/lib.buri:21:11
+   |
+21 |     Entry { cents, tax: 0, packer"till" : }
+   |           ^ opened here
+   |
+   = fix: write `}` here

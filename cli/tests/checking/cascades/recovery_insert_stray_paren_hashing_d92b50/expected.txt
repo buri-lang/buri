@@ -1,0 +1,20 @@
+error: expected `U64`, found `BigInt` [type-mismatch]
+  --> main.buri:21:52
+   |
+21 |     assert.equal(bigint.of(42).hash(), assert.some(bigint.parse(ctx, "42"))@ .hash());
+   |                                                    ^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `U64`
+   |
+   = expected: `U64`
+   = actual: `BigInt`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:21:76
+   |
+21 |     assert.equal(bigint.of(42).hash(), assert.some(bigint.parse(ctx, "42"))@ .hash());
+   |                                                                            ^
+   |
+  --> main.buri:21:17
+   |
+21 |     assert.equal(bigint.of(42).hash(), assert.some(bigint.parse(ctx, "42"))@ .hash());
+   |                 ^ opened here
+   |
+   = fix: write `)` here

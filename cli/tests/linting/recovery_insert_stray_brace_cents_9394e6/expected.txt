@@ -1,0 +1,23 @@
+error: expected `:`, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_cents_9394e6/lib.buri:11:17
+   |
+11 |     export cents, : I64,
+   |                 ^
+   |
+   = expected: `:`
+   = actual: `,`
+   = fix: write `:` here
+error: there is no type `Entry` [unknown-type]
+  --> lib/recovery_insert_stray_brace_cents_9394e6/lib.buri:20:30
+   |
+20 | export fn entry(cents: I64): Entry {
+   |                              ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling
+error: the head of a struct literal must be a struct or an enum variant [struct-literal-head]
+  --> lib/recovery_insert_stray_brace_cents_9394e6/lib.buri:21:5
+   |
+21 |     Entry { cents, label: "" }
+   |     ^^^^^
+   |
+   = fix: name the type, as in `Point { x: 1, y: 2 }`, or a variant that has fields, as in `.Variant { ... }` where the expected type is known

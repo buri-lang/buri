@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+ --> lib/recovery_insert_stray_brace_cents_673b99/lib.buri:9:22
+  |
+9 |     let scaled = n * ? 100;
+  |                      ^
+  |
+  = expected: an expression
+  = actual: `?`
+  = fix: write a value here

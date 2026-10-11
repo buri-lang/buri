@@ -1,0 +1,5 @@
+let emptyList :<Int> = [
+    // nothing in it yet
+];
+
+let other: List<Int> = [];

@@ -1,5 +1,0 @@
-export fn f(x: Int): Int {
-  ( matchx) {
-    (y) => y,
-  }
-}

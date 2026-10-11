@@ -1,9 +1,0 @@
-error: expected `test`, found a string literal [unexpected-token]
-  --> main.buri:24:1
-   |
-24 | "toInt is total, where a plain conversion is not" test {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = expected: `test`
-   = actual: a string literal
-   = fix: write `test` first: `test "toInt is total, where a plain conversion is not"`

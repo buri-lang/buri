@@ -1,0 +1,30 @@
+error: expected `:`, found `export` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_cents_77f863/lib.buri:15:9
+   |
+15 |     tax export: I64,
+   |         ^^^^^^
+   |
+   = expected: `:`
+   = actual: `export`
+   = fix: write `:` here
+error: there is no type `Entry` [unknown-type]
+  --> lib/recovery_swap_adjacent_brace_cents_77f863/lib.buri:20:30
+   |
+20 | export fn entry(cents: I64): Entry {
+   |                              ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling
+error: the head of a struct literal must be a struct or an enum variant [struct-literal-head]
+  --> lib/recovery_swap_adjacent_brace_cents_77f863/lib.buri:21:5
+   |
+21 |     Entry { cents, tax: 0, packer: "till" }
+   |     ^^^^^
+   |
+   = fix: name the type, as in `Point { x: 1, y: 2 }`, or a variant that has fields, as in `.Variant { ... }` where the expected type is known
+error: there is no type `Entry` [unknown-type]
+  --> lib/recovery_swap_adjacent_brace_cents_77f863/lib.buri:24:20
+   |
+24 | export fn total(e: Entry): I64 {
+   |                    ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling

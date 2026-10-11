@@ -1,7 +1,0 @@
-error: a match arm ends with `,` [missing-comma]
- --> main.buri:4:19
-  |
-4 |         .None => 0
-  |                   ^
-  |
-  = fix: write `,` here

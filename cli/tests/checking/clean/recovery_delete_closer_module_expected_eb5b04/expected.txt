@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:48:26
+   |
+48 | export fn besideOneEmoji(: Str {
+   |                          ^
+   |
+  --> main.buri:48:25
+   |
+48 | export fn besideOneEmoji(: Str {
+   |                         ^ opened here
+   |
+   = fix: write `)` here

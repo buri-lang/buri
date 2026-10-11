@@ -1,0 +1,8 @@
+export fn f(x: Option<Int>): Int {
+  match (x) {
+    // nothing is zero
+    .None => 0,
+    .Some(n) n =>,
+    // and that is every case
+  }
+}

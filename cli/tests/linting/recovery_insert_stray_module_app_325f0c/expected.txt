@@ -1,0 +1,16 @@
+error: expected a function body, found `I64` [unexpected-token]
+ --> lib/recovery_insert_stray_module_app_325f0c/main.buri:9:65
+  |
+9 | fn total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): extra I64 {
+  |                                                                 ^^^
+  |
+  = expected: a function body
+  = actual: `I64`
+  = fix: write `{ ... }` after the return type
+error: there is nothing named `total` in scope [unknown-name]
+  --> lib/recovery_insert_stray_module_app_325f0c/main.buri:19:26
+   |
+19 |         .println(ctx, "${total(1, 2, 3, 4, 5, 6)}")
+   |                          ^^^^^
+   |
+   = fix: declare `total`, or import it — a name is in scope only from this module's own declarations and its imports

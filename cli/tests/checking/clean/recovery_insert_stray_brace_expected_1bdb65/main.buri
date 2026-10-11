@@ -1,0 +1,5 @@
+trait Shape {
+    // the area, in square units
+    extra fn area(self): Int;
+    // a trailing note
+}

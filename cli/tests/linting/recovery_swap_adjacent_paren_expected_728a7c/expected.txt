@@ -1,0 +1,16 @@
+error: a call argument ends with `,` [missing-comma]
+  --> lib/recovery_swap_adjacent_paren_expected_728a7c/main.buri:48:21
+   |
+48 |         .println(ctx"${ ,banner(ctx, label)} is ${width(label)} wide")
+   |                     ^
+   |
+   = fix: write `,` here
+error: expected an expression, found `,` [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_expected_728a7c/main.buri:48:25
+   |
+48 |         .println(ctx"${ ,banner(ctx, label)} is ${width(label)} wide")
+   |                         ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

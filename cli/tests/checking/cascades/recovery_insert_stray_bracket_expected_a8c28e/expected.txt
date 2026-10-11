@@ -1,0 +1,14 @@
+error: an array element ends with `,` [missing-comma]
+  --> main.buri:13:15
+   |
+13 |     1426881987extra ,
+   |               ^
+   |
+   = fix: write `,` here
+error: there is nothing named `extra` in scope [unknown-name]
+  --> main.buri:13:15
+   |
+13 |     1426881987extra ,
+   |               ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

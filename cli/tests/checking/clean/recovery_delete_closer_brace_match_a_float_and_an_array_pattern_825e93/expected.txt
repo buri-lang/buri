@@ -1,0 +1,12 @@
+error: this array pattern is missing its closing `]` [unclosed-delimiter]
+ --> main.buri:3:22
+  |
+3 |   match (xs) { [a, b => a, _ => 0 }
+  |                      ^^
+  |
+ --> main.buri:3:16
+  |
+3 |   match (xs) { [a, b => a, _ => 0 }
+  |                ^ opened here
+  |
+  = fix: write `]` here

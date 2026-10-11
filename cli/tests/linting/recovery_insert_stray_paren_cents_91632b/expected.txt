@@ -1,0 +1,23 @@
+error: expected a type, found `?` [unexpected-token]
+ --> lib/recovery_insert_stray_paren_cents_91632b/lib.buri:6:28
+  |
+6 | export struct Cents(export ? I64);
+  |                            ^
+  |
+  = expected: a type
+  = actual: `?`
+  = fix: name a type here, as in `Int` or `[Str]`
+error: there is no type `Cents` [unknown-type]
+ --> lib/recovery_insert_stray_paren_cents_91632b/lib.buri:8:23
+  |
+8 | export fn describe(c: Cents): I64 {
+  |                       ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+error: there is no type `Cents` [unknown-type]
+  --> lib/recovery_insert_stray_paren_cents_91632b/lib.buri:12:24
+   |
+12 | export fn toDollars(c: Cents): I64 {
+   |                        ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling

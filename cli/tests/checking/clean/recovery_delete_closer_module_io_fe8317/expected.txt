@@ -1,0 +1,12 @@
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:96:1
+   |
+96 | test "input with no newline at its end is all of the input" {
+   | ^^^^
+   |
+  --> main.buri:86:68
+   |
+86 | test "a NUL is an octet like any other, and so is an unpaired one" {
+   |                                                                    ^ opened here
+   |
+   = fix: write `}` here

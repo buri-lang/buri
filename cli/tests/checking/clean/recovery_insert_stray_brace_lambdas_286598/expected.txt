@@ -1,0 +1,9 @@
+error: expected `;`, found `,` [unexpected-token]
+  --> main.buri:98:17
+   |
+98 |     assert.equal, (twice(fn(n) => twice(fn(m) => m + 2, n), 0), 8);
+   |                 ^
+   |
+   = expected: `;`
+   = actual: `,`
+   = fix: write `;` here

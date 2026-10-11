@@ -1,0 +1,9 @@
+error: expected `(`, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_cents_4a9cc9/lib.buri:10:8
+   |
+10 |     if @ (n == 0) { "zero" } else { "some" }
+   |        ^
+   |
+   = expected: `(`
+   = actual: `@`
+   = fix: write `(` here

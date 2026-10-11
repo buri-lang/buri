@@ -1,0 +1,9 @@
+error: expected `else`, found `{` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_cents_dc1534/lib.buri:9:28
+  |
+9 |     if (n == 0) { "zero" } { else "some" }
+  |                            ^
+  |
+  = expected: `else`
+  = actual: `{`
+  = fix: delete it — the `else` branch follows

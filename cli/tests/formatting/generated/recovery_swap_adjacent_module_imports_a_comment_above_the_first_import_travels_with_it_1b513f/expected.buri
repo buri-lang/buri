@@ -1,4 +1,0 @@
-// about the list import
-from "core/list" import { List };
-
-from "core/io" import * io as;

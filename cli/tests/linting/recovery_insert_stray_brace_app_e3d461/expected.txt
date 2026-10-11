@@ -1,0 +1,46 @@
+error: there is nothing named `extra` in scope [unknown-name]
+  --> lib/recovery_insert_stray_brace_app_e3d461/main.buri:22:15
+   |
+22 |     let ctx = extra context {
+   |               ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_insert_stray_brace_app_e3d461/main.buri:22:20
+   |
+22 |     let ctx = extra context {
+   |                    ^
+   |
+   = fix: write `;` here
+error: an expression statement is legal only in a test source [statement-outside-test]
+  --> lib/recovery_insert_stray_brace_app_e3d461/main.buri:22:21
+   |
+22 |     let ctx = extra context {
+   |                     ^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `a context`, not `()` [statement-not-unit]
+  --> lib/recovery_insert_stray_brace_app_e3d461/main.buri:22:21
+   |
+22 |     let ctx = extra context {
+   |                     ^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+warning: this discards a `Result` [ignored-result]
+  --> lib/recovery_insert_stray_brace_app_e3d461/main.buri:26:13
+   |
+26 |     let _ = record().ignore();
+   |             ^^^^^^^^^^^^^^^^^
+   |
+   = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
+   = fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate
+warning: this discards a `Result` [ignored-result]
+  --> lib/recovery_insert_stray_brace_app_e3d461/main.buri:27:13
+   |
+27 |     let _ = io.println(ctx, "done").ignore();
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
+   = fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate

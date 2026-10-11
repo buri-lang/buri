@@ -1,0 +1,17 @@
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_delete_closer_module_app_5c46f3/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: expected a type, found `,` [unexpected-token]
+   --> lib/recovery_delete_closer_module_app_5c46f3/main.buri:148:41
+    |
+148 | export fn main(host: NodeHost): Result<(, Str> {
+    |                                         ^
+    |
+    = expected: a type
+    = actual: `,`
+    = fix: name a type here, as in `Int` or `[Str]`

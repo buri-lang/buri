@@ -1,0 +1,23 @@
+error: "core/testing/assert" does not export `extra` [unknown-export]
+  --> main.buri:99:12
+   |
+99 |     assert.extra equal(store.get(ctx), "ada");
+   |            ^^^^^
+   |
+   = the module exports 22 names
+   = fix: correct the member name, or check `buri docs core/testing/assert`
+error: a statement ends with `;` [missing-semicolon]
+  --> main.buri:99:17
+   |
+99 |     assert.extra equal(store.get(ctx), "ada");
+   |                 ^
+   |
+   = fix: write `;` here
+error: there is nothing named `equal` in scope [unknown-name]
+  --> main.buri:99:18
+   |
+99 |     assert.extra equal(store.get(ctx), "ada");
+   |                  ^^^^^
+   |
+   = did you mean `Equal`?
+   = fix: if you meant `Equal`, use that; if not, a name is in scope only from this module's own declarations and its imports

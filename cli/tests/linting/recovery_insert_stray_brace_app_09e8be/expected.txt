@@ -1,0 +1,43 @@
+warning: `platform/effect` is imported twice [duplicate-import]
+  --> lib/recovery_insert_stray_brace_app_09e8be/main.buri:12:6
+   |
+12 | from "platform/effect" import { Stdout };
+   |      ^^^^^^^^^^^^^^^^^
+   |
+  --> lib/recovery_insert_stray_brace_app_09e8be/main.buri:11:6
+   |
+11 | from "platform/effect" import { Allocator };
+   |      ^^^^^^^^^^^^^^^^^ first imported here
+   |
+   = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
+   = fix: merge the two into one import
+error: an expression statement is legal only in a test source [statement-outside-test]
+  --> lib/recovery_insert_stray_brace_app_09e8be/main.buri:22:5
+   |
+22 |     io
+   |     ^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `io` in scope [unknown-name]
+  --> lib/recovery_insert_stray_brace_app_09e8be/main.buri:22:5
+   |
+22 |     io
+   |     ^^
+   |
+   = `io` is a module namespace; name a member of it
+   = fix: correct the spelling, or declare it
+error: a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_insert_stray_brace_app_09e8be/main.buri:22:7
+   |
+22 |     io
+   |       ^
+   |
+   = fix: write `;` here
+error: there is nothing named `extra` in scope [unknown-name]
+  --> lib/recovery_insert_stray_brace_app_09e8be/main.buri:23:9
+   |
+23 |         extra .println(ctx, " and the rest")
+   |         ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

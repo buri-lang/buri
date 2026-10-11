@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> main.buri:36:33
+   |
+36 |     assert.equal(web.path(ctx), @ "/");
+   |                                 ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

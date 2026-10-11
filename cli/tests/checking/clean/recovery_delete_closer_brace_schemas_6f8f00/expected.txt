@@ -1,0 +1,12 @@
+error: this variant payload pattern is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:52:17
+   |
+52 |         .Some(i => out.slice(ctx, i, i + count),
+   |                 ^^
+   |
+  --> main.buri:52:14
+   |
+52 |         .Some(i => out.slice(ctx, i, i + count),
+   |              ^ opened here
+   |
+   = fix: write `)` here

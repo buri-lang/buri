@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_expected_7388a7/main.buri:31:1
+   |
+31 | }
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_expected_7388a7/main.buri:30:15
+   |
+30 |     io.println(ctx, ".. ${label}"
+   |               ^ opened here
+   |
+   = fix: write `)` here

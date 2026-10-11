@@ -1,0 +1,9 @@
+error: expected a function body, found `,` [unexpected-token]
+ --> main.buri:1:15
+  |
+1 | fn g(): Float , {
+  |               ^
+  |
+  = expected: a function body
+  = actual: `,`
+  = fix: write `{ ... }` after the return type
