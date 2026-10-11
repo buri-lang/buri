@@ -18,7 +18,9 @@ export fn main(host: NativeHost): Result<(), Str> {
             onStop: .None,
         },
     );
-    match (counter.sendMessage(ctx, 2)) {
+    let sent = counter.sendMessage(ctx, 2);
+    let _ = counter.stop(ctx).isOk();
+    match (sent) {
         .Ok(total) => io.println(ctx, "${total}").mapErr(fn(_e) => "could not write"),
         .Err(_e) => .Err("the actor stopped"),
     }

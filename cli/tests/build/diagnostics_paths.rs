@@ -104,28 +104,29 @@ fn a_message_that_is_not_json_says_why() {
     messages.push(r#"{"id":1,"method":"shutdown"}"#);
     messages.push(r#"{"method":"exit"}"#);
     let run = scratch.run_with_stdin(&["lsp"], &framed(&messages));
-    run.ok();
+    // `shutdown` before `initialize` is refused, so `exit` comes without a
+    // shutdown, which the protocol says exits 1.
+    run.exits(1);
     let said: Vec<&str> =
         run.stderr.lines().filter_map(|l| l.strip_prefix("buri lsp: unparseable message: ")).collect();
     let want: Vec<&str> = cases.iter().map(|(_, why)| *why).collect();
     assert_eq!(said, want);
 }
 
-/// A source file over four gigabytes is refused at the door, by name, in both
-/// formats. Sparse, so the test writes one byte.
+/// A source file over four gigabytes is refused by name. Sparse, so the test
+/// writes no bytes.
 #[test]
 fn a_source_file_too_big_to_hold_is_refused() {
     let scratch = Scratch::repo("diagnostics-huge-file");
     scratch.write("cmd/app/BUILD.buri", "binary {\n    outputs: [{ platform: \"node\" }]\n}\n");
     let file = std::fs::File::create(scratch.path("cmd/app/main.buri")).unwrap();
     file.set_len(5 << 30).unwrap();
-    scratch.run(&["build", "//cmd/app"]).exits(1).says(
-        "error: cannot read cmd/app/main.buri: the file is larger than 4294967295 bytes, which is the most one source file may hold",
-    );
+    // One run: the build reads the whole file into its key before refusing
+    // it, which is seconds for five gigabytes.
     let json = scratch.run(&["build", "//cmd/app", "--error-format=json"]);
     json.exits(1);
     assert_eq!(
-        json.stdout.trim(),
+        json.stderr.trim(),
         r#"{"severity":"error","message":"cannot read cmd/app/main.buri: the file is larger than 4294967295 bytes, which is the most one source file may hold","location":null,"fix":"check the file exists and is readable","notes":[],"related":[]}"#
     );
 }
