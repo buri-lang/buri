@@ -670,29 +670,36 @@ fn a_buri_without_a_build_id_still_caches() {
     // pooled ones carry, so the two can't share a pooled file.
     let profile = std::env::var_os("LLVM_PROFILE_FILE")
         .map(|pool| std::path::Path::new(&pool).with_file_name("%m_no_build_id_%p.profraw"));
-    let build = |xdg: &str| {
+    // `None` is no home at all, so nowhere to remember the hash.
+    let build = |xdg: Option<&str>| {
         let mut command = std::process::Command::new(&copy);
         if let Some(profile) = &profile {
             command.env("LLVM_PROFILE_FILE", profile);
         }
+        match xdg {
+            Some(xdg) => command.env("XDG_CACHE_HOME", scratch.path(xdg)),
+            None => command.env_remove("XDG_CACHE_HOME").env_remove("HOME"),
+        };
         let out = heap_checked(&mut command)
             .current_dir(&scratch.root)
             .args(["build", "--color=never", "//cmd/app"])
             .env("BURI_HOME", scratch.path("home"))
-            .env("XDG_CACHE_HOME", scratch.path(xdg))
             .output()
             .unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         String::from_utf8_lossy(&out.stdout).to_string()
     };
-    assert!(!build("xdg").contains("cached"), "the first build was served from the cache");
-    assert!(build("xdg").contains("cached"), "the second build wasn't served from the cache");
-    for record in std::fs::read_dir(scratch.path("xdg/buri/exe-identity")).unwrap().flatten() {
-        std::fs::write(record.path(), "sha256:short").unwrap();
+    assert!(!build(Some("xdg")).contains("cached"), "the first build was served from the cache");
+    assert!(build(Some("xdg")).contains("cached"), "the second build wasn't served from the cache");
+    for damage in ["sha256:short".to_string(), format!("sha256:{}", "z".repeat(64))] {
+        for record in std::fs::read_dir(scratch.path("xdg/buri/exe-identity")).unwrap().flatten() {
+            std::fs::write(record.path(), &damage).unwrap();
+        }
+        assert!(build(Some("xdg")).contains("cached"), "a record holding {damage} moved the toolchain's identity");
     }
-    assert!(build("xdg").contains("cached"), "a damaged record moved the toolchain's identity");
     scratch.write("blocked", "a file where the cache directory goes\n");
-    assert!(build("blocked").contains("cached"), "an unwritable record moved the toolchain's identity");
+    assert!(build(Some("blocked")).contains("cached"), "an unwritable record moved the toolchain's identity");
+    assert!(build(None).contains("cached"), "a buri with no home has another identity");
 }
 
 /// A cargo that logs each call to `$STAND_IN_LOG` and writes
