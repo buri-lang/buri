@@ -12,7 +12,7 @@ use crate::harness::*;
 
 #[test]
 fn the_middle_end() {
-    run_corpus(&tests_dir().join("repositories/middle"), "middle", 15);
+    run_corpus(&tests_dir().join("repositories/middle"), "middle", 16);
 }
 
 /// Calls each entry of `repositories/middle/entries_without_a_host`.

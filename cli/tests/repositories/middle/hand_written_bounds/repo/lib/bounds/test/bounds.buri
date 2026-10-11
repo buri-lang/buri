@@ -1,0 +1,89 @@
+// Hand-written impls whose bounds a value meets or misses. A failed assert
+// shows each value, so every one below is rendered whichever way it goes.
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+trait Named {
+    fn name(self): Str;
+}
+
+// Shown by hand only where what it holds is shown.
+struct Boxed<V> {
+    value: V,
+}
+
+impl<V: Show> Show for Boxed<V> {
+    fn show<C: Allocator>(self, ctx: C): Str {
+        str.format(ctx, "boxed ${self.value.show(ctx)}")
+    }
+}
+
+impl<V: Show> Equal for Boxed<V> {
+    fn equal(self, other: Boxed<V>): Bool {
+        true
+    }
+}
+
+// Shown by hand only where what it holds has a name.
+derive Equal for Tag;
+struct Tag<V> {
+    value: V,
+}
+
+impl<V: Named> Show for Tag<V> {
+    fn show<C: Allocator>(self, ctx: C): Str {
+        "tag"
+    }
+}
+
+derive Show, Equal for Tree;
+struct Tree {
+    kids: [Tree],
+}
+
+// Shown by hand only at a pair whose second half is an `Int`.
+struct Pair<V> {
+    value: V,
+}
+
+impl<V: Show> Show for Pair<(V, Int)> {
+    fn show<C: Allocator>(self, ctx: C): Str {
+        "pair"
+    }
+}
+
+impl<V> Equal for Pair<V> {
+    fn equal(self, other: Pair<V>): Bool {
+        true
+    }
+}
+
+derive Equal for Plain;
+struct Plain {
+    pair: Pair<(Int, Str)>,
+    tag: Tag<Int>,
+}
+
+test "a hand-written Show over a tuple" {
+    assert.equal(Boxed { value: (1, "a") }, Boxed { value: (1, "a") });
+    assert.equal(Boxed { value: [1, 2] }, Boxed { value: [3] });
+}
+
+test "a hand-written Show whose bound a list lacks" {
+    assert.equal(Tag { value: [1, 2] }, Tag { value: [1, 2] });
+    assert.equal(Tag { value: (1, 2) }, Tag { value: (1, 2) });
+}
+
+test "a hand-written Show over a recursive type" {
+    assert.equal(Boxed { value: Tree { kids: [] } }, Boxed {
+        value: Tree { kids: [] },
+    });
+    assert.equal(Boxed { value: 5 }, Boxed { value: 5 });
+}
+
+test "a hand-written Show whose head another instance misses" {
+    let p = Plain { pair: Pair { value: (1, "a") }, tag: Tag { value: 1 } };
+    assert.equal(p, p);
+}

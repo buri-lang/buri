@@ -1,0 +1,14 @@
+# Hand-written `Show` and `Equal` impls with bounds, compared and shown at a
+# tuple, a list, a recursive derived type, a number, and a pair the impl's head
+# doesn't cover. Both backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a hand-written impl applies where its bounds hold, at tuples, lists and recursive types"
+
+run {
+  args: ["test", "//lib/bounds", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
