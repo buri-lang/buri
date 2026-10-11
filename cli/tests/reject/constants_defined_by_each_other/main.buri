@@ -1,0 +1,18 @@
+// EXPECT: circular constant: `gapA` -> `gapB` -> `gapA`
+//
+// A constant is substituted wherever it's used, so two defined by each other
+// never finish expanding. The build used to overflow its stack here.
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+let base: Int = 4;
+let gapA: Int = gapB + base;
+let gapB: Int = gapA + base;
+let twice: Int = base + base;
+let itself: Int = itself;
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  io.println(ctx, "${gapA} ${twice} ${itself}").mapErr(fn(_e) => "could not write to standard output")
+}

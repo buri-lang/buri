@@ -25,6 +25,7 @@ pub fn check_all(c: &mut Checker) {
     for i in consts..c.tables.consts.len() {
         check_const(c, ConstId(i as u32));
     }
+    check_const_cycles(c, consts);
     for i in ctx_decls..c.tables.ctx_decls.len() {
         check_context_decl(c, ContextDeclId(i as u32));
     }
@@ -206,6 +207,69 @@ fn check_const(c: &mut Checker, cid: ConstId) {
     inf.unify_at(value_span, &value.ty, &ty, "the declared type");
     let body = inf.finish(value);
     c.const_values.insert(cid, body.expr);
+}
+
+/// A constant is substituted wherever it's used, so one whose initializer
+/// reaches itself never finishes expanding. Each cycle is reported once, at
+/// the constant it starts from. A base's constants can't name these, so only
+/// this checker's own are walked.
+fn check_const_cycles(c: &mut Checker, from: usize) {
+    let count = c.tables.consts.len();
+    let mut refs: Vec<Vec<usize>> = vec![Vec::new(); count];
+    for (i, out) in refs.iter_mut().enumerate().skip(from) {
+        let value = c.const_values.get(&ConstId(i as u32)).or_ice("every constant was just checked");
+        typed::walk(value, &mut |e| {
+            if let typed::ExprKind::Const(id) = e.kind {
+                out.push(id.index());
+            }
+        });
+    }
+    let mut state = vec![Visit::New; count];
+    let mut cycles = Vec::new();
+    for start in from..count {
+        const_cycles_from(start, &refs, &mut state, &mut Vec::new(), &mut cycles);
+    }
+    for cycle in cycles {
+        let mut names: Vec<String> =
+            cycle.iter().map(|&i| format!("`{}`", c.tables.const_(ConstId(i as u32)).name)).collect();
+        names.extend(names.first().cloned());
+        let first = *cycle.first().or_ice("a cycle has a constant on it");
+        let at = c.tables.const_(ConstId(first as u32)).span;
+        c.diags.push(Diagnostic::templated("circular-constant", at).with_bind("cycle", names.join(" -> ")));
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Visit {
+    New,
+    Open,
+    Done,
+}
+
+/// A depth-first walk of the constants `at` reaches, recording every cycle it
+/// closes.
+fn const_cycles_from(
+    at: usize,
+    refs: &[Vec<usize>],
+    state: &mut [Visit],
+    path: &mut Vec<usize>,
+    cycles: &mut Vec<Vec<usize>>,
+) {
+    let here = state.get_mut(at).or_ice("every constant has a visit state");
+    match *here {
+        Visit::New => *here = Visit::Open,
+        Visit::Open => {
+            cycles.push(path.iter().copied().skip_while(|&p| p != at).collect());
+            return;
+        }
+        Visit::Done => return,
+    }
+    path.push(at);
+    for &next in refs.get(at).or_ice("every constant has a reference list") {
+        const_cycles_from(next, refs, state, path, cycles);
+    }
+    path.pop();
+    *state.get_mut(at).or_ice("every constant has a visit state") = Visit::Done;
 }
 
 /// Checks one `context` declaration, once.
