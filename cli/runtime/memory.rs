@@ -5678,8 +5678,11 @@ mod tests {
             };
             // SAFETY: as above.
             unsafe { buri_rt_heap_stats(&raw mut after) };
+            // Lost lists would leave all of `filled` behind. A quarter of it is
+            // room for what the crate's other tests cache meanwhile, which can
+            // pass the floor, while a leak is still four times over it.
             assert!(
-                after.retained_bytes <= base.retained_bytes + CACHE_BYTES_FLOOR,
+                after.retained_bytes <= base.retained_bytes + filled / 4,
                 "sixteen ended threads left {} bytes cached, up from {}; \
                  their lists were {filled} bytes",
                 after.retained_bytes,
