@@ -596,12 +596,11 @@ impl<'a> Layouts<'a> {
             return id;
         }
         self.depth = self.depth.saturating_add(1);
-        if self.depth > MAX_NESTING {
-            crate::diagnostics::ice(
-                "a type nested deeper than the layout table's fuse: a recursive type reached \
-                 middle::layout without an indirection to cut it",
-            );
-        }
+        crate::diagnostics::invariant(
+            self.depth <= MAX_NESTING,
+            "a type nested deeper than the layout table's fuse: a recursive type reached \
+             middle::layout without an indirection to cut it",
+        );
         let layout = self.build(ty);
         self.depth = self.depth.saturating_sub(1);
         let id = self.table.len();
