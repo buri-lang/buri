@@ -5304,6 +5304,11 @@ mod tests {
         CACHE.with(|c| unsafe { (*c.cache.get()).held })
     }
 
+    /// This thread's own heap counts, which no other test moves.
+    fn own_tally() -> [u64; TALLY_WORDS] {
+        CACHE.with(|t| t.tally.words.each_ref().map(|w| w.load(Ordering::Relaxed)))
+    }
+
     /// Run a test of the per-thread cache with the heap check off.
     ///
     /// **The heap check does not apply to these tests.** Under the quarantine
@@ -5610,16 +5615,12 @@ mod tests {
         });
     }
 
-    /// **A thread that ends gives its whole cache back**, asserted through
-    /// `buri_rt_heap_stats`.
+    /// **A thread that ends gives its whole cache back.**
     ///
     /// Before G6 a thread's free lists died with its thread-local storage and
-    /// every block in them was lost to the process for good — invisible to the
-    /// leak counters, because `buri_rt_free` had already decremented them, and
-    /// permanent. Sixteen threads each filling a cache is a signal of
-    /// megabytes against the kilobytes any concurrently running test in this
-    /// crate can be holding, which is what makes a process-wide counter
-    /// assertable here at all.
+    /// every block in them was lost to the process for good. Each thread reads
+    /// its own cache after the drain has run, so no other test can move the
+    /// figure.
     #[test]
     fn a_thread_that_ends_gives_its_cache_back() {
         without_the_heap_check("a_thread_that_ends_gives_its_cache_back", || {
@@ -5629,22 +5630,14 @@ mod tests {
             const PER_THREAD: usize = 1_000;
             const PAYLOAD: u64 = 248;
 
-            let mut base = BuriHeapStats {
-                live_blocks: 0,
-                live_bytes: 0,
-                total_blocks: 0,
-                total_bytes: 0,
-                retained_bytes: 0,
-                decommitted_bytes: 0,
-                arena_bytes: 0,
-                arena_released_bytes: 0,
-            };
-            // SAFETY: a writable, aligned destination.
-            unsafe { buri_rt_heap_stats(&raw mut base) };
-
+            let (tx, rx) = std::sync::mpsc::channel();
             let threads: Vec<_> = (0..THREADS)
                 .map(|_| {
-                    std::thread::spawn(|| {
+                    let tx = tx.clone();
+                    std::thread::spawn(move || {
+                        // Before the first allocation arms the drain, so this
+                        // destructor runs after it: they run last in, first out.
+                        AFTER_THE_DRAIN.with(|a| a.0.set(Some(tx)));
                         let mut blocks = Vec::with_capacity(PER_THREAD);
                         for _ in 0..PER_THREAD {
                             blocks.push(buri_rt_alloc(PAYLOAD));
@@ -5657,38 +5650,40 @@ mod tests {
                     })
                 })
                 .collect();
-            let filled: u64 = threads.into_iter().map(|t| t.join().expect("a thread panicked")).sum();
-
-            // Each thread was holding at least its floor share, so the signal is
-            // megabytes; if it were not, the assertion below would prove nothing.
-            assert!(
-                filled > 4 * CACHE_BYTES_FLOOR,
-                "the threads only cached {filled} bytes between them; nothing was measured"
-            );
-
-            let mut after = BuriHeapStats {
-                live_blocks: 0,
-                live_bytes: 0,
-                total_blocks: 0,
-                total_bytes: 0,
-                retained_bytes: 0,
-                decommitted_bytes: 0,
-                arena_bytes: 0,
-                arena_released_bytes: 0,
-            };
-            // SAFETY: as above.
-            unsafe { buri_rt_heap_stats(&raw mut after) };
-            // Lost lists would leave all of `filled` behind. A quarter of it is
-            // room for what the crate's other tests cache meanwhile, which can
-            // pass the floor, while a leak is still four times over it.
-            assert!(
-                after.retained_bytes <= base.retained_bytes + filled / 4,
-                "sixteen ended threads left {} bytes cached, up from {}; \
-                 their lists were {filled} bytes",
-                after.retained_bytes,
-                base.retained_bytes
-            );
+            drop(tx);
+            for t in threads {
+                let filled = t.join().expect("a thread panicked");
+                // If the threads cached nothing, the assertion below proves nothing.
+                assert!(filled >= CACHE_BYTES_FLOOR, "a thread only cached {filled} bytes");
+            }
+            let left: Vec<(u64, u64)> = rx.iter().collect();
+            assert_eq!(left.len(), THREADS, "a thread did not report on its way out");
+            for (held, published) in left {
+                assert_eq!(
+                    (held, published),
+                    (0, 0),
+                    "an ended thread kept {held} bytes cached and {published} in retained_bytes"
+                );
+            }
         });
+    }
+
+    /// Sends its thread's cache `held` and `published` once [`CacheDrain`] has
+    /// run.
+    struct AfterTheDrain(std::cell::Cell<Option<std::sync::mpsc::Sender<(u64, u64)>>>);
+
+    impl Drop for AfterTheDrain {
+        fn drop(&mut self) {
+            if let Some(tx) = self.0.take() {
+                // SAFETY: this thread's own cell, and the reference does not escape.
+                let left = CACHE.with(|c| unsafe { ((*c.cache.get()).held, (*c.cache.get()).published) });
+                let _ = tx.send(left);
+            }
+        }
+    }
+
+    thread_local! {
+        static AFTER_THE_DRAIN: AfterTheDrain = const { AfterTheDrain(std::cell::Cell::new(None)) };
     }
 
     /// **A ping-pong workload pays nothing for the decay.**
@@ -6226,45 +6221,13 @@ mod tests {
     #[test]
     fn an_arena_maps_nothing_the_heap_counts() {
         let _alone = arena_alone();
-        let mut before = BuriHeapStats {
-            live_blocks: 0,
-            live_bytes: 0,
-            total_blocks: 0,
-            total_bytes: 0,
-            retained_bytes: 0,
-            decommitted_bytes: 0,
-            arena_bytes: 0,
-            arena_released_bytes: 0,
-        };
-        // SAFETY: a live, aligned destination.
-        unsafe { buri_rt_heap_stats(&raw mut before) };
-        // Large beside what the other threads allocate meanwhile, so the bound
-        // below tells this reservation apart from their noise.
+        let before = own_tally();
+        let (arena_before, _) = arena_stats();
         let reserved: u64 = 64 * 1024 * 1024;
         let a = buri_rt_alloc_arena_create();
         let _ = buri_rt_alloc_arena_allocate(a, reserved as i64);
-        let mut after = BuriHeapStats {
-            live_blocks: 0,
-            live_bytes: 0,
-            total_blocks: 0,
-            total_bytes: 0,
-            retained_bytes: 0,
-            decommitted_bytes: 0,
-            arena_bytes: 0,
-            arena_released_bytes: 0,
-        };
-        // SAFETY: as above.
-        unsafe { buri_rt_heap_stats(&raw mut after) };
-        // Not an equality: `cargo test`'s other threads are allocating while
-        // this runs. The claim is about the reservation — whatever else the
-        // binary did meanwhile, none of it was this arena's pages arriving on
-        // the heap.
-        assert!(
-            after.total_bytes - before.total_bytes < reserved,
-            "an arena's reservation reached the heap: {} bytes of blocks",
-            after.total_bytes - before.total_bytes
-        );
-        assert!(after.arena_bytes >= before.arena_bytes + reserved);
+        assert_eq!(own_tally(), before, "an arena's reservation reached the heap");
+        assert!(arena_stats().0 >= arena_before + reserved);
         let _ = buri_rt_alloc_arena_release(a);
     }
 
@@ -6275,14 +6238,6 @@ mod tests {
     /// The blocks [`a_returning_scope_gives_its_pages_back_and_leaks_nothing`]
     /// puts inside a scope: 64 of a quarter-megabyte each, sixteen megabytes in
     /// all.
-    ///
-    /// **Big on purpose.** `live_bytes` is process-wide and `cargo test` runs
-    /// its cases on many threads, so a claim about it is only as good as the
-    /// margin between what this case allocates and what the rest of the binary
-    /// is doing meanwhile. Sixteen megabytes against a suite whose other blocks
-    /// are kilobytes is a margin no scheduling can close, and it is the same
-    /// answer `an_arena_maps_nothing_the_heap_counts` gives to the same
-    /// problem: assert a magnitude, not an equality.
     const SCOPE_BLOCKS: usize = 64;
     const SCOPE_BLOCK_BYTES: u64 = 256 * 1024;
     const SCOPE_TOTAL: i128 = (SCOPE_BLOCKS as i128) * (SCOPE_BLOCK_BYTES as i128);
@@ -6551,19 +6506,8 @@ mod tests {
     fn a_returning_scope_gives_its_pages_back_and_leaks_nothing() {
         let _alone = arena_alone();
         let (live_before, released_before) = arena_stats();
-        let mut heap = BuriHeapStats {
-            live_blocks: 0,
-            live_bytes: 0,
-            total_blocks: 0,
-            total_bytes: 0,
-            retained_bytes: 0,
-            decommitted_bytes: 0,
-            arena_bytes: 0,
-            arena_released_bytes: 0,
-        };
-        // SAFETY: a live, aligned destination.
-        unsafe { buri_rt_heap_stats(&raw mut heap) };
-        let total_before = i128::from(heap.total_bytes);
+        let before = own_tally();
+        let live = |t: [u64; TALLY_WORDS]| (t[ALLOCATED_BLOCKS] - t[FREED_BLOCKS], t[ALLOCATED_BYTES] - t[FREED_BYTES]);
 
         let a = buri_rt_alloc_arena_create();
         let outer = buri_rt_alloc_arena_enter(a);
@@ -6575,15 +6519,14 @@ mod tests {
             inside.push(p);
         }
         // A block a scope served is **counted like any other while it is
-        // alive**, which is what keeps the leak checks honest: a scope is not a
-        // way for sixteen megabytes to become invisible. `total_bytes` never
-        // falls, so this direction needs no margin at all.
-        // SAFETY: a live, aligned destination.
-        unsafe { buri_rt_heap_stats(&raw mut heap) };
-        let live_with = i128::from(heap.live_bytes);
-        assert!(
-            i128::from(heap.total_bytes) - total_before >= SCOPE_TOTAL,
-            "the blocks a scope served were not counted at all"
+        // alive**: a scope is not a way for sixteen megabytes to hide from the
+        // leak checks.
+        let with = own_tally();
+        let counted = |i: usize| i128::from(with[i] - before[i]);
+        assert_eq!(
+            (counted(ALLOCATED_BLOCKS), counted(ALLOCATED_BYTES)),
+            (SCOPE_BLOCKS as i128, SCOPE_TOTAL),
+            "the blocks a scope served were not counted"
         );
         let (live_open, _) = arena_stats();
         assert!(
@@ -6613,21 +6556,9 @@ mod tests {
         // handed back to `malloc`: `buri_rt_free`'s early return does the
         // accounting before it sees the arena bit, or every scope in the
         // process would read as a leak.
-        //
-        // Not an equality, for `an_arena_maps_nothing_the_heap_counts`'s
-        // reason: `cargo test`'s other threads are allocating while this runs.
-        // The claim is about the *megabyte* — whatever else the binary did
-        // meanwhile, none of it was these 256 blocks staying live.
-        //
-        // SAFETY: a live, aligned destination.
-        unsafe { buri_rt_heap_stats(&raw mut heap) };
-        assert!(
-            live_with - i128::from(heap.live_bytes) >= SCOPE_TOTAL / 2,
-            "a scope's blocks stayed live after it released them: {} bytes went away",
-            live_with - i128::from(heap.live_bytes)
-        );
         // SAFETY: the only reference to the copy.
         unsafe { buri_rt_free(answer) };
+        assert_eq!(live(own_tally()), live(before), "a scope's blocks stayed live after it released them");
     }
 
     /// **A scope's block never enters the platform allocator's free list.**
