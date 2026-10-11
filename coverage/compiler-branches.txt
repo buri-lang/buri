@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
-total 14382 17742 81.06%
+total 14019 16984 82.54%
 area cli/build 1525 1859 82.03%
 area cli/documentation 255 769 33.16%
 area cli/format 84 98 85.71%
@@ -18,7 +18,7 @@ area crates/diagnostics 198 232 85.34%
 area crates/docs 197 304 64.80%
 area crates/hash 18 18 100.00%
 area crates/js 1015 1104 91.94%
-area crates/llvm 973 1374 70.82%
+area crates/llvm 610 616 99.03%
 area crates/middle 1914 2055 93.14%
 area crates/project 878 1418 61.92%
 area crates/semantics 1919 2046 93.79%
@@ -124,10 +124,10 @@ area crates/syntax 1205 1284 93.85%
 513 570 crates/js/src/compiler/backend/js/javascript.rs
 3 4 crates/js/src/compiler/backend/js/mod.rs
 70 74 crates/js/src/compiler/backend/js/park.rs
-57 62 crates/llvm/src/compiler/backend/llvm/attrs.rs
-849 1228 crates/llvm/src/compiler/backend/llvm/emit.rs
-14 24 crates/llvm/src/compiler/backend/llvm/mod.rs
-53 60 crates/llvm/src/compiler/backend/llvm/repr.rs
+52 52 crates/llvm/src/compiler/backend/llvm/attrs.rs
+493 496 crates/llvm/src/compiler/backend/llvm/emit.rs
+15 18 crates/llvm/src/compiler/backend/llvm/mod.rs
+50 50 crates/llvm/src/compiler/backend/llvm/repr.rs
 0 0 crates/llvm/src/compiler/backend/llvm/target.rs
 49 56 crates/middle/src/compiler/backend/intrinsic_keys.rs
 29 30 crates/middle/src/compiler/middle/chunks.rs
