@@ -504,7 +504,7 @@ fn resolved_by_role(
             };
             let Some(f) = called else { return };
             let callee = analysis.checked.tables.fn_info(f);
-            let Some(m) = analysis.loaded.modules.get(callee.module.index()) else { return };
+            let m = analysis.loaded.module(callee.module);
             let Some(package) = m.pkg else { return };
             if package == own {
                 return;
@@ -571,9 +571,10 @@ impl Batch {
         }
         let mut bodies = vec![Vec::new(); analysis.loaded.modules.len()];
         for (fid, _) in &analysis.checked.bodies {
-            if let Some(list) = bodies.get_mut(analysis.checked.tables.fn_info(fid).module.index()) {
-                list.push(fid);
-            }
+            bodies
+                .get_mut(analysis.checked.tables.fn_info(fid).module.index())
+                .or_ice("`bodies` has one list per module, and a body's module is one of them")
+                .push(fid);
         }
         Batch { analysis, shares, bodies, by_package }
     }
@@ -633,9 +634,8 @@ impl<'a> Seen<'a> {
         let mut out = Vec::new();
         for m in self.package_modules(own) {
             for fid in self.batch.bodies.get(m.id.index()).into_iter().flatten() {
-                if let Some(body) = analysis.checked.bodies.get(fid) {
-                    out.push((m, body));
-                }
+                let body = analysis.checked.bodies.get(fid).or_ice("`bodies` lists only the ids of checked bodies");
+                out.push((m, body));
             }
         }
         out
@@ -801,7 +801,7 @@ fn listed(document: &Document, rule: &str, field: &str) -> BTreeSet<String> {
 
 /// The same, for a field inside a block: `test.sources`.
 pub(crate) fn listed_at(document: &Document, rule: &str, path: &[&str]) -> BTreeSet<String> {
-    let Some((leaf, blocks)) = path.split_last() else { return BTreeSet::new() };
+    let (leaf, blocks) = path.split_last().or_ice("every caller names a field, so the path is never empty");
     let Some(Value::Message(mut m, _)) = document.get(rule).map(|f| f.value.clone()) else {
         return BTreeSet::new();
     };
@@ -839,7 +839,7 @@ fn set_list(
     summary: &mut Vec<String>,
     label: &str,
 ) {
-    let Some((leaf, blocks)) = path.split_last() else { return };
+    let (leaf, blocks) = path.split_last().or_ice("every caller names a field, so the path is never empty");
     let Some(rule_field) = document.fields.iter_mut().find(|f| f.name == rule) else { return };
     let Value::Message(message, _) = &mut rule_field.value else { return };
     let mut target: &mut Message = message;
@@ -849,12 +849,10 @@ fn set_list(
             None => {
                 // CLI.md's worked example starts from `library {}` and comes
                 // back with a `test.sources`, so the block a managed field
-                // lives in is created when there is something to put in it —
-                // and only then, because an empty `test {}` nobody wrote is a
-                // claim the package has a suite.
-                if values.is_empty() {
-                    return;
-                }
+                // lives in is created when there is something to put in it.
+                // Every caller asks for a missing block only with values: an
+                // empty `test {}` nobody wrote is a claim the package has a
+                // suite.
                 let at = target.fields.len();
                 target.fields.push(Field {
                     name: (*seg).to_string(),

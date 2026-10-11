@@ -353,25 +353,20 @@ impl Workspace {
     /// reaching a library named in `test.dependencies`, is checked normally".
     pub fn test_dep_edges(&self, target: TargetId) -> Vec<(TargetId, Option<Span>)> {
         let p = self.package(target.package);
-        let mut declared: Vec<&Spanned<String>> = Vec::new();
-        match target.kind {
-            RuleKind::Library => {
-                if let Some(l) = &p.build.library {
-                    declared.extend(l.test.iter().flat_map(|t| t.dependencies.iter()));
-                    declared.extend(l.testing.iter().flat_map(|t| t.dependencies.iter()));
-                }
-            }
-            RuleKind::Binary => {
-                if let Some(b) = &p.build.binary {
-                    declared.extend(b.test.iter().flat_map(|t| t.dependencies.iter()));
-                }
-            }
-            RuleKind::Tool => {
-                if let Some(t) = &p.build.tool {
-                    declared.extend(t.test.iter().flat_map(|t| t.dependencies.iter()));
-                }
-            }
-        }
+        // A target exists only where its rule does, so each kind reads its own
+        // rule and the others contribute nothing.
+        let declared: Vec<&Spanned<String>> = match target.kind {
+            RuleKind::Library => p
+                .build
+                .library
+                .iter()
+                .flat_map(|l| {
+                    l.test.iter().flat_map(|t| t.dependencies.iter()).chain(l.testing.iter().flat_map(|t| t.dependencies.iter()))
+                })
+                .collect(),
+            RuleKind::Binary => p.build.binary.iter().flat_map(|b| b.test.iter()).flat_map(|t| t.dependencies.iter()).collect(),
+            RuleKind::Tool => p.build.tool.iter().flat_map(|t| t.test.iter()).flat_map(|t| t.dependencies.iter()).collect(),
+        };
         let mut out = Vec::new();
         for dep in declared {
             if let Some(id) = self.dep_target(&dep.value) {
@@ -583,15 +578,14 @@ impl Workspace {
         let mut seen = BTreeSet::from([from]);
         while let Some(cur) = queue.pop_front() {
             if cur == to {
-                let mut path = vec![(cur, None)];
+                // Each step carries the span of the edge into it; `from` has none.
+                let mut path = Vec::new();
                 let mut node = cur;
                 while let Some((p, span)) = prev.get(&node).copied() {
-                    if let Some(last) = path.last_mut() {
-                        last.1 = span;
-                    }
-                    path.push((p, None));
+                    path.push((node, span));
                     node = p;
                 }
+                path.push((node, None));
                 path.reverse();
                 return Some(path);
             }
