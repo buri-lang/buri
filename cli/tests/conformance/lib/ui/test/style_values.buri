@@ -1,0 +1,230 @@
+// A `Style` is an ordinary enum until it reaches a node. Matching one, passing
+// it around, comparing it and naming it see the variant the source wrote; only
+// a style a node is given becomes classes in the stylesheet.
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui };
+from "platform/effect/testing" import { headless, render, stylesheet };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Shadow, Style };
+
+/// The variant a style is, as the source spells it: a show of its own.
+fn kind(s: Style): Str {
+    match (s) {
+        .Group(_) => "Group",
+        .On(_, _) => "On",
+        .At(_, _) => "At",
+        .When(_, _, _) => "When",
+        .Computed(_) => "Computed",
+        .Extracted(_) => "Extracted",
+        .Layout(_) => "Layout",
+        .AlignMain(_) => "AlignMain",
+        .AlignCross(_) => "AlignCross",
+        .AlignSelf(_) => "AlignSelf",
+        .Wrap(_) => "Wrap",
+        .Scroll(_) => "Scroll",
+        .Grow(_) => "Grow",
+        .Shrink(_) => "Shrink",
+        .Span(_) => "Span",
+        .Pin(_, _) => "Pin",
+        .Position(_) => "Position",
+        .Gap(_) => "Gap",
+        .GapX(_) => "GapX",
+        .GapY(_) => "GapY",
+        .Padding(_) => "Padding",
+        .PaddingX(_) => "PaddingX",
+        .PaddingY(_) => "PaddingY",
+        .PaddingEdge(_, _) => "PaddingEdge",
+        .Width(_) => "Width",
+        .Height(_) => "Height",
+        .MinWidth(_) => "MinWidth",
+        .MaxWidth(_) => "MaxWidth",
+        .MinHeight(_) => "MinHeight",
+        .MaxHeight(_) => "MaxHeight",
+        .AspectRatio(_) => "AspectRatio",
+        .Background(_) => "Background",
+        .Foreground(_) => "Foreground",
+        .BorderWidth(_) => "BorderWidth",
+        .BorderEdge(_, _) => "BorderEdge",
+        .BorderColor(_) => "BorderColor",
+        .BorderStyle(_) => "BorderStyle",
+        .Radius(_) => "Radius",
+        .RadiusCorner(_, _) => "RadiusCorner",
+        .Opacity(_) => "Opacity",
+        .Shadow(_) => "Shadow",
+        .Shadows(_) => "Shadows",
+        .FontFamily(_) => "FontFamily",
+        .FontSize(_) => "FontSize",
+        .FontWeight(_) => "FontWeight",
+        .Italic(_) => "Italic",
+        .LineHeight(_) => "LineHeight",
+        .LetterSpacing(_) => "LetterSpacing",
+        .TextAlign(_) => "TextAlign",
+        .TextCase(_) => "TextCase",
+        .TextLine(_) => "TextLine",
+        .TextWrap(_) => "TextWrap",
+        .Truncate(_) => "Truncate",
+        .Cursor(_) => "Cursor",
+        .ListMarker(_) => "ListMarker",
+        .Bleed(_, _) => "Bleed",
+        .Translate(_, _) => "Translate",
+        .Clip(_) => "Clip",
+        .Passthrough(_) => "Passthrough",
+        .BackdropBlur(_) => "BackdropBlur",
+        .CaretColor(_) => "CaretColor",
+        .VisuallyHidden => "VisuallyHidden",
+        .Animation(_) => "Animation",
+    }
+}
+
+/// The size a style holds, in pixels, or how many styles a group holds.
+fn size(s: Style): Int {
+    match (s) {
+        .Width(.Px(n)) => n,
+        .Padding(.Px(n)) => n,
+        .Group(items) => items.length(),
+        _ => -1,
+    }
+}
+
+/// An equality of its own, by variant and size.
+fn same(a: Style, b: Style): Bool {
+    kind(a) == kind(b) && size(a) == size(b)
+}
+
+struct Card {
+    style: Style,
+}
+
+fn widen(s: Style): Style {
+    match (s) {
+        .Width(.Px(n)) => .Width(.Px(n + 1)),
+        other => other,
+    }
+}
+
+fn styled<C>(): Node<C> {
+    ui.stack({ styles: [.Width(.Px(321))], children: [] })
+}
+
+test "a static composition takes the arm that names it" {
+    assert.equal(kind(.Group([])), "Group");
+    assert.equal(kind(.On(.Hover, [.Width(.Px(1))])), "On");
+    assert.equal(kind(.At(.Medium, [.Width(.Px(1))])), "At");
+    assert.equal(kind(.When(.Const(true), [], [])), "When");
+    assert.equal(kind(.Computed(fn(_scope) => [])), "Computed");
+}
+
+test "a static layout style takes the arm that names it" {
+    assert.equal(kind(.Layout(.Row)), "Layout");
+    assert.equal(kind(.AlignMain(.Center)), "AlignMain");
+    assert.equal(kind(.AlignCross(.Start)), "AlignCross");
+    assert.equal(kind(.AlignSelf(.End)), "AlignSelf");
+    assert.equal(kind(.Wrap(true)), "Wrap");
+    assert.equal(kind(.Scroll(.Y)), "Scroll");
+    assert.equal(kind(.Grow(1)), "Grow");
+    assert.equal(kind(.Shrink(0)), "Shrink");
+    assert.equal(kind(.Span(2)), "Span");
+    assert.equal(kind(.Pin(.Top, .Px(0))), "Pin");
+    assert.equal(kind(.Position(.Sticky)), "Position");
+}
+
+test "a static spacing or size style takes the arm that names it" {
+    assert.equal(kind(.Gap(.Px(4))), "Gap");
+    assert.equal(kind(.GapX(.Px(4))), "GapX");
+    assert.equal(kind(.GapY(.Px(4))), "GapY");
+    assert.equal(kind(.Padding(.Px(4))), "Padding");
+    assert.equal(kind(.PaddingX(.Px(4))), "PaddingX");
+    assert.equal(kind(.PaddingY(.Px(4))), "PaddingY");
+    assert.equal(kind(.PaddingEdge(.Start, .Px(4))), "PaddingEdge");
+    assert.equal(kind(.Width(.Px(4))), "Width");
+    assert.equal(kind(.Height(.Px(4))), "Height");
+    assert.equal(kind(.MinWidth(.Px(4))), "MinWidth");
+    assert.equal(kind(.MaxWidth(.Px(4))), "MaxWidth");
+    assert.equal(kind(.MinHeight(.Px(4))), "MinHeight");
+    assert.equal(kind(.MaxHeight(.Px(4))), "MaxHeight");
+    assert.equal(kind(.AspectRatio(1.5)), "AspectRatio");
+    assert.equal(kind(.Bleed(.Start, .Px(4))), "Bleed");
+    assert.equal(kind(.Translate(.Px(1), .Px(2))), "Translate");
+}
+
+test "a static paint style takes the arm that names it" {
+    let shadow: Shadow = {
+        x: .Px(0),
+        y: .Px(1),
+        blur: .Px(2),
+        spread: .Px(0),
+        color: .Transparent,
+    };
+    assert.equal(kind(.Background(.Rgb(1, 2, 3))), "Background");
+    assert.equal(kind(.Foreground(.Inherit)), "Foreground");
+    assert.equal(kind(.BorderWidth(.Px(1))), "BorderWidth");
+    assert.equal(kind(.BorderEdge(.Bottom, .Px(1))), "BorderEdge");
+    assert.equal(kind(.BorderColor(.Transparent)), "BorderColor");
+    assert.equal(kind(.BorderStyle(.Dashed)), "BorderStyle");
+    assert.equal(kind(.Radius(.Px(3))), "Radius");
+    assert.equal(kind(.RadiusCorner(.TopStart, .Px(3))), "RadiusCorner");
+    assert.equal(kind(.Opacity(0.5)), "Opacity");
+    assert.equal(kind(.Shadow(shadow)), "Shadow");
+    assert.equal(kind(.Shadows([shadow])), "Shadows");
+    assert.equal(kind(.BackdropBlur(.Px(2))), "BackdropBlur");
+    assert.equal(kind(.CaretColor(.Inherit)), "CaretColor");
+}
+
+test "a static text or behavior style takes the arm that names it" {
+    assert.equal(kind(.FontFamily(.Mono)), "FontFamily");
+    assert.equal(kind(.FontSize(.Px(12))), "FontSize");
+    assert.equal(kind(.FontWeight(.Bold)), "FontWeight");
+    assert.equal(kind(.Italic(true)), "Italic");
+    assert.equal(kind(.LineHeight(1.25)), "LineHeight");
+    assert.equal(kind(.LetterSpacing(.Px(1))), "LetterSpacing");
+    assert.equal(kind(.TextAlign(.Center)), "TextAlign");
+    assert.equal(kind(.TextCase(.Upper)), "TextCase");
+    assert.equal(kind(.TextLine(.Underline)), "TextLine");
+    assert.equal(kind(.TextWrap(.Balance)), "TextWrap");
+    assert.equal(kind(.Truncate(2)), "Truncate");
+    assert.equal(kind(.Cursor(.Pointer)), "Cursor");
+    assert.equal(kind(.ListMarker(.Disc)), "ListMarker");
+    assert.equal(kind(.Clip(true)), "Clip");
+    assert.equal(kind(.Passthrough(true)), "Passthrough");
+    assert.equal(kind(.VisuallyHidden), "VisuallyHidden");
+    assert.equal(kind(.Animation(.Spin)), "Animation");
+}
+
+test "a matched static style binds its payload" {
+    let s: Style = .Width(.Px(12));
+    let answer = match (s) {
+        .Width(.Px(n)) => n,
+        _ => 0,
+    };
+    assert.equal(answer, 12);
+}
+
+test "a static style passes through functions, fields and arrays unchanged" {
+    let card = Card { style: .Padding(.Px(8)) };
+    assert.equal(kind(card.style), "Padding");
+    assert.equal(size(card.style), 8);
+    assert.equal(size(widen(.Width(.Px(9)))), 10);
+    let styles: [Style] = [.Width(.Px(1)), .Padding(.Px(2))];
+    assert.equal(size(.Group(styles)), 2);
+    match (styles.get(1)) {
+        .Some(second) => assert.equal(kind(second), "Padding"),
+        .None => assert.isTrue(false),
+    }
+}
+
+test "static styles compare by what they hold" {
+    assert.isTrue(same(.Width(.Px(3)), .Width(.Px(3))));
+    assert.isFalse(same(.Width(.Px(3)), .Width(.Px(4))));
+    assert.isFalse(same(.Width(.Px(3)), .Padding(.Px(3))));
+}
+
+test "a static style a node is given is still a class in the sheet" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let _ = render(ctx, styled());
+    assert.isTrue(stylesheet().contains(".w-321{width:321px}"));
+    assert.equal(kind(.Width(.Px(321))), "Width");
+}
