@@ -1164,18 +1164,24 @@ enum Wire {
 impl Wire {
     /// The socket underneath, whichever transport is on top of it.
     ///
-    /// One caller and one reason: a WebSocket waits on a *file descriptor*
-    /// rather than on a condition variable, because what it waits for is either
-    /// bytes from the far side or a message another task enqueued, and only one
-    /// of those two can be a lock. The framing above still never asks which
-    /// kind of wire it has.
-    #[cfg(feature = "net")]
+    /// Two callers: a WebSocket waits on a *file descriptor* rather than on a
+    /// condition variable, because what it waits for is either bytes from the
+    /// far side or a message another task enqueued, and only one of those two
+    /// can be a lock; and a write reads the socket's deadline off it. The
+    /// framing above still never asks which kind of wire it has.
     fn stream(&self) -> &TcpStream {
         match self {
             Wire::Plain(s) => s,
+            #[cfg(feature = "net")]
             Wire::Tls(s) => &s.sock,
+            #[cfg(feature = "net")]
             Wire::ClientTls(s) => &s.sock,
         }
+    }
+
+    /// How long a write on this wire may wait: the socket's write deadline.
+    fn patience(&self) -> Duration {
+        self.stream().write_timeout().ok().flatten().unwrap_or_default()
     }
 }
 
@@ -1191,24 +1197,53 @@ impl Read for Wire {
     }
 }
 
+/// Both halves go through [`uninterrupted`]: nothing above this retries a TLS
+/// flush, or the writes a closing WebSocket makes.
 impl Write for Wire {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match self {
+        uninterrupted(self, Wire::patience, |wire| match wire {
             Wire::Plain(s) => s.write(buf),
             #[cfg(feature = "net")]
             Wire::Tls(s) => s.write(buf),
             #[cfg(feature = "net")]
             Wire::ClientTls(s) => s.write(buf),
-        }
+        })
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        match self {
+        uninterrupted(self, Wire::patience, |wire| match wire {
             Wire::Plain(s) => s.flush(),
             #[cfg(feature = "net")]
             Wire::Tls(s) => s.flush(),
             #[cfg(feature = "net")]
             Wire::ClientTls(s) => s.flush(),
+        })
+    }
+}
+
+/// Take `step` again for as long as Linux interrupts it, until `patience` has
+/// passed since the first interruption.
+///
+/// Linux interrupts a socket call that has a deadline when the process is
+/// stopped and continued: Ctrl-Z, `docker pause`, a cgroup freeze. The peer
+/// did nothing, so the call is taken again; once `patience` has passed, the
+/// interruption is the deadline running out. `patience` is asked only after an
+/// interruption, so a call that is not interrupted costs nothing more.
+pub(crate) fn uninterrupted<S, T>(
+    io: &mut S,
+    patience: impl Fn(&S) -> Duration,
+    mut step: impl FnMut(&mut S) -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    let mut until = None;
+    loop {
+        match step(io) {
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                let until = *until.get_or_insert_with(|| Instant::now() + patience(io));
+                if Instant::now() >= until {
+                    return Err(std::io::ErrorKind::TimedOut.into());
+                }
+            }
+            done => return done,
         }
     }
 }
@@ -4980,6 +5015,35 @@ fn park<T: Send>(work: impl FnOnce() -> T + Send) -> T {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An interrupted step is taken again until it answers.
+    #[test]
+    fn an_interrupted_step_is_taken_again() {
+        let mut left = 3;
+        let answer = uninterrupted(&mut left, |_| Duration::from_secs(60), |left| {
+            if *left == 0 {
+                return Ok("done");
+            }
+            *left -= 1;
+            Err(std::io::ErrorKind::Interrupted.into())
+        });
+        assert_eq!(answer.map_err(|e| e.kind()), Ok("done"));
+        assert_eq!(left, 0);
+    }
+
+    /// An interruption once the patience has run out is the deadline running
+    /// out, and any other failure is passed on as it is.
+    #[test]
+    fn an_interruption_past_the_deadline_is_a_timeout() {
+        let interrupted: std::io::Result<()> = uninterrupted(&mut (), |_| Duration::ZERO, |_| {
+            Err(std::io::ErrorKind::Interrupted.into())
+        });
+        assert_eq!(interrupted.map_err(|e| e.kind()), Err(std::io::ErrorKind::TimedOut));
+        let reset: std::io::Result<()> = uninterrupted(&mut (), |_| Duration::ZERO, |_| {
+            Err(std::io::ErrorKind::ConnectionReset.into())
+        });
+        assert_eq!(reset.map_err(|e| e.kind()), Err(std::io::ErrorKind::ConnectionReset));
+    }
 
     /// The flag round-trips: the feature the crate was compiled with, the bit
     /// in the mask, and the door a linked program asks through are one answer.

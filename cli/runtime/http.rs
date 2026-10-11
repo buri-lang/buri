@@ -240,12 +240,27 @@ impl Write for Transport {
         }
     }
 
+    /// Through [`crate::net::uninterrupted`], because a TLS flush writes and
+    /// nothing above it takes an interrupted write again. `write_all` already
+    /// does for `write`.
     fn flush(&mut self) -> std::io::Result<()> {
-        match self {
+        crate::net::uninterrupted(self, Transport::patience, |transport| match transport {
             Transport::Plain(s) => s.flush(),
             #[cfg(feature = "net")]
             Transport::Tls(s) => s.flush(),
-        }
+        })
+    }
+}
+
+impl Transport {
+    /// How long a write may wait: the socket's write deadline.
+    fn patience(&self) -> Duration {
+        let sock = match self {
+            Transport::Plain(s) => s,
+            #[cfg(feature = "net")]
+            Transport::Tls(s) => &s.sock,
+        };
+        sock.write_timeout().ok().flatten().unwrap_or_default()
     }
 }
 
