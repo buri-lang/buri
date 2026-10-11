@@ -308,7 +308,7 @@ impl Shadows<'_> {
                 let mut stmts = Vec::new();
                 for (i, f) in fields.iter().enumerate() {
                     let t = types::substitute(&f.ty, &targs, None);
-                    if let Some(call) = self.walk(op, t, field(local(a, ty, span), i, t, span), span) {
+                    if let Some(call) = self.walk(op, t, vec![field(local(a, ty, span), i, t, span)], span) {
                         stmts.push(discard(call, span));
                     }
                 }
@@ -333,8 +333,8 @@ impl Shadows<'_> {
                                 .collect();
                             let fnames: Vec<String> = v.fields.iter().map(|f| f.name.clone()).collect();
                             let same = self.chain(op, &mut body, &fnames, &types, pairs, &format!("{}.", v.name))?;
-                            let same = body.counted(other, 0, same);
-                            let differs = body.counted(other, 1, Expr::new(ExprKind::Bool(false), self.bool_ty, span));
+                            let same = body.counted(&other, 0, same);
+                            let differs = body.counted(&other, 1, Expr::new(ExprKind::Bool(false), self.bool_ty, span));
                             let arms = vec![
                                 arm(variant(ty, vi, &ys, &types, span), same),
                                 arm(Pattern { kind: PatKind::Wild, ty, span }, differs),
@@ -344,14 +344,14 @@ impl Shadows<'_> {
                         None => {
                             let mut stmts = Vec::new();
                             for (x, t) in xs.iter().zip(&types) {
-                                if let Some(call) = self.walk(op, *t, local(*x, *t, span), span) {
+                                if let Some(call) = self.walk(op, *t, vec![local(*x, *t, span)], span) {
                                     stmts.push(discard(call, span));
                                 }
                             }
                             Expr::new(ExprKind::Block { stmts, tail: Some(Box::new(unit(span))) }, Ty::UNIT, span)
                         }
                     };
-                    arms.push(arm(variant(ty, vi, &xs, &types, span), body.counted(which, vi, inner)));
+                    arms.push(arm(variant(ty, vi, &xs, &types, span), body.counted(&which, vi, inner)));
                 }
                 let ret = if b.is_some() { self.bool_ty } else { Ty::UNIT };
                 Expr::new(ExprKind::Match { scrutinee: Box::new(local(a, ty, span)), arms }, ret, span)
@@ -384,11 +384,11 @@ impl Shadows<'_> {
             return Some(Expr::new(ExprKind::Bool(true), self.bool_ty, span));
         };
         let mut acc = last;
-        let decisions: Vec<usize> =
+        let decisions: Vec<String> =
             tests.iter().map(|(_, name)| body.decision(&format!("{at}{name}"), outcomes.iter().map(|s| s.to_string()).collect())).collect();
         for ((test, _), d) in tests.into_iter().zip(decisions).rev() {
-            let go_on = body.counted(d, 0, acc);
-            let stop = body.counted(d, 1, Expr::new(ExprKind::Bool(false), self.bool_ty, span));
+            let go_on = body.counted(&d, 0, acc);
+            let stop = body.counted(&d, 1, Expr::new(ExprKind::Bool(false), self.bool_ty, span));
             acc = Expr::new(
                 ExprKind::If { cond: Box::new(test), then: Box::new(go_on), else_: Box::new(stop) },
                 self.bool_ty,
@@ -402,11 +402,8 @@ impl Shadows<'_> {
     /// `t`'s shadow where the user derives the operation for it, and otherwise
     /// the way the derived code asks.
     fn same(&mut self, op: Op, t: Ty, x: Expr, y: Expr, span: Span) -> Option<Expr> {
-        if let Some(call) = self.walk(op, t, x.clone(), span).map(|c| (c, y.clone())) {
-            let (call, y) = call;
-            let ExprKind::CallFn { func, mut args } = call.kind else { return None };
-            args.push(y);
-            return Some(Expr::new(ExprKind::CallFn { func, args }, self.bool_ty, span));
+        if let Some(call) = self.walk(op, t, vec![x.clone(), y.clone()], span) {
+            return Some(call);
         }
         let desc = *self.desc_index.get(&t)?;
         match (op, self.descriptors.get(desc)?) {
@@ -436,15 +433,15 @@ impl Shadows<'_> {
         }
     }
 
-    /// A call of `t`'s shadow on `x`, where the user derives `op` for `t`. A
-    /// comparison's caller adds the second value.
-    fn walk(&mut self, op: Op, t: Ty, x: Expr, span: Span) -> Option<Expr> {
+    /// A call of `t`'s shadow on `values`, where the user derives `op` for
+    /// `t`.
+    fn walk(&mut self, op: Op, t: Ty, values: Vec<Expr>, span: Span) -> Option<Expr> {
         let con = t.head()?;
         if !self.derives.contains_key(&(con, op)) {
             return None;
         }
         let (func, ret) = self.request(op, t)?;
-        Some(Expr::new(ExprKind::CallFn { func: typed::Callee::Func(func), args: vec![x] }, ret, span))
+        Some(Expr::new(ExprKind::CallFn { func: typed::Callee::Func(func), args: values }, ret, span))
     }
 }
 
@@ -455,18 +452,17 @@ impl Body {
         id
     }
 
-    /// A new decision, named after what it decides. Answers its index.
-    fn decision(&mut self, what: &str, branches: Vec<String>) -> usize {
+    /// A new decision, named after what it decides. Answers its label.
+    fn decision(&mut self, what: &str, branches: Vec<String>) -> String {
         let order = self.decisions.len();
         let label = format!("{}, {what}", self.prefix);
-        self.decisions.push(Derived { span: self.span, group: self.prefix.clone(), order, label, branches });
-        self.decisions.len().saturating_sub(1)
+        self.decisions.push(Derived { span: self.span, group: self.prefix.clone(), order, label: label.clone(), branches });
+        label
     }
 
-    /// `e`, counted as branch `slot` of decision `d` first.
-    fn counted(&self, d: usize, slot: usize, e: Expr) -> Expr {
-        let Some(decision) = self.decisions.get(d) else { return e };
-        let key = derived_key(&self.file, (self.span.start, self.span.end), &decision.label, slot);
+    /// `e`, counted as branch `slot` of the decision `label` first.
+    fn counted(&self, label: &str, slot: usize, e: Expr) -> Expr {
+        let key = derived_key(&self.file, (self.span.start, self.span.end), label, slot);
         let span = e.span;
         let ty = e.ty;
         let arg = Expr::new(ExprKind::Int(Magnitude::new(u128::from(key)), false), self.i64_ty, span);

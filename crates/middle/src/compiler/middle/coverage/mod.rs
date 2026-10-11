@@ -195,12 +195,12 @@ impl Tree {
     }
 
     /// The span the decision is named by: its outermost `&&` or `||`, inside
-    /// any `!` around it.
-    pub fn span(&self) -> Option<Span> {
+    /// any `!` around it. A decision always has one; a lone condition is named
+    /// by its own span.
+    pub fn span(&self) -> Span {
         match self {
-            Tree::And(_, _, s) | Tree::Or(_, _, s) => Some(*s),
+            Tree::And(_, _, s) | Tree::Or(_, _, s) | Tree::Condition(s) => *s,
             Tree::Not(x) => x.span(),
-            Tree::Condition(_) => None,
         }
     }
 
@@ -233,59 +233,60 @@ impl Tree {
     /// The path numbered `index`, the inverse of the numbering
     /// [`branches`] computes at run time.
     pub fn decode(&self, index: u64) -> Path {
-        let mut path = Path { values: vec![None; self.count()], outcome: false };
-        path.outcome = self.walk(index, 0, &mut path);
-        path
+        let mut values = Vec::with_capacity(self.count());
+        let outcome = self.walk(index, &mut values);
+        Path { values, outcome }
     }
 
+    /// Pushes each condition's value on path `i`, in source order, and
+    /// answers the outcome.
     #[allow(clippy::arithmetic_side_effects, reason = "an index below `paths()`, which `counted` keeps far from overflow")]
-    fn walk(&self, i: u64, first: usize, path: &mut Path) -> bool {
+    fn walk(&self, i: u64, values: &mut Vec<Option<bool>>) -> bool {
+        let skipped = |t: &Tree, values: &mut Vec<Option<bool>>| values.extend(std::iter::repeat_n(None, t.count()));
         match self {
             Tree::Condition(_) => {
-                if let Some(v) = path.values.get_mut(first) {
-                    *v = Some(i == 0);
-                }
+                values.push(Some(i == 0));
                 i == 0
             }
             Tree::And(l, r, _) => {
                 let ((tl, fl), (tr, fr)) = (l.paths(), r.paths());
-                let next = first + l.count();
                 if i < tl * tr {
-                    l.walk(i / tr, first, path);
-                    r.walk(i % tr, next, path);
+                    l.walk(i / tr, values);
+                    r.walk(i % tr, values);
                     true
                 } else if i < tl * tr + fl {
-                    l.walk(tl + (i - tl * tr), first, path);
+                    l.walk(tl + (i - tl * tr), values);
+                    skipped(r, values);
                     false
                 } else {
                     let j = i - tl * tr - fl;
-                    l.walk(j / fr, first, path);
-                    r.walk(tr + j % fr, next, path);
+                    l.walk(j / fr, values);
+                    r.walk(tr + j % fr, values);
                     false
                 }
             }
             Tree::Or(l, r, _) => {
                 let ((tl, fl), (tr, fr)) = (l.paths(), r.paths());
-                let next = first + l.count();
                 let true_paths = tl + fl * tr;
                 if i < tl {
-                    l.walk(i, first, path);
+                    l.walk(i, values);
+                    skipped(r, values);
                     true
                 } else if i < true_paths {
                     let j = i - tl;
-                    l.walk(tl + j / tr, first, path);
-                    r.walk(j % tr, next, path);
+                    l.walk(tl + j / tr, values);
+                    r.walk(j % tr, values);
                     true
                 } else {
                     let j = i - true_paths;
-                    l.walk(tl + j / fr, first, path);
-                    r.walk(tr + j % fr, next, path);
+                    l.walk(tl + j / fr, values);
+                    r.walk(tr + j % fr, values);
                     false
                 }
             }
             Tree::Not(x) => {
                 let (tx, fx) = x.paths();
-                if i < fx { !x.walk(tx + i, first, path) } else { !x.walk(i - fx, first, path) }
+                if i < fx { !x.walk(tx + i, values) } else { !x.walk(i - fx, values) }
             }
         }
     }
@@ -517,9 +518,8 @@ struct Branches<'a> {
 }
 
 impl Branches<'_> {
-    fn key(&self, kind: Kind, span: Span, slot: usize) -> Option<u64> {
-        let file = (self.options.file_of)(span)?;
-        Some(branch_key(&file, kind, (span.start, span.end), slot, self.instance))
+    fn key(&self, file: &str, kind: Kind, span: Span, slot: usize) -> u64 {
+        branch_key(file, kind, (span.start, span.end), slot, self.instance)
     }
 
     /// Probes `e`, given whether it's in tail position.
@@ -529,7 +529,7 @@ impl Branches<'_> {
                 let counted = tree.counted() && !(tail && ends_in_tail_call(e));
                 conditions_mut(e, counted || !tail, &mut |c, t| self.expr(c, t));
                 if counted {
-                    self.decision(e);
+                    self.decision(e, tree.span());
                     return;
                 }
                 // Too many paths to number, or a tail call to keep: the right
@@ -546,9 +546,8 @@ impl Branches<'_> {
         let Some(d) = decision(e) else {
             return;
         };
-        let (Some(first), Some(second)) = (self.key(d.kind, d.span, 0), self.key(d.kind, d.span, 1)) else {
-            return;
-        };
+        let Some(file) = (self.options.file_of)(d.span) else { return };
+        let (first, second) = (self.key(&file, d.kind, d.span, 0), self.key(&file, d.kind, d.span, 1));
         let span = e.span;
         let ty = e.ty;
         match &mut e.kind {
@@ -556,7 +555,6 @@ impl Branches<'_> {
                 // { let b = base; came back; let v = b?; went on; v }
                 let operand_ty = base.ty;
                 let b = self.local(operand_ty, span);
-                let ExprKind::Try { base, .. } = &mut e.kind else { return };
                 let operand = std::mem::replace(&mut **base, Expr::new(ExprKind::Local(b), operand_ty, span));
                 let tried = std::mem::replace(e, Expr::new(ExprKind::Unit, ty, span));
                 *e = self.reached(vec![bind(b, operand, span)], tried, second, first);
@@ -567,15 +565,12 @@ impl Branches<'_> {
             }
             ExprKind::Match { arms, .. } => {
                 for (i, a) in arms.iter_mut().enumerate() {
-                    if let Some(k) = self.key(Kind::Match, span, i) {
-                        hit_first(&mut a.body, k, &self.options.i64_ty);
-                    }
+                    hit_first(&mut a.body, self.key(&file, Kind::Match, span, i), &self.options.i64_ty);
                     let Some(g) = &mut a.guard else { continue };
                     let at = g.span;
-                    if let (Some(yes), Some(no)) = (self.key(Kind::Guard, at, 0), self.key(Kind::Guard, at, 1)) {
-                        let cond = std::mem::replace(g, self.bool(false, at));
-                        *g = self.choose(at, cond, (yes, self.bool(true, at)), (no, self.bool(false, at)));
-                    }
+                    let (yes, no) = (self.key(&file, Kind::Guard, at, 0), self.key(&file, Kind::Guard, at, 1));
+                    let cond = std::mem::replace(g, self.bool(false, at));
+                    *g = self.choose(at, cond, (yes, self.bool(true, at)), (no, self.bool(false, at)));
                 }
             }
             ExprKind::And { .. } | ExprKind::Or { .. } => self.side(e, first, second),
@@ -585,17 +580,21 @@ impl Branches<'_> {
 
     /// Probes each `&&` and `||` in the decision `e`, as without MC/DC.
     fn sides(&mut self, e: &mut Expr) {
-        match &mut e.kind {
+        let kind = match &mut e.kind {
             ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
                 self.sides(lhs);
                 self.sides(rhs);
+                if matches!(e.kind, ExprKind::And { .. }) { Kind::And } else { Kind::Or }
             }
-            ExprKind::Prim { op: PrimOp::Not, args, .. } => args.iter_mut().for_each(|a| self.sides(a)),
+            ExprKind::Prim { op: PrimOp::Not, args, .. } => {
+                args.iter_mut().for_each(|a| self.sides(a));
+                return;
+            }
             _ => return,
-        }
-        let Some(d) = decision(e) else { return };
-        if let (Some(first), Some(second)) = (self.key(d.kind, d.span, 0), self.key(d.kind, d.span, 1)) {
-            self.side(e, first, second);
+        };
+        if let Some(file) = (self.options.file_of)(e.span) {
+            let (ran, skipped) = (self.key(&file, kind, e.span, 0), self.key(&file, kind, e.span, 1));
+            self.side(e, ran, skipped);
         }
     }
 
@@ -610,14 +609,14 @@ impl Branches<'_> {
         };
     }
 
-    /// The decision `e` as `{ let p = <its path>; count p; p < true paths }`.
-    fn decision(&mut self, e: &mut Expr) {
+    /// The decision `e`, named by `named`, as
+    /// `{ let p = <its path>; count p; p < true paths }`.
+    fn decision(&mut self, e: &mut Expr, named: Span) {
         let span = e.span;
-        let Some(named) = Tree::of(e).as_ref().and_then(Tree::span) else { return };
         let Some(file) = (self.options.file_of)(named) else { return };
         let base = mcdc_key(&file, (named.start, named.end), self.instance);
         let whole = std::mem::replace(e, Expr::new(ExprKind::Unit, self.options.bool_ty, span));
-        let (index, trues, _) = self.path(whole);
+        let (index, trues, _) = self.path(whole, &file);
         let p = self.local(self.options.i64_ty, span);
         let key = self.prim(PrimOp::Add, vec![self.int(base, span), self.get(p, span)], span);
         let hit = Expr::new(
@@ -634,7 +633,7 @@ impl Branches<'_> {
     /// reads it, with how many paths end true and how many false. True paths
     /// come first.
     #[allow(clippy::arithmetic_side_effects, reason = "path counts of a decision `Tree::counted` admits, far below overflow")]
-    fn path(&mut self, e: Expr) -> (Expr, u64, u64) {
+    fn path(&mut self, e: Expr, file: &str) -> (Expr, u64, u64) {
         let span = e.span;
         let not_operand = match &e.kind {
             ExprKind::Prim { op: PrimOp::Not, args, .. } if logical(&e) => !args.is_empty(),
@@ -642,8 +641,8 @@ impl Branches<'_> {
         };
         match e.kind {
             ExprKind::And { lhs, rhs } => {
-                let (la, tl, fl) = self.path(*lhs);
-                let (rb, tr, fr) = self.path(*rhs);
+                let (la, tl, fl) = self.path(*lhs, file);
+                let (rb, tr, fr) = self.path(*rhs, file);
                 let (a, b) = (self.local(self.options.i64_ty, span), self.local(self.options.i64_ty, span));
                 // r true: a*tr + b. r false: tl*tr + fl + a*fr + (b - tr).
                 // l false: tl*tr + (a - tl).
@@ -652,13 +651,13 @@ impl Branches<'_> {
                 let mut l_false = self.offset(a, tl, tl * tr, span);
                 let inner = self.split(b, tr, both, r_false, span);
                 let mut inner = self.with(b, rb, inner, span);
-                self.side_probes(Kind::And, span, &mut inner, &mut l_false);
+                self.side_probes(file, Kind::And, span, &mut inner, &mut l_false);
                 let body = self.split(a, tl, inner, l_false, span);
                 (self.with(a, la, body, span), tl * tr, fl + tl * fr)
             }
             ExprKind::Or { lhs, rhs } => {
-                let (la, tl, fl) = self.path(*lhs);
-                let (rb, tr, fr) = self.path(*rhs);
+                let (la, tl, fl) = self.path(*lhs, file);
+                let (rb, tr, fr) = self.path(*rhs, file);
                 let (a, b) = (self.local(self.options.i64_ty, span), self.local(self.options.i64_ty, span));
                 let trues = tl + fl * tr;
                 // l true: a. r true: tl + (a - tl)*tr + b. Both false:
@@ -669,13 +668,13 @@ impl Branches<'_> {
                 let r_false = self.combine(shifted, fr, b, tr, trues, span);
                 let inner = self.split(b, tr, r_true, r_false, span);
                 let mut inner = self.with(b, rb, inner, span);
-                self.side_probes(Kind::Or, span, &mut inner, &mut l_true);
+                self.side_probes(file, Kind::Or, span, &mut inner, &mut l_true);
                 let body = self.split(a, tl, l_true, inner, span);
                 (self.with(a, la, body, span), trues, fl * fr)
             }
             ExprKind::Prim { op: PrimOp::Not, args, .. } if not_operand => {
                 let operand = args.into_iter().next().unwrap_or_else(|| Expr::new(ExprKind::Unit, Ty::UNIT, span));
-                let (xa, tx, fx) = self.path(operand);
+                let (xa, tx, fx) = self.path(operand, file);
                 let a = self.local(self.options.i64_ty, span);
                 // x true: fx + a. x false: a - tx.
                 let x_true = self.offset(a, 0, fx, span);
@@ -701,11 +700,9 @@ impl Branches<'_> {
 
     /// Counts the `&&` or `||` at `span`'s right side running, before `ran`,
     /// and not, before `skipped`.
-    fn side_probes(&self, kind: Kind, span: Span, ran: &mut Expr, skipped: &mut Expr) {
-        if let (Some(yes), Some(no)) = (self.key(kind, span, 0), self.key(kind, span, 1)) {
-            hit_first(ran, yes, &self.options.i64_ty);
-            hit_first(skipped, no, &self.options.i64_ty);
-        }
+    fn side_probes(&self, file: &str, kind: Kind, span: Span, ran: &mut Expr, skipped: &mut Expr) {
+        hit_first(ran, self.key(file, kind, span, 0), &self.options.i64_ty);
+        hit_first(skipped, self.key(file, kind, span, 1), &self.options.i64_ty);
     }
 
     /// `{ let a = value; body }`.
@@ -770,9 +767,8 @@ impl Branches<'_> {
     /// An abort point as `{ let a = x; ...; reached; let v = op(a, ...); went on; v }`.
     fn trap(&mut self, e: &mut Expr) {
         let span = e.span;
-        let (Some(went_on), Some(reached)) = (self.key(Kind::Trap, span, 0), self.key(Kind::Trap, span, 1)) else {
-            return;
-        };
+        let Some(file) = (self.options.file_of)(span) else { return };
+        let (went_on, reached) = (self.key(&file, Kind::Trap, span, 0), self.key(&file, Kind::Trap, span, 1));
         let mut op = std::mem::replace(e, Expr::new(ExprKind::Unit, Ty::UNIT, span));
         let args = match &mut op.kind {
             ExprKind::Prim { args, .. } | ExprKind::CallFn { args, .. } => args,
@@ -920,17 +916,17 @@ impl Probe<'_> {
         let here = (self.key_of)(e.span);
         let fresh = here.filter(|k| Some(*k) != before);
         let after = here.or(before);
+        let span = e.span;
         match &mut e.kind {
-            ExprKind::Block { .. } => {
-                self.block(e, after);
-                if let (Some(k), ExprKind::Block { stmts, .. }) = (fresh, &mut e.kind) {
-                    stmts.insert(0, Stmt::Expr(self.hit(k, e.span)));
+            ExprKind::Block { stmts, tail } => {
+                self.block(stmts, tail, after);
+                if let Some(k) = fresh {
+                    stmts.insert(0, Stmt::Expr(self.hit(k, span)));
                 }
             }
             _ => {
                 self.inside(e, after);
                 if let Some(k) = fresh {
-                    let span = e.span;
                     let ty = e.ty;
                     let inner = std::mem::replace(e, Expr::new(ExprKind::Unit, Ty::UNIT, span));
                     *e = Expr::new(
@@ -948,8 +944,7 @@ impl Probe<'_> {
     }
 
     /// A block's statements and tail, each a site run after the one before.
-    fn block(&self, e: &mut Expr, mut before: Option<u64>) {
-        let ExprKind::Block { stmts, tail } = &mut e.kind else { return };
+    fn block(&self, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>, mut before: Option<u64>) {
         let mut out = Vec::with_capacity(stmts.len());
         for mut s in std::mem::take(stmts) {
             match &mut s {
@@ -993,7 +988,7 @@ impl Probe<'_> {
             ExprKind::Lambda { body, .. } => {
                 self.site(body, None);
             }
-            ExprKind::Block { .. } => self.block(e, before),
+            ExprKind::Block { stmts, tail } => self.block(stmts, tail, before),
             _ => crate::compiler::semantics::typed::children_mut(e, &mut |c| self.inside(c, before)),
         }
     }
