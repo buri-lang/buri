@@ -47,6 +47,7 @@
               is already in memory"
 )]
 
+use crate::diagnostics::Invariant;
 use crate::hash::Map as HashMap;
 
 use super::object::RelKind;
@@ -275,9 +276,8 @@ impl Region {
 
     pub fn set_bytes(&mut self, addr: u64, b: &[u8]) {
         let o = addr as usize;
-        if let Some(slot) = self.bytes.get_mut(o..o.saturating_add(b.len())) {
-            slot.copy_from_slice(b);
-        }
+        let slot = self.bytes.get_mut(o..o.saturating_add(b.len()));
+        slot.or_ice("a patch rewrites bytes already emitted").copy_from_slice(b);
     }
 
     pub fn word_at(&self, addr: u64) -> u32 {
@@ -293,9 +293,8 @@ impl Region {
 
     pub fn set_word(&mut self, addr: u64, w: u32) {
         let o = addr as usize;
-        if let Some(slot) = self.bytes.get_mut(o..o.saturating_add(4)) {
-            slot.copy_from_slice(&w.to_le_bytes());
-        }
+        let slot = self.bytes.get_mut(o..o.saturating_add(4));
+        slot.or_ice("a patch rewrites a word already emitted").copy_from_slice(&w.to_le_bytes());
     }
 
     /// The two sections and the relocations each still needs.
