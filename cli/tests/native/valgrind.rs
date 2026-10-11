@@ -14,8 +14,8 @@
 //! run it again. `report` turns each error into `issues/<signature>.md`, a
 //! title line and a body. The signature is the error's kind and the first
 //! function past the allocator, so one bug met by a hundred programs is one
-//! draft. The scheduled workflows (`.github/workflows/memcheck.yml` and
-//! `races.yml`) file the drafts.
+//! draft. The workflows (`.github/workflows/memcheck.yml` and `races.yml`)
+//! file the drafts.
 
 // The example uses `report`, `run` and `Tool`, and the test binary the rest.
 #![allow(dead_code)]
