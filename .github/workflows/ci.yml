@@ -527,7 +527,7 @@ jobs:
   # counts when any platform's tests took it (design/COVERAGE.md).
   # `coverage-build` builds each platform's instrumented `buri` and tests once,
   # so every shard of it runs the same `buri`; each shard runs a quarter of the
-  # tests and exports lcov; `coverage` merges every shard and gates.
+  # tests; `coverage` merges every shard and gates.
   coverage-build:
     name: coverage build (${{ matrix.platform }})
     strategy:
@@ -535,7 +535,7 @@ jobs:
       matrix:
         include:
           - { platform: x86_64-linux, os: blacksmith-8vcpu-ubuntu-2404 }
-          - { platform: arm64-linux, os: blacksmith-16vcpu-ubuntu-2404-arm }
+          - { platform: arm64-linux, os: blacksmith-16vcpu-ubuntu-2404-arm, cc: CC=/usr/bin/clang }
           - { platform: arm64-macos, os: blacksmith-12vcpu-macos-latest }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
@@ -557,28 +557,17 @@ jobs:
           path: |
             target/coverage/debug/build
             target/coverage-buri/debug/build
-          key: coverage-buildscript-unhardened-${{ matrix.platform }}-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
-          restore-keys: coverage-buildscript-unhardened-${{ matrix.platform }}-
-      - if: matrix.platform == 'arm64-linux'
-        name: Diagnose the x86_64 stencil probe (temporary)
+          key: coverage-buildscript-${{ matrix.platform }}-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: coverage-buildscript-${{ matrix.platform }}-
+      # On arm64 the shell's clang wrapper adds `-target-cpu armv8-a` to every
+      # compile, which an x86_64 target refuses, so `cli/build.rs` would write
+      # empty x86_64 stencils. The runner's own clang, as the `test` job's,
+      # adds nothing.
+      - if: matrix.cc
         run: |
-          ls target/coverage-buri/debug/build 2>/dev/null | grep -i stencil || echo "no stencil build dirs restored"
-          printf 'int f(void){return 1;}\n' > /tmp/p.c
-          cat > /tmp/probe.sh <<'PROBE'
-          echo "CC=${CC:-unset} NIX_HARDENING_ENABLE=${NIX_HARDENING_ENABLE:-unset}"
-          command -v cc clang
-          for c in cc clang; do
-            r=$($c -print-resource-dir)
-            $c -v -O2 -c -fPIC --target=x86_64-unknown-linux-musl -fno-asynchronous-unwind-tables -nostdinc -isystem "$r/include" /tmp/p.c -o /tmp/p.o 2>&1 | tail -5
-            echo "$c exit ${PIPESTATUS[0]}"
-          done
-          PROBE
-          nix develop .#coverage -c bash /tmp/probe.sh || true
-          nix develop .#coverage -c env NIX_HARDENING_ENABLE= bash /tmp/probe.sh || true
-      # `NIX_HARDENING_ENABLE=`: on arm64 the shell's clang adds
-      # `-mbranch-protection`, which the x86_64 stencils refuse, so `cli/build.rs`
-      # would leave them empty.
-      - run: nix develop .#coverage -c env NIX_HARDENING_ENABLE= cargo run -p buri-compiler-coverage -- --build
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang lld musl-dev musl-tools
+      - run: nix develop .#coverage -c env ${{ matrix.cc }} cargo run -p buri-compiler-coverage -- --build
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-build-${{ matrix.platform }}

@@ -208,25 +208,39 @@ generation and the macOS program store. So CI measures on x86_64 Linux, arm64
 Linux and arm64 macOS and gates the merge:
 
 - `--build` builds each platform's instrumented `buri` and its tests once.
-- `--shard=i/n` runs part of the tests and exports lcov with `llvm-cov export`,
-  every path relative to the root `buri` was built in.
+- `--shard=i/n` runs part of the tests and writes what they took to
+  `coverage.txt`, from `llvm-cov export`'s JSON.
 - `--merge=<dir>` merges every shard, gates, and writes each platform's lcov to
   `target/coverage/lcov/<host>.lcov`. CI uploads those as `coverage-baseline`,
   so main's uncovered branches can be read without running the suite.
 
+A branch side is keyed by where its function starts, its condition's span,
+which of the function's conditions with that span it is, and the side:
+
+```text
+branch 120 5  131 12 131 30  1  0  4     # function at 120:5, span 131:12-131:30, second copy, true side, taken 4 times
+```
+
+That counts what `llvm-cov report` counts, file by file. Instantiations of a
+generic function start at the same place, so they share keys, as `report`'s
+instantiation groups do. A guard on an or-pattern has one condition per
+alternative, all with the guard's span, and the copy number keeps them apart.
+lcov's `BRDA` lines can't: they merge every condition with the same span, and
+they keep folded sides. A folded side has a constant count, so it never runs
+and `report` leaves it out. The export doesn't say which sides are folded, so
+each file's total takes off as many as `report`'s count for the file is short.
+
 `cfg` is resolved per target, so each platform's binary has its own branches.
-The merge keys a branch by file, line and lcov's block and branch numbers:
+The key is a place in the source, so it means the same branch on every
+platform:
 
-- A branch counts as covered when any platform took it.
-- A branch only some platforms compile counts once, among their branches.
-- Platforms that list different branches on a line count theirs apart,
-  because the numbers on it may no longer name the same branch. Merging them
-  could call one branch covered because a different one ran.
+- A side counts as covered when any platform took it.
+- A side only some platforms compile counts once.
+- A file's folded sides are the fewest any platform has. Fewer is safe: a side
+  counted that isn't there only lowers the share.
 
-So the merged total is every branch some platform compiles, and nothing is
-counted covered that no platform ran. lcov merges a generic function's
-instantiations the same way: a branch is covered when any instantiation took
-it.
+So the merged total is every side some platform compiles, and nothing counts as
+covered unless a platform ran it.
 
 `coverage/compiler-branches.txt` names the platforms it merges on its `hosts`
 line, and a run is held to the baseline over those platforms alone. A
