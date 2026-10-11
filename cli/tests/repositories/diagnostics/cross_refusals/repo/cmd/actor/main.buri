@@ -10,14 +10,11 @@ export fn main(host: NativeHost): Result<(), Str> {
         Stdout: host.stdout,
         Tasks: host.tasks,
     };
-    let counter = actor.start(
-        ctx,
-        actor.Actor {
-            state: 0,
-            step: fn(_c, total, n) => actor.Stepped { state: total + n, answer: total + n },
-            onStop: .None,
-        },
-    );
+    let counter = actor.start(ctx, actor.Actor {
+        state: 0,
+        step: fn(_c, total, n) => actor.Stepped { state: total + n, answer: total + n },
+        onStop: .None,
+    });
     let sent = counter.sendMessage(ctx, 2);
     let _ = counter.stop(ctx).isOk();
     match (sent) {
