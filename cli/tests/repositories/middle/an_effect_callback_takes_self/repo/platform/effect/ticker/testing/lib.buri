@@ -1,0 +1,14 @@
+from "//platform/effect/ticker" import { Ticker };
+
+// Runs the callback once, at once, with twice the number.
+export struct TestTicker {}
+
+impl Ticker for TestTicker {
+    fn every(self, n: Int, run: fn(TestTicker, Int) => Int): Int {
+        run(self, n * 2)
+    }
+}
+
+export fn ticker(): TestTicker {
+    TestTicker {}
+}

@@ -1,0 +1,10 @@
+library {
+    sources: []
+    dependencies: ["//platform/effect/ticker"]
+
+    test {
+        sources: ["test/clock.buri"]
+        dependencies: ["//platform/effect/ticker/testing"]
+        backends: [NATIVE, JS]
+    }
+}
