@@ -1,0 +1,4 @@
+error [unexpected-token] 4:3-4:4
+message: expected `fn`, found `@`
+fix: write `fn` here
+

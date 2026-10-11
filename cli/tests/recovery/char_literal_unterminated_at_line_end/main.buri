@@ -1,0 +1,4 @@
+// EXPECT: unterminated character literal
+export fn letter(): Char {
+  '
+}

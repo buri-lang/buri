@@ -1,0 +1,6 @@
+// EXPECT: unterminated block comment
+export fn one(): Int {
+  1
+}
+
+/* never closed

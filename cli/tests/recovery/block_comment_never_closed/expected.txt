@@ -1,0 +1,4 @@
+error [unterminated-comment] 6:1-7:1
+message: unterminated block comment
+fix: close it with `*/`; block comments nest, so each `/*` needs one
+

@@ -1,0 +1,4 @@
+// EXPECT: expected `fn`, found `struct`
+export trait Shape {
+  struct Point {}
+}

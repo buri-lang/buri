@@ -1,0 +1,4 @@
+// EXPECT: this parameter list is missing its closing `)`
+export trait Shape {
+  fn area(self: Int;
+}

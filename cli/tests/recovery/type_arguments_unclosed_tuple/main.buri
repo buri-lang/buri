@@ -1,0 +1,4 @@
+// EXPECT: this tuple is missing its closing `)`
+export fn less(a: Int, b: Int): Bool {
+  a < (Int > (b)
+}

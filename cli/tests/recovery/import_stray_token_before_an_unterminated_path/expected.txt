@@ -1,0 +1,8 @@
+error [unexpected-token] 2:6-2:7
+message: expected a string literal, found `@`
+fix: quote it, as in `"core/list"`
+
+error [unterminated-string] 2:35-3:1
+message: unterminated string literal
+fix: close it with `"`; a string literal does not span a line break
+

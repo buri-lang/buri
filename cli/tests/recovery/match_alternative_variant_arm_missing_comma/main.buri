@@ -1,0 +1,9 @@
+// EXPECT: a match arm ends with `,`
+export enum Sign { Negative, Zero, Positive }
+
+export fn rank(s: Sign): Int {
+  match (s) {
+    .Negative => 1
+    .Zero | .Positive => 2,
+  }
+}

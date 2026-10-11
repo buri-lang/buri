@@ -1,0 +1,4 @@
+error [unterminated-character] 3:3-3:4
+message: unterminated character literal
+fix: close it with `'`
+

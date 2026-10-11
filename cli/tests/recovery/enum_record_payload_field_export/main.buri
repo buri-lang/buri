@@ -1,0 +1,4 @@
+// EXPECT: a variant carries no `export` of its own
+export enum Shape {
+  Circle { export radius: Int },
+}
