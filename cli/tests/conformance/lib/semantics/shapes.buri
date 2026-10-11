@@ -881,11 +881,9 @@ impl FileSystemWrite for RefusingFs {
     }
 }
 
-/// Attenuation (SPEC 10.8): a wrapper that satisfies each half of the
-/// filesystem only when what it wraps does, and that deliberately has no
-/// working `writeFile`, so the callee
-/// holds a value that genuinely lacks the ability rather than merely being
-/// unable to name it. The type parameter carries no bound, so the parameter
+/// Attenuation (SPEC 10.8): a wrapper that reads only when what it wraps does,
+/// and refuses every write whatever it wraps, so the callee holds a value that
+/// genuinely lacks the ability rather than merely being unable to name it. The type parameter carries no bound, so the parameter
 /// here is not effect-carrying and the wrapper is expressible.
 export struct Guarded<C>(export C);
 
@@ -923,7 +921,7 @@ impl<C: FileSystemRead> FileSystemRead for Guarded<C> {
     }
 }
 
-impl<C: FileSystemWrite> FileSystemWrite for Guarded<C> {
+impl<C> FileSystemWrite for Guarded<C> {
     fn writeFile(self, path: Path, body: Str): Result<(), IoError> {
         .Err(.Other("guarded"))
     }
@@ -953,7 +951,7 @@ impl<C: FileSystemWrite> FileSystemWrite for Guarded<C> {
     }
 
     fn syncFile(self, path: Path): Result<(), IoError> {
-        self.0.syncFile(path)
+        .Err(.Other("guarded"))
     }
 
     fn copyFile(self, source: Path, destination: Path): Result<(), IoError> {

@@ -1,0 +1,13 @@
+error: `Delayed<Plain>` does not implement `Clock` [missing-impl]
+  --> cmd/named_context_binding_impl_bound_unmet/main.buri:30:10
+   |
+30 |   Clock: delayed(Plain(1)),
+   |          ^^^^^^^^^^^^^^^^^
+   |
+   = `Delayed<C>` implements `Clock` only when `C` satisfies `Clock`, and here `C` is `Plain`
+   = fix: make `Plain` satisfy `Clock`
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+
