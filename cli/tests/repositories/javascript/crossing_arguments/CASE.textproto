@@ -1,0 +1,15 @@
+# A repository platform whose entry takes a list of requests, an optional
+# request and a list of numbers, and reads the file system. The build writes
+# its artifact here; `javascript::an_entry_reads_its_arguments_across_the_boundary`
+# calls it under the JavaScript runtime.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an entry that takes requests, an optional request and numbers builds for its platform"
+
+run {
+  args: ["build", "//cmd/batch"]
+  exit: 0
+  golden: "built.txt"
+}

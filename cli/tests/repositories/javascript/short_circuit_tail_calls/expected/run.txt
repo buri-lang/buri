@@ -1,0 +1,6 @@
+allSmall(small, 0) = true
+allSmall(big, 0) = false
+anyBigOnOdd(big, 1) = false
+anyBigOnOdd(big, 0) = false
+anyBigOnEven(big, 0) = false
+anyBigOnEven([20], 0) = true

@@ -25,6 +25,10 @@ fn variableSecond(a: Int, b: Int): Bool {
     a == 1 && a == b
 }
 
+fn computedSecond(a: Int, b: Int): Bool {
+    a == 2 && a == b * 2
+}
+
 fn twoTexts(s: Str): Bool {
     s == "a" && s == "b"
 }
@@ -41,5 +45,6 @@ export fn main(host: NodeHost): Result<(), Str> {
     let _ = io.println(ctx, "variableSecond(1, 1) = ${variableSecond(1, 1)}").ignore();
     let _ = io.println(ctx, "variableSecond(1, 2) = ${variableSecond(1, 2)}").ignore();
     let _ = io.println(ctx, "twoTexts(\"a\") = ${twoTexts("a")}").ignore();
+    let _ = io.println(ctx, "computedSecond(2, 1) = ${computedSecond(2, 1)}").ignore();
     .Ok(())
 }

@@ -1,0 +1,10 @@
+label(1) = one
+label(5) = many
+float(-0.0) = 1
+float(1.5) = 3
+word("c") = 3
+nested(1) = 10
+nested(3) = 33
+nested(9) = 0
+two
+three
