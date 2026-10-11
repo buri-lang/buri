@@ -770,3 +770,19 @@ fn a_malformed_message_does_not_stop_the_server_badly() {
         survived(&run, "malformed protocol bytes");
     }
 }
+
+/// What a user sees when the toolchain breaks its own invariant: the report and
+/// `EX_SOFTWARE`, not a panic.
+#[test]
+fn an_internal_error_reports_a_toolchain_bug_and_exits_70() {
+    let s = app("adversarial-internal-error");
+    let run = s.run_with_env(&["build"], &[("BURI_INTERNAL_ERROR_TEST", "1")]);
+    assert_eq!(run.code, 70, "{}", indent(&run.all()));
+    assert_eq!(
+        run.stderr,
+        "internal compiler error: BURI_INTERNAL_ERROR_TEST asked for an internal error\n  \
+         = this is a bug in the Buri toolchain, not in the code it was given\n  \
+         = fix: please report it, with the input that produced it, at\n         \
+         https://github.com/buri-lang/buri/issues\n"
+    );
+}
