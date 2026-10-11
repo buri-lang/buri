@@ -37,8 +37,8 @@ reference, under [`crates/docs/src/docs/language/`](../crates/docs/src/docs/lang
 12. The dot form (`.Variant`) requires a known expected type (Section 5.7).
 13. `?` requires the enclosing function's return type to be a compatible `Result`
     or `Option` (Section 6.8).
-14. Recursive type definitions must be productive: a recursive enum must have at
-    least one variant that does not recurse.
+14. Type definitions must be productive: an enum must have at least one
+    variant, and a recursive enum at least one variant that does not recurse.
 15. The head of a struct literal may not be a block-like expression; neither may
     the head of any postfix chain (`grammar-rationale.md` 12.13).
 16. A `_` pattern may not discard a value of type `Result<T, E>`

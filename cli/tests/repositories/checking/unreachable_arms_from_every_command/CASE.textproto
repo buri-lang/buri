@@ -1,11 +1,10 @@
-# An arm after a guarded arm runs, and an `Option` of an empty type needs only
-# `.None`. The edits add an arm the arms before it cover and an arm no value
-# fits, and every command that checks the library refuses both, as errors.
+# An arm after a guarded arm runs. The edit adds an arm the arms before it
+# cover, and every command that checks the library refuses it, as an error.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "an unreachable arm, covered or matching no value, is the same error from build, lint, test and the language server"
+doc: "an unreachable arm is the same error from build, lint, test and the language server"
 
 run {
   args: ["test", "//lib/dirs"]
@@ -17,12 +16,6 @@ edit {
   file: "lib/dirs/lib.buri"
   replace: ".Down => 0,"
   with: ".Down => 0, .Up => 3,"
-}
-
-edit {
-  file: "lib/dirs/lib.buri"
-  replace: ".None => 0,"
-  with: ".None => 0, .Some(_) => 1,"
 }
 
 run {

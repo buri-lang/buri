@@ -1,0 +1,8 @@
+# One JSON-RPC request per line. The harness adds the Content-Length framing,
+# and turns `<scratch>` into wherever the copy of repo/ landed.
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":"file://<scratch>"}}
+{"jsonrpc":"2.0","method":"initialized","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file://<scratch>/lib/never/lib.buri","languageId":"buri","version":1,"text":"/// Stands for a failure that can't happen.\nexport enum Never {\n    \n}\n\nexport enum Box<T> {\n    \n}\n\nexport fn orZero(o: Option<Never>): Int {\n    match (o) {\n        .None => 0,\n        .Some(_) => 1,\n    }\n}\n\nexport fn unbox(b: Box<Int>): Int {\n    match (b) {\n        .Full(n) => n,\n    }\n}\n"}}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file://<scratch>/lib/user/lib.buri","languageId":"buri","version":1,"text":"from \"//lib/never\" import { Never };\n\nexport fn open(r: Result<Int, Never>): Int {\n    match (r) {\n        .Ok(n) => n,\n        .Err(_) => 0,\n    }\n}\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}

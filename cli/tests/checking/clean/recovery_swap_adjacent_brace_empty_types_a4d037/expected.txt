@@ -1,9 +1,0 @@
-error: expected an expression, found `+` [unexpected-token]
-  --> main.buri:43:27
-   |
-43 |         .Link(_, rest) => + 1 length(rest),
-   |                           ^
-   |
-   = expected: an expression
-   = actual: `+`
-   = fix: write a value here

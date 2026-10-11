@@ -1,0 +1,21 @@
+/// Stands for a failure that can't happen.
+export enum Never {
+    Never,
+}
+
+export enum Box<T> {
+    Full(T),
+}
+
+export fn orZero(o: Option<Never>): Int {
+    match (o) {
+        .None => 0,
+        .Some(_) => 1,
+    }
+}
+
+export fn unbox(b: Box<Int>): Int {
+    match (b) {
+        .Full(n) => n,
+    }
+}

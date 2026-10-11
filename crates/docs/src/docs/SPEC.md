@@ -680,6 +680,9 @@ enum Tree<T> {
 }
 ```
 
+An enum has at least one variant, so every type has a value: `enum Never {}` is
+the `empty-enum` error.
+
 An exported enum exports every variant and payload field; a private one exports
 none. `export` on a variant is the `variant-export` error. To hide a
 representation, use a struct with a private field.
@@ -1597,10 +1600,6 @@ against the arms above it and the alternatives to its left: `.Now(_) | .World`
 below an arm that handles `.Now` reports the `.Now(_)` half. An arm with no
 reachable alternative gets the arm-level error. A guarded arm covers nothing,
 because its guard may fail.
-
-A type with no values, like `enum Never {}`, adds no case. `.None` alone covers
-an `Option<Never>`, and an arm for `.Some(_)` there is unreachable, because no
-value fits it.
 
 ---
 

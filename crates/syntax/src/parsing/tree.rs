@@ -317,6 +317,9 @@ pub struct EnumDecl {
     pub exported: bool,
     pub span: Span,
     pub docs: Docs,
+    /// Whether a variant was skipped for not reading, so that `variants` may
+    /// be short of what was written.
+    pub recovered: bool,
 }
 
 /// A variant carries no visibility of its own: it is exported exactly when the

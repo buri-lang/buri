@@ -1,0 +1,83 @@
+// EXPECT: `Never` has no variants
+//
+// An enum with no variants is refused, generic or not, and each is one error:
+// a type that names one is the error type, so no `match` over it, no arm it
+// makes dead, and no value given for it says anything more.
+
+/// Has no values.
+enum Never {}
+
+enum Empty<T> {}
+
+enum Reply {
+  Yes,
+  Lost(Never),
+}
+
+fn plain(o: Option<Never>): Int {
+  match (o) {
+    .None => 0,
+    .Some(_) => 1,
+  }
+}
+
+fn alternative(o: Option<Never>): Int {
+  match (o) {
+    .None | .Some(_) => 0,
+  }
+}
+
+fn guarded(o: Option<Never>, b: Bool): Int {
+  match (o) {
+    .None if (b) => 0,
+    .None => 1,
+    .Some(_) => 2,
+  }
+}
+
+fn missing(o: Option<Never>): Int {
+  match (o) {
+    .None => 0,
+  }
+}
+
+fn result(r: Result<Int, Empty<Int>>): Int {
+  match (r) {
+    .Ok(n) => n,
+  }
+}
+
+fn wild(n: Never): Int {
+  match (n) {
+    _ => 1,
+  }
+}
+
+fn none(n: (Never, Int)): Int {
+  match (n) {}
+}
+
+fn reply(r: Reply): Int {
+  match (r) {
+    .Yes => 1,
+  }
+}
+
+fn nested(o: Option<Reply>): Int {
+  match (o) {
+    .None => 0,
+    .Some(.Yes) => 1,
+  }
+}
+
+fn payloads(e: Empty<Int>): Int {
+  match (e) {
+    .Full(n) => n,
+    .Pair { a, b: c } => a + c,
+    .Bare => 0,
+  }
+}
+
+fn given(): Never {
+  5
+}

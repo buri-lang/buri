@@ -1,20 +1,6 @@
 // Tests only.
 from "core/testing/assert" import * as assert;
 
-enum Never {}
-
-// `Never` has no values, so `.Ok` alone covers the result.
-fn value(r: Result<Int, Never>): Int {
-    match (r) {
-        .Ok(n) => n,
-    }
-}
-
-test "a result whose error type has no values" {
-    let r: Result<Int, Never> = .Ok(4);
-    assert.equal(value(r), 4);
-}
-
 // Seventy fields: more than a 64-bit mask of them.
 struct Many {
     f0: Str,

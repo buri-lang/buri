@@ -1,0 +1,59 @@
+# The edits leave three enums with no variants: a documented one another
+# package imports, a generic one, and one in a test file. Every command that
+# checks them refuses each once, and nothing that names one, in this package
+# or the one importing it, adds an error of its own.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an enum with no variants is one error from build, lint, test and the language server"
+
+run {
+  args: ["test", "//lib/never"]
+  exit: 0
+  golden: "passed.txt"
+}
+
+edit {
+  file: "lib/never/lib.buri"
+  replace: "Never,"
+  with: ""
+}
+
+edit {
+  file: "lib/never/lib.buri"
+  replace: "Full(T),"
+  with: ""
+}
+
+edit {
+  file: "lib/never/test/never.buri"
+  replace: "Something,"
+  with: ""
+}
+
+run {
+  args: ["build", "//lib/user"]
+  exit: 1
+  golden: "build.txt"
+}
+
+run {
+  args: ["lint", "//lib/..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["test", "//lib/never"]
+  exit: 1
+  golden: "test.txt"
+}
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

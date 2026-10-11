@@ -1,0 +1,9 @@
+error: expected `{`, found `,` [unexpected-token]
+  --> main.buri:35:61
+   |
+35 | test "an arm after a guarded one runs when the guard fails" , {
+   |                                                             ^
+   |
+   = expected: `{`
+   = actual: `,`
+   = fix: write `{` here

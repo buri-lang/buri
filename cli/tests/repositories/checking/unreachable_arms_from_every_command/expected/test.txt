@@ -1,28 +1,18 @@
 0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)
 error: this arm is unreachable [unreachable-arm]
-  --> lib/dirs/lib.buri:12:21
+  --> lib/dirs/lib.buri:10:21
    |
-12 |         .Down => 0, .Up => 3,
+10 |         .Down => 0, .Up => 3,
    |                     ^^^^^^^^
    |
-  --> lib/dirs/lib.buri:11:9
-   |
-11 |         .Up => 1,
-   |         ^^^ already covered here
-   |
-   = the arms before it already cover everything it matches
-   = fix: delete it, or move it above the arm that subsumes it
+ --> lib/dirs/lib.buri:9:9
+  |
+9 |         .Up => 1,
+  |         ^^^ already covered here
+  |
+  = the arms before it already cover everything it matches
+  = fix: delete it, or move it above the arm that subsumes it
 
-     An arm is unreachable when the arms before it cover it, or when no value
-     fits it at all, like .Some(_) on an Option<Never>. A guarded arm covers
-     nothing, because its guard may fail. The usual cause is an arm in the wrong
-     place, and a dead arm reads as handled.
+    A guarded arm covers nothing, because its guard may fail. The usual cause is
+    an arm in the wrong place, and a dead arm reads as handled.
 
-error: this arm is unreachable [unreachable-arm]
-  --> lib/dirs/lib.buri:18:21
-   |
-18 |         .None => 0, .Some(_) => 1,
-   |                     ^^^^^^^^^^^^^
-   |
-   = no value fits it, because a type it matches has no values
-   = fix: delete it; nothing can reach it

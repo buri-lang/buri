@@ -1,0 +1,9 @@
+error: expected `;`, found `?` [unexpected-token]
+ --> main.buri:3:27
+  |
+3 | struct Trio(Int, Int, Int)? ;
+  |                           ^
+  |
+  = expected: `;`
+  = actual: `?`
+  = fix: write `;` here

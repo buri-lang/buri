@@ -1,0 +1,8 @@
+from "//lib/never" import { Never };
+
+export fn open(r: Result<Int, Never>): Int {
+    match (r) {
+        .Ok(n) => n,
+        .Err(_) => 0,
+    }
+}

@@ -287,7 +287,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         // `.Variant` — the scrutinee's type supplies the enum.
         if dotted {
             let TyKind::Con(con, args) = ty.kind() else {
-                if !ty.is_error() {
+                if ty.is_error() {
+                    self.poisoned_payload(payload);
+                } else {
                     let shown = self.show_ty(ty);
                     self.report_dot_form_against(&shown, head, span);
                 }
@@ -368,6 +370,33 @@ impl<'a, 'b> Infer<'a, 'b> {
                     )
                     .fix("write `.Variant` for a variant, or a lowerCamelCase name to bind the value");
                 typed::PatKind::Error
+            }
+        }
+    }
+
+    /// Checks a payload against the error type, so that the names it binds
+    /// are in scope and the error already reported is the only one.
+    fn poisoned_payload(&mut self, payload: Option<PatPayloadData>) {
+        let Some(p) = payload else { return };
+        let t = self.tree();
+        if !p.record {
+            for q in t.pkids_at(p.start, p.len) {
+                self.check_pattern(*q, &Ty::ERROR);
+            }
+            return;
+        }
+        for f in t.fpats_at(p.start, p.len) {
+            match t.opt_pat(f.pattern) {
+                Some(q) => {
+                    self.check_pattern(q, &Ty::ERROR);
+                }
+                // Field shorthand: `.User { id }` binds `id`.
+                None => {
+                    let name = t.text(f.name);
+                    self.pattern_names.push(name);
+                    let local = self.shared_local(name, &Ty::ERROR, t.span_of(f.name));
+                    self.bind(name, local);
+                }
             }
         }
     }

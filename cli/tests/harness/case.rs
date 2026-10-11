@@ -1005,6 +1005,9 @@ pub const A_RUN_THAT_ASSERTED_NOTHING: &[&str] = &[
     // shows it reports them as the other commands do. The errors above the
     // counts are what the golden is read for.
     "checking/unreachable_arms_from_every_command",
+    // The same for an enum with no variants: the errors above the counts are
+    // what the golden is read for.
+    "checking/empty_enum_from_every_command",
     // The suite reaches a `platform/effect/testing` facility no native backend has a body
     // for, and "did not compile" is the claim: the whole point of the step is
     // that `buri test` names the key it cannot compile instead of linking a

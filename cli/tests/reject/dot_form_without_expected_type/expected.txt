@@ -10,15 +10,3 @@ error: `.Some` needs a known expected type [untyped-variant]
     with no annotation expects nothing. Inference flows into the shorthand,
     never out of it, so two enums can share a variant name.
 
-error: there is nothing named `n` in scope [unknown-name]
- --> cmd/dot_form_without_expected_type/main.buri:9:17
-  |
-9 |     .Some(n) => n,
-  |                 ^
-  |
-  = did you mean `v`?
-  = fix: if you meant `v`, use that; if not, a name is in scope only from this module's own declarations and its imports
-
-    There is no prelude. A module sees only what it declares and what its own
-    imports name, which is why the suggestion is trustworthy.
-

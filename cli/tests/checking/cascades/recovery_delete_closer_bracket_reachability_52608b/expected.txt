@@ -1,0 +1,28 @@
+error: `graded` takes 2 arguments, but 3 were given [argument-count]
+  --> main.buri:36:39
+   |
+36 |     assert.equal([graded(.Yes, true), graded(.Yes, false, graded(.No, true)], [
+   |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass `graded` the following arguments: graded(r: Reply, strict: Bool)
+error: `.Yes` needs a known expected type [untyped-variant]
+  --> main.buri:36:46
+   |
+36 |     assert.equal([graded(.Yes, true), graded(.Yes, false, graded(.No, true)], [
+   |                                              ^^^^
+   |
+   = fix: write the qualified form, as in `Option.Yes(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:36:76
+   |
+36 |     assert.equal([graded(.Yes, true), graded(.Yes, false, graded(.No, true)], [
+   |                                                                            ^
+   |
+  --> main.buri:36:45
+   |
+36 |     assert.equal([graded(.Yes, true), graded(.Yes, false, graded(.No, true)], [
+   |                                             ^ opened here
+   |
+   = fix: write `)` here

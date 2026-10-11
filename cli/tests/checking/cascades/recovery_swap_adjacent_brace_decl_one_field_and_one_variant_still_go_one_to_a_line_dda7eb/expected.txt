@@ -1,0 +1,17 @@
+error: `Just` has no variants [empty-enum]
+ --> main.buri:9:1
+  |
+9 | export enum Just { } Here
+  | ^^^^^^^^^^^^^^^^^^^^
+  |
+  = an enum with no variants has no values, so nothing could ever build one
+  = fix: give `Just` a variant, or use `()` where a type needs no information
+error: expected a declaration, found `Here` [unexpected-token]
+ --> main.buri:9:22
+  |
+9 | export enum Just { } Here
+  |                      ^^^^
+  |
+  = expected: a declaration
+  = actual: `Here`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

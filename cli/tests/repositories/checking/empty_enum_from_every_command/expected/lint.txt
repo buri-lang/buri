@@ -1,0 +1,28 @@
+error: `Never` has no variants [empty-enum]
+ --> lib/never/lib.buri:2:1
+  |
+2 | export enum Never {
+  | ^^^^^^^^^^^^^^^^^^^
+  |
+  = an enum with no variants has no values, so nothing could ever build one
+  = fix: give `Never` a variant, or use `()` where a type needs no information
+
+    Buri has no type without values. Where a Result can't fail, return the value
+    itself rather than a Result whose error type has no values.
+
+error: `Box` has no variants [empty-enum]
+ --> lib/never/lib.buri:6:1
+  |
+6 | export enum Box<T> {
+  | ^^^^^^^^^^^^^^^^^^^^
+  |
+  = an enum with no variants has no values, so nothing could ever build one
+  = fix: give `Box` a variant, or use `()` where a type needs no information
+error: `Nothing` has no variants [empty-enum]
+ --> lib/never/test/never.buri:4:1
+  |
+4 | enum Nothing {
+  | ^^^^^^^^^^^^^^
+  |
+  = an enum with no variants has no values, so nothing could ever build one
+  = fix: give `Nothing` a variant, or use `()` where a type needs no information

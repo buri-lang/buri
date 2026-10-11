@@ -1,0 +1,12 @@
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:42:1
+   |
+42 | 
+   | ^
+   |
+  --> main.buri:35:61
+   |
+35 | test "an arm after a guarded one runs when the guard fails" {
+   |                                                             ^ opened here
+   |
+   = fix: write `}` here
