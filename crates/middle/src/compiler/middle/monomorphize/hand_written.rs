@@ -28,7 +28,7 @@ use crate::compiler::semantics::typed::{
     self, ArrayRest, ExprKind, FieldPat, PatKind, Pattern, TemplatePart,
 };
 use crate::compiler::semantics::types::*;
-use crate::diagnostics::Span;
+use crate::diagnostics::{Invariant as _, Span};
 
 type Expr = typed::Expr;
 
@@ -199,13 +199,13 @@ impl Monomorphizer<'_> {
             "testing_assert.failExpected" => (0, &[1], EXPECTED_SHOWN),
             _ => return false,
         };
-        let Some(scope) = self.checked.known_types.get("Scope").copied() else { return false };
-        let (Some(str_ty), Some(ty)) = (
-            params.get(kind_at as usize).copied(),
-            values.first().and_then(|i| params.get(*i as usize)).copied(),
-        ) else {
-            return false;
-        };
+        // `core/testing`, which declares both reporters, also declares `Scope`.
+        let scope = *self.checked.known_types.get("Scope").or_ice("`core/testing` declares `Scope`");
+        let str_ty = *params.get(kind_at as usize).or_ice("a reporter takes the kind it reports");
+        let ty = *values
+            .first()
+            .and_then(|i| params.get(*i as usize))
+            .or_ice("a reporter takes the value it reports");
         let scope_ty = Ty::con(scope, []);
         let Some(show) = self.unbounded_fn("Show", ty, Some(scope_ty)) else { return false };
         let ctx = Expr::new(
@@ -709,7 +709,8 @@ impl Monomorphizer<'_> {
                     if k > 0 {
                         out.push(TemplatePart::Text(", ".into()));
                     }
-                    if record && !tuple {
+                    // A tuple is never a record.
+                    if record {
                         out.push(TemplatePart::Text(format!("{}: ", p.name)));
                     }
                     out.push(TemplatePart::Hole(self.component(d, p.ty, vec![x])));
@@ -781,19 +782,15 @@ impl Monomorphizer<'_> {
         Expr::new(kind, d.ret, Span::NONE)
     }
 
-    /// A struct or an enum.
+    /// A struct or an enum that reaches a hand-written impl, so a struct here
+    /// has a field to reach it through.
     fn nominal(&mut self, d: &Deriving, ty: Ty, a: Expr, b: Option<Expr>) -> Expr {
-        let Some(con) = ty.head() else { return Expr::new(ExprKind::Error, d.ret, Span::NONE) };
+        let con = ty.head().or_ice("a type reaching a hand-written impl is a struct or an enum");
         let tycon = self.tables().tycon(con).clone();
         let parts = self.parts_of(&ty);
         match &tycon.def {
             TyDef::Struct { record, .. } => {
                 let fields = parts.into_iter().next().unwrap_or_default();
-                if fields.is_empty() && d.op == Op::Show {
-                    let shown =
-                        if *record { format!("{} {{}}", tycon.name) } else { format!("{}()", tycon.name) };
-                    return self.str_lit(&shown);
-                }
                 self.record(d, &tycon.name, *record, false, &fields, a, b)
             }
             TyDef::Enum { variants } => {

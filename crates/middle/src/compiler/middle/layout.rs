@@ -464,9 +464,7 @@ impl Cycles {
                     .is_some_and(|n| edges.get(*n).is_some_and(|out| out.contains(n)));
             recursive.push(cycle);
             for &node in group {
-                if let Some(slot) = groups.get_mut(node) {
-                    *slot = id;
-                }
+                *groups.get_mut(node).or_ice("a component's members are constructors of the table") = id;
             }
         }
         Cycles { groups, recursive }
@@ -490,11 +488,10 @@ pub struct Layouts<'a> {
     /// atomic: the stencil backend compiles its codegen units on a thread each
     /// (`stencil/mod.rs::emit_units`), and one `Cycles` is what those threads
     /// share. Nothing else in a `Layouts` crosses a thread — the memo, the
-    /// layout handles and the descriptions are one worker's own — so this is
+    /// and the layout handles are one worker's own — so this is
     /// the only handle that pays for it.
     cycles: Arc<Cycles>,
     depth: u32,
-    descriptions: Map<Ty, Rc<str>>,
     /// See [`Layouts::glue_key`].
     glue_keys: Map<Ty, GlueKey>,
 }
@@ -521,7 +518,6 @@ impl<'a> Layouts<'a> {
             table: Vec::new(),
             cycles,
             depth: 0,
-            descriptions: Map::default(),
             glue_keys: Map::default(),
         }
     }
@@ -891,36 +887,6 @@ impl<'a> Layouts<'a> {
         u64::from(HEADER_BYTES).saturating_add(u64::from(size))
     }
 
-    // -----------------------------------------------------------------------
-    // The debug renderer
-    // -----------------------------------------------------------------------
-
-    /// One type's layout as text, so a change to the model is a visible diff
-    /// rather than a number that moved in a backend.
-    ///
-    /// A `*` before an offset means the slot holds a pointer to the value
-    /// rather than the value.
-    pub fn describe(&mut self, ty: &Ty) -> String {
-        let mut out = String::new();
-        self.write_description(&mut out, ty);
-        out
-    }
-
-    /// The same text, memoised and shared.
-    ///
-    /// A backend that identifies a per-type helper by its layout description
-    /// asks this once per reference operation, and the description of an enum
-    /// is a line per variant over a cloned [`Layout`] — so building it each
-    /// time is quadratic in the width of the widest enum in the program.
-    pub fn description(&mut self, ty: &Ty) -> Rc<str> {
-        if let Some(known) = self.descriptions.get(ty) {
-            return Rc::clone(known);
-        }
-        let text: Rc<str> = Rc::from(self.describe(ty).as_str());
-        self.descriptions.insert(*ty, Rc::clone(&text));
-        text
-    }
-
     /// A name for the drop and copy glue of a type: a hash of everything the
     /// glue reads, and nothing else.
     ///
@@ -1023,175 +989,6 @@ impl<'a> Layouts<'a> {
         (shallowest, cyclic)
     }
 
-    /// Several types, one block each, newline separated and with no trailing
-    /// newline — the shape a golden test compares.
-    #[cfg(test)]
-    fn describe_all(&mut self, tys: &[Ty]) -> String {
-        let mut out = String::new();
-        for (i, ty) in tys.iter().enumerate() {
-            if i > 0 {
-                out.push('\n');
-            }
-            self.write_description(&mut out, ty);
-        }
-        out
-    }
-
-    fn write_description(&mut self, out: &mut String, ty: &Ty) {
-        let layout = self.of(*ty);
-        let name = self.name(ty);
-        // Writing to a `String` cannot fail; the result is discarded rather
-        // than unwrapped so that no path here can panic.
-        let _ = writeln!(
-            out,
-            "{name}: size {}, align {}, stride {}",
-            layout.size, layout.align, layout.stride
-        );
-        match &layout.repr {
-            Repr::Zero => out.push_str("  zero-sized\n"),
-            Repr::Scalar(s) => {
-                let _ = writeln!(out, "  scalar {}", s.name());
-            }
-            Repr::Str | Repr::List | Repr::Closure | Repr::Aggregate => {
-                let kind = match &layout.repr {
-                    Repr::Str => "str",
-                    Repr::List => "list",
-                    Repr::Closure => "closure",
-                    _ => "aggregate",
-                };
-                let names = self.field_names(ty);
-                let slots = self.slots(ty);
-                let mut body = String::new();
-                for (i, offset) in layout.fields.iter().enumerate() {
-                    if i > 0 {
-                        body.push_str(", ");
-                    }
-                    let label = names.get(i).cloned().unwrap_or_else(|| i.to_string());
-                    let boxed = if slots.get(i).copied().unwrap_or(false) { "*" } else { "" };
-                    let _ = write!(body, "{label} {boxed}@{offset}");
-                }
-                let _ = writeln!(out, "  {kind} {{ {body} }}");
-            }
-            Repr::Enum { repr, variants } => {
-                match repr {
-                    EnumRepr::Bare { tag } => {
-                        let _ = writeln!(out, "  enum bare tag {}", tag.name());
-                    }
-                    EnumRepr::Niche { null_at } => {
-                        let _ = writeln!(out, "  enum niche, .None is a null pointer @{null_at}");
-                    }
-                    EnumRepr::Tagged { tag, payload } => {
-                        let _ = writeln!(out, "  enum tag {} @0, payload @{payload}", tag.name());
-                    }
-                }
-                let names = self.variant_names(ty);
-                let boxed = self.variant_slots(ty);
-                for (i, offsets) in variants.iter().enumerate() {
-                    let label = names.get(i).cloned().unwrap_or_else(|| i.to_string());
-                    let empty: Vec<bool> = Vec::new();
-                    let slots = boxed.get(i).unwrap_or(&empty);
-                    let mut body = String::new();
-                    for (f, offset) in offsets.iter().enumerate() {
-                        if f > 0 {
-                            body.push_str(", ");
-                        }
-                        let star = if slots.get(f).copied().unwrap_or(false) { "*" } else { "" };
-                        let _ = write!(body, "{star}@{offset}");
-                    }
-                    if offsets.is_empty() {
-                        let _ = writeln!(out, "    .{label}");
-                    } else {
-                        let _ = writeln!(out, "    .{label}({body})");
-                    }
-                }
-            }
-        }
-        // The block ends with the last line rather than with a blank one.
-        out.truncate(out.trim_end_matches('\n').len());
-    }
-
-    /// How a program would write the type. `Ty::Ctx` has no spelling — it is
-    /// never written down (SPEC 11.3) — so it is named by what it binds, which
-    /// is what a reader of a layout diff needs anyway.
-    fn name(&self, ty: &Ty) -> String {
-        match ty.kind() {
-            TyKind::Ctx(id) => {
-                let names: Vec<&str> = self
-                    .tables
-                    .ctx_type(*id)
-                    .bindings
-                    .iter()
-                    .map(|(t, _)| self.tables.trait_(*t).name.as_str())
-                    .collect();
-                format!("context {{ {} }}", names.join(", "))
-            }
-            _ => types::show(self.tables, None, &[], ty),
-        }
-    }
-
-    fn field_names(&self, ty: &Ty) -> Vec<String> {
-        let tables = self.tables;
-        match ty.kind() {
-            TyKind::Array(_) => vec!["ptr".into(), "len".into()],
-            TyKind::Fn(_, _) => vec!["code".into(), "env".into()],
-            TyKind::Tuple(elements) => (0..elements.len()).map(|i| i.to_string()).collect(),
-            TyKind::Ctx(id) => tables
-                .ctx_type(*id)
-                .bindings
-                .iter()
-                .map(|(t, _)| tables.trait_(*t).name.clone())
-                .collect(),
-            TyKind::Con(id, _) => match &tables.tycon(*id).def {
-                TyDef::Prim(Prim::Str | Prim::Template) => {
-                    vec!["base".into(), "ptr".into(), "len".into()]
-                }
-                TyDef::Struct { fields, record } => fields
-                    .iter()
-                    .enumerate()
-                    .map(|(i, f)| if *record { f.name.clone() } else { i.to_string() })
-                    .collect(),
-                TyDef::Prim(_) | TyDef::Enum { .. } => Vec::new(),
-            },
-            _ => Vec::new(),
-        }
-    }
-
-    /// Which of a value's own fields are behind a pointer.
-    fn slots(&self, ty: &Ty) -> Vec<bool> {
-        let tables = self.tables;
-        match ty.kind() {
-            TyKind::Con(id, args) => match &tables.tycon(*id).def {
-                TyDef::Struct { fields, .. } => fields
-                    .iter()
-                    .map(|f| self.boxes(ty, &types::substitute(&f.ty, args, None)))
-                    .collect(),
-                _ => Vec::new(),
-            },
-            _ => Vec::new(),
-        }
-    }
-
-    fn variant_names(&self, ty: &Ty) -> Vec<String> {
-        match ty.head() {
-            Some(con) => self.tables.tycon(con).variants().iter().map(|v| v.name.clone()).collect(),
-            None => Vec::new(),
-        }
-    }
-
-    fn variant_slots(&self, ty: &Ty) -> Vec<Vec<bool>> {
-        let TyKind::Con(id, args) = ty.kind() else { return Vec::new() };
-        self.tables
-            .tycon(*id)
-            .variants()
-            .iter()
-            .map(|v| {
-                v.fields
-                    .iter()
-                    .map(|f| self.boxes(ty, &types::substitute(&f.ty, args, None)))
-                    .collect()
-            })
-            .collect()
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1288,6 +1085,182 @@ fn inline_cons(ty: &Ty, out: &mut Vec<TyConId>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The debug renderer: one type's layout as text, so a change to the model
+    /// is a visible diff rather than a number that moved in a backend.
+    /// A `*` before an offset means the slot holds a pointer to the value
+    /// rather than the value.
+    impl Layouts<'_> {
+        /// Several types, one block each, newline separated and with no trailing
+        /// newline — the shape a golden test compares.
+        fn describe_all(&mut self, tys: &[Ty]) -> String {
+            let mut out = String::new();
+            for (i, ty) in tys.iter().enumerate() {
+                if i > 0 {
+                    out.push('\n');
+                }
+                self.write_description(&mut out, ty);
+            }
+            out
+        }
+
+        fn write_description(&mut self, out: &mut String, ty: &Ty) {
+            let layout = self.of(*ty);
+            let name = self.name(ty);
+            // Writing to a `String` cannot fail; the result is discarded rather
+            // than unwrapped so that no path here can panic.
+            let _ = writeln!(
+                out,
+                "{name}: size {}, align {}, stride {}",
+                layout.size, layout.align, layout.stride
+            );
+            match &layout.repr {
+                Repr::Zero => out.push_str("  zero-sized\n"),
+                Repr::Scalar(s) => {
+                    let _ = writeln!(out, "  scalar {}", s.name());
+                }
+                Repr::Str | Repr::List | Repr::Closure | Repr::Aggregate => {
+                    let kind = match &layout.repr {
+                        Repr::Str => "str",
+                        Repr::List => "list",
+                        Repr::Closure => "closure",
+                        _ => "aggregate",
+                    };
+                    let names = self.field_names(ty);
+                    let slots = self.slots(ty);
+                    let mut body = String::new();
+                    for (i, offset) in layout.fields.iter().enumerate() {
+                        if i > 0 {
+                            body.push_str(", ");
+                        }
+                        let label = names.get(i).cloned().unwrap_or_else(|| i.to_string());
+                        let boxed = if slots.get(i).copied().unwrap_or(false) { "*" } else { "" };
+                        let _ = write!(body, "{label} {boxed}@{offset}");
+                    }
+                    let _ = writeln!(out, "  {kind} {{ {body} }}");
+                }
+                Repr::Enum { repr, variants } => {
+                    match repr {
+                        EnumRepr::Bare { tag } => {
+                            let _ = writeln!(out, "  enum bare tag {}", tag.name());
+                        }
+                        EnumRepr::Niche { null_at } => {
+                            let _ = writeln!(out, "  enum niche, .None is a null pointer @{null_at}");
+                        }
+                        EnumRepr::Tagged { tag, payload } => {
+                            let _ = writeln!(out, "  enum tag {} @0, payload @{payload}", tag.name());
+                        }
+                    }
+                    let names = self.variant_names(ty);
+                    let boxed = self.variant_slots(ty);
+                    for (i, offsets) in variants.iter().enumerate() {
+                        let label = names.get(i).cloned().unwrap_or_else(|| i.to_string());
+                        let empty: Vec<bool> = Vec::new();
+                        let slots = boxed.get(i).unwrap_or(&empty);
+                        let mut body = String::new();
+                        for (f, offset) in offsets.iter().enumerate() {
+                            if f > 0 {
+                                body.push_str(", ");
+                            }
+                            let star = if slots.get(f).copied().unwrap_or(false) { "*" } else { "" };
+                            let _ = write!(body, "{star}@{offset}");
+                        }
+                        if offsets.is_empty() {
+                            let _ = writeln!(out, "    .{label}");
+                        } else {
+                            let _ = writeln!(out, "    .{label}({body})");
+                        }
+                    }
+                }
+            }
+            // The block ends with the last line rather than with a blank one.
+            out.truncate(out.trim_end_matches('\n').len());
+        }
+
+        /// How a program would write the type. `Ty::Ctx` has no spelling — it is
+        /// never written down (SPEC 11.3) — so it is named by what it binds, which
+        /// is what a reader of a layout diff needs anyway.
+        fn name(&self, ty: &Ty) -> String {
+            match ty.kind() {
+                TyKind::Ctx(id) => {
+                    let names: Vec<&str> = self
+                        .tables
+                        .ctx_type(*id)
+                        .bindings
+                        .iter()
+                        .map(|(t, _)| self.tables.trait_(*t).name.as_str())
+                        .collect();
+                    format!("context {{ {} }}", names.join(", "))
+                }
+                _ => types::show(self.tables, None, &[], ty),
+            }
+        }
+
+        fn field_names(&self, ty: &Ty) -> Vec<String> {
+            let tables = self.tables;
+            match ty.kind() {
+                TyKind::Array(_) => vec!["ptr".into(), "len".into()],
+                TyKind::Fn(_, _) => vec!["code".into(), "env".into()],
+                TyKind::Tuple(elements) => (0..elements.len()).map(|i| i.to_string()).collect(),
+                TyKind::Ctx(id) => tables
+                    .ctx_type(*id)
+                    .bindings
+                    .iter()
+                    .map(|(t, _)| tables.trait_(*t).name.clone())
+                    .collect(),
+                TyKind::Con(id, _) => match &tables.tycon(*id).def {
+                    TyDef::Prim(Prim::Str | Prim::Template) => {
+                        vec!["base".into(), "ptr".into(), "len".into()]
+                    }
+                    TyDef::Struct { fields, record } => fields
+                        .iter()
+                        .enumerate()
+                        .map(|(i, f)| if *record { f.name.clone() } else { i.to_string() })
+                        .collect(),
+                    TyDef::Prim(_) | TyDef::Enum { .. } => Vec::new(),
+                },
+                _ => Vec::new(),
+            }
+        }
+
+        /// Which of a value's own fields are behind a pointer.
+        fn slots(&self, ty: &Ty) -> Vec<bool> {
+            let tables = self.tables;
+            match ty.kind() {
+                TyKind::Con(id, args) => match &tables.tycon(*id).def {
+                    TyDef::Struct { fields, .. } => fields
+                        .iter()
+                        .map(|f| self.boxes(ty, &types::substitute(&f.ty, args, None)))
+                        .collect(),
+                    _ => Vec::new(),
+                },
+                _ => Vec::new(),
+            }
+        }
+
+        fn variant_names(&self, ty: &Ty) -> Vec<String> {
+            match ty.head() {
+                Some(con) => self.tables.tycon(con).variants().iter().map(|v| v.name.clone()).collect(),
+                None => Vec::new(),
+            }
+        }
+
+        fn variant_slots(&self, ty: &Ty) -> Vec<Vec<bool>> {
+            let TyKind::Con(id, args) = ty.kind() else { return Vec::new() };
+            self.tables
+                .tycon(*id)
+                .variants()
+                .iter()
+                .map(|v| {
+                    v.fields
+                        .iter()
+                        .map(|f| self.boxes(ty, &types::substitute(&f.ty, args, None)))
+                        .collect()
+                })
+                .collect()
+        }
+    }
+
     use crate::compiler::semantics::types::{
         CtxType, CtxTypeId, FieldInfo, GenericInfo, ModuleId, TraitId, TraitInfo, TyCon,
         VariantInfo,

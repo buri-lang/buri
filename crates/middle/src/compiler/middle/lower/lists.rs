@@ -61,6 +61,7 @@ use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{Callee, Expr, ExprKind};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyKind};
+use crate::diagnostics::Invariant as _;
 
 /// Whether `key` is lowered here.
 pub(super) fn handles(key: &str) -> bool {
@@ -166,6 +167,15 @@ struct Walk {
     ended: ValueId,
 }
 
+/// The element type of a list the checker typed as one.
+fn elem_of(list: &Ty) -> Ty {
+    match list.kind() {
+        TyKind::Array(elem) => Some(*elem),
+        _ => None,
+    }
+    .or_ice("a `core/list` operand is a list")
+}
+
 impl FnLower<'_> {
     /// A call of `key`, lowered as its loop.
     pub(super) fn list_call(&mut self, key: &str, args: &[Expr], ret: &Ty) -> ValueId {
@@ -233,9 +243,12 @@ impl FnLower<'_> {
             _ => return None,
         };
         let f = *vals.get(call.func)?;
-        let TyKind::Fn(params, step_ret) = (tys.get(call.func)?).kind() else { return None };
-        let step_ret = *step_ret;
-        let callee = self.callee(f, step, params.len());
+        let (arity, step_ret) = match (tys.get(call.func)?).kind() {
+            TyKind::Fn(params, step_ret) => Some((params.len(), *step_ret)),
+            _ => None,
+        }
+        .or_ice("a `core/list` step is a function");
+        let callee = self.callee(f, step, arity);
         let ctx = match call.ctx {
             Some(c) => Some(Arg { value: *vals.get(c)?, ty: *tys.get(c)?, owned: false }),
             None => None,
@@ -304,8 +317,7 @@ impl FnLower<'_> {
             Step::FilterMap => {
                 let some = self.variant_of(&step_ret, "Some", 0);
                 let some_tag = self.int(Type::I32, some as usize);
-                let TyKind::Array(b) = ret.kind() else { return None };
-                let b_t = self.type_of(b);
+                let b_t = self.type_of(&elem_of(ret));
                 let out = self.emit(ret_t, |dest| Inst::ArrayAlloc { dest, len: n });
                 let zero = self.int(Type::I64, 0);
                 let w = self.walk(n, &[zero]);
@@ -496,11 +508,10 @@ impl FnLower<'_> {
     /// Both halves of every pair are a second owner of what they hold.
     fn list_zip(&mut self, vals: &[ValueId], tys: &[Ty], ret: &Ty) -> Option<ValueId> {
         let (&xs, &ys) = (vals.first()?, vals.get(2)?);
-        let (TyKind::Array(a), TyKind::Array(b)) = (tys.first()?.kind(), tys.get(2)?.kind()) else { return None };
-        let (a, b) = (*a, *b);
-        let TyKind::Array(pair) = ret.kind() else { return None };
+        let (a, b) = (elem_of(tys.first()?), elem_of(tys.get(2)?));
+        let pair = elem_of(ret);
         let (a_t, b_t, pair_t, ret_t) =
-            (self.type_of(&a), self.type_of(&b), self.type_of(pair), self.type_of(ret));
+            (self.type_of(&a), self.type_of(&b), self.type_of(&pair), self.type_of(ret));
         let la = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
         let lb = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: ys });
         let n = self.shorter(la, lb);
@@ -525,9 +536,8 @@ impl FnLower<'_> {
     /// out is a second owner; the inner lists themselves are only read.
     fn list_flatten(&mut self, vals: &[ValueId], tys: &[Ty], ret: &Ty) -> Option<ValueId> {
         let xs = *vals.first()?;
-        let TyKind::Array(inner) = (tys.first()?).kind() else { return None };
-        let TyKind::Array(elem) = inner.kind() else { return None };
-        let (inner, elem) = (*inner, *elem);
+        let inner = elem_of(tys.first()?);
+        let elem = elem_of(&inner);
         let (inner_t, elem_t, ret_t) =
             (self.type_of(&inner), self.type_of(&elem), self.type_of(ret));
         let counted = self.counts.counted(&elem);
@@ -576,8 +586,7 @@ impl FnLower<'_> {
         ret: &Ty,
     ) -> Option<ValueId> {
         let (&xs, &ys, &f) = (vals.first()?, vals.get(1)?, vals.get(2)?);
-        let TyKind::Array(elem) = (tys.first()?).kind() else { return None };
-        let elem = *elem;
+        let elem = elem_of(tys.first()?);
         let elem_t = self.type_of(&elem);
         let ret_t = self.type_of(ret);
         let callee = self.callee(f, step, 2);
@@ -691,8 +700,7 @@ impl FnLower<'_> {
         ret: &Ty,
     ) -> Option<ValueId> {
         let (&xs, &f) = (vals.first()?, vals.get(1)?);
-        let TyKind::Array(elem) = (tys.first()?).kind() else { return None };
-        let elem = *elem;
+        let elem = elem_of(tys.first()?);
         let shown = Ty::array(*ret);
         let (elem_t, ret_t, shown_t) =
             (self.type_of(&elem), self.type_of(ret), self.type_of(&shown));
@@ -873,8 +881,8 @@ impl FnLower<'_> {
         let run_len = self.int(Type::I64, SORT_RUN);
         self.set_term(Term::Jump(Target::new(widths, vec![run_len, a0, b0])));
         self.cur = widths;
-        let [w, a, b] = self.code.get(widths).params.as_slice() else { return None };
-        let (w, a, b) = (*w, *a, *b);
+        let [w, a, b] = <[ValueId; 3]>::try_from(self.code.get(widths).params.as_slice())
+            .or_ice("the block was made with three parameters");
         let sorted = self.bin(BinOp::Ge, Prim::U64, w, n);
         let exit = self.block(&[]);
         let pass = self.block(&[]);
@@ -933,8 +941,8 @@ impl FnLower<'_> {
         let left_len = self.bin(BinOp::Sub, Prim::I64, mid, lo);
         self.set_term(Term::Jump(Target::new(copy, vec![mid, lo, right_len, left_len, lo])));
         self.cur = copy;
-        let [from, to, len, rest, rest_from] = self.code.get(copy).params.as_slice() else { return None };
-        let (from, to, len, rest, rest_from) = (*from, *to, *len, *rest, *rest_from);
+        let [from, to, len, rest, rest_from] = <[ValueId; 5]>::try_from(self.code.get(copy).params.as_slice())
+            .or_ice("the block was made with five parameters");
         let moving = self.walk(len, &[]);
         let at = self.add(from, moving.i);
         let e = get(self, a, at);
@@ -958,8 +966,8 @@ impl FnLower<'_> {
         let merge = self.block(&[Type::I64; 3]);
         self.set_term(Term::Jump(Target::new(merge, vec![lo, mid, lo])));
         self.cur = merge;
-        let [li, ri, out] = self.code.get(merge).params.as_slice() else { return None };
-        let (li, ri, out) = (*li, *ri, *out);
+        let [li, ri, out] = <[ValueId; 3]>::try_from(self.code.get(merge).params.as_slice())
+            .or_ice("the block was made with three parameters");
         let x = get(self, a, li);
         let y = get(self, a, ri);
         let right_first = self.order(&order, BinOp::Eq, x, y);
@@ -1043,8 +1051,7 @@ impl FnLower<'_> {
     /// reason.
     fn list_get(&mut self, vals: &[ValueId], tys: &[Ty], ret: &Ty) -> Option<ValueId> {
         let (&xs, &i) = (vals.first()?, vals.get(1)?);
-        let TyKind::Array(elem) = (tys.first()?).kind() else { return None };
-        let elem = *elem;
+        let elem = elem_of(tys.first()?);
         let (elem_t, ret_t) = (self.type_of(&elem), self.type_of(ret));
         let some = self.variant_of(ret, "Some", 0);
         let none = self.variant_of(ret, "None", 1);
@@ -1077,34 +1084,24 @@ impl FnLower<'_> {
     fn callee(&mut self, f: ValueId, step: Option<FuncIdx>, want: usize) -> Via {
         let thunk = Via::Thunk(f);
         let Some(func) = step else { return thunk };
-        let Some(g) = self.program.funcs.get(func.index()) else { return thunk };
-        // An intrinsic has no body to call, and a merged tail-call group takes
-        // a dispatch index its signature does not show.
-        if !matches!(g.kind, FuncKind::Body(_)) || self.entries.get(func.index()).copied().unwrap_or(0) > 1 {
+        let g = self.program.funcs.get(func.index()).or_ice("a step is a function of the program");
+        // An intrinsic has no body to call. A step named by reference is never
+        // a merged tail-call group, which only its members' forwarders call.
+        if !matches!(g.kind, FuncKind::Body(_)) {
             return thunk;
         }
-        let env = match g.params.len() {
-            n if n == want => None,
-            // A lambda that captured nothing still takes its environment
-            // first, as an empty tuple (`middle::closures`).
-            n if Some(n) == want.checked_add(1) => {
-                let ty = g.params.first().and_then(|p| g.locals.get(p.index())).map(|l| l.ty);
-                match ty {
-                    Some(t) if t == Ty::tuple([]) => {
-                        let env_t = self.type_of(&t);
-                        Some(self.emit(env_t, |dest| Inst::MakeStruct { dest, fields: Vec::new() }))
-                    }
-                    _ => return thunk,
-                }
-            }
-            _ => return thunk,
+        // A function passed by name takes the step's own parameters. A lambda
+        // `middle::closures` lifted captured nothing, or it would be a closure
+        // rather than a reference, and still takes its environment first, as
+        // an empty tuple.
+        let env = if g.params.len() == want {
+            None
+        } else {
+            let env_t = self.type_of(&Ty::tuple([]));
+            Some(self.emit(env_t, |dest| Inst::MakeStruct { dest, fields: Vec::new() }))
         };
-        // The column `lower::facts` copies onto the callee, and the
-        // conservative answer where it would not trust the plan.
-        let own = match self.plan.func(func) {
-            Some(p) if p.params.len() == g.params.len() => p.params.clone(),
-            _ => vec![Ownership::Own; g.params.len()],
-        };
+        // The column `lower::facts` copies onto the callee.
+        let own = self.plan.func(func).or_ice("`rc` plans every function").params.clone();
         let own = own.into_iter().skip(usize::from(env.is_some())).collect();
         Via::Direct { func, env, own }
     }
