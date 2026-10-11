@@ -7,43 +7,44 @@ FAIL //lib/s00  test/g.buri  "f4 aborts 1"
 FAIL //lib/s01  test/g.buri  "f0 aborts 0"
   shift out of range
   --> lib/s01/test/g.buri:12:1
-FAIL //lib/s03  test/g.buri  "f3 aborts 0"
-  division by zero
-  --> lib/s03/test/g.buri:33:1
-FAIL //lib/s03  test/g.buri  "f3 aborts 1"
-  division by zero
-  --> lib/s03/test/g.buri:37:1
 FAIL //lib/s06  test/g.buri  "f1 aborts 1"
   division by zero
   --> lib/s06/test/g.buri:19:1
-FAIL //lib/s08  test/g.buri  "f1 aborts 0"
+FAIL //lib/s08  test/g.buri  "f1 aborts 1"
   division by zero
-  --> lib/s08/test/g.buri:17:1
+  --> lib/s08/test/g.buri:15:1
+FAIL //lib/s08  test/g.buri  "f4 aborts 0"
+  shift out of range
+  --> lib/s08/test/g.buri:25:1
 FAIL //lib/t06  test/t.buri  "f1 aborts 0"
   division by zero
   --> lib/t06/test/t.buri:16:1
 FAIL //lib/t06  test/t.buri  "f4 aborts 0"
   division by zero
   --> lib/t06/test/t.buri:39:1
-111 passed, 9 failed, 0 skipped
+FAIL //lib/t08  test/t.buri  "f1 aborts 0"
+  division by zero
+  --> lib/t08/test/t.buri:14:1
+113 passed, 9 failed, 0 skipped
 
 mc/dc coverage           branches     conditions     decisions
   lib/s00/g.buri    24/32   75.0%    0/4    0.0%   0/2    0.0%
   lib/s01/g.buri    23/40   57.5%    0/2    0.0%   0/1    0.0%
   lib/s02/g.buri    25/46   54.3%    0/4    0.0%   0/2    0.0%
-  lib/s03/g.buri    16/19   84.2%    4/6   66.7%   2/3   66.7%
+  lib/s03/g.buri    17/21   81.0%    2/4   50.0%   1/2   50.0%
   lib/s04/g.buri    19/28   67.9%    0/0       -   0/0       -
   lib/s05/g.buri    23/49   46.9%    2/7   28.6%   1/3   33.3%
   lib/s06/g.buri    32/48   66.7%   5/11   45.5%   2/5   40.0%
   lib/s07/g.buri    29/53   54.7%    3/7   42.9%   1/3   33.3%
-  lib/s08/g.buri    15/26   57.7%    0/4    0.0%   0/1    0.0%
-  lib/s09/g.buri    32/45   71.1%    3/8   37.5%   0/3    0.0%
+  lib/s08/g.buri    13/22   59.1%    0/0       -   0/0       -
+  lib/s09/g.buri    19/34   55.9%    1/5   20.0%   0/2    0.0%
   lib/s10/g.buri    13/19   68.4%    0/0       -   0/0       -
   lib/s11/g.buri    26/53   49.1%    2/2  100.0%   1/1  100.0%
   lib/t01/t.buri      2/2  100.0%    0/0       -   0/0       -
   lib/t04/t.buri      2/2  100.0%    0/0       -   0/0       -
   lib/t05/t.buri      2/2  100.0%    0/0       -   0/0       -
   lib/t06/t.buri      2/2  100.0%    0/0       -   0/0       -
+  lib/t08/t.buri      2/2  100.0%    0/0       -   0/0       -
   lib/t10/t.buri      2/2  100.0%    0/0       -   0/0       -
-  total           287/468   61.3%  19/55   34.5%  7/24   29.2%
+  total           275/457   60.2%  15/46   32.6%  6/21   28.6%
 lcov: .buri/coverage/lcov.info

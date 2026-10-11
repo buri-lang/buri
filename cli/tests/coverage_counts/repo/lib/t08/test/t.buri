@@ -1,0 +1,30 @@
+from "core/testing/assert" import * as assert;
+from "//lib/s08" import * as g;
+from "//lib/t08" import * as t;
+
+test "f0" {
+    assert.equal(g.f0(5, -1), .Err("negative"));
+}
+
+test "f1" {
+    assert.equal(g.f1(22, 4), 5);
+    assert.equal(g.f1(12, 2), 6);
+}
+
+test "f1 aborts 0" {
+    assert.equal(g.f1(7, 0), 0);
+}
+
+test "f3" {
+    assert.equal(g.f3(2861, 0), 715);
+    assert.equal(g.f3(4428, 0), 1107);
+}
+
+test "pick" {
+    assert.equal(t.pick(false), 0);
+    assert.equal(t.pick(false), 0);
+    assert.equal(t.pick(false), 0);
+    assert.equal(t.pick(true), 1);
+    assert.equal(t.pick(true), 1);
+    assert.equal(t.pick(true), 1);
+}

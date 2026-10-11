@@ -26,22 +26,17 @@ test "f2" {
 }
 
 test "f3" {
-    assert.equal(g.f3(21, 2), 10);
-    assert.equal(g.f3(4, 4), 1);
-}
-
-test "f3 aborts 0" {
-    assert.equal(g.f3(9, 0), 0);
-}
-
-test "f3 aborts 1" {
-    assert.equal(g.f3(8, 0), 0);
+    assert.equal(g.f3(15, 4), 3);
+    assert.equal(g.f3(21, 3), 7);
+    assert.equal(g.f3(26, 4), 6);
+    assert.equal(g.f3(27, 4), 6);
+    assert.equal(g.f3(9, 1), 9);
 }
 
 test "f4" {
-    assert.equal(g.f4(false, 1, 4), false);
-    assert.equal(g.f4(true, 14, 2), true);
-    assert.equal(g.f4(true, 6, 3), false);
+    assert.equal(g.f4(-1, 7), .Err("negative"));
+    assert.equal(g.f4(3, 3), .Ok(6));
+    assert.equal(g.f4(4, 2), .Ok(6));
 }
 
 test "f5" {

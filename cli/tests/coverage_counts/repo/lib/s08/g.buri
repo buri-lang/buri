@@ -1,3 +1,5 @@
+from "core/bits" import * as bits;
+
 fn f0check(n: Int): Result<Int, Str> {
     if (n < 0) { .Err("negative") } else { .Ok(n) }
 }
@@ -12,31 +14,25 @@ export fn f1(a: Int, b: Int): Int {
     a / b
 }
 
-export fn f2(n: Int, flag: Bool): Int {
-    match (n) {
-        0 => 10,
-        1 => 11,
-        2 => 12,
-        _ => 99,
-    }
-}
-
-fn f3check(n: Int): Result<Int, Str> {
+fn f2check(n: Int): Result<Int, Str> {
     if (n < 0) { .Err("negative") } else { .Ok(n) }
 }
 
-export fn f3(a: Int, b: Int): Result<Int, Str> {
-    let x = f3check(a)?;
-    let y = f3check(b)?;
+export fn f2(a: Int, b: Int): Result<Int, Str> {
+    let x = f2check(a)?;
+    let y = f2check(b)?;
     .Ok(x + y)
 }
 
-export fn f4(a: Bool, b: Bool, c: Bool, d: Bool): Int {
-    if (!a || !(b && !c) && d) {
-        let r = 1;
-        r
+export fn f3(n: Int, acc: Int): Int {
+    if (n == 0) {
+        acc
     } else {
-        let r = 0;
-        r
+        let step = if (n % 4 == 3) { 1 } else { 0 };
+        f3(n - 1, acc + step)
     }
+}
+
+export fn f4(n: Int): Int {
+    bits.shiftLeft(1, n)
 }

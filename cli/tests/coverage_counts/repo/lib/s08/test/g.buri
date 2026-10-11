@@ -3,29 +3,25 @@ from "//lib/s08" import * as g;
 
 test "f0" {
     assert.equal(g.f0(-2, 2), .Err("negative"));
-    assert.equal(g.f0(5, -1), .Err("negative"));
 }
 
 test "f1" {
-    assert.equal(g.f1(15, 2), 7);
-    assert.equal(g.f1(13, 1), 13);
-    assert.equal(g.f1(17, 4), 4);
-    assert.equal(g.f1(20, 2), 10);
-    assert.equal(g.f1(1, 1), 1);
+    assert.equal(g.f1(9, 1), 9);
+    assert.equal(g.f1(6, 3), 2);
+    assert.equal(g.f1(15, 4), 3);
+    assert.equal(g.f1(15, 1), 15);
 }
 
-test "f1 aborts 0" {
+test "f1 aborts 1" {
     assert.equal(g.f1(1, 0), 0);
 }
 
 test "f3" {
-    assert.equal(g.f3(6, 4), .Ok(10));
-    assert.equal(g.f3(1, 5), .Ok(6));
-    assert.equal(g.f3(6, -2), .Err("negative"));
-    assert.equal(g.f3(9, 6), .Ok(15));
-    assert.equal(g.f3(-3, 5), .Err("negative"));
+    assert.equal(g.f3(1405, 0), 351);
+    assert.equal(g.f3(2239, 0), 560);
+    assert.equal(g.f3(1569, 0), 392);
 }
 
-test "f4" {
-    assert.equal(g.f4(false, false, true, false), 1);
+test "f4 aborts 0" {
+    assert.equal(g.f4(-3), 0);
 }
