@@ -520,9 +520,9 @@ fn merge(platforms: &BTreeMap<String, Lcov>) -> BTreeMap<String, Counts> {
         counts.lines_covered = lines.values().filter(|&&hit| hit).count() as u64;
 
         // Each line's branches, per platform that has any there.
-        let mut by_line: BTreeMap<u32, Vec<BTreeMap<(u32, u32), u64>>> = BTreeMap::new();
+        let mut by_line: BTreeMap<u32, Vec<OnLine<u64>>> = BTreeMap::new();
         for record in &records {
-            let mut mine: BTreeMap<u32, BTreeMap<(u32, u32), u64>> = BTreeMap::new();
+            let mut mine: BTreeMap<u32, OnLine<u64>> = BTreeMap::new();
             for (&(at, block, branch), &taken) in &record.branches {
                 mine.entry(at).or_default().insert((block, branch), taken);
             }
@@ -532,7 +532,7 @@ fn merge(platforms: &BTreeMap<String, Lcov>) -> BTreeMap<String, Counts> {
         }
         for each in by_line.into_values() {
             // Platforms that list the same branches on the line merge.
-            let mut agreeing: BTreeMap<Vec<(u32, u32)>, BTreeMap<(u32, u32), bool>> = BTreeMap::new();
+            let mut agreeing: BTreeMap<Vec<(u32, u32)>, OnLine<bool>> = BTreeMap::new();
             for platform in each {
                 let merged = agreeing.entry(platform.keys().copied().collect()).or_default();
                 for (key, taken) in platform {
@@ -548,6 +548,9 @@ fn merge(platforms: &BTreeMap<String, Lcov>) -> BTreeMap<String, Counts> {
     }
     files
 }
+
+/// A line's branches, by lcov's block and branch numbers.
+type OnLine<T> = BTreeMap<(u32, u32), T>;
 
 /// `a` against `b` as fractions, exactly.
 fn cmp((a, at): (u64, u64), (b, bt): (u64, u64)) -> std::cmp::Ordering {

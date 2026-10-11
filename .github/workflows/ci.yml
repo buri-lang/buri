@@ -557,9 +557,12 @@ jobs:
           path: |
             target/coverage/debug/build
             target/coverage-buri/debug/build
-          key: coverage-buildscript-${{ matrix.platform }}-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
-          restore-keys: coverage-buildscript-${{ matrix.platform }}-
-      - run: nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --build
+          key: coverage-buildscript-unhardened-${{ matrix.platform }}-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: coverage-buildscript-unhardened-${{ matrix.platform }}-
+      # `NIX_HARDENING_ENABLE=`: on arm64 the shell's clang adds
+      # `-mbranch-protection`, which the x86_64 stencils refuse, so `cli/build.rs`
+      # would leave them empty.
+      - run: nix develop .#coverage -c env NIX_HARDENING_ENABLE= cargo run -p buri-compiler-coverage -- --build
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-build-${{ matrix.platform }}
