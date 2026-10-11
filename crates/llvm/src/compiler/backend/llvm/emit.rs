@@ -3745,7 +3745,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.call_glue(op, &ty, base);
             } else {
                 let place = Place::Memory { base, align: repr::memory_align(&slots) };
-                self.walk_rc(state, &ty, &place, 0, op, 0);
+                self.walk_rc(state, &ty, &place, 0, op);
             }
             self.rc_observed(state, v, op);
             return;
@@ -3760,7 +3760,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.call_glue(op, &ty, buf);
         } else {
             let place = Place::Registers { slots, pieces };
-            self.walk_rc(state, &ty, &place, 0, op, 0);
+            self.walk_rc(state, &ty, &place, 0, op);
         }
         self.rc_observed(state, v, op);
     }
@@ -3800,12 +3800,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         place: &Place<'ctx>,
         base: u32,
         op: Op,
-        depth: u32,
     ) {
-        if depth > repr::RC_DEPTH || !self.reprs.counted_type(ty) {
+        if !self.reprs.counted_type(ty) {
             return;
         }
-        let next = depth.saturating_add(1);
         for site in self.reprs.sites(ty).iter() {
             match site {
                 Site::Block { offset, glue } => {
@@ -3835,7 +3833,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         self.decref_pointer(state, p, Counted::Nullable, g);
                     }
                 }
-                Site::Field(f) => self.walk_field(state, place, base, f, op, next),
+                Site::Field(f) => self.walk_field(state, place, base, f, op),
                 // One `switch` on the discriminant and one arm per variant with
                 // anything counted in it. The default is the join, not an
                 // `unreachable`: a variant with nothing counted has no arm.
@@ -3863,7 +3861,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     for (arm, bb) in arms.iter().zip(blocks) {
                         self.builder.position_at_end(bb);
                         for f in arm.fields.iter() {
-                            self.walk_field(state, place, base, f, op, next);
+                            self.walk_field(state, place, base, f, op);
                         }
                         let _ = self.builder.build_unconditional_branch(done);
                     }
@@ -3887,7 +3885,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     let done = self.ctx.append_basic_block(state.value, "rc.done");
                     let _ = self.builder.build_conditional_branch(is_null, done, live);
                     self.builder.position_at_end(live);
-                    self.walk_rc(state, ty, place, base, op, next);
+                    self.walk_rc(state, ty, place, base, op);
                     let _ = self.builder.build_unconditional_branch(done);
                     self.builder.position_at_end(done);
                 }
@@ -3904,7 +3902,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         base: u32,
         f: &Field,
         op: Op,
-        depth: u32,
     ) {
         let at = base.saturating_add(f.offset);
         if !f.boxed {
@@ -3916,7 +3913,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     return;
                 }
             }
-            self.walk_rc(state, &f.ty, place, at, op, depth);
+            self.walk_rc(state, &f.ty, place, at, op);
             return;
         }
         let found = match op {
@@ -4752,7 +4749,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     (own.get(i) == Some(&ir::Ownership::Own) && self.rc_counted(ty), value)
                 {
                     let place = Place::Memory { base, align: repr::memory_align(&slots) };
-                    self.walk_rc(state, ty, &place, 0, Op::Retain, 0);
+                    self.walk_rc(state, ty, &place, 0, Op::Retain);
                 }
                 argv.push(value.into());
                 continue;
@@ -4760,7 +4757,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let pieces = self.load_slots(at, &slots, align);
             if own.get(i) == Some(&ir::Ownership::Own) && self.rc_counted(ty) {
                 let place = Place::Registers { slots: slots.clone(), pieces: pieces.clone() };
-                self.walk_rc(state, ty, &place, 0, Op::Retain, 0);
+                self.walk_rc(state, ty, &place, 0, Op::Retain);
             }
             argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
         }
@@ -4928,14 +4925,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let value = self.load_value(arg, &slots, align);
                 if let (true, BasicValueEnum::PointerValue(base)) = (self.rc_counted(elem), value) {
                     let place = Place::Memory { base, align: repr::memory_align(&slots) };
-                    self.walk_rc(state, elem, &place, 0, Op::Retain, 0);
+                    self.walk_rc(state, elem, &place, 0, Op::Retain);
                 }
                 argv.push(value.into());
             } else {
                 let pieces = self.load_slots(arg, &slots, align);
                 if self.rc_counted(elem) {
                     let place = Place::Registers { slots, pieces: pieces.clone() };
-                    self.walk_rc(state, elem, &place, 0, Op::Retain, 0);
+                    self.walk_rc(state, elem, &place, 0, Op::Retain);
                 }
                 argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
             }
@@ -5105,7 +5102,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             Job::Glue { op, elems: false, ty, .. } => {
                 let align = self.reprs.of_ty(&ty).layout.align;
                 let place = Place::Memory { base: first, align };
-                self.walk_rc(&mut state, &ty, &place, 0, op, 0);
+                self.walk_rc(&mut state, &ty, &place, 0, op);
             }
             // The count is `cap / stride`, and `cap` is the second header word
             // (VALUE-MODEL.md §2) — which is what makes a glue taking only a
@@ -5193,7 +5190,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     if let Some(ty) = self.type_of(first) {
                         if self.rc_counted(&ty) {
                             let place = Place::Memory { base: record, align };
-                            self.walk_rc(state, &ty, &place, 0, Op::Retain, 0);
+                            self.walk_rc(state, &ty, &place, 0, Op::Retain);
                         }
                     }
                 }
@@ -5268,7 +5265,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // element, and so does any ordinary call through a lambda that only
         // reads its parameter.
         for (ty, place) in borrowed {
-            self.walk_rc(state, &ty, &place, 0, Op::Release, 0);
+            self.walk_rc(state, &ty, &place, 0, Op::Release);
         }
         match answer {
             Some(v) => {
@@ -5485,7 +5482,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let align = self.reprs.of_ty(elem).layout.align;
         let place = Place::Memory { base: at, align };
         let skip = self.unless_spare(state, at, stride);
-        self.walk_rc(state, elem, &place, 0, op, 0);
+        self.walk_rc(state, elem, &place, 0, op);
         self.join_spare(skip);
         let next = self
             .builder
