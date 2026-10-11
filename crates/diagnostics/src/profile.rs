@@ -85,6 +85,21 @@ struct Reading {
 /// the instructions and CPU nanoseconds of the child processes it waited for.
 static TOTALS: [[AtomicU64; 6]; PHASES] = [const { [const { AtomicU64::new(0) }; 6] }; PHASES];
 
+/// `phase`'s row of [`TOTALS`].
+fn totals(phase: Phase) -> &'static [AtomicU64; 6] {
+    let [other, parse, check, monomorphize, middle, emit, link, run] = &TOTALS;
+    match phase {
+        Phase::Other => other,
+        Phase::Parse => parse,
+        Phase::Check => check,
+        Phase::Monomorphize => monomorphize,
+        Phase::Middle => middle,
+        Phase::Emit => emit,
+        Phase::Link => link,
+        Phase::Run => run,
+    }
+}
+
 thread_local! {
     static CURRENT: Mutex<Option<(Phase, Reading)>> = const { Mutex::new(None) };
     static ALLOCATIONS: AtomicU64 = const { AtomicU64::new(0) };
@@ -111,16 +126,14 @@ fn switch(next: Option<Phase>) {
         .ok()
         .flatten();
     if let Some((phase, then)) = before {
-        if let Some(row) = TOTALS.get(phase as usize) {
-            let moved = [
-                now.instructions.saturating_sub(then.instructions),
-                now.cpu_ns.saturating_sub(then.cpu_ns),
-                u64::try_from(now.at.duration_since(then.at).as_nanos()).unwrap_or(u64::MAX),
-                now.allocations.saturating_sub(then.allocations),
-            ];
-            for (total, by) in row.iter().zip(moved) {
-                total.fetch_add(by, Relaxed);
-            }
+        let moved = [
+            now.instructions.saturating_sub(then.instructions),
+            now.cpu_ns.saturating_sub(then.cpu_ns),
+            u64::try_from(now.at.duration_since(then.at).as_nanos()).unwrap_or(u64::MAX),
+            now.allocations.saturating_sub(then.allocations),
+        ];
+        for (total, by) in totals(phase).iter().zip(moved) {
+            total.fetch_add(by, Relaxed);
         }
     }
 }
@@ -136,10 +149,9 @@ pub fn reaped(pid: u32) {
     // A thread outside any phase, such as one `std::thread::spawn` started.
     let phase = current().unwrap_or(Phase::Other);
     let Some((instructions, cpu_ns)) = os::exited_child(pid) else { return };
-    if let Some([.., child_instructions, child_cpu]) = TOTALS.get(phase as usize) {
-        child_instructions.fetch_add(instructions, Relaxed);
-        child_cpu.fetch_add(cpu_ns, Relaxed);
-    }
+    let [.., child_instructions, child_cpu] = totals(phase);
+    child_instructions.fetch_add(instructions, Relaxed);
+    child_cpu.fetch_add(cpu_ns, Relaxed);
 }
 
 /// The instructions child `pid` retired, once it exits: macOS only, and `None`
@@ -271,10 +283,7 @@ pub fn report(started: Instant) -> Option<String> {
     switch(open);
     let rows: Vec<(Phase, [u64; 6])> = Phase::ALL
         .iter()
-        .map(|&p| {
-            let row = TOTALS.get(p as usize).map(|r| r.each_ref().map(|v| v.load(Relaxed)));
-            (p, row.unwrap_or([0; 6]))
-        })
+        .map(|&p| (p, totals(p).each_ref().map(|v| v.load(Relaxed))))
         .collect();
     let counted_instructions = os::thread_instructions() != 0;
     let counted_allocations = rows.iter().any(|(_, [_, _, _, allocated, ..])| *allocated != 0);

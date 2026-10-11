@@ -193,7 +193,7 @@ const MAX_DEPTH: u32 = 128;
 
 /// Parses one complete value. Trailing data is an error, not a stopping point.
 pub fn parse(text: &str) -> Result<Value, String> {
-    let mut p = Parser { b: text.as_bytes(), i: 0, depth: 0 };
+    let mut p = Parser { text, b: text.as_bytes(), i: 0, depth: 0 };
     p.skip_whitespace();
     let v = p.value()?;
     p.skip_whitespace();
@@ -204,6 +204,7 @@ pub fn parse(text: &str) -> Result<Value, String> {
 }
 
 struct Parser<'a> {
+    text: &'a str,
     b: &'a [u8],
     i: usize,
     /// Arrays and objects open so far. See [`MAX_DEPTH`].
@@ -347,22 +348,15 @@ impl<'a> Parser<'a> {
                         _ => return Err(format!("unknown escape `\\{}`", e as char)),
                     }
                 }
-                // Multi-byte UTF-8 arrives as raw bytes; gather the whole
-                // sequence rather than pushing each byte as a character.
                 c if c < 0x80 => out.push(c as char),
-                c => {
-                    let extra = match c {
-                        0xC0..=0xDF => 1,
-                        0xE0..=0xEF => 2,
-                        _ => 3,
-                    };
+                // Multi-byte UTF-8: the whole character rather than each byte.
+                // The input is a `str` and every step lands on a character's
+                // first byte, so this byte starts one.
+                _ => {
                     let start = self.i.saturating_sub(1);
-                    self.i = self.i.saturating_add(extra);
-                    let Some(s) = self.b.get(start..self.i).and_then(|b| std::str::from_utf8(b).ok())
-                    else {
-                        return Err(format!("invalid UTF-8 at byte {start}"));
-                    };
-                    out.push_str(s);
+                    let c = self.text.get(start..).and_then(|rest| rest.chars().next()).unwrap_or('\u{fffd}');
+                    self.i = start.saturating_add(c.len_utf8());
+                    out.push(c);
                 }
             }
         }

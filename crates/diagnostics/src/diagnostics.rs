@@ -934,23 +934,6 @@ impl SourceMap {
         &self.get(id).text
     }
 
-    /// The source text a span covers, empty for a span this map cannot place.
-    ///
-    /// Every way a span can be wrong — past the end, backwards, or landing
-    /// inside a character — is answered with the empty string. A span arrives
-    /// from a client's arithmetic as often as from the lexer's, and a caller
-    /// that asks what text is under one is asking a question, not asserting an
-    /// invariant.
-    pub fn snippet(&self, span: Span) -> &str {
-        if span.is_none() {
-            return "";
-        }
-        let f = self.get(span.file);
-        let start = f.floor_boundary(span.start as usize);
-        let end = f.floor_boundary(span.end as usize).max(start);
-        f.text.get(start..end).unwrap_or("")
-    }
-
     /// [`SourceMap::render`], followed the first time a code is seen by the
     /// explanation from its page. Every diagnostic a command prints for a human
     /// leaves through here.
@@ -993,12 +976,10 @@ impl SourceMap {
             // it, so the left edge of the block is a straight line.
             let gutter = self.gutter_width(d);
             for line in Self::trailer(d) {
-                let mut lines = line.lines();
-                if let Some(first) = lines.next() {
-                    let _ = writeln!(out, "{:w$}{c_blue}={c_reset} {first}", "", w = gutter);
-                }
-                for cont in lines {
-                    let _ = writeln!(out, "{:w$}  {cont}", "", w = gutter);
+                // The `=` on the first line, and the rest indented under it.
+                for (i, text) in line.lines().enumerate() {
+                    let mark = if i == 0 { format!("{c_blue}={c_reset}") } else { " ".to_string() };
+                    let _ = writeln!(out, "{:w$}{mark} {text}", "", w = gutter);
                 }
             }
         } else {
@@ -1327,7 +1308,9 @@ fn window(line: &str, line_start: usize, at: usize) -> Window<'_> {
         lo = lo.saturating_sub(1);
     }
     let mut hi = lo.saturating_add(MAX_SNIPPET_BYTES).min(line.len());
-    while hi > lo && !line.is_char_boundary(hi) {
+    // `lo` starts a character, and none is longer than four bytes, so this
+    // stops well before it.
+    while !line.is_char_boundary(hi) {
         hi = hi.saturating_sub(1);
     }
     let text = line.get(lo..hi).unwrap_or("");
@@ -1679,7 +1662,6 @@ mod tests {
             let rendered = map.render(&d, false);
             assert!(rendered.starts_with("error: no"), "{what}: {rendered}");
             let _ = map.to_json(&d);
-            let _ = map.snippet(span);
         }
     }
 
