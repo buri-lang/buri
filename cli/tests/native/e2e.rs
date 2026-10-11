@@ -1506,6 +1506,230 @@ fn a_websocket_message_larger_than_the_socket_buffer_arrives_whole() {
     assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
 }
 
+/// A server that answers a socket with more than loopback buffers, and closes
+/// it in the same breath.
+///
+/// `onOpen` queues one message of seven mebibytes and then the close, so the
+/// close is written behind a message that is still going out: the blocking
+/// write a closing socket ends with. `tls` serves it over TLS instead. It
+/// listens on `localhost`, whichever address that is first, because that is
+/// the one a client dialling `localhost` reaches.
+fn closing_large_server(tls: Option<(&std::path::Path, &std::path::Path)>) -> String {
+    let tls = tls.map_or_else(String::new, |(certificate, key)| {
+        format!(
+            "tls: .Some(server.Tls {{ certificate: \"{}\", key: \"{}\" }}),",
+            certificate.display(),
+            key.display()
+        )
+    });
+    format!(
+        r#"from "platform/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/time" import * as time;
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{
+        Allocator: host.alloc,
+        Listen: host.listen,
+        Sockets: host.sockets,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    }};
+    let plan = server.Server {{
+        port: 0,
+        address: .Some("localhost"),
+        onRequest: fn(_c, _request) => http.status(404),
+        requestLimit: .Some(1),
+        idleTimeout: .Some(time.milliseconds(20000)),
+        {tls}
+        websocket: .Some(server.WebSocket {{
+            path: "/socket",
+            onOpen: fn(c, socket, _request) => {{
+                let _sent = socket.send(c, .Text("x".repeat(c, 7340032)));
+                let _closed = socket.close(c, .Normal);
+                0
+            }},
+            onMessage: fn(_c, _socket, seen, _message) => seen,
+            onClose: fn(c, _socket, seen, reason) => {{
+                let _said = io.println(c, "server closed ${{reason.show(c)}}").ignore();
+                seen
+            }},
+        }}),
+    }};
+    match (server.bind(ctx, plan)) {{
+        .Err(e) => .Err(server.errorText(e)),
+        .Ok(listener) => {{
+            let _announced = io.println(ctx, "port ${{listener.port}}").ignore();
+            match (server.run(ctx, listener, plan)) {{
+                .Err(e) => .Err(server.errorText(e)),
+                .Ok(_ok) => {{
+                    let _done = io.println(ctx, "served").ignore();
+                    .Ok(())
+                }},
+            }}
+        }},
+    }}
+}}
+"#
+    )
+}
+
+/// A client that dials the URL on its command line and reads nothing until a
+/// byte arrives on its stdin.
+///
+/// `onOpen` waits on stdin, and a socket is read only between hooks, so the
+/// test decides when the client starts reading. Then it prints the length of
+/// each message and how the socket ended.
+fn held_reading_client() -> String {
+    String::from(
+        r#"from "platform/effect" import {
+    Allocator, Environment, Sockets, Stdin, Stdout, WebSocketClient,
+};
+from "core/env" import * as env;
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Environment: host.env,
+        Sockets: host.sockets,
+        Stdin: host.stdin,
+        Stdout: host.stdout,
+        WebSocketClient: host.websocketClient,
+    };
+    let url = env.arguments(ctx).first().withDefault("");
+    let dialled = websocket.connect(ctx, Client {
+        url: url,
+        onOpen: fn(c, _socket, _response) => {
+            let _said = io.println(c, "client opened").ignore();
+            let _released = io.readBytes(c, 1);
+            0
+        },
+        onMessage: fn(c, _socket, seen, message) => {
+            match (message) {
+                .Text(text) => {
+                    let _said = io.println(c, "client heard ${text.length()}").ignore();
+                    seen + 1
+                },
+                .Binary(_data) => seen,
+            }
+        },
+        onClose: fn(c, _socket, seen, reason) => {
+            let _said = io.println(c, "client closed after ${seen} ${reason}").ignore();
+            seen
+        },
+    });
+    match (dialled) {
+        .Err(e) => {
+            let _said = io.println(ctx, "client refused: ${websocket.errorText(e)} ${e.detail}").ignore();
+            .Ok(())
+        },
+        .Ok(_ended) => .Ok(()),
+    }
+}
+"#,
+    )
+}
+
+/// The client holds back while the server closes behind a large message; the
+/// server is stopped and continued, then the client reads everything.
+fn a_closing_socket_stopped_and_continued(row: &str, tls: bool) {
+    use std::io::{BufRead, Write};
+    #[cfg(target_os = "macos")]
+    const STOP_CONT: (i32, i32) = (17, 19);
+    #[cfg(not(target_os = "macos"))]
+    const STOP_CONT: (i32, i32) = (19, 18);
+    let (certificate, key, _absent) = crate::shared::tls_identity(row);
+    let authority = certificate.with_file_name("ca.pem");
+    std::fs::write(&authority, crate::shared::TLS_CA_PEM).expect("the authority");
+    let identity = tls.then_some((certificate.as_path(), key.as_path()));
+    let server = built(&format!("{row}-server"), &closing_large_server(identity));
+    let client = built(&format!("{row}-client"), &held_reading_client());
+    crate::shared::admitted(&client);
+    let running = crate::shared::announced(&server);
+    let scheme = if tls { "wss" } else { "ws" };
+    let mut dialling = crate::shared::started(
+        std::process::Command::new(&client)
+            .arg(format!("{scheme}://localhost:{}/socket", running.2))
+            .env("SSL_CERT_FILE", &authority)
+            .env("BURI_RT_HEAP_CHECK", "1")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()),
+    );
+    let mut stdin = dialling.stdin.take().expect("a piped stdin");
+    let stdout = dialling.stdout.take().expect("a piped stdout");
+    let (says, saying) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut lines = Vec::new();
+        for line in std::io::BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            let _ = says.send(line.clone());
+            lines.push(line);
+        }
+        lines
+    });
+    let opened = crate::shared::saying_until(&saying, crate::shared::SERVER_DEADLINE, |line| {
+        (line == "client opened").then_some(())
+    });
+    if opened.is_none() {
+        let _ = dialling.kill();
+        panic!("the client never opened: {:?}", reader.join());
+    }
+    // The server is writing to a client that reads nothing, so after a moment
+    // it is waiting in the close's write for every one of these.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    for _ in 0..10 {
+        crate::shared::signalling(&running.0, STOP_CONT.0);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        crate::shared::signalling(&running.0, STOP_CONT.1);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    stdin.write_all(b"g").expect("the release reached the client");
+    stdin.flush().expect("flush");
+    let status = crate::shared::waited(&mut dialling, crate::shared::SERVER_DEADLINE);
+    let said = reader.join().expect("the reader thread finished").join("\n");
+    let mut stderr = String::new();
+    if let Some(mut err) = dialling.stderr.take() {
+        let _ = std::io::Read::read_to_string(&mut err, &mut stderr);
+    }
+    let out = crate::shared::finished(running);
+    assert!(
+        status.success()
+            && said.contains("client heard 7340032")
+            && said.contains("client closed after 1 .Normal"),
+        "the stopped server did not finish its message and close ({status}).\nthe client \
+         said:\n{said}\nstderr:\n{stderr}\nthe server said:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+}
+
+/// **A server stopped and continued while it closes a socket behind a large
+/// message still writes all of it, and the close.** On Linux a stop and a
+/// continue interrupt a socket write that has a deadline, and the write is
+/// taken again rather than the socket dropped.
+#[test]
+fn a_server_stopped_and_continued_while_closing_a_socket_writes_all_of_it() {
+    unless_ready!();
+    a_closing_socket_stopped_and_continued("e2e-closing-stopped", false);
+}
+
+/// **The same over TLS**, where the interrupted write is inside the TLS
+/// session's own write and flush.
+#[test]
+fn a_tls_server_stopped_and_continued_while_closing_a_socket_writes_all_of_it() {
+    unless_ready!();
+    a_closing_socket_stopped_and_continued("e2e-closing-stopped-tls", true);
+}
+
 /// Two listeners side by side, where whichever ends first closes the other.
 ///
 /// The first answers one request and is done (`requestLimit: .Some(1)`); the
