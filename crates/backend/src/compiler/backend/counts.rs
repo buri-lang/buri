@@ -180,15 +180,13 @@ impl Counts {
                 .collect(),
             Repr::Enum { repr, variants } => match *repr {
                 EnumRepr::Bare { .. } => Vec::new(),
-                EnumRepr::Niche { null_at } => {
-                    let TyKind::Con(_, args) = ty.kind() else { return Vec::new() };
-                    match args.first() {
-                        Some(payload) if self.counted(tables, layouts, payload) => {
-                            vec![Site::Guarded { null_at, ty: *payload }]
-                        }
-                        _ => Vec::new(),
-                    }
-                }
+                // `Option<T>`'s `.Some`, read as the arm below reads a variant.
+                // Not asked whether it is counted: a niche is a pointer to
+                // something counted, a `Str`'s, a closure's, or a box's.
+                EnumRepr::Niche { null_at } => variant_types(tables, ty, 0)
+                    .into_iter()
+                    .map(|payload| Site::Guarded { null_at, ty: payload })
+                    .collect(),
                 EnumRepr::Tagged { tag, .. } => {
                     let arms: Box<[Arm]> = variants
                         .iter()
