@@ -939,11 +939,9 @@ impl Generator {
             Some(Desc::Unit) => "unit".to_string(),
             _ => "value".to_string(),
         };
-        let clean: String = base
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
-            .collect();
-        let stem = format!("$derive${}${clean}", op.tag());
+        // A type's name is an identifier, which the lexer keeps to ASCII
+        // letters, digits and `_`, so it is a symbol as it stands.
+        let stem = format!("$derive${}${base}", op.tag());
         let hash = short_hash(shape);
         let mut out = format!("{stem}${hash}");
         if self.taken.get(&out).is_some_and(|s| s != shape) {
