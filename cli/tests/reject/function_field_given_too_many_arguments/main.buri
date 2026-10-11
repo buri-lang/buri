@@ -1,0 +1,11 @@
+// EXPECT: takes 1 argument, but 2 were given
+//
+// A field of function type counts its arguments like any function value.
+// The extra one used to be accepted and dropped.
+struct Handler {
+  run: fn(Int) => Int,
+}
+
+fn go(h: Handler): Int {
+  h.run(1, 2)
+}
