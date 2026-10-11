@@ -118,6 +118,10 @@ impl Expect {
     }
 }
 
+/// Fills in a mode's expectation, given the line a declaration starts on and
+/// whether it's MC/DC.
+type Model = Box<dyn Fn(usize, bool, &mut Expect)>;
+
 /// A function and its calls, as written, and its model.
 struct Shape {
     /// The function's lines, from its own first.
@@ -126,9 +130,7 @@ struct Shape {
     /// that abort a test each, with the message.
     calls: Vec<String>,
     aborts: Vec<(String, &'static str)>,
-    /// Fills in a mode's expectation, given the line the declaration starts on
-    /// and whether it's MC/DC.
-    model: Box<dyn Fn(usize, bool, &mut Expect)>,
+    model: Model,
 }
 
 /// One test source under construction.
@@ -1090,6 +1092,9 @@ struct Op {
 const EQUAL: Op = Op { name: "Equal", outcomes: ["same", "differs"] };
 const ORDERED: Op = Op { name: "Ordered", outcomes: ["equal", "decides"] };
 
+/// A call of the `&&` ending in an `==`: `a`, `p` and `q`.
+type Same = (bool, Vec<Value>, Vec<Value>);
+
 /// `E`, and a struct `R` holding it, with what the tests do to them.
 struct Derived {
     fields: Vec<Field>,
@@ -1104,14 +1109,17 @@ struct Derived {
     show_e: Vec<Value>,
     show_r: Vec<Vec<Value>>,
     /// The calls of the `&&` ending in an `==`.
-    same: std::cell::RefCell<Vec<(bool, Vec<Value>, Vec<Value>)>>,
+    same: std::cell::RefCell<Vec<Same>>,
 }
+
+/// A derived decision: its label, its branches' names, and their counts.
+type Walked = (String, Vec<String>, Vec<u64>);
 
 /// The derived decisions the walks reached.
 #[derive(Default)]
 struct Walks {
     /// By (operation and type, order in its walk): label, branch names, counts.
-    decisions: BTreeMap<(String, usize), (String, Vec<String>, Vec<u64>)>,
+    decisions: BTreeMap<(String, usize), Walked>,
 }
 
 impl Walks {
@@ -1345,7 +1353,7 @@ impl Derived {
 
     /// `op` on two `E`s, through the shadow: answers whether they're equal.
     fn walk_e(w: &mut Walks, op: Op, a: &Value, b: &Value) -> bool {
-        let (Value::E(va, xa), Value::E(vb, xb)) = (a, b) else { unreachable!() };
+        let (Value::E(va, xa), Value::E(vb, xb)) = (a, b) else { panic!("compared two values that aren't `E`s") };
         let group = format!("{} E", op.name);
         Self::declare_e(w, op);
         w.hit(&group, 0, "variant", &VARIANTS, *va);
@@ -1389,7 +1397,7 @@ impl Derived {
     }
 
     fn walk_show_e(w: &mut Walks, v: &Value) {
-        let Value::E(variant, _) = v else { unreachable!() };
+        let Value::E(variant, _) = v else { panic!("showed a value that isn't an `E`") };
         w.hit("Show E", 0, "variant", &VARIANTS, *variant);
     }
 
