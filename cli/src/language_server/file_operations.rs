@@ -451,7 +451,7 @@ fn imports(state: &mut State, renamed: &Path, to: &str, edits: &mut Edits) {
                 if resolved.in_package().is_none_or(|m| m.file != renamed) {
                     continue;
                 }
-                let (start, end) = inside_quotes(&file.text, span);
+                let (start, end) = inside_quotes(span);
                 edits.imports.entry(uri.clone()).or_default().push(Value::object(vec![
                     (
                         "range",

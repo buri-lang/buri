@@ -113,12 +113,10 @@ impl<T, E: std::fmt::Display> Invariant<T> for Result<T, E> {
 
 /// A repository bug, reported where a test will see it and nowhere else.
 ///
-/// The templates in the documentation pages are written by hand, and the three
-/// ways they can be wrong — no page, an unbound placeholder, a binding nothing
-/// uses — are all mistakes in *this* repository. In a debug build, which is
-/// every test run, each is a panic naming the code and the placeholder. In a
-/// release build none of them is worth taking a user's build down for: the
-/// template prints as written, which is a legible bug report.
+/// The templates in the documentation pages are written by hand, and a code
+/// with no page is a mistake in *this* repository. In a debug build, which is
+/// every test run, it is a panic naming the code. In a release build it is not
+/// worth taking a user's build down for: the code prints as the message.
 #[allow(
     clippy::panic,
     reason = "a documentation page that does not match its emission site is a bug in this \
@@ -196,25 +194,18 @@ impl Span {
         Span { file: self.file, start: self.start.min(other.start), end: self.end.max(other.end) }
     }
 
-    /// The same span with the quotes taken off, when it covers a string
-    /// literal.
+    /// The same span with the quotes taken off a closed string literal.
     ///
     /// An import's `path_span` is the literal including its quotes, because
     /// that is what every import diagnostic is anchored on — and a textproto
     /// entry's is the same. An *edit*, though, replaces the address rather than
-    /// the punctuation holding it, so it needs the inside. `text` is the whole
-    /// file, and a span that is not a quoted run comes back unchanged.
-    pub fn inside_quotes(self, text: &str) -> Span {
-        let quoted = text
-            .get(self.start as usize..self.end as usize)
-            .is_some_and(|s| s.len() >= 2 && s.starts_with('"') && s.ends_with('"'));
-        match quoted {
-            true => Span {
-                file: self.file,
-                start: self.start.saturating_add(1),
-                end: self.end.saturating_sub(1),
-            },
-            false => self,
+    /// the punctuation holding it, so it needs the inside. Both parsers give
+    /// such a span only to a string they saw closed.
+    pub fn inside_quotes(self) -> Span {
+        Span {
+            file: self.file,
+            start: self.start.saturating_add(1),
+            end: self.end.saturating_sub(1),
         }
     }
 }
@@ -429,10 +420,11 @@ impl Diagnostic {
     ///
     /// A code with no page, an unbound placeholder, and a binding no template
     /// uses are each a bug in this repository rather than in the code being
-    /// compiled, so each panics in a debug build — which is every test run —
-    /// and degrades to printing the template as written in a release one. A
-    /// user meeting a `{function}` has a bug report; a user meeting a crash has
-    /// lost their build.
+    /// compiled, so each stops a debug build — which is every test run: the
+    /// first with a panic, the other two with the internal-error report. A
+    /// release build prints the template as written instead. A user meeting a
+    /// `{function}` has a bug report; a user meeting a crash has lost their
+    /// build.
     pub fn templated(code: &str, span: Span) -> Diagnostic {
         let mut d = Diagnostic::error(span, code.to_string());
         d.code = Some(code.to_string());
@@ -513,24 +505,25 @@ impl Diagnostic {
                 .iter()
                 .flat_map(|t| crate::documentation::frontmatter::placeholders(t))
                 .collect();
-            for hole in &holes {
-                if !t.bindings.iter().any(|(n, _)| n == hole) {
-                    debug_panic(&format!(
-                        "`{}` prints `{{{hole}}}`, and nothing bound it: add \
-                         `.bind(\"{hole}\", …)` at the emission site",
-                        t.page.code
-                    ));
-                }
-            }
-            for (name, _) in &t.bindings {
-                if !holes.iter().any(|h| h == name) {
-                    debug_panic(&format!(
-                        "`{}` binds `{name}`, and no template of its page uses it: either the \
-                         page has a typo or the binding is left over",
-                        t.page.code
-                    ));
-                }
-            }
+            let code = &t.page.code;
+            let unbound = holes.iter().find(|h| !t.bindings.iter().any(|(n, _)| n == *h));
+            unbound
+                .map_or(Ok(()), |hole| {
+                    Err(format!(
+                        "`{code}` prints `{{{hole}}}`, and nothing bound it: add \
+                         `.bind(\"{hole}\", …)` at the emission site"
+                    ))
+                })
+                .or_ice("a documentation page's template");
+            let unused = t.bindings.iter().find(|(name, _)| !holes.iter().any(|h| h == name));
+            unused
+                .map_or(Ok(()), |(name, _)| {
+                    Err(format!(
+                        "`{code}` binds `{name}`, and no template of its page uses it: either the \
+                         page has a typo or the binding is left over"
+                    ))
+                })
+                .or_ice("a documentation page's template");
         }
     }
 
@@ -585,6 +578,7 @@ impl Diagnostic {
     }
 
     pub fn secondary_span(&mut self, span: Span, label: impl Into<String>) -> &mut Diagnostic {
+        (!span.is_none()).then_some(()).or_ice("a secondary span points into a file");
         self.secondary_spans.push(SecondarySpan { span, label: label.into() });
         self
     }
@@ -711,11 +705,12 @@ impl SourceFile {
         (line.saturating_add(1), col.saturating_add(1))
     }
 
-    /// The text of a 1-based line, empty for a line this file does not have.
+    /// The text of a 1-based line [`SourceFile::line_col`] answered.
     fn line_text(&self, line: usize) -> &str {
-        let Some(start) = line.checked_sub(1).and_then(|i| self.line_starts().get(i)) else {
-            return "";
-        };
+        let start = line
+            .checked_sub(1)
+            .and_then(|i| self.line_starts().get(i))
+            .or_ice("`line_col` answers a line this file has");
         let end = self.line_starts().get(line).map_or(self.text.len(), |&e| e as usize);
         self.text
             .get(*start as usize..end)
@@ -898,7 +893,8 @@ impl SourceMap {
     /// Maps cloned before this call keep the text they were cloned with, which
     /// is what lets an analysis already in hand go on rendering its own spans.
     pub fn replace(&mut self, id: FileId, text: String) {
-        let Some(slot) = self.files.get_mut(id.0 as usize) else { return };
+        let slot =
+            self.files.get_mut(id.0 as usize).or_ice("`replace` takes an id this map minted");
         let (name, abs_path) = (slot.name.clone(), slot.abs_path.clone());
         *slot = Arc::new(SourceFile::new(name, abs_path, text));
         self.shared = None;
@@ -929,12 +925,9 @@ impl SourceMap {
         self.files.get(id.0 as usize).unwrap_or(&self.missing)
     }
 
+    /// `<none>` for [`FileId::NONE`], which is the empty stand-in's name.
     pub fn name(&self, id: FileId) -> &str {
-        if id == FileId::NONE {
-            "<none>"
-        } else {
-            &self.get(id).name
-        }
+        &self.get(id).name
     }
 
     pub fn text(&self, id: FileId) -> &str {
@@ -1127,13 +1120,7 @@ impl SourceMap {
     /// Taking the widest of all of them instead indented the block for a line
     /// number that is no longer the one on screen.
     fn gutter_width(&self, d: &Diagnostic) -> usize {
-        let last = d
-            .secondary_spans
-            .iter()
-            .rev()
-            .map(|s| s.span)
-            .find(|s| !s.is_none())
-            .unwrap_or(d.span);
+        let last = d.secondary_spans.last().map_or(d.span, |s| s.span);
         if last.is_none() {
             return 2;
         }
@@ -1150,9 +1137,6 @@ impl SourceMap {
         c_blue: &str,
         c_reset: &str,
     ) {
-        if span.is_none() {
-            return;
-        }
         let f = self.get(span.file);
         let (line, col) = f.line_col(span.start);
         let (end_line, end_col) = f.line_col(span.end);
@@ -1758,24 +1742,6 @@ mod tests {
         let unknown = "a-code-with-no-page";
         let d = Diagnostic::error(Span::new(id, 16, 21), "no").with_code(unknown);
         assert_eq!(map.render_with_body(&d, false), map.render(&d, false));
-    }
-
-    #[test]
-    #[should_panic(expected = "nothing bound it")]
-    fn an_unbound_placeholder_is_a_failure_rather_than_a_hole_in_a_sentence() {
-        let (map, id) = one_file();
-        let d = Diagnostic::templated("type-arguments-on-value", Span::new(id, 16, 21));
-        let _ = map.render(&d, false);
-    }
-
-    #[test]
-    #[should_panic(expected = "no template of its page uses it")]
-    fn a_binding_nothing_uses_is_a_failure_too() {
-        let (map, id) = one_file();
-        let d = Diagnostic::templated("type-arguments-on-value", Span::new(id, 16, 21))
-            .with_bind("function", "a")
-            .with_bind("callee", "a");
-        let _ = map.render(&d, false);
     }
 
     /// The map hands out every `FileId`, and every span carrying one it did not
