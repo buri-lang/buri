@@ -379,9 +379,10 @@ pub fn rule_key(
     k.rule_identity(&package.label(), "generate", &paths);
     for g in declared(&session.workspace, target) {
         k.input("tool", g.tool.value.as_bytes());
-        if let Ok(tool) = tools::resolve(&session.workspace, &g.tool.value) {
-            k.dependency(&tools::program_key(session, tool, flags));
-        }
+        let tool = tools::resolve(&session.workspace, &g.tool.value)
+            .ok()
+            .or_ice("loading the repository refuses a generator that names no tool");
+        k.dependency(&tools::program_key(session, tool, flags));
     }
     for rel in &paths {
         let full = package.dir.join(rel);
