@@ -28,23 +28,10 @@ pub fn help(
     let offset = convert::offset_of(text, position);
     let call = enclosing_call(text, offset)?;
     let name = &text.get(call.name.0 as usize..call.name.1 as usize)?.to_string();
-    let signatures = callees(analyzed, path, text, call.name.0, name);
-    if signatures.is_empty() {
-        return None;
-    }
-
-    // Which overload the arguments so far could still be. An overload with too
-    // few parameters to reach the one being typed is not the one being typed.
-    let active = signatures
-        .iter()
-        .position(|s| s.parameters.len() > call.argument as usize)
-        .unwrap_or(0);
+    let signature = callee(analyzed, path, text, call.name.0, name)?;
     Some(Value::object(vec![
-        (
-            "signatures",
-            Value::Array(signatures.iter().map(rendered).collect()),
-        ),
-        ("activeSignature", Value::number(active as i64)),
+        ("signatures", Value::Array(vec![rendered(&signature)])),
+        ("activeSignature", Value::number(0)),
         ("activeParameter", Value::number(i64::from(call.argument))),
     ]))
 }
@@ -76,40 +63,30 @@ fn rendered(signature: &symbols::Signature) -> Value {
     Value::object(fields)
 }
 
-/// Every signature the name before the `(` could be calling.
-///
-/// One, ordinarily. The list is for an overloaded name, which the scope knows
-/// about and a single symbol cannot express — the editor shows them together
-/// and highlights the one the arguments fit.
-fn callees(
+/// The signature of what the name before the `(` calls.
+fn callee(
     analyzed: &Analyzed,
     path: &Path,
     text: &str,
     at: u32,
     name: &str,
-) -> Vec<symbols::Signature> {
+) -> Option<symbols::Signature> {
     // The resolver first: it is the one that knows a method call's receiver,
     // and it agrees with hover and definition by construction.
     if let Some(found) = symbols::at(analyzed, path, text, at) {
         if let Some(signature) = symbols::signature(analyzed, &found.symbol) {
-            return vec![signature];
+            return Some(signature);
         }
     }
     // Then the module's own scope, for the ordinary case this request exists
     // for: a call being typed, whose body therefore did not check.
-    let Some(file) = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path)) else {
-        return Vec::new();
-    };
-    let Some(module) = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file) else {
-        return Vec::new();
-    };
-    let Some(scope) = analyzed.analysis.checked.scopes.get(module.id.index()) else {
-        return Vec::new();
-    };
-    let Some(Sym::Fn(id)) = scope.name(name) else {
-        return Vec::new();
-    };
-    symbols::signature(analyzed, &Symbol::Function(*id)).into_iter().collect()
+    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
+    let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
+    let scope = analyzed.analysis.checked.scopes.get(module.id.index())?;
+    match scope.name(name) {
+        Some(Sym::Fn(id)) => symbols::signature(analyzed, &Symbol::Function(*id)),
+        _ => None,
+    }
 }
 
 /// The call the offset is inside: where its callee is written, and which
