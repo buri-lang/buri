@@ -162,8 +162,9 @@ pub fn exited_instructions(pid: u32) -> Option<u64> {
 }
 
 thread_local! {
-    /// What this thread's instructions are being added to, for [`counted`].
-    static TALLY: std::cell::RefCell<Option<std::sync::Arc<AtomicU64>>> = const { std::cell::RefCell::new(None) };
+    /// What this thread's instructions are being added to, for [`counted`]. A
+    /// thread no `counted` covers adds to one of its own that nothing reads.
+    static TALLY: std::cell::RefCell<std::sync::Arc<AtomicU64>> = std::cell::RefCell::default();
 }
 
 /// `work`'s answer, and the instructions it retired on this thread and on
@@ -171,19 +172,18 @@ thread_local! {
 /// the kernel won't say.
 pub fn counted<T>(work: impl FnOnce() -> T) -> (T, u64) {
     let tally = std::sync::Arc::new(AtomicU64::new(0));
-    let out = tallied(Some(std::sync::Arc::clone(&tally)), work);
+    let out = tallied(std::sync::Arc::clone(&tally), work);
     (out, tally.load(Relaxed))
 }
 
 /// The tally this thread adds to, for a worker it starts to add to as well.
-pub fn tally() -> Option<std::sync::Arc<AtomicU64>> {
-    TALLY.try_with(|t| t.borrow().clone()).ok().flatten()
+pub fn tally() -> std::sync::Arc<AtomicU64> {
+    TALLY.with(|t| t.borrow().clone())
 }
 
 /// Runs `work`, adding the instructions this thread retires in it to `tally`.
-pub fn tallied<T>(tally: Option<std::sync::Arc<AtomicU64>>, work: impl FnOnce() -> T) -> T {
-    let Some(tally) = tally else { return work() };
-    let previous = TALLY.with(|t| t.replace(Some(std::sync::Arc::clone(&tally))));
+pub fn tallied<T>(tally: std::sync::Arc<AtomicU64>, work: impl FnOnce() -> T) -> T {
+    let previous = TALLY.with(|t| t.replace(std::sync::Arc::clone(&tally)));
     let before = thread_instructions();
     let out = work();
     tally.fetch_add(thread_instructions().saturating_sub(before), Relaxed);
@@ -367,6 +367,7 @@ struct Process {
 
 #[cfg(target_os = "macos")]
 mod os {
+    use crate::diagnostics::Invariant;
     use std::ffi::{c_char, c_void};
     use std::sync::OnceLock;
 
@@ -383,25 +384,33 @@ mod os {
 
     /// `thread_selfcounts`, looked up rather than linked: it isn't public API,
     /// and a binary that named it would fail to start on a system without it.
-    fn self_counts() -> Option<SelfCounts> {
-        static FOUND: OnceLock<Option<SelfCounts>> = OnceLock::new();
+    /// Where it is missing, a stand-in writes nothing, as a failed call does.
+    fn self_counts() -> SelfCounts {
+        static FOUND: OnceLock<SelfCounts> = OnceLock::new();
         *FOUND.get_or_init(|| {
             const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
             // SAFETY: a lookup by a NUL-terminated name in the loaded images.
             let f = unsafe { dlsym(RTLD_DEFAULT, c"thread_selfcounts".as_ptr()) };
             // SAFETY: the kernel's `thread_selfcounts(int, void *, size_t)`.
-            (!f.is_null()).then(|| unsafe { std::mem::transmute::<*mut c_void, SelfCounts>(f) })
+            let found = (!f.is_null())
+                .then(|| unsafe { std::mem::transmute::<*mut c_void, SelfCounts>(f) });
+            found.unwrap_or(missing)
         })
+    }
+
+    extern "C" fn missing(_kind: i32, _counts: *mut u64, _size: usize) -> i32 {
+        -1
     }
 
     /// This thread's instructions retired, or 0 where the kernel won't say.
     pub fn thread_instructions() -> u64 {
-        let Some(f) = self_counts() else { return 0 };
+        let f = self_counts();
         let mut counts = [0u64; 2];
-        // SAFETY: kind 1 fills instructions and cycles, two `u64`s.
-        let status = unsafe { f(1, counts.as_mut_ptr(), std::mem::size_of_val(&counts)) };
+        // SAFETY: kind 1 fills instructions and cycles, two `u64`s. A call that
+        // fails, as it does in a virtual machine, writes nothing and leaves 0.
+        let _ = unsafe { f(1, counts.as_mut_ptr(), std::mem::size_of_val(&counts)) };
         let [instructions, _cycles] = counts;
-        if status == 0 { instructions } else { 0 }
+        instructions
     }
 
     pub fn thread_cpu_ns() -> u64 {
@@ -411,18 +420,22 @@ mod os {
     }
 
     /// `rusage_info_v4` for `pid`, and a converter from its ticks to nanoseconds.
-    fn rusage(pid: i32) -> Option<([u64; 37], impl Fn(u64) -> u64)> {
+    fn rusage(pid: i32) -> ([u64; 37], impl Fn(u64) -> u64) {
         const RUSAGE_INFO_V4: i32 = 4;
         let mut info = [0u64; 37];
         // SAFETY: `rusage_info_v4` is 37 `u64`s (a 16-byte UUID, then 35 counters).
-        if unsafe { proc_pid_rusage(pid, RUSAGE_INFO_V4, info.as_mut_ptr()) } != 0 {
-            return None;
-        }
+        let status = unsafe { proc_pid_rusage(pid, RUSAGE_INFO_V4, info.as_mut_ptr()) };
+        (status == 0)
+            .then_some(())
+            .or_ice("a process reads its own usage and its unreaped child's");
         let mut base = [0u32; 2];
         // SAFETY: fills a `{ numer, denom }` pair.
         unsafe { mach_timebase_info(&mut base) };
         let [numer, denom] = base;
-        Some((info, move |ticks: u64| (u128::from(ticks) * u128::from(numer) / u128::from(denom.max(1))) as u64))
+        let ns = move |ticks: u64| {
+            (u128::from(ticks) * u128::from(numer) / u128::from(denom.max(1))) as u64
+        };
+        (info, ns)
     }
 
     /// Waits for child `pid` to exit without reaping it, then reads its
@@ -433,17 +446,17 @@ mod os {
         const WNOWAIT: i32 = 32;
         let mut info = [0u64; 16];
         // SAFETY: `info` is larger than the 104-byte `siginfo_t`.
-        if unsafe { waitid(P_PID, pid, &mut info, WEXITED | WNOWAIT) } != 0 {
-            return None;
-        }
-        let (info, ns) = rusage(i32::try_from(pid).ok()?)?;
+        let status = unsafe { waitid(P_PID, pid, &mut info, WEXITED | WNOWAIT) };
+        // The caller has not reaped `pid`, and `signal` restarts an interrupted wait.
+        (status == 0).then_some(()).or_ice("`reaped` waits on a child nobody has reaped");
+        let (info, ns) = rusage(i32::try_from(pid).ok()?);
         let at = |i: usize| info.get(i).copied().unwrap_or(0);
         Some((at(31), ns(at(2) + at(3))))
     }
 
     pub(super) fn process() -> Option<super::Process> {
         // SAFETY: no arguments, no memory.
-        let (info, ns) = rusage(unsafe { getpid() })?;
+        let (info, ns) = rusage(unsafe { getpid() });
         let at = |i: usize| info.get(i).copied().unwrap_or(0);
         Some(super::Process {
             instructions: at(31),

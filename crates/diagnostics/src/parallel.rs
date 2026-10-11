@@ -369,7 +369,9 @@ where
         for _ in 0..width.max(1) {
             let (queue, work, send) = (&queue, &work, send.clone());
             let tally = tally.clone();
-            let started = std::thread::Builder::new()
+            // A worker the machine has no thread for leaves its jobs to the
+            // ones that started.
+            let _ = std::thread::Builder::new()
                 .name("buri-job".into())
                 .stack_size(STACK)
                 .spawn_scoped(scope, move || {
@@ -385,9 +387,6 @@ where
                         }
                     });
                 });
-            if started.is_err() {
-                break;
-            }
         }
         drop(send);
         // Closed on the way out however `drive` leaves. If it panicked, the
