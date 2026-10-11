@@ -195,10 +195,7 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
         });
         if traps.is_some() {
             coverage::trees(body, &mut |tree| {
-                let Some(span) = tree.span() else { return };
-                if !tree.counted() {
-                    return;
-                }
+                let span = tree.span();
                 if let Some((name, line)) = line_of(span) {
                     let mut spans = Vec::new();
                     tree.conditions(&mut spans);
@@ -327,8 +324,8 @@ fn counts(raw: &Path) -> HashMap<u64, u64> {
 /// One file's report.
 #[derive(Default)]
 struct File {
-    /// `(line, count)`.
-    lines: Vec<(usize, u64)>,
+    /// Each line's count.
+    lines: BTreeMap<usize, u64>,
     /// `(line, block, branch, count)`, with `None` for a decision nothing
     /// reached.
     branches: Vec<(usize, usize, String, Option<u64>)>,
@@ -433,15 +430,9 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
             // lcov wants a line under every branch. One no statement starts on
             // counts how often its decisions were reached.
             let times = taken.iter().fold(0u64, |a, &n| a.saturating_add(n));
-            let rows = &mut f.lines;
-            match rows.binary_search_by_key(&d.line, |l| l.0) {
-                Ok(i) if !u.lines.contains(&d.line) => {
-                    if let Some(row) = rows.get_mut(i) {
-                        row.1 = row.1.max(times);
-                    }
-                }
-                Ok(_) => {}
-                Err(i) => rows.insert(i, (d.line, times)),
+            if !u.lines.contains(&d.line) {
+                let row = f.lines.entry(d.line).or_default();
+                *row = (*row).max(times);
             }
             let suffix = instance_suffix(instance);
             for (i, n) in taken.into_iter().enumerate() {
@@ -453,7 +444,6 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
             }
         }
     }
-    report.retain(|_, f| !f.lines.is_empty() || !f.branches.is_empty());
 
     let mut lcov = String::new();
     let mut rows: Vec<Row> = Vec::new();
@@ -485,7 +475,7 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
         for (line, n) in &f.lines {
             lcov.push_str(&format!("DA:{line},{n}\n"));
         }
-        let lines_hit = f.lines.iter().filter(|l| l.1 > 0).count();
+        let lines_hit = f.lines.values().filter(|n| **n > 0).count();
         lcov.push_str(&format!("LF:{}\nLH:{lines_hit}\nend_of_record\n", f.lines.len()));
         rows.push(Row {
             name: file.to_string(),
@@ -494,10 +484,8 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
             decisions: (f.decisions.1, f.decisions.0),
         });
     }
+    // `begin` made the directory, for the counts.
     let path = root.join(LCOV);
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
     if let Err(e) = std::fs::write(&path, lcov) {
         out(&format!("coverage: cannot write {LCOV}: {e}"));
         return;
