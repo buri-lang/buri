@@ -1,0 +1,18 @@
+# A loop whose integers and floats trade places on every pass.
+#
+# The debug backend keeps a loop's scalars in registers, and integers and
+# floats each count their registers from zero. The back edge's copies used to
+# match a register by its number alone, so `a` in integer register 1 and `y`
+# in float register 1 looked like one register, and the build stopped with an
+# internal error.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a loop that swaps integers and floats on each pass builds and gets the right answer"
+
+run {
+  args: ["test", "//lib/loops", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

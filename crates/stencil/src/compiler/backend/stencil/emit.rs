@@ -2063,11 +2063,13 @@ impl<'a> Jit<'a> {
             };
             pend.push((k, code.ty_of(*p) == ir::Type::F64, src));
         }
+        // Integers and floats each number their registers from zero, so a
+        // register is its number and its class.
         let mut tmp = st.scratch + 56;
         while !pend.is_empty() {
-            let ready = pend
-                .iter()
-                .position(|(k, _, _)| !pend.iter().any(|(_, _, s)| *s == RSrc::Reg(*k)));
+            let ready = pend.iter().position(|(k, f, _)| {
+                !pend.iter().any(|(_, g, s)| g == f && *s == RSrc::Reg(*k))
+            });
             match ready {
                 Some(i) => {
                     let (k, f, src) = pend.remove(i);
@@ -2095,7 +2097,7 @@ impl<'a> Jit<'a> {
                         &[("JIT_D", V::I(tmp as u64)), ("JIT_CONT", V::Fall)],
                     );
                     for p in pend.iter_mut() {
-                        if p.2 == RSrc::Reg(j) {
+                        if p.1 == f && p.2 == RSrc::Reg(j) {
                             p.2 = RSrc::Slot(tmp);
                         }
                     }
