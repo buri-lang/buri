@@ -117,6 +117,11 @@ test "expressions" {
     same(ctx, "fn f(): Point {\n    Point { x: 1, y: 2 }\n}\n");
     same(ctx, "fn f(): Point {\n    Point { ..base, x: 1 }\n}\n");
     same(ctx, "fn f(): Int {\n    { x: 1 }\n}\n");
+    // A `..` or a name and a `:` after the `{` make a struct; anything else, a
+    // block.
+    same(ctx, "fn f(): Int {\n    { ..base, x: 1 }\n}\n");
+    same(ctx, "fn f(): Int {\n    { x }\n}\n");
+    same(ctx, "fn f(): Int {\n    { 1 }\n}\n");
     same(ctx, "fn f(): [Int] {\n    [1, 2, 3]\n}\n");
     same(ctx, "fn f(): (Int, Str) {\n    (1, \"a\")\n}\n");
     same(ctx, "fn f(): Str {\n    \"a\${x}b\"\n}\n");
