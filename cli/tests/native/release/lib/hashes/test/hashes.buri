@@ -22,5 +22,8 @@ test "an empty list still mixes its length" {
 }
 
 test "lists of strings and of lists hash through each element" {
-    assert.equal(Names { names: ["a", "bc"], nested: [[1], [], [2, 3]] }.hash(), 893000119);
+    assert.equal(
+        Names { names: ["a", "bc"], nested: [[1], [], [2, 3]] }.hash(),
+        893000119,
+    );
 }

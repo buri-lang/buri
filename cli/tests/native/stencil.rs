@@ -302,20 +302,21 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
 
-/// The diagnostics a program this backend cannot compile produces.
+/// The diagnostics a program this backend cannot compile produces: what
+/// `missing_intrinsics` names, which the build stops on before emission, or
+/// else what emission refuses.
 fn refusal(name: &str, source: &str) -> Vec<String> {
     let _ = name;
     let (program, tables) = lowered(source);
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
-    let mut missing = Stencil::default().missing_intrinsics(&program, &tables);
+    let missing = Stencil::default().missing_intrinsics(&program, &tables);
+    if !missing.is_empty() {
+        return missing;
+    }
     match Stencil::default().emit(&program, &tables, &opts) {
-        Ok(_) if missing.is_empty() => panic!("the backend compiled a program it should refuse"),
-        Ok(_) => missing,
-        Err(d) => {
-            missing.append(&mut messages(&d));
-            missing
-        }
+        Ok(_) => panic!("the backend compiled a program it should refuse"),
+        Err(d) => messages(&d),
     }
 }
 
@@ -852,9 +853,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 ///
 /// Shapes stay unimplemented on purpose (`backend/stencil/mod.rs`'s header), and
 /// what has to be true of every one of them is that the build stops with a
-/// sentence. A float into a 128-bit integer is the one used here because it
-/// is reached from *emission* as well as from `missing_intrinsics`: neither
-/// backend has a single conversion for it (`intrinsic_keys::checked_kind`).
+/// sentence. A float into a 128-bit integer is the one used here: neither
+/// backend has a single conversion for it (`intrinsic_keys::checked_kind`), so
+/// `missing_intrinsics` names its key before emission starts.
 ///
 /// A derived `Hash` over a `[T]` used to be the shape here, and is not:
 /// `middle::lower` builds its loop now.
@@ -877,7 +878,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
     );
     assert!(
-        messages.iter().any(|m| m.contains("cannot compile")),
+        messages.iter().any(|m| m.contains("number.F32.toI128")),
         "a refusal has to name the shape: {messages:?}"
     );
 }
@@ -2048,6 +2049,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "buri_ast/tokens.buri",
     "bignum/bigint.buri",
     "bignum/decimal.buri",
+    "bignum/hashing.buri",
     "calendar/date.buri",
     "calendar/duration.buri",
     "calendar/fractions.buri",
@@ -2154,6 +2156,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "ui/timers.buri",
     "ui/tree.buri",
     "url/url.buri",
+    "uuid/hashing.buri",
     "uuid/uuid.buri",
     "vectors/convert.buri",
     "vectors/simd.buri",
