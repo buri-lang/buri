@@ -1091,11 +1091,9 @@ impl Printer {
                     if i > 0 {
                         self.out.push(',');
                     }
-                    if is_ident_like(k) {
-                        self.out.push_str(k);
-                    } else {
-                        self.out.push_str(&quote(k));
-                    }
+                    // Every key is an identifier: a field of a crossing record,
+                    // an entry's name, or a name a chunk borrows.
+                    self.out.push_str(k);
                     self.out.push(':');
                     self.expr(v, 1);
                 }
@@ -1230,12 +1228,6 @@ fn starts_with_sign(e: &Expr) -> bool {
     }
 }
 
-fn is_ident_like(s: &str) -> bool {
-    !s.is_empty()
-        && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
-        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
-}
-
 /// The shortest spelling of a number that round-trips.
 pub fn number(n: f64) -> String {
     if n.is_nan() {
@@ -1322,18 +1314,15 @@ pub fn minify(stmts: Vec<Stmt>, roots: &[String], mangle: bool) -> Vec<Stmt> {
         // Each top-level statement is its own job: nothing here looks across
         // two of them, so they run on the crate's workers and come back in
         // order.
-        let folded = each_statement(stmts, |s| match Fold.stmt(s) {
+        //
+        // The top level is declarations and expressions, never a branch, so
+        // folding leaves nothing there to flatten.
+        stmts = each_statement(stmts, |s| match Fold.stmt(s) {
             Stmt::Func { name, params, body, is_async } => {
                 clean_function(name, params, body, is_async, &table)
             }
             other => other,
         });
-        stmts = Vec::with_capacity(folded.len());
-        for s in folded {
-            if Fold::push(&mut stmts, s) {
-                break;
-            }
-        }
         // Last, so that two instances which only became the same through
         // folding and inlining are still seen as the same.
         stmts = merge_identical(stmts, roots);
@@ -1466,38 +1455,26 @@ impl Rewrite for Fold {
                 // inside out: the innermost `if`/`else` becomes a ternary, which
                 // makes its parent's branch a single `return`, and so on.
                 // Moved rather than cloned: `else_` holds the rest of the chain.
-                if sole_return(&then).is_some() && sole_return(&else_).is_some() {
-                    if let (Ok([Stmt::Return(Some(a))]), Ok([Stmt::Return(Some(b))])) =
-                        (<[Stmt; 1]>::try_from(then), <[Stmt; 1]>::try_from(else_))
-                    {
-                        return Stmt::Return(Some(Expr::cond(cond, a, b)));
+                let back = |b: Result<[Stmt; 1], Vec<Stmt>>| b.map_or_else(|v| v, Vec::from);
+                match (<[Stmt; 1]>::try_from(then), <[Stmt; 1]>::try_from(else_)) {
+                    (Ok([Stmt::Return(Some(a))]), Ok([Stmt::Return(Some(b))])) => {
+                        Stmt::Return(Some(Expr::cond(cond, a, b)))
                     }
-                    crate::ice!("both branches were matched as one `return` a line above")
-                }
-                let same_target = matches!(
-                    (sole_assignment(&then), sole_assignment(&else_)),
-                    (Some((ta, _)), Some((tb, _))) if ta.same_as(tb)
-                );
-                if same_target {
-                    if let (
+                    (
                         Ok([Stmt::Expr(Expr::Assign { target, value: a })]),
-                        Ok([Stmt::Expr(Expr::Assign { value: b, .. })]),
-                    ) = (<[Stmt; 1]>::try_from(then), <[Stmt; 1]>::try_from(else_))
-                    {
-                        return Stmt::Expr(Expr::Assign {
-                            target,
-                            value: Box::new(Expr::cond(cond, *a, *b)),
-                        });
-                    }
-                    crate::ice!("both branches were matched as one assignment a line above")
+                        Ok([Stmt::Expr(Expr::Assign { target: tb, value: b })]),
+                    ) if target.same_as(&tb) => Stmt::Expr(Expr::Assign {
+                        target,
+                        value: Box::new(Expr::cond(cond, *a, *b)),
+                    }),
+                    (then, else_) => Stmt::If { cond, then: back(then), else_: back(else_) },
                 }
-                Stmt::If { cond, then, else_ }
             }
             Stmt::While { cond, body } => {
                 // A `while(true)` that nothing jumps back to the top of and
                 // nothing jumps out of, and that leaves on every path, runs
                 // exactly once and is only a wrapper. Removing it is what lets
-                // `block`'s truncation-after-a-terminator and the `sole_return`
+                // `block`'s truncation-after-a-terminator and the one-`return`
                 // rule above reach what is inside — a tail-call loop whose only
                 // `continue` sat in a branch folding just removed, say.
                 //
@@ -1587,22 +1564,6 @@ fn is_declaration(s: &Stmt) -> bool {
     matches!(s, Stmt::Var { .. } | Stmt::Func { .. } | Stmt::RawDecl { .. })
 }
 
-/// A block that is exactly `return <expr>;`, and nothing else.
-fn sole_return(body: &[Stmt]) -> Option<&Expr> {
-    match body {
-        [Stmt::Return(Some(e))] => Some(e),
-        _ => None,
-    }
-}
-
-/// A block that is exactly one assignment, as `<target> = <value>;`.
-fn sole_assignment(body: &[Stmt]) -> Option<(&Expr, &Expr)> {
-    match body {
-        [Stmt::Expr(Expr::Assign { target, value })] => Some((target, value)),
-        _ => None,
-    }
-}
-
 // -- shared constants --------------------------------------------------------
 
 /// Replaces a known slot of a shared constant with the value in it.
@@ -1626,16 +1587,8 @@ fn constant_table(stmts: &[Stmt]) -> HashMap<String, Vec<Expr>> {
 
 struct ReadThrough<'a>(&'a HashMap<String, Vec<Expr>>);
 
+/// Runs over function bodies only, so it never meets the declarations.
 impl Rewrite for ReadThrough<'_> {
-    fn stmt(&mut self, s: Stmt) -> Stmt {
-        match s {
-            // The declarations themselves are left alone: one of them may name
-            // another, and rewriting a constant into itself is not the point.
-            Stmt::Var { kind: VarKind::Const, ref name, .. } if name.starts_with("$k") => s,
-            other => other.map_children(self),
-        }
-    }
-
     fn expr(&mut self, e: Expr) -> Expr {
         // `$k0[2]`, where slot 2 holds something free to copy.
         if let Expr::Index { obj, index } = &e {
@@ -1951,9 +1904,6 @@ struct LocalFacts {
     names: HashMap<String, NameFacts>,
     /// How many loops and closures enclose the point being walked.
     depth: u32,
-    /// Set when something in the body cannot be reasoned about, in which case
-    /// the body is left exactly as it was.
-    opaque: bool,
 }
 
 /// What [`LocalFacts`] knows about one name. A count of zero is a name that
@@ -2076,9 +2026,10 @@ impl<'a> Visit<'a> for LocalFacts {
         match e {
             Expr::Ident(name) => self.read(name),
             // The target of a plain assignment is written, not read.
-            Expr::Assign { target, value } if matches!(&**target, Expr::Ident(_)) => {
-                if let Expr::Ident(name) = &**target {
-                    self.assign(name);
+            Expr::Assign { target, value } => {
+                match &**target {
+                    Expr::Ident(name) => self.assign(name),
+                    place => self.expr(place),
                 }
                 self.expr(value);
             }
@@ -2108,9 +2059,6 @@ impl<'a> Visit<'a> for LocalFacts {
                 self.depth -= 1;
                 return;
             }
-            // Verbatim source names identifiers this pass cannot see, so a body
-            // holding any is left exactly as it was rather than guessed at.
-            Stmt::Raw(_) | Stmt::RawDecl { .. } => self.opaque = true,
             _ => {}
         }
         s.visit_children(self);
@@ -2365,9 +2313,7 @@ fn resolve_one(
     if done.contains_key(name) || taken.contains(name) {
         return;
     }
-    let Some(raw) = map.get(name).cloned() else {
-        return;
-    };
+    let raw = map.get(name).cloned().or_ice("every name resolved is a key of the map");
     // A binding cannot name itself — that would not have run — but a bound is
     // cheaper than trusting it.
     if !visiting.insert(name.to_string()) {
@@ -2430,11 +2376,10 @@ fn merge_declarations(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
     let mut i = 0;
     while i + 1 < body.len() {
         let next = i + 1;
-        let Some(Stmt::Var { kind: VarKind::Let, name, init: None }) = body.get(i) else {
-            i = next;
-            continue;
-        };
-        let Some(Stmt::Expr(Expr::Assign { target, .. })) = body.get(next) else {
+        let Some(
+            [Stmt::Var { kind: VarKind::Let, name, init: None }, Stmt::Expr(Expr::Assign { target, value })],
+        ) = body.get_mut(i..=next)
+        else {
             i = next;
             continue;
         };
@@ -2445,12 +2390,10 @@ fn merge_declarations(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
             i = next;
             continue;
         }
-        let name = name.clone();
-        let Stmt::Expr(Expr::Assign { value, .. }) = body.remove(next) else {
-            crate::ice!("the statement removed here was matched as an assignment a line above")
-        };
-        *body.get_mut(i).or_ice("the declaration at this index was matched a line above") =
-            Stmt::Var { kind: VarKind::Const, name, init: Some(*value) };
+        let init = std::mem::replace(&mut **value, Expr::Null);
+        let joined = Stmt::Var { kind: VarKind::Const, name: std::mem::take(name), init: Some(init) };
+        body.remove(next);
+        *body.get_mut(i).or_ice("the declaration at this index was matched a line above") = joined;
         changed = true;
         i = next;
     }
@@ -2593,13 +2536,11 @@ fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
 }
 
 /// One pass of local cleanup over a function body. Returns `true` when
-/// anything changed, so the caller can run it again.
+/// anything changed, so the caller can run it again. A function holds no
+/// verbatim source, so the facts see every name it mentions.
 fn clean_body(body: &mut Vec<Stmt>) -> bool {
     let mut facts = LocalFacts::default();
     body.iter().for_each(|s| facts.stmt(s));
-    if facts.opaque {
-        return false;
-    }
     if merge_declarations(body, &facts) {
         return true;
     }
