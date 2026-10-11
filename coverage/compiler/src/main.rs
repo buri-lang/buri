@@ -94,9 +94,12 @@ fn check(root: &Path, shards: &BTreeMap<String, Measured>, ci: bool) {
     let lcov = target.join("lcov");
     let _ = std::fs::remove_dir_all(&lcov);
     std::fs::create_dir_all(&lcov).unwrap();
+    let mut everywhere = Measured::default();
     for (host, platform) in shards {
         std::fs::write(lcov.join(format!("{host}.lcov")), platform.lcov()).unwrap();
+        everywhere.add(platform);
     }
+    std::fs::write(lcov.join("merged.lcov"), everywhere.lcov()).unwrap();
 
     let hosts: BTreeSet<String> = shards.keys().cloned().collect();
     let measured = merge(shards);

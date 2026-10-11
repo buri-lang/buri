@@ -285,6 +285,22 @@ fn each_platforms_lcov_merges_its_shards() {
 }
 
 #[test]
+fn the_merged_lcov_has_what_any_platform_took() {
+    let repo = Repo::new("merged_lcov");
+    let x86 = file(LEXER, &[(1, 2), (2, 0)], &[(2, 0, 0, 1), (2, 0, 1, 0), (3, 0, 0, 0), (3, 0, 1, 0)]);
+    let mac = file(LEXER, &[(1, 0), (2, 3)], &[(2, 0, 0, 0), (2, 0, 1, 5), (3, 0, 0, 0), (3, 0, 1, 0)]);
+    repo.everywhere(&x86, &x86, &mac);
+    passed(&repo.merge());
+    assert_eq!(
+        repo.read("target/coverage/lcov/merged.lcov"),
+        format!(
+            "SF:{LEXER}\nDA:1,4\nDA:2,3\nLF:2\nLH:2\nBRDA:2,0,0,2\nBRDA:2,0,1,5\nBRDA:3,0,0,0\nBRDA:3,0,1,0\n\
+             BRF:4\nBRH:2\nend_of_record\n"
+        )
+    );
+}
+
+#[test]
 fn a_file_in_no_area_fails() {
     let repo = Repo::new("unmapped");
     let shard = file("crates/new/src/lib.rs", &[(1, 1)], &[]);
