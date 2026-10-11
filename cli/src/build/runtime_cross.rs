@@ -225,7 +225,8 @@ pub fn resolve_in(home: &Path, target: Target) -> Result<Cross, link_refusal::Re
 /// **Built in a temporary directory and renamed into place**, so a build killed
 /// halfway leaves no half-populated cache entry a later run would read as a hit.
 /// The rename is within `~/.buri/cross`, so it is atomic on every filesystem the
-/// cache can live on.
+/// cache can live on. A build that fails takes its directory with it, since
+/// no later process, with another id, would.
 fn build_into(
     root: &Path,
     dir: &Path,
@@ -238,7 +239,23 @@ fn build_into(
     std::fs::create_dir_all(root).map_err(io_refusal("create the cross cache directory"))?;
     let tmp = root.join(format!(".build.{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
-    std::fs::create_dir_all(&tmp).map_err(io_refusal("create a cross build directory"))?;
+    let built = build_in(&tmp, dir, triple, sysroot_src, features, rustc, cargo);
+    // Gone already when the build was published.
+    let _ = std::fs::remove_dir_all(&tmp);
+    built
+}
+
+/// [`build_into`] in `tmp`.
+fn build_in(
+    tmp: &Path,
+    dir: &Path,
+    triple: &str,
+    sysroot_src: &Path,
+    features: &[String],
+    rustc: &str,
+    cargo: &str,
+) -> Result<Cross, link_refusal::Refusal> {
+    std::fs::create_dir_all(tmp).map_err(io_refusal("create a cross build directory"))?;
 
     // The sources, written back out of the embedded blob.
     let src = tmp.join("src");
@@ -285,7 +302,7 @@ fn build_into(
     let _ = std::fs::remove_dir_all(tmp.join("src"));
     let _ = std::fs::remove_dir_all(&target_dir);
 
-    if let Some(theirs) = publish(&tmp, dir, features)? {
+    if let Some(theirs) = publish(tmp, dir, features)? {
         return Ok(theirs);
     }
     Ok(Cross {
