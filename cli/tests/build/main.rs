@@ -75,6 +75,7 @@ mod closed_stdout;
 mod custom_platforms;
 mod diagnostics_paths;
 mod example;
+mod executable_identity;
 mod generator_failures;
 mod generators;
 mod heap;
