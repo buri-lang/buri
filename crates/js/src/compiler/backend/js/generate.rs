@@ -2948,9 +2948,10 @@ impl<'a> Gen<'a> {
             // their result is *signed* 32-bit — `0x80000000 | 0` came back
             // negative, and `~0` on a `U8` came back as `-1` rather than
             // `255`. Narrowing the result to the type's own width fixes the
-            // representation without touching the operation.
+            // representation without touching the operation. The checker
+            // refuses these operators on anything but an integer.
             PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor | PrimOp::BitNot
-                if p.is_integer() && !p.is_signed() =>
+                if !p.is_signed() =>
             {
                 let v = match op {
                     PrimOp::BitAnd => two(BinOp::BitAnd, &mut args),
