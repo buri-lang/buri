@@ -8,6 +8,7 @@
 # none of that: `pick` once, no aborts, no conditions. Native and JavaScript
 # match one hand-checked golden. `countdown` ends its `||` in a tail call, which
 # keeps its constant stack and its branches, and so isn't an MC/DC decision.
+# `neither` is a decision under a `!`, named by the `||` inside it.
 # `//lib/d` counts derived code, and `sameWhen` ends its `&&` in a derived `==`,
 # which is no call once built, so it is an MC/DC decision.
 #

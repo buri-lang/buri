@@ -197,6 +197,16 @@ impl Tree {
         }
     }
 
+    /// The span the decision is named by: its outermost `&&` or `||`, inside
+    /// any `!` around it.
+    pub fn span(&self) -> Option<Span> {
+        match self {
+            Tree::And(_, _, s) | Tree::Or(_, _, s) => Some(*s),
+            Tree::Not(x) => x.span(),
+            Tree::Condition(_) => None,
+        }
+    }
+
     /// Whether MC/DC counts it: few enough paths to number.
     pub fn counted(&self) -> bool {
         let (t, f) = self.paths();
@@ -611,8 +621,9 @@ impl Branches<'_> {
     /// The decision `e` as `{ let p = <its path>; count p; p < true paths }`.
     fn decision(&mut self, e: &mut Expr) {
         let span = e.span;
-        let Some(file) = (self.options.file_of)(span) else { return };
-        let base = mcdc_key(&file, (span.start, span.end), self.instance);
+        let Some(named) = Tree::of(e).as_ref().and_then(Tree::span) else { return };
+        let Some(file) = (self.options.file_of)(named) else { return };
+        let base = mcdc_key(&file, (named.start, named.end), self.instance);
         let whole = std::mem::replace(e, Expr::new(ExprKind::Unit, self.options.bool_ty, span));
         let (index, trues, _) = self.path(whole);
         let p = self.local(self.options.i64_ty, span);
