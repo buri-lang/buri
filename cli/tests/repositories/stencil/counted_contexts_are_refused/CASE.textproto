@@ -1,0 +1,26 @@
+# A context that owns a reference count, handed to a step or a timer the
+# runtime runs later. The debug backend names both calls it can't compile and
+# runs nothing. JavaScript runs the same suite.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a step and a timer whose context owns a count are refused by name on the debug backend and run on JavaScript"
+
+run {
+  args: ["test", "//lib/steps", "--force"]
+  exit: 1
+  golden: "refused.txt"
+}
+
+edit {
+  file: "lib/steps/BUILD.buri"
+  replace: "backends: [NATIVE]"
+  with: "backends: [JS]"
+}
+
+run {
+  args: ["test", "//lib/steps", "--force"]
+  exit: 0
+  golden: "javascript.txt"
+}
