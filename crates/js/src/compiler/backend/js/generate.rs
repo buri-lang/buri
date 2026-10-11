@@ -1358,9 +1358,10 @@ fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
         // At most 32 bits, which a double holds exactly.
         Some(Expr::Num(signed as f64))
     };
+    // An integer's `number` is always whole and finite.
     let lit = |e: &Expr| -> Option<i128> {
         match e {
-            Expr::Num(n) if n.fract() == 0.0 && n.is_finite() => Some(*n as i128),
+            Expr::Num(n) => Some(*n as i128),
             Expr::BigInt(s) => s.parse::<i128>().ok(),
             _ => None,
         }
