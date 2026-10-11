@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "each way a check refuses a JSON file: a syntax its language does not allow, no schema, a schema that is not local or not there, a draft other than 2020-12, and a schema that does not read"
+doc: "each way a check refuses a JSON file: a syntax its language does not allow, no schema, a schema that is not local or not there, a draft other than 2020-12 in the schema it names or one that schema reaches by `$ref`, and a schema that does not read"
 
 # Every refusal at once, each at the place it is about: the data file for its
 # own syntax and its `"$schema"`, the schema file for what is wrong in the

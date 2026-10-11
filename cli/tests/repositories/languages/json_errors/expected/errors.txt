@@ -78,10 +78,10 @@ error: JSON has no comments [json-syntax]
     A file that does not parse is neither checked nor formatted, and the
     generator that lists it does not run.
 
-error: `http://json-schema.org/draft-07/schema#` is not JSON Schema 2020-12 [json-schema-draft-unsupported]
- --> lib/bad/draft7.schema.json:2:16
+error: `http://json-schema.org/draft-06/schema#` is not JSON Schema 2020-12 [json-schema-draft-unsupported]
+ --> lib/bad/draft6.schema.json:2:16
   |
-2 |     "$schema": "http://json-schema.org/draft-07/schema#",
+2 |     "$schema": "http://json-schema.org/draft-06/schema#",
   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = this toolchain reads one draft of JSON Schema, so every keyword has one meaning
@@ -96,6 +96,14 @@ error: `http://json-schema.org/draft-07/schema#` is not JSON Schema 2020-12 [jso
       additionalItems  items
       dependencies     dependentRequired or dependentSchemas
 
+error: `http://json-schema.org/draft-07/schema#` is not JSON Schema 2020-12 [json-schema-draft-unsupported]
+ --> lib/bad/draft7.schema.json:2:16
+  |
+2 |     "$schema": "http://json-schema.org/draft-07/schema#",
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = this toolchain reads one draft of JSON Schema, so every keyword has one meaning
+  = fix: write `"$schema": "https://json-schema.org/draft/2020-12/schema"` in the schema, and update its keywords to 2020-12
 error: `minLength` is a whole number, zero or more [json-invalid-schema]
  --> lib/bad/invalid.schema.json:5:50
   |
