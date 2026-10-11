@@ -1,0 +1,14 @@
+# A repository effect whose method takes a callback of `Self` and a number.
+# The wrapper hands it a callback of the context instead, and the test
+# implementation calls it with itself. Both backends run the block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an effect's callback that takes Self beside another parameter is called with the implementation"
+
+run {
+  args: ["test", "//lib/clock", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

@@ -1,0 +1,11 @@
+from "core/testing/assert" import * as assert;
+from "//platform/effect/ticker" import * as ticks;
+from "//platform/effect/ticker" import { Ticker };
+from "//platform/effect/ticker/testing" import { ticker };
+
+test "a callback handed the context and a number" {
+    let ctx = context {
+        Ticker: ticker(),
+    };
+    assert.equal(ticks.every(ctx, 3, fn(c, k) => k + 1), 7);
+}

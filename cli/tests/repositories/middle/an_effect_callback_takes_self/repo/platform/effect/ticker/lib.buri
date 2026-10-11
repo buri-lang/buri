@@ -1,0 +1,8 @@
+// An effect whose method takes a callback handed the implementation and a number.
+export effect Ticker {
+    fn every(self, n: Int, run: fn(Self, Int) => Int): Int;
+}
+
+export fn every<C: Ticker>(ctx: C, n: Int, run: fn(C, Int) => Int): Int {
+    ctx.every(n, run)
+}
