@@ -1,4 +1,4 @@
-error: this toolchain was built without networking, so `actor.mailboxOpen`, `actor.mailboxPop`, `actor.mailboxPush`, `actor.replyOpen`, `actor.replyPut`, `actor.replyTake`, `actor.scopesLive`, `actor.statePut` and `actor.stateTake` cannot be compiled [networking-unavailable]
+error: this toolchain was built without networking, so `actor.mailboxClose`, `actor.mailboxOpen`, `actor.mailboxPop`, `actor.mailboxPush`, `actor.replyOpen`, `actor.replyPut`, `actor.replyTake`, `actor.scopesLive`, `actor.statePut` and `actor.stateTake` cannot be compiled [networking-unavailable]
   = the native runtime carries the networking crates behind a `net` feature that is on by default, and this toolchain's copy of it was built without them
   = fix: install a toolchain built with the runtime's `net` feature, or build one with `cargo build -p buri` and `BURI_RUNTIME_NET` unset
 
