@@ -486,6 +486,7 @@ fn check_native(
         exe: Vec<u8>,
     }
     let mut rounds: [Round; 2] = Default::default();
+    let mut chosen = None;
     for (slot, round) in rounds.iter_mut().zip(["a", "b"]) {
         let round_dir =
             std::env::temp_dir().join(format!("buri-reproducible-{}-{round}", std::process::id()));
@@ -506,7 +507,10 @@ fn check_native(
             }
         };
         let linker = match link::select(actions::target_of(output)) {
-            Ok(l) => l.in_dir(round_dir.join("link")),
+            Ok(l) => {
+                chosen = l.chosen_outside();
+                l.in_dir(round_dir.join("link"))
+            }
             // `text()` and not the message alone: the hermetic-link refusal
             // carries the rule and the escape hatch in its notes, and this path
             // has no `Diagnostics` sink to render them through.
@@ -577,6 +581,8 @@ fn check_native(
             );
         }
     }
+    // The objects are this toolchain's own; the link may not be.
+    let units_differed = differed;
     match actions::first_difference(a_exe, b_exe) {
         Some(at) => {
             differed = true;
@@ -597,11 +603,16 @@ fn check_native(
         }
         None => {}
     }
-    if differed {
-        eprintln!(
+    match chosen.filter(|_| !units_differed) {
+        Some(linker) if differed => eprintln!(
+            "  = the objects are the same in both builds, so the difference may come from the \
+             linker, {linker}"
+        ),
+        _ if differed => eprintln!(
             "  = an artifact that is not a function of its declared inputs cannot be cached \
              safely; this is a toolchain bug, not a problem with your repository"
-        );
+        ),
+        _ => {}
     }
     Ok(differed)
 }

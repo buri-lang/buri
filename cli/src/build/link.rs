@@ -1904,6 +1904,22 @@ impl CDriver {
         }
     }
 
+    /// The linker as the user chose it: `CC` and `BURI_LINKER` as set, or the
+    /// machine's own driver when the link uses no sysroot of this toolchain's.
+    /// `None` when the link is this toolchain's alone.
+    pub fn chosen_outside(&self) -> Option<String> {
+        let own = matches!(self.libc, LibcMode::MuslBaked | LibcMode::MuslCross);
+        let driver = match std::env::var("CC") {
+            Ok(cc) => Some(format!("`CC={cc}`")),
+            Err(_) => (!own).then(|| format!("`{}`", self.driver.display())),
+        };
+        let forced = std::env::var("BURI_LINKER").ok().map(|l| format!("`BURI_LINKER={l}`"));
+        match (driver, forced) {
+            (Some(d), Some(f)) => Some(format!("{d} with {f}")),
+            (one, other) => one.or(other),
+        }
+    }
+
     /// Enters the `link` key, with [`CDriver::version`].
     pub fn name(&self) -> &'static str {
         self.flavour.name()
