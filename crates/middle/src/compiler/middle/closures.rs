@@ -49,6 +49,7 @@ use crate::compiler::semantics::typed::{
     self, Callee, Expr, ExprKind, PatKind, Pattern, Stmt,
 };
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
+use crate::diagnostics::Invariant as _;
 
 /// Lifts every lambda to a top-level function over an explicit environment.
 pub fn run(program: &mut Program) {
@@ -200,8 +201,9 @@ fn compact(
     let mut renumber = |l: &mut LocalId| {
         if *l == env {
             *l = new_env;
-        } else if let Ok(k) = used.binary_search(&l.0) {
-            *l = LocalId(k as u32);
+        } else {
+            // Every local but the environment was marked above.
+            *l = LocalId(used.binary_search(&l.0).ok().or_ice("a lifted body's local was marked") as u32);
         }
     };
     params.iter_mut().for_each(&mut renumber);

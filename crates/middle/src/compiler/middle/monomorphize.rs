@@ -1147,9 +1147,9 @@ impl Monomorphizer<'_> {
         match key {
             Key::Fn(f, targs) => self.build_fn(f, targs, slot),
             Key::CtxCtor(c) => {
-                let Some(checked) = self.tables().ctx_decl(c).checked else { return };
-                let ctor = checked.ctor;
-                let Some(body) = self.checked.bodies.get(&ctor) else { return };
+                // Only a checked context declaration is requested.
+                let ctor = self.tables().ctx_decl(c).checked.or_ice("a requested context was checked").ctor;
+                let body = self.checked.bodies.get(&ctor).or_ice("a checked context has a constructor body");
                 let mut b = typed::Body::clone(body);
                 for l in &mut b.locals {
                     l.ty = self.sub(&l.ty, &[]);
@@ -1169,7 +1169,7 @@ impl Monomorphizer<'_> {
                     .get(i)
                     .or_ice("a test key holds the index `run` enumerated `checked.tests` with")
                     .func;
-                let Some(body) = self.checked.bodies.get(&fid) else { return };
+                let body = self.checked.bodies.get(&fid).or_ice("a checked test has a body");
                 let mut b = typed::Body::clone(body);
                 for l in &mut b.locals {
                     l.ty = self.sub(&l.ty, &[]);
@@ -1326,15 +1326,16 @@ impl Monomorphizer<'_> {
                 return;
             }
             if CELL_WRITE_KEYS.contains(&key.as_str()) {
-                if let Some(t) = param_types.last().copied() {
-                    self.cell_through_equal(t);
-                }
+                let t = *param_types.last().or_ice("a cell write takes the value last");
+                self.cell_through_equal(t);
             }
             if key == "testing_assert.report" || key == "testing_assert.failExpected" {
-                if let Some(t) = param_types.get(2).or_else(|| param_types.get(1)).cloned() {
-                    let desc = self.descriptor(&t);
-                    self.func_mut(slot).desc = Some(desc);
-                }
+                let t = *param_types
+                    .get(2)
+                    .or_else(|| param_types.get(1))
+                    .or_ice("a reporter takes the value it reports");
+                let desc = self.descriptor(&t);
+                self.func_mut(slot).desc = Some(desc);
             }
             // A reactive **cell**'s value type. `ui/signal`'s rule is that
             // writing a value equal to the one a cell holds re-runs nothing,
@@ -1346,20 +1347,18 @@ impl Monomorphizer<'_> {
             // last parameter at both keys: `signal(self, initial: T)` and
             // `write(self, id: Int, value: T)`.
             if CELL_VALUE_KEYS.contains(&key.as_str()) {
-                if let Some(t) = param_types.last().cloned() {
-                    let desc = self.descriptor(&t);
-                    self.func_mut(slot).desc = Some(desc);
-                }
+                let t = *param_types.last().or_ice("a cell's value is its last parameter");
+                let desc = self.descriptor(&t);
+                self.func_mut(slot).desc = Some(desc);
             }
             // `json.decode` is the one operation whose subject is in neither a
             // parameter nor the receiver: it is asked for a `T` and handed a
             // `Json`. `T` is the first type argument, and the descriptor of it
             // is the whole of what the runtime needs to read one.
             if key == "json.decode" {
-                if let Some(t) = targs.first().cloned() {
-                    let desc = self.descriptor(&t);
-                    self.func_mut(slot).desc = Some(desc);
-                }
+                let t = *targs.first().or_ice("`json.decode` is called at the type it decodes");
+                let desc = self.descriptor(&t);
+                self.func_mut(slot).desc = Some(desc);
             }
             return;
         }
@@ -1625,12 +1624,11 @@ impl Monomorphizer<'_> {
 
         // The receiver is bound once: the call reads it, and so does every
         // adapter, and a lambda captures locals rather than expressions.
-        let Some(receiver) = out.first() else { return (out, None) };
-        let recv_ty = receiver.ty;
-        let span = receiver.span;
+        let slot = out.first_mut().or_ice("a method call has its receiver");
+        let recv_ty = slot.ty;
+        let span = slot.span;
         let bound = self.new_local("__recv", recv_ty, span);
         let stands_for = typed::Expr::new(ExprKind::Local(bound), recv_ty, span);
-        let Some(slot) = out.first_mut() else { return (out, None) };
         let receiver = std::mem::replace(slot, stands_for);
         let prelude = typed::Stmt::Let {
             pattern: typed::Pattern {
@@ -1643,10 +1641,15 @@ impl Monomorphizer<'_> {
         };
 
         for (i, at) in adapt {
-            let Some(argument) = out.get(i) else { continue };
+            let argument = out.get(i).or_ice("`adapt` names arguments the call has");
             let callback_ty = argument.ty;
             let span = argument.span;
-            let TyKind::Fn(params, ret) = callback_ty.kind() else { continue };
+            // Only a function's parameters can be spelled `Self` inside it.
+            let (params, ret) = match callback_ty.kind() {
+                TyKind::Fn(params, ret) => Some((params, ret)),
+                _ => None,
+            }
+            .or_ice("an argument whose declaration spells `Self` inside it is a function");
             let held = self.new_local("__handler", callback_ty, span);
             // The adapter's own parameters: the implementation's type where the
             // declaration spelled `Self`, the declared type everywhere else.
@@ -1695,7 +1698,7 @@ impl Monomorphizer<'_> {
                 adapter_ty,
                 span,
             );
-            let Some(slot) = out.get_mut(i) else { continue };
+            let slot = out.get_mut(i).or_ice("`adapt` names arguments the call has");
             let callback =
                 std::mem::replace(slot, typed::Expr::new(ExprKind::Error, Ty::ERROR, span));
             *slot = typed::Expr::new(
@@ -1768,21 +1771,26 @@ impl Monomorphizer<'_> {
     fn rewrite(&mut self, mut e: typed::Expr, targs: &[Ty]) -> typed::Expr {
         e.ty = self.sub(&e.ty, targs);
         if let Some((op, prim)) = self.float_operator(&e, targs) {
-            if let ExprKind::Match { scrutinee, .. } = e.kind {
-                if let ExprKind::CallTrait { args, .. } = scrutinee.kind {
-                    let args = self.rewrite_all(args, targs);
-                    return typed::Expr::new(ExprKind::Prim { op, prim, args }, e.ty, e.span);
-                }
+            let args = match e.kind {
+                ExprKind::Match { scrutinee, .. } => match scrutinee.kind {
+                    ExprKind::CallTrait { args, .. } => Some(args),
+                    _ => None,
+                },
+                _ => None,
             }
-            crate::ice!("`float_operator` answers only for a match on a `compare` call");
+            .or_ice("`float_operator` answers only for a match on a `compare` call");
+            let args = self.rewrite_all(args, targs);
+            return typed::Expr::new(ExprKind::Prim { op, prim, args }, e.ty, e.span);
         }
         e.kind = match e.kind {
             ExprKind::CallFn { func, args } => {
                 // The one place the two index spaces meet: a declaration and
                 // its type arguments in, one concrete function out.
-                let typed::Callee::Decl { id, targs: call_targs } = func else {
-                    return typed::Expr::new(ExprKind::Error, e.ty, e.span);
-                };
+                let (id, call_targs) = match func {
+                    typed::Callee::Decl { id, targs } => Some((id, targs)),
+                    typed::Callee::Func(_) => None,
+                }
+                .or_ice("a checked body names declarations, not functions");
                 let resolved: Vec<Ty> = call_targs.iter().map(|t| self.sub(t, targs)).collect();
                 if let Some(word) = self.flags_constant(id, &e.ty, e.span) {
                     return word;
@@ -1812,9 +1820,11 @@ impl Monomorphizer<'_> {
                 }
             }
             ExprKind::FnRef(callee) => {
-                let typed::Callee::Decl { id, targs: ft } = callee else {
-                    return typed::Expr::new(ExprKind::Error, e.ty, e.span);
-                };
+                let (id, ft) = match callee {
+                    typed::Callee::Decl { id, targs } => Some((id, targs)),
+                    typed::Callee::Func(_) => None,
+                }
+                .or_ice("a checked body names declarations, not functions");
                 let resolved: Vec<Ty> = ft.iter().map(|t| self.sub(t, targs)).collect();
                 let slot = self.request(Key::Fn(id, resolved));
                 ExprKind::FnRef(typed::Callee::Func(FuncIdx(slot as u32)))
@@ -1838,10 +1848,13 @@ impl Monomorphizer<'_> {
                 }
             }
             ExprKind::CtxLit { bindings } => {
-                if let TyKind::Ctx(id) = e.ty.kind() {
-                    let layout: Vec<TraitId> = bindings.iter().map(|(t, _)| *t).collect();
-                    self.ctx_layouts.insert(*id, layout);
+                let id = match e.ty.kind() {
+                    TyKind::Ctx(id) => Some(*id),
+                    _ => None,
                 }
+                .or_ice("a context literal has a context type");
+                let layout: Vec<TraitId> = bindings.iter().map(|(t, _)| *t).collect();
+                self.ctx_layouts.insert(id, layout);
                 ExprKind::CtxLit {
                     bindings: bindings
                         .into_iter()
@@ -1954,17 +1967,9 @@ impl Monomorphizer<'_> {
             ExprKind::Prim { op, prim, args } => {
                 ExprKind::Prim { op, prim, args: self.rewrite_all(args, targs) }
             }
+            // Only `coverage::derived` builds one, after this pass.
             ExprKind::StructuralEq { negate, args } => {
-                let args = self.rewrite_all(args, targs);
-                // The backend compiles this at the type rather than calling a
-                // walker that rediscovers the shape per element, and the
-                // descriptor is where the shape is written down. Nothing else
-                // asks for one at this type, so ask here.
-                if let Some(a) = args.first() {
-                    let t = a.ty;
-                    self.descriptor(&t);
-                }
-                ExprKind::StructuralEq { negate, args }
+                ExprKind::StructuralEq { negate, args: self.rewrite_all(args, targs) }
             }
             ExprKind::StructuralCmp { op, args } => {
                 ExprKind::StructuralCmp { op, args: self.rewrite_all(args, targs) }
@@ -2321,14 +2326,14 @@ impl Monomorphizer<'_> {
     ) -> ExprKind {
         use typed::PrimOp;
         let b = if args.len() > 1 { args.pop() } else { None };
-        let Some(a) = args.pop() else { return ExprKind::Error };
+        let a = args.pop().or_ice("a `Flags` method has its receiver");
         let both = |b: Option<typed::Expr>| b.map_or_else(Vec::new, |b| vec![a.clone(), b]);
         let e = match method {
             "union" => word.op(PrimOp::BitOr, both(b)),
             "intersect" => word.op(PrimOp::BitAnd, both(b)),
             "symmetricDifference" => word.op(PrimOp::BitXor, both(b)),
             "difference" | "isSubsetOf" => {
-                let Some(b) = b else { return ExprKind::Error };
+                let b = b.or_ice("`difference` and `isSubsetOf` take a second set");
                 let outside = word.op(PrimOp::BitXor, vec![b, word.lit(word.all())]);
                 let left = word.op(PrimOp::BitAnd, vec![a, outside]);
                 if method == "difference" {
@@ -2395,7 +2400,7 @@ impl Monomorphizer<'_> {
         span: Span,
     ) -> ExprKind {
         args.pop(); // the descriptor, which an operator does not need
-        let Some(con) = recv.head() else { return ExprKind::Error };
+        let con = recv.head().or_ice("only a struct derives an arithmetic operator");
         let tycon = self.tables().tycon(con).clone();
         let fields = tycon.fields().to_vec();
         let [field] = fields.as_slice() else {

@@ -177,7 +177,7 @@ use crate::compiler::semantics::typed::{
     self, Arm, Callee, Expr, ExprKind, FieldPat, PatKind, Pattern, PrimOp, TemplatePart,
 };
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyKind, TyConId};
-use crate::diagnostics::Span;
+use crate::diagnostics::{Invariant as _, Span};
 use crate::hash::Map as HashMap;
 
 /// FNV-1a's offset basis, which is where `$hash` starts. Written here as well
@@ -334,8 +334,8 @@ fn prim_to_json_body(f: &mut Func) {
     if f.intrinsic_key().and_then(intrinsic_keys::prim_to_json).is_none() {
         return;
     }
-    let Some(this) = f.params.first().copied() else { return };
-    let Some(ty) = f.locals.get(this.index()).map(|l| l.ty) else { return };
+    let this = *f.params.first().or_ice("`toJson` takes `self`");
+    let ty = f.locals.get(this.index()).or_ice("a parameter is a local").ty;
     let x = Expr::new(ExprKind::Local(this), ty, Span::NONE);
     let name = String::from("derivePrimJson");
     let body = ExprKind::Intrinsic { name, targs: vec![ty], args: vec![x] };
@@ -364,9 +364,8 @@ fn route_cells(program: &mut Program, routed: &HashMap<(Op, usize), FuncIdx>) {
     let mut rows: Vec<(Ty, FuncIdx)> = Vec::new();
     for desc in wanted {
         let Some(func) = routed.get(&(Op::Eq, desc)).copied() else { continue };
-        if let Some((ty, _)) = program.desc_index.iter().find(|(_, i)| **i == desc) {
-            rows.push((*ty, func));
-        }
+        let (ty, _) = program.desc_index.iter().find(|(_, i)| **i == desc).or_ice("a cell's descriptor is a type's");
+        rows.push((*ty, func));
     }
     // A cell whose type reaches a hand-written `Equal` already has the
     // comparison `monomorphize` generated for it, which this one would miss.
@@ -402,10 +401,10 @@ fn collect(program: &Program, out: &mut Derives) -> Vec<(Op, usize)> {
     };
     for f in &program.funcs {
         if let (Some(key), Some(d)) = (f.intrinsic_key(), f.desc) {
+            // One `json.decode` instance per decoded type, and one descriptor
+            // per type.
             if key == JSON_DECODE {
-                if !out.from_json.contains(&d) {
-                    out.from_json.push(d);
-                }
+                out.from_json.push(d);
             } else if monomorphize::CELL_VALUE_KEYS.contains(&key) {
                 // A reactive cell's value type: what the graph compares a write
                 // against, so that writing a value equal to the one already
@@ -422,14 +421,12 @@ fn collect(program: &Program, out: &mut Derives) -> Vec<(Op, usize)> {
                 let Some(op) = Op::all().into_iter().find(|o| o.intrinsic() == name) else {
                     return;
                 };
-                if let Some(d) = descriptor_arg(args) {
-                    push(op, d, &mut seen);
-                }
+                // `monomorphize::structural_call` passes the descriptor last.
+                push(op, descriptor_arg(args).or_ice("a structural intrinsic names its descriptor"), &mut seen);
             }
             ExprKind::StructuralEq { args, .. } => {
-                if let Some(d) = args.first().and_then(|a| program.desc_index.get(&a.ty)) {
-                    push(Op::Eq, *d, &mut seen);
-                }
+                let d = args.first().and_then(|a| program.desc_index.get(&a.ty));
+                push(Op::Eq, *d.or_ice("a structural equality is at a type with a descriptor"), &mut seen);
             }
             _ => {}
         });
@@ -505,9 +502,7 @@ impl Env {
     fn discover(program: &Program) -> Env {
         let mut ty_of: Vec<Option<Ty>> = vec![None; program.descriptors.len()];
         for (ty, i) in &program.desc_index {
-            if let Some(slot) = ty_of.get_mut(*i) {
-                *slot = Some(*ty);
-            }
+            *ty_of.get_mut(*i).or_ice("`desc_index` names descriptors the program has") = Some(*ty);
         }
         let mut prim_of: HashMap<Prim, Ty> = HashMap::default();
         for (i, d) in program.descriptors.iter().enumerate() {
@@ -534,9 +529,8 @@ impl Env {
                         prim_of.entry(Prim::Char).or_insert_with(|| e.ty);
                     }
                     ExprKind::Prim { prim, args, .. } => {
-                        if let Some(a) = args.first() {
-                            prim_of.entry(*prim).or_insert_with(|| a.ty);
-                        }
+                        let a = args.first().or_ice("a primitive operation has an operand");
+                        prim_of.entry(*prim).or_insert_with(|| a.ty);
                     }
                     ExprKind::StructuralEq { .. } => {
                         result.entry(Op::Eq).or_insert_with(|| e.ty);
@@ -657,9 +651,7 @@ fn support(program: &Program, env: &Env) -> Vec<bool> {
             }
             let good = children(d).into_iter().all(|c| ok.get(c).copied().unwrap_or(false));
             if !good {
-                if let Some(slot) = ok.get_mut(i) {
-                    *slot = false;
-                }
+                *ok.get_mut(i).or_ice("`ok` has a row per descriptor") = false;
                 changed = true;
             }
         }
@@ -966,9 +958,7 @@ impl Generator {
         while let Some((op, desc, idx)) = self.queue.pop() {
             let built = self.body(op, desc);
             let Some((frame, expr)) = built else { continue };
-            let Some(slot) = self.funcs.get_mut(idx.index().saturating_sub(self.base)) else {
-                continue;
-            };
+            let slot = self.funcs.get_mut(idx.index() - self.base).or_ice("a queued instance was minted here");
             slot.params = frame.params;
             slot.locals = frame.locals;
             slot.kind = FuncKind::Body(expr);
@@ -2115,13 +2105,14 @@ impl Generator {
         } else {
             format!("{name}(")
         };
-        let close = if !tuple && record { " }" } else { ")" };
+        let close = if record { " }" } else { ")" };
         let mut parts: Vec<TemplatePart> = vec![TemplatePart::Text(open)];
         for (k, (fname, index, d)) in fields.iter().enumerate() {
             if k > 0 {
                 parts.push(TemplatePart::Text(", ".into()));
             }
-            if record && !tuple {
+            // A tuple is never a record.
+            if record {
                 parts.push(TemplatePart::Text(format!("{fname}: ")));
             }
             let fty = self.ty_of(*d);
@@ -3155,9 +3146,8 @@ impl Generator {
             // A decoder binds the payload it reads, so it is never a leaf.
             Op::FromJson => None,
         };
-        // A leaf never allocates a local; if one appeared, the expression
-        // would be referring to a frame nobody kept.
-        if frame.locals.is_empty() { built } else { None }
+        // A leaf at a primitive or `()` binds nothing, so the frame stays empty.
+        built
     }
 }
 
@@ -3205,6 +3195,7 @@ const ORDER_GREATER: usize = 2;
 
 /// Replaces every structural intrinsic that has a generated function with a
 /// direct call to it.
+#[expect(clippy::indexing_slicing, reason = "`i` ranges over the program's functions")]
 fn rewrite(
     program: &mut Program,
     routed: &HashMap<(Op, usize), FuncIdx>,
@@ -3221,7 +3212,7 @@ fn rewrite(
     // The descriptors a rewritten program still needs: exactly the ones an
     // intrinsic *function* was handed, since no expression reads one any more.
     for i in 0..program.funcs.len() {
-        let Some(f) = program.funcs.get(i) else { continue };
+        let f = &program.funcs[i];
         let (Some(key), Some(d)) = (f.intrinsic_key().map(str::to_owned), f.desc) else { continue };
         if key == JSON_DECODE {
             let Some(decoder) = routed.get(&(Op::FromJson, d)).copied() else { continue };
@@ -3231,23 +3222,19 @@ fn rewrite(
                 .get(decoder.index())
                 .and_then(|g| g.locals.get(g.params.get(1)?.index()))
                 .map(|l| l.ty);
-            if let (Some(path_ty), Some(f)) = (path_ty, program.funcs.get_mut(i)) {
-                decoder_body(f, decoder, path_ty);
-            }
+            decoder_body(&mut program.funcs[i], decoder, path_ty.or_ice("a decoder takes the path second"));
             continue;
         }
         let Some(show) = routed.get(&(Op::Show, d)).copied() else { continue };
-        if let Some(f) = program.funcs.get_mut(i) {
-            reporter_body(f, &key, show);
-        }
+        reporter_body(&mut program.funcs[i], &key, show);
     }
 }
 
 /// Gives `json.decode(ctx, value)` the body `decoder(value, "$")`: the path
 /// starts at the document, as `$json_decode`'s does.
 fn decoder_body(f: &mut Func, decoder: FuncIdx, path_ty: Ty) {
-    let Some(value) = f.params.get(1).copied() else { return };
-    let Some(json) = f.locals.get(value.index()).map(|l| l.ty) else { return };
+    let value = *f.params.get(1).or_ice("`json.decode` takes the document second");
+    let json = f.locals.get(value.index()).or_ice("a parameter is a local").ty;
     let args = vec![
         Expr::new(ExprKind::Local(value), json, Span::NONE),
         Expr::new(ExprKind::Str("$".to_string()), path_ty, Span::NONE),

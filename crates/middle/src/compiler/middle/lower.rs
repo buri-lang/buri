@@ -79,7 +79,7 @@
 //!   substitution [`ir::Inst::Structural`] stands for.
 
 use crate::compiler::middle::ir::{
-    self, BinOp, BlockId, Body, Code, Const, Facts, Func, Inst, Ownership, Purity, Signature,
+    self, BinOp, BlockId, Body, Code, Const, Facts, Func, Inst, Ownership, Signature,
     StructuralOp, Target, Term, Type, TypeId, TypeInfo, UnOp, ValueId,
 };
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
@@ -219,7 +219,6 @@ fn lower_one(
                 counts,
                 cycles,
                 types,
-                entries,
                 locals: &f.locals,
                 ret,
                 code: Code::new(),
@@ -246,7 +245,7 @@ fn lower_one(
     };
 
     Func {
-        facts: facts(fplan, &sig, dispatch),
+        facts: facts(fplan.or_ice("`rc` plans every function"), dispatch),
         symbol: f.symbol.clone(),
         debug_name: f.debug_name.clone(),
         sig,
@@ -262,9 +261,7 @@ fn lower_one(
 fn remap_func_types(func: &mut Func, remap: &[TypeId]) {
     for t in func.sig.params.iter_mut().chain(func.sig.rets.iter_mut()) {
         if let Type::Agg(id) = t {
-            if let Some(&g) = remap.get(id.index()) {
-                *id = g;
-            }
+            *id = *remap.get(id.index()).or_ice("the remap covers every local type id");
         }
     }
     if let Body::Code(code) = &mut func.body {
@@ -280,19 +277,12 @@ fn remap_func_types(func: &mut Func, remap: &[TypeId]) {
 /// question with no content. A plan whose column is a different length from
 /// the signature is not trusted at all, because a *shifted* ownership column
 /// is a missing increment on the wrong parameter.
-fn facts(plan: Option<&rc::FuncPlan>, sig: &Signature, dispatch: bool) -> Facts {
-    let conservative = Facts {
-        params: vec![Ownership::Own; sig.params.len()],
-        purity: Purity::Effectful,
-        can_abort: true,
-    };
-    let Some(plan) = plan else { return conservative };
+/// The plan has one ownership per parameter, and the signature has those and
+/// the entry index a merged group's dispatch adds.
+fn facts(plan: &rc::FuncPlan, dispatch: bool) -> Facts {
     let mut params = plan.params.clone();
     if dispatch {
         params.insert(0, Ownership::Own);
-    }
-    if params.len() != sig.params.len() {
-        return conservative;
     }
     Facts { params, purity: plan.purity, can_abort: plan.can_abort }
 }
@@ -558,7 +548,6 @@ struct FnLower<'a> {
     /// [`ExprKind::StructUpdate`].
     cycles: &'a layout::Cycles,
     types: &'a mut Types,
-    entries: &'a [usize],
     locals: &'a [typed::Local],
     ret: Ty,
     code: Code,
@@ -601,7 +590,8 @@ impl FnLower<'_> {
         let entry = self.code.block(&sig.params);
         self.cur = entry;
         let mut args: Vec<ValueId> = self.code.get(entry).params.clone();
-        let dispatch = if dispatch && !args.is_empty() { Some(args.remove(0)) } else { None };
+        // A dispatching function's first parameter is the entry index.
+        let dispatch = if dispatch { Some(args.remove(0)) } else { None };
         for (local, value) in params.iter().zip(args.iter()) {
             self.bind(*local, *value);
         }
@@ -645,8 +635,7 @@ impl FnLower<'_> {
         let join = self.code.block(&[result]);
 
         let mut header_params = self.code.get(header).params.clone();
-        let header_dispatch =
-            if multi && !header_params.is_empty() { Some(header_params.remove(0)) } else { None };
+        let header_dispatch = if multi { Some(header_params.remove(0)) } else { None };
 
         // Into the loop, with the parameters the function was called with —
         // and, for a merged group, the entry its caller chose.
@@ -730,9 +719,7 @@ impl FnLower<'_> {
     }
 
     fn bind(&mut self, l: LocalId, v: ValueId) {
-        if let Some(slot) = self.env.get_mut(l.index()) {
-            *slot = Some(v);
-        }
+        *self.env.get_mut(l.index()).or_ice("`env` has a slot per local") = Some(v);
     }
 
     fn read(&mut self, l: LocalId) -> ValueId {
@@ -911,7 +898,7 @@ impl FnLower<'_> {
     /// names ([`rc::Target::LocalExcept`]), the way a functional update
     /// releases the fields it replaces.
     fn release_except(&mut self, l: LocalId, moved: u64) {
-        let Some(agg) = self.env.get(l.index()).copied().flatten() else { return };
+        let agg = self.env.get(l.index()).copied().flatten().or_ice("a local `rc` releases is bound");
         let ty = self.locals.get(l.index()).map(|x| x.ty).unwrap_or(Ty::UNIT);
         let arity = ty.head().map_or(0, |c| self.tables.tycon(c).fields().len());
         for i in 0..arity {
@@ -1242,9 +1229,8 @@ impl FnLower<'_> {
                 let env_ty = Ty::tuple(env.iter().map(|e| e.ty));
                 let fields = self.exprs(env);
                 let func = *func;
-                if fields.is_empty() {
-                    return self.emit(ty, |dest| Inst::MakeClosure { dest, func, env: None });
-                }
+                // `middle::closures` makes a lambda that captured nothing a
+                // reference instead, so a closure always carries something.
                 let record = self.type_of(&env_ty);
                 let env = self.emit(record, |dest| Inst::MakeStruct { dest, fields });
                 self.emit(ty, |dest| Inst::MakeClosure { dest, func, env: Some(env) })
@@ -1397,9 +1383,7 @@ impl FnLower<'_> {
             _ => None,
         };
         if let Some(op) = unary {
-            let Some(arg) = vs.first().copied() else {
-                return self.abort("a unary operation with no operand");
-            };
+            let arg = *vs.first().or_ice("the checker gives a unary operation its operand");
             return self.emit(ty, |dest| Inst::Unary { dest, op, prim, arg });
         }
         let op = match op {
@@ -1419,9 +1403,8 @@ impl FnLower<'_> {
             PrimOp::Ge => BinOp::Ge,
             PrimOp::Neg | PrimOp::Not | PrimOp::BitNot => BinOp::Add,
         };
-        let (Some(lhs), Some(rhs)) = (vs.first().copied(), vs.get(1).copied()) else {
-            return self.abort("a binary operation with one operand");
-        };
+        let lhs = *vs.first().or_ice("the checker gives a binary operation two operands");
+        let rhs = *vs.get(1).or_ice("the checker gives a binary operation two operands");
         self.emit(ty, |dest| Inst::Binary { dest, op, prim, lhs, rhs })
     }
 
@@ -1659,9 +1642,7 @@ impl FnLower<'_> {
             // Into the enclosing loop: rebind and jump. This is the whole of
             // tail-call elimination at this layer.
             None => {
-                let Some(frame) = self.loops.last() else {
-                    return self.abort("a `continue` outside a loop");
-                };
+                let frame = self.loops.last().or_ice("`tail_calls` writes a back edge only inside its loop");
                 let (header, dispatch, vars) =
                     (frame.header, frame.dispatch, frame.vars.clone());
                 let mut jump_args: Vec<ValueId> = Vec::new();
@@ -1678,10 +1659,9 @@ impl FnLower<'_> {
             // SCC merging the tail-call graph is a DAG and the stack is
             // bounded by its longest path.
             Some(f) => {
-                let mut call_args: Vec<ValueId> = Vec::new();
-                if self.entries.get(f.index()).copied().unwrap_or(0) > 1 {
-                    call_args.push(self.int(Type::I32, entry));
-                }
+                // Only a merged group is continued into, and it dispatches on
+                // the entry.
+                let mut call_args: Vec<ValueId> = vec![self.int(Type::I32, entry)];
                 // The same padding as a back edge, for the same reason: a
                 // member forwarding into the merged function has only its own
                 // parameters and the function has the widest member's.
@@ -1697,7 +1677,7 @@ impl FnLower<'_> {
     /// The same, for a call into another function's loop, where the slots are
     /// that function's parameters rather than a block's.
     fn pad_to(&mut self, args: &[ValueId], func: FuncIdx) -> Vec<ValueId> {
-        let Some(callee) = self.program.funcs.get(func.index()) else { return args.to_vec() };
+        let callee = self.program.funcs.get(func.index()).or_ice("a merged group is a function of the program");
         let slots: Vec<Ty> = callee
             .params
             .iter()
@@ -1767,32 +1747,20 @@ impl FnLower<'_> {
             return false;
         }
         let mut cases: Vec<(u32, &[FieldPat], &Expr)> = Vec::new();
-        // The variants already given an arm, looked up rather than scanned
-        // for: a scan per arm was quadratic in the width of the match.
-        let mut seen: crate::hash::Set<u32> = crate::hash::Set::default();
         let mut default: Option<&Arm> = None;
-        for (i, arm) in arms.iter().enumerate() {
-            if arm.guard.is_some() || default.is_some() {
+        // The checker refuses an unreachable arm, so no unguarded variant
+        // repeats and a catch-all is last.
+        for arm in arms {
+            if arm.guard.is_some() {
                 return false;
             }
             match &arm.pattern.kind {
                 PatKind::Variant { variant, fields, .. }
                     if fields.iter().all(|f| f.pattern.is_irrefutable(self.tables)) =>
                 {
-                    let v = *variant as u32;
-                    if !seen.insert(v) {
-                        return false;
-                    }
-                    cases.push((v, fields, &arm.body));
+                    cases.push((*variant as u32, fields, &arm.body));
                 }
-                PatKind::Wild | PatKind::Bind { sub: None, .. } => {
-                    // A catch-all is only a default if it is last, and an arm
-                    // after it would be unreachable anyway.
-                    if i.saturating_add(1) != arms.len() {
-                        return false;
-                    }
-                    default = Some(arm);
-                }
+                PatKind::Wild | PatKind::Bind { sub: None, .. } => default = Some(arm),
                 _ => return false,
             }
         }
@@ -1813,13 +1781,10 @@ impl FnLower<'_> {
                 let b = self.block(&[]);
                 Some((b, arm))
             }
-            // Total, because exhaustiveness was proved and every variant has
-            // an arm. `Profile::defensive_aborts` is what decides whether a
-            // backend emits an unreachable default anyway.
-            None if cases.len() == variants => None,
-            // Not total and no catch-all: exhaustiveness was proved, so this
-            // is the belt rather than the braces, and it aborts.
-            None => Some((self.unmatched(), arms.last().or_ice("a match has at least one arm"))),
+            // Total: exhaustiveness was proved, and with no catch-all every
+            // variant has an arm. `Profile::defensive_aborts` is what decides
+            // whether a backend emits an unreachable default anyway.
+            None => None,
         };
         self.set_term(Term::Switch {
             on: tag,
@@ -1847,15 +1812,11 @@ impl FnLower<'_> {
             self.set_term(Term::Jump(Target::new(join, vec![v])));
         }
         if let Some((block, arm)) = default_block {
-            // The catch-all block is only ours to fill when we made it; the
-            // shared `unmatched` block already ends in an abort.
-            if self.unmatched != Some(block) {
-                self.cur = block;
-                let fail = self.unmatched();
-                self.matched(s, &arm.pattern, fail);
-                let v = self.expr(&arm.body);
-                self.set_term(Term::Jump(Target::new(join, vec![v])));
-            }
+            self.cur = block;
+            let fail = self.unmatched();
+            self.matched(s, &arm.pattern, fail);
+            let v = self.expr(&arm.body);
+            self.set_term(Term::Jump(Target::new(join, vec![v])));
         }
         true
     }
@@ -2053,9 +2014,7 @@ impl FnLower<'_> {
             // line of `Target` here.
             PatKind::Or(alts) => {
                 let mut binds: Vec<LocalId> = Vec::new();
-                if let Some(first) = alts.first() {
-                    first.binds(&mut binds);
-                }
+                alts.first().or_ice("an or-pattern has alternatives").binds(&mut binds);
                 // The merge takes the first alternative's locals, so one that
                 // bound locals of its own would jump carrying a value defined
                 // in a block that does not dominate the read. The checker
@@ -2268,10 +2227,11 @@ fn disjoint(p: &Pattern, q: &Pattern) -> bool {
         (_, PatKind::Bind { sub: Some(s), .. }) => disjoint(p, s),
         (PatKind::Or(alts), _) => alts.iter().all(|a| disjoint(a, q)),
         (_, PatKind::Or(alts)) => alts.iter().all(|a| disjoint(p, a)),
+        // Two patterns on one scrutinee name the same enum.
         (
-            PatKind::Variant { con: c, variant: v, fields: f },
-            PatKind::Variant { con: d, variant: w, fields: g },
-        ) => c == d && (v != w || same_fields(f, g)),
+            PatKind::Variant { variant: v, fields: f, .. },
+            PatKind::Variant { variant: w, fields: g, .. },
+        ) => v != w || same_fields(f, g),
         (PatKind::Struct { fields: f, .. }, PatKind::Struct { fields: g, .. }) => {
             same_fields(f, g)
         }

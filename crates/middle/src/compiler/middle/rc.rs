@@ -269,7 +269,7 @@
               signature. The one subtraction is a `saturating_sub`."
 )]
 
-use crate::compiler::middle::ir;
+use crate::compiler::middle::{ir, resolved};
 use crate::compiler::middle::monomorphize::{self, Desc, Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, OptionOrResult, PatKind, Pattern, Stmt};
@@ -606,13 +606,11 @@ impl Syntactic {
         // descriptor a type has, and a descriptor says what its components are.
         let mut ty_of: Vec<Option<Ty>> = vec![None; program.descriptors.len()];
         for (ty, i) in &program.desc_index {
-            if let Some(slot) = ty_of.get_mut(*i) {
-                *slot = Some(*ty);
-            }
+            *ty_of.get_mut(*i).or_ice("`desc_index` names descriptors the program has") = Some(*ty);
         }
         let lookup = |d: usize, ty_of: &[Option<Ty>]| ty_of.get(d).cloned().flatten();
         for (i, d) in program.descriptors.iter().enumerate() {
-            let Some(ty) = lookup(i, &ty_of) else { continue };
+            let ty = lookup(i, &ty_of).or_ice("every descriptor is some type's");
             match d {
                 // A `derive Flags` struct is its word.
                 Desc::Prim(p) | Desc::Flags { prim: p, .. } => {
@@ -677,9 +675,8 @@ impl Syntactic {
                     prim_of.entry(e.ty).or_insert(Prim::F64);
                 }
                 ExprKind::Prim { prim, args, .. } => {
-                    if let Some(a) = args.first() {
-                        prim_of.entry(a.ty).or_insert(*prim);
-                    }
+                    let a = args.first().or_ice("a primitive operation has an operand");
+                    prim_of.entry(a.ty).or_insert(*prim);
                 }
                 ExprKind::StructLit { fields, .. } => {
                     fields_of
@@ -1063,11 +1060,11 @@ fn scan_func(
             let BodyIndex { sizes, mut jumps_before, mentions, binders, let_bound: bound } =
                 BodyIndex::of(body, f.locals.len());
             let (child_at, child_ids) = child_index(&sizes);
-            for k in 1..jumps_before.len() {
-                let previous = jumps_before.get(k - 1).copied().unwrap_or(0);
-                if let Some(slot) = jumps_before.get_mut(k) {
-                    *slot += previous;
-                }
+            // Each row becomes the number of jumps before it.
+            let mut running = 0;
+            for slot in &mut jumps_before {
+                running += *slot;
+                *slot = running;
             }
             let mut scan = Scan {
                 func: f,
@@ -1368,9 +1365,8 @@ fn infer_ownership(
         if !opts.sharing && !taken_natively(key) {
             continue;
         }
-        if let Some(slot) = own.get_mut(i).and_then(|r| r.get_mut(*at)) {
-            *slot = ir::Ownership::Own;
-        }
+        *own.get_mut(i).and_then(|r| r.get_mut(*at)).or_ice("`TAKEN_BY` names a parameter the intrinsic has") =
+            ir::Ownership::Own;
     }
     // The fixpoint is monotone — a parameter only ever moves `Borrow -> Own`,
     // and never back — so its answer is the same whatever order the rules are
@@ -1426,26 +1422,17 @@ fn settles_once(deps: &[Vec<usize>], scc: &[usize]) -> Option<usize> {
 /// (`target -> i`). The second edge is what puts a `Continue` and its target in
 /// one component: a cross-function jump is always a cycle here, so its two ends
 /// converge together rather than one being finalized before the other.
+#[expect(clippy::indexing_slicing, reason = "`deps` has a row per function, and a callee or a jump target is one")]
 fn ownership_dependencies(program: &Program) -> Vec<Vec<usize>> {
     let mut deps: Vec<Vec<usize>> = vec![Vec::new(); program.funcs.len()];
     for (i, f) in program.funcs.iter().enumerate() {
         let Some(body) = f.body() else { continue };
         typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::CallFn { func, .. } => {
-                if let Some(callee) = func.func() {
-                    if let Some(row) = deps.get_mut(i) {
-                        row.push(callee.index());
-                    }
-                }
-            }
+            ExprKind::CallFn { func, .. } => deps[i].push(resolved(func)),
             ExprKind::Continue { func, .. } => {
                 let target = func.map_or(i, FuncIdx::index);
-                if let Some(row) = deps.get_mut(i) {
-                    row.push(target);
-                }
-                if let Some(row) = deps.get_mut(target) {
-                    row.push(i);
-                }
+                deps[i].push(target);
+                deps[target].push(i);
             }
             _ => {}
         });
@@ -1467,11 +1454,11 @@ fn promote_consuming(
     own: &mut [Vec<ir::Ownership>],
     pieces: Option<&[bool]>,
 ) -> bool {
-    let Some(f) = program.funcs.get(i) else { return false };
+    let f = program.funcs.get(i).or_ice("`i` is a function of the program");
     let Some(body) = f.body() else { return false };
     let mut consumed: HashSet<LocalId> = HashSet::default();
     consuming_uses(body, own, counted, i, &mut consumed, pieces);
-    let Some(row) = own.get(i) else { return false };
+    let row = own.get(i).or_ice("`own` has a row per function");
     let promoted: Vec<ir::Ownership> = f
         .params
         .iter()
@@ -1484,12 +1471,11 @@ fn promote_consuming(
             }
         })
         .collect();
-    if own.get(i) == Some(&promoted) {
+    let slot = own.get_mut(i).or_ice("`own` has a row per function");
+    if *slot == promoted {
         return false;
     }
-    if let Some(slot) = own.get_mut(i) {
-        *slot = promoted;
-    }
+    *slot = promoted;
     true
 }
 
@@ -1542,7 +1528,7 @@ fn loop_variables_taken(
 ) -> Vec<(usize, usize)> {
     let mut out: Vec<(usize, usize)> = Vec::new();
     for &i in scc {
-        let Some(f) = program.funcs.get(i) else { continue };
+        let f = program.funcs.get(i).or_ice("a component's members are functions");
         let Some(body) = f.body() else { continue };
         let row = own.get(i);
         typed::walk(body, &mut |e| {
@@ -1988,13 +1974,9 @@ fn effects_once(
     let mut a = false;
     typed::walk(body, &mut |e| match &e.kind {
         ExprKind::CallFn { func, .. } => {
-            if let Some(c) = func.func() {
-                p = worse(p, purity.get(c.index()).copied().unwrap_or(ir::Purity::Effectful));
-                a = a || aborts.get(c.index()).copied().unwrap_or(true);
-            } else {
-                p = ir::Purity::Effectful;
-                a = true;
-            }
+            let c = resolved(func);
+            p = worse(p, purity.get(c).copied().unwrap_or(ir::Purity::Effectful));
+            a = a || aborts.get(c).copied().unwrap_or(true);
         }
         // A jump into another function's loop is a call, and one whose effects
         // propagate the same way.
@@ -2026,15 +2008,15 @@ fn effects_once(
         }
         _ => {}
     });
-    if purity.get(i).copied() == Some(p) && aborts.get(i).copied() == Some(a) {
+    let (purity, aborts) = (
+        purity.get_mut(i).or_ice("`purity` has a row per function"),
+        aborts.get_mut(i).or_ice("`aborts` has a row per function"),
+    );
+    if *purity == p && *aborts == a {
         return false;
     }
-    if let Some(slot) = purity.get_mut(i) {
-        *slot = p;
-    }
-    if let Some(slot) = aborts.get_mut(i) {
-        *slot = a;
-    }
+    *purity = p;
+    *aborts = a;
     true
 }
 
@@ -2099,9 +2081,7 @@ pub fn subtree_sizes(e: &Expr, out: &mut Vec<u32>) -> u32 {
     out.push(0);
     let mut total = 1u32;
     typed::children(e, &mut |k| total += subtree_sizes(k, out));
-    if let Some(slot) = out.get_mut(me) {
-        *slot = total;
-    }
+    *out.get_mut(me).or_ice("`me` was pushed above") = total;
     total
 }
 
@@ -2223,10 +2203,10 @@ impl Live {
         for change in changes.into_iter().rev() {
             match change {
                 Change::Added(l) => {
-                    if let Some((tick, owned)) = self.at.remove(&l) {
-                        if owned {
-                            self.owned.remove(&tick);
-                        }
+                    // Undone newest first, so what was added is still there.
+                    let (tick, owned) = self.at.remove(&l).or_ice("an added local is live until undone");
+                    if owned {
+                        self.owned.remove(&tick);
                     }
                 }
                 Change::Dropped(l, tick, owned) => {
@@ -2351,7 +2331,7 @@ struct Scan<'a> {
 
 impl Scan<'_> {
     fn is_counted(&mut self, l: LocalId) -> bool {
-        let Some(local) = self.func.locals.get(l.index()) else { return false };
+        let local = self.func.locals.get(l.index()).or_ice("a local is in its function's table");
         let ty = local.ty;
         self.counted_ty(&ty)
     }
@@ -2929,22 +2909,9 @@ impl Scan<'_> {
     /// the pass quadratic in the width of the widest node. A `match` is as wide
     /// as its enum: `wide-match/20k` is one 10,000-arm match and that was 50 M
     /// steps of the walk. [`child_index`] pays for all of them once.
-    ///
-    /// Out of range falls back to the walk, which is what the array cannot
-    /// answer and what the walk used to do.
     fn child(&self, id: NodeId, k: usize) -> NodeId {
-        let first = self.child_at.get(id.0 as usize).copied().unwrap_or(0) as usize;
-        let end = self.child_at.get(id.0 as usize + 1).copied().unwrap_or(0) as usize;
-        if let Some(found) = first.checked_add(k).filter(|i| *i < end) {
-            if let Some(c) = self.child_ids.get(found) {
-                return NodeId(*c);
-            }
-        }
-        let mut cur = id.0 + 1;
-        for _ in 0..k {
-            cur += self.sizes.get(cur as usize).copied().unwrap_or(1);
-        }
-        NodeId(cur)
+        let first = self.child_at.get(id.0 as usize).copied().or_ice("every node has a row") as usize;
+        NodeId(*self.child_ids.get(first + k).or_ice("every caller asks for a child the node has"))
     }
 
     /// Makes `l` live, noting whether this function owns it.
@@ -3002,9 +2969,7 @@ impl Scan<'_> {
             } else {
                 Left::Added(live.undo(mark))
             };
-            if let Some(slot) = left.get_mut(i) {
-                *slot = entry;
-            }
+            *left.get_mut(i).or_ice("`left` has a row per branch") = entry;
         }
         left
     }
@@ -3365,7 +3330,7 @@ impl Scan<'_> {
                     self.flush(id);
                 }
             }
-            ExprKind::Match { .. } => self.match_(e, id, live, mode),
+            ExprKind::Match { scrutinee, arms } => self.match_(scrutinee, arms, id, live, mode),
             // A loop is always a whole function body, and its entries are
             // alternative starting points chosen by the caller. The loop's
             // variables are the function's parameters, which is why nothing
@@ -3569,8 +3534,7 @@ impl Scan<'_> {
     /// it: the payloads it binds are increfed out of the value and the value
     /// itself is dropped, which is MEMORY.md §5.3's dying value and the moment
     /// reuse replaces the drop with a write.
-    fn match_(&mut self, e: &Expr, id: NodeId, live: &mut Live, mode: Mode) {
-        let ExprKind::Match { scrutinee, arms } = &e.kind else { return };
+    fn match_(&mut self, scrutinee: &Expr, arms: &[typed::Arm], id: NodeId, live: &mut Live, mode: Mode) {
         let token = match &scrutinee.kind {
             ExprKind::Local(l)
                 if self.is_counted(*l) && self.owned.contains(l) && !live.contains(l) =>
@@ -3611,11 +3575,15 @@ impl Scan<'_> {
         }
         let mut gids: Vec<Option<NodeId>> = Vec::new();
         let mut ids: Vec<NodeId> = Vec::new();
-        let mut kids = (1usize..).map(|k| self.child(id, k));
+        // The scrutinee is child 0; each arm's guard, if it has one, then its body.
+        let mut k = 0;
+        let mut next = || {
+            k += 1;
+            self.child(id, k)
+        };
         for a in arms {
-            let gid = if a.guard.is_some() { kids.next() } else { None };
-            let Some(bid) = kids.next() else { break };
-            ids.push(bid);
+            let gid = if a.guard.is_some() { Some(next()) } else { None };
+            ids.push(next());
             gids.push(gid);
         }
         let sizes: Vec<u32> = ids
@@ -3631,13 +3599,13 @@ impl Scan<'_> {
         let outer_diverged = std::mem::replace(&mut self.diverged, true);
         let tick = live.tick();
         let left = self.branches(id, live, &sizes, &mut |me, i, live| {
-            let (Some(a), Some(bid)) = (arms.get(i), ids.get(i)) else { return };
+            let a = arms.get(i).or_ice("a branch is an arm");
+            let bid = ids.get(i).or_ice("every arm has a body node");
             let gid = gids.get(i).copied().flatten();
             let edges_before = me.jumps.len();
             me.arm(a, gid, *bid, live, mode, token, scrutinee);
-            if let Some(edges) = arm_edges.get_mut(i) {
-                *edges = me.jumps.get(edges_before..).unwrap_or_default().to_vec();
-            }
+            *arm_edges.get_mut(i).or_ice("`arm_edges` has a row per arm") =
+                me.jumps.get(edges_before..).unwrap_or_default().to_vec();
         });
         let arm_jumps = std::mem::replace(&mut self.jumps, outer_jumps);
         self.jumps.extend(arm_jumps.iter().copied());
@@ -4037,7 +4005,7 @@ impl Scan<'_> {
         if self.binders.get(l.index()).copied().flatten().is_some_and(counts) {
             return false;
         }
-        let Some(at) = self.mentions.get(l.index()) else { return false };
+        let at = self.mentions.get(l.index()).or_ice("`mentions` has a row per local");
         let first = at.partition_point(|(p, _)| *p < start);
         at.get(first..)
             .unwrap_or_default()
@@ -4385,9 +4353,7 @@ impl BodyIndex {
         ix.go(body, &mut continues, &mut lambdas);
         ix.jumps_before = vec![0; ix.sizes.len().saturating_add(1)];
         for id in continues {
-            if let Some(slot) = ix.jumps_before.get_mut(id as usize + 1) {
-                *slot = 1;
-            }
+            *ix.jumps_before.get_mut(id as usize + 1).or_ice("a `Continue` is a node of the body") = 1;
         }
         ix
     }
@@ -4411,9 +4377,8 @@ impl BodyIndex {
                         let start = self.let_bound.len();
                         pattern.binds(&mut self.let_bound);
                         for k in start..self.let_bound.len() {
-                            if let Some(b) = self.let_bound.get(k).copied() {
-                                self.bind(b, (id, inside));
-                            }
+                            let b = *self.let_bound.get(k).or_ice("`k` ranges over `let_bound`");
+                            self.bind(b, (id, inside));
                         }
                     }
                 }
@@ -4438,28 +4403,16 @@ impl BodyIndex {
         if lambda {
             lambdas.pop();
         }
-        if let Some(slot) = self.sizes.get_mut(id as usize) {
-            *slot = total;
-        }
+        *self.sizes.get_mut(id as usize).or_ice("`id` was pushed on the way in") = total;
         total
     }
 
     fn mention(&mut self, l: LocalId, at: (u32, Option<u32>)) {
-        if self.mentions.len() <= l.index() {
-            self.mentions.resize_with(l.index() + 1, Vec::new);
-        }
-        if let Some(row) = self.mentions.get_mut(l.index()) {
-            row.push(at);
-        }
+        self.mentions.get_mut(l.index()).or_ice("`mentions` has a row per local").push(at);
     }
 
     fn bind(&mut self, l: LocalId, at: (u32, Option<u32>)) {
-        if self.binders.len() <= l.index() {
-            self.binders.resize(l.index() + 1, None);
-        }
-        if let Some(slot) = self.binders.get_mut(l.index()) {
-            *slot = Some(at);
-        }
+        *self.binders.get_mut(l.index()).or_ice("`binders` has a row per local") = Some(at);
     }
 }
 
