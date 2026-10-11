@@ -415,11 +415,9 @@ fn value(v: &Value) -> Doc {
             if list.elements.is_empty() && list.opening.is_empty() && list.closing.is_empty() {
                 return Doc::text("[]");
             }
-            let mut inner = vec![Doc::SoftLine];
+            let mut inner = Vec::new();
             for (i, e) in list.elements.iter().enumerate() {
-                if i > 0 {
-                    inner.push(Doc::Line);
-                }
+                inner.push(if i > 0 { Doc::Line } else { Doc::SoftLine });
                 for c in &e.before {
                     inner.push(Doc::Text(c.text.clone()));
                     inner.push(Doc::HardLine);
