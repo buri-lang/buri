@@ -1,0 +1,14 @@
+# A signal holding a struct with no fields, whose hand-written `Equal` says
+# no write is the value already there. Every write fires the watcher on both
+# backends, though the value has no bytes to copy.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a write of a value with no bytes still asks its Equal on both backends"
+
+run {
+  args: ["test", "//lib/empty", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
