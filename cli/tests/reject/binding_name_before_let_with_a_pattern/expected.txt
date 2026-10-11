@@ -1,0 +1,50 @@
+error: an expression statement is legal only in a test source [statement-outside-test]
+ --> cmd/binding_name_before_let_with_a_pattern/main.buri:6:3
+  |
+6 |   sum let x = 1;
+  |   ^^^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+
+    A test source is the one exception, which lets assert.equal(...) stand
+    alone: there any expression of type () may stand as a statement ending in ;,
+    including a match or an if whose branches all assert.
+
+    A Result can't be dropped either way, per result-discarded, so a statement
+    of type Result needs both .ignore() and let _ =:
+
+      export fn main(host: NativeHost): Result<(), Str> {
+          let ctx = context {
+              Allocator: host.alloc,
+              Stdout: host.stdout,
+          };
+          let _ = io.println(ctx, "ready").ignore();
+          .Ok(())
+      }
+
+error: there is nothing named `sum` in scope [unknown-name]
+ --> cmd/binding_name_before_let_with_a_pattern/main.buri:6:3
+  |
+6 |   sum let x = 1;
+  |   ^^^
+  |
+  = fix: declare `sum`, or import it — a name is in scope only from this module's own declarations and its imports
+
+    There is no prelude. A module sees only what it declares and what its own
+    imports name, which is why the suggestion is trustworthy.
+
+error: a statement ends with `;` [missing-semicolon]
+ --> cmd/binding_name_before_let_with_a_pattern/main.buri:6:6
+  |
+6 |   sum let x = 1;
+  |      ^
+  |
+  = fix: write `;` here
+
+    An editor's quick fix and buri lint --fix both write the ; for you.
+
+    A declaration ends with ; unless its last token is a }. So let, type,
+    derive, an import and a tuple struct end with ;, while a fn, a struct with
+    fields, an enum, a trait and an impl end with }.
+

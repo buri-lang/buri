@@ -1,0 +1,6 @@
+// EXPECT: expected a pattern, found `=>`
+fn pick(x: Int): Int {
+  match (x) {
+    => 1
+  }
+}

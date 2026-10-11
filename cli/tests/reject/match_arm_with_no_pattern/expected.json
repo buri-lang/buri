@@ -1,0 +1,1 @@
+{"severity":"error","message":"expected a pattern, found `=>`","code":"unexpected-token","location":{"file":"cmd/match_arm_with_no_pattern/main.buri","line":4,"column":5,"endLine":4,"endColumn":7,"text":"    => 1"},"expected":"a pattern","actual":"`=>`","fix":"write a pattern: a binding, a literal, `.Variant`, or `_`","notes":[],"related":[]}
