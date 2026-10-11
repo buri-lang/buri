@@ -118,9 +118,9 @@ error: there is no type `Nowhere` [unknown-type]
    |
    = fix: declare it, import it, or correct the spelling
 error: there is no type `Unknown` [unknown-type]
-  --> platform/bare/platform.buri:34:34
+  --> platform/bare/platform.buri:35:34
    |
-34 | export fn sixth(host: BareHost): Unknown;
+35 | export fn sixth(host: BareHost): Unknown;
    |                                  ^^^^^^^
    |
    = fix: declare it, import it, or correct the spelling

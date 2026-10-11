@@ -42,7 +42,10 @@ fn held(o: Held<Int>): Int {
 }
 
 export fn main(host: NodeHost): Result<(), Str> {
-    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
     let _ = io.println(ctx, "pair ${pair(.None("abc"))}").ignore();
     let _ = io.println(ctx, "just ${just(.Just(1))}").ignore();
     let _ = io.println(ctx, "twice ${twice(.Some(2, 3))}").ignore();

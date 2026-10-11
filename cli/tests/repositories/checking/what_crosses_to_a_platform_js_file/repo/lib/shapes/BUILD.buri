@@ -1,4 +1,10 @@
 library {
+    sources: [
+        "one.buri",
+        "two.buri",
+        "three.buri",
+        "four.buri",
+        "five.buri",
+    ]
     visibility: ["//visibility:public"]
-    sources: ["one.buri", "two.buri", "three.buri", "four.buri", "five.buri"]
 }

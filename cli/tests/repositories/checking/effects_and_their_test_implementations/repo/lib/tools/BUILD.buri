@@ -1,4 +1,4 @@
 library {
-    visibility: ["//visibility:public"]
     sources: ["platform.buri", "testing/helpers.buri"]
+    visibility: ["//visibility:public"]
 }

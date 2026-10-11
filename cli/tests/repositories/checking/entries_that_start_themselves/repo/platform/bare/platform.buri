@@ -18,6 +18,7 @@ struct HostDice {}
 
 impl Random for HostDice {
     fn nextInt(self, low: Int, high: Int): Int;
+
     fn nextFloat(self): Float;
 }
 
