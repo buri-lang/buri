@@ -138,6 +138,13 @@ pub fn validate(workspace: &Workspace) -> Vec<Diagnostic> {
                 refer(workspace, named, entry, false, &mut out);
             }
         }
+        if let Some(named) = tools.generate.as_ref().filter(|g| g.value == JSON) {
+            out.push(
+                Diagnostic::templated("json-generate-unsupported", named.span)
+                    .with_bind("language", language.name.as_str())
+                    .with_bind("extensions", language.extensions.iter().map(|e| format!("`{}`", e.value)).collect::<Vec<_>>().join(", ")),
+            );
+        }
     }
     out
 }
