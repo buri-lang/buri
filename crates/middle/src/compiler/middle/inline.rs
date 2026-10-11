@@ -189,7 +189,7 @@ fn fold_expr(e: &mut Expr) -> usize {
             if !fields.iter().enumerate().all(|(i, f)| i == index || discardable(f)) {
                 return n;
             }
-            Some(fields.swap_remove(index))
+            fields.swap_remove(index)
         }
         // `S { ..S { a: x, b: y }, b: z }` is `S { a: x, b: z }`, provided the
         // `y` it replaces had nothing to do.
@@ -207,30 +207,22 @@ fn fold_expr(e: &mut Expr) -> usize {
                 let slot = &mut fields[i];
                 *slot = v;
             }
-            Some(Expr::new(
-                ExprKind::StructLit { con, targs, fields },
-                e.ty,
-                e.span,
-            ))
+            Expr::new(ExprKind::StructLit { con, targs, fields }, e.ty, e.span)
         }
         ExprKind::If { cond, then, else_ } => match cond.kind {
-            ExprKind::Bool(true) => Some((**then).clone()),
-            ExprKind::Bool(false) => Some((**else_).clone()),
+            ExprKind::Bool(true) => (**then).clone(),
+            ExprKind::Bool(false) => (**else_).clone(),
             _ => return n,
         },
         // A block that binds nothing is its own tail.
         ExprKind::Block { stmts, tail } if stmts.is_empty() => match tail.take() {
-            Some(t) => Some(*t),
+            Some(t) => *t,
             None => return n,
         },
         _ => return n,
     };
-
-    if let Some(r) = replacement {
-        *e = r;
-        n += 1;
-    }
-    n
+    *e = replacement;
+    n + 1
 }
 
 // ---------------------------------------------------------------------------
