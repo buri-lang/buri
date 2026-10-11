@@ -1,0 +1,6 @@
+// EXPECT: a tuple-struct field ends with `,`, and `Pair` keeps both fields
+export struct Pair(Int Str);
+
+export fn first(p: Pair): Int {
+  p.0
+}

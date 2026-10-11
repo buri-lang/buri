@@ -1,0 +1,4 @@
+error [unexpected-token] 2:15-2:16
+message: expected a function body, found `=`
+fix: write `{ ... }` after the return type
+

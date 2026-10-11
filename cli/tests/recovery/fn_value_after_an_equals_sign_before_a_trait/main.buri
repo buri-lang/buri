@@ -1,0 +1,3 @@
+// EXPECT: one error at the `=`, and the trait after it still declares
+fn two(): Int = 2
+trait Shape {}

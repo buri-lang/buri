@@ -1,0 +1,10 @@
+// EXPECT: a match arm ends with `,`: the `;` and `}` inside the guard do not end it
+export enum Sign { Negative, Zero, Positive }
+
+export fn rank(s: Sign, xs: [Int]): Int {
+  match (s) {
+    .Negative => 1
+    .Zero if ([{ let y = 1; y }][0] > 0) => 2,
+    _ => 3,
+  }
+}

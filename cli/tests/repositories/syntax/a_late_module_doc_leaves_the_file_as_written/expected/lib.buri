@@ -1,0 +1,4 @@
+export fn one(): Int { 1 }
+
+//! a module doc, written below a declaration
+export fn two(): Int { 2 }

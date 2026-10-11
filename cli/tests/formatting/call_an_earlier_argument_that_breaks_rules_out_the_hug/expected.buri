@@ -1,0 +1,10 @@
+fn run(xs: [Int]): Int {
+    fold(
+        xs,
+        fn(acc, x) => {
+            let y = acc + x;
+            y
+        },
+        fn(z) => z,
+    )
+}

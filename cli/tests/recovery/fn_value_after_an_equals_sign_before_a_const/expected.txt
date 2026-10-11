@@ -1,0 +1,10 @@
+error [unexpected-token] 2:15-2:16
+message: expected a function body, found `=`
+fix: write `{ ... }` after the return type
+
+error [const-declaration] 3:1-3:6
+message: there is no `const` declaration; a module-level binding is written with `let`
+fix: write `let` in place of `const`
+edit: 3:1-3:6 "let"
+note: one keyword binds everywhere, and a module-level `let` still writes its type
+

@@ -1,0 +1,14 @@
+error [match-not-exhaustive] 5:3-9:4
+message: this `match` does not cover `.Zero`
+fix: add an arm for `.Zero`, or a `_` arm for everything left
+note: every `match` must cover its scrutinee's type
+
+error [unknown-field] 7:6-7:10
+message: `Int` has no field `Zero`
+fix: check the spelling, or name a field the type declares
+
+error [unclosed-delimiter] 7:11-7:13
+message: this `match` is missing its closing `}`
+fix: write `}` here
+related: 5:13-5:14 opened here
+

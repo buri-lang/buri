@@ -1,0 +1,12 @@
+// EXPECT: a match arm ends with `,`: the lambda's `=>` inside the guard is not the arm's
+export enum Sign { Negative, Zero, Positive }
+
+fn holds(f: fn(Int) => Int, x: Int): Bool { f(x) > 0 }
+
+export fn rank(s: Sign, x: Int): Int {
+  match (s) {
+    .Negative => 1
+    .Zero if (holds(fn(y) => y, x)) => 2,
+    _ => 3,
+  }
+}
