@@ -16,6 +16,7 @@
 //! BURI_FUZZ_ITERS=50000 cargo test -p buri --test fuzz # soak: per-property iterations
 //! BURI_FUZZ_SEED=0x1234 cargo test -p buri --test fuzz # a different point to start from
 //! BURI_FUZZ_RECORD=1 …                                 # write findings into the corpus
+//! BURI_FUZZ_MUTANTS=/tmp/m …                           # write every mutant drawn
 //! ```
 //!
 //! **CI mode is deterministic and bounded.** Every search starts from
@@ -24,6 +25,10 @@
 //! rather than of the day. The soak mode is the same code with the bound
 //! moved, which is the only way a search that runs for ten minutes and a
 //! search that runs for one second can be the same search.
+//!
+//! **Each seed mutates on its own stream.** A seed's draw and its mutants are
+//! keyed by its path and bytes, never by its place in the corpus, so a case
+//! added to `reject/` or `formatting/` only adds mutants.
 //!
 //! # The five properties
 //!
@@ -290,9 +295,17 @@ impl Rng {
 /// deleted brace land in the middle end rather than in the first diagnostic.
 /// This is the seed-corpus half of grammar-aware fuzzing, bought for nothing —
 /// the repository already holds nine hundred `.buri` files.
+///
+/// `BURI_FUZZ_CORPUS=<dir>` replaces it with every source under `dir`.
 fn seed_corpus() -> Vec<(String, String)> {
-    let root = harness::repo_root();
     let mut out: Vec<(String, String)> = Vec::new();
+    if let Some(dir) = std::env::var_os("BURI_FUZZ_CORPUS") {
+        let dir = PathBuf::from(dir);
+        walk_sources(&dir, &dir, &mut out);
+        out.sort();
+        return out;
+    }
+    let root = harness::repo_root();
     for dir in [
         "cli/tests/conformance",
         "cli/tests/crash",
@@ -330,6 +343,74 @@ fn walk_sources(dir: &Path, root: &Path, out: &mut Vec<(String, String)>) {
     }
 }
 
+/// What a splice copies from: the standard library's sources.
+///
+/// Not the seed corpus, so that a case added there never changes what another
+/// seed's mutants splice in.
+fn donors() -> Vec<String> {
+    let dir = harness::repo_root().join("crates/stdlib/src/compiler/standard_library/sources");
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "buri"))
+        .collect();
+    paths.sort();
+    let out: Vec<String> = paths.iter().filter_map(|p| std::fs::read_to_string(p).ok()).collect();
+    assert!(out.len() > 20, "expected the standard library's sources, found {}", out.len());
+    out
+}
+
+/// One search's mutants of the seed corpus, as `(seed, round, mutant)`.
+///
+/// Every seed has its own random stream, keyed by the search, its path and its
+/// bytes, so adding or removing a seed never moves another seed's mutants. A CI
+/// run draws each seed with probability `per_mille / 1000`, keyed the same way.
+/// A soak run draws every seed, round after round.
+///
+/// `BURI_FUZZ_MUTANTS=<dir>` writes each mutant to `<dir>/<search>/<seed>.<round>`.
+fn mutants<'a>(
+    search: &'a str,
+    seeds: &'a [(String, String)],
+    donors: &'a [String],
+    per_mille: u64,
+    soaking: bool,
+) -> impl Iterator<Item = (String, String)> + 'a {
+    let salt = base_seed() ^ fnv(search.as_bytes(), 0xCBF2_9CE4_8422_2325);
+    let out = std::env::var_os("BURI_FUZZ_MUTANTS").map(|d| PathBuf::from(d).join(search));
+    let rounds = if soaking { u64::MAX } else { 1 };
+    (0..rounds).flat_map(move |round| {
+        let mut keyed: Vec<(u64, &'a (String, String))> = seeds
+            .iter()
+            .map(|seed| {
+                let h = fnv(seed.1.as_bytes(), fnv(seed.0.as_bytes(), salt) ^ 0xFF);
+                (Rng(h ^ round.wrapping_mul(0x9E37_79B9_7F4A_7C15)).next(), seed)
+            })
+            .filter(|(key, _)| soaking || key % 1000 < per_mille)
+            .collect();
+        keyed.sort();
+        let out = out.clone();
+        keyed.into_iter().map(move |(key, (from, text))| {
+            let mutant = mutate(text, donors, &mut Rng(key));
+            if let Some(dir) = &out {
+                let path = dir.join(format!("{from}.{round}"));
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, &mutant).unwrap();
+            }
+            (format!("a mutation of {from}"), mutant)
+        })
+    })
+}
+
+/// FNV-1a, continued from `h`.
+fn fnv(bytes: &[u8], mut h: u64) -> u64 {
+    for b in bytes {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01B3);
+    }
+    h
+}
+
 // ---------------------------------------------------------------------------
 // The mutators
 // ---------------------------------------------------------------------------
@@ -358,7 +439,7 @@ const VOCABULARY: &[&str] = &[
 /// line a merge dropped, a construct repeated until it is a tree, a fragment
 /// spliced in from somewhere else. `repeat` is the one that finds depth bugs,
 /// and it is why the table below is weighted rather than uniform.
-fn mutate(text: &str, others: &[(String, String)], rng: &mut Rng) -> String {
+fn mutate(text: &str, donors: &[String], rng: &mut Rng) -> String {
     let bytes = text.as_bytes();
     if bytes.is_empty() {
         return String::from("{");
@@ -403,9 +484,9 @@ fn mutate(text: &str, others: &[(String, String)], rng: &mut Rng) -> String {
                 let n = *rng.pick(&[8usize, 64, 512, 4_096, 40_000]);
                 splice(&mut out, at, frag.repeat(n).as_bytes());
             }
-            // Splice a run in from another seed.
+            // Splice a run in from another file.
             6 | 7 => {
-                let (_, donor) = rng.pick(others);
+                let donor = rng.pick(donors);
                 let d = donor.as_bytes();
                 if !d.is_empty() {
                     let from = rng.below(d.len());
@@ -1988,6 +2069,57 @@ fn the_corpus_is_wired_up() {
     assert!(wrong.is_empty(), "{} case(s) malformed:\n  {}", wrong.len(), wrong.join("\n  "));
 }
 
+/// **A new seed only adds mutants.** Every other seed's mutants stay as they
+/// were, so a case added to the corpus never moves what the suite reaches.
+#[test]
+fn a_new_seed_leaves_every_other_seeds_mutants_alone() {
+    let corpus = Scratch::empty("fuzz-corpus");
+    for i in 0..40 {
+        corpus.write(
+            &format!("seeds/s{i}.buri"),
+            &format!("struct P{i} {{ x: Int, y: [Int] }}\n\nfn f{i}(a: Int) -> Int {{\n  match a {{ 0 => {i}, n => n * {i} + 1 }}\n}}\n"),
+        );
+    }
+    let mutants_of = |label: &str| -> std::collections::BTreeMap<String, String> {
+        let out = Scratch::empty(label);
+        let run = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["mutation_never_panics_the_toolchain", "--exact"])
+            .env("BURI_FUZZ_CORPUS", &corpus.root)
+            .env("BURI_FUZZ_MUTANTS", &out.root)
+            .env_remove("BURI_FUZZ_ITERS")
+            .env_remove("BURI_FUZZ_SECONDS")
+            .env_remove("BURI_FUZZ_SEED")
+            .env_remove("BURI_FUZZ_RECORD")
+            .output()
+            .unwrap();
+        assert!(run.status.success(), "the search failed:\n{}", String::from_utf8_lossy(&run.stderr));
+        let mut files = Vec::new();
+        collect(&out.root, &out.root, &mut files);
+        files.into_iter().collect()
+    };
+    let before = mutants_of("fuzz-before");
+    assert!(before.len() > 10, "the search drew only {} mutants", before.len());
+    assert_eq!(before, mutants_of("fuzz-again"), "two runs drew different mutants");
+
+    corpus.write("seeds/added.buri", "enum Added { A, B(Int) }\n\nfn g() -> Int { 1 }\n");
+    let mut after = mutants_of("fuzz-after");
+    after.retain(|name, _| !name.contains("added.buri"));
+    assert_eq!(before, after, "adding a seed moved another seed's mutants");
+}
+
+/// Every file under `dir`, by its path from `root`.
+fn collect(dir: &Path, root: &Path, out: &mut Vec<(String, String)>) {
+    for e in std::fs::read_dir(dir).unwrap().filter_map(Result::ok) {
+        let p = e.path();
+        if p.is_dir() {
+            collect(&p, root, out);
+        } else {
+            let text = std::fs::read_to_string(&p).unwrap();
+            out.push((p.strip_prefix(root).unwrap().display().to_string(), text));
+        }
+    }
+}
+
 /// **No input panics the toolchain**, over input nobody chose.
 ///
 /// Mutations of the checked-in corpus, run through the pipeline in this
@@ -1996,16 +2128,16 @@ fn the_corpus_is_wired_up() {
 /// call is only how the search affords to ask so many times.
 #[test]
 fn mutation_never_panics_the_toolchain() {
-    let seeds = seed_corpus();
-    let budget = Budget::new(1_500);
-    let mut rng = Rng(base_seed() ^ 0x5AFE_7900_0000_0001);
+    let (seeds, donors) = (seed_corpus(), donors());
+    let budget = Budget::new(usize::MAX);
     let mut cache = buri::parsing::parser::Cache::new();
     let mut seen = Seen::new();
     let started = Instant::now();
     let mut done = 0usize;
-    while !budget.spent(done) {
-        let (from, text) = rng.pick(&seeds).clone();
-        let mutant = mutate(&text, &seeds, &mut rng);
+    for (from, mutant) in mutants("mutation", &seeds, &donors, 512, budget.soaking) {
+        if budget.spent(done) {
+            break;
+        }
         if let Some(why) = safety_in_process(&mutant, &mut cache) {
             // In-process is the search; the binary is the promise. A finding
             // the binary does not reproduce is still a finding — the library
@@ -2019,7 +2151,7 @@ fn mutation_never_panics_the_toolchain() {
                 &why,
                 None,
                 &format!(
-                    "a mutation of {from} panicked the toolchain {}",
+                    "{from} panicked the toolchain {}",
                     if seen_by_binary { "through the binary" } else { "in process" }
                 ),
             );
@@ -2039,17 +2171,17 @@ fn mutation_never_panics_the_toolchain() {
 /// call does, so this one runs a hundred times less often.
 #[test]
 fn the_binary_survives_mutated_input() {
-    let seeds = seed_corpus();
-    let budget = Budget::new(120);
-    let mut rng = Rng(base_seed() ^ 0x5AFE_7900_0000_0002);
+    let (seeds, donors) = (seed_corpus(), donors());
+    let budget = Budget::new(usize::MAX);
     let mut seen = Seen::new();
     let started = Instant::now();
     let mut done = 0usize;
-    while !budget.spent(done) {
-        let (from, text) = rng.pick(&seeds).clone();
-        let mutant = mutate(&text, &seeds, &mut rng);
+    for (from, mutant) in mutants("binary", &seeds, &donors, 41, budget.soaking) {
+        if budget.spent(done) {
+            break;
+        }
         if let Some(why) = safety_fires(&mutant) {
-            triage(&mut seen, "safety", &mutant, &why, None, &format!("a mutation of {from}"));
+            triage(&mut seen, "safety", &mutant, &why, None, &from);
         }
         done += 1;
     }
@@ -2100,9 +2232,12 @@ fn token_soup_never_panics_the_toolchain() {
 /// way to find the shape nobody thought of.
 #[test]
 fn formatting_round_trips_on_generated_and_mutated_source() {
-    let seeds = seed_corpus();
-    let budget = Budget::new(3_000);
+    let (seeds, donors) = (seed_corpus(), donors());
+    let budget = Budget::new(usize::MAX);
+    let mut mutated = mutants("roundtrip", &seeds, &donors, 512, budget.soaking);
+    // The generated half has its own stream, so the corpus never moves it.
     let mut rng = Rng(base_seed() ^ 0xF0F1_A700_0000_0001);
+    let mut generated = 0usize;
     let mut seen = Seen::new();
     let started = Instant::now();
     let mut done = 0usize;
@@ -2111,14 +2246,21 @@ fn formatting_round_trips_on_generated_and_mutated_source() {
         // Half generated, half mutated. A generated module is large and
         // regular and exercises layout at the margin; a mutant is small and
         // strange and exercises the shapes layout has no case for.
-        let (from, text) = if rng.chance(2) {
-            let params = random_params(&mut rng, 120);
-            let program = generate::program(&params);
-            let module = rng.pick(&program.modules);
-            (format!("a generated module ({})", params.delta()), module.text.clone())
+        let mutant = if done % 2 == 1 || (generated >= 1_500 && !budget.soaking) {
+            mutated.next()
         } else {
-            let (from, text) = rng.pick(&seeds).clone();
-            (format!("a mutation of {from}"), mutate(&text, &seeds, &mut rng))
+            None
+        };
+        let (from, text) = match mutant {
+            Some(m) => m,
+            None if generated < 1_500 || budget.soaking => {
+                generated += 1;
+                let params = random_params(&mut rng, 120);
+                let program = generate::program(&params);
+                let module = rng.pick(&program.modules);
+                (format!("a generated module ({})", params.delta()), module.text.clone())
+            }
+            None => break,
         };
         // Most mutants do not parse, and a file that does not parse is not
         // formatted at all — so the count that matters is how many reached the
@@ -2352,15 +2494,15 @@ fn program_compiles(program: &generate::Program) -> Option<String> {
 /// [`deterministic_fires`] apply: one process, then two.
 #[test]
 fn diagnostics_are_the_same_on_every_run() {
-    let seeds = seed_corpus();
-    let budget = Budget::new(200);
-    let mut rng = Rng(base_seed() ^ 0xDE7E_8000_0000_0001);
+    let (seeds, donors) = (seed_corpus(), donors());
+    let budget = Budget::new(usize::MAX);
     let mut seen = Seen::new();
     let started = Instant::now();
     let mut done = 0usize;
-    while !budget.spent(done) {
-        let (from, text) = rng.pick(&seeds).clone();
-        let mutant = mutate(&text, &seeds, &mut rng);
+    for (from, mutant) in mutants("determinism", &seeds, &donors, 68, budget.soaking) {
+        if budget.spent(done) {
+            break;
+        }
         // The in-process half only, at this rate: the two-process half costs
         // two builds and is asked of a hundredth as many inputs below.
         let first = diagnostics_of(&mutant);
@@ -2376,7 +2518,7 @@ fn diagnostics_are_the_same_on_every_run() {
                     indent(&second)
                 ),
                 None,
-                &format!("a mutation of {from}"),
+                &from,
             );
         }
         done += 1;
@@ -2393,17 +2535,17 @@ fn diagnostics_are_the_same_on_every_run() {
 /// found in `did you mean`, and it is only visible from outside.
 #[test]
 fn two_processes_print_the_same_diagnostics() {
-    let seeds = seed_corpus();
-    let budget = Budget::new(12);
-    let mut rng = Rng(base_seed() ^ 0xDE7E_8000_0000_0002);
+    let (seeds, donors) = (seed_corpus(), donors());
+    let budget = Budget::new(usize::MAX);
     let mut seen = Seen::new();
     let started = Instant::now();
     let mut done = 0usize;
-    while !budget.spent(done) {
-        let (from, text) = rng.pick(&seeds).clone();
-        let mutant = mutate(&text, &seeds, &mut rng);
+    for (from, mutant) in mutants("determinism-processes", &seeds, &donors, 5, budget.soaking) {
+        if budget.spent(done) {
+            break;
+        }
         if let Some(why) = deterministic_fires(&mutant) {
-            triage(&mut seen, "deterministic", &mutant, &why, None, &format!("a mutation of {from}"));
+            triage(&mut seen, "deterministic", &mutant, &why, None, &from);
         }
         done += 1;
     }
