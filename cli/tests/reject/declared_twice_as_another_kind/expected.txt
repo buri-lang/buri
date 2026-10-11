@@ -1,32 +1,102 @@
 error: `Shape` is declared twice [duplicate-declaration]
-  --> cmd/declared_twice_as_another_kind/main.buri:12:8
+  --> cmd/declared_twice_as_another_kind/main.buri:11:8
    |
-12 | struct Shape { n: I64 }
+11 | struct Shape { n: I64 }
    |        ^^^^^
    |
-   = fix: rename one of them; a name has one meaning in a module
+ --> cmd/declared_twice_as_another_kind/main.buri:9:4
+  |
+9 | fn Shape(): I64 { 1 }
+  |    ^^^^^ first declared here
+  |
+  = fix: rename one of them; a name has one meaning in a module
 
-     Rename one of them. Two things with one name in one scope leave a reference
-     to that name with no answer.
+    Rename one of them. Two things with one name in one scope leave a reference
+    to that name with no answer. There is no overloading: two functions of one
+    name are refused like two structs. Methods in different impls are fine,
+    because a receiver picks one.
 
 error: `Color` is declared twice [duplicate-declaration]
-  --> cmd/declared_twice_as_another_kind/main.buri:16:6
+  --> cmd/declared_twice_as_another_kind/main.buri:15:6
    |
-16 | enum Color { Red, Blue }
+15 | enum Color { Red, Blue }
    |      ^^^^^
+   |
+  --> cmd/declared_twice_as_another_kind/main.buri:13:4
+   |
+13 | fn Color(): I64 { 2 }
+   |    ^^^^^ first declared here
    |
    = fix: rename one of them; a name has one meaning in a module
 error: `Named` is declared twice [duplicate-declaration]
-  --> cmd/declared_twice_as_another_kind/main.buri:20:7
+  --> cmd/declared_twice_as_another_kind/main.buri:19:7
    |
-20 | trait Named {
+19 | trait Named {
    |       ^^^^^
+   |
+  --> cmd/declared_twice_as_another_kind/main.buri:17:8
+   |
+17 | struct Named { n: I64 }
+   |        ^^^^^ first declared here
    |
    = fix: rename one of them; a name has one meaning in a module
 error: `Limit` is declared twice [duplicate-declaration]
-  --> cmd/declared_twice_as_another_kind/main.buri:26:5
+  --> cmd/declared_twice_as_another_kind/main.buri:25:5
    |
-26 | let Limit: I64 = 3;
+25 | let Limit: I64 = 3;
    |     ^^^^^
+   |
+  --> cmd/declared_twice_as_another_kind/main.buri:23:8
+   |
+23 | struct Limit { n: I64 }
+   |        ^^^^^ first declared here
+   |
+   = fix: rename one of them; a name has one meaning in a module
+error: `Sized` is declared twice [duplicate-declaration]
+  --> cmd/declared_twice_as_another_kind/main.buri:31:4
+   |
+31 | fn Sized(): I64 { 4 }
+   |    ^^^^^
+   |
+  --> cmd/declared_twice_as_another_kind/main.buri:27:7
+   |
+27 | trait Sized {
+   |       ^^^^^ first declared here
+   |
+   = fix: rename one of them; a name has one meaning in a module
+error: `Speed` is declared twice [duplicate-declaration]
+  --> cmd/declared_twice_as_another_kind/main.buri:35:4
+   |
+35 | fn Speed(): I64 { 6 }
+   |    ^^^^^
+   |
+  --> cmd/declared_twice_as_another_kind/main.buri:33:5
+   |
+33 | let Speed: I64 = 5;
+   |     ^^^^^ first declared here
+   |
+   = fix: rename one of them; a name has one meaning in a module
+error: `Meters` is declared twice [duplicate-declaration]
+  --> cmd/declared_twice_as_another_kind/main.buri:39:4
+   |
+39 | fn Meters(): I64 { 7 }
+   |    ^^^^^^
+   |
+  --> cmd/declared_twice_as_another_kind/main.buri:37:6
+   |
+37 | type Meters = I64;
+   |      ^^^^^^ first declared here
+   |
+   = fix: rename one of them; a name has one meaning in a module
+error: `Console` is declared twice [duplicate-declaration]
+  --> cmd/declared_twice_as_another_kind/main.buri:43:4
+   |
+43 | fn Console(): I64 { 8 }
+   |    ^^^^^^^
+   |
+  --> cmd/declared_twice_as_another_kind/main.buri:41:9
+   |
+41 | context Console {}
+   |         ^^^^^^^ first declared here
    |
    = fix: rename one of them; a name has one meaning in a module

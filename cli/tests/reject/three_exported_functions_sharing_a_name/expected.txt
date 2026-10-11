@@ -1,8 +1,30 @@
-error: `size` is ambiguous as a free function [ambiguous-free-function]
-  --> cmd/three_exported_functions_sharing_a_name/main.buri:14:11
+error: `size` is declared twice [duplicate-declaration]
+ --> cmd/three_exported_functions_sharing_a_name/main.buri:9:11
+  |
+9 | export fn size(x: Str): Int { 0 }
+  |           ^^^^
+  |
+ --> cmd/three_exported_functions_sharing_a_name/main.buri:7:11
+  |
+7 | export fn size(x: Int): Int { x }
+  |           ^^^^ first declared here
+  |
+  = fix: rename one of them; a name has one meaning in a module
+
+    Rename one of them. Two things with one name in one scope leave a reference
+    to that name with no answer. There is no overloading: two functions of one
+    name are refused like two structs. Methods in different impls are fine,
+    because a receiver picks one.
+
+error: `size` is declared twice [duplicate-declaration]
+  --> cmd/three_exported_functions_sharing_a_name/main.buri:11:11
    |
-14 |   let _ = size(1);
+11 | export fn size(x: Bool): Int { 1 }
    |           ^^^^
    |
-   = it is a method on several types: `size`, `size` and `size`
-   = fix: call it on a receiver, which is what picks the one you mean
+ --> cmd/three_exported_functions_sharing_a_name/main.buri:7:11
+  |
+7 | export fn size(x: Int): Int { x }
+  |           ^^^^ first declared here
+  |
+  = fix: rename one of them; a name has one meaning in a module

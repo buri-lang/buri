@@ -106,12 +106,10 @@ fn callees(
     let Some(scope) = analyzed.analysis.checked.scopes.get(module.id.index()) else {
         return Vec::new();
     };
-    let ids = match scope.name(name) {
-        Some(Sym::Fn(id)) => vec![*id],
-        Some(Sym::Overloaded(ids)) => ids.clone(),
-        _ => Vec::new(),
+    let Some(Sym::Fn(id)) = scope.name(name) else {
+        return Vec::new();
     };
-    ids.iter().filter_map(|id| symbols::signature(analyzed, &Symbol::Function(*id))).collect()
+    symbols::signature(analyzed, &Symbol::Function(*id)).into_iter().collect()
 }
 
 /// The call the offset is inside: where its callee is written, and which

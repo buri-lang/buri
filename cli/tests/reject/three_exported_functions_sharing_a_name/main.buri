@@ -1,7 +1,7 @@
-// EXPECT: `size` is ambiguous as a free function
+// EXPECT: `size` is declared twice
 //
-// The same refusal as `ambiguous_free_function`, with three declarations, all
-// exported.
+// The same refusal as `function_declared_three_times`, with all three
+// declarations exported.
 from "node" import { NodeHost };
 
 export fn size(x: Int): Int { x }

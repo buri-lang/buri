@@ -1,6 +1,6 @@
-// EXPECT: `size` is ambiguous as a free function
+// EXPECT: `size` is declared twice
 //
-// The same refusal as `ambiguous_free_function`, with both declarations
+// The same refusal as `function_declared_twice`, with both declarations
 // exported.
 from "node" import { NodeHost };
 

@@ -1014,11 +1014,6 @@ pub(super) fn symbol_of(sym: &Sym) -> Option<Symbol> {
         Sym::Trait(id) => Some(Symbol::Trait(*id)),
         Sym::Const(id) => Some(Symbol::Const(*id)),
         Sym::Context(id) => Some(Symbol::Context(*id)),
-        Sym::Namespace(id) => Some(Symbol::Module(*id)),
-        // Which of the overloads is meant is a question about a call, and this
-        // is a name with no call around it. The first is the one an editor can
-        // show without inventing an answer.
-        Sym::Overloaded(ids) => ids.first().copied().map(Symbol::Function),
         // A method is reached through a receiver, never through this name.
         Sym::Method(_) => None,
         // An alias is transparent: it expands to a type that has a symbol of
