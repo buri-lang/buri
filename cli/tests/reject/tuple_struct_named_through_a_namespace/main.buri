@@ -1,0 +1,10 @@
+// EXPECT: a tuple struct's name constructs one; call it
+//
+// Reached through a module namespace, a tuple struct's name is still a
+// constructor, not a value.
+from "core/bytes" import * as bytes;
+
+fn go(): Int {
+  let e = bytes.DecodeError;
+  1
+}

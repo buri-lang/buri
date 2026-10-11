@@ -1,0 +1,7 @@
+error: a tuple struct's name constructs one; call it [tuple-struct-not-called]
+ --> cmd/tuple_struct_named_through_a_namespace/main.buri:8:11
+  |
+8 |   let e = bytes.DecodeError;
+  |           ^^^^^^^^^^^^^^^^^
+  |
+  = fix: write `Name(value)`

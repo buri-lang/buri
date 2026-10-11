@@ -1,0 +1,8 @@
+// EXPECT: `total` is in an `impl` block but takes no `self`
+struct Cart(Int);
+
+impl Cart {
+  fn total(n: Int): Int {
+    n
+  }
+}

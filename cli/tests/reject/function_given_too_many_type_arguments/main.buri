@@ -1,0 +1,8 @@
+// EXPECT: this function takes 1 type argument, but 2 were given
+fn identity<T>(x: T): T {
+  x
+}
+
+fn go(): Int {
+  identity<Int, Str>(1)
+}

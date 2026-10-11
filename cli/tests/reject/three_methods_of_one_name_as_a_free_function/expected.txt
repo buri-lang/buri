@@ -1,0 +1,8 @@
+error: `grow` is ambiguous as a free function [ambiguous-free-function]
+  --> cmd/three_methods_of_one_name_as_a_free_function/main.buri:18:11
+   |
+18 |   let f = grow;
+   |           ^^^^
+   |
+   = it is a method on several types: `grow`, `grow` and `grow`
+   = fix: call it on a receiver, which is what picks the one you mean

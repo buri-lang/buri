@@ -1,0 +1,7 @@
+error: `Shape` is an enum; name a variant [enum-not-value]
+ --> cmd/enum_written_as_a_record_literal/main.buri:7:3
+  |
+7 |   Shape { w: 1, h: 2 }
+  |   ^^^^^
+  |
+  = fix: write `Shape.Variant { ... }`

@@ -1,0 +1,11 @@
+error: there is no type `Ticket` [unknown-type]
+ --> cmd/derive_for_an_unknown_type/main.buri:2:17
+  |
+2 | derive Show for Ticket;
+  |                 ^^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+
+    Types are nominal, with no structural fallback, so a misspelling can't
+    quietly become a different type that happens to fit.
+

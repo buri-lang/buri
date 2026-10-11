@@ -1,0 +1,15 @@
+// EXPECT: `Holder` declares type parameters of its own
+//
+// The `impl` below has nowhere to say what `T` is, so the declaration is the
+// one mistake reported.
+trait Holder<T> {
+  fn hold(self): T;
+}
+
+struct Item(Int);
+
+impl Holder for Item {
+  fn hold(self): Int {
+    1
+  }
+}

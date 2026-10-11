@@ -1,0 +1,6 @@
+// EXPECT: `Pair` takes 1 type argument, but 2 were given
+type Pair<A> = (A, A);
+
+fn first(p: Pair<Int, Int>): Int {
+  1
+}

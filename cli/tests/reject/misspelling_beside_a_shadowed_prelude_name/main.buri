@@ -1,0 +1,12 @@
+// EXPECT: there is nothing named `Ordr` in scope
+//
+// `Option` is imported though the prelude has it, and `Order` is declared over
+// the prelude's. Each is still one name to suggest, not two.
+from "core/option" import { Option };
+
+struct Order(Int);
+
+fn go(): Option<Int> {
+  let a = Ordr(1);
+  .None
+}

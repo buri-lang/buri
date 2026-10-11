@@ -1,0 +1,28 @@
+error: expected `fn(I64) => I64`, found `fn(_3, _4) => _3` [type-mismatch]
+ --> cmd/lambda_of_the_wrong_arity/main.buri:5:15
+  |
+5 |   xs.map(ctx, fn(a, b) => a)
+  |               ^^^^^^^^^^^^^ the parameter type is `fn(I64) => I64`
+  |
+  = expected: `fn(I64) => I64`
+  = actual: `fn(_3, _4) => _3`
+
+    Numbers don't convert on their own
+    ──────────────────────────────────
+
+    There is no implicit widening or narrowing, so convert explicitly. A
+    widening conversion such as .toI64() on an I32 is exact. A narrowing one
+    returns a Result, because not every value fits.
+
+    A bare literal is reported as Int or Float when nothing pins its type.
+    Annotate it, as in let x: U8 = 1 or let x: F64 = 1.0, and it takes any type
+    of the same kind.
+
+    A .Variant is a variant
+    ───────────────────────
+
+    A leading dot takes its enum from its position, so a position that isn't an
+    enum can't resolve it. expected is the type to write instead. The found side
+    names the variant, not a type, because the compiler won't guess an enum from
+    the payload.
+

@@ -1,0 +1,9 @@
+// EXPECT: `Box` takes 1 type argument, but 2 were given
+//
+// A `derive` may name its type's arguments, as long as it names all of them:
+// the first line is accepted and the second is not.
+struct Box<T>(T);
+
+derive Equal for Box<Int>;
+
+derive Hash for Box<Int, Int>;

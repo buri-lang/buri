@@ -1,0 +1,12 @@
+error: there is nothing named `Ordr` in scope [unknown-name]
+  --> cmd/misspelling_beside_a_shadowed_prelude_name/main.buri:10:11
+   |
+10 |   let a = Ordr(1);
+   |           ^^^^
+   |
+   = did you mean `Order`?
+   = fix: if you meant `Order`, use that; if not, a name is in scope only from this module's own declarations and its imports
+
+     There is no prelude. A module sees only what it declares and what its own
+     imports name, which is why the suggestion is trustworthy.
+

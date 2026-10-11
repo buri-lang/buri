@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Shape` is an enum; name a variant","code":"enum-not-value","location":{"file":"cmd/enum_written_as_a_record_literal/main.buri","line":7,"column":3,"endLine":7,"endColumn":8,"text":"  Shape { w: 1, h: 2 }"},"fix":"write `Shape.Variant { ... }`","notes":[],"related":[]}

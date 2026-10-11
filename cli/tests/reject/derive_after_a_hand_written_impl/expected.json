@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Order` already implements `Show`","code":"duplicate-impl","location":{"file":"cmd/derive_after_a_hand_written_impl/main.buri","line":12,"column":8,"endLine":12,"endColumn":12,"text":"derive Show for Order;"},"fix":"drop it from this `derive`, or delete the hand-written `impl`","notes":[],"related":[]}

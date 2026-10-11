@@ -1,0 +1,5 @@
+// EXPECT: field `x` of `Moved` is declared twice
+enum Event {
+  Moved { x: Int, x: Int },
+  Stopped,
+}

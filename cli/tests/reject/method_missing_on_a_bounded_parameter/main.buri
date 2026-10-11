@@ -1,0 +1,4 @@
+// EXPECT: `T` has no method `render`
+fn draw<T: Show>(x: T): Int {
+  x.render()
+}

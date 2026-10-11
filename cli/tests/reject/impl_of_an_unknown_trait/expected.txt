@@ -1,0 +1,18 @@
+error: `Printable` is not a trait or effect [bound-not-trait]
+  --> cmd/impl_of_an_unknown_trait/main.buri:11:6
+   |
+11 | impl Printable for Item {}
+   |      ^^^^^^^^^
+   |
+   = fix: name a declared trait or effect after `impl`, or drop the `for` clause if `Printable` was meant to be the type whose own methods these are
+error: there is no type `Gadget` [unknown-type]
+  --> cmd/impl_of_an_unknown_trait/main.buri:13:16
+   |
+13 | impl Named for Gadget {}
+   |                ^^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling
+
+     Types are nominal, with no structural fallback, so a misspelling can't
+     quietly become a different type that happens to fit.
+

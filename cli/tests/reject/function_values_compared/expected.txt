@@ -1,0 +1,12 @@
+error: `fn(I64) => I64` does not implement `Equal` [missing-impl]
+ --> cmd/function_values_compared/main.buri:7:3
+  |
+7 |   double == double
+  |   ^^^^^^^^^^^^^^^^
+  |
+  = fix: bound the type parameter with `Equal`, so the method is available
+
+    A context binding and a bound both ask for an impl. Having the right methods
+    isn't enough: a type conforms only once an impl says so. That's why a test
+    double is a struct plus an impl block.
+

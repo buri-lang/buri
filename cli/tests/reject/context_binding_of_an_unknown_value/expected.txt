@@ -1,0 +1,12 @@
+error: there is nothing named `allocator` in scope [unknown-name]
+ --> cmd/context_binding_of_an_unknown_value/main.buri:9:34
+  |
+9 |   let ctx = context { Allocator: allocator };
+  |                                  ^^^^^^^^^
+  |
+  = did you mean `Allocator`?
+  = fix: if you meant `Allocator`, use that; if not, a name is in scope only from this module's own declarations and its imports
+
+    There is no prelude. A module sees only what it declares and what its own
+    imports name, which is why the suggestion is trustworthy.
+

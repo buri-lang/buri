@@ -1,0 +1,13 @@
+// EXPECT: `Printable` is not a trait or effect
+//
+// The first `impl` names a trait nobody declared; the second names a type
+// nobody declared. Each is one diagnostic.
+trait Named {
+  fn name(self): Int;
+}
+
+struct Item(Int);
+
+impl Printable for Item {}
+
+impl Named for Gadget {}

@@ -1,0 +1,11 @@
+// EXPECT: there is nothing named `allocator` in scope
+//
+// A binding whose value is already an error isn't also said to be the wrong
+// type for its effect.
+from "platform/effect" import { Allocator };
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: allocator };
+  .Ok(())
+}

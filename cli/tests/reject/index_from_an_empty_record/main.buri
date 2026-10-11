@@ -1,0 +1,5 @@
+// EXPECT: `Slot` cannot derive `Index`: it has no fields
+from "core/indexset" import { Index };
+
+derive Index for Slot;
+struct Slot {}

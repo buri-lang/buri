@@ -1,0 +1,1 @@
+{"severity":"error","message":"`DecodeError` is not declared in this module","code":"impl-outside-type-module","location":{"file":"cmd/derive_for_an_imported_type/main.buri","line":7,"column":17,"endLine":7,"endColumn":28,"text":"derive Hash for DecodeError;"},"fix":"move the `derive` into `DecodeError`'s own module","notes":[],"related":[]}
