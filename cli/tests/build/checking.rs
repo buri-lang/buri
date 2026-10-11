@@ -9,5 +9,5 @@ use crate::harness::*;
 
 #[test]
 fn checking_across_modules() {
-    run_corpus(&tests_dir().join("repositories/checking"), "checking", 3);
+    run_corpus(&tests_dir().join("repositories/checking"), "checking", 4);
 }

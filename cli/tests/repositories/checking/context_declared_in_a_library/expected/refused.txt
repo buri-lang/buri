@@ -1,8 +1,8 @@
 error: a `context` declaration is not allowed here [misplaced-context-declaration]
  --> lib/fixtures/lib.buri:8:1
   |
-8 | context Defaults {}
-  | ^^^^^^^^^^^^^^^^^^^
+8 | context Defaults {
+  | ^^^^^^^^^^^^^^^^^^
   |
   = context may be declared only in a main.buri, a test file, or a test-only module
   = fix: Accept a context variable as an argument, and pass it into the function from a main.buri, a test file, or a test-only module

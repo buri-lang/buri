@@ -1,0 +1,13 @@
+error: this style is not statically known, and `On` and `At` exist only in the stylesheet [style-not-static]
+  --> cmd/page/main.buri:88:5
+   |
+88 |     .Gap(.Px(bucket(0) + bucket(11) + bucket(6) + bucket(2))),
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write the value out, or make it a module-level `let`, or apply it outside the `On`/`At`, where it can be an inline style
+
+     A style the compiler can't evaluate usually falls back to an inline style,
+     where Computed already lives. On and At can't: :hover and @media have no
+     inline form. They exist only as stylesheet rules, which the compiler writes
+     at compile time.
+

@@ -1,0 +1,104 @@
+// Every length under the `On` below is a call to a pure helper, and each one
+// folds to a constant at compile time, which is what lets it be a hover rule
+// in the stylesheet. The helpers between them use each shape the folder
+// evaluates: a branch, a guarded match, `&&` and `||`, a struct update, an
+// index, tuple and array patterns, a negative literal pattern, and float
+// arithmetic.
+
+from "platform/effect" import { Allocator, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import { Style };
+from "web" import { WebHost };
+
+struct Size {
+    w: Int,
+    h: Int,
+}
+
+fn wider(s: Size): Size {
+    Size { ..s, w: s.w + 1 }
+}
+
+fn sign(n: Int): Int {
+    if (n < 0) { -1 } else { 1 }
+}
+
+fn bucket(n: Int): Int {
+    match (n) {
+        0 => 1,
+        k if k > 10 => 12,
+        k if k > 5 => 6,
+        _ => 3,
+    }
+}
+
+fn both(a: Bool, b: Bool): Int {
+    if (a && b) { 2 } else { 4 }
+}
+
+fn either(a: Bool, b: Bool): Int {
+    if (a || b) { 8 } else { 16 }
+}
+
+fn second(p: (Int, Int)): Int {
+    let (_, b) = p;
+    b
+}
+
+fn head(xs: [Int]): Int {
+    match (xs) {
+        [a, ..rest] => a,
+        [] => 0,
+    }
+}
+
+fn pair(xs: [Int]): Int {
+    match (xs) {
+        [0, b] => b + 100,
+        [_, b] => b,
+        _ => 5,
+    }
+}
+
+fn at(xs: [Int], i: Int): Int {
+    match (xs[i]) {
+        .Some(v) => v,
+        .None => 7,
+    }
+}
+
+fn below(n: Int): Int {
+    match (n) {
+        -3 => 9,
+        _ => 10,
+    }
+}
+
+fn flip(n: Int): Int {
+    -n
+}
+
+fn half(f: Float): Float {
+    -(f / 2.0)
+}
+
+let hovered: Style = .On(.Hover, [
+    .Width(.Px(wider(Size { w: 20, h: 1 }).w)),
+    .Height(.Px(sign(-4) + 30)),
+    .Gap(.Px(bucket(0) + bucket(11) + bucket(6) + bucket(2))),
+    .PaddingX(.Px(both(true, true) + both(true, false) + both(false, true))),
+    .PaddingY(.Px(either(false, true) + either(false, false) + either(true, false))),
+    .MinWidth(.Px(second((1, 2)) + head([3, 4]) + head([]))),
+    .MaxWidth(.Px(pair([1, 2]) + pair([1]) + at([5], 0) + at([5], 3))),
+    .Radius(.Px(below(flip(3)) + below(3))),
+    .Opacity(half(-1.0)),
+]);
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+    ui.mount(ctx, ui.stack({ styles: [hovered], children: [] }), [])
+}

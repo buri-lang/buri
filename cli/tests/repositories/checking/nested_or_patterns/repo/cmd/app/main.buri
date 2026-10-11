@@ -19,7 +19,14 @@ fn pick(s: Shape, n: Int): Int {
 }
 
 export fn main(host: NodeHost): Result<(), Str> {
-    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-    let picked = "${pick(.Frame(3), 1)} ${pick(.Dot(4), 9)} ${pick(.Rect(5, 6), 1)} ${pick(.Frame(3), 2)}";
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let picked =
+        "${pick(.Frame(3), 1)} ${pick(.Dot(4), 9)} ${pick(.Rect(5, 6), 1)} ${pick(
+            .Frame(3),
+            2,
+        )}";
     io.println(ctx, picked).mapErr(fn(_e) => "could not write to standard output")
 }
