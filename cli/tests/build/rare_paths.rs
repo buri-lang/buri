@@ -3,7 +3,9 @@
 //! cycle, a suite naming a backend twice, a source that stops being UTF-8
 //! between two analyses, a damaged record of a link's unlisted reads, a
 //! runner kept under a fresh `BURI_HOME`, a platform asset read as a schema,
-//! and the generator paths a contract or a tool nobody declared takes.
+//! a `platform` rule outside `//platform/`, `format` on a `testing` surface,
+//! and the generator paths a contract, a missing schema or a tool nobody
+//! declared takes.
 use crate::harness::*;
 
 const PLATFORM: &str =
@@ -528,4 +530,59 @@ fn a_generator_input_s_schema_can_be_its_platform_s_asset() {
     );
     scratch.run(&["build", "//cmd/app"]).ok();
     assert!(scratch.read(copied).contains("\"title\": \"Side\""));
+}
+
+/// A `platform` rule outside `//platform/` is misplaced, and an output naming
+/// it names no platform.
+#[test]
+fn a_platform_rule_outside_platform_is_misplaced() {
+    let scratch = Scratch::repo("rare-platform-outside");
+    scratch.write("lib/p/BUILD.buri", PLATFORM);
+    scratch.write(
+        "cmd/x/BUILD.buri",
+        "binary {\n    outputs: [{ platform: \"//lib/p\" }]\n}\n",
+    );
+    scratch.write("cmd/x/main.buri", NODE_MAIN);
+    scratch
+        .run(&["build", "//..."])
+        .exits(2)
+        .says("//lib/p declares a `platform` rule outside //platform/ [misplaced-rule]")
+        .says("`//lib/p` is not a platform [unknown-platform]");
+}
+
+/// `buri format` on a label formats the library's `testing` surface too.
+#[test]
+fn format_on_a_label_reaches_the_testing_surface() {
+    let scratch = Scratch::repo("rare-format-testing");
+    scratch.write("lib/c/BUILD.buri", "library {\n    testing {\n    }\n}\n");
+    scratch.write("lib/c/lib.buri", ONE);
+    scratch.write("lib/c/testing/lib.buri", "export fn fake(): Int {   2 }\n");
+    scratch
+        .run(&["format", "//lib/c"])
+        .ok()
+        .says("formatted lib/c/testing/lib.buri");
+    assert_eq!(
+        scratch.read("lib/c/testing/lib.buri"),
+        "export fn fake(): Int {\n    2\n}\n"
+    );
+}
+
+/// A schema a generator lists and nobody wrote is missing twice over: as the
+/// generator's input, and as the module an import names.
+#[test]
+fn a_listed_schema_that_is_not_there_is_reported_where_it_is_imported() {
+    let scratch = Scratch::repo("rare-missing-proto");
+    scratch.write(
+        "lib/g/BUILD.buri",
+        "library {\n    generators: [\n        { tool: \"proto\", inputs: [\"s.proto\"] },\n    ]\n}\n",
+    );
+    scratch.write(
+        "lib/g/lib.buri",
+        "from \"//lib/g/s.proto\" import { S };\n\nexport fn f(): Int {\n    1\n}\n",
+    );
+    scratch
+        .run(&["build", "//lib/g"])
+        .exits(1)
+        .says("s.proto does not exist [unknown-source]")
+        .says("\"//lib/g/s.proto\" names no file (lib/g/s.proto) [unknown-module]");
 }
