@@ -1,0 +1,21 @@
+error: `Box<I64>` does not implement `Equal` [missing-impl]
+  --> cmd/impl_for_another_instance_once_a_literal_settles/main.buri:30:14
+   |
+30 |   let same = Box { v: 1 } == Box { v: 2 };
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the `impl Equal` is for `Box<Str>`, and `Box<I64>` isn't one
+   = fix: pass a `Box<Str>`, or widen the `impl` to cover `Box<I64>`
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+
+error: `Out<I64>` does not implement `Stdout` [missing-impl]
+  --> cmd/impl_for_another_instance_once_a_literal_settles/main.buri:31:54
+   |
+31 |   let ctx = context { Allocator: host.alloc, Stdout: Out { t: 1 } };
+   |                                                      ^^^^^^^^^^^^
+   |
+   = the `impl Stdout` is for `Out<Str>`, and `Out<I64>` isn't one
+   = fix: pass a `Out<Str>`, or widen the `impl` to cover `Out<I64>`
