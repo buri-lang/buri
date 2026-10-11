@@ -1,0 +1,5 @@
+// EXPECT: the head of a struct literal must be a struct or an enum variant
+fn go(): Int {
+  let m = core.io.Line { text: "a" };
+  1
+}

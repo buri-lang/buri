@@ -1,0 +1,7 @@
+// EXPECT: exhaustiveness is not attempted over integer or string ranges
+fn go(n: Int): Int {
+  match (n) {
+    0 => 1,
+    1 => 2,
+  }
+}

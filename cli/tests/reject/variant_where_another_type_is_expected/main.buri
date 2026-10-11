@@ -1,0 +1,12 @@
+// EXPECT: expected `Option<I64>`, found `Shape`
+enum Shape {
+  Dot(Int),
+  Rect { w: Int },
+}
+
+fn go(): Int {
+  let a: Option<Int> = Shape.Dot(1);
+  let b: Option<Int> = Shape.Rect { w: 1 };
+  let c: (Int, Int) = .Rect { w: 1 };
+  1
+}

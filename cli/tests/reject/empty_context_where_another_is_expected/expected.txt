@@ -1,0 +1,19 @@
+error: expected `context { Allocator: HostAllocator }`, found `context {}` [context-mismatch]
+ --> cmd/empty_context_where_another_is_expected/main.buri:7:32
+  |
+7 |   let b = if (true) { a } else { context {} };
+  |                                ^^^^^^^^^^^^^^ the other branch is `context { Allocator: HostAllocator }`
+  |
+  = expected: `context { Allocator: HostAllocator }`
+  = actual: `context {}`
+  = two contexts are the same type only when they bind the same effects, in the same order, to the same types
+  = fix: build one context and pass it to both, or bind the same effects to the same types in the same order
+
+    Each context { ... } has a type the compiler generates. Two contexts share
+    it when they bind the same effects, in the same order, to the same types, so
+    context { Clock: clock().at(1) } and context { Clock: clock().at(2) } are
+    interchangeable.
+
+    Order counts because a context's bindings are laid out in the order you
+    write them.
+

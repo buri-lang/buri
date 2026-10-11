@@ -1,0 +1,11 @@
+// EXPECT: `.Rect { w: _, h: _ }`
+enum Shape {
+  Dot,
+  Rect { w: Int, h: Int },
+}
+
+fn go(s: Shape): Int {
+  match (s) {
+    .Dot => 1,
+  }
+}

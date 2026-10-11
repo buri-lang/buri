@@ -1,0 +1,48 @@
+error: expected `Option<I64>`, found `Shape` [type-mismatch]
+ --> cmd/variant_where_another_type_is_expected/main.buri:8:24
+  |
+8 |   let a: Option<Int> = Shape.Dot(1);
+  |                        ^^^^^^^^^^^^ the annotation is `Option<I64>`
+  |
+  = expected: `Option<I64>`
+  = actual: `Shape`
+
+    Numbers don't convert on their own
+    ──────────────────────────────────
+
+    There is no implicit widening or narrowing, so convert explicitly. A
+    widening conversion such as .toI64() on an I32 is exact. A narrowing one
+    returns a Result, because not every value fits.
+
+    A bare literal is reported as Int or Float when nothing pins its type.
+    Annotate it, as in let x: U8 = 1 or let x: F64 = 1.0, and it takes any type
+    of the same kind.
+
+    A .Variant is a variant
+    ───────────────────────
+
+    A leading dot takes its enum from its position, so a position that isn't an
+    enum can't resolve it. expected is the type to write instead. The found side
+    names the variant, not a type, because the compiler won't guess an enum from
+    the payload.
+
+error: expected `Option<I64>`, found `Shape` [type-mismatch]
+ --> cmd/variant_where_another_type_is_expected/main.buri:9:24
+  |
+9 |   let b: Option<Int> = Shape.Rect { w: 1 };
+  |                        ^^^^^^^^^^^^^^^^^^^ the annotation is `Option<I64>`
+  |
+  = expected: `Option<I64>`
+  = actual: `Shape`
+error: the head of a struct literal must be a struct or an enum variant [struct-literal-head]
+  --> cmd/variant_where_another_type_is_expected/main.buri:10:23
+   |
+10 |   let c: (Int, Int) = .Rect { w: 1 };
+   |                       ^^^^^
+   |
+   = fix: name the type, as in `Point { x: 1, y: 2 }`, or a variant that has fields, as in `.Variant { ... }` where the expected type is known
+
+     The grammar decides shape without name resolution, so it accepts any head,
+     such as f(x) { a: 1 }. The checker rejects it, one phase later than you
+     might expect.
+

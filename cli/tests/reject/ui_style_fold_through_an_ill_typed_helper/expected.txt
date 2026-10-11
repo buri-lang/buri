@@ -1,0 +1,86 @@
+error: `Str` cannot be indexed [not-indexable]
+  --> cmd/ui_style_fold_through_an_ill_typed_helper/main.buri:17:10
+   |
+17 |   match (s[0]) {
+   |          ^^^^
+   |
+   = indexing is defined on `[T]`, and yields `Option<T>`
+   = fix: index an array; for a tuple, write `.0`
+error: `(I64, I64)` is not a 3-tuple [pattern-not-tuple]
+  --> cmd/ui_style_fold_through_an_ill_typed_helper/main.buri:24:7
+   |
+24 |   let (a, b, c) = p;
+   |       ^^^^^^^^^
+   |
+   = fix: match the shape of `(I64, I64)`, not a 3-tuple
+error: expected `Size`, found `I64` [type-mismatch]
+  --> cmd/ui_style_fold_through_an_ill_typed_helper/main.buri:33:12
+   |
+33 |   Size { ..n, w: 1 }.w
+   |            ^ the base of the update is `Size`
+   |
+   = expected: `Size`
+   = actual: `I64`
+
+     Numbers don't convert on their own
+     ──────────────────────────────────
+
+     There is no implicit widening or narrowing, so convert explicitly. A
+     widening conversion such as .toI64() on an I32 is exact. A narrowing one
+     returns a Result, because not every value fits.
+
+     A bare literal is reported as Int or Float when nothing pins its type.
+     Annotate it, as in let x: U8 = 1 or let x: F64 = 1.0, and it takes any type
+     of the same kind.
+
+     A .Variant is a variant
+     ───────────────────────
+
+     A leading dot takes its enum from its position, so a position that isn't an
+     enum can't resolve it. expected is the type to write instead. The found
+     side names the variant, not a type, because the compiler won't guess an
+     enum from the payload.
+
+error: this style is not statically known, and `On` and `At` exist only in the stylesheet [style-not-static]
+  --> cmd/ui_style_fold_through_an_ill_typed_helper/main.buri:38:50
+   |
+38 |   ui.mount(ctx, ui.stack({ styles: [.On(.Hover, [.Gap(.Px(first("ab"))), .Width(.Px(wider(3))), .Height(.Px(pairs((1, 2)))), .MinWidth(.Px(twice(1, 2)))])], children: [] }), [])
+   |                                                  ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write the value out, or make it a module-level `let`, or apply it outside the `On`/`At`, where it can be an inline style
+
+     A style the compiler can't evaluate usually falls back to an inline style,
+     where Computed already lives. On and At can't: :hover and @media have no
+     inline form. They exist only as stylesheet rules, which the compiler writes
+     at compile time.
+
+error: this style is not statically known, and `On` and `At` exist only in the stylesheet [style-not-static]
+  --> cmd/ui_style_fold_through_an_ill_typed_helper/main.buri:38:74
+   |
+38 |   ui.mount(ctx, ui.stack({ styles: [.On(.Hover, [.Gap(.Px(first("ab"))), .Width(.Px(wider(3))), .Height(.Px(pairs((1, 2)))), .MinWidth(.Px(twice(1, 2)))])], children: [] }), [])
+   |                                                                          ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write the value out, or make it a module-level `let`, or apply it outside the `On`/`At`, where it can be an inline style
+error: this style is not statically known, and `On` and `At` exist only in the stylesheet [style-not-static]
+  --> cmd/ui_style_fold_through_an_ill_typed_helper/main.buri:38:97
+   |
+38 |   ui.mount(ctx, ui.stack({ styles: [.On(.Hover, [.Gap(.Px(first("ab"))), .Width(.Px(wider(3))), .Height(.Px(pairs((1, 2)))), .MinWidth(.Px(twice(1, 2)))])], children: [] }), [])
+   |                                                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write the value out, or make it a module-level `let`, or apply it outside the `On`/`At`, where it can be an inline style
+error: this style is not statically known, and `On` and `At` exist only in the stylesheet [style-not-static]
+  --> cmd/ui_style_fold_through_an_ill_typed_helper/main.buri:38:126
+   |
+38 |   ui.mount(ctx, ui.stack({ styles: [.On(.Hover, [.Gap(.Px(first("ab"))), .Width(.Px(wider(3))), .Height(.Px(pairs((1, 2)))), .MinWidth(.Px(twice(1, 2)))])], children: [] }), [])
+   |                                                                                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write the value out, or make it a module-level `let`, or apply it outside the `On`/`At`, where it can be an inline style
+error: `twice` takes 1 argument, but 2 were given [argument-count]
+  --> cmd/ui_style_fold_through_an_ill_typed_helper/main.buri:38:140
+   |
+38 |   ui.mount(ctx, ui.stack({ styles: [.On(.Hover, [.Gap(.Px(first("ab"))), .Width(.Px(wider(3))), .Height(.Px(pairs((1, 2)))), .MinWidth(.Px(twice(1, 2)))])], children: [] }), [])
+   |                                                                                                                                            ^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass `twice` the following arguments: twice(n: Int)

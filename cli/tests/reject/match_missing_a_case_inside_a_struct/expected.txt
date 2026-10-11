@@ -1,0 +1,14 @@
+error: this `match` does not cover `Wrap(false)` [match-not-exhaustive]
+ --> cmd/match_missing_a_case_inside_a_struct/main.buri:5:3
+  |
+5 |   match (w) {
+  |   ^^^^^^^^^^^ not covered
+  |
+  = every `match` must cover its scrutinee's type
+  = fix: add an arm for `Wrap(false)`, or a `_` arm for everything left
+
+    Add an arm for the named case, or a _ arm for everything left.
+
+    Exhaustiveness turns a new variant into a compile error everywhere that has
+    to handle it. A _ arm opts that match out.
+

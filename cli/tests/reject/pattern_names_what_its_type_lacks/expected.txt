@@ -1,0 +1,34 @@
+error: this pattern does not mention `y` [missing-field-pattern]
+  --> cmd/pattern_names_what_its_type_lacks/main.buri:17:5
+   |
+17 |     Point { x, z } => x,
+   |     ^^^^^^^^^^^^^^
+   |
+   = fix: match `y` too, or end the pattern with `..` to ignore the rest
+
+     Adding a field should break every pattern that takes the type apart. .. is
+     how a pattern opts out.
+
+error: `Point` has no field `z` [unknown-field]
+  --> cmd/pattern_names_what_its_type_lacks/main.buri:17:16
+   |
+17 |     Point { x, z } => x,
+   |                ^
+   |
+   = fix: check the spelling, or name a field the type declares
+
+     There's no structural typing and no inheritance. A value has exactly the
+     fields its declaration lists.
+
+error: `Size` has no variant `Huge` [unknown-variant]
+  --> cmd/pattern_names_what_its_type_lacks/main.buri:20:5
+   |
+20 |     Size.Huge => 1,
+   |     ^^^^^^^^^
+   |
+   = its variants are `Small` and `Large`
+   = fix: name a variant the enum declares
+
+     The fix names a near miss when there is one. Otherwise the diagnostic
+     prints the enum's declaration.
+

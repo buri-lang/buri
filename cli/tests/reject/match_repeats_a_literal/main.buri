@@ -1,0 +1,8 @@
+// EXPECT: this arm is unreachable
+fn go(n: Int): Int {
+  match (n) {
+    1 => 10,
+    1 => 20,
+    _ => 30,
+  }
+}

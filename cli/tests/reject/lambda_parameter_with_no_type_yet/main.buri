@@ -1,0 +1,5 @@
+// EXPECT: has no method `size`
+fn go(): Int {
+  let f = fn(q) => q.size();
+  1
+}

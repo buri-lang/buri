@@ -1,0 +1,28 @@
+error: expected `(I64, I64)`, found `(Int, Int, Int)` [type-mismatch]
+ --> cmd/tuple_literal_longer_than_its_type/main.buri:3:23
+  |
+3 |   let t: (Int, Int) = (1, 2, 3);
+  |                       ^^^^^^^^^ the annotation is `(I64, I64)`
+  |
+  = expected: `(I64, I64)`
+  = actual: `(Int, Int, Int)`
+
+    Numbers don't convert on their own
+    ──────────────────────────────────
+
+    There is no implicit widening or narrowing, so convert explicitly. A
+    widening conversion such as .toI64() on an I32 is exact. A narrowing one
+    returns a Result, because not every value fits.
+
+    A bare literal is reported as Int or Float when nothing pins its type.
+    Annotate it, as in let x: U8 = 1 or let x: F64 = 1.0, and it takes any type
+    of the same kind.
+
+    A .Variant is a variant
+    ───────────────────────
+
+    A leading dot takes its enum from its position, so a position that isn't an
+    enum can't resolve it. expected is the type to write instead. The found side
+    names the variant, not a type, because the compiler won't guess an enum from
+    the payload.
+

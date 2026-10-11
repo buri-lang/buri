@@ -1,0 +1,7 @@
+// EXPECT: `toJson` takes 1 argument, but none were given
+from "core/json" import * as json;
+
+fn go(): Int {
+  let j = 5.toJson();
+  1
+}
