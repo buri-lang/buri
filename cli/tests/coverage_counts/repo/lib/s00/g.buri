@@ -1,0 +1,74 @@
+derive Equal, Show for E;
+export enum E {
+    A,
+    B(Int),
+    C(Int, Int),
+}
+
+derive Equal, Show for R;
+export struct R {
+    export f0: Bool,
+    export f1: Bool,
+}
+
+export fn f0(n: Int, flag: Bool): Int {
+    match (n) {
+        0 if flag => 10,
+        k if k > 4 && !flag => 100,
+        _ => 99,
+    }
+}
+
+export fn f1(n: Int): Int {
+    if (n == 0) {
+        0
+    } else {
+        let here = if (n % 3 == 0) { 1 } else { 0 };
+        here + f1(n - 1)
+    }
+}
+
+export fn f2(n: Int, flag: Bool): Int {
+    match (n) {
+        0 => 10,
+        1 if flag => 11,
+        _ => 99,
+    }
+}
+
+export fn f3(n: Int): Int {
+    if (n == 0) {
+        0
+    } else {
+        let here = if (n % 5 == 3) { 1 } else { 0 };
+        here + f3(n - 1)
+    }
+}
+
+export fn f4(a: Bool, p: R, q: R): Bool {
+    a && p == q
+}
+
+export fn f5(items: [Int]): Int {
+    items.fold(fn(acc, x) => if (x > 1) { acc + x } else { acc }, 0)
+}
+
+export fn f6<T>(flag: Bool, x: T, y: T): T {
+    if (flag) {
+        let r = x;
+        r
+    } else {
+        let r = y;
+        r
+    }
+}
+
+fn f7check(n: Int): Result<Int, Str> {
+    if (n < 0) { .Err("negative") } else { .Ok(n) }
+}
+
+export fn f7(a: Int, b: Int): Result<Int, Str> {
+    let x = f7check(a)?;
+    let y = f7check(b)?;
+    .Ok(x + y)
+}

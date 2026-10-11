@@ -1,0 +1,69 @@
+derive Equal, Show for E;
+export enum E {
+    A,
+    B(Int),
+    C(Int, Int),
+}
+
+derive Equal, Show for R;
+export struct R {
+    export f0: Int,
+}
+
+export fn f0(items: [Int]): Int {
+    items.fold(fn(acc, x) => if (x > 0) { acc + x } else { acc }, 0)
+}
+
+export fn f1(a: Bool, p: R, q: R): Bool {
+    a && p == q
+}
+
+export fn f2(n: Int, flag: Bool): Int {
+    match (n) {
+        0 => 10,
+        1 if flag => 11,
+        _ => 99,
+    }
+}
+
+export fn f3(a: Bool, b: Bool): Int {
+    if (!a || b) { 1 } else { 0 }
+}
+
+export fn f4(a: Bool, b: Bool, c: Bool): Int {
+    if (a || b || !c) {
+        let r = 1;
+        r
+    } else {
+        let r = 0;
+        r
+    }
+}
+
+export fn f5(a: Bool, n: Int): Bool {
+    a && f5big(n)
+}
+
+fn f5big(n: Int): Bool {
+    n > 2
+}
+
+export fn f6<T>(flag: Bool, x: T, y: T): T {
+    if (flag) {
+        let r = x;
+        r
+    } else {
+        let r = y;
+        r
+    }
+}
+
+export fn f7<T>(flag: Bool, x: T, y: T): T {
+    if (flag) {
+        let r = x;
+        r
+    } else {
+        let r = y;
+        r
+    }
+}

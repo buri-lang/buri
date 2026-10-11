@@ -1,0 +1,50 @@
+from "core/testing/assert" import * as assert;
+from "//lib/s06" import * as g;
+
+test "f0" {
+    assert.equal(g.f0(4087, 0), 1022);
+    assert.equal(g.f0(4537, 0), 1134);
+    assert.equal(g.f0(4082, 0), 1021);
+    assert.equal(g.f0(2265, 0), 566);
+}
+
+test "f1" {
+    assert.equal(g.f1([5, 3, 7]), 12);
+    assert.equal(g.f1([6, 8, 3]), 14);
+}
+
+test "f2" {
+    assert.equal(g.f2(2, true), 12);
+    assert.equal(g.f2(4, true), 99);
+    assert.equal(g.f2(9, true), 99);
+}
+
+test "f4" {
+    assert.equal(g.f4(1037, 0), 345);
+    assert.equal(g.f4(918, 0), 306);
+}
+
+test "f5" {
+    assert.equal(g.f5(945, 0), 472);
+    assert.equal(g.f5(275, 0), 137);
+    assert.equal(g.f5(661, 0), 330);
+    assert.equal(g.f5(168, 0), 84);
+}
+
+test "f6" {
+    assert.equal(g.f6(4), 16);
+    assert.equal(g.f6(1), 2);
+    assert.equal(g.f6(5), 32);
+}
+
+test "f6 aborts 0" {
+    assert.equal(g.f6(-1), 0);
+}
+
+test "f6 aborts 1" {
+    assert.equal(g.f6(-1), 0);
+}
+
+test "f7" {
+    assert.equal(g.f7(8), 3);
+}

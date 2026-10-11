@@ -1,0 +1,45 @@
+from "core/testing/assert" import * as assert;
+from "//lib/s02" import * as g;
+
+test "f0" {
+    assert.equal(g.f0([8, 2, 0]), 8);
+    assert.equal(g.f0([]), 0);
+    assert.equal(g.f0([4]), 0);
+    assert.equal(g.f0([0, 7, 6, 0]), 13);
+    assert.equal(g.f0([]), 0);
+}
+
+test "f1" {
+    assert.equal(g.f1(7, true), 99);
+    assert.equal(g.f1(6, false), 100);
+    assert.equal(g.f1(3, false), 99);
+}
+
+test "f2" {
+    assert.equal(g.f2(5, false), 99);
+    assert.equal(g.f2(5, false), 99);
+    assert.equal(g.f2(3, true), 99);
+    assert.equal(g.f2(3, false), 99);
+}
+
+test "f3" {
+    assert.equal(g.f3(false, true, false), false);
+    assert.equal(g.f3(true, -4, -6), -4);
+    assert.equal(g.f3(false, 3, -7), -7);
+}
+
+test "f4" {
+    assert.equal(g.f4(6, false), 100);
+    assert.equal(g.f4(8, false), 100);
+    assert.equal(g.f4(3, false), 99);
+    assert.equal(g.f4(2, true), 12);
+    assert.equal(g.f4(5, false), 100);
+    assert.equal(g.f4(0, false), 10);
+}
+
+test "f5" {
+    assert.equal(g.f5(false, -5, -1), -1);
+    assert.equal(g.f5(false, -3, -6), -6);
+    assert.equal(g.f5(false, "3", "1"), "1");
+    assert.equal(g.f5(false, true, false), false);
+}

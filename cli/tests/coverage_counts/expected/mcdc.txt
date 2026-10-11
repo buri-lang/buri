@@ -1,0 +1,44 @@
+FAIL //lib/s06  test/g.buri  "f6 aborts 0"
+  shift out of range
+  --> lib/s06/test/g.buri:40:1
+FAIL //lib/s06  test/g.buri  "f6 aborts 1"
+  shift out of range
+  --> lib/s06/test/g.buri:44:1
+FAIL //lib/s08  test/g.buri  "f0 aborts 0"
+  shift out of range
+  --> lib/s08/test/g.buri:13:1
+FAIL //lib/s08  test/g.buri  "f0 aborts 1"
+  shift out of range
+  --> lib/s08/test/g.buri:17:1
+FAIL //lib/s08  test/g.buri  "f4 aborts 0"
+  division by zero
+  --> lib/s08/test/g.buri:63:1
+FAIL //lib/s09  test/g.buri  "f3 aborts 0"
+  shift out of range
+  --> lib/s09/test/g.buri:45:1
+FAIL //lib/s09  test/g.buri  "f3 aborts 1"
+  shift out of range
+  --> lib/s09/test/g.buri:49:1
+FAIL //lib/s11  test/g.buri  "f4 aborts 0"
+  shift out of range
+  --> lib/s11/test/g.buri:35:1
+FAIL //lib/s11  test/g.buri  "f4 aborts 1"
+  shift out of range
+  --> lib/s11/test/g.buri:39:1
+70 passed, 9 failed, 0 skipped
+
+mc/dc coverage           branches     conditions     decisions
+  lib/s00/g.buri    32/54   59.3%    2/4   50.0%   1/2   50.0%
+  lib/s01/g.buri    15/36   41.7%    0/5    0.0%   0/2    0.0%
+  lib/s02/g.buri    23/36   63.9%    3/4   75.0%   1/2   50.0%
+  lib/s03/g.buri    20/35   57.1%    1/4   25.0%   0/2    0.0%
+  lib/s04/g.buri    16/42   38.1%    0/4    0.0%   0/1    0.0%
+  lib/s05/g.buri    17/32   53.1%    0/2    0.0%   0/1    0.0%
+  lib/s06/g.buri    26/34   76.5%    0/0       -   0/0       -
+  lib/s07/g.buri    12/25   48.0%    1/4   25.0%   0/2    0.0%
+  lib/s08/g.buri    21/39   53.8%   2/10   20.0%   1/3   33.3%
+  lib/s09/g.buri    18/34   52.9%    2/4   50.0%   1/2   50.0%
+  lib/s10/g.buri    16/42   38.1%    0/5    0.0%   0/2    0.0%
+  lib/s11/g.buri    26/30   86.7%    0/0       -   0/0       -
+  total           242/439   55.1%  11/46   23.9%  4/19   21.1%
+lcov: .buri/coverage/lcov.info

@@ -1,0 +1,52 @@
+export fn f0(items: [Int]): Int {
+    items.fold(fn(acc, x) => if (x > 5) { acc + x } else { acc }, 0)
+}
+
+export fn f1(n: Int, flag: Bool): Int {
+    match (n) {
+        0 => 10,
+        1 if flag => 11,
+        2 => 12,
+        k if k > 3 && !flag => 100,
+        _ => 99,
+    }
+}
+
+export fn f2(n: Int, flag: Bool): Int {
+    match (n) {
+        0 => 10,
+        1 => 11,
+        2 => 12,
+        _ => 99,
+    }
+}
+
+export fn f3<T>(flag: Bool, x: T, y: T): T {
+    if (flag) {
+        let r = x;
+        r
+    } else {
+        let r = y;
+        r
+    }
+}
+
+export fn f4(n: Int, flag: Bool): Int {
+    match (n) {
+        0 => 10,
+        1 => 11,
+        2 => 12,
+        k if k > 3 && !flag => 100,
+        _ => 99,
+    }
+}
+
+export fn f5<T>(flag: Bool, x: T, y: T): T {
+    if (flag) {
+        let r = x;
+        r
+    } else {
+        let r = y;
+        r
+    }
+}

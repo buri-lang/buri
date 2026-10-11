@@ -1,0 +1,43 @@
+from "core/bits" import * as bits;
+
+derive Equal, Show for E;
+export enum E {
+    A,
+    B(Int),
+    C(Int, Int),
+}
+
+derive Equal, Show for R;
+export struct R {
+    export f0: Int,
+    export f1: E,
+}
+
+export fn f0(n: Int): Int {
+    bits.shiftLeft(1, n)
+}
+
+export fn f1(a: Bool, b: Bool, c: Bool, d: Bool): Int {
+    if (!(!a || b && (!c && d))) { 1 } else { 0 }
+}
+
+export fn f2(n: Int, flag: Bool): Int {
+    match (n) {
+        0 => 10,
+        1 => 11,
+        2 => 12,
+        _ => 99,
+    }
+}
+
+export fn f3(a: Bool, p: R, q: R): Bool {
+    a && p == q
+}
+
+export fn f4(a: Int, b: Int): Int {
+    a / b
+}
+
+export fn f5(a: Bool, b: Bool, c: Bool, d: Bool): Int {
+    if (a || !b && c || d) { 1 } else { 0 }
+}

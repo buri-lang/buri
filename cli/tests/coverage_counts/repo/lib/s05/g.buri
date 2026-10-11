@@ -1,0 +1,54 @@
+derive Equal, Show for E;
+export enum E {
+    A,
+    B(Int),
+    C(Int, Int),
+}
+
+derive Equal for R;
+export struct R {
+    export f0: E,
+}
+
+export fn f0(n: Int, flag: Bool): Int {
+    match (n) {
+        0 => 10,
+        1 => 11,
+        2 => 12,
+        _ => 99,
+    }
+}
+
+export fn f1<T>(flag: Bool, x: T, y: T): T {
+    if (flag) {
+        let r = x;
+        r
+    } else {
+        let r = y;
+        r
+    }
+}
+
+export fn f2(a: Bool, p: R, q: R): Bool {
+    a && p == q
+}
+
+fn f3check(n: Int): Result<Int, Str> {
+    if (n < 0) { .Err("negative") } else { .Ok(n) }
+}
+
+export fn f3(a: Int, b: Int): Result<Int, Str> {
+    let x = f3check(a)?;
+    let y = f3check(b)?;
+    .Ok(x + y)
+}
+
+export fn f4<T>(flag: Bool, x: T, y: T): T {
+    if (flag) {
+        let r = x;
+        r
+    } else {
+        let r = y;
+        r
+    }
+}

@@ -1,0 +1,36 @@
+export fn f0(a: Bool): Int {
+    if (!a) {
+        let r = 1;
+        r
+    } else {
+        let r = 0;
+        r
+    }
+}
+
+export fn f1(a: Bool, b: Bool): Int {
+    if (a && !b) { 1 } else { 0 }
+}
+
+export fn f2(n: Int, flag: Bool): Int {
+    match (n) {
+        0 if flag => 10,
+        1 => 11,
+        2 => 12,
+        k if k > 8 && !flag => 100,
+        _ => 99,
+    }
+}
+
+export fn f3(items: [Int]): Int {
+    items.fold(fn(acc, x) => if (x > 3) { acc + x } else { acc }, 0)
+}
+
+export fn f4(n: Int): Int {
+    if (n == 0) {
+        0
+    } else {
+        let here = if (n % 2 == 1) { 1 } else { 0 };
+        here + f4(n - 1)
+    }
+}

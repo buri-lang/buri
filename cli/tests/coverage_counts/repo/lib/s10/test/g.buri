@@ -1,0 +1,45 @@
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//lib/s10" import * as g;
+from "//lib/s10" import { E, R };
+
+test "f2" {
+    assert.equal(g.f2(1, false), 99);
+    assert.equal(g.f2(9, false), 99);
+    assert.equal(g.f2(3, false), 99);
+    assert.equal(g.f2(1, false), 99);
+    assert.equal(g.f2(7, true), 99);
+    assert.equal(g.f2(1, false), 99);
+}
+
+test "f5" {
+    assert.equal(g.f5(true, 1), false);
+    assert.equal(g.f5(false, 2), false);
+}
+
+test "f6" {
+    assert.equal(g.f6(true, -1, 2), -1);
+    assert.equal(g.f6(false, true, false), false);
+    assert.equal(g.f6(false, -2, 2), 2);
+}
+
+test "f7" {
+    assert.equal(g.f7(true, "4", "0"), "4");
+    assert.equal(g.f7(false, true, false), false);
+    assert.equal(g.f7(true, -4, 2), -4);
+    assert.equal(g.f7(false, 5, 7), 7);
+}
+
+test "derived" {
+    assert.equal(E.B(1) == E.B(1), true);
+    assert.equal(E.C(1, 1) == E.C(2, 1), false);
+    let a0 = R { f0: -1 };
+    let b0 = R { f0: -1 };
+    assert.equal(a0 == b0, true);
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let r0 = R { f0: -1 };
+    assert.equal(r0.show(ctx), "R { f0: -1 }");
+}

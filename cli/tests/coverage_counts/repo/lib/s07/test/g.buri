@@ -1,0 +1,21 @@
+from "core/testing/assert" import * as assert;
+from "//lib/s07" import * as g;
+
+test "f0" {
+    assert.equal(g.f0(true), 0);
+}
+
+test "f1" {
+    assert.equal(g.f1(true, false), 1);
+    assert.equal(g.f1(false, true), 0);
+}
+
+test "f3" {
+    assert.equal(g.f3([9, 5]), 14);
+    assert.equal(g.f3([8, 6, 5]), 19);
+    assert.equal(g.f3([6, 9, 3]), 15);
+}
+
+test "f4" {
+    assert.equal(g.f4(15), 8);
+}

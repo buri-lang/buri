@@ -1,0 +1,37 @@
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//lib/s04" import * as g;
+from "//lib/s04" import { E, R };
+
+test "f0" {
+    assert.equal(g.f0(490, 0), 98);
+    assert.equal(g.f0(4382, 0), 877);
+}
+
+test "f2" {
+    assert.equal(g.f2([7, 2, 4]), 7);
+    assert.equal(g.f2([3, 2]), 0);
+    assert.equal(g.f2([0]), 0);
+    assert.equal(g.f2([4, 2, 5]), 5);
+}
+
+test "f3" {
+    assert.equal(g.f3(true, 2), false);
+    assert.equal(g.f3(true, 4), false);
+    assert.equal(g.f3(true, 3), false);
+}
+
+test "derived" {
+    assert.equal(E.B(1) == E.B(1), true);
+    assert.equal(E.B(1) == E.C(2, 1), false);
+    assert.equal(E.B(0) == E.B(0), true);
+    let a0 = R { f0: .A, f1: .A };
+    let b0 = R { f0: .A, f1: .A };
+    assert.equal(a0 == b0, true);
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(E.A.show(ctx), ".A");
+    assert.equal(E.C(2, 0).show(ctx), ".C(2, 0)");
+}
