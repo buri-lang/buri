@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Self` is not a trait or effect","code":"bound-not-trait","location":{"file":"cmd/impl_of_self/main.buri","line":11,"column":6,"endLine":11,"endColumn":10,"text":"impl Self for P {}"},"fix":"name a declared trait or effect after `impl`, or drop the `for` clause if `Self` was meant to be the type whose own methods these are","notes":[],"related":[]}

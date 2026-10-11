@@ -2046,7 +2046,7 @@ impl<'a> Checker<'a> {
                     if self.namespace_member_missing_in(module, *b) {
                         continue;
                     }
-                    let shown = t.type_head(*b).unwrap_or("?").to_string();
+                    let shown = t.type_head(*b).map_or_else(|| crate::formatting::type_text(t, *b), str::to_string);
                     let at = t.type_span(*b);
                     let d = self.templated("bound-not-trait", at).bind("name", shown.clone());
                     d.fix(format!(
@@ -2615,7 +2615,9 @@ impl<'a> Checker<'a> {
                 return;
             }
             let t = self.tree(module);
-            let shown = t.type_head(trait_ref).unwrap_or("?").to_string();
+            // `Self`, or a type with no name of its own, is quoted as written.
+            let shown =
+                t.type_head(trait_ref).map_or_else(|| crate::formatting::type_text(t, trait_ref), str::to_string);
             let at = t.type_span(trait_ref);
             self.templated("bound-not-trait", at)
                 .bind("name", shown.clone())
@@ -3009,7 +3011,8 @@ impl<'a> Checker<'a> {
         for ty in self.tree(module).type_list(d.traits) {
             let at = self.tree(module).type_span(*ty);
             let Some(trait_id) = self.resolve_trait(module, *ty) else {
-                let shown = self.tree(module).type_head(*ty).unwrap_or("?").to_string();
+                let t = self.tree(module);
+                let shown = t.type_head(*ty).map_or_else(|| crate::formatting::type_text(t, *ty), str::to_string);
                 self.templated("derive-not-trait", at).bind("name", shown);
                 continue;
             };
