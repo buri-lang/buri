@@ -56,19 +56,13 @@
 //! the backend did not already have.
 //! `proto/binary.buri` was the twenty-sixth: it compiled and passed all along and
 //! was held out for a *middle-end* cost, `middle/rc.rs`'s exponential
-//! `Scan::short_circuit`, which is linear now. What is actually
-//! *refused* is three things:
+//! `Scan::short_circuit`, which is linear now. `bignum/hashing.buri` and
+//! `uuid/hashing.buri` came in when `middle::lower` built `deriveArrayHash`'s
+//! loop. What is actually *refused* is two things:
 //!
-//!  1. **`deriveArrayHash`** — the one derive leaf over an array this backend
-//!     has no body for. `bignum/hashing.buri` and `uuid/hashing.buri`, each of
-//!     them a `derive Hash` whose field is a `[T]`. An inexact numeric
-//!     conversion was this row and is not any more: all four shapes SPEC 6.2.1
-//!     gives one are compiled, `RangeError`'s two `Str`s included. `json.*`
-//!     was a row too, until `middle::derives` wrote a decoder per type and gave
-//!     `ToJson::toJson` at a primitive a body (buri-lang/buri#279).
-//!  2. **`core/math`'s thirteen transcendentals**, which are refused rather
+//!  1. **`core/math`'s thirteen transcendentals**, which are refused rather
 //!     than unwritten — `cli/runtime/math.rs` argues it. `numbers/floats.buri`.
-//!  3. **The document, and its serialization — now in the set.** The *graph*
+//!  2. **The document, and its serialization — now in the set.** The *graph*
 //!     came in when `cli/runtime/ui.rs` ported it, the *reconciler* when the
 //!     renderer landed, the *CSS/theme artifacts* when #53 phase 5 surfaced
 //!     them, and phase 6 moved `markup()` to the headerless scene document both
@@ -697,12 +691,9 @@ const PACKAGES: &[Case] = &[
     // `crypto/sha256.buri`'s reason for being in the native set.
     included("bignum/bigint.buri"),
     included("bignum/decimal.buri"),
-    excluded(
-        "bignum/hashing.buri",
-        "`deriveArrayHash` — a `BigInt` is a sign and a `[Int]`, so its derived \
-             `Hash` bottoms out at the one derive leaf over an array this \
-             backend has no body for. Nothing else in the module reaches it",
-    ),
+    // A `BigInt` is a sign and a `[Int]`, so its derived `Hash` is a
+    // `deriveArrayHash` loop.
+    included("bignum/hashing.buri"),
     // `F32x4.toInt`, which truncates a `Float` into an `Int`. A conversion
     // whose source is a float, so it came in with the other four.
     included("vectors/convert.buri"),
@@ -715,12 +706,8 @@ const PACKAGES: &[Case] = &[
     // `core/secret`: a struct of one field and a hand-written `Show`, so
     // nothing in it needs more than `core/crypto`'s HMAC already does.
     included("secret/secret.buri"),
-    excluded(
-        "uuid/hashing.buri",
-        "`deriveArrayHash` — `derive Hash for Uuid;` over a `[U8]` field, which \
-             the stencil backend has no body for. Everything else about \
-             `core/uuid` is in `uuid/uuid.buri` and is in the native set",
-    ),
+    // `derive Hash for Uuid;` over a `[U8]` field, a `deriveArrayHash` loop.
+    included("uuid/hashing.buri"),
     included("text/bytes.buri"),
     // Hexadecimal across four modules — `character.fromDigit`, `number.toHex`,
     // `str.toRadix` and `core/bytes`' pair. Every conversion in it is exact, so

@@ -118,7 +118,7 @@ fn the_native_files_of_a_mixed_package_pass_under_release() {
         std::fs::write(at.join("BUILD.buri"), build).unwrap();
         targets.push(format!("//lib/{package}"));
     }
-    assert!(targets.len() >= 4, "fewer mixed packages than expected: {targets:?}");
+    assert!(targets.len() >= 3, "fewer mixed packages than expected: {targets:?}");
     let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
     passes(&repo, &targets);
 }

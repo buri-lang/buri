@@ -2,7 +2,7 @@ library {
     sources: []
 
     test {
-        sources: ["test/arrayhash.buri"]
+        sources: ["test/hashes.buri"]
         backends: [NATIVE]
     }
 }
