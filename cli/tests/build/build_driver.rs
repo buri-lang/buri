@@ -615,6 +615,38 @@ fn buri_musl_forces_the_libc_of_a_linux_link() {
     }
 }
 
+/// Under `BURI_MUSL=system`, a C driver that targets musl itself links the
+/// program through the machine's musl driver.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_c_driver_that_is_musl_s_own_links_the_program() {
+    let musl = std::process::Command::new("sh")
+        .args(["-c", "command -v musl-gcc || command -v musl-clang"])
+        .output()
+        .unwrap();
+    let musl = String::from_utf8_lossy(&musl.stdout).trim().to_string();
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    // A driver that says it targets musl, as Alpine's `cc` does, and can't be
+    // pointed at another target.
+    let cc = scratch
+        .write_executable(
+            "fake/cc",
+            &format!(
+                "#!/bin/sh\ncase \"$*\" in\n  -dumpmachine) echo x86_64-alpine-linux-musl ;;\n  \
+                 *--target=*) exit 1 ;;\n  *) exec {musl} \"$@\" ;;\nesac\n"
+            ),
+        )
+        .display()
+        .to_string();
+    let built = scratch.run_with_env(&["build", "//cmd/app"], &[("CC", &cc), ("BURI_MUSL", "system")]);
+    if musl.is_empty() {
+        built.exits(1).says("error: the link failed (");
+        return;
+    }
+    built.ok();
+    scratch.run_with_env(&["run", "//cmd/app"], &[("CC", &cc), ("BURI_MUSL", "system")]).ok().says("native");
+}
+
 /// A `buri` whose linker wrote no build id knows itself by the hash of its
 /// bytes, remembered under `XDG_CACHE_HOME`. Its builds are cached like any
 /// other's, whether the remembered hash is damaged or can't be written.
