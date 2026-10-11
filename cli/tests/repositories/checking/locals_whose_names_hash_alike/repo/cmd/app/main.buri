@@ -1,0 +1,229 @@
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+fn bothLocal(): I64 {
+    let vqxbx0pc3m55r1bh = 1;
+    let a0 = 0;
+    let a1 = 1;
+    let a2 = 2;
+    let a3 = 3;
+    let a4 = 4;
+    let a5 = 5;
+    let a6 = 6;
+    let a7 = 7;
+    let a8 = 8;
+    let a9 = 9;
+    let a10 = 10;
+    let a11 = 11;
+    let a12 = 12;
+    let a13 = 13;
+    let a14 = 14;
+    let a15 = 15;
+    let a16 = 16;
+    let a17 = 17;
+    let a18 = 18;
+    let a19 = 19;
+    let a20 = 20;
+    let a21 = 21;
+    let a22 = 22;
+    let a23 = 23;
+    let a24 = 24;
+    let a25 = 25;
+    let a26 = 26;
+    let a27 = 27;
+    let a28 = 28;
+    let a29 = 29;
+    let a30 = 30;
+    let a31 = 31;
+    let a32 = 32;
+    let vqxrfez3otw0sltc = 2;
+    let b0 = 0;
+    let b1 = 1;
+    let b2 = 2;
+    let b3 = 3;
+    let b4 = 4;
+    let b5 = 5;
+    let b6 = 6;
+    let b7 = 7;
+    let b8 = 8;
+    let b9 = 9;
+    let b10 = 10;
+    let b11 = 11;
+    let b12 = 12;
+    let b13 = 13;
+    let b14 = 14;
+    let b15 = 15;
+    let b16 = 16;
+    let b17 = 17;
+    let b18 = 18;
+    let b19 = 19;
+    let b20 = 20;
+    let b21 = 21;
+    let b22 = 22;
+    let b23 = 23;
+    let b24 = 24;
+    let b25 = 25;
+    let b26 = 26;
+    let b27 = 27;
+    let b28 = 28;
+    let b29 = 29;
+    let b30 = 30;
+    let b31 = 31;
+    let b32 = 32;
+    vqxbx0pc3m55r1bh * 10
+        + vqxrfez3otw0sltc
+        + 0
+            * (a0
+                + a1
+                + a2
+                + a3
+                + a4
+                + a5
+                + a6
+                + a7
+                + a8
+                + a9
+                + a10
+                + a11
+                + a12
+                + a13
+                + a14
+                + a15
+                + a16
+                + a17
+                + a18
+                + a19
+                + a20
+                + a21
+                + a22
+                + a23
+                + a24
+                + a25
+                + a26
+                + a27
+                + a28
+                + a29
+                + a30
+                + a31
+                + a32
+                + b0
+                + b1
+                + b2
+                + b3
+                + b4
+                + b5
+                + b6
+                + b7
+                + b8
+                + b9
+                + b10
+                + b11
+                + b12
+                + b13
+                + b14
+                + b15
+                + b16
+                + b17
+                + b18
+                + b19
+                + b20
+                + b21
+                + b22
+                + b23
+                + b24
+                + b25
+                + b26
+                + b27
+                + b28
+                + b29
+                + b30
+                + b31
+                + b32)
+}
+
+fn vqxrfez3otw0sltc(): I64 {
+    7
+}
+
+fn localAndFunction(): I64 {
+    let vqxbx0pc3m55r1bh = 3;
+    let c0 = 0;
+    let c1 = 1;
+    let c2 = 2;
+    let c3 = 3;
+    let c4 = 4;
+    let c5 = 5;
+    let c6 = 6;
+    let c7 = 7;
+    let c8 = 8;
+    let c9 = 9;
+    let c10 = 10;
+    let c11 = 11;
+    let c12 = 12;
+    let c13 = 13;
+    let c14 = 14;
+    let c15 = 15;
+    let c16 = 16;
+    let c17 = 17;
+    let c18 = 18;
+    let c19 = 19;
+    let c20 = 20;
+    let c21 = 21;
+    let c22 = 22;
+    let c23 = 23;
+    let c24 = 24;
+    let c25 = 25;
+    let c26 = 26;
+    let c27 = 27;
+    let c28 = 28;
+    let c29 = 29;
+    let c30 = 30;
+    let c31 = 31;
+    let c32 = 32;
+    vqxbx0pc3m55r1bh * 10
+        + vqxrfez3otw0sltc()
+        + 0
+            * (c0
+                + c1
+                + c2
+                + c3
+                + c4
+                + c5
+                + c6
+                + c7
+                + c8
+                + c9
+                + c10
+                + c11
+                + c12
+                + c13
+                + c14
+                + c15
+                + c16
+                + c17
+                + c18
+                + c19
+                + c20
+                + c21
+                + c22
+                + c23
+                + c24
+                + c25
+                + c26
+                + c27
+                + c28
+                + c29
+                + c30
+                + c31
+                + c32)
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "${bothLocal()} ${localAndFunction()}").ignore();
+    .Ok(())
+}

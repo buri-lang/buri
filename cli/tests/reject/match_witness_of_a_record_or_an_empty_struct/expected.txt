@@ -1,0 +1,22 @@
+error: this `match` does not cover `P { a: false, b: false }` [match-not-exhaustive]
+  --> cmd/match_witness_of_a_record_or_an_empty_struct/main.buri:13:3
+   |
+13 |   match (p) {
+   |   ^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `P { a: false, b: false }`, or a `_` arm for everything left
+
+     Add an arm for the named case, or a _ arm for everything left.
+
+     Exhaustiveness turns a new variant into a compile error everywhere that has
+     to handle it. A _ arm opts that match out.
+
+error: this `match` does not cover `(E, false)` [match-not-exhaustive]
+  --> cmd/match_witness_of_a_record_or_an_empty_struct/main.buri:19:3
+   |
+19 |   match (p) {
+   |   ^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `(E, false)`, or a `_` arm for everything left

@@ -1,0 +1,21 @@
+// EXPECT: expected `[Style]`, found `Int`
+//
+// A style list that is something else is refused once, as a type mismatch.
+// Folding it into the stylesheet then gives up quietly.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import { Style };
+
+let tall: [Style] = "full";
+
+fn wide(): [Style] {
+  5
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack({ styles: wide(), children: [ui.stack({ styles: tall, children: [] })] }), [])
+}

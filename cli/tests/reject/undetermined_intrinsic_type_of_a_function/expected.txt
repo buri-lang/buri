@@ -1,0 +1,19 @@
+error: `empty` is called at a type nothing determines [undetermined-type]
+  --> cmd/undetermined_intrinsic_type_of_a_function/main.buri:16:33
+   |
+16 |   let handlers = if (early()) { list.empty() } else { [fn(x) => 0] };
+   |                                 ^^^^^^^^^^^^ nothing here says what this answers
+   |
+   = nothing determines T, and a runtime operation is compiled once against no Buri type, so the type argument written at the call is the only record of what the value it answers holds
+   = fix: use the value the call answers at the type it really has, or write the type argument out
+
+     Write the argument out, as in list.empty<Int>(), or use the answer
+     somewhere that says what it holds.
+
+     A type parameter that appears only in the answer has nothing else to pin
+     it, so the checker would resolve it to (). That matters most for a runtime
+     operation. A [T] crosses into the runtime as two words whatever T is, so
+     the compiler derives the answer's width, and the code that releases what it
+     holds, from the type argument at the call. A release generated for () frees
+     the block but nothing inside it, so its contents leak.
+

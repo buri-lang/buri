@@ -1,0 +1,32 @@
+error: "//lib/loop/b.buri" does not export `thing` [unknown-export]
+ --> lib/loop/a.buri:1:35
+  |
+1 | from "//lib/loop/b.buri" export { thing };
+  |                                   ^^^^^
+  |
+  = a re-export may name only what its module path exports
+  = fix: check the spelling, or drop `thing` from this list
+
+    A re-export names only what its module exports, so a library's surface is
+    never wider than the modules behind it. A namespace like fs stands for the
+    module its import named, and only that module's exports may follow the dot.
+    This covers types, bounds and impl heads too, such as list.Vector<Int> and
+    <T: order.Comparable>. If no import bound the namespace at all, the error is
+    unknown-name instead.
+
+error: "//lib/loop/a.buri" does not export `thing` [unknown-export]
+ --> lib/loop/b.buri:1:35
+  |
+1 | from "//lib/loop/a.buri" export { thing };
+  |                                   ^^^^^
+  |
+  = a re-export may name only what its module path exports
+  = fix: check the spelling, or drop `thing` from this list
+error: "//lib/loop/a.buri" does not export `thing` [unknown-export]
+ --> lib/loop/lib.buri:1:41
+  |
+1 | from "//lib/loop/a.buri" export { real, thing };
+  |                                         ^^^^^
+  |
+  = a re-export may name only what its module path exports
+  = fix: check the spelling, or drop `thing` from this list

@@ -1,0 +1,13 @@
+error: `Expr<Opaque>` does not implement `Equal` [missing-impl]
+  --> cmd/derived_trait_fails_past_a_recursive_variant/main.buri:24:11
+   |
+24 |   let _ = same(e, e);
+   |           ^^^^^^^^^^
+   |
+   = `Expr<Opaque>` derives `Equal`, but `Opaque` does not satisfy it, and a derived implementation is a fold over the type's components
+   = fix: make `Opaque` satisfy `Equal` first
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

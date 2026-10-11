@@ -1,0 +1,12 @@
+# Both outputs of `//cmd/app` enter through `serve`, which `main.buri`
+# doesn't export. The mistake is the one name, so it's reported once.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an entry function two outputs name and the binary doesn't export is reported once"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "refused.txt"
+}

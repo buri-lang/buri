@@ -1,0 +1,31 @@
+// EXPECT: here `C` is a context that binds no effects
+//
+// `Delayed<C>` is a `Clock` only when `C` is, and `context {}` binds nothing,
+// so the note says so and the fix is a binding rather than an `impl`.
+from "platform/effect" import { Clock };
+from "node" import { NodeHost };
+
+struct Delayed<C> {
+  inner: C,
+}
+
+impl<C: Clock> Clock for Delayed<C> {
+  fn nowMilliseconds(self): I64 {
+    self.inner.nowMilliseconds() + 1000
+  }
+
+  fn sleepMilliseconds(self, milliseconds: Int): () {
+    self.inner.sleepMilliseconds(milliseconds)
+  }
+
+  fn monotonicNanoseconds(self): I64 {
+    self.inner.monotonicNanoseconds()
+  }
+}
+
+fn stamp<C: Clock>(ctx: C): () {}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let _ = stamp(Delayed { inner: context {} });
+  .Ok(())
+}

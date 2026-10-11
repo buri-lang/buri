@@ -1,0 +1,24 @@
+// An `Extracted` style taken apart and built again. Its payload is a value
+// here, not the literal the compiler writes, and it still builds.
+
+from "platform/effect" import { Allocator, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import { Style };
+from "web" import { WebHost };
+
+fn rewrap(s: Style): Style {
+    match (s) {
+        .Extracted(c) => .Extracted(c),
+        other => other,
+    }
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+    let f = rewrap;
+    ui.mount(ctx, ui.stack({ styles: [f(.Width(.Full))], children: [] }), [])
+}

@@ -1,0 +1,42 @@
+// EXPECT: a binding's type was not settled where one of them was built
+//
+// `first`'s clock is a `Stopped<?>` when its context is built, and `pinned`
+// settles it to `Stopped<Int>` only afterwards. Both contexts then print the
+// same, so the note says why they still aren't one type.
+from "platform/effect" import { Clock };
+from "node" import { NodeHost };
+
+struct Stopped<T> {
+  at: Option<T>,
+}
+
+impl<T> Clock for Stopped<T> {
+  fn nowMilliseconds(self): I64 {
+    0
+  }
+
+  fn sleepMilliseconds(self, milliseconds: Int): () {}
+
+  fn monotonicNanoseconds(self): I64 {
+    0
+  }
+}
+
+struct Pair<C> {
+  first: C,
+  second: C,
+}
+
+fn nothing<T>(): Option<T> {
+  .None
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let at = nothing();
+  let first = context { Clock: Stopped { at } };
+  let unset: Option<Int> = .None;
+  let second = context { Clock: Stopped { at: unset } };
+  let pinned: Option<Int> = at;
+  let _ = Pair { first, second };
+  .Ok(())
+}

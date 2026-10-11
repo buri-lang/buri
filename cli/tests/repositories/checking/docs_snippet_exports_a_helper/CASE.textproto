@@ -1,0 +1,13 @@
+# A documentation example that exports a function besides `main`. No
+# package builds it, so no output names `helper`, and it's an ordinary
+# function rather than an entry.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a documentation example may export a function besides main"
+
+run {
+  args: ["docs", "test", "page.md"]
+  exit: 0
+  golden: "checked.txt"
+}

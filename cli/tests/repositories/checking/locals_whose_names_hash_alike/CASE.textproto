@@ -1,0 +1,13 @@
+# `vqxbx0pc3m55r1bh` and `vqxrfez3otw0sltc` hash alike. Past 32 locals the older ones
+# are looked up by hash, so each lookup still has to find its own name, and a
+# function under the other name is still the function.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "two names that hash alike are still two names, among enough locals to be looked up by hash"
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "ran.txt"
+}

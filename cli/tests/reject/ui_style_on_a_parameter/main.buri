@@ -1,0 +1,23 @@
+// EXPECT: this list of styles is not statically known
+//
+// What `On` applies has to be known at compile time, and so does the state it
+// names. A parameter is neither, whether it's the list or the state.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import { State, Style };
+
+fn hovered(xs: [Style]): Style {
+  .On(.Hover, xs)
+}
+
+fn under(s: State): Style {
+  .On(s, [.Width(.Full)])
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack({ styles: [hovered([.Width(.Full)]), under(.Hover)], children: [] }), [])
+}

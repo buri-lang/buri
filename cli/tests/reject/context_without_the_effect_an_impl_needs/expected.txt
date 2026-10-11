@@ -1,0 +1,13 @@
+error: `Delayed<a context>` does not implement `Clock` [missing-impl]
+  --> cmd/context_without_the_effect_an_impl_needs/main.buri:29:11
+   |
+29 |   let _ = stamp(Delayed { inner: context {} });
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `Delayed<C>` implements `Clock` only when `C` satisfies `Clock`, and here `C` is a context that binds no effects
+   = fix: bind `Clock` in the `context { ... }` this call is handed
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

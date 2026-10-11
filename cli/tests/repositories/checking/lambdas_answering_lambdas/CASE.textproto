@@ -1,0 +1,12 @@
+# A lambda checked against a function type that answers another function: once
+# with the type spelled out, once with the inner one's types still open.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a lambda whose expected answer is itself a function type, settled or not"
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "ran.txt"
+}

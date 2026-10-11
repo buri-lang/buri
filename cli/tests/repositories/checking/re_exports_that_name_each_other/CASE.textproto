@@ -1,0 +1,15 @@
+# `//lib/loop`'s two files each re-export `thing` from the other, and
+# neither declares it. Following the chain comes back to where it started,
+# so each re-export is refused as naming something its module doesn't
+# export, and `real`, which `a.buri` does declare, still builds into the
+# program.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "two modules that re-export a name from each other, with neither declaring it, are refused rather than followed forever"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "refused.txt"
+}

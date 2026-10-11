@@ -1,0 +1,19 @@
+error: `[I64]` does not implement `Named` [missing-impl]
+  --> cmd/array_and_tuple_lack_a_user_trait/main.buri:19:11
+   |
+19 |   let a = named([1]);
+   |           ^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Named`, or use a type that has one
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+
+error: `(I64, I64)` does not implement `Named` [missing-impl]
+  --> cmd/array_and_tuple_lack_a_user_trait/main.buri:20:11
+   |
+20 |   let b = named((1, 2));
+   |           ^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Named`, or use a type that has one

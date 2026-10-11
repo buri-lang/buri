@@ -1,0 +1,77 @@
+// A match wider than the checker's row index, where one row's head is an
+// alternation, and an alternation nested in a tuple whose first half an arm
+// above already covers.
+
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+enum Level {
+    V0,
+    V1,
+    V2,
+    V3,
+    V4,
+    V5,
+    V6,
+    V7,
+    V8,
+    V9,
+    V10,
+    V11,
+    V12,
+    V13,
+    V14,
+    V15,
+    V16,
+    V17,
+    V18,
+    V19,
+}
+
+fn band(on: Bool, l: Level): Str {
+    match ((on, l)) {
+        (true, .V0 | .V1) => "low",
+        (true, .V2) => "V2",
+        (true, .V3) => "V3",
+        (true, .V4) => "V4",
+        (true, .V5) => "V5",
+        (true, .V6) => "V6",
+        (true, .V7) => "V7",
+        (true, .V8) => "V8",
+        (true, .V9) => "V9",
+        (true, .V10) => "V10",
+        (true, .V11) => "V11",
+        (true, .V12) => "V12",
+        (true, .V13) => "V13",
+        (true, .V14) => "V14",
+        (true, .V15) => "V15",
+        (true, .V16) => "V16",
+        (true, .V17) => "V17",
+        (true, .V18) => "V18",
+        (true, .V19) => "V19",
+        (false, _) => "off",
+    }
+}
+
+fn pair(on: Bool, n: Int): Str {
+    match ((on, n)) {
+        (true, 1) => "first",
+        (true | false, 1) => "second",
+        _ => "neither",
+    }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io
+        .println(ctx, "${band(true, .V1)} ${band(true, .V3)} ${band(false, .V3)}")
+        .ignore();
+    let _ = io
+        .println(ctx, "${pair(true, 1)} ${pair(false, 1)} ${pair(true, 2)}")
+        .ignore();
+    .Ok(())
+}

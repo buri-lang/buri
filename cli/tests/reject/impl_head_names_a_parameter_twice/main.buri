@@ -1,0 +1,28 @@
+// EXPECT: `Twin<T, T>` implements `Named` only when `T` satisfies `Named`
+//
+// The head names `T` twice, and the first binding is the one the note reads.
+from "node" import { NodeHost };
+
+struct Twin<A, B> {
+  a: A,
+  b: B,
+}
+
+trait Named {
+  fn name(self): Str;
+}
+
+impl<T: Named> Named for Twin<T, T> {
+  fn name(self): Str {
+    self.a.name()
+  }
+}
+
+fn named<T: Named>(x: T): Str {
+  x.name()
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let _ = named(Twin { a: 1, b: 2 });
+  .Ok(())
+}

@@ -1,0 +1,18 @@
+// EXPECT: add `derive Equal for Point;` in that type's own module, or write `impl Equal for Point { ... }` there
+//
+// `Equal` can be derived or written by hand, so the fix offers both.
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+
+struct Point { x: I64 }
+
+fn same<T: Equal>(a: T, b: T): Bool {
+  a == b
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "${same(Point { x: 1 }, Point { x: 1 })}").ignore();
+  .Ok(())
+}
