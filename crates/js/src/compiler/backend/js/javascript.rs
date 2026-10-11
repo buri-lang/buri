@@ -1527,12 +1527,10 @@ impl Rewrite for Fold {
                 // tuples and enum payloads are all arrays, so this is what an
                 // inlined accessor leaves behind once its argument has been moved
                 // to where it is read.
+                // Every literal index the backend writes is a slot position.
                 if let (Expr::Array(items), Expr::Num(i)) = (&*obj, &*index) {
                     let n = *i as usize;
-                    // A negative or fractional index is not a slot, and casting
-                    // one to `usize` would land on a slot that is.
-                    let slot = items.get(n).filter(|_| *i >= 0.0 && i.fract() == 0.0);
-                    if let Some(item) = slot {
+                    if let Some(item) = items.get(n) {
                         // Only a scalar comes out. Lifting an aggregate out of a
                         // literal replaces one read of an array that was being
                         // built anyway with a *fresh* array at every occurrence —
@@ -1590,11 +1588,9 @@ impl Rewrite for ReadThrough<'_> {
         if let Expr::Index { obj, index } = &e {
             if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
                 if let Some(items) = self.0.get(name) {
-                    let n = *i as usize;
-                    let slot = items.get(n).filter(|_| *i >= 0.0 && i.fract() == 0.0);
                     // Only a literal: copying a nested aggregate out of a shared
                     // one would undo the sharing.
-                    if let Some(item) = slot.filter(|x| x.is_pure_literal()) {
+                    if let Some(item) = items.get(*i as usize).filter(|x| x.is_pure_literal()) {
                         return item.clone();
                     }
                 }
@@ -2791,11 +2787,7 @@ impl<'a> Visit<'a> for Survey<'_> {
         if let Expr::Index { obj, index } = e {
             if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
                 if let Some(u) = self.0.get_mut(name) {
-                    if *i >= 0.0 && i.fract() == 0.0 {
-                        u.record_read(*i as usize);
-                    } else {
-                        u.escape();
-                    }
+                    u.record_read(*i as usize);
                     return;
                 }
             }
@@ -2826,9 +2818,10 @@ impl Rewrite for Extract<'_> {
         if let Expr::Index { obj, index } = &e {
             if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
                 if let Some(items) = self.0.get(name) {
-                    if let Some(item) = items.get(*i as usize) {
-                        return item.clone();
-                    }
+                    return items
+                        .get(*i as usize)
+                        .or_ice("the table keeps only aggregates whose every read is a slot they have")
+                        .clone();
                 }
             }
         }
