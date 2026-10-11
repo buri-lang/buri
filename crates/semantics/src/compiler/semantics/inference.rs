@@ -1560,6 +1560,13 @@ impl<'a, 'b> Infer<'a, 'b> {
                     "turn it into a `Str` first, as in `${str.format(ctx, x)}`, with \
                      `from \"core/str\" import * as str;`",
                 );
+            } else if matches!(resolved.kind(), TyKind::Param(_)) {
+                d = d.with_fix(format!(
+                    "give `{shown}` a `Show` bound, as in `{shown}: Show`, and call it in the hole, \
+                     as in `${{x.show(ctx)}}`"
+                ));
+            } else if matches!(resolved.kind(), TyKind::Unit | TyKind::Ctx(_)) {
+                d = d.with_fix("drop the hole: there's nothing in it to show");
             } else if undeclared {
                 d = d.with_fix(format!(
                     "add `derive Show for {shown};` in that type's own module, or render it \
