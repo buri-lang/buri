@@ -732,7 +732,7 @@ impl<'a> Loader<'a> {
             Some(mut parsed) => {
                 parsed.module.refile(file);
                 for e in &mut parsed.errors {
-                    e.refile(UNFILED, file);
+                    e.refile(file);
                 }
                 self.cache.adopt(file, parsed)
             }

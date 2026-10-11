@@ -190,14 +190,9 @@ impl Span {
         self.file == FileId::NONE
     }
 
-    /// The span covering both, assuming they are in the same file.
+    /// The span covering both, which are in the same file: the parser joins
+    /// the spans of one parse, and none of them is [`Span::NONE`].
     pub fn to(self, other: Span) -> Span {
-        if self.is_none() {
-            return other;
-        }
-        if other.is_none() {
-            return self;
-        }
         Span { file: self.file, start: self.start.min(other.start), end: self.end.max(other.end) }
     }
 
@@ -637,14 +632,10 @@ impl Diagnostic {
         self.severity == Severity::Error
     }
 
-    /// Moves every span in this diagnostic that is in file `from` to file
-    /// `to`.
-    pub fn refile(&mut self, from: FileId, to: FileId) {
-        let at = |s: &mut Span| {
-            if s.file == from {
-                s.file = to;
-            }
-        };
+    /// Moves every span in this diagnostic to file `to`. The one caller moves
+    /// a parse's errors, whose spans are all in the file that was parsed.
+    pub fn refile(&mut self, to: FileId) {
+        let at = |s: &mut Span| s.file = to;
         at(&mut self.span);
         for s in &mut self.secondary_spans {
             at(&mut s.span);

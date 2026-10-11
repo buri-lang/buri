@@ -468,10 +468,9 @@ mod os {
     pub fn thread_cpu_ns() -> u64 {
         const CLOCK_THREAD_CPUTIME_ID: i32 = 3;
         let mut t = [0i64; 2];
-        // SAFETY: fills a 64-bit `timespec`.
-        if unsafe { clock_gettime(CLOCK_THREAD_CPUTIME_ID, &mut t) } != 0 {
-            return 0;
-        }
+        // SAFETY: fills a 64-bit `timespec`. A call that fails leaves it zero,
+        // which reads as 0 below.
+        unsafe { clock_gettime(CLOCK_THREAD_CPUTIME_ID, &mut t) };
         let [secs, nanos] = t;
         u64::try_from(secs).unwrap_or(0) * 1_000_000_000 + u64::try_from(nanos).unwrap_or(0)
     }
