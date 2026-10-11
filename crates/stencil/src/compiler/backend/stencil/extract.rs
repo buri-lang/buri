@@ -655,8 +655,11 @@ pub fn strip_dead_clears(s: &Stencil) -> Option<Stencil> {
         {
             j += 1;
         }
+        // A `b` with no relocation lands inside the body, where the
+        // registers may still be read: `x = c ? 0 : f(y)` clears them there.
         let after = code.get(j + 1).copied().unwrap_or(0);
-        let transfers = after & 0x7c00_0000 == 0x1400_0000 || after == 0xd65f_03c0;
+        let leaves = reloc.get(j + 1).copied().unwrap_or(false);
+        let transfers = (after & 0x7c00_0000 == 0x1400_0000 && leaves) || after == 0xd65f_03c0;
         if transfers {
             for d in dead.iter_mut().take(j + 1).skip(i) {
                 *d = true;
