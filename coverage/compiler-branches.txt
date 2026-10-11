@@ -3,8 +3,8 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 host x86_64-unknown-linux-gnu
-total 14195 19026 74.61%
-area cli/build 1312 1905 68.87%
+total 14278 19018 75.08%
+area cli/build 1394 1897 73.48%
 area cli/documentation 255 769 33.16%
 area cli/format 83 98 84.69%
 area cli/language_server 1146 1472 77.85%
@@ -23,15 +23,15 @@ area crates/middle 2085 2523 82.64%
 area crates/project 877 1418 61.85%
 area crates/semantics 1872 2102 89.06%
 area crates/stdlib 12 14 85.71%
-area crates/stencil 1438 2025 71.01%
+area crates/stencil 1439 2025 71.06%
 area crates/syntax 1036 1298 79.82%
-254 343 cli/src/build/actions.rs
+255 343 cli/src/build/actions.rs
 32 48 cli/src/build/cache.rs
 11 22 cli/src/build/counted.rs
 86 94 cli/src/build/coverage.rs
 14 40 cli/src/build/exe_identity.rs
 131 178 cli/src/build/generators.rs
-150 240 cli/src/build/hosted.rs
+231 232 cli/src/build/hosted.rs
 119 238 cli/src/build/link.rs
 0 0 cli/src/build/musl.rs
 1 41 cli/src/build/programs.rs
@@ -195,7 +195,7 @@ area crates/syntax 1036 1298 79.82%
 52 74 crates/stencil/src/compiler/backend/stencil/mod.rs
 0 68 crates/stencil/src/compiler/backend/stencil/object.rs
 14 16 crates/stencil/src/compiler/backend/stencil/region.rs
-157 212 crates/stencil/src/compiler/backend/stencil/rtcall.rs
+158 212 crates/stencil/src/compiler/backend/stencil/rtcall.rs
 1 2 crates/stencil/src/compiler/backend/stencil/runtime.rs
 284 420 crates/syntax/src/formatting.rs
 28 30 crates/syntax/src/layout.rs
