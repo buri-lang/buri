@@ -96,6 +96,7 @@ fn two_pages_build_in_one_run() {
 
 /// A C driver that links through the real one, answers no dry run, and then
 /// appends how many times it has run to what it wrote.
+#[cfg(target_os = "macos")]
 const COUNTING_DRIVER: &str = r#"#!/bin/sh
 for a in "$@"; do [ "$a" = "-###" ] && { echo 'clang: error: no dry run here' >&2; exit 0; }; done
 "$REAL_CC" "$@" || exit $?
