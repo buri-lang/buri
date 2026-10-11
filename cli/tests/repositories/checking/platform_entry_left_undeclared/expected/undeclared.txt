@@ -1,0 +1,22 @@
+error: `go` fills `//platform/ghost`'s entry `go`, which its `platform.buri` doesn't declare [platform-entry-undeclared]
+ --> cmd/ghost/main.buri:3:1
+  |
+3 | export fn go(host: GhostHost, name: Str): Str {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = an entry's declaration is the signature the platform calls, and the function filling it is held to that signature
+  = fix: declare it in `//platform/ghost`'s `platform.buri`, as `export fn go(host: H, ...): ...;`
+
+    Each entry in the platform rule has a declaration without a body in
+    platform.buri:
+
+      platform {
+          entry {
+              name: "go"
+              backend: JS
+              js: "go.mjs"
+          }
+      }
+
+      export fn go(host: GhostHost, name: Str): Str;
+

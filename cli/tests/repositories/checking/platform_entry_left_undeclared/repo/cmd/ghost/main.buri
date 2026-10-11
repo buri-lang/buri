@@ -1,0 +1,5 @@
+from "//platform/ghost" import { GhostHost };
+
+export fn go(host: GhostHost, name: Str): Str {
+    name
+}
