@@ -1,0 +1,21 @@
+error: circular constant: `gapA` -> `gapB` -> `gapA` [circular-constant]
+  --> cmd/constants_defined_by_each_other/main.buri:10:5
+   |
+10 | let gapA: Int = gapB + base;
+   |     ^^^^
+   |
+   = a constant is substituted wherever it's used, so one that reaches itself never finishes expanding
+   = fix: break the cycle: write one of these as a value that names none of the others
+
+     A module-level let has no address. Each use is its initializer, written out
+     again, so a chain that comes back to where it started has no end. The
+     diagnostic prints the whole chain, since changing any name on it fixes it.
+
+error: circular constant: `itself` -> `itself` [circular-constant]
+  --> cmd/constants_defined_by_each_other/main.buri:13:5
+   |
+13 | let itself: Int = itself;
+   |     ^^^^^^
+   |
+   = a constant is substituted wherever it's used, so one that reaches itself never finishes expanding
+   = fix: break the cycle: write one of these as a value that names none of the others

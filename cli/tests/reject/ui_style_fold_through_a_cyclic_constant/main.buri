@@ -1,0 +1,17 @@
+// EXPECT: circular
+//
+// Two constants defined by each other are refused, and folding a style
+// through them doesn't hang.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+let gapA: Int = gapB + 1;
+let gapB: Int = gapA + 1;
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack({ styles: [.On(.Hover, [.Gap(.Px(gapA))])], children: [] }), [])
+}

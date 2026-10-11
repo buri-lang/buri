@@ -86,6 +86,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("chained-comparison", "Comparison operators do not chain"),
     e!("character-literal-length", "A character literal holds one scalar value"),
     e!("circular-generator", "A generator's tool never builds from its output", &["build/generators"]),
+    e!("circular-constant", "A constant never refers back to itself"),
     e!("circular-import", "Modules form a graph with no cycles"),
     e!("circular-type-alias", "A type alias never expands to itself", &["language/types"]),
     e!("const-declaration", "A module-level binding is written with `let`", &["language/lexical"]),
