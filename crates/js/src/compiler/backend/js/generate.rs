@@ -1184,6 +1184,7 @@ impl<'a> Gen<'a> {
 /// resolved the operator to this `PrimOp` from the operands it had.
 const BINARY_ARITY: &str = "a binary primitive operation reaches the backend with two operands";
 const UNARY_ARITY: &str = "a unary primitive operation reaches the backend with one operand";
+const OR_ALTERNATIVES: &str = "the parser builds an or-pattern from at least two alternatives";
 
 /// A call worth replacing is small; anything larger is cheaper as a call.
 /// `signum` and the checked-arithmetic expansions sit above this deliberately.
@@ -2113,9 +2114,7 @@ impl<'a> Gen<'a> {
         match &pattern.kind {
             PatKind::Or(alts) => {
                 let mut declared = Vec::new();
-                if let Some(first) = alts.first() {
-                    first.binds(&mut declared);
-                }
+                alts.first().or_ice(OR_ALTERNATIVES).binds(&mut declared);
                 for local in declared {
                     let name = self.local_name_of(&local);
                     out.push(Stmt::Var { kind: VarKind::Let, name, init: None });
@@ -2150,9 +2149,7 @@ impl<'a> Gen<'a> {
         match &pattern.kind {
             PatKind::Or(alts) => {
                 let mut bound = Vec::new();
-                if let Some(first) = alts.first() {
-                    first.binds(&mut bound);
-                }
+                alts.first().or_ice(OR_ALTERNATIVES).binds(&mut bound);
                 !bound.is_empty()
             }
             PatKind::Bind { sub: Some(s), .. } => Self::test_assigns(s),
