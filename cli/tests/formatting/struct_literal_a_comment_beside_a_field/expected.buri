@@ -1,0 +1,6 @@
+export fn origin(): Point {
+    Point {
+        ..base, // the rest as they were
+        x: 0, // the left edge
+    }
+}

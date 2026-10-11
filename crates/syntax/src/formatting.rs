@@ -2350,6 +2350,9 @@ impl<'t> Build<'t> {
                     .collect();
                 let last = slots.len().saturating_sub(1);
                 let mut inner = vec![Doc::Line];
+                // A comment beside a field ends its line, so the literal can't
+                // be one line.
+                let mut aside = false;
                 for (i, ((slot, &start), &after)) in
                     slots.iter().zip(&starts).zip(&afters).enumerate()
                 {
@@ -2382,6 +2385,7 @@ impl<'t> Build<'t> {
                         text(",")
                     };
                     let beside = self.trailing(end, after);
+                    aside |= !matches!(beside, Doc::Nil);
                     if i > 0 {
                         inner.push(Doc::Line);
                     }
@@ -2392,7 +2396,12 @@ impl<'t> Build<'t> {
                 if let Some(c) = self.flush(lo, span.end.saturating_sub(1)) {
                     inner.push(cat(vec![Doc::HardLine, c]));
                 }
-                group(cat(vec![h, text("{"), nest(cat(inner)), Doc::Line, text("}")]))
+                let literal = group(cat(vec![h, text("{"), nest(cat(inner)), Doc::Line, text("}")]));
+                if aside {
+                    force(literal)
+                } else {
+                    literal
+                }
             }
         }
     }
