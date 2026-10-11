@@ -15,7 +15,11 @@ fn card(): [Style] {
 }
 
 export fn main(host: WebHost): Result<(), Str> {
-    let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
     let styles: [Style] = [
         padded,
         .FontFamily(.Named("Inter Tight")),
@@ -27,5 +31,12 @@ export fn main(host: WebHost): Result<(), Str> {
         .BorderColor(style.token("cardlib", "edge-line")),
         .CaretColor(style.token("", "ink")),
     ];
-    ui.mount(ctx, ui.stack({ styles: card(), children: [ui.stack({ styles: styles, children: [] })] }), [])
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: card(),
+            children: [ui.stack({ styles: styles, children: [] })],
+        }),
+        [],
+    )
 }

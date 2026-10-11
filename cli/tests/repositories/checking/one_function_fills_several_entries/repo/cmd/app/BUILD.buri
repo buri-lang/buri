@@ -4,11 +4,11 @@ binary {
             { name: "left", function: "greet" },
             { name: "right", function: "greet" },
         ] },
-        { platform: "//platform/solo", artifact_name: "one", entries: [
+        { platform: "//platform/solo", entries: [
             { name: "go", function: "greet" },
-        ] },
-        { platform: "//platform/solo", artifact_name: "two", entries: [
+        ], artifact_name: "one" },
+        { platform: "//platform/solo", entries: [
             { name: "go", function: "greet" },
-        ] },
+        ], artifact_name: "two" },
     ]
 }
