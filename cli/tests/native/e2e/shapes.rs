@@ -265,6 +265,25 @@ fn enum_chain(n: usize) -> (String, Vec<String>) {
     (source, vec![String::from("3 -1 true false true true false"), format!("{} .Stop(\"sss\")", wrap("3"))])
 }
 
+/// `n` structs, each holding the one before inline, built and read back
+/// through a function per level.
+fn struct_chain(n: usize) -> (String, Vec<String>) {
+    let mut decls = String::from("struct S0 {\n    v: Int,\n}\n\nfn make0(x: Int): S0 {\n    S0 { v: x }\n}\n\nfn read0(s: S0): Int {\n    s.v\n}\n");
+    for i in 1..n {
+        let j = i - 1;
+        decls.push_str(&format!(
+            "\nstruct S{i} {{\n    inner: S{j},\n}}\n\nfn make{i}(x: Int): S{i} {{\n    S{i} {{ inner: make{j}(x) }}\n}}\n\n\
+             fn read{i}(s: S{i}): Int {{\n    read{j}(s.inner)\n}}\n"
+        ));
+    }
+    let top = n - 1;
+    let source = format!(
+        "{HEAD}\n{decls}\n{MAIN}\x20   let deep = make{top}(41);\n{}    .Ok(())\n}}\n",
+        say(&format!("\"${{read{top}(deep) + 1}}\"")),
+    );
+    (source, vec![String::from("42")])
+}
+
 /// A tuple of `n` elements, built, taken apart, compared and shown.
 fn long_tuple(n: usize) -> (String, Vec<String>) {
     let strs = kinds(n);
@@ -434,6 +453,42 @@ fn a_chain_of_enums_each_wrapping_the_last_derives_and_matches() {
     unless_ready!();
     let (source, expected) = enum_chain(16);
     prints("e2e-shape-enum-chain", &source, &expected);
+}
+
+/// **A chain of five thousand structs, each holding the last inline, is
+/// built and read back.** Inline nesting has no limit of its own. Driven
+/// through the command line, whose stack is the one a user's build gets.
+#[test]
+fn a_chain_of_thousands_of_structs_each_holding_the_last_builds_and_runs() {
+    unless_ready!();
+    let (source, expected) = struct_chain(5000);
+    let root = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("e2e-shape-struct-chain-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let mut targets = vec![("native", "NativeHost")];
+    if crate::shared::js_engine().is_some() {
+        targets.push(("node", "NodeHost"));
+    }
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("REPO.buri"), "").unwrap();
+    for (platform, host) in targets {
+        let dir = root.join("cmd").join(platform);
+        std::fs::create_dir_all(&dir).unwrap();
+        let build = format!("binary {{\n  outputs: [{{ platform: \"{platform}\" }}]\n}}\n");
+        std::fs::write(dir.join("BUILD.buri"), build).unwrap();
+        let program = source.replace("\"native\"", &format!("\"{platform}\"")).replace("NativeHost", host);
+        std::fs::write(dir.join("main.buri"), program).unwrap();
+        let ran = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
+            .current_dir(&root)
+            .args(["run", &format!("//cmd/{platform}")])
+            .env("BURI_RT_HEAP_CHECK", "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&ran.stdout);
+        assert!(ran.status.success(), "{platform}: {}", String::from_utf8_lossy(&ran.stderr));
+        assert_eq!(stdout.lines().collect::<Vec<_>>(), expected, "{platform}");
+    }
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// **A tuple of twenty-four elements, taken apart, compared, sorted and shown.**
