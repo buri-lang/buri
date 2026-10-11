@@ -742,13 +742,15 @@ fn simplify_bin(op: BinOp, lhs: Box<Expr>, rhs: Box<Expr>) -> Expr {
                 (_, Expr::Bool(false)) if lhs.is_pure() => return Expr::Bool(false),
                 _ => {}
             }
-            if lhs.same_as(&rhs) && lhs.is_pure() {
+            // `same_as` answers only for pure expressions, so dropping one
+            // drops nothing.
+            if lhs.same_as(&rhs) {
                 return *lhs;
             }
             // A tag test cannot hold two different values at once. This is what
             // an or-pattern's alternatives collapse to once each has been
             // rewritten against the branch it sits under.
-            if let Some(false) = both_equalities_agree(&lhs, &rhs, true) {
+            if exclusive_equalities(&lhs, &rhs) {
                 return Expr::Bool(false);
             }
         }
@@ -760,7 +762,7 @@ fn simplify_bin(op: BinOp, lhs: Box<Expr>, rhs: Box<Expr>) -> Expr {
                 (_, Expr::Bool(true)) if lhs.is_pure() => return Expr::Bool(true),
                 _ => {}
             }
-            if lhs.same_as(&rhs) && lhs.is_pure() {
+            if lhs.same_as(&rhs) {
                 return *lhs;
             }
         }
@@ -790,30 +792,18 @@ fn literals_strictly_equal(lhs: &Expr, rhs: &Expr) -> Option<bool> {
     }
 }
 
-/// For `x === a` and `x === b` over the same pure `x` and two distinct
-/// literals: `Some(false)` when they cannot both hold. `None` when the shape
-/// does not apply.
-fn both_equalities_agree(lhs: &Expr, rhs: &Expr, conjunction: bool) -> Option<bool> {
+/// Whether `x === a` and `x === b` cannot both hold: the same `x`, which
+/// `same_as` only answers for pure ones, against two different constants.
+fn exclusive_equalities(lhs: &Expr, rhs: &Expr) -> bool {
     let (Expr::Binary { op: BinOp::StrictEq, lhs: a, rhs: av }, Expr::Binary { op: BinOp::StrictEq, lhs: b, rhs: bv }) =
         (lhs, rhs)
     else {
-        return None;
+        return false;
     };
-    if !a.same_as(b) || !a.is_pure() {
-        return None;
-    }
     // An identifier is a pure literal but not a constant: `x === y && x === 1`
     // holds when `y` is 1.
     let constant = |e: &Expr| e.is_pure_literal() && !matches!(e, Expr::Ident(_));
-    if !constant(av) || !constant(bv) || av.same_as(bv) {
-        return None;
-    }
-    // Two different constants, so at most one test can hold.
-    if conjunction {
-        Some(false)
-    } else {
-        None
-    }
+    a.same_as(b) && constant(av) && constant(bv) && !av.same_as(bv)
 }
 
 fn simplify_cond(test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr>) -> Expr {
