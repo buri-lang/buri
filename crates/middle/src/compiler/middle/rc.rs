@@ -3308,12 +3308,19 @@ impl Scan<'_> {
                 let ids = [then_id, else_id];
                 let sizes = [self.size(then_id), self.size(else_id)];
                 let tick = live.tick();
-                let (left, jumps, diverged) = self.scoped(|me| {
+                // Both branches have to jump for the `if` to, so each is asked
+                // on its own: a jump in one left `diverged` set across the
+                // other, and the drops a fall-through owed went before the
+                // jumps alone.
+                let mut every = true;
+                let (left, jumps, _) = self.scoped(|me| {
                     me.branches(id, live, &sizes, &mut |me, i, live| {
                         let (branch, bid): (&Expr, NodeId) =
                             if i == 0 { (then, then_id) } else { (else_, else_id) };
+                        me.diverged = false;
                         me.expr(branch, bid, live, mode);
                         me.flush(bid);
+                        every &= me.diverged;
                     })
                 });
                 self.balance(live, tick, &ids, left, None, &[]);
@@ -3323,7 +3330,7 @@ impl Scan<'_> {
                 // the branches, not between the test and the jump — unless
                 // both branches jump, in which case "after" never runs and the
                 // drop belongs before each jump instead.
-                if diverged && !jumps.is_empty() {
+                if every && !jumps.is_empty() {
                     self.flush_at(&jumps);
                     self.diverged = true;
                 } else {
@@ -3927,7 +3934,11 @@ impl Scan<'_> {
         if matches!(rhs.kind, ExprKind::And { .. } | ExprKind::Or { .. }) {
             self.chain_link = Some(rid);
         }
+        // A jump in the right operand is one path of two: the left one
+        // falls through, so the whole expression never diverges.
+        let diverged = self.diverged;
         self.expr(rhs, rid, live, Mode::Borrow);
+        self.diverged = diverged;
         self.flush(rid);
         for l in &deferred {
             self.push(id, Position::After, RcOp::DecRef, Target::Local(*l));
