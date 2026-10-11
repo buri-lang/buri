@@ -584,7 +584,7 @@ jobs:
         shard: [1, 2, 3, 4]
         include:
           - { platform: x86_64-linux, os: blacksmith-8vcpu-ubuntu-2404, threads: 16 }
-          - { platform: arm64-linux, os: blacksmith-16vcpu-ubuntu-2404-arm, threads: 32 }
+          - { platform: arm64-linux, os: blacksmith-16vcpu-ubuntu-2404-arm, threads: 32, cc: CC=/usr/bin/clang }
           - { platform: arm64-macos, os: blacksmith-12vcpu-macos-latest, threads: 24 }
     runs-on: ${{ matrix.os }}
     env:
@@ -608,7 +608,8 @@ jobs:
         with:
           name: coverage-build-${{ matrix.platform }}
           path: target/coverage/build
-      - run: nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --shard=${{ matrix.shard }}/4
+      # The build's `cc`, for the tests that cross-compile C.
+      - run: nix develop .#coverage -c env ${{ matrix.cc }} cargo run -p buri-compiler-coverage -- --shard=${{ matrix.shard }}/4
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-shard-${{ matrix.platform }}-${{ matrix.shard }}
