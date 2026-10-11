@@ -1,0 +1,22 @@
+# A program with over three hundred top-level names, so the mangler hands out
+# two-letter names and has to step over `if` and `of`, for globals and
+# for the locals of a function among them. Debug and release both mangle.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a program with hundreds of top-level names never gets a keyword for one"
+
+run {
+  args: ["run", "//cmd/many_names"]
+  exit: 0
+  stream: OUT
+  golden: "run.txt"
+}
+
+run {
+  args: ["run", "--release", "//cmd/many_names"]
+  exit: 0
+  stream: OUT
+  golden: "run.txt"
+}
