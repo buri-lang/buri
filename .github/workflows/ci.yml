@@ -559,6 +559,22 @@ jobs:
             target/coverage-buri/debug/build
           key: coverage-buildscript-unhardened-${{ matrix.platform }}-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
           restore-keys: coverage-buildscript-unhardened-${{ matrix.platform }}-
+      - if: matrix.platform == 'arm64-linux'
+        name: Diagnose the x86_64 stencil probe (temporary)
+        run: |
+          ls target/coverage-buri/debug/build 2>/dev/null | grep -i stencil || echo "no stencil build dirs restored"
+          printf 'int f(void){return 1;}\n' > /tmp/p.c
+          cat > /tmp/probe.sh <<'PROBE'
+          echo "CC=${CC:-unset} NIX_HARDENING_ENABLE=${NIX_HARDENING_ENABLE:-unset}"
+          command -v cc clang
+          for c in cc clang; do
+            r=$($c -print-resource-dir)
+            $c -v -O2 -c -fPIC --target=x86_64-unknown-linux-musl -fno-asynchronous-unwind-tables -nostdinc -isystem "$r/include" /tmp/p.c -o /tmp/p.o 2>&1 | tail -5
+            echo "$c exit ${PIPESTATUS[0]}"
+          done
+          PROBE
+          nix develop .#coverage -c bash /tmp/probe.sh || true
+          nix develop .#coverage -c env NIX_HARDENING_ENABLE= bash /tmp/probe.sh || true
       # `NIX_HARDENING_ENABLE=`: on arm64 the shell's clang adds
       # `-mbranch-protection`, which the x86_64 stencils refuse, so `cli/build.rs`
       # would leave them empty.

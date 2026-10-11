@@ -1,5 +1,5 @@
-//! `--merge` and `--raise` as CI runs them: shards' lcov from three platforms
-//! in, a verdict, a baseline and each platform's lcov out.
+//! `--merge` and `--raise` as CI runs them: shards from three platforms in, a
+//! verdict, a baseline and each platform's lcov out.
 
 #![allow(
     clippy::unwrap_used,
@@ -36,11 +36,11 @@ impl Repo {
     }
 
     /// One shard's artifact, as `--shard` writes it.
-    fn shard(&self, host: &str, which: &str, lcov: &str) {
+    fn shard(&self, host: &str, which: &str, coverage: &str) {
         let dir = self.root.join("shards").join(format!("coverage-shard-{host}-{}", which.replace('/', "-")));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("shard"), format!("{host} {which}\n")).unwrap();
-        std::fs::write(dir.join("coverage.lcov"), lcov).unwrap();
+        std::fs::write(dir.join("coverage.txt"), coverage).unwrap();
     }
 
     /// Every platform's one shard.
@@ -67,16 +67,22 @@ impl Repo {
     }
 }
 
-/// A file's lcov record: lines as `(line, hits)`, branches as `(line, block, branch, taken)`.
+/// A file as a shard measured it: lines as `(line, hits)`, and branches as
+/// `(line, column, side, taken)`, each the condition at that place in one
+/// function, its true side 0 and its false side 1.
 fn file(path: &str, lines: &[(u32, u64)], branches: &[(u32, u32, u32, u64)]) -> String {
-    let mut out = format!("SF:{path}\n");
+    folded(path, 0, lines, branches)
+}
+
+/// `file`, with `folded` sides that are constant and so never count.
+fn folded(path: &str, folded: u64, lines: &[(u32, u64)], branches: &[(u32, u32, u32, u64)]) -> String {
+    let mut out = format!("file {folded} {path}\n");
     for (line, hits) in lines {
-        out.push_str(&format!("DA:{line},{hits}\n"));
+        out.push_str(&format!("line {line} {hits}\n"));
     }
-    for (line, block, branch, taken) in branches {
-        out.push_str(&format!("BRDA:{line},{block},{branch},{taken}\n"));
+    for (line, column, side, taken) in branches {
+        out.push_str(&format!("branch 1 1 {line} {column} {line} {} 0 {side} {taken}\n", column + 4));
     }
-    out.push_str("end_of_record\n");
     out
 }
 
@@ -129,14 +135,14 @@ fn a_branch_one_platform_compiles_counts_once() {
 }
 
 #[test]
-fn a_line_whose_branches_differ_by_platform_counts_each_platforms_apart() {
-    let repo = Repo::new("differ");
-    let two = file(LEXER, &[(5, 1)], &[(5, 0, 0, 1), (5, 0, 1, 0)]);
-    let four = file(LEXER, &[(5, 1)], &[(5, 0, 0, 0), (5, 0, 1, 1), (5, 1, 2, 0), (5, 1, 3, 0)]);
-    repo.everywhere(&two, &two, &four);
+fn a_folded_side_never_counts() {
+    let repo = Repo::new("folded");
+    // `while true`'s false side is constant, so it's folded.
+    let shard = folded(LEXER, 1, &[(5, 1)], &[(5, 0, 0, 3), (5, 0, 1, 0), (6, 0, 0, 1), (6, 0, 1, 1)]);
+    repo.everywhere(&shard, &shard, &shard);
     passed(&repo.merge());
     let measured = repo.read("target/coverage/compiler-branches.txt");
-    assert!(measured.contains("\n2 6 crates/syntax/src/lexer.rs\n"), "{measured}");
+    assert!(measured.contains("\n3 3 crates/syntax/src/lexer.rs\n"), "{measured}");
 }
 
 #[test]
@@ -152,10 +158,10 @@ fn lines_count_as_covered_if_any_platform_ran_them() {
 #[test]
 fn every_shard_of_every_platform_must_be_there() {
     let repo = Repo::new("missing_shard");
-    let lcov = file(LEXER, &[(1, 1)], &[]);
-    repo.shard(X86, "1/2", &lcov);
-    repo.shard(ARM, "1/1", &lcov);
-    repo.shard(MAC, "1/1", &lcov);
+    let shard = file(LEXER, &[(1, 1)], &[]);
+    repo.shard(X86, "1/2", &shard);
+    repo.shard(ARM, "1/1", &shard);
+    repo.shard(MAC, "1/1", &shard);
     let out = repo.merge();
     assert!(!out.status.success());
     assert!(stderr(&out).contains("x86_64-unknown-linux-gnu is missing shard [2] of 2"), "{}", stderr(&out));
@@ -165,9 +171,9 @@ fn every_shard_of_every_platform_must_be_there() {
 fn a_platform_the_baseline_has_must_be_there() {
     let repo = Repo::new("missing_platform");
     repo.baseline(&format!("{THREE}total 1 1 100.00%\n"));
-    let lcov = file(LEXER, &[(1, 1)], &[(1, 0, 0, 1)]);
-    repo.shard(X86, "1/1", &lcov);
-    repo.shard(ARM, "1/1", &lcov);
+    let shard = file(LEXER, &[(1, 1)], &[(1, 0, 0, 1)]);
+    repo.shard(X86, "1/1", &shard);
+    repo.shard(ARM, "1/1", &shard);
     let out = failed(&repo.merge());
     assert!(out.contains("The baseline merges aarch64-apple-darwin, and this run has no shard from it."), "{out}");
 }
@@ -249,8 +255,8 @@ fn a_baseline_of_fewer_platforms_still_fails_a_fall_on_them() {
 #[test]
 fn the_ratchet_never_takes_a_run_of_fewer_platforms() {
     let repo = Repo::new("ratchet_fewer");
-    let lcov = file(LEXER, &[(3, 1)], &[(3, 0, 0, 1), (3, 0, 1, 1)]);
-    repo.shard(X86, "1/1", &lcov);
+    let shard = file(LEXER, &[(3, 1)], &[(3, 0, 0, 1), (3, 0, 1, 1)]);
+    repo.shard(X86, "1/1", &shard);
     passed(&repo.merge());
     repo.baseline(&format!("{THREE}total 1 2 50.00%\narea crates/syntax 1 2 50.00%\n"));
     let out = passed(&repo.run("--raise"));
@@ -280,8 +286,8 @@ fn each_platforms_lcov_merges_its_shards() {
 #[test]
 fn a_file_in_no_area_fails() {
     let repo = Repo::new("unmapped");
-    let lcov = file("crates/new/src/lib.rs", &[(1, 1)], &[]);
-    repo.everywhere(&lcov, &lcov, &lcov);
+    let shard = file("crates/new/src/lib.rs", &[(1, 1)], &[]);
+    repo.everywhere(&shard, &shard, &shard);
     let out = failed(&repo.merge());
     assert!(out.contains("these files are in no coverage area"), "{out}");
     assert!(out.contains("crates/new/src/lib.rs"), "{out}");

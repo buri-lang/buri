@@ -31,6 +31,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+mod json;
+
 /// Branch coverage needs a nightly; the `coverage` shell pins it. `buri_coverage`
 /// turns on `#[coverage(off)]`, which leaves out the few branches a race
 /// decides, each with its reason beside it.
@@ -87,13 +89,13 @@ fn target(root: &Path) -> PathBuf {
 /// and holds it to the baseline. `ci` is `--merge`, where a platform the
 /// baseline has must be there; a local run measures one host and compares
 /// nothing then.
-fn check(root: &Path, shards: &BTreeMap<String, Lcov>, ci: bool) {
+fn check(root: &Path, shards: &BTreeMap<String, Measured>, ci: bool) {
     let target = target(root);
     let lcov = target.join("lcov");
     let _ = std::fs::remove_dir_all(&lcov);
     std::fs::create_dir_all(&lcov).unwrap();
     for (host, platform) in shards {
-        std::fs::write(lcov.join(format!("{host}.lcov")), platform.render()).unwrap();
+        std::fs::write(lcov.join(format!("{host}.lcov")), platform.lcov()).unwrap();
     }
 
     let hosts: BTreeSet<String> = shards.keys().cloned().collect();
@@ -363,40 +365,54 @@ impl Gate {
             .filter(|&(i, n)| i >= 1 && i <= n)
             .unwrap_or_else(|| panic!("--shard=<index>/<count>, from 1, not {which}"));
         let profile = self.test((index, count));
-        let lcov = self.export(&profile);
+        let measured = self.export(&profile);
         let out = self.target.join("shard");
         let _ = std::fs::remove_dir_all(&out);
         std::fs::create_dir_all(&out).unwrap();
-        std::fs::write(out.join("coverage.lcov"), lcov.render()).unwrap();
+        std::fs::write(out.join("coverage.txt"), measured.render()).unwrap();
         std::fs::write(out.join("shard"), format!("{} {index}/{count}\n", self.host)).unwrap();
         println!("wrote {}", out.display());
     }
 
-    /// `profile` as lcov, with only the compiler's own sources, each named
-    /// from the root `buri` was built in.
-    fn export(&self, profile: &Path) -> Lcov {
+    /// What `profile` took in the compiler's own sources, each named from the
+    /// root `buri` was built in.
+    fn export(&self, profile: &Path) -> Measured {
         let text = output(
             Command::new(self.tools.join("llvm-cov"))
-                .args(["export", "-format=lcov", "-skip-functions", "--instr-profile"])
+                .args(["export", "-format=text", "--instr-profile"])
                 .arg(profile)
                 .arg(self.built().join("buri")),
         );
+        let export = json::parse(&text).unwrap_or_else(|e| panic!("llvm-cov export wrote bad JSON: {e}"));
         let built_in = std::fs::read_to_string(self.built().join("root")).unwrap();
         let prefix = format!("{}/", built_in.trim());
-        let mut lcov = Lcov::parse(&text);
-        lcov.files = std::mem::take(&mut lcov.files)
-            .into_iter()
-            .map(|(path, record)| (path.strip_prefix(&prefix).unwrap_or(&path).to_string(), record))
-            .filter(|(path, _)| counted(path))
-            .collect();
-        assert!(lcov.files.len() > 100, "llvm-cov exported {} of the compiler's files", lcov.files.len());
-        lcov
+        let measured = Measured::of_export(&export, |path| {
+            Some(lexical(path.strip_prefix(&prefix).unwrap_or(path))).filter(|p| counted(p))
+        });
+        assert!(measured.files.len() > 100, "llvm-cov exported {} of the compiler's files", measured.files.len());
+        measured
     }
 }
 
+/// `path` with each `..` taking off the directory before it, so a file a
+/// `#[path = "../runtime/x.rs"]` names is under `cli/runtime`.
+fn lexical(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            ".." if parts.last().is_some_and(|p| *p != "..") => {
+                parts.pop();
+            }
+            "." => {}
+            _ => parts.push(part),
+        }
+    }
+    parts.join("/")
+}
+
 /// The shards in `dir` (or `dir` itself, if it's one), each platform's
-/// merged into one lcov. Every shard of a platform must be there.
-fn shards(dir: &Path) -> BTreeMap<String, Lcov> {
+/// merged. Every shard of a platform must be there.
+fn shards(dir: &Path) -> BTreeMap<String, Measured> {
     let mut dirs = vec![dir.to_path_buf()];
     if !dir.join("shard").exists() {
         dirs = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).collect();
@@ -411,66 +427,127 @@ fn shards(dir: &Path) -> BTreeMap<String, Lcov> {
         let (host, index, count) = parsed.unwrap_or_else(|| panic!("{} isn't `<host> <index>/<count>`", which.trim()));
         let entry = found.entry(host.clone()).or_insert((count, BTreeMap::new()));
         assert_eq!(entry.0, count, "shards of different runs from {host} in {}", dir.display());
-        entry.1.insert(index, shard.join("coverage.lcov"));
+        entry.1.insert(index, shard.join("coverage.txt"));
     }
     assert!(!found.is_empty(), "no shard in {}", dir.display());
     let mut platforms = BTreeMap::new();
     for (host, (count, files)) in found {
         let missing: Vec<u32> = (1..=count).filter(|i| !files.contains_key(i)).collect();
         assert!(missing.is_empty(), "{host} is missing shard {missing:?} of {count} in {}", dir.display());
-        let mut merged = Lcov::default();
+        let mut merged = Measured::default();
         for path in files.values() {
-            merged.add(&Lcov::parse(&std::fs::read_to_string(path).unwrap()));
+            merged.add(&Measured::parse(&std::fs::read_to_string(path).unwrap()));
         }
         platforms.insert(host, merged);
     }
     platforms
 }
 
-/// One platform's lcov: each file's line and branch counts.
+/// One side of one branch: where its function starts, its condition's span,
+/// which of the function's conditions with that span it is (a guard on an
+/// or-pattern has one per alternative), and the side, 0 true and 1 false.
+/// Instantiations of a generic function share it, as `llvm-cov report`'s
+/// instantiation groups do.
+type Side = ([u32; 2], [u32; 4], u32, u32);
+
+/// What one platform's tests took, per file.
 #[derive(Clone, Default)]
-struct Lcov {
+struct Measured {
     files: BTreeMap<String, Record>,
 }
 
 #[derive(Clone, Default)]
 struct Record {
+    /// Sides whose count is a constant, which `llvm-cov report` leaves out. The
+    /// export doesn't say which they are, only how many.
+    folded: u64,
     /// Line to hits.
     lines: BTreeMap<u32, u64>,
-    /// (line, block, branch) to times taken.
-    branches: BTreeMap<(u32, u32, u32), u64>,
+    /// Side to times taken.
+    branches: BTreeMap<Side, u64>,
 }
 
-impl Lcov {
-    /// `SF`, `DA` and `BRDA` records; the rest is recomputed or not used.
-    fn parse(text: &str) -> Lcov {
-        let mut lcov = Lcov::default();
-        let mut file = None;
-        let number = |s: &str| s.trim().parse::<u64>().unwrap_or(0);
-        for line in text.lines() {
-            if let Some(path) = line.strip_prefix("SF:") {
-                file = Some(lcov.files.entry(path.to_string()).or_default());
-            } else if let (Some(da), Some(record)) = (line.strip_prefix("DA:"), file.as_deref_mut()) {
-                let mut parts = da.split(',');
-                let (Some(at), Some(hits)) = (parts.next(), parts.next()) else { continue };
-                *record.lines.entry(number(at) as u32).or_default() += number(hits);
-            } else if let (Some(brda), Some(record)) = (line.strip_prefix("BRDA:"), file.as_deref_mut()) {
-                let parts: Vec<&str> = brda.split(',').collect();
-                let [at, block, branch, taken] = parts[..] else { continue };
-                let key = (number(at) as u32, number(block) as u32, number(branch) as u32);
-                // `-` is a branch whose block never ran.
-                *record.branches.entry(key).or_default() += number(taken);
-            } else if line == "end_of_record" {
-                file = None;
+impl Measured {
+    /// `llvm-cov export`'s JSON, with only the files `name` keeps, renamed.
+    fn of_export(export: &json::Value, name: impl Fn(&str) -> Option<String>) -> Measured {
+        let data = &export.get("data").expect("an export has data").items()[0];
+        let mut measured = Measured::default();
+        for function in data.get("functions").map_or(&[][..], json::Value::items) {
+            let filenames: Vec<Option<String>> =
+                function.get("filenames").map_or(&[][..], json::Value::items).iter().map(|f| name(f.str())).collect();
+            let regions = function.get("regions").map_or(&[][..], json::Value::items);
+            let Some(first) = regions.first() else { continue };
+            let starts = [first.items()[0].u64() as u32, first.items()[1].u64() as u32];
+            let mut seen: BTreeMap<(usize, [u32; 4]), u32> = BTreeMap::new();
+            for branch in function.get("branches").map_or(&[][..], json::Value::items) {
+                let b: Vec<u64> = branch.items().iter().map(json::Value::u64).collect();
+                let file = b[6] as usize;
+                let span = [b[0] as u32, b[1] as u32, b[2] as u32, b[3] as u32];
+                let copy = seen.entry((file, span)).or_default();
+                let nth = *copy;
+                *copy += 1;
+                let Some(Some(path)) = filenames.get(file) else { continue };
+                let record = measured.files.entry(path.clone()).or_default();
+                *record.branches.entry((starts, span, nth, 0)).or_default() += b[4];
+                *record.branches.entry((starts, span, nth, 1)).or_default() += b[5];
             }
         }
-        lcov
+        for file in data.get("files").map_or(&[][..], json::Value::items) {
+            let Some(path) = name(file.get("filename").map_or("", json::Value::str)) else { continue };
+            let record = measured.files.entry(path).or_default();
+            let counted = file.get("summary").and_then(|s| s.get("branches")).and_then(|b| b.get("count"));
+            record.folded = (record.branches.len() as u64).saturating_sub(counted.map_or(0, json::Value::u64));
+            record.lines = lines(file.get("segments").map_or(&[][..], json::Value::items));
+        }
+        measured
+    }
+
+    /// `coverage.txt`, as `render` writes it.
+    fn parse(text: &str) -> Measured {
+        let mut measured = Measured::default();
+        let mut file = None;
+        for line in text.lines() {
+            if let Some(rest) = line.strip_prefix("file ") {
+                let (folded, path) = rest.split_once(' ').expect("file <folded> <path>");
+                let record = measured.files.entry(path.to_string()).or_default();
+                record.folded = folded.parse().expect("folded is a count");
+                file = Some(record);
+                continue;
+            }
+            let numbers: Vec<u64> = line.split(' ').skip(1).map(|n| n.parse().expect("a count")).collect();
+            let record = file.as_deref_mut().expect("a line or branch comes after its file");
+            match (line.split(' ').next(), numbers.as_slice()) {
+                (Some("line"), &[at, hits]) => *record.lines.entry(at as u32).or_default() += hits,
+                (Some("branch"), &[gl, gc, ls, cs, le, ce, nth, side, taken]) => {
+                    let n = |x: u64| x as u32;
+                    let key = ([n(gl), n(gc)], [n(ls), n(cs), n(le), n(ce)], n(nth), n(side));
+                    *record.branches.entry(key).or_default() += taken;
+                }
+                _ => panic!("`{line}` is neither a line nor a branch"),
+            }
+        }
+        measured
+    }
+
+    fn render(&self) -> String {
+        let mut out = String::new();
+        for (path, record) in &self.files {
+            out.push_str(&format!("file {} {path}\n", record.folded));
+            for (at, hits) in &record.lines {
+                out.push_str(&format!("line {at} {hits}\n"));
+            }
+            for (([gl, gc], [ls, cs, le, ce], nth, side), taken) in &record.branches {
+                out.push_str(&format!("branch {gl} {gc} {ls} {cs} {le} {ce} {nth} {side} {taken}\n"));
+            }
+        }
+        out
     }
 
     /// Adds another run of the same binary: counts sum.
-    fn add(&mut self, other: &Lcov) {
+    fn add(&mut self, other: &Measured) {
         for (path, theirs) in &other.files {
             let ours = self.files.entry(path.clone()).or_default();
+            ours.folded = ours.folded.max(theirs.folded);
             for (&at, &hits) in &theirs.lines {
                 *ours.lines.entry(at).or_default() += hits;
             }
@@ -480,7 +557,9 @@ impl Lcov {
         }
     }
 
-    fn render(&self) -> String {
+    /// As lcov, for anything that reads it: each condition is a block on the
+    /// line it starts on, numbered in order there.
+    fn lcov(&self) -> String {
         let mut out = String::new();
         for (path, record) in &self.files {
             out.push_str(&format!("SF:{path}\n"));
@@ -489,8 +568,20 @@ impl Lcov {
             }
             let hit = |counts: &mut dyn Iterator<Item = &u64>| counts.filter(|&&c| c > 0).count();
             out.push_str(&format!("LF:{}\nLH:{}\n", record.lines.len(), hit(&mut record.lines.values())));
-            for ((at, block, branch), taken) in &record.branches {
-                out.push_str(&format!("BRDA:{at},{block},{branch},{taken}\n"));
+            let mut blocks: BTreeMap<u32, Vec<([u32; 2], [u32; 4], u32)>> = BTreeMap::new();
+            for &(starts, span, nth, _) in record.branches.keys() {
+                let on_line = blocks.entry(span[0]).or_default();
+                if on_line.last() != Some(&(starts, span, nth)) {
+                    on_line.push((starts, span, nth));
+                }
+            }
+            for (at, conditions) in &blocks {
+                for (block, &(starts, span, nth)) in conditions.iter().enumerate() {
+                    for side in 0..2 {
+                        let taken = record.branches.get(&(starts, span, nth, side)).copied().unwrap_or(0);
+                        out.push_str(&format!("BRDA:{at},{block},{},{taken}\n", block as u32 * 2 + side));
+                    }
+                }
             }
             out.push_str(&format!("BRF:{}\nBRH:{}\n", record.branches.len(), hit(&mut record.branches.values())));
             out.push_str("end_of_record\n");
@@ -499,58 +590,64 @@ impl Lcov {
     }
 }
 
-/// Each file's coverage over every platform: a line or branch is covered if
-/// any platform's tests took it. Platforms agree on a line's branches unless
-/// `cfg` changed them, so platforms that list different branches on a line
-/// count theirs apart.
-fn merge(platforms: &BTreeMap<String, Lcov>) -> BTreeMap<String, Counts> {
+/// Each line's hits from a file's segments, as `llvm-cov` counts them: a line
+/// is mapped if a region starts on it or one runs over it, and its count is
+/// the largest of those.
+fn lines(segments: &[json::Value]) -> BTreeMap<u32, u64> {
+    // [line, column, count, has count, is region entry, is gap region]
+    let segments: Vec<Vec<u64>> = segments.iter().map(|s| s.items().iter().map(json::Value::u64).collect()).collect();
+    let mut out = BTreeMap::new();
+    let Some(first) = segments.first() else { return out };
+    let starts = |s: &Vec<u64>| s[5] == 0 && s[3] != 0 && s[4] != 0;
+    let mut wrapped: Option<&Vec<u64>> = None;
+    let mut next = 0;
+    let mut line = first[0];
+    while next < segments.len() {
+        let on_line: Vec<&Vec<u64>> = segments[next..].iter().take_while(|s| s[0] == line).collect();
+        next += on_line.len();
+        let entries: Vec<&&Vec<u64>> = on_line.iter().filter(|s| starts(s)).collect();
+        let skipped = on_line.first().is_some_and(|s| s[3] == 0 && s[4] != 0);
+        if !skipped && (wrapped.is_some_and(|w| w[3] != 0) || !entries.is_empty()) {
+            let count = entries.iter().map(|s| s[2]).chain(wrapped.map(|w| w[2])).max().unwrap_or(0);
+            out.insert(line as u32, count);
+        }
+        if let Some(last) = on_line.last() {
+            wrapped = Some(last);
+        }
+        line += 1;
+    }
+    out
+}
+
+/// Each file's coverage over every platform. A side is covered if any
+/// platform's tests took it; a side only some platforms compile counts once.
+/// Of each file's folded sides, the fewest any platform has are left out.
+fn merge(platforms: &BTreeMap<String, Measured>) -> BTreeMap<String, Counts> {
     let paths: BTreeSet<&String> = platforms.values().flat_map(|p| p.files.keys()).collect();
     let mut files = BTreeMap::new();
     for path in paths {
         let records: Vec<&Record> = platforms.values().filter_map(|p| p.files.get(path)).collect();
-        let mut counts = Counts::default();
-
         let mut lines: BTreeMap<u32, bool> = BTreeMap::new();
+        let mut branches: BTreeMap<Side, bool> = BTreeMap::new();
         for record in &records {
             for (&at, &hits) in &record.lines {
                 *lines.entry(at).or_default() |= hits > 0;
             }
-        }
-        counts.lines = lines.len() as u64;
-        counts.lines_covered = lines.values().filter(|&&hit| hit).count() as u64;
-
-        // Each line's branches, per platform that has any there.
-        let mut by_line: BTreeMap<u32, Vec<OnLine<u64>>> = BTreeMap::new();
-        for record in &records {
-            let mut mine: BTreeMap<u32, OnLine<u64>> = BTreeMap::new();
-            for (&(at, block, branch), &taken) in &record.branches {
-                mine.entry(at).or_default().insert((block, branch), taken);
-            }
-            for (at, branches) in mine {
-                by_line.entry(at).or_default().push(branches);
+            for (&side, &taken) in &record.branches {
+                *branches.entry(side).or_default() |= taken > 0;
             }
         }
-        for each in by_line.into_values() {
-            // Platforms that list the same branches on the line merge.
-            let mut agreeing: BTreeMap<Vec<(u32, u32)>, OnLine<bool>> = BTreeMap::new();
-            for platform in each {
-                let merged = agreeing.entry(platform.keys().copied().collect()).or_default();
-                for (key, taken) in platform {
-                    *merged.entry(key).or_default() |= taken > 0;
-                }
-            }
-            for merged in agreeing.values() {
-                counts.branches += merged.len() as u64;
-                counts.branches_covered += merged.values().filter(|&&taken| taken).count() as u64;
-            }
-        }
+        let folded = records.iter().map(|r| r.folded).min().unwrap_or(0);
+        let counts = Counts {
+            lines: lines.len() as u64,
+            lines_covered: lines.values().filter(|&&hit| hit).count() as u64,
+            branches: (branches.len() as u64).saturating_sub(folded),
+            branches_covered: branches.values().filter(|&&taken| taken).count() as u64,
+        };
         files.insert(path.clone(), counts);
     }
     files
 }
-
-/// A line's branches, by lcov's block and branch numbers.
-type OnLine<T> = BTreeMap<(u32, u32), T>;
 
 /// `a` against `b` as fractions, exactly.
 fn cmp((a, at): (u64, u64), (b, bt): (u64, u64)) -> std::cmp::Ordering {
@@ -1076,6 +1173,46 @@ mod tests {
         let checked_in = Baseline::parse(include_str!("../../compiler-branches.txt"));
         let missing: Vec<&String> = checked_in.files.keys().filter(|path| area_of(path).is_none()).collect();
         assert!(missing.is_empty(), "{missing:?}");
+    }
+
+    #[test]
+    fn an_export_counts_as_llvm_cov_report_does() {
+        // `pick<T>` at two types, each taking one side of line 2's `if`; a guard
+        // on `A | B` (line 7), which compiles to one condition per alternative;
+        // and a file in no counted source.
+        let export = r#"{"data": [{"functions": [
+            {"filenames": ["/r/crates/x/src/a.rs"], "regions": [[1, 1, 3, 2, 1, 0, 0, 0]],
+             "branches": [[2, 8, 2, 12, 1, 0, 0, 0, 4]]},
+            {"filenames": ["/r/crates/x/src/a.rs"], "regions": [[1, 1, 3, 2, 1, 0, 0, 0]],
+             "branches": [[2, 8, 2, 12, 0, 1, 0, 0, 4]]},
+            {"filenames": ["/r/crates/x/src/a.rs", "/r/cli/tests/t.rs"], "regions": [[6, 1, 9, 2, 1, 0, 0, 0]],
+             "branches": [[7, 20, 7, 25, 1, 0, 0, 0, 4], [7, 20, 7, 25, 0, 0, 0, 0, 4], [1, 1, 1, 2, 1, 1, 1, 0, 4]]}
+          ],
+          "files": [
+            {"filename": "/r/crates/x/src/a.rs", "summary": {"branches": {"count": 5}},
+             "segments": [[1, 1, 2, 1, 1, 0], [2, 8, 0, 1, 1, 0], [3, 2, 2, 1, 0, 0], [4, 1, 0, 0, 1, 0], [5, 1, 0, 0, 0, 0]]},
+            {"filename": "/r/cli/tests/t.rs", "summary": {"branches": {"count": 2}}, "segments": []}
+          ]}]}"#;
+        let export = json::parse(export).unwrap();
+        let measured = Measured::of_export(&export, |p| {
+            Some(p.strip_prefix("/r/").unwrap().to_string()).filter(|p| counted(p))
+        });
+        assert_eq!(measured.files.keys().collect::<Vec<_>>(), ["crates/x/src/a.rs"]);
+        let a = &measured.files["crates/x/src/a.rs"];
+        // Six sides, one of them folded: `report` counts five.
+        assert_eq!((a.branches.len(), a.folded), (6, 1));
+        // Line 4 starts a skipped region, and line 5 only ends one.
+        assert_eq!(a.lines, BTreeMap::from([(1, 2), (2, 2), (3, 0)]));
+        let counts = &merge(&BTreeMap::from([("h".to_string(), measured)]))["crates/x/src/a.rs"];
+        assert_eq!((counts.branches_covered, counts.branches), (3, 5));
+    }
+
+    #[test]
+    fn a_path_through_a_parent_directory_is_where_it_leads() {
+        assert_eq!(lexical("cli/src/../runtime/allocator.rs"), "cli/runtime/allocator.rs");
+        assert!(!counted(&lexical("cli/src/../runtime/allocator.rs")));
+        assert_eq!(lexical("/r/./a/../../b.rs"), "/b.rs");
+        assert_eq!(lexical("../x.rs"), "../x.rs");
     }
 
     #[test]
