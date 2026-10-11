@@ -1,0 +1,6 @@
+# No `platforms`, so the suite is a native binary.
+library {
+    test {
+        sources: ["test/conv.buri"]
+    }
+}

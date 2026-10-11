@@ -1014,6 +1014,7 @@ pub const A_RUN_THAT_ASSERTED_NOTHING: &[&str] = &[
     // And for a step and a timer whose context owns a count, which the debug
     // backend refuses during code generation.
     "stencil/counted_contexts_are_refused",
+    "middle/a_small_float_into_a_wide_integer",
     // A JSON input its schema refuses stops the generator, so the suite that
     // imports what it generates does not compile. That is the claim: `buri
     // test` reports the check the way `buri build` does, and the schema
