@@ -1,0 +1,36 @@
+// Each expected number is what JavaScript answers.
+from "core/testing/assert" import * as assert;
+
+derive Equal, Hash for Id;
+struct Id {
+    bytes: [U8],
+}
+
+derive Equal, Hash for Tags;
+struct Tags {
+    names: [Str],
+}
+
+derive Equal, Hash for Names;
+struct Names {
+    names: [Str],
+    nested: [[Int]],
+}
+
+test "an identifier over bytes hashes" {
+    assert.equal(Id { bytes: [1, 2, 3] }.hash(), 3356263795);
+    assert.equal(Id { bytes: [1, 2, 3] }.hash(), Id { bytes: [1, 2, 3] }.hash());
+}
+
+test "tags over names hash" {
+    assert.equal(Tags { names: ["x"] }.hash(), 3385596701);
+    assert.equal(Tags { names: ["x"] }.hash(), Tags { names: ["x"] }.hash());
+}
+
+test "an empty list still mixes its length" {
+    assert.equal(Id { bytes: [] }.hash(), 3950255460);
+}
+
+test "lists of strings and of lists hash through each element" {
+    assert.equal(Names { names: ["a", "bc"], nested: [[1], [], [2, 3]] }.hash(), 893000119);
+}

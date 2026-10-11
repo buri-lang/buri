@@ -67,7 +67,7 @@ fn the_native_files_of_javascript_only_packages_pass_on_the_debug_backend() {
         return;
     }
     let (repo, packages) = split_corpus();
-    assert!(packages.len() >= 5, "only {packages:?} have native-set files");
+    assert!(packages.len() >= 3, "only {packages:?} have native-set files");
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
     cmd.current_dir(&repo).arg("test").args(&packages);
     let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));

@@ -852,14 +852,12 @@ export fn main(host: NativeHost): Result<(), Str> {
 ///
 /// Shapes stay unimplemented on purpose (`backend/stencil/mod.rs`'s header), and
 /// what has to be true of every one of them is that the build stops with a
-/// sentence. `deriveArrayHash` is the one used here because it is stable and it
-/// is reached from *emission* rather than from `missing_intrinsics`: a
-/// `derive Hash` whose field is a `[T]` bottoms out at the one derive leaf over
-/// an array this backend has no body for, which is why
-/// `bignum/hashing.buri` and `uuid/hashing.buri` are out of the native set.
+/// sentence. A float into a 128-bit integer is the one used here because it
+/// is reached from *emission* as well as from `missing_intrinsics`: neither
+/// backend has a single conversion for it (`intrinsic_keys::checked_kind`).
 ///
-/// An inexact conversion used to be the shape here, and is not: all four
-/// shapes SPEC 6.2.1 gives one are compiled now (buri-lang/buri#43).
+/// A derived `Hash` over a `[T]` used to be the shape here, and is not:
+/// `middle::lower` builds its loop now.
 #[test]
 fn a_refused_shape_is_a_diagnostic_and_not_an_object() {
     if !supported() {
@@ -868,20 +866,12 @@ fn a_refused_shape_is_a_diagnostic_and_not_an_object() {
     let messages = refusal(
         "refusal",
         r#"
-from "core/alloc" import * as alloc;
-from "platform/effect" import { Allocator };
 from "native" import { NativeHost };
 from "core/io" import * as io;
 
-derive Hash for Bag;
-struct Bag {
-    items: [Int],
-}
-
 export fn main(host: NativeHost): Result<(), Str> {
-  let ctx = context { Allocator: alloc.generalPurpose() };
-  let b = Bag { items: [1, 2, 3] };
-  let _ = io.println(host.stdout, "${b.hash()}").ignore();
+  let x: F32 = 1.5;
+  let _ = io.println(host.stdout, "${x.toI128().isOk()}").ignore();
   .Ok(())
 }
 "#,

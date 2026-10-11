@@ -1,0 +1,14 @@
+# A derived `Hash` over list fields, on the debug backend and on JavaScript.
+# Each hash is the number JavaScript's `$hashInto` gives, so the two agree:
+# the length mixed in first, then each element through its own hash.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a derived hash over a list is the same number on the debug backend and on JavaScript"
+
+run {
+  args: ["test", "//lib/ids", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

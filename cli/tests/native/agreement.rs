@@ -623,49 +623,6 @@ fn abort_agrees(row: &str, source: &str, stdout: &str, message: &str) {
     }
 }
 
-/// A **gap** row: JavaScript runs it, and every native backend says which
-/// intrinsic it has no body for — before a byte of code is generated, which
-/// is what that hook is for.
-///
-/// The assertion is two-sided on purpose. A gap that closed makes this fail
-/// rather than leaving an `#[ignore]` next door describing a limitation
-/// that no longer exists.
-fn gap(row: &str, source: &str, wanted: &[&str]) {
-    let (checked, paths) = analyze(row, source);
-    let js = run_js(row, &checked, &paths);
-    assert_eq!(js.status, 0, "{row}: JavaScript could not run it either: {}", js.stderr);
-    let program = prepared_native(row, &checked, &paths);
-    for native in natives(row) {
-        let refusal = emitted(native, &program, &checked).err().unwrap_or_default();
-        // A [`Native::partial`] backend has its own reasons to refuse and
-        // its own reasons not to, and neither is what a gap row is about — so
-        // its answer is reported rather than asserted on. The two surfaces are
-        // not the same set of keys, and a row's gap has to be the debug
-        // backend's to be this file's.
-        if let Some(why) = native.partial {
-            eprintln!(
-                "backend agreement: {row} on `{}` answered {refusal:?}; it is {why}",
-                native.name
-            );
-            continue;
-        }
-        assert!(
-            !refusal.is_empty(),
-            "{row}: the `{}` backend now compiles this — delete the gap test \
-                 and un-ignore the agreement test beside it",
-            native.name
-        );
-        for key in wanted {
-            assert!(
-                refusal.contains(key),
-                "{row}: the `{}` backend refused with {refusal:?}, which does not \
-                     name `{key}` — the gap moved, so the reason has to move with it",
-                native.name
-            );
-        }
-    }
-}
-
 // -------------------------------------------------------------------
 // Row 1 — `Int` overflow
 // -------------------------------------------------------------------
@@ -1991,25 +1948,15 @@ fn row_09_derived_show_of_a_list() {
     );
 }
 
-/// `deriveArrayHash`, as a **named** gap rather than a panic.
+/// A `[T]` inside a derived `Hash`, which used to be a named gap of its own.
 ///
-/// `deriveArrayCompare` and `deriveArrayHash` are `deriveArrayEq`'s loop with a
-/// different carried value. The first is emitted now
-/// (`stencil/lists.rs::derive_array_compare`, buri-lang/buri#27) and
-/// [`a_derived_ord_over_a_list`] is the agreement it bought; the second is
-/// still the gap below. What this test is really
-/// about is that a gap *reads* as one: an intrinsic with no body records an
-/// error and binds nothing, and the debug backend of the day then unwrapped a
-/// `None` on the next instruction rather than letting the recorded diagnostic
-/// out. A `derive Hash` over a `[T]`
-/// field crashed the toolchain until that bound a value.
-///
-/// This is not a §12 row and is not in the table: it is a claim about how a
-/// missing intrinsic is *reported*, which every row already assumes.
+/// The hash is `$hashInto`'s walk of an array: the length mixed in first,
+/// then each element through its own hash, so both backends answer the same
+/// number and an empty list still moves it.
 #[test]
-fn a_derived_hash_over_a_list_is_a_named_gap() {
+fn a_derived_hash_over_a_list() {
     rows_or_skip!();
-    gap("derived hash over a list", HASH_A_LIST, &["deriveArrayHash"]);
+    agree("derived hash over a list", HASH_A_LIST, "2704906793 same\n");
 }
 
 const HASH_A_LIST: &str = r#"
@@ -2022,7 +1969,8 @@ derive Equal, Hash, Show for Bag;
 export fn main(host: NativeHost): Result<(), Str> {
   let a = Bag { xs: [1, 2] };
   let b = Bag { xs: [1, 2] };
-  let _ = io.println(host.stdout, if (a.hash() == b.hash()) { "same" } else { "differ" }).ignore();
+  let same = if (a.hash() == b.hash()) { "same" } else { "differ" };
+  let _ = io.println(host.stdout, "${a.hash().show(host.alloc)} ${same}").ignore();
   .Ok(())
 }
 "#;
