@@ -2144,6 +2144,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "semantics/conditions.buri",
     "semantics/effects.buri",
     "semantics/elision.buri",
+    "semantics/empty_types.buri",
     "semantics/evaluation.buri",
     "semantics/generics.buri",
     "semantics/host_testing.buri",

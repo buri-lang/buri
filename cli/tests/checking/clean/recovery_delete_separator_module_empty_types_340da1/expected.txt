@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-semicolon]
+ --> main.buri:5:46
+  |
+5 | from "core/testing/assert" import * as assert
+  |                                              ^
+  |
+  = fix: write `;` here

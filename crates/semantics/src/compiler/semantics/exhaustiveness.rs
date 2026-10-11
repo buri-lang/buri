@@ -34,7 +34,7 @@
 
 use crate::compiler::semantics::inference::Infer;
 use crate::compiler::semantics::typed::{self, PatKind, Pattern};
-use crate::compiler::semantics::types::{Prim, Ty, TyKind, TyConId, TyDef};
+use crate::compiler::semantics::types::{FieldInfo, Prim, Ty, TyKind, TyConId, TyDef};
 use crate::diagnostics::{Diagnostic, Invariant as _, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
 
@@ -562,12 +562,36 @@ struct Ctx<'a> {
     /// there is one, and building it cost a copy of a type per constructor on
     /// the way back up from every live arm.
     witnesses: bool,
+    /// Which types have a value, shared by every question about one `match`.
+    known: &'a Known,
+    /// Which types have a value for every constructor, the same way.
+    full: &'a Known,
 }
 
 impl<'a> Ctx<'a> {
     /// The complete set of constructors for a type, or `None` when the type
     /// has too many to enumerate.
+    ///
+    /// A constructor no value can be built with is left out: it adds no case,
+    /// so a `match` needn't name it, and an arm naming it is unreachable.
     fn all_ctors(&self, ty: &Ty) -> Option<Vec<Ctor>> {
+        let mut all = self.every_ctor(ty)?;
+        let has_value = |c: &Ctor| {
+            let mut fields = Vec::new();
+            c.field_types_into(self.tables, ty, &mut fields);
+            fields.iter().all(|f| inhabited(self.tables, f, self.known))
+        };
+        // Asked once per type rather than of every constructor on every call:
+        // a wide `match` asks for its scrutinee's constructors once per arm.
+        let full = *self.full.borrow_mut().entry(*ty).or_insert_with(|| all.iter().all(has_value));
+        if !full {
+            all.retain(has_value);
+        }
+        Some(all)
+    }
+
+    /// [`Ctx::all_ctors`], with the ones no value fits left in.
+    fn every_ctor(&self, ty: &Ty) -> Option<Vec<Ctor>> {
         match ty.kind() {
             TyKind::Con(con, _) => match &self.tables.tycon(*con).def {
                 TyDef::Enum { variants } => {
@@ -900,10 +924,62 @@ fn alternatives_of(p: &Pattern, out: &mut Vec<(Span, Pat)>) {
 /// catch-all, covering the scrutinee. Every arm of that shape is reachable, so
 /// the matrix below would say nothing. Any other match, including every one it
 /// would report on, goes the long way.
+/// What [`inhabited`] has settled, by type.
+type Known = std::cell::RefCell<HashMap<Ty, bool>>;
+
+/// Whether some value has type `ty`. An enum with no variants has none, and
+/// so has anything that must hold one: a variant, a struct or a tuple with a
+/// field of such a type.
+fn inhabited(tables: &crate::compiler::semantics::types::Tables, ty: &Ty, known: &Known) -> bool {
+    inhabited_within(tables, ty, known, &mut Vec::new())
+}
+
+/// [`inhabited`], inside the types `stack` is already asking about. A value
+/// can't be built out of one of those alone, so meeting one again answers
+/// `false`, and only a `true` or the outermost answer is remembered: an inner
+/// `false` may have leant on an outer type that turns out to have a value.
+fn inhabited_within(
+    tables: &crate::compiler::semantics::types::Tables,
+    ty: &Ty,
+    known: &Known,
+    stack: &mut Vec<Ty>,
+) -> bool {
+    use crate::compiler::semantics::types::substitute;
+    if let Some(&answer) = known.borrow().get(ty) {
+        return answer;
+    }
+    if stack.contains(ty) {
+        return false;
+    }
+    stack.push(*ty);
+    let answer = match ty.kind() {
+        TyKind::Con(con, args) => {
+            let holds = |fs: &[FieldInfo], stack: &mut Vec<Ty>| {
+                fs.iter().all(|f| {
+                    inhabited_within(tables, &substitute(&f.ty, args, None), known, stack)
+                })
+            };
+            match &tables.tycon(*con).def {
+                TyDef::Enum { variants } => variants.iter().any(|v| holds(&v.fields, stack)),
+                TyDef::Struct { fields, .. } => holds(fields, stack),
+                TyDef::Prim(_) => true,
+            }
+        }
+        TyKind::Tuple(ts) => ts.iter().all(|t| inhabited_within(tables, t, known, stack)),
+        _ => true,
+    };
+    stack.pop();
+    if answer || stack.is_empty() {
+        known.borrow_mut().insert(*ty, answer);
+    }
+    answer
+}
+
 fn plainly_covered(
     tables: &crate::compiler::semantics::types::Tables,
     scrutinee: &Ty,
     arms: &[typed::Arm],
+    known: &Known,
 ) -> bool {
     #[derive(PartialEq, Eq, Hash)]
     enum Key<'a> {
@@ -948,9 +1024,21 @@ fn plainly_covered(
         Some(Some(key))
     }
 
-    let TyKind::Con(con, _) = scrutinee.kind() else { return false };
+    let TyKind::Con(con, args) = scrutinee.kind() else { return false };
     let (of, finite) = match &tables.tycon(*con).def {
-        TyDef::Enum { variants } => (Of::Enum(*con), Some(variants.len())),
+        // Counting variants stands for coverage only when each has a value:
+        // otherwise an arm for one that has none is unreachable, and needn't
+        // be written.
+        TyDef::Enum { variants } => {
+            use crate::compiler::semantics::types::substitute;
+            let all_inhabited = variants.iter().all(|v| {
+                v.fields.iter().all(|f| inhabited(tables, &substitute(&f.ty, args, None), known))
+            });
+            if !all_inhabited {
+                return false;
+            }
+            (Of::Enum(*con), Some(variants.len()))
+        }
         TyDef::Prim(Prim::Bool) => (Of::Bool, Some(2)),
         TyDef::Prim(_) => (Of::Literal, None),
         TyDef::Struct { .. } => return false,
@@ -1064,8 +1152,12 @@ fn render(tables: &crate::compiler::semantics::types::Tables, w: &Witness) -> St
     }
 }
 
+/// Why a pattern no value fits is unreachable.
+const NO_VALUE: &str = "no value fits it, because a type it matches has no values";
+
 pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span: Span) {
-    if scrutinee.is_error() || plainly_covered(&inf.c.tables, scrutinee, arms) {
+    let (known, full) = (Known::default(), Known::default());
+    if scrutinee.is_error() || plainly_covered(&inf.c.tables, scrutinee, arms, &known) {
         return;
     }
     let alternatives: Vec<Vec<(Span, Pat)>> = arms
@@ -1093,7 +1185,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
                 .collect()
         })
         .collect();
-    let ctx = Ctx { tables: &inf.c.tables, limit, witnesses: false };
+    let ctx = Ctx { tables: &inf.c.tables, limit, witnesses: false, known: &known, full: &full };
     let types = [*scrutinee];
     let recovered = arms.iter().any(|a| has_error(&a.pattern));
 
@@ -1136,24 +1228,36 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
                 }
             }
         }
-        if !alive {
-            // Every alternative dead is the arm dead, which is the older and
-            // coarser report. It says the same thing about the same text —
-            // and, on a `match` that did not parse whole, it says it about
-            // every arm below the broken one, because a pattern the checker
-            // could not build covers everything after it. So this is asked
-            // only of a `match` the checker understood, for the reason the
-            // finer report beside it is.
-            if !recovered {
-                reported.push(Diagnostic::templated("unreachable-arm", arm.span));
-            }
-        } else if !recovered {
+        // On a `match` that did not parse whole, every arm below the broken
+        // one looks dead, because a pattern the checker could not build
+        // covers everything after it. So reachability is asked only of a
+        // `match` the checker understood.
+        if recovered {
+            // Nothing to report: see above.
+        } else if !alive {
+            // Every alternative dead is the arm dead, reported once for the
+            // arm. It names the latest row it needed, or no row when no value
+            // fits any alternative, as `.Some(_)` on an `Option` of an empty
+            // enum.
+            let culprit = dead
+                .iter()
+                .filter_map(|(_, rows, before)| ctx.covered_by(&covering.rows, *before, rows, &types))
+                .max();
+            let d = match culprit.and_then(|i| origin.get(i)) {
+                Some(span) => Diagnostic::templated("unreachable-arm", arm.span)
+                    .with_bind("why", "the arms before it already cover everything it matches")
+                    .with_bind("fix", "delete it, or move it above the arm that subsumes it")
+                    .with_secondary_span(*span, "already covered here"),
+                None => Diagnostic::templated("unreachable-arm", arm.span)
+                    .with_bind("why", NO_VALUE)
+                    .with_bind("fix", "delete it; nothing can reach it"),
+            };
+            reported.push(d);
+        } else {
             for (at, rows, before) in dead {
                 let culprit = ctx.covered_by(&covering.rows, before, &rows, &types);
                 let why = match culprit {
-                    // Nothing covers it because it matches no value, as
-                    // `.Some(_)` on an `Option` of an empty enum.
-                    None => "no value fits it, because a type it matches has no values",
+                    None => NO_VALUE,
                     Some(i) if i >= base => {
                         "an earlier alternative of this arm already covers everything it matches"
                     }
@@ -1176,7 +1280,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
     }
 
     // A non-exhaustive match is a compile error that names a missing case.
-    let ctx = Ctx { tables: &inf.c.tables, limit, witnesses: true };
+    let ctx = Ctx { tables: &inf.c.tables, limit, witnesses: true, known: &known, full: &full };
     if let Some(witness) = ctx.useful(&covering, &[&WILD], &types) {
         let shown = witness
             .first()

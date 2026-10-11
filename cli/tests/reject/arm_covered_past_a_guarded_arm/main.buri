@@ -1,0 +1,17 @@
+// EXPECT: this arm is unreachable
+//
+// A guarded arm covers nothing, so the `.Up` after `.Up if (fast)` runs. The
+// third `.Up` is covered by the unguarded one, and points at it.
+enum Dir {
+  Up,
+  Down,
+}
+
+fn speed(d: Dir, fast: Bool): Int {
+  match (d) {
+    .Up if (fast) => 2,
+    .Up => 1,
+    .Down => 0,
+    .Up => 3,
+  }
+}

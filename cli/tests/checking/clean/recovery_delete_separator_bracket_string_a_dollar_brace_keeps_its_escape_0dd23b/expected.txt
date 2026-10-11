@@ -1,7 +1,0 @@
-error: an array element ends with `,` [missing-comma]
- --> main.buri:4:35
-  |
-4 |   ["a\${x}b", "$4.00", "$.tags[2]" "ends in a $"]
-  |                                   ^
-  |
-  = fix: write `,` here
