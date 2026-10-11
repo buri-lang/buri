@@ -809,7 +809,7 @@ impl Until {
 /// [`Until`] says the answer is whole, when the peer closes, or when the
 /// deadline on the socket fires — never on a byte count.
 fn dialled(port: u16, out: &[u8], until: Until) -> Vec<u8> {
-    use std::io::{Read, Write};
+    use std::io::Write;
     let deadline = crate::shared::SERVER_DEADLINE;
     let give_up_at = std::time::Instant::now() + deadline;
     let mut socket = loop {
@@ -831,7 +831,7 @@ fn dialled(port: u16, out: &[u8], until: Until) -> Vec<u8> {
     let mut back = Vec::new();
     let mut chunk = [0u8; 4096];
     while !until.satisfied(&back) {
-        match socket.read(&mut chunk) {
+        match crate::shared::read_on(&mut socket, &mut chunk) {
             Ok(0) | Err(_) => break,
             Ok(read) => back.extend_from_slice(&chunk[..read]),
         }
@@ -2045,7 +2045,7 @@ fn the_refusal_a_toolchain_without_networking_names_what_a_real_server_reached()
 #[cfg(test)]
 mod read_loop_tests {
     use super::{body_of, dialled, Until};
-    use std::io::{Read, Write};
+    use std::io::Write;
     use std::net::TcpListener;
 
     /// A listener on a port the operating system chose, answering `pieces` with
@@ -2069,7 +2069,7 @@ mod read_loop_tests {
             // rather than tolerated at the call site.
             let _ = socket.set_read_timeout(Some(std::time::Duration::from_secs(5)));
             let mut asked = [0u8; 1024];
-            let _ = socket.read(&mut asked);
+            let _ = crate::shared::read_on(&mut socket, &mut asked);
             for piece in pieces {
                 if socket.write_all(piece).is_err() {
                     return;
@@ -2367,7 +2367,7 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
         socket.set_write_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a write deadline");
         let mut asked = Vec::new();
         let mut byte = [0_u8; 1];
-        while socket.read(&mut byte).expect("the request") == 1 {
+        while crate::shared::read_on(&mut socket, &mut byte).expect("the request") == 1 {
             asked.push(byte[0]);
             if byte[0] == b'\n' {
                 break;
@@ -5491,7 +5491,7 @@ fn a_client_that_dials_a_port_nobody_holds_says_so() {
 /// dials is a joined thread and a failing assertion rather than a job CI has to
 /// kill.
 fn one_answer(answer: &'static str) -> (u16, std::thread::JoinHandle<()>) {
-    use std::io::{Read, Write};
+    use std::io::Write;
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
     let port = listener.local_addr().expect("the bound port").port();
     let serving = std::thread::spawn(move || {
@@ -5502,7 +5502,7 @@ fn one_answer(answer: &'static str) -> (u16, std::thread::JoinHandle<()>) {
         let mut head: Vec<u8> = Vec::new();
         let mut chunk = [0u8; 512];
         while !head.windows(4).any(|w| w == b"\r\n\r\n") {
-            match socket.read(&mut chunk) {
+            match crate::shared::read_on(&mut socket, &mut chunk) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
             }
@@ -6321,7 +6321,7 @@ fn fetched(
 #[test]
 fn a_native_binary_sends_a_request_and_reads_the_answer() {
     unless_ready!();
-    use std::io::{Read, Write};
+    use std::io::Write;
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
     let port = listener.local_addr().expect("the bound address").port();
@@ -6358,7 +6358,7 @@ fn a_native_binary_sends_a_request_and_reads_the_answer() {
         let mut asked = Vec::new();
         let mut chunk = [0_u8; 1024];
         loop {
-            let n = socket.read(&mut chunk).expect("the request");
+            let n = crate::shared::read_on(&mut socket, &mut chunk).expect("the request");
             asked.extend_from_slice(&chunk[..n]);
             let head_end = asked.windows(4).position(|w| w == b"\r\n\r\n");
             if n == 0 || head_end.is_some_and(|at| asked.len() >= at + 4 + 5) {
@@ -6602,7 +6602,7 @@ type Heard = std::thread::JoinHandle<(Vec<u8>, Vec<u8>)>;
 /// Every read has `SERVER_DEADLINE` on it and the accept gives up at the same
 /// deadline, so the handle can always be joined.
 fn relay(port: u16) -> (u16, Heard) {
-    use std::io::{Read, Write};
+    use std::io::Write;
     let deadline = crate::shared::SERVER_DEADLINE;
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a loopback listener");
     let relayed = listener.local_addr().expect("its port").port();
@@ -6634,7 +6634,7 @@ fn relay(port: u16) -> (u16, Heard) {
                 let mut said = Vec::new();
                 let mut chunk = [0u8; 4096];
                 loop {
-                    match from.read(&mut chunk) {
+                    match crate::shared::read_on(&mut from, &mut chunk) {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
                             said.extend_from_slice(&chunk[..n]);
