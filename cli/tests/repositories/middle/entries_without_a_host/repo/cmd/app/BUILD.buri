@@ -4,6 +4,9 @@ binary {
             { name: "pick", function: "pick" },
             { name: "greet", function: "greet" },
             { name: "tag", function: "tag" },
+            { name: "total", function: "total" },
+            { name: "explain", function: "explain" },
+            { name: "unwrap", function: "unwrap" },
         ] },
     ]
 }

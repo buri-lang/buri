@@ -1,3 +1,6 @@
 .buri/out/platform/bare/cmd/app/pick.mjs (N bytes)
 .buri/out/platform/bare/cmd/app/greet.mjs (N bytes)
 .buri/out/platform/bare/cmd/app/tag.mjs (N bytes)
+.buri/out/platform/bare/cmd/app/total.mjs (N bytes)
+.buri/out/platform/bare/cmd/app/explain.mjs (N bytes)
+.buri/out/platform/bare/cmd/app/unwrap.mjs (N bytes)
