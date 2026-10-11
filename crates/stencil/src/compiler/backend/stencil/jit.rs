@@ -760,9 +760,9 @@ impl<'a> Jit<'a> {
     /// The name of the hole whose branch is the **last** instruction of the
     /// two-target stencil at `at` in the library — the only arm copy-and-patch
     /// can elide. Which one it is is clang's layout decision, not the
-    /// emitter's, and it flips with the comparison; `None` when the two twins
-    /// disagree, so that the caller never has to know which one `emit` will
-    /// pick.
+    /// emitter's, and it flips with the comparison. The `+fold` twin `emit`
+    /// may pick ends in the same hole (`sources.rs` keeps no other), so the
+    /// caller never has to know which one it gets.
     ///
     /// Borrowed out of the library rather than copied out of it, and the fold
     /// twin asked for by index: this is called twice per conditional branch
@@ -770,13 +770,7 @@ impl<'a> Jit<'a> {
     /// second for the comparison and a third for `key+fold`.
     pub(crate) fn elidable_at(&self, at: usize) -> Option<&'a str> {
         let s = self.lib.stencil(at)?;
-        let n = s.holes.get(s.tail?)?.name.as_str();
-        if let Some(f) = self.lib.fold_twin(at, super::library::FOLD_PLAIN) {
-            if f.holes.get(f.tail?).map(|h| h.name.as_str()) != Some(n) {
-                return None;
-            }
-        }
-        Some(n)
+        Some(s.holes.get(s.tail?)?.name.as_str())
     }
 
     pub(crate) fn push_reason(&mut self, why: String) -> u64 {
@@ -1530,18 +1524,11 @@ impl<'a> Jit<'a> {
     }
 
     /// A hole naming a symbol outside this program: one relocation per site,
-    /// and no instruction rewritten. A `bl` becomes a `BRANCH26`; the address
-    /// of one, materialised into the constant pool, becomes an `Abs64`.
+    /// and no instruction rewritten. A `bl` becomes a `BRANCH26`. Nothing
+    /// takes such a symbol's address: `sources.rs` refuses a library that does.
     fn import(&mut self, at: u64, h: &'static Hole) {
-        let name = h.name.as_str();
         for off in &h.branches {
-            self.branch_reloc(at + *off as u64, Target::Symbol(name.into()));
-        }
-        if !h.pairs.is_empty() {
-            let slot = self.region.pool_target(Target::Symbol(name.into()));
-            for (a, b) in &h.pairs {
-                self.pool_ref(at, *a, *b, slot);
-            }
+            self.branch_reloc(at + *off as u64, Target::Symbol(h.name.as_str().into()));
         }
     }
 
@@ -1556,19 +1543,6 @@ impl<'a> Jit<'a> {
             return;
         }
         self.region.reloc_with(at, RelKind::Rel32, target, -4);
-    }
-
-    /// The reference to a constant-pool slot one of a hole's `pairs` becomes.
-    ///
-    /// `pairs` means `(adrp, add-or-ldr)` on A64 and `(instruction end,
-    /// field)` on x86-64 — the two ISAs never share a patcher, and this is
-    /// where the two meanings are consumed.
-    fn pool_ref(&mut self, at: u64, a: u32, b: u32, slot: u64) {
-        if self.target.is_arm64() {
-            self.region.pool_ref(at + a as u64, at + b as u64, slot);
-            return;
-        }
-        self.region.pool_ref_pc32(at + b as u64, at + a as u64, slot);
     }
 
     fn patch_hole(&mut self, at: u64, end: u64, h: &Hole, v: &V) {
@@ -1731,8 +1705,9 @@ impl<'a> Jit<'a> {
                 h.name
             )),
         };
+        // On x86-64 a pair is `(instruction end, field)`.
         for (insn_end, field) in &h.pairs {
-            self.pool_ref(at, *insn_end, *field, slot);
+            self.region.pool_ref_pc32(at + u64::from(*field), at + u64::from(*insn_end), slot);
         }
     }
 
@@ -2993,7 +2968,8 @@ impl<'a> Jit<'a> {
                         for (pp, aa) in code.get(tt.block).params.iter().zip(tt.args.iter()) {
                             // The one occurrence that *is* this hand-over is
                             // fine; any other read of the register is not.
-                            if !(std::ptr::eq(tt, t) && pp == p && aa == a) {
+                            // At `p` in `t` itself, the argument is `a`.
+                            if !(std::ptr::eq(tt, t) && pp == p) {
                                 ops.push(*aa);
                             }
                         }
@@ -3272,18 +3248,19 @@ impl<'a> Jit<'a> {
         // (f) The tag load a switch discriminates on, folded into the first
         // comparison — the paper's `if (a[i] <op> b)` supernode, in the shape
         // this IR's `match` actually takes.
-        {
-            if let ir::Term::Switch { on, .. } = &block.term {
-                if let Some(k) = block.insts.iter().rposition(|i| i.results().contains(on)) {
-                    if let Some(ir::Inst::GetTag { agg, .. }) = block.insts.get(k) {
-                        // Only a `Const` or a fused comparison is skipped.
-                        if uses(st, *on) == 1 {
-                            put(&mut p.skip, k, true);
-                            p.tagsw = Some(*agg);
-                        }
-                    }
-                }
+        //
+        // `middle::lower` reads a `match`'s tag last thing before the switch,
+        // and only the switch reads it. A merged tail-call group's dispatch
+        // switch is the other kind, and it has a block with no instructions.
+        if let ir::Term::Switch { .. } = &block.term {
+            let k = n - 1;
+            let agg = match block.insts.get(k) {
+                Some(ir::Inst::GetTag { agg, .. }) => Some(*agg),
+                _ => None,
             }
+            .or_ice("a switch with instructions before it reads the tag loaded last");
+            put(&mut p.skip, k, true);
+            p.tagsw = Some(agg);
         }
         p
     }

@@ -1855,6 +1855,11 @@ fn assemble(
                 }
                 continue;
             };
+            // A symbol outside the program is only ever called. `Jit::import`
+            // relocates its branches and nothing else.
+            if let Some(h) = base.holes.iter().find(|h| !h.name.starts_with("JIT_") && !h.pairs.is_empty()) {
+                return Err(format!("{name} ({key}) takes the address of {}", h.name));
+            }
             let mut base = base.clone();
             base.name = key.clone();
             let mut variants: Vec<(String, Stencil)> = vec![(key.clone(), base.clone())];
@@ -1886,7 +1891,10 @@ fn assemble(
                 variants.append(&mut extra);
                 let mut extra = Vec::new();
                 for (k, v) in &variants {
-                    if let Some(t) = fold_addressing(v) {
+                    // `Jit::elidable_at` reads the tail off the unfolded body,
+                    // so a fold that moved it is no twin.
+                    let tail = |s: &Stencil| s.tail.and_then(|i| s.holes.get(i)).map(|h| h.name.clone());
+                    if let Some(t) = fold_addressing(v).filter(|t| tail(t) == tail(v)) {
                         extra.push((format!("{k}+fold"), t));
                     }
                 }
