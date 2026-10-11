@@ -2428,30 +2428,6 @@ impl<'a> Jit<'a> {
                         self.emit("ret", &[]);
                         return;
                     }
-                    if op == "toF64" && fs.params.len() == 1 {
-                        // `F32::toF64` is a widening, not an integer
-                        // conversion, and `F64::toF64` is a copy.
-                        if prim == Prim::F64 {
-                            self.mv(ret0, p(0), 8);
-                            self.emit("ret", &[]);
-                            return;
-                        }
-                        let k = match prim {
-                            Prim::F32 => "cvt/f322f",
-                            Prim::U8 | Prim::U16 | Prim::U32 | Prim::U64 => "cvt/u2f",
-                            _ => "cvt/i2f",
-                        };
-                        self.emit(
-                            k,
-                            &[
-                                ("JIT_A", V::I(p(0) as u64)),
-                                ("JIT_D", V::I(ret0 as u64)),
-                                ("JIT_CONT", V::Fall),
-                            ],
-                        );
-                        self.emit("ret", &[]);
-                        return;
-                    }
                 }
             }
         }
@@ -3884,11 +3860,16 @@ impl Jit<'_> {
 /// slot holds it in.
 ///
 /// The pattern, not the number: `u64::MAX` is not an `i64`, and a slot holds an
-/// integer zero-extended at its own width. `None` for the two 128-bit types,
-/// which do not fit a slot at all.
+/// integer zero-extended at its own width. A float's bounds are its largest
+/// finite magnitude, signed, and an `F32` is its own thirty-two bits.
 fn bound_pattern(prim: Prim, low: bool) -> Option<u128> {
     if prim.is_float() {
-        return bound_bits(prim, low).map(u128::from);
+        return Some(match (prim, low) {
+            (Prim::F32, true) => u128::from((-f32::MAX).to_bits()),
+            (Prim::F32, false) => u128::from(f32::MAX.to_bits()),
+            (_, true) => u128::from(f64::MIN.to_bits()),
+            (_, false) => u128::from(f64::MAX.to_bits()),
+        });
     }
     let (lo, hi) = prim.int_range()?;
     let (_, bits, _) = prim_tag(prim)?;
@@ -3898,28 +3879,6 @@ fn bound_pattern(prim: Prim, low: bool) -> Option<u128> {
     }
     let mask = if bits == 64 { u128::from(u64::MAX) } else { (1u128 << bits) - 1 };
     Some(pattern & mask)
-}
-
-fn bound_bits(prim: Prim, low: bool) -> Option<u64> {
-    if prim.is_float() {
-        // The largest finite magnitude, signed — not the smallest *positive*
-        // one, which is `MIN_POSITIVE`; `Bounded` is about the range. An `F32`
-        // is stored as its own thirty-two bits in the low half of the slot.
-        return Some(match (prim, low) {
-            (Prim::F32, true) => u64::from((-f32::MAX).to_bits()),
-            (Prim::F32, false) => u64::from(f32::MAX.to_bits()),
-            (_, true) => f64::MIN.to_bits(),
-            (_, false) => f64::MAX.to_bits(),
-        });
-    }
-    let (lo, hi) = prim.int_range()?;
-    let (_, bits, _) = prim_tag(prim)?;
-    let pattern = if low { lo as u128 } else { hi };
-    if bits > 64 {
-        return None;
-    }
-    let mask = if bits == 64 { u64::MAX } else { (1u64 << bits) - 1 };
-    Some((pattern as u64) & mask)
 }
 
 
