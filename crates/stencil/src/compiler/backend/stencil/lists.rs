@@ -153,20 +153,12 @@ pub(crate) fn payload_at(l: &Layout, v: usize) -> u32 {
 impl Jit<'_> {
     /// Store variant `v`'s discriminant at `at`, leaving any payload alone.
     ///
-    /// A niche's *empty* variant is a null pointer and its other variant is the
-    /// payload itself, so only one of the two writes anything.
+    /// Every caller builds a `Result`, or an `Option` of a number, and
+    /// `middle/layout.rs` gives a niche only to an `Option` of a pointer, so
+    /// the layout always has a tag.
     pub(crate) fn store_disc(&mut self, l: &Layout, at: u32, v: usize) {
-        match &l.repr {
-            Repr::Enum { repr: EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. }, .. } => {
-                let w = tag.size();
-                self.imm_w(at, w, v as u64);
-            }
-            Repr::Enum { repr: EnumRepr::Niche { null_at }, variants }
-                if variants.get(v).is_some_and(|f| f.is_empty()) =>
-            {
-                self.imm_to(at + null_at, 0);
-            }
-            _ => {}
+        if let Repr::Enum { repr: EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. }, .. } = &l.repr {
+            self.imm_w(at, tag.size(), v as u64);
         }
     }
 }

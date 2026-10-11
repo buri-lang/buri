@@ -1277,16 +1277,18 @@ impl<'a> Jit<'a> {
             // rule, and `runtime_body` hands it the same list from the callee's
             // parameter offsets — so a shape refused here is refused there too,
             // and the refusal is the same sentence.
-            if inline_runtime_key(&key) {
-                if let Some(entry) = super::runtime::entry(&key) {
-                    let list: Vec<(u32, ir::Type)> =
-                        args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
-                    let dest = (st.at(dest), code.ty_of(dest));
-                    if let Err(why) = self.rt_call(prog, st, entry, dest, &list) {
-                        self.unsupported(why);
-                    }
-                    return;
+            //
+            // A key with no row in `runtime.rs`'s table is `str.length`,
+            // `number.<T>.<op>` and the rest, whose bodies `runtime_body`
+            // generates from the signature; those are called.
+            if let Some(entry) = super::runtime::entry(&key) {
+                let list: Vec<(u32, ir::Type)> =
+                    args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
+                let dest = (st.at(dest), code.ty_of(dest));
+                if let Err(why) = self.rt_call(prog, st, entry, dest, &list) {
+                    self.unsupported(why);
                 }
+                return;
             }
         }
         let base = st.frame.size;
@@ -1800,10 +1802,8 @@ impl<'a> Jit<'a> {
         if n == 0 || n > 4 {
             return false;
         }
+        // `sources.rs` builds `movjump/1` to `movjump/4`.
         let key = key!["movjump/", n];
-        if !self.has(&key) {
-            return false;
-        }
         let src = ["JIT_A", "JIT_B", "JIT_C", "JIT_E"];
         let dst = ["JIT_D", "JIT_N", "JIT_P", "JIT_Q"];
         let mut binds: Vec<(&str, V)> = Vec::new();
@@ -1876,7 +1876,7 @@ impl<'a> Jit<'a> {
                     // and no entry's source can be a slot. A slot here would
                     // mean the search above missed a move that was ready, and
                     // emitting the permutation anyway would drop it.
-                    let Some(&(_, f, src)) = pend.first() else { break };
+                    let &(_, f, src) = pend.first().or_ice("the loop runs while `pend` has an entry");
                     let RSrc::Reg(j) = src else {
                         crate::diagnostics::ice(
                             "stencil: an edge's register copies deadlocked on a slot source",
@@ -1919,7 +1919,7 @@ impl<'a> Jit<'a> {
                 None => {
                     // A cycle: break it through a scratch slot. The loop's own
                     // test says there is a first entry to break it at.
-                    let Some(&(_, s, n)) = pending.first() else { break };
+                    let &(_, s, n) = pending.first().or_ice("the loop runs while `pending` has an entry");
                     self.mv(tmp, s, n);
                     for p in pending.iter_mut() {
                         if p.1 == s {
@@ -1955,11 +1955,6 @@ impl<'a> Jit<'a> {
         st: &mut Fn2,
     ) {
         let fs = self.frame_sig_of(fi);
-        // `fi` is a member of the part `Jit::compile_part` is walking, which
-        // `ir::Program::funcs_by_unit` drew from this same table; a function
-        // with no signature returns nothing, which is what the arms below that
-        // read `nrets` already treat as "not the two-operand shape".
-        let nrets = prog.funcs.get(fi).map_or(0, |f| f.sig.rets.len());
         let ret0 = fs.ret.first().copied().unwrap_or(0);
         let p = |i: usize| fs.params.get(i).copied().unwrap_or(0);
 
@@ -2135,7 +2130,8 @@ impl<'a> Jit<'a> {
             }
             let (tag, _, _) = num_tag(prim);
             let binkey = key!["bin/", stencil_op(op), "/", tag, "/ff/f"];
-            if nrets == 1 && self.has(&binkey) && fs.params.len() == 2 {
+            // A number operator answers `Self`, one result.
+            if self.has(&binkey) && fs.params.len() == 2 {
                 self.emit(
                     &binkey,
                     &[
@@ -3501,15 +3497,4 @@ fn open_coded_key(key: &str) -> bool {
             // table row (G5, `glue.rs`'s `Helper::Walk`).
             | "alloc.copyOut"
     )
-}
-
-/// Whether a call to a `Body::Runtime` function is **emitted into its caller**
-/// instead of being made: a key `runtime.rs`'s table has a row for.
-///
-/// A key with no row is `str.length`, `number.<T>.<op>` and the rest, whose
-/// bodies `runtime_body` generates from the signature; those keys reach a
-/// backend only as a method, never as an `Inst::CallIntrinsic`, so there is no
-/// call-site emitter for them to be inlined by.
-fn inline_runtime_key(key: &str) -> bool {
-    super::runtime::entry(key).is_some()
 }
