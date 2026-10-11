@@ -1,0 +1,5 @@
+// EXPECT: expected a pattern, found `@`
+export fn one(): Int {
+  let @ = 1;
+  1
+}

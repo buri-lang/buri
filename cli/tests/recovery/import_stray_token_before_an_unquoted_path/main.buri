@@ -1,0 +1,2 @@
+// EXPECT: expected a string literal, found `@`
+from @ list import { List };

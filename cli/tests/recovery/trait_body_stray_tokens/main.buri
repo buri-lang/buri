@@ -1,0 +1,5 @@
+// EXPECT: expected `fn`, found `@`
+export trait Shape {
+  fn area(self): Int;
+  @@ ;
+}

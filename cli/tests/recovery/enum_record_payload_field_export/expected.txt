@@ -1,0 +1,6 @@
+error [variant-export] 3:12-3:18
+message: a variant carries no `export` of its own; an exported enum exports every one of its variants
+fix: delete the `export`
+edit: 3:12-3:19 ""
+note: the enum is the unit of visibility, so a variant's payload fields carry none either
+

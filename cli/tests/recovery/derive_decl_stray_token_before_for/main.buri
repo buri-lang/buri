@@ -1,0 +1,4 @@
+// EXPECT: expected `for`, found `@`
+export struct Point { x: Int }
+
+derive Equal @ for Point;

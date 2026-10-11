@@ -1,0 +1,10 @@
+// EXPECT: expected `fn`, found `struct`
+export struct Point { x: Int }
+
+impl Point {
+  struct Inner {}
+}
+
+export fn one(): Int {
+  1
+}

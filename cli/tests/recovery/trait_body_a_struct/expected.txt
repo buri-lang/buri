@@ -1,0 +1,4 @@
+error [unexpected-token] 3:3-3:9
+message: expected `fn`, found `struct`
+fix: write `fn` here
+
