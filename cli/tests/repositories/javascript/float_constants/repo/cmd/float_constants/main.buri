@@ -1,8 +1,8 @@
 // Float arithmetic the minifier folds into a constant it then has to print:
 // both infinities, NaN of either sign, a number shortest in exponent form,
 // a remainder by zero, which JavaScript answers and the folder leaves alone,
-// a choice between `-0` and `0`, which are different values, and an integer
-// zero negated, which has no sign to carry into a float.
+// a choice between `-0` and `0`, which are different values but equal ones,
+// and an integer zero negated, which has no sign to carry into a float.
 
 from "core/io" import * as io;
 from "core/number" import * as number;
@@ -31,6 +31,17 @@ fn small(): F64 {
 
 fn remainderByZero(a: F64): F64 {
     a % 0.0
+}
+
+fn bothZeroes(x: F64): Int {
+    if (x == 0.0) { if (x == 0.0.negate()) { 1 } else { 2 } } else { 2 }
+}
+
+fn at(xs: [F64], i: Int): F64 {
+    match (xs.get(i)) {
+        .Some(x) => x,
+        .None => 5.0,
+    }
 }
 
 fn negatedToFloat(xs: [I32]): F64 {
@@ -64,5 +75,9 @@ export fn main(host: NodeHost): Result<(), Str> {
     let _ = io
         .println(ctx, "1 / negatedToFloat([0]) = ${1.0 / negatedToFloat([0])}")
         .ignore();
+    let zeroes = [0.0, 0.0.negate(), 1.0];
+    let _ = io.println(ctx, "bothZeroes(0.0) = ${bothZeroes(at(zeroes, 0))}").ignore();
+    let _ = io.println(ctx, "bothZeroes(-0.0) = ${bothZeroes(at(zeroes, 1))}").ignore();
+    let _ = io.println(ctx, "bothZeroes(1.0) = ${bothZeroes(at(zeroes, 2))}").ignore();
     .Ok(())
 }

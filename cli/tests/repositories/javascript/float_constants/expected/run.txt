@@ -7,3 +7,6 @@ remainderByZero(5.0) = NaN
 1 / signedZero(true) = -inf
 1 / signedZero(false) = inf
 1 / negatedToFloat([0]) = inf
+bothZeroes(0.0) = 1
+bothZeroes(-0.0) = 1
+bothZeroes(1.0) = 2
