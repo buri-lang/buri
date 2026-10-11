@@ -7,43 +7,44 @@ FAIL //lib/s00  test/g.buri  "f4 aborts 1"
 FAIL //lib/s01  test/g.buri  "f0 aborts 0"
   shift out of range
   --> lib/s01/test/g.buri:12:1
-FAIL //lib/s03  test/g.buri  "f3 aborts 0"
-  division by zero
-  --> lib/s03/test/g.buri:33:1
-FAIL //lib/s03  test/g.buri  "f3 aborts 1"
-  division by zero
-  --> lib/s03/test/g.buri:37:1
 FAIL //lib/s06  test/g.buri  "f1 aborts 1"
   division by zero
   --> lib/s06/test/g.buri:19:1
-FAIL //lib/s08  test/g.buri  "f1 aborts 0"
+FAIL //lib/s08  test/g.buri  "f1 aborts 1"
   division by zero
-  --> lib/s08/test/g.buri:17:1
+  --> lib/s08/test/g.buri:15:1
+FAIL //lib/s08  test/g.buri  "f4 aborts 0"
+  shift out of range
+  --> lib/s08/test/g.buri:25:1
 FAIL //lib/t06  test/t.buri  "f1 aborts 0"
   division by zero
   --> lib/t06/test/t.buri:16:1
 FAIL //lib/t06  test/t.buri  "f4 aborts 0"
   division by zero
   --> lib/t06/test/t.buri:39:1
-111 passed, 9 failed, 0 skipped
+FAIL //lib/t08  test/t.buri  "f1 aborts 0"
+  division by zero
+  --> lib/t08/test/t.buri:14:1
+113 passed, 9 failed, 0 skipped
 
 branch coverage
   lib/s00/g.buri    16/18   88.9%
   lib/s01/g.buri    15/18   83.3%
   lib/s02/g.buri    14/22   63.6%
-  lib/s03/g.buri    13/15   86.7%
+  lib/s03/g.buri    16/19   84.2%
   lib/s04/g.buri    19/26   73.1%
   lib/s05/g.buri    12/18   66.7%
   lib/s06/g.buri    19/22   86.4%
   lib/s07/g.buri    16/20   80.0%
-  lib/s08/g.buri    13/24   54.2%
-  lib/s09/g.buri    30/39   76.9%
+  lib/s08/g.buri     9/16   56.2%
+  lib/s09/g.buri    10/14   71.4%
   lib/s10/g.buri     9/11   81.8%
   lib/s11/g.buri    14/16   87.5%
   lib/t01/t.buri      2/2  100.0%
   lib/t04/t.buri      2/2  100.0%
   lib/t05/t.buri      2/2  100.0%
   lib/t06/t.buri      2/2  100.0%
+  lib/t08/t.buri      2/2  100.0%
   lib/t10/t.buri      2/2  100.0%
-  total           200/259   77.2%
+  total           181/232   78.0%
 lcov: .buri/coverage/lcov.info

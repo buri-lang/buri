@@ -1,58 +1,41 @@
-export fn f0(n: Int, flag: Bool): Int {
-    match (n) {
-        0 if flag => 10,
-        1 => 11,
-        2 => 12,
-        k if k > 8 && !flag => 100,
-        _ => 99,
-    }
+from "core/bits" import * as bits;
+
+derive Equal, Ordered, Show for E;
+export enum E {
+    A,
+    B(Int),
+    C(Int, Int),
+}
+
+derive Equal, Show for R;
+export struct R {
+    export f0: Int,
+    export f1: Int,
+    export f2: Int,
+}
+
+export fn f0(n: Int): Int {
+    bits.shiftLeft(1, n)
 }
 
 export fn f1(items: [Int]): Int {
-    items.fold(fn(acc, x) => if (x > 0) { acc + x } else { acc }, 0)
+    items.fold(fn(acc, x) => if (x > 4) { acc + x } else { acc }, 0)
 }
 
-export fn f2(a: Bool, b: Bool, c: Bool): Bool {
-    a && (b || c)
-}
-
-export fn f3(n: Int, acc: Int): Int {
-    if (n == 0) {
-        acc
-    } else {
-        let step = if (n % 5 == 2) { 1 } else { 0 };
-        f3(n - 1, acc + step)
-    }
-}
-
-fn f4check(n: Int): Result<Int, Str> {
+fn f2check(n: Int): Result<Int, Str> {
     if (n < 0) { .Err("negative") } else { .Ok(n) }
 }
 
-export fn f4(a: Int, b: Int): Result<Int, Str> {
-    let x = f4check(a)?;
-    let y = f4check(b)?;
+export fn f2(a: Int, b: Int): Result<Int, Str> {
+    let x = f2check(a)?;
+    let y = f2check(b)?;
     .Ok(x + y)
 }
 
-export fn f5(n: Int, acc: Int): Int {
-    if (n == 0) {
-        acc
-    } else {
-        let step = if (n % 3 == 2) { 1 } else { 0 };
-        f5(n - 1, acc + step)
-    }
+export fn f3(a: Bool, p: R, q: R): Bool {
+    a && p == q
 }
 
-export fn f6(n: Int): Int {
-    if (n == 0) {
-        0
-    } else {
-        let here = if (n % 3 == 1) { 1 } else { 0 };
-        here + f6(n - 1)
-    }
-}
-
-export fn f7(a: Bool, b: Bool, c: Bool): Bool {
+export fn f4(a: Bool, b: Bool, c: Bool): Bool {
     a || b && c
 }

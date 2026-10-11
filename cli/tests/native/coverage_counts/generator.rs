@@ -20,8 +20,9 @@
 //! - an `&&` whose right side is a tail call, which MC/DC leaves to branches;
 //! - derived `Equal`, `Ordered` and `Show` on an enum and a struct holding it,
 //!   and an `&&` ending in a derived `==`;
-//! - `/` and a `core/bits` shift, each aborting a test of its own, and a `/`
-//!   aborting partway through an `&&`.
+//! - `/`, in a function generic over `Divide` or not, and a `core/bits` shift,
+//!   each aborting a test of its own, and a `/` aborting partway through an
+//!   `&&`.
 //!
 //! A third of the packages have a second package beside them whose suite
 //! makes some of the calls, so counts add up across suites.
@@ -998,13 +999,23 @@ fn guarded_divide(rng: &mut Rng, f: &str) -> Shape {
 
 // ---- aborts ----
 
+/// `a / b` at `Int`, or in a function generic over `Divide` called at `Int`.
 fn divide(rng: &mut Rng, f: &str) -> Shape {
-    let decl = vec![format!("export fn {f}(a: Int, b: Int): Int {{"), "    a / b".into(), "}".into()];
+    let generic = rng.bool();
+    let head = if generic { format!("export fn {f}<T: Divide>(a: T, b: T): T {{") } else { format!("export fn {f}(a: Int, b: Int): Int {{") };
+    let decl = vec![head, "    a / b".into(), "}".into()];
     let inputs: Vec<(i64, i64)> = (0..calls(rng)).map(|_| (rng.int(0, 30), rng.int(1, 5))).collect();
     let calls = inputs.iter().map(|&(a, b)| assert(format!("g.{f}({a}, {b})"), a / b)).collect();
     let aborts: Vec<(String, &'static str)> =
         (0..rng.below(3)).map(|_| (assert(format!("g.{f}({}, 0)", rng.int(0, 9)), 0), "division by zero")).collect();
-    trap(decl, calls, aborts, inputs.len() as u64)
+    // A generic one nothing calls is no abort: its `/` is on a `T`.
+    let built = !inputs.is_empty() || !aborts.is_empty();
+    let instance = match (generic, built) {
+        (false, _) => Some(""),
+        (true, true) => Some(" (T = I64)"),
+        (true, false) => None,
+    };
+    trap(decl, calls, aborts, inputs.len() as u64, instance)
 }
 
 fn shift(rng: &mut Rng, f: &str) -> Shape {
@@ -1013,10 +1024,12 @@ fn shift(rng: &mut Rng, f: &str) -> Shape {
     let calls = inputs.iter().map(|&n| assert(format!("g.{f}({n})"), 1i64 << n)).collect();
     let aborts: Vec<(String, &'static str)> =
         (0..rng.below(3)).map(|_| (assert(format!("g.{f}({})", rng.int(-3, -1)), 0), "shift out of range")).collect();
-    trap(decl, calls, aborts, inputs.len() as u64)
+    trap(decl, calls, aborts, inputs.len() as u64, Some(""))
 }
 
-fn trap(decl: Vec<String>, calls: Vec<String>, aborts: Vec<(String, &'static str)>, n: u64) -> Shape {
+/// A one-line function that can abort, called `n` times without and once
+/// more for each abort. Under MC/DC, an abort decision with `suffix`, if any.
+fn trap(decl: Vec<String>, calls: Vec<String>, aborts: Vec<(String, &'static str)>, n: u64, suffix: Option<&'static str>) -> Shape {
     let aborted = aborts.len() as u64;
     Shape {
         decl,
@@ -1025,8 +1038,8 @@ fn trap(decl: Vec<String>, calls: Vec<String>, aborts: Vec<(String, &'static str
         model: Box::new(move |at, mcdc, e| {
             e.line(at, n + aborted);
             e.line(at + 1, n + aborted);
-            if mcdc {
-                e.numbered(at + 1, &[n, aborted], "");
+            if let (true, Some(suffix)) = (mcdc, suffix) {
+                e.numbered(at + 1, &[n, aborted], suffix);
             }
         }),
     }

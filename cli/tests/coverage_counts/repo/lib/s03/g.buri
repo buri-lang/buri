@@ -20,12 +20,18 @@ export fn f2(a: Bool, b: Bool): Bool {
     !a && !b
 }
 
-export fn f3(a: Int, b: Int): Int {
+export fn f3<T: Divide>(a: T, b: T): T {
     a / b
 }
 
-export fn f4(a: Bool, n: Int, d: Int): Bool {
-    a && n / d > 3
+fn f4check(n: Int): Result<Int, Str> {
+    if (n < 0) { .Err("negative") } else { .Ok(n) }
+}
+
+export fn f4(a: Int, b: Int): Result<Int, Str> {
+    let x = f4check(a)?;
+    let y = f4check(b)?;
+    .Ok(x + y)
 }
 
 export fn f5(a: Bool, b: Bool): Bool {
