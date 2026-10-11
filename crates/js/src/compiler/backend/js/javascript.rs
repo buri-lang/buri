@@ -196,7 +196,6 @@ pub enum Expr {
     /// `obj[i]`
     Index { obj: Box<Expr>, index: Box<Expr> },
     Call { callee: Box<Expr>, args: Vec<Expr> },
-    New { callee: Box<Expr>, args: Vec<Expr> },
     Unary { op: UnOp, operand: Box<Expr> },
     Binary { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr> },
     Cond { test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr> },
@@ -266,7 +265,6 @@ impl Expr {
             Expr::Binary { op, .. } => op.prec(),
             // `await` is a unary operator and binds exactly as tightly.
             Expr::Unary { .. } | Expr::Await(_) => 13,
-            Expr::New { .. } => 15,
             Expr::Call { .. } | Expr::Member { .. } | Expr::Index { .. } => 16,
             Expr::Spread(_) => 1,
             // A literal printed as an operator expression binds like one, so
@@ -307,13 +305,13 @@ impl Expr {
         }
     }
 
-    /// Whether evaluating this can be skipped: no call, no assignment, no
-    /// `new`. Projections count as pure because the language has no null and
+    /// Whether evaluating this can be skipped: no call and no assignment.
+    /// Projections count as pure because the language has no null and
     /// no out-of-bounds index, so `x[0]` on a value the backend built cannot
     /// throw.
     pub fn is_pure(&self) -> bool {
         match self {
-            Expr::Call { .. } | Expr::New { .. } | Expr::Assign { .. } => false,
+            Expr::Call { .. } | Expr::Assign { .. } => false,
             // Not for the call it usually wraps, but for the suspension
             // point: skipping one changes when the rest of the function runs.
             Expr::Await(_) => false,
@@ -412,10 +410,6 @@ impl Expr {
                 let callee = rewrite_boxed(callee, |e| r.expr(e));
                 Expr::Call { callee, args: args.into_iter().map(|a| r.expr(a)).collect() }
             }
-            Expr::New { callee, args } => {
-                let callee = rewrite_boxed(callee, |e| r.expr(e));
-                Expr::New { callee, args: args.into_iter().map(|a| r.expr(a)).collect() }
-            }
             Expr::Unary { op, operand } => Expr::Unary { op, operand: go(operand) },
             Expr::Binary { op, lhs, rhs } => {
                 let lhs = go(lhs);
@@ -456,7 +450,7 @@ impl Expr {
                 v.expr(a);
                 v.expr(b);
             }
-            Expr::Call { callee, args } | Expr::New { callee, args } => {
+            Expr::Call { callee, args } => {
                 v.expr(callee);
                 args.iter().for_each(|a| v.expr(a));
             }
@@ -1129,18 +1123,6 @@ impl Printer {
                 }
                 self.out.push(')');
             }
-            Expr::New { callee, args } => {
-                self.out.push_str("new ");
-                self.expr(callee, 16);
-                self.out.push('(');
-                for (i, a) in args.iter().enumerate() {
-                    if i > 0 {
-                        self.out.push(',');
-                    }
-                    self.expr(a, 1);
-                }
-                self.out.push(')');
-            }
             Expr::Unary { op, operand } => {
                 self.out.push_str(op.text());
                 // `- -x` must not print as `--x`.
@@ -1273,9 +1255,10 @@ pub fn number(n: f64) -> String {
         s = format!("-.{rest}");
     }
     // Exponent form when it is shorter, which it is for anything with a long
-    // run of zeroes on either side of the point.
+    // run of zeroes on either side of the point. Both forms are Rust's
+    // shortest spelling that reads back as `n`.
     let exp = format!("{n:e}");
-    if exp.len() < s.len() && exp.parse::<f64>().map(|v| v == n).unwrap_or(false) {
+    if exp.len() < s.len() {
         s = exp;
     }
     s
@@ -3171,7 +3154,7 @@ fn hash_expr<H: std::hash::Hasher>(e: &Expr, h: &mut H) {
             hash_expr(a, h);
             hash_expr(b, h);
         }
-        Expr::Call { callee, args } | Expr::New { callee, args } => {
+        Expr::Call { callee, args } => {
             hash_expr(callee, h);
             hash_exprs(args, h);
         }
@@ -3354,7 +3337,7 @@ pub(crate) fn rename_idents_in_expr(e: &mut Expr, f: &mut dyn FnMut(&mut String)
             rename_idents_in_expr(a, f);
             rename_idents_in_expr(b, f);
         }
-        Expr::Call { callee, args } | Expr::New { callee, args } => {
+        Expr::Call { callee, args } => {
             rename_idents_in_expr(callee, f);
             args.iter_mut().for_each(|a| rename_idents_in_expr(a, f));
         }

@@ -1281,7 +1281,7 @@ fn survey_args(e: &Expr, under_cond: bool, out: &mut ArgUse) {
             survey_args(obj, under_cond, out);
             survey_args(index, under_cond, out);
         }
-        Expr::Call { callee, args } | Expr::New { callee, args } => {
+        Expr::Call { callee, args } => {
             survey_args(callee, under_cond, out);
             args.iter().for_each(|a| survey_args(a, under_cond, out));
         }
@@ -1418,7 +1418,7 @@ fn reads_ident(e: &Expr, name: &str) -> bool {
         Expr::Object(fs) => fs.iter().any(|(_, v)| reads_ident(v, name)),
         Expr::Member { obj, .. } => reads_ident(obj, name),
         Expr::Index { obj, index } => reads_ident(obj, name) || reads_ident(index, name),
-        Expr::Call { callee, args } | Expr::New { callee, args } => {
+        Expr::Call { callee, args } => {
             reads_ident(callee, name) || args.iter().any(|a| reads_ident(a, name))
         }
         Expr::Unary { operand, .. } => reads_ident(operand, name),
@@ -1446,7 +1446,7 @@ fn js_size(e: &Expr) -> usize {
         Expr::Object(fs) => fs.iter().map(|(_, v)| js_size(v)).sum(),
         Expr::Member { obj, .. } => js_size(obj),
         Expr::Index { obj, index } => js_size(obj) + js_size(index),
-        Expr::Call { callee, args } | Expr::New { callee, args } => {
+        Expr::Call { callee, args } => {
             js_size(callee) + args.iter().map(js_size).sum::<usize>()
         }
         Expr::Unary { operand, .. } => js_size(operand),
