@@ -140,9 +140,17 @@ impl<'a, 'b> Infer<'a, 'b> {
             P::Or { alts, .. } => {
                 let mut out = Vec::new();
                 // Entered and left as one value, so a nested or-pattern
-                // restores everything the outer one had.
-                let saved = self.or_scope.replace(OrScope::default());
+                // restores everything the outer one had. It starts from the
+                // outer alternative's bindings, so a name both bind is one
+                // local.
+                let enclosing = self.or_scope.as_ref().map(|s| s.current.clone());
+                let saved = self
+                    .or_scope
+                    .replace(OrScope { first: enclosing, ..OrScope::default() });
                 let mut names: Option<Vec<String>> = None;
+                // Every name some alternative binds, for the enclosing
+                // or-pattern: one mistake in here isn't another out there.
+                let mut joined: Vec<(String, LocalId)> = Vec::new();
                 for alt in alts {
                     // Each alternative starts from the same set, so a name
                     // bound by the first is reused rather than redeclared.
@@ -157,6 +165,14 @@ impl<'a, 'b> Infer<'a, 'b> {
                         .map(|s| (s.current.clone(), s.named.clone()))
                         .unwrap_or_default();
                     these.sort();
+                    these.dedup();
+                    for name in &these {
+                        if let Some(&local) = bound.get(name) {
+                            if !joined.iter().any(|(n, _)| n == name) {
+                                joined.push((name.clone(), local));
+                            }
+                        }
+                    }
                     match &names {
                         None => {
                             names = Some(these);
@@ -198,6 +214,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                     out.push(checked);
                 }
                 self.or_scope = saved;
+                // What the alternatives bind, the enclosing or-pattern's
+                // alternative binds.
+                for (name, local) in joined {
+                    self.record_or_binding(&name, local);
+                    self.name_or_binding(&name);
+                }
                 typed::PatKind::Or(out)
             }
 
