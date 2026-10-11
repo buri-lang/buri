@@ -634,6 +634,14 @@ fn plan(args: &arguments::Args, flags: &arguments::Flags) -> Result<Plan, i32> {
             continue;
         }
         for output in actions::selected_outputs(&session, target, flags) {
+            // The rounds compile without the policy checks a build makes first,
+            // so a target the build refuses is refused here, not called
+            // reproducible.
+            let mut refused = crate::diagnostics::Diagnostics::new();
+            actions::check_policy(&session, target, &output.output_platform(), &mut refused);
+            if session.print(&refused) {
+                return Err(1);
+            }
             let full = actions::artifact_path(&session, target, &output);
             let reported = full.strip_prefix(&session.root).unwrap_or(&full).display().to_string();
             let name = full
