@@ -15,7 +15,7 @@ library {
             "test/http.buri",
             "test/namespaces.buri",
             "test/conditions.buri",
-            "test/empty_types.buri",
+            "test/reachability.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`

@@ -1,0 +1,7 @@
+library {
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/never.buri"]
+    }
+}

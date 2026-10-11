@@ -25,10 +25,3 @@ error: this `match` scrutinee is missing its closing `)` [unclosed-delimiter]
    |           ^ opened here
    |
    = fix: write `)` here
-error: there is nothing named `digit` in scope [unknown-name]
-  --> lib/recovery_insert_stray_paren_app_2b2299/main.buri:34:25
-   |
-34 |         .Some(digit) => digit,
-   |                         ^^^^^
-   |
-   = fix: declare `digit`, or import it — a name is in scope only from this module's own declarations and its imports

@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:19:1
+   |
+19 | enum Chain {
+   | ^^^^
+   |
+  --> main.buri:11:40
+   |
+11 | fn graded(r: Reply, strict: Bool): Int {
+   |                                        ^ opened here
+   |
+   = fix: write `}` here

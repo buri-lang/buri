@@ -1,0 +1,9 @@
+error: expected `enum`, found `Reply` [unexpected-token]
+ --> main.buri:6:1
+  |
+6 | Reply enum {
+  | ^^^^^
+  |
+  = expected: `enum`
+  = actual: `Reply`
+  = fix: write `enum` first: `enum Reply`

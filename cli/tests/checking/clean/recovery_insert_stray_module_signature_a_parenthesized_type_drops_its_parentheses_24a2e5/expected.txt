@@ -1,0 +1,9 @@
+error: expected `(`, found `,` [unexpected-token]
+ --> main.buri:1:11
+  |
+1 | fn grouped, (x: (Int)): Int { x }
+  |           ^
+  |
+  = expected: `(`
+  = actual: `,`
+  = fix: write `(` here

@@ -281,7 +281,7 @@ pub enum EnumRepr {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Repr {
     /// Never passed, never stored, never loaded: `()`, an empty struct, a
-    /// context of zero-sized implementations, an uninhabited enum.
+    /// context of zero-sized implementations.
     Zero,
     Scalar(Scalar),
     /// `{ base, ptr, len }` (VALUE-MODEL.md §3). `base` is null for a literal.
@@ -732,10 +732,7 @@ impl<'a> Layouts<'a> {
         }
 
         let variants = tables.tycon(con).variants().to_vec();
-        if variants.is_empty() {
-            // No variant, so no value: uninhabited types occupy nothing.
-            return Layout::zero();
-        }
+        crate::diagnostics::invariant(!variants.is_empty(), "an enum with no variants is refused before layout");
 
         // Each variant is laid out independently, from the start of the
         // payload area (§6).
@@ -1763,14 +1760,6 @@ mod tests {
             }
             other => panic!("expected a tag, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn an_enum_with_no_variants_is_nothing() {
-        let mut t = tables();
-        let void = add_enum(&mut t, "Void", &[], Vec::new());
-        let mut l = Layouts::new(&t);
-        assert!(l.zero_sized(&con(void)));
     }
 
     #[test]

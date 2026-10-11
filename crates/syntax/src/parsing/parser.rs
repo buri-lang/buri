@@ -2190,7 +2190,7 @@ impl<'a> Parser<'a> {
         }
         let span = start.to(self.prev_span());
         let variants = self.tree.since(at);
-        Ok(EnumDecl { name, generics, variants, exported, span, docs })
+        Ok(EnumDecl { name, generics, variants, exported, span, docs, recovered })
     }
 
     /// One variant: its name, and the payload it carries.

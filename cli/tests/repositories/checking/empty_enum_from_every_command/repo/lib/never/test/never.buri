@@ -1,0 +1,17 @@
+from "core/testing/assert" import * as assert;
+from "//lib/never" import { orZero };
+
+enum Nothing {
+    Something,
+}
+
+fn count(o: Option<Nothing>): Int {
+    match (o) {
+        .None => 0,
+        .Some(_) => 1,
+    }
+}
+
+test "none counts nothing" {
+    assert.equal([orZero(.None), count(.None)], [0, 0]);
+}

@@ -17,11 +17,3 @@ error: this `match` scrutinee is missing its closing `)` [unclosed-delimiter]
    |           ^ opened here
    |
    = fix: write `)` here
-error: there is nothing named `s` in scope [unknown-name]
-  --> main.buri:52:19
-   |
-52 |         .Ok(s) => s,
-   |                   ^
-   |
-   = did you mean `at`?
-   = fix: if you meant `at`, use that; if not, a name is in scope only from this module's own declarations and its imports

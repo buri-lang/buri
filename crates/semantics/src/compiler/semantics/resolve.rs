@@ -291,6 +291,9 @@ pub struct Checker<'a> {
     /// second signature that names one of these gets the error type without a
     /// second diagnostic.
     cyclic_aliases: HashSet<(ModuleId, String)>,
+    /// Every enum refused for having no variants. A type that names one is the
+    /// error type, so that the one mistake is one diagnostic.
+    empty_enums: HashSet<TyConId>,
     /// What `Self` stands for in the declaration being elaborated — a trait,
     /// an effect, or an `impl`, which are the only places it means anything.
     ///
@@ -477,6 +480,7 @@ impl<'a> Checker<'a> {
             resolving: Vec::new(),
             expanding: Vec::new(),
             cyclic_aliases: HashSet::default(),
+            empty_enums: HashSet::default(),
             self_scope: None,
             wanted: Bodies::All,
             ctx_decls_reached: HashSet::default(),
@@ -874,6 +878,16 @@ impl<'a> Checker<'a> {
                     span: d.name.span,
                 });
                 self.declare(module, d.name, Sym::Ty(id), d.exported);
+                // Refused here, before any signature names it, so that every
+                // one that does gets the error type (design/static-rules.md
+                // rule 14). One left empty by a variant that did not read
+                // already has its syntax error.
+                if t.list(d.variants).is_empty() {
+                    self.empty_enums.insert(id);
+                    if !d.recovered {
+                        self.templated("empty-enum", d.span).bind("name", t.name(d.name).to_string());
+                    }
+                }
             }
             tree::Item::Trait(d) => {
                 // `effect` may be declared only by the bundled platform modules
@@ -2189,6 +2203,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 match self.resolve_path(module, path) {
+                    Some(Sym::Ty(id)) if self.empty_enums.contains(&id) => Ty::ERROR,
                     Some(Sym::Ty(id)) => {
                         let arity = self.tables.tycon(id).arity();
                         if elaborated_args.len() != arity {

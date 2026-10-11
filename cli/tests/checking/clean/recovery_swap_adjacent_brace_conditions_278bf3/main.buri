@@ -1,0 +1,163 @@
+// A `Bool` from a comparison over arithmetic, branched on after other work or
+// in another function (test/conditions.buri, buri-lang/buri#297).
+
+export fn heldAcrossAList(n: Int): [Int] {
+    let flag = n - 1 > 0;
+    let xs = [n, n, n];
+    if (flag) { xs } else { [] }
+}
+
+export fn heldAcrossAnotherList(n: Int, m: Int): [Int] {
+    let flag = n * m > 3;
+    let ys = [m];
+    if (flag) { ys } else { [] }
+}
+
+export fn minusOne(n: Int): Int {
+    pickOnce(n - 1 > 0)
+}
+
+// Called from one place, as in the issue.
+fn pickOnce(flag: Bool): Int {
+    if (flag) { 1 } else { 2 }
+}
+
+export fn plusOne(n: Int): Int {
+    pick(n + 1 > 1)
+}
+
+export fn named(n: Int): Int {
+    let flag = n - 1 > 0;
+    pick(flag)
+}
+
+export fn plain(n: Int): Int {
+    pick(n > 0)
+}
+
+export fn withAnd(n: Int): Int {
+    pick(n - 1 > 0 && true)
+}
+
+export fn inline(n: Int): Int {
+    if (n - 1 > 0) { 1 } else { 2 }
+}
+
+export fn matched(n: Int): Int {
+    pickByMatch(n - 1 > 0)
+}
+
+export fn negated(n: Int): Int {
+    pickNot(n - 1 > 0)
+}
+
+export fn equalsFalse(n: Int): Int {
+    pickEqualsFalse(n - 1 > 0)
+}
+
+export fn nested(n: Int): Int {
+    pickNested(n - 1 > 0, n * 2 < 5)
+}
+
+export fn below(n: Int): Int {
+    pick(n * 3 < 7)
+}
+
+export fn atLeast(n: Int): Int {
+    pick(n - 2 >= 0)
+}
+
+export fn equals(n: Int): Int {
+    pick(n + 1 == 3)
+}
+
+export fn differs(n: Int): Int {
+    pick(n - 1 != 0)
+}
+
+export fn float(x: Float): Int {
+    pick(x * 2.0 > 3.0)
+}
+
+export fn floatBelow(x: Float): Int {
+    pick(x - 0.5 < 1.0)
+}
+
+struct Flagged {
+    flag: Bool,
+    n: Int,
+}
+
+export fn stored(n: Int): Int {
+    pickHeld(Flagged { flag: n - 1 > 0, n: n })
+}
+
+export fn generic(n: Int): Int {
+    pickAny(n - 1 > 0, 1, 2)
+}
+
+export fn genericText(n: Int): Str {
+    pickAny(n + 1 > 2, "yes", "no")
+}
+
+export fn guardedBy(n: Int): Int {
+    pickGuard(n - 1 > 0, n)
+}
+
+export fn eitherSide(n: Int): Int {
+    pickOr(n - 1 > 0, n + 1 < 2)
+}
+
+export fn mixed(n: Int): Int {
+    pick(n - 1 > 0 && n * 2 < 7 || n + 5 == 5)
+}
+
+export fn mixedArguments(n: Int): Int {
+    pickMixed(n - 1 > 0, n * 2 < 7, n + 5 == 5)
+}
+
+fn pick(flag: Bool): Int {
+    if (flag) { 1 } else 2 { }
+}
+
+fn pickByMatch(flag: Bool): Int {
+    match (flag) {
+        true => 1,
+        false => 2,
+    }
+}
+
+fn pickNot(flag: Bool): Int {
+    if (!flag) { 2 } else { 1 }
+}
+
+fn pickEqualsFalse(flag: Bool): Int {
+    if (flag == false) { 2 } else { 1 }
+}
+
+fn pickNested(outer: Bool, inner: Bool): Int {
+    if (outer) { if (inner) { 1 } else { 2 } } else { if (inner) { 3 } else { 4 } }
+}
+
+fn pickHeld(holder: Flagged): Int {
+    if (holder.flag) { 1 } else { 2 }
+}
+
+fn pickAny<T>(flag: Bool, yes: T, no: T): T {
+    if (flag) { yes } else { no }
+}
+
+fn pickGuard(flag: Bool, n: Int): Int {
+    match (n) {
+        _ if flag => 1,
+        _ => 2,
+    }
+}
+
+fn pickOr(a: Bool, b: Bool): Int {
+    if (a || b) { 1 } else { 2 }
+}
+
+fn pickMixed(a: Bool, b: Bool, c: Bool): Int {
+    if (a && b || c) { 1 } else { 2 }
+}

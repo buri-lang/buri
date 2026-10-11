@@ -1,0 +1,9 @@
+error: expected an identifier, found `if` [unexpected-token]
+  --> main.buri:13:10
+   |
+13 |         .if Yes strict => 10,
+   |          ^^
+   |
+   = expected: an identifier
+   = actual: `if`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

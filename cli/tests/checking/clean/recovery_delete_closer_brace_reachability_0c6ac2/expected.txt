@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:40:6
+   |
+40 |     ];
+   |      ^
+   |
+  --> main.buri:36:17
+   |
+36 |     assert.equal([graded(.Yes, true), graded(.Yes, false), graded(.No, true)], [
+   |                 ^ opened here
+   |
+   = fix: write `)` here

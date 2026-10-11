@@ -257,6 +257,9 @@ enum Tree<T> {
 }
 ```
 
+An enum has at least one variant, so every type has a value: `enum Never {}` is
+the `empty-enum` error.
+
 An exported enum exports every variant and payload field; a private one exports
 none. `export` on a variant is the `variant-export` error. To hide a
 representation, use a struct with a private field.

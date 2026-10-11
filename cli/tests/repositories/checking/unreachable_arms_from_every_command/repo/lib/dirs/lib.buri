@@ -3,18 +3,10 @@ export enum Dir {
     Down,
 }
 
-export enum Never {}
-
 export fn speed(d: Dir, fast: Bool): Int {
     match (d) {
         .Up if fast => 2,
         .Up => 1,
         .Down => 0,
-    }
-}
-
-export fn orZero(o: Option<Never>): Int {
-    match (o) {
-        .None => 0,
     }
 }

@@ -1,0 +1,30 @@
+error: an array element ends with `,` [missing-comma]
+  --> main.buri:36:37
+   |
+36 |     assert.equal([graded(.Yes, true)graded ,(.Yes, false), graded(.No, true)], [
+   |                                     ^
+   |
+   = fix: write `,` here
+error: expected `I64`, found `fn(Reply, Bool) => I64` [type-mismatch]
+  --> main.buri:36:37
+   |
+36 |     assert.equal([graded(.Yes, true)graded ,(.Yes, false), graded(.No, true)], [
+   |                                     ^^^^^^ the element type is `I64`
+   |
+   = expected: `I64`
+   = actual: `fn(Reply, Bool) => I64`
+error: expected `I64`, found `(<error>, Bool)` [type-mismatch]
+  --> main.buri:36:45
+   |
+36 |     assert.equal([graded(.Yes, true)graded ,(.Yes, false), graded(.No, true)], [
+   |                                             ^^^^^^^^^^^^^ the element type is `I64`
+   |
+   = expected: `I64`
+   = actual: `(<error>, Bool)`
+error: `.Yes` needs a known expected type [untyped-variant]
+  --> main.buri:36:46
+   |
+36 |     assert.equal([graded(.Yes, true)graded ,(.Yes, false), graded(.No, true)], [
+   |                                              ^^^^
+   |
+   = fix: write the qualified form, as in `Option.Yes(...)`, or annotate what this value is being used as

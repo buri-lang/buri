@@ -1,0 +1,9 @@
+error: expected `:`, found `(` [unexpected-token]
+ --> main.buri:1:13
+  |
+1 | fn f(n: Int)( :) {
+  |             ^
+  |
+  = expected: `:`
+  = actual: `(`
+  = fix: write `:` here

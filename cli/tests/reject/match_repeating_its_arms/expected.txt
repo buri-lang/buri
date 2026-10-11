@@ -26,10 +26,8 @@ error: this arm is unreachable [unreachable-arm]
    = the arms before it already cover everything it matches
    = fix: delete it, or move it above the arm that subsumes it
 
-     An arm is unreachable when the arms before it cover it, or when no value
-     fits it at all, like .Some(_) on an Option<Never>. A guarded arm covers
-     nothing, because its guard may fail. The usual cause is an arm in the wrong
-     place, and a dead arm reads as handled.
+     A guarded arm covers nothing, because its guard may fail. The usual cause
+     is an arm in the wrong place, and a dead arm reads as handled.
 
 error: this arm is unreachable [unreachable-arm]
   --> cmd/match_repeating_its_arms/main.buri:17:5

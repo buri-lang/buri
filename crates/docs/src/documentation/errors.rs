@@ -130,6 +130,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("effect-not-on-backend", "A host offers only what its backend implements", &["build/platforms"]),
     e!("effect-outside-effect-directory", "An effect lives in an effect package", &["build/platforms"]),
     e!("effect-parameter-not-ctx", "An effect-carrying parameter is `self` or `ctx`"),
+    e!("empty-enum", "An enum has a variant", &["language/types"]),
     e!("entry-declaration-imported", "A platform's entry is filled, not called", &["language/effects"]),
     e!("entry-host-mismatch", "An entry takes the host of the platform it is built for", &["build/build-files"]),
     e!("entry-missing-field", "An output's entry names the entry and its function", &["build/build-files"]),

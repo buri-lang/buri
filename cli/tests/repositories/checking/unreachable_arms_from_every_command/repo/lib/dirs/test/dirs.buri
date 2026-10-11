@@ -1,10 +1,6 @@
 from "core/testing/assert" import * as assert;
-from "//lib/dirs" import { orZero, speed };
+from "//lib/dirs" import { speed };
 
 test "an arm after a guarded one runs when the guard fails" {
     assert.equal([speed(.Up, true), speed(.Up, false), speed(.Down, true)], [2, 1, 0]);
-}
-
-test "an option of an empty type is none" {
-    assert.equal(orZero(.None), 0);
 }

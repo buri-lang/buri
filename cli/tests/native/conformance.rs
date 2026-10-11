@@ -581,9 +581,8 @@ const PACKAGES: &[Case] = &[
     // function. The stencil backend once redid the comparison at the branch,
     // from operands that work had overwritten (buri-lang/buri#297).
     included("semantics/conditions.buri"),
-    // A `match` that leaves out a variant holding an empty type, whose switch
-    // has no case for that tag.
-    included("semantics/empty_types.buri"),
+    // An arm after a guarded one, reached when the guard fails.
+    included("semantics/reachability.buri"),
     // `core/cli`, driven end to end through `run` — which means the
     // environment double, two captured streams, and a handler reached through
     // a `fn(C, Arguments)` stored in a struct field. Nothing in it is an
