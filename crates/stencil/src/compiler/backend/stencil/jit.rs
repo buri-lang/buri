@@ -88,22 +88,18 @@ pub enum V {
 
 /// A stencil key, built without allocating ([`key!`]).
 ///
-/// Keys are a few dozen bytes, so the bytes stay inline and a longer one moves
-/// to the heap.
+/// The library's longest name is 31 bytes, its fold and swap suffixes
+/// included, so every key fits inline.
 #[derive(Clone, Default)]
 pub struct Key {
     len: usize,
     inline: [u8; KEY_INLINE],
-    spilled: String,
 }
 
 const KEY_INLINE: usize = 32;
 
 impl Key {
     pub fn as_str(&self) -> &str {
-        if !self.spilled.is_empty() {
-            return &self.spilled;
-        }
         self.inline.get(..self.len).and_then(|b| std::str::from_utf8(b).ok()).unwrap_or_default()
     }
 }
@@ -117,11 +113,9 @@ impl Key {
     fn push_number(&mut self, mut n: u64) {
         let mut digits = [0u8; 20];
         let mut at = digits.len();
-        loop {
+        for d in digits.iter_mut().rev() {
+            *d = b'0' + (n % 10) as u8;
             at -= 1;
-            if let Some(d) = digits.get_mut(at) {
-                *d = b'0' + (n % 10) as u8;
-            }
             n /= 10;
             if n == 0 {
                 break;
@@ -187,17 +181,10 @@ impl KeyPart for u8 {
 
 impl std::fmt::Write for Key {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
-        if self.spilled.is_empty() {
-            let end = self.len + s.len();
-            if let Some(dst) = self.inline.get_mut(self.len..end) {
-                dst.copy_from_slice(s.as_bytes());
-                self.len = end;
-                return Ok(());
-            }
-            let head = self.as_str().to_string();
-            self.spilled = head;
-        }
-        self.spilled.push_str(s);
+        let end = self.len + s.len();
+        let dst = self.inline.get_mut(self.len..end).or_ice("a stencil key fits `KEY_INLINE` bytes");
+        dst.copy_from_slice(s.as_bytes());
+        self.len = end;
         Ok(())
     }
 }
@@ -2717,8 +2704,8 @@ impl<'a> Jit<'a> {
                 if !calls_code(&func) {
                     continue;
                 }
-                let Some(fs) = self.frames.get(func.index()) else { continue };
-                let Some(&off) = fs.ret.first() else { continue };
+                let fs = self.frames.get(func.index()).or_ice("a callee has a frame");
+                let off = *fs.ret.first().or_ice("a signature has one result (middle/ir.rs)");
                 let Some(dr) = read_at(d) else { continue };
                 let mut end = dr.last;
                 if !alone(d, pin) || dr.count != ent(uses, d.index(), 0) || dr.first <= j {
@@ -2757,7 +2744,7 @@ impl<'a> Jit<'a> {
                 if !calls_code(func) {
                     continue;
                 }
-                let Some(fs) = self.frames.get(func.index()) else { continue };
+                let fs = self.frames.get(func.index()).or_ice("a callee has a frame");
                 for (a, off) in args.iter().zip(fs.params.iter()) {
                     let Some(k) = def_at(*a).filter(|k| *k < j) else { continue };
                     let defines = matches!(
@@ -2803,7 +2790,7 @@ impl<'a> Jit<'a> {
         a: ir::ValueId,
         from: u32,
     ) -> bool {
-        let Some(b) = code.blocks.get(bi) else { return false };
+        let b = code.blocks.get(bi).or_ice("a block index is one of its code's");
         for (k, i) in b.insts.iter().enumerate().skip(from as usize + 1) {
             if opnd.inst(bi, k).iter().any(|o| find(uf, o.0) == root) {
                 return false;
@@ -2835,12 +2822,9 @@ impl<'a> Jit<'a> {
         // recursive one and this runs on every function in the program.
         let mut stack = std::mem::take(&mut self.bufs.stack);
         stack.clear();
-        // Block zero is the entry, and a body with no blocks has nothing to
-        // walk from.
-        if let Some(s) = seen.first_mut() {
-            *s = true;
-            stack.push((0, 0));
-        }
+        // Block zero is the entry.
+        put(&mut seen, 0, true);
+        stack.push((0, 0));
         while let Some((b, k)) = stack.pop() {
             // The `k`th successor alone: a switch's block is popped once per
             // case, and listing all of them each time was quadratic in its
@@ -3321,11 +3305,12 @@ impl<'a> Jit<'a> {
                         } else {
                             st.loc(*rhs).tag()
                         };
-                        let (tag, _, _) = super::emit::num_tag(*prim);
-                        let key = key!["brcmp/", op.name(), "/", tag, "/", a, b];
-                        if self.has(&key) {
-                            put(&mut p.skip, k, true);
-                            p.cmpbr = Some((*op, *prim, *lhs, *rhs));
+                        if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
+                            let key = key!["brcmp/", op.name(), "/", tag, "/", a, b];
+                            if self.has(&key) {
+                                put(&mut p.skip, k, true);
+                                p.cmpbr = Some((*op, *prim, *lhs, *rhs));
+                            }
                         }
                     }
                 }
@@ -3359,9 +3344,6 @@ impl Jit<'_> {
     /// absorbs.
     fn incbr(&mut self, code: &ir::Code, st: &Fn2, block: &ir::Block) -> Option<(usize, Incbr)> {
         use crate::compiler::semantics::types::Prim;
-        if !self.has("incbr/lt") {
-            return None;
-        }
         let ir::Term::Jump(t) = &block.term else { return None };
         let header = code.get(t.block);
         let ir::Term::Branch { cond, then, else_ } = &header.term else { return None };
@@ -3519,9 +3501,8 @@ impl Dominance {
                     stack.push((y, 0));
                 }
                 None => {
-                    if let Some(Some((_, end))) = range.get_mut(x) {
-                        *end = clock;
-                    }
+                    let span = ent_mut(range, x).as_mut().or_ice("a visited block has a span");
+                    span.1 = clock;
                 }
             }
         }
