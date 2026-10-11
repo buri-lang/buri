@@ -49,13 +49,14 @@
 // the stencil library holds, read from `abi.rs` — the one file the library
 // builder and this emitter both compile — rather than written down twice.
 use super::abi::{MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
-use super::jit::{Fn2, Jit, V};
+use super::jit::{agg_of, Fn2, Jit, V};
 use super::runtime::{self, Entry, Extra, OptRepr, Ret, BURI_OK};
 use crate::compiler::backend::counts::Op;
 use crate::compiler::backend::intrinsic_keys::step_call;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 use crate::compiler::semantics::types::{self as types, Ty, TyKind};
+use crate::diagnostics::Invariant;
 
 /// Where the C argument area starts inside the scratch words `jit::frame_sigs`
 /// reserves.
@@ -148,9 +149,10 @@ impl Jit<'_> {
         prog: &ir::Program,
         st: &mut Fn2,
         entry: &Entry,
-        dest: Option<(u32, ir::Type)>,
+        dest: (u32, ir::Type),
         args: &[(u32, ir::Type)],
     ) -> Result<(), String> {
+        let (dslot, dty) = dest;
         let mut ints: Vec<Src> = Vec::new();
         let mut floats: Vec<Src> = Vec::new();
         let extra = entry.extra();
@@ -243,7 +245,7 @@ impl Jit<'_> {
             let found = if entry.whole_value {
                 None
             } else {
-                self.element_ty(prog, dest.map(|d| d.1), args)
+                self.element_ty(prog, dty, args)
             };
             let (stride, carried) = match found {
                 Some(elem) => {
@@ -251,12 +253,7 @@ impl Jit<'_> {
                     (stride, Some(elem))
                 }
                 None => {
-                    let bare = by_ref
-                        .and_then(|i| args.get(i).map(|(_, t)| *t))
-                        .or(dest.map(|d| d.1));
-                    let Some(bare) = bare else {
-                        return Err(format!("{}: no element type", entry.key));
-                    };
+                    let bare = by_ref.and_then(|i| args.get(i).map(|(_, t)| *t)).unwrap_or(dty);
                     self.bare_carrier(prog, bare)
                 }
             };
@@ -291,7 +288,7 @@ impl Jit<'_> {
         }
 
         if extra == Extra::Step {
-            self.step_extra(prog, st, entry, dest.map(|d| d.1), args, &mut ints)?;
+            self.step_extra(prog, st, entry, dty, args, &mut ints)?;
         }
 
         if extra == Extra::Compute {
@@ -306,13 +303,12 @@ impl Jit<'_> {
             self.press_extra(prog, st, entry, args, &mut ints)?;
         }
 
-        let dslot = dest.map(|d| d.0).unwrap_or(0);
         // The call reads the frame words it is handed when it runs, and the
         // destination is zeroed before that. A value that dies at this call can
         // share its slot with the destination, so each argument word that
         // overlaps it is read into its own argument word first. Otherwise
         // `xs.replaceAt(…)` handed straight to a tail call read a zeroed list.
-        if let (Some((_, dty)), Ret::Out | Ret::Res | Ret::ResMsg) = (dest, entry.ret) {
+        if matches!(entry.ret, Ret::Out | Ret::Res | Ret::ResMsg) {
             let end = dslot + round8(self.width_of(prog, dty));
             let base = st.scratch + CARG_WORD * 8;
             for (srcs, at) in [(&mut ints, base), (&mut floats, base + MAX_INT as u32 * 8)] {
@@ -332,23 +328,12 @@ impl Jit<'_> {
         }
         let opt = match entry.ret {
             Ret::Sum => {
-                let Some((_, dty)) = dest else {
-                    return Err(format!("{}: no destination", entry.key));
-                };
-                let ir::Type::Agg(id) = dty else {
-                    return Err(format!("{}: an `Option` destination that is not one", entry.key));
-                };
-                let l = self.layout_id_shared(prog, id);
-                let Some(o) = OptRepr::of(&l) else {
-                    return Err(format!("{}: an `Option` destination that is not one", entry.key));
-                };
+                let l = self.layout_id_shared(prog, agg_of(dty));
+                let o = OptRepr::of(&l).or_ice("a `Ret::Sum` row answers an `Option`");
                 ints.push(Src::Addr(dslot + o.payload));
                 Some(o)
             }
             Ret::Out => {
-                let Some((_, dty)) = dest else {
-                    return Err(format!("{}: no destination", entry.key));
-                };
                 let width = self.width_of(prog, dty);
                 // A zero-sized result has no bytes to write, and a parameter
                 // for one is a thing the two sides can disagree about for free.
@@ -384,16 +369,9 @@ impl Jit<'_> {
         // prints would stop keeping its `Result` in registers.
         let res = match entry.ret {
             Ret::Res | Ret::ResMsg => {
-                let Some((_, dty)) = dest else {
-                    return Err(format!("{}: no destination", entry.key));
-                };
-                let ir::Type::Agg(id) = dty else {
-                    return Err(format!("{}: a `Result` destination that is not one", entry.key));
-                };
-                let l = self.layout_id_shared(prog, id);
-                let Some((ok, err, err_ty)) = self.result_shape(prog, dty) else {
-                    return Err(format!("{}: a `Result` destination that is not one", entry.key));
-                };
+                let l = self.layout_id_shared(prog, agg_of(dty));
+                let (ok, err, err_ty) =
+                    self.result_shape(prog, dty).or_ice("a `Ret::Res` row answers a `Result`");
                 let err_l = self.layouts_of(err_ty);
                 let ok_bytes = self.ok_payload_bytes(prog, dty, ok);
                 if !l.variant(ok).is_empty() && ok_bytes > 0 {
@@ -457,22 +435,17 @@ impl Jit<'_> {
             // store below.
             Ret::Sum | Ret::Int(32) | Ret::Res | Ret::ResMsg => "w",
             Ret::Scalar | Ret::Int(_) => {
-                let Some((_, dty)) = dest else {
-                    return Err(format!("{}: no destination", entry.key));
-                };
                 let mut leaves = self.leaves(prog, dty)?;
-                let Some(one) = leaves.pop().filter(|_| leaves.is_empty()) else {
-                    return Err(format!("{}: a result that is not one scalar", entry.key));
-                };
-                scalar_kind(one, dty)
+                let one = leaves.pop().filter(|_| leaves.is_empty());
+                scalar_kind(one.or_ice("a scalar row answers one scalar"), dty)
             }
         };
 
         // A `Tag` whose destination is an aggregate has to land at the tag's
         // own offset and width; one whose destination is a scalar already
         // occupies the whole slot, which is what the `w` shape wrote.
-        let narrow = match (entry.ret, dest) {
-            (Ret::Int(32), Some((_, ir::Type::Agg(id)))) => {
+        let narrow = match (entry.ret, dty) {
+            (Ret::Int(32), ir::Type::Agg(id)) => {
                 let l = self.layout_id_shared(prog, id);
                 match &l.repr {
                     Repr::Enum { repr: EnumRepr::Bare { tag }, .. }
@@ -879,25 +852,20 @@ impl Jit<'_> {
         prog: &ir::Program,
         st: &mut Fn2,
         entry: &Entry,
-        dest: Option<ir::Type>,
+        dest: ir::Type,
         args: &[(u32, ir::Type)],
         ints: &mut Vec<Src>,
     ) -> Result<(), String> {
-        let Some(call) = step_call(entry.key) else {
-            return Err(format!("{}: a step row with no `step_call` row", entry.key));
-        };
-        let Some((fslot, fty)) = args.get(call.func).copied() else {
-            return Err(format!("{}: no step argument", entry.key));
-        };
-        let Some(TyKind::Fn(params, ret)) = source_ty(prog, fty).map(Ty::kind) else {
-            return Err(format!("{}: a step argument that is not a function", entry.key));
-        };
-        let Some(source) = args.iter().find_map(|(_, t)| array_elem(prog, *t)) else {
-            return Err(format!("{}: no source list", entry.key));
-        };
-        let Some(answer) = dest.and_then(|t| array_elem(prog, t)) else {
-            return Err(format!("{}: no result list", entry.key));
-        };
+        let call = step_call(entry.key).or_ice("a step row has a `step_call` row");
+        let (fslot, fty) = *args.get(call.func).or_ice("a step row's call has its step");
+        let (params, ret) = match source_ty(prog, fty).map(Ty::kind) {
+            Some(TyKind::Fn(params, ret)) => Some((params, ret)),
+            _ => None,
+        }
+        .or_ice("a step is a function");
+        let source = args.iter().find_map(|(_, t)| array_elem(prog, *t));
+        let source = source.or_ice("a step row walks a list");
+        let answer = array_elem(prog, dest).or_ice("a step row answers a list");
         let in_stride = self.layouts_of(source).stride.max(1);
         let out_stride = self.layouts_of(answer).stride.max(1);
 
@@ -1234,7 +1202,7 @@ impl Jit<'_> {
     fn element_ty(
         &mut self,
         prog: &ir::Program,
-        dest: Option<ir::Type>,
+        dest: ir::Type,
         args: &[(u32, ir::Type)],
     ) -> Option<Ty> {
         let of = |t: ir::Type| -> Option<Ty> {
@@ -1244,7 +1212,7 @@ impl Jit<'_> {
                 _ => None,
             }
         };
-        dest.and_then(of).or_else(|| args.iter().find_map(|(_, t)| of(*t)))
+        of(dest).or_else(|| args.iter().find_map(|(_, t)| of(*t)))
     }
 
     /// The stride and glue of a row that carries **one whole value** rather
