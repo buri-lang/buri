@@ -1,0 +1,29 @@
+// Pairs of types whose names hash to the same six-digit tag, found by search
+// against the hash. Each pair still gets two functions, so every value below
+// comes back as itself. A change to how tags are made un-pairs them silently.
+from "core/testing/assert" import * as assert;
+
+fn keep<T>(x: T): T {
+    x
+}
+
+// `keep` at these two tuples lands on one six-digit tag.
+test "two instantiations whose tags meet" {
+    let a = keep((1.5, 'a', "s", true, 2.5, 'b', "t"));
+    let b = keep(('c', true, false, true, 'd', 'e', 'f'));
+    assert.equal(a.2, "s");
+    assert.equal(a.4, 2.5);
+    assert.equal(b.0, 'c');
+    assert.equal(b.4, 'd');
+    assert.equal(b.6, 'f')
+}
+
+// Comparing these two tuples derives two functions whose tags meet.
+test "two derived comparisons whose tags meet" {
+    let a = (true, 'a', 'b', 'c', false, 1.5);
+    let b = (7, true, "s", 8, 2.5, false, 9);
+    assert.equal(a == (true, 'a', 'b', 'c', false, 1.5), true);
+    assert.equal(a == (true, 'a', 'b', 'x', false, 1.5), false);
+    assert.equal(b == (7, true, "s", 8, 2.5, false, 9), true);
+    assert.equal(b == (7, true, "s", 8, 2.5, false, 10), false)
+}
