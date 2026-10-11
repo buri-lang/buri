@@ -1336,6 +1336,9 @@ impl<'a> Parser<'a> {
         if self.trial > 0 {
             return Err(Bail);
         }
+        if self.after_an_unterminated_string() {
+            return Err(Bail);
+        }
         let prev = self.prev_span();
         let at = Span::point(prev.file, prev.end as usize);
         if let Some(d) = self.templated("missing-arrow", at) {
