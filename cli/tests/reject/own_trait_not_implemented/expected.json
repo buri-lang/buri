@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Dog` does not implement `Speak`","code":"missing-impl","location":{"file":"cmd/own_trait_not_implemented/main.buri","line":20,"column":11,"endLine":20,"endColumn":31,"text":"  let _ = talk(Dog { age: 3 });"},"fix":"write `impl Speak for Dog { ... }` in that type's own module","notes":[],"related":[]}

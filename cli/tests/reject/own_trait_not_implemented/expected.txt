@@ -1,0 +1,12 @@
+error: `Dog` does not implement `Speak` [missing-impl]
+  --> cmd/own_trait_not_implemented/main.buri:20:11
+   |
+20 |   let _ = talk(Dog { age: 3 });
+   |           ^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write `impl Speak for Dog { ... }` in that type's own module
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+
