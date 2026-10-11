@@ -705,6 +705,11 @@ pub struct Code {
     /// parameters are the function's parameters, and both backends forbid a
     /// branch to their entry block. A loop header is therefore always a second
     /// block (see `lower`'s tail-call loops).
+    ///
+    /// No block branches to itself: a back edge comes from a loop's body,
+    /// which `lower` always opens in a block of its own after the header. And
+    /// the entry reaches every block, because `lower` ends with
+    /// [`Code::retain_reachable`].
     pub blocks: Vec<Block>,
     /// One row per value, by id. A value is defined exactly once, so this is
     /// the one place its type is written down.
