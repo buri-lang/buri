@@ -91,14 +91,6 @@ fn ok<T>(r: Result<T, buri::diagnostics::Diagnostics>) -> T {
     }
 }
 
-/// The diagnostics a call was supposed to produce.
-fn failed<T>(r: Result<T, buri::diagnostics::Diagnostics>) -> buri::diagnostics::Diagnostics {
-    match r {
-        Ok(_) => panic!("the call succeeded where it was supposed to report"),
-        Err(diagnostics) => diagnostics,
-    }
-}
-
 fn cc() -> String {
     std::env::var("CC").unwrap_or_else(|_| "cc".to_string())
 }
@@ -753,21 +745,6 @@ fn force_re_emits_every_unit() {
     assert!(cached[0].1, "an unchanged unit was re-emitted");
     let forced = ok(actions::codegen_units(&cache, &keys, true, emit));
     assert!(!forced[0].1, "--force was served from the cache");
-}
-
-/// A backend that returns no object for a unit the build system asked about is
-/// a toolchain bug, and it is one this layer names rather than one that shows
-/// up as a link error three steps later.
-#[test]
-fn a_missing_object_is_reported_against_its_unit() {
-    let root = workspace("missing");
-    let cache = Cache::open(&root);
-    let keys = keys(&[("lib_answer", "a"), ("main", "b")]);
-    let err = failed(actions::codegen_units(&cache, &keys, false, || {
-        Ok(vec![Emitted { name: "main.o".into(), key: Some(ActionKey::of(b"")), bytes: b"M".to_vec() }])
-    }));
-    let text = format!("{:?}", err.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>());
-    assert!(text.contains("lib_answer"), "the diagnostic does not name the unit: {text}");
 }
 
 // ---------------------------------------------------------------------------

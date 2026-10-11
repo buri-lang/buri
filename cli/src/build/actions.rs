@@ -354,7 +354,8 @@ fn needed_structs(
     use crate::compiler::semantics::resolve::{declared_host, js_structs, own_fn};
     use crate::build::hosted::{Method, Needed};
     let tables = &analysis.checked.tables;
-    let Some(platform) = analysis.loaded.find(module) else { return Vec::new() };
+    // The entry takes the platform's host, so its module is loaded.
+    let platform = analysis.loaded.find(module).or_ice("an output's platform module is loaded");
     let decl = own_fn(&analysis.loaded, &analysis.checked.scopes, module, point);
     let Some(host) = decl.and_then(|d| declared_host(tables, platform, &tables.fn_info(d).params)) else {
         return Vec::new();
@@ -2099,8 +2100,8 @@ fn collect_types(func: &ir::Func, out: &mut Vec<usize>) {
 ///   was thrown away.
 /// - A backend may return more objects than were asked for — the default
 ///   `emit_units` does — because the selection here is by name. It may not
-///   return fewer: a unit that missed and has no object is the internal error
-///   below.
+///   return fewer: a unit that missed and has no object is an internal
+///   error.
 ///
 /// The `Emitted::key` a backend attaches, if it attaches one, is *replaced* by
 /// the one the build system computed. That is not a slight: the cache is the build system's, and
@@ -2172,14 +2173,10 @@ where
     for &i in wanted {
         let (name, key) = keys.get(i).or_ice("a wanted unit is a position in `keys`");
         let object = object_name(name);
-        let Some(unit) = emitted.iter().find(|e| e.name == object || e.name == *name) else {
-            let mut diagnostics = Diagnostics::new();
-            diagnostics.push(Diagnostic::error(
-                Span::NONE,
-                format!("internal error: the backend emitted no object for unit `{name}`"),
-            ));
-            return Err(diagnostics);
-        };
+        let unit = emitted
+            .iter()
+            .find(|e| e.name == object || e.name == *name)
+            .or_ice("a backend emits an object for every unit it is asked for");
         cache.put_checked(key, &unit.bytes);
         *hits.get_mut(i).or_ice("`hits` has a slot per key") = Some(unit.bytes.clone());
         *fresh.get_mut(i).or_ice("`fresh` has a slot per key") = true;
@@ -2478,9 +2475,9 @@ fn objects_named(
     // `test$N` no longer defined ([`test_entry_signature`], buri-lang/buri#175).
     let entry = test_entry_signature(program, &lowered);
     // Every unit's forks read `buri_rt_shared_mask` in a program that can fan
-    // out, so the answer is in every unit's key (buri-lang/buri#243).
-    let shares = backend.forks_read_shared_mask()
-        && crate::compiler::backend::runtime_table::shares_counts(&lowered);
+    // out, on both native backends, so the answer is in every unit's key
+    // (buri-lang/buri#243).
+    let shares = crate::compiler::backend::runtime_table::shares_counts(&lowered);
     let keys: Vec<(String, ActionKey)> = unit_hashes(&lowered, tables)
         .into_iter()
         .enumerate()
@@ -2498,17 +2495,12 @@ fn objects_named(
         })
         .collect();
 
-    // Moved into the emission below, which is the last reader of it: the keys
+    // Handed to the backend for the emission below, its last reader: the keys
     // are computed and `unit_hashes` has already borrowed it.
-    let mut lowered_for_backend = Some(lowered);
+    backend.adopt_lowering(lowered);
     let cache = Cache::open(root);
     let emitted = codegen_units_for(&cache, &keys, flags.force, |wanted| {
         let opts = BackendOptions { profile, target: back_target, unit_prefix: prefix };
-        // Taken once: `codegen_units_for` runs this at most once, and a backend
-        // offered nothing lowers for itself.
-        if let Some(lowered) = lowered_for_backend.take() {
-            backend.adopt_lowering(lowered);
-        }
         // `Units::Only` is a membership test per unit, so a build that wants
         // every unit — a first build, or `--force` — says so rather than
         // scanning a list of every unit once per unit.
