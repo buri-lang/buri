@@ -2,18 +2,20 @@
 //! names open in the editor, a test dependency on a platform, a dependency
 //! cycle, a suite naming a backend twice, a source that stops being UTF-8
 //! between two analyses, a damaged record of a link's unlisted reads, a
-//! runner kept under a fresh `BURI_HOME`, and the generator paths a contract
-//! or a tool nobody declared takes.
+//! runner kept under a fresh `BURI_HOME`, a platform asset read as a schema,
+//! and the generator paths a contract or a tool nobody declared takes.
 use crate::harness::*;
 
-const PLATFORM: &str = "platform {\n    entry {\n        name: \"e\"\n        backend: JS\n    }\n}\n";
+const PLATFORM: &str =
+    "platform {\n    entry {\n        name: \"e\"\n        backend: JS\n    }\n}\n";
 
 const NODE_MAIN: &str =
     "from \"node\" import { NodeHost };\n\nexport fn main(_host: NodeHost): Result<(), Str> {\n    .Ok(())\n}\n";
 
 const ONE: &str = "export fn one(): Int {\n    1\n}\n";
 
-const SUITE: &str = "from \"//lib/a\" import { one };\nfrom \"core/testing/assert\" import * as assert;\n\n\
+const SUITE: &str =
+    "from \"//lib/a\" import { one };\nfrom \"core/testing/assert\" import * as assert;\n\n\
                      test \"one\" {\n    assert.equal(one(), 1);\n}\n";
 
 const INITIALIZE: &str = r#"{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}"#;
@@ -35,7 +37,12 @@ fn session(scratch: &Scratch, lines: &[String]) -> Vec<u8> {
 
 /// `text` as a JSON string, quotes included.
 fn quoted(text: &str) -> String {
-    format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n"))
+    format!(
+        "\"{}\"",
+        text.replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+    )
 }
 
 fn did_open(scratch: &Scratch, rel: &str) -> String {
@@ -54,7 +61,10 @@ fn did_change(scratch: &Scratch, rel: &str) -> String {
 
 /// What the server publishes for a file it has nothing to say about.
 fn nothing_for(scratch: &Scratch, rel: &str) -> String {
-    format!(r#"{{"diagnostics":[],"uri":"file://{}/{rel}"}}"#, scratch.root.display())
+    format!(
+        r#"{{"diagnostics":[],"uri":"file://{}/{rel}"}}"#,
+        scratch.root.display()
+    )
 }
 
 /// The editor asks which rule a file is in by its name first. A `lib.buri`,
@@ -70,7 +80,12 @@ fn an_entry_point_s_name_in_a_package_without_its_rule_is_not_checked() {
     scratch.write("cmd/t/main.buri", NODE_MAIN);
     scratch.write("lib/a/BUILD.buri", "library {\n}\n");
     scratch.write("lib/a/lib.buri", ONE);
-    let wrong = ["cmd/b/lib.buri", "cmd/b/tool.buri", "cmd/t/testing/lib.buri", "lib/a/main.buri"];
+    let wrong = [
+        "cmd/b/lib.buri",
+        "cmd/b/tool.buri",
+        "cmd/t/testing/lib.buri",
+        "lib/a/main.buri",
+    ];
     for rel in wrong {
         scratch.write(rel, "export fn wrong(): Int {\n    \"not an Int\"\n}\n");
     }
@@ -78,7 +93,8 @@ fn an_entry_point_s_name_in_a_package_without_its_rule_is_not_checked() {
     lines.extend(wrong.iter().map(|rel| did_open(&scratch, rel)));
     lines.extend([SHUTDOWN.to_string(), EXIT.to_string()]);
     let run = scratch.run_with_stdin(&["lsp"], &session(&scratch, &lines));
-    run.ok().says("//cmd/t has a testing/ directory and no `testing` block");
+    run.ok()
+        .says("//cmd/t has a testing/ directory and no `testing` block");
     for rel in wrong {
         run.says(&nothing_for(&scratch, rel));
     }
@@ -98,8 +114,15 @@ fn a_test_dependency_on_a_platform_reaches_no_library() {
     );
     scratch.write("lib/a/lib.buri", ONE);
     scratch.write("lib/a/test/a.buri", SUITE);
-    scratch.run(&["test", "//lib/a"]).ok().says("1 passed, 0 failed");
-    scratch.edit("lib/a/BUILD.buri", "library {\n", "library {\n    dependencies: [\"//lib/zz/testing\"]\n");
+    scratch
+        .run(&["test", "//lib/a"])
+        .ok()
+        .says("1 passed, 0 failed");
+    scratch.edit(
+        "lib/a/BUILD.buri",
+        "library {\n",
+        "library {\n    dependencies: [\"//lib/zz/testing\"]\n",
+    );
     scratch
         .run(&["build", "//lib/a"])
         .exits(2)
@@ -132,7 +155,10 @@ fn a_backend_named_twice_runs_the_suite_once() {
     scratch.write("lib/a/BUILD.buri", "library {\n    test {\n        sources: [\"test/a.buri\"]\n        backends: [JS, JS]\n    }\n}\n");
     scratch.write("lib/a/lib.buri", ONE);
     scratch.write("lib/a/test/a.buri", SUITE);
-    scratch.run(&["test", "//lib/a"]).ok().says("1 passed, 0 failed, 0 skipped");
+    scratch
+        .run(&["test", "//lib/a"])
+        .ok()
+        .says("1 passed, 0 failed, 0 skipped");
 }
 
 /// A JSON file a generator lists is checked as it's typed, even when the
@@ -163,7 +189,10 @@ fn a_file_listed_for_an_unknown_tool_is_still_checked_as_it_is_typed() {
 /// `REPO.buri`, even while a tool's contract still asks for it.
 #[test]
 fn the_editor_names_a_language_generated_by_json() {
-    let scratch = Scratch::copy_of("rare-json-generate", &tests_dir().join("repositories/tools/contract_errors/repo"));
+    let scratch = Scratch::copy_of(
+        "rare-json-generate",
+        &tests_dir().join("repositories/tools/contract_errors/repo"),
+    );
     scratch.write(
         "REPO.buri",
         "language {\n    name: \"conf\"\n    extensions: [\".conf\"]\n    check: \"json\"\n    generate: \"json\"\n}\n",
@@ -189,14 +218,23 @@ fn the_editor_names_a_language_generated_by_json() {
 /// reads after is checked against its own `$schema`, which has to be there.
 #[test]
 fn a_file_read_by_json_and_by_a_contract_needs_its_own_schema() {
-    let scratch = Scratch::copy_of("rare-json-then-contract", &tests_dir().join("repositories/tools/contract_errors/repo"));
+    let scratch = Scratch::copy_of(
+        "rare-json-then-contract",
+        &tests_dir().join("repositories/tools/contract_errors/repo"),
+    );
     scratch.write(
         "lib/x/BUILD.buri",
         "library {\n    generators: [\n        { tool: \"json\", inputs: [\"config.json\"] },\n        \
          { tool: \"//tools/a\", inputs: [\"config.json\"] },\n    ]\n}\n",
     );
-    scratch.run(&["build", "//lib/x"]).exits(1).says("this file has no `\"$schema\"` [json-missing-schema]");
-    scratch.write("lib/x/config.json", "{ \"$schema\": \"//schemas/names.schema.json\", \"names\": [\"a\", \"b\"] }\n");
+    scratch
+        .run(&["build", "//lib/x"])
+        .exits(1)
+        .says("this file has no `\"$schema\"` [json-missing-schema]");
+    scratch.write(
+        "lib/x/config.json",
+        "{ \"$schema\": \"//schemas/names.schema.json\", \"names\": [\"a\", \"b\"] }\n",
+    );
     scratch.run(&["build", "//lib/x"]).ok();
 }
 
@@ -224,7 +262,10 @@ fn gen_places_a_file_past_imports_that_reach_nothing() {
         .exits(1)
         .says("+ binary.sources: helper.buri")
         .says("h.buri is reachable from neither `lib.buri` nor `main.buri`");
-    assert_eq!(scratch.read("app/p1/BUILD.buri"), "library {}\n\nbinary {\n    sources: [\"helper.buri\"]\n}\n");
+    assert_eq!(
+        scratch.read("app/p1/BUILD.buri"),
+        "library {}\n\nbinary {\n    sources: [\"helper.buri\"]\n}\n"
+    );
 }
 
 /// A language server the test talks to one message at a time, so a change
@@ -250,12 +291,21 @@ impl Server {
             .expect("the buri binary runs");
         let input = child.stdin.take();
         let output = child.stdout.take().expect("stdout is piped");
-        Server { child, input, output, read: String::new() }
+        Server {
+            child,
+            input,
+            output,
+            read: String::new(),
+        }
     }
 
     fn send(&mut self, scratch: &Scratch, line: &str) {
         use std::io::Write as _;
-        self.input.as_mut().unwrap().write_all(&frame(scratch, line)).unwrap();
+        self.input
+            .as_mut()
+            .unwrap()
+            .write_all(&frame(scratch, line))
+            .unwrap();
     }
 
     /// Reads up to the response to request `id`.
@@ -266,11 +316,20 @@ impl Server {
             let mut header = Vec::new();
             let mut byte = [0u8; 1];
             while !header.ends_with(b"\r\n\r\n") {
-                assert_eq!(self.output.read(&mut byte).unwrap(), 1, "the server stopped before answering {id}");
+                assert_eq!(
+                    self.output.read(&mut byte).unwrap(),
+                    1,
+                    "the server stopped before answering {id}"
+                );
                 header.push(byte[0]);
             }
             let header = String::from_utf8(header).unwrap();
-            let length: usize = header.trim().trim_start_matches("Content-Length:").trim().parse().unwrap();
+            let length: usize = header
+                .trim()
+                .trim_start_matches("Content-Length:")
+                .trim()
+                .parse()
+                .unwrap();
             let mut body = vec![0u8; length];
             self.output.read_exact(&mut body).unwrap();
             let body = String::from_utf8(body).unwrap();
@@ -302,8 +361,14 @@ impl Server {
 #[test]
 fn a_source_that_stops_being_utf_8_between_analyses_is_reported() {
     let scratch = Scratch::repo("rare-not-utf-8");
-    scratch.write("lib/a/BUILD.buri", "library {\n    sources: [\"b.buri\"]\n}\n");
-    scratch.write("lib/a/lib.buri", "from \"//lib/a/b.buri\" import { two };\n\nexport fn one(): Int {\n    two()\n}\n");
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n    sources: [\"b.buri\"]\n}\n",
+    );
+    scratch.write(
+        "lib/a/lib.buri",
+        "from \"//lib/a/b.buri\" import { two };\n\nexport fn one(): Int {\n    two()\n}\n",
+    );
     scratch.write("lib/a/b.buri", "export fn two(): Int {\n    2\n}\n");
     let save = r#"{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/a/lib.buri"}}}"#;
     let symbols = |id: u32| {
@@ -312,18 +377,30 @@ fn a_source_that_stops_being_utf_8_between_analyses_is_reported() {
         )
     };
     let mut server = Server::start(&scratch);
-    for line in [INITIALIZE.to_string(), INITIALIZED.to_string(), did_open(&scratch, "lib/a/lib.buri"), symbols(2)] {
+    for line in [
+        INITIALIZE.to_string(),
+        INITIALIZED.to_string(),
+        did_open(&scratch, "lib/a/lib.buri"),
+        symbols(2),
+    ] {
         server.send(&scratch, &line);
     }
     server.answer(2);
-    std::fs::write(scratch.path("lib/a/b.buri"), b"export fn two(): Int {\n    \xff\n}\n").unwrap();
+    std::fs::write(
+        scratch.path("lib/a/b.buri"),
+        b"export fn two(): Int {\n    \xff\n}\n",
+    )
+    .unwrap();
     for line in [save.to_string(), symbols(3)] {
         server.send(&scratch, &line);
     }
     server.answer(3);
     server.send(&scratch, SHUTDOWN);
     server.send(&scratch, EXIT);
-    server.finish().ok().says("cannot read lib/a/b.buri: stream did not contain valid UTF-8");
+    server
+        .finish()
+        .ok()
+        .says("cannot read lib/a/b.buri: stream did not contain valid UTF-8");
 }
 
 /// A link's record keeps the digest of each module no rule lists. A record
@@ -339,21 +416,39 @@ fn a_damaged_record_of_unlisted_reads_links_again() {
     );
     scratch.write("cmd/b/lib.buri", ONE);
     scratch.run(&["build", "//cmd/b"]).ok();
-    scratch.run(&["build", "--explain", "//cmd/b"]).ok().says("cached link //cmd/b node");
+    scratch
+        .run(&["build", "--explain", "//cmd/b"])
+        .ok()
+        .says("cached link //cmd/b node");
     let mut damaged = 0;
-    for dir in std::fs::read_dir(scratch.path(".buri/cache")).unwrap().flatten() {
-        let Ok(entries) = std::fs::read_dir(dir.path()) else { continue };
+    for dir in std::fs::read_dir(scratch.path(".buri/cache"))
+        .unwrap()
+        .flatten()
+    {
+        let Ok(entries) = std::fs::read_dir(dir.path()) else {
+            continue;
+        };
         for entry in entries.flatten() {
-            let Ok(bytes) = std::fs::read(entry.path()) else { continue };
-            let Some(at) = bytes.windows(15).position(|w| w == b"cmd/b/lib.buri\t") else { continue };
+            let Ok(bytes) = std::fs::read(entry.path()) else {
+                continue;
+            };
+            let Some(at) = bytes.windows(15).position(|w| w == b"cmd/b/lib.buri\t") else {
+                continue;
+            };
             let mut bytes = bytes;
             bytes[at + 14] = b' ';
             std::fs::write(entry.path(), bytes).unwrap();
             damaged += 1;
         }
     }
-    assert_eq!(damaged, 1, "no record of the unlisted read was found to damage");
-    scratch.run(&["build", "--explain", "//cmd/b"]).ok().says("run    link //cmd/b node");
+    assert_eq!(
+        damaged, 1,
+        "no record of the unlisted read was found to damage"
+    );
+    scratch
+        .run(&["build", "--explain", "//cmd/b"])
+        .ok()
+        .says("run    link //cmd/b node");
     scratch.exec_js("cmd/b").ok();
 }
 
@@ -367,21 +462,70 @@ fn a_runner_restored_under_a_fresh_home_is_no_new_executable() {
         return;
     }
     let scratch = Scratch::repo("rare-fresh-home");
-    scratch.write("lib/a/BUILD.buri", "library {\n    test {\n        sources: [\"test/a.buri\"]\n    }\n}\n");
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n    test {\n        sources: [\"test/a.buri\"]\n    }\n}\n",
+    );
     scratch.write("lib/a/lib.buri", ONE);
     scratch.write("lib/a/test/a.buri", SUITE);
     let first = scratch.path(".home-first").display().to_string();
     let second = scratch.path(".home-second").display().to_string();
     scratch
-        .run_with_env(&["test", "//lib/a"], &[("BURI_PROFILE", "1"), ("BURI_HOME", first.as_str())])
+        .run_with_env(
+            &["test", "//lib/a"],
+            &[("BURI_PROFILE", "1"), ("BURI_HOME", first.as_str())],
+        )
         .ok()
         .says("new executables launched 1");
     // A golden is in the verdict's key and not in the build's.
     scratch.write("lib/a/test/__snapshots__/unused.png", "not a picture\n");
     scratch
-        .run_with_env(&["test", "//lib/a"], &[("BURI_PROFILE", "1"), ("BURI_HOME", second.as_str())])
+        .run_with_env(
+            &["test", "//lib/a"],
+            &[("BURI_PROFILE", "1"), ("BURI_HOME", second.as_str())],
+        )
         .ok()
         .says("1 passed, 0 failed")
         .says("suites restored 1")
         .says("new executables launched 0");
+}
+
+/// A binary's generator input can name a schema its platform ships as an
+/// asset. The asset is copied beside the artifacts, and an edit to it reaches
+/// the next build.
+#[test]
+fn a_generator_input_s_schema_can_be_its_platform_s_asset() {
+    let scratch = Scratch::copy_of(
+        "rare-schema-asset",
+        &tests_dir().join("repositories/custom-platforms/platform_rules/repo"),
+    );
+    scratch.edit(
+        "platform/pair/BUILD.buri",
+        "platform {\n",
+        "platform {\n    assets: [\"s.schema.json\"]\n",
+    );
+    scratch.write(
+        "platform/pair/s.schema.json",
+        "{\n    \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n    \"title\": \"S\",\n    \
+         \"type\": \"object\",\n    \"properties\": { \"$schema\": { \"type\": \"string\" }, \"side\": { \"type\": \"integer\" } }\n}\n",
+    );
+    scratch.edit(
+        "cmd/app/BUILD.buri",
+        "binary {\n",
+        "binary {\n    generators: [\n        { tool: \"json\", inputs: [\"d.json\"] },\n    ]\n",
+    );
+    scratch.write(
+        "cmd/app/d.json",
+        "{ \"$schema\": \"//platform/pair/s.schema.json\", \"side\": 2 }\n",
+    );
+    let copied = ".buri/out/platform/pair/cmd/app/s.schema.json";
+    scratch.run(&["build", "//cmd/app"]).ok();
+    assert!(scratch.read(copied).contains("\"title\": \"S\""));
+    scratch.edit(
+        "platform/pair/s.schema.json",
+        "\"title\": \"S\"",
+        "\"title\": \"Side\"",
+    );
+    scratch.run(&["build", "//cmd/app"]).ok();
+    assert!(scratch.read(copied).contains("\"title\": \"Side\""));
 }
