@@ -36,8 +36,9 @@ ui_counter: 40243 bytes artifact, 10637 generated
 ui_signals: 10583 bytes artifact, 6319 generated
 ui_styles: 47062 bytes artifact, 9205 generated
 ui_styles_dynamic: 46130 bytes artifact, 7664 generated
+ui_styles_handed: 50823 bytes artifact, 37696 generated
 ui_theme: 43532 bytes artifact, 12881 generated
 ui_theme_and_computed: 47707 bytes artifact, 7197 generated
 
-total: 434975 bytes artifact, 122671 generated
+total: 485798 bytes artifact, 160367 generated
 largest function: 10692 bytes, ui_animation/$tree_render

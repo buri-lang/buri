@@ -545,3 +545,25 @@ test "a style the compiler cannot follow to a node is a variable" {
         "e 0 class:w-var;--buri-w:21px",
     );
 }
+
+/// A style written once for the whole module.
+let snug: Style = .Width(.Px(24));
+
+test "a module's style a parameter hands a node is its class" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    assert.equal(render(ctx, held(snug)).markup(), "e 0 class:w-24");
+}
+
+test "a style a library function answers is what it holds" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let styles: [Style] = [.Width(.Px(25))];
+    let picked = match (styles.get(0)) {
+        .Some(s) => s,
+        .None => .Width(.Px(26)),
+    };
+    assert.equal(render(ctx, held(picked)).markup(), "e 0 class:w-25");
+}
