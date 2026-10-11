@@ -26,6 +26,20 @@ fn lastOf(acc: Int, xs: [Int]): Int {
     }
 }
 
+fn chosen(n: Int, acc: Int, c: Bool, d: Bool): Int {
+    if (n == 0) {
+        acc
+    } else {
+        let y = if (c) { if (d) { acc + 1 } else { acc + 2 } } else { acc + 3 };
+        chosen(n - 1, y, d, c)
+    }
+}
+
+test "a value nested tests choose goes round the loop" {
+    assert.equal(chosen(3, 0, true, false), 7);
+    assert.equal(chosen(2, 0, true, true), 2);
+}
+
 test "a loop variable nothing reads" {
     assert.equal(ignores(3, 1), 0);
     assert.equal(ignores(0, 1), 0);
