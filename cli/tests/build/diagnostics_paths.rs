@@ -1,6 +1,6 @@
 //! How the toolchain reports, whatever it is reporting about: messages from
 //! an editor in JSON, a source file too big to hold, a mistake on a line too
-//! long to print, and the profile switch.
+//! long to print, a mistake beside an unclosed block, and the profile switch.
 use crate::harness::*;
 
 /// Each message with the `Content-Length` framing the protocol uses.
@@ -35,6 +35,8 @@ fn the_server_reads_every_json_spelling_of_an_id() {
     let scratch = Scratch::repo("diagnostics-json-ids");
     let ids = [
         r#""😀""#,
+        r#""\ud83d\ude00""#,
+        r#""<\ud800\u0041>""#,
         r#""<\ud800x>""#,
         r#""<\ud800\n>""#,
         r#""é\t\/\b\f\r""#,
@@ -55,6 +57,8 @@ fn the_server_reads_every_json_spelling_of_an_id() {
         echoed_ids(&run.stdout),
         [
             "\"😀\"",
+            "\"😀\"",
+            "\"<\u{fffd}A>\"",
             "\"<\u{fffd}x>\"",
             "\"<\u{fffd}\\n>\"",
             "\"é\\t/\\u0008\\u000c\\r\"",
@@ -209,4 +213,18 @@ fn a_literal_s_invisible_character_is_written_as_an_escape() {
     scratch.write("lib/a/lib.buri", "export fn f(): Str {\n    \"café \u{200b}\"\n}\n");
     scratch.run(&["format", "lib/a/lib.buri"]).ok();
     assert_eq!(scratch.read("lib/a/lib.buri"), "export fn f(): Str {\n    \"café \\u{200b}\"\n}\n");
+}
+
+/// A block cut off by a `)` is reported once, as unclosed, and a mistake in
+/// the same function outside that block is still reported.
+#[test]
+fn a_mistake_beside_an_unclosed_block_is_still_reported() {
+    let scratch = Scratch::repo("diagnostics-beside-unclosed");
+    scratch.write("lib/a/BUILD.buri", "library {}\n");
+    scratch.write(
+        "lib/a/lib.buri",
+        "fn id(a: Int): Int {\n    a\n}\n\nexport fn f(): Int {\n    let x: Int = \"s\";\n    let y = id({ 1 );\n    0\n}\n",
+    );
+    let run = scratch.run(&["build", "//lib/a"]);
+    run.exits(1).says("[type-mismatch]").says("lib/a/lib.buri:6:18").says("this block is missing its closing `}`");
 }
