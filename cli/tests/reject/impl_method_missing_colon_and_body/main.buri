@@ -1,0 +1,10 @@
+// EXPECT: expected `:`, found `Int`
+//
+// The method that didn't read is skipped, and the `impl`'s next method is
+// still read.
+struct Box(Int);
+
+impl Box {
+  fn get(self) Int;
+  fn put(self): Int { 2 }
+}

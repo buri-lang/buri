@@ -1,0 +1,1 @@
+{"severity":"error","message":"a derived trait ends with `,`","code":"missing-comma","location":{"file":"cmd/derive_list_missing_a_comma/main.buri","line":4,"column":13,"endLine":4,"endColumn":13,"text":"derive Equal Show for P;"},"fix":"write `,` here","notes":[],"related":[]}

@@ -1,0 +1,9 @@
+error: expected `let`, found `sum` [unexpected-token]
+ --> cmd/binding_name_written_before_let/main.buri:6:3
+  |
+6 |   sum let = 1;
+  |   ^^^
+  |
+  = expected: `let`
+  = actual: `sum`
+  = fix: write `let` first: `let sum`

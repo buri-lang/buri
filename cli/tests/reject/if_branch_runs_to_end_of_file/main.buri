@@ -1,0 +1,6 @@
+// EXPECT: this `if` branch is missing its closing `}`
+//
+// The branch's missing `}` is the whole mistake. The `else` it never reached
+// isn't reported as missing too.
+fn pick(c: Bool): Int {
+  if (c) { 1

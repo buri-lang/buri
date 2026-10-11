@@ -1,0 +1,6 @@
+// EXPECT: expected an identifier, found `,`
+enum Shape {
+  ,
+  Circle
+
+fn f(): Int { 1 }

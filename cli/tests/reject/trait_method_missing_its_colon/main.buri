@@ -1,0 +1,8 @@
+// EXPECT: expected `:`, found `Int`
+//
+// The method that didn't read is skipped, and the trait's next method is
+// still read.
+trait Shape {
+  fn area(self) Int;
+  fn sides(self): Int;
+}

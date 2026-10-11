@@ -1,0 +1,10 @@
+// EXPECT: `(Int, Int)` has no field `first`
+//
+// A tuple's elements are read by position, as `pair.0`.
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let pair = (1, 2);
+  let _ = pair.first;
+  .Ok(())
+}

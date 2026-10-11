@@ -1,0 +1,5 @@
+// EXPECT: a character literal holds exactly one Unicode scalar value
+//
+// The file ends inside the literal, with no closing quote to skip to.
+fn f(): Char {
+  'abc

@@ -1,0 +1,29 @@
+error: this tuple-struct field list is missing its closing `)` [unclosed-delimiter]
+ --> cmd/tuple_struct_field_list_cut_by_a_semicolon/main.buri:5:16
+  |
+5 | struct Pair(Int; Str);
+  |                ^
+  |
+ --> cmd/tuple_struct_field_list_cut_by_a_semicolon/main.buri:5:12
+  |
+5 | struct Pair(Int; Str);
+  |            ^ opened here
+  |
+  = fix: write `)` here
+
+    An unclosed construct claims the next closer it meets, and every error after
+    that would be about the miscount. Naming the opener stops that cascade.
+
+    Where an unclosed block ends is the parser's guess, so this is the only
+    error you get about it. The editor still completes and hovers the names
+    bound inside, but nothing else in it is reported until you close it.
+
+error: expected a declaration, found `Str` [unexpected-token]
+ --> cmd/tuple_struct_field_list_cut_by_a_semicolon/main.buri:5:18
+  |
+5 | struct Pair(Int; Str);
+  |                  ^^^
+  |
+  = expected: a declaration
+  = actual: `Str`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

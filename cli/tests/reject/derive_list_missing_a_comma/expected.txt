@@ -1,0 +1,14 @@
+error: a derived trait ends with `,` [missing-comma]
+ --> cmd/derive_list_missing_a_comma/main.buri:4:13
+  |
+4 | derive Equal Show for P;
+  |             ^
+  |
+  = fix: write `,` here
+
+    An editor's quick fix and buri lint --fix both write the , for you.
+
+    Every comma-separated list works the same way, even when an element ends in
+    a brace: a match arm whose body is a block still ends with ,. Without it, A
+    => x followed by -1 => y reads as x - 1 (design/grammar-rationale.md 12.12).
+
