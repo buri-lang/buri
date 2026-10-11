@@ -1177,7 +1177,7 @@ fn run_contracts(session: &Session, target: TargetId, flags: &Flags, overlay: &O
                         outcome.generated_reads.extend(x.asked);
                         let mut problems: Vec<(Diagnostic, Span)> =
                             response.diagnostics.into_iter().map(|d| (d, a.type_schema.span)).collect();
-                        problems.extend(x.outside.iter().map(|p| (not_local(p), a.type_schema.span)));
+                        problems.extend(x.outside.iter().map(|p| (needed_outside(p), a.type_schema.span)));
                         match (response.modules.into_iter().next(), problems.is_empty()) {
                             (Some(mut module), true) => {
                                 module.name = a.language.value.clone();
@@ -1216,6 +1216,12 @@ fn not_local(path: &str) -> Diagnostic {
         fix: Some("check the schema in, and name it by a path relative to the tool or a `//` path".to_string()),
         origin: None,
     }
+}
+
+/// A path a tool `needs` that isn't in this repository, in its page's words.
+fn needed_outside(path: &str) -> Diagnostic {
+    let said = crate::diagnostics::Diagnostic::templated("needs-outside-repository", Span::default()).with_bind("path", path);
+    Diagnostic { code: said.code.unwrap_or_default(), message: said.message, note: said.notes.into_iter().next(), fix: said.fix, origin: None }
 }
 
 /// A module the `json` tool generated, under `name`.
@@ -1550,15 +1556,7 @@ fn answer(
     let answer = tools::exchange(session, &ask, read, flags)?;
     let mut response = Response::from_value(&answer.value)
         .map_err(|e| format!("the tool's answer is not one `generate` gives: {e}"))?;
-    for path in answer.outside {
-        response.diagnostics.push(Diagnostic {
-            code: "schema-outside-repository".to_string(),
-            message: format!("`{path}` is not in this repository"),
-            note: None,
-            fix: Some("check the file in, and name it by its repository path".to_string()),
-            origin: None,
-        });
-    }
+    response.diagnostics.extend(answer.outside.iter().map(|p| needed_outside(p)));
     Ok((response, answer.asked, Vec::new()))
 }
 

@@ -91,7 +91,7 @@ repository `path`, its `language`, and its text as `value`. Under a
 - **`check`** answers `Checked`: diagnostics, and the repository paths it
   `needs`. A needed file, such as a schema, comes back in `files` on the next
   call. A path outside the repository is
-  [`schema-outside-repository`](../errors/schema-outside-repository.md).
+  [`needs-outside-repository`](../errors/needs-outside-repository.md).
 - **`format`** answers a `core/format` `Doc`, laid out at the same margin and
   indent as `.buri` files. A file the tool can't read gets diagnostics and no
   doc, and stays as it is.
