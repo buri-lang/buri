@@ -4,7 +4,8 @@
     "type": "object",
     "properties": {
         "$schema": { "type": "string" },
-        "tables": { "type": "array", "items": { "$ref": "#/$defs/Table" } }
+        "tables": { "type": "array", "items": { "$ref": "#/$defs/Table" } },
+        "meta": { "type": "object", "properties": {} }
     },
     "required": ["tables"],
     "additionalProperties": false,

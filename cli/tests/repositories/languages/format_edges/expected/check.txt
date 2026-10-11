@@ -1,0 +1,4 @@
+lib/fmt/bad_list.txtpb: does not parse, and was left exactly as it is
+lib/fmt/bad_name.txtpb: does not parse, and was left exactly as it is
+lib/fmt/unclosed.proto: does not parse, and was left exactly as it is
+lib/fmt/unclosed.txtpb: does not parse, and was left exactly as it is

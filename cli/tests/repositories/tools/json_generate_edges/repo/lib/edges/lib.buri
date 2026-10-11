@@ -1,0 +1,3 @@
+from "//lib/edges/edges.json" export { edges };
+
+from "//lib/edges/edges.schema.json" export { V3d };

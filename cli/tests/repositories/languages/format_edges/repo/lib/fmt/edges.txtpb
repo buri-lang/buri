@@ -1,0 +1,27 @@
+﻿# proto-file: edges.proto
+# proto-message: Edges
+name # a comment between the name and its value
+  : "a" 'b'
+  "c"
+ratio: .5 big: 1e+5 hex: 0x1F small: 1.5f low: -inf
+[edges.v1.ext]: 1
+[type.googleapis.com/edges.v1.Any] { a: 1 }
+empty {}
+opened { # what it is
+}
+angle < a: 1 >
+none: []
+noted: [ # what it is
+]
+closing: [1, 2 # after the last
+]
+before: [
+  # before the first
+  1,
+  2, # after the second
+]
+plain: [{ a: 1 }, { b: 2 }, {}]
+rich: [{ a: 1 # why
+}, { m { a: 1 } }, { # opened
+  a: 1 }]
+done: true # The end, with no line break.

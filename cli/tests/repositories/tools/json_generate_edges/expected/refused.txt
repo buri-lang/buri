@@ -1,0 +1,108 @@
+error: `properties` has no Buri type [json-untyped-keyword]
+  --> lib/edges/edges.schema.json:38:76
+   |
+38 | …l": { "type": "string" }, "dup-name": { "type": "string" }, "dup_name": { "type": "string" }, "mixed": { "enum": ["a", 1] }, "same": { "enum": ["a-b", "a_b"] }, "tags": { "oneOf": [{ "properties": { "k": { "const": "x-y" } }, "required": ["…
+   |                                                              ^^^^^^^^^^
+   |
+   = `dup-name` and `dup_name` are both the field `dupName`
+   = fix: describe the value with a construct that has a type
+
+       { "if": { "required": ["port"] }, "then": { "required": ["host"] } }
+
+     A schema that generates types, for a contract or a generators entry, can't
+     use keywords that change a value's shape in a way no one type follows.
+     Value keywords such as pattern, minimum and format are fine; they stay
+     checks. These are refused:
+
+     - if, then and else;
+     - allOf, and an anyOf that is not one type or null;
+     - a oneOf whose branches no const string tells apart;
+     - patternProperties and dependentSchemas;
+     - additionalProperties holding a schema beside properties;
+     - unevaluatedProperties and unevaluatedItems holding a schema;
+     - prefixItems and $dynamicRef;
+     - an enum of anything but strings, and a type of several types.
+
+     buri docs guides/json has the whole mapping.
+
+error: `enum` has no Buri type [json-untyped-keyword]
+  --> lib/edges/edges.schema.json:38:121
+   |
+38 | …": "string" }, "dup_name": { "type": "string" }, "mixed": { "enum": ["a", 1] }, "same": { "enum": ["a-b", "a_b"] }, "tags": { "oneOf": [{ "properties": { "k": { "const": "x-y" } }, "required": ["k"] }, { "properties": { "k": { "const": "x_y…
+   |                                                              ^^^^^^
+   |
+   = only an `enum` of strings is a Buri enum
+   = fix: describe the value with a construct that has a type
+error: `enum` has no Buri type [json-untyped-keyword]
+  --> lib/edges/edges.schema.json:38:159
+   |
+38 | …string" }, "mixed": { "enum": ["a", 1] }, "same": { "enum": ["a-b", "a_b"] }, "tags": { "oneOf": [{ "properties": { "k": { "const": "x-y" } }, "required": ["k"] }, { "properties": { "k": { "const": "x_y" } }, "required": ["k"] }] }, "untagg…
+   |                                                              ^^^^^^^^^^^^^^
+   |
+   = two values are both the variant `AB`
+   = fix: describe the value with a construct that has a type
+error: `oneOf` has no Buri type [json-untyped-keyword]
+  --> lib/edges/edges.schema.json:38:185
+   |
+38 | …m": ["a", 1] }, "same": { "enum": ["a-b", "a_b"] }, "tags": { "oneOf": [{ "properties": { "k": { "const": "x-y" } }, "required": ["k"] }, { "properties": { "k": { "const": "x_y" } }, "required": ["k"] }] }, "untagged": { "oneOf": [{ "proper…
+   |                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = two branches are both the variant `XY`
+   = fix: describe the value with a construct that has a type
+error: `oneOf` has no Buri type [json-untyped-keyword]
+  --> lib/edges/edges.schema.json:38:346
+   |
+38 | …{ "const": "x_y" } }, "required": ["k"] }] }, "untagged": { "oneOf": [{ "properties": { "k": { "const": "a" } }, "required": ["k"] }, { "properties": { "k": { "const": "a" } }, "required": ["k"] }] }, "three": { "anyOf": [{ "type": "string"…
+   |                                                              ^^^^^^^
+   |
+   = a `oneOf` is typed only when every branch is an object with one required property whose `const` string names it
+   = fix: describe the value with a construct that has a type
+error: `anyOf` has no Buri type [json-untyped-keyword]
+  --> lib/edges/edges.schema.json:38:498
+   |
+38 | …"k": { "const": "a" } }, "required": ["k"] }] }, "three": { "anyOf": [{ "type": "string" }, { "type": "null" }, { "type": "integer" }] }, "loop": { "$ref": "#/$defs/x" }, "two": { "type": ["string", "boolean"] }, "half": { "oneOf": [{ "prop…
+   |                                                              ^^^^^^^
+   |
+   = an `anyOf` has no tag saying which branch a value is
+   = fix: describe the value with a construct that has a type
+error: `type` has no Buri type [json-untyped-keyword]
+  --> lib/edges/edges.schema.json:38:618
+   |
+38 | …: "integer" }] }, "loop": { "$ref": "#/$defs/x" }, "two": { "type": ["string", "boolean"] }, "half": { "oneOf": [{ "properties": { "k": { "const": "a" } }, "required": ["k"] }, { "properties": { "k": { "const": "b" } } }] },
+   |                                                              ^^^^^^
+   |
+   = a value of several types has no one Buri type
+   = fix: describe the value with a construct that has a type
+error: `oneOf` has no Buri type [json-untyped-keyword]
+  --> lib/edges/edges.schema.json:38:661
+   |
+38 | …s/x" }, "two": { "type": ["string", "boolean"] }, "half": { "oneOf": [{ "properties": { "k": { "const": "a" } }, "required": ["k"] }, { "properties": { "k": { "const": "b" } } }] },
+   |                                                              ^^^^^^^
+   |
+   = a `oneOf` is typed only when every branch is an object with one required property whose `const` string names it
+   = fix: describe the value with a construct that has a type
+error: `$ref` has no Buri type [json-untyped-keyword]
+  --> lib/edges/edges.schema.json:67:51
+   |
+67 |     "$defs": { "x": { "$ref": "#/$defs/y" }, "y": { "$ref": "#/$defs/x" },
+   |                                                   ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the references loop without reaching an object
+   = fix: describe the value with a construct that has a type
+error: "//lib/edges/edges.json" names no file (lib/edges/edges.json.buri) [unknown-module]
+ --> lib/edges/lib.buri:1:6
+  |
+1 | from "//lib/edges/edges.json" export { edges };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    There's no search path and no fallback, so a path never has two candidates.
+
+error: "//lib/edges/edges.schema.json" names no file (lib/edges/edges.schema.json.buri) [unknown-module]
+ --> lib/edges/lib.buri:3:6
+  |
+3 | from "//lib/edges/edges.schema.json" export { V3d };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search

@@ -1,0 +1,30 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "json as a generator at its edges: names that start with a digit, are keywords, spell nothing, or are taken; types inferred without `type`, nullable unions, `const` items, empty objects and arrays, and a tagged `oneOf` reached through `$ref`; then each shape with no one Buri type, refused together"
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run.txt"
+}
+
+# Each of these has no one Buri type. The data file does not use them, so it
+# passes its check, and generating is what refuses them.
+edit {
+  file: "lib/edges/edges.schema.json"
+  replace: "\"control\": { \"type\": \"string\" },"
+  with: "\"control\": { \"type\": \"string\" }, \"dup-name\": { \"type\": \"string\" }, \"dup_name\": { \"type\": \"string\" }, \"mixed\": { \"enum\": [\"a\", 1] }, \"same\": { \"enum\": [\"a-b\", \"a_b\"] }, \"tags\": { \"oneOf\": [{ \"properties\": { \"k\": { \"const\": \"x-y\" } }, \"required\": [\"k\"] }, { \"properties\": { \"k\": { \"const\": \"x_y\" } }, \"required\": [\"k\"] }] }, \"untagged\": { \"oneOf\": [{ \"properties\": { \"k\": { \"const\": \"a\" } }, \"required\": [\"k\"] }, { \"properties\": { \"k\": { \"const\": \"a\" } }, \"required\": [\"k\"] }] }, \"three\": { \"anyOf\": [{ \"type\": \"string\" }, { \"type\": \"null\" }, { \"type\": \"integer\" }] }, \"loop\": { \"$ref\": \"#/$defs/x\" }, \"two\": { \"type\": [\"string\", \"boolean\"] }, \"half\": { \"oneOf\": [{ \"properties\": { \"k\": { \"const\": \"a\" } }, \"required\": [\"k\"] }, { \"properties\": { \"k\": { \"const\": \"b\" } } }] },"
+}
+
+edit {
+  file: "lib/edges/edges.schema.json"
+  replace: "\"$defs\": {"
+  with: "\"$defs\": { \"x\": { \"$ref\": \"#/$defs/y\" }, \"y\": { \"$ref\": \"#/$defs/x\" },"
+}
+
+run {
+  args: ["build", "//lib/edges"]
+  exit: 1
+  golden: "refused.txt"
+}

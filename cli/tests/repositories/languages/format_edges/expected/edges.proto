@@ -1,0 +1,47 @@
+edition = "2023";
+
+package edges.v1;
+
+/* A block comment
+ * whose lines start with stars.
+ */
+/* A block comment
+   whose lines do not. */
+message Empty {}
+
+message Opened { // what it is
+}
+
+message Closed {
+    int32 a = 1;
+};
+
+message Options {
+    int32 a = 1 [(my.ext).field = { x: [1, 2], y: "s" }, deprecated = true];
+    int32 b = 2 [
+        deprecated = true // why
+
+    ];
+    int32 c = 3 [
+        deprecated = true // why
+            ,
+        json_name = "see"
+    ];
+    int32 d = 4 // before the options
+        [deprecated = true];
+    int32 /* inline */ e = 5;
+    .edges.v1.Empty f = 6;
+    float g = 7 [default = .5];
+    double h = 8 [default = 1e+5];
+    double i = 9 [default = 1.5e-3];
+    int64 j = 10 [default = 0x1F];
+    string k = 11 [default = 'single \' quoted'];
+    int32 l = 12 [(a.b) = {}];
+    option (ratio) = 1 / 2;
+    option (some.thing).other = { a: 1 };
+}
+
+service Things {
+    rpc Get(Empty) returns (Closed);
+}
+// The end, with no line break.

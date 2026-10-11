@@ -1,0 +1,33 @@
+error: there is no schema at `tools/b/missing.schema.json` [unknown-schema]
+ --> tools/b/BUILD.buri:4:46
+  |
+4 |             { language: "json", type_schema: "missing.schema.json" },
+  |                                              ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the schema, or correct the path
+
+    A relative path is read from the directory of the file that holds it, the
+    way a browser resolves a link. A path starting // is read from the
+    repository root.
+
+error: "//tools/b/json" names no file (tools/b/json.buri) [unknown-module]
+ --> tools/b/tool.buri:6:6
+  |
+6 | from "//tools/b/json" import * as a;
+  |      ^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    There's no search path and no fallback, so a path never has two candidates.
+
+error: there is no type `a.Names` [unknown-type]
+ --> tools/b/tool.buri:8:67
+  |
+8 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<a.Names>): Generated {
+  |                                                                   ^^^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+
+    Types are nominal, with no structural fallback, so a misspelling can't
+    quietly become a different type that happens to fit.
+

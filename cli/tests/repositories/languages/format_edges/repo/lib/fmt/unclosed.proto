@@ -1,0 +1,3 @@
+message A {
+  string s = 1;
+/* never closed

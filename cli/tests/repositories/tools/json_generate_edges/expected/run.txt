@@ -1,0 +1,5 @@
+true t 3 .Some("m") .Some(.High) 2.0
+V3dInferred { a: 1 } [1, 1] .Some([1.5]) .Some([true]) .Some(["w"]) []
+V3dEmpty {} .Some(Str2 { x: .Some("x") }) .Some(Str3 { y: .None }) .Some(V3dClosed { a: .Some("a") }) .Some("a\u0001b")
+true true
+.First(V1st { n: 7 }) [.Bare]
