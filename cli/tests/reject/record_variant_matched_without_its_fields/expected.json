@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Large` has a payload, so the pattern needs one","code":"missing-payload-pattern","location":{"file":"cmd/record_variant_matched_without_its_fields/main.buri","line":10,"column":5,"endLine":10,"endColumn":11,"text":"    .Large => 2,"},"fix":"write `.Large { .. }`, or name each field","notes":[],"related":[]}

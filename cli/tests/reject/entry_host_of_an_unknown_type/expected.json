@@ -1,0 +1,1 @@
+{"severity":"error","message":"there is no type `ServerHost`","code":"unknown-type","location":{"file":"cmd/entry_host_of_an_unknown_type/main.buri","line":5,"column":22,"endLine":5,"endColumn":32,"text":"export fn main(host: ServerHost): Result<(), Str> {"},"fix":"declare it, import it, or correct the spelling","notes":[],"related":[]}

@@ -1,0 +1,1 @@
+{"severity":"error","message":"there is no type `Outcome`","code":"unknown-type","location":{"file":"cmd/entry_answer_of_an_unknown_type/main.buri","line":4,"column":33,"endLine":4,"endColumn":40,"text":"export fn main(host: NodeHost): Outcome {"},"fix":"declare it, import it, or correct the spelling","notes":[],"related":[]}

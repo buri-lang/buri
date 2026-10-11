@@ -1,0 +1,4 @@
+// EXPECT: `main` must take its platform's host, `NodeHost`
+export fn main(host: Option<Int>): Result<(), Str> {
+  .Ok(())
+}

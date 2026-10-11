@@ -1,0 +1,11 @@
+// EXPECT: `x` is bound twice in this pattern
+struct Point {
+  x: Int,
+  y: Int,
+}
+
+fn go(p: Point, q: (Int, Int)): Int {
+  match ((p, q.0)) {
+    (Point { x, y }, x) => x,
+  }
+}

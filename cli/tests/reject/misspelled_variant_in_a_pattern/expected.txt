@@ -1,0 +1,12 @@
+error: `Size` has no variant `Smal` [unknown-variant]
+ --> cmd/misspelled_variant_in_a_pattern/main.buri:9:5
+  |
+9 |     .Smal => 1,
+  |     ^^^^^
+  |
+  = did you mean `.Small`?
+  = fix: if you meant `.Small`, use that; if not, `Size`'s declaration lists its variants
+
+    The fix names a near miss when there is one. Otherwise the diagnostic prints
+    the enum's declaration.
+

@@ -1,0 +1,12 @@
+// EXPECT: write `.Large { .. }`
+enum Size {
+  Small,
+  Large { inches: Int },
+}
+
+fn go(s: Size): Int {
+  match (s) {
+    .Small => 1,
+    .Large => 2,
+  }
+}
