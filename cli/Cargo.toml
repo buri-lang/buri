@@ -83,6 +83,15 @@ alloc-counter = []
 # they run it (design/native/MEMORY.md §8). Off, the runtime holds no trace of it.
 valgrind = []
 
+# Off by default. The places a test drives `buri` from outside: `BURI_HOLD`
+# (`src/hold.rs`) and `BURI_INTERNAL_ERROR_TEST`. Off, neither is compiled and
+# both variables do nothing. The dev-dependency below turns it on for every
+# build of tests, examples and benches, and no other build.
+test-hooks = []
+
+[dev-dependencies]
+buri = { path = ".", features = ["test-hooks"] }
+
 # The panic-free lint set, in the workspace manifest with the reasoning.
 [lints]
 workspace = true

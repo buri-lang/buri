@@ -921,6 +921,10 @@ fn dependencies_stay_behind_the_bar() {
     let mut seen = 0;
     for (package, manifest) in &manifests {
         for (name, line) in declared(manifest) {
+            // `buri` on itself, to turn `test-hooks` on for its own tests.
+            if &name == package && line.contains("path = \".\"") {
+                continue;
+            }
             if line.contains("path = \"../") {
                 assert!(
                     name.starts_with("buri-"),

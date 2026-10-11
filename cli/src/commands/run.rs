@@ -457,6 +457,7 @@ mod stopping {
     unsafe extern "C" {
         fn signal(sig: i32, handler: usize) -> usize;
         fn kill(pid: i32, sig: i32) -> i32;
+        #[cfg(feature = "test-hooks")]
         fn raise(sig: i32) -> i32;
         fn setpgid(pid: i32, pgid: i32) -> i32;
         fn getpgrp() -> i32;
@@ -631,6 +632,7 @@ mod stopping {
             let previous = unsafe { signal(sig, forward as *const () as usize) };
             debug_assert!(previous != SIG_ERR, "SIGHUP, SIGINT and SIGTERM can be caught");
         }
+        #[cfg(feature = "test-hooks")]
         stand_in(&SPAWNING);
         let child = crate::build::spawn::start(command)?;
         // Zero is not a pid this can publish: `kill(0, …)` is every process in
@@ -640,6 +642,7 @@ mod stopping {
         if pid > 0 {
             hand_over(pid);
         }
+        #[cfg(feature = "test-hooks")]
         stand_in(&STARTED);
         Ok(child)
     }
@@ -647,9 +650,12 @@ mod stopping {
     /// Where a test lands a signal before the program exists, and after it does
     /// ([`crate::hold`]). Each byte held is a signal, raised on this thread so
     /// its handler has run before the program is started or waited on.
+    #[cfg(feature = "test-hooks")]
     static SPAWNING: crate::hold::Point = crate::hold::Point::new("spawning");
+    #[cfg(feature = "test-hooks")]
     static STARTED: crate::hold::Point = crate::hold::Point::new("started");
 
+    #[cfg(feature = "test-hooks")]
     fn stand_in(point: &crate::hold::Point) {
         for sig in point.held() {
             // SAFETY: an ordinary `raise` of a signal this process catches.

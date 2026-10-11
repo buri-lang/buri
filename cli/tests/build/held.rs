@@ -37,6 +37,11 @@ impl Held {
         std::fs::write(self.file(point, n), signals).unwrap();
     }
 
+    /// Hands `buri`'s `n`th visit to `point` the text `value`, without waiting.
+    pub fn set(&self, point: &str, n: usize, value: &str) {
+        std::fs::write(self.file(point, n), value).unwrap();
+    }
+
     /// Waits until `buri` is held at `point`'s `n`th visit, runs `between`, and
     /// lets it go on.
     pub fn at(&self, point: &str, n: usize, between: impl FnOnce()) {

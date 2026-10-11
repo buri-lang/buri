@@ -99,6 +99,36 @@ fn a_time_is_spelled_in_the_unit_its_size_calls_for() {
     assert!(total.abs_diff(sum) <= slack, "the suite's time is not its tests' added up:\n{}", indent(&run.stdout));
 }
 
+/// A test's time, set rather than measured, lands at each unit's edge.
+#[test]
+fn a_time_rounds_at_each_units_edge() {
+    for (ns, spelled) in [
+        (412_345_u64, "412 µs"),
+        (1_000_000, "1.0 ms"),
+        (12_450_000, "12.5 ms"),
+        (999_950_000, "1.0 s"),
+        (2_460_000_000, "2.5 s"),
+    ] {
+        let scratch = Scratch::repo(&format!("verbose-edge-{ns}"));
+        scratch.write("lib/edge/BUILD.buri", "library {\n    test {\n        sources: [\"test/edge.buri\"]\n    }\n}\n");
+        scratch.write("lib/edge/lib.buri", "export fn one(): Int {\n    1\n}\n");
+        scratch.write(
+            "lib/edge/test/edge.buri",
+            "from \"core/testing/assert\" import * as assert;\n\
+             from \"//lib/edge\" import { one };\n\
+             \n\
+             test \"one is one\" {\n    assert.equal(one(), 1);\n}\n",
+        );
+        let held = crate::held::Held::new(&format!("verbose-edge-{ns}"));
+        held.set("time", 1, &ns.to_string());
+        let hold = held.dir().to_str().unwrap();
+        let run = scratch.run_with_env(&["test", "//lib/edge", "--verbose"], &[("BURI_HOLD", hold)]);
+        assert_eq!(run.code, 0, "{}", indent(&run.all()));
+        let line = test_line(&run.stdout, "one is one");
+        assert!(line.ends_with(&format!("  {spelled}")), "{ns} ns is not {spelled}:\n{}", indent(&run.stdout));
+    }
+}
+
 /// The lines of a `--verbose` list, without the word `cached`.
 fn listed(stdout: &str) -> Vec<String> {
     stdout

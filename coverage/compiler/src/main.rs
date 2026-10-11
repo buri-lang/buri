@@ -239,7 +239,7 @@ impl Gate {
         let instrumented = self.root.join("target").join("coverage-buri");
         run(self
             .cargo()
-            .args(["build", "-p", "buri", "--bin", "buri", "--features", "backend-llvm"])
+            .args(["build", "-p", "buri", "--bin", "buri", "--features", "backend-llvm,test-hooks"])
             .env("RUSTFLAGS", RUSTFLAGS)
             .env("CARGO_TARGET_DIR", &instrumented)
             // Its build scripts are instrumented too; their profiles go nowhere that counts.

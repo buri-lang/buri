@@ -56,6 +56,7 @@ use std::time::{Duration, SystemTime};
 const SWEEP: Duration = Duration::from_millis(150);
 
 /// Where a test holds the loop before each sweep ([`crate::hold`]).
+#[cfg(feature = "test-hooks")]
 static SWEPT: crate::hold::Point = crate::hold::Point::new("sweep");
 
 // ---------------------------------------------------------------------------
@@ -525,6 +526,7 @@ impl Watch {
     /// or signal between two sweeps rather than racing the timer.
     fn until_sweep(&self) {
         std::thread::sleep(self.interval);
+        #[cfg(feature = "test-hooks")]
         SWEPT.held();
     }
 
