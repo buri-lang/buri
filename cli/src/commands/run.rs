@@ -518,8 +518,9 @@ mod stopping {
     fn remember(sig: i32) -> Option<i32> {
         let asked = sig.saturating_neg();
         // No child yet keeps the signal for [`published`]; a child answers it.
+        #[allow(deprecated, reason = "`try_update`, its new name, is newer than this crate's `rust-version`")]
         let child =
-            STATE.try_update(Ordering::Relaxed, Ordering::Relaxed, |seen| (seen <= 0).then_some(asked)).err()?;
+            STATE.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |seen| (seen <= 0).then_some(asked)).err()?;
         // A terminal's signal has already reached a child in this group, and
         // sending it again is what would kill the drain it started.
         let arrived_already = SHARES_THE_GROUP.load(Ordering::Relaxed) && sig != SIGTERM;
