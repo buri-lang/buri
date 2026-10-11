@@ -1,0 +1,6 @@
+// EXPECT: unterminated string literal
+export fn one(): Int {
+  1
+}
+
+"two
