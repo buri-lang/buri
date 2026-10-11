@@ -94,6 +94,7 @@ mod many_findings;
 mod middle;
 mod monorepo;
 mod profile;
+mod rare_paths;
 mod repositories;
 mod scheduling;
 mod serving;
