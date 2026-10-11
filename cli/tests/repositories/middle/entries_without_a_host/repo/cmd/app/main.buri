@@ -1,5 +1,6 @@
-// Three entries a platform calls with no host first.
-from "//platform/other" import { Named, Tagged };
+// Entries a platform calls with no host first.
+from "core/number" import { RangeError };
+from "//platform/other" import { Named, Tagged, Wrapped };
 
 export fn pick(choice: Option<Int>, fallback: Int): Int {
     match (choice) {
@@ -14,4 +15,16 @@ export fn greet(who: Named, greeting: Str): Str {
 
 export fn tag(tagged: Tagged, extra: Str): Int {
     tagged.tags.length() + extra.length()
+}
+
+export fn total(xs: [Int], extra: Int): Int {
+    xs.fold(fn(a, x) => a + x, extra)
+}
+
+export fn explain(error: RangeError, extra: Str): Str {
+    if (extra.length() > 0) { error.target } else { error.value }
+}
+
+export fn unwrap(wrapped: Wrapped, extra: Str): Str {
+    if (extra.length() > 0) { wrapped.named.name } else { extra }
 }

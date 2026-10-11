@@ -13,4 +13,8 @@ export struct Tagged {
     export tags: [Str],
 }
 
+export struct Wrapped {
+    export named: Named,
+}
+
 export fn start(host: OtherHost): Result<(), Str>;

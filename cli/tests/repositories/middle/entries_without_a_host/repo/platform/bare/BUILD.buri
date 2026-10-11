@@ -16,4 +16,19 @@ platform {
         backend: JS
         js: "tag.mjs"
     }
+    entry {
+        name: "total"
+        backend: JS
+        js: "total.mjs"
+    }
+    entry {
+        name: "explain"
+        backend: JS
+        js: "explain.mjs"
+    }
+    entry {
+        name: "unwrap"
+        backend: JS
+        js: "unwrap.mjs"
+    }
 }

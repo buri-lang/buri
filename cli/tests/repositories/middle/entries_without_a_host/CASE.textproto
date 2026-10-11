@@ -1,7 +1,7 @@
 # A repository platform's entries whose first parameter is no host: an
-# `Option`, and two structs another platform declares. Each builds to a module
-# of its own; `build::middle::an_entry_without_a_host_answers_its_caller` calls
-# them.
+# `Option`, a list, `core/number`'s `RangeError`, and three structs another
+# platform declares. Each builds to a module of its own;
+# `build::middle::an_entry_without_a_host_answers_its_caller` calls them.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
