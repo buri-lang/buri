@@ -601,28 +601,13 @@ impl<'a> Jit<'a> {
         ty: ir::TypeId,
         args: &[ir::ValueId],
     ) {
-        if !matches!(op, ir::StructuralOp::Show) {
-            let name = prog.type_info(ty).name.clone();
-            return self.unsupported(format!("Structural::{op:?} on `{name}`"));
-        }
-        let Some(arg) = args.first().copied() else { return };
+        // `middle::derives` turns every other structural operation into a call.
+        let _ = (code, op);
+        let arg = *args.first().or_ice("a `Structural::Show` has its value");
         let source = prog.type_info(ty).ty;
-        let Some(prim) = self.tables.as_prim(&source) else {
-            let name = prog.type_info(ty).name.clone();
-            return self.unsupported(format!("Structural::Show of a non-primitive `{name}`"));
-        };
+        let prim = self.tables.as_prim(&source).or_ice("a `Structural::Show` left by derives is at a primitive");
         let d = st.at(dest);
         let a = st.at(arg);
-        // A `Str` in a template *is* its own rendering: three words, copied.
-        // No allocation, no call, and no count — `middle::rc` has already
-        // decided who owns the bytes.
-        if matches!(prim, Prim::Str | Prim::Template) {
-            let n = self.width_of(prog, code.ty_of(dest));
-            if n > 0 {
-                self.mv(d, a, n);
-            }
-            return;
-        }
         // `quoted = false`: a `Char` renders as its own bytes.
         self.show_prim(st, prim, a, d, false);
     }
@@ -680,9 +665,8 @@ impl<'a> Jit<'a> {
         owner: &Ty,
         ftys: &[Ty],
     ) {
-        for (i, f) in fields.iter().enumerate() {
+        for (i, (f, o)) in fields.iter().zip(offs.iter().copied()).enumerate() {
             let w = self.width_of(prog, code.ty_of(*f));
-            let Some(o) = offs.get(i).copied() else { continue };
             if ftys.get(i).is_some_and(|t| self.boxes(owner, t)) {
                 self.box_into(st, d + o, st.at(*f), w);
                 continue;
@@ -1179,7 +1163,7 @@ impl<'a> Jit<'a> {
         if matches!(prim, Prim::Str | Prim::Template) {
             return self.str_binary(st, dest, op, lhs, rhs);
         }
-        let (tag, bits, signed) = num_tag(prim);
+        let (tag, _, _) = num_tag(prim);
         let name = op.name();
         let d = st.at(dest);
         let a = st.at(lhs);
@@ -1195,68 +1179,26 @@ impl<'a> Jit<'a> {
         let lb = if folded(st, rhs) { Loc::Imm } else { st.loc(rhs) };
         let ld = st.home(dest);
         let key = key!["bin/", name, "/", tag, "/", la.tag(), lb.tag(), "/", ld.tag()];
-        if self.has(&key) {
-            let k = constant(st, rhs);
-            self.emit(
-                &key,
-                &[
-                    ("JIT_A", V::I(a as u64)),
-                    ("JIT_B", V::I(b as u64)),
-                    ("JIT_D", V::I(d as u64)),
-                    ("JIT_K", V::I(k)),
-                    ("JIT_CONT", V::Fall),
-                    // A 128-bit divide is a *call* — the runtime owns it
-                    // (`sources.rs::wide`) — so its stencil has the
-                    // zero-register prototype and names its continuation
-                    // `JIT_CONT0`. Binding both costs nothing: `emit` looks a
-                    // hole up by name and a stencil that has neither ignores
-                    // the other.
-                    ("JIT_CONT0", V::Fall),
-                ],
-            );
-            return;
-        }
-        // Falling back to the frame-only form is only sound when nothing this
-        // instruction touches lives in a register.
-        // The fallback below widens through `sext`/`zext`, which is only an
-        // integer narrower than a word. A float taking it computed integer
-        // `%` on the bits, so anything else is a library missing a key.
-        if matches!(prim, Prim::F32 | Prim::F64) || bits >= 64 {
-            crate::diagnostics::ice(&format!("stencil: no stencil {key}, and {tag} has no narrow fallback"));
-        }
-        if la != Loc::Frame || lb != Loc::Frame || ld != Loc::Frame {
-            return self.unsupported(format!("Binary {name} at {tag} with no register variant"));
-        }
-        // The Base level has only the 64-bit and float stencils, so a narrow
-        // operation is an extend, a 64-bit operation and a truncate.
-        let (s0, s1, s2) = (st.scratch, st.scratch + 8, st.scratch + 16);
-        let ext = if signed { "sext" } else { "zext" };
+        // `sources.rs` generates every operation at every type and location
+        // the IR can ask for, so the key is always in the library.
+        let k = constant(st, rhs);
         self.emit(
-            &key![ext, "/", bits],
-            &[("JIT_D", V::I(s0 as u64)), ("JIT_A", V::I(a as u64)), ("JIT_CONT", V::Fall)],
-        );
-        self.emit(
-            &key![ext, "/", bits],
-            &[("JIT_D", V::I(s1 as u64)), ("JIT_A", V::I(b as u64)), ("JIT_CONT", V::Fall)],
-        );
-        let wide = if signed { "i64" } else { "u64" };
-        let cmp = op.is_comparison();
-        let out = if cmp { d } else { s2 };
-        self.emit(
-            &key!["bin/", name, "/", wide, "/ff/f"],
+            &key,
             &[
-                ("JIT_A", V::I(s0 as u64)),
-                ("JIT_B", V::I(s1 as u64)),
-                ("JIT_D", V::I(out as u64)),
+                ("JIT_A", V::I(a as u64)),
+                ("JIT_B", V::I(b as u64)),
+                ("JIT_D", V::I(d as u64)),
+                ("JIT_K", V::I(k)),
                 ("JIT_CONT", V::Fall),
+                // A 128-bit divide is a *call* — the runtime owns it
+                // (`sources.rs::wide`) — so its stencil has the
+                // zero-register prototype and names its continuation
+                // `JIT_CONT0`. Binding both costs nothing: `emit` looks a
+                // hole up by name and a stencil that has neither ignores
+                // the other.
+                ("JIT_CONT0", V::Fall),
             ],
         );
-        if !cmp {
-            self.emit(
-                &key!["zext/", bits],
-                &[("JIT_D", V::I(d as u64)), ("JIT_A", V::I(s2 as u64)), ("JIT_CONT", V::Fall)],
-            );
-        }
     }
 
     #[allow(
@@ -1295,9 +1237,6 @@ impl<'a> Jit<'a> {
         let (tag, _, _) = num_tag(prim);
         let name = if op == UnOp::Neg { "neg" } else { "bnot" };
         let key = key!["un/", name, "/", tag, "/", st.loc(arg).tag(), "/", st.home(dest).tag()];
-        if !self.has(&key) && (st.loc(arg) != Loc::Frame || st.home(dest) != Loc::Frame) {
-            return self.unsupported(format!("Unary {name} at {tag} with no register variant"));
-        }
         self.emit(
             &key,
             &[("JIT_A", V::I(a as u64)), ("JIT_D", V::I(d as u64)), ("JIT_CONT", V::Fall)],
@@ -1699,10 +1638,9 @@ impl<'a> Jit<'a> {
                 }
             }
             Term::Return(vs) => {
-                for (i, v) in vs.iter().enumerate() {
-                    let Some(off) = st.frame.ret.get(i).copied() else { continue };
+                for (v, off) in vs.iter().zip(&st.frame.ret) {
                     let n = self.slot_bytes_of(prog, code.ty_of(*v));
-                    self.mv(off, st.at(*v), n);
+                    self.mv(*off, st.at(*v), n);
                 }
                 self.emit("ret", &[]);
             }
@@ -1741,15 +1679,7 @@ impl<'a> Jit<'a> {
 
     /// [`Jit::arm_key`], once for every spelling of a key.
     fn arm_key_of<'k>(&mut self, base: KeyArg<'k>, fall: &str) -> KeyArg<'k> {
-        let Some(at) = self.index_of(base) else {
-            // Not a stencil itself, so it has no twin to find by index.
-            let (KeyArg::Literal(name) | KeyArg::Spelled(name)) = base else { return base };
-            let sw = format!("{name}+swap");
-            return match self.lib.at(&sw) {
-                Some((i, _)) if self.elidable_at(i) == Some(fall) => KeyArg::At(i),
-                _ => base,
-            };
-        };
+        let at = self.index_of(base).or_ice("an arm key names a stencil");
         if self.elidable_at(at) == Some(fall) {
             return KeyArg::At(at);
         }
@@ -1763,9 +1693,7 @@ impl<'a> Jit<'a> {
         // `rtcall.rs` names `br/f` without asking. A library without
         // a branch stencil is broken, so this stops here rather than emitting
         // a fall-through that would run the wrong arm.
-        let Some(key) = self.cond_key(st, cond, plan) else {
-            crate::diagnostics::ice("stencil: the level has no branch stencil")
-        };
+        let key = self.cond_key(st, cond, plan).or_ice("stencil: the level has a branch stencil");
         let key = match fall {
             Some(f) => self.arm_key(&key, f),
             None => KeyArg::from(&key),
@@ -2073,53 +2001,19 @@ impl<'a> Jit<'a> {
             self.emit("ret", &[]);
             return;
         }
-        if key == "testing_assert.report" {
-            let ok = st.label();
-            let brkey = self.arm_key("br/f", "JIT_F");
-            self.emit(
-                brkey,
-                &[("JIT_A", V::I(p(0) as u64)), ("JIT_T", V::Blk(ok)), ("JIT_F", V::Fall)],
-            );
-            let (kp, kl) = self.str_arg(p(1), fs.param_end);
-            self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v");
-            let here = self.region.code_addr();
-            st.place(ok, here);
-            self.emit("ret", &[]);
-            return;
-        }
-        // `failExpected(kind, got)` is the one of this family whose parameters
-        // are **not** all `Str`: `got` is the opaque `T` there was no `Show`
-        // for, and the abort names the kind alone. It cannot join the loop
-        // below, which flattens every parameter as a string.
+        // `failExpected(kind, got)` where `got` has no `Show`: the abort names
+        // the kind alone. Where it has one, `hand_written.rs` writes a body that
+        // reaches `failExpectedShown` as an `Inst::CallIntrinsic`, as `report`'s
+        // reaches `reportShown`.
         if key == "testing_assert.failExpected" {
             let (kp, kl) = self.str_arg(p(0), fs.param_end);
             self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v");
             self.emit("ret", &[]);
             return;
         }
-        if key == "testing_assert.failWith" || key == "testing_assert.failExpectedShown" {
+        if key == "testing_assert.failWith" {
             let (kp, kl) = self.str_arg(p(0), fs.param_end);
-            if key == "testing_assert.failWith" {
-                self.c_call(runtime::ABORT, st, &[kp, kl], &[], 0, "v");
-            } else {
-                let (vp, vl) = self.str_arg(p(1), fs.param_end + 8);
-                self.c_call(runtime::TEST_FAIL_EXPECTED, st, &[kp, kl, vp, vl], &[], 0, "v");
-            }
-            self.emit("ret", &[]);
-            return;
-        }
-        if key == "testing_assert.reportShown" {
-            let (kp, kl) = self.str_arg(p(0), fs.param_end);
-            let (ap, al) = self.str_arg(p(1), fs.param_end + 8);
-            let (ep, el) = self.str_arg(p(2), fs.param_end + 16);
-            self.c_call(
-                runtime::TEST_FAIL_COMPARED,
-                st,
-                &[kp, kl, ap, al, ep, el],
-                &[],
-                0,
-                "v",
-            );
+            self.c_call(runtime::ABORT, st, &[kp, kl], &[], 0, "v");
             self.emit("ret", &[]);
             return;
         }
@@ -2209,17 +2103,12 @@ impl<'a> Jit<'a> {
                 // bound each one checks is the **type's own range** — SPEC
                 // 6.2.2 and VALUE-MODEL.md §12 row 2.
                 if let Some(kind) = op.strip_prefix("checked") {
-                    let ok = self.checked(prog, fi, st, prim, kind, p(0), p(1), ret0);
-                    if !ok {
-                        self.unsupported(format!("Body::Runtime {key}"));
-                    }
+                    self.checked(prog, fi, st, prim, kind, p(0), p(1), ret0);
                     self.emit("ret", &[]);
                     return;
                 }
                 if let Some(kind) = op.strip_prefix("saturating") {
-                    if !self.saturating(st, prim, kind, p(0), p(1), ret0) {
-                        self.unsupported(format!("Body::Runtime {key}"));
-                    }
+                    self.saturating(st, prim, kind, p(0), p(1), ret0);
                     self.emit("ret", &[]);
                     return;
                 }
@@ -2227,16 +2116,12 @@ impl<'a> Jit<'a> {
                 // the operand's own width is what an `i8` addition already
                 // does, and a frame slot holds the answer re-truncated.
                 if let Some(kind) = op.strip_prefix("wrapping") {
-                    if !self.wrapping(st, prim, kind, p(0), p(1), ret0) {
-                        self.unsupported(format!("Body::Runtime {key}"));
-                    }
+                    self.wrapping(prim, kind, p(0), p(1), ret0);
                     self.emit("ret", &[]);
                     return;
                 }
                 if matches!(op, "abs" | "signum") {
-                    if !self.abs_signum(st, prim, op == "abs", p(0), ret0) {
-                        self.unsupported(format!("Body::Runtime {key}"));
-                    }
+                    self.abs_signum(st, prim, op == "abs", p(0), ret0);
                     self.emit("ret", &[]);
                     return;
                 }
@@ -2284,13 +2169,6 @@ impl<'a> Jit<'a> {
             }
         }
         if self.runtime_intrinsic(prog, fi, &key, fs, st) {
-            self.emit("ret", &[]);
-            return;
-        }
-        if key == "str.equal" || key == "str.compare" {
-            let symbol =
-                if key == "str.equal" { "buri_rt_str_equal" } else { "buri_rt_str_compare" };
-            self.str_compare(st, symbol, p(0), p(1), ret0);
             self.emit("ret", &[]);
             return;
         }
@@ -2559,25 +2437,20 @@ impl Jit<'_> {
 
     /// `chk/<op>/<tag>` — the result and the overflow flag. Answers `false`
     /// for an operation or a width there is no stencil for.
-    fn overflowing(&mut self, st: &Fn2, prim: Prim, kind: &str, a: u32, b: u32) -> bool {
+    fn overflowing(&mut self, st: &Fn2, prim: Prim, kind: &str, a: u32, b: u32) {
         let (tag, _, _) = num_tag(prim);
-        if !prim.is_integer() {
-            return false;
-        }
         let name = match kind {
-            "Add" => "add",
-            "Subtract" => "sub",
-            "Multiply" => "mul",
-            "Divide" => "div",
-            "Remainder" => "rem",
-            "Negate" => "neg",
-            "Power" => "pow",
-            _ => return false,
-        };
-        let key = key!["chk/", name, "/", tag];
-        if !self.has(&key) {
-            return false;
+            "Add" => Some("add"),
+            "Subtract" => Some("sub"),
+            "Multiply" => Some("mul"),
+            "Divide" => Some("div"),
+            "Remainder" => Some("rem"),
+            "Negate" => Some("neg"),
+            "Power" => Some("pow"),
+            _ => None,
         }
+        .or_ice("`core/number` declares these checked operations and no others");
+        let key = key!["chk/", name, "/", tag];
         let (res, flag) = Self::overflow_slots(st);
         self.emit(
             &key,
@@ -2590,7 +2463,6 @@ impl Jit<'_> {
                 ("JIT_CONT0", V::Fall),
             ],
         );
-        true
     }
 
     /// `checkedAdd`, `checkedSubtract`, `checkedMultiply`, `checkedDivide` — an `Option<T>`.
@@ -2617,9 +2489,7 @@ impl Jit<'_> {
         let (_, bits, _) = num_tag(prim);
         let id = ret_agg(prog, fi);
         let l = self.layout_id_shared(prog, id);
-        if !self.overflowing(st, prim, kind, a, b) {
-            return false;
-        }
+        self.overflowing(st, prim, kind, a, b);
         let (res, flag) = Self::overflow_slots(st);
         let pay = super::lists::payload_at(&l, 0);
         let some = st.label();
@@ -2915,15 +2785,11 @@ impl Jit<'_> {
         dest: u32,
     ) -> bool {
         let (tag, _, signed) = num_tag(prim);
-        // Division cannot saturate: its only failures are a zero divisor and
-        // `MIN / -1`, and neither has an end to run off.
-        if kind == "Divide" || !self.overflowing(st, prim, kind, a, b) {
-            return false;
-        }
+        // `core/number` declares no saturating division: it has no end to run off.
+        self.overflowing(st, prim, kind, a, b);
         let (res, flag) = Self::overflow_slots(st);
-        let (Some(lo), Some(hi)) = (bound_pattern(prim, true), bound_pattern(prim, false)) else {
-            return false;
-        };
+        let lo = bound_pattern(prim, true).or_ice("an integer has bounds");
+        let hi = bound_pattern(prim, false).or_ice("an integer has bounds");
         let ok = st.label();
         let done = st.label();
         let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
@@ -3023,27 +2889,16 @@ impl Jit<'_> {
 
     /// `wrappingAdd`, `wrappingSubtract`, `wrappingMultiply` — the machine operation at
     /// the operand's own width, which is what the ordinary stencil already is.
-    fn wrapping(
-        &mut self,
-        st: &mut Fn2,
-        prim: Prim,
-        kind: &str,
-        a: u32,
-        b: u32,
-        dest: u32,
-    ) -> bool {
-        let Some((tag, _, _)) = prim_tag(prim) else { return false };
+    fn wrapping(&mut self, prim: Prim, kind: &str, a: u32, b: u32, dest: u32) {
+        let (tag, _, _) = num_tag(prim);
         let name = match kind {
-            "Add" => "add",
-            "Subtract" => "sub",
-            "Multiply" => "mul",
-            _ => return false,
-        };
-        let key = key!["bin/", name, "/", tag, "/ff/f"];
-        if !self.has(&key) {
-            return false;
+            "Add" => Some("add"),
+            "Subtract" => Some("sub"),
+            "Multiply" => Some("mul"),
+            _ => None,
         }
-        let _ = st;
+        .or_ice("`core/number` declares these wrapping operations and no others");
+        let key = key!["bin/", name, "/", tag, "/ff/f"];
         self.emit(
             &key,
             &[
@@ -3053,7 +2908,6 @@ impl Jit<'_> {
                 ("JIT_CONT", V::Fall),
             ],
         );
-        true
     }
 
     /// `abs` and `signum`.
@@ -3062,7 +2916,7 @@ impl Jit<'_> {
     /// (SPEC 6.2), so there is nothing to check. A float's is the sign bit
     /// cleared, which is exact for every value including the infinities and
     /// leaves a NaN a NaN.
-    fn abs_signum(&mut self, st: &mut Fn2, prim: Prim, abs: bool, a: u32, dest: u32) -> bool {
+    fn abs_signum(&mut self, st: &mut Fn2, prim: Prim, abs: bool, a: u32, dest: u32) {
         let (tag, bits, signed) = num_tag(prim);
         let mask = if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 };
         // A sign test at sixteen bytes reads the high half, which the `signum`
@@ -3081,11 +2935,11 @@ impl Jit<'_> {
                         ("JIT_CONT", V::Fall),
                     ],
                 );
-                return true;
+                return;
             }
             self.mv(dest, a, if bits > 64 { 16 } else { 8 });
             if !signed {
-                return true;
+                return;
             }
             let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
             self.lt_zero(scr, a, tag);
@@ -3109,7 +2963,7 @@ impl Jit<'_> {
             );
             let here = self.region.code_addr();
             st.place(skip, here);
-            return true;
+            return;
         }
         // `signum`: zero, then one test per end. A `Float`'s answers are
         // `1.0`, `-1.0` and `0.0`, so a NaN — which is neither above nor
@@ -3159,7 +3013,6 @@ impl Jit<'_> {
             let here = self.region.code_addr();
             st.place(skip, here);
         }
-        true
     }
 
     /// `Ordered::compare` at a primitive: `Less`, `Equal`, `Greater` in
