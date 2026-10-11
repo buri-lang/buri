@@ -1,0 +1,19 @@
+// EXPECT: expected `Shadow`, found `Int`
+//
+// Each payload is the wrong type, and each is reported once. The style folder
+// still reads them, and gives up on each without a second error.
+// PLATFORM: WEB
+from "platform/effect" import { Allocator, Ui, Watch };
+from "web" import { WebHost };
+from "ui/node" import * as ui;
+from "ui/style" import { Style };
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let shadow: Style = .Shadow(5);
+  let shadows: Style = .Shadows(5);
+  let grid: Style = .Layout(.Grid(5));
+  let token: Style = .Background(.Token(5));
+  let faded: Style = .Background(.Faded(5, 0.5));
+  ui.mount(ctx, ui.stack({ styles: [shadow, shadows, grid, token, faded], children: [] }), [])
+}

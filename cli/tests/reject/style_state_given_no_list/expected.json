@@ -1,0 +1,1 @@
+{"severity":"error","message":"`On` holds 2 values, but 1 was given","code":"payload-count","location":{"file":"cmd/style_state_given_no_list/main.buri","line":10,"column":18,"endLine":10,"endColumn":21,"text":"  let s: Style = .On(State.Hover);"},"expected":"2","actual":"1","fix":"`On` is missing its second value: On(State, [Style])","notes":[],"related":[]}

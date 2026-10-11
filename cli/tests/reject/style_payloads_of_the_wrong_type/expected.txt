@@ -1,0 +1,65 @@
+error: expected `Shadow`, found `Int` [type-mismatch]
+  --> cmd/style_payloads_of_the_wrong_type/main.buri:13:31
+   |
+13 |   let shadow: Style = .Shadow(5);
+   |                               ^ the parameter type is `Shadow`
+   |
+   = expected: `Shadow`
+   = actual: `Int`
+   = an integer literal defaults to `Int` but takes any integer type, and `Shadow` is not one
+
+     Numbers don't convert on their own
+     ──────────────────────────────────
+
+     There is no implicit widening or narrowing, so convert explicitly. A
+     widening conversion such as .toI64() on an I32 is exact. A narrowing one
+     returns a Result, because not every value fits.
+
+     A bare literal is reported as Int or Float when nothing pins its type.
+     Annotate it, as in let x: U8 = 1 or let x: F64 = 1.0, and it takes any type
+     of the same kind.
+
+     A .Variant is a variant
+     ───────────────────────
+
+     A leading dot takes its enum from its position, so a position that isn't an
+     enum can't resolve it. expected is the type to write instead. The found
+     side names the variant, not a type, because the compiler won't guess an
+     enum from the payload.
+
+error: expected `[Shadow]`, found `Int` [type-mismatch]
+  --> cmd/style_payloads_of_the_wrong_type/main.buri:14:33
+   |
+14 |   let shadows: Style = .Shadows(5);
+   |                                 ^ the parameter type is `[Shadow]`
+   |
+   = expected: `[Shadow]`
+   = actual: `Int`
+   = an integer literal defaults to `Int` but takes any integer type, and `[Shadow]` is not one
+error: expected `[Track]`, found `Int` [type-mismatch]
+  --> cmd/style_payloads_of_the_wrong_type/main.buri:15:35
+   |
+15 |   let grid: Style = .Layout(.Grid(5));
+   |                                   ^ the parameter type is `[Track]`
+   |
+   = expected: `[Track]`
+   = actual: `Int`
+   = an integer literal defaults to `Int` but takes any integer type, and `[Track]` is not one
+error: expected `TokenReference`, found `Int` [type-mismatch]
+  --> cmd/style_payloads_of_the_wrong_type/main.buri:16:41
+   |
+16 |   let token: Style = .Background(.Token(5));
+   |                                         ^ the parameter type is `TokenReference`
+   |
+   = expected: `TokenReference`
+   = actual: `Int`
+   = an integer literal defaults to `Int` but takes any integer type, and `TokenReference` is not one
+error: expected `TokenReference`, found `Int` [type-mismatch]
+  --> cmd/style_payloads_of_the_wrong_type/main.buri:17:41
+   |
+17 |   let faded: Style = .Background(.Faded(5, 0.5));
+   |                                         ^ the parameter type is `TokenReference`
+   |
+   = expected: `TokenReference`
+   = actual: `Int`
+   = an integer literal defaults to `Int` but takes any integer type, and `TokenReference` is not one
