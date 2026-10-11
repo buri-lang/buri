@@ -916,6 +916,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.report_context_mismatch(span, found, wanted, what);
                 return;
             }
+            // `bind`'s occurs check: the unknown type is one the other holds.
+            let cyclic = matches!(self.subst.shallow(&a).kind(), TyKind::Var(v) if self.subst.occurs(*v, &b));
             let a = show_in_diagnostic(&self.c.tables, &self.subst, &self.generics, &a);
             let b = show_in_diagnostic(&self.c.tables, &self.subst, &self.generics, &b);
             let (found, wanted) = (a.quoted(), b.quoted());
@@ -936,6 +938,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .with_fix(numeric_fix(&a, &b));
             } else if let Some(note) = unpinned_literal_note(&a, &b) {
                 d = d.with_note(note);
+            } else if cyclic {
+                d = d.with_note(format!(
+                    "the unknown type appears inside {wanted}, and no type can contain itself"
+                ));
             }
             self.c.diags.push(d);
         }
