@@ -72,7 +72,7 @@ fn reading(at: Int, maybe: Option<Celsius>): Reading {
         history: [c(at), c(at + 10)],
         pair: (c(at), 1),
         maybe: maybe,
-        nothing: Nothing { },
+        nothing: Nothing {},
         hollow: Hollow(),
     }
 }
