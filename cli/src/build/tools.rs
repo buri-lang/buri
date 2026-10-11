@@ -872,7 +872,7 @@ pub fn check_file(
                 })
                 .collect();
             findings.extend(
-                answer.outside.iter().map(|p| Finding::new("schema-outside-repository", rel, (0, 0), vec![("schema", p.clone())])),
+                answer.outside.iter().map(|p| Finding::new("needs-outside-repository", rel, (0, 0), vec![("path", p.clone())])),
             );
             Checked { key: answer.key, findings, asked: answer.asked }
         }
