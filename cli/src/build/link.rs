@@ -1270,7 +1270,7 @@ fn stage_baked(dir: &Path, store: Option<&Cache>, files: &[(&str, &[u8])]) -> st
     std::fs::create_dir_all(&lib)?;
     let digest = musl::sysroot_hash();
     for (name, bytes) in files {
-        stage_constant(store, &format!("musl sysroot {digest} {name}"), bytes, &lib.join(name))?;
+        stage_constant(store, &format!("musl sysroot {digest} {name}"), bytes, &lib.join(name), true)?;
     }
     Ok(())
 }
@@ -1282,10 +1282,19 @@ fn stage_baked(dir: &Path, store: Option<&Cache>, files: &[(&str, &[u8])]) -> st
 /// entry. A link directory staged this way costs the disk nothing the cache
 /// has not already paid for. Without a cache, or if the cache cannot take the
 /// entry, they are written in place ([`stage_bytes`]).
-fn stage_constant(store: Option<&Cache>, name: &str, bytes: &[u8], dest: &Path) -> std::io::Result<()> {
+///
+/// A `checked` entry that no longer holds `bytes` is written again
+/// ([`holds`]); any other is checked by its length only ([`Cache::entry`]).
+fn stage_constant(
+    store: Option<&Cache>,
+    name: &str,
+    bytes: &[u8],
+    dest: &Path,
+    checked: bool,
+) -> std::io::Result<()> {
     let Some(cache) = store else { return stage_bytes(bytes, dest) };
     let key = ActionKey::of(name.as_bytes());
-    let entry = cache.entry(&key).or_else(|| {
+    let entry = cache.entry(&key).filter(|entry| !checked || holds(entry, bytes)).or_else(|| {
         cache.put(&key, bytes);
         cache.entry(&key)
     });
@@ -1293,6 +1302,26 @@ fn stage_constant(store: Option<&Cache>, name: &str, bytes: &[u8], dest: &Path) 
         Some(entry) => stage_from(&entry, dest),
         None => stage_bytes(bytes, dest),
     }
+}
+
+/// Whether the file at `path` holds `bytes`, read the first time a process
+/// asks and taken as read after that, so a run of many links reads each
+/// constant's entry once.
+///
+/// Bytes rather than a length, because damage in place keeps the length, and
+/// these entries are hard-linked into every link directory, where an edit
+/// reaches them.
+fn holds(path: &Path, bytes: &[u8]) -> bool {
+    static HELD: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
+        std::sync::Mutex::new(std::collections::BTreeSet::new());
+    if HELD.lock().is_ok_and(|held| held.contains(path)) {
+        return true;
+    }
+    let same = std::fs::read(path).is_ok_and(|read| read == bytes);
+    if same {
+        HELD.lock().map(|mut held| held.insert(path.to_path_buf())).ok();
+    }
+    same
 }
 
 /// Writes the **cross** sysroot into `<dir>/musl/lib`, copied from
@@ -2088,6 +2117,8 @@ impl CDriver {
                     &format!("runtime archive {}", crate::build::actions::runtime_archive_hash()),
                     runtime_native::ARCHIVE,
                     &archive,
+                    // Reading its 19 MB costs a link about 5 ms.
+                    false,
                 ),
             };
             if let Err(e) = written {
