@@ -1011,9 +1011,6 @@ pub const A_RUN_THAT_ASSERTED_NOTHING: &[&str] = &[
     // The same claim for a conversion neither native backend has a body for:
     // the suite is refused by name before code generation.
     "testing/a_conversion_with_no_native_body_is_named",
-    // And for a derived hash over a list, which the debug backend refuses
-    // during code generation.
-    "stencil/array_hash_is_refused",
     // A JSON input its schema refuses stops the generator, so the suite that
     // imports what it generates does not compile. That is the claim: `buri
     // test` reports the check the way `buri build` does, and the schema

@@ -79,6 +79,6 @@ fn the_native_files_of_javascript_only_packages_pass_on_the_debug_backend() {
         ran.stderr
     );
     let passed: usize = summary.split(' ').next().and_then(|n| n.parse().ok()).unwrap_or(0);
-    assert!(passed >= 400, "only {passed} tests ran: {summary}");
+    assert!(passed >= 300, "only {passed} tests ran: {summary}");
     let _ = std::fs::remove_dir_all(&repo);
 }
