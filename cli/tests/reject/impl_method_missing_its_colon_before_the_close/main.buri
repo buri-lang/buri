@@ -1,0 +1,6 @@
+// EXPECT: expected `:`, found `Int`
+struct Box(Int);
+
+impl Box {
+  fn get(self) Int { 1 }
+}

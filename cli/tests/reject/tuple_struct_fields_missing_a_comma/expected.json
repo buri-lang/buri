@@ -1,0 +1,1 @@
+{"severity":"error","message":"a tuple-struct field ends with `,`","code":"missing-comma","location":{"file":"cmd/tuple_struct_fields_missing_a_comma/main.buri","line":2,"column":16,"endLine":2,"endColumn":16,"text":"struct Pair(Int Str);"},"fix":"write `,` here","notes":[],"related":[]}

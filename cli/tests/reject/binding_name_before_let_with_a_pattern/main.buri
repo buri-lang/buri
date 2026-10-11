@@ -1,0 +1,8 @@
+// EXPECT: there is nothing named `sum` in scope
+//
+// `sum let x` isn't an exchanged `let`: a pattern follows the keyword, so
+// `sum` is a stray statement in front of an ordinary binding.
+fn total(): Int {
+  sum let x = 1;
+  x
+}

@@ -1,0 +1,4 @@
+// EXPECT: expected `:`, found `Int`
+trait Shape {
+  fn area(self) Int
+}

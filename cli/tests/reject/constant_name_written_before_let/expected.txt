@@ -1,0 +1,9 @@
+error: expected `let`, found `SEED` [unexpected-token]
+ --> cmd/constant_name_written_before_let/main.buri:5:1
+  |
+5 | SEED let: Int = 7;
+  | ^^^^
+  |
+  = expected: `let`
+  = actual: `SEED`
+  = fix: write `let` first: `let SEED`

@@ -1,0 +1,1 @@
+{"severity":"error","message":"expected `let`, found `SEED`","code":"unexpected-token","location":{"file":"cmd/constant_name_written_before_let/main.buri","line":5,"column":1,"endLine":5,"endColumn":5,"text":"SEED let: Int = 7;"},"expected":"`let`","actual":"`SEED`","fix":"write `let` first: `let SEED`","notes":[],"related":[]}

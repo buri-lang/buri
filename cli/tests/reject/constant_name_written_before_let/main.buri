@@ -1,0 +1,9 @@
+// EXPECT: expected `let`, found `SEED`
+//
+// At the top level too, the name and the keyword are exchanged, and the
+// constant is still declared as `SEED`.
+SEED let: Int = 7;
+
+fn seed(): Int {
+  SEED
+}
