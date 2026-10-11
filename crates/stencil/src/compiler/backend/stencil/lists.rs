@@ -157,8 +157,11 @@ impl Jit<'_> {
     /// `middle/layout.rs` gives a niche only to an `Option` of a pointer, so
     /// the layout always has a tag.
     pub(crate) fn store_disc(&mut self, l: &Layout, at: u32, v: usize) {
-        if let Repr::Enum { repr: EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. }, .. } = &l.repr {
-            self.imm_w(at, tag.size(), v as u64);
+        let tag = match super::jit::enum_of(l).0 {
+            EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => Some(tag),
+            EnumRepr::Niche { .. } => None,
         }
+        .or_ice("a `Result` or an `Option` of a number has a tag");
+        self.imm_w(at, tag.size(), v as u64);
     }
 }

@@ -698,7 +698,7 @@ impl<'a> Jit<'a> {
         prim: Prim,
         arg: ir::ValueId,
         dest: ir::ValueId,
-    ) -> Result<(), String> {
+    ) {
         let id = agg_of(code.ty_of(dest));
         let owner = prog.type_info(id).ty;
         let arm = json_arm(prim);
@@ -718,7 +718,6 @@ impl<'a> Jit<'a> {
             JsonArm::Bool => {
                 let w = self.width_of(prog, code.ty_of(arg));
                 self.store_w(d + off, a, w);
-                Ok(())
             }
             // JSON's one number type is a double, so every numeric primitive
             // widens to `F64` — the same narrowing `$json_of` does with
@@ -727,14 +726,12 @@ impl<'a> Jit<'a> {
                 let scratch = st.scratch;
                 self.convert(st, prim, Prim::F64, a, scratch);
                 self.store_w(d + off, scratch, 8);
-                Ok(())
             }
             JsonArm::Str => match prim {
                 Prim::Str | Prim::Template => {
                     self.rc(prog, code, st, arg, Op::Retain);
                     let w = self.width_of(prog, code.ty_of(arg));
                     self.mv(d + off, a, w);
-                    Ok(())
                 }
                 // A `Char` is a one-scalar string, and the runtime already
                 // builds it: `buri_rt_char_to_str` is the unquoted half of
@@ -749,7 +746,6 @@ impl<'a> Jit<'a> {
                         d + off,
                         "v",
                     );
-                    Ok(())
                 }
             },
         }
@@ -1430,9 +1426,7 @@ impl<'a> Jit<'a> {
                 if let Some(t) = key.strip_prefix("derivePrimJson.") {
                     let a = args.first().copied().or_ice("a JSON leaf takes its value");
                     let prim = prim_of_name(t).or_ice(PRIM);
-                    if let Err(why) = self.json_prim(prog, code, st, prim, a, dest) {
-                        self.unsupported(why);
-                    }
+                    self.json_prim(prog, code, st, prim, a, dest);
                     return;
                 }
                 let Some(entry) = super::runtime::entry(key) else {
@@ -1496,18 +1490,17 @@ impl<'a> Jit<'a> {
                 // arm that falls through should be the stencil's elidable one,
                 // and the second arm's `jump` should fall through to the block
                 // laid out next.
+                //
+                // One arm is always next. `middle::lower` gives every branch a
+                // target only that branch enters, and the layout's depth-first
+                // walk reaches it from the branch and places one of the two
+                // targets right after it.
                 if then.args.is_empty() && else_.args.is_empty() {
                     let ft = then.block.index() == next;
                     let fe = else_.block.index() == next;
                     let tv = if ft { V::Fall } else { V::Blk(then.block.0) };
                     let fv = if fe { V::Fall } else { V::Blk(else_.block.0) };
-                    let fall = if ft {
-                        Some("JIT_T")
-                    } else if fe {
-                        Some("JIT_F")
-                    } else {
-                        None
-                    };
+                    let fall = if ft { "JIT_T" } else { "JIT_F" };
                     self.cond(st, *cond, plan, tv, fv, fall);
                     return;
                 }
@@ -1519,16 +1512,13 @@ impl<'a> Jit<'a> {
                 let lf = st.label();
                 let (tv, fv) = if y_is_then { (V::Blk(lf), V::Fall) } else { (V::Fall, V::Blk(lf)) };
                 let fall = if y_is_then { "JIT_F" } else { "JIT_T" };
-                self.cond(st, *cond, plan, tv, fv, Some(fall));
+                self.cond(st, *cond, plan, tv, fv, fall);
                 self.edge(prog, code, st, x);
                 self.emit("jump", &[("JIT_T", V::Blk(x.block.0))]);
                 st.place(lf, self.region.code_addr());
+                // `y` is the arm laid out next.
                 self.edge(prog, code, st, y);
-                if y.block.index() == next {
-                    self.emit("jump", &[("JIT_T", V::Fall)]);
-                } else {
-                    self.emit("jump", &[("JIT_T", V::Blk(y.block.0))]);
-                }
+                self.emit("jump", &[("JIT_T", V::Fall)]);
             }
             Term::Switch { on, cases, default } => {
                 // What the comparison reads: the discriminant's frame slot, or
@@ -1582,20 +1572,27 @@ impl<'a> Jit<'a> {
                 let total = default.is_none() && cases.len() > 1;
                 let last = cases.len() - 1;
                 for (ci, (k, tgt)) in cases.iter().enumerate() {
+                    // The last case is laid out next: every case is a block
+                    // only this switch enters, and the layout's depth-first
+                    // walk visits them in order.
                     if total && ci == last {
                         self.edge(prog, code, st, tgt);
-                        let to =
-                            if tgt.block.index() == next { V::Fall } else { V::Blk(tgt.block.0) };
-                        self.emit("jump", &[("JIT_T", to)]);
+                        self.emit("jump", &[("JIT_T", V::Fall)]);
                         return;
                     }
                     let lnext = st.label();
                     // (g) The case body falls through, so the test's `JIT_T`
                     // arm is the one that has to be the elidable one.
                     let key = self.arm_key(fusedw.unwrap_or("brcmp/eq/u64/fi"), "JIT_T");
+                    // (2) The census says `tagbr + jump` is the commonest
+                    // adjacent pair in the corpus after the constant
+                    // stores: every `match` arm is a tag test followed by a
+                    // jump to the arm's block. A case's edge carries no copies
+                    // (`middle::lower` gives every case a block of its own with
+                    // no parameters), so the test names the block itself.
                     let mut binds: Vec<(&str, V)> = vec![
                         ("JIT_A", V::I(src as u64)),
-                        ("JIT_T", V::Fall),
+                        ("JIT_T", V::Blk(tgt.block.0)),
                         ("JIT_F", V::Blk(lnext)),
                     ];
                     if fusedw.is_some() {
@@ -1603,24 +1600,7 @@ impl<'a> Jit<'a> {
                     } else {
                         binds.push(("JIT_K", V::I(*k)));
                     }
-                    // (2) The census says `tagbr + jump` is the commonest
-                    // adjacent pair in the corpus after the constant
-                    // stores: every `match` arm is a tag test followed by a
-                    // jump to the arm's block. When the edge carries no
-                    // copies the test can name the block itself.
-                    let direct = code.get(tgt.block).params.is_empty();
-                    if direct {
-                        for b in binds.iter_mut() {
-                            if b.0 == "JIT_T" {
-                                b.1 = V::Blk(tgt.block.0);
-                            }
-                        }
-                    }
                     self.emit(key, &binds);
-                    if !direct {
-                        self.edge(prog, code, st, tgt);
-                        self.emit("jump", &[("JIT_T", V::Blk(tgt.block.0))]);
-                    }
                     st.place(lnext, self.region.code_addr());
                 }
                 match default {
@@ -1683,15 +1663,12 @@ impl<'a> Jit<'a> {
         }
     }
 
-    fn cond(&mut self, st: &Fn2, cond: ir::ValueId, plan: &Plan, tv: V, fv: V, fall: Option<&str>) {
+    fn cond(&mut self, st: &Fn2, cond: ir::ValueId, plan: &Plan, tv: V, fv: V, fall: &str) {
         // `rtcall.rs` names `br/f` without asking. A library without
         // a branch stencil is broken, so this stops here rather than emitting
         // a fall-through that would run the wrong arm.
         let key = self.cond_key(st, cond, plan).or_ice("stencil: the level has a branch stencil");
-        let key = match fall {
-            Some(f) => self.arm_key(&key, f),
-            None => KeyArg::from(&key),
-        };
+        let key = self.arm_key(&key, fall);
         if let Some((_, _, lhs, rhs)) = plan.cmpbr {
             let k = constant(st, rhs);
             self.emit(
@@ -1763,7 +1740,7 @@ impl<'a> Jit<'a> {
         }
         // The loop's way back is the `else` arm (`lower/lists.rs`), so the
         // `then` arm is the one left for the trailing jump.
-        self.cond(st, *cond, &plan, V::Blk(then.block.0), V::Blk(else_.block.0), Some("JIT_T"));
+        self.cond(st, *cond, &plan, V::Blk(then.block.0), V::Blk(else_.block.0), "JIT_T");
         true
     }
 
@@ -1874,11 +1851,11 @@ impl<'a> Jit<'a> {
                     // mean the search above missed a move that was ready, and
                     // emitting the permutation anyway would drop it.
                     let &(_, f, src) = pend.first().or_ice("the loop runs while `pend` has an entry");
-                    let RSrc::Reg(j) = src else {
-                        crate::diagnostics::ice(
-                            "stencil: an edge's register copies deadlocked on a slot source",
-                        )
-                    };
+                    let j = match src {
+                        RSrc::Reg(j) => Some(j),
+                        RSrc::Slot(_) => None,
+                    }
+                    .or_ice("stencil: an edge's register copies deadlock only on register sources");
                     self.emit(
                         &key![if f { "stwg" } else { "stw" }, "/r", j],
                         &[("JIT_D", V::I(tmp as u64)), ("JIT_CONT", V::Fall)],

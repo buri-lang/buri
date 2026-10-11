@@ -1443,7 +1443,9 @@ impl Jit<'_> {
         if env {
             let w = sig_params.first().map(|t| self.width_of(prog, *t)).unwrap_or(0);
             let to = cbase + callee.params.first().copied().unwrap_or(0);
-            if w > 0 && boxed {
+            // Unboxed, the environment parameter is the unit a capture-free
+            // lambda takes (`emit.rs`'s `MakeClosure`), so it has no bytes.
+            if w > 0 {
                 self.imm_to(scratch, 1);
                 self.elem_load(to, env_at, scratch, ENV_FIELDS, w);
             }

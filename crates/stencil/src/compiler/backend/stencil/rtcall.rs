@@ -1237,7 +1237,8 @@ impl Jit<'_> {
 /// and the LLVM backend builds its call signature from the same fact.
 fn scalar_kind(leaf: Leaf, t: ir::Type) -> &'static str {
     if leaf.float {
-        return if leaf.width == 4 { "f" } else { "d" };
+        // `core/math` and the random sources answer `Float`; no row answers an `F32`.
+        return (leaf.width == 8).then_some("d").or_ice("a runtime row's float result is an F64");
     }
     c_int_shape(t)
 }
@@ -1404,11 +1405,13 @@ impl Jit<'_> {
         use crate::compiler::semantics::types::Prim;
         let scr = st.scratch;
         match prim {
-            Prim::Str | Prim::Template if !quoted => self.mv(dest, src, 24),
-            Prim::Str | Prim::Template => {
+            Prim::Str if !quoted => self.mv(dest, src, 24),
+            Prim::Str => {
                 let (p, l) = self.str_arg(src, scr);
                 self.c_call(runtime::SHOW_STR, st, &[p, l, Src::Addr(dest)], &[], dest, "v");
             }
+            // A `Template` has no `Show`, and a hole can't hold one.
+            Prim::Template => crate::diagnostics::ice("stencil: the checker refuses to show a Template"),
             Prim::Char => {
                 let symbol =
                     if quoted { runtime::SHOW_CHAR } else { runtime::CHAR_TO_STR };
