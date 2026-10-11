@@ -1,3 +1,5 @@
 binary {
-    outputs: [{ platform: "web" }]
+    outputs: [
+        { platform: "web" },
+    ]
 }
