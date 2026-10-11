@@ -292,11 +292,11 @@ impl Jit<'_> {
         }
 
         if extra == Extra::Compute {
-            self.compute_extra(prog, st, entry, args, &mut ints)?;
+            self.compute_extra(prog, st, args, &mut ints);
         }
 
         if extra == Extra::Walk {
-            self.walk_extra(prog, st, entry, args, &mut ints)?;
+            self.walk_extra(prog, st, args, &mut ints);
         }
 
         if extra == Extra::Press {
@@ -561,9 +561,11 @@ impl Jit<'_> {
     /// enum: a variant records *where* a field is and never how big it is, and
     /// `Result<(), E>` has a field of no size.
     fn ok_payload_bytes(&mut self, prog: &ir::Program, dty: ir::Type, ok: usize) -> u32 {
-        let Some(TyKind::Con(_, args)) = source_ty(prog, dty).map(Ty::kind) else { return 0 };
-        let Some(payload) = args.get(ok).cloned() else { return 0 };
-        self.layouts_of(payload).size
+        let payload = match source_ty(prog, dty).map(Ty::kind) {
+            Some(TyKind::Con(_, args)) => args.get(ok).copied(),
+            _ => None,
+        };
+        self.layouts_of(payload.or_ice("a `Result` destination has its `.Ok` type")).size
     }
 
     /// One C call: the arguments into the scratch area, then the `crt` stencil
@@ -652,7 +654,7 @@ impl Jit<'_> {
         // form it replaced. Asking here instead makes that case the array one.
         let fits = |o: &u32| o.is_multiple_of(8) && u64::from(*o) / 8 < 4096;
         let dfits = kind == "v" || fits(&dslot);
-        if self.slots_crt_available() && dfits && iat.iter().chain(fat).all(fits) {
+        if dfits && iat.iter().chain(fat).all(fits) {
             for (src, at) in ints.iter().zip(iat).chain(floats.iter().zip(fat)) {
                 if !matches!(src, Src::Word(_)) {
                     self.marshal(*at, src);
@@ -699,16 +701,6 @@ impl Jit<'_> {
                 ("JIT_CONT0", V::Fall),
             ],
         );
-    }
-
-    /// Whether the slots-only `crt` family may be used at all.
-    ///
-    /// Always, in the repository. It is a function rather than a constant so
-    /// that a measurement copy can ablate it in one place and price the family
-    /// against exactly the code it replaced; nothing in the product reads an
-    /// environment variable here.
-    fn slots_crt_available(&self) -> bool {
-        true
     }
 
     /// A borrowed `Str`'s bytes, as the `(ptr, len)` pair `lib.rs` §2 rule 1
@@ -879,14 +871,6 @@ impl Jit<'_> {
         // `platform/effect/testing`'s carry a handle.
         let supplied: Vec<(u32, ir::Type)> =
             call.ctx.into_iter().filter_map(|i| args.get(i).copied()).collect();
-        if supplied.len() != ctx_at.len() {
-            return Err(format!(
-                "{}: a step taking {} contexts where the call names {}",
-                entry.key,
-                ctx_at.len(),
-                supplied.len()
-            ));
-        }
         // `ctx_at` is parallel to the supplied contexts; `widths` to the
         // closure's parameters. An index parameter sits in the second and not
         // in the first, so the walk carries its own cursor rather than reusing
@@ -987,22 +971,10 @@ impl Jit<'_> {
         &mut self,
         prog: &ir::Program,
         st: &mut Fn2,
-        entry: &Entry,
         args: &[(u32, ir::Type)],
         ints: &mut Vec<Src>,
-    ) -> Result<(), String> {
-        let Some((fslot, fty)) = args.last().copied() else {
-            return Err(format!("{}: no body argument", entry.key));
-        };
-        let Some(ty) = source_ty(prog, fty) else {
-            return Err(format!("{}: a body with no type", entry.key));
-        };
-        let TyKind::Fn(params, ret) = ty.kind() else {
-            return Err(format!("{}: a body that is not a function", entry.key));
-        };
-        if params.len() != 1 {
-            return Err(format!("{}: a body taking {} arguments", entry.key, params.len()));
-        }
+    ) {
+        let (fslot, ty, params, ret) = last_closure(prog, args);
         let widths: Vec<u32> =
             params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (_, bytes) = super::glue::state_shape(&widths, None);
@@ -1012,13 +984,11 @@ impl Jit<'_> {
         // `middle::rc` releases the argument at this call, which is its last
         // use, and without this the environment would be freed under a memo
         // that has not run yet.
-        if self.rc_counted(&ty) {
-            self.walk_rc(st, &ty, state, Op::Retain, 0);
-        }
-        let stride = u64::from(self.layouts_of(*ret).stride);
-        let release = self.value_release(*ret);
+        self.walk_rc(st, &ty, state, Op::Retain, 0);
+        let stride = u64::from(self.layouts_of(ret).stride);
+        let release = self.value_release(ret);
         let thunk =
-            self.helper(super::glue::Helper::Entry { params: params.to_vec(), ret: *ret, index: None });
+            self.helper(super::glue::Helper::Entry { params: params.to_vec(), ret, index: None });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
         ints.push(Src::Imm(u64::from(bytes)));
@@ -1035,7 +1005,6 @@ impl Jit<'_> {
             Some(name) => ints.push(Src::Sym(name)),
             None => ints.push(Src::Imm(0)),
         }
-        Ok(())
     }
 
     /// [`Extra::Walk`]'s three words: a `fn(Builder, Node) => ()` the runtime
@@ -1056,22 +1025,10 @@ impl Jit<'_> {
         &mut self,
         prog: &ir::Program,
         st: &mut Fn2,
-        entry: &Entry,
         args: &[(u32, ir::Type)],
         ints: &mut Vec<Src>,
-    ) -> Result<(), String> {
-        let Some((fslot, fty)) = args.last().copied() else {
-            return Err(format!("{}: no walk argument", entry.key));
-        };
-        let Some(ty) = source_ty(prog, fty) else {
-            return Err(format!("{}: a walk with no type", entry.key));
-        };
-        let TyKind::Fn(params, ret) = ty.kind() else {
-            return Err(format!("{}: a walk that is not a function", entry.key));
-        };
-        if params.len() != 3 {
-            return Err(format!("{}: a walk taking {} arguments", entry.key, params.len()));
-        }
+    ) {
+        let (fslot, _, params, ret) = last_closure(prog, args);
         let widths: Vec<u32> =
             params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (ctx_at, _bytes) = super::glue::state_shape(&widths, Some(1));
@@ -1095,7 +1052,7 @@ impl Jit<'_> {
         }
         let thunk = self.helper(super::glue::Helper::Entry {
             params: params.to_vec(),
-            ret: *ret,
+            ret,
             index: Some(1),
         });
         ints.push(Src::Sym(thunk));
@@ -1115,7 +1072,6 @@ impl Jit<'_> {
                 }
             }
         }
-        Ok(())
     }
 
     /// [`Extra::Press`]'s five words: a `fn(C, Event) => ()` the runtime keeps
@@ -1135,18 +1091,7 @@ impl Jit<'_> {
         args: &[(u32, ir::Type)],
         ints: &mut Vec<Src>,
     ) -> Result<(), String> {
-        let Some((fslot, fty)) = args.last().copied() else {
-            return Err(format!("{}: no handler argument", entry.key));
-        };
-        let Some(ty) = source_ty(prog, fty) else {
-            return Err(format!("{}: a handler with no type", entry.key));
-        };
-        let TyKind::Fn(params, ret) = ty.kind() else {
-            return Err(format!("{}: a handler that is not a function", entry.key));
-        };
-        if params.len() != 2 {
-            return Err(format!("{}: a handler taking {} arguments", entry.key, params.len()));
-        }
+        let (fslot, ty, params, ret) = last_closure(prog, args);
         let widths: Vec<u32> =
             params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (ctx_at, bytes) = super::glue::state_shape(&widths, None);
@@ -1175,11 +1120,9 @@ impl Jit<'_> {
         self.mv(state, fslot, 16);
         // The graph keeps the closure, so the graph owes it a reference — taken
         // here, at the handler's last use, exactly as `compute_extra` takes one.
-        if self.rc_counted(&ty) {
-            self.walk_rc(st, &ty, state, Op::Retain, 0);
-        }
+        self.walk_rc(st, &ty, state, Op::Retain, 0);
         let thunk =
-            self.helper(super::glue::Helper::Entry { params: params.to_vec(), ret: *ret, index: None });
+            self.helper(super::glue::Helper::Entry { params: params.to_vec(), ret, index: None });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
         ints.push(Src::Imm(u64::from(bytes)));
@@ -1338,6 +1281,18 @@ pub(crate) fn source_ty(prog: &ir::Program, t: ir::Type) -> Option<Ty> {
         ir::Type::Agg(id) => Some(prog.type_info(id).ty),
         _ => None,
     }
+}
+
+/// The closure an `Extra` row takes as its last argument: where it is, its
+/// type, and that type's parameters and result.
+fn last_closure(prog: &ir::Program, args: &[(u32, ir::Type)]) -> (u32, Ty, &'static [Ty], Ty) {
+    let (fslot, fty) = *args.last().or_ice("an `Extra` row takes its closure last");
+    let ty = source_ty(prog, fty).or_ice("a closure has a source type");
+    match ty.kind() {
+        TyKind::Fn(params, ret) => Some((fslot, ty, params, *ret)),
+        _ => None,
+    }
+    .or_ice("an `Extra` row's last argument is a function")
 }
 
 /// `core/order`'s three variants, in declaration order, which is what
