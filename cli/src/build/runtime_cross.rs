@@ -355,7 +355,8 @@ fn run_cargo(
     target_dir: &Path,
 ) -> Result<PathBuf, link_refusal::Refusal> {
     let release = target_dir.join(triple).join("release");
-    let mut last: Option<String> = None;
+    // What the last attempt said; both attempts run before this is read.
+    let mut last = String::new();
     for offline in [true, false] {
         let mut command = Command::new(cargo);
         for (name, _) in std::env::vars() {
@@ -389,8 +390,8 @@ fn run_cargo(
         ]);
         match crate::build::spawn::output(&mut command) {
             Ok(out) if out.status.success() => return Ok(built_archive(&release)),
-            Ok(out) => last = Some(String::from_utf8_lossy(&out.stderr).into_owned()),
-            Err(e) => last = Some(e.to_string()),
+            Ok(out) => last = String::from_utf8_lossy(&out.stderr).into_owned(),
+            Err(e) => last = e.to_string(),
         }
     }
     let mut refusal = refuse(
@@ -400,17 +401,8 @@ fn run_cargo(
              cross build needs the network if they are not already fetched"
         ),
     );
-    if let Some(text) = last {
-        for line in text
-            .lines()
-            .rev()
-            .take(8)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-        {
-            refusal.notes.push(line.to_string());
-        }
+    for line in last.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev() {
+        refusal.notes.push(line.to_string());
     }
     Err(refusal)
 }

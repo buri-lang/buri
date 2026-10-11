@@ -137,16 +137,25 @@ pub type LinkOptions<'a> = Options<'a>;
 /// layout and a relocation vocabulary, so what an object holds is unchanged
 /// and only the name on it moves.
 pub fn triple_text(target: Target) -> Option<String> {
-    let arch = match target.arch {
+    match target.platform {
+        Platform::Macos => Some(format!("{}-apple-darwin", arch_text(target.arch))),
+        Platform::Linux => Some(linux_triple(target.arch)),
+        Platform::Js | Platform::Web => None,
+    }
+}
+
+/// [`triple_text`] of a Linux target on `arch`.
+pub fn linux_triple(arch: Option<Arch>) -> String {
+    format!("{}-unknown-linux-musl", arch_text(arch))
+}
+
+/// A triple's architecture: `arch`, or the host's when there is none.
+fn arch_text(arch: Option<Arch>) -> &'static str {
+    match arch {
         Some(Arch::X86_64) => "x86_64",
         Some(Arch::Arm64) => "aarch64",
         None if cfg!(target_arch = "aarch64") => "aarch64",
         None => "x86_64",
-    };
-    match target.platform {
-        Platform::Macos => Some(format!("{arch}-apple-darwin")),
-        Platform::Linux => Some(format!("{arch}-unknown-linux-musl")),
-        Platform::Js | Platform::Web => None,
     }
 }
 

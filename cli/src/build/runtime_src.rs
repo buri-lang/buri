@@ -67,19 +67,12 @@ fn members(pack: &[u8]) -> Option<Vec<Member<'_>>> {
     Some(out)
 }
 
-/// Writes the packed sources into `dir` as an assembled cargo package —
-/// `Cargo.toml`, `Cargo.lock`, the `.rs`/`.s` files and `fonts/` — the way
-/// `cli/build.rs`'s `assemble` leaves them in `OUT_DIR`.
+/// Writes the packed sources into the new directory `dir` as an assembled
+/// cargo package — `Cargo.toml`, `Cargo.lock`, the `.rs`/`.s` files and
+/// `fonts/` — the way `cli/build.rs`'s `assemble` leaves them in `OUT_DIR`.
 ///
-/// **Only when the bytes differ**, member by member, so a warm cache directory
-/// a second `buri build` reuses is not rewritten and its mtimes do not move: the
-/// nested cargo `build::runtime_cross` runs treats an unchanged source as fresh,
-/// and rewriting a file with the bytes it already holds would defeat that
-/// exactly as it does in the toolchain's own build.
-///
-/// A path with a separator (`fonts/…`) has its parent created; a path that tries
-/// to escape `dir` is refused, because the blob is trusted but the code that
-/// reads it should not be the thing that trusts it.
+/// A path with a separator (`fonts/…`) has its parent created. `cli/build.rs`
+/// packs only file names and `fonts/<file name>`, so no member leaves `dir`.
 pub fn unpack(dir: &Path) -> std::io::Result<()> {
     let members = members(PACK).ok_or_else(|| {
         std::io::Error::new(
@@ -88,26 +81,8 @@ pub fn unpack(dir: &Path) -> std::io::Result<()> {
         )
     })?;
     for member in members {
-        // No absolute paths, no `..`: the members are `build.rs`'s own file
-        // names and `fonts/<name>`, and anything else is a blob this code was
-        // not asked to trust.
-        let relative = Path::new(member.path);
-        if relative.is_absolute() || relative.components().any(|c| c.as_os_str() == "..") {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!(
-                    "the runtime source blob names an unsafe path: {}",
-                    member.path
-                ),
-            ));
-        }
-        let path = dir.join(relative);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        if std::fs::read(&path).is_ok_and(|existing| existing == member.bytes) {
-            continue;
-        }
+        let path = dir.join(member.path);
+        crate::build::create_parent(&path);
         std::fs::write(&path, member.bytes)?;
     }
     Ok(())

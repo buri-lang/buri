@@ -451,7 +451,8 @@ mod tag {
 
     /// Tags the file at `path`, best effort.
     pub fn set(path: &Path, tag: &[u8]) {
-        let Ok(path) = CString::new(path.as_os_str().as_bytes()) else { return };
+        #[expect(clippy::expect_used, reason = "an entry's path is the cache directory's and a hex key")]
+        let path = CString::new(path.as_os_str().as_bytes()).expect("a cache entry's path holds no NUL");
         // SAFETY: two NUL-terminated strings and a buffer of the length given.
         unsafe {
             setxattr(path.as_ptr(), NAME.as_ptr(), tag.as_ptr(), tag.len(), 0, 0);
@@ -612,11 +613,10 @@ fn set_aside_another_toolchains(dir: &Path) -> Option<PathBuf> {
     // Written beside and renamed, so no reader sees half a marker and takes it
     // for another toolchain's.
     let partial = marker.with_extension(temporary_extension());
-    if std::fs::write(&partial, toolchain_identity()).is_err()
-        || std::fs::rename(&partial, &marker).is_err()
-    {
-        let _ = std::fs::remove_file(&partial);
-    }
+    let _ = std::fs::write(&partial, toolchain_identity());
+    let _ = std::fs::rename(&partial, &marker);
+    // Gone already unless the rename failed.
+    let _ = std::fs::remove_file(&partial);
     // All of `trash` and not only this wipe's: a process killed while removing
     // its own left the rest.
     Some(trash)

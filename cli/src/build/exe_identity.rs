@@ -121,45 +121,27 @@ fn macho_uuid(file: &mut File, head: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-/// An ELF's `NT_GNU_BUILD_ID`, found through the program headers' `PT_NOTE`
-/// segments, which is where a stripped executable still has it.
+/// A 64-bit ELF's `NT_GNU_BUILD_ID`, found through the program headers'
+/// `PT_NOTE` segments, which is where a stripped executable still has it.
+/// `buri` runs on 64-bit hosts only.
 fn elf_build_id(file: &mut File, head: &[u8]) -> Option<Vec<u8>> {
-    if bytes_at(head, 0, 4)? != b"\x7fELF" {
+    if bytes_at(head, 0, 5)? != b"\x7fELF\x02" {
         return None;
     }
-    let wide = match head.get(4)? {
-        1 => false,
-        2 => true,
-        _ => return None,
-    };
     let endian = match head.get(5)? {
         1 => Endian::Little,
         2 => Endian::Big,
         _ => return None,
     };
-    let (table, entry, count) = if wide {
-        (uint_at(head, 32, 8, endian)?, uint_at(head, 54, 2, endian)?, uint_at(head, 56, 2, endian)?)
-    } else {
-        (uint_at(head, 28, 4, endian)?, uint_at(head, 42, 2, endian)?, uint_at(head, 44, 2, endian)?)
-    };
+    let (table, entry, count) =
+        (uint_at(head, 32, 8, endian)?, uint_at(head, 54, 2, endian)?, uint_at(head, 56, 2, endian)?);
     let headers = read_vec(file, table, entry.checked_mul(count)?)?;
     for segment in headers.chunks_exact(usize::try_from(entry).ok()?.max(1)) {
         if u32_at(segment, 0, endian)? != PT_NOTE {
             continue;
         }
-        let (offset, size, align) = if wide {
-            (
-                uint_at(segment, 8, 8, endian)?,
-                uint_at(segment, 32, 8, endian)?,
-                uint_at(segment, 48, 8, endian)?,
-            )
-        } else {
-            (
-                uint_at(segment, 4, 4, endian)?,
-                uint_at(segment, 16, 4, endian)?,
-                uint_at(segment, 28, 4, endian)?,
-            )
-        };
+        let (offset, size, align) =
+            (uint_at(segment, 8, 8, endian)?, uint_at(segment, 32, 8, endian)?, uint_at(segment, 48, 8, endian)?);
         let Some(notes) = read_vec(file, offset, size) else { continue };
         if let Some(id) = gnu_build_id(&notes, endian, if align == 8 { 8 } else { 4 }) {
             return Some(id.to_vec());
@@ -228,12 +210,10 @@ fn hashed(path: &Path, cache: Option<&Path>) -> Option<String> {
         // Renamed into place, so a concurrent reader sees the whole record or
         // none of it. Failing to remember is not failing: the next process
         // hashes again.
-        if let Some(dir) = record.parent() {
-            let _ = std::fs::create_dir_all(dir);
-            let partial = dir.join(format!(".partial-{}", std::process::id()));
-            if std::fs::write(&partial, &identity).is_ok() {
-                let _ = std::fs::rename(&partial, &record);
-            }
+        crate::build::create_parent(&record);
+        let partial = record.with_file_name(format!(".partial-{}", std::process::id()));
+        if std::fs::write(&partial, &identity).is_ok() {
+            let _ = std::fs::rename(&partial, &record);
         }
     }
     Some(identity)
