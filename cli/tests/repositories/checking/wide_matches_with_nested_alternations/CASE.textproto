@@ -1,0 +1,14 @@
+# A `match` of 20 arms is wide enough for the checker to index its rows by
+# head, and one row's head is an alternation. Another `match` nests an
+# alternation in a tuple whose first alternative an arm above already covers.
+# Both are reachable and exhaustive, and each arm answers what it matches.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a wide match whose row heads include an alternation, and a nested alternation partly covered above, both check and run"
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "ran.txt"
+}

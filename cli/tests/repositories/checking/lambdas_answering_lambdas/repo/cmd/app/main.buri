@@ -1,0 +1,22 @@
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+fn adder(): fn(Int) => fn(Int) => Int {
+    fn(a) => fn(b) => a + b
+}
+
+fn twice<A, B>(make: fn(Int) => fn(A) => B, a: A): B {
+    make(1)(a)
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let sum = adder()(2)(3);
+    let shown = twice(fn(n) => fn(s) => s, "x");
+    let _ = io.println(ctx, "${sum} ${shown}").ignore();
+    .Ok(())
+}

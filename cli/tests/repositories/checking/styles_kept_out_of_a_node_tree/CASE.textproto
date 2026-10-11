@@ -1,0 +1,20 @@
+# Where styles go when there's no node tree to read them from.
+#
+#   * `//cmd/app` loads `ui/style` and never `ui/node`, on node.
+#   * `//cmd/web` takes an `Extracted` style apart and builds it again, so its
+#     payload is a value rather than the literal the compiler writes.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a program with styles and no ui/node builds and runs, and so does one that rebuilds an Extracted style from its payload"
+
+run {
+  args: ["build", "//..."]
+  exit: 0
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "ran.txt"
+}

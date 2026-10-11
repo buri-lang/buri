@@ -1,0 +1,7 @@
+error: a `derive` names a declared type [derive-target-not-type]
+ --> cmd/derive_for_self/main.buri:9:17
+  |
+9 | derive Show for Self;
+  |                 ^^^^
+  |
+  = fix: name a struct or enum this module declares

@@ -1,0 +1,10 @@
+binary {
+    outputs: [
+        { platform: "node", entries: [
+            { name: "main", function: "serve" },
+        ] },
+        { platform: "native", entries: [
+            { name: "main", function: "serve" },
+        ] },
+    ]
+}

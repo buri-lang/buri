@@ -1,0 +1,1 @@
+{"severity":"error","message":"there is no type `io.println`","code":"unknown-type","location":{"file":"cmd/namespace_function_as_a_type/main.buri","line":8,"column":13,"endLine":8,"endColumn":23,"text":"fn wrong(x: io.println): I64 { 2 }"},"fix":"declare it, import it, or correct the spelling","notes":[],"related":[]}

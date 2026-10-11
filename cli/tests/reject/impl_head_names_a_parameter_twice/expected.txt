@@ -1,0 +1,13 @@
+error: `Twin<I64, I64>` does not implement `Named` [missing-impl]
+  --> cmd/impl_head_names_a_parameter_twice/main.buri:26:11
+   |
+26 |   let _ = named(Twin { a: 1, b: 2 });
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `Twin<T, T>` implements `Named` only when `T` satisfies `Named`, and here `T` is `I64`
+   = fix: make `I64` satisfy `Named`
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

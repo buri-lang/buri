@@ -1,0 +1,5 @@
+from "//lib/loop/b.buri" export { thing };
+
+export fn real(): I64 {
+    1
+}

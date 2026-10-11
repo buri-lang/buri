@@ -1,0 +1,20 @@
+error: this list of styles is not statically known, and `On` and `At` exist only in the stylesheet [style-not-static]
+  --> cmd/ui_style_on_a_parameter/main.buri:13:15
+   |
+13 |   .On(.Hover, xs)
+   |               ^^
+   |
+   = fix: write the value out, or make it a module-level `let`, or apply it outside the `On`/`At`, where it can be an inline style
+
+     A style the compiler can't evaluate usually falls back to an inline style,
+     where Computed already lives. On and At can't: :hover and @media have no
+     inline form. They exist only as stylesheet rules, which the compiler writes
+     at compile time.
+
+error: which state or screen this applies to is not statically known [style-not-static]
+  --> cmd/ui_style_on_a_parameter/main.buri:17:3
+   |
+17 |   .On(s, [.Width(.Full)])
+   |   ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write the value out, or make it a module-level `let`, or apply it outside the `On`/`At`, where it can be an inline style

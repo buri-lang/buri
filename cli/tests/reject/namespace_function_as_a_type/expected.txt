@@ -1,0 +1,11 @@
+error: there is no type `io.println` [unknown-type]
+ --> cmd/namespace_function_as_a_type/main.buri:8:13
+  |
+8 | fn wrong(x: io.println): I64 { 2 }
+  |             ^^^^^^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+
+    Types are nominal, with no structural fallback, so a misspelling can't
+    quietly become a different type that happens to fit.
+

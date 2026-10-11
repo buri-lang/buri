@@ -1,0 +1,1 @@
+{"severity":"error","message":"a `derive` names a declared type","code":"derive-target-not-type","location":{"file":"cmd/derive_for_self/main.buri","line":9,"column":17,"endLine":9,"endColumn":21,"text":"derive Show for Self;"},"fix":"name a struct or enum this module declares","notes":[],"related":[]}

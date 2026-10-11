@@ -1,0 +1,9 @@
+error: expected `A`, found a `B` pattern [pattern-type-mismatch]
+  --> cmd/match_arm_names_another_enum/main.buri:14:5
+   |
+14 |     B.X => "x",
+   |     ^^^
+   |
+   = expected: `A`
+   = actual: a `B` pattern
+   = fix: match the shape of `A`

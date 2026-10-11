@@ -1,0 +1,26 @@
+// EXPECT: but `Opaque` does not satisfy it
+//
+// `Expr<T>`'s derive folds over `Neg(Expr<T>)` and `Lit(T)`. The first is the
+// type itself, so the culprit named is the second, at `T = Opaque`.
+from "node" import { NodeHost };
+
+struct Opaque {
+  n: Int,
+}
+
+enum Expr<T> {
+  Neg(Expr<T>),
+  Lit(T),
+}
+
+derive Equal for Expr;
+
+fn same<T: Equal>(a: T, b: T): Bool {
+  a == b
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let e = Expr.Lit(Opaque { n: 1 });
+  let _ = same(e, e);
+  .Ok(())
+}

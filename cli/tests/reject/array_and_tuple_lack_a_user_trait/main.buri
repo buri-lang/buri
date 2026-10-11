@@ -1,0 +1,23 @@
+// EXPECT: `[I64]` does not implement `Named`
+//
+// An array or a tuple satisfies only the structural traits, and only when its
+// parts do. A trait of the program's own is not one of them.
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+
+trait Named {
+  fn name(self): Str;
+}
+
+fn named<T: Named>(x: T): Str {
+  x.name()
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let a = named([1]);
+  let b = named((1, 2));
+  let _ = io.println(ctx, "${a}${b}").ignore();
+  .Ok(())
+}

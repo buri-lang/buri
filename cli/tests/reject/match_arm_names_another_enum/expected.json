@@ -1,0 +1,1 @@
+{"severity":"error","message":"expected `A`, found a `B` pattern","code":"pattern-type-mismatch","location":{"file":"cmd/match_arm_names_another_enum/main.buri","line":14,"column":5,"endLine":14,"endColumn":8,"text":"    B.X => \"x\","},"expected":"`A`","actual":"a `B` pattern","fix":"match the shape of `A`","notes":[],"related":[]}
