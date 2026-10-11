@@ -530,6 +530,15 @@ test "a closure built elsewhere is what it answers" {
     );
 }
 
+test "a closure built elsewhere and handed on is what it answers" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let build = eighteen;
+    assert.equal(kind(.Computed(build)), "Computed");
+    assert.equal(render(ctx, boxed(.Computed(build))).markup(), "e 0 class:w-18");
+}
+
 test "a style the compiler cannot follow to a node is a variable" {
     let ctx = context {
         Ui: headless(),
