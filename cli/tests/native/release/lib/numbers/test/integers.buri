@@ -59,3 +59,17 @@ test "a float converts to every integer width" {
     let d: F64 = 2.5;
     assert.equal(d.wrapToF32(), 2.5);
 }
+
+test "a narrow float converts to a narrow integer where it fits" {
+    let a: F32 = 2.0;
+    let b: F32 = 300.5;
+    let fits = match (a.toI8()) {
+        .Ok(v) => v == 2,
+        .Err(_) => false,
+    };
+    let refused = match (b.toI8()) {
+        .Ok(_) => false,
+        .Err(_) => true,
+    };
+    assert.equal((fits, refused), (true, true));
+}

@@ -2,7 +2,7 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator, Tasks, Ui, Watch };
+from "platform/effect" import { Allocator, Region, Tasks, Ui, Watch };
 from "platform/effect/testing" import { alloc, headless, observer, tasks };
 from "ui/signal" import { signal };
 
@@ -233,4 +233,38 @@ test "a wide value with one count is shared" {
     assert.equal(names(many), 6);
     assert.equal(many.map(ctx, fn(l) => l.name), ["1", "1", "1"]);
     assert.equal(one.name, "1");
+}
+
+fn grow(acc: Row, n: Int): Result<Row, Str> {
+    if (n > 5) { .Err("too big") } else { .Ok(Row { ..acc, a: acc.l }) }
+}
+
+fn answer(r: Result<Row, Str>): Str {
+    match (r) {
+        .Ok(row) => row.a,
+        .Err(e) => e,
+    }
+}
+
+test "a fold that can fail carries a wide value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(answer([1, 2].foldResult(grow, row(ctx, 3))), "3");
+    assert.equal(answer([1, 9, 2].foldResult(grow, row(ctx, 4))), "too big");
+}
+
+impl Allocator for Grid {
+    fn allocate(self, bytes: Int): Region {
+        Region(bytes)
+    }
+}
+
+test "a step whose context is wide" {
+    let ctx = context {
+        Allocator: grid(5),
+        Tasks: tasks(),
+    };
+    let out = tasks.parallel(ctx, [1, 2], fn(c, i, n) => str.format(c, "${i}${n}"));
+    assert.equal(out, ["01", "12"]);
 }

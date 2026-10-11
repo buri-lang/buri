@@ -31,3 +31,17 @@ test "a function the runtime supplies is passed as a value" {
     let count = bits.popCount;
     assert.equal(count(255), 8);
 }
+
+// A word, then padding, then a 128-bit value.
+struct Mixed {
+    a: Int,
+    b: I128,
+}
+
+test "a word beside a 128-bit value is stored and read back" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = [Mixed { a: 1, b: 2 }, Mixed { a: 3, b: 4 }];
+    assert.equal(xs.map(ctx, fn(m) => m.a), [1, 3]);
+}
