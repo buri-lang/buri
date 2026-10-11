@@ -1,0 +1,31 @@
+# What `--coverage=mcdc` leaves to branches. `wide` has 2^33 paths, more
+# than a key can number, and `tailIf` ends its `||` in an `if` that can end in
+# a tail call. Each keeps a probe on every right side and adds no condition.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "--coverage=mcdc leaves a decision too wide to number, or ending in a tail call, to its branches"
+
+run {
+  args: ["test", "//lib/w", "--coverage=mcdc"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}
+
+run {
+  args: ["test", "//lib/w", "--coverage=mcdc", "--output=js"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}

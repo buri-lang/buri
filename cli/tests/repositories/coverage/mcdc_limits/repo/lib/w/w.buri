@@ -1,0 +1,43 @@
+// 32 groups, each true two ways: 2^33 paths, too many to number.
+export fn wide(a: Bool, b: Bool): Bool {
+    (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+        && (a || b)
+}
+
+export fn tailIf(a: Bool, n: Int): Bool {
+    a || if (n > 0) { positive(n) } else { false }
+}
+
+fn positive(n: Int): Bool {
+    n > 1
+}
