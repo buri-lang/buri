@@ -1,0 +1,48 @@
+// EXPECT: the `impl Show` is for `Box<I64>`, and `Box<Str>` isn't one
+//
+// An `impl` names one instance of its type, or a shape of them: `Box<Int>`,
+// or `Pair<T, T>`. A bound is met only at an instance the head covers, so the
+// call and the derive are refused here, not later in the build.
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+
+struct Box<T> {
+  v: T,
+}
+
+impl Show for Box<Int> {
+  fn show<C: Allocator>(self, ctx: C): Str {
+    "box"
+  }
+}
+
+struct Pair<A, B> {
+  a: A,
+  b: B,
+}
+
+impl<T: Show> Show for Pair<T, T> {
+  fn show<C: Allocator>(self, ctx: C): Str {
+    "pair"
+  }
+}
+
+struct Holder {
+  inner: Box<Str>,
+}
+
+derive Show for Holder;
+
+fn shown<C: Allocator, T: Show>(ctx: C, x: T): Str {
+  x.show(ctx)
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let a = shown(ctx, Box { v: "s" });
+  let b = shown(ctx, Pair { a: 1, b: "x" });
+  let c = shown(ctx, Pair { a: 1, b: 2 });
+  let _ = io.println(ctx, "${a} ${b} ${c}").ignore();
+  .Ok(())
+}

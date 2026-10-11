@@ -1,0 +1,33 @@
+error: `Holder` cannot derive `Show`: `inner` has type `Box<Str>` [underivable-field]
+  --> cmd/impl_for_another_instance/main.buri:35:1
+   |
+35 | derive Show for Holder;
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a derived implementation is a fold over the type's components, and `Box<Str>` does not satisfy `Show`
+   = fix: make `Box<Str>` satisfy `Show` first — `derive Show for Box<Str>;` in its own module, or an `impl` — or drop `Show` from this `derive`
+
+     Make the component's type satisfy the trait first, with a derive in its own
+     module or an impl, or drop the trait from this derive.
+
+error: `Box<Str>` does not implement `Show` [missing-impl]
+  --> cmd/impl_for_another_instance/main.buri:43:11
+   |
+43 |   let a = shown(ctx, Box { v: "s" });
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the `impl Show` is for `Box<I64>`, and `Box<Str>` isn't one
+   = fix: pass a `Box<I64>`, or widen the `impl` to cover `Box<Str>`
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+
+error: `Pair<I64, Str>` does not implement `Show` [missing-impl]
+  --> cmd/impl_for_another_instance/main.buri:44:11
+   |
+44 |   let b = shown(ctx, Pair { a: 1, b: "x" });
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the `impl Show` is for `Pair<T, T>`, and `Pair<I64, Str>` isn't one
+   = fix: pass a `Pair<T, T>`, or widen the `impl` to cover `Pair<I64, Str>`
