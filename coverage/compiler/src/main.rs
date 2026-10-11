@@ -1,17 +1,18 @@
 //! The coverage gate: the compiler's branch coverage, counted from end-to-end
-//! tests only, and held to `compiler-branches.txt`.
+//! tests only, merged across platforms, and held to `compiler-branches.txt`.
 //!
 //! ```text
-//! nix develop .#coverage -c cargo run -p buri-compiler-coverage                  # run the end-to-end tests, check
-//! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --bless       # and rewrite the baseline
+//! nix develop .#coverage -c cargo run -p buri-compiler-coverage                  # this host's tests, measured
 //! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --build       # CI: build once, for the shards
-//! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --shard=2/4   # CI: one shard's profile
-//! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --merge=<dir> # CI: check the shards' profiles
+//! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --shard=2/4   # CI: one shard's lcov
+//! cargo run -p buri-compiler-coverage -- --merge=<dir>                           # CI: merge every platform's shards, gate
+//! cargo run -p buri-compiler-coverage -- --raise                                 # CI: the ratchet
 //! ```
 //!
 //! Only `buri` processes count. `buri` is built with coverage on and the test
 //! binaries without, so a test that calls the compiler in-process adds nothing,
-//! and every `buri` a test starts adds its profile.
+//! and every `buri` a test starts adds its profile. `design/COVERAGE.md` says
+//! how platforms merge.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -26,7 +27,7 @@
               and a gate that can't run its tools should stop rather than report a number."
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -44,30 +45,59 @@ const WORST: usize = 30;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let bless = args.iter().any(|a| a == "--bless");
-    let gate = Gate::new();
-
+    let root = root();
     if args.iter().any(|a| a == "--raise") {
-        gate.raise();
+        raise(&root);
         return;
     }
     if args.iter().any(|a| a == "--build") {
-        gate.build();
+        Gate::new(root).build();
         return;
     }
     if let Some(shard) = args.iter().find_map(|a| a.strip_prefix("--shard=")) {
-        gate.shard(shard);
+        Gate::new(root).shard(shard);
         return;
     }
-    let profiles = match args.iter().find_map(|a| a.strip_prefix("--merge=")) {
-        Some(dir) => collected(Path::new(dir)),
+    match args.iter().find_map(|a| a.strip_prefix("--merge=")) {
+        Some(dir) => check(&root, &shards(Path::new(dir)), true),
         None => {
+            let gate = Gate::new(root.clone());
             gate.build();
-            vec![gate.test(None)]
+            gate.shard("1/1");
+            check(&root, &shards(&gate.target.join("shard")), false);
         }
-    };
-    let binary = gate.built().join("buri");
-    let measured = gate.measure(&binary, &profiles);
+    }
+}
+
+/// The workspace: the nearest directory up from here with a `Cargo.lock`.
+fn root() -> PathBuf {
+    let here = std::env::current_dir().unwrap();
+    here.ancestors()
+        .find(|dir| dir.join("Cargo.lock").exists())
+        .unwrap_or_else(|| panic!("no Cargo.lock in {} or above it", here.display()))
+        .to_path_buf()
+}
+
+/// `target/coverage`, where everything this writes goes.
+fn target(root: &Path) -> PathBuf {
+    root.join("target").join("coverage")
+}
+
+/// Merges every platform's shards, writes what it measured beside the build,
+/// and holds it to the baseline. `ci` is `--merge`, where a platform the
+/// baseline has must be there; a local run measures one host and compares
+/// nothing then.
+fn check(root: &Path, shards: &BTreeMap<String, Lcov>, ci: bool) {
+    let target = target(root);
+    let lcov = target.join("lcov");
+    let _ = std::fs::remove_dir_all(&lcov);
+    std::fs::create_dir_all(&lcov).unwrap();
+    for (host, platform) in shards {
+        std::fs::write(lcov.join(format!("{host}.lcov")), platform.render()).unwrap();
+    }
+
+    let hosts: BTreeSet<String> = shards.keys().cloned().collect();
+    let measured = merge(shards);
     let unmapped = unmapped(&measured);
     if !unmapped.is_empty() {
         eprintln!(
@@ -77,46 +107,79 @@ fn main() {
         );
         std::process::exit(1);
     }
+    let now = Baseline::of(&hosts, &measured);
+    std::fs::write(target.join("compiler-branches.txt"), now.render()).unwrap();
+    std::fs::write(target.join("compiler.txt"), summary(&hosts, &measured)).unwrap();
+    print!("{}", summary(&hosts, &measured));
 
-    let baseline_path = gate.root.join("coverage").join("compiler-branches.txt");
-    let summary_path = gate.root.join("coverage").join("compiler.txt");
+    let baseline_path = root.join("coverage").join("compiler-branches.txt");
     let baseline = Baseline::parse(&std::fs::read_to_string(&baseline_path).unwrap_or_default());
-    let now = Baseline::of(&gate.host, &measured);
-
-    // What this run measured, beside the build, for CI to keep as an artifact.
-    std::fs::write(gate.target.join("compiler-branches.txt"), now.render()).unwrap();
-    std::fs::write(gate.target.join("compiler.txt"), summary(&measured)).unwrap();
-    print!("{}", summary(&measured));
-
-    if bless {
-        if !baseline.host.is_empty() && baseline.host != gate.host {
-            eprintln!(
-                "the baseline was measured on {}, and this is {}. Branch counts differ by \
-                 platform, so bless on {} or commit the CI run's artifact.",
-                baseline.host, gate.host, baseline.host
-            );
-            std::process::exit(2);
+    if baseline.hosts.is_empty() {
+        println!("\nThere is no baseline, so nothing was compared.");
+        return;
+    }
+    let missing: Vec<&String> = baseline.hosts.difference(&hosts).collect();
+    if !missing.is_empty() {
+        println!("\nThe baseline merges {}, and this run has no shard from it.", list(missing.iter().copied()));
+        if ci {
+            std::process::exit(1);
         }
-        std::fs::write(&baseline_path, now.render()).unwrap();
-        std::fs::write(&summary_path, summary(&measured)).unwrap();
-        println!("\nwrote {} and {}", baseline_path.display(), summary_path.display());
         return;
     }
-    if baseline.host != gate.host {
+    let compared = if baseline.hosts == hosts {
+        now
+    } else {
+        let alone = list(&baseline.hosts);
         println!(
-            "\nThe baseline is for {}, not {}, so nothing was compared.",
-            if baseline.host.is_empty() { "no host" } else { &baseline.host },
-            gate.host
+            "\nThe baseline is {alone}'s alone, so this run's {alone} alone was compared with it. \
+             On main, CI then replaces it with this run's merged numbers."
         );
-        return;
-    }
-    let verdict = compare(&baseline, &now);
+        let only = shards.iter().filter(|(host, _)| baseline.hosts.contains(*host));
+        Baseline::of(&baseline.hosts, &merge(&only.map(|(h, l)| (h.clone(), l.clone())).collect()))
+    };
+    let verdict = compare(&baseline, &compared);
     println!("\n{}", verdict.report.trim_end());
     if verdict.failed {
         std::process::exit(1);
     }
 }
 
+/// The ratchet: raises the checked-in baseline to the last measurement
+/// wherever the total or an area rose, and takes its per-file counts and
+/// summary with it. A measurement that merges more platforms replaces it.
+fn raise(root: &Path) {
+    let checked_in = root.join("coverage").join("compiler-branches.txt");
+    let measured = target(root).join("compiler-branches.txt");
+    let was = Baseline::parse(&std::fs::read_to_string(&checked_in).unwrap_or_default());
+    let now = Baseline::parse(
+        &std::fs::read_to_string(&measured)
+            .unwrap_or_else(|e| panic!("{} can't be read ({e}); measure first", measured.display())),
+    );
+    let raised = if was.hosts == now.hosts {
+        let Some((raised, rose)) = ratchet(&was, &now) else {
+            println!("neither the total nor an area rose; the baseline stays");
+            return;
+        };
+        println!("raised the baseline of {}", rose.join(", "));
+        raised
+    } else {
+        let missing: Vec<&String> = was.hosts.difference(&now.hosts).collect();
+        if !missing.is_empty() {
+            println!("this run has no shard from {}; the baseline stays", list(missing.iter().copied()));
+            return;
+        }
+        println!("raised the baseline to merge {}", list(&now.hosts));
+        now
+    };
+    std::fs::write(&checked_in, raised.render()).unwrap();
+    std::fs::copy(target(root).join("compiler.txt"), root.join("coverage").join("compiler.txt")).unwrap();
+}
+
+fn list<'a>(names: impl IntoIterator<Item = &'a String>) -> String {
+    names.into_iter().map(String::as_str).collect::<Vec<_>>().join(", ")
+}
+
+/// Builds and runs the instrumented `buri` on this host.
 struct Gate {
     /// The workspace root.
     root: PathBuf,
@@ -129,9 +192,8 @@ struct Gate {
 }
 
 impl Gate {
-    fn new() -> Gate {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().to_path_buf();
-        let target = root.join("target").join("coverage");
+    fn new(root: PathBuf) -> Gate {
+        let target = target(&root);
         std::fs::create_dir_all(&target).unwrap();
         let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
         let version = output(Command::new(&rustc).arg("-vV"));
@@ -153,31 +215,13 @@ impl Gate {
         Gate { root, target, host, tools }
     }
 
-    /// The ratchet: raises the checked-in baseline to the last measurement
-    /// wherever the total or an area rose, and takes its per-file counts and
-    /// summary with it.
-    fn raise(&self) {
-        let checked_in = self.root.join("coverage").join("compiler-branches.txt");
-        let measured = self.target.join("compiler-branches.txt");
-        let was = Baseline::parse(&std::fs::read_to_string(&checked_in).unwrap_or_default());
-        let now = Baseline::parse(&std::fs::read_to_string(&measured).unwrap_or_else(|e| {
-            panic!("{} can't be read ({e}); measure first", measured.display())
-        }));
-        let Some((raised, rose)) = ratchet(&was, &now) else {
-            println!("neither the total nor an area rose; the baseline stays");
-            return;
-        };
-        std::fs::write(&checked_in, raised.render()).unwrap();
-        std::fs::copy(self.target.join("compiler.txt"), self.root.join("coverage").join("compiler.txt")).unwrap();
-        println!("raised the baseline of {}", rose.join(", "));
-    }
-
     /// The instrumented `buri` the tests run.
     fn buri(&self) -> PathBuf {
         self.target.join("debug").join("buri")
     }
 
-    /// What `build` writes: the instrumented `buri` and the archived tests.
+    /// What `build` writes: the instrumented `buri`, the archived tests, and
+    /// the root `buri` was built in, which its source paths start with.
     fn built(&self) -> PathBuf {
         self.target.join("build")
     }
@@ -198,6 +242,7 @@ impl Gate {
             // Its build scripts are instrumented too; their profiles go nowhere that counts.
             .env("LLVM_PROFILE_FILE", instrumented.join("build-scripts").join("%m.profraw")));
         std::fs::copy(instrumented.join("debug").join("buri"), built.join("buri")).unwrap();
+        std::fs::write(built.join("root"), self.root.display().to_string()).unwrap();
         // Archived, so nothing rebuilds the `buri` that `test` swaps in.
         run(self
             .cargo()
@@ -210,7 +255,7 @@ impl Gate {
 
     /// Runs the end-to-end tests (one shard of them, if asked) against the
     /// instrumented `buri`, and merges its profiles.
-    fn test(&self, shard: Option<(u32, u32)>) -> PathBuf {
+    fn test(&self, (index, count): (u32, u32)) -> PathBuf {
         // Where every test looks for it: `env!("CARGO_BIN_EXE_buri")`.
         let _ = std::fs::remove_file(self.buri());
         std::fs::create_dir_all(self.buri().parent().unwrap()).unwrap();
@@ -235,7 +280,7 @@ impl Gate {
             .arg(&extracted)
             .arg("--extract-overwrite")
             .env("LLVM_PROFILE_FILE", profiles.join(format!("{POOL}.profraw")));
-        if let Some((index, count)) = shard {
+        if count > 1 {
             nextest.arg(format!("--partition=count:{index}/{count}"));
         }
         let started = std::time::Instant::now();
@@ -245,7 +290,7 @@ impl Gate {
             eprintln!("some end-to-end tests failed, so their coverage can't count");
             std::process::exit(1);
         }
-        self.merge(&profiles, shard.map_or(0, |(index, _)| index))
+        self.merge(&profiles)
     }
 
     /// A `cargo` in the workspace without `cargo run`'s own state.
@@ -261,7 +306,7 @@ impl Gate {
     }
 
     /// The `buri` binary's profiles in `dir`, merged into one `.profdata`.
-    fn merge(&self, dir: &Path, index: u32) -> PathBuf {
+    fn merge(&self, dir: &Path) -> PathBuf {
         let signature = self.signature();
         let mut ours = Vec::new();
         let mut others = 0;
@@ -281,7 +326,7 @@ impl Gate {
         );
         ours.sort();
         eprintln!("merging {} profile(s) from buri, leaving {others} from other binaries", ours.len());
-        let out = self.target.join(format!("buri-{index}.profdata"));
+        let out = self.target.join("buri.profdata");
         run(Command::new(self.tools.join("llvm-profdata"))
             .args(["merge", "-sparse", "-o"])
             .arg(&out)
@@ -309,53 +354,198 @@ impl Gate {
         name.split('_').next().unwrap().to_string()
     }
 
-    /// One CI shard's profile, from the `buri` that `--build` left in
-    /// `target/coverage/build`.
+    /// One shard's lcov, from the `buri` that `--build` left in
+    /// `target/coverage/build`, written to `target/coverage/shard`.
     fn shard(&self, which: &str) {
         let (index, count) = which
             .split_once('/')
             .and_then(|(i, n)| Some((i.parse::<u32>().ok()?, n.parse::<u32>().ok()?)))
             .filter(|&(i, n)| i >= 1 && i <= n)
             .unwrap_or_else(|| panic!("--shard=<index>/<count>, from 1, not {which}"));
-        let profile = self.test(Some((index, count)));
+        let profile = self.test((index, count));
+        let lcov = self.export(&profile);
         let out = self.target.join("shard");
         let _ = std::fs::remove_dir_all(&out);
         std::fs::create_dir_all(&out).unwrap();
-        std::fs::rename(&profile, out.join("profile.profdata")).unwrap();
-        std::fs::write(out.join("shard"), format!("{index}/{count}\n")).unwrap();
+        std::fs::write(out.join("coverage.lcov"), lcov.render()).unwrap();
+        std::fs::write(out.join("shard"), format!("{} {index}/{count}\n", self.host)).unwrap();
         println!("wrote {}", out.display());
     }
 
-    /// Per-file coverage of the compiler's own sources.
-    fn measure(&self, binary: &Path, profiles: &[PathBuf]) -> BTreeMap<String, Counts> {
-        let merged = if let [one] = profiles {
-            one.clone()
-        } else {
-            let out = self.target.join("merged.profdata");
-            run(Command::new(self.tools.join("llvm-profdata"))
-                .args(["merge", "-sparse", "-o"])
-                .arg(&out)
-                .args(profiles));
-            out
-        };
-        let report = output(
+    /// `profile` as lcov, with only the compiler's own sources, each named
+    /// from the root `buri` was built in.
+    fn export(&self, profile: &Path) -> Lcov {
+        let text = output(
             Command::new(self.tools.join("llvm-cov"))
-                .args(["report", "--show-branch-summary", "--instr-profile"])
-                .arg(&merged)
-                .arg(binary),
+                .args(["export", "-format=lcov", "-skip-functions", "--instr-profile"])
+                .arg(profile)
+                .arg(self.built().join("buri")),
         );
-        let root = self.root.display().to_string();
-        let mut files = BTreeMap::new();
-        for line in report.lines() {
-            let Some((path, counts)) = Counts::parse(line) else { continue };
-            let path = relative(&path, &root);
-            if counted(&path) {
-                files.insert(path, counts);
+        let built_in = std::fs::read_to_string(self.built().join("root")).unwrap();
+        let prefix = format!("{}/", built_in.trim());
+        let mut lcov = Lcov::parse(&text);
+        lcov.files = std::mem::take(&mut lcov.files)
+            .into_iter()
+            .map(|(path, record)| (path.strip_prefix(&prefix).unwrap_or(&path).to_string(), record))
+            .filter(|(path, _)| counted(path))
+            .collect();
+        assert!(lcov.files.len() > 100, "llvm-cov exported {} of the compiler's files", lcov.files.len());
+        lcov
+    }
+}
+
+/// The shards in `dir` (or `dir` itself, if it's one), each platform's
+/// merged into one lcov. Every shard of a platform must be there.
+fn shards(dir: &Path) -> BTreeMap<String, Lcov> {
+    let mut dirs = vec![dir.to_path_buf()];
+    if !dir.join("shard").exists() {
+        dirs = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).collect();
+    }
+    let mut found: BTreeMap<String, (u32, BTreeMap<u32, PathBuf>)> = BTreeMap::new();
+    for shard in dirs {
+        let Ok(which) = std::fs::read_to_string(shard.join("shard")) else { continue };
+        let parsed = which.split_once(' ').and_then(|(host, which)| {
+            let (index, count) = which.trim().split_once('/')?;
+            Some((host.to_string(), index.parse::<u32>().ok()?, count.parse::<u32>().ok()?))
+        });
+        let (host, index, count) = parsed.unwrap_or_else(|| panic!("{} isn't `<host> <index>/<count>`", which.trim()));
+        let entry = found.entry(host.clone()).or_insert((count, BTreeMap::new()));
+        assert_eq!(entry.0, count, "shards of different runs from {host} in {}", dir.display());
+        entry.1.insert(index, shard.join("coverage.lcov"));
+    }
+    assert!(!found.is_empty(), "no shard in {}", dir.display());
+    let mut platforms = BTreeMap::new();
+    for (host, (count, files)) in found {
+        let missing: Vec<u32> = (1..=count).filter(|i| !files.contains_key(i)).collect();
+        assert!(missing.is_empty(), "{host} is missing shard {missing:?} of {count} in {}", dir.display());
+        let mut merged = Lcov::default();
+        for path in files.values() {
+            merged.add(&Lcov::parse(&std::fs::read_to_string(path).unwrap()));
+        }
+        platforms.insert(host, merged);
+    }
+    platforms
+}
+
+/// One platform's lcov: each file's line and branch counts.
+#[derive(Clone, Default)]
+struct Lcov {
+    files: BTreeMap<String, Record>,
+}
+
+#[derive(Clone, Default)]
+struct Record {
+    /// Line to hits.
+    lines: BTreeMap<u32, u64>,
+    /// (line, block, branch) to times taken.
+    branches: BTreeMap<(u32, u32, u32), u64>,
+}
+
+impl Lcov {
+    /// `SF`, `DA` and `BRDA` records; the rest is recomputed or not used.
+    fn parse(text: &str) -> Lcov {
+        let mut lcov = Lcov::default();
+        let mut file = None;
+        let number = |s: &str| s.trim().parse::<u64>().unwrap_or(0);
+        for line in text.lines() {
+            if let Some(path) = line.strip_prefix("SF:") {
+                file = Some(lcov.files.entry(path.to_string()).or_default());
+            } else if let (Some(da), Some(record)) = (line.strip_prefix("DA:"), file.as_deref_mut()) {
+                let mut parts = da.split(',');
+                let (Some(at), Some(hits)) = (parts.next(), parts.next()) else { continue };
+                *record.lines.entry(number(at) as u32).or_default() += number(hits);
+            } else if let (Some(brda), Some(record)) = (line.strip_prefix("BRDA:"), file.as_deref_mut()) {
+                let parts: Vec<&str> = brda.split(',').collect();
+                let [at, block, branch, taken] = parts[..] else { continue };
+                let key = (number(at) as u32, number(block) as u32, number(branch) as u32);
+                // `-` is a branch whose block never ran.
+                *record.branches.entry(key).or_default() += number(taken);
+            } else if line == "end_of_record" {
+                file = None;
             }
         }
-        assert!(files.len() > 100, "llvm-cov reported {} of the compiler's files", files.len());
-        files
+        lcov
     }
+
+    /// Adds another run of the same binary: counts sum.
+    fn add(&mut self, other: &Lcov) {
+        for (path, theirs) in &other.files {
+            let ours = self.files.entry(path.clone()).or_default();
+            for (&at, &hits) in &theirs.lines {
+                *ours.lines.entry(at).or_default() += hits;
+            }
+            for (&key, &taken) in &theirs.branches {
+                *ours.branches.entry(key).or_default() += taken;
+            }
+        }
+    }
+
+    fn render(&self) -> String {
+        let mut out = String::new();
+        for (path, record) in &self.files {
+            out.push_str(&format!("SF:{path}\n"));
+            for (at, hits) in &record.lines {
+                out.push_str(&format!("DA:{at},{hits}\n"));
+            }
+            let hit = |counts: &mut dyn Iterator<Item = &u64>| counts.filter(|&&c| c > 0).count();
+            out.push_str(&format!("LF:{}\nLH:{}\n", record.lines.len(), hit(&mut record.lines.values())));
+            for ((at, block, branch), taken) in &record.branches {
+                out.push_str(&format!("BRDA:{at},{block},{branch},{taken}\n"));
+            }
+            out.push_str(&format!("BRF:{}\nBRH:{}\n", record.branches.len(), hit(&mut record.branches.values())));
+            out.push_str("end_of_record\n");
+        }
+        out
+    }
+}
+
+/// Each file's coverage over every platform: a line or branch is covered if
+/// any platform's tests took it. Platforms agree on a line's branches unless
+/// `cfg` changed them, so a line whose platforms list different branches
+/// counts each platform's apart.
+fn merge(platforms: &BTreeMap<String, Lcov>) -> BTreeMap<String, Counts> {
+    let paths: BTreeSet<&String> = platforms.values().flat_map(|p| p.files.keys()).collect();
+    let mut files = BTreeMap::new();
+    for path in paths {
+        let records: Vec<&Record> = platforms.values().filter_map(|p| p.files.get(path)).collect();
+        let mut counts = Counts::default();
+
+        let mut lines: BTreeMap<u32, bool> = BTreeMap::new();
+        for record in &records {
+            for (&at, &hits) in &record.lines {
+                *lines.entry(at).or_default() |= hits > 0;
+            }
+        }
+        counts.lines = lines.len() as u64;
+        counts.lines_covered = lines.values().filter(|&&hit| hit).count() as u64;
+
+        // Each line's branches, per platform that has any there.
+        let mut by_line: BTreeMap<u32, Vec<BTreeMap<(u32, u32), u64>>> = BTreeMap::new();
+        for record in &records {
+            let mut mine: BTreeMap<u32, BTreeMap<(u32, u32), u64>> = BTreeMap::new();
+            for (&(at, block, branch), &taken) in &record.branches {
+                mine.entry(at).or_default().insert((block, branch), taken);
+            }
+            for (at, branches) in mine {
+                by_line.entry(at).or_default().push(branches);
+            }
+        }
+        for each in by_line.values() {
+            let agree = each.windows(2).all(|pair| pair[0].keys().eq(pair[1].keys()));
+            if agree {
+                counts.branches += each[0].len() as u64;
+                let taken = each[0].keys().filter(|key| each.iter().any(|p| p[key] > 0));
+                counts.branches_covered += taken.count() as u64;
+            } else {
+                for platform in each {
+                    counts.branches += platform.len() as u64;
+                    counts.branches_covered += platform.values().filter(|&&t| t > 0).count() as u64;
+                }
+            }
+        }
+        files.insert(path.clone(), counts);
+    }
+    files
 }
 
 /// `a` against `b` as fractions, exactly.
@@ -373,14 +563,10 @@ fn rises(was: Option<(u64, u64)>, now: (u64, u64)) -> bool {
     }
 }
 
-/// `was` raised by `now`: each of the total and the areas that rose takes its
-/// new count, the rest keep theirs, and the per-file counts are `now`'s. `None`
-/// when nothing rose. A baseline for another host is replaced outright. Also
-/// says what rose.
+/// `was` raised by `now`, measured on the same platforms: each of the total
+/// and the areas that rose takes its new count, the rest keep theirs, and the
+/// per-file counts are `now`'s. `None` when nothing rose. Also says what rose.
 fn ratchet(was: &Baseline, now: &Baseline) -> Option<(Baseline, Vec<String>)> {
-    if was.host != now.host {
-        return Some((now.clone(), vec![format!("host {}", now.host)]));
-    }
     let mut rose = Vec::new();
     let total = if rises(Some(was.total), now.total) {
         rose.push("the total".to_string());
@@ -401,22 +587,7 @@ fn ratchet(was: &Baseline, now: &Baseline) -> Option<(Baseline, Vec<String>)> {
     if rose.is_empty() {
         return None;
     }
-    Some((Baseline { host: now.host.clone(), files: now.files.clone(), areas, total }, rose))
-}
-
-/// `path` relative to `root`. `llvm-cov report` drops the prefix every file
-/// shares, so `path` may start anywhere in `root`.
-fn relative(path: &str, root: &str) -> String {
-    let mut rest = root;
-    loop {
-        if let Some(inside) = path.strip_prefix(rest).and_then(|p| p.strip_prefix('/')) {
-            return inside.to_string();
-        }
-        match rest.find('/') {
-            Some(at) => rest = &rest[at + 1..],
-            None => return path.to_string(),
-        }
-    }
+    Some((Baseline { hosts: now.hosts.clone(), files: now.files.clone(), areas, total }, rose))
 }
 
 /// Whether a source counts: the compiler's own, and not the runtime, a test,
@@ -474,30 +645,9 @@ fn unmapped(files: &BTreeMap<String, Counts>) -> Vec<String> {
     files.keys().filter(|path| area_of(path).is_none()).cloned().collect()
 }
 
-/// The profiles of the shards CI downloaded into `dir`, one directory each,
-/// every shard present.
-fn collected(dir: &Path) -> Vec<PathBuf> {
-    let mut shards = BTreeMap::new();
-    let mut count = None;
-    for entry in std::fs::read_dir(dir).unwrap().flatten() {
-        let shard = entry.path();
-        let Ok(which) = std::fs::read_to_string(shard.join("shard")) else { continue };
-        let (index, n) = which.trim().split_once('/').unwrap();
-        assert!(count.is_none_or(|c| c == n), "shards of different runs in {}", dir.display());
-        count = Some(n.to_string());
-        shards.insert(index.parse::<u32>().unwrap(), shard.join("profile.profdata"));
-    }
-    let count: u32 = count.unwrap_or_else(|| panic!("no shard in {}", dir.display())).parse().unwrap();
-    let missing: Vec<u32> = (1..=count).filter(|i| !shards.contains_key(i)).collect();
-    assert!(missing.is_empty(), "shards {missing:?} of {count} are missing from {}", dir.display());
-    shards.into_values().collect()
-}
-
-/// One file's row of `llvm-cov report`.
+/// One file's lines and branches, and how many of each the tests took.
 #[derive(Clone, Copy, Default)]
 struct Counts {
-    regions: u64,
-    regions_covered: u64,
     lines: u64,
     lines_covered: u64,
     branches: u64,
@@ -505,34 +655,7 @@ struct Counts {
 }
 
 impl Counts {
-    /// `<file> regions missed % functions missed % lines missed % branches missed %`.
-    fn parse(line: &str) -> Option<(String, Counts)> {
-        let words: Vec<&str> = line.split_whitespace().collect();
-        if words.len() < 13 {
-            return None;
-        }
-        let tail = &words[words.len() - 12..];
-        let n = |i: usize| tail[i].parse::<u64>().ok();
-        let (regions, regions_missed) = (n(0)?, n(1)?);
-        let (lines, lines_missed) = (n(6)?, n(7)?);
-        let (branches, branches_missed) = (n(9)?, n(10)?);
-        let path = words[..words.len() - 12].join(" ");
-        Some((
-            path,
-            Counts {
-                regions,
-                regions_covered: regions - regions_missed,
-                lines,
-                lines_covered: lines - lines_missed,
-                branches,
-                branches_covered: branches - branches_missed,
-            },
-        ))
-    }
-
     fn add(&mut self, other: &Counts) {
-        self.regions += other.regions;
-        self.regions_covered += other.regions_covered;
         self.lines += other.lines;
         self.lines_covered += other.lines_covered;
         self.branches += other.branches;
@@ -562,7 +685,7 @@ fn module_of(path: &str) -> Option<String> {
 }
 
 /// `compiler.txt`: per crate, then the files with the most uncovered branches.
-fn summary(files: &BTreeMap<String, Counts>) -> String {
+fn summary(hosts: &BTreeSet<String>, files: &BTreeMap<String, Counts>) -> String {
     let mut areas: BTreeMap<&str, Counts> = AREAS.iter().map(|&(_, area)| (area, Counts::default())).collect();
     let mut total = Counts::default();
     for (path, counts) in files {
@@ -571,23 +694,20 @@ fn summary(files: &BTreeMap<String, Counts>) -> String {
         }
         total.add(counts);
     }
-    let mut out = String::from(
-        "# The compiler's coverage from end-to-end tests only (coverage/compiler/src/main.rs).\n\
-         # Branches gate, in total and per area; lines and regions are context.\n\n",
+    let mut out = format!(
+        "# The compiler's coverage from end-to-end tests only (coverage/compiler/src/main.rs),\n\
+         # merged from {}.\n\
+         # Branches gate, in total and per area; lines are context.\n\n",
+        list(hosts)
     );
-    out.push_str(&format!(
-        "{:<24} {:>17} {:>8} {:>17} {:>8} {:>17} {:>8}\n",
-        "area", "branches", "", "lines", "", "regions", ""
-    ));
+    out.push_str(&format!("{:<24} {:>17} {:>8} {:>17} {:>8}\n", "area", "branches", "", "lines", ""));
     let row = |name: &str, c: &Counts| {
         format!(
-            "{name:<24} {:>17} {:>8} {:>17} {:>8} {:>17} {:>8}\n",
+            "{name:<24} {:>17} {:>8} {:>17} {:>8}\n",
             format!("{}/{}", c.branches_covered, c.branches),
             percent(c.branches_covered, c.branches),
             format!("{}/{}", c.lines_covered, c.lines),
             percent(c.lines_covered, c.lines),
-            format!("{}/{}", c.regions_covered, c.regions),
-            percent(c.regions_covered, c.regions),
         )
     };
     for (name, counts) in &areas {
@@ -601,10 +721,7 @@ fn summary(files: &BTreeMap<String, Counts>) -> String {
             modules.entry(module).or_default().add(counts);
         }
     }
-    out.push_str(&format!(
-        "\n{:<24} {:>17} {:>8} {:>17} {:>8} {:>17} {:>8}\n",
-        "cli/src", "branches", "", "lines", "", "regions", ""
-    ));
+    out.push_str(&format!("\n{:<24} {:>17} {:>8} {:>17} {:>8}\n", "cli/src", "branches", "", "lines", ""));
     for (name, counts) in &modules {
         out.push_str(&row(name, counts));
     }
@@ -624,11 +741,12 @@ fn summary(files: &BTreeMap<String, Counts>) -> String {
     out
 }
 
-/// `compiler-branches.txt`: the host, the total's and each area's covered and
+/// `compiler-branches.txt`: the platforms merged, the total's and each area's covered and
 /// total branches, then each file's.
 #[derive(Clone)]
 struct Baseline {
-    host: String,
+    /// Host triples. A baseline from before platforms merged names one, as `host`.
+    hosts: BTreeSet<String>,
     total: (u64, u64),
     areas: BTreeMap<String, (u64, u64)>,
     files: BTreeMap<String, (u64, u64)>,
@@ -636,7 +754,7 @@ struct Baseline {
 
 impl Baseline {
     /// A measurement's baseline. Every area is in it, with no branches if no file is.
-    fn of(host: &str, measured: &BTreeMap<String, Counts>) -> Baseline {
+    fn of(hosts: &BTreeSet<String>, measured: &BTreeMap<String, Counts>) -> Baseline {
         let files: BTreeMap<String, (u64, u64)> =
             measured.iter().map(|(p, c)| (p.clone(), (c.branches_covered, c.branches))).collect();
         let mut areas: BTreeMap<String, (u64, u64)> =
@@ -647,11 +765,11 @@ impl Baseline {
                 counts.1 += total;
             }
         }
-        Baseline { host: host.to_string(), total: sum(files.values()), areas, files }
+        Baseline { hosts: hosts.clone(), total: sum(files.values()), areas, files }
     }
 
     fn parse(text: &str) -> Baseline {
-        let mut host = String::new();
+        let mut hosts = BTreeSet::new();
         let mut total = None;
         let mut areas = BTreeMap::new();
         let mut files = BTreeMap::new();
@@ -659,7 +777,7 @@ impl Baseline {
         for line in text.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
             let words: Vec<&str> = line.split(' ').collect();
             match words.as_slice() {
-                ["host", h] => host = h.trim().to_string(),
+                ["host" | "hosts", names @ ..] => hosts = names.iter().map(|h| h.trim().to_string()).collect(),
                 ["total", c, t, ..] => total = counts(c, t),
                 ["area", area, c, t, ..] => {
                     if let Some(counts) = counts(c, t) {
@@ -679,7 +797,7 @@ impl Baseline {
         }
         // A baseline from before areas has no total line.
         let total = total.unwrap_or_else(|| sum(files.values()));
-        Baseline { host, total, areas, files }
+        Baseline { hosts, total, areas, files }
     }
 
     fn render(&self) -> String {
@@ -688,9 +806,9 @@ impl Baseline {
              # gate holds the total and each area to their share; files only warn.\n\
              # CI's coverage job raises it on main; never edit a count by hand.\n\
              # coverage/compiler/src/main.rs has the rest.\n\
-             host {}\n\
+             hosts {}\n\
              total {} {} {}\n",
-            self.host,
+            self.hosts.iter().map(String::as_str).collect::<Vec<_>>().join(" "),
             self.total.0,
             self.total.1,
             percent(self.total.0, self.total.1)
@@ -809,7 +927,7 @@ mod tests {
                 (path.to_string(), Counts { branches: total, branches_covered: covered, ..Counts::default() })
             })
             .collect();
-        Baseline::of("h", &measured)
+        Baseline::of(&BTreeSet::from(["h".to_string()]), &measured)
     }
 
     #[test]
@@ -912,7 +1030,7 @@ mod tests {
         let mut was = baseline(&[("cli/src/a b.rs", 1, 2), (SYNTAX, 0, 0)]);
         was.total = (7, 9);
         let again = Baseline::parse(&was.render());
-        assert_eq!(again.host, "h");
+        assert_eq!(again.hosts, was.hosts);
         assert_eq!(again.total, (7, 9));
         assert_eq!(again.areas, was.areas);
         assert_eq!(again.files, was.files);
@@ -954,25 +1072,6 @@ mod tests {
         let checked_in = Baseline::parse(include_str!("../../compiler-branches.txt"));
         let missing: Vec<&String> = checked_in.files.keys().filter(|path| area_of(path).is_none()).collect();
         assert!(missing.is_empty(), "{missing:?}");
-    }
-
-    #[test]
-    fn a_report_row_parses() {
-        let row = "/r/cli/src/main.rs  13  2  84.62%  2  0  100.00%  10  1  90.00%  6  3  50.00%";
-        let (path, c) = Counts::parse(row).unwrap();
-        assert_eq!(path, "/r/cli/src/main.rs");
-        assert_eq!((c.regions_covered, c.lines_covered, c.branches_covered, c.branches), (11, 9, 3, 6));
-        let none = "/r/x.rs  1  0  100.00%  1  0  100.00%  1  0  100.00%  0  0  -";
-        assert_eq!(Counts::parse(none).unwrap().1.branches, 0);
-    }
-
-    #[test]
-    fn a_path_is_made_relative_however_much_llvm_cov_dropped() {
-        let root = "/home/r/work/buri";
-        for path in ["/home/r/work/buri/cli/src/a.rs", "home/r/work/buri/cli/src/a.rs", "work/buri/cli/src/a.rs"] {
-            assert_eq!(relative(path, root), "cli/src/a.rs");
-        }
-        assert_eq!(relative(".cargo/registry/x.rs", root), ".cargo/registry/x.rs");
     }
 
     #[test]

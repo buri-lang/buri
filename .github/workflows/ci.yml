@@ -522,14 +522,22 @@ jobs:
           if-no-files-found: ignore
 
   # The compiler's branch coverage from end-to-end tests only, which must never
-  # fall, in total or in any area (coverage/compiler/src/main.rs). x86_64
-  # Linux, the baseline's host.
-  # `coverage-build` builds the instrumented `buri` and the tests once, so
-  # every shard runs the same `buri`; each shard runs a quarter of the tests;
-  # `coverage` merges the shards' profiles and gates.
+  # fall, in total or in any area (coverage/compiler/src/main.rs). Measured on
+  # three platforms and merged, since some branches only run on one: a branch
+  # counts when any platform's tests took it (design/COVERAGE.md).
+  # `coverage-build` builds each platform's instrumented `buri` and tests once,
+  # so every shard of it runs the same `buri`; each shard runs a quarter of the
+  # tests and exports lcov; `coverage` merges every shard and gates.
   coverage-build:
-    name: coverage build
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    name: coverage build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: x86_64-linux, os: blacksmith-8vcpu-ubuntu-2404 }
+          - { platform: arm64-linux, os: blacksmith-16vcpu-ubuntu-2404-arm }
+          - { platform: arm64-macos, os: blacksmith-12vcpu-macos-latest }
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
@@ -538,7 +546,7 @@ jobs:
           determinate: false
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ubuntu-2404-x86_64-coverage
+          shared-key: coverage-${{ matrix.platform }}
           workspaces: |
             . -> target/coverage
             . -> target/coverage-buri
@@ -549,25 +557,30 @@ jobs:
           path: |
             target/coverage/debug/build
             target/coverage-buri/debug/build
-          key: coverage-buildscript-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
-          restore-keys: coverage-buildscript-
+          key: coverage-buildscript-${{ matrix.platform }}-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: coverage-buildscript-${{ matrix.platform }}-
       - run: nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --build
       - uses: actions/upload-artifact@v7
         with:
-          name: coverage-build
+          name: coverage-build-${{ matrix.platform }}
           path: target/coverage/build
           retention-days: 7
 
   coverage-shard:
-    name: coverage shard (${{ matrix.shard }}/4)
+    name: coverage shard (${{ matrix.platform }}, ${{ matrix.shard }}/4)
     needs: coverage-build
     strategy:
       fail-fast: false
       matrix:
+        platform: [x86_64-linux, arm64-linux, arm64-macos]
         shard: [1, 2, 3, 4]
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+        include:
+          - { platform: x86_64-linux, os: blacksmith-8vcpu-ubuntu-2404, threads: 16 }
+          - { platform: arm64-linux, os: blacksmith-16vcpu-ubuntu-2404-arm, threads: 32 }
+          - { platform: arm64-macos, os: blacksmith-12vcpu-macos-latest, threads: 24 }
+    runs-on: ${{ matrix.os }}
     env:
-      NEXTEST_TEST_THREADS: 16
+      NEXTEST_TEST_THREADS: ${{ matrix.threads }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
@@ -576,7 +589,8 @@ jobs:
           determinate: false
       - uses: oven-sh/setup-bun@v2
       # The test job's tools, which the suite checks are on PATH.
-      - run: |
+      - if: runner.os == 'Linux'
+        run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -584,12 +598,12 @@ jobs:
           ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
       - uses: actions/download-artifact@v8
         with:
-          name: coverage-build
+          name: coverage-build-${{ matrix.platform }}
           path: target/coverage/build
       - run: nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --shard=${{ matrix.shard }}/4
       - uses: actions/upload-artifact@v7
         with:
-          name: coverage-shard-${{ matrix.shard }}
+          name: coverage-shard-${{ matrix.platform }}-${{ matrix.shard }}
           path: target/coverage/shard
           retention-days: 7
 
@@ -603,18 +617,13 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
-      - uses: DeterminateSystems/nix-installer-action@v23
-        with:
-          determinate: false
-      - uses: actions/download-artifact@v8
-        with:
-          name: coverage-build
-          path: target/coverage/build
+      # Merging is plain Rust: no nightly, no LLVM tools.
+      - run: rustup toolchain install
       - uses: actions/download-artifact@v8
         with:
           pattern: coverage-shard-*
           path: target/shards
-      - run: nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --merge=target/shards
+      - run: cargo run -p buri-compiler-coverage -- --merge=target/shards
       # The ratchet: a rise in the total or an area becomes its baseline. On a push to main
       # it's committed there; anywhere else the commit is only printed. If main
       # moved meanwhile, the rise is checked again against main's baseline. A
@@ -633,7 +642,7 @@ jobs:
               git fetch --quiet origin main
               git checkout --quiet --detach FETCH_HEAD
             fi
-            nix develop .#coverage -c cargo run -q -p buri-compiler-coverage -- --raise
+            cargo run -q -p buri-compiler-coverage -- --raise
             if [ -z "$(git status --porcelain -- coverage)" ]; then
               exit 0
             fi
@@ -652,7 +661,8 @@ jobs:
           done
           echo "main kept moving; the baseline was not raised" >&2
           exit 1
-      # What this run measured.
+      # What this run measured, and each platform's lcov, so the uncovered
+      # branches can be read without running the suite.
       - if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -660,6 +670,7 @@ jobs:
           path: |
             target/coverage/compiler-branches.txt
             target/coverage/compiler.txt
+            target/coverage/lcov
           retention-days: 7
           if-no-files-found: ignore
 

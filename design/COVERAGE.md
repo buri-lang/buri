@@ -194,3 +194,44 @@ numbers and compares nothing.
 Each instantiation of a generic function counts on its own, as under
 `--coverage=mcdc` anywhere, so a test that calls `list.map` at a new type adds
 that instantiation's conditions.
+
+## The compiler's gate
+
+```sh
+nix develop .#coverage -c cargo run -p buri-compiler-coverage   # this host's numbers
+```
+
+`coverage/compiler` measures the compiler's own branch coverage, counted from
+`buri`'s end-to-end tests only; `cli/tests/README.md` has the rules. Some
+branches only run on one platform, such as the Mach-O writer, arm64 code
+generation and the macOS program store. So CI measures on x86_64 Linux, arm64
+Linux and arm64 macOS and gates the merge:
+
+- `--build` builds each platform's instrumented `buri` and its tests once.
+- `--shard=i/n` runs part of the tests and exports lcov with `llvm-cov export`,
+  every path relative to the root `buri` was built in.
+- `--merge=<dir>` merges every shard, gates, and writes each platform's lcov to
+  `target/coverage/lcov/<host>.lcov`. CI uploads those as `coverage-baseline`,
+  so main's uncovered branches can be read without running the suite.
+
+`cfg` is resolved per target, so each platform's binary has its own branches.
+The merge keys a branch by file, line and lcov's block and branch numbers:
+
+- A branch counts as covered when any platform took it.
+- A branch only some platforms compile counts once, among their branches.
+- A line whose platforms list different branches counts each platform's apart,
+  because the numbers on it may no longer name the same branch. Merging them
+  could call one branch covered because a different one ran.
+
+So the merged total is every branch some platform compiles, and nothing is
+counted covered that no platform ran. lcov merges a generic function's
+instantiations the same way: a branch is covered when any instantiation took
+it.
+
+`coverage/compiler-branches.txt` names the platforms it merges on its `hosts`
+line, and a run is held to the baseline over those platforms alone. A
+baseline from before the merge names one `host`, so the first merged run
+compares x86_64 Linux's own numbers against it, and on main the ratchet then
+writes the merged baseline outright. A run missing a platform the baseline
+has fails in CI, and the ratchet never takes it. A local run measures one host,
+so it prints its numbers and compares nothing.

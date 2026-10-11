@@ -328,7 +328,6 @@ process, so one process per test would write it from several at once.
 
 ```
 nix develop .#coverage -c cargo run -p buri-compiler-coverage             # the compiler coverage gate
-nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --bless
 ```
 
 The gate builds `buri` with branch coverage, runs `buri`'s tests uninstrumented
@@ -353,8 +352,10 @@ and pull requests print that commit and push nothing. A file covering fewer
 branches only warns, since moving or deleting code does that without lowering
 coverage.
 
-The baseline is x86_64 Linux's, so on any other host the gate prints its numbers
-and compares nothing.
+The baseline merges x86_64 Linux, arm64 Linux and arm64 macOS: a branch counts
+when any of them took it (`design/COVERAGE.md`). A local run measures one host,
+so it prints its numbers and compares nothing. CI's `coverage-baseline`
+artifact has each platform's lcov.
 
 The gate counts everything the CLI runs: `cli/src` (every command, the build
 system, the language server, the documentation) and `crates/*/src`.
