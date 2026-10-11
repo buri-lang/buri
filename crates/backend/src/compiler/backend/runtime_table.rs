@@ -930,7 +930,9 @@ pub const ENTRIES: &[Entry] = &[
     // `runtime_native::net_intrinsic` names the `actor.*` family too: a
     // toolchain built without the reactor refuses these keys with a sentence
     // before code generation rather than with a missing symbol from `cc`.
-    e("actor.mailboxOpen", &[Dropped, List, Scalar], Ret::Scalar),
+    // `mailboxOpen` carries the state's stride and release glue, so the
+    // runtime can let go of the state of an actor nobody stopped at exit.
+    e("actor.mailboxOpen", &[Dropped, Elems, Scalar, Stride, Retain, Release, Equal], Ret::Scalar),
     e("actor.mailboxPush", &[Dropped, Scalar, List], Ret::Res),
     e("actor.mailboxPop", &[Dropped, Scalar], Ret::Sum),
     e("actor.mailboxClose", &[Dropped, Scalar], Ret::Sum),

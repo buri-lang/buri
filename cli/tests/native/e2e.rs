@@ -4232,6 +4232,54 @@ fn an_actor_leaks_none_of_what_its_messages_and_answers_carried() {
     );
 }
 
+/// **An actor still running when `main` returns gives back its state.**
+///
+/// Nothing stops it, so the runtime still holds the state at exit. The state is
+/// a built string, so letting go of the block and not what it holds still
+/// leaks, and the second actor's state is the one a step put back.
+#[test]
+fn an_actor_left_running_at_exit_leaks_nothing() {
+    let source = r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Stepped };
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+fn keeper<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Str, Int> {
+    Actor {
+        state: initial,
+        step: fn(_c, held, next) => Stepped { state: next, answer: held.length() },
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let _idle = actor.start(ctx, keeper("a".repeat(ctx, 3000)));
+    let busy = actor.start(ctx, keeper("b".repeat(ctx, 5000)));
+    let answered = busy.sendMessage(ctx, "c".repeat(ctx, 7000)).withDefault(-1);
+    io.println(ctx, "answered ${answered}").mapErr(fn(_e) => "could not print")
+}
+"#;
+    for (backend, build) in probed_backends() {
+        let binary = build("e2e-actor-left-running", source);
+        let out = std::process::Command::new(&binary)
+            .env("BURI_RT_HEAP_CHECK", "1")
+            .env("BURI_RT_HEAP_REPORT", "1")
+            .output()
+            .expect("the program did not start");
+        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        assert_eq!(out.status.code(), Some(0), "{backend}: stdout:\n{stdout}\nstderr:\n{stderr}");
+        assert_eq!(stdout, "answered 5000\n", "{backend}: {stderr}");
+        assert!(stderr.contains("buri heap check: ok"), "{backend}: {stderr}");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Many senders, one actor
 // ---------------------------------------------------------------------------
