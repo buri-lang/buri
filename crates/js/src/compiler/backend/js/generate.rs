@@ -432,7 +432,7 @@ pub fn generate(
         });
     }
     for (i, d) in program.descriptors.iter().enumerate() {
-        let Expr::Array(items) = g.descriptor(d) else { continue };
+        let items = g.descriptor(d);
         stmts.push(Stmt::Expr(Expr::call(
             Expr::member(Expr::ident(descriptor_name(i)), "push"),
             items,
@@ -3036,7 +3036,8 @@ impl<'a> Gen<'a> {
     // Descriptors and the test harness
     // -----------------------------------------------------------------------
 
-    fn descriptor(&self, d: &Desc) -> Expr {
+    /// A descriptor's items: the caller fills the declared array with them.
+    fn descriptor(&self, d: &Desc) -> Vec<Expr> {
         match d {
             Desc::Prim(p) => {
                 // "i" is an integer and "I" a `BigInt` one. The runtime walkers
@@ -3056,17 +3057,17 @@ impl<'a> Gen<'a> {
                 if p.is_integer() || *p == Prim::F32 {
                     desc.push(Expr::Str(p.name().into()));
                 }
-                Expr::Array(desc)
+                desc
             }
-            Desc::Unit => Expr::Array(vec![Expr::Num(1.0)]),
-            Desc::Struct { name, record, fields } => Expr::Array(vec![
+            Desc::Unit => vec![Expr::Num(1.0)],
+            Desc::Struct { name, record, fields } => vec![
                 Expr::Num(2.0),
                 Expr::Str(name.clone()),
                 Expr::Bool(*record),
                 Expr::Array(fields.iter().map(|f| Expr::Str(f.name.clone())).collect()),
                 Expr::Array(fields.iter().map(|f| Expr::ident(descriptor_name(f.ty))).collect()),
-            ]),
-            Desc::Enum { name, variants } => Expr::Array(vec![
+            ],
+            Desc::Enum { name, variants } => vec![
                 Expr::Num(3.0),
                 Expr::Str(name.clone()),
                 Expr::Array(
@@ -3090,26 +3091,26 @@ impl<'a> Gen<'a> {
                         .collect(),
                 ),
                 Expr::Bool(d.payloadless()),
-            ]),
+            ],
             Desc::Array(inner) => {
-                Expr::Array(vec![Expr::Num(4.0), Expr::ident(descriptor_name(*inner))])
+                vec![Expr::Num(4.0), Expr::ident(descriptor_name(*inner))]
             }
-            Desc::Tuple(items) => Expr::Array(vec![
+            Desc::Tuple(items) => vec![
                 Expr::Num(5.0),
                 Expr::Array(items.iter().map(|t| Expr::ident(descriptor_name(*t))).collect()),
-            ]),
+            ],
             Desc::Option(inner) => {
-                Expr::Array(vec![Expr::Num(7.0), Expr::ident(descriptor_name(*inner))])
+                vec![Expr::Num(7.0), Expr::ident(descriptor_name(*inner))]
             }
-            Desc::Opaque(_) | Desc::Reserved => Expr::Array(vec![Expr::Num(6.0)]),
+            Desc::Opaque(_) | Desc::Reserved => vec![Expr::Num(6.0)],
             // [9, list, toList, of]: an `IndexSet`, read as the list of its
             // members and built back from one.
-            Desc::Members { list, to, from } => Expr::Array(vec![
+            Desc::Members { list, to, from } => vec![
                 Expr::Num(9.0),
                 Expr::ident(descriptor_name(*list)),
                 Expr::ident(self.symbol(to.index())),
                 Expr::ident(self.symbol(from.index())),
-            ]),
+            ],
             // [8, struct, masks, $unflag, $flag]: a `derive Flags` word, read
             // as the struct of `Bool`s it stands for, with the bit each field
             // is (`middle::flags`). Naming the two conversions here is what
@@ -3121,13 +3122,13 @@ impl<'a> Gen<'a> {
                     .map(|i| self.int_literal(1u128 << (n - 1 - i), false, &word))
                     .collect();
                 let plain = Desc::Struct { name: name.clone(), record: *record, fields: fields.clone() };
-                Expr::Array(vec![
+                vec![
                     Expr::Num(8.0),
-                    self.descriptor(&plain),
+                    Expr::Array(self.descriptor(&plain)),
                     Expr::Array(masks),
                     Expr::ident("$unflag"),
                     Expr::ident("$flag"),
-                ])
+                ]
             }
         }
     }
