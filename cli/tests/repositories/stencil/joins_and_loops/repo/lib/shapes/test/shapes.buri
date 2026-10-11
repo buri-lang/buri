@@ -88,12 +88,17 @@ fn plusToLiteral(q: Bool, x: U64, y: U64): Int {
 }
 
 fn plusOfSum(q: Bool, x: U64, y: U64, b: U64): Int {
-    let a = if (q) { (x + y) + 1 } else { y };
+    let a = if (q) { x + y + 1 } else { y };
     if (a >= b) { 1 } else { 2 }
 }
 
 fn floatLast(q: Bool, x: U64, y: U64, b: U64, f: F64): F64 {
-    let a = if (q) { let t = f + 1.0; x } else { y };
+    let a = if (q) {
+        let t = f + 1.0;
+        x
+    } else {
+        y
+    };
     if (a >= b) { f } else { f + 2.0 }
 }
 
@@ -158,9 +163,14 @@ test "an unsigned test after a join inside a loop" {
     assert.equal(valueInRegister(2, 0, 0, false, 0), 2 * 3 + 1);
 }
 
-fn negateWide(x: I128): I128 { -x }
+fn negateWide(x: I128): I128 {
+    -x
+}
 
 test "a wide negation" {
     assert.equal(negateWide(5), -5);
-    assert.equal(negateWide(-170141183460469231731687303715884105727), 170141183460469231731687303715884105727);
+    assert.equal(
+        negateWide(-170141183460469231731687303715884105727),
+        170141183460469231731687303715884105727,
+    );
 }
