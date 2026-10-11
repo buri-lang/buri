@@ -1,0 +1,5 @@
+// Named `Result`, whose failure carries nothing.
+export enum Result<T, E> {
+    Ok(T),
+    Err,
+}

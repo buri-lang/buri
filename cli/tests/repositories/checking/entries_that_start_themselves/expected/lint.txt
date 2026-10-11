@@ -1,0 +1,126 @@
+error: `one` must take only its host and answer `Result<(), Str>`: its platform gives it no `js` file, so it starts itself [entry-signature-mismatch]
+ --> cmd/bare/main.buri:3:1
+  |
+3 | export fn one(name: Option<Str>): Result<(), Str> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: declare `first` in `//platform/bare` as `fn first(host: H): Result<(), Str>`, or give its `entry` a `js` file that calls it
+
+    What to do
+    ──────────
+
+    Give the entry the signature its platform's platform.buri declares.
+
+    Why
+    ───
+
+      Platform           The entry
+      native             fn main(host: NativeHost): Result<(), Str>
+      node               fn main(host: NodeHost): Result<(), Str>
+      web                fn main(host: WebHost): Result<(), Str>
+      //platform/<name>  the signature its platform.buri declares
+
+    The platform calls the entry, so the platform fixes its signature, and
+    nothing calls an entry with a type argument. A repository platform's entry
+    without a js file starts itself, so it takes only its host and answers
+    Result<(), Str>.
+
+error: `two` must take only its host and answer `Result<(), Str>`: its platform gives it no `js` file, so it starts itself [entry-signature-mismatch]
+ --> cmd/bare/main.buri:7:1
+  |
+7 | export fn two(host: BareHost): Str {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: declare `second` in `//platform/bare` as `fn second(host: H): Result<(), Str>`, or give its `entry` a `js` file that calls it
+error: `three` must take only its host and answer `Result<(), Str>`: its platform gives it no `js` file, so it starts itself [entry-signature-mismatch]
+  --> cmd/bare/main.buri:11:1
+   |
+11 | export fn three(names: [Str], host: BareHost): Result<(), Str> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: declare `third` in `//platform/bare` as `fn third(host: H): Result<(), Str>`, or give its `entry` a `js` file that calls it
+error: `four` must have the signature `//platform/bare` declares, `fn four(host: BareHost): Result<(), Str>` [entry-signature-mismatch]
+  --> cmd/bare/main.buri:15:1
+   |
+15 | export fn four(host: BareHost, extra: Int): Result<(), Str> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write it `fn four(host: BareHost): Result<(), Str>`
+error: there is no type `Missing` [unknown-type]
+  --> cmd/bare/main.buri:19:22
+   |
+19 | export fn five(host: Missing): Result<(), Str> {
+   |                      ^^^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling
+
+     Types are nominal, with no structural fallback, so a misspelling can't
+     quietly become a different type that happens to fit.
+
+error: `ui` is a `HostUi`, and the NATIVE backend has no implementation of `Ui` [effect-not-on-backend]
+ --> platform/bare/platform.buri:8:5
+  |
+8 |     export ui: HostUi,
+  |     ^^^^^^^^^^^^^^^^^
+  |
+  = `JS` lacks `Listen` and `Tcp`, and `NATIVE` lacks `Ui` and `Watch`
+  = fix: drop the field from `//platform/bare`'s host, or build the entry with the other backend
+
+    JS holds no port open and dials no raw socket. NATIVE runs the reactive
+    graph only for tests, so it has no Ui or Watch to hand an entry.
+
+error: `dice` is a `HostDice`, which `//platform/bare` declares itself, and a `NATIVE` entry has no `js` file to implement it [custom-effect-outside-js]
+  --> platform/bare/platform.buri:10:5
+   |
+10 |     export dice: HostDice,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a platform's own production structs are implemented in its entry's `js` file, and only a `JS` entry has one
+   = fix: build the entry with `backend: JS`, or drop the field and ship ordinary functions over the bundled effects
+
+     A native platform offers the bundled effects only. It ships functions over
+     them instead, tested with platform/effect/testing like any other code:
+
+       export struct LambdaHost {
+           export alloc: HostAllocator,
+           export net: HostNetwork,
+           export env: HostEnvironment,
+       }
+
+       export fn next<C: Allocator + Network + Environment>(ctx: C): Result<Str, Str> {
+           .Err("not yet")
+       }
+
+error: `maybe` is `Option<HostQuiet>`, which is not a production struct [host-field-not-production]
+  --> platform/bare/platform.buri:11:5
+   |
+11 |     export maybe: Option<HostQuiet>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the CLI builds the host, so each field is a struct with no fields: one from `platform/host`, or one the platform declares
+   = fix: use a struct from `platform/host`, or declare one with no fields in `platform.buri`; hand anything else to the entry as a parameter
+
+       export struct CloudflareHost {
+           export alloc: HostAllocator,
+           export kv: HostKv,
+       }
+
+       struct HostKv {}
+
+     A value the entry needs from its host, such as a request, is a parameter of
+     the entry instead.
+
+error: there is no type `Nowhere` [unknown-type]
+  --> platform/bare/platform.buri:12:18
+   |
+12 |     export lost: Nowhere,
+   |                  ^^^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling
+error: there is no type `Unknown` [unknown-type]
+  --> platform/bare/platform.buri:34:34
+   |
+34 | export fn sixth(host: BareHost): Unknown;
+   |                                  ^^^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling

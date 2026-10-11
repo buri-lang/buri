@@ -1,0 +1,15 @@
+from "platform/host" import { HostAllocator };
+from "//platform/effect/beep" import { Beep };
+
+export struct BeeperHost {
+    export alloc: HostAllocator,
+    export beep: HostBeep,
+}
+
+struct HostBeep {}
+
+impl Beep for HostBeep {
+    fn beep(self): Int;
+}
+
+export fn main(host: BeeperHost, name: Str): Str;

@@ -1,0 +1,4 @@
+// Fills `//platform/solo`'s `go` without importing the platform.
+export fn go(name: Str): Str {
+    name
+}

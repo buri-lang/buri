@@ -1,0 +1,11 @@
+binary {
+    dependencies: ["//lib/tools", "//platform/effect/hum"]
+    outputs: [
+        { platform: "//platform/beeper" },
+    ]
+
+    test {
+        sources: ["test/app_test.buri"]
+        dependencies: ["//platform/effect/beep/testing"]
+    }
+}

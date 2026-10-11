@@ -1,0 +1,4 @@
+/// A hum, with no test implementation anywhere.
+export effect Hum {
+    fn hum(self): Int;
+}

@@ -1,0 +1,7 @@
+from "//lib/tools" import { twice };
+from "//platform/beeper" import { BeeperHost };
+from "//platform/effect/hum" import { Hum };
+
+export fn main(host: BeeperHost, name: Str): Str {
+    if (twice(1) == 2) { name } else { "" }
+}

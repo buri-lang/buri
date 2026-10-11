@@ -1,0 +1,3 @@
+// Named like a platform's surface, in a library, so its bodiless function
+// is refused like any other.
+export fn thrice(n: Int): Int;

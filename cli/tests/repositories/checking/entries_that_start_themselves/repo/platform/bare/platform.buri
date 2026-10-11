@@ -1,0 +1,34 @@
+// A native platform whose entries start themselves, so each has to take its
+// host alone and answer `Result<(), Str>`.
+from "platform/effect" import { Random };
+from "platform/host" import { HostAllocator, HostUi };
+
+export struct BareHost {
+    export alloc: HostAllocator,
+    export ui: HostUi,
+    export quiet: HostQuiet,
+    export dice: HostDice,
+    export maybe: Option<HostQuiet>,
+    export lost: Nowhere,
+}
+
+struct HostQuiet {}
+
+struct HostDice {}
+
+impl Random for HostDice {
+    fn nextInt(self, low: Int, high: Int): Int;
+    fn nextFloat(self): Float;
+}
+
+export fn first(name: Option<Str>): Result<(), Str>;
+
+export fn second(host: BareHost): Str;
+
+export fn third(names: [Str], host: BareHost): Result<(), Str>;
+
+export fn fourth(host: BareHost): Result<(), Str>;
+
+export fn fifth(host: BareHost): Result<(), Str>;
+
+export fn sixth(host: BareHost): Unknown;

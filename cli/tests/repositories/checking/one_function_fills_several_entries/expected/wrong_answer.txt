@@ -1,0 +1,34 @@
+error: `greet` must have the signature `//platform/pair` declares, `fn greet(host: PairHost, name: Str): Str` [entry-signature-mismatch]
+ --> cmd/app/main.buri:5:1
+  |
+5 | export fn greet(host: PairHost, name: Str): Int {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: write it `fn greet(host: PairHost, name: Str): Str`
+
+    What to do
+    ──────────
+
+    Give the entry the signature its platform's platform.buri declares.
+
+    Why
+    ───
+
+      Platform           The entry
+      native             fn main(host: NativeHost): Result<(), Str>
+      node               fn main(host: NodeHost): Result<(), Str>
+      web                fn main(host: WebHost): Result<(), Str>
+      //platform/<name>  the signature its platform.buri declares
+
+    The platform calls the entry, so the platform fixes its signature, and
+    nothing calls an entry with a type argument. A repository platform's entry
+    without a js file starts itself, so it takes only its host and answers
+    Result<(), Str>.
+
+error: `greet` must have the signature `//platform/solo` declares, `fn greet(host: PairHost, name: Str): Str` [entry-signature-mismatch]
+ --> cmd/app/main.buri:5:1
+  |
+5 | export fn greet(host: PairHost, name: Str): Int {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: write it `fn greet(host: PairHost, name: Str): Str`

@@ -1,0 +1,5 @@
+// Named `Result`, with one type parameter.
+export enum Result<T> {
+    Ok(T),
+    Err(T),
+}

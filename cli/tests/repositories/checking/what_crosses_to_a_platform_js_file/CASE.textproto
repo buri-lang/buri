@@ -1,0 +1,17 @@
+# `//platform/wire`'s entries all have a `js` file, so what they take and
+# answer crosses to JavaScript. A record crosses, which is `point`. A record
+# that holds itself doesn't, nor an optional optional, nor a `Result` handed
+# in rather than answered, nor a `Result` whose error isn't a `Str`, nor five
+# types that are only named `Result`, from `//lib/shapes`. The host's
+# `HostTick` takes and answers a `Char`, refused once though seven entries
+# reach it.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "what an entry with a js file takes and answers is held to the crossing table, and a type is a Result by its shape, not its name"
+
+run {
+  args: ["lint", "//cmd/wire"]
+  exit: 1
+  golden: "lint.txt"
+}

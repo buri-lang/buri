@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//platform/effect/beep/testing" import { Spy };
+
+test "the program's tests load the beep testing surface" {
+    assert.equal(1, 1);
+}

@@ -1,0 +1,39 @@
+platform {
+    dependencies: ["//lib/shapes"]
+
+    entry {
+        name: "point"
+        backend: JS
+        js: "wire.mjs"
+    }
+    entry {
+        name: "tree"
+        backend: JS
+        js: "wire.mjs"
+    }
+    entry {
+        name: "nested"
+        backend: JS
+        js: "wire.mjs"
+    }
+    entry {
+        name: "taking"
+        backend: JS
+        js: "wire.mjs"
+    }
+    entry {
+        name: "answering"
+        backend: JS
+        js: "wire.mjs"
+    }
+    entry {
+        name: "shapes"
+        backend: JS
+        js: "wire.mjs"
+    }
+    entry {
+        name: "more"
+        backend: JS
+        js: "wire.mjs"
+    }
+}

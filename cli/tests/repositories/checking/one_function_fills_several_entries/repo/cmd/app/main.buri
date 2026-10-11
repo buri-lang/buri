@@ -1,0 +1,7 @@
+// One function fills both of `//platform/pair`'s entries, and `//platform/solo`'s
+// entry twice over.
+from "//platform/pair" import { PairHost };
+
+export fn greet(host: PairHost, name: Str): Int {
+    1
+}

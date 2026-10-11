@@ -1,0 +1,35 @@
+from "//lib/shapes" import { Five, Four, One, Three, Two };
+from "//platform/wire" import { Point, Tree, WireHost };
+
+export fn point(host: WireHost, at: Point): Str {
+    "point"
+}
+
+export fn tree(host: WireHost, root: Tree): Str {
+    "tree"
+}
+
+export fn nested(host: WireHost, maybe: Option<Option<Int>>): Str {
+    "nested"
+}
+
+export fn taking(host: WireHost, given: Result<Int, Str>): Str {
+    "taking"
+}
+
+export fn answering(host: WireHost): Result<Int, Int> {
+    .Ok(1)
+}
+
+export fn shapes(
+    host: WireHost,
+    one: One<Int>,
+    two: Two<Int, Str>,
+    three: Three<Int, Str>,
+): Str {
+    "shapes"
+}
+
+export fn more(host: WireHost, four: Four<Int, Str>, five: Five<Int, Str>): Str {
+    "more"
+}

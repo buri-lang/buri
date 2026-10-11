@@ -1,0 +1,39 @@
+# `greet` fills both of `//platform/pair`'s entries and `//platform/solo`'s
+# entry, which two outputs name. With the wrong answer it's told once per
+# platform: the two outputs of `solo` are one requirement, and `pair`'s two
+# entries ask the same thing. The right answer passes.
+#
+# `//cmd/loose` fills `solo`'s entry. Once `solo` has no platform.buri, the
+# missing file is the one error: there is no declaration to hold `go` to.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a function filling several entries is held to each platform's declaration once, and to nothing when the platform has no platform.buri"
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "wrong_answer.txt"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "export fn greet(host: PairHost, name: Str): Int {\n    1\n}"
+  with: "export fn greet(host: PairHost, name: Str): Str {\n    name\n}"
+}
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 0
+}
+
+move {
+  from: "platform/solo/platform.buri"
+  to: "staging/platform.buri"
+}
+
+run {
+  args: ["build", "//cmd/loose"]
+  exit: 1
+  golden: "no_platform_file.txt"
+}

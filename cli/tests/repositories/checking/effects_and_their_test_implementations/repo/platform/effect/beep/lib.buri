@@ -1,0 +1,4 @@
+/// A beep, from whatever makes one.
+export effect Beep {
+    fn beep(self): Int;
+}
