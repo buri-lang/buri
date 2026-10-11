@@ -117,6 +117,9 @@ static RUN: Mutex<Option<Run>> = Mutex::new(None);
 /// one before it compiles a suite, and reports it once, at the end.
 const BEGUN: &str = "`buri test --coverage` begins its run before compiling a suite";
 
+/// Why [`instrument`] finds a line for every span in a body it counts.
+const INSIDE: &str = "a span inside a counted body is in a counted file";
+
 fn run() -> MutexGuard<'static, Option<Run>> {
     RUN.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -193,24 +196,22 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
     let mut note = |body: &typed::Expr, instance: Instance, traps: Option<&dyn Fn(&typed::Expr) -> bool>| {
         coverage::decisions(body, traps, &mut |d| {
             let at = Span { start: d.at, ..d.span };
-            if let Some((name, line)) = line_of(at) {
-                let id = (d.kind, d.span.start, d.span.end, instance.clone());
-                let decision = Decision { line, at: d.at, branches: d.branches, names: Vec::new(), group: Default::default() };
-                files.entry(name.to_string()).or_default().decisions.insert(id, decision);
-            }
+            let (name, line) = line_of(at).or_ice(INSIDE);
+            let id = (d.kind, d.span.start, d.span.end, instance.clone());
+            let decision = Decision { line, at: d.at, branches: d.branches, names: Vec::new(), group: Default::default() };
+            files.entry(name.to_string()).or_default().decisions.insert(id, decision);
         });
         if traps.is_some() {
             coverage::trees(body, &mut |tree| {
                 let span = tree.span();
-                if let Some((name, line)) = line_of(span) {
-                    let mut spans = Vec::new();
-                    tree.conditions(&mut spans);
-                    let conditions: Vec<String> = spans.iter().map(|s| text(map, *s)).collect();
-                    let id = (span.start, span.end, instance.clone());
-                    let whole = render(&tree, &conditions, &mut 0).0;
-                    let t = Tree { line, tree, text: whole, conditions };
-                    files.entry(name.to_string()).or_default().trees.insert(id, t);
-                }
+                let (name, line) = line_of(span).or_ice(INSIDE);
+                let mut spans = Vec::new();
+                tree.conditions(&mut spans);
+                let conditions: Vec<String> = spans.iter().map(|s| text(map, *s)).collect();
+                let id = (span.start, span.end, instance.clone());
+                let whole = render(&tree, &conditions, &mut 0).0;
+                let t = Tree { line, tree, text: whole, conditions };
+                files.entry(name.to_string()).or_default().trees.insert(id, t);
             });
         }
     };
@@ -232,9 +233,8 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
             continue;
         }
         coverage::sites(&body.expr, &mut |span| {
-            if let Some((name, line)) = line_of(span) {
-                lines.entry(name.to_string()).or_default().insert(line);
-            }
+            let (name, line) = line_of(span).or_ice(INSIDE);
+            lines.entry(name.to_string()).or_default().insert(line);
         });
         if !mcdc {
             note(&body.expr, None, None);

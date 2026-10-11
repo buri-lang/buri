@@ -265,7 +265,7 @@ impl Sources {
     /// next.
     pub fn keep(&mut self, session: &Session) {
         self.take_stock(session);
-        let Some(warm) = self.warm.as_mut() else { return };
+        let warm = self.warm.as_mut().or_ice("a session to keep came from `Sources::session`");
         // The two read caches and nothing else: the diagnostics loading the
         // repository collected belong to the warm copy, and a caller that has
         // reported and cleared its own must not clear them here.
@@ -276,11 +276,6 @@ impl Sources {
 
     /// Reopens the repository if the graph moved, and re-reads the files whose
     /// bytes did.
-    ///
-    /// `retried` is what makes this terminate: the only way a re-read fails is
-    /// a file the warm copy read and nothing can read now, and one reopen
-    /// leaves `held` holding only the build files — which `open_at` would have
-    /// refused if they were the unreadable ones.
     fn refresh(&mut self, overlay: &Overlay) -> Result<(), String> {
         if self.round.refreshed {
             return Ok(());
@@ -293,79 +288,83 @@ impl Sources {
     }
 
     fn refresh_now(&mut self, overlay: &Overlay) -> Result<(), String> {
-        let mut retried = false;
-        loop {
-            let key = self.graph_key(overlay);
-            if self.warm.is_none() || self.graph != key {
-                self.reads.opened = self.reads.opened.saturating_add(1);
-                let session = session::open_at(&self.root, &self.flags)?;
-                self.graph = key;
-                self.held = BTreeMap::new();
-                self.take_stock(&session);
-                self.warm = Some(Rc::new(session));
+        let key = self.graph_key(overlay);
+        if self.warm.is_none() || self.graph != key {
+            self.open(key)?;
+        }
+        let moved = match self.moved(overlay) {
+            Some(moved) => moved,
+            // Rather than guess what the loader would have made of a file
+            // nothing can read, throw the warm copy away and open again. The
+            // copy just opened read every file it holds, so nothing in it has
+            // moved; a file that moves while it opens is read next round.
+            None => {
+                let key = self.graph_key(overlay);
+                self.open(key)?;
+                Vec::new()
             }
+        };
 
-            // What moved, and the text it moved to. Read before anything is
-            // written, so that each borrow below is of one field.
-            let known: Vec<(PathBuf, FileId, u64)> =
-                self.held.iter().map(|(p, (f, h))| (p.clone(), *f, *h)).collect();
-            let mut moved = Vec::new();
-            let mut unreadable = false;
-            for (path, file, was) in known {
-                if self.content_hash(&path, overlay) == was {
-                    continue;
-                }
-                let text = match overlay.get(&path) {
-                    Some(text) => Some(text.clone()),
-                    None => std::fs::read_to_string(&path).ok(),
-                };
-                match text {
-                    Some(text) => moved.push((path, file, text)),
-                    None => unreadable = true,
-                }
-            }
-            if unreadable && !retried {
-                // Rather than guess what the loader would have made of a file
-                // nothing can read, throw the warm copy away and open again.
-                retried = true;
-                self.warm = None;
-                self.held = BTreeMap::new();
-                continue;
-            }
+        // Overlaid files nothing has read yet. Seeding one under the name the
+        // loader will ask for is the whole of the overlay trick: the loader
+        // never reaches the disk, and `compiler::modules` needs no notion of an
+        // editor at all.
+        let fresh: Vec<(PathBuf, String)> = overlay
+            .iter()
+            .filter(|(path, _)| path.starts_with(&self.root) && !self.held.contains_key(*path))
+            .map(|(path, text)| (path.clone(), text.clone()))
+            .collect();
 
-            // Overlaid files nothing has read yet. Seeding one under the name
-            // the loader will ask for is the whole of the overlay trick: the
-            // loader never reaches the disk, and `compiler::modules` needs no
-            // notion of an editor at all.
-            let fresh: Vec<(PathBuf, String)> = overlay
-                .iter()
-                .filter(|(path, _)| {
-                    path.starts_with(&self.root) && !self.held.contains_key(*path)
-                })
-                .map(|(path, text)| (path.clone(), text.clone()))
-                .collect();
-
-            if moved.is_empty() && fresh.is_empty() {
-                return Ok(());
-            }
-            let warm = self.warm.as_mut().or_ice("the loop's first step opens a warm copy");
-            // The copy this makes when the session is shared is what leaves
-            // every analysis already in hand reading the text it was built on.
-            let session = Rc::make_mut(warm);
-            for (path, file, text) in moved {
-                let hash = hash_of(&text);
-                session.map.replace(file, text);
-                session.parsed.forget(file);
-                self.held.insert(path, (file, hash));
-            }
-            for (path, text) in fresh {
-                let hash = hash_of(&text);
-                let name = session.workspace.rel_of(&path);
-                let file = session.map.add(name, path.clone(), text);
-                self.held.insert(path, (file, hash));
-            }
+        if moved.is_empty() && fresh.is_empty() {
             return Ok(());
         }
+        let warm = self.warm.as_mut().or_ice("`refresh_now` opens a warm copy first");
+        // The copy this makes when the session is shared is what leaves every
+        // analysis already in hand reading the text it was built on.
+        let session = Rc::make_mut(warm);
+        for (path, file, text) in moved {
+            let hash = hash_of(&text);
+            session.map.replace(file, text);
+            session.parsed.forget(file);
+            self.held.insert(path, (file, hash));
+        }
+        for (path, text) in fresh {
+            let hash = hash_of(&text);
+            let name = session.workspace.rel_of(&path);
+            let file = session.map.add(name, path.clone(), text);
+            self.held.insert(path, (file, hash));
+        }
+        Ok(())
+    }
+
+    /// Opens the repository afresh as the warm copy, its graph at `key`.
+    fn open(&mut self, key: u64) -> Result<(), String> {
+        self.reads.opened = self.reads.opened.saturating_add(1);
+        let session = session::open_at(&self.root, &self.flags)?;
+        self.graph = key;
+        self.held = BTreeMap::new();
+        self.take_stock(&session);
+        self.warm = Some(Rc::new(session));
+        Ok(())
+    }
+
+    /// Each held file whose bytes moved, with the text it moved to, or `None`
+    /// when one of them can't be read now.
+    fn moved(&mut self, overlay: &Overlay) -> Option<Vec<(PathBuf, FileId, String)>> {
+        let known: Vec<(PathBuf, FileId, u64)> =
+            self.held.iter().map(|(p, (f, h))| (p.clone(), *f, *h)).collect();
+        let mut moved = Vec::new();
+        for (path, file, was) in known {
+            if self.content_hash(&path, overlay) == was {
+                continue;
+            }
+            let text = match overlay.get(&path) {
+                Some(text) => Some(text.clone()),
+                None => std::fs::read_to_string(&path).ok(),
+            };
+            moved.push((path, file, text?));
+        }
+        Some(moved)
     }
 
     /// Records the id and the bytes behind every file a session has read.
