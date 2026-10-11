@@ -1,0 +1,32 @@
+error: `Point` is declared twice [duplicate-declaration]
+  --> cmd/declared_twice_keeps_the_first/main.buri:13:8
+   |
+13 | struct Point { name: Str }
+   |        ^^^^^
+   |
+   = fix: rename one of them; a name has one meaning in a module
+
+     Rename one of them. Two things with one name in one scope leave a reference
+     to that name with no answer.
+
+error: `Shape` is declared twice [duplicate-declaration]
+  --> cmd/declared_twice_keeps_the_first/main.buri:17:6
+   |
+17 | enum Shape { Square }
+   |      ^^^^^
+   |
+   = fix: rename one of them; a name has one meaning in a module
+error: `Limit` is declared twice [duplicate-declaration]
+  --> cmd/declared_twice_keeps_the_first/main.buri:21:5
+   |
+21 | let Limit: Str = "three";
+   |     ^^^^^
+   |
+   = fix: rename one of them; a name has one meaning in a module
+error: `Named` is declared twice [duplicate-declaration]
+  --> cmd/declared_twice_keeps_the_first/main.buri:29:7
+   |
+29 | trait Named {
+   |       ^^^^^
+   |
+   = fix: rename one of them; a name has one meaning in a module
