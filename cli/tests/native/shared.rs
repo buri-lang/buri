@@ -585,7 +585,7 @@ pub struct Gate {
 
 impl Gate {
     pub fn open(width: usize) -> Gate {
-        use std::io::{Read, Write};
+        use std::io::Write;
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a port for the gate");
         let url = format!("http://127.0.0.1:{}/gate", listener.local_addr().unwrap().port());
         listener.set_nonblocking(true).unwrap();
@@ -600,7 +600,7 @@ impl Gate {
                         // The request's head, so the answer comes after it.
                         let mut head = Vec::new();
                         let mut byte = [0u8; 1];
-                        while !head.ends_with(b"\r\n\r\n") && matches!(stream.read(&mut byte), Ok(1)) {
+                        while !head.ends_with(b"\r\n\r\n") && matches!(read_on(&mut stream, &mut byte), Ok(1)) {
                             head.extend_from_slice(&byte);
                         }
                         held.push(stream);
@@ -845,6 +845,18 @@ pub const SIGINT: i32 = 2;
 unsafe extern "C" {
     fn kill(pid: i32, sig: i32) -> i32;
     fn setsockopt(fd: i32, level: i32, name: i32, value: *const core::ffi::c_void, len: u32) -> i32;
+}
+
+/// One `read` that a signal can't end early. Linux doesn't restart a socket
+/// read that has a deadline after a signal, and this process takes signals it
+/// never asked for, so an `Interrupted` is the syscall's and not the peer's.
+pub fn read_on(from: &mut impl std::io::Read, into: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        match from.read(into) {
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            read => return read,
+        }
+    }
 }
 
 /// Close a socket with a reset rather than a FIN: `SO_LINGER` on, for zero

@@ -220,6 +220,7 @@ impl Peer {
         let mut chunk = [0u8; 512];
         while !head.windows(4).any(|w| w == b"\r\n\r\n") {
             match self.socket.read(&mut chunk) {
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                 Ok(0) | Err(_) => return None,
                 Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
             }
@@ -350,7 +351,13 @@ impl Peer {
     fn drain(&mut self) {
         let _brief = self.socket.set_read_timeout(Some(Duration::from_millis(250)));
         let mut chunk = [0u8; 4096];
-        while matches!(self.socket.read(&mut chunk), Ok(n) if n > 0) {}
+        loop {
+            match self.socket.read(&mut chunk) {
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Ok(n) if n > 0 => {}
+                _ => break,
+            }
+        }
     }
 }
 
