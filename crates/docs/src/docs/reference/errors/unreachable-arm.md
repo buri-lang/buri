@@ -1,8 +1,8 @@
 ---
 title: Every arm must be reachable
 message: this arm is unreachable
-note: the arms before it already cover everything it matches
-fix: delete it, or move it above the arm that subsumes it
+note: {why}
+fix: {fix}
 ---
 # Every arm must be reachable
 
@@ -19,4 +19,18 @@ fn describe(o: Option<Int>): Int {
 }
 ```
 
-The usual cause is an arm in the wrong place, and a dead arm reads as handled.
+```buri fail code=unreachable-arm
+enum Never {}
+
+fn describe(o: Option<Never>): Int {
+    match (o) {
+        .None => 0,
+        .Some(_) => 1,
+    }
+}
+```
+
+An arm is unreachable when the arms before it cover it, or when no value fits
+it at all, like `.Some(_)` on an `Option<Never>`. A guarded arm covers nothing,
+because its guard may fail. The usual cause is an arm in the wrong place, and a
+dead arm reads as handled.

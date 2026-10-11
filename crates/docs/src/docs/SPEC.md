@@ -1595,7 +1595,12 @@ covers `.Some` exactly as `.Some(true) | .Some(false)` does.
 Unreachable arms are a compile error. So is an unreachable *alternative*, checked
 against the arms above it and the alternatives to its left: `.Now(_) | .World`
 below an arm that handles `.Now` reports the `.Now(_)` half. An arm with no
-reachable alternative gets the arm-level error.
+reachable alternative gets the arm-level error. A guarded arm covers nothing,
+because its guard may fail.
+
+A type with no values, like `enum Never {}`, adds no case. `.None` alone covers
+an `Option<Never>`, and an arm for `.Some(_)` there is unreachable, because no
+value fits it.
 
 ---
 

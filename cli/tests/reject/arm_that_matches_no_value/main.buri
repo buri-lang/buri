@@ -1,0 +1,34 @@
+// EXPECT: this arm is unreachable
+//
+// An arm whose pattern no value fits is refused, and says so rather than
+// blaming the arms before it. `Never` has no values, so neither has
+// `.Some(_)` on an `Option<Never>`, nor `_` on a `Never`, nor a tuple holding
+// one. A guard doesn't change that.
+enum Never {}
+
+fn plain(o: Option<Never>): Int {
+  match (o) {
+    .None => 0,
+    .Some(_) => 1,
+  }
+}
+
+fn nested(o: Option<(Never, Int)>): Int {
+  match (o) {
+    .None => 0,
+    .Some((_, 3)) => 1,
+  }
+}
+
+fn guarded(o: Option<Never>, b: Bool): Int {
+  match (o) {
+    .None => 0,
+    .Some(_) if (b) => 1,
+  }
+}
+
+fn wild(n: Never): Int {
+  match (n) {
+    _ => 1,
+  }
+}

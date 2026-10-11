@@ -1,0 +1,17 @@
+error: expected `(`, found `,` [unexpected-token]
+  --> main.buri:15:10
+   |
+15 | fn orZero, (o: Option<Never>): Int {
+   |          ^
+   |
+   = expected: `(`
+   = actual: `,`
+   = fix: write `(` here
+error: there is nothing named `orZero` in scope [unknown-name]
+  --> main.buri:54:18
+   |
+54 |     assert.equal(orZero(.None), 0);
+   |                  ^^^^^^
+   |
+   = did you mean `Order`?
+   = fix: if you meant `Order`, use that; if not, a name is in scope only from this module's own declarations and its imports

@@ -193,7 +193,9 @@ shape [finding 6](./findings/README.md) was about.
 corpus's exact-output goldens are the tool for that. It does not exercise the
 core type checker either: the model's `Expr` is the *post-inference* form, so
 `Expr.infer` has no surface syntax to compile against, and bridging that would
-need an elaborator from Buri source to `Expr`.
+need an elaborator from Buri source to `Expr`. And every type in the model has
+values: the checker leaves out a constructor no value fits, like `.Some(_)` on
+an `Option<Never>`, and the vectors have none.
 
 ## What is not proved
 

@@ -3,13 +3,10 @@ from "core/testing/assert" import * as assert;
 
 enum Never {}
 
+// `Never` has no values, so `.Ok` alone covers the result.
 fn value(r: Result<Int, Never>): Int {
     match (r) {
         .Ok(n) => n,
-        .Err(never) => {
-            match (never) {
-            }
-        },
     }
 }
 

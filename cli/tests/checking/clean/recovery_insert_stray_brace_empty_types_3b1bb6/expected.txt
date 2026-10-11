@@ -1,0 +1,9 @@
+error: expected `;`, found `@` [unexpected-token]
+  --> main.buri:58:17
+   |
+58 |     assert.equal@ ([score(.Yes), score(.No)], [1, 2]);
+   |                 ^
+   |
+   = expected: `;`
+   = actual: `@`
+   = fix: write `;` here

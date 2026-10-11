@@ -1,0 +1,7 @@
+# One JSON-RPC request per line. The harness adds the Content-Length framing,
+# and turns `<scratch>` into wherever the copy of repo/ landed.
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":"file://<scratch>"}}
+{"jsonrpc":"2.0","method":"initialized","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file://<scratch>/lib/dirs/lib.buri","languageId":"buri","version":1,"text":"export enum Dir {\n    Up,\n    Down,\n}\n\nexport enum Never {}\n\nexport fn speed(d: Dir, fast: Bool): Int {\n    match (d) {\n        .Up if fast => 2,\n        .Up => 1,\n        .Down => 0, .Up => 3,\n    }\n}\n\nexport fn orZero(o: Option<Never>): Int {\n    match (o) {\n        .None => 0, .Some(_) => 1,\n    }\n}\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}
