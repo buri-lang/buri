@@ -27,8 +27,7 @@ export fn short<C>(): Node<C> {
             .Foreground(.Rgb(255, 255, 255)),
             .Radius(.Px(6)),
         ],
-        onPress: .Some(fn(_c) => {
-        }),
+        onPress: .Some(fn(_c) => {}),
     })
 }
 

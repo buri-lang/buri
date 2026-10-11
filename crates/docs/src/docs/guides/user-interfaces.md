@@ -1153,8 +1153,7 @@ fn fruits<C: Allocator + Ui + Watch>(items: Signal<[Str]>, held: Signal<Str>): N
                             .Some(onto) => {
                                 items.set(c, moved(c, items.get(c), held.get(c), onto))
                             },
-                            .None => {
-                            },
+                            .None => {},
                         }
                     }),
                 })

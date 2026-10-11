@@ -2825,10 +2825,10 @@ fn branch<'s>(v: &mut Vec<Doc<'s>>, body: Doc<'s>) {
     }
 }
 
-/// `{ tail }`, or a block on lines of its own.
+/// `{ tail }`, or a block on lines of its own. An empty one closes up.
 fn block_doc<'s>(inner: Doc<'s>) -> Doc<'s> {
     if matches!(inner, Doc::Concat(ref v) if v.is_empty()) {
-        return cat(vec![text("{"), Doc::HardLine, text("}")]);
+        return text("{}");
     }
     group(cat(vec![
         text("{"),
