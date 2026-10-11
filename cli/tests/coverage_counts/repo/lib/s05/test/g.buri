@@ -5,46 +5,46 @@ from "//lib/s05" import * as g;
 from "//lib/s05" import { E, R };
 
 test "f0" {
-    assert.equal(g.f0(-1, false), 99);
-    assert.equal(g.f0(2, false), 12);
-    assert.equal(g.f0(10, false), 99);
-    assert.equal(g.f0(7, false), 99);
-    assert.equal(g.f0(9, false), 99);
-}
-
-test "f1" {
-    assert.equal(g.f1(true, "7", "5"), "7");
-    assert.equal(g.f1(true, "4", "0"), "4");
-    assert.equal(g.f1(true, "1", "5"), "1");
-    assert.equal(g.f1(false, 5, 9), 9);
-    assert.equal(g.f1(true, "6", "8"), "6");
+    let p2 = R { f0: true, f1: false };
+    let q2 = R { f0: true, f1: false };
+    assert.equal(g.f0(false, p2, q2), false);
+    let p3 = R { f0: false, f1: true };
+    let q3 = R { f0: false, f1: false };
+    assert.equal(g.f0(true, p3, q3), false);
 }
 
 test "f2" {
-    let p0 = R { f0: .C(2, 1) };
-    let q0 = R { f0: .B(2) };
-    assert.equal(g.f2(false, p0, q0), false);
-    let p1 = R { f0: .C(1, 2) };
-    let q1 = R { f0: .C(1, 2) };
-    assert.equal(g.f2(false, p1, q1), false);
-    let p2 = R { f0: .B(0) };
-    let q2 = R { f0: .C(1, 1) };
-    assert.equal(g.f2(true, p2, q2), false);
+    assert.equal(g.f2(true, 12), true);
+    assert.equal(g.f2(true, 5), false);
 }
 
 test "f3" {
-    assert.equal(g.f3(9, 6), .Ok(15));
-    assert.equal(g.f3(6, 1), .Ok(7));
-    assert.equal(g.f3(6, 7), .Ok(13));
-    assert.equal(g.f3(3, -1), .Err("negative"));
-    assert.equal(g.f3(-3, -2), .Err("negative"));
-    assert.equal(g.f3(8, 3), .Ok(11));
+    assert.equal(g.f3([3, 8]), 8);
+    assert.equal(g.f3([4, 5, 0, 1]), 9);
+}
+
+test "f5" {
+    assert.equal(g.f5(true, "3", "4"), "3");
+}
+
+test "f6" {
+    assert.equal(g.f6(true, 12, 2), true);
 }
 
 test "derived" {
-    assert.equal(E.A == E.C(0, 1), false);
+    assert.equal(E.B(2) == E.C(1, 2), false);
+    assert.equal(E.C(2, 0) == E.C(2, 0), true);
+    let a0 = R { f0: false, f1: false };
+    let b0 = R { f0: false, f1: false };
+    assert.equal(a0 == b0, true);
+    assert.equal(E.C(0, 2) < E.C(0, 2), false);
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(E.C(2, 0).show(ctx), ".C(2, 0)");
+    assert.equal(E.A.show(ctx), ".A");
+    assert.equal(E.A.show(ctx), ".A");
+    let r0 = R { f0: false, f1: false };
+    assert.equal(r0.show(ctx), "R { f0: false, f1: false }");
+    let r1 = R { f0: true, f1: false };
+    assert.equal(r1.show(ctx), "R { f0: true, f1: false }");
 }

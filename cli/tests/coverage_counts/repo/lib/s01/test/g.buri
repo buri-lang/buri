@@ -1,38 +1,40 @@
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//lib/s01" import * as g;
+from "//lib/s01" import { E, R };
 
 test "f0" {
-    assert.equal(g.f0(10, true), 99);
-    assert.equal(g.f0(10, false), 99);
-    assert.equal(g.f0(5, false), 99);
-    assert.equal(g.f0(4, false), 99);
+    assert.equal(g.f0(2), 4);
+    assert.equal(g.f0(2), 4);
+}
+
+test "f0 aborts 0" {
+    assert.equal(g.f0(-3), 0);
+}
+
+test "f1" {
+    assert.equal(g.f1(1, false), 99);
 }
 
 test "f2" {
-    assert.equal(g.f2(true, false, false), 0);
-    assert.equal(g.f2(true, true, false), 0);
+    assert.equal(g.f2(6), 2);
+    assert.equal(g.f2(7), 2);
 }
 
 test "f3" {
-    assert.equal(g.f3(false, 7), false);
-    assert.equal(g.f3(true, 4), false);
-    assert.equal(g.f3(false, 10), false);
-    assert.equal(g.f3(false, 7), false);
+    assert.equal(g.f3(0), 0);
+    assert.equal(g.f3(23), 7);
+    assert.equal(g.f3(21), 7);
 }
 
 test "f4" {
-    assert.equal(g.f4(7, 4), .Ok(11));
-    assert.equal(g.f4(0, 7), .Ok(7));
-    assert.equal(g.f4(4, 5), .Ok(9));
-    assert.equal(g.f4(-2, -3), .Err("negative"));
-    assert.equal(g.f4(-1, 5), .Err("negative"));
-    assert.equal(g.f4(1, 2), .Ok(3));
+    assert.equal(g.f4(18), 6);
+    assert.equal(g.f4(30), 10);
 }
 
 test "f5" {
-    assert.equal(g.f5(4535, 0), 2267);
-    assert.equal(g.f5(1987, 0), 993);
-    assert.equal(g.f5(4207, 0), 2103);
-    assert.equal(g.f5(2389, 0), 1194);
-    assert.equal(g.f5(3609, 0), 1804);
+    let p0 = R { f0: -2 };
+    let q0 = R { f0: 1 };
+    assert.equal(g.f5(false, p0, q0), false);
 }

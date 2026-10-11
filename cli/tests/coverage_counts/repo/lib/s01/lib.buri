@@ -1,1 +1,1 @@
-from "//lib/s01/g.buri" export { f0, f1, f2, f3, f4, f5, f6 };
+from "//lib/s01/g.buri" export { E, f0, f1, f2, f3, f4, f5, R };

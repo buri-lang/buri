@@ -1,0 +1,1 @@
+from "//lib/t04/t.buri" export { pick };

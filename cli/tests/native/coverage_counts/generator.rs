@@ -9,7 +9,8 @@
 //! The shapes:
 //!
 //! - an `if` over an `&&`/`||`/`!` chain of up to four conditions, laid out on
-//!   one line or several, called on random truth tables;
+//!   one line or several, called on random truth tables, and such a chain in
+//!   tail position;
 //! - a recursion of N steps whose `if` is taken K times, through a `%`, and
 //!   the same in tail position;
 //! - a `match` on an `Int`, with guards, one of them an `&&`;
@@ -17,9 +18,13 @@
 //! - a generic function at `Int`, `Str` and `Bool`, or at nothing;
 //! - a lambda a fold calls once an element;
 //! - an `&&` whose right side is a tail call, which MC/DC leaves to branches;
-//! - derived `Equal` and `Show` on an enum and a struct holding it, and an
-//!   `&&` ending in a derived `==`;
-//! - `/` and a `core/bits` shift, each aborting a test of its own.
+//! - derived `Equal`, `Ordered` and `Show` on an enum and a struct holding it,
+//!   and an `&&` ending in a derived `==`;
+//! - `/` and a `core/bits` shift, each aborting a test of its own, and a `/`
+//!   aborting partway through an `&&`.
+//!
+//! A third of the packages have a second package beside them whose suite
+//! makes some of the calls, so counts add up across suites.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -57,12 +62,13 @@ impl Rng {
     }
 }
 
-/// One package: its files, by path from the repository root, and what each
-/// mode must report for its one counted file.
+/// One package, and sometimes a second one whose suite calls it too: their
+/// files, by path from the repository root, and what each mode must report for
+/// each counted file.
 pub struct Package {
     pub files: Vec<(String, String)>,
-    /// `[--coverage, --coverage=mcdc]`.
-    pub expect: [Expect; 2],
+    /// Each counted file, and its `[--coverage, --coverage=mcdc]` report.
+    pub counted: Vec<(String, [Expect; 2])>,
     pub passed: usize,
     /// Each failing test's block, as the runner prints it.
     pub failures: Vec<String>,
@@ -101,29 +107,85 @@ impl Expect {
         let branches = counts.iter().enumerate().map(|(i, n)| (format!("{i}{suffix}"), *n)).collect();
         self.decisions.push(Decision { line, branches });
     }
+
+    /// Report order: by line, and in the order each line's decisions were
+    /// added.
+    fn sorted(mut self) -> Expect {
+        self.decisions.sort_by_key(|d| d.line);
+        self.trees.sort_by_key(|t| t.line);
+        self
+    }
 }
 
 /// A function and its calls, as written, and its model.
 struct Shape {
     /// The function's lines, from its own first.
     decl: Vec<String>,
-    /// The calls a passing test makes, and the calls a test that aborts makes.
+    /// The calls passing tests make, each a statement or a few, and the calls
+    /// that abort a test each, with the message.
     calls: Vec<String>,
     aborts: Vec<(String, &'static str)>,
-    /// Fills in both modes' expectations, given the line the declaration
-    /// starts on.
+    /// Fills in a mode's expectation, given the line the declaration starts on
+    /// and whether it's MC/DC.
     model: Box<dyn Fn(usize, bool, &mut Expect)>,
+}
+
+/// One test source under construction.
+struct Suite {
+    package: String,
+    text: String,
+    line: usize,
+    passed: usize,
+    failures: Vec<String>,
+}
+
+impl Suite {
+    fn new(package: &str, imports: &[String]) -> Suite {
+        let text: String = imports.iter().map(|i| format!("{i}\n")).collect();
+        Suite { package: package.to_string(), line: imports.len(), text, passed: 0, failures: Vec::new() }
+    }
+
+    /// Writes a test, and answers the line it starts on.
+    fn block(&mut self, title: &str, body: &[String]) -> usize {
+        let _ = write!(self.text, "\ntest \"{title}\" {{\n");
+        self.line += 2;
+        let start = self.line;
+        for l in body {
+            let _ = writeln!(self.text, "    {l}");
+            self.line += l.lines().count();
+        }
+        self.text.push_str("}\n");
+        self.line += 1;
+        start
+    }
+
+    fn passing(&mut self, title: &str, body: &[String]) {
+        if !body.is_empty() {
+            self.block(title, body);
+            self.passed += 1;
+        }
+    }
+
+    fn aborting(&mut self, title: &str, call: &str, message: &str) {
+        let at = self.block(title, &[call.to_string()]);
+        let p = &self.package;
+        let source = if p.starts_with('t') { "t" } else { "g" };
+        self.failures.push(format!("FAIL //lib/{p}  test/{source}.buri  \"{title}\"\n  {message}\n  --> lib/{p}/test/{source}.buri:{at}:1"));
+    }
 }
 
 /// The packages for `seed`.
 pub fn packages(seed: u64, count: usize) -> Vec<Package> {
     let mut rng = Rng::new(seed);
-    (0..count).map(|i| package(&mut rng, &format!("s{i:02}"))).collect()
+    (0..count).map(|i| package(&mut rng, i)).collect()
 }
 
-const KINDS: usize = 10;
+const KINDS: usize = 12;
 
-fn package(rng: &mut Rng, name: &str) -> Package {
+const BUILD: &str = "library {\n    sources: [\"g.buri\"]\n\n    test {\n        sources: [\"test/g.buri\"]\n    }\n}\n";
+
+fn package(rng: &mut Rng, index: usize) -> Package {
+    let (name, other) = (format!("s{index:02}"), format!("t{index:02}"));
     let mut header: Vec<String> = Vec::new();
     let mut exports: Vec<String> = Vec::new();
     let mut shapes: Vec<(String, Shape)> = Vec::new();
@@ -132,8 +194,7 @@ fn package(rng: &mut Rng, name: &str) -> Package {
     let mut uses_bits = false;
     for i in 0..n {
         let f = format!("f{i}");
-        let kind = rng.below(KINDS);
-        let shape = match kind {
+        let shape = match rng.below(KINDS) {
             0 => chain(rng, &f),
             1 => recursion(rng, &f),
             2 => tail_recursion(rng, &f),
@@ -148,7 +209,8 @@ fn package(rng: &mut Rng, name: &str) -> Package {
                 derived = Some(d);
                 shape
             }
-            8 => chain(rng, &f),
+            8 | 9 => tail_chain(rng, &f),
+            10 => guarded_divide(rng, &f),
             _ => {
                 if rng.bool() {
                     divide(rng, &f)
@@ -161,6 +223,8 @@ fn package(rng: &mut Rng, name: &str) -> Package {
         exports.push(f.clone());
         shapes.push((f, shape));
     }
+    // A second package, whose suite makes some of the calls.
+    let shared = rng.chance(3);
 
     if uses_bits {
         header.push("from \"core/bits\" import * as bits;".into());
@@ -187,79 +251,91 @@ fn package(rng: &mut Rng, name: &str) -> Package {
     }
     let source = source.join("\n") + "\n";
 
-    let mut expect = [Expect::default(), Expect::default()];
-    for (mode, e) in expect.iter_mut().enumerate() {
+    let expect = [false, true].map(|mcdc| {
+        let mut e = Expect::default();
         for ((_, shape), start) in shapes.iter().zip(&starts) {
-            (shape.model)(*start, mode == 1, e);
+            (shape.model)(*start, mcdc, &mut e);
         }
-        if let (Some(d), true) = (&derived, mode == 1) {
-            d.model(derived_at, e);
+        if let (Some(d), true) = (&derived, mcdc) {
+            d.model(derived_at, &mut e);
         }
-        // Report order: by line, and in the order each line's decisions were
-        // added.
-        e.decisions.sort_by_key(|d| d.line);
-        e.trees.sort_by_key(|t| t.line);
-    }
+        e.sorted()
+    });
 
-    // The tests.
-    let mut test = String::from("from \"core/testing/assert\" import * as assert;\n");
+    // The tests: each call in this package's suite, or the other's.
+    let mut imports = vec!["from \"core/testing/assert\" import * as assert;".to_string()];
     if derived.as_ref().is_some_and(|d| d.shows()) {
-        test.push_str("from \"platform/effect\" import { Allocator };\n");
-        test.push_str("from \"platform/effect/testing\" import { alloc };\n");
+        imports.push("from \"platform/effect\" import { Allocator };".into());
+        imports.push("from \"platform/effect/testing\" import { alloc };".into());
     }
-    let _ = writeln!(test, "from \"//lib/{name}\" import * as g;");
+    imports.push(format!("from \"//lib/{name}\" import * as g;"));
     if derived.is_some() {
-        let _ = writeln!(test, "from \"//lib/{name}\" import {{ E, R }};");
+        imports.push(format!("from \"//lib/{name}\" import {{ E, R }};"));
     }
-    let mut passed = 0;
-    let mut failures = Vec::new();
-    let mut line = test.lines().count();
-    let mut block = |test: &mut String, title: &str, body: &[String]| {
-        test.push('\n');
-        line += 1;
-        let _ = writeln!(test, "test \"{title}\" {{");
-        line += 1;
-        let start = line;
-        for l in body {
-            let _ = writeln!(test, "    {l}");
-            line += l.lines().count();
-        }
-        test.push_str("}\n");
-        line += 1;
-        start
-    };
+    let mut mine = Suite::new(&name, &imports);
+    imports.push(format!("from \"//lib/{other}\" import * as t;"));
+    let mut theirs = Suite::new(&other, &imports);
     for (f, shape) in &shapes {
-        if !shape.calls.is_empty() {
-            block(&mut test, f, &shape.calls);
-            passed += 1;
+        let (mut here, mut there) = (Vec::new(), Vec::new());
+        for call in &shape.calls {
+            if shared && rng.bool() { there.push(call.clone()) } else { here.push(call.clone()) }
         }
+        mine.passing(f, &here);
+        theirs.passing(f, &there);
         for (k, (call, message)) in shape.aborts.iter().enumerate() {
-            let title = format!("{f} aborts {k}");
-            let at = block(&mut test, &title, std::slice::from_ref(call));
-            failures.push(format!(
-                "FAIL //lib/{name}  test/g.buri  \"{title}\"\n  {message}\n  --> lib/{name}/test/g.buri:{at}:1"
-            ));
+            let suite = if shared && rng.bool() { &mut theirs } else { &mut mine };
+            suite.aborting(&format!("{f} aborts {k}"), call, message);
         }
     }
     if let Some(d) = &derived {
-        let calls = d.calls();
-        if !calls.is_empty() {
-            block(&mut test, "derived", &calls);
-            passed += 1;
-        }
+        let suite = if shared && rng.bool() { &mut theirs } else { &mut mine };
+        suite.passing("derived", &d.calls());
     }
 
     exports.sort_by_key(|e| e.to_lowercase());
     let lib = format!("from \"//lib/{name}/g.buri\" export {{ {} }};\n", exports.join(", "));
     assert!(lib.len() <= 100, "{name}: an export list the formatter would wrap: {lib}");
-    let build = "library {\n    sources: [\"g.buri\"]\n\n    test {\n        sources: [\"test/g.buri\"]\n    }\n}\n";
-    let files = vec![
-        (format!("lib/{name}/BUILD.buri"), build.to_string()),
+    let mut files = vec![
         (format!("lib/{name}/lib.buri"), lib),
         (format!("lib/{name}/g.buri"), source),
-        (format!("lib/{name}/test/g.buri"), test),
+        (format!("lib/{name}/test/g.buri"), mine.text),
     ];
-    Package { files, expect, passed, failures }
+    let mut counted = vec![(format!("lib/{name}/g.buri"), expect)];
+    let (mut passed, mut failures) = (mine.passed, mine.failures);
+    if !shared {
+        files.push((format!("lib/{name}/BUILD.buri"), BUILD.to_string()));
+        return Package { files, counted, passed, failures };
+    }
+    files.push((
+        format!("lib/{name}/BUILD.buri"),
+        BUILD.replace("[\"g.buri\"]\n", &format!("[\"g.buri\"]\n    visibility: [\"//lib/{other}\"]\n")),
+    ));
+
+    // The other package's own function, which its suite calls too.
+    let picks: Vec<bool> = (0..calls(rng)).map(|_| rng.bool()).collect();
+    let body: Vec<String> = picks.iter().map(|&a| assert(format!("t.pick({a})"), u8::from(a))).collect();
+    theirs.passing("pick", &body);
+    let (n, yes) = (picks.len() as u64, picks.iter().filter(|a| **a).count() as u64);
+    let expect = [false, true].map(|_| {
+        let mut e = Expect::default();
+        e.line(1, n);
+        e.line(2, n);
+        e.numbered(2, &[yes, n - yes], "");
+        e
+    });
+    counted.push((format!("lib/{other}/t.buri"), expect));
+    let build = format!(
+        "library {{\n    sources: [\"t.buri\"]\n    dependencies: [\"//lib/{name}\"]\n\n    test {{\n        sources: [\"test/t.buri\"]\n    }}\n}}\n"
+    );
+    files.extend([
+        (format!("lib/{other}/BUILD.buri"), build),
+        (format!("lib/{other}/lib.buri"), format!("from \"//lib/{other}/t.buri\" export {{ pick }};\n")),
+        (format!("lib/{other}/t.buri"), "export fn pick(a: Bool): Int {\n    if (a) { 1 } else { 0 }\n}\n".to_string()),
+        (format!("lib/{other}/test/t.buri"), theirs.text),
+    ]);
+    passed += theirs.passed;
+    failures.extend(theirs.failures);
+    Package { files, counted, passed, failures }
 }
 
 /// `assert.equal(<call>, <answer>);`
@@ -847,6 +923,79 @@ fn tail_call(rng: &mut Rng, f: &str) -> Shape {
     }
 }
 
+// ---- a chain in tail position ----
+
+/// `fn f(a: Bool, ...): Bool { <chain> }`: in tail position, with no call to
+/// keep there, so an MC/DC decision.
+fn tail_chain(rng: &mut Rng, f: &str) -> Shape {
+    let k = 2 + rng.below(3);
+    let node = tree(rng, 0, k, true);
+    let mut expr = String::new();
+    let mut offsets = Vec::new();
+    node.source(&mut expr, &mut offsets, &mut 0);
+    let params: Vec<String> = NAMES[..k].iter().map(|n| format!("{n}: Bool")).collect();
+    let decl = vec![format!("export fn {f}({}): Bool {{", params.join(", ")), format!("    {expr}"), "}".into()];
+    let inputs: Vec<Vec<bool>> = (0..calls(rng)).map(|_| (0..k).map(|_| rng.bool()).collect()).collect();
+    let ran = run(&node, &inputs);
+    let calls = inputs
+        .iter()
+        .zip(&ran.outcomes)
+        .map(|(args, out)| {
+            let args: Vec<String> = args.iter().map(bool::to_string).collect();
+            assert(format!("g.{f}({})", args.join(", ")), out)
+        })
+        .collect();
+    let n = inputs.len() as u64;
+    Shape {
+        decl,
+        calls,
+        aborts: Vec::new(),
+        model: Box::new(move |at, mcdc, e| {
+            e.line(at, n);
+            e.line(at + 1, n);
+            record(e, at + 1, &node, &ran, &offsets, mcdc);
+        }),
+    }
+}
+
+// ---- a division inside an `&&` ----
+
+/// `a && n / d > t`, where a zero `d` aborts partway through the decision.
+fn guarded_divide(rng: &mut Rng, f: &str) -> Shape {
+    let t = rng.int(0, 4);
+    let decl = vec![format!("export fn {f}(a: Bool, n: Int, d: Int): Bool {{"), format!("    a && n / d > {t}"), "}".into()];
+    let inputs: Vec<(bool, i64, i64)> = (0..calls(rng)).map(|_| (rng.bool(), rng.int(0, 20), rng.int(1, 4))).collect();
+    let calls = inputs.iter().map(|&(a, n, d)| assert(format!("g.{f}({a}, {n}, {d})"), a && n / d > t)).collect();
+    let aborts: Vec<(String, &'static str)> =
+        (0..rng.below(3)).map(|_| (assert(format!("g.{f}(true, {}, 0)", rng.int(0, 9)), false), "division by zero")).collect();
+    let n = inputs.len() as u64;
+    let aborted = aborts.len() as u64;
+    // An abort reaches the right side and stops there, so it counts no path.
+    let ran = inputs.iter().filter(|(a, ..)| *a).count() as u64;
+    let mut paths: Vec<(Vec<Option<bool>>, bool)> = Vec::new();
+    for &(a, n, d) in &inputs {
+        let path = if a { (vec![Some(true), Some(n / d > t)], n / d > t) } else { (vec![Some(false), None], false) };
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    Shape {
+        decl,
+        calls,
+        aborts,
+        model: Box::new(move |at, mcdc, e| {
+            e.line(at, n + aborted);
+            e.line(at + 1, n + aborted);
+            e.numbered(at + 1, &[ran + aborted, n - ran], "");
+            if mcdc {
+                e.numbered(at + 1, &[ran, aborted], "");
+                let conditions = vec![("a".to_string(), shown(&paths, 0)), (format!("n / d > {t}"), shown(&paths, 1))];
+                e.trees.push(Tree { line: at + 1, whole: format!("a && n / d > {t}"), suffix: String::new(), conditions });
+            }
+        }),
+    }
+}
+
 // ---- aborts ----
 
 fn divide(rng: &mut Rng, f: &str) -> Shape {
@@ -892,11 +1041,12 @@ enum Field {
     E,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum Value {
     Int(i64),
     Bool(bool),
-    /// A variant of `E`: `A`, `B(Int)` or `C(Int, Int)`.
+    /// A variant of `E`: `A`, `B(Int)` or `C(Int, Int)`. Derived `Ordered`
+    /// orders by variant, then fields, as this does.
     E(usize, Vec<i64>),
 }
 
@@ -916,21 +1066,35 @@ impl Value {
     }
 }
 
+/// A comparison a derived shadow walks: `Equal` or `Ordered`, and what its
+/// field decisions are called.
+#[derive(Clone, Copy)]
+struct Op {
+    name: &'static str,
+    outcomes: [&'static str; 2],
+}
+
+const EQUAL: Op = Op { name: "Equal", outcomes: ["same", "differs"] };
+const ORDERED: Op = Op { name: "Ordered", outcomes: ["equal", "decides"] };
+
 /// `E`, and a struct `R` holding it, with what the tests do to them.
 struct Derived {
     fields: Vec<Field>,
-    /// Whether `R` derives `Show` too.
+    /// Whether `R` derives `Ordered` and `Show` too.
+    orders_r: bool,
     shows_r: bool,
-    /// `==` on two `E`s, two `R`s, `E.show`, `R.show`.
+    /// `==` and `<` on two `E`s and two `R`s, `E.show`, `R.show`.
     eq_e: Vec<(Value, Value)>,
     eq_r: Vec<(Vec<Value>, Vec<Value>)>,
+    lt_e: Vec<(Value, Value)>,
+    lt_r: Vec<(Vec<Value>, Vec<Value>)>,
     show_e: Vec<Value>,
     show_r: Vec<Vec<Value>>,
     /// The calls of the `&&` ending in an `==`.
     same: std::cell::RefCell<Vec<(bool, Vec<Value>, Vec<Value>)>>,
 }
 
-/// Counts of one derived decision: its label and branches.
+/// The derived decisions the walks reached.
 #[derive(Default)]
 struct Walks {
     /// By (operation and type, order in its walk): label, branch names, counts.
@@ -939,8 +1103,7 @@ struct Walks {
 
 impl Walks {
     fn hit(&mut self, group: &str, order: usize, what: &str, names: &[&str], branch: usize) {
-        let entry = self.declare(group, order, what, names);
-        entry[branch] += 1;
+        self.declare(group, order, what, names)[branch] += 1;
     }
 
     fn declare(&mut self, group: &str, order: usize, what: &str, names: &[&str]) -> &mut Vec<u64> {
@@ -952,27 +1115,40 @@ impl Walks {
     }
 }
 
+const OTHER: [&str; 2] = ["same variant", "another variant"];
+
 impl Derived {
     fn new(rng: &mut Rng) -> Derived {
         let fields = (0..1 + rng.below(3)).map(|_| [Field::Int, Field::Bool, Field::E][rng.below(3)]).collect();
         let mut d = Derived {
             fields,
+            orders_r: rng.bool(),
             shows_r: rng.bool(),
             eq_e: Vec::new(),
             eq_r: Vec::new(),
+            lt_e: Vec::new(),
+            lt_r: Vec::new(),
             show_e: Vec::new(),
             show_r: Vec::new(),
             same: Default::default(),
         };
         for _ in 0..rng.below(4) {
-            let a = d.value(rng, Field::E);
-            let b = if rng.bool() { a.clone() } else { d.value(rng, Field::E) };
-            d.eq_e.push((a, b));
+            let pair = d.pair_e(rng);
+            d.eq_e.push(pair);
         }
         for _ in 0..rng.below(4) {
-            let a = d.record(rng);
-            let b = if rng.bool() { a.clone() } else { d.near(rng, &a) };
-            d.eq_r.push((a, b));
+            let pair = d.pair_r(rng);
+            d.eq_r.push(pair);
+        }
+        for _ in 0..rng.below(3) {
+            let pair = d.pair_e(rng);
+            d.lt_e.push(pair);
+        }
+        if d.orders_r {
+            for _ in 0..rng.below(4) {
+                let pair = d.pair_r(rng);
+                d.lt_r.push(pair);
+            }
         }
         for _ in 0..rng.below(3) {
             let v = d.value(rng, Field::E);
@@ -998,16 +1174,26 @@ impl Derived {
         }
     }
 
+    fn pair_e(&self, rng: &mut Rng) -> (Value, Value) {
+        let a = self.value(rng, Field::E);
+        let b = if rng.bool() { a.clone() } else { self.value(rng, Field::E) };
+        (a, b)
+    }
+
     fn record(&self, rng: &mut Rng) -> Vec<Value> {
         self.fields.iter().map(|f| self.value(rng, *f)).collect()
     }
 
-    /// `r` with one field redrawn, so comparisons reach past the first.
-    fn near(&self, rng: &mut Rng, r: &[Value]) -> Vec<Value> {
-        let mut out = r.to_vec();
-        let i = rng.below(out.len());
-        out[i] = self.value(rng, self.fields[i]);
-        out
+    /// Two records, the second the first or it with one field redrawn, so
+    /// comparisons reach past the first field.
+    fn pair_r(&self, rng: &mut Rng) -> (Vec<Value>, Vec<Value>) {
+        let a = self.record(rng);
+        let mut b = a.clone();
+        if rng.bool() {
+            let i = rng.below(b.len());
+            b[i] = self.value(rng, self.fields[i]);
+        }
+        (a, b)
     }
 
     fn shows(&self) -> bool {
@@ -1015,23 +1201,31 @@ impl Derived {
     }
 
     fn decls(&self) -> Vec<String> {
+        let mut traits = vec!["Equal"];
+        if self.orders_r {
+            traits.push("Ordered");
+        }
+        if self.shows_r {
+            traits.push("Show");
+        }
         let mut out = vec![
-            "derive Equal, Show for E;".to_string(),
+            "derive Equal, Ordered, Show for E;".to_string(),
             "export enum E {".into(),
             "    A,".into(),
             "    B(Int),".into(),
             "    C(Int, Int),".into(),
             "}".into(),
             String::new(),
-            if self.shows_r { "derive Equal, Show for R;".into() } else { "derive Equal for R;".to_string() },
+            format!("derive {} for R;", traits.join(", ")),
             "export struct R {".into(),
         ];
         for (i, f) in self.fields.iter().enumerate() {
-            out.push(format!("    export f{i}: {},", match f {
+            let ty = match f {
                 Field::Int => "Int",
                 Field::Bool => "Bool",
                 Field::E => "E",
-            }));
+            };
+            out.push(format!("    export f{i}: {ty},"));
         }
         out.push("}".into());
         out
@@ -1047,17 +1241,22 @@ impl Derived {
         let decl = vec![format!("export fn {f}(a: Bool, p: R, q: R): Bool {{"), "    a && p == q".into(), "}".into()];
         let mut inputs = Vec::new();
         for _ in 0..calls(rng) {
-            let p = self.record(rng);
-            let q = if rng.bool() { p.clone() } else { self.near(rng, &p) };
+            let (p, q) = self.pair_r(rng);
             inputs.push((rng.bool(), p, q));
         }
         // Bound first, so no line is long enough for the formatter to break.
-        let mut calls = Vec::new();
-        for (i, (a, p, q)) in inputs.iter().enumerate() {
-            calls.push(format!("let p{i} = {};", self.r_source(p)));
-            calls.push(format!("let q{i} = {};", self.r_source(q)));
-            calls.push(assert(format!("g.{f}({a}, p{i}, q{i})"), *a && p == q));
-        }
+        let calls = inputs
+            .iter()
+            .enumerate()
+            .map(|(i, (a, p, q))| {
+                format!(
+                    "let p{i} = {};\n    let q{i} = {};\n    {}",
+                    self.r_source(p),
+                    self.r_source(q),
+                    assert(format!("g.{f}({a}, p{i}, q{i})"), *a && p == q)
+                )
+            })
+            .collect();
         *self.same.borrow_mut() = inputs.clone();
         let n = inputs.len() as u64;
         let ran = inputs.iter().filter(|(a, ..)| *a).count() as u64;
@@ -1086,6 +1285,8 @@ impl Derived {
         }
     }
 
+    /// The `derived` test's statements. Records are bound first, so no line
+    /// is long enough for the formatter to break.
     fn calls(&self) -> Vec<String> {
         let mut out = Vec::new();
         for (a, b) in &self.eq_e {
@@ -1095,6 +1296,14 @@ impl Derived {
             out.push(format!("let a{i} = {};", self.r_source(a)));
             out.push(format!("let b{i} = {};", self.r_source(b)));
             out.push(assert(format!("a{i} == b{i}"), a == b));
+        }
+        for (a, b) in &self.lt_e {
+            out.push(assert(format!("E{} < E{}", a.source(), b.source()), a < b));
+        }
+        for (i, (a, b)) in self.lt_r.iter().enumerate() {
+            out.push(format!("let c{i} = {};", self.r_source(a)));
+            out.push(format!("let d{i} = {};", self.r_source(b)));
+            out.push(assert(format!("c{i} < d{i}"), a < b));
         }
         if self.shows() {
             out.push("let ctx = context {\n        Allocator: alloc(),\n    };".into());
@@ -1109,66 +1318,56 @@ impl Derived {
         out
     }
 
-    /// Equal on two `E`s, through its shadow: answers whether they're equal.
-    fn walk_eq_e(w: &mut Walks, a: &Value, b: &Value) -> bool {
+    /// Every decision of `E`'s shadow for `op`, so one nothing reached still
+    /// reads `-`. In the shadow's order: which variant, then each variant's
+    /// other value, then its fields'.
+    fn declare_e(w: &mut Walks, op: Op) {
+        let group = format!("{} E", op.name);
+        w.declare(&group, 0, "variant", &VARIANTS);
+        for (v, name) in VARIANTS.iter().enumerate() {
+            w.declare(&group, v + 1, &format!("{name}, the other"), &OTHER);
+        }
+        w.declare(&group, 4, "C.0", &op.outcomes);
+    }
+
+    /// `op` on two `E`s, through the shadow: answers whether they're equal.
+    fn walk_e(w: &mut Walks, op: Op, a: &Value, b: &Value) -> bool {
         let (Value::E(va, xa), Value::E(vb, xb)) = (a, b) else { unreachable!() };
-        Self::declare_e(w, "Equal E");
-        w.hit("Equal E", 0, "variant", &VARIANTS, *va);
-        let other = ["same variant", "another variant"];
-        let order = Self::other_order(*va);
-        w.hit("Equal E", order, &format!("{}, the other", VARIANTS[*va]), &other, usize::from(va != vb));
+        let group = format!("{} E", op.name);
+        Self::declare_e(w, op);
+        w.hit(&group, 0, "variant", &VARIANTS, *va);
+        w.hit(&group, va + 1, &format!("{}, the other", VARIANTS[*va]), &OTHER, usize::from(va != vb));
         if va != vb {
             return false;
         }
         // `C`'s two fields: one decision, after the first.
         if *va == 2 {
             let same = xa[0] == xb[0];
-            w.hit("Equal E", order + 1, "C.0", &["same", "differs"], usize::from(!same));
-            if !same {
-                return false;
-            }
-            return xa[1] == xb[1];
+            w.hit(&group, 4, "C.0", &op.outcomes, usize::from(!same));
+            return same && xa[1] == xb[1];
         }
         xa == xb
     }
 
-    /// Where `V, the other` sits in `Equal E`'s walk: after `variant`, each
-    /// variant's own and then its fields'.
-    fn other_order(v: usize) -> usize {
-        [1, 2, 3][v]
-    }
-
-    /// Every decision of `E`'s shadow for `group`, so one nothing reached
-    /// still reads `-`.
-    fn declare_e(w: &mut Walks, group: &str) {
-        w.declare(group, 0, "variant", &VARIANTS);
-        if group == "Equal E" {
-            let other = ["same variant", "another variant"];
-            for (v, name) in VARIANTS.iter().enumerate() {
-                w.declare(group, Self::other_order(v), &format!("{name}, the other"), &other);
-            }
-            w.declare(group, 4, "C.0", &["same", "differs"]);
-        }
-    }
-
-    /// Every decision of `R`'s `Equal` shadow: one after each field but the
+    /// Every decision of `R`'s shadow for `op`: one after each field but the
     /// last.
-    fn declare_r(&self, w: &mut Walks) {
+    fn declare_r(&self, w: &mut Walks, op: Op) {
         for i in 1..self.fields.len() {
-            w.declare("Equal R", i - 1, &format!("f{}", i - 1), &["same", "differs"]);
+            w.declare(&format!("{} R", op.name), i - 1, &format!("f{}", i - 1), &op.outcomes);
         }
     }
 
-    fn walk_eq_r(&self, w: &mut Walks, a: &[Value], b: &[Value]) -> bool {
-        for i in 0..self.fields.len() {
+    fn walk_r(&self, w: &mut Walks, op: Op, a: &[Value], b: &[Value]) -> bool {
+        let last = self.fields.len() - 1;
+        for i in 0..=last {
             let same = match self.fields[i] {
-                Field::E => Self::walk_eq_e(w, &a[i], &b[i]),
+                Field::E => Self::walk_e(w, op, &a[i], &b[i]),
                 _ => a[i] == b[i],
             };
-            if i + 1 == self.fields.len() {
+            if i == last {
                 return same;
             }
-            w.hit("Equal R", i, &format!("f{i}"), &["same", "differs"], usize::from(!same));
+            w.hit(&format!("{} R", op.name), i, &format!("f{i}"), &op.outcomes, usize::from(!same));
             if !same {
                 return false;
             }
@@ -1185,28 +1384,35 @@ impl Derived {
         let mut w = Walks::default();
         let has_e = self.fields.contains(&Field::E);
         let same_calls = self.same.borrow().clone();
-        // A shadow exists for each operation the program calls, and for those
+        // A shadow exists for each operation the program calls, and for each
         // its walk reaches.
-        let compares_r = !self.eq_r.is_empty() || !same_calls.is_empty();
-        if !self.eq_e.is_empty() || compares_r && has_e {
-            Self::declare_e(&mut w, "Equal E");
-        }
-        if compares_r {
-            self.declare_r(&mut w);
+        for (op, on_e, on_r) in [(EQUAL, !self.eq_e.is_empty(), !self.eq_r.is_empty() || !same_calls.is_empty()), (ORDERED, !self.lt_e.is_empty(), !self.lt_r.is_empty())] {
+            if on_e || on_r && has_e {
+                Self::declare_e(&mut w, op);
+            }
+            if on_r {
+                self.declare_r(&mut w, op);
+            }
         }
         for (a, b) in &self.eq_e {
-            Self::walk_eq_e(&mut w, a, b);
+            Self::walk_e(&mut w, EQUAL, a, b);
         }
         for (a, b) in &self.eq_r {
-            self.walk_eq_r(&mut w, a, b);
+            self.walk_r(&mut w, EQUAL, a, b);
         }
         for (a, p, q) in &same_calls {
             if *a {
-                self.walk_eq_r(&mut w, p, q);
+                self.walk_r(&mut w, EQUAL, p, q);
             }
         }
+        for (a, b) in &self.lt_e {
+            Self::walk_e(&mut w, ORDERED, a, b);
+        }
+        for (a, b) in &self.lt_r {
+            self.walk_r(&mut w, ORDERED, a, b);
+        }
         if !self.show_e.is_empty() || !self.show_r.is_empty() && has_e {
-            Self::declare_e(&mut w, "Show E");
+            w.declare("Show E", 0, "variant", &VARIANTS);
         }
         for v in &self.show_e {
             Self::walk_show_e(&mut w, v);
@@ -1218,7 +1424,7 @@ impl Derived {
                 }
             }
         }
-        // `E` is declared on `at`, `R` eight lines below.
+        // `E` is declared on `at`, `R` seven lines below.
         for ((group, _), (label, names, counts)) in &w.decisions {
             let line = if group.ends_with(" E") { at } else { at + 7 };
             let branches = names.iter().zip(counts).map(|(name, n)| (format!("{label}: {name}"), *n)).collect();

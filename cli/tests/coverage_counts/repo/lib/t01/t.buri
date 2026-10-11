@@ -1,0 +1,3 @@
+export fn pick(a: Bool): Int {
+    if (a) { 1 } else { 0 }
+}

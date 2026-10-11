@@ -1,56 +1,56 @@
-derive Equal, Show for E;
-export enum E {
-    A,
-    B(Int),
-    C(Int, Int),
+export fn f0<T>(flag: Bool, x: T, y: T): T {
+    if (flag) {
+        let r = x;
+        r
+    } else {
+        let r = y;
+        r
+    }
 }
 
-derive Equal for R;
-export struct R {
-    export f0: E,
-    export f1: E,
+export fn f1(a: Bool, n: Int): Bool {
+    a && f1big(n)
 }
 
-export fn f0(n: Int, acc: Int): Int {
+fn f1big(n: Int): Bool {
+    n > 3
+}
+
+export fn f2(n: Int, acc: Int): Int {
     if (n == 0) {
         acc
     } else {
-        let step = if (n % 5 == 1) { 1 } else { 0 };
-        f0(n - 1, acc + step)
+        let step = if (n % 2 == 0) { 1 } else { 0 };
+        f2(n - 1, acc + step)
     }
 }
 
-export fn f1(a: Bool, p: R, q: R): Bool {
-    a && p == q
+fn f3check(n: Int): Result<Int, Str> {
+    if (n < 0) { .Err("negative") } else { .Ok(n) }
 }
 
-export fn f2(items: [Int]): Int {
-    items.fold(fn(acc, x) => if (x > 4) { acc + x } else { acc }, 0)
+export fn f3(a: Int, b: Int): Result<Int, Str> {
+    let x = f3check(a)?;
+    let y = f3check(b)?;
+    .Ok(x + y)
 }
 
-export fn f3(a: Bool, n: Int): Bool {
-    a && f3big(n)
+fn f4check(n: Int): Result<Int, Str> {
+    if (n < 0) { .Err("negative") } else { .Ok(n) }
 }
 
-fn f3big(n: Int): Bool {
-    n > 7
+export fn f4(a: Int, b: Int): Result<Int, Str> {
+    let x = f4check(a)?;
+    let y = f4check(b)?;
+    .Ok(x + y)
 }
 
-export fn f4(n: Int, acc: Int): Int {
-    if (n == 0) {
-        acc
-    } else {
-        let step = if (n % 2 == 1) { 1 } else { 0 };
-        f4(n - 1, acc + step)
-    }
+fn f5check(n: Int): Result<Int, Str> {
+    if (n < 0) { .Err("negative") } else { .Ok(n) }
 }
 
-export fn f5(a: Bool, b: Bool, c: Bool, d: Bool): Int {
-    if (!(a && !b && c) || d) {
-        let r = 1;
-        r
-    } else {
-        let r = 0;
-        r
-    }
+export fn f5(a: Int, b: Int): Result<Int, Str> {
+    let x = f5check(a)?;
+    let y = f5check(b)?;
+    .Ok(x + y)
 }
