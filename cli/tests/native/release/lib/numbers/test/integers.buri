@@ -1,0 +1,61 @@
+from "core/number" import * as number;
+from "core/testing/assert" import * as assert;
+
+fn quotient(a: I128, b: I128): I128 {
+    a / b
+}
+
+fn remainder(a: U128, b: U128): U128 {
+    a % b
+}
+
+test "a 128-bit quotient and remainder" {
+    assert.equal(
+        quotient(-170141183460469231731687303715884105727, 3),
+        -56713727820156410577229101238628035242,
+    );
+    assert.equal(remainder(340282366920938463463374607431768211455, 10), 5);
+}
+
+test "a narrow float's magnitude and order" {
+    let a: F32 = -2.5;
+    assert.equal(a.abs(), 2.5);
+    let b: F32 = 1.5;
+    assert.equal(a.compare(b), .Less);
+    assert.equal(b.compare(a), .Greater);
+}
+
+test "a 128-bit value and a narrow one hash alike when equal" {
+    let a: I128 = -170141183460469231731687303715884105727;
+    let b: I128 = -170141183460469231731687303715884105727;
+    assert.equal(a.hash(), b.hash());
+    assert.notEqual(a.hash(), (a + 1).hash());
+    let c: U128 = 340282366920938463463374607431768211455;
+    assert.equal(c.hash(), c.hash());
+    let d: I8 = -1;
+    let e: I16 = -1;
+    assert.equal(d.hash(), e.hash());
+}
+
+test "checked power at every width" {
+    let a: I32 = 3;
+    assert.equal(a.checkedPower(4), .Some(81));
+    assert.equal(a.checkedPower(40), .None);
+    let b: U8 = 2;
+    assert.equal(b.checkedPower(7), .Some(128));
+    assert.equal(b.checkedPower(8), .None);
+    let c: I64 = -2;
+    assert.equal(c.checkedPower(63), .Some(-9223372036854775808));
+    assert.equal(c.checkedPower(0), .Some(1));
+}
+
+test "a float converts to every integer width" {
+    let a: F32 = -3.75;
+    assert.equal(a.wrapToI32(), -3);
+    let b: F64 = 1.0e30;
+    assert.equal(b.wrapToI128(), 1000000000000000019884624838656);
+    let c: I32 = -7;
+    assert.equal(c.toF64(), -7.0);
+    let d: F64 = 2.5;
+    assert.equal(d.wrapToF32(), 2.5);
+}
