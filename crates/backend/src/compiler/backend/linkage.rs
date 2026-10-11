@@ -27,9 +27,9 @@ pub fn named_anywhere(program: &Program) -> Vec<bool> {
 fn named_from(program: &Program, own_unit: bool) -> Vec<bool> {
     let mut named = vec![false; program.funcs.len()];
     let mut mark = |at: usize| {
-        if let Some(slot) = named.get_mut(at) {
-            *slot = true;
-        }
+        #[expect(clippy::indexing_slicing, reason = "`at` names one of the program's functions, and `named` has one slot per function")]
+        let slot = &mut named[at];
+        *slot = true;
     };
     for f in &program.funcs {
         let Body::Code(code) = &f.body else { continue };

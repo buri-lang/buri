@@ -341,7 +341,7 @@ pub const MODULES: &[StdModule] = &[
 /// platform shares and the backends' implementations of them. All four are
 /// reserved: a repository path is always `//...`, so nothing here can collide
 /// with user code.
-pub const ROOTS: &[&str] = &["core/", "ui/", "std/", "platform/"];
+pub const ROOTS: [&str; 4] = ["core/", "ui/", "std/", "platform/"];
 
 /// The module `platform/host`: the backends' production structs, which only a
 /// platform's `platform.buri` may import.
@@ -400,11 +400,8 @@ pub fn is_bundled_platform(path: &str) -> bool {
 
 /// The roots as they read in a diagnostic: `` `core/...` or `ui/...` ``.
 pub fn roots_phrase() -> String {
-    let quoted: Vec<String> = ROOTS.iter().map(|r| format!("`{r}...`")).collect();
-    match quoted.split_last() {
-        Some((last, rest)) if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
-        _ => quoted.join(""),
-    }
+    let [rest @ .., last] = ROOTS.map(|r| format!("`{r}...`"));
+    format!("{} or {last}", rest.join(", "))
 }
 
 /// The module a path names, whichever of its two spellings was written.

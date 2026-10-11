@@ -75,21 +75,13 @@ pub fn width(len: usize) -> usize {
 pub fn discard<T: Send + 'static>(value: T) {
     static PREVIOUS: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> =
         std::sync::Mutex::new(None);
-    let Ok(mut slot) = PREVIOUS.lock() else {
-        drop(value);
-        return;
-    };
+    let mut slot = PREVIOUS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(previous) = slot.take() {
         let _ = previous.join();
     }
     // With no thread to be had, the value was moved into the closure that could
     // not be started, so it has already been dropped where it stood.
-    if let Ok(handle) = std::thread::Builder::new()
-        .name("buri-discard".into())
-        .spawn(move || drop(value))
-    {
-        *slot = Some(handle);
-    }
+    *slot = std::thread::Builder::new().name("buri-discard".into()).spawn(move || drop(value)).ok();
 }
 
 /// `f` over `0..len`, in parallel, with the results in index order.
@@ -164,11 +156,11 @@ where
             }
         }
         for worker in workers {
-            let Ok(done) = worker.join() else { continue };
-            for (i, value) in done {
-                if let Some(slot) = slots.get_mut(i) {
-                    *slot = Some(value);
-                }
+            // A worker that did not return left its indices to the loop below.
+            for (i, value) in worker.join().unwrap_or_default() {
+                #[expect(clippy::indexing_slicing, reason = "a worker takes only indices below `len`, and `slots` holds `len`")]
+                let slot = &mut slots[i];
+                *slot = Some(value);
             }
         }
     });
@@ -307,12 +299,11 @@ impl<J> Queue<J> {
         loop {
             let held = state.held;
             let fits = |bytes: u64| bytes == 0 || held == 0 || held.saturating_add(bytes) <= self.budget;
-            if let Some(at) = state.jobs.iter().position(|(_, bytes)| fits(*bytes)) {
-                if let Some((job, bytes)) = state.jobs.remove(at) {
-                    state.held = state.held.saturating_add(bytes);
-                    let room: &dyn Release = self;
-                    return Some((job, Held { room: (bytes > 0).then_some((room, bytes)) }));
-                }
+            let at = state.jobs.iter().position(|(_, bytes)| fits(*bytes));
+            if let Some((job, bytes)) = at.and_then(|at| state.jobs.remove(at)) {
+                state.held = state.held.saturating_add(bytes);
+                let room: &dyn Release = self;
+                return Some((job, Held { room: (bytes > 0).then_some((room, bytes)) }));
             }
             if let Some(job) = state.later.pop_front() {
                 return Some((job, Held { room: None }));
