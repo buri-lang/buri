@@ -1,0 +1,14 @@
+# 1,100 lines each tie a new array's element type to the one before, so
+# `words` and `numbers` share one element type and can't be `Str` and `Int`
+# at once. Ten lines are refused the same way; past 1,000 the checker used
+# to give up following the chain and let the program build.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a type inferred through a long chain of other inferred types is checked like one through a short chain"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "refused.txt"
+}
