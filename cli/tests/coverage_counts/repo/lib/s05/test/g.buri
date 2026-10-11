@@ -1,0 +1,50 @@
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//lib/s05" import * as g;
+from "//lib/s05" import { E, R };
+
+test "f0" {
+    assert.equal(g.f0(-1, false), 99);
+    assert.equal(g.f0(2, false), 12);
+    assert.equal(g.f0(10, false), 99);
+    assert.equal(g.f0(7, false), 99);
+    assert.equal(g.f0(9, false), 99);
+}
+
+test "f1" {
+    assert.equal(g.f1(true, "7", "5"), "7");
+    assert.equal(g.f1(true, "4", "0"), "4");
+    assert.equal(g.f1(true, "1", "5"), "1");
+    assert.equal(g.f1(false, 5, 9), 9);
+    assert.equal(g.f1(true, "6", "8"), "6");
+}
+
+test "f2" {
+    let p0 = R { f0: .C(2, 1) };
+    let q0 = R { f0: .B(2) };
+    assert.equal(g.f2(false, p0, q0), false);
+    let p1 = R { f0: .C(1, 2) };
+    let q1 = R { f0: .C(1, 2) };
+    assert.equal(g.f2(false, p1, q1), false);
+    let p2 = R { f0: .B(0) };
+    let q2 = R { f0: .C(1, 1) };
+    assert.equal(g.f2(true, p2, q2), false);
+}
+
+test "f3" {
+    assert.equal(g.f3(9, 6), .Ok(15));
+    assert.equal(g.f3(6, 1), .Ok(7));
+    assert.equal(g.f3(6, 7), .Ok(13));
+    assert.equal(g.f3(3, -1), .Err("negative"));
+    assert.equal(g.f3(-3, -2), .Err("negative"));
+    assert.equal(g.f3(8, 3), .Ok(11));
+}
+
+test "derived" {
+    assert.equal(E.A == E.C(0, 1), false);
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(E.C(2, 0).show(ctx), ".C(2, 0)");
+}

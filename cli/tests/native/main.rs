@@ -199,6 +199,11 @@ mod conformance;
 // test the verdict it gets without, on JavaScript and every backend built in.
 #[cfg(feature = "backend-stencil")]
 mod coverage_agrees;
+// Generated packages whose every line, branch and condition has a known count,
+// against what `--coverage` and `--coverage=mcdc` report, on JavaScript and every
+// backend built in, from `cli/tests/coverage_counts/`.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod coverage_counts;
 // The whole corpus through both pipelines, verdict by verdict. Beside
 // `conformance` and gated with it, because the native half of the comparison
 // is that module's memoized build.

@@ -1,0 +1,62 @@
+from "core/bits" import * as bits;
+
+export fn f0(n: Int, acc: Int): Int {
+    if (n == 0) {
+        acc
+    } else {
+        let step = if (n % 4 == 2) { 1 } else { 0 };
+        f0(n - 1, acc + step)
+    }
+}
+
+export fn f1(items: [Int]): Int {
+    items.fold(fn(acc, x) => if (x > 4) { acc + x } else { acc }, 0)
+}
+
+export fn f2(n: Int, flag: Bool): Int {
+    match (n) {
+        0 => 10,
+        1 => 11,
+        2 => 12,
+        _ => 99,
+    }
+}
+
+export fn f3(a: Bool, n: Int): Bool {
+    a && f3big(n)
+}
+
+fn f3big(n: Int): Bool {
+    n > 8
+}
+
+export fn f4(n: Int, acc: Int): Int {
+    if (n == 0) {
+        acc
+    } else {
+        let step = if (n % 3 == 0) { 1 } else { 0 };
+        f4(n - 1, acc + step)
+    }
+}
+
+export fn f5(n: Int, acc: Int): Int {
+    if (n == 0) {
+        acc
+    } else {
+        let step = if (n % 2 == 0) { 1 } else { 0 };
+        f5(n - 1, acc + step)
+    }
+}
+
+export fn f6(n: Int): Int {
+    bits.shiftLeft(1, n)
+}
+
+export fn f7(n: Int): Int {
+    if (n == 0) {
+        0
+    } else {
+        let here = if (n % 3 == 1) { 1 } else { 0 };
+        here + f7(n - 1)
+    }
+}

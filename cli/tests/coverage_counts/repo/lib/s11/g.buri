@@ -1,0 +1,55 @@
+from "core/bits" import * as bits;
+
+export fn f0(n: Int, acc: Int): Int {
+    if (n == 0) {
+        acc
+    } else {
+        let step = if (n % 4 == 1) { 1 } else { 0 };
+        f0(n - 1, acc + step)
+    }
+}
+
+fn f1check(n: Int): Result<Int, Str> {
+    if (n < 0) { .Err("negative") } else { .Ok(n) }
+}
+
+export fn f1(a: Int, b: Int): Result<Int, Str> {
+    let x = f1check(a)?;
+    let y = f1check(b)?;
+    .Ok(x + y)
+}
+
+export fn f2(items: [Int]): Int {
+    items.fold(fn(acc, x) => if (x > 2) { acc + x } else { acc }, 0)
+}
+
+export fn f3(n: Int, acc: Int): Int {
+    if (n == 0) {
+        acc
+    } else {
+        let step = if (n % 4 == 0) { 1 } else { 0 };
+        f3(n - 1, acc + step)
+    }
+}
+
+export fn f4(n: Int): Int {
+    bits.shiftLeft(1, n)
+}
+
+export fn f5(a: Bool, n: Int): Bool {
+    a && f5big(n)
+}
+
+fn f5big(n: Int): Bool {
+    n > 5
+}
+
+fn f6check(n: Int): Result<Int, Str> {
+    if (n < 0) { .Err("negative") } else { .Ok(n) }
+}
+
+export fn f6(a: Int, b: Int): Result<Int, Str> {
+    let x = f6check(a)?;
+    let y = f6check(b)?;
+    .Ok(x + y)
+}
