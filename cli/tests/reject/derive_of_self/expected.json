@@ -1,0 +1,1 @@
+{"severity":"error","message":"`Self` is not a trait","code":"derive-not-trait","location":{"file":"cmd/derive_of_self/main.buri","line":8,"column":8,"endLine":8,"endColumn":12,"text":"derive Self for P;"},"fix":"name a declared trait; `derive` generates a trait's methods","notes":[],"related":[]}

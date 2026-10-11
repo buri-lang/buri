@@ -1,0 +1,15 @@
+// EXPECT: `Self` is not a trait or effect
+//
+// The refusal names what was written after `impl`, even when it isn't a name
+// of a declaration.
+from "node" import { NodeHost };
+
+struct P {
+  x: Int,
+}
+
+impl Self for P {}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  .Ok(())
+}
