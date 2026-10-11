@@ -2018,12 +2018,9 @@ impl Generator {
     /// per arity instead of once per variant. What is left at the site is one
     /// call with *k* string arguments, and no intermediate for anyone to drop.
     fn joined(&mut self, parts: Vec<TemplatePart>) -> Expr {
+        // Every caller opens and closes around at least one hole, so there
+        // are three parts or more.
         let merged = merge(parts);
-        // Two parts are already one join; a call for them would be one more
-        // instruction, not one fewer.
-        if merged.len() < 3 {
-            return self.template_of(merged);
-        }
         // Past the chain, `middle::lower` joins a template with one runtime
         // call over a list it builds in place, so at the site it costs what a
         // joiner call would. A joiner of that arity would cost far more: every
@@ -2032,7 +2029,7 @@ impl Generator {
         if merged.len() > lower::CONCAT_CHAIN_MAX {
             return self.template_of(merged);
         }
-        let Some(f) = self.joiner(merged.len()) else { return self.template_of(merged) };
+        let f = self.joiner(merged.len());
         let args: Vec<Expr> = merged
             .into_iter()
             .map(|p| match p {
@@ -2051,15 +2048,13 @@ impl Generator {
     /// there are as many of these as there are distinct arities in the whole
     /// program — a dozen or so — and giving them a module would mean minting
     /// one per module instead.
-    fn joiner(&mut self, n: usize) -> Option<FuncIdx> {
+    fn joiner(&mut self, n: usize) -> FuncIdx {
         if let Some(f) = self.joiners.get(&n) {
-            return Some(*f);
+            return *f;
         }
+        // A program that shows a value has `Str`, the type `show` answers.
         let str_ty = self.str_ty();
-        if str_ty.is_error() {
-            return None;
-        }
-        let idx = FuncIdx(u32::try_from(self.base + self.funcs.len()).ok()?);
+        let idx = FuncIdx(u32::try_from(self.base + self.funcs.len()).unwrap_or(u32::MAX));
         let mut frame = Frame::new();
         let mut parts = Vec::with_capacity(n);
         for i in 0..n {
@@ -2078,7 +2073,7 @@ impl Generator {
             span: Span::NONE,
         });
         self.joiners.insert(n, idx);
-        Some(idx)
+        idx
     }
 
     /// A template over parts already merged.
