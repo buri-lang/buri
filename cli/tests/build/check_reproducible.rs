@@ -111,10 +111,8 @@ fn written(name: &str, platform: &str) -> Scratch {
         "lib/text/BUILD.buri",
         "library {\n    sources: [\"text.buri\"]\n    visibility: [\"//visibility:public\"]\n}\n",
     );
-    scratch.write(
-        "lib/text/text.buri",
-        "export fn text(): Str {\n    \"a\"\n}\n",
-    );
+    scratch.write("lib/text/text.buri", "export fn text(): Str {\n    \"a\"\n}\n");
+    scratch.write("lib/text/lib.buri", "from \"//lib/text/text.buri\" export { text };\n");
     scratch
 }
 
@@ -156,7 +154,7 @@ fn a_generated_module_that_differs_between_rounds_changes_the_codegen_units() {
         .exits(1)
         .says("error: //cmd/app is not reproducible")
         .says("codegen units")
-        .says("two builds of the same tree named unit `__lib_text_m1.o` and unit `__lib_text_m");
+        .says("two builds of the same tree named unit `__lib_text_m");
 }
 
 /// A native artifact that is reproducible is checked in silence without
