@@ -1,0 +1,18 @@
+error: a `context` declaration is not allowed here [misplaced-context-declaration]
+ --> lib/fixtures/lib.buri:8:1
+  |
+8 | context Defaults {}
+  | ^^^^^^^^^^^^^^^^^^^
+  |
+  = context may be declared only in a main.buri, a test file, or a test-only module
+  = fix: Accept a context variable as an argument, and pass it into the function from a main.buri, a test file, or a test-only module
+
+    To fix, accept the context as an argument:
+
+      from "core/str" import * as str;
+      from "platform/effect" import { Allocator };
+
+      export fn shout<C: Allocator>(ctx: C, text: Str): Str {
+          str.format(ctx, "${text}!")
+      }
+

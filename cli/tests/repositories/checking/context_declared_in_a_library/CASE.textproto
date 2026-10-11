@@ -1,0 +1,24 @@
+# A named context in a library's production code is one mistake, reported
+# once where it's declared. The same declaration on the library's `testing`
+# surface is fine, so deleting the production one is the fix.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a context declared in a library's production code is refused once, and the one on its testing surface is not"
+
+run {
+  args: ["build", "//lib/fixtures"]
+  exit: 1
+  golden: "refused.txt"
+}
+
+edit {
+  file: "lib/fixtures/lib.buri"
+  replace: "context Defaults {}"
+  with: ""
+}
+
+run {
+  args: ["build", "//lib/fixtures"]
+  exit: 0
+}

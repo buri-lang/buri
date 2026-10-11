@@ -1,0 +1,3 @@
+// The same context, where a library may declare one: its test-only surface.
+
+export context Defaults {}
