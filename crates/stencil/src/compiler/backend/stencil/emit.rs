@@ -96,16 +96,6 @@ pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
 /// The runtime hash of an integer or a `Bool` in the frame slot at `v`, and
 /// the words it is handed. Up to 32 bits, `$mix` reads the low word, which a
 /// slot holds zero-extended at its own width; wider, every word goes across.
-fn int_hash(prim: Prim, v: u32) -> (&'static str, Vec<Src>) {
-    match prim {
-        Prim::I64 => (runtime::HASH_I64, vec![Src::Word(v)]),
-        Prim::U64 => (runtime::HASH_U64, vec![Src::Word(v)]),
-        Prim::I128 => (runtime::HASH_I128, vec![Src::Word(v), Src::Word(v + 8)]),
-        Prim::U128 => (runtime::HASH_U128, vec![Src::Word(v), Src::Word(v + 8)]),
-        _ => (runtime::MIX, vec![Src::Word(v)]),
-    }
-}
-
 /// The stencil table's name for an arithmetic operation, given the method's.
 ///
 /// The two spellings are deliberately different. A stencil is named after the
@@ -578,9 +568,7 @@ impl<'a> Jit<'a> {
                     },
                     Src::Addr(dst),
                 ];
-                if let Err(why) = self.c_call("buri_rt_list_slice", st, &args, &[], dst, "v") {
-                    self.unsupported(why);
-                }
+                self.c_call("buri_rt_list_slice", st, &args, &[], dst, "v");
             }
             Inst::Structural { dest, op, ty, args } => {
                 self.structural(prog, code, st, *dest, *op, *ty, args)
@@ -638,9 +626,7 @@ impl<'a> Jit<'a> {
             return;
         }
         // `quoted = false`: a `Char` renders as its own bytes.
-        if let Err(why) = self.show_prim(st, prim, a, d, false) {
-            self.unsupported(why);
-        }
+        self.show_prim(st, prim, a, d, false);
     }
 
     fn make_enum(
@@ -782,14 +768,17 @@ impl<'a> Jit<'a> {
                 // builds it: `buri_rt_char_to_str` is the unquoted half of
                 // `show_prim`'s `Char` arm, and the block it answers is fresh,
                 // so this arm needs no retain.
-                _ => self.c_call(
-                    runtime::CHAR_TO_STR,
-                    st,
-                    &[Src::Word(a), Src::Addr(d + off)],
-                    &[],
-                    d + off,
-                    "v",
-                ),
+                _ => {
+                    self.c_call(
+                        runtime::CHAR_TO_STR,
+                        st,
+                        &[Src::Word(a), Src::Addr(d + off)],
+                        &[],
+                        d + off,
+                        "v",
+                    );
+                    Ok(())
+                }
             },
         }
     }
@@ -922,7 +911,8 @@ impl<'a> Jit<'a> {
                 ("JIT_CONT", V::Fall),
             ],
         );
-        self.c_call_sym(sym, st, &[Src::Word(addr)], &[], 0, "v")
+        self.c_call_sym(sym, st, &[Src::Word(addr)]);
+        Ok(())
     }
 
     /// `op` over one value's counted blocks, at frame offset `at`
@@ -1088,7 +1078,8 @@ impl<'a> Jit<'a> {
             // A `Str` is `{ base, ptr, len }` and `ptr` points *into* `base`,
             // so a copy rebases as well as replaces (`buri_rt_copy_str`).
             Glue::Str if op == Op::Copy => {
-                return self.c_call(runtime::COPY_STR, st, &[Src::Addr(at)], &[], 0, "v");
+                self.c_call(runtime::COPY_STR, st, &[Src::Addr(at)], &[], 0, "v");
+                return Ok(());
             }
             Glue::Str => None,
             // A closure's environment carries its own release in its first
@@ -1134,7 +1125,8 @@ impl<'a> Jit<'a> {
             }
             (Op::Copy, glue) => {
                 let g = glue.map_or(Src::Imm(0), Src::Sym);
-                return self.c_call(runtime::COPY_BLOCK, st, &[Src::Word(at), g], &[], at, "i");
+                self.c_call(runtime::COPY_BLOCK, st, &[Src::Word(at), g], &[], at, "i");
+                return Ok(());
             }
         }
         Ok(())
@@ -1187,9 +1179,7 @@ impl<'a> Jit<'a> {
             BinOp::Ge => ("buri_rt_str_compare", &[GREATER, EQUAL]),
             other => return self.unsupported(format!("Binary {other:?} at Str")),
         };
-        if let Err(why) = self.str_compare(st, symbol, a, b, raw) {
-            return self.unsupported(why);
-        }
+        self.str_compare(st, symbol, a, b, raw);
         self.order_test(st, raw, d, op, want);
     }
 
@@ -1495,17 +1485,13 @@ impl<'a> Jit<'a> {
                     ],
                 );
                 let (p, l) = self.str_arg(arg(st, 1), scr);
-                if let Err(why) = self.c_call(runtime::ABORT_ASSERT, st, &[p, l], &[], 0, "v") {
-                    self.unsupported(why);
-                }
+                self.c_call(runtime::ABORT_ASSERT, st, &[p, l], &[], 0, "v");
                 let here = self.region.code_addr();
                 st.place(ok, here);
             }
             "testing_assert.failWith" => {
                 let (p, l) = self.str_arg(arg(st, 0), scr);
-                if let Err(why) = self.c_call(runtime::ABORT, st, &[p, l], &[], 0, "v") {
-                    self.unsupported(why);
-                }
+                self.c_call(runtime::ABORT, st, &[p, l], &[], 0, "v");
             }
             // `failExpected<T, R>(kind, got): R` answers the bottom type: the
             // call does not come back, and the destination the IR gives it is
@@ -1513,11 +1499,7 @@ impl<'a> Jit<'a> {
             "testing_assert.failExpectedShown" => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
                 let (vp, vl) = self.str_arg(arg(st, 1), scr + 8);
-                if let Err(why) =
-                    self.c_call(runtime::TEST_FAIL_EXPECTED, st, &[kp, kl, vp, vl], &[], 0, "v")
-                {
-                    self.unsupported(why);
-                }
+                self.c_call(runtime::TEST_FAIL_EXPECTED, st, &[kp, kl, vp, vl], &[], 0, "v");
             }
             // `failExpected<T, R>(kind, got): R` where the derive pass declined
             // to generate a `Show` at `T` — an opaque type — so there is
@@ -1533,24 +1515,20 @@ impl<'a> Jit<'a> {
             // binds zeros there; a frame slot needs no such thing.
             "testing_assert.failExpected" => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
-                if let Err(why) = self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v") {
-                    self.unsupported(why);
-                }
+                self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v");
             }
             "testing_assert.reportShown" => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
                 let (ap, al) = self.str_arg(arg(st, 1), scr + 8);
                 let (ep, el) = self.str_arg(arg(st, 2), scr + 16);
-                if let Err(why) = self.c_call(
+                self.c_call(
                     runtime::TEST_FAIL_COMPARED,
                     st,
                     &[kp, kl, ap, al, ep, el],
                     &[],
                     0,
                     "v",
-                ) {
-                    self.unsupported(why);
-                }
+                );
             }
             // `list.empty()` is two immediates: a null block and a zero count
             // (VALUE-MODEL.md §4). A runtime call for it would allocate
@@ -1582,17 +1560,8 @@ impl<'a> Jit<'a> {
             // `Str`s and nothing else (`rtcall.rs`'s `str_concat`).
             "str.concat" => {
                 let Some(d) = dests.first().map(|v| st.at(*v)) else { return };
-                let drop = Self::concat_ctx(args.len());
-                let mut list: Vec<u32> = Vec::new();
-                for (i, a) in args.iter().enumerate() {
-                    if drop == Some(i) {
-                        continue;
-                    }
-                    list.push(st.at(*a));
-                }
-                if let Err(why) = self.str_concat(st, &list, d) {
-                    self.unsupported(why);
-                }
+                let strs = Self::concat_strs(args.len()).map(|i| arg(st, i));
+                self.str_concat(st, strs, d);
             }
             _ => {
                 if self.prim_trait(prog, code, st, dests, key, args) {
@@ -1613,10 +1582,7 @@ impl<'a> Jit<'a> {
                     let Some(prim) = prim_of_name(t) else {
                         return self.unsupported(format!("derivePrimShow.{t}"));
                     };
-                    if let Err(why) = self.show_prim(st, prim, arg(st, 0), d, true) {
-                        self.unsupported(why);
-                    }
-                    return;
+                    return self.show_prim(st, prim, arg(st, 0), d, true);
                 }
                 if let Some(t) = key.strip_prefix("derivePrimJson.") {
                     let (Some(dest), Some(a)) =
@@ -2216,9 +2182,7 @@ impl<'a> Jit<'a> {
                 &[("JIT_A", V::I(p(0) as u64)), ("JIT_T", V::Blk(ok)), ("JIT_F", V::Fall)],
             );
             let (kp, kl) = self.str_arg(p(1), fs.param_end);
-            if let Err(why) = self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v") {
-                self.unsupported(why);
-            }
+            self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v");
             let here = self.region.code_addr();
             st.place(ok, here);
             self.emit("ret", &[]);
@@ -2230,26 +2194,17 @@ impl<'a> Jit<'a> {
         // below, which flattens every parameter as a string.
         if key == "testing_assert.failExpected" {
             let (kp, kl) = self.str_arg(p(0), fs.param_end);
-            if let Err(why) = self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v") {
-                self.unsupported(why);
-            }
+            self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v");
             self.emit("ret", &[]);
             return;
         }
         if key == "testing_assert.failWith" || key == "testing_assert.failExpectedShown" {
-            let mut args = Vec::new();
-            for i in 0..fs.params.len() {
-                let (p, l) = self.str_arg(p(i), fs.param_end + i as u32 * 8);
-                args.push(p);
-                args.push(l);
-            }
-            let symbol = if key == "testing_assert.failWith" {
-                runtime::ABORT
+            let (kp, kl) = self.str_arg(p(0), fs.param_end);
+            if key == "testing_assert.failWith" {
+                self.c_call(runtime::ABORT, st, &[kp, kl], &[], 0, "v");
             } else {
-                runtime::TEST_FAIL_EXPECTED
-            };
-            if let Err(why) = self.c_call(symbol, st, &args, &[], 0, "v") {
-                self.unsupported(why);
+                let (vp, vl) = self.str_arg(p(1), fs.param_end + 8);
+                self.c_call(runtime::TEST_FAIL_EXPECTED, st, &[kp, kl, vp, vl], &[], 0, "v");
             }
             self.emit("ret", &[]);
             return;
@@ -2258,25 +2213,24 @@ impl<'a> Jit<'a> {
             let (kp, kl) = self.str_arg(p(0), fs.param_end);
             let (ap, al) = self.str_arg(p(1), fs.param_end + 8);
             let (ep, el) = self.str_arg(p(2), fs.param_end + 16);
-            if let Err(why) = self.c_call(
+            self.c_call(
                 runtime::TEST_FAIL_COMPARED,
                 st,
                 &[kp, kl, ap, al, ep, el],
                 &[],
                 0,
                 "v",
-            ) {
-                self.unsupported(why);
-            }
+            );
             self.emit("ret", &[]);
             return;
         }
         if let Some(t) = key.strip_prefix("number.").and_then(|k| k.strip_suffix(".show")) {
-            match prim_of_name(t).ok_or_else(|| format!("number.{t}.show"))
-                .and_then(|prim| self.show_prim(st, prim, p(0), ret0, true))
-            {
-                Ok(()) => self.emit("ret", &[]),
-                Err(why) => self.unsupported(why),
+            match prim_of_name(t) {
+                Some(prim) => {
+                    self.show_prim(st, prim, p(0), ret0, true);
+                    self.emit("ret", &[]);
+                }
+                None => self.unsupported(format!("number.{t}.show")),
             }
             return;
         }
@@ -2438,10 +2392,8 @@ impl<'a> Jit<'a> {
         if key == "str.equal" || key == "str.compare" {
             let symbol =
                 if key == "str.equal" { "buri_rt_str_equal" } else { "buri_rt_str_compare" };
-            match self.str_compare(st, symbol, p(0), p(1), ret0) {
-                Ok(()) => self.emit("ret", &[]),
-                Err(why) => self.unsupported(why),
-            }
+            self.str_compare(st, symbol, p(0), p(1), ret0);
+            self.emit("ret", &[]);
             return;
         }
         // `str.length` is the number of Unicode scalar values (VALUE-MODEL.md
@@ -2450,10 +2402,8 @@ impl<'a> Jit<'a> {
         // own: the count comes straight back in a register.
         if key == "str.length" {
             let (sp, sl) = self.str_arg(p(0), fs.param_end);
-            match self.c_call(runtime::STR_SCALAR_LEN, st, &[sp, sl], &[], ret0, "i") {
-                Ok(()) => self.emit("ret", &[]),
-                Err(why) => self.unsupported(why),
-            }
+            self.c_call(runtime::STR_SCALAR_LEN, st, &[sp, sl], &[], ret0, "i");
+            self.emit("ret", &[]);
             return;
         }
         // The test allocator, as a runtime-supplied body rather than as an
@@ -2512,19 +2462,9 @@ impl<'a> Jit<'a> {
             return;
         }
         if key == "str.concat" {
-            let params = prog.funcs.get(fi).map(|f| f.sig.params.clone()).unwrap_or_default();
-            let drop = Self::concat_ctx(params.len());
-            let mut list: Vec<u32> = Vec::new();
-            for i in 0..params.len() {
-                if drop == Some(i) {
-                    continue;
-                }
-                list.push(p(i));
-            }
-            match self.str_concat(st, &list, ret0) {
-                Ok(()) => self.emit("ret", &[]),
-                Err(why) => self.unsupported(why),
-            }
+            let argc = prog.funcs.get(fi).map_or(0, |f| f.sig.params.len());
+            self.str_concat(st, Self::concat_strs(argc).map(p), ret0);
+            self.emit("ret", &[]);
             return;
         }
         self.unsupported(format!("Body::Runtime {key}"));
@@ -2655,9 +2595,7 @@ impl Jit<'_> {
             // `show` is `$str`, not `$show`: the trait method renders the value
             // and the *derived* one quotes it.
             "show" => {
-                if let Err(why) = self.show_prim(st, prim, a, d, false) {
-                    self.unsupported(why);
-                }
+                self.show_prim(st, prim, a, d, false);
                 true
             }
             // A frame slot holds a `Bool` and a `Char` zero-extended, so both
@@ -2724,9 +2662,7 @@ impl Jit<'_> {
                 let seed = st.scratch + super::rtcall::SPARE_WORD * 8;
                 self.imm_to(seed, runtime::HASH_SEED);
                 let args = [Src::Word(seed), Src::Word(a)];
-                if let Err(why) = self.c_call(symbol, st, &args, &[], d, "i") {
-                    self.unsupported(why);
-                }
+                self.c_call(symbol, st, &args, &[], d, "i");
                 true
             }
             // `Char::toU32` is the representation: a `Char` **is** a `U32`
@@ -3015,7 +2951,7 @@ impl Jit<'_> {
 
         let here = self.region.code_addr();
         st.place(err, here);
-        self.show_prim(st, from, src, dest + err_at + error.field(0), false)?;
+        self.show_prim(st, from, src, dest + err_at + error.field(0), false);
         self.str_literal(dest + err_at + error.field(1), to.name().as_bytes());
         self.store_disc(&result, dest, 1);
         let here = self.region.code_addr();
@@ -3491,27 +3427,11 @@ impl Jit<'_> {
     /// it widens to.
     fn hash_prim(&mut self, st: &mut Fn2, prim: Prim, acc: u32, v: u32, dest: u32) {
         use crate::compiler::semantics::types::Prim as P;
-        let r = match prim {
-            P::Str | P::Template => {
-                let raw = st.scratch + super::rtcall::SPARE_WORD * 8;
-                let _ = raw;
-                self.c_call(
-                    runtime::HASH_STR,
-                    st,
-                    &[Src::Word(acc), Src::Word(v), Src::Word(v + 8), Src::Word(v + 16)],
-                    &[],
-                    dest,
-                    "i",
-                )
-            }
-            P::Char => self.c_call(
-                runtime::HASH_CHAR,
-                st,
-                &[Src::Word(acc), Src::Word(v)],
-                &[],
-                dest,
-                "i",
-            ),
+        let (a, w) = (Src::Word(acc), Src::Word(v));
+        let (w8, w16) = (Src::Word(v + 8), Src::Word(v + 16));
+        match prim {
+            P::Str | P::Template => self.c_call(runtime::HASH_STR, st, &[a, w, w8, w16], &[], dest, "i"),
+            P::Char => self.c_call(runtime::HASH_CHAR, st, &[a, w], &[], dest, "i"),
             P::F32 | P::F64 => {
                 let wide = if prim == P::F32 {
                     let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
@@ -3527,22 +3447,13 @@ impl Jit<'_> {
                 } else {
                     v
                 };
-                self.c_call(
-                    runtime::HASH_F64,
-                    st,
-                    &[Src::Word(acc)],
-                    &[Src::Word(wide)],
-                    dest,
-                    "i",
-                )
+                self.c_call(runtime::HASH_F64, st, &[a], &[Src::Word(wide)], dest, "i");
             }
-            _ => {
-                let (symbol, value) = int_hash(prim, v);
-                self.c_call(symbol, st, &[vec![Src::Word(acc)], value].concat(), &[], dest, "i")
-            }
-        };
-        if let Err(why) = r {
-            self.unsupported(why);
+            P::I128 => self.c_call(runtime::HASH_I128, st, &[a, w, w8], &[], dest, "i"),
+            P::U128 => self.c_call(runtime::HASH_U128, st, &[a, w, w8], &[], dest, "i"),
+            P::I64 => self.c_call(runtime::HASH_I64, st, &[a, w], &[], dest, "i"),
+            P::U64 => self.c_call(runtime::HASH_U64, st, &[a, w], &[], dest, "i"),
+            _ => self.c_call(runtime::MIX, st, &[a, w], &[], dest, "i"),
         }
     }
 
@@ -3848,9 +3759,7 @@ impl Jit<'_> {
                 ("JIT_F", V::Fall),
             ],
         );
-        if let Err(why) = self.c_call(runtime::ABORT_SHIFT, st, &[], &[], 0, "v") {
-            self.unsupported(why);
-        }
+        self.c_call(runtime::ABORT_SHIFT, st, &[], &[], 0, "v");
         let here = self.region.code_addr();
         st.place(ok, here);
     }

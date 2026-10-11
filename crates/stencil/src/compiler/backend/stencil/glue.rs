@@ -556,7 +556,8 @@ impl Jit<'_> {
         if self.field_out_of_line(&f.ty, depth) {
             let addr = self.address_of(at);
             let sym = self.helper(Helper::Walk { ty: f.ty, op });
-            return self.c_call_sym(sym, st, &[Src::Word(addr)], &[], 0, "v");
+            self.c_call_sym(sym, st, &[Src::Word(addr)]);
+            return Ok(());
         }
         self.walk_through(st, &f.ty, at, op, depth + 1)
     }
@@ -727,7 +728,8 @@ impl Jit<'_> {
         if !self.one_load(width) {
             let at = self.address_of(f.offset);
             let sym = self.helper(Helper::Walk { ty: f.ty, op });
-            return self.c_call_sym(sym, st, &[Src::Word(at)], &[], 0, "v");
+            self.c_call_sym(sym, st, &[Src::Word(at)]);
+            return Ok(());
         }
         self.load_at(G_VALUE, f.offset, width);
         let here = Field { offset: 0, ..f.clone() };
@@ -833,9 +835,7 @@ impl Jit<'_> {
         if wide {
             self.unless_spare_in_place(stride, next);
             let sym = self.helper(Helper::Walk { ty, op });
-            if let Err(why) = self.c_call_sym(sym, &st, &[Src::Word(G_SPARE)], &[], 0, "v") {
-                self.unsupported(why);
-            }
+            self.c_call_sym(sym, &st, &[Src::Word(G_SPARE)]);
         } else {
             self.unless_spare(stride, next);
             if let Err(why) = self.walk_rc(&mut st, &ty, G_VALUE, op, 0) {

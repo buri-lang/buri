@@ -489,7 +489,7 @@ impl Jit<'_> {
         } else {
             dslot
         };
-        self.c_call_sym(entry.symbol(), st, &ints, &floats, into, kind)?;
+        self.c_call_flat(entry.symbol(), st, (&ints, &floats), into, kind)?;
         if let Some(o) = opt {
             self.store_option_tag(st, dslot, &o);
         }
@@ -603,48 +603,33 @@ impl Jit<'_> {
     /// borrowed `Str`s — have no table row and a shape the emitter knows
     /// outright. Both are the same three instructions once the arguments are
     /// placed, and this is that.
-    pub(crate) fn c_call(
+    pub(crate) fn c_call<const I: usize, const F: usize>(
         &mut self,
         symbol: &'static str,
         st: &Fn2,
-        ints: &[Src],
-        floats: &[Src],
+        ints: &[Src; I],
+        floats: &[Src; F],
         dslot: u32,
         kind: &str,
-    ) -> Result<(), String> {
-        self.c_call_to(V::Ext(symbol), symbol, st, ints, floats, dslot, kind)
+    ) {
+        const { assert!(I <= MAX_INT && F <= MAX_FLOAT, "past what a `crt` stencil holds") };
+        self.c_call_to(V::Ext(symbol), st, ints, floats, dslot, kind);
     }
 
     /// [`Jit::c_call`] to a function **this unit generated** (`glue.rs`), whose
     /// name is chosen at emission time and so cannot be a `&'static str`.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "one call's shape, as `c_call`'s, plus the symbol by value"
-    )]
-    pub(crate) fn c_call_sym(
+    pub(crate) fn c_call_sym<const I: usize>(&mut self, symbol: String, st: &Fn2, ints: &[Src; I]) {
+        const { assert!(I <= MAX_INT, "past what a `crt` stencil holds") };
+        self.c_call_to(V::Sym(symbol), st, ints, &[], 0, "v");
+    }
+
+    /// [`Jit::c_call`] with the arguments a runtime row's signature flattens
+    /// to, which a wide value can carry past what a `crt` stencil holds.
+    fn c_call_flat(
         &mut self,
         symbol: String,
         st: &Fn2,
-        ints: &[Src],
-        floats: &[Src],
-        dslot: u32,
-        kind: &str,
-    ) -> Result<(), String> {
-        self.c_call_to(V::Sym(symbol.clone()), &symbol, st, ints, floats, dslot, kind)
-    }
-
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "one call's shape, and the callee twice: once as the hole's \
-                  value and once as the name a refusal would print"
-    )]
-    fn c_call_to(
-        &mut self,
-        callee_v: V,
-        symbol: &str,
-        st: &Fn2,
-        ints: &[Src],
-        floats: &[Src],
+        (ints, floats): (&[Src], &[Src]),
         dslot: u32,
         kind: &str,
     ) -> Result<(), String> {
@@ -655,6 +640,12 @@ impl Jit<'_> {
                 floats.len()
             ));
         }
+        self.c_call_to(V::Sym(symbol), st, ints, floats, dslot, kind);
+        Ok(())
+    }
+
+    /// The call itself, for at most `MAX_INT` and `MAX_FLOAT` arguments.
+    fn c_call_to(&mut self, callee_v: V, st: &Fn2, ints: &[Src], floats: &[Src], dslot: u32, kind: &str) {
         let base = st.scratch + CARG_WORD * 8;
         let fbase = base + MAX_INT as u32 * 8;
         let callee = key_fmt!("{}", super::abi::rt_callee(ints.len(), floats.len(), kind));
@@ -716,7 +707,7 @@ impl Jit<'_> {
             }
             let binds = binds.get(..args + 3).unwrap_or_default();
             self.emit(&key!["crts/", ints.len(), "/", floats.len(), "/", kind], binds);
-            return Ok(());
+            return;
         }
 
         for (i, src) in ints.iter().enumerate() {
@@ -735,7 +726,6 @@ impl Jit<'_> {
                 ("JIT_CONT0", V::Fall),
             ],
         );
-        Ok(())
     }
 
     /// Whether the slots-only `crt` family may be used at all.
@@ -1405,7 +1395,7 @@ impl Jit<'_> {
         a: u32,
         b: u32,
         dest: u32,
-    ) -> Result<(), String> {
+    ) {
         let args = [
             Src::Word(a),
             Src::Word(a + STR_PTR),
@@ -1420,7 +1410,7 @@ impl Jit<'_> {
         // register's, and not the wider of the two either. One shape for both
         // was a `Bool` read out of the top three bytes of an `int` on SysV.
         let kind = if symbol == "buri_rt_str_equal" { "b" } else { "w" };
-        self.c_call(symbol, st, &args, &[], dest, kind)
+        self.c_call(symbol, st, &args, &[], dest, kind);
     }
 
     /// Turns `buri_rt_str_compare`'s three-way answer into the boolean an
@@ -1494,22 +1484,19 @@ impl Jit<'_> {
         src: u32,
         dest: u32,
         quoted: bool,
-    ) -> Result<(), String> {
+    ) {
         use crate::compiler::semantics::types::Prim;
         let scr = st.scratch;
         match prim {
-            Prim::Str | Prim::Template if !quoted => {
-                self.mv(dest, src, 24);
-                Ok(())
-            }
+            Prim::Str | Prim::Template if !quoted => self.mv(dest, src, 24),
             Prim::Str | Prim::Template => {
                 let (p, l) = self.str_arg(src, scr);
-                self.c_call(runtime::SHOW_STR, st, &[p, l, Src::Addr(dest)], &[], dest, "v")
+                self.c_call(runtime::SHOW_STR, st, &[p, l, Src::Addr(dest)], &[], dest, "v");
             }
             Prim::Char => {
                 let symbol =
                     if quoted { runtime::SHOW_CHAR } else { runtime::CHAR_TO_STR };
-                self.c_call(symbol, st, &[Src::Word(src), Src::Addr(dest)], &[], dest, "v")
+                self.c_call(symbol, st, &[Src::Word(src), Src::Addr(dest)], &[], dest, "v");
             }
             Prim::F64 => self.c_call(
                 runtime::SHOW_F64,
@@ -1519,10 +1506,7 @@ impl Jit<'_> {
                 dest,
                 "v",
             ),
-            Prim::Bool => {
-                self.show_bool(st, src, dest);
-                Ok(())
-            }
+            Prim::Bool => self.show_bool(st, src, dest),
             // Every integer that fits an `i64`. `buri_rt_str_from_int` takes a
             // signed one, so a `U64` above `i64::MAX` would render negative —
             // which is a wrong answer rather than a missing one, so it is
@@ -1557,7 +1541,7 @@ impl Jit<'_> {
                     &[],
                     dest,
                     "v",
-                )
+                );
             }
             // Every integer wider than an `i64`, through the runtime's own
             // 128-bit decimal. A `U64` above `i64::MAX` is one of them: it is
@@ -1582,7 +1566,7 @@ impl Jit<'_> {
                     &[],
                     dest,
                     "v",
-                )
+                );
             }
             // A `crt` stencil passes every float as a `double`, and an `F32`
             // slot holds thirty-two bits. `buri_rt_show_f32` is `show_f64` of
@@ -1596,7 +1580,7 @@ impl Jit<'_> {
                         ("JIT_CONT", V::Fall),
                     ],
                 );
-                self.c_call(runtime::SHOW_F64, st, &[Src::Addr(dest)], &[Src::Word(scr)], dest, "v")
+                self.c_call(runtime::SHOW_F64, st, &[Src::Addr(dest)], &[Src::Word(scr)], dest, "v");
             }
         }
     }
@@ -1652,8 +1636,8 @@ impl Jit<'_> {
     /// is not a `Ty::Ctx`, and `s.concat(alloc(), t)` used to reach `str_concat`
     /// as three arguments — which this backend refuses by arity, so it was a "report it"
     /// diagnostic on a program the front end was right to accept.
-    pub(crate) const fn concat_ctx(argc: usize) -> Option<usize> {
-        if argc == 3 { Some(1) } else { None }
+    pub(crate) const fn concat_strs(argc: usize) -> [usize; 2] {
+        if argc == 3 { [0, 2] } else { [0, 1] }
     }
 
     /// `str.concat(a, b)`, and the `str.concat(self, ctx, other)` a method call
@@ -1661,11 +1645,8 @@ impl Jit<'_> {
     ///
     /// The context is dropped whatever it weighs, which is the same rule
     /// [`Jit::rt_call`] applies to a `buri_rt_*` entry and for the same reason.
-    /// `emit.rs`'s arm has already dropped it, at the index
-    /// [`Jit::concat_ctx`] names, so what arrives here is two `Str`s — and an
-    /// argument list of any other length is refused below rather than
-    /// truncated, because a third `Str` here would be a shape this call cannot
-    /// express.
+    /// `emit.rs`'s arm has already dropped it, picking the two `Str`s
+    /// [`Jit::concat_strs`] names.
     ///
     /// **A call, where the other backend open-codes.** `llvm/emit.rs::concat`
     /// emits MEMORY.md §5.3's three paths as instructions;
@@ -1682,13 +1663,7 @@ impl Jit<'_> {
     /// input to a concatenation rather than a tag to be stripped — the answer
     /// is ASCII exactly when both halves are — and the callee masks what it
     /// needs as a count.
-    pub(crate) fn str_concat(&mut self, st: &Fn2, args: &[u32], dest: u32) -> Result<(), String> {
-        let (Some(a), Some(b)) = (args.first().copied(), args.get(1).copied()) else {
-            return Err(String::from("str.concat of fewer than two strings"));
-        };
-        if args.len() > 2 {
-            return Err(String::from("str.concat of more than two strings"));
-        }
+    pub(crate) fn str_concat(&mut self, st: &Fn2, [a, b]: [u32; 2], dest: u32) {
         self.c_call(
             "buri_rt_str_concat",
             st,
@@ -1704,6 +1679,6 @@ impl Jit<'_> {
             &[],
             0,
             "v",
-        )
+        );
     }
 }
