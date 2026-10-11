@@ -653,7 +653,6 @@ fn a_c_driver_that_is_musl_s_own_links_the_program() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_buri_without_a_build_id_still_caches() {
-    use std::os::unix::fs::PermissionsExt;
     let scratch = repository("        { platform: \"node\" },\n", NODE_MAIN);
     let mut bytes = std::fs::read(buri()).unwrap();
     let note = bytes
@@ -663,9 +662,7 @@ fn a_buri_without_a_build_id_still_caches() {
     // Another note kind: the loader doesn't read it, and `buri` no longer finds its id.
     bytes[note + 8] = 0x7f;
     let copy = scratch.path("bin/buri");
-    std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
-    std::fs::write(&copy, &bytes).unwrap();
-    std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o755)).unwrap();
+    write_executable(&copy, bytes);
     // Under the coverage gate, the copy's profiles lack the build id the
     // pooled ones carry, so the two can't share a pooled file.
     let profile = std::env::var_os("LLVM_PROFILE_FILE")
