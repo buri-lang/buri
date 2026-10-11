@@ -7650,9 +7650,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `.Ok` is variant 0 and `.Err` is variant 1 (`core/result`), and the
     /// `RangeError`'s fields are the value then the target (`core/number`).
     ///
-    /// The four shapes "does not fit" comes in are [`checked_kind`]'s, and a
-    /// pair that is none of them is a pair this backend has no body for — the
-    /// same refusal `numeric_key` predicts, so it is never reached from a claim.
+    /// The four shapes "does not fit" comes in are [`checked_kind`]'s.
     fn convert_checked(
         &mut self,
         state: &mut Function<'ctx>,
@@ -7664,7 +7662,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) -> bool {
         // A `Result<T, RangeError>`, whose error names the value and the target.
         let id = agg(code.ty_of(dest));
-        let kind = checked_kind(from, to).or_ice("an inexact conversion is a checked one");
+        let kind = checked_kind(from, to);
         let owner = self.program.type_info(id).ty;
         let variant = |at| {
             types::variant_types(self.tables, &owner, at).into_iter().next().or_ice("`Result`'s arms carry a value")
@@ -7825,7 +7823,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         #[allow(
             clippy::cast_precision_loss,
             reason = "every integer type's lower bound is zero or a negative power of \
-                      two, and every `hi + 1` is a power of two at most 2^64; both are \
+                      two, and every `hi + 1` is a power of two at most 2^128; both are \
                       exact doubles, which is the property the bounds rely on"
         )]
         let (lo, over) = (lo_i as f64, hi_i.saturating_add(1) as f64);
