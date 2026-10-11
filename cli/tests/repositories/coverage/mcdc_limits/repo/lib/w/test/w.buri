@@ -9,4 +9,6 @@ test "wide" {
 test "a tail call inside an if" {
     assert.equal(w.tailIf(false, 2), true);
     assert.equal(w.tailIf(true, 0), true);
+    assert.equal(w.tailIfPlain(false, 2), true);
+    assert.equal(w.tailIfPlain(false, 0), false);
 }
