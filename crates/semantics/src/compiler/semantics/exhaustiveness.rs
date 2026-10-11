@@ -35,7 +35,7 @@
 use crate::compiler::semantics::inference::Infer;
 use crate::compiler::semantics::typed::{self, PatKind, Pattern};
 use crate::compiler::semantics::types::{Prim, Ty, TyKind, TyConId, TyDef};
-use crate::diagnostics::{Diagnostic, Span};
+use crate::diagnostics::{Diagnostic, Invariant as _, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
 
 /// The head constructor of a pattern.
@@ -111,9 +111,8 @@ impl Ctor {
                     TyKind::Con(_, a) => a,
                     _ => &[],
                 };
-                if let Some(variant) = tables.tycon(*con).variants().get(*v) {
-                    out.extend(variant.fields.iter().map(|f| substitute(&f.ty, args, None)));
-                }
+                let variant = tables.tycon(*con).variants().get(*v).or_ice("a variant constructor's index is one of its type's variants");
+                out.extend(variant.fields.iter().map(|f| substitute(&f.ty, args, None)));
             }
             Ctor::Single => match ty.kind() {
                 TyKind::Tuple(ts) => out.extend_from_slice(ts),
@@ -248,9 +247,7 @@ fn lower(p: &Pattern) -> Pat {
             let total = n.max(fields.len());
             let mut subs = vec![Pat::Wild; total];
             for f in fields {
-                if let Some(slot) = subs.get_mut(f.index) {
-                    *slot = lower(&f.pattern);
-                }
+                *subs.get_mut(f.index).or_ice("`total` is past every field's index") = lower(&f.pattern);
             }
             let _ = con;
             Pat::Ctor(Ctor::Single, subs)
@@ -259,9 +256,7 @@ fn lower(p: &Pattern) -> Pat {
             let total = fields.iter().map(|f| f.index.saturating_add(1)).max().unwrap_or(0);
             let mut subs = vec![Pat::Wild; total];
             for f in fields {
-                if let Some(slot) = subs.get_mut(f.index) {
-                    *slot = lower(&f.pattern);
-                }
+                *subs.get_mut(f.index).or_ice("`total` is past every field's index") = lower(&f.pattern);
             }
             Pat::Ctor(Ctor::Variant(*con, *variant), subs)
         }
@@ -329,16 +324,16 @@ fn expand_lengths(p: Pat, limit: usize) -> Pat {
 /// surfaces later, when `specialize` peels that constructor off, and the matrix
 /// operations below distribute over it there.
 fn expand(row: Vec<Pat>) -> Vec<Vec<Pat>> {
-    let Some(pos) = row.iter().position(|p| matches!(p, Pat::Or(_))) else {
+    let Some((pos, alts)) = row.iter().enumerate().find_map(|(i, p)| match p {
+        Pat::Or(alts) => Some((i, alts.clone())),
+        _ => None,
+    }) else {
         return vec![row];
     };
-    let Some(Pat::Or(alts)) = row.get(pos).cloned() else { return vec![row] };
     let mut out = Vec::new();
     for alt in alts {
         let mut next = row.clone();
-        if let Some(slot) = next.get_mut(pos) {
-            *slot = alt;
-        }
+        *next.get_mut(pos).or_ice("`pos` is where the alternation was found") = alt;
         out.extend(expand(next));
     }
     out
@@ -516,9 +511,9 @@ impl<'p> Matrix<'p> {
     }
 
     fn index_row(&mut self, at: usize) {
-        let Some(row) = self.rows.get(at) else { return };
+        let row = self.rows.get(at).or_ice("a row is indexed as it is pushed, so `at` is in range");
         let Some(&head) = row.first() else { return };
-        let Some(ix) = self.index.as_mut() else { return };
+        let ix = self.index.as_mut().or_ice("a row is indexed only once the index exists");
         match head {
             Pat::Wild | Pat::Or(_) => ix.open.push(at),
             Pat::Ctor(c, _) => ix.by_ctor.entry(c.clone()).or_default().push(at),
@@ -644,9 +639,8 @@ impl<'a> Ctx<'a> {
         match matrix.index.as_ref() {
             Some(ix) => {
                 for at in ix.rows_for_from(ctor, from) {
-                    if let Some(row) = matrix.rows.get(at) {
-                        self.specialize_row(row, ctor, arity, out);
-                    }
+                    let row = matrix.rows.get(at).or_ice("the index holds the matrix's own rows");
+                    self.specialize_row(row, ctor, arity, out);
                 }
             }
             None => {
@@ -664,7 +658,7 @@ impl<'a> Ctx<'a> {
         arity: usize,
         out: &mut Rows<'p>,
     ) {
-        let Some((&head, rest)) = row.split_first() else { return };
+        let (&head, rest) = row.split_first().or_ice("a matrix row is as wide as the vector it's specialized for");
         match head {
             Pat::Wild => out.push_with(|cells| {
                 cells.resize(cells.len().saturating_add(arity), &WILD);
@@ -697,9 +691,8 @@ impl<'a> Ctx<'a> {
         match matrix.index.as_ref() {
             Some(ix) => {
                 for &at in &ix.open {
-                    if let Some(row) = matrix.rows.get(at) {
-                        self.default_row(row, &mut out);
-                    }
+                    let row = matrix.rows.get(at).or_ice("the index holds the matrix's own rows");
+                    self.default_row(row, &mut out);
                 }
             }
             None => {
@@ -712,7 +705,7 @@ impl<'a> Ctx<'a> {
     }
 
     fn default_row<'p>(&self, row: &[&'p Pat], out: &mut Rows<'p>) {
-        let Some((&head, rest)) = row.split_first() else { return };
+        let (&head, rest) = row.split_first().or_ice("a matrix row is as wide as the vector it's defaulted for");
         match head {
             Pat::Wild => out.push(rest),
             // Distribute, for the same reason `specialize` does. An
@@ -1022,9 +1015,7 @@ fn render(tables: &crate::compiler::semantics::types::Tables, w: &Witness) -> St
         Witness::Wild => "_".into(),
         Witness::Ctor(c, ty, subs) => match c {
             Ctor::Variant(con, v) => {
-                let Some(variant) = tables.tycon(*con).variants().get(*v) else {
-                    return "_".into();
-                };
+                let variant = tables.tycon(*con).variants().get(*v).or_ice("a variant constructor's index is one of its type's variants");
                 if subs.is_empty() {
                     format!(".{}", variant.name)
                 } else if variant.record {

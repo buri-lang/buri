@@ -66,8 +66,6 @@ const STYLE_AT: usize = 2;
 const STYLE_WHEN: usize = 3;
 const STYLE_COMPUTED: usize = 4;
 const STYLE_EXTRACTED: usize = 5;
-/// The first variant that is one property with one value.
-const FIRST_PROPERTY: usize = 6;
 /// `Pin(Edge, Length)`.
 const STYLE_PIN: usize = 15;
 /// `PaddingEdge(Edge, Length)`.
@@ -420,8 +418,10 @@ pub fn run(
     diags: &mut Diagnostics,
     walked: &Walked,
 ) -> (Styled, Option<TyConId>) {
-    let Some(style_con) = own_type(loaded, scopes, "ui/style", "Style") else { return (Styled::default(), None) };
-    let Some(classes_con) = own_type(loaded, scopes, "ui/style", "Classes") else {
+    // `ui/style` declares both, so a program has both or neither.
+    let (Some(style_con), Some(classes_con)) =
+        (own_type(loaded, scopes, "ui/style", "Style"), own_type(loaded, scopes, "ui/style", "Classes"))
+    else {
         return (Styled::default(), None);
     };
 
@@ -455,36 +455,26 @@ pub fn run(
     //
     // Only what mentions a style is rewritten. Walking anything else changes
     // nothing, and leaving it alone keeps it shared rather than copied.
-    let mut styled: Vec<ConstId> = Vec::new();
+    let mut new_consts: Vec<(ConstId, typed::Expr)> = Vec::new();
     for (id, init) in walked.constants(tables, consts) {
         ex.alphas(init);
         if ex.mentions_style(init) {
-            styled.push(id);
+            new_consts.push((id, init.clone()));
         }
     }
-    let mut new_consts: Vec<(ConstId, typed::Expr)> = Vec::new();
-    for id in styled {
-        if let Some(init) = consts.get(&id) {
-            let mut init = init.clone();
-            ex.walk(&mut init, Cond::default());
-            new_consts.push((id, init));
-        }
+    for (_, init) in &mut new_consts {
+        ex.walk(init, Cond::default());
     }
     let const_rules = std::mem::take(&mut ex.rules);
-    let mut styled: Vec<FnId> = Vec::new();
+    let mut new_bodies: Vec<(FnId, typed::Body)> = Vec::new();
     for (id, body) in walked.functions(tables, bodies) {
         ex.alphas(&body.expr);
         if ex.mentions_style(&body.expr) {
-            styled.push(id);
+            new_bodies.push((id, typed::Body::clone(body)));
         }
     }
-    let mut new_bodies: Vec<(FnId, typed::Body)> = Vec::new();
-    for id in styled {
-        if let Some(body) = bodies.get(&id) {
-            let mut body = typed::Body::clone(body);
-            ex.walk(&mut body.expr, Cond::default());
-            new_bodies.push((id, body));
-        }
+    for (_, body) in &mut new_bodies {
+        ex.walk(&mut body.expr, Cond::default());
     }
     let styled = Styled { const_rules, body_rules: ex.rules, ..Styled::default() };
     for (id, init) in new_consts {
@@ -645,15 +635,17 @@ impl<'a> Extractor<'a> {
         // It did not fold whole. Take the composition apart and try the pieces:
         // `Group([.Padding(.Px(8)), .Computed(f)])` extracts its padding and
         // leaves the closure alone.
-        let composition = match &e.kind {
-            ExprKind::EnumLit { con, variant, .. } if *con == self.style_con => Some(*variant),
+        let span = e.span;
+        let composition = match &mut e.kind {
+            ExprKind::EnumLit { variant, args, .. } => {
+                let found = *variant;
+                if self.composition(span, variant, args, cond) {
+                    return;
+                }
+                Some(found)
+            }
             _ => None,
         };
-        if let Some(variant) = composition {
-            if self.composition(e, variant, cond) {
-                return;
-            }
-        }
         if !cond.is_plain() {
             self.refuse(
                 e.span,
@@ -692,11 +684,11 @@ impl<'a> Extractor<'a> {
         });
     }
 
-    /// Descends one composition variant. Answers whether it handled the node.
-    fn composition(&mut self, e: &mut typed::Expr, variant: usize, cond: Cond) -> bool {
-        match variant {
+    /// Descends one composition variant, the `Style` literal at `span`.
+    /// Answers whether it handled the node.
+    fn composition(&mut self, span: Span, variant: &mut usize, args: &mut Vec<typed::Expr>, cond: Cond) -> bool {
+        match *variant {
             STYLE_GROUP => {
-                let ExprKind::EnumLit { args, .. } = &mut e.kind else { return false };
                 let Some(list) = args.first_mut() else { return false };
                 self.style_list(list, cond);
                 true
@@ -705,64 +697,53 @@ impl<'a> Extractor<'a> {
                 // The condition is absorbed into whatever the list extracts to,
                 // so the node itself is replaced by an ordinary group. A `When`
                 // inside one survives: its two branches carry the condition.
-                let chosen = match &e.kind {
-                    ExprKind::EnumLit { args, .. } => args
-                        .first()
-                        .and_then(|selector| self.folder().eval(selector, &Env::default()))
-                        .and_then(|value| value.as_variant().map(|(index, _)| index))
-                        .and_then(|index| u8::try_from(index).ok()),
-                    _ => return false,
-                };
+                let chosen = args
+                    .first()
+                    .and_then(|selector| self.folder().eval(selector, &Env::default()))
+                    .and_then(|value| value.as_variant().map(|(index, _)| index))
+                    .and_then(|index| u8::try_from(index).ok());
                 let Some(chosen) = chosen else {
                     self.refuse(
-                        e.span,
+                        span,
                         "which state or screen this applies to is not statically \
                          known",
                     );
                     return true;
                 };
-                let inner = if variant == STYLE_ON {
+                let inner = if *variant == STYLE_ON {
                     Cond { state: Some(chosen), screen: cond.screen }
                 } else {
                     Cond { state: cond.state, screen: Some(chosen) }
                 };
-                if let ExprKind::EnumLit { args, .. } = &mut e.kind {
-                    if let Some(list) = args.get_mut(1) {
-                        self.style_list(list, inner);
-                    }
+                if let Some(list) = args.get_mut(1) {
+                    self.style_list(list, inner);
                 }
-                if let ExprKind::EnumLit { variant, args, .. } = &mut e.kind {
-                    *variant = STYLE_GROUP;
-                    args.remove(0);
-                }
+                *variant = STYLE_GROUP;
+                args.remove(0);
                 true
             }
             STYLE_WHEN => {
-                if let ExprKind::EnumLit { args, .. } = &mut e.kind {
-                    let mut rest = args.iter_mut();
-                    // The `Prop<Bool>` is ordinary reactive data and may hold a
-                    // closure with styles of its own.
-                    if let Some(condition) = rest.next() {
-                        typed::children_mut(condition, &mut |child| self.walk(child, Cond::default()));
-                    }
-                    for branch in rest {
-                        self.style_list(branch, cond);
-                    }
-                    return true;
+                let mut rest = args.iter_mut();
+                // The `Prop<Bool>` is ordinary reactive data and may hold a
+                // closure with styles of its own.
+                if let Some(condition) = rest.next() {
+                    typed::children_mut(condition, &mut |child| self.walk(child, Cond::default()));
                 }
-                false
+                for branch in rest {
+                    self.style_list(branch, cond);
+                }
+                true
             }
             STYLE_COMPUTED => {
                 if !cond.is_plain() {
                     self.refuse(
-                        e.span,
+                        span,
                         "a `Computed` style may not appear under `On` or `At`: a \
                          closure cannot be scoped to a pseudo-class or to a media \
                          query",
                     );
                     return true;
                 }
-                let ExprKind::EnumLit { args, .. } = &mut e.kind else { return false };
                 for arg in args {
                     typed::children_mut(arg, &mut |child| self.walk(child, Cond::default()));
                 }
@@ -871,8 +852,8 @@ impl<'a> Extractor<'a> {
             // already-extracted style has no value left to read. Both make the
             // enclosing fold give up so that the descent handles them.
             STYLE_WHEN | STYLE_COMPUTED | STYLE_EXTRACTED => None,
-            _ if variant >= FIRST_PROPERTY => self.property(variant, args, cond, out),
-            _ => None,
+            // Every other variant is one property with one value.
+            _ => self.property(variant, args, cond, out),
         }
     }
 
