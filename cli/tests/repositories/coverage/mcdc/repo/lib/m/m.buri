@@ -45,3 +45,7 @@ export fn countdown(n: Int): Bool {
 export fn neither(a: Bool, b: Bool): Bool {
     !(a || b)
 }
+
+export fn halfIf(a: Bool, n: Int, d: Int): Bool {
+    a && n / d > 0
+}

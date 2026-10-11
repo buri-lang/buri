@@ -376,12 +376,12 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
         }
     }
     bases.sort_by_key(|b| b.0);
-    let mut ran: HashMap<(&str, &TreeId), Vec<(u64, u64)>> = HashMap::new();
-    for (&key, &n) in &counts {
+    let mut ran: HashMap<(&str, &TreeId), Vec<u64>> = HashMap::new();
+    for &key in counts.keys() {
         let at = bases.partition_point(|b| b.0 <= key);
         let Some(&(base, file, id, paths)) = at.checked_sub(1).and_then(|i| bases.get(i)) else { continue };
         if key.saturating_sub(base) < paths {
-            ran.entry((file, id)).or_default().push((key.saturating_sub(base), n));
+            ran.entry((file, id)).or_default().push(key.saturating_sub(base));
         }
     }
     // In path order, not `counts`' hash order, so the report runs the same way
@@ -395,24 +395,11 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
         let f = report.entry(file.as_str()).or_default();
         f.lines = u.lines.iter().map(|&line| (line, count(coverage::key(file, line)))).collect();
 
-        // MC/DC, and the right sides of `&&` and `||` its paths say ran.
-        let mut sides: HashMap<(u32, u32, &Instance), [u64; 2]> = HashMap::new();
         let mut ordered: Vec<(&TreeId, &Tree)> = u.trees.iter().collect();
         ordered.sort_by_key(|(id, t)| (t.line, id.0, id.1, id.2.clone()));
         for (id, t) in ordered {
-            let paths: Vec<(coverage::Path, u64)> = ran
-                .get(&(file.as_str(), id))
-                .map(|v| v.iter().map(|&(p, n)| (t.tree.decode(p), n)).collect())
-                .unwrap_or_default();
-            for (path, n) in &paths {
-                for (span, rhs) in &path.sides {
-                    let side = sides.entry((span.start, span.end, &id.2)).or_default();
-                    let i = usize::from(!*rhs);
-                    if let Some(count) = side.get_mut(i) {
-                        *count = count.saturating_add(*n);
-                    }
-                }
-            }
+            let paths: Vec<coverage::Path> =
+                ran.get(&(file.as_str(), id)).map(|v| v.iter().map(|&p| t.tree.decode(p)).collect()).unwrap_or_default();
             let shown: Vec<bool> = (0..t.conditions.len()).map(|c| independent(&paths, c)).collect();
             f.decisions.0 = f.decisions.0.saturating_add(1);
             if shown.iter().all(|s| *s) {
@@ -439,9 +426,6 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
                 coverage::Kind::Derived => {
                     let label = instance.as_deref().unwrap_or_default();
                     (0..d.branches).map(|i| count(coverage::derived::derived_key(file, (*start, *end), label, i))).collect()
-                }
-                coverage::Kind::And | coverage::Kind::Or if mcdc && sides_counted(u, *start, *end, instance) => {
-                    sides.get(&(*start, *end, instance)).map_or(vec![0, 0], |s| s.to_vec())
                 }
                 _ => (0..d.branches).map(slot).collect(),
             };
@@ -579,31 +563,13 @@ fn cell((covered, total): (usize, usize)) -> String {
     format!("{fraction}  {percent:>6}")
 }
 
-/// Whether the `&&` or `||` at `start..end` sits in an MC/DC decision, whose
-/// paths count its right side.
-fn sides_counted(u: &Universe, start: u32, end: u32, instance: &Instance) -> bool {
-    u.trees.iter().any(|(id, t)| {
-        id.2 == *instance && id.0 <= start && end <= id.1 && contains_side(&t.tree, start, end)
-    })
-}
-
-fn contains_side(tree: &coverage::Tree, start: u32, end: u32) -> bool {
-    match tree {
-        coverage::Tree::And(l, r, s) | coverage::Tree::Or(l, r, s) => {
-            (s.start == start && s.end == end) || contains_side(l, start, end) || contains_side(r, start, end)
-        }
-        coverage::Tree::Not(x) => contains_side(x, start, end),
-        coverage::Tree::Condition(_) => false,
-    }
-}
-
 /// Whether two paths that ran show condition `c` deciding the outcome alone:
 /// both evaluated it, to different values, with different outcomes, and every
 /// other condition either the same or skipped by one of them. Unique-cause
 /// MC/DC with masking.
-fn independent(paths: &[(coverage::Path, u64)], c: usize) -> bool {
-    paths.iter().enumerate().any(|(i, (a, _))| {
-        paths.iter().skip(i.saturating_add(1)).any(|(b, _)| {
+fn independent(paths: &[coverage::Path], c: usize) -> bool {
+    paths.iter().enumerate().any(|(i, a)| {
+        paths.iter().skip(i.saturating_add(1)).any(|b| {
             let (Some(Some(x)), Some(Some(y))) = (a.values.get(c), b.values.get(c)) else { return false };
             x != y
                 && a.outcome != b.outcome

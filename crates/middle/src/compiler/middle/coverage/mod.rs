@@ -156,9 +156,6 @@ pub struct Path {
     /// skipped it.
     pub values: Vec<Option<bool>>,
     pub outcome: bool,
-    /// Each `&&` and `||` the path reached, by span, and whether its right side
-    /// ran.
-    pub sides: Vec<(Span, bool)>,
 }
 
 impl Tree {
@@ -236,7 +233,7 @@ impl Tree {
     /// The path numbered `index`, the inverse of the numbering
     /// [`branches`] computes at run time.
     pub fn decode(&self, index: u64) -> Path {
-        let mut path = Path { values: vec![None; self.count()], outcome: false, sides: Vec::new() };
+        let mut path = Path { values: vec![None; self.count()], outcome: false };
         path.outcome = self.walk(index, 0, &mut path);
         path
     }
@@ -250,45 +247,39 @@ impl Tree {
                 }
                 i == 0
             }
-            Tree::And(l, r, span) => {
+            Tree::And(l, r, _) => {
                 let ((tl, fl), (tr, fr)) = (l.paths(), r.paths());
                 let next = first + l.count();
                 if i < tl * tr {
                     l.walk(i / tr, first, path);
                     r.walk(i % tr, next, path);
-                    path.sides.push((*span, true));
                     true
                 } else if i < tl * tr + fl {
                     l.walk(tl + (i - tl * tr), first, path);
-                    path.sides.push((*span, false));
                     false
                 } else {
                     let j = i - tl * tr - fl;
                     l.walk(j / fr, first, path);
                     r.walk(tr + j % fr, next, path);
-                    path.sides.push((*span, true));
                     false
                 }
             }
-            Tree::Or(l, r, span) => {
+            Tree::Or(l, r, _) => {
                 let ((tl, fl), (tr, fr)) = (l.paths(), r.paths());
                 let next = first + l.count();
                 let true_paths = tl + fl * tr;
                 if i < tl {
                     l.walk(i, first, path);
-                    path.sides.push((*span, false));
                     true
                 } else if i < true_paths {
                     let j = i - tl;
                     l.walk(tl + j / tr, first, path);
                     r.walk(j % tr, next, path);
-                    path.sides.push((*span, true));
                     true
                 } else {
                     let j = i - true_paths;
                     l.walk(tl + j / fr, first, path);
                     r.walk(tr + j % fr, next, path);
-                    path.sides.push((*span, true));
                     false
                 }
             }
@@ -476,9 +467,10 @@ pub struct Options<'a> {
 /// the way out: each counts how often it was reached and how often execution
 /// went on, and the report takes the difference.
 ///
-/// Under MC/DC an `&&`/`||` decision counts its path instead: each condition
-/// adds to a number only that path reaches, and the report reads both the
-/// conditions and the right sides from the paths that ran.
+/// Under MC/DC an `&&`/`||` decision also counts its path: each condition adds
+/// to a number only that path reaches, and the report reads the conditions
+/// from the paths that ran. The right sides keep their probes, so an abort
+/// that cuts a path short still counts the sides it reached.
 pub fn branches(program: &mut Program, options: &Options) -> Vec<derived::Derived> {
     let traps: HashSet<usize> = match options.mcdc {
         Some(_) => program
@@ -657,9 +649,10 @@ impl Branches<'_> {
                 // l false: tl*tr + (a - tl).
                 let both = self.affine(a, tr, Some((b, 0)), 0, span);
                 let r_false = self.affine(a, fr, Some((b, tr)), tl * tr + fl, span);
-                let l_false = self.offset(a, tl, tl * tr, span);
+                let mut l_false = self.offset(a, tl, tl * tr, span);
                 let inner = self.split(b, tr, both, r_false, span);
-                let inner = self.with(b, rb, inner, span);
+                let mut inner = self.with(b, rb, inner, span);
+                self.side_probes(Kind::And, span, &mut inner, &mut l_false);
                 let body = self.split(a, tl, inner, l_false, span);
                 (self.with(a, la, body, span), tl * tr, fl + tl * fr)
             }
@@ -670,12 +663,13 @@ impl Branches<'_> {
                 let trues = tl + fl * tr;
                 // l true: a. r true: tl + (a - tl)*tr + b. Both false:
                 // trues + (a - tl)*fr + (b - tr).
-                let l_true = self.get(a, span);
+                let mut l_true = self.get(a, span);
                 let shifted = self.offset(a, tl, 0, span);
                 let r_true = self.combine(shifted.clone(), tr, b, 0, tl, span);
                 let r_false = self.combine(shifted, fr, b, tr, trues, span);
                 let inner = self.split(b, tr, r_true, r_false, span);
-                let inner = self.with(b, rb, inner, span);
+                let mut inner = self.with(b, rb, inner, span);
+                self.side_probes(Kind::Or, span, &mut inner, &mut l_true);
                 let body = self.split(a, tl, l_true, inner, span);
                 (self.with(a, la, body, span), trues, fl * fr)
             }
@@ -702,6 +696,15 @@ impl Branches<'_> {
                 );
                 (pick, 1, 1)
             }
+        }
+    }
+
+    /// Counts the `&&` or `||` at `span`'s right side running, before `ran`,
+    /// and not, before `skipped`.
+    fn side_probes(&self, kind: Kind, span: Span, ran: &mut Expr, skipped: &mut Expr) {
+        if let (Some(yes), Some(no)) = (self.key(kind, span, 0), self.key(kind, span, 1)) {
+            hit_first(ran, yes, &self.options.i64_ty);
+            hit_first(skipped, no, &self.options.i64_ty);
         }
     }
 

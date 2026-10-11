@@ -1,10 +1,13 @@
 FAIL //lib/m  test/m.buri  "a zero divisor aborts"
   division by zero
-  --> lib/m/test/m.buri:34:1
+  --> lib/m/test/m.buri:35:1
+FAIL //lib/m  test/m.buri  "a zero divisor aborts an &&"
+  division by zero
+  --> lib/m/test/m.buri:43:1
 
-6 passed, 1 failed, 0 skipped (0.0s)
+6 passed, 2 failed, 0 skipped (0.0s)
 
 branch coverage
-  lib/m/m.buri  17/22   77.3%
-  total         17/22   77.3%
+  lib/m/m.buri  19/24   79.2%
+  total         19/24   79.2%
 lcov: .buri/coverage/lcov.info
