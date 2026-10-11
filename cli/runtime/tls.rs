@@ -251,15 +251,27 @@ pub fn connect(sock: TcpStream, host: &str) -> Result<TlsStream, NetFail> {
 /// normally the whole handshake — and it is here because a peer that leaves the
 /// connection wanting neither a read nor a write would otherwise be an infinite
 /// loop rather than an error.
+///
+/// Linux interrupts a socket call that has a deadline when the process is
+/// stopped and continued. The peer did nothing, so the step is taken again,
+/// until `until`; after that it is the deadline running out.
 fn handshaken<D>(
     conn: &mut rustls::ConnectionCommon<D>,
     io: &mut (impl std::io::Read + std::io::Write),
     until: Instant,
 ) -> std::io::Result<bool> {
-    let _ = until;
     let mut rounds = 0;
     while conn.is_handshaking() {
-        conn.complete_io(io)?;
+        match conn.complete_io(io) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                if Instant::now() >= until {
+                    return Err(std::io::ErrorKind::TimedOut.into());
+                }
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
         rounds += 1;
         if rounds > 8 {
             return Ok(false);
