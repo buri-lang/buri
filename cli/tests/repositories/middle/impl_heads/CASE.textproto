@@ -1,7 +1,7 @@
 # `impl` heads whose arguments are a tuple and a function, dispatched through a
 # bound on both backends. Then receivers those heads don't cover: a number and
 # a tuple of three where the head holds a pair, a pair of the wrong second
-# type, and functions of the wrong arity and parameter. The build refuses them.
+# type, and functions of the wrong arity and parameter. The checker refuses them.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
