@@ -20,7 +20,6 @@ message Options {
     int32 a = 1 [(my.ext).field = { x: [1, 2], y: "s" }, deprecated = true];
     int32 b = 2 [
         deprecated = true // why
-
     ];
     int32 c = 3 [
         deprecated = true // why

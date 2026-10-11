@@ -451,9 +451,6 @@ fn options_group(open: &Piece, inside: &[Piece], close: &Piece) -> Doc {
     }
     let last = inside.get(start..).unwrap_or_default();
     inner.push(pieces(last));
-    if last.last().is_some_and(ends_line) {
-        inner.push(Doc::HardLine);
-    }
     Doc::Concat(vec![
         Doc::Group(vec![piece(open), Doc::Indent(inner), Doc::SoftLine, Doc::text("]")]),
         Doc::Concat(close.after.iter().flat_map(suffix).collect()),
