@@ -179,10 +179,9 @@ fn group(locals: &mut Vec<typed::Local>, arms: &mut Vec<Arm>, ty: &Ty) {
         Some((_, rest)) if !rest.contains(&Head::Any) => false,
         _ => return,
     };
-    // A guard on the default arm makes it not a default.
-    if default && arms.last().is_some_and(|a| a.guard.is_some()) {
-        return;
-    }
+    // A last arm that matches anything has no guard: the checker refuses a
+    // match that one would leave short, and an arm after a total set as
+    // unreachable.
 
     // First-appearance order, so the emitted tests are in the order they were
     // written wherever the writer's order was already a partition — which

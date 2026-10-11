@@ -2755,12 +2755,12 @@ impl Scan<'_> {
     /// copies, which is what leaves the old value unchanged.
     fn update_dying(
         &mut self,
+        root: LocalId,
         base: &Expr,
         updates: &[(usize, Expr)],
         id: NodeId,
         live: &mut Live,
     ) {
-        let Some(root) = self.dying_base(base, live) else { return };
         self.enliven(live, root);
         let moved = moved_fields(root, updates);
         let mask = moved.iter().fold(0u64, |m, f| m | (1u64 << f));
@@ -3522,7 +3522,8 @@ impl Scan<'_> {
             ExprKind::StructUpdate { base, updates, .. }
                 if !self.opts.sharing && self.dying_base(base, live).is_some() =>
             {
-                self.update_dying(base, updates, id, live)
+                let root = self.dying_base(base, live).or_ice("the guard found the base dying");
+                self.update_dying(root, base, updates, id, live)
             }
             _ => self.children(e, id, live),
         }

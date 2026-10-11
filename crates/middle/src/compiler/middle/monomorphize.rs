@@ -1730,7 +1730,7 @@ impl Monomorphizer<'_> {
     /// carry the operator's span, which a `match` someone wrote cannot.
     fn float_operator(&self, e: &typed::Expr, targs: &[Ty]) -> Option<(typed::PrimOp, Prim)> {
         let ExprKind::Match { scrutinee, arms } = &e.kind else { return None };
-        let ExprKind::CallTrait { trait_id, method, recv, args, .. } = &scrutinee.kind else {
+        let ExprKind::CallTrait { recv, args, .. } = &scrutinee.kind else {
             return None;
         };
         let [tested, rest] = arms.as_slice() else { return None };
@@ -1738,27 +1738,17 @@ impl Monomorphizer<'_> {
         if args.len() != 2 || spans.iter().any(|s| *s != e.span) {
             return None;
         }
-        let info = self.tables().trait_(*trait_id);
-        let name = info.methods.get(*method).map(|m| m.name.as_str());
-        if info.name != "Ordered" || name != Some("compare") {
-            return None;
-        }
+        // Only `order_test` builds a match whose arms all carry its own span:
+        // `Ordered.compare` tested for one variant of `Order`, that arm
+        // answering a `Bool` and `_` answering the other.
         let prim = self.tables().as_prim(&self.sub(recv, targs)).filter(|p| p.is_float())?;
-        let (PatKind::Variant { variant, .. }, PatKind::Wild) =
-            (&tested.pattern.kind, &rest.pattern.kind)
-        else {
-            return None;
-        };
-        let (ExprKind::Bool(when), ExprKind::Bool(otherwise)) =
-            (&tested.body.kind, &rest.body.kind)
-        else {
-            return None;
-        };
-        if when == otherwise {
-            return None;
+        let (variant, when) = match (&tested.pattern.kind, &tested.body.kind) {
+            (PatKind::Variant { variant, .. }, ExprKind::Bool(when)) => Some((*variant, *when)),
+            _ => None,
         }
+        .or_ice("`order_test` tests one variant of `Order` for a `Bool`");
         // `Order`'s variants in declaration order: `Less`, `Equal`, `Greater`.
-        let op = match (*variant, *when) {
+        let op = match (variant, when) {
             (0, true) => typed::PrimOp::Lt,
             (0, false) => typed::PrimOp::Ge,
             (2, true) => typed::PrimOp::Gt,

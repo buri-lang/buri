@@ -348,8 +348,11 @@ impl Facts {
         f
     }
 
-    /// Whether a call to `callee`, made from `caller`, may be replaced by its
-    /// body.
+    /// Whether a call to `callee` may be replaced by its body, in a caller
+    /// grown to `size_now`.
+    ///
+    /// A caller never inlines itself: its body is out of the table while it is
+    /// walked, so [`inline_expr`] finds nothing to paste.
     ///
     /// The `has_try` condition is the one that is not a heuristic. `?`
     /// compiles to a `return` in the enclosing JavaScript function
@@ -357,8 +360,8 @@ impl Facts {
     /// return from *that* caller — skipping everything it meant to do with the
     /// result, at a type the caller does not even return. Nothing catches that
     /// afterwards.
-    fn may_inline(&self, caller: usize, callee: usize, size_now: usize, limit: usize) -> bool {
-        caller != callee && size_now <= limit && self.inlinable(callee)
+    fn may_inline(&self, callee: usize, size_now: usize, limit: usize) -> bool {
+        size_now <= limit && self.inlinable(callee)
     }
 
     /// The half of [`Facts::may_inline`] that is about the callee alone, and
@@ -410,7 +413,7 @@ fn inline_round(program: &mut Program, facts: &Facts, dirty: &[bool], own: &[Own
         let mut locals = std::mem::take(&mut func.locals);
         let mut size = facts.size(i);
         let mut count = 0;
-        inline_expr(&mut body, i, program, facts, facts.limit(i), &mut locals, &mut size, &mut count);
+        inline_expr(&mut body, program, facts, facts.limit(i), &mut locals, &mut size, &mut count);
         let func = &mut program.funcs[i];
         func.set_body(body);
         func.locals = locals;
@@ -439,7 +442,6 @@ fn fold_round(program: &mut Program, dirty: &[bool], inlined: &[usize], own: &[O
 #[allow(clippy::too_many_arguments)]
 fn inline_expr(
     e: &mut Expr,
-    caller: usize,
     program: &Program,
     facts: &Facts,
     limit: usize,
@@ -450,7 +452,7 @@ fn inline_expr(
     // Children first, so a call that only becomes visible after its own
     // arguments are rewritten is still seen this round.
     typed::children_mut(e, &mut |child| {
-        inline_expr(child, caller, program, facts, limit, locals, size, done);
+        inline_expr(child, program, facts, limit, locals, size, done);
     });
 
     let ExprKind::CallFn { func, args } = &mut e.kind else { return };
@@ -459,7 +461,7 @@ fn inline_expr(
     let target = &program.funcs[callee];
     let Some(callee_body) = target.body() else { return };
     // The checker gave the call one argument per parameter.
-    if !facts.may_inline(caller, callee, *size, limit) {
+    if !facts.may_inline(callee, *size, limit) {
         return;
     }
 
