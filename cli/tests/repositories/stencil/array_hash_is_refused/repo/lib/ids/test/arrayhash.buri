@@ -1,0 +1,12 @@
+from "core/testing/assert" import * as assert;
+
+derive Equal, Hash for Id;
+struct Id {
+    bytes: [U8],
+}
+
+test "an identifier over bytes hashes" {
+    let a = Id { bytes: [1, 2, 3] };
+    let b = Id { bytes: [1, 2, 3] };
+    assert.equal(a.hash(), b.hash());
+}

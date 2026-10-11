@@ -199,6 +199,10 @@ mod conformance;
 // test the verdict it gets without, on JavaScript and every backend built in.
 #[cfg(feature = "backend-stencil")]
 mod coverage_agrees;
+// The native-set files of the packages one excluded file keeps on JavaScript,
+// through `buri test` on the debug backend.
+#[cfg(feature = "backend-stencil")]
+mod split_packages;
 // Generated packages whose every line, branch and condition has a known count,
 // against what `--coverage` and `--coverage=mcdc` report, on JavaScript and every
 // backend built in, from `cli/tests/coverage_counts/`.

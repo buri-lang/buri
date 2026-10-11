@@ -1,0 +1,107 @@
+from "core/number" import * as number;
+from "core/number" import { Bounded };
+from "core/order" import { Hash, Order, Ordered };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+fn hashOf<T: Hash>(x: T): U64 {
+    x.hash()
+}
+
+fn compareOf<T: Ordered>(a: T, b: T): Order {
+    a.compare(b)
+}
+
+fn equalOf<T: Equal>(a: T, b: T): Bool {
+    a == b
+}
+
+fn showOf<C: Allocator, T: Show>(ctx: C, x: T): Str {
+    x.show(ctx)
+}
+
+fn lowest<T: Bounded>(): T {
+    number.minValue<T>()
+}
+
+fn highest<T: Bounded>(): T {
+    number.maxValue<T>()
+}
+
+test "a Bool and a Char hash, compare and show through a generic" {
+    assert.isTrue(hashOf(true) == hashOf(true));
+    assert.isTrue(hashOf(true) != hashOf(false));
+    assert.isTrue(hashOf('a') == hashOf('a'));
+    assert.isTrue(hashOf('a') != hashOf('b'));
+    assert.isTrue(hashOf('😀') == hashOf('😀'));
+    assert.equal(compareOf(false, true), Order.Less);
+    assert.equal(compareOf(true, false), Order.Greater);
+    assert.equal(compareOf('b', 'b'), Order.Equal);
+    assert.isTrue(equalOf('x', 'x'));
+    assert.isFalse(equalOf(true, false));
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(showOf(ctx, true), "true");
+    assert.equal(showOf(ctx, 'q'), "q");
+    assert.equal(showOf(ctx, "plain"), "plain");
+}
+
+test "a Str compares and hashes through a generic" {
+    assert.equal(compareOf("apple", "banana"), Order.Less);
+    assert.equal(compareOf("b", "a"), Order.Greater);
+    assert.isTrue(equalOf("same", "same"));
+    assert.isFalse(equalOf("same", "other"));
+    assert.isTrue(hashOf("abc") == hashOf("abc"));
+}
+
+test "every integer width hashes through a generic" {
+    let a: I8 = -3;
+    let b: I16 = 300;
+    let c: I32 = -70000;
+    let d: U8 = 200;
+    let e: U16 = 60000;
+    let f: U32 = 4000000000;
+    let g: U64 = 18000000000000000000;
+    let h: I128 = -5;
+    let i: U128 = 5;
+    let j: F32 = 1.5;
+    let k: F64 = 2.5;
+    assert.isTrue(hashOf(a) == hashOf(a));
+    assert.isTrue(hashOf(b) == hashOf(b));
+    assert.isTrue(hashOf(c) == hashOf(c));
+    assert.isTrue(hashOf(d) == hashOf(d));
+    assert.isTrue(hashOf(e) == hashOf(e));
+    assert.isTrue(hashOf(f) == hashOf(f));
+    assert.isTrue(hashOf(g) == hashOf(g));
+    assert.isTrue(hashOf(h) == hashOf(h));
+    assert.isTrue(hashOf(i) == hashOf(i));
+    assert.isTrue(hashOf(j) == hashOf(j));
+    assert.isTrue(hashOf(k) == hashOf(k));
+    assert.isTrue(hashOf(k) != hashOf(3.5));
+}
+
+test "every width compares through a generic" {
+    let a: I8 = -3;
+    let b: U16 = 300;
+    let c: I128 = -5;
+    let d: U128 = 5;
+    let e: F32 = 1.5;
+    assert.equal(compareOf(a, a), Order.Equal);
+    assert.equal(compareOf(b, b), Order.Equal);
+    assert.equal(compareOf(c, c), Order.Equal);
+    assert.equal(compareOf(d, d), Order.Equal);
+    assert.equal(compareOf(e, e), Order.Equal);
+}
+
+test "the bounds of every width come through a generic" {
+    assert.equal(lowest<I8>(), -128);
+    assert.equal(highest<U16>(), 65535);
+    assert.equal(lowest<I128>(), -170141183460469231731687303715884105728);
+    assert.equal(highest<U128>(), 340282366920938463463374607431768211455);
+    assert.isTrue(highest<F64>() > 1.0e308);
+    assert.isTrue(lowest<F32>() < -1000000.0);
+    assert.isTrue(highest<F32>() > 1000000.0);
+    assert.isTrue(lowest<F64>() < 0.0);
+}

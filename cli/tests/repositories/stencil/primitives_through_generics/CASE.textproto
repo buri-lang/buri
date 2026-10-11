@@ -1,0 +1,14 @@
+# Every primitive hashed, compared, shown and bounded through a generic
+# function, so the trait method is called rather than written inline. Both
+# backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "primitives hash, compare, show and give their bounds through generics on both backends"
+
+run {
+  args: ["test", "//lib/generic", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

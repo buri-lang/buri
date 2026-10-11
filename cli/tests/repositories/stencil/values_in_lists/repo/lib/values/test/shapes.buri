@@ -1,0 +1,200 @@
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+struct L1 {
+    name: Str,
+    n: Int,
+}
+
+struct L2 {
+    inner: L1,
+    tag: Str,
+}
+
+struct L3 {
+    inner: L2,
+    tag: Str,
+}
+
+struct L4 {
+    inner: L3,
+    tag: Str,
+}
+
+struct L5 {
+    inner: L4,
+    tag: Str,
+}
+
+struct L6 {
+    inner: L5,
+    tag: Str,
+}
+
+struct L7 {
+    inner: L6,
+    tag: Str,
+}
+
+struct L8 {
+    inner: L7,
+    tag: Str,
+}
+
+struct L9 {
+    inner: L8,
+    tag: Str,
+}
+
+struct L10 {
+    inner: L9,
+    tag: Str,
+}
+
+fn deep(name: Str): L10 {
+    L10 {
+        inner: L9 {
+            inner: L8 {
+                inner: L7 {
+                    inner: L6 {
+                        inner: L5 {
+                            inner: L4 {
+                                inner: L3 {
+                                    inner: L2 {
+                                        inner: L1 { name: name, n: 1 },
+                                        tag: "2",
+                                    },
+                                    tag: "3",
+                                },
+                                tag: "4",
+                            },
+                            tag: "5",
+                        },
+                        tag: "6",
+                    },
+                    tag: "7",
+                },
+                tag: "8",
+            },
+            tag: "9",
+        },
+        tag: "10",
+    }
+}
+
+fn keep<C: Allocator>(ctx: C, xs: [L10], x: L10): [L10] {
+    xs.push(ctx, x)
+}
+
+test "a value nested ten structs deep is copied and dropped" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let a = deep("bottom");
+    let xs = keep(ctx, keep(ctx, [], a), deep("other"));
+    assert.equal(xs.length(), 2);
+    assert.equal(
+        a.inner.inner.inner.inner.inner.inner.inner.inner.inner.name,
+        "bottom",
+    );
+    assert.equal(
+        xs.map(ctx, fn(x) => {
+            x.inner.inner.inner.inner.inner.inner.inner.inner.inner.name
+        }),
+        ["bottom", "other"],
+    );
+}
+
+struct Wide {
+    a: Str,
+    b: Str,
+    c: Str,
+    d: Str,
+    e: Str,
+    f: Str,
+    g: Str,
+    h: Str,
+    i: Str,
+    j: Str,
+    k: Str,
+    l: Str,
+    m: Str,
+    n: Str,
+    o: Str,
+    p: Str,
+}
+
+fn wide(s: Str): Wide {
+    Wide {
+        a: s,
+        b: s,
+        c: s,
+        d: s,
+        e: s,
+        f: s,
+        g: s,
+        h: s,
+        i: s,
+        j: s,
+        k: s,
+        l: s,
+        m: s,
+        n: s,
+        o: s,
+        p: s,
+    }
+}
+
+test "a struct of sixteen strings goes into a list and out again" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = [wide("x"), wide("y")];
+    let ys = xs.map(ctx, fn(w) => w.p);
+    assert.equal(ys, ["x", "y"]);
+}
+
+enum Shape {
+    Dot,
+    Circle(F64),
+    Box { w: I32, h: I32 },
+    Label(Str),
+}
+
+fn area(s: Shape): F64 {
+    match (s) {
+        .Dot => 0.0,
+        .Circle(r) => r * r * 3.0,
+        .Box { w, h } => (w * h).toF64(),
+        .Label(_) => -1.0,
+    }
+}
+
+test "an enum with every payload shape is matched in a list" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let shapes = [
+        Shape.Dot,
+        Shape.Circle(2.0),
+        Shape.Box { w: 2, h: 3 },
+        Shape.Label("hi"),
+    ];
+    assert.equal(shapes.map(ctx, area), [0.0, 12.0, 6.0, -1.0]);
+}
+
+test "small values sit in a list at their own stride" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let bytes: [U8] = [1, 2, 3];
+    let shorts: [I16] = [-1, 2, -3];
+    let flags = [true, false, true];
+    let pairs = [(1, true), (2, false)];
+    assert.equal(bytes.map(ctx, fn(b) => b.toI64()), [1, 2, 3]);
+    assert.equal(shorts.map(ctx, fn(s) => s.toI64()), [-1, 2, -3]);
+    assert.equal(flags.filter(ctx, fn(f) => f).length(), 2);
+    assert.equal(pairs.map(ctx, fn(p) => p.0), [1, 2]);
+}
