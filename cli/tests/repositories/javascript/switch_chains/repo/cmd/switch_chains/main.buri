@@ -1,0 +1,80 @@
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+fn label(n: Int): Str {
+    match (n) {
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        _ => "many",
+    }
+}
+
+fn float(x: F64): Int {
+    match (x) {
+        0.0 => 1,
+        2.0 => 2,
+        1.5 => 3,
+        _ => 4,
+    }
+}
+
+fn word(s: Str): Int {
+    match (s) {
+        "a" => 1,
+        "b" => 2,
+        "c" => 3,
+        "d" => 4,
+        _ => 0,
+    }
+}
+
+fn nested(n: Int): Int {
+    match (n) {
+        1 => 10,
+        2 => 20,
+        _ => {
+            match (n) {
+                1 => 11,
+                3 => 33,
+                4 => 44,
+                _ => 0,
+            }
+        },
+    }
+}
+
+fn shout<C: Allocator + Stdout>(ctx: C, n: Int): () {
+    match (n) {
+        1 => io.println(ctx, "one").ignore(),
+        2 => io.println(ctx, "two").ignore(),
+        _ => {
+            match (n) {
+                1 => io.println(ctx, "uno").ignore(),
+                3 => io.println(ctx, "three").ignore(),
+                4 => io.println(ctx, "four").ignore(),
+                _ => (),
+            }
+        },
+    }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "label(1) = ${label(1)}").ignore();
+    let _ = io.println(ctx, "label(5) = ${label(5)}").ignore();
+    let _ = io.println(ctx, "float(-0.0) = ${float(-0.0)}").ignore();
+    let _ = io.println(ctx, "float(1.5) = ${float(1.5)}").ignore();
+    let _ = io.println(ctx, "word(\"c\") = ${word("c")}").ignore();
+    let _ = io.println(ctx, "nested(1) = ${nested(1)}").ignore();
+    let _ = io.println(ctx, "nested(3) = ${nested(3)}").ignore();
+    let _ = io.println(ctx, "nested(9) = ${nested(9)}").ignore();
+    let _ = shout(ctx, 2);
+    let _ = shout(ctx, 3);
+    let _ = shout(ctx, 9);
+    .Ok(())
+}

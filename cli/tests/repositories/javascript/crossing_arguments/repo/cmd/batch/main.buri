@@ -1,0 +1,33 @@
+// An entry whose arguments cross in every shape that waits and one that
+// doesn't: a list of requests, an optional request, and a list of numbers
+// that are bigints on the other side. It reads the file system too, which
+// an artifact of a repository platform reaches through `require`.
+
+from "core/fs" import * as fs;
+from "core/fs" import { FileSystemRead };
+from "core/net/http" import * as http;
+from "core/path" import * as path;
+from "core/str" import * as str;
+from "platform/effect" import { Allocator, Request, Response };
+from "//platform/batch" import { BatchHost };
+
+export fn handle(
+    host: BatchHost,
+    batch: [Request],
+    extra: Option<Request>,
+    sizes: [I32],
+): Response {
+    let ctx = context {
+        Allocator: host.alloc,
+        FileSystemRead: host.fs,
+    };
+    let paths = batch.map(ctx, fn(r) => r.path());
+    let more = match (extra) {
+        .Some(r) => r.path(),
+        .None => "none",
+    };
+    let zero: I32 = 0;
+    let total = sizes.fold(fn(acc, n) => acc + n, zero);
+    let here = fs.exists(ctx, path.of(ctx, "REPO.buri"));
+    http.text(ctx, str.format(ctx, "${paths.join(ctx, ",")} ${more} ${total} ${here}"))
+}

@@ -1,0 +1,16 @@
+from "platform/effect" import { Request, Response };
+from "platform/host" import { HostAllocator, HostFileSystem };
+
+/// What `handle` is handed.
+export struct BatchHost {
+    export alloc: HostAllocator,
+    export fs: HostFileSystem,
+}
+
+/// Called with a batch of requests, an optional one, and their sizes.
+export fn handle(
+    host: BatchHost,
+    batch: [Request],
+    extra: Option<Request>,
+    sizes: [I32],
+): Response;

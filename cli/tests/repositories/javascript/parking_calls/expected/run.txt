@@ -1,0 +1,8 @@
+pong 3
+pong 1
+ping(ctx, 4) = 0
+waited for 5
+choose(ctx, true) = 5
+choose(ctx, false) = 6
+start(ctx, 3) = 7
+depth(3) = 3

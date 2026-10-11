@@ -5,3 +5,4 @@ variableFirst(1, 1) = true
 variableSecond(1, 1) = true
 variableSecond(1, 2) = false
 twoTexts("a") = false
+computedSecond(2, 1) = true

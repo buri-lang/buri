@@ -1,0 +1,7 @@
+platform {
+    entry {
+        name: "handle"
+        backend: JS
+        js: "handle.mjs"
+    }
+}

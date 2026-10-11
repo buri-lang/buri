@@ -1,0 +1,23 @@
+# Calls that wait on the clock: a mutual recursion that sleeps on one side,
+# a function value chosen by an `if` between one that waits and one that
+# doesn't, a tail call into a waiting loop, and a function split into a lazy
+# chunk that calls itself. Debug and release both minify.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "calls that wait are awaited through recursion, function values and a lazy chunk"
+
+run {
+  args: ["run", "//cmd/parking_calls"]
+  exit: 0
+  stream: OUT
+  golden: "run.txt"
+}
+
+run {
+  args: ["run", "--release", "//cmd/parking_calls"]
+  exit: 0
+  stream: OUT
+  golden: "run.txt"
+}

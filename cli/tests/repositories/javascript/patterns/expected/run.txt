@@ -1,0 +1,9 @@
+differs = true
+differsE = false
+whole((3, 4)) = 10
+either(.B(5, 6)) = 5
+eitherOne(.A(1)) = 10
+eitherOne(.B(2, 7)) = 7
+pick(xs, 0) = 1
+pick(xs, 1) = -1
+pick(xs, 5) = -2

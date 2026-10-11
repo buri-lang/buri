@@ -1,0 +1,23 @@
+# Branches folding settles: a guarded match that produces a value, a tail call
+# on a branch a constant condition rules out, which leaves its loop running
+# once, and a tail call that rebinds a parameter another argument still
+# reads. Debug and release both minify.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "branches and loops that folding settles keep what the program means"
+
+run {
+  args: ["run", "//cmd/folded_branches"]
+  exit: 0
+  stream: OUT
+  golden: "run.txt"
+}
+
+run {
+  args: ["run", "--release", "//cmd/folded_branches"]
+  exit: 0
+  stream: OUT
+  golden: "run.txt"
+}
