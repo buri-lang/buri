@@ -347,7 +347,7 @@ fn small_stack_runtime(bytes: usize) -> Option<String> {
     };
     let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("small-stack-{runtime}-{}.sh", std::process::id()));
-    write_executable(&path, &format!("#!/bin/sh\n{body}"));
+    write_executable(&path, format!("#!/bin/sh\n{body}"));
     Some(path.display().to_string())
 }
 

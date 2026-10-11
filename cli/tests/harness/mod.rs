@@ -858,7 +858,7 @@ impl Drop for Scratch {
 /// (`ETXTBSY`). A child that another test's thread forks while this one writes
 /// inherits the open file and holds it until its own `exec`. So the bytes go
 /// to a staging file here, and `cp` writes `path` from its own process.
-pub fn write_executable(path: &Path, contents: &str) {
+pub fn write_executable(path: &Path, contents: impl AsRef<[u8]>) {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     if let Some(parent) = path.parent() {
