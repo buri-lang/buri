@@ -1,1 +1,1 @@
-from "core/list" import {  };
+from "core/list" import {};
