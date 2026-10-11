@@ -1,0 +1,18 @@
+error: expected a declaration, found `Clock` [unexpected-token]
+ --> cmd/a_declaration_name_before_its_keyword/main.buri:4:8
+  |
+4 | export Clock effect {
+  |        ^^^^^
+  |
+  = expected: a declaration
+  = actual: `Clock`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected an identifier, found `{` [unexpected-token]
+ --> cmd/a_declaration_name_before_its_keyword/main.buri:4:21
+  |
+4 | export Clock effect {
+  |                     ^
+  |
+  = expected: an identifier
+  = actual: `{`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -1,0 +1,6 @@
+// EXPECT: `main` must return `Result<(), Str>`
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Int> {
+  .Err(1)
+}

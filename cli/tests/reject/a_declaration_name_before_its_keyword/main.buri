@@ -1,0 +1,6 @@
+// EXPECT: expected a declaration, found `Clock`
+export type Pairing<T> = (T, T);
+
+export Clock effect {
+  fn now(self): Int;
+}
