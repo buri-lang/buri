@@ -284,3 +284,49 @@ test "a generic helper a node reads through leaves its other callers' styles alo
         "Height",
     );
 }
+
+fn roomy(): Style {
+    .Padding(.Px(14))
+}
+
+test "a local a match reads and a node is given is the variant it names" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let s: Style = .Width(.Px(41));
+    let _ = render(ctx, ui.stack({ styles: [s], children: [] }));
+    assert.equal(kind(s), "Width");
+    assert.equal(size(s), 41);
+    assert.isTrue(same(s, .Width(.Px(41))));
+    assert.isTrue(stylesheet().contains(".w-41{width:41px}"));
+}
+
+test "a field a match reads and a node is given is the variant it names" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let card = Card { style: .Height(.Px(43)) };
+    let _ = render(ctx, ui.stack({ styles: [card.style], children: [] }));
+    assert.equal(kind(card.style), "Height");
+    assert.isTrue(stylesheet().contains(".h-43{height:43px}"));
+}
+
+test "a result a match reads and a node is given is the variant it names" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let s = roomy();
+    let _ = render(ctx, ui.stack({ styles: [roomy(), s], children: [] }));
+    assert.equal(kind(roomy()), "Padding");
+    assert.equal(size(s), 14);
+    assert.isTrue(stylesheet().contains(".p-14{padding:14px}"));
+}
+
+test "a style built from a local a node is given is a class in the sheet" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let n = 47;
+    let _ = render(ctx, ui.stack({ styles: [.Width(.Px(n))], children: [] }));
+    assert.isTrue(stylesheet().contains(".w-47{width:47px}"));
+}

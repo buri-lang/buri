@@ -26,6 +26,8 @@
 //! wrote. [`Flow`] finds the positions whose value a node is given: a field of
 //! a `ui/node` literal, an argument to a `ui/node` function, and whatever flows
 //! into one of those through a local, a parameter, a result or a constant.
+//! A style that folds where a node is given it is extracted right there, so
+//! the `let`, field or function it came from keeps the variant it names.
 //!
 //! ## What the runtime is left with
 //!
@@ -50,13 +52,14 @@
 //! (`style-not-static`).
 
 use crate::compiler::modules::Loaded;
-use crate::compiler::semantics::consteval::{Env, Folder, Value};
+use crate::compiler::semantics::consteval::{bound, Env, Folder, Value};
 use crate::compiler::semantics::layered::Layered;
 use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, ModuleScope, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind, Magnitude};
 use crate::compiler::semantics::types::{ConstId, FnId, LocalId, ModuleId, Tables, TraitId, Ty, TyKind, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
+use std::cell::RefCell;
 
 // ---------------------------------------------------------------------------
 // The vocabulary's tag numbers.
@@ -441,7 +444,7 @@ pub fn run(
     // Copying the maps instead held a second `Arc` to every body, which made
     // the rewrite deep-copy what it changed anyway, and deep-copied every
     // constant whether it changed or not.
-    let flow = Flow::of(tables, loaded.find("ui/node"), walked, bodies, consts);
+    let flow = Flow::of(tables, style_con, loaded.find("ui/node"), walked, bodies, consts);
     let mut ex = Extractor {
         style_con,
         classes_con,
@@ -454,6 +457,7 @@ pub fn run(
         diags,
         flow,
         owner: Owner::Fn(FnId(0)),
+        mode: Mode::Rewrite,
     };
 
     // In id order, which is the order the maps walk in, so the sheet's rule
@@ -473,12 +477,6 @@ pub fn run(
             new_consts.push((id, init.clone()));
         }
     }
-    for (id, init) in &mut new_consts {
-        ex.owner = Owner::Const(*id);
-        let sink = ex.flow.demanded.contains(&Demand::Const(*id));
-        ex.visit(init, sink, Cond::default());
-    }
-    let const_rules = std::mem::take(&mut ex.rules);
     let mut new_bodies: Vec<(FnId, typed::Body)> = Vec::new();
     for (id, body) in walked.functions(tables, bodies) {
         ex.alphas(&body.expr);
@@ -486,12 +484,17 @@ pub fn run(
             new_bodies.push((id, typed::Body::clone(body)));
         }
     }
-    for (id, body) in &mut new_bodies {
-        ex.owner = Owner::Fn(*id);
-        let sink = ex.flow.demanded.contains(&Demand::Ret(*id));
-        ex.visit(&mut body.expr, sink, Cond::default());
+    // A style extracted where a node is given it leaves what it read alone,
+    // but that still has to be a style the stylesheet can hold. A first walk
+    // refuses what can't be, and the second extracts without refusing again.
+    if ex.flow.reached != ex.flow.demanded {
+        ex.mode = Mode::Checking;
+        ex.walk(&mut new_consts, &mut new_bodies);
+        ex.recorded.clear();
+        ex.mode = Mode::Quiet;
     }
-    let styled = Styled { const_rules, body_rules: ex.rules, ..Styled::default() };
+    let (const_rules, body_rules) = ex.walk(&mut new_consts, &mut new_bodies);
+    let styled = Styled { const_rules, body_rules, ..Styled::default() };
     for (id, init) in new_consts {
         consts.insert(id, init);
     }
@@ -517,6 +520,18 @@ struct Extractor<'a> {
     flow: Flow<'a>,
     /// The declaration whose locals the walk is in.
     owner: Owner,
+    mode: Mode,
+}
+
+/// What a walk does with the styles it reaches.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Extracts what a node is given, and refuses what can't be.
+    Rewrite,
+    /// Refuses what [`Flow::reached`] says a node reads, and rewrites nothing.
+    Checking,
+    /// Extracts after `Checking`, so refuses nothing a second time.
+    Quiet,
 }
 
 impl<'a> Extractor<'a> {
@@ -525,12 +540,11 @@ impl<'a> Extractor<'a> {
     }
 
     fn is_style(&self, ty: &Ty) -> bool {
-        // `Style` takes no type arguments, so its id alone names the type.
-        matches!(ty.kind(), TyKind::Con(id, _) if *id == self.style_con)
+        self.flow.is_style(ty)
     }
 
     fn is_style_list(&self, ty: &Ty) -> bool {
-        matches!(ty.kind(), TyKind::Array(elem) if self.is_style(elem))
+        self.flow.is_style_list(ty)
     }
 
     /// Refuses a style that has to be static and is not.
@@ -540,6 +554,9 @@ impl<'a> Extractor<'a> {
     /// because the fix differs: a closure has to move, a value has to be
     /// written out.
     fn refuse(&mut self, span: Span, message: &str) {
+        if self.mode == Mode::Quiet {
+            return;
+        }
         self.diags
             .items
             .push(Diagnostic::templated("style-not-static", span).with_bind("problem", message));
@@ -610,9 +627,31 @@ impl<'a> Extractor<'a> {
         let mut positions = self.flow.positions(e).into_iter();
         typed::children_mut(e, &mut |child| {
             let pos = positions.next().or_ice("`positions` names every child");
-            let reaches = self.flow.reaches(self.owner, &pos, sink);
+            let reaches = self.flow.reaches(self.owner, &pos, sink, self.mode == Mode::Checking);
             self.visit(child, reaches, cond);
         });
+    }
+
+    /// Walks every declaration that mentions a style, and answers the rules
+    /// the constants put in the sheet and those the functions did.
+    fn walk(
+        &mut self,
+        consts: &mut [(ConstId, typed::Expr)],
+        bodies: &mut [(FnId, typed::Body)],
+    ) -> (Vec<StyleRule>, Vec<StyleRule>) {
+        let all = self.mode == Mode::Checking;
+        for (id, init) in consts.iter_mut() {
+            self.owner = Owner::Const(*id);
+            let sink = self.flow.reaches(self.owner, &Pos::At(Some(Demand::Const(*id))), false, all);
+            self.visit(init, sink, Cond::default());
+        }
+        let const_rules = std::mem::take(&mut self.rules);
+        for (id, body) in bodies.iter_mut() {
+            self.owner = Owner::Fn(*id);
+            let sink = self.flow.reaches(self.owner, &Pos::At(Some(Demand::Ret(*id))), false, all);
+            self.visit(&mut body.expr, sink, Cond::default());
+        }
+        (const_rules, std::mem::take(&mut self.rules))
     }
 
     /// A `[Style]` — the shape every widget takes and the shape both branches
@@ -632,7 +671,9 @@ impl<'a> Extractor<'a> {
             } else {
                 vec![self.extracted(atoms, span)]
             };
-            *e = typed::Expr::new(ExprKind::Array(items), e.ty, span);
+            if self.mode != Mode::Checking {
+                *e = typed::Expr::new(ExprKind::Array(items), e.ty, span);
+            }
             return;
         }
         if let ExprKind::Array(items) = &mut e.kind {
@@ -658,8 +699,9 @@ impl<'a> Extractor<'a> {
             return;
         }
         if let Some(atoms) = self.fold_one(e, cond) {
-            let span = e.span;
-            *e = self.extracted(atoms, span);
+            if self.mode != Mode::Checking {
+                *e = self.extracted(atoms, e.span);
+            }
             return;
         }
         // It did not fold whole. Take the composition apart and try the pieces:
@@ -748,8 +790,10 @@ impl<'a> Extractor<'a> {
                 if let Some(list) = args.get_mut(1) {
                     self.style_list(list, inner);
                 }
-                *variant = STYLE_GROUP;
-                args.remove(0);
+                if self.mode != Mode::Checking {
+                    *variant = STYLE_GROUP;
+                    args.remove(0);
+                }
                 true
             }
             STYLE_WHEN => {
@@ -834,104 +878,102 @@ impl<'a> Extractor<'a> {
     }
 
     fn fold_one(&mut self, e: &typed::Expr, cond: Cond) -> Option<Vec<Atom>> {
-        let value = self.folder().eval(e, &Env::default())?;
+        let value = self.flow.fold(self.owner, e)?;
         let mut atoms = Vec::new();
-        self.flatten(&value, cond, &mut atoms)?;
-        Some(resolve_conflicts(atoms))
+        flatten(&value, cond, &mut atoms)?;
+        Some(self.record(atoms))
     }
 
     fn fold_list(&mut self, e: &typed::Expr, cond: Cond) -> Option<Vec<Atom>> {
-        let Value::Array(items) = self.folder().eval(e, &Env::default())? else { return None };
+        let Value::Array(items) = self.flow.fold(self.owner, e)? else { return None };
         let mut atoms = Vec::new();
         for item in &items {
-            self.flatten(item, cond, &mut atoms)?;
+            flatten(item, cond, &mut atoms)?;
         }
-        Some(resolve_conflicts(atoms))
+        Some(self.record(atoms))
     }
 
-    /// One folded `Style` value into the atoms it is.
-    fn flatten(&mut self, v: &Value, cond: Cond, out: &mut Vec<Atom>) -> Option<()> {
-        let (variant, args) = v.as_variant()?;
-        match variant {
-            STYLE_GROUP => {
-                let Value::Array(items) = args.first()? else { return None };
-                for item in items {
-                    self.flatten(item, cond, out)?;
+    /// Puts each atom's rule in the sheet, once per class.
+    fn record(&mut self, atoms: Vec<(Atom, StyleRule)>) -> Vec<Atom> {
+        let atoms = atoms
+            .into_iter()
+            .map(|(atom, rule)| {
+                if self.recorded.insert(rule.class.clone()) {
+                    self.rules.push(rule);
                 }
-                Some(())
-            }
-            STYLE_ON => {
-                let (state, _) = args.first()?.as_variant()?;
-                let Value::Array(items) = args.get(1)? else { return None };
-                let inner = Cond { state: Some(u8::try_from(state).ok()?), screen: cond.screen };
-                for item in items {
-                    self.flatten(item, inner, out)?;
-                }
-                Some(())
-            }
-            STYLE_AT => {
-                let (screen, _) = args.first()?.as_variant()?;
-                let Value::Array(items) = args.get(1)? else { return None };
-                let inner = Cond { state: cond.state, screen: Some(u8::try_from(screen).ok()?) };
-                for item in items {
-                    self.flatten(item, inner, out)?;
-                }
-                Some(())
-            }
-            // A `When` is a runtime choice between two static lists, and an
-            // already-extracted style has no value left to read. Both make the
-            // enclosing fold give up so that the descent handles them.
-            STYLE_WHEN | STYLE_COMPUTED | STYLE_EXTRACTED => None,
-            // Every other variant is one property with one value.
-            _ => self.property(variant, args, cond, out),
-        }
+                atom
+            })
+            .collect();
+        resolve_conflicts(atoms)
     }
+}
 
-    /// One property value: the classes it needs, each in its own slot, and the
-    /// rules they put in the sheet.
-    fn property(
-        &mut self,
-        variant: usize,
-        args: &[Value],
-        cond: Cond,
-        out: &mut Vec<Atom>,
-    ) -> Option<()> {
-        // Out of the flow is one fact about the element rather than one per
-        // edge, so a pin keeps its `position` in a class of its own. Four pins
-        // then write four insets and one `position`, and `Position` — the
-        // property that owns `position`, declared after `Pin` and so written
-        // later in the sheet — overrides it wherever an element has both.
-        if variant == STYLE_PIN {
-            let flow = ("pin", "out".to_owned(), vec![("", "position:absolute".to_owned())]);
-            out.push(self.atom(variant, PIN_FLOW, cond, flow)?);
+/// One folded `Style` value into the atoms it is.
+fn flatten(v: &Value, cond: Cond, out: &mut Vec<(Atom, StyleRule)>) -> Option<()> {
+    let (variant, args) = v.as_variant()?;
+    match variant {
+        STYLE_GROUP => {
+            let Value::Array(items) = args.first()? else { return None };
+            for item in items {
+                flatten(item, cond, out)?;
+            }
+            Some(())
         }
-        let sub = sub_key(variant, args);
-        let atom = self.atom(variant, sub, cond, declaration(variant, args)?)?;
-        out.push(atom);
-        Some(())
+        STYLE_ON => {
+            let (state, _) = args.first()?.as_variant()?;
+            let Value::Array(items) = args.get(1)? else { return None };
+            let inner = Cond { state: Some(u8::try_from(state).ok()?), screen: cond.screen };
+            for item in items {
+                flatten(item, inner, out)?;
+            }
+            Some(())
+        }
+        STYLE_AT => {
+            let (screen, _) = args.first()?.as_variant()?;
+            let Value::Array(items) = args.get(1)? else { return None };
+            let inner = Cond { state: cond.state, screen: Some(u8::try_from(screen).ok()?) };
+            for item in items {
+                flatten(item, inner, out)?;
+            }
+            Some(())
+        }
+        // A `When` is a runtime choice between two static lists, and an
+        // already-extracted style has no value left to read. Both make the
+        // enclosing fold give up so that the descent handles them.
+        STYLE_WHEN | STYLE_COMPUTED | STYLE_EXTRACTED => None,
+        // Every other variant is one property with one value.
+        _ => property(variant, args, cond, out),
     }
+}
 
-    /// One class: its name, its slot, and the rule it puts in the sheet.
-    fn atom(
-        &mut self,
-        variant: usize,
-        sub: u32,
-        cond: Cond,
-        (abbreviation, key, blocks): Declaration,
-    ) -> Option<Atom> {
-        let class = format!("{}{}-{}", cond.prefix(), abbreviation, key);
-        let property = u16::try_from(variant).ok()?;
-        if self.recorded.insert(class.clone()) {
-            self.rules.push(StyleRule {
-                class: class.clone(),
-                property,
-                state: cond.state,
-                screen: cond.screen,
-                blocks,
-            });
-        }
-        Some(Atom { slot: slot(variant, sub, cond)?, class })
+/// One property value: the classes it needs, each in its own slot, and the
+/// rules they put in the sheet.
+fn property(variant: usize, args: &[Value], cond: Cond, out: &mut Vec<(Atom, StyleRule)>) -> Option<()> {
+    // Out of the flow is one fact about the element rather than one per
+    // edge, so a pin keeps its `position` in a class of its own. Four pins
+    // then write four insets and one `position`, and `Position` — the
+    // property that owns `position`, declared after `Pin` and so written
+    // later in the sheet — overrides it wherever an element has both.
+    if variant == STYLE_PIN {
+        let flow = ("pin", "out".to_owned(), vec![("", "position:absolute".to_owned())]);
+        out.push(atom(variant, PIN_FLOW, cond, flow)?);
     }
+    let sub = sub_key(variant, args);
+    out.push(atom(variant, sub, cond, declaration(variant, args)?)?);
+    Some(())
+}
+
+/// One class: its name, its slot, and the rule it puts in the sheet.
+fn atom(variant: usize, sub: u32, cond: Cond, (abbreviation, key, blocks): Declaration) -> Option<(Atom, StyleRule)> {
+    let class = format!("{}{}-{}", cond.prefix(), abbreviation, key);
+    let rule = StyleRule {
+        class: class.clone(),
+        property: u16::try_from(variant).ok()?,
+        state: cond.state,
+        screen: cond.screen,
+        blocks,
+    };
+    Some((Atom { slot: slot(variant, sub, cond)?, class }, rule))
 }
 
 /// What decides whether a position's value reaches a node.
@@ -972,48 +1014,163 @@ enum Pos {
 /// whatever an expression in a demanded position reads: a local's value, a
 /// called function's result, a parameter's argument at every call. A call
 /// through a trait bound reads every `impl` of the method.
+///
+/// A style a node is given that folds where it's given is extracted right
+/// there, so it demands nothing: a `let`, a field or a function it reads stays
+/// an ordinary value for the rest of the program to match on.
 struct Flow<'a> {
     tables: &'a Tables,
+    style_con: TyConId,
     ui_node: Option<ModuleId>,
+    bodies: &'a BodyMap,
+    consts: &'a ConstMap,
     /// The parameters of each body this run reads.
     params: HashMap<FnId, Vec<LocalId>>,
+    /// Each `let`-bound local: the pattern that binds it, and its value.
+    lets: HashMap<(Owner, LocalId), (&'a typed::Pattern, &'a typed::Expr)>,
+    /// The value each local a fold has read folded to, if it did.
+    statics: RefCell<HashMap<(Owner, LocalId), Option<Value>>>,
+    /// What a node reads, past the styles extracted where a node is given them.
     demanded: HashSet<Demand>,
+    /// What a node reads through those as well: every one of them still has to
+    /// be a style the stylesheet can hold, so [`Mode::Checking`] walks these.
+    reached: HashSet<Demand>,
 }
 
 impl<'a> Flow<'a> {
     fn of(
         tables: &'a Tables,
+        style_con: TyConId,
         ui_node: Option<ModuleId>,
         walked: &Walked,
-        bodies: &BodyMap,
-        consts: &ConstMap,
+        bodies: &'a BodyMap,
+        consts: &'a ConstMap,
     ) -> Flow<'a> {
-        let mut flow = Flow { tables, ui_node, params: HashMap::default(), demanded: HashSet::default() };
+        let mut flow = Flow {
+            tables,
+            style_con,
+            ui_node,
+            bodies,
+            consts,
+            params: HashMap::default(),
+            lets: HashMap::default(),
+            statics: RefCell::default(),
+            demanded: HashSet::default(),
+            reached: HashSet::default(),
+        };
+        for (id, init) in walked.unsettled_constants(consts) {
+            flow.collect_lets(Owner::Const(id), init);
+        }
         for (id, body) in walked.unsettled(bodies) {
             flow.params.insert(id, body.params.clone());
+            flow.collect_lets(Owner::Fn(id), &body.expr);
         }
+        flow.demanded = flow.closure(walked, true);
+        flow.reached = flow.closure(walked, false);
+        flow
+    }
+
+    /// Everything a node reads, past a style extracted where it's given when
+    /// `stop`.
+    fn closure(&self, walked: &Walked, stop: bool) -> HashSet<Demand> {
         let mut edges: HashMap<Demand, Vec<Demand>> = HashMap::default();
-        for (id, init) in walked.unsettled_constants(consts) {
-            flow.edges(Owner::Const(id), init, Some(Demand::Const(id)), &mut edges);
+        for (id, init) in walked.unsettled_constants(self.consts) {
+            self.edges(Owner::Const(id), init, Some(Demand::Const(id)), stop, &mut edges);
         }
-        for (id, body) in walked.unsettled(bodies) {
-            if let Some((t, m)) = tables.fn_info(id).impl_of {
+        for (id, body) in walked.unsettled(self.bodies) {
+            if let Some((t, m)) = self.tables.fn_info(id).impl_of {
                 edges.entry(Demand::Method(t, m)).or_default().push(Demand::Ret(id));
             }
-            flow.edges(Owner::Fn(id), &body.expr, Some(Demand::Ret(id)), &mut edges);
+            self.edges(Owner::Fn(id), &body.expr, Some(Demand::Ret(id)), stop, &mut edges);
         }
+        let mut found = HashSet::default();
         let mut work = vec![Demand::Node];
         while let Some(d) = work.pop() {
-            if flow.demanded.insert(d) {
+            if found.insert(d) {
                 work.extend(edges.get(&d).into_iter().flatten().copied());
             }
         }
-        flow
+        found
+    }
+
+    /// Whether `e` is a style, or a list of them, that extracts whole where it
+    /// stands.
+    fn extracts(&self, owner: Owner, e: &typed::Expr) -> bool {
+        let mut atoms = Vec::new();
+        if self.is_style(&e.ty) {
+            return self.fold(owner, e).is_some_and(|v| flatten(&v, Cond::default(), &mut atoms).is_some());
+        }
+        self.is_style_list(&e.ty)
+            && matches!(self.fold(owner, e), Some(Value::Array(items))
+                if items.iter().all(|v| flatten(v, Cond::default(), &mut atoms).is_some()))
+    }
+
+    fn collect_lets(&mut self, owner: Owner, e: &'a typed::Expr) {
+        if let ExprKind::Block { stmts, .. } = &e.kind {
+            for stmt in stmts {
+                if let typed::Stmt::Let { pattern, value, .. } = stmt {
+                    pattern.each_bind(&mut |l| {
+                        self.lets.insert((owner, l), (pattern, value));
+                    });
+                }
+            }
+        }
+        typed::children(e, &mut |child| self.collect_lets(owner, child));
+    }
+
+    fn is_style(&self, ty: &Ty) -> bool {
+        // `Style` takes no type arguments, so its id alone names the type.
+        matches!(ty.kind(), TyKind::Con(id, _) if *id == self.style_con)
+    }
+
+    fn is_style_list(&self, ty: &Ty) -> bool {
+        matches!(ty.kind(), TyKind::Array(elem) if self.is_style(elem))
+    }
+
+    /// The value `e` denotes at compile time, reading the `let`s of `owner`.
+    fn fold(&self, owner: Owner, e: &typed::Expr) -> Option<Value> {
+        let mut env = Env::default();
+        self.read_lets(owner, e, &mut env);
+        Folder::new(self.tables, self.bodies, self.consts).eval(e, &env)
+    }
+
+    /// Binds in `env` every local `e` reads whose `let` folds.
+    fn read_lets(&self, owner: Owner, e: &typed::Expr, env: &mut Env) {
+        if let ExprKind::Local(l) = e.kind {
+            if let Some(value) = self.static_local(owner, l) {
+                env.insert(l, value);
+            }
+        }
+        typed::children(e, &mut |child| self.read_lets(owner, child, env));
+    }
+
+    fn static_local(&self, owner: Owner, l: LocalId) -> Option<Value> {
+        let key = (owner, l);
+        if let Some(known) = self.statics.borrow().get(&key) {
+            return known.clone();
+        }
+        let (pattern, value) = *self.lets.get(&key)?;
+        // A closure that names its own `let` gives up rather than recursing.
+        self.statics.borrow_mut().insert(key, None);
+        let folded = self.fold(owner, value).and_then(|v| bound(pattern, &v, l));
+        self.statics.borrow_mut().insert(key, folded.clone());
+        folded
     }
 
     /// Records what `e` reads when its value goes to `ctx`, and the same for
     /// everything under it.
-    fn edges(&self, owner: Owner, e: &typed::Expr, ctx: Option<Demand>, out: &mut HashMap<Demand, Vec<Demand>>) {
+    fn edges(
+        &self,
+        owner: Owner,
+        e: &typed::Expr,
+        ctx: Option<Demand>,
+        stop: bool,
+        out: &mut HashMap<Demand, Vec<Demand>>,
+    ) {
+        // Extracted where it stands, so it reads nothing.
+        if stop && ctx.is_some() && self.extracts(owner, e) {
+            return;
+        }
         if let Some(d) = ctx {
             let read = match &e.kind {
                 ExprKind::Local(l) => Some(Demand::Local(owner, *l)),
@@ -1042,17 +1199,18 @@ impl<'a> Flow<'a> {
                     first
                 }),
             };
-            self.edges(owner, child, child_ctx, out);
+            self.edges(owner, child, child_ctx, stop, out);
         });
     }
 
     /// Whether a child at `pos` reaches a node, given whether its parent's
-    /// value does.
-    fn reaches(&self, owner: Owner, pos: &Pos, sink: bool) -> bool {
+    /// value does: through a style extracted where it's given too when `all`.
+    fn reaches(&self, owner: Owner, pos: &Pos, sink: bool, all: bool) -> bool {
+        let set = if all { &self.reached } else { &self.demanded };
         match pos {
             Pos::Same => sink,
-            Pos::At(d) => d.is_some_and(|d| self.demanded.contains(&d)),
-            Pos::Bound(locals) => locals.first().is_some_and(|l| self.demanded.contains(&Demand::Local(owner, *l))),
+            Pos::At(d) => d.is_some_and(|d| set.contains(&d)),
+            Pos::Bound(locals) => locals.first().is_some_and(|l| set.contains(&Demand::Local(owner, *l))),
         }
     }
 
