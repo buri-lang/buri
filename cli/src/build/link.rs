@@ -690,9 +690,8 @@ fn file_identity(meta: &std::fs::Metadata) -> String {
 /// same moment sees all of it or none. Failing to write is not failing: the
 /// next process asks again.
 fn remember(record: &Path, text: &str) {
-    let Some(dir) = record.parent() else { return };
-    let _ = std::fs::create_dir_all(dir);
-    let partial = dir.join(format!(".partial-{}-{:?}", std::process::id(), std::thread::current().id()));
+    crate::build::create_parent(record);
+    let partial = record.with_file_name(format!(".partial-{}-{:?}", std::process::id(), std::thread::current().id()));
     if std::fs::write(&partial, text).is_err() || std::fs::rename(&partial, record).is_err() {
         let _ = std::fs::remove_file(&partial);
     }
@@ -843,8 +842,7 @@ pub fn select(target: Target) -> Result<CDriver, Refusal> {
 /// refusals (no `rust-std` for the triple, an unreachable dependency tree) are
 /// returned as they are.
 fn select_cross(target: Target, driver: PathBuf) -> Result<CDriver, Refusal> {
-    let triple = crate::compiler::backend::triple_text(target)
-        .unwrap_or_else(|| String::from("unknown-unknown-linux-musl"));
+    let triple = crate::compiler::backend::linux_triple(target.arch);
     if !accepts_target(&driver, &triple) {
         return Err(Refusal::new(
             format!("the C driver cannot be pointed at {triple}, so it cannot cross-link"),
@@ -1027,8 +1025,7 @@ fn libc_for(target: Target, driver: PathBuf) -> Result<(PathBuf, LibcMode), Refu
         // linker, loudly, which is the answer this flag asked for.
         return Ok((driver, LibcMode::Glibc));
     }
-    let triple = crate::compiler::backend::triple_text(target)
-        .unwrap_or_else(|| String::from("unknown-unknown-linux-musl"));
+    let triple = crate::compiler::backend::linux_triple(target.arch);
 
     // Tier 1. Bytes first, because the probe costs a process and the bytes
     // cost a `is_empty`.
@@ -1213,9 +1210,10 @@ fn probe_target(driver: &Path, triple: &str) -> bool {
             .stderr(std::process::Stdio::null()),
     );
     let Ok(mut child) = spawned else { return false };
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(b"int buri_musl_probe(void) { return 0; }\n");
-    }
+    #[expect(clippy::expect_used, reason = "the command above pipes standard input")]
+    let mut stdin = child.stdin.take().expect("standard input is piped");
+    let _ = stdin.write_all(b"int buri_musl_probe(void) { return 0; }\n");
+    drop(stdin);
     child.wait().is_ok_and(|status| status.success())
 }
 
@@ -1749,9 +1747,7 @@ impl CDriver {
             return Vec::new();
         }
         let mut flags: Vec<String> = Vec::new();
-        if let Some(triple) = crate::compiler::backend::triple_text(self.target) {
-            flags.push(format!("--target={triple}"));
-        }
+        flags.push(format!("--target={}", crate::compiler::backend::linux_triple(self.target.arch)));
         flags.push("-static-pie".into());
         flags.push("-nodefaultlibs".into());
         flags.push("-nostartfiles".into());
@@ -1793,9 +1789,7 @@ impl CDriver {
                 // are under (ARCHITECTURE.md §7): an absolute `-L` would put
                 // the checkout's path on the command line, and a command line
                 // is what `--check-reproducible` compares two of.
-                if let Some(triple) = crate::compiler::backend::triple_text(self.target) {
-                    flags.push(format!("--target={triple}"));
-                }
+                flags.push(format!("--target={}", crate::compiler::backend::linux_triple(self.target.arch)));
                 flags.push("-B".into());
                 flags.push("musl/lib".into());
                 flags.push("-L".into());
@@ -1985,13 +1979,6 @@ impl CDriver {
         let _phase = crate::profile::enter(crate::profile::Phase::Link);
         crate::build::counted::add(crate::build::counted::Count::Links);
         let mut diagnostics = Diagnostics::new();
-        if units.is_empty() {
-            diagnostics.push(Diagnostic::error(
-                Span::NONE,
-                String::from("internal error: the backend emitted no codegen unit to link"),
-            ));
-            return Err(diagnostics);
-        }
         if let Err(e) = std::fs::create_dir_all(&self.dir) {
             diagnostics.push(
                 Diagnostic::error(
@@ -2016,12 +2003,8 @@ impl CDriver {
                       only be unboxed again below"
         )]
         let staged: Vec<Result<PathBuf, Diagnostic>> = crate::parallel::map(units.len(), |i| {
-            let Some(unit) = units.get(i) else {
-                return Err(Diagnostic::error(
-                    Span::NONE,
-                    String::from("internal error: the unit list changed while it was being staged"),
-                ));
-            };
+            #[expect(clippy::expect_used, reason = "`parallel::map` hands out indices below the length it was given")]
+            let unit = units.get(i).expect("each index is a unit's");
             let Some(path) = self.object_path(&unit.name) else {
                 return Err(Diagnostic::error(
                     Span::NONE,
