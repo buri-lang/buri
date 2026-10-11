@@ -1,0 +1,15 @@
+# Two tags and a lint block, so `buri format` lays out a repository file too:
+# blank lines before the first field, top-level blocks one blank line apart,
+# and a block holding only a comment.
+tag {
+    name: "a"
+}
+
+tag {
+    # the second
+    name: "b"
+}
+
+lint {
+    # nothing set
+}

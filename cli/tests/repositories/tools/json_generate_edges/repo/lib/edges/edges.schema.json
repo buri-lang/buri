@@ -36,6 +36,8 @@
             "unevaluatedProperties": false
         },
         "control": { "type": "string" },
+        "below": { "type": "integer" },
+        "under": { "type": "number" },
         "shape": {
             "oneOf": [
                 { "$ref": "#/$defs/1st" },

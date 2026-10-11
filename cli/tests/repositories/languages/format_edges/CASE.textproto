@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "buri format at the edges of each language it lays out: a byte-order mark, a tab, a comment where a line ends, between a name and its value, inside a list, after the last value or with no line break at the end; empty and commented blocks and lists; every number and string spelling; options with nested values and comments; and four files that do not read, left as they are"
+doc: "buri format at the edges of each language it lays out: a byte-order mark, a tab, a comment where a line ends, between a name and its value, inside a list, after the last value or with no line break at the end; empty and commented blocks and lists; every number and string spelling; options with nested values and comments; an empty file in each, and files that do not read, left as they are"
 
 run {
   args: ["format"]
@@ -25,8 +25,13 @@ file {
 }
 
 file {
-  path: "lib/fmt/unclosed.proto"
-  golden: "unclosed.proto"
+  path: "lib/fmt/broken_comment.proto"
+  golden: "broken_comment.proto"
+}
+
+file {
+  path: "REPO.buri"
+  golden: "REPO.buri"
 }
 
 # A fixed point: a second format changes nothing, and only the files that do

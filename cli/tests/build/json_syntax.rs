@@ -71,6 +71,13 @@ const ROWS: &[(&str, &str, Option<&str>)] = &[
     ("json5", "{S, a: .}", Some("this is not a number")),
     ("json5", "{S, a: -abc}", Some("this is not a number")),
     ("json5", "{S, a: [1,],}", None),
+    ("json5", "{S} // the end, at a paragraph separator\u{2029}", None),
+    ("json", "{S, \"a\": \"\\v\"}", Some("`\\v` is not an escape")),
+    ("json", "{S, \"a\": \"\\0\"}", Some("`\\0` is not an escape")),
+    ("json", "{S, \"a\": \"\\x41\"}", Some("`\\x` is not an escape")),
+    ("json", "{S, \"a\": \"\\\r\"}", Some("`\\\r` is not an escape")),
+    ("json", "{S, \"a\": \"\\\n\"}", Some("`\\\n` is not an escape")),
+    ("json", "{S, \"a\": -NaN}", Some("`NaN` is JSON5, not JSON")),
 ];
 
 #[test]

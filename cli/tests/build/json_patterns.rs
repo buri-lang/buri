@@ -65,12 +65,17 @@ const MATCHES: &[(&str, &str, bool)] = &[
     ("^\\cJ$", "\n", true),
     ("^\\.\\-\\/$", ".-/", true),
     ("^.$", "\u{1F600}", true),
-    ("^(a+)+$", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab", false),
+    ("^(?:ab){0,1}?c$", "abd", false),
 ];
 
-/// The texts above that the matcher abandons rather than answers, by the
-/// index of their row.
-const TOO_COSTLY: &[usize] = &[MATCHES.len() - 1];
+/// A pattern and a text the matcher abandons rather than answers: one that
+/// takes too many steps, and one that recurses too deeply.
+fn too_costly() -> Vec<(String, String)> {
+    vec![
+        ("^(a+)+$".to_string(), format!("{}b", "a".repeat(40))),
+        ("^(?:ab)*$".to_string(), "ab".repeat(1500)),
+    ]
+}
 
 /// A pattern this toolchain refuses, and why.
 const REFUSED: &[(&str, &str)] = &[
@@ -110,6 +115,7 @@ const REFUSED: &[(&str, &str)] = &[
     ("\\xZZ", "an escape needs 2 hexadecimal digits"),
     ("\\x4", "an escape needs 2 hexadecimal digits"),
     ("\\uD800", "a surrogate escape is not supported"),
+    ("[\\B]", "`\\B` is not an escape"),
 ];
 
 /// `text` as a JSON string.
@@ -130,9 +136,16 @@ fn json_patterns_match_what_they_say() {
         "library {\n    generators: [\n        { tool: \"//tools/gen\", inputs: [\"matches.json\", \"refused.json\"] },\n    ]\n}\n",
     );
 
+    // `None` for a text the matcher abandons.
+    let mut rows: Vec<(String, String, Option<bool>)> =
+        MATCHES.iter().map(|(p, t, m)| (p.to_string(), t.to_string(), Some(*m))).collect();
+    rows.extend(too_costly().into_iter().map(|(p, t)| (p, t, None)));
+    let mut refusals: Vec<(String, String)> = REFUSED.iter().map(|(p, w)| (p.to_string(), w.to_string())).collect();
+    refusals.push((format!("{}a{}", "(".repeat(102), ")".repeat(102)), "groups nest too deeply".to_string()));
+
     let mut schema = format!("{{\"$schema\": \"{SCHEMA}\", \"properties\": {{\n");
     let mut data = String::from("{\"$schema\": \"matches.schema.json\",\n");
-    for (i, (pattern, text, _)) in MATCHES.iter().enumerate() {
+    for (i, (pattern, text, _)) in rows.iter().enumerate() {
         schema.push_str(&format!("\"m{i}\": {{\"pattern\": {}}},\n", quoted(pattern)));
         data.push_str(&format!("\"m{i}\": {},\n", quoted(text)));
     }
@@ -142,7 +155,7 @@ fn json_patterns_match_what_they_say() {
     s.write("lib/p/matches.json", &data);
 
     let mut refused = format!("{{\"$schema\": \"{SCHEMA}\", \"properties\": {{\n");
-    for (i, (pattern, _)) in REFUSED.iter().enumerate() {
+    for (i, (pattern, _)) in refusals.iter().enumerate() {
         refused.push_str(&format!("\"r{i}\": {{\"pattern\": {}}},\n", quoted(pattern)));
     }
     refused.push_str("\"$schema\": true}}\n");
@@ -163,19 +176,20 @@ fn json_patterns_match_what_they_say() {
     };
 
     let mut failures = Vec::new();
-    for (i, (pattern, text, matches)) in MATCHES.iter().enumerate() {
+    for (i, (pattern, text, matches)) in rows.iter().enumerate() {
         // Line 1 is the `"$schema"` key, so row `i` is on line `i + 2`.
         let found = at("lib/p/matches.json", i + 2);
-        let ok = match (TOO_COSTLY.contains(&i), matches) {
-            (true, _) => found.len() == 1 && found[0].contains("is too costly to match"),
-            (false, true) => found.is_empty(),
-            (false, false) => found.len() == 1 && found[0].starts_with("json-schema-violation"),
+        let ok = match matches {
+            None => found.len() == 1 && found[0].contains("is too costly to match"),
+            Some(true) => found.is_empty(),
+            Some(false) => found.len() == 1 && found[0].starts_with("json-schema-violation"),
         };
         if !ok {
-            failures.push(format!("`{pattern}` against {text:?}: expected {matches}, found {found:?}"));
+            let text: String = text.chars().take(60).collect();
+            failures.push(format!("`{pattern}` against {text:?}: expected {matches:?}, found {found:?}"));
         }
     }
-    for (i, (pattern, why)) in REFUSED.iter().enumerate() {
+    for (i, (pattern, why)) in refusals.iter().enumerate() {
         let found = at("lib/p/refused.schema.json", i + 2);
         let want = format!("json-invalid-schema the pattern `{pattern}` does not read: {why}");
         if found != [want.as_str()] {

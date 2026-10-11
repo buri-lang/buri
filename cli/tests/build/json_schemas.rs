@@ -84,6 +84,10 @@ const VALUES: &[(&str, &str, &str)] = &[
     (r#"{"maximum": 1}"#, "-Infinity", "`-Infinity` is not a finite number, and `maximum` asks for one"),
     (r#"{"multipleOf": 2}"#, "NaN", "`NaN` is not a finite number, and `multipleOf` asks for one"),
     (r#"{"$dynamicRef": "ok.schema.json"}"#, "1", ""),
+    // A divisor of more digits than an exact remainder holds divides as `F64`s.
+    (r#"{"multipleOf": 0.12345678901234567890123456789012345678}"#, "1", "`1` is not a multiple of `0.12345678901234567890123456789012345678`"),
+    (r#"{"multipleOf": 0.12345678901234567890123456789012345678}"#, "0.24691357802469135780246913578024691356", ""),
+    (r#"{"multipleOf": 1.2345678901234567890123456789012345678e-300}"#, "1e308", "`1e308` is not a multiple of `1.2345678901234567890123456789012345678e-300`"),
     (r##"{"$ref": "#/%24defs/str"}"##, "1", "expected a string, found an integer"),
     (r#"{"type": "string"}"#, "'a long string of more than forty characters, cut short'", ""),
     (r#"{"const": 1}"#, "'a long string of more than forty characters, cut short'", "expected `1`, found `'a long string of more than forty charac…`"),

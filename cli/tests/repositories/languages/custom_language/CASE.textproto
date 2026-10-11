@@ -118,3 +118,16 @@ run {
   exit: 1
   golden: "refused.txt"
 }
+
+# A finding the tool gives no fix prints with none.
+edit {
+  file: "tools/lines/tool.buri"
+  replace: "fix: .Some(\"add it to tools/lines/dictionary.txt\"),"
+  with: "fix: .None,"
+}
+
+run {
+  args: ["build", "//lib/colors"]
+  exit: 1
+  golden: "no_fix.txt"
+}

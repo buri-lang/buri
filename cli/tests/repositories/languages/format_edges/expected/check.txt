@@ -1,4 +1,9 @@
-lib/fmt/bad_list.txtpb: does not parse, and was left exactly as it is
-lib/fmt/bad_name.txtpb: does not parse, and was left exactly as it is
-lib/fmt/unclosed.proto: does not parse, and was left exactly as it is
-lib/fmt/unclosed.txtpb: does not parse, and was left exactly as it is
+lib/fmt/broken_comment.proto: does not parse, and was left exactly as it is
+lib/fmt/broken_eof.txtpb: does not parse, and was left exactly as it is
+lib/fmt/broken_list.txtpb: does not parse, and was left exactly as it is
+lib/fmt/broken_name.txtpb: does not parse, and was left exactly as it is
+lib/fmt/broken_number.txtpb: does not parse, and was left exactly as it is
+lib/fmt/broken_string.proto: does not parse, and was left exactly as it is
+lib/fmt/broken_string.txtpb: does not parse, and was left exactly as it is
+lib/fmt/broken_symbol.txtpb: does not parse, and was left exactly as it is
+lib/fmt/broken_value.txtpb: does not parse, and was left exactly as it is
