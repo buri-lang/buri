@@ -64,7 +64,20 @@ fn the_release_suites_pass() {
     skip_unless_executable!();
     let repo = scratch("suites");
     copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release"), &repo);
-    passes(&repo, &["//..."]);
+    passes(&repo, &["//lib/..."]);
+}
+
+/// **A program fans wide values out over the host's threads.** The host's
+/// implementations hold no bytes, so each task's context is nothing at all.
+#[test]
+fn a_program_fans_out_wide_values_on_the_host() {
+    skip_unless_executable!();
+    let repo = scratch("fanout");
+    copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release"), &repo);
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
+    cmd.current_dir(&repo).args(["run", "--release", "//cmd/fanout"]);
+    let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
+    assert_eq!((ran.status, ran.stdout.as_str()), (0, "a2 b5 c8\n"), "{}", ran.stderr);
 }
 
 /// **The native set's files in a package that also holds a JavaScript-only
