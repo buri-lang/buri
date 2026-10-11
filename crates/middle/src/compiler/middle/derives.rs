@@ -493,6 +493,10 @@ impl Decoding {
     }
 }
 
+/// Why a primitive's type is always known: `Program::shapes` holds every
+/// declared type, and `Env::discover` reads each primitive off it.
+const SHAPES_NAME_EVERY_PRIM: &str = "`Program::shapes` names every primitive";
+
 /// `core/json`'s declaration order, which `runtime.js` also hard-codes and for
 /// the same reason: a walker that builds a library type without the library's
 /// help has to know its tags.
@@ -605,9 +609,8 @@ impl Env {
         // named the result type it comes off the primitive. Last, after the
         // loop above, because that loop is what answers `Bool` in a program
         // with no `Bool` literal in it.
-        if let Some(b) = prim_of.get(&Prim::Bool).cloned() {
-            result.entry(Op::Eq).or_insert(b);
-        }
+        let b = prim_of.get(&Prim::Bool).cloned().or_ice(SHAPES_NAME_EVERY_PRIM);
+        result.entry(Op::Eq).or_insert(b);
         Env { ty_of, prim_of, result, json_variants, decoding: Decoding::of(program) }
     }
 
@@ -1588,9 +1591,8 @@ impl Generator {
         frame: &mut Frame,
     ) -> Option<Expr> {
         if variants.len() > RANKED_COMPARE_MIN {
-            if let Some(int) = self.env.prim_of.get(&Prim::I64).cloned() {
-                return self.compare_enum_ranked(desc, variants, a, b, int, frame);
-            }
+            let int = self.env.prim_of.get(&Prim::I64).cloned().or_ice(SHAPES_NAME_EVERY_PRIM);
+            return self.compare_enum_ranked(desc, variants, a, b, int, frame);
         }
         let ty = self.ty_of(desc);
         let order = self.result_ty(Op::Compare);
