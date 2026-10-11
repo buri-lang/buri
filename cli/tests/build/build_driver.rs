@@ -454,6 +454,37 @@ fn a_test_runner_claim_a_crashed_run_left_is_taken() {
     assert!(lock.exists(), "a live run's claim was taken");
 }
 
+/// A suite linked again beside a failing suite's kept binary runs its own
+/// binary, and the failing suite still runs its own. Another run holds the
+/// shared runner throughout, so the two suites' batch binary is linked under
+/// the first suite's name, and the edit makes that suite link again.
+#[test]
+fn a_suite_linked_again_leaves_a_kept_binary_under_its_name_alone() {
+    let scratch = Scratch::repo("build-driver-kept-name");
+    for (name, answer) in [("a", 1), ("b", 2)] {
+        scratch.write(&format!("lib/{name}/BUILD.buri"), "library {\n    test {\n        sources: [\"test/t.buri\"]\n    }\n}\n");
+        scratch.write(&format!("lib/{name}/lib.buri"), "export fn one(): Int {\n    1\n}\n");
+        scratch.write(
+            &format!("lib/{name}/test/t.buri"),
+            &format!(
+                "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/{name}\" import {{ one }};\n\n\
+                 test \"{name} is {answer}\" {{\n    assert.equal(one(), {answer});\n}}\n"
+            ),
+        );
+    }
+    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    scratch.write(&format!(".buri/out/native/{os}-{arch}/.test-runner.lock"), "");
+
+    scratch.run(&["test", "//..."]).exits(1).says("1 passed, 1 failed").says("b is 2");
+    scratch.write(
+        "lib/a/test/t.buri",
+        "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/a\" import { one };\n\n\
+         test \"a is 1\" {\n    assert.equal(one(), 1);\n}\n\ntest \"a is still 1\" {\n    assert.equal(one(), 1);\n}\n",
+    );
+    scratch.run(&["test", "//..."]).exits(1).says("2 passed, 1 failed").says("b is 2");
+}
+
 /// A tag's `doc` is how a policy says why, so a tag without one breaks the
 /// policy with no reason under it.
 #[test]
