@@ -55,18 +55,18 @@ pub fn build_target(
 /// A bundled platform's assets are embedded in the toolchain, as its build
 /// file is; a repository platform's are read from its package.
 fn copy_assets(session: &Session, target: TargetId, output: &Output, diagnostics: &mut Diagnostics) -> bool {
-    let Some(rule) = platform_rule(session, output) else { return true };
+    let rule = platform_rule(session, output);
     let path = artifact_path(session, target, output);
     let into = path.parent().or_ice("an artifact's path is a file in its output's directory");
     for asset in &rule.assets {
         let destination = into.join(&asset.value);
         crate::build::create_parent(&destination);
         let copied = match &output.custom {
-            Some(custom) => match session.workspace.platform_rule(&custom.label.value) {
-                Some((pid, _)) => std::fs::copy(session.workspace.package(pid).dir.join(&asset.value), &destination)
-                    .map(|_| ()),
-                None => Ok(()),
-            },
+            Some(custom) => {
+                let (pid, _) = session.workspace.platform_rule(&custom.label.value);
+                let source = session.workspace.package(pid).dir.join(&asset.value);
+                std::fs::copy(source, &destination).map(|_| ())
+            }
             None => match crate::build::platforms::file(output.platform().slug(), &asset.value) {
                 Some(text) => std::fs::write(&destination, text),
                 None => Ok(()),
@@ -87,17 +87,18 @@ fn copy_assets(session: &Session, target: TargetId, output: &Output, diagnostics
 
 /// The rule of the platform an output names: a bundled one's, embedded in the
 /// toolchain, or a repository platform's.
-pub fn platform_rule<'s>(session: &'s Session, output: &Output) -> Option<&'s PlatformRule> {
+pub fn platform_rule<'s>(session: &'s Session, output: &Output) -> &'s PlatformRule {
     match &output.custom {
-        Some(custom) => session.workspace.platform_rule(&custom.label.value).map(|(_, rule)| rule),
-        None => crate::build::platforms::bundled(output.platform().slug()),
+        Some(custom) => session.workspace.platform_rule(&custom.label.value).1,
+        None => crate::build::platforms::bundled(output.platform().slug())
+            .or_ice("each bundled platform's build file holds a `platform` rule"),
     }
 }
 
 /// Whether an output is a page: its platform ships an `index.html` beside
 /// every entry, which `buri run` serves instead of starting the entry.
 pub fn is_page(session: &Session, output: &Output) -> bool {
-    platform_rule(session, output).is_some_and(|rule| rule.assets.iter().any(|a| a.value == PAGE))
+    platform_rule(session, output).assets.iter().any(|a| a.value == PAGE)
 }
 
 /// The document `buri run` serves an output's directory by.
@@ -413,10 +414,7 @@ fn host_file(
     };
     let file = match &output.custom {
         Some(custom) => {
-            let (pid, _) = session
-                .workspace
-                .platform_rule(&custom.label.value)
-                .or_ice("loading the repository resolved every platform an output names");
+            let (pid, _) = session.workspace.platform_rule(&custom.label.value);
             let disk = session.workspace.package(pid).dir.join(&js);
             let rel = session.workspace.rel_of(&disk);
             match session.map.load(&rel, &disk) {
@@ -959,7 +957,7 @@ pub fn platform_inputs(
     workspace: &crate::build::workspace::Workspace,
     label: &str,
 ) -> Option<(crate::build::workspace::PackageId, Vec<String>, Vec<TargetId>)> {
-    let (pid, rule) = workspace.platform_rule(label)?;
+    let (pid, rule) = workspace.platform_rule(label);
     let mut files: Vec<String> = vec![String::from("BUILD.buri"), String::from("platform.buri")];
     files.extend(rule.sources.iter().map(|s| s.value.clone()));
     files.extend(rule.entries.iter().filter_map(|e| e.js.as_ref().map(|j| j.value.clone())));
@@ -996,9 +994,10 @@ pub enum Content {
     Program,
 }
 
-/// A file's contents as `content` reads them, tagged so the two readings never meet.
-pub fn read_as(rel: &str, bytes: Vec<u8>, content: Content) -> Vec<u8> {
-    if content == Content::Program && rel.ends_with(".buri") {
+/// A file's contents as [`Content::Program`] reads them: a `.buri` file's
+/// program text, any other file's bytes, tagged so the two readings never meet.
+pub fn read_as(rel: &str, bytes: Vec<u8>) -> Vec<u8> {
+    if rel.ends_with(".buri") {
         if let Some(mut text) =
             std::str::from_utf8(&bytes).ok().and_then(crate::parsing::lexer::program_text)
         {
@@ -1034,7 +1033,7 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
         let bytes = crate::build::read_source(&dir.join(rel)).ok()?;
         Some(std::sync::Arc::new(match content {
             Content::Bytes => bytes,
-            Content::Program => read_as(rel, bytes, content),
+            Content::Program => read_as(rel, bytes),
         }))
     };
     let path = |i: usize| files.get(i).map(|(dir, rel)| (dir.join(rel), content));
@@ -1208,7 +1207,7 @@ fn explain_closure(session: &Session, target: TargetId, output: &Output, flags: 
 /// what compiling it involves — the helper's own `dependencies` are as much part
 /// of the suite as the helper is.
 pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
-    let mut k = suite_key(session, target, output, flags, Action::Test, Content::Program);
+    let mut k = suite_key(session, target, output, flags, Action::Test);
     goldens(&session.workspace.package(target.package).dir, &mut k);
     // A recording run and a comparing run are two kinds of result and must not
     // share a cache entry. `--update` paints goldens and never compares, so its
@@ -1256,7 +1255,7 @@ pub fn test_build_key(
     flags: &Flags,
     graph: &ActionKey,
 ) -> ActionKey {
-    let mut k = suite_key(session, target, output, flags, Action::Build, Content::Program);
+    let mut k = suite_key(session, target, output, flags, Action::Build);
     k.dependency(graph);
     if let Some(filter) = &flags.filter {
         k.input("filter", filter.as_bytes());
@@ -1291,15 +1290,15 @@ pub fn graph_key(session: &Session, flags: &Flags) -> ActionKey {
 }
 
 /// The closure [`test_key`] and [`test_build_key`] share: the target's, each
-/// test dependency's, and the suite's own sources, read as `content` says.
+/// test dependency's, and the suite's own sources, read as [`Content::Program`].
 fn suite_key(
     session: &Session,
     target: TargetId,
     output: &Output,
     flags: &Flags,
     action: Action,
-    content: Content,
 ) -> KeyBuilder {
+    let content = Content::Program;
     let base = action_key_as(session, target, output, flags, action, content);
     let mut k = KeyBuilder::new(action, flags.mode);
     k.dependency(&base);
@@ -1329,16 +1328,16 @@ fn suite_key(
         contribute_as(session, member, &mut k, content);
     }
     let package = session.workspace.package(target.package);
-    if let Some(suite) = package.test_suite(target.kind) {
-        let mut files: Vec<String> =
-            suite.sources.iter().map(|x| x.value.clone()).collect();
-        files.sort();
-        k.rule_identity(&package.label(), "test", &files);
-        for rel in &files {
-            let full = package.dir.join(rel);
-            let contents = crate::build::read_source(&full).ok().map(|b| read_as(rel, b, content));
-            k.file(rel, contents.as_deref());
-        }
+    let suite = package
+        .test_suite(target.kind)
+        .or_ice("`buri test` keys only a target with a `test` block");
+    let mut files: Vec<String> = suite.sources.iter().map(|x| x.value.clone()).collect();
+    files.sort();
+    k.rule_identity(&package.label(), "test", &files);
+    for rel in &files {
+        let full = package.dir.join(rel);
+        let contents = crate::build::read_source(&full).ok().map(|b| read_as(rel, b));
+        k.file(rel, contents.as_deref());
     }
     k
 }
@@ -1755,9 +1754,10 @@ fn runtime_features_for(target: Target) -> (bool, bool) {
 /// `backend::select` answers the *target* question and not merely the platform
 /// one, which is what this relies on: the development backend has a triple it
 /// has no stencil library for, and without that a host of that kind would be
-/// told the build is ready and then refused inside the emission.
+/// told the build is ready and then refused inside the emission. A JavaScript
+/// target is never ready, because no host links one ([`link::can_link`]).
 pub fn native_ready(target: Target, profile: Profile) -> bool {
-    target.platform.is_native() && native_gap(target, profile).is_none()
+    native_gap(target, profile).is_none()
 }
 
 /// One reason this toolchain cannot produce a native artifact, in the three
@@ -2099,9 +2099,8 @@ fn collect_types(func: &ir::Func, out: &mut Vec<usize>) {
 ///   costs, because the backend re-emitted every unit and every object but one
 ///   was thrown away.
 /// - A backend may return more objects than were asked for — the default
-///   `emit_units` does — because the selection here is by name. It may not
-///   return fewer: a unit that missed and has no object is the internal error
-///   below.
+///   `emit_units` does — because the selection here is by name. It never
+///   returns fewer.
 ///
 /// The `Emitted::key` a backend attaches, if it attaches one, is *replaced* by
 /// the one the build system computed. That is not a slight: the cache is the build system's, and
@@ -2173,14 +2172,10 @@ where
     for &i in wanted {
         let (name, key) = keys.get(i).or_ice("a wanted unit is a position in `keys`");
         let object = object_name(name);
-        let Some(unit) = emitted.iter().find(|e| e.name == object || e.name == *name) else {
-            let mut diagnostics = Diagnostics::new();
-            diagnostics.push(Diagnostic::error(
-                Span::NONE,
-                format!("internal error: the backend emitted no object for unit `{name}`"),
-            ));
-            return Err(diagnostics);
-        };
+        let unit = emitted
+            .iter()
+            .find(|e| e.name == object || e.name == *name)
+            .or_ice("a backend emits an object for every unit it is asked for");
         cache.put_checked(key, &unit.bytes);
         *hits.get_mut(i).or_ice("`hits` has a slot per key") = Some(unit.bytes.clone());
         *fresh.get_mut(i).or_ice("`fresh` has a slot per key") = true;
@@ -3177,7 +3172,7 @@ pub fn check_policy(
 fn check_platform_visibility(session: &Session, platform: &OutputPlatform, diagnostics: &mut Diagnostics) {
     let OutputPlatform::Repository { label, .. } = platform else { return };
     let ws = &session.workspace;
-    let Some((pid, rule)) = ws.platform_rule(label) else { return };
+    let (pid, rule) = ws.platform_rule(label);
     let mut edges: Vec<(crate::build::workspace::PackageId, TargetId, Span)> = Vec::new();
     let mut members: Vec<TargetId> = Vec::new();
     for dep in &rule.dependencies {
@@ -3190,9 +3185,8 @@ fn check_platform_visibility(session: &Session, platform: &OutputPlatform, diagn
     members.dedup();
     for member in members {
         for (dep, span) in ws.dep_edges(member) {
-            if let Some(span) = span {
-                edges.push((member.package, dep, span));
-            }
+            let span = span.or_ice("a library's every edge is one its rule declares");
+            edges.push((member.package, dep, span));
         }
     }
     for (from, dep, span) in edges {
@@ -3383,30 +3377,32 @@ pub fn check_platform(
     let mut d = Diagnostic::templated("platform-violation", span)
         .with_bind("target", label.as_str())
         .with_bind("platform", platform.name());
-    if let Some(found) = session.workspace.platform_blocker_of(&members, platform) {
-        let blocker = found.member;
-        d = d.with_note(found.why);
-        if let Some(word) = found.forbidden {
-            d = d.with_fix(format!(
-                "drop the {} output, or take {word} out of the tag's `forbids` in REPO.buri",
-                platform.name()
-            ));
+    // `allowed` and the blocker are read off the same members by the same
+    // rules, so a platform `allowed` lacks always has one.
+    let found = session
+        .workspace
+        .platform_blocker_of(&members, platform)
+        .or_ice("a platform the closure does not admit has a member that rules it out");
+    let blocker = found.member;
+    d = d.with_note(found.why);
+    if let Some(word) = found.forbidden {
+        d = d.with_fix(format!(
+            "drop the {} output, or take {word} out of the tag's `forbids` in REPO.buri",
+            platform.name()
+        ));
+    }
+    if let Some(path) = session.workspace.dep_path(target, blocker) {
+        if path.len() > 1 {
+            let names: Vec<String> =
+                path.iter().map(|(t, _)| session.workspace.label(*t)).collect();
+            d = d.with_note(format!("reached by: {}", names.join(" -> ")));
         }
-        if let Some(path) = session.workspace.dep_path(target, blocker) {
-            if path.len() > 1 {
-                let names: Vec<String> =
-                    path.iter().map(|(t, _)| session.workspace.label(*t)).collect();
-                d = d.with_note(format!("reached by: {}", names.join(" -> ")));
-            }
+    }
+    for tag in session.workspace.tags(blocker) {
+        let doc = session.workspace.tag_doc(&tag.value);
+        if !doc.is_empty() {
+            d = d.with_note(format!("\"{}\": {doc}", tag.value));
         }
-        for tag in session.workspace.tags(blocker) {
-            let doc = session.workspace.tag_doc(&tag.value);
-            if !doc.is_empty() {
-                d = d.with_note(format!("\"{}\": {doc}", tag.value));
-            }
-        }
-    } else if allowed.is_empty() {
-        d = d.with_note("its dependency closure admits no platform at all");
     }
     diagnostics.push(d);
 }

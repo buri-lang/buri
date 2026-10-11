@@ -26,7 +26,7 @@ use crate::build::session::{self, Session};
 use crate::build::workspace::Workspace;
 use crate::commands::arguments::Flags;
 use crate::compiler::driver::Analysis;
-use crate::diagnostics::FileId;
+use crate::diagnostics::{FileId, Invariant as _};
 use std::collections::BTreeMap;
 use std::hash::Hasher;
 use std::path::{Path, PathBuf};
@@ -348,7 +348,7 @@ impl Sources {
             if moved.is_empty() && fresh.is_empty() {
                 return Ok(());
             }
-            let Some(warm) = self.warm.as_mut() else { return Ok(()) };
+            let warm = self.warm.as_mut().or_ice("the loop's first step opens a warm copy");
             // The copy this makes when the session is shared is what leaves
             // every analysis already in hand reading the text it was built on.
             let session = Rc::make_mut(warm);
