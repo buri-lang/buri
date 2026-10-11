@@ -1,0 +1,22 @@
+# Folds the backend can only make once it has inlined an intrinsic, on
+# values read at run time and calls that are never inlined, so the folds
+# meet operands they can't drop or rewrite. Debug and release both minify.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "folds that meet a call or a value read at run time keep what the program means"
+
+run {
+  args: ["run", "//cmd/late_folds"]
+  exit: 0
+  stream: OUT
+  golden: "run.txt"
+}
+
+run {
+  args: ["run", "--release", "//cmd/late_folds"]
+  exit: 0
+  stream: OUT
+  golden: "run.txt"
+}
