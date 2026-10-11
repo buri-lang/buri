@@ -404,6 +404,13 @@ impl<'a> Gen<'a> {
         if from == to {
             return v;
         }
+        // A narrow integer is a `number`, so `-x` or `0 * -1` can leave `-0`,
+        // which no integer is. `+ 0` drops that sign before a float shows it.
+        let v = if from.is_integer() && !from.is_bigint() && to.is_float() {
+            Expr::bin(BinOp::Add, v, Expr::Num(0.0))
+        } else {
+            v
+        };
         if conversion_is_exact(from, to) {
             return represent(v, from, to);
         }
