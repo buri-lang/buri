@@ -52,12 +52,9 @@ use crate::parsing::tree::{
     BinOp, FieldDecl, FnDecl, GenericParam, ImportSpec, Param, TupleField, UnOp, Variant,
 };
 
-/// `s`, moved from file `from` to file `to`. A span in any other file, such
-/// as [`Span::NONE`], stays where it is.
-pub fn refile(s: &mut Span, from: FileId, to: FileId) {
-    if s.file == from {
-        s.file = to;
-    }
+/// `s`, moved to file `to`.
+pub fn refile(s: &mut Span, to: FileId) {
+    s.file = to;
 }
 
 /// The absent optional id.
@@ -1377,15 +1374,13 @@ impl Tree {
         List::new(start, self.len_of::<T>().saturating_sub(start))
     }
 
-    /// Moves this tree to `to`: every span in it that names `from` names `to`
-    /// instead. The expression arenas hold locations rather than spans, so
-    /// only the declaration lists are walked.
-    pub fn refile(&mut self, from: FileId, to: FileId) {
-        if self.file == from {
-            self.file = to;
-        }
-        let at = |s: &mut Span| refile(s, from, to);
-        let name = |n: &mut crate::parsing::tree::Name| refile(&mut n.span, from, to);
+    /// Moves this tree to `to`: every span in it names `to` instead of the
+    /// file it was parsed as. The expression arenas hold locations rather than
+    /// spans, so only the declaration lists are walked.
+    pub fn refile(&mut self, to: FileId) {
+        self.file = to;
+        let at = |s: &mut Span| refile(s, to);
+        let name = |n: &mut crate::parsing::tree::Name| refile(&mut n.span, to);
         for g in &mut self.generics {
             name(&mut g.name);
             at(&mut g.span);
