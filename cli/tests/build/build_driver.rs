@@ -111,6 +111,25 @@ fn a_cache_lock_a_crashed_build_left_is_taken() {
     assert!(!lock.exists(), "the stale lock is still there");
 }
 
+/// A cache lock some live build holds is waited on for ten seconds, then the
+/// build goes on without it: its own entries still serve it, and another
+/// toolchain's cache and the lock are left as they were.
+#[test]
+fn a_build_gives_up_on_a_held_cache_lock_and_goes_on() {
+    let scratch = repository("        { platform: \"node\" },\n", NODE_MAIN);
+    scratch.run(&["build", "//cmd/app"]).ok();
+    scratch.write(".buri/cache/.toolchain", "another toolchain");
+    let stray = scratch.write(".buri/cache/stray", "another toolchain's entry\n");
+    let lock = scratch.write(".buri/cache/.lock", "");
+    // Dated ahead, so however slowly this machine runs, the lock is never old
+    // enough to be taken for a crashed build's.
+    let an_hour_ahead = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+    std::fs::File::options().write(true).open(&lock).unwrap().set_modified(an_hour_ahead).unwrap();
+    scratch.run(&["build", "--explain", "//cmd/app"]).ok().says("cached link //cmd/app node");
+    assert!(lock.exists(), "the build took a lock another build holds");
+    assert!(stray.exists(), "the build emptied the cache without the lock");
+}
+
 /// Every entry in the cache cut to half its length, as a crash or a full disk
 /// can leave it: the next build rebuilds what it needs, and the program runs.
 #[test]
@@ -286,11 +305,13 @@ fn a_build_with_no_home_directory() {
 /// macOS checks each new executable file once, so a test runner runs as the
 /// file in `$BURI_HOME/programs` that first held its bytes. An entry someone
 /// wrote to isn't handed out, an entry nothing ran for hours is swept and
-/// made again, and a home that can't hold the store leaves the runner as the
-/// linker wrote it. The tests pass every time.
+/// made again while one in use stays, a store that can't be listed still
+/// works, and a home that can't hold the store leaves the runner as the linker
+/// wrote it. The tests pass every time.
 #[cfg(target_os = "macos")]
 #[test]
 fn a_test_runner_runs_from_the_program_store() {
+    use std::os::unix::fs::PermissionsExt;
     let scratch = Scratch::repo("build-driver-store");
     scratch.write(
         "lib/one/BUILD.buri",
@@ -332,6 +353,56 @@ fn a_test_runner_runs_from_the_program_store() {
     test(&home);
     assert_eq!(kept().as_ref(), Some(&program), "the stale entry wasn't made again");
     assert_eq!(std::fs::read(&program).unwrap(), std::fs::read(runner()).unwrap());
+
+    // A sweep leaves an entry something ran lately, and a stale one that
+    // something is starting, under its lock.
+    use std::os::unix::fs::MetadataExt;
+    let inode = || std::fs::metadata(&program).unwrap().ino();
+    let made = inode();
+    std::fs::File::open(scratch.path("home/programs/.swept")).unwrap().set_modified(hours_ago).unwrap();
+    clean(&home);
+    test(&home);
+    assert_eq!(kept().as_ref(), Some(&program), "a sweep took an entry in use");
+    for old in [program.parent().unwrap().to_path_buf(), scratch.path("home/programs/.swept")] {
+        std::fs::File::open(&old).unwrap().set_modified(hours_ago).unwrap();
+    }
+    let starting = std::fs::File::open(program.parent().unwrap().join("lock")).unwrap();
+    starting.lock_shared().unwrap();
+    clean(&home);
+    test(&home);
+    drop(starting);
+    assert_eq!(inode(), made, "a sweep took an entry under its lock");
+    // One whose time can't be kept is still handed out.
+    let entry = program.parent().unwrap();
+    std::fs::set_permissions(entry, std::fs::Permissions::from_mode(0o300)).unwrap();
+    clean(&home);
+    test(&home);
+    std::fs::set_permissions(entry, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(kept().as_ref(), Some(&program), "an entry that can't be touched wasn't handed out");
+
+    // A store that can't be listed still hands out entries; one that can't be
+    // made leaves the runner as the linker wrote it.
+    let unlisted = scratch.path("unlisted-home");
+    std::fs::create_dir_all(unlisted.join("programs")).unwrap();
+    std::fs::set_permissions(unlisted.join("programs"), std::fs::Permissions::from_mode(0o300)).unwrap();
+    clean(&unlisted.display().to_string());
+    test(&unlisted.display().to_string());
+    let listed = kept();
+    std::fs::set_permissions(unlisted.join("programs"), std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(listed.is_some_and(|p| p.starts_with(&unlisted)), "an unlistable store handed out nothing");
+    let blocked = scratch.path("blocked-home");
+    std::fs::create_dir_all(&blocked).unwrap();
+    std::fs::write(blocked.join("programs"), "").unwrap();
+    clean(&blocked.display().to_string());
+    test(&blocked.display().to_string());
+    assert_eq!(kept(), None, "a store under a file was used");
+    let read_only = scratch.path("read-only-home");
+    std::fs::create_dir_all(read_only.join("programs")).unwrap();
+    std::fs::set_permissions(read_only.join("programs"), std::fs::Permissions::from_mode(0o500)).unwrap();
+    clean(&read_only.display().to_string());
+    test(&read_only.display().to_string());
+    std::fs::set_permissions(read_only.join("programs"), std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(kept(), None, "a read-only store was used");
 
     let file = scratch.write("home-is-a-file", "").display().to_string();
     clean(&file);
@@ -647,6 +718,43 @@ fn a_c_driver_that_is_musl_s_own_links_the_program() {
     scratch.run_with_env(&["run", "//cmd/app"], &[("CC", &cc), ("BURI_MUSL", "system")]).ok().says("native");
 }
 
+/// A C driver some process is still writing can't be started. The build tries
+/// for about half a second, then says why.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_c_driver_still_being_written_is_reported() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    let cc = scratch.write_executable("fake/cc", "#!/bin/sh\nexit 0\n");
+    // Open for writing for as long as the build runs, so every start is `ETXTBSY`.
+    let _writing = std::fs::File::options().append(true).open(&cc).unwrap();
+    scratch
+        .run_with_env(&["build", "//cmd/app"], &[("CC", &cc.display().to_string())])
+        .exits(1)
+        .says("Text file busy");
+}
+
+/// A glibc C driver that can't be pointed at musl, with no musl driver on
+/// `PATH`, links nothing. Unforced, the build says no musl driver was found
+/// either; `BURI_MUSL=baked` names the driver as the reason.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_c_driver_that_cant_target_musl_links_nothing() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    let cc = scratch
+        .write_executable("fake/cc", "#!/bin/sh\ncase \"$*\" in\n  -dumpmachine) echo x86_64-linux-gnu ;;\n  *) exit 1 ;;\nesac\n")
+        .display()
+        .to_string();
+    let path = scratch.path("fake").display().to_string();
+    for (musl, says) in
+        [("", "no musl driver is on PATH either"), ("baked", "its C driver does not understand `--target=`")]
+    {
+        scratch
+            .run_with_env(&["build", "//cmd/app"], &[("CC", &cc), ("PATH", &path), ("BURI_MUSL", musl)])
+            .exits(1)
+            .says(says);
+    }
+}
+
 /// A `buri` whose linker wrote no build id knows itself by the hash of its
 /// bytes, remembered under `XDG_CACHE_HOME`. Its builds are cached like any
 /// other's, whether the remembered hash is damaged or can't be written.
@@ -659,8 +767,9 @@ fn a_buri_without_a_build_id_still_caches() {
         .windows(16)
         .position(|w| w[..4] == [4, 0, 0, 0] && w[8..12] == [3, 0, 0, 0] && &w[12..] == b"GNU\0")
         .expect("buri carries no GNU build id");
-    // Another note kind: the loader doesn't read it, and `buri` no longer finds its id.
-    bytes[note + 8] = 0x7f;
+    // The build id's kind under another owner's name, `GNX`: the loader doesn't
+    // read it, and `buri` no longer finds its id.
+    bytes[note + 14] = b'X';
     let copy = scratch.path("bin/buri");
     write_executable(&copy, bytes);
     // Under the coverage gate, the copy's profiles lack the build id the
@@ -744,7 +853,9 @@ fn a_cross_runtime_is_built_once_with_cargo() {
     let left: Vec<_> = std::fs::read_dir(scratch.path("home/cross")).map(|d| d.flatten().collect()).unwrap_or_default();
     assert!(left.is_empty(), "a failed cross build left {left:?}");
 
-    let env = [env[0], env[1], env[2], ("STAND_IN_ARCHIVE", archive.as_str())];
+    // `CARGO_HOME` is the one `CARGO_*` variable the runtime's cargo keeps.
+    let cargo_home = scratch.path("cargo-home").display().to_string();
+    let env = [env[0], env[1], env[2], ("STAND_IN_ARCHIVE", archive.as_str()), ("CARGO_HOME", cargo_home.as_str())];
     let builds = || scratch.read("cargo.log").lines().filter(|l| *l == "rustc").count();
     let build = || {
         scratch.run_with_env(&["build", "--force", "//cmd/app"], &env).ok();
@@ -765,6 +876,54 @@ fn a_cross_runtime_is_built_once_with_cargo() {
     std::fs::remove_file(entry().join("musl/lib/crt1.o")).unwrap();
     build();
     assert_eq!(builds(), failed + 3, "a sysroot missing a member was reused");
+    // Both rounds of a reproducibility check link against the one runtime.
+    scratch.run_with_env(&["build", "--check-reproducible", "//cmd/app"], &env).ok();
+    assert_eq!(builds(), failed + 3, "a reproducibility check built the cross runtime again");
+}
+
+/// A failing native suite runs again from the runner it was linked into. One
+/// someone deleted is put back, and the suite still fails the same way.
+#[test]
+fn a_failing_suite_whose_runner_was_deleted_runs_again() {
+    let scratch = Scratch::repo("build-driver-runner");
+    scratch.write(
+        "lib/one/BUILD.buri",
+        "library {\n    test {\n        sources: [\"test/one_test.buri\"]\n        backends: [NATIVE]\n    }\n}\n",
+    );
+    scratch.write("lib/one/lib.buri", "export fn one(): Int {\n    1\n}\n");
+    scratch.write(
+        "lib/one/test/one_test.buri",
+        "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/one\" import { one };\n\n\
+         test \"one is two\" {\n    assert.equal(one(), 2);\n}\n",
+    );
+    scratch.run(&["test", "//lib/one"]).exits(1).says("0 passed, 1 failed");
+    let variant = only_entry(&scratch.path(".buri/out/native"));
+    std::fs::remove_file(scratch.path(&format!(".buri/out/native/{variant}/test-runner"))).unwrap();
+    scratch.run(&["test", "//lib/one"]).exits(1).says("0 passed, 1 failed");
+}
+
+/// A link line the driver printed once that no longer links is dropped, and
+/// the driver links instead. Here the line names a linker that always fails,
+/// and both rounds of a reproducibility check still link.
+#[test]
+fn a_stale_link_line_falls_back_to_the_driver() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    let found = std::process::Command::new("sh").args(["-c", "command -v \"${CC:-cc}\""]).output().unwrap();
+    let real = String::from_utf8_lossy(&found.stdout).trim().to_string();
+    let cc = scratch
+        .write_executable(
+            "fake/cc",
+            &format!(
+                "#!/bin/sh\nif [ \"$1\" = \"-###\" ]; then\n  \"{real}\" \"$@\" 2>&1 >/dev/null | \
+                 sed 's|^ \"[^\"]*\"| \"/usr/bin/false\"|' >&2\n  exit 0\nfi\nexec \"{real}\" \"$@\"\n"
+            ),
+        )
+        .display()
+        .to_string();
+    scratch
+        .run_with_env(&["build", "--check-reproducible", "--verbose", "//cmd/app"], &[("CC", &cc)])
+        .ok()
+        .says("//cmd/app is reproducible (");
 }
 
 /// The link directory of `//cmd/app`'s native output, under `.buri/link`.
