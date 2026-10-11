@@ -514,7 +514,7 @@ fn program_import(lexemes: &[Lexeme], start: usize, end: usize, program: &str) -
                 }
                 i = i.saturating_add(3);
             }
-            Some(Token::Ident(w)) if w != "from" && w != "as" => {
+            Some(Token::Ident(w)) if w != "from" => {
                 named.push((String::from("default"), lexemes.get(i).map_or(0, |l| l.start)));
                 parts.push(format!("const {w} = {program}.default;"));
                 i = i.saturating_add(1);

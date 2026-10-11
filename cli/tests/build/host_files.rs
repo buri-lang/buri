@@ -154,3 +154,12 @@ fn a_one_parameter_arrow_is_counted() {
         .exits(1)
         .says("`fetch.mjs` exports `HostKv` whose `get` takes 1 parameters, where `Kv` declares 3");
 }
+
+/// `as` is a name like any other in a default import, so `import as from
+/// "buri:program"` is a default import, which `buri:program` doesn't have.
+#[test]
+fn a_default_import_named_as_is_refused() {
+    let scratch = walkthrough();
+    scratch.write(FILE, &format!("import as from \"buri:program\";\n{HEAD}{KV}"));
+    scratch.run(&["build", "//cmd/site"]).exits(1).says("\"buri:program\" does not export `default`");
+}
