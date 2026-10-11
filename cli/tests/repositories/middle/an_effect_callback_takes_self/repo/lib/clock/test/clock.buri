@@ -1,11 +1,26 @@
 from "core/testing/assert" import * as assert;
 from "//platform/effect/ticker" import * as ticks;
 from "//platform/effect/ticker" import { Ticker };
-from "//platform/effect/ticker/testing" import { ticker };
+from "//platform/effect/ticker/testing" import { fnTicker, ticker };
+
+fn through<T>(t: [T]): Int {
+    let ctx = context {
+        Ticker: fnTicker(fn(xs: [T]): Int => 0),
+    };
+    ticks.every(ctx, 5, fn(c, k) => k)
+}
 
 test "a callback handed the context and a number" {
     let ctx = context {
         Ticker: ticker(),
     };
     assert.equal(ticks.every(ctx, 3, fn(c, k) => k + 1), 7);
+}
+
+test "a context holding a function" {
+    let ctx = context {
+        Ticker: fnTicker(fn(n: Int): Int => n),
+    };
+    assert.equal(ticks.every(ctx, 3, fn(c, k) => k + 1), 4);
+    assert.equal(through(["x"]), 5);
 }
