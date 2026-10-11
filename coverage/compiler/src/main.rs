@@ -450,6 +450,9 @@ fn shards(dir: &Path) -> BTreeMap<String, Measured> {
 /// instantiation groups do.
 type Side = ([u32; 2], [u32; 4], u32, u32);
 
+/// A `Side` without its side.
+type Condition = ([u32; 2], [u32; 4], u32);
+
 /// What one platform's tests took, per file.
 #[derive(Clone, Default)]
 struct Measured {
@@ -568,7 +571,7 @@ impl Measured {
             }
             let hit = |counts: &mut dyn Iterator<Item = &u64>| counts.filter(|&&c| c > 0).count();
             out.push_str(&format!("LF:{}\nLH:{}\n", record.lines.len(), hit(&mut record.lines.values())));
-            let mut blocks: BTreeMap<u32, Vec<([u32; 2], [u32; 4], u32)>> = BTreeMap::new();
+            let mut blocks: BTreeMap<u32, Vec<Condition>> = BTreeMap::new();
             for &(starts, span, nth, _) in record.branches.keys() {
                 let on_line = blocks.entry(span[0]).or_default();
                 if on_line.last() != Some(&(starts, span, nth)) {

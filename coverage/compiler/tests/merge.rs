@@ -4,6 +4,7 @@
 #![allow(
     clippy::unwrap_used,
     clippy::panic,
+    clippy::arithmetic_side_effects,
     reason = "test code: a helper that unwraps fails on the line that broke"
 )]
 
