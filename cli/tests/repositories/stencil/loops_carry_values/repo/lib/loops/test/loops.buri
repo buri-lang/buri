@@ -34,3 +34,33 @@ test "a loop with more than four changing parameters rotates them all" {
 test "a list loop inside a recursive loop" {
     assert.equal(outerSum(3, 0, [1, 2, 3]), 6 * 3 + 6 * 2 + 6 * 1);
 }
+
+fn rotateFive(n: F32, a: F32, b: F32, c: F32, d: F32, e: F32): F32 {
+    if (n <= 0.0) {
+        a * 10000.0 + b * 1000.0 + c * 100.0 + d * 10.0 + e
+    } else {
+        rotateFive(n - 1.0, b, c, d, e, a)
+    }
+}
+
+fn rotateTwo(n: F32, a: F32, b: F32): F32 {
+    if (n <= 0.0) { a * 10.0 + b } else { rotateTwo(n - 1.0, b, a) }
+}
+
+test "five F32s rotate on each pass" {
+    assert.equal(rotateFive(1.0, 1.0, 2.0, 3.0, 4.0, 5.0).toF64(), 23451.0);
+    assert.equal(rotateFive(5.0, 1.0, 2.0, 3.0, 4.0, 5.0).toF64(), 12345.0);
+}
+
+test "two F32s swap on each pass" {
+    assert.equal(rotateTwo(1.0, 1.0, 2.0).toF64(), 21.0);
+    assert.equal(rotateTwo(2.0, 1.0, 2.0).toF64(), 12.0);
+}
+
+fn accumulate(n: Int, acc: F64): F64 {
+    if (n == 0) { acc } else { accumulate(n - 1, acc + 1.5) }
+}
+
+test "a float accumulates in a loop" {
+    assert.equal(accumulate(4, 0.5), 6.5);
+}
