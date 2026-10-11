@@ -1,0 +1,4 @@
+binary {
+    dependencies: ["//lib/shop"]
+    outputs: [{ platform: "node" }]
+}

@@ -1,0 +1,44 @@
+# What another module may not touch: a private field, a method kept to its
+# module, a method off the library's surface, and the variants of an enum that
+# isn't exported but reaches the program through `pick` and `describe`, both
+# matched and built. Exporting each one is what makes the program build.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "what a module keeps private is refused from another module, each kind once, and exporting it is the fix"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "private.txt"
+}
+
+edit {
+  file: "lib/shop/cart.buri"
+  replace: "export struct Cart(Int);"
+  with: "export struct Cart(export Int);"
+}
+
+edit {
+  file: "lib/shop/cart.buri"
+  replace: "    fn audit(self): Int {"
+  with: "    export fn audit(self): Int {"
+}
+
+edit {
+  file: "lib/shop/cart.buri"
+  replace: "enum Size {"
+  with: "export enum Size {"
+}
+
+edit {
+  file: "lib/shop/lib.buri"
+  replace: "export { Cart, describe, pick };"
+  with: "export { Cart, audit, describe, pick, total };"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "ran.txt"
+}
