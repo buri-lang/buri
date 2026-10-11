@@ -1,6 +1,7 @@
-# Loops that carry several values from pass to pass: three that rotate, six
-# that rotate (more than the debug backend's fused copy-and-jump takes), and a
-# list loop inside a recursive one. Both backends run every block.
+# Loops that carry several values from pass to pass: integers and F32s that
+# rotate, more of them than the debug backend's fused copy-and-jump takes, a
+# float that accumulates, and a list loop inside a recursive one. Both backends
+# run every block.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
