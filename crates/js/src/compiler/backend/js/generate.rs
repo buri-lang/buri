@@ -1164,9 +1164,8 @@ impl<'a> Gen<'a> {
         survey_args(&shape, false, &mut seen);
         let mut last = 0usize;
         for i in seen.order.iter().copied() {
-            let (Some(arg), Some(facts)) = (args.get(i), seen.args.get(i)) else {
-                return None;
-            };
+            let arg = args.get(i).or_ice(PLACEHOLDER);
+            let facts = seen.args.get(i).or_ice(PLACEHOLDER);
             if arg.is_pure_literal() {
                 continue;
             }
@@ -1184,6 +1183,7 @@ impl<'a> Gen<'a> {
 /// resolved the operator to this `PrimOp` from the operands it had.
 const BINARY_ARITY: &str = "a binary primitive operation reaches the backend with two operands";
 const UNARY_ARITY: &str = "a unary primitive operation reaches the backend with one operand";
+const PLACEHOLDER: &str = "a `$$argN` placeholder names one of the arguments it was built for";
 const OR_ALTERNATIVES: &str = "the parser builds an or-pattern from at least two alternatives";
 
 /// A call worth replacing is small; anything larger is cheaper as a call.
@@ -1259,13 +1259,11 @@ impl ArgUse {
 fn survey_args(e: &Expr, under_cond: bool, out: &mut ArgUse) {
     if let Expr::Ident(name) = e {
         if let Some(n) = name.strip_prefix("$$arg") {
-            if let Ok(i) = n.parse::<usize>() {
-                if let Some(a) = out.args.get_mut(i) {
-                    a.count = a.count.saturating_add(1);
-                    a.conditional |= under_cond;
-                    out.order.push(i);
-                }
-            }
+            let i = n.parse::<usize>().or_ice(PLACEHOLDER);
+            let a = out.args.get_mut(i).or_ice(PLACEHOLDER);
+            a.count = a.count.saturating_add(1);
+            a.conditional |= under_cond;
+            out.order.push(i);
         }
         return;
     }
