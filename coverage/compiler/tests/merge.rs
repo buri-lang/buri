@@ -1,6 +1,12 @@
 //! `--merge` and `--raise` as CI runs them: shards' lcov from three platforms
 //! in, a verdict, a baseline and each platform's lcov out.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    reason = "test code: a helper that unwraps fails on the line that broke"
+)]
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -103,7 +109,7 @@ fn a_branch_counts_as_covered_if_any_platform_took_it() {
     assert!(out.contains("merged from aarch64-apple-darwin, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu"), "{out}");
 
     let measured = repo.read("target/coverage/compiler-branches.txt");
-    assert!(measured.starts_with(&format!("# ")), "{measured}");
+    assert!(measured.starts_with("# "), "{measured}");
     assert!(measured.contains(THREE), "{measured}");
     assert!(measured.contains("\ntotal 2 2 100.00%\n"), "{measured}");
     assert!(measured.contains("\narea crates/syntax 2 2 100.00%\n"), "{measured}");
