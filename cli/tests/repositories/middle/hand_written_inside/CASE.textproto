@@ -1,0 +1,14 @@
+# Derived operations over types that hold a type with a hand-written Show,
+# Equal, Ordered and Hash: the hand-written one answers for its part, inside
+# structs, enums, lists, tuples and options. Both backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "derived operations defer to a hand-written impl wherever it sits"
+
+run {
+  args: ["test", "//lib/inside", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

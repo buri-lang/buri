@@ -1,0 +1,28 @@
+// Tests only.
+from "core/testing/assert" import * as assert;
+
+derive Add, Equal for Cents;
+struct Cents {
+    value: Int,
+}
+
+// Wraps a newtype rather than a number.
+derive Add, Equal for Money;
+struct Money {
+    cents: Cents,
+}
+
+// Wraps two numbers rather than one.
+derive Add, Equal for Point;
+struct Point {
+    x: Int,
+    y: Int,
+}
+
+test "operators derived on structs that do not wrap one number" {
+    assert.equal(
+        Money { cents: Cents { value: 1 } } + Money { cents: Cents { value: 2 } },
+        Money { cents: Cents { value: 3 } },
+    );
+    assert.equal(Point { x: 1, y: 2 } + Point { x: 3, y: 4 }, Point { x: 4, y: 6 });
+}

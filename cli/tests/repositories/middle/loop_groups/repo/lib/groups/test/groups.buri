@@ -1,0 +1,27 @@
+// Tests only.
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+// `wide` has one more parameter than `narrow`, and a closure captures it.
+fn narrow(n: Int): Int {
+    if (n <= 0) { 0 } else { wide(n - 1, n * 10) }
+}
+
+fn wide(n: Int, k: Int): Int {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    if (n <= 0) {
+        [1, 2].map(ctx, fn(x) => x + k).fold(fn(a, x) => a + x, 0)
+    } else {
+        narrow(n - 1)
+    }
+}
+
+test "a closure captures a parameter only the wider member of a group has" {
+    assert.equal(narrow(1), 23);
+    assert.equal(narrow(3), 23);
+    assert.equal(wide(0, 5), 13);
+    assert.equal(wide(2, 5), 23);
+}

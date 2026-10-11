@@ -1,0 +1,133 @@
+// Tests only.
+from "core/order" import { Order };
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+// Shown, compared and hashed by whole degrees only.
+struct Celsius {
+    tenths: Int,
+}
+
+impl Show for Celsius {
+    fn show<C: Allocator>(self, ctx: C): Str {
+        str.format(ctx, "${self.tenths / 10}C")
+    }
+}
+
+impl Equal for Celsius {
+    fn equal(self, other: Celsius): Bool {
+        self.tenths / 10 == other.tenths / 10
+    }
+}
+
+impl Ordered for Celsius {
+    fn compare(self, other: Celsius): Order {
+        (self.tenths / 10).compare(other.tenths / 10)
+    }
+}
+
+impl Hash for Celsius {
+    fn hash(self): U64 {
+        (self.tenths / 10).hash()
+    }
+}
+
+derive Show, Equal, Ordered, Hash for Nothing;
+struct Nothing {}
+
+derive Show, Equal, Ordered, Hash for Hollow;
+struct Hollow();
+
+derive Show, Equal, Ordered, Hash for Reading;
+struct Reading {
+    at: Celsius,
+    history: [Celsius],
+    pair: (Celsius, Int),
+    maybe: Option<Celsius>,
+    nothing: Nothing,
+    hollow: Hollow,
+}
+
+derive Show, Equal, Ordered, Hash for Outcome;
+enum Outcome {
+    Warm(Celsius),
+    Cold,
+    Both(Celsius, Celsius),
+}
+
+derive Equal, Ordered, Hash for Only;
+enum Only {
+    One(Celsius),
+}
+
+fn c(tenths: Int): Celsius {
+    Celsius { tenths: tenths }
+}
+
+fn reading(at: Int, maybe: Option<Celsius>): Reading {
+    Reading {
+        at: c(at),
+        history: [c(at), c(at + 10)],
+        pair: (c(at), 1),
+        maybe: maybe,
+        nothing: Nothing { },
+        hollow: Hollow(),
+    }
+}
+
+fn name(o: Order): Str {
+    match (o) {
+        .Less => "lt",
+        .Equal => "eq",
+        .Greater => "gt",
+    }
+}
+
+test "a derived Show shows a hand-written part through its own Show" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        reading(215, .Some(c(30))).show(ctx),
+        "Reading { at: 21C, history: [21C, 22C], pair: (21C, 1), maybe: .Some(3C), nothing: Nothing {}, hollow: Hollow() }",
+    );
+    assert.equal(Outcome.Both(c(10), c(20)).show(ctx), ".Both(1C, 2C)");
+    assert.equal(Outcome.Cold.show(ctx), ".Cold");
+    assert.equal(Wrap(c(70), 2).show(ctx), "Wrap(7C, 2)");
+}
+
+derive Show for Wrap;
+struct Wrap(Celsius, Int);
+
+test "a derived Equal compares a hand-written part by its own Equal" {
+    assert.equal(reading(211, .None) == reading(219, .None), true);
+    assert.equal(reading(211, .None) == reading(221, .None), false);
+    assert.equal(reading(211, .Some(c(1))) == reading(211, .None), false);
+    assert.equal(Outcome.Warm(c(11)) == Outcome.Warm(c(19)), true);
+    assert.equal(Only.One(c(11)) == Only.One(c(29)), false);
+}
+
+test "a derived Ordered orders a hand-written part by its own compare" {
+    assert.equal(name(reading(211, .None).compare(reading(219, .None))), "eq");
+    assert.equal(name(reading(211, .None).compare(reading(301, .None))), "lt");
+    assert.equal(name(reading(211, .None).compare(reading(211, .Some(c(5))))), "lt");
+    assert.equal(
+        name(reading(211, .Some(c(95))).compare(reading(211, .Some(c(55))))),
+        "gt",
+    );
+    assert.equal(name(Outcome.Cold.compare(Outcome.Warm(c(5)))), "gt");
+    assert.equal(
+        name(Outcome.Both(c(5), c(5)).compare(Outcome.Both(c(5), c(15)))),
+        "lt",
+    );
+    assert.equal(name(Only.One(c(10)).compare(Only.One(c(19)))), "eq");
+}
+
+test "a derived Hash hashes a hand-written part by its own hash" {
+    assert.equal(reading(211, .None).hash() == reading(219, .None).hash(), true);
+    assert.equal(reading(211, .None).hash() == reading(221, .None).hash(), false);
+    assert.equal(Outcome.Warm(c(11)).hash() == Outcome.Warm(c(19)).hash(), true);
+    assert.equal(Only.One(c(11)).hash() == Only.One(c(19)).hash(), true);
+}

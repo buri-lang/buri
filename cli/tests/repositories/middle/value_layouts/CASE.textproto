@@ -1,0 +1,14 @@
+# Values whose layout is unusual: an enum of three hundred variants, whose tag
+# needs two bytes, an enum with no variants at all, and a struct of seventy
+# fields updated in place. Both backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "unusually shaped values keep their contents on both backends"
+
+run {
+  args: ["test", "//lib/layouts", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

@@ -1,0 +1,14 @@
+# Matches with guards, literals and nested payloads, and recursion the middle
+# end turns into loops: mutually recursive functions whose parameters disagree,
+# go unread, or are captured. Both backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "matches and tail-recursive groups answer alike on both backends"
+
+run {
+  args: ["test", "//lib/flow", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

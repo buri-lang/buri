@@ -79,6 +79,7 @@ mod instances;
 mod javascript;
 mod loading;
 mod many_findings;
+mod middle;
 mod monorepo;
 mod profile;
 mod repositories;

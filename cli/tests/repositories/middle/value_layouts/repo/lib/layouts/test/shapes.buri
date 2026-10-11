@@ -1,0 +1,181 @@
+// Tests only.
+from "core/testing/assert" import * as assert;
+
+enum Never {}
+
+fn value(r: Result<Int, Never>): Int {
+    match (r) {
+        .Ok(n) => n,
+        .Err(never) => {
+            match (never) {
+            }
+        },
+    }
+}
+
+test "a result whose error type has no values" {
+    let r: Result<Int, Never> = .Ok(4);
+    assert.equal(value(r), 4);
+}
+
+// Seventy fields: more than a 64-bit mask of them.
+struct Many {
+    f0: Str,
+    f1: Str,
+    f2: Str,
+    f3: Str,
+    f4: Str,
+    f5: Str,
+    f6: Str,
+    f7: Str,
+    f8: Str,
+    f9: Str,
+    f10: Str,
+    f11: Str,
+    f12: Str,
+    f13: Str,
+    f14: Str,
+    f15: Str,
+    f16: Str,
+    f17: Str,
+    f18: Str,
+    f19: Str,
+    f20: Str,
+    f21: Str,
+    f22: Str,
+    f23: Str,
+    f24: Str,
+    f25: Str,
+    f26: Str,
+    f27: Str,
+    f28: Str,
+    f29: Str,
+    f30: Str,
+    f31: Str,
+    f32: Str,
+    f33: Str,
+    f34: Str,
+    f35: Str,
+    f36: Str,
+    f37: Str,
+    f38: Str,
+    f39: Str,
+    f40: Str,
+    f41: Str,
+    f42: Str,
+    f43: Str,
+    f44: Str,
+    f45: Str,
+    f46: Str,
+    f47: Str,
+    f48: Str,
+    f49: Str,
+    f50: Str,
+    f51: Str,
+    f52: Str,
+    f53: Str,
+    f54: Str,
+    f55: Str,
+    f56: Str,
+    f57: Str,
+    f58: Str,
+    f59: Str,
+    f60: Str,
+    f61: Str,
+    f62: Str,
+    f63: Str,
+    f64: Str,
+    f65: Str,
+    f66: Str,
+    f67: Str,
+    f68: Str,
+    f69: Str,
+}
+
+fn many(): Many {
+    Many {
+        f0: "0",
+        f1: "1",
+        f2: "2",
+        f3: "3",
+        f4: "4",
+        f5: "5",
+        f6: "6",
+        f7: "7",
+        f8: "8",
+        f9: "9",
+        f10: "10",
+        f11: "11",
+        f12: "12",
+        f13: "13",
+        f14: "14",
+        f15: "15",
+        f16: "16",
+        f17: "17",
+        f18: "18",
+        f19: "19",
+        f20: "20",
+        f21: "21",
+        f22: "22",
+        f23: "23",
+        f24: "24",
+        f25: "25",
+        f26: "26",
+        f27: "27",
+        f28: "28",
+        f29: "29",
+        f30: "30",
+        f31: "31",
+        f32: "32",
+        f33: "33",
+        f34: "34",
+        f35: "35",
+        f36: "36",
+        f37: "37",
+        f38: "38",
+        f39: "39",
+        f40: "40",
+        f41: "41",
+        f42: "42",
+        f43: "43",
+        f44: "44",
+        f45: "45",
+        f46: "46",
+        f47: "47",
+        f48: "48",
+        f49: "49",
+        f50: "50",
+        f51: "51",
+        f52: "52",
+        f53: "53",
+        f54: "54",
+        f55: "55",
+        f56: "56",
+        f57: "57",
+        f58: "58",
+        f59: "59",
+        f60: "60",
+        f61: "61",
+        f62: "62",
+        f63: "63",
+        f64: "64",
+        f65: "65",
+        f66: "66",
+        f67: "67",
+        f68: "68",
+        f69: "69",
+    }
+}
+
+fn relabel(m: Many): Many {
+    Many { ..m, f1: "one", f68: "sixty-eight" }
+}
+
+test "a functional update of a struct wider than sixty-four fields" {
+    let m = relabel(many());
+    assert.equal(m.f0, "0");
+    assert.equal(m.f1, "one");
+    assert.equal(m.f67, "67");
+    assert.equal(m.f68, "sixty-eight");
+    assert.equal(m.f69, "69");
+}

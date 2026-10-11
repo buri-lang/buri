@@ -1,0 +1,17 @@
+0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)
+error: `Money` derives `Add` only for a struct wrapping a number, not `Cents` [derive-operator-not-numeric]
+  --> lib/ops/test/ops.buri:24:9
+   |
+24 |         Money { cents: Cents { value: 1 } } + Money { cents: Cents { value: 2 } },
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a derived arithmetic operator is the operation on the wrapped value
+   = fix: write the `impl` by hand, or wrap a numeric type
+error: `Point` derives `Add` only for a single-field struct [derive-operator-not-newtype]
+  --> lib/ops/test/ops.buri:27:18
+   |
+27 |     assert.equal(Point { x: 1, y: 2 } + Point { x: 3, y: 4 }, Point { x: 4, y: 6 });
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = an arithmetic newtype wraps exactly one value
+   = fix: write the `impl` by hand, or wrap exactly one value
