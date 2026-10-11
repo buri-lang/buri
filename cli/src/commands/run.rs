@@ -457,6 +457,7 @@ mod stopping {
     unsafe extern "C" {
         fn signal(sig: i32, handler: usize) -> usize;
         fn kill(pid: i32, sig: i32) -> i32;
+        fn raise(sig: i32) -> i32;
         fn setpgid(pid: i32, pgid: i32) -> i32;
         fn getpgrp() -> i32;
         fn tcgetpgrp(fd: i32) -> i32;
@@ -514,26 +515,15 @@ mod stopping {
     /// toolchain admits — `AtomicI32::is_lock_free` is a compile-time `true` on
     /// AArch64 and x86-64 — so nothing here can be interrupted holding a lock
     /// the interrupted thread was already inside.
-    // Not counted by the coverage gate: whether a signal lands before or after
-    // the spawn is the race this code exists to handle, so which branch a test
-    // takes is timing, not the test.
-    #[cfg_attr(buri_coverage, coverage(off))]
     fn remember(sig: i32) -> Option<i32> {
-        let mut seen = STATE.load(Ordering::Relaxed);
-        loop {
-            if seen > 0 {
-                // A terminal's signal has already reached a child in this
-                // group, and sending it again is what would kill the drain it
-                // started.
-                let arrived_already = SHARES_THE_GROUP.load(Ordering::Relaxed) && sig != SIGTERM;
-                return if arrived_already { None } else { Some(seen) };
-            }
-            let asked = sig.saturating_neg();
-            match STATE.compare_exchange_weak(seen, asked, Ordering::Relaxed, Ordering::Relaxed) {
-                Ok(_) => return None,
-                Err(now) => seen = now,
-            }
-        }
+        let asked = sig.saturating_neg();
+        // No child yet keeps the signal for [`published`]; a child answers it.
+        let child =
+            STATE.try_update(Ordering::Relaxed, Ordering::Relaxed, |seen| (seen <= 0).then_some(asked)).err()?;
+        // A terminal's signal has already reached a child in this group, and
+        // sending it again is what would kill the drain it started.
+        let arrived_already = SHARES_THE_GROUP.load(Ordering::Relaxed) && sig != SIGTERM;
+        if arrived_already { None } else { Some(child) }
     }
 
     /// The child exists: publish its pid, and answer the signal that arrived
@@ -543,10 +533,6 @@ mod stopping {
     /// sending it on is the program's *first* delivery and not a second one —
     /// including under a terminal, where the group signal the handler saw was
     /// one the child was not there to receive.
-    // Not counted by the coverage gate: whether a signal lands before or after
-    // the spawn is the race this code exists to handle, so which branch a test
-    // takes is timing, not the test.
-    #[cfg_attr(buri_coverage, coverage(off))]
     fn published(pid: i32) -> Option<i32> {
         match STATE.swap(pid, Ordering::Relaxed) {
             asked if asked < 0 => Some(asked.saturating_neg()),
@@ -555,8 +541,6 @@ mod stopping {
     }
 
     /// [`published`], and the `kill` it asks for.
-    // Not counted by the coverage gate, for the reason `published` isn't.
-    #[cfg_attr(buri_coverage, coverage(off))]
     fn hand_over(pid: i32) {
         if let Some(sig) = published(pid) {
             // SAFETY: an ordinary `kill` on the child just spawned, with the
@@ -568,10 +552,6 @@ mod stopping {
     /// The handler. **Everything it does is on POSIX's async-signal-safe list**,
     /// which for one `kill` is the whole of the argument the module header makes
     /// at greater length for the runtime's.
-    // Not counted by the coverage gate: whether a signal lands before or after
-    // the spawn is the race this code exists to handle, so which branch a test
-    // takes is timing, not the test.
-    #[cfg_attr(buri_coverage, coverage(off))]
     extern "C" fn forward(sig: i32) {
         let slot = errno_slot();
         // SAFETY: `errno_slot` answers this thread's own `errno`.
@@ -650,6 +630,7 @@ mod stopping {
             let previous = unsafe { signal(sig, forward as *const () as usize) };
             debug_assert!(previous != SIG_ERR, "SIGHUP, SIGINT and SIGTERM can be caught");
         }
+        stand_in(&SPAWNING);
         let child = crate::build::spawn::start(command)?;
         // Zero is not a pid this can publish: `kill(0, …)` is every process in
         // this group, which is the one thing a command that forwards a signal
@@ -658,7 +639,21 @@ mod stopping {
         if pid > 0 {
             hand_over(pid);
         }
+        stand_in(&STARTED);
         Ok(child)
+    }
+
+    /// Where a test lands a signal before the program exists, and after it does
+    /// ([`crate::hold`]). Each byte held is a signal, raised on this thread so
+    /// its handler has run before the program is started or waited on.
+    static SPAWNING: crate::hold::Point = crate::hold::Point::new("spawning");
+    static STARTED: crate::hold::Point = crate::hold::Point::new("started");
+
+    fn stand_in(point: &crate::hold::Point) {
+        for sig in point.held() {
+            // SAFETY: an ordinary `raise` of a signal this process catches.
+            unsafe { raise(i32::from(sig)) };
+        }
     }
 
     /// Waits for the program to stop, however long its own shutdown takes.

@@ -39,6 +39,7 @@ pub mod build;
 pub mod commands;
 pub mod compiler;
 pub mod documentation;
+pub mod hold;
 pub mod language_server;
 
 // The lower crates, at the paths their modules had when they were part of this

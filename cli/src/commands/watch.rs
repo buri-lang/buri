@@ -55,6 +55,9 @@ use std::time::{Duration, SystemTime};
 /// value for (BUILD-AND-WATCH.md §4.3).
 const SWEEP: Duration = Duration::from_millis(150);
 
+/// Where a test holds the loop before each sweep ([`crate::hold`]).
+static SWEPT: crate::hold::Point = crate::hold::Point::new("sweep");
+
 // ---------------------------------------------------------------------------
 // What is watched
 // ---------------------------------------------------------------------------
@@ -489,14 +492,10 @@ impl Watch {
     /// Sweeps until something moves, then until two consecutive sweeps agree,
     /// and answers with what moved across the whole disturbance. `None` once a
     /// signal asks the loop to stop.
-    // Not counted by the coverage gate: whether a sweep finds nothing, catches
-    // a write half done, or meets a signal is decided by when a test's edit or
-    // Ctrl-C lands against the sweep timer, which is timing, not the test.
-    #[cfg_attr(buri_coverage, coverage(off))]
     fn settle(&self, watched: &mut Snapshot) -> Option<Vec<PathBuf>> {
         let set = watched.watched();
         loop {
-            std::thread::sleep(self.interval);
+            self.until_sweep();
             if crate::commands::interrupt::asked().is_some() {
                 return None;
             }
@@ -509,7 +508,7 @@ impl Watch {
             // and they are one edit as far as a person is concerned.
             let mut quiet = moved;
             loop {
-                std::thread::sleep(self.interval);
+                self.until_sweep();
                 let again = Snapshot::sweep(&set);
                 if again == quiet {
                     break;
@@ -520,6 +519,13 @@ impl Watch {
             *watched = quiet;
             return Some(changed);
         }
+    }
+
+    /// The wait before a sweep. A test holds it at [`SWEPT`] to put its edit
+    /// or signal between two sweeps rather than racing the timer.
+    fn until_sweep(&self) {
+        std::thread::sleep(self.interval);
+        SWEPT.held();
     }
 
     /// The one line that separates two runs: the time it was triggered, which
