@@ -481,7 +481,7 @@ fn ending<C: Allocator + Tasks, S>(
 // value, so it comes back at the type it went in at.**
 //
 // The nine entries in the next section are *generic intrinsics*: their key
-// carries no type arguments, so the runtime never frees one. It takes a
+// carries no type arguments, so the runtime frees one only at exit. It takes a
 // reference, keeps the pointer, and gives that reference back. The release is
 // the program's, and the compiler generates it from the block's *type*. So the
 // type argument at each call is the only thing that says what is inside the

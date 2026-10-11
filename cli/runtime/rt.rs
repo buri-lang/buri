@@ -191,7 +191,7 @@ use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use std::thread;
 use std::time::Duration;
 
-use crate::list::{block, StepEntry};
+use crate::list::{block, Release, StepEntry};
 use crate::memory::Blocks;
 use crate::switch;
 use crate::value::BuriList;
@@ -1784,9 +1784,11 @@ pub unsafe extern "C" fn buri_rt_host_tasks_parallel(
 // retain glue, no descriptor. The runtime takes a reference on the block
 // ([`Held::keep`]) and gives that same reference back ([`Held::give`]); every
 // block it takes is handed to somebody, so the count balances without this file
-// ever knowing how to walk one. `core/actor`'s own `Carried<T>` wrapper is what
-// keeps such a block from being *empty*, which is the one case a null `ptr`
-// would make unreadable.
+// ever knowing how to walk one. The exception is the state of an actor nobody
+// stopped: nobody takes it, so `mailboxOpen` carries its stride and release
+// glue and the exit hook lets it go. `core/actor`'s own `Carried<T>` wrapper
+// is what keeps such a block from being *empty*, which is the one case a null
+// `ptr` would make unreadable.
 //
 // The scheduling is `core/actor`'s, in Buri: this file holds the queue, the
 // state, the reply slots and the two waits, and never calls a Buri closure. A
@@ -1877,6 +1879,10 @@ struct Mailbox {
     /// sender that may wait from a step sending to its own actor, which may
     /// not.
     holder: Option<Who>,
+    /// The stride and release glue of `Carried<S>`, so that [`give_back`] can
+    /// let go of a state nobody stopped.
+    stride: u64,
+    release: Release,
 }
 
 /// Every actor this program has started. Tombstoned rather than reused, for
@@ -1936,10 +1942,24 @@ fn replies() -> MutexGuard<'static, Slots> {
 
 /// `actor.mailboxOpen(ctx, state, bound) -> Int`.
 ///
+/// `stride` and `release` describe `Carried<S>`, for [`give_back`]. The retain
+/// and equality glue come with the row's shape (`runtime_table.rs`'s
+/// `Extra::Owned`) and go unused.
+///
 /// # Safety
-/// `ptr` is null or a live `[Carried<S>]` block the caller owns.
+/// `ptr` is null or a live `[Carried<S>]` block the caller owns, and `release`,
+/// where non-null, is the release glue for `Carried<S>`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_actor_mailbox_open(ptr: *mut u8, len: u64, bound: i64) -> i64 {
+pub unsafe extern "C" fn buri_rt_actor_mailbox_open(
+    ptr: *mut u8,
+    len: u64,
+    bound: i64,
+    stride: u64,
+    _retain: *const u8,
+    release: Release,
+    _equal: *const u8,
+) -> i64 {
+    give_back_at_exit();
     // A bound that is not a positive number is [`MAILBOX`]. `core/actor` always
     // passes one — it has to, because it enforces the bound itself — so this is
     // the fallback for a caller that has not been written yet rather than the
@@ -1954,8 +1974,59 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_open(ptr: *mut u8, len: u64, boun
         room: Arc::new(tokio::sync::Semaphore::new(room)),
         baton: Arc::new(tokio::sync::Semaphore::new(1)),
         holder: None,
+        stride,
+        release,
     });
     (table.len() as i64) - 1
+}
+
+/// The state of every actor still running when the program ends, given back
+/// by [`give_back`].
+///
+/// `try_lock` for `ui.rs`'s reason: an abort can exit while this lock is held.
+/// A state a step has out is that step's to give back.
+fn give_back_states() {
+    let Ok(mut table) = ACTORS.try_lock() else { return };
+    let states: Vec<(Held, u64, Release)> = table
+        .iter_mut()
+        .filter_map(|m| m.state.take().map(|h| (h, m.stride, m.release)))
+        .collect();
+    drop(table);
+    for (state, stride, release) in states {
+        ELEMENTS.with(|e| e.set((stride, release)));
+        // SAFETY: the table held one reference on this live `[Carried<S>]`
+        // block, and `release_elements` walks it with the glue just set.
+        unsafe { crate::memory::buri_rt_decref(state.ptr, Some(release_elements)) };
+    }
+}
+
+thread_local! {
+    /// What [`release_elements`] walks with, since a drop glue takes only the
+    /// block.
+    static ELEMENTS: Cell<(u64, Release)> = const { Cell::new((0, None)) };
+}
+
+/// The drop glue of a `[T]` block for the `T` [`ELEMENTS`] names. It walks the
+/// whole capacity and skips all-zero elements, as the generated glue does.
+extern "C" fn release_elements(p: *mut u8) {
+    let (stride, release) = ELEMENTS.with(Cell::get);
+    let Some(release) = release else { return };
+    let stride = usize::try_from(stride).unwrap_or(0);
+    if stride == 0 {
+        return;
+    }
+    // SAFETY: `p` is the payload of the block being freed.
+    let cap = usize::try_from(unsafe { crate::memory::buri_rt_cap(p) }).unwrap_or(0);
+    for i in 0..cap / stride {
+        // SAFETY: element `i` lies inside the block's capacity.
+        let at = unsafe { p.add(i * stride) };
+        // SAFETY: the `stride` bytes from `at` lie inside it too.
+        let bytes = unsafe { std::slice::from_raw_parts(at, stride) };
+        if bytes.iter().any(|&b| b != 0) {
+            // SAFETY: `at` holds one whole value of the type `release` is for.
+            unsafe { release(at) };
+        }
+    }
 }
 
 /// How long a wait on the actor table lasts before it is answered rather than
@@ -2926,7 +2997,7 @@ fn wait_for_timers() {
 
 /// Registers [`give_back`] once, after the heap audit so that it runs before
 /// it — `ui.rs`'s `give_back_at_exit`, for the timers a program that failed
-/// left pending.
+/// left pending and the state of every actor nobody stopped.
 fn give_back_at_exit() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
@@ -2945,8 +3016,9 @@ unsafe extern "C" {
 /// answered `.Err` does not wait for them, and the references their bodies
 /// hold are not a leak. `try_lock`, for `ui.rs`'s `give_back`'s reason: an
 /// abort can exit from inside a body that holds nothing here, but nothing is
-/// gained by waiting on the way out.
+/// gained by waiting on the way out. Then [`give_back_states`].
 extern "C" fn give_back() {
+    give_back_states();
     let Ok(mut t) = TIMERS.try_lock() else { return };
     t.at.clear();
     let pending = std::mem::take(&mut t.due);
@@ -5358,6 +5430,17 @@ mod tests {
         list
     }
 
+    /// A mailbox with `state` in it, whose eight-byte elements hold no
+    /// reference.
+    ///
+    /// # Safety
+    /// `state` names a live block.
+    unsafe fn opened(state: &BuriList, bound: i64) -> i64 {
+        let none = std::ptr::null();
+        // SAFETY: forwarded to the caller's promise.
+        unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, bound, 8, none, None, none) }
+    }
+
     /// What a thread was built with, read back out of a block handed over.
     ///
     /// # Safety
@@ -5406,7 +5489,7 @@ mod tests {
     fn a_mailbox_hands_messages_back_in_the_order_they_were_posted() {
         let state = carried(0);
         // SAFETY: a live one-element block.
-        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 8) };
+        let actor = unsafe { opened(&state, 8) };
         drop_ref(&state);
         for mark in 1..=3u64 {
             let message = carried(mark);
@@ -5454,7 +5537,7 @@ mod tests {
         let _sharing = sharing();
         let state = carried(0);
         // SAFETY: a live one-element block.
-        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 1) };
+        let actor = unsafe { opened(&state, 1) };
         drop_ref(&state);
 
         let first = carried(1);
@@ -5533,7 +5616,7 @@ mod tests {
     fn a_post_into_a_mailbox_nobody_drains_ends_at_the_deadline() {
         let state = carried(0);
         // SAFETY: a live one-element block.
-        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 1) };
+        let actor = unsafe { opened(&state, 1) };
         drop_ref(&state);
 
         let first = carried(1);
@@ -5584,7 +5667,7 @@ mod tests {
     fn a_close_under_a_step_that_never_ends_gives_up_at_the_deadline() {
         let state = carried(7);
         // SAFETY: a live one-element block.
-        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 4) };
+        let actor = unsafe { opened(&state, 4) };
         drop_ref(&state);
 
         // A step begins and never puts the state back.
@@ -5620,7 +5703,7 @@ mod tests {
     fn a_take_answers_would_deadlock_for_itself_and_timed_out_for_a_step_that_outlasts_it() {
         let state = carried(5);
         // SAFETY: a live one-element block.
-        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 4) };
+        let actor = unsafe { opened(&state, 4) };
         drop_ref(&state);
 
         let mut held = nothing();
@@ -5672,7 +5755,7 @@ mod tests {
         let _sharing = sharing();
         let state = carried(3);
         // SAFETY: a live one-element block.
-        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 4) };
+        let actor = unsafe { opened(&state, 4) };
         drop_ref(&state);
 
         let mut held = nothing();
@@ -5729,7 +5812,7 @@ mod tests {
     fn closing_a_full_mailbox_answers_the_post_that_was_waiting() {
         let state = carried(0);
         // SAFETY: a live one-element block.
-        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 1) };
+        let actor = unsafe { opened(&state, 1) };
         drop_ref(&state);
         let first = carried(1);
         let mut depth = 0i64;
@@ -5777,7 +5860,7 @@ mod tests {
     fn an_actor_answers_its_final_state_once() {
         let state = carried(7);
         // SAFETY: a live one-element block.
-        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 4) };
+        let actor = unsafe { opened(&state, 4) };
         drop_ref(&state);
 
         let mut held = nothing();
@@ -5831,7 +5914,7 @@ mod tests {
         let _sharing = sharing();
         let state = carried(1);
         // SAFETY: a live one-element block.
-        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 4) };
+        let actor = unsafe { opened(&state, 4) };
         drop_ref(&state);
         let mut held = nothing();
         // SAFETY: a writable, aligned destination.
