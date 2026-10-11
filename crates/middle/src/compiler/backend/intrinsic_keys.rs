@@ -234,9 +234,6 @@ pub enum CheckedKind {
 /// Which fallible shape a conversion is, or `None` when the pair is exact,
 /// modular, or one no backend has a body for (a float into a 128-bit integer).
 pub fn checked_kind(from: Prim, to: Prim) -> Option<CheckedKind> {
-    if from == to {
-        return None;
-    }
     if from.is_integer() && to.is_integer() {
         return (!conversion_is_exact(from, to)).then_some(CheckedKind::Ints);
     }
@@ -246,7 +243,7 @@ pub fn checked_kind(from: Prim, to: Prim) -> Option<CheckedKind> {
     // `U32` is the only source the language declares `toChar` on
     // (`semantics/builtins.rs`), and both backends test the bounds at that
     // width.
-    if from == Prim::U32 && to == Prim::Char {
+    if to == Prim::Char {
         return Some(CheckedKind::ToChar);
     }
     if from == Prim::F64 && to == Prim::F32 {
