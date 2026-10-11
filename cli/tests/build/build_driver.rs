@@ -634,8 +634,16 @@ fn a_buri_without_a_build_id_still_caches() {
     std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
     std::fs::write(&copy, &bytes).unwrap();
     std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Under the coverage gate, the copy's profiles lack the build id the
+    // pooled ones carry, so the two can't share a pooled file.
+    let profile = std::env::var_os("LLVM_PROFILE_FILE")
+        .map(|pool| std::path::Path::new(&pool).with_file_name("%m_no_build_id_%p.profraw"));
     let build = |xdg: &str| {
-        let out = heap_checked(&mut std::process::Command::new(&copy))
+        let mut command = std::process::Command::new(&copy);
+        if let Some(profile) = &profile {
+            command.env("LLVM_PROFILE_FILE", profile);
+        }
+        let out = heap_checked(&mut command)
             .current_dir(&scratch.root)
             .args(["build", "--color=never", "//cmd/app"])
             .env("BURI_HOME", scratch.path("home"))
