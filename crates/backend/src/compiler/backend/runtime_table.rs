@@ -1613,18 +1613,15 @@ pub const FANS_OUT: [&str; 2] = ["host.HostTasks.parallel", "tasks.scopeBeside"]
 /// `core/actor` and no [`FANS_OUT`] key has crossings but never a second
 /// thread, so it keeps the plain fork: a mask read on every count was 6.5% of
 /// the instructions of buri-lang/buri#243's program, which starts no thread.
+///
+/// Both keys are bodyless functions, so each reaches the program as a function
+/// of its own. The middle end emits an `Inst::CallIntrinsic` only for its own
+/// operations: derives, joins, test hooks, lazy chunks and coverage counts.
 pub fn shares_counts(program: &crate::compiler::middle::ir::Program) -> bool {
-    use crate::compiler::middle::ir::{Body, Inst};
-    let fans_out = |key: &str| FANS_OUT.contains(&key);
-    program.crosses_tasks
-        && program.funcs.iter().any(|f| match &f.body {
-            Body::Runtime(key) => fans_out(key),
-            Body::Code(code) => code.blocks.iter().any(|b| {
-                b.insts
-                    .iter()
-                    .any(|i| matches!(i, Inst::CallIntrinsic { key, .. } if fans_out(key)))
-            }),
-        })
+    let fans_out = |f: &crate::compiler::middle::ir::Func| {
+        f.intrinsic_key().is_some_and(|key| FANS_OUT.contains(&key))
+    };
+    program.crosses_tasks && program.funcs.iter().any(fans_out)
 }
 
 /// `void *buri_rt_copy_block(void *p, void (*glue)(void *))` — a fresh block

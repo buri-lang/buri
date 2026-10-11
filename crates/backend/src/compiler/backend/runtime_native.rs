@@ -183,9 +183,10 @@ pub fn net_intrinsic(key: &str) -> bool {
     if key.starts_with("tasks.timer") {
         return true;
     }
-    let Some(rest) = key.strip_prefix("host.") else { return false };
-    let Some((effect, _operation)) = rest.split_once('.') else { return false };
-    matches!(effect, "HostListen" | "HostSockets" | "HostTasks" | "HostWebSocketClient")
+    // A host effect's operations, `host.<Effect>.<operation>`.
+    ["host.HostListen.", "host.HostSockets.", "host.HostTasks.", "host.HostWebSocketClient."]
+        .iter()
+        .any(|effect| key.starts_with(effect))
 }
 
 /// Whether an intrinsic key is one only a `crypto` runtime answers.
@@ -213,9 +214,7 @@ pub fn crypto_intrinsic(key: &str) -> bool {
     ) {
         return true;
     }
-    let Some(rest) = key.strip_prefix("host.") else { return false };
-    let Some((effect, _operation)) = rest.split_once('.') else { return false };
-    effect == "HostEntropy"
+    key.starts_with("host.HostEntropy.")
 }
 
 /// The filename to write the archive under. Named, rather than spelled at each
