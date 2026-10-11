@@ -7470,6 +7470,8 @@ test processes 1
 - **new executables launched**: first starts of a file `place_from` wrote as a
   new inode, which is what macOS checks.
 - **test processes**: native runners and JavaScript runtimes started for tests.
+- **bytes keyed**: bytes of sources read to key actions. A source too big to
+  compile is refused unread, so it adds none.
 
 Load and thread scheduling can't move any of them. `build::work_counts` pins
 them, plus the files a run wrote (new inodes or changed ones under the

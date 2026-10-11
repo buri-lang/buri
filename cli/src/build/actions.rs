@@ -827,7 +827,7 @@ pub type RulePaths = std::collections::HashMap<TargetId, std::collections::HashS
 pub fn encode_reads(session: &Session, files: &[PathBuf]) -> String {
     let mut out = String::new();
     for path in files {
-        let digest = std::fs::read(path).map_or_else(|_| "absent".to_string(), |b| hash_bytes(&b));
+        let digest = crate::build::read_source(path).map_or_else(|_| "absent".to_string(), |b| hash_bytes(&b));
         out.push_str(&session.workspace.rel_of(path));
         out.push('\t');
         out.push_str(&digest);
@@ -840,7 +840,7 @@ pub fn encode_reads(session: &Session, files: &[PathBuf]) -> String {
 pub fn reads_hold(root: &Path, record: &str) -> bool {
     record.lines().all(|line| {
         let Some((rel, digest)) = line.split_once('\t') else { return false };
-        let now = std::fs::read(root.join(rel)).map_or_else(|_| "absent".to_string(), |b| hash_bytes(&b));
+        let now = crate::build::read_source(&root.join(rel)).map_or_else(|_| "absent".to_string(), |b| hash_bytes(&b));
         now == digest
     })
 }
@@ -968,7 +968,7 @@ fn contribute_platform(session: &Session, label: &str, closure: &[TargetId], k: 
     k.rule_identity(&package.label(), "platform", &files);
     for rel in &files {
         let disk = package.dir.join(rel);
-        k.file(&workspace.rel_of(&disk), std::fs::read(&disk).ok().as_deref());
+        k.file(&workspace.rel_of(&disk), crate::build::read_source(&disk).ok().as_deref());
     }
     for member in members.into_iter().filter(|m| !closure.contains(m)) {
         contribute(session, member, k);
@@ -1056,7 +1056,7 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
         .collect();
     let read = |i: usize| -> Option<std::sync::Arc<Vec<u8>>> {
         let (dir, rel) = *files.get(i)?;
-        let bytes = std::fs::read(dir.join(rel)).ok()?;
+        let bytes = crate::build::read_source(&dir.join(rel)).ok()?;
         Some(std::sync::Arc::new(match content {
             Content::Bytes => bytes,
             Content::Program => read_as(rel, bytes, content),
@@ -1310,10 +1310,10 @@ pub fn graph_key(session: &Session, flags: &Flags) -> ActionKey {
         return key.clone();
     }
     let mut k = KeyBuilder::new(Action::Build, flags.mode);
-    k.file("REPO.buri", std::fs::read(workspace.root.join("REPO.buri")).ok().as_deref());
+    k.file("REPO.buri", crate::build::read_source(&workspace.root.join("REPO.buri")).ok().as_deref());
     for package in &workspace.packages {
         let file = package.dir.join("BUILD.buri");
-        k.file(&workspace.rel_of(&file), std::fs::read(&file).ok().as_deref());
+        k.file(&workspace.rel_of(&file), crate::build::read_source(&file).ok().as_deref());
     }
     let key = k.finish();
     known.push((flags.mode, key.clone()));
@@ -1366,7 +1366,7 @@ fn suite_key(
         k.rule_identity(&package.label(), "test", &files);
         for rel in &files {
             let full = package.dir.join(rel);
-            let contents = std::fs::read(&full).ok().map(|b| read_as(rel, b, content));
+            let contents = crate::build::read_source(&full).ok().map(|b| read_as(rel, b, content));
             k.file(rel, contents.as_deref());
         }
     }

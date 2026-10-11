@@ -864,9 +864,26 @@ impl SourceMap {
     /// What [`SourceMap::load`] reads from `abs_path`, without keeping it: for
     /// a caller that reads files side by side and adds them in order.
     pub fn read(abs_path: &Path) -> std::io::Result<String> {
+        let (mut file, size) = SourceMap::open(abs_path)?;
+        let mut text = String::with_capacity(size);
+        std::io::Read::read_to_string(&mut file, &mut text)?;
+        Ok(text)
+    }
+
+    /// [`SourceMap::read`]'s bytes, for a caller that hashes them: a file too
+    /// big to load is refused before a byte of it is read.
+    pub fn read_bytes(abs_path: &Path) -> std::io::Result<Vec<u8>> {
+        let (mut file, size) = SourceMap::open(abs_path)?;
+        let mut bytes = Vec::with_capacity(size);
+        std::io::Read::read_to_end(&mut file, &mut bytes)?;
+        Ok(bytes)
+    }
+
+    /// The file at `abs_path` and its size, or an error if it is too big to load.
+    fn open(abs_path: &Path) -> std::io::Result<(std::fs::File, usize)> {
         // The size is asked of the open file rather than of the path, which
         // would be a second lookup of every file a build reads.
-        let mut file = std::fs::File::open(abs_path)?;
+        let file = std::fs::File::open(abs_path)?;
         let size = file.metadata().map(|m| m.len()).unwrap_or(0);
         if size > MAX_SOURCE_BYTES {
             return Err(std::io::Error::new(
@@ -874,9 +891,7 @@ impl SourceMap {
                 format!("the file is larger than {MAX_SOURCE_BYTES} bytes, which is the most one source file may hold"),
             ));
         }
-        let mut text = String::with_capacity(usize::try_from(size).unwrap_or(0));
-        std::io::Read::read_to_string(&mut file, &mut text)?;
-        Ok(text)
+        Ok((file, usize::try_from(size).unwrap_or(0)))
     }
 
     pub fn find(&self, name: &str) -> Option<FileId> {

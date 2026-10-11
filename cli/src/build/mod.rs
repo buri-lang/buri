@@ -79,3 +79,11 @@ pub fn create_parent(path: &std::path::Path) {
     let parent = path.parent().expect("a file joined to a directory has a parent");
     let _ = std::fs::create_dir_all(parent);
 }
+
+/// A source's bytes, read to key an action. One too big to compile is refused
+/// unread, as the front end would refuse it.
+pub fn read_source(path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    let bytes = crate::diagnostics::SourceMap::read_bytes(path)?;
+    counted::add_n(counted::Count::KeyedBytes, bytes.len() as u64);
+    Ok(bytes)
+}
