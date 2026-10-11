@@ -1285,21 +1285,8 @@ fn recorded_shard(at: usize, count: usize) {
         let text = std::fs::read_to_string(case.join("main.buri")).unwrap();
         require_annotation(&text, "// EXPECT:", &name);
 
-        // A case that builds a context is the module that exports `main`, and
-        // that module takes its platform's host. `test` and `effect` are
-        // legal in exactly one kind of module each, so a case about either
-        // says which with `// ROLE:` — otherwise its golden would carry a
-        // placement error the mutation had nothing to do with.
-        let role = match harness::annotation(&text, "// ROLE:").as_deref() {
-            Some("test") => Role::TestSource,
-            Some("platform") => Role::Platform,
-            _ if ["NativeHost", "NodeHost", "WebHost"].iter().any(|h| text.contains(h)) => {
-                Role::Entry
-            }
-            _ => Role::Source,
-        };
         let mut map = SourceMap::new();
-        let analysis = driver::analyze_snippet(&mut map, "recovery", &text, role);
+        let analysis = driver::analyze_snippet(&mut map, "recovery", &text, role(&text));
         let mut record = String::new();
         for d in analysis.diagnostics.items.iter() {
             if !matches!(d.severity, Severity::Error) {
@@ -1334,6 +1321,104 @@ fn recorded_corpus() -> Vec<std::path::PathBuf> {
 fn recorded_cases() -> usize {
     recorded_corpus().len()
 }
+
+/// The kind of module a case is.
+///
+/// A case that builds a context is the module that exports `main`, and that
+/// module takes its platform's host. `test` and `effect` are legal in exactly
+/// one kind of module each, so a case about either says which with `// ROLE:`
+/// — otherwise its golden would carry a placement error the mutation had
+/// nothing to do with.
+fn role(text: &str) -> Role {
+    match harness::annotation(text, "// ROLE:").as_deref() {
+        Some("test") => Role::TestSource,
+        Some("platform") => Role::Platform,
+        _ if ["NativeHost", "NodeHost", "WebHost"].iter().any(|h| text.contains(h)) => Role::Entry,
+        _ => Role::Source,
+    }
+}
+
+/// The curated set the way a user meets it: every case a package of one
+/// repository, through one `buri build` and one `buri test`.
+///
+/// Each case's first recorded error is its mistake, and the command reports
+/// it with the same code, span and message. Nothing else it reports in the
+/// case's file is missing from the recording. A command stops at a file that
+/// doesn't parse, so it may report fewer than the recording.
+#[test]
+fn recovery_cases_read_the_same_through_the_command_line() {
+    let repo = Scratch::repo("recovery-command-line");
+    let cases = recorded_corpus();
+    let mut sources = Vec::new();
+    for case in &cases {
+        let name = case.file_name().unwrap().to_string_lossy().to_string();
+        let text = std::fs::read_to_string(case.join("main.buri")).unwrap();
+        let (dir, build, source) = match role(&text) {
+            Role::Platform => (format!("platform/effect/{name}"), "library {}\n", "lib.buri"),
+            Role::TestSource => (format!("lib/{name}"), TESTED_LIBRARY, "test/main.buri"),
+            Role::Entry => (format!("cmd/{name}"), harness::JS_BINARY, "main.buri"),
+            _ => (format!("lib/{name}"), "library {}\n", "lib.buri"),
+        };
+        repo.write(&format!("{dir}/BUILD.buri"), build);
+        if source != "lib.buri" {
+            repo.write(&format!("{dir}/lib.buri"), "");
+        }
+        repo.write(&format!("{dir}/{source}"), &text);
+        sources.push((name, format!("{dir}/{source}")));
+    }
+    let mut reported: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for command in ["build", "test"] {
+        let run = repo.run(&[command, "--error-format=json"]);
+        assert_ne!(run.code, 0, "`buri {command}` passed:\n{}", indent(&run.all()));
+        for line in run.stdout.lines().chain(run.stderr.lines()) {
+            let Ok(d) = buri::json::parse(line) else { continue };
+            let (Some(file), Some(code), Some(message)) = (
+                d.at("location.file").and_then(|v| v.as_str()),
+                d.get("code").and_then(|v| v.as_str()),
+                d.get("message").and_then(|v| v.as_str()),
+            ) else {
+                continue;
+            };
+            let n = |key: &str| d.at(&format!("location.{key}")).and_then(|v| v.as_u32()).unwrap();
+            let span = format!("{}:{}-{}:{}", n("line"), n("column"), n("endLine"), n("endColumn"));
+            reported
+                .entry(file.to_string())
+                .or_default()
+                .push(format!("error [{code}] {span}\nmessage: {message}"));
+        }
+    }
+    let mut failures = Vec::new();
+    for ((name, file), case) in sources.iter().zip(&cases) {
+        let recorded = std::fs::read_to_string(case.join("expected.txt")).unwrap();
+        // A stanza's first two lines: its code, its span and its message.
+        let heads: Vec<String> = recorded
+            .split("\n\n")
+            .map(|s| s.lines().take(2).collect::<Vec<_>>().join("\n"))
+            .collect();
+        let got = reported.get(file).cloned().unwrap_or_default();
+        if !got.contains(&heads[0]) {
+            failures.push(format!(
+                "{name}: never reported\n{}\nIt reported:\n{}",
+                indent(&heads[0]),
+                indent(&got.join("\n"))
+            ));
+        }
+        // An effect package owes a `testing` implementation; a snippet doesn't.
+        let owed = "[effect-missing-test-implementation]";
+        for g in got.iter().filter(|g| !heads.contains(g) && !g.contains(owed)) {
+            failures.push(format!("{name}: reported what the recording doesn't hold:\n{}", indent(g)));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} case(s) read differently:\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
+}
+
+/// A library whose one test source is the case.
+const TESTED_LIBRARY: &str = "library {\n  test {\n    sources: [\"test/main.buri\"]\n  }\n}\n";
 
 /// One diagnostic, as the four or five lines a case records.
 fn stanza(text: &str, d: &Diagnostic) -> String {
