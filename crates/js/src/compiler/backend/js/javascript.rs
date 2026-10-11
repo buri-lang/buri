@@ -75,7 +75,7 @@ impl RuntimeDecl {
         let mut seen: HashSet<&str> = HashSet::default();
         let mut idents = Vec::new();
         for (start, end) in raw_ident_ranges(&src) {
-            let Some(ident) = src.get(start..end) else { continue };
+            let ident = src.get(start..end).or_ice(IDENT_RANGE);
             if seen.insert(ident) {
                 // The runtime is a few hundred kilobytes, far inside `u32`.
                 idents.push((start as u32, end as u32));
@@ -585,14 +585,11 @@ fn simplified(e: Expr) -> Expr {
 /// An arrow whose body is a single `return e` is just `=> e`.
 fn concise(e: Expr) -> Expr {
     match e {
-        Expr::ArrowBlock { params, mut body, is_async }
-            if matches!(body.as_slice(), [Stmt::Return(Some(_))]) =>
-        {
-            let Some(Stmt::Return(Some(x))) = body.pop() else {
-                crate::ice!("the body was matched as one `return` a line above")
-            };
-            Expr::Arrow { params, body: Box::new(x), is_async }
-        }
+        Expr::ArrowBlock { params, body, is_async } => match <[Stmt; 1]>::try_from(body) {
+            Ok([Stmt::Return(Some(x))]) => Expr::Arrow { params, body: Box::new(x), is_async },
+            Ok(one) => Expr::ArrowBlock { params, body: Vec::from(one), is_async },
+            Err(body) => Expr::ArrowBlock { params, body, is_async },
+        },
         other => other,
     }
 }
@@ -800,7 +797,7 @@ fn exclusive_equalities(lhs: &Expr, rhs: &Expr) -> bool {
     a.same_as(b) && constant(av) && constant(bv) && !av.same_as(bv)
 }
 
-fn simplify_cond(test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr>) -> Expr {
+fn simplify_cond(mut test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr>) -> Expr {
     match &*test {
         Expr::Bool(true) => return *cons,
         Expr::Bool(false) => return *alt,
@@ -836,11 +833,9 @@ fn simplify_cond(test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr>) -> Expr {
     }
     // `!c ? a : b` is `c ? b : a`, which is one character shorter and reads
     // in the order the source did.
-    if let Expr::Unary { op: UnOp::Not, operand } = &*test {
+    if let Expr::Unary { op: UnOp::Not, operand } = &mut *test {
         if operand.is_boolean() {
-            let Expr::Unary { operand, .. } = *test else {
-                crate::ice!("the test was matched as a negation a line above")
-            };
+            let operand = std::mem::replace(operand, Box::new(Expr::Null));
             return simplify_cond(operand, alt, cons);
         }
     }
@@ -1714,10 +1709,9 @@ fn distinct<T>(arms: &[(Vec<&Expr>, T)]) -> bool {
     let mut seen: HashSet<LiteralKey<'_>> = HashSet::default();
     for (labels, _) in arms {
         for l in labels {
+            // A `NaN` label is keyed by its bits, so two of them keep the chain.
+            // No pattern can be one: a float pattern is a literal.
             match LiteralKey::of(l) {
-                // `NaN` is not the same as anything, itself included, so it
-                // never repeats.
-                Some(LiteralKey::NaN) => {}
                 Some(key) => {
                     if !seen.insert(key) {
                         return false;
@@ -1738,7 +1732,6 @@ fn distinct<T>(arms: &[(Vec<&Expr>, T)]) -> bool {
 enum LiteralKey<'a> {
     /// The bits of a number, with `-0` folded into `0` because `-0 === 0`.
     Num(u64),
-    NaN,
     BigInt(&'a str),
     Str(&'a str),
     Bool(bool),
@@ -1749,7 +1742,6 @@ enum LiteralKey<'a> {
 impl LiteralKey<'_> {
     fn of(e: &Expr) -> Option<LiteralKey<'_>> {
         Some(match e {
-            Expr::Num(n) if n.is_nan() => LiteralKey::NaN,
             Expr::Num(n) if *n == 0.0 => LiteralKey::Num(0f64.to_bits()),
             Expr::Num(n) => LiteralKey::Num(n.to_bits()),
             Expr::BigInt(s) => LiteralKey::BigInt(s),
@@ -2956,12 +2948,20 @@ struct FuncKey<'a> {
 
 impl<'a> FuncKey<'a> {
     fn new(params: &'a [String], body: &'a [Stmt], is_async: bool) -> FuncKey<'a> {
-        use std::hash::{Hash as _, Hasher as _};
+        use std::hash::Hasher as _;
+        let mut key = FuncKey { hash: 0, params, body, is_async };
         let mut h = crate::hash::FxHasher::default();
-        params.hash(&mut h);
-        is_async.hash(&mut h);
-        hash_stmts(body, &mut h);
-        FuncKey { hash: h.finish(), params, body, is_async }
+        key.feed(&mut h);
+        key.hash = h.finish();
+        key
+    }
+
+    /// Everything that makes two functions one, minus the name.
+    fn feed<H: std::hash::Hasher>(&self, h: &mut H) {
+        use std::hash::Hash as _;
+        self.params.hash(h);
+        self.is_async.hash(h);
+        hash_stmts(self.body, h);
     }
 }
 
@@ -2973,14 +2973,12 @@ impl std::hash::Hash for FuncKey<'_> {
 
 impl PartialEq for FuncKey<'_> {
     fn eq(&self, other: &Self) -> bool {
-        let encoded = |body: &[Stmt]| {
+        let encoded = |key: &FuncKey<'_>| {
             let mut e = Encoding::default();
-            hash_stmts(body, &mut e);
+            key.feed(&mut e);
             e.0
         };
-        self.params == other.params
-            && self.is_async == other.is_async
-            && encoded(self.body) == encoded(other.body)
+        encoded(self) == encoded(other)
     }
 }
 
@@ -3329,11 +3327,12 @@ impl<'a> Visit<'a> for Idents<'_, 'a> {
 /// scanning for identifier-shaped runs rather than by parsing.
 fn collect_idents_raw<'a>(src: &'a str, out: &mut HashSet<&'a str>) {
     for (start, end) in raw_ident_ranges(src) {
-        if let Some(name) = src.get(start..end) {
-            out.insert(name);
-        }
+        out.insert(src.get(start..end).or_ice(IDENT_RANGE));
     }
 }
+
+/// Why a range [`raw_ident_ranges`] answers slices its source.
+const IDENT_RANGE: &str = "an identifier run is ASCII inside the source it was found in";
 
 /// Every identifier-shaped run in `src`, as a byte range. A run of identifier
 /// bytes is ASCII throughout, so both ends are character boundaries however the
@@ -3458,25 +3457,13 @@ struct Scope<'a> {
     /// Which global each global short name stands for.
     by_short: &'a HashMap<String, String>,
     locals: HashMap<String, String>,
-    /// The short names this scope's locals hold, and how many hold each — a
-    /// count rather than a set because rebinding a name releases the one it
-    /// held.
-    local_names: HashMap<String, usize>,
-    /// Set once a local has taken a global's *original* name, which releases
-    /// that global's short name for the rest of this scope. It is what makes
-    /// `Pool`'s answers — which know nothing of locals — no longer apply.
-    shadows_global: bool,
+    /// The short names this scope's locals hold.
+    local_names: HashSet<String>,
 }
 
 impl<'a> Scope<'a> {
     fn global(globals: &'a HashMap<String, String>, by_short: &'a HashMap<String, String>) -> Scope<'a> {
-        Scope {
-            globals,
-            by_short,
-            locals: HashMap::default(),
-            local_names: HashMap::default(),
-            shadows_global: false,
-        }
+        Scope { globals, by_short, locals: HashMap::default(), local_names: HashSet::default() }
     }
 
     /// A nested scope: everything this one binds, and whatever it binds itself
@@ -3487,7 +3474,6 @@ impl<'a> Scope<'a> {
             by_short: self.by_short,
             locals: self.locals.clone(),
             local_names: self.local_names.clone(),
-            shadows_global: self.shadows_global,
         }
     }
 
@@ -3495,37 +3481,10 @@ impl<'a> Scope<'a> {
         self.locals.get(name).or_else(|| self.globals.get(name))
     }
 
-    /// Whether a short name is one this scope already stands for — a local's,
-    /// or a global's that no local has shadowed.
-    fn holds(&self, short: &str) -> bool {
-        if self.local_names.contains_key(short) {
-            return true;
-        }
-        self.by_short.get(short).is_some_and(|g| !self.locals.contains_key(g))
-    }
-
     fn bind(&mut self, original: &str, short: String) {
-        if self.globals.contains_key(original) {
-            self.shadows_global = true;
-        }
-        *self.local_names.entry(short.clone()).or_insert(0) += 1;
-        if let Some(old) = self.locals.insert(original.to_string(), short) {
-            if let Some(n) = self.local_names.get_mut(&old) {
-                *n -= 1;
-                if *n == 0 {
-                    self.local_names.remove(&old);
-                }
-            }
-        }
+        self.local_names.insert(short.clone());
+        self.locals.insert(original.to_string(), short);
     }
-}
-
-/// Where a scope's search for a free local name has reached: an index into
-/// [`Pool`], and the raw counter that index stands for.
-#[derive(Default, Clone)]
-struct Counter {
-    index: usize,
-    raw: usize,
 }
 
 /// The candidate names, in counter order, that no global holds.
@@ -3536,23 +3495,22 @@ struct Counter {
 /// from a scan of the whole program, per local, per scope, into an index.
 #[derive(Default)]
 struct Pool {
-    /// Each free candidate, with the counter value that follows it.
-    names: Vec<(String, usize)>,
+    names: Vec<String>,
     /// Where the walk that built `names` stopped.
     next: usize,
 }
 
 impl Pool {
-    fn at(&mut self, i: usize, by_short: &HashMap<String, String>) -> Option<(String, usize)> {
+    fn at(&mut self, i: usize, by_short: &HashMap<String, String>) -> String {
         while self.names.len() <= i {
             let candidate = short_name(self.next);
             self.next += 1;
             if RESERVED.contains(&candidate.as_str()) || by_short.contains_key(&candidate) {
                 continue;
             }
-            self.names.push((candidate, self.next));
+            self.names.push(candidate);
         }
-        self.names.get(i).cloned()
+        self.names.get(i).cloned().or_ice("the walk above stops past `i`")
     }
 }
 
@@ -3617,33 +3575,22 @@ impl Rewrite for Rename<'_, '_> {
     }
 }
 
-fn fresh_local(
-    original: &str,
-    scope: &mut Scope,
-    counter: &mut Counter,
-    pool: &mut Pool,
-) -> String {
+/// How far along [`Pool`] a scope's search for a free local name has reached.
+#[derive(Default, Clone)]
+struct Counter(usize);
+
+/// A local's short name. The pool holds no global's, so a local never shadows
+/// a global the body still needs, and a local's original name is never a
+/// global's.
+fn fresh_local(original: &str, scope: &mut Scope, counter: &mut Counter, pool: &mut Pool) -> String {
     let candidate = loop {
-        // A local may not shadow a global the body still needs, which is what
-        // the pool has already settled — unless a local has taken a global's
-        // name, in which case the search runs against the scope itself.
-        if !scope.shadows_global {
-            if let Some((candidate, after)) = pool.at(counter.index, scope.by_short) {
-                counter.index += 1;
-                counter.raw = after;
-                if scope.local_names.contains_key(&candidate) {
-                    continue;
-                }
-                break candidate;
-            }
+        let candidate = pool.at(counter.0, scope.by_short);
+        counter.0 += 1;
+        // An arrow's parameters count from zero inside a body that has
+        // already taken the first names.
+        if !scope.local_names.contains(&candidate) {
+            break candidate;
         }
-        let candidate = short_name(counter.raw);
-        counter.raw += 1;
-        counter.index += 1;
-        if RESERVED.contains(&candidate.as_str()) || scope.holds(&candidate) {
-            continue;
-        }
-        break candidate;
     };
     scope.bind(original, candidate.clone());
     candidate
