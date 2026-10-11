@@ -192,9 +192,9 @@ pub fn leaked_blocks(status: i32, stderr: &str) -> Option<u64> {
 //
 // **A harness that links more permissively than the product is a harness that
 // cannot see the product's bugs**, and one that links *differently* from it
-// measures a toolchain nobody ships. `build/link.rs` says the same sentence
-// over `product_link_args`, and this is the pair of functions that carries its
-// answer into a `Command`.
+// measures a toolchain nobody ships. `harness/product_link.rs` says the same
+// sentence, and this is the pair of functions that carries its answer into a
+// `Command`.
 //
 // Every suite in this binary used to spell the flags out again — `-dead_strip`
 // on macOS, `-Wl,--gc-sections -lpthread -ldl -lm` on Linux — and the Linux
@@ -221,7 +221,7 @@ pub fn leaked_blocks(status: i32, stderr: &str) -> Option<u64> {
 /// thirty-six programs while the fuzzer links as many as its budget buys.
 pub fn product_cc() -> Command {
     let mut cmd = Command::new(
-        buri::build::link::product_link_driver()
+        crate::product_link::driver()
             .unwrap_or_else(|| PathBuf::from(std::env::var("CC").unwrap_or_else(|_| "cc".into()))),
     );
     cmd.current_dir(&staged().0);
@@ -230,7 +230,7 @@ pub fn product_cc() -> Command {
 
 /// The `--target=` a *compile* needs to agree with the link below it.
 ///
-/// `build/link.rs::product_compile_args` is the answer and this is the memo
+/// `product_link::compile_args` is the answer and this is the memo
 /// for it: the two `-c` probe compiles in this binary would otherwise be
 /// compiled for the driver's default target — glibc on a Debian host — and
 /// linked against the baked musl sysroot. Empty everywhere except the baked
@@ -238,7 +238,7 @@ pub fn product_cc() -> Command {
 /// beside the link flags it has to agree with.
 pub fn product_compile_args() -> &'static [String] {
     static ARGS: OnceLock<Vec<String>> = OnceLock::new();
-    ARGS.get_or_init(buri::build::link::product_compile_args)
+    ARGS.get_or_init(crate::product_link::compile_args)
 }
 
 /// The arguments the product passes **after** the objects and the archive.
@@ -264,7 +264,7 @@ fn staged() -> &'static (PathBuf, Vec<String>) {
         let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
             .join(format!("native-link-flags-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let args = buri::build::link::product_link_args(&dir);
+        let args = crate::product_link::args(&dir);
         crate::sweep::kept::stage_runtime_archive(&dir);
         (dir, args)
     })
@@ -274,12 +274,12 @@ fn staged() -> &'static (PathBuf, Vec<String>) {
 /// own command line, for a test that needs a program to run and isn't asking
 /// about the link.
 ///
-/// It's `build/link.rs::product_link`, so the linker runs directly with the
+/// It's `product_link::run`, so the linker runs directly with the
 /// line the driver printed once, without starting the `cc` wrapper and `clang`
 /// for every program. A test about what the link itself does uses
 /// [`driver_link`].
 pub fn link_program(objects: &[PathBuf], binary: &Path) -> std::process::Output {
-    buri::build::link::product_link(&staged().0, objects, binary)
+    crate::product_link::run(&staged().0, objects, binary)
         .unwrap_or_else(|e| panic!("cannot link {}: {e}", binary.display()))
 }
 

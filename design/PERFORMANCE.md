@@ -2875,11 +2875,11 @@ The 63 `-c` calls are probe and stub compiles. They need the driver.
 ```rust
 // cli/tests/native/shared.rs
 pub fn link_program(objects: &[PathBuf], binary: &Path) -> Output {
-    buri::build::link::product_link(&staged().0, objects, binary)...
+    crate::product_link::run(&staged().0, objects, binary)...
 }
 ```
 
-`link::product_link` uses the same `Replay`, under the same key, as
+`product_link::run` (`cli/tests/harness/product_link.rs`) uses the same `Replay`, under the same key, as
 `CDriver::link` when runtime linking is on. It keeps the command in
 `~/.buri/link-replay/` even though the harness has no cache, because almost
 every test is its own process. It swaps `-o artifact` for the binary's path,

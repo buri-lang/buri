@@ -119,6 +119,8 @@
 
 #[path = "harness/mod.rs"]
 mod harness;
+#[path = "harness/product_link.rs"]
+mod product_link;
 
 // The benchmark's generator, as a module rather than a copy. It is the
 // repository's Csmith: seeded, parameterised over twenty-seven dimensions, and
@@ -1259,7 +1261,7 @@ mod native {
     /// search draws again links to the same bytes (`harness/kept.rs`).
     /// The product's link line, staged once for this process.
     ///
-    /// `build/link.rs::product_link_args` writes whatever the link needs —
+    /// `product_link::args` writes whatever the link needs —
     /// today an eleven-file musl sysroot, about 6.6 MB — into the directory it
     /// is handed, and the product's command line names it and the runtime
     /// archive *relatively*, so the link has to run there. One directory for
@@ -1274,7 +1276,7 @@ mod native {
                 .join(format!("fuzz-native-{}", std::process::id()))
                 .join("link-flags");
             std::fs::create_dir_all(&dir).unwrap();
-            let _ = buri::build::link::product_link_args(&dir);
+            let _ = crate::product_link::args(&dir);
             crate::harness::sweep::kept::stage_runtime_archive(&dir);
             dir
         })
@@ -1485,9 +1487,9 @@ mod native {
             // product's link line, and on Linux the product's is now a
             // static-PIE musl link against a sysroot this binary carries —
             // which is not a thing a list of `-l`s can restate.
-            // `build/link.rs::product_link` runs the linker directly with the
+            // `product_link::run` runs the linker directly with the
             // line the driver printed once, rather than the driver per case.
-            let Ok(linked) = buri::build::link::product_link(staged(), &objects, &binary) else {
+            let Ok(linked) = crate::product_link::run(staged(), &objects, &binary) else {
                 continue;
             };
             if !linked.status.success() {

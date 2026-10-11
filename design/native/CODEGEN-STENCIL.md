@@ -1501,7 +1501,7 @@ relocation rather than a baked displacement. Linking the test programs without
 it once measured a backend the build system does not produce — every program
 in `native/stencil.rs` passed while `buri test` failed 977 of 997 conformance
 tests on the same emitter — which is why the harnesses now ask
-`build/link.rs::product_link_args` for this line rather than spelling it out.
+`harness/product_link.rs` for this line rather than spelling it out.
 
 **Fallback.** With neither mold nor lld present, `cc` uses whatever the system
 provides and everything works, more slowly. There is **no** case in which the
