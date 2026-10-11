@@ -68,6 +68,7 @@ mod generate;
 
 mod build_command;
 mod build_driver;
+mod check_reproducible;
 mod checking;
 mod build_rules;
 mod build_files;
@@ -76,6 +77,7 @@ mod custom_platforms;
 mod diagnostics_paths;
 mod example;
 mod executable_identity;
+mod fix_refusals;
 mod generator_failures;
 mod generators;
 mod heap;
