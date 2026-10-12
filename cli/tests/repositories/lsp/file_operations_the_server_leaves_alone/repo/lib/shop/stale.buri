@@ -1,2 +1,3 @@
 //! An import that names nothing, which a rename walks past.
+
 from "//lib/nowhere/lib.buri" import { gone };
