@@ -1,0 +1,31 @@
+error: `Grow` needs endless instantiations: `Grow<T>` contains `Grow<Option<T>>`, which contains `Grow<Option<Option<T>>>`, and so on [endless-type]
+  --> cmd/type_that_grows_its_own_argument/main.buri:11:1
+   |
+11 | enum Grow<T> {
+   | ^^^^^^^^^^^^^^
+   |
+   = fix: where `Grow` contains itself, give it its own parameters: `Grow<T>`
+
+     Each instantiation of a generic type compiles on its own, so Grow<Int>
+     would need Grow<Option<Int>>, then a bigger one, forever. Where a type
+     contains itself, give it its own parameters, like List<T> holding a
+     List<T>. Swapped is fine too: Pair<B, A> inside Pair<A, B>.
+
+error: `Spiral` can never be built: every variant contains another `Spiral` [unconstructible-type]
+  --> cmd/type_that_grows_its_own_argument/main.buri:30:1
+   |
+30 | enum Spiral<T> {
+   | ^^^^^^^^^^^^^^^^
+   |
+   = fix: add a variant that does not contain `Spiral`, the way `.None` ends an `Option`
+
+     Building a Loop needs a Loop already, so give it a way to end: an Option
+     field, or a variant that doesn't hold the type. enum Wrap { W(Option<Wrap>)
+     } is fine, because .W(.None) is a value.
+
+     An enum with no variants can't be built either, and nor can types that only
+     hold each other.
+
+     Where a Result can't fail, return the value itself rather than a Result
+     whose error type can't be built.
+

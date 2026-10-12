@@ -491,6 +491,43 @@ fn a_chain_of_thousands_of_structs_each_holding_the_last_builds_and_runs() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// **A type that contains itself at a bigger argument is an error, not a
+/// build that never ends.** `Grow<Int>` would need `Grow<Option<Int>>`, then
+/// `Grow<Option<Option<Int>>>`, without end.
+#[test]
+fn a_type_that_grows_its_own_argument_stops_the_run_with_an_error() {
+    unless_ready!();
+    let root = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("e2e-shape-grow-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let dir = root.join("cmd").join("grow");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(root.join("REPO.buri"), "").unwrap();
+    std::fs::write(dir.join("BUILD.buri"), "binary {\n  outputs: [{ platform: \"native\" }]\n}\n").unwrap();
+    let program = format!(
+        "{HEAD}\nenum Grow<T> {{\n    Deeper(Grow<Option<T>>),\n    Here(T),\n}}\n\n\
+         fn depth(g: Grow<Int>): Int {{\n    match (g) {{\n        .Deeper(_) => 1,\n        .Here(_) => 0,\n    }}\n}}\n\n\
+         {MAIN}{}    .Ok(())\n}}\n",
+        say("\"${depth(.Here(1))}\""),
+    );
+    std::fs::write(dir.join("main.buri"), program).unwrap();
+    let ran = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
+        .current_dir(&root)
+        .args(["run", "//cmd/grow"])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&ran.stderr);
+    assert!(!ran.status.success(), "ran: {}", String::from_utf8_lossy(&ran.stdout));
+    assert!(
+        stderr.contains(
+            "`Grow` needs endless instantiations: `Grow<T>` contains `Grow<Option<T>>`, which contains \
+             `Grow<Option<Option<T>>>`, and so on"
+        ),
+        "{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// **A tuple of twenty-four elements, taken apart, compared, sorted and shown.**
 #[test]
 fn a_long_tuple_is_taken_apart_compared_and_shown() {

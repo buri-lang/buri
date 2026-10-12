@@ -39,6 +39,8 @@ reference, under [`crates/docs/src/docs/language/`](../crates/docs/src/docs/lang
     or `Option` (Section 6.8).
 14. Every type can be built: an enum has at least one variant, and no struct or
     enum always contains another of itself, directly or through other types.
+    No generic type contains itself at bigger arguments, such as
+    `Grow<Option<T>>` inside `Grow<T>`: each instantiation compiles on its own.
 15. The head of a struct literal may not be a block-like expression; neither may
     the head of any postfix chain (`grammar-rationale.md` 12.13).
 16. A `_` pattern may not discard a value of type `Result<T, E>`
