@@ -1,0 +1,12 @@
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:54:1
+   |
+54 | 
+   | ^
+   |
+  --> main.buri:51:65
+   |
+51 | test "a type that holds itself only in a list still has values" {
+   |                                                                 ^ opened here
+   |
+   = fix: write `}` here

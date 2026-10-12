@@ -1,7 +1,0 @@
-error: an array element ends with `,` [missing-comma]
-  --> main.buri:36:58
-   |
-36 |     assert.equal([graded(.Yes, true), graded(.Yes, false) graded(.No, true)], [
-   |                                                          ^
-   |
-   = fix: write `,` here

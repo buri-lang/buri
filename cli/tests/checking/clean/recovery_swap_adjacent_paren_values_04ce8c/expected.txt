@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:52:57
+   |
+52 |     assert.equal(total(.Node(1, [.Node(2, []), .Node(3[ ,])])), 6);
+   |                                                         ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

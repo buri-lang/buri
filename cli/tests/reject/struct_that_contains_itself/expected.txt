@@ -1,0 +1,18 @@
+error: `Loop` can never be built: it always contains another `Loop` (through `next`) [unconstructible-type]
+ --> cmd/struct_that_contains_itself/main.buri:9:1
+  |
+9 | struct Loop {
+  | ^^^^^^^^^^^^^
+  |
+  = fix: make `next` an `Option`, so `.None` can end the chain
+
+    Building a Loop needs a Loop already, so give it a way to end: an Option
+    field, or a variant that doesn't hold the type. enum Wrap { W(Option<Wrap>)
+    } is fine, because .W(.None) is a value.
+
+    An enum with no variants can't be built either, and nor can types that only
+    hold each other.
+
+    Where a Result can't fail, return the value itself rather than a Result
+    whose error type can't be built.
+

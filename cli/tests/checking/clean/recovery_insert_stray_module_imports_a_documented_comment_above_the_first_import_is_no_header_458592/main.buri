@@ -1,6 +1,0 @@
-// A comment about the file.
-/// Documents the import.
-
-from "core/list" import extra { map };
-
-fn f(): Int { 1 }

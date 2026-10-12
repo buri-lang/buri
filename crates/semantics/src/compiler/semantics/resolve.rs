@@ -31,6 +31,7 @@ use crate::hash::{Map as HashMap, Set as HashSet};
 use std::collections::BTreeSet;
 
 mod platforms;
+mod constructible;
 pub use platforms::{declared_host, is_effect_package_module, is_effect_package_path, js_structs};
 
 /// What a name in scope refers to.
@@ -291,9 +292,10 @@ pub struct Checker<'a> {
     /// second signature that names one of these gets the error type without a
     /// second diagnostic.
     cyclic_aliases: HashSet<(ModuleId, String)>,
-    /// Every enum refused for having no variants. A type that names one is the
-    /// error type, so that the one mistake is one diagnostic.
-    empty_enums: HashSet<TyConId>,
+    /// Every type that can never be built: an enum refused for having no variants, and
+    /// what `check_values` finds. A type that names one is the error type, so
+    /// that the one mistake is one diagnostic.
+    valueless: HashSet<TyConId>,
     /// What `Self` stands for in the declaration being elaborated — a trait,
     /// an effect, or an `impl`, which are the only places it means anything.
     ///
@@ -480,7 +482,7 @@ impl<'a> Checker<'a> {
             resolving: Vec::new(),
             expanding: Vec::new(),
             cyclic_aliases: HashSet::default(),
-            empty_enums: HashSet::default(),
+            valueless: HashSet::default(),
             self_scope: None,
             wanted: Bodies::All,
             ctx_decls_reached: HashSet::default(),
@@ -883,9 +885,13 @@ impl<'a> Checker<'a> {
                 // rule 14). One left empty by a variant that did not read
                 // already has its syntax error.
                 if t.list(d.variants).is_empty() {
-                    self.empty_enums.insert(id);
+                    self.valueless.insert(id);
                     if !d.recovered {
-                        self.templated("empty-enum", d.span).bind("name", t.name(d.name).to_string());
+                        let name = t.name(d.name).to_string();
+                        self.templated("unconstructible-type", d.span)
+                            .bind("reason", "it has no variants")
+                            .bind("fix", format!("give `{name}` a variant, or use `()` where a type needs no information"))
+                            .bind("name", name);
                     }
                 }
             }
@@ -1327,12 +1333,15 @@ impl<'a> Checker<'a> {
     // -----------------------------------------------------------------------
 
     fn elaborate_signatures(&mut self) {
+        // Every struct and enum declared here, for the check that each has a
+        // value, which needs every field elaborated first.
+        let mut declared: Vec<(TyConId, Span)> = Vec::new();
         // Bounds first: elaborating a signature may need to know whether a
         // parameter is effect-carrying.
         for id in self.own_modules() {
             let items = &self.module(id).ast.items;
             let t = self.tree(id);
-            for (index, item) in items.iter().enumerate() {
+            for item in items {
                 match item {
                     tree::Item::Struct(d) => {
                         // A redeclaration was refused, and the name keeps the first one.
@@ -1375,6 +1384,7 @@ impl<'a> Checker<'a> {
                         self.tables.tycon_mut(con).def = def;
                         self.tables.index_members(con);
                         self.check_unique_field_names(con);
+                        declared.push((con, d.span));
                     }
                     tree::Item::Enum(d) => {
                         let Some(Sym::Ty(con)) = self.scope(id).own.get(t.name(d.name)).cloned()
@@ -1431,8 +1441,20 @@ impl<'a> Checker<'a> {
                         self.tables.tycon_mut(con).def = TyDef::Enum { variants };
                         self.tables.index_members(con);
                         self.check_unique_variant_names(con);
-                        self.check_productive(con, d.span);
+                        declared.push((con, d.span));
                     }
+                    _ => {}
+                }
+            }
+        }
+        // Before any signature names one, so that every one that does gets the
+        // error type, the way a refused empty enum does.
+        self.check_values(&declared);
+        for id in self.own_modules() {
+            let items = &self.module(id).ast.items;
+            let t = self.tree(id);
+            for (index, item) in items.iter().enumerate() {
+                match item {
                     tree::Item::Trait(d) => {
                         let Some(Sym::Trait(tid)) = self.scope(id).own.get(t.name(d.name)).cloned()
                         else {
@@ -2203,7 +2225,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 match self.resolve_path(module, path) {
-                    Some(Sym::Ty(id)) if self.empty_enums.contains(&id) => Ty::ERROR,
+                    Some(Sym::Ty(id)) if self.valueless.contains(&id) => Ty::ERROR,
                     Some(Sym::Ty(id)) => {
                         let arity = self.tables.tycon(id).arity();
                         if elaborated_args.len() != arity {
@@ -2459,30 +2481,26 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// A recursive enum must have at least one variant that does not recurse,
-    /// or no value of it could ever be built (design/static-rules.md rule 14).
-    fn check_productive(&mut self, con: TyConId, span: Span) {
-        let variants = self.tables.tycon(con).variants();
-        if variants.is_empty() {
-            return;
-        }
-        let productive = variants
-            .iter()
-            .any(|v| !v.fields.iter().any(|f| self.mentions_directly(&f.ty, con)));
-        if !productive {
+    /// Reports every declared type no value of which can be built
+    /// (`resolve/constructible.rs`).
+    fn check_values(&mut self, declared: &[(TyConId, Span)]) {
+        let cons: Vec<TyConId> = declared.iter().map(|(c, _)| *c).collect();
+        let (none, reported) = constructible::unconstructible(&self.tables, &cons, &self.valueless);
+        self.valueless.extend(none);
+        for (con, why) in reported {
+            let span = declared.iter().find(|(c, _)| *c == con).or_ice("reported from `declared`").1;
             let name = self.tables.tycon(con).name.clone();
-            self.templated("uninhabited", span).bind("name", name);
-        }
-    }
-
-    fn mentions_directly(&self, ty: &Ty, con: TyConId) -> bool {
-        match ty.kind() {
-            TyKind::Con(id, args) => {
-                *id == con || args.iter().any(|a| self.mentions_directly(a, con))
-            }
-            TyKind::Tuple(es) => es.iter().any(|e| self.mentions_directly(e, con)),
-            // An array can be empty, so it is a base case.
-            _ => false,
+            let (reason, fix) = match why {
+                constructible::Why::Variants => (
+                    format!("every variant contains another `{name}`"),
+                    format!("add a variant that does not contain `{name}`, the way `.None` ends an `Option`"),
+                ),
+                constructible::Why::Field(field) => (
+                    format!("it always contains another `{name}` (through `{field}`)"),
+                    format!("make `{field}` an `Option`, so `.None` can end the chain"),
+                ),
+            };
+            self.templated("unconstructible-type", span).bind("name", name).bind("reason", reason).bind("fix", fix);
         }
     }
 

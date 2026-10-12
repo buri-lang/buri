@@ -1,9 +1,0 @@
-error: expected `struct`, found `Trio` [unexpected-token]
- --> main.buri:4:1
-  |
-4 | Trio struct(Int, /// stranded too
-  | ^^^^
-  |
-  = expected: `struct`
-  = actual: `Trio`
-  = fix: write `struct` first: `struct Trio`

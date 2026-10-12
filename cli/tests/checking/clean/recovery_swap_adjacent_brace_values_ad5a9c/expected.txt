@@ -1,0 +1,19 @@
+error: this variant payload pattern is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:13:24
+   |
+13 |         .W(.Some(inner)=> ) 1 + depth(inner),
+   |                        ^^
+   |
+  --> main.buri:13:11
+   |
+13 |         .W(.Some(inner)=> ) 1 + depth(inner),
+   |           ^ opened here
+   |
+   = fix: write `)` here
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> main.buri:13:28
+   |
+13 |         .W(.Some(inner)=> ) 1 + depth(inner),
+   |                            ^
+   |
+   = fix: write `=>` here
