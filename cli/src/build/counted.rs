@@ -28,6 +28,9 @@ pub enum Count {
     ObjectsRestored,
     /// A linker run.
     Links,
+    /// A suite's objects linked into an image for the test host
+    /// (`build/image.rs`).
+    ImagesLinked,
     /// The first start of an executable this run wrote as a new file, which
     /// macOS checks before it runs.
     NewExecutables,
@@ -47,6 +50,7 @@ const NAMES: [&str; COUNTS_LEN] = [
     "objects compiled",
     "objects restored",
     "links",
+    "images linked",
     "new executables launched",
     "test processes",
     "bytes keyed",

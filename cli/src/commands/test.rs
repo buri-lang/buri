@@ -1480,8 +1480,9 @@ fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Share
         build,
     };
     if spec.limit.is_some() {
-        let program = binary.path().display().to_string();
-        let snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, written);
+        let program = binary.program().display().to_string();
+        let mut snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, written);
+        snapshots.extend(binary.environment());
         let done = run_alone(&program, &spec, &seeds, &snapshots, shared);
         // A failing verdict isn't cached, so the next run starts this binary again.
         if let Done::Answer { answer, built: Some(_), .. } = &done {
@@ -4237,8 +4238,9 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
         std::thread::sleep(Duration::from_millis(1));
     }
     let MemberJob { binary, seeds, sheet, spec, gathered } = job;
-    let snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, sheet);
-    let program = binary.path().display().to_string();
+    let mut snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, sheet);
+    snapshots.extend(binary.environment());
+    let program = binary.program().display().to_string();
     if spec.limit.is_some() {
         run_limited(&program, &spec, &gathered, &seeds, &snapshots);
     } else {
