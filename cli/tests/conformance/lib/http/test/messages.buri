@@ -274,6 +274,14 @@ test "a quoted parameter loses its quotes" {
         .withHeader(ctx, "content-type", "text/plain; charset=\"utf-8\"; q=\"\"");
     let found = assert.some(http.contentType(ctx, reply));
     assert.equal(found.1, [("charset", "utf-8"), ("q", "")]);
+    // A value of one character is a value, quote or not.
+    let short = http
+        .status(200)
+        .withHeader(ctx, "content-type", "text/plain; a=b; c=\"");
+    assert.equal(assert.some(http.contentType(ctx, short)).1, [
+        ("a", "b"),
+        ("c", "\""),
+    ]);
 }
 
 test "a media type for the files a handler serves" {

@@ -430,13 +430,10 @@ fn tenAsFloat(n: Int, acc: Float): Float {
 fn scan(text: Str, at: Int, acc: Int, places: Int, digits: Int): Option<(Int, Int)> {
     match (text.charAt(at)) {
         .None => {
-            // A point with nothing after it is not a number, and neither is a
-            // sign with nothing after it.
-            if (digits <= 0 || places == 0) {
-                .None
-            } else {
-                .Some((acc, number.max(places, 0)))
-            }
+            // A point with nothing after it is not a number. A digit is always
+            // here: `parse` refuses an empty text, and a point with none before
+            // it is refused where it is read.
+            if (places == 0) { .None } else { .Some((acc, number.max(places, 0))) }
         },
         .Some(c) => {
             if (c == '.') {
