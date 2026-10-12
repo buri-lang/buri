@@ -6,7 +6,7 @@
 //! still matches what `buri docs assemble` produces.
 use buri::documentation::{assemble, markdown, topics};
 use std::path::{Path, PathBuf};
-use crate::{pool, shard};
+use crate::{pool, scanning, shard};
 
 fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR is <root>/cli.
@@ -122,7 +122,7 @@ fn every_document_is_scannable() {
     let mut problems = Vec::new();
     for doc in &documents() {
         let text = read(doc);
-        if let Some(line) = markdown::unterminated_fence(&text) {
+        if let Some(line) = scanning::unterminated_fence(&text) {
             problems.push(format!("{doc}:{line}: this ``` is never closed"));
         }
         for f in markdown::fences(&text) {
@@ -183,13 +183,13 @@ fn every_link_resolves() {
             }
         };
 
-        for link in markdown::links(&text) {
+        for link in scanning::links(&text) {
             match &link.destination {
-                markdown::Destination::External { .. } => {}
-                markdown::Destination::Nowhere => {
+                scanning::Destination::External { .. } => {}
+                scanning::Destination::Nowhere => {
                     broken.push(format!("{doc}:{}: `[{}]()` points nowhere", link.line, link.text));
                 }
-                markdown::Destination::SameDocument { anchor } => {
+                scanning::Destination::SameDocument { anchor } => {
                     if !anchors.contains(anchor) {
                         broken.push(format!(
                             "{doc}:{}: `#{anchor}` is not a heading in this document",
@@ -197,7 +197,7 @@ fn every_link_resolves() {
                         ));
                     }
                 }
-                markdown::Destination::File { path, anchor } => {
+                scanning::Destination::File { path, anchor } => {
                     let target = dir.join(path);
                     if !target.exists() {
                         broken.push(format!("{doc}:{}: `{path}` does not exist", link.line));

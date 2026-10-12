@@ -1,11 +1,11 @@
 //! Just enough Markdown to serve the documentation from the binary.
 //!
 //! This is not a CommonMark implementation and does not want to be. The corpus
-//! it reads is one we write, so it needs exactly four things and needs them to
+//! it reads is one we write, so it needs exactly three things and needs them to
 //! be exact: where the fenced blocks are (the doctest harness compiles them),
-//! where the headings are (assembly numbers them and search ranks on them),
-//! where the links point (a test resolves every one), and a terminal rendering
-//! a reader will accept.
+//! where the headings are (assembly numbers them and search ranks on them), and
+//! a terminal rendering a reader will accept. Where the links point is only
+//! asked by the documents' tests, so it lives with them.
 //!
 //! The rules it deliberately does not implement — setext headings, reference
 //! links, HTML blocks, `~~~` fences — are rejected or ignored rather than
@@ -251,18 +251,6 @@ pub fn fences(text: &str) -> Vec<Fence<'_>> {
     out
 }
 
-/// The line of a ``` with no partner, if the document has one.
-pub fn unterminated_fence(text: &str) -> Option<usize> {
-    let mut state = FenceState::default();
-    let mut opened_at = None;
-    for (line_no, _, line) in lines(text) {
-        if state.feed(line) == Where::Delimiter {
-            opened_at = if state.open { Some(line_no) } else { None };
-        }
-    }
-    opened_at
-}
-
 fn strip_indent(raw: &str, indent: usize) -> String {
     if indent == 0 {
         return raw.to_string();
@@ -337,109 +325,6 @@ pub fn slug(title: &str) -> String {
             out.extend(c.to_lowercase());
         } else if c == ' ' {
             out.push('-');
-        }
-    }
-    out
-}
-
-// ---------------------------------------------------------------------------
-// Links
-// ---------------------------------------------------------------------------
-
-/// Where a link points.
-///
-/// This used to be a `target` and an `anchor` with an empty string standing for
-/// "absent" in either position, which made `("", "")` — a link pointing nowhere
-/// — indistinguishable from a link to a heading called nothing, and made every
-/// consumer re-derive the case from two `is_empty()` tests.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Destination {
-    /// `[text](#anchor)` — a heading in this document.
-    SameDocument { anchor: String },
-    /// `[text](path)` or `[text](path#anchor)`.
-    File { path: String, anchor: Option<String> },
-    /// `http://` or `https://`. Outside the corpus, so nothing resolves it.
-    External { url: String },
-    /// `[text]()`. No document wants one; it is reported rather than dropped so
-    /// that the link checker is the thing that says so.
-    Nowhere,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Link {
-    pub text: String,
-    pub destination: Destination,
-    pub line: usize,
-}
-
-/// One link destination, as written.
-fn destination_of(destination: &str) -> Destination {
-    if destination.starts_with("http://") || destination.starts_with("https://") {
-        return Destination::External { url: destination.to_string() };
-    }
-    if let Some(anchor) = destination.strip_prefix('#') {
-        return Destination::SameDocument { anchor: anchor.to_string() };
-    }
-    if destination.is_empty() {
-        return Destination::Nowhere;
-    }
-    match destination.split_once('#') {
-        Some((path, anchor)) => {
-            Destination::File { path: path.to_string(), anchor: Some(anchor.to_string()) }
-        }
-        None => Destination::File { path: destination.to_string(), anchor: None },
-    }
-}
-
-/// Every inline `[text](target)` outside a fenced block or a code span.
-///
-/// Reference links (`[text][id]`) and autolinks are not produced; the corpus
-/// uses neither, and a test asserts the corpus keeps not using them.
-pub fn links(text: &str) -> Vec<Link> {
-    let mut out = Vec::new();
-    let mut state = FenceState::default();
-    for (line_no, _, line) in lines(text) {
-        if state.feed(line) != Where::Outside {
-            continue;
-        }
-        let b = line.as_bytes();
-        let mut i = 0;
-        let mut in_code = false;
-        // Every byte this walk stops on is ASCII, and an ASCII byte in UTF-8 is
-        // always a whole character, so each offset it hands to a slice is on a
-        // character boundary.
-        while let Some(&c) = b.get(i) {
-            match c {
-                b'`' => {
-                    in_code = !in_code;
-                    i += 1;
-                }
-                b'\\' => i += 2,
-                b'[' if !in_code => {
-                    let Some(close) = find_balanced(b, i, b'[', b']') else {
-                        i += 1;
-                        continue;
-                    };
-                    if b.get(close + 1) != Some(&b'(') {
-                        i = close + 1;
-                        continue;
-                    }
-                    let Some(paren) = find_balanced(b, close + 1, b'(', b')') else {
-                        i = close + 1;
-                        continue;
-                    };
-                    let destination = line.get(close + 2..paren).unwrap_or("");
-                    // A title after the destination, as in `(url "title")`.
-                    let destination = destination.split_whitespace().next().unwrap_or("");
-                    out.push(Link {
-                        text: line.get(i + 1..close).unwrap_or("").to_string(),
-                        destination: destination_of(destination),
-                        line: line_no,
-                    });
-                    i = paren + 1;
-                }
-                _ => i += 1,
-            }
         }
     }
     out
@@ -981,13 +866,11 @@ mod tests {
         // begins one byte past the end of the document.
         assert_eq!(fences("```buri").len(), 1);
         assert_eq!(fences("```buri")[0].body, "");
-        assert_eq!(unterminated_fence("```buri"), Some(1));
 
         // Multi-byte characters wherever a byte walk might stop between them.
         for text in ["# 🎈\n\n[é](ü.md#ñ)\n\n| á | é |\n|---|---|\n| ü | ñ |\n", "`é", "**é", "[é"] {
             let _ = fences(text);
             let _ = headings(text);
-            let _ = links(text);
             let _ = summary(text);
             let _ = dense(text);
             let _ = to_terminal(text, super::super::Width::default(), true);
@@ -1018,35 +901,6 @@ mod tests {
     }
 
     #[test]
-    fn links_are_extracted_with_their_anchors() {
-        let text = "see [tags](crates/docs/src/docs/reference/build/tags.md#why-forbids) and `[not a link](x)`\n";
-        let l = links(text);
-        assert_eq!(l.len(), 1);
-        assert_eq!(l[0].text, "tags");
-        assert_eq!(
-            l[0].destination,
-            Destination::File {
-                path: "crates/docs/src/docs/reference/build/tags.md".into(),
-                anchor: Some("why-forbids".into()),
-            }
-        );
-
-        // The three other shapes a destination comes in, and the fourth that
-        // used to be spelled with two empty strings.
-        let l = links("[a](#here) [b](other.md) [c](https://x.test) [d]()\n");
-        let destinations: Vec<&Destination> = l.iter().map(|l| &l.destination).collect();
-        assert_eq!(
-            destinations,
-            vec![
-                &Destination::SameDocument { anchor: "here".into() },
-                &Destination::File { path: "other.md".into(), anchor: None },
-                &Destination::External { url: "https://x.test".into() },
-                &Destination::Nowhere,
-            ]
-        );
-    }
-
-    #[test]
     fn the_spec_is_scannable() {
         // A guard on the scanner, not on the document: if these collapse to
         // zero the scanner broke, and every downstream test would pass
@@ -1055,7 +909,6 @@ mod tests {
         assert!(f.len() > 50, "found only {} fences in SPEC.md", f.len());
         assert!(f.iter().any(|f| f.lang == "buri"));
         assert!(headings(SPEC).len() > 50);
-        assert_eq!(unterminated_fence(SPEC), None);
     }
 
     #[test]
