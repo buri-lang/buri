@@ -216,7 +216,7 @@ pub fn format_document(file: &str, text: &str) -> Option<String> {
             .collect();
         edits.push((block.origin.line.saturating_sub(1), block.body.lines().count(), replacement));
     }
-    for fence in crate::documentation::markdown::fences(text) {
+    for fence in markdown::fences(text) {
         if fence.lang != "textproto" {
             continue;
         }
@@ -256,9 +256,24 @@ pub fn format_document(file: &str, text: &str) -> Option<String> {
     Some(out)
 }
 
-/// Whether a line of a fence is one the reader never sees.
+/// Whether a line of a fence is a hidden one: one the reader never sees,
+/// holding something.
+///
+/// A bare `#` is a blank line, and blank lines are the layout's: nothing hides
+/// one, so the layout is free to drop it. `## ` is an escaped `#`, shown.
 fn is_hidden(line: &str) -> bool {
-    line == "#" || (line.starts_with("# ") && !line.starts_with("## "))
+    line.strip_prefix("# ").is_some_and(|rest| !rest.trim().is_empty())
+}
+
+/// A laid-out line as it goes back on the page. `#` cannot begin a line of
+/// Buri, so a visible line that does is an escaped marker and goes back
+/// escaped.
+fn shown(line: &str) -> String {
+    if line.starts_with('#') {
+        format!("#{line}\n")
+    } else {
+        format!("{line}\n")
+    }
 }
 
 /// The laid-out text with the hidden lines hidden again.
@@ -275,9 +290,8 @@ fn is_hidden(line: &str) -> bool {
 /// parse, or a line went missing between the two runs. There is nothing honest
 /// to write back then, and the failure names the fence to fix by hand.
 fn hide_again(block: &Block, canonical: &str) -> Option<String> {
-    let hidden: Vec<&str> = block.body.lines().filter(|l| is_hidden(l)).collect();
-    if hidden.is_empty() {
-        return Some(canonical.to_string());
+    if !block.body.lines().any(is_hidden) {
+        return Some(canonical.lines().map(shown).collect());
     }
     let visible: String = block
         .body
@@ -288,10 +302,10 @@ fn hide_again(block: &Block, canonical: &str) -> Option<String> {
     // The visible half on its own may be no module at all — a fence whose
     // hidden lines are the function its visible ones are the body of, say. Then
     // there is nothing to compare against, and counting is what is left.
-    let Some(shown) = laid_out(&visible, block) else {
+    let Some(alone) = laid_out(&visible, block) else {
         return by_position(block, canonical);
     };
-    let mut left = shown.lines().filter(|l| !l.trim().is_empty()).peekable();
+    let mut left = alone.lines().filter(|l| !l.trim().is_empty()).peekable();
 
     let mut out = String::with_capacity(canonical.len());
     let mut marked = 0usize;
@@ -303,18 +317,13 @@ fn hide_again(block: &Block, canonical: &str) -> Option<String> {
             continue;
         }
         if left.next_if(|v| v.trim() == line.trim()).is_some() {
-            // `#` cannot begin a line of Buri, so a visible line that does is
-            // an escaped marker and goes back escaped.
-            if line.starts_with('#') {
-                out.push('#');
-            }
-            out.push_str(line);
+            out.push_str(&shown(line));
         } else {
             marked = marked.saturating_add(1);
             out.push_str("# ");
             out.push_str(line);
+            out.push('\n');
         }
-        out.push('\n');
     }
     // Every visible line accounted for, and something hidden: anything else is
     // the two runs having disagreed about more than the hidden lines, and
@@ -338,16 +347,16 @@ fn hide_again(block: &Block, canonical: &str) -> Option<String> {
 /// comparison could not account for is not something to guess at, and the
 /// failure names the fence for a person to lay out by hand.
 fn by_position(block: &Block, canonical: &str) -> Option<String> {
-    let written: Vec<&str> = block.body.lines().collect();
+    // Blank lines are the layout's and are never hidden, so the runs are
+    // counted over the lines that hold something.
+    let written: Vec<&str> = block.body.lines().filter(|l| !unmark(l).trim().is_empty()).collect();
     let above = written.iter().take_while(|l| is_hidden(l)).count();
     let below = written.iter().rev().take_while(|l| is_hidden(l)).count();
     let hidden = written.iter().filter(|l| is_hidden(l)).count();
-    if hidden == 0 || above.saturating_add(below) != hidden {
+    if above.saturating_add(below) != hidden {
         return None;
     }
     let (above, below) = laid_out_runs(block, &written, above, below).unwrap_or((above, below));
-    // Blank lines are the layout's and are never hidden, so the runs are
-    // counted over the lines that hold something.
     let held: Vec<usize> = canonical
         .lines()
         .enumerate()
@@ -363,11 +372,11 @@ fn by_position(block: &Block, canonical: &str) -> Option<String> {
     for (i, line) in canonical.lines().enumerate() {
         if top.contains(&i) || bottom.contains(&i) {
             out.push_str("# ");
-        } else if line.starts_with('#') {
-            out.push('#');
+            out.push_str(line);
+            out.push('\n');
+        } else {
+            out.push_str(&shown(line));
         }
-        out.push_str(line);
-        out.push('\n');
     }
     Some(out)
 }
@@ -453,7 +462,9 @@ fn comment_marker(line: &str) -> Option<String> {
 /// nothing hidden, nothing built.
 pub fn documents_under(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
     if dir.is_file() {
-        out.push(dir.to_path_buf());
+        if dir.extension().is_some_and(|x| x == "md") {
+            out.push(dir.to_path_buf());
+        }
         return;
     }
     let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -471,11 +482,6 @@ pub fn documents_under(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>)
             out.push(p);
         }
     }
-}
-
-/// Whether a document has anything for this to do, without parsing it.
-pub fn has_examples(text: &str) -> bool {
-    markdown::fences(text).iter().any(|f| f.lang == "buri" || f.lang == "textproto")
 }
 
 #[cfg(test)]

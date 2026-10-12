@@ -9,6 +9,14 @@ from "//lib/cafe/gone.buri" export { vanished };
 /// An amount of money, in cents.
 export type Cents = I64;
 
+/// Kept behind the counter, so it has no page.
+type Pennies = I64;
+
+/// Kept behind the counter too.
+trait Counted {
+    fn count(self): I64;
+}
+
 /// How many drinks a card holds before one is free.
 export let STAMPS: I64 = 9;
 

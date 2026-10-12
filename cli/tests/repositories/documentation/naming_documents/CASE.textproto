@@ -1,7 +1,9 @@
 # Where `buri docs test` finds documentation: every markdown file and
 # every source's documentation comments, less hidden directories,
-# node_modules and build files. A document named on the command line
-# that isn't there is an error, not a document with nothing in it.
+# node_modules and build files. A page that isn't text, a file that is
+# neither, and a source whose comments show no code aren't documents. A
+# document named on the command line that isn't there is an error, not
+# a document with nothing in it.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 

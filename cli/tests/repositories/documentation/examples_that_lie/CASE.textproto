@@ -1,6 +1,7 @@
 # A page whose examples claim what their code doesn't do: one that
 # doesn't compile, a `fail` that compiles, a transcript that's wrong, a
-# lint that isn't reported, a package or repository that isn't there.
+# lint that isn't reported, a package or repository that isn't there, a
+# fence `buri format` would lay out differently.
 # The blocks that do what they claim pass beside them.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.

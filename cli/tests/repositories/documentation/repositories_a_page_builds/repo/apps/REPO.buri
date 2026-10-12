@@ -1,0 +1,9 @@
+# One tag, so a program can break the policy it sets.
+tag {
+    name: "browser"
+    doc: "runs in a web page, and nowhere else"
+
+    requires {
+        backends: [JS]
+    }
+}

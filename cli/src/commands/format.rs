@@ -464,8 +464,13 @@ pub fn collect_with_schemas(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>, schemas: bool) {
+    // A file named on the command line is laid out as what it is, whatever
+    // its extension, except a page: that is a document, laid out fence by
+    // fence by `documents_under`, and never a source.
     if dir.is_file() {
-        out.push(dir.to_path_buf());
+        if dir.extension().is_none_or(|x| x != "md") {
+            out.push(dir.to_path_buf());
+        }
         return;
     }
     let Ok(entries) = std::fs::read_dir(dir) else { return };

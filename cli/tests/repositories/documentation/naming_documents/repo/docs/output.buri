@@ -1,0 +1,5 @@
+//! A file whose comment shows output, not code.
+//!
+//! ```text
+//! 1
+//! ```
