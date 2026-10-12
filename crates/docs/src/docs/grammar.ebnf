@@ -49,7 +49,7 @@
 
    This file is the SOURCE OF TRUTH for Buri's syntax, and it is executable
    twice over. `editors/tree-sitter-buri/grammar.js` is GENERATED from it by
-   `cli/src/documentation/grammar.rs`; a test regenerates it and fails on any
+   `cli/tests/language/grammar.rs`; a test regenerates it and fails on any
    difference, so the two cannot drift:
 
        BURI_BLESS=1 cargo test -p buri --test language corpus::the_tree_sitter_grammar

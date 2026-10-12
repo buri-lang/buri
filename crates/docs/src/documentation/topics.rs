@@ -514,7 +514,7 @@ pub const TOPICS: &[Topic] = &[
 pub const LANG_FRONT: &str = include_str!("../docs/language/_front.md");
 
 /// The normative grammar, and the source the tree-sitter grammar is generated
-/// from (`documentation::grammar`). It is hand-written because it is the
+/// from (`cli/tests/language/grammar.rs`). It is hand-written because it is the
 /// declaration and `parsing/parser.rs` is the implementation, but it is not
 /// inert: `every_grammar_keyword_is_a_keyword` holds it against
 /// `lexer::Keyword`,
