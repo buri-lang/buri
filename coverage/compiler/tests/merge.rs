@@ -23,8 +23,12 @@ struct Repo {
 }
 
 impl Repo {
+    /// Under a root named for this process: CI's cache restores `target/tmp`'s
+    /// directories with old times, and `cli/tests/harness/sweep.rs`, running in
+    /// a binary beside this one, takes an old directory whole. A shared
+    /// `merge/` was taken mid-test that way.
     fn new(name: &str) -> Repo {
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("merge").join(name);
+        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("merge-{}", std::process::id())).join(name);
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("coverage")).unwrap();
         std::fs::create_dir_all(root.join("shards")).unwrap();
