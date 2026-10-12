@@ -309,6 +309,7 @@ const PACKAGES: &[Case] = &[
     included("buri_ast/items.buri"),
     included("buri_ast/module.buri"),
     included("buri_ast/parsing.buri"),
+    included("buri_ast/edges.buri"),
     included("generators/wire.buri"),
     included("generators/failure.buri"),
     //
@@ -319,11 +320,13 @@ const PACKAGES: &[Case] = &[
     // with them.
     included("proto_schema/reading.buri"),
     included("proto_schema/refusals.buri"),
+    included("proto_schema/edges.buri"),
     included("proto_gen/codecs.buri"),
     included("proto_gen/entry.buri"),
     included("proto_gen/failures.buri"),
     included("proto_gen/mapping.buri"),
     included("proto_gen/origins.buri"),
+    included("proto_gen/scalars.buri"),
     //
     // Five files, and between them they are `core/bits` entire,
     // `Checked`/`Wrapping`/`Saturating`/`Bounded` at every width including
@@ -616,6 +619,8 @@ const PACKAGES: &[Case] = &[
     // `ToJson::toJson` called on a primitive itself gets `derivePrimJson` as
     // its body, the leaf a derived `ToJson` reaches at the same field.
     included("json/encoding.buri"),
+    // Trailing commas, surrogate pairs and where a number's sign may go.
+    included("json/parsing.buri"),
     // `core/bytes` and `character.toDigit` are emitted now, and this file needs
     // nothing else.
     included("proto/failures.buri"),
@@ -643,6 +648,8 @@ const PACKAGES: &[Case] = &[
     included("proto/maps.buri"),
     // The well-known types and their JSON.
     included("proto/wellknown.buri"),
+    // Truncated and malformed input at each place the codecs read.
+    included("proto/edges.buri"),
     // The same types declared in a schema of one's own, with explicit presence
     // (buri-lang/buri#268).
     included("proto_presence/explicit.buri"),

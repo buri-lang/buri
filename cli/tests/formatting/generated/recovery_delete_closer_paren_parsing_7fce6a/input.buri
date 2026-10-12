@@ -1,0 +1,52 @@
+// What `json.parse` takes and refuses at the edges of RFC 8259: a trailing
+// comma, the surrogates either side of a pair, and the signs a number may carry.
+
+from "core/json" import * as json;
+from "core/json" import { Json, JsonError };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+test "a trailing comma closes nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(json.parse(ctx, "[1,]"), .Err(JsonError.Unexpected(3));
+    assert.equal(json.parse(ctx, "{\"a\": 1,}"), .Err(JsonError.Unexpected(8)));
+}
+
+test "a code point past the low surrogates is a character of its own" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(json.parse(ctx, "\"\\uE000\""), .Ok(Json.Str("\u{e000}")));
+    assert.equal(json.parse(ctx, "\"\\uDFFF\""), .Err(JsonError.BadEscape(3)));
+}
+
+test "a high surrogate is paired only with a low one" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(json.parse(ctx, "\"\\uD83D\\uDE00\""), .Ok(Json.Str("😀")));
+    assert.equal(json.parse(ctx, "\"\\uD83D\\u0041\""), .Err(JsonError.BadEscape(9)));
+    assert.equal(json.parse(ctx, "\"\\uD83D\\uE000\""), .Err(JsonError.BadEscape(9)));
+}
+
+test "a number needs a digit before its point or its exponent" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(json.parse(ctx, "-.5"), .Err(JsonError.BadNumber(0)));
+    assert.equal(json.parse(ctx, "-"), .Err(JsonError.BadNumber(0)));
+    assert.equal(json.parse(ctx, "-e5"), .Err(JsonError.BadNumber(0)));
+}
+
+test "a sign belongs to a number only at its start or after its e" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(json.parse(ctx, "1e-2"), .Ok(Json.Num(0.01)));
+    assert.equal(json.parse(ctx, "1E+2"), .Ok(Json.Num(100.0)));
+    assert.equal(json.parse(ctx, "[1-2]"), .Err(JsonError.Unexpected(2)));
+    assert.equal(json.parse(ctx, "[1.5+2]"), .Err(JsonError.Unexpected(4)));
+}
