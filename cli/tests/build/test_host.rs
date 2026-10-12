@@ -29,7 +29,7 @@ fn suite(name: &str) -> Scratch {
 }
 
 /// A C driver that links as the real one does, then runs `spoil` in the
-/// directory it linked the host in.
+/// directory it linked the host in, with the real driver as `$real`.
 fn spoiling_driver(scratch: &Scratch, spoil: &str) -> String {
     let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
     let driver = scratch.write_executable(
@@ -37,7 +37,8 @@ fn spoiling_driver(scratch: &Scratch, spoil: &str) -> String {
         &format!(
             "#!/bin/sh\n\
              case \" $* \" in *\" -o test-host \"*) host=1 ;; *) host=0 ;; esac\n\
-             '{real_cc}' \"$@\" || exit $?\n\
+             real='{real_cc}'\n\
+             \"$real\" \"$@\" || exit $?\n\
              if [ $host = 1 ]; then {spoil}; fi\n"
         ),
     );
@@ -65,7 +66,13 @@ fn a_test_host_that_cannot_be_used_leaves_suites_linking_runners() {
         ),
         ("isn't a program", "printf 'not a program' > test-host", "not a 64-bit Mach-O file"),
         ("can't be started", "chmod -x test-host", "the test host can't be started: "),
-        ("is unsigned", "/usr/bin/codesign --remove-signature test-host", "the test host's probe was killed by SIGKILL"),
+        // As macOS kills an unsigned one, where it checks signatures.
+        (
+            "is killed as it starts",
+            "printf '#include <signal.h>\\n#include <unistd.h>\\nint main(void) { kill(getpid(), SIGKILL); }\\n' > k.c \
+             && \"$real\" k.c -o killed && mv killed test-host",
+            "the test host's probe was killed by SIGKILL",
+        ),
         (
             "can't write code",
             "/usr/bin/codesign -f -s - -o runtime test-host 2>/dev/null",
