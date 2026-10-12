@@ -8,25 +8,3 @@ error: "//lib/money/notes/lib.buri" names no file (lib/money/notes/lib.buri) [un
 
     There's no search path and no fallback, so a path never has two candidates.
 
-error: there is no type `Cents` [unknown-type]
- --> cmd/app/routes.buri:6:12
-  |
-6 |     let c: Cents = fromCents(1905);
-  |            ^^^^^
-  |
-  = fix: declare it, import it, or correct the spelling
-
-    Types are nominal, with no structural fallback, so a misspelling can't
-    quietly become a different type that happens to fit.
-
-error: there is nothing named `fromCents` in scope [unknown-name]
- --> cmd/app/routes.buri:6:20
-  |
-6 |     let c: Cents = fromCents(1905);
-  |                    ^^^^^^^^^
-  |
-  = fix: declare `fromCents`, or import it — a name is in scope only from this module's own declarations and its imports
-
-    There is no prelude. A module sees only what it declares and what its own
-    imports name, which is why the suggestion is trustworthy.
-

@@ -13,14 +13,3 @@ error: "//lib/money" does not export `rawValue` [unknown-export]
     <T: order.Comparable>. If no import bound the namespace at all, the error is
     unknown-name instead.
 
-error: there is nothing named `rawValue` in scope [unknown-name]
-  --> cmd/app/main.buri:16:26
-   |
-16 |         .println(ctx, "${rawValue(fromCents(450))}")
-   |                          ^^^^^^^^
-   |
-   = fix: declare `rawValue`, or import it — a name is in scope only from this module's own declarations and its imports
-
-     There is no prelude. A module sees only what it declares and what its own
-     imports name, which is why the suggestion is trustworthy.
-

@@ -22,17 +22,6 @@ error: //shape.buri is internal to // [internal-import]
   |
   = only names re-exported by lib.buri are available
   = fix: import the library instead: from "//lib.buri" import { ... }
-error: there is nothing named `area` in scope [unknown-name]
-  --> cmd/app/main.buri:11:24
-   |
-11 |     io.println(ctx, "${area()}").mapErr(fn(_e) => "could not write to standard output")
-   |                        ^^^^
-   |
-   = fix: declare `area`, or import it — a name is in scope only from this module's own declarations and its imports
-
-     There is no prelude. A module sees only what it declares and what its own
-     imports name, which is why the suggestion is trustworthy.
-
 warning: lib.buri imports //lib/money, which is not in dependencies [missing-dependency]
  --> lib.buri:1:6
   |

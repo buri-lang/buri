@@ -16,14 +16,3 @@ error: "//lib/schemas/files" names no file (lib/schemas/files.buri) [unknown-mod
 
     There's no search path and no fallback, so a path never has two candidates.
 
-error: there is nothing named `A_TXT` in scope [unknown-name]
- --> lib/schemas/schemas.buri:5:5
-  |
-5 |     A_TXT
-  |     ^^^^^
-  |
-  = fix: declare `A_TXT`, or import it — a name is in scope only from this module's own declarations and its imports
-
-    There is no prelude. A module sees only what it declares and what its own
-    imports name, which is why the suggestion is trustworthy.
-

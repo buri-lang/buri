@@ -2,7 +2,9 @@
 # without `export`. Each program names them from outside: `app` binds `Quiet`
 # by its bare name, `named` binds it through a namespace, and `members` names
 # them through a namespace as a bound, a type, a pattern and a call. Every one
-# says the name is private, and none offers an import.
+# says the name is private, and none offers an import. `imported` imports them
+# by name: each import is refused once, and the bound, impl head, binding, type,
+# pattern and call that use them say nothing more.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
@@ -24,4 +26,10 @@ run {
   args: ["build", "//cmd/members"]
   exit: 1
   golden: "members.txt"
+}
+
+run {
+  args: ["build", "//cmd/imported"]
+  exit: 1
+  golden: "imported.txt"
 }

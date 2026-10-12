@@ -1,0 +1,23 @@
+from "node" import { NodeHost };
+from "//platform/effect/quiet" import { calm, loud, Mood, Quiet };
+
+fn hushed<C: Quiet>(ctx: C): Int {
+    0
+}
+
+impl Quiet for Int {
+    fn hush(self): Int {
+        0
+    }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Quiet: host.alloc,
+    };
+    let level: Quiet = 1;
+    match (calm()) {
+        Mood.Calm(at) => .Ok(()),
+        _ => if (loud() == 0) { .Ok(()) } else { .Err("loud") },
+    }
+}

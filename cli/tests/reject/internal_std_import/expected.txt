@@ -47,14 +47,3 @@ error: `main` takes `NativeHost`, and the node platform hands its entry a `NodeH
      Each platform offers different effects, so each declares its own host type.
      One entry can't take two.
 
-error: there is nothing named `classify` in scope [unknown-name]
-  --> cmd/internal_std_import/main.buri:13:11
-   |
-13 |   let _ = classify;
-   |           ^^^^^^^^
-   |
-   = fix: declare `classify`, or import it — a name is in scope only from this module's own declarations and its imports
-
-     There is no prelude. A module sees only what it declares and what its own
-     imports name, which is why the suggestion is trustworthy.
-

@@ -374,6 +374,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                     typed::PatKind::Struct { con, fields }
                 }
             }
+            _ if self.c.scope(module).import_failed(head) => {
+                self.poisoned_payload(payload);
+                typed::PatKind::Error
+            }
             _ => {
                 let shown = path.iter().map(|i| t.text(*i)).collect::<Vec<_>>().join(".");
                 self.templated("unknown-type", span)
