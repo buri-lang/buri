@@ -1,0 +1,26 @@
+//! A library whose comments show code.
+//!
+//! ```buri
+//! export fn first(): I64 {
+//!     1
+//! }
+//! ```
+
+/// Twice what it's given.
+///
+/// ```buri
+/// # from "core/io" import * as io;
+///
+/// export fn four(): I64 {
+///     2 * 2
+/// }
+/// ```
+///
+/// ```buri
+/// export fn five(): I64 {
+///     5
+/// }
+/// ```
+export fn double(n: I64): I64 {
+    n * 2
+}
