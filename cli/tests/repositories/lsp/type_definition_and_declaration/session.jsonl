@@ -7,7 +7,7 @@
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/typeDefinition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 56}}}
 # A field whose type is a primitive. Those are declared in the standard
 # library, which has no file, so there is nowhere to send the editor.
-{"jsonrpc": "2.0", "id": 4, "method": "textDocument/typeDefinition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 69}}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/typeDefinition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 4, "character": 71}}}
 # A call: the type it returns.
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/typeDefinition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 22}}}
 # A type written in an annotation is its own type definition.

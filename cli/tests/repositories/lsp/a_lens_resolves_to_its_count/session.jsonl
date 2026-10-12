@@ -24,7 +24,7 @@
 # `twice` is re-exported and nothing else names it, so the title is singular.
 # One place is one reference, and a lens reading "1 references" is a lens
 # somebody wrote with a format string rather than with English.
-{"jsonrpc": "2.0", "id": 6, "method": "codeLens/resolve", "params": {"data": {"position": {"character": 10, "line": 17}, "uri": "file://<scratch>/lib/counter/counter.buri"}, "range": {"end": {"character": 15, "line": 17}, "start": {"character": 10, "line": 17}}}}
+{"jsonrpc": "2.0", "id": 6, "method": "codeLens/resolve", "params": {"data": {"position": {"character": 10, "line": 21}, "uri": "file://<scratch>/lib/counter/counter.buri"}, "range": {"end": {"character": 15, "line": 21}, "start": {"character": 10, "line": 21}}}}
 # A run-test lens, which left the full pass with its command already on it and
 # carries no `data`. It comes back exactly as it went in. Not `null`: the
 # protocol's result for this request is a code lens, and a complete one is one.

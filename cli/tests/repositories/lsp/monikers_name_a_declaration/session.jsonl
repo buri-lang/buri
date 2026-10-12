@@ -19,7 +19,7 @@
 {"jsonrpc": "2.0", "id": 8, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/lib.buri"}, "position": {"line": 3, "character": 13}}}
 # The standard library belongs to no package, so the path an import writes
 # stands where the label would.
-{"jsonrpc": "2.0", "id": 9, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 0, "character": 30}}}
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 2, "character": 34}}}
 # A local has no name outside the body that binds it, so there is nothing for
 # an index anywhere else to resolve.
 {"jsonrpc": "2.0", "id": 10, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 9, "character": 10}}}

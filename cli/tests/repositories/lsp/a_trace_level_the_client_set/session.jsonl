@@ -9,13 +9,13 @@
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 # A request at `messages`: the method and the id, on the way in and on the way
 # out, with the answer between them.
-{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 23}}}
 # Off, and the server goes quiet.
 {"jsonrpc": "2.0", "method": "$/setTrace", "params": {"value": "off"}}
-{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 23}}}
 # On again.
 {"jsonrpc": "2.0", "method": "$/setTrace", "params": {"value": "messages"}}
-{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 23}}}
 # A word that is not one of the three levels leaves the level where it was: a
 # notification has no error reply, and guessing which level was meant would be
 # worse than ignoring the one that was not.

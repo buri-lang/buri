@@ -8,10 +8,10 @@
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 # References with a token: begin, then the answer, with the end between them
 # saying how much of one there was.
-{"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}, "context": {"includeDeclaration": true}, "workDoneToken": "buri/references"}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 23}, "context": {"includeDeclaration": true}, "workDoneToken": "buri/references"}}
 # The same request with no token is silent. Nothing about the work changed —
 # only whether anybody asked to hear about it.
-{"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 23}, "context": {"includeDeclaration": true}}}
 # A workspace query analyses one repository per open folder, which is a loop the
 # client can be told the length of: one report per repository, then the end.
 {"jsonrpc": "2.0", "id": 4, "method": "workspace/symbol", "params": {"query": "sub", "workDoneToken": "buri/symbols"}}
