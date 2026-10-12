@@ -1,0 +1,5 @@
+// EXPECT: there is no module to declare `show` in
+// `()` is the empty tuple, and no module declares it either.
+fn shown(): Str {
+  ().show()
+}

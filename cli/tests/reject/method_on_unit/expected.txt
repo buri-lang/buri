@@ -1,0 +1,13 @@
+error: `()` has no method `show` [unknown-method]
+ --> cmd/method_on_unit/main.buri:4:6
+  |
+4 |   ().show()
+  |      ^^^^
+  |
+  = tuples, function types, and `Template` have no defining module, so they have no methods
+  = fix: there is no module to declare `show` in, so write a free function taking the value, or wrap it in a struct of yours and give that the method
+
+    Methods live only in the module that declares the receiver's type. Nothing
+    can add a method from outside, so for a toolchain type the fix points at its
+    page instead of an impl block you couldn't write.
+

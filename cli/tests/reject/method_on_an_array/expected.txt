@@ -1,0 +1,12 @@
+error: `[I64]` has no method `middle` [unknown-method]
+ --> cmd/method_on_an_array/main.buri:5:6
+  |
+5 |   xs.middle()
+  |      ^^^^^^
+  |
+  = fix: check the spelling — `buri docs core/list` lists every method `[I64]` has
+
+    Methods live only in the module that declares the receiver's type. Nothing
+    can add a method from outside, so for a toolchain type the fix points at its
+    page instead of an impl block you couldn't write.
+

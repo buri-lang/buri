@@ -1,0 +1,6 @@
+// EXPECT: `buri docs core/list` lists every method `[I64]` has
+// Only `core/list` may declare a method on `[T]`, so the fix may not ask for an
+// `impl [I64]`.
+fn first(xs: [Int]): Int {
+  xs.middle()
+}
