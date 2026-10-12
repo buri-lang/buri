@@ -3,25 +3,25 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
-total 14791 16460 89.86%
+total 15016 16460 91.23%
 area cli/build 1672 1689 98.99%
-area cli/documentation 258 771 33.46%
+area cli/documentation 449 771 58.24%
 area cli/format 85 98 86.73%
 area cli/language_server 1150 1464 78.55%
 area cli/lint 588 708 83.05%
-area cli/other 512 606 84.49%
+area cli/other 522 606 86.14%
 area cli/run 48 66 72.73%
 area cli/serve+watch 51 84 60.71%
 area cli/test 453 592 76.52%
 area crates/backend 68 68 100.00%
 area crates/diagnostics 191 194 98.45%
-area crates/docs 197 304 64.80%
+area crates/docs 220 304 72.37%
 area crates/hash 18 18 100.00%
 area crates/js 1022 1062 96.23%
 area crates/llvm 610 616 99.03%
 area crates/middle 1915 2016 94.99%
 area crates/project 1341 1358 98.75%
-area crates/semantics 2156 2202 97.91%
+area crates/semantics 2157 2202 97.96%
 area crates/stdlib 12 12 100.00%
 area crates/stencil 1235 1298 95.15%
 area crates/syntax 1209 1234 97.97%
@@ -66,15 +66,15 @@ area crates/syntax 1209 1234 97.97%
 35 48 cli/src/commands/watch.rs
 0 0 cli/src/compiler/backend/mod.rs
 1 2 cli/src/compiler/backend/runtime_native.rs
-48 66 cli/src/compiler/driver.rs
-193 224 cli/src/compiler/modules.rs
+50 66 cli/src/compiler/driver.rs
+201 224 cli/src/compiler/modules.rs
 4 4 cli/src/compiler/snapshot.rs
-0 4 cli/src/documentation/assemble.rs
-41 174 cli/src/documentation/examples.rs
+3 4 cli/src/documentation/assemble.rs
+153 172 cli/src/documentation/examples.rs
 0 254 cli/src/documentation/grammar.rs
-30 98 cli/src/documentation/layout.rs
-117 159 cli/src/documentation/mod.rs
-70 82 cli/src/documentation/reference.rs
+76 98 cli/src/documentation/layout.rs
+142 161 cli/src/documentation/mod.rs
+75 82 cli/src/documentation/reference.rs
 6 6 cli/src/hold.rs
 54 70 cli/src/language_server/build_files.rs
 15 24 cli/src/language_server/call_hierarchy.rs
@@ -115,7 +115,7 @@ area crates/syntax 1209 1234 97.97%
 0 0 crates/docs/src/documentation/errors.rs
 30 42 crates/docs/src/documentation/frontmatter.rs
 0 0 crates/docs/src/documentation/lints.rs
-123 218 crates/docs/src/documentation/markdown.rs
+146 218 crates/docs/src/documentation/markdown.rs
 44 44 crates/docs/src/documentation/mod.rs
 0 0 crates/docs/src/documentation/topics.rs
 2 2 crates/hash/src/build/action_key.rs
@@ -181,7 +181,7 @@ area crates/syntax 1209 1234 97.97%
 3 4 crates/semantics/src/compiler/semantics/name.rs
 78 78 crates/semantics/src/compiler/semantics/patterns.rs
 28 28 crates/semantics/src/compiler/semantics/reactive.rs
-418 426 crates/semantics/src/compiler/semantics/resolve.rs
+419 426 crates/semantics/src/compiler/semantics/resolve.rs
 14 14 crates/semantics/src/compiler/semantics/resolve/constructible.rs
 64 64 crates/semantics/src/compiler/semantics/resolve/endless.rs
 139 140 crates/semantics/src/compiler/semantics/resolve/platforms.rs
