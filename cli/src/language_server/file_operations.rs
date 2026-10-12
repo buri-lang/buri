@@ -25,6 +25,7 @@ use crate::build::textproto::{self, Document};
 use crate::diagnostics::FileId;
 use crate::json::Value;
 use crate::parsing::tree::Item;
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use super::build_files::is_build_file;
@@ -124,30 +125,42 @@ pub fn will_rename(state: &mut State, params: &Value) -> Option<Value> {
             continue;
         }
         let Some(session) = state.session_for(&old) else { continue };
-        let Some(before) = placement(&session, &old) else { continue };
-        let Some(after) = placement(&session, &new) else { continue };
+        // Either end may be under no package: a file leaving every package is
+        // a delete as far as its old list is concerned, and one arriving from
+        // under none is a create as far as its new one is.
+        let before = placement(&session, &old);
+        let after = placement(&session, &new);
 
-        if before.build_path == after.build_path {
-            let change = Change::Renamed { from: before.rel.clone(), to: after.rel.clone() };
-            sources(state, &mut edits, &before.build_path, &change);
-        } else {
-            // Across packages the entry moves between two build files. What
-            // the move does to either package's `dependencies` is derived from
-            // the repository as it will be, so it is left to `buri gen` and to
-            // the `missing-dependency` finding that asks for it.
-            let dropped = Change::Dropped { rel: before.rel.clone() };
-            sources(state, &mut edits, &before.build_path, &dropped);
-            if let Some((rule, field)) = destination(&after) {
-                let added = Change::Added { rule, field, rel: after.rel.clone() };
-                sources(state, &mut edits, &after.build_path, &added);
+        match (&before, &after) {
+            (Some(b), Some(a)) if b.build_path == a.build_path => {
+                let change = Change::Renamed { from: b.rel.clone(), to: a.rel.clone() };
+                sources(state, &mut edits, &b.build_path, &change);
+            }
+            _ => {
+                // Across packages the entry moves between two build files. What
+                // the move does to either package's `dependencies` is derived
+                // from the repository as it will be, so it is left to `buri gen`
+                // and to the `missing-dependency` finding that asks for it.
+                if let Some(b) = &before {
+                    let dropped = Change::Dropped { rel: b.rel.clone() };
+                    sources(state, &mut edits, &b.build_path, &dropped);
+                }
+                if let Some((a, (rule, field))) =
+                    after.as_ref().and_then(|a| Some((a, destination(a)?)))
+                {
+                    let added = Change::Added { rule, field, rel: a.rel.clone() };
+                    sources(state, &mut edits, &a.build_path, &added);
+                }
             }
         }
 
-        let (Some(from), Some(to)) = (before.module.as_deref(), after.module.as_deref()) else {
+        let from = before.and_then(|b| b.module);
+        let to = after.and_then(|a| a.module);
+        let (Some(from), Some(to)) = (from, to) else {
             continue;
         };
         if from != to {
-            imports(state, &old, to, &mut edits);
+            imports(state, &old, &to, &mut edits);
         }
     }
     edits.finish()
@@ -348,11 +361,13 @@ impl Edits {
 /// Applies one change to a package's `BUILD.buri`, through the buffer the
 /// editor is holding for it when there is one.
 fn sources(state: &State, edits: &mut Edits, build_path: &Path, change: &Change) {
-    if !edits.build_files.contains_key(build_path) {
-        let Some(text) = state.text_of(build_path) else { return };
-        edits.build_files.insert(build_path.to_path_buf(), (text.clone(), text));
-    }
-    let Some((_, current)) = edits.build_files.get_mut(build_path) else { return };
+    let current = match edits.build_files.entry(build_path.to_path_buf()) {
+        Entry::Occupied(held) => &mut held.into_mut().1,
+        Entry::Vacant(slot) => {
+            let Some(text) = state.text_of(build_path) else { return };
+            &mut slot.insert((text.clone(), text)).1
+        }
+    };
     if let Some(next) = rewrite(current, change) {
         *current = next;
     }
@@ -375,9 +390,10 @@ fn rewrite(text: &str, change: &Change) -> Option<String> {
             set(&mut document, rule, field, |list| list.insert(rel.clone()))
         }
         Change::Renamed { from, to } => match holder(&document, from) {
+            // Onto a name the list already has, the old entry still goes.
             Some((rule, field)) => set(&mut document, rule, field, |list| {
-                list.remove(from);
-                list.insert(to.clone())
+                let removed = list.remove(from);
+                list.insert(to.clone()) || removed
             }),
             None => false,
         },

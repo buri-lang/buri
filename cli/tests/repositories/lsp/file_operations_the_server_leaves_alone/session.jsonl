@@ -1,0 +1,52 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# A `!` line is the harness acting as the editor would; see harness/case.rs.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Several files in one request, all landing in `lib/pricing`, answer one edit to
+# its build file: a `testing/` module joins the testing surface's sources and a
+# plain module joins the library's. A schema is a generator's input, which a
+# person lists; a file already listed stays listed once; a file under no package,
+# a build file, and a file outside the repository change nothing.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/willCreateFiles", "params": {"files": [{"uri": "file://<scratch>/lib/pricing/testing/help.buri"}, {"uri": "file://<scratch>/lib/pricing/extra.buri"}, {"uri": "file://<scratch>/lib/pricing/schema.proto"}, {"uri": "file://<scratch>/lib/pricing/rate.buri"}, {"uri": "file://<scratch>/notes/scratch.buri"}, {"uri": "file://<scratch>/lib/pricing/BUILD.buri"}, {"uri": "file:///nowhere/outside.buri"}]}}
+# A request that names no files has nothing to answer.
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/willCreateFiles", "params": {}}
+# Moving a build file is moving a package, which the server leaves to a person.
+{"jsonrpc": "2.0", "id": 4, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/BUILD.buri", "newUri": "file://<scratch>/lib/store/BUILD.buri"}]}}
+# A file outside the repository is none of its business.
+{"jsonrpc": "2.0", "id": 5, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file:///nowhere/outside.buri", "newUri": "file:///nowhere/elsewhere.buri"}]}}
+# A file moving into a package from under no package joins its list, as a new file would.
+{"jsonrpc": "2.0", "id": 6, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/notes/scratch.buri", "newUri": "file://<scratch>/lib/shop/scratch.buri"}]}}
+# A module leaving every package loses its entry, as a deleted one would, and
+# nothing lists it in its new place. No import can name it there, so its importer
+# is left for the finding that will follow.
+{"jsonrpc": "2.0", "id": 7, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/money.buri", "newUri": "file://<scratch>/notes/money.buri"}]}}
+# A module renamed to a name no import can write keeps the build file's entry in
+# step and rewrites no import.
+{"jsonrpc": "2.0", "id": 8, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/money.buri", "newUri": "file://<scratch>/lib/shop/money.txt"}]}}
+# A module moving onto another package's entry point leaves its old list; the
+# entry point is named by the rule itself and joins no list.
+{"jsonrpc": "2.0", "id": 9, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/cart.buri", "newUri": "file://<scratch>/lib/pricing/lib.buri"}]}}
+# A rename onto a name the list already has drops the old entry and adds nothing twice.
+{"jsonrpc": "2.0", "id": 10, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/cart.buri", "newUri": "file://<scratch>/lib/shop/money.buri"}]}}
+# A rename request that names no files has nothing to answer.
+{"jsonrpc": "2.0", "id": 11, "method": "workspace/willRenameFiles", "params": {}}
+# Deleting a build file, a file outside the repository and a file under no package edits nothing.
+{"jsonrpc": "2.0", "id": 12, "method": "workspace/willDeleteFiles", "params": {"files": [{"uri": "file://<scratch>/lib/shop/BUILD.buri"}, {"uri": "file:///nowhere/outside.buri"}, {"uri": "file://<scratch>/notes/scratch.buri"}]}}
+# A delete request that names no files has nothing to answer.
+{"jsonrpc": "2.0", "id": 13, "method": "workspace/willDeleteFiles", "params": {}}
+# A package whose build file the editor holds in a state that does not parse is
+# not rewritten: there is no list to put the new file in.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/pricing/BUILD.buri", "languageId": "buri", "version": 1, "text": "library {\n    sources: [\"rate.buri\"\n"}}}
+# The new file is not added to the broken build file.
+{"jsonrpc": "2.0", "id": 14, "method": "workspace/willCreateFiles", "params": {"files": [{"uri": "file://<scratch>/lib/pricing/later.buri"}]}}
+# An open buffer follows its file through a rename: the outline of the new name is
+# the text the editor was holding, whose unsaved edit is not on disk.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/money.buri", "languageId": "buri", "version": 1, "text": "/// Unsaved.\nexport fn unsaved(): I64 {\n    1\n}\n"}}}
+# Within one package: the entry is renamed and the import that named the file follows it.
+{"jsonrpc": "2.0", "id": 15, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/money.buri", "newUri": "file://<scratch>/lib/shop/coins.buri"}]}}
+!edit 15
+!move lib/shop/money.buri lib/shop/coins.buri
+{"jsonrpc": "2.0", "method": "workspace/didRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/money.buri", "newUri": "file://<scratch>/lib/shop/coins.buri"}]}}
+{"jsonrpc": "2.0", "id": 16, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/coins.buri"}}}
+{"jsonrpc": "2.0", "id": 17, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
