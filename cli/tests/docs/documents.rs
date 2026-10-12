@@ -229,13 +229,53 @@ fn every_link_resolves() {
 /// topic and forget to regenerate, and this fails.
 #[test]
 fn the_assembled_documents_are_not_stale() {
-    let drifted = assemble::drifted(&repo_root());
-    let names: Vec<&str> = drifted.iter().map(|(p, _)| *p).collect();
+    let out = ran(&repo_root().join("crates/docs"), &["docs", "assemble", "--check"]);
     assert!(
-        drifted.is_empty(),
-        "{} is stale.\n  Run `buri docs assemble` and commit the result.\n  \
-         Edit the topics under crates/docs/src/docs, never the assembled file.",
-        names.join(", ")
+        out.status.success(),
+        "{}  Run `buri docs assemble` and commit the result.",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "no drift\n");
+}
+
+/// `buri docs assemble` writes the toolchain's own `SPEC.md`. In anyone
+/// else's repository there is nothing for it to assemble, and it says so
+/// rather than writing the toolchain's tree into theirs.
+#[test]
+fn assembling_is_refused_outside_the_toolchain_checkout() {
+    let dir = std::env::temp_dir().join(format!("buri-assemble-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a scratch repository");
+    std::fs::write(dir.join("REPO.buri"), "").expect("its REPO.buri");
+    for args in [&["docs", "assemble", "--check"][..], &["docs", "assemble"][..]] {
+        let out = ran(&dir, args);
+        assert_eq!(out.status.code(), Some(2), "`buri {}`", args.join(" "));
+        assert_eq!(
+            String::from_utf8_lossy(&out.stderr),
+            "error: `buri docs assemble` must run inside the Buri repository\n"
+        );
+    }
+    let written: Vec<_> = std::fs::read_dir(&dir).expect("the scratch repository").flatten().map(|e| e.file_name()).collect();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(written, ["REPO.buri"]);
+}
+
+/// Outside any repository a page's examples each compile on their own, and
+/// one that names a package has nothing to find it in.
+#[test]
+fn a_page_outside_a_repository_has_no_packages() {
+    let dir = std::env::temp_dir().join(format!("buri-outside-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a scratch directory");
+    let page = "```buri\nexport fn one(): I64 {\n    1\n}\n```\n\n\
+                ```buri package=//lib/money\nexport fn two(): I64 {\n    2\n}\n```\n";
+    std::fs::write(dir.join("page.md"), page).expect("the page");
+    let out = ran(&dir, &["docs", "test", "page.md"]);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stderr),
+        "page.md:8: `package=//lib/money` needs a repository\n    \
+         add `repo=...`, or run this inside the repository the package is in\n\
+         1 example(s) do not do what the documentation says\n"
     );
 }
 
