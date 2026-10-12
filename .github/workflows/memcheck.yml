@@ -109,7 +109,7 @@ jobs:
       - name: The other native modules, ${{ matrix.shard }}
         if: matrix.shard == 'e2e' || matrix.shard == 'backends' || matrix.shard == 'modules'
         env:
-          FILTERS: ${{ matrix.shard == 'e2e' && 'e2e::' || matrix.shard == 'backends' && 'llvm:: stencil::' || '--skip conformance:: --skip agreement:: --skip at_scale:: --skip e2e:: --skip llvm:: --skip stencil:: --skip float_parity:: --skip differential::' }}
+          FILTERS: "${{ matrix.shard == 'e2e' && 'e2e::' || matrix.shard == 'backends' && 'llvm:: stencil::' || '--skip conformance:: --skip agreement:: --skip at_scale:: --skip e2e:: --skip llvm:: --skip stencil:: --skip float_parity:: --skip differential::' }}"
         run: |
           set -euo pipefail
           mkdir -p "$BURI_MEMCHECK"
