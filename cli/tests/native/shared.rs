@@ -432,12 +432,17 @@ impl RefusedPort {
 /// to the operating system and not to the program under test.
 pub fn spawned(binary: &Path) -> std::process::Child {
     started(
-        crate::valgrind::command(binary, "a server")
-            .unwrap_or_else(|| Command::new(binary))
+        program(binary, "a server")
             .env("BURI_RT_HEAP_CHECK", "1")
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped()),
     )
+}
+
+/// `binary` as a command, under Valgrind when `BURI_MEMCHECK` or
+/// `BURI_HELGRIND` asks. `build` names it in the report, such as `stencil debug`.
+pub fn program(binary: &Path, build: &str) -> Command {
+    crate::valgrind::command(binary, build).unwrap_or_else(|| Command::new(binary))
 }
 
 /// [`spawned`] for a command a caller has already configured.

@@ -6,8 +6,8 @@ name: Memcheck
 # error becomes one GitHub issue, labelled `planned` and `urgent`.
 #
 # * **The workload** is the native conformance set built three ways, the
-#   backend-agreement and at-scale rows on both native backends, and the
-#   runtime's unit tests. `BURI_MEMCHECK` makes `cli/tests/native/shared.rs`
+#   backend-agreement and at-scale rows on both native backends, every other
+#   `native::` module, and the runtime's unit tests. `BURI_MEMCHECK` makes `cli/tests/native/shared.rs`
 #   run each program it built under memcheck; the runtime's tests are one
 #   program, run by `cli/examples/valgrind.rs`.
 # * **`--features valgrind`** builds a runtime that, under memcheck, takes
@@ -49,7 +49,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: [x86_64, arm64]
-        shard: [stencil-debug, llvm-debug, llvm-release, agreement, runtime]
+        shard: [stencil-debug, llvm-debug, llvm-release, agreement, e2e, backends, modules, runtime]
         include:
           - { arch: x86_64, os: blacksmith-8vcpu-ubuntu-2404 }
           - { arch: arm64, os: blacksmith-8vcpu-ubuntu-2404-arm }
@@ -103,6 +103,17 @@ jobs:
           set -euo pipefail
           mkdir -p "$BURI_MEMCHECK"
           nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- agreement:: at_scale:: \
+            2>&1 | tee -a "$BURI_MEMCHECK/tests.log"
+      # Every other `native::` module, less `float_parity` and `differential`,
+      # which run what they build themselves.
+      - name: The other native modules, ${{ matrix.shard }}
+        if: matrix.shard == 'e2e' || matrix.shard == 'backends' || matrix.shard == 'modules'
+        env:
+          FILTERS: ${{ matrix.shard == 'e2e' && 'e2e::' || matrix.shard == 'backends' && 'llvm:: stencil::' || '--skip conformance:: --skip agreement:: --skip at_scale:: --skip e2e:: --skip llvm:: --skip stencil:: --skip float_parity:: --skip differential::' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$BURI_MEMCHECK"
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- $FILTERS \
             2>&1 | tee -a "$BURI_MEMCHECK/tests.log"
       - name: The runtime's unit tests
         if: matrix.shard == 'runtime'

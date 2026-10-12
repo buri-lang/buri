@@ -585,7 +585,7 @@ and file each distinct error as an issue labelled `planned` and `urgent`.
 
 | Workflow | Tool | Shards |
 |---|---|---|
-| `memcheck.yml`, every commit to main and every pull request | memcheck | `native::conformance`'s native set built as `stencil-debug`, `llvm-debug` and `llvm-release`; `agreement::` and `at_scale::`; `buri-rt-tests`, x86_64 only |
+| `memcheck.yml`, every commit to main and every pull request | memcheck | `native::conformance`'s native set built as `stencil-debug`, `llvm-debug` and `llvm-release`; `agreement::` and `at_scale::`; `e2e::`; `llvm::` and `stencil::`; every other module but `float_parity` and `differential`; `buri-rt-tests`, x86_64 only |
 | `races.yml`, every commit to main and every pull request | helgrind | `fan_out::`, `at_scale::fan_outs_of_every_width` and `started::`; `agreement::`; `buri-rt-tests`'s `rt::`. On stencil and LLVM, x86_64 only |
 
 ```
@@ -602,6 +602,8 @@ nix develop .#perf -c cargo run -p buri --features backend-llvm,valgrind --examp
 - `BURI_MEMCHECK` or `BURI_HELGRIND` makes `native/shared.rs` run every
   program the suite built under that tool (`native/valgrind.rs`), with its
   report in `runs/`. `buri` and cargo aren't.
+  A test that starts a program itself takes its command from `shared::program`.
+  Runs that count a program's instructions don't, and run it bare.
 - `BURI_CONFORMANCE_BUILD` is `stencil` (the default), `llvm-debug` or
   `llvm-release`.
 - `report` writes one draft issue per distinct error to `issues/`. An error is
