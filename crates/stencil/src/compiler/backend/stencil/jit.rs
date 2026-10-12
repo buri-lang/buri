@@ -52,7 +52,7 @@ use crate::compiler::backend::counts::{Counts, Site};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Layouts, Repr};
 use crate::compiler::semantics::types::{Tables, Ty};
-use crate::diagnostics::Invariant;
+use crate::diagnostics::{invariant, invariant_with, Invariant};
 use crate::hash::Map as HashMap;
 
 // ---------------------------------------------------------------------------
@@ -1499,7 +1499,7 @@ impl<'a> Jit<'a> {
                 // undefined but the `_JIT_*` holes and `cli/runtime/lib.rs`'s
                 // exports, so the name *is* the symbol; `EXTERNALS` records the
                 // set for a test to check rather than for this to consult.
-                crate::diagnostics::invariant_with(!h.name.starts_with("JIT_"), || {
+                invariant_with(!h.name.starts_with("JIT_"), || {
                     format!("stencil: stencil {key} has an unbound hole {}", h.name)
                 });
                 self.import(at, h);
@@ -1634,14 +1634,10 @@ impl<'a> Jit<'a> {
                 // GOT form is two instructions with one destination register,
                 // and so is `movz`/`movk`. This is the same relaxation a linker
                 // does, and it takes a load off every immediate operand.
+                // `sources::one_register_pairs` refused, when the library was
+                // built, any pair that names a second register.
                 if let V::I(x) = *v {
-                    if x < (1u64 << 32)
-                        && h.pairs.iter().all(|(a, b)| {
-                            let wa = self.region.word_at(at + *a as u64);
-                            let wb = self.region.word_at(at + *b as u64);
-                            (wa & 0x1f) == (wb & 0x1f) && (wa & 0x1f) == ((wb >> 5) & 0x1f)
-                        })
-                    {
+                    if x < (1u64 << 32) {
                         for (a, b) in &h.pairs {
                             self.patch_imm32(at + *a as u64, at + *b as u64, x as u32);
                         }
@@ -2110,7 +2106,11 @@ impl<'a> Jit<'a> {
             }
             for (j, i) in b.insts.iter().enumerate() {
                 if let ir::Inst::ArrayLen { dest, array } = i {
-                    if alone(*dest) && still(*array) {
+                    // `middle::lower` reads a length only in a comparison, an
+                    // allocation, an intrinsic or a block argument it also
+                    // compares, so no pass merges or pins it.
+                    invariant(alone(*dest), "stencil: a length is a class of its own");
+                    if still(*array) {
                         put(slot, dest.index(), ent(slot, array.index(), 0) + 8);
                         put(&mut aliased, dest.index(), true);
                     }
@@ -2139,13 +2139,15 @@ impl<'a> Jit<'a> {
                 }
                 let root = find(uf, dest.0);
                 let in_class = |v: &ir::ValueId| find(uf, v.0) == root;
+                // A field already aliased is a length, which no load below
+                // defines, or a field of an earlier aggregate, which is a
+                // second use.
                 for (fi, f) in fields.iter().enumerate() {
                     let off = *offs.get(fi).or_ice("a constructor has a field per offset");
                     let w = self.width(prog, code.ty_of(*f));
                     if w == 0
                         || !w.is_multiple_of(8)
                         || !alone(*f)
-                        || ent(&aliased, f.index(), true)
                         || ent(uses, f.index(), 0) != 1
                         || self.field_ty(&owner, variant, fi).is_some_and(|t| self.boxes(&owner, &t))
                     {
@@ -2342,7 +2344,6 @@ impl<'a> Jit<'a> {
                 }
             }
         }
-        let mut used_here: crate::hash::Set<(u32, u32)> = crate::hash::Set::default();
         let mut pairs: Vec<(ir::ValueId, ir::ValueId)> = Vec::new();
         for (bi, b) in code.blocks.iter().enumerate() {
             // (i.a) An edge's block arguments.
@@ -2392,15 +2393,11 @@ impl<'a> Jit<'a> {
                 // own. No edge enters the entry (`ir::Code`), so `p` is not an
                 // entry parameter, was never an argument merged here, and is
                 // not `a`.
+                // A second argument into a class this terminator already
+                // merged into is a second read of it there, which
+                // `merge_is_safe` refuses; that is also what keeps two entry
+                // parameters, the only values pinned yet, out of one class.
                 let root = find(uf, pi as u32);
-                if ent(pin, ai, None).is_some()
-                    && (0..n).any(|v| find(uf, v as u32) == root && ent(pin, v, None).is_some())
-                {
-                    continue; // two pinned slots cannot be one slot
-                }
-                if !used_here.insert((bi as u32, root)) {
-                    continue;
-                }
                 if !self.merge_is_safe(code, opnd, bi, uf, root, a, ent(&def_idx, ai, u32::MAX)) {
                     continue;
                 }
@@ -2494,21 +2491,36 @@ impl<'a> Jit<'a> {
                     continue;
                 }
                 let (r1, r2) = (find(uf, p1.0), find(uf, p2.0));
-                if r1 == r2 || ent(&pinned, r1 as usize, true) || ent(&pinned, r2 as usize, true) {
+                // A tail call's loop header is pinned: the entry's parameters
+                // merge into it.
+                if ent(&pinned, r1 as usize, true) {
                     continue;
                 }
+                // `middle::lower` makes a join before the arms that jump to it,
+                // so a latch's target comes before it in `code.blocks` and
+                // every latch is met here before any latch that jumps to it.
+                // That leaves the latch's class as its parameter and the
+                // temporaries its predecessors pass it, which the shapes below
+                // are of.
+                invariant(r1 != r2, "stencil: a latch's parameter is not its target's yet");
+                invariant(!ent(&pinned, r2 as usize, true), "stencil: a latch's parameter is not pinned");
                 // Nothing in the latch reads the header parameter's class, and
-                // the jump passes it nothing but this one value.
+                // the jump passes it nothing but this one value: an `if`'s or a
+                // `match`'s join is defined after everything else it could read.
                 ops.clear();
                 for i in &latch.insts {
                     i.operands(&mut ops);
                 }
                 latch.term.operands(&mut ops);
-                if ops.iter().any(|o| find(uf, o.0) == r1)
-                    || t.args.iter().filter(|a| find(uf, a.0) == r1 || find(uf, a.0) == r2).count() != 1
-                {
-                    continue;
-                }
+                ops.extend_from_slice(&t.args);
+                invariant(
+                    !ops.iter().any(|o| find(uf, o.0) == r1),
+                    "stencil: a latch reads nothing of its target's parameter",
+                );
+                invariant(
+                    t.args.iter().filter(|a| find(uf, a.0) == r2).count() == 1,
+                    "stencil: a latch passes its parameter on once",
+                );
                 class.clear();
                 let mut m = r2;
                 loop {
@@ -2518,26 +2530,28 @@ impl<'a> Jit<'a> {
                         break;
                     }
                 }
-                let safe = class.iter().all(|m| {
-                    if *m == p2.0 {
-                        return true;
-                    }
+                for m in class.iter().filter(|m| **m != p2.0) {
                     let b = ent(def_block, *m as usize, u32::MAX);
                     let block = code.blocks.get(b as usize).or_ice("a value merged on an edge is defined");
-                    // A parameter of some other block in the class is not a
-                    // shape this reasons about.
-                    if block.params.iter().any(|p| p.0 == *m) {
-                        return false;
-                    }
-                    // Its definition now writes the header parameter's slot,
-                    // so the block must have no way out but to the latch.
-                    if !matches!(&block.term, ir::Term::Jump(j) if std::ptr::eq(code.get(j.block), latch)) {
-                        return false;
-                    }
-                    self.merge_is_safe(code, opnd, b as usize, uf, r1, ir::ValueId(*m), ent(def_idx, *m as usize, u32::MAX))
-                });
-                if !safe {
-                    continue;
+                    // The rest of the class is the temporaries the latch's
+                    // predecessors pass it. Each definition now writes the
+                    // header parameter's slot, so its block has no way out but
+                    // to the latch, and reads nothing of the target's class,
+                    // which is defined in blocks it does not follow.
+                    invariant(
+                        !block.params.iter().any(|p| p.0 == *m),
+                        "stencil: a latch's class holds no other block's parameter",
+                    );
+                    let to_latch = match &block.term {
+                        ir::Term::Jump(j) => std::ptr::eq(code.get(j.block), latch),
+                        _ => false,
+                    };
+                    invariant(to_latch, "stencil: a value passed to a latch is defined in a block that jumps there");
+                    let at = ent(def_idx, *m as usize, u32::MAX);
+                    invariant(
+                        self.merge_is_safe(code, opnd, b as usize, uf, r1, ir::ValueId(*m), at),
+                        "stencil: a latch's predecessor reads nothing of its target's parameter",
+                    );
                 }
                 put(uf, r2 as usize, r1);
                 let (n1, n2) = (ent(&next, r1 as usize, r1), ent(&next, r2 as usize, r2));
@@ -2689,8 +2703,11 @@ impl<'a> Jit<'a> {
                                 | ir::Inst::GetTag { .. }
                         )
                     ) && b.insts.get(k).is_some_and(keeps_callee_frame);
+                    // Read once, by this call, so no edge merged it, and
+                    // defined by an instruction, so it is no entry parameter;
+                    // the values pinned above are a call's result and a
+                    // `FromBool` read before the next call.
                     if !defines
-                        || !alone(*a, pin)
                         || ent(uses, a.index(), 0) != 1
                         || !pure(k + 1, j)
                         || results.iter().any(|(rj, re)| *rj < k && k <= *re)
@@ -2721,11 +2738,11 @@ impl<'a> Jit<'a> {
         from: u32,
     ) -> bool {
         let b = code.blocks.get(bi).or_ice("a block index is one of its code's");
-        for (k, i) in b.insts.iter().enumerate().skip(from as usize + 1) {
+        // A write to the class is no separate question: every value merged
+        // into it is a parameter or a temporary its own block's terminator
+        // reads once, so one defined here is a second read below.
+        for k in (from as usize + 1)..b.insts.len() {
             if opnd.inst(bi, k).iter().any(|o| find(uf, o.0) == root) {
-                return false;
-            }
-            if i.results().iter().any(|d| find(uf, d.0) == root) {
                 return false;
             }
         }
@@ -2962,14 +2979,9 @@ impl<'a> Jit<'a> {
                     ops.clear();
                     b.term.operands(&mut ops);
                     for tt in b.term.targets() {
-                        for (pp, aa) in code.get(tt.block).params.iter().zip(tt.args.iter()) {
-                            // The one occurrence that *is* this hand-over is
-                            // fine; any other read of the register is not.
-                            // At `p` in `t` itself, the argument is `a`.
-                            if !(std::ptr::eq(tt, t) && pp == p) {
-                                ops.push(*aa);
-                            }
-                        }
+                        // The hand-over itself, `a` at `p` in `t`, reads no
+                        // register: `a` has none yet.
+                        ops.extend_from_slice(&tt.args);
                     }
                     clash |= ops.iter().any(|o| ent(out, o.index(), None) == Some(Loc::Reg(k)));
                     if clash {
@@ -3216,11 +3228,11 @@ impl<'a> Jit<'a> {
                     // Immediately before: the branch reads the operands where
                     // the comparison would have, and anything emitted between
                     // the two can reuse or clobber where that is (#297).
-                    // Only a `Const` is skipped yet, so `k` is not.
-                    if op.is_comparison()
-                        && uses(st, *cond) == 1
-                        && (k + 1..n).all(|j| ent(&p.skip, j, false))
-                    {
+                    // Only a `Const` is skipped yet, so `k` is not. A `Bool`
+                    // operator other than a comparison is refused by the
+                    // checker (`bitwise-non-integer`) or lowered to a join.
+                    invariant(op.is_comparison(), "stencil: a branch's condition is a comparison");
+                    if uses(st, *cond) == 1 && (k + 1..n).all(|j| ent(&p.skip, j, false)) {
                         let a = st.loc(*lhs).tag();
                         let b = if ent(&st.folded, rhs.index(), false) {
                             "i".into()
@@ -3229,10 +3241,11 @@ impl<'a> Jit<'a> {
                         };
                         if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
                             let key = key!["brcmp/", op.name(), "/", tag, "/", a, b];
-                            if self.has(&key) {
-                                put(&mut p.skip, k, true);
-                                p.cmpbr = Some((*op, *prim, *lhs, *rhs));
-                            }
+                            // `sources` builds every operand shape of every
+                            // comparison of every type `prim_tag` names.
+                            invariant_with(self.has(&key), || format!("stencil: the library has no {key}"));
+                            put(&mut p.skip, k, true);
+                            p.cmpbr = Some((*op, *prim, *lhs, *rhs));
                         }
                     }
                 }
@@ -3293,15 +3306,21 @@ impl Jit<'_> {
         if !matches!(prim, Prim::I64 | Prim::U64)
             || t.args.get(k) != Some(sum)
             || !ent(&st.folded, by.index(), false)
-            || ent(&st.folded, rhs.index(), false)
             || !frame(*from)
             || !frame(*rhs)
-            || uses(st, *sum) != 1
-            || header.params.iter().zip(t.args.iter()).any(|(p, a)| {
-                !frame(*p) || !frame(*a) || st.at(*p) != st.at(*a)
-            })
+            || header.params.iter().zip(t.args.iter()).any(|(p, a)| st.at(*p) != st.at(*a))
         {
             return None;
+        }
+        // Only `middle::lower`'s walks over a list (`lower/lists.rs`) have
+        // this header: a user's loop enters its own through an empty block. A
+        // walk is bounded by a length and steps its index once, and when the
+        // index is in its frame slot `promote` gave this loop no registers.
+        invariant(!ent(&st.folded, rhs.index(), false), "stencil: a walk's bound is a length, not a constant");
+        invariant(uses(st, *sum) == 1, "stencil: a walk's next index is read only by its back edge");
+        for (p, a) in header.params.iter().zip(t.args.iter()) {
+            invariant(frame(*p), "stencil: an unpromoted walk's variables are in its frame");
+            invariant(frame(*a), "stencil: an unpromoted walk's next values are in its frame");
         }
         let by = st.constants.get(by.index()).copied().flatten()?;
         Some((

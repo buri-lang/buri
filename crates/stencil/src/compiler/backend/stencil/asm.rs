@@ -539,12 +539,11 @@ impl X86 {
     ///
     /// Five bytes for anything below `2^32`, because a write to a 32-bit
     /// register zero-extends into the whole of the 64-bit one; ten for the one
-    /// wider value either shim forms, which is the `Str` length mask.
+    /// wider value either shim forms, which is the `Str` length mask. Every
+    /// shim names one of the first eight registers, so there is no `REX.B`.
     pub fn mov_imm(&mut self, rd: u32, value: u64) {
+        crate::diagnostics::invariant(rd < 8, "x86-64 shims move literals into rax..rdi");
         if value < (1u64 << 32) {
-            if rd >= 8 {
-                self.put(&[rex(false, 0, rd)]);
-            }
             self.put(&[0xb8 + (rd & 7) as u8]);
             self.put(&(value as u32).to_le_bytes());
             return;
@@ -713,11 +712,10 @@ impl X86 {
         self.put(&bytes.to_le_bytes());
     }
 
-    /// `jmp rn` — an indirect tail call, which pushes nothing.
+    /// `jmp rn` — an indirect tail call, which pushes nothing. Only the
+    /// shims' `rsi` is ever the target, so there is no `REX.B`.
     pub fn jmp_reg(&mut self, rn: u32) {
-        if rn >= 8 {
-            self.put(&[rex(false, 0, rn)]);
-        }
+        crate::diagnostics::invariant(rn < 8, "x86-64 shims jump through rax..rdi");
         self.put(&[0xff, 0xe0 | ((rn & 7) as u8)]);
     }
 
