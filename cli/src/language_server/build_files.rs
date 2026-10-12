@@ -222,6 +222,8 @@ struct Cursor {
     field: Option<String>,
     /// Whether the cursor is inside a quoted string.
     quoted: bool,
+    /// Whether the cursor is inside a `#` comment, which is prose.
+    commented: bool,
     /// What has been typed of the entry so far, and where it starts.
     prefix: String,
     from: u32,
@@ -238,6 +240,7 @@ fn cursor_at(text: &str, offset: u32) -> Cursor {
     let mut field: Option<String> = None;
     let mut quoted_from: Option<usize> = None;
     let mut lists: usize = 0;
+    let mut commented = false;
     let mut i = 0;
     while i < end {
         let Some(c) = bytes.get(i).copied() else { break };
@@ -257,6 +260,7 @@ fn cursor_at(text: &str, offset: u32) -> Cursor {
                 while i < end && bytes.get(i).is_some_and(|c| *c != b'\n') {
                     i = i.saturating_add(1);
                 }
+                commented = i == end;
             }
             b'"' => {
                 quoted_from = Some(i.saturating_add(1));
@@ -335,7 +339,7 @@ fn cursor_at(text: &str, offset: u32) -> Cursor {
         }
     };
     let (block, written) = blocks.pop().unwrap_or_default();
-    Cursor { block, written, field, quoted: quoted_from.is_some(), prefix, from }
+    Cursor { block, written, field, quoted: quoted_from.is_some(), commented, prefix, from }
 }
 
 fn is_word(c: u8) -> bool {
@@ -356,6 +360,9 @@ type Entry = (String, i64, String, Vec<String>);
 /// written out by hand.
 pub fn completion(session: &Session, path: &Path, text: &str, position: Position) -> Value {
     let cursor = cursor_at(text, convert::offset_of(text, position));
+    if cursor.commented {
+        return Value::Array(Vec::new());
+    }
     let replacing = (cursor.from, cursor.from.saturating_add(cursor.prefix.len() as u32));
     let schema = super::schema::schema();
     let entries: Vec<Entry> = match (&cursor.field, cursor.quoted) {
@@ -497,7 +504,7 @@ fn files(build_file: &Path, text: &str) -> Vec<Entry> {
     crate::build::regenerate::collect(dir, dir, &mut sources, &mut schemas);
     sources
         .into_iter()
-        .filter(|name| !matches!(name.as_str(), "lib.buri" | "main.buri" | "REPO.buri"))
+        .filter(|name| !matches!(name.as_str(), "lib.buri" | "main.buri"))
         // Already written somewhere in this file, so offering it again would
         // be offering a duplicate the build rejects.
         .filter(|name| !text.contains(&format!("\"{name}\"")))
@@ -550,7 +557,7 @@ pub fn hover(text: &str, position: Position, kind: Markup) -> Option<Value> {
     let offset = convert::offset_of(text, position);
     let (word, from, to) = word_at(text, offset)?;
     let cursor = cursor_at(text, from);
-    if cursor.quoted {
+    if cursor.quoted || cursor.commented {
         return None;
     }
     let schema = super::schema::schema();

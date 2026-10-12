@@ -1,0 +1,4 @@
+/// The repository's own library, at its root.
+export fn root(): I64 {
+    1
+}
