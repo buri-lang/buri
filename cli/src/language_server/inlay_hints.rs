@@ -85,7 +85,7 @@ pub fn hints(
             // A type the checker could not work out is not one to paint. The
             // squiggle already says so, and a hint reading `?` beside it would
             // be the server repeating itself in a place nobody asked.
-            if local.ty.is_error() {
+            if local.ty.has_error() {
                 continue;
             }
             found.push(Hint {

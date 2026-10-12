@@ -29,5 +29,11 @@
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/BUILD.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 10, "character": 0}}}}
 # A file in no open repository. Nothing to analyse, so nothing to hint.
 {"jsonrpc": "2.0", "id": 6, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file:///nowhere/absent.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 10, "character": 0}}}}
+# A type the checker could not work out is not painted, even inside a list:
+# `unknown` gets no hint, and `known` beside it still does. Hovering `unknown`
+# shows what the source wrote.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "//! Money, in whole cents.\n\n/// An amount of money, in whole cents.\nexport struct Money {\n    /// The amount itself.\n    export cents: I64,\n}\n\n/// What `count` of something at `price` each comes to.\nexport fn line(count: I64, price: I64): Money {\n    Money { cents: count * price }\n}\n\n/// Nothing the checker can type.\nexport fn broken(): I64 {\n    let unknown = many();\n    let known = 1;\n    known\n}\n\nfn many(): [Nope] {\n    []\n}\n"}}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "range": {"start": {"line": 12, "character": 0}, "end": {"line": 20, "character": 0}}}}
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 15, "character": 9}}}
 {"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}
