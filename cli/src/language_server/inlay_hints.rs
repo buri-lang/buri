@@ -22,7 +22,6 @@ use crate::compiler::semantics::types::{self, ParamInfo, ParamRole, Tables};
 use crate::diagnostics::FileId;
 use crate::json::Value;
 use crate::parsing::flat::{self, ExprId, ExprView, PatId, PatView, StmtKind};
-use crate::parsing::tree::Item;
 use std::collections::BTreeSet;
 use std::path::Path;
 use super::convert::{self, Position};
@@ -373,36 +372,18 @@ fn worth_naming(text: &str, param: &ParamInfo, arg: &typed::Expr) -> bool {
 /// range.
 ///
 /// The typed tree cannot answer this: it holds the type a name *has* and never
-/// whether one was written, so the question is the syntax's. The scan is one
-/// pass over the expression arena plus the blocks the declarations own —
-/// statements live only in blocks, and a block is reached from a function
-/// body, a `Block` expression or an `if`'s consequent and from nowhere else.
+/// whether one was written, so the question is the syntax's.
 fn names_with_no_written_type(module: &ModuleData) -> BTreeSet<(u32, u32)> {
     let tree = &module.ast.tree;
     let mut out = BTreeSet::new();
-    let mut blocks: Vec<flat::BlockId> = Vec::new();
-    for item in &module.ast.items {
-        match item {
-            Item::Fn(d) => blocks.extend(d.body),
-            Item::Impl(d) => blocks.extend(tree.list(d.methods).iter().filter_map(|m| m.body)),
-            Item::Trait(d) => blocks.extend(tree.list(d.methods).iter().filter_map(|m| m.body)),
-            Item::Test(d) => blocks.push(d.body),
-            _ => {}
-        }
-    }
     for index in 0..tree.nodes().len() {
-        match tree.expr(ExprId(index as u32)) {
-            ExprView::Block { block, .. } => blocks.push(block),
-            ExprView::If { then, .. } => blocks.push(then),
-            ExprView::Lambda { params, .. } => {
-                for p in params.iter().filter(|p| p.ty == flat::NONE) {
-                    out.insert((p.name.start, p.name.end));
-                }
+        if let ExprView::Lambda { params, .. } = tree.expr(ExprId(index as u32)) {
+            for p in params.iter().filter(|p| p.ty == flat::NONE) {
+                out.insert((p.name.start, p.name.end));
             }
-            _ => {}
         }
     }
-    for block in blocks {
+    for block in symbols::statement_blocks(module) {
         let data = tree.block(block);
         for stmt in tree.stmts_at(data.stmts_start, data.stmts_len) {
             // `let ctx = ...` writes no pattern and takes no annotation, so
