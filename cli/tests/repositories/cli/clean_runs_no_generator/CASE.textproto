@@ -42,8 +42,19 @@ path {
   exists: true
 }
 
+# A Linux suite links a runner, whose objects `.buri/link` holds. A macOS
+# arm64 debug suite loads into the test host and links nothing there
+# (design/PERFORMANCE.md §6.85).
 run {
   args: ["clean"]
   exit: 0
   golden: "clean_all.txt"
+  host: LINUX
+}
+
+run {
+  args: ["clean"]
+  exit: 0
+  golden: "clean_loaded.txt"
+  host: MACOS
 }

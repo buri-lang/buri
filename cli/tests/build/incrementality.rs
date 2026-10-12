@@ -2247,7 +2247,7 @@ echo \"dyld[1]: Library not loaded: /usr/lib/libSystem.B.dylib\" >&2\\nkill -ABR
         ),
     );
 
-    let run = scratch.run_with_env(&["test", "//lib/a"], &[("CC", &driver.display().to_string())]);
+    let run = scratch.run_with_env(&["test", "//lib/a"], &[("CC", &driver.display().to_string()), LINKED]);
     if run.stderr.contains("native-run-not-available") {
         run.exits(1);
         return;
@@ -2305,7 +2305,7 @@ fn a_link_directory_costs_no_more_disk_than_the_cache() {
     suite_package(&scratch, "a", "");
     suite_package(&scratch, "b", "");
 
-    let run = scratch.run(&["test", "//..."]);
+    let run = scratch.run_with_env(&["test", "//..."], &[LINKED]);
     if run.stderr.contains("native-run-not-available") {
         run.exits(1);
         return;
@@ -2322,7 +2322,7 @@ fn a_link_directory_costs_no_more_disk_than_the_cache() {
     // A directory a different toolchain left behind.
     scratch.write(".buri/link/0000-left-by-another-toolchain/libburi_rt.a", "stale");
     scratch.write(".buri/cache/.toolchain", "another toolchain");
-    let again = scratch.run(&["test", "//..."]);
+    let again = scratch.run_with_env(&["test", "//..."], &[LINKED]);
     again.ok();
     assert_eq!(again.tests_passed(), 2);
     assert!(

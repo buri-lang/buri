@@ -325,7 +325,7 @@ fn a_test_runner_runs_from_the_program_store() {
     );
     let home = scratch.path("home").display().to_string();
     let test = |home: &str| {
-        scratch.run_with_env(&["test", "//lib/one"], &[("BURI_HOME", home)]).ok().says("1 passed");
+        scratch.run_with_env(&["test", "//lib/one"], &[("BURI_HOME", home), LINKED]).ok().says("1 passed");
     };
     let clean = |home: &str| {
         scratch.run_with_env(&["clean"], &[("BURI_HOME", home)]).ok();
@@ -415,6 +415,7 @@ fn a_test_runner_runs_from_the_program_store() {
         .args(["test", "--color=never", "//lib/one"])
         .env_remove("HOME")
         .env_remove("BURI_HOME")
+        .env(LINKED.0, LINKED.1)
         .output()
         .unwrap();
     assert!(String::from_utf8_lossy(&homeless.stdout).contains("1 passed"), "{homeless:?}");
@@ -440,7 +441,7 @@ fn a_test_runner_claim_a_crashed_run_left_is_taken() {
                  test \"one is one\" {{\n    assert.equal(one() * {n}, {n});\n}}\n"
             ),
         );
-        scratch.run(&["test", "//lib/one"]).ok().says("1 passed");
+        scratch.run_with_env(&["test", "//lib/one"], &[LINKED]).ok().says("1 passed");
     };
     suite(1);
     let lock = scratch.path(&format!(".buri/out/native/{}/.test-runner.lock", only_entry(&scratch.path(".buri/out/native"))));
@@ -941,10 +942,10 @@ fn a_failing_suite_whose_runner_was_deleted_runs_again() {
         "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/one\" import { one };\n\n\
          test \"one is two\" {\n    assert.equal(one(), 2);\n}\n",
     );
-    scratch.run(&["test", "//lib/one"]).exits(1).says("0 passed, 1 failed");
+    scratch.run_with_env(&["test", "//lib/one"], &[LINKED]).exits(1).says("0 passed, 1 failed");
     let variant = only_entry(&scratch.path(".buri/out/native"));
     std::fs::remove_file(scratch.path(&format!(".buri/out/native/{variant}/test-runner"))).unwrap();
-    scratch.run(&["test", "//lib/one"]).exits(1).says("0 passed, 1 failed");
+    scratch.run_with_env(&["test", "//lib/one"], &[LINKED]).exits(1).says("0 passed, 1 failed");
 }
 
 /// A link line the driver printed once that no longer links is dropped, and

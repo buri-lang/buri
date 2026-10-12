@@ -26,7 +26,9 @@ use crate::build::image::{self, HostSymbols};
 use crate::build::link::CDriver;
 use crate::compiler::backend::{Profile, Target};
 
-/// Asks for linked runners instead, for running one under a debugger.
+/// Asks for linked runners instead. Only a build with the `test-hooks`
+/// feature reads it, so tests can pin what a linked runner does.
+#[cfg(feature = "test-hooks")]
 pub const LINKED: &str = "BURI_TEST_LINKED";
 
 pub struct Host {
@@ -38,17 +40,10 @@ pub struct Host {
 /// Why the first suite that linked a runner instead did.
 static FELL_BACK: Mutex<Option<String>> = Mutex::new(None);
 
-/// Opts in, until the end-to-end tests and pinned counts land and it becomes
-/// the default.
-const OPT_IN: &str = "BURI_TEST_LOADER";
-
 /// Whether a suite built for `target` under `profile` would load into the host.
 pub fn wanted(target: Target, profile: Profile) -> bool {
-    std::env::var_os(OPT_IN).is_some_and(|v| v == "1")
-        && cfg!(all(target_os = "macos", target_arch = "aarch64", feature = "backend-stencil"))
-        && profile == Profile::Debug
-        && target.platform == Platform::Macos
-        && target.arch.is_none_or(|a| a == Arch::Arm64)
+    cfg!(all(target_os = "macos", target_arch = "aarch64", feature = "backend-stencil"))
+        & ((profile, target.platform, target.arch.unwrap_or(Arch::Arm64)) == (Profile::Debug, Platform::Macos, Arch::Arm64))
 }
 
 /// Notes that a suite linked a runner, and why.
@@ -74,22 +69,30 @@ pub fn get(linker: &CDriver) -> Result<Arc<Host>, String> {
 }
 
 fn find(linker: &CDriver) -> Result<Host, String> {
-    if std::env::var_os(LINKED).is_some_and(|v| !v.is_empty() && v != "0") {
+    #[cfg(feature = "test-hooks")]
+    if std::env::var_os(LINKED).is_some() {
         return Err(format!("{LINKED} is set"));
     }
-    let home = crate::build::runtime_cross::buri_home().map_err(|r| r.message)?;
+    let home = crate::build::runtime_cross::buri_home().map_err(|_| "there is no home directory to keep it in")?;
     let key = key(linker);
     let dir = home.join("test-host").join(&key);
     if let Some(host) = ready(&dir, &key) {
         return host;
     }
     let work = build(&dir, &key, linker)?;
+    #[cfg(feature = "test-hooks")]
+    PLACING.held();
     // Another process may have put its own there first, which is as good.
     if std::fs::rename(&work, &dir).is_err() {
         let _ = std::fs::remove_dir_all(&work);
     }
     ready(&dir, &key).unwrap_or_else(|| Err(format!("cannot keep the test host in {}", dir.display())))
 }
+
+/// Where a test holds `buri` with a host linked and not yet in place
+/// ([`crate::hold`]).
+#[cfg(feature = "test-hooks")]
+static PLACING: crate::hold::Point = crate::hold::Point::new("test-host");
 
 /// The host in `dir`, or why it can't be used, or `None` when there isn't one.
 fn ready(dir: &Path, key: &str) -> Option<Result<Host, String>> {
@@ -153,10 +156,8 @@ fn build(dir: &Path, key: &str, linker: &CDriver) -> Result<PathBuf, String> {
 
 /// `ok` when the host can write and run code, and otherwise what it said.
 fn probe(host: &Path) -> String {
-    let Some(mut command) = crate::build::spawn::command(&host.display().to_string()) else {
-        return String::from("the test host can't be started");
-    };
-    command.env("BURI_TEST_HOST_PROBE", "1");
+    let mut command = std::process::Command::new(host);
+    command.env_clear().env("BURI_TEST_HOST_PROBE", "1");
     match crate::build::spawn::output(&mut command) {
         Ok(out) if out.status.success() => String::from("ok"),
         Ok(out) => {

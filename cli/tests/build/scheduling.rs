@@ -243,15 +243,17 @@ fn suites_linked_and_run_side_by_side_all_start() {
 /// A suite named on its own spreads its tests over several processes, as a
 /// suite named beside another one does.
 ///
-/// The test binary is wrapped by a C driver that links the real one and puts a
-/// script in its place. The script writes `start` and `end` around the real
-/// binary, and holds back everything after its first line until a second
-/// process has started. Run one process at a time, the first waits alone and
-/// no two ever overlap.
+/// `buri` is held once it has handed a process its first test, which keeps
+/// that process waiting for its next. Another process must be handed a test
+/// before the first is let go. Run one process at a time, the second handing
+/// never comes, and the wait fails the test.
 #[cfg(unix)]
 #[test]
 fn a_suite_named_alone_runs_its_tests_side_by_side() {
-    let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
+    if let Some(gap) = ci::native_host_gap() {
+        ci::skipped("build::scheduling", &gap);
+        return;
+    }
     let scratch = Scratch::repo("alone-side-by-side");
     scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
     scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
@@ -262,79 +264,28 @@ fn a_suite_named_alone_runs_its_tests_side_by_side() {
         "lib/a/test/a.buri",
         &format!("from \"//lib/a\" import {{ one }};\nfrom \"core/testing/assert\" import * as assert;\n{tests}"),
     );
-    let log = scratch.path("processes");
-    let real = scratch.path("real-binary");
-    let wrapper = scratch.write_executable(
-        "wrapper.sh",
-        &format!(
-            "#!/bin/sh\n\
-             echo \"start $$\" >> '{log}'\n\
-             starts() {{ c=0; while read -r l; do case \"$l\" in start*) c=$((c+1)) ;; esac; done < '{log}'; echo $c; }}\n\
-             '{real}' \"$@\" | {{\n  \
-               IFS= read -r first; printf '%s\\n' \"$first\"\n  \
-               n=0\n  \
-               until [ \"$(starts)\" -ge 2 ]; do\n    \
-                 n=$((n+1)); if [ \"$n\" -gt 400 ]; then break; fi\n    \
-                 /bin/sleep 0.05\n  \
-               done\n  \
-               while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n\
-             }}\n\
-             echo \"end $$\" >> '{log}'\n",
-            log = log.display(),
-            real = real.display(),
-        ),
-    );
-    let driver = scratch.write_executable(
-        "fake-cc",
-        &format!(
-            "#!/bin/sh\n\
-             case \"$1\" in -###) exit 1 ;; esac\n\
-             '{real_cc}' \"$@\" || exit $?\n\
-             prev=\"\"\n\
-             for a in \"$@\"; do\n  \
-               if [ \"$prev\" = \"-o\" ] && [ \"$a\" = \"artifact\" ]; then\n    \
-                 cp artifact '{real}' && cp '{wrapper}' artifact && chmod +x artifact\n  \
-               fi\n  \
-               prev=\"$a\"\n\
-             done\n",
-            real = real.display(),
-            wrapper = wrapper.display(),
-        ),
-    );
-    let run = scratch.run_with_env(
-        &["test", "//lib/a", "--verbose", "--jobs=4"],
-        &[("CC", &driver.display().to_string())],
-    );
-    if run.stderr.contains("native-run-not-available") {
-        run.exits(1);
-        return;
-    }
-    run.heap_ok().ok();
+    let held = crate::held::Held::new("alone-side-by-side");
+    held.hold("handed", 1);
+    held.hold("handed", 2);
+    let mut run = held.start(&scratch, &["test", "//lib/a", "--verbose", "--jobs=4", "--color=never"]);
+    let first = held.reached("handed", 1);
+    let second = held.reached("handed", 2);
+    first.go();
+    second.go();
+    assert!(run.wait().unwrap().success(), "{}", held.printed());
+    assert!(!held.printed().contains(HEAP_CHECK_LINE), "{}", held.printed());
     // Listed in the order they're declared, each with its own time.
-    let listed: Vec<String> = run
-        .stdout
+    let stdout = std::fs::read_to_string(held.dir().join("stdout")).unwrap();
+    let listed: Vec<String> = stdout
         .lines()
         .filter(|l| l.starts_with("  ok  "))
         .map(|l| {
             let blanked = blank_test_time(l);
-            assert!(blanked.ends_with("<time>"), "an untimed test: {l:?}\n{}", indent(&run.stdout));
+            assert!(blanked.ends_with("<time>"), "an untimed test: {l:?}\n{}", indent(&stdout));
             blanked.trim_end_matches("<time>").split_whitespace().skip(2).collect::<Vec<_>>().join(" ")
         })
         .collect();
-    assert_eq!(listed, names, "{}", indent(&run.stdout));
-    // Some process started while another was still running.
-    let events = std::fs::read_to_string(&log).unwrap_or_default();
-    let mut running = 0;
-    let mut overlapped = false;
-    for event in events.lines() {
-        if event.starts_with("start") {
-            overlapped |= running > 0;
-            running += 1;
-        } else {
-            running -= 1;
-        }
-    }
-    assert!(overlapped, "no two test processes ran at once:\n{}\n{}", indent(&events), indent(&run.all()));
+    assert_eq!(listed, names, "{}", indent(&stdout));
 }
 
 /// A suite named on its own reports exactly what it reported when its tests

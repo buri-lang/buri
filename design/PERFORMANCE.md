@@ -7946,7 +7946,8 @@ buri ──spawn──▶ test-host   BURI_TEST_IMAGE=<image>   (one process per
   host's symbol table, or by name for a C library symbol (`dlsym`). The
   image is placed within a branch's reach of the host where it can be, so a
   call into the runtime is the same `bl` a linked runner makes. Out of reach,
-  it goes through a stub. A page reference out of ±4 GB fails the load.
+  it goes through a stub. Stencil's page references all point into the image,
+  so the host patches none.
 - **W^X.** Code memory is never writable and executable at once on any
   thread. `mprotect` is refused on `MAP_JIT` memory, so constants and the
   stack are separate ordinary mappings inside one reservation, which keeps
@@ -7954,22 +7955,21 @@ buri ──spawn──▶ test-host   BURI_TEST_IMAGE=<image>   (one process per
 - **Fallback.** After linking the host, `buri` starts it once to map, write
   and call one instruction, and keeps the answer beside it. When that, the
   home directory or the host's link fails, the suite links a runner as
-  before, and `--explain` and `--verbose` say why. `BURI_TEST_LINKED=1`
-  asks for linked runners, for running one under `lldb`.
+  before, and `--explain` and `--verbose` say why. A test `buri` (the
+  `test-hooks` feature) also links runners under `BURI_TEST_LINKED`, for the
+  tests about linked runners.
 - **Linux keeps linked runners.** It has no launch check, and the link is
   40–100 ms. ELF images would need their own relocations on two
   architectures, which only CI could run. `--release`, `buri build` and
   `buri run` keep producing executables, and §6.63's store still serves them.
 
 **What is lost:** a crash report or `lldb` attached to a host names no Buri
-function in loaded code, since it has no symbol table there.
-`BURI_TEST_LINKED=1` gets a linked runner.
+function in loaded code, since it has no symbol table there. `buri clean`
+lists no `.buri/link` when nothing linked one.
 
-**Status:** opt-in with `BURI_TEST_LOADER=1`. `cli/tests/example` passes all
-51 tests loaded, and an edit there links no runner and launches no new
-executable (0.019 s with a debug `buri`). Left before it's the default: the
-end-to-end tests and pinned counts, the `--verbose` and `--explain` line, and
-the measurements below. Before, a release `buri` at
+**Status:** the default for debug suites on macOS arm64. `work_counts.rs`
+pins one image linked and no new executable per edit, and
+`cli/tests/build/test_host.rs` covers each fallback. Before, a release `buri` at
 `c841da6e6`, conformance with `backends: [JS]` dropped where stencil compiles
 the suite, load 15–23:
 

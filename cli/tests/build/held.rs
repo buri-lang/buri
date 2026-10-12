@@ -2,8 +2,9 @@
 //! until the test lets it go, so the test decides a race and the scheduler
 //! doesn't.
 
-use crate::harness::Scratch;
+use crate::harness::{buri_command, indent, Scratch};
 use std::path::{Path, PathBuf};
+use std::process::{Child, Stdio};
 use std::time::Duration;
 
 /// A directory of held points, outside the repository so no sweep lists it.
@@ -66,6 +67,31 @@ impl Held {
             assert!(started.elapsed() < DEADLINE, "`buri` never reached {point} {n} within {DEADLINE:?}");
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    /// Starts `buri <args>` in `scratch`, held here, its output in files here.
+    pub fn start(&self, scratch: &Scratch, args: &[&str]) -> Child {
+        self.start_with_env(scratch, args, &[])
+    }
+
+    /// The same, with variables added to its environment.
+    pub fn start_with_env(&self, scratch: &Scratch, args: &[&str], env: &[(&str, &str)]) -> Child {
+        let mut command = buri_command();
+        command.envs(env.iter().copied());
+        command
+            .args(args)
+            .current_dir(&scratch.root)
+            .env("BURI_HOLD", self.dir())
+            .stdin(Stdio::null())
+            .stdout(std::fs::File::create(self.dir().join("stdout")).unwrap())
+            .stderr(std::fs::File::create(self.dir().join("stderr")).unwrap());
+        command.spawn().expect("`buri` starts")
+    }
+
+    /// What a run [`Held::start`]ed printed.
+    pub fn printed(&self) -> String {
+        let read = |name: &str| std::fs::read_to_string(self.dir().join(name)).unwrap_or_default();
+        indent(&format!("{}{}", read("stdout"), read("stderr")))
     }
 
     fn file(&self, point: &str, n: usize) -> PathBuf {

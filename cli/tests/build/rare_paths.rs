@@ -475,7 +475,7 @@ fn a_runner_restored_under_a_fresh_home_is_no_new_executable() {
     scratch
         .run_with_env(
             &["test", "//lib/a"],
-            &[("BURI_PROFILE", "1"), ("BURI_HOME", first.as_str())],
+            &[("BURI_PROFILE", "1"), ("BURI_HOME", first.as_str()), LINKED],
         )
         .ok()
         .says("new executables launched 1");
@@ -484,7 +484,7 @@ fn a_runner_restored_under_a_fresh_home_is_no_new_executable() {
     scratch
         .run_with_env(
             &["test", "//lib/a"],
-            &[("BURI_PROFILE", "1"), ("BURI_HOME", second.as_str())],
+            &[("BURI_PROFILE", "1"), ("BURI_HOME", second.as_str()), LINKED],
         )
         .ok()
         .says("1 passed, 0 failed")

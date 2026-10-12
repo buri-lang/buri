@@ -452,6 +452,11 @@ fn one_pass(
     if printed {
         out.blank();
     }
+    // Why debug suites linked runners where they'd load into the test host
+    // (`build/test_host.rs`): the one way they differ, for someone asking.
+    if let Some(why) = crate::build::test_host::fell_back().filter(|_| args.flags.verbose || args.flags.explain) {
+        out.line(&format!("test runners were linked rather than loaded into the test host: {why}"));
+    }
     // The diagnostics went to stderr and this line goes to stdout. Flushing
     // here is what fixes their order when both descriptors are one terminal.
     let _ = std::io::stderr().flush();
