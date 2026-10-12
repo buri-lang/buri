@@ -1156,7 +1156,10 @@ fn build(name: &str, source: &str, dir: &Path) -> Built {
     // line and not a second idea of it (`shared::link_program`). On Linux it is
     // a static-PIE musl link, which is not something a harness can spell out
     // in three `-l`s.
-    let built = crate::shared::link_program(&objects, &binary);
+    let built = match build {
+        Build::Stencil => crate::shared::place_program(&objects, &binary),
+        Build::LlvmDebug | Build::LlvmRelease => crate::shared::link_program(&objects, &binary),
+    };
     assert!(
         built.status.success(),
         "{name}: the link failed:\n{}",
@@ -1397,6 +1400,7 @@ fn native_set_shard(at: usize, count: usize) {
     let mut ran = 0usize;
     let mut leaking: Vec<String> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
+    let executables = crate::shared::new_executables();
     for &&case in &mine {
         let source = read(case);
         // A file the *front end* refuses fails like any other: a native-set
@@ -1459,6 +1463,11 @@ fn native_set_shard(at: usize, count: usize) {
         ran - leaking.len()
     );
     assert!(ran > 0, "no conformance file in shard {at} of {count} ran natively");
+    // Loaded into the test host, the shard's files are no new executables for
+    // macOS to check (`design/PERFORMANCE.md` §6.85).
+    if crate::shared::LOADED && matches!(Build::chosen(), Build::Stencil) {
+        assert_eq!(crate::shared::new_executables(), executables, "shard {at} of {count} linked executables");
+    }
 }
 
 shards! {

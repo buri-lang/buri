@@ -279,13 +279,76 @@ fn staged() -> &'static (PathBuf, Vec<String>) {
 /// for every program. A test about what the link itself does uses
 /// [`driver_link`].
 pub fn link_program(objects: &[PathBuf], binary: &Path) -> std::process::Output {
+    linked_one();
     crate::product_link::run(&staged().0, objects, binary)
         .unwrap_or_else(|e| panic!("cannot link {}: {e}", binary.display()))
+}
+
+/// Whether a debug stencil program loads into the test host rather than
+/// linking an executable of its own (`design/PERFORMANCE.md` §6.85).
+pub const LOADED: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+
+thread_local! {
+    static LINKED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+fn linked_one() {
+    LINKED.with(|n| n.set(n.get() + 1));
+}
+
+/// How many executables this thread has linked. Each is a new file, which
+/// macOS checks before its first start.
+pub fn new_executables() -> u64 {
+    LINKED.with(std::cell::Cell::get)
+}
+
+/// Puts the debug stencil program `objects` make at `binary`, for a test that
+/// needs it to run and isn't asking how it is linked.
+///
+/// Where [`LOADED`], `objects` are linked into an image the test host maps,
+/// at `<binary>.image`, and `binary` is a symbolic link to the host, which
+/// finds the image beside the name it was started by. It is still one process
+/// per program, with the program's output, exit status and signals. Elsewhere
+/// it's [`link_program`], kept by its bytes (`harness/kept.rs`).
+pub fn place_program(objects: &[PathBuf], binary: &Path) -> std::process::Output {
+    use std::os::unix::process::ExitStatusExt as _;
+    if LOADED {
+        let host = test_host();
+        let bytes: Vec<Vec<u8>> = objects.iter().map(|o| std::fs::read(o).unwrap()).collect();
+        let units: Vec<&[u8]> = bytes.iter().map(Vec::as_slice).collect();
+        let image = buri::build::image::link(&units, &host.symbols, &host.key)
+            .unwrap_or_else(|why| panic!("{} doesn't load into the test host: {why}", binary.display()));
+        std::fs::write(binary.with_extension("image"), image).unwrap();
+        let _ = std::fs::remove_file(binary);
+        std::os::unix::fs::symlink(&host.path, binary).unwrap();
+        let status = std::process::ExitStatus::from_raw(0);
+        return std::process::Output { status, stdout: Vec::new(), stderr: Vec::new() };
+    }
+    let out = link_program(objects, binary);
+    crate::sweep::kept::settle(binary);
+    out
+}
+
+/// The test host, in the harness's kept home, so it is the file every run
+/// starts and macOS checks it once.
+fn test_host() -> &'static buri::build::test_host::Host {
+    static HOST: OnceLock<buri::build::test_host::Host> = OnceLock::new();
+    HOST.get_or_init(|| {
+        use buri::build::link;
+        let target = buri::compiler::backend::Target {
+            platform: link::host_platform().expect("a macOS host"),
+            arch: link::host_arch(),
+        };
+        let linker = link::select(target).unwrap_or_else(|r| panic!("no linker for the test host: {}", r.message));
+        buri::build::test_host::in_home(crate::sweep::kept::shared_cross_home(), &linker)
+            .unwrap_or_else(|why| panic!("the test host can't be had: {why}"))
+    })
 }
 
 /// [`link_program`] through the driver, as `cc -o <binary> <objects>
 /// <archive> <product_link_args>`, for a test about what the link does.
 pub fn driver_link(objects: &[PathBuf], binary: &Path) -> std::process::Output {
+    linked_one();
     let mut cc = product_cc();
     cc.arg("-o").arg(binary);
     for o in objects {
