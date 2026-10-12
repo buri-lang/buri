@@ -23,7 +23,8 @@
 //! | [`symbols`] | `example/`, `repositories/testing/*/repo` | Does every function a program will define have a mangled symbol of its own, and does every JavaScript module declare each name once, so that node loads it? |
 //!
 //! [`debug_suite`] is not a suite: it holds the one run of the unmodified
-//! conformance corpus that three of the tests above share.
+//! conformance corpus that three of the tests above share. Nor is [`grammar`]:
+//! it is the generator that [`corpus`] runs to check the tree-sitter grammar.
 //!
 //! ```text
 //! cargo test -p buri --test language                       # all ten
@@ -56,6 +57,7 @@ mod conformance;
 mod corpus;
 mod debug_suite;
 mod golden_javascript;
+mod grammar;
 mod js_streams;
 mod lexing;
 mod pages;
