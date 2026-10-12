@@ -47,7 +47,7 @@
 
 use std::sync::Arc;
 
-use crate::diagnostics::{FileId, Span};
+use crate::diagnostics::{FileId, Invariant as _, Span};
 use crate::parsing::tree::{
     BinOp, FieldDecl, FnDecl, GenericParam, ImportSpec, Param, TupleField, UnOp, Variant,
 };
@@ -779,9 +779,7 @@ impl Tree {
 
     /// The one place a type payload is decoded.
     pub fn ty(&self, id: TypeId) -> TypeView<'_> {
-        let Some(n) = self.types.get(id.index()) else {
-            return TypeView::Unit { span: self.span_of(Location::default()) };
-        };
+        let n = self.types.get(id.index()).or_ice("a type id is one this tree minted");
         let span = self.span_of(n.span);
         let p = n.payload;
         match n.kind {
@@ -996,9 +994,7 @@ impl Tree {
     /// wrong line in a single exhaustive `match` rather than a class of
     /// mistake spread across the parser.
     pub fn expr(&self, id: ExprId) -> ExprView<'_> {
-        let Some(n) = self.nodes.get(id.index()) else {
-            return ExprView::Unit { span: self.span(id) };
-        };
+        let n = self.nodes.get(id.index()).or_ice("an expression id is one this tree minted");
         let span = self.span(id);
         let p = n.payload;
         if let Some(op) = n.kind.binop() {
@@ -1126,9 +1122,7 @@ impl Tree {
     }
 
     pub fn pat(&self, id: PatId) -> PatView<'_> {
-        let Some(n) = self.pnodes.get(id.index()) else {
-            return PatView::Wild { span: self.pspan(id) };
-        };
+        let n = self.pnodes.get(id.index()).or_ice("a pattern id is one this tree minted");
         let span = self.pspan(id);
         let p = n.payload;
         match n.kind {

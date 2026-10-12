@@ -470,6 +470,18 @@ fn absurd_literals_are_diagnostics() {
     }
 }
 
+/// A token holds a literal's index in three bytes, so a literal after sixteen
+/// million others is found another way. Its value is still the one written.
+#[test]
+fn a_literal_after_sixteen_million_others_keeps_its_value() {
+    let s = app("adversarial-many-literals");
+    let many = "1 ".repeat(1 << 24);
+    s.write("app/main.buri", &format!("{many}\nfn wide(): U8 {{\n  300\n}}\n"));
+    let run = s.run(&["build", "//app"]);
+    survived(&run, "sixteen million literals");
+    run.exits(1).says("300 is not representable in `U8`");
+}
+
 // ---------------------------------------------------------------------------
 // Build files and schemas
 // ---------------------------------------------------------------------------

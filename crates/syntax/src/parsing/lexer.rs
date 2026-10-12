@@ -806,8 +806,7 @@ impl<'a> Tokens<'a> {
     }
 
     fn pay(&self, i: usize) -> usize {
-        let Some(r) = self.records.get(i) else { return 0 };
-        let [a, b, c] = r.pay;
+        let [a, b, c] = self.records.get(i).or_ice("a literal is read at a token the lexer wrote").pay;
         let word = u32::from_le_bytes([a, b, c, 0]);
         if word != WIDE {
             return word as usize;

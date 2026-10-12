@@ -184,13 +184,16 @@ fn fits(
         };
         match d {
             Doc::BreakParent | Doc::LineSuffix(_) => {}
+            // A newline ends the line being measured, so only the text before
+            // it has to fit.
             Doc::Text(s) => {
-                if s.contains('\n') {
-                    return false;
-                }
-                match left.checked_sub(s.chars().count()) {
+                let (line, ended) = s.split_once('\n').map_or((s.as_str(), false), |(l, _)| (l, true));
+                match left.checked_sub(line.chars().count()) {
                     Some(l) => left = l,
                     None => return false,
+                }
+                if ended {
+                    return true;
                 }
             }
             Doc::Concat(xs) | Doc::Indent(xs) => push_all(&mut local, ind, mode, xs),

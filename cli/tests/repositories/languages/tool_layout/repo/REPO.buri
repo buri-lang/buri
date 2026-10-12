@@ -1,0 +1,6 @@
+# `.cells` is this repository's own language, laid out by its tool.
+language {
+    name: "cells"
+    extensions: [".cells"]
+    format: "//tools/cells"
+}

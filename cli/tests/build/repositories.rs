@@ -147,7 +147,8 @@ fn generators() {
 /// unchanged file; `json_errors` is every way a check refuses one;
 /// `json_format` is `buri format` over them; `repo_languages` is `REPO.buri`'s
 /// `language` block, and each way one is refused; `custom_language` is a
-/// language of the repository's own, checked and formatted by its tool rule.
+/// language of the repository's own, checked and formatted by its tool rule;
+/// `tool_layout` is how a tool's document is laid out at the margin.
 /// `textproto_values` is a text format file's value through `textproto`,
 /// and a `.proto` edit re-checking it; `textproto_errors` is every way the
 /// check refuses one; `textproto_format` is `buri format` over them.
