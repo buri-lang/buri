@@ -1,11 +1,12 @@
 //! The build's rarer paths, driven as a user reaches them: files no rule
 //! names open in the editor, a test dependency on a platform, a dependency
 //! cycle, a suite naming a backend twice, a source that stops being UTF-8
-//! between two analyses, a damaged record of a link's unlisted reads, a
-//! runner kept under a fresh `BURI_HOME`, a platform asset read as a schema,
-//! a `platform` rule outside `//platform/`, `format` on a `testing` surface,
-//! and the generator paths a contract, a missing schema or a tool nobody
-//! declared takes.
+//! between two analyses, a build file that is not UTF-8, a `buri run` with no
+//! JavaScript runtime, a damaged record of a link's unlisted reads, a runner
+//! kept under a fresh `BURI_HOME`, a platform asset read as a schema, a
+//! `platform` rule outside `//platform/`, `format` on a `testing` surface, and
+//! the generator paths a contract, a missing schema or a tool nobody declared
+//! takes.
 use crate::harness::*;
 
 const PLATFORM: &str =
@@ -585,4 +586,35 @@ fn a_listed_schema_that_is_not_there_is_reported_where_it_is_imported() {
         .exits(1)
         .says("s.proto does not exist [unknown-source]")
         .says("\"//lib/g/s.proto\" names no file (lib/g/s.proto) [unknown-module]");
+}
+
+/// **A build file or a `REPO.buri` that can't be read is refused by name**,
+/// rather than with the operating system's sentence and no file in it.
+#[test]
+fn a_build_file_that_cannot_be_read_is_named() {
+    let scratch = Scratch::repo("rare-unreadable-build-file");
+    scratch.write("lib/a/BUILD.buri", "library {}\n");
+    scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
+    scratch.write("lib/bad/lib.buri", "export fn two(): Int { 2 }\n");
+    std::fs::write(scratch.path("lib/bad/BUILD.buri"), b"library {}\n\xff\n").unwrap();
+    scratch
+        .run(&["build", "//lib/a"])
+        .exits(2)
+        .says("cannot read lib/bad/BUILD.buri: stream did not contain valid UTF-8");
+
+    std::fs::remove_dir_all(scratch.path("lib/bad")).unwrap();
+    std::fs::write(scratch.path("REPO.buri"), b"\xff\n").unwrap();
+    scratch.run(&["build", "//lib/a"]).exits(2).says("cannot read REPO.buri: stream did not contain valid UTF-8");
+}
+
+/// `buri run` of a JavaScript output where no runtime can be started says it
+/// could not start the artifact and what it needs to.
+#[test]
+fn a_run_with_no_javascript_runtime_says_what_it_needs() {
+    let scratch = Scratch::copy_of("rare-run-no-runtime", &tests_dir().join("repositories/cli/run_passthrough/repo"));
+    scratch
+        .run_with_env(&["run", "//cmd/echo"], &[("BURI_JS", "/nonexistent/bun")])
+        .exits(2)
+        .says("error: cannot execute the artifact")
+        .says("`buri run` needs a JavaScript runtime; install bun, or set BURI_JS");
 }

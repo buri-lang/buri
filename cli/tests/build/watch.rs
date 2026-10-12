@@ -1,18 +1,15 @@
 //! `buri test --watch`: what is watched, and what a change to it re-runs.
 //!
-//! There is no PTY here and there does not need to be one. `--watch` refuses a
-//! stdout that is not a terminal, and every test harness in this repository
-//! pipes stdout — so the *refusals* are the thing the CLI can be asked about
-//! directly (`repositories/testing/watch_refusals`), and the *loop* is driven
-//! here as a library, with the terminal flag injected and a file mutation
-//! scripted between two passes.
+//! `--watch` refuses a stdout that is not a terminal, so the *refusals* are
+//! asked of the CLI directly (`repositories/testing/watch_refusals`), the loop
+//! at a terminal runs under `script`, and the rest of the loop is driven here
+//! as a library, with a file mutation scripted between two passes.
 //!
-//! That split is the point of `commands::watch::Watch` taking its interval, its
-//! pass limit, and its "is a terminal" flag as fields rather than reading them
-//! from the environment: the poll-detect-settle-rerun cycle is the same code in
-//! both, and what a test replaces is the terminal and the clock.
+//! That is why `commands::watch::Watch` takes its interval and its pass limit
+//! as fields: the poll-detect-settle-rerun cycle is the same code in both, and
+//! what a test replaces is the clock.
 //!
-//! The scripted mutation is the fourth thing injected. `Watch::drive_armed`
+//! The scripted mutation is the third thing injected. `Watch::drive_armed`
 //! hands back the instant a pass's stamps are taken, and the edit is made
 //! there, because the claim in both loop cases is about which side of that
 //! stamp an edit fell on — and a test that guesses at it with a sleep is a test
@@ -339,7 +336,6 @@ fn an_edit_re_runs_its_suite_and_leaves_the_sibling_cached() {
         // The injected terminal flag. Production always has one — `--watch`
         // without a terminal is refused at parsing — and clearing it here means
         // the run separator does not land in the middle of cargo's output.
-        interactive: false,
         header_first: false,
         root: scratch.root.clone(),
     };
@@ -456,7 +452,6 @@ fn a_broken_build_file_keeps_the_loop_watching() {
     let watch = Watch {
         interval: Duration::from_millis(20),
         passes: Some(2),
-        interactive: false,
         header_first: false,
         root: scratch.root.clone(),
     };
@@ -663,6 +658,78 @@ fn a_pass_runs_once_the_tree_stops_moving() {
     drop(stdin);
     assert_eq!(status.code(), Some(130), "the loop ended {status}:\n{}", indent(&looping.seen));
     assert!(separator_at(&looping.seen, 3).is_none(), "a pass ran after Ctrl-C:\n{}", indent(&looping.seen));
+}
+
+/// **A library's testing surface is watched, and a separator names what moved
+/// even when it is long.** Four files change between two sweeps; the separator
+/// names the first two and counts the rest, and one name too long for the rule
+/// is drawn whole rather than cut.
+#[test]
+fn a_testing_surface_edit_starts_a_pass_and_its_separator_counts_the_rest() {
+    const LONG: &str = "a_source_whose_name_is_long_enough_to_fill_the_separator.buri";
+    let scratch = two_suites("watch-testing-surface");
+    scratch.write(
+        "lib/a/BUILD.buri",
+        &format!(
+            "library {{\n  sources: [\"{LONG}\"]\n  testing {{ sources: [\"testing/more.buri\"] }}\n  \
+             test {{ sources: [\"test/a.buri\"] }}\n}}\n"
+        ),
+    );
+    scratch.write(&format!("lib/a/{LONG}"), "export fn spare(): Int { 1 }\n");
+    scratch.write("lib/a/testing/lib.buri", "export fn helper(): Int { 1 }\n");
+    scratch.write("lib/a/testing/more.buri", "export fn more(): Int { 1 }\n");
+    let held = crate::held::Held::new("watch-testing-surface");
+    held.hold("sweep", 1);
+    held.hold("sweep", 2);
+    let mut looping = Looping::held(&scratch, &["//lib/a"], &held);
+    looping.until_summary(1);
+    held.at("sweep", 1, || {
+        scratch.write(&format!("lib/a/{LONG}"), "export fn spare(): Int { 2 }\n");
+        scratch.write("lib/a/lib.buri", &library("20 + 1"));
+        scratch.write("lib/a/testing/lib.buri", "export fn helper(): Int { 2 }\n");
+        scratch.write("lib/a/testing/more.buri", "export fn more(): Int { 2 }\n");
+    });
+    held.at("sweep", 2, || {});
+    looping.until_summary(2);
+
+    let separator = looping.separator(2).to_string();
+    assert!(
+        separator.contains(&format!("lib/a/{LONG} lib/a/lib.buri +2 more")),
+        "the separator does not name two and count two:\n{}",
+        indent(&looping.seen)
+    );
+    assert!(separator.ends_with("more "), "a separator wider than the rule was padded: {separator}");
+    looping.stop();
+}
+
+/// **A pattern naming no target ends the loop at once**, with 2: no edit to a
+/// file it could watch would make the invocation name something.
+#[test]
+fn a_pattern_naming_nothing_ends_the_loop_at_once() {
+    let scratch = two_suites("watch-nothing");
+    let mut looping = Looping::start(&scratch, &["//lib/nothing"]);
+    let status = hang::wait_capped(&mut looping.child, "buri test --watch", hang::cap());
+    looping.until("the refusal never arrived", |seen| seen.contains("//lib/nothing"));
+    assert_eq!(status.code(), Some(2), "the loop ended {status}:\n{}", indent(&looping.seen));
+    assert!(separator_at(&looping.seen, 2).is_none(), "a second pass ran:\n{}", indent(&looping.seen));
+}
+
+/// **A tool's own `sources` are watched**: a suite of a tool reads them, so
+/// editing one starts a pass.
+#[test]
+fn a_tools_source_edit_starts_a_pass() {
+    let scratch = Scratch::copy_of(
+        "watch-tool-sources",
+        &tests_dir().join("repositories/languages/custom_language/repo"),
+    );
+    scratch.edit("tools/lines/BUILD.buri", "tool {\n", "tool {\n    sources: [\"extra.buri\"]\n");
+    scratch.write("tools/lines/extra.buri", "export fn spare(): Int { 1 }\n");
+    let mut looping = Looping::start(&scratch, &["//tools/lines"]);
+    looping.until_pass(1);
+    scratch.write("tools/lines/extra.buri", "export fn spare(): Int { 2 }\n");
+    looping.until_pass(2);
+    assert!(looping.separator(2).contains("tools/lines/extra.buri"), "{}", indent(&looping.seen));
+    looping.stop();
 }
 
 /// **A stray file arriving starts a pass, and so does its leaving**, under

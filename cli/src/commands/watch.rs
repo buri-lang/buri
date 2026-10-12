@@ -41,6 +41,7 @@
 
 use crate::build::session::Session;
 use crate::build::workspace::{RuleKind, TargetId};
+use crate::diagnostics::{Invariant as _, invariant};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -183,32 +184,29 @@ fn declared_sources(session: &Session, member: TargetId, out: &mut BTreeSet<Path
     match member.kind {
         RuleKind::Library => {
             out.insert(dir.join("lib.buri"));
-            if let Some(lib) = &package.build.library {
-                for x in lib.sources.iter() {
+            let lib = package.build.library.as_ref().or_ice("a library target has a library rule");
+            for x in lib.sources.iter() {
+                out.insert(dir.join(&x.value));
+            }
+            if let Some(testing) = &lib.testing {
+                out.insert(dir.join("testing/lib.buri"));
+                for x in &testing.sources {
                     out.insert(dir.join(&x.value));
-                }
-                if let Some(testing) = &lib.testing {
-                    out.insert(dir.join("testing/lib.buri"));
-                    for x in &testing.sources {
-                        out.insert(dir.join(&x.value));
-                    }
                 }
             }
         }
         RuleKind::Binary => {
             out.insert(dir.join("main.buri"));
-            if let Some(bin) = &package.build.binary {
-                for x in bin.sources.iter() {
-                    out.insert(dir.join(&x.value));
-                }
+            let bin = package.build.binary.as_ref().or_ice("a binary target has a binary rule");
+            for x in bin.sources.iter() {
+                out.insert(dir.join(&x.value));
             }
         }
         RuleKind::Tool => {
             out.insert(dir.join("tool.buri"));
-            if let Some(tool) = &package.build.tool {
-                for x in tool.sources.iter() {
-                    out.insert(dir.join(&x.value));
-                }
+            let tool = package.build.tool.as_ref().or_ice("a tool target has a tool rule");
+            for x in tool.sources.iter() {
+                out.insert(dir.join(&x.value));
             }
         }
     }
@@ -293,19 +291,15 @@ impl Snapshot {
         self.stamps.is_empty()
     }
 
-    /// The paths whose stamp differs, sorted. A path only one side names counts
-    /// as changed: a source that appeared or a source that went away is exactly
-    /// the thing that has to wake the loop. So does a file a listing found on
+    /// The paths whose stamp differs, sorted, between two sweeps of one set. A
+    /// source that appeared or went away has a stamp that moved, so it is
+    /// exactly the thing that wakes the loop. So does a file a listing found on
     /// one side only.
     pub fn difference(&self, other: &Snapshot) -> Vec<PathBuf> {
+        invariant(self.stamps.keys().eq(other.stamps.keys()), "two snapshots compared sweep one set");
         let mut out = Vec::new();
         for (path, stamp) in &other.stamps {
             if self.stamps.get(path) != Some(stamp) {
-                out.push(path.clone());
-            }
-        }
-        for path in self.stamps.keys() {
-            if !other.stamps.contains_key(path) {
                 out.push(path.clone());
             }
         }
@@ -375,18 +369,13 @@ pub struct Trigger {
     pub changed: Vec<PathBuf>,
 }
 
-/// The loop, with the three things a test needs to inject.
+/// The loop, with the two things a test needs to inject.
 pub struct Watch {
     /// How often the declared set is swept. [`SWEEP`] outside the tests.
     pub interval: Duration,
     /// Stop after this many passes. `None` outside the tests: a watch session
     /// ends when the terminal it is attached to signals it.
     pub passes: Option<usize>,
-    /// Whether to draw the run separator. This is the injected "is a terminal"
-    /// flag: production always sets it, because `arguments::parse` refuses
-    /// `--watch` without a terminal, and the headless tests clear it so that
-    /// what a pass printed is the whole of what they read.
-    pub interactive: bool,
     /// Whether the separator is drawn before the pass rather than after it.
     /// `--explain` streams one line per action as the pass runs, so a separator
     /// printed afterwards would sit underneath the transcript it heads.
@@ -404,7 +393,6 @@ impl Watch {
         Watch {
             interval: SWEEP,
             passes: None,
-            interactive: true,
             header_first: explain,
             root,
         }
@@ -450,7 +438,7 @@ impl Watch {
             let trigger = Trigger { pass: n, changed: std::mem::take(&mut changed) };
             let header = self.separator(&trigger);
             if self.header_first {
-                self.say(&header);
+                println!("{header}");
             }
             let result = pass(&trigger);
             // The one window in the loop, and it is only the opening pass's:
@@ -463,7 +451,7 @@ impl Watch {
             watched.rebase(&result.inputs);
             if !result.quiet {
                 if !self.header_first {
-                    self.say(&header);
+                    println!("{header}");
                 }
                 print!("{}", result.output);
             }
@@ -481,12 +469,6 @@ impl Watch {
             };
             changed = moved;
             n += 1;
-        }
-    }
-
-    fn say(&self, line: &str) {
-        if self.interactive {
-            println!("{line}");
         }
     }
 
@@ -577,9 +559,8 @@ impl Watch {
 /// will not grow one for a header line. A local time that is silently wrong is
 /// worse than a UTC one that is labelled.
 fn clock() -> String {
-    let Ok(since) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) else {
-        return "--:--:--Z".to_string();
-    };
+    // A clock set before 1970 reads as midnight.
+    let since = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
     let day = since.as_secs() % 86_400;
     format!("{:02}:{:02}:{:02}Z", day / 3_600, day % 3_600 / 60, day % 60)
 }
@@ -674,7 +655,6 @@ mod tests {
         let w = Watch {
             interval: SWEEP,
             passes: None,
-            interactive: true,
             header_first: false,
             root: PathBuf::from("/repo"),
         };
@@ -706,7 +686,6 @@ mod tests {
         let w = Watch {
             interval: Duration::from_millis(5),
             passes: Some(1),
-            interactive: false,
             header_first: false,
             root: dir.clone(),
         };
@@ -737,7 +716,6 @@ mod tests {
         let w = Watch {
             interval: Duration::from_millis(5),
             passes: Some(2),
-            interactive: false,
             header_first: false,
             root: dir.clone(),
         };
@@ -772,7 +750,6 @@ mod tests {
         let w = Watch {
             interval: Duration::from_millis(5),
             passes: Some(1),
-            interactive: true,
             header_first: false,
             root: dir.clone(),
         };

@@ -1,0 +1,10 @@
+# A JavaScript output and a native one for a platform that is not this host's.
+# `{{CROSS_VARIANT}}` is filled in by the harness — see cli/tests/harness/case.rs.
+binary {
+    outputs: [
+        { platform: "node", entries: [
+            { name: "main", function: "mainForNode" },
+        ] },
+        { platform: "native", variant: "{{CROSS_VARIANT}}" },
+    ]
+}

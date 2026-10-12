@@ -1,0 +1,2 @@
+error: `buri run` takes exactly one binary, and this matched 0
+  = fix: name a package that declares a binary, as in `buri run //cmd/app`

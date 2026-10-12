@@ -1,0 +1,2 @@
+error: //cmd/app built its native/{{CROSS_VARIANT}} output, which is for another machine and cannot start on this one
+  = fix: run it on the machine it is for, or pick this machine's output with `--output`
