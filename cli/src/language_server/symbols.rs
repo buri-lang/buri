@@ -460,8 +460,11 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
             None => (String::new(), Vec::new()),
         },
         // A type that did not resolve has nothing to show but what the source
-        // wrote, which for a parameter is `a: Nope` and for a `let` is the name.
+        // wrote: `a: Nope` for a parameter or an annotated `let`, else the name.
         Symbol::Local { name, ty, span } if ty.has_error() => {
+            if let Some(annotation) = let_annotation(analyzed, *span) {
+                return (format!("{name}: {annotation}"), Vec::new());
+            }
             let file = analyzed.session.map.get(span.file);
             let written = file.text.get(span.start as usize..span.end as usize);
             (written.unwrap_or(name).to_string(), Vec::new())
@@ -474,6 +477,49 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
         // is the whole of what this symbol knows.
         Symbol::Generic { name, .. } => (name.clone(), Vec::new()),
     }
+}
+
+/// The type a `let` wrote for the one name it binds at `name`. A local's span
+/// is only its name, so the annotation beside it is the syntax's to give.
+fn let_annotation(analyzed: &Analyzed, name: Span) -> Option<String> {
+    let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == name.file)?;
+    let tree = &module.ast.tree;
+    statement_blocks(module).into_iter().find_map(|block| {
+        let data = tree.block(block);
+        tree.stmts_at(data.stmts_start, data.stmts_len).iter().find_map(|stmt| {
+            let ty = tree.opt_type(stmt.ty)?;
+            match tree.pat(tree.opt_pat(stmt.pattern)?) {
+                flat::PatView::Bind { name_span, .. } if name_span == name => {
+                    Some(formatting::type_text(tree, ty))
+                }
+                _ => None,
+            }
+        })
+    })
+}
+
+/// Every block in a module, which is every place a statement can be: a body,
+/// a `Block` expression or an `if`'s consequent.
+pub(super) fn statement_blocks(module: &ModuleData) -> Vec<flat::BlockId> {
+    let tree = &module.ast.tree;
+    let mut blocks = Vec::new();
+    for item in &module.ast.items {
+        match item {
+            Item::Fn(d) => blocks.extend(d.body),
+            Item::Impl(d) => blocks.extend(tree.list(d.methods).iter().filter_map(|m| m.body)),
+            Item::Trait(d) => blocks.extend(tree.list(d.methods).iter().filter_map(|m| m.body)),
+            Item::Test(d) => blocks.push(d.body),
+            _ => {}
+        }
+    }
+    for index in 0..tree.nodes().len() {
+        if let ExprView::Block { block, .. } | ExprView::If { then: block, .. } =
+            tree.expr(ExprId(index as u32))
+        {
+            blocks.push(block);
+        }
+    }
+    blocks
 }
 
 /// A callable's signature, with the extent of each parameter inside the label.

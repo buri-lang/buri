@@ -1,7 +1,7 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
-{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/missing\" import { gone };\nfrom \"//lib/shop\" import { nothere, listing as list, Item, Stock };\nfrom \"core/io\" import * as io;\n\nfn f(a: Nope, b: io.Missing, c: Stock.Out, d: Item.Thing, e: Nope.Thing, g: Wrong.io): I64 {\n    1\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/missing\" import { gone };\nfrom \"//lib/shop\" import { nothere, listing as list, Item, Stock };\nfrom \"core/io\" import * as io;\n\nfn f(a: Nope, b: io.Missing, c: Stock.Out, d: Item.Thing, e: Nope.Thing, g: Wrong.io): I64 {\n    1\n}\n\nstruct S {\n    n: Nope,\n}\n\nfn g(): I64 {\n    let c: Nope = 1;\n    let (d, e): (Nope, I64) = (1, 2);\n    let h = fn(x: Nope) => x;\n    1\n}\n"}}}
 # An import path that names no package: nothing to say about it.
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 0, "character": 9}}}
 # A name imported from a package that does not exist.
@@ -28,5 +28,13 @@
 {"jsonrpc": "2.0", "id": 13, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 4, "character": 83}}}
 # Every use of `listing` across the repository, the alias included.
 {"jsonrpc": "2.0", "id": 14, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 1, "character": 37}, "context": {"includeDeclaration": true}}}
+# A field whose type names nothing shows the type it wrote.
+{"jsonrpc": "2.0", "id": 16, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 9, "character": 4}}}
+# So does a `let`, the way a parameter does.
+{"jsonrpc": "2.0", "id": 17, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 13, "character": 8}}}
+# A name a destructuring `let` binds has no annotation of its own.
+{"jsonrpc": "2.0", "id": 18, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 14, "character": 9}}}
+# A closure's parameter shows the type it wrote.
+{"jsonrpc": "2.0", "id": 19, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 15, "character": 15}}}
 {"jsonrpc": "2.0", "id": 15, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}
