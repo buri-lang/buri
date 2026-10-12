@@ -1,0 +1,35 @@
+# `buri format` lays out the code a page or a doc comment shows, the way
+# it lays out source: hidden lines stay hidden, a fence in a list keeps its
+# indent, build files are printed as a `BUILD.buri` is, and what it can't
+# read whole, or a `fail` fence that shows a mistake, is left as written.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "`buri format` lays out the examples in pages and doc comments"
+
+run {
+  args: ["format", "--check"]
+  exit: 1
+  golden: "check.txt"
+}
+
+run {
+  args: ["format"]
+  exit: 0
+  golden: "format.txt"
+}
+
+file {
+  path: "README.md"
+  golden: "README.md"
+}
+
+file {
+  path: "lib/a/lib.buri"
+  golden: "lib.buri"
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}
