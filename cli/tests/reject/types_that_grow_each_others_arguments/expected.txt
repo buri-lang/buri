@@ -1,13 +1,20 @@
 error: `Tree` needs endless instantiations: `Tree<T>` contains `Tree<(T, T)>`, which contains `Tree<((T, T), (T, T))>`, and so on [endless-type]
- --> cmd/types_that_grow_each_others_arguments/main.buri:9:1
-  |
-9 | struct Tree<T> {
-  | ^^^^^^^^^^^^^^^^
-  |
-  = fix: where `Tree` contains itself, give it its own parameters: `Tree<T>`
+  --> cmd/types_that_grow_each_others_arguments/main.buri:10:1
+   |
+10 | struct Tree<T> {
+   | ^^^^^^^^^^^^^^^^
+   |
+   = fix: where `Tree` contains itself, give it its own parameters: `Tree<T>`
 
-    Each instantiation of a generic type compiles on its own, so Grow<Int> would
-    need Grow<Option<Int>>, then a bigger one, forever. Where a type contains
-    itself, give it its own parameters, like List<T> holding a List<T>. Swapped
-    is fine too: Pair<B, A> inside Pair<A, B>.
+     Each instantiation of a generic type compiles on its own, so Grow<Int>
+     would need Grow<Option<Int>>, then a bigger one, forever. Where a type
+     contains itself, give it its own parameters, like List<T> holding a
+     List<T>. Swapped is fine too: Pair<B, A> inside Pair<A, B>.
 
+error: `Outer` needs endless instantiations: `Outer<T>` contains `Outer<Option<T>>`, which contains `Outer<Option<Option<T>>>`, and so on [endless-type]
+  --> cmd/types_that_grow_each_others_arguments/main.buri:19:1
+   |
+19 | struct Outer<T> {
+   | ^^^^^^^^^^^^^^^^^
+   |
+   = fix: where `Outer` contains itself, give it its own parameters: `Outer<T>`
