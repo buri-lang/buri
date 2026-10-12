@@ -1,0 +1,58 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "from \"core/io\" import * as io;\nfrom \"node\" import { NodeHost };\nfrom \"platform/effect\" import { Allocator, Stdout };\nfrom \"//lib/shop\" import { defaultPrice, Item, listing, Stock };\n\nfn count(s: Stock): I64 {\n    0\n}\n\nfn restock(s: Stock): Stock {\n    s\n}\n\nexport fn go(): I64 {\n    let important = Item { pr };\n    0\n}\n"}}}
+# A line that only contains the word `import` is not an import clause: this is
+# a struct literal, and the answer is its fields.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 14, "character": 29}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 2}, "contentChanges": [{"text": "from \"core/io\" import * as io;\nfrom \"node\" import { NodeHost };\nfrom \"platform/effect\" import { Allocator, Stdout };\nfrom \"//lib/shop\" import { defaultPrice, Item, listing, Stock };\n\nfn count(s: Stock): I64 {\n    0\n}\n\nfn restock(s: Stock): Stock {\n    s\n}\n\nexport fn go(): I64 {\n    let p = \"a/b\";\n    let s = p + def\n    0\n}\n"}]}}
+# A `/` inside a string is not a comment, so the names after it are offered.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 15, "character": 19}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 3}, "contentChanges": [{"text": "from \"core/io\" import * as io;\nfrom \"node\" import { NodeHost };\nfrom \"platform/effect\" import { Allocator, Stdout };\nfrom \"//lib/shop\" import { defaultPrice, Item, listing, Stock };\n\nfn count(s: Stock): I64 {\n    0\n}\n\nfn restock(s: Stock): Stock {\n    s\n}\n\nexport fn go(): I64 {\n    let half = 4 / def\n    0\n}\n"}]}}
+# A division is not a comment either.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 14, "character": 22}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 4}, "contentChanges": [{"text": "from \"core/io\" import * as io;\nfrom \"node\" import { NodeHost };\nfrom \"platform/effect\" import { Allocator, Stdout };\nfrom \"//lib/shop\" import { defaultPrice, Item, listing, Stock };\n\nfn count(s: Stock): I64 {\n    0\n}\n\nfn restock(s: Stock): Stock {\n    s\n}\n\nexport fn go(): I64 {\n    let above = 1;\n    \n    let below = 2;\n    above + below\n}\n"}]}}
+# With nothing typed, the locals bound above the cursor are offered and the ones
+# bound below it are not; no keywords are offered for an empty prefix.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 15, "character": 4}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 5}, "contentChanges": [{"text": "from \"core/io\" import * as io;\nfrom \"node\" import { NodeHost };\nfrom \"platform/effect\" import { Allocator, Stdout };\nfrom \"//lib/shop\" import { defaultPrice, Item, listing, Stock };\n\nfn count(s: Stock): I64 {\n    0\n}\n\nfn restock(s: Stock): Stock {\n    s\n}\n\nexport fn go(s: Stock): I64 {\n    match (s) {\n        .Out => 0,\n        .OnHand { count } => count,\n    }\n}\n"}]}}
+# A bare `.` after a `match`'s scrutinee completes the scrutinee's variants.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 15, "character": 11}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 6}, "contentChanges": [{"text": "from \"core/io\" import * as io;\nfrom \"node\" import { NodeHost };\nfrom \"platform/effect\" import { Allocator, Stdout };\nfrom \"//lib/shop\" import { defaultPrice, Item, listing, Stock };\n\nfn count(s: Stock): I64 {\n    0\n}\n\nfn restock(s: Stock): Stock {\n    s\n}\n\nexport fn go(s: Stock): I64 {\n    match (s) {\n        .Out => 0,\n        .O => 1,\n    }\n}\n"}]}}
+# A variant being typed into an arm that does not name one yet: the scrutinee's
+# variants still.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 16, "character": 10}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 7}, "contentChanges": [{"text": "from \"core/io\" import * as io;\nfrom \"node\" import { NodeHost };\nfrom \"platform/effect\" import { Allocator, Stdout };\nfrom \"//lib/shop\" import { defaultPrice, Item, listing, Stock };\n\nfn count(s: Stock): I64 {\n    0\n}\n\nfn restock(s: Stock): Stock {\n    s\n}\n\nexport fn go(): Stock {\n    restock(.O)\n}\n"}]}}
+# A bare `.` in a call whose result is an enum: the checker's expected type for
+# the narrowest expression around it.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 14, "character": 14}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 8}, "contentChanges": [{"text": "from \"core/io\" import * as io;\nfrom \"node\" import { NodeHost };\nfrom \"platform/effect\" import { Allocator, Stdout };\nfrom \"//lib/shop\" import { defaultPrice, Item, listing, Stock };\n\nfn count(s: Stock): I64 {\n    0\n}\n\nfn restock(s: Stock): Stock {\n    s\n}\n\nexport fn go(): I64 {\n    match (count(.O)) {\n        _ => 0,\n    }\n}\n"}]}}
+# A bare `.` inside a `match`'s scrutinee is not after it: the expression around
+# the cursor decides, and an `I64` has no variants.
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 14, "character": 19}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 9}, "contentChanges": [{"text": "from \"core/io\" import * as io;\nfrom \"node\" import { NodeHost };\nfrom \"platform/effect\" import { Allocator, Stdout };\nfrom \"//lib/shop\" import { defaultPrice, Item, listing, Stock };\n\nfn count(s: Stock): I64 {\n    0\n}\n\nfn restock(s: Stock): Stock {\n    s\n}\n\nexport fn go(name: Str): Item {\n    let first = Item { name: \"a\", price: 1, stock: .Out };\n    Item { name, pr }\n}\n"}]}}
+# Two literals in one function: the one the cursor is in answers, with the fields
+# it has not written yet, including after a shorthand field.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 15, "character": 19}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 10}, "contentChanges": [{"text": "from \"core/io\" import * as io;\nfrom \"node\" import { NodeHost };\nfrom \"platform/effect\" import { Allocator, Stdout };\nfrom \"//lib/shop\" import { defaultPrice, Item, listing, Stock };\n\nfn count(s: Stock): I64 {\n    0\n}\n\nfn restock(s: Stock): Stock {\n    s\n}\n\nexport fn go(): Item {\n    let base = listing(\"a\", defaultPrice);\n    Item { ..ba }\n}\n"}]}}
+# Inside a literal's `..spread`, the answer is values, not field names.
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 15, "character": 15}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 11}, "contentChanges": [{"text": "from \"core/io\" import * as io;\nfrom \"node\" import { NodeHost };\nfrom \"platform/effect\" import { Allocator, Stdout };\nfrom \"//lib/shop\" import { defaultPrice, Item, listing, Stock };\n\nfn count(s: Stock): I64 {\n    0\n}\n\nfn restock(s: Stock): Stock {\n    s\n}\n\nexport fn go(base: Item): I64 {\n    let a = io.x.Item { de };\n    let b = base.Item { de };\n    0\n}\n"}]}}
+# A literal headed by a path with two dots, or by a local's field, builds no type
+# this can name: ordinary completion.
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 14, "character": 26}}}
+{"jsonrpc": "2.0", "id": 13, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 15, "character": 26}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 12}, "contentChanges": [{"text": "from \"core/io\" import * as io;\nfrom \"node\" import { NodeHost };\nfrom \"platform/effect\" import { Allocator, Stdout };\nfrom \"//lib/shop\" import { defaultPrice, Item, listing, Stock };\n\nfn count(s: Stock): I64 {\n    0\n}\n\nfn restock(s: Stock): Stock {\n    s\n}\n\nexport fn main(host: NodeHost): Result<(), Str> {\n    host.stdout.\n    Ok(())\n}\n"}]}}
+# An effect handed in by the host has no methods to offer: an effect is performed
+# by handing the context to a function.
+{"jsonrpc": "2.0", "id": 14, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 14, "character": 16}}}
+# A file no target lists yet has no analysis. A member after a `.` has nothing
+# to go on, and a word gets the words the buffer holds.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/stray.buri", "languageId": "buri", "version": 1, "text": "fn f(x: Item): I64 {\n    x.\n    It\n}\n"}}}
+{"jsonrpc": "2.0", "id": 15, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/stray.buri"}, "position": {"line": 1, "character": 6}}}
+{"jsonrpc": "2.0", "id": 16, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/stray.buri"}, "position": {"line": 2, "character": 6}}}
+# An import path typed in a file that is in no package: the standard library only.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/notes.buri", "languageId": "buri", "version": 1, "text": "from \"core/l"}}}
+{"jsonrpc": "2.0", "id": 17, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/notes.buri"}, "position": {"line": 0, "character": 12}}}
+{"jsonrpc": "2.0", "id": 18, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
