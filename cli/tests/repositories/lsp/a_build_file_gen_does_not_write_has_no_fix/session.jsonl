@@ -1,0 +1,22 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# `tools/price/tool.buri` imports `//lib/money`, and `tools/price/BUILD.buri`
+# does not name it in `dependencies`: the `missing-dependency` finding. In a
+# library or a binary its fix is the build file as `buri gen` writes it. `buri
+# gen` leaves a tool's build file as written, so here there is no such file.
+# The same holds for a finding `buri gen` cannot settle.
+# No `resolveSupport`, so every action carries its edit in the list.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The finding, echoed by the client. Nothing is offered: an action with no edit
+# would be a fix that does nothing.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/tools/price/tool.buri"}, "range": {"start": {"line": 5, "character": 5}, "end": {"line": 5, "character": 18}}, "context": {"diagnostics": [{"code": "missing-dependency", "message": "tools/price/tool.buri imports //lib/money, which is not in dependencies", "range": {"start": {"line": 5, "character": 5}, "end": {"line": 5, "character": 18}}}]}}}
+# The same cursor from a palette, which echoes nothing. The server's own
+# finding is under it, and it still has no fix.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/tools/price/tool.buri"}, "range": {"start": {"line": 5, "character": 8}, "end": {"line": 5, "character": 8}}, "context": {"diagnostics": []}}}
+# `unused-source` in a package with a library and a binary, about a file
+# neither entry point reaches. `buri gen` refuses to guess which rule it goes
+# in, so there is no file to offer here either.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/both/helper.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "unused-source", "message": "cmd/both/extra.buri belongs to no library or binary, so nothing builds it", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

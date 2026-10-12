@@ -1,0 +1,2 @@
+# The repository root. Two libraries, each with one thing wrong in its build
+# file, and one source with an import nothing uses.

@@ -1,0 +1,7 @@
+from "native" import { NativeHost };
+from "//cmd/both" import { helper };
+
+export fn main(_host: NativeHost): Result<(), Str> {
+    let _ = helper();
+    .Ok(())
+}

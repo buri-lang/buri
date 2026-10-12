@@ -1,0 +1,14 @@
+library {
+    sources: [
+        "a.buri",
+        "b.buri",
+        "c.buri",
+        "d.buri",
+        "e.buri",
+        "f.buri",
+        "g.buri",
+        "h.buri",
+        "i.buri",
+    ]
+    visibility: ["//visibility:public"]
+}

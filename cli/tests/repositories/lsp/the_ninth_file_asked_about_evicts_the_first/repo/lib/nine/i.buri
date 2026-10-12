@@ -1,0 +1,4 @@
+/// The number for `i`.
+export fn i(): I64 {
+    1
+}

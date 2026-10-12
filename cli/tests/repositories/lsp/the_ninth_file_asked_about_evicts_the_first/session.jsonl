@@ -1,0 +1,24 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# A hover analyses the library with only the hovered file's bodies checked,
+# and the server keeps the last eight of those. The `verbose` trace's work
+# counters say when one was kept and when it was worked out again.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "trace": "verbose"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Nine files, one hover each: `analyses 1` every time.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/nine/a.buri"}, "position": {"line": 1, "character": 10}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/nine/b.buri"}, "position": {"line": 1, "character": 10}}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/nine/c.buri"}, "position": {"line": 1, "character": 10}}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/nine/d.buri"}, "position": {"line": 1, "character": 10}}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/nine/e.buri"}, "position": {"line": 1, "character": 10}}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/nine/f.buri"}, "position": {"line": 1, "character": 10}}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/nine/g.buri"}, "position": {"line": 1, "character": 10}}}
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/nine/h.buri"}, "position": {"line": 1, "character": 10}}}
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/nine/i.buri"}, "position": {"line": 1, "character": 10}}}
+# The ninth pushed the first out, so `a.buri` is worked out again:
+# `analyses 1`.
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/nine/a.buri"}, "position": {"line": 1, "character": 10}}}
+# The ninth is still kept: `analyses 0`.
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/nine/i.buri"}, "position": {"line": 1, "character": 10}}}
+{"jsonrpc": "2.0", "id": 13, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

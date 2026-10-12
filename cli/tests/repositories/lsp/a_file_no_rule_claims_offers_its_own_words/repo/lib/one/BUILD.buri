@@ -1,0 +1,4 @@
+library {
+    sources: ["one.buri"]
+    visibility: ["//visibility:public"]
+}

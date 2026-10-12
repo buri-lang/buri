@@ -1,0 +1,17 @@
+from "//lib/nine/a.buri" export { a };
+
+from "//lib/nine/b.buri" export { b };
+
+from "//lib/nine/c.buri" export { c };
+
+from "//lib/nine/d.buri" export { d };
+
+from "//lib/nine/e.buri" export { e };
+
+from "//lib/nine/f.buri" export { f };
+
+from "//lib/nine/g.buri" export { g };
+
+from "//lib/nine/h.buri" export { h };
+
+from "//lib/nine/i.buri" export { i };
