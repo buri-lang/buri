@@ -2,7 +2,7 @@ library {
     sources: []
 
     test {
-        sources: ["test/updates.buri"]
+        sources: ["test/updates.buri", "test/wide.buri"]
         backends: [NATIVE, JS]
     }
 }

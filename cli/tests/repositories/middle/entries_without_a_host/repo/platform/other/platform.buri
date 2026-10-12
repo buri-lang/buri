@@ -17,4 +17,8 @@ export struct Wrapped {
     export named: Named,
 }
 
+export struct Maybe {
+    export value: Option<Int>,
+}
+
 export fn start(host: OtherHost): Result<(), Str>;

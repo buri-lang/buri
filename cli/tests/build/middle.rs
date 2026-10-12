@@ -24,16 +24,19 @@ const { default: tag } = await import(`./${out}/tag.mjs`);
 const { default: total } = await import(`./${out}/total.mjs`);
 const { default: explain } = await import(`./${out}/explain.mjs`);
 const { default: unwrap } = await import(`./${out}/unwrap.mjs`);
+const { default: peek } = await import(`./${out}/peek.mjs`);
 console.log(String(await pick(5n, 1n)), String(await pick(undefined, 1n)));
 console.log(await greet({ name: "Ada" }, "hello"), await greet({ name: "Grace" }, "hi"));
 console.log(String(await tag({ tags: ["a", "b"] }, "xyz")));
 console.log(String(await total([1n, 2n, 3n], 4n)), await explain({ value: "300", target: "U8" }, "x"));
 console.log(await unwrap({ named: { name: "Ada" } }, "x"));
+console.log(String(await peek({ value: 5n }, 1n)), String(await peek({ value: undefined }, 1n)));
 "#;
 
 /// An entry whose first parameter is no host takes every argument it is
 /// called with and answers what its body does, whether that parameter is an
-/// `Option`, a list, a library's struct or a struct another platform declares.
+/// `Option`, a list, a library's struct or a struct another platform declares,
+/// whichever fields that struct has.
 #[test]
 fn an_entry_without_a_host_answers_its_caller() {
     let scratch = Scratch::copy_of(
@@ -48,5 +51,5 @@ fn an_entry_without_a_host_answers_its_caller() {
         .output()
         .unwrap();
     assert!(out.status.success(), "an entry failed:\n{}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "5 1\nhello Grace\n5\n10 U8\nAda\n");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "5 1\nhello Grace\n5\n10 U8\nAda\n6 1\n");
 }
