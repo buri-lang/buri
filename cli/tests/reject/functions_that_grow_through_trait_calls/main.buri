@@ -1,0 +1,105 @@
+// EXPECT: `Boxed.grow` needs endless instantiations: `Boxed.grow<T>` calls `Boxed.grow<Boxed<T>>` through `step`, which calls `Boxed.grow<Boxed<Boxed<T>>>`, and so on
+//
+// A trait method called on a type parameter runs the `impl` the type argument
+// picks, so growth counts through it too: `step<Boxed<T>>` runs
+// `Boxed<T>`'s `grow`, which calls `step<Boxed<Boxed<T>>>`. Calling back at
+// the same type, or a smaller one, is fine.
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+
+trait Grows {
+  fn grow(self, n: Int): Int;
+}
+
+struct Boxed<T> {
+  value: T,
+}
+
+impl<T> Grows for Boxed<T> {
+  fn grow(self, n: Int): Int {
+    if (n == 0) { 0 } else { step(Boxed { value: self }, n - 1) }
+  }
+}
+
+fn step<T: Grows>(x: T, n: Int): Int {
+  x.grow(n)
+}
+
+trait Deepens {
+  fn deepen(self, n: Int): Int;
+}
+
+struct Leaf {
+  depth: Int,
+}
+
+impl Deepens for Leaf {
+  fn deepen(self, n: Int): Int {
+    self.depth + n
+  }
+}
+
+struct Wrap<T> {
+  value: T,
+}
+
+impl<T: Deepens> Deepens for Wrap<T> {
+  fn deepen(self, n: Int): Int {
+    if (n == 0) { self.value.deepen(0) } else { Wrap { value: self }.deepen(n - 1) }
+  }
+}
+
+trait Sizes {
+  fn size(self, n: Int): Int;
+}
+
+impl Sizes for Leaf {
+  fn size(self, n: Int): Int {
+    self.depth
+  }
+}
+
+struct Pair<T> {
+  left: T,
+  right: T,
+}
+
+impl<T: Sizes> Sizes for Pair<T> {
+  fn size(self, n: Int): Int {
+    if (n == 0) { self.left.size(0) + measure(self.right, 0) } else { measure(self, n - 1) }
+  }
+}
+
+fn measure<T: Sizes>(x: T, n: Int): Int {
+  x.size(n)
+}
+
+struct Crate<T> {
+  value: T,
+}
+
+struct Tray<T> {
+  value: T,
+}
+
+impl<T: Sizes> Sizes for Crate<T> {
+  fn size(self, n: Int): Int {
+    if (n == 0) { self.value.size(0) } else { measure(Tray { value: Tray { value: self.value } }, n - 1) }
+  }
+}
+
+impl<T: Sizes> Sizes for Tray<T> {
+  fn size(self, n: Int): Int {
+    self.value.size(0) + 1
+  }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let pair = Pair { left: Leaf { depth: 1 }, right: Leaf { depth: 2 } };
+  let wrap = Wrap { value: Leaf { depth: 1 } };
+  let boxes = Crate { value: Leaf { depth: 4 } };
+  let _ = io.println(ctx, "${step(Boxed { value: 1 }, 3)} ${wrap.deepen(3)} ${measure(pair, 3)} ${measure(boxes, 2)}").ignore();
+  .Ok(())
+}

@@ -3418,7 +3418,11 @@ impl<'a> Checker<'a> {
     ///
     /// Only generic functions have parameters to grow, and the toolchain's
     /// own are left out: its tests build them, and walking them would cost
-    /// every build. That leaves out everything a [`Base`] checked too.
+    /// every build. That leaves out everything a [`Base`] checked too. A cycle
+    /// can still pass through the toolchain's functions, out of a checked one
+    /// and back through a trait method to an `impl` among them, so where one
+    /// of their `impl` methods is generic, the bodies the search reaches are
+    /// walked whoever wrote them.
     fn check_endless_functions(&mut self) {
         let fns: Vec<FnId> = (0..self.tables.fns.len())
             .map(|i| FnId(i as u32))
@@ -3430,22 +3434,50 @@ impl<'a> Checker<'a> {
                     && crate::compiler::semantics::inference::wanted(self, f)
             })
             .collect();
-        for (f, targs) in endless::endless_functions(&self.tables, &self.bodies, &fns) {
+        let mine: HashSet<FnId> = fns.iter().copied().collect();
+        let beyond = self.tables.impls.iter().any(|(_, imp)| match &imp.body {
+            ImplBody::Written(ms) => ms.iter().flatten().any(|m| mine.contains(m)),
+            ImplBody::Derived => false,
+        });
+        let found = endless::endless_functions(&self.tables, &self.bodies, &fns, beyond);
+        let name_of = |f: FnId| {
             let info = self.tables.fn_info(f);
-            let name = match info.self_ty {
+            match info.self_ty {
                 Some(con) => format!("{}.{}", self.tables.tycon(con).name, info.name),
                 None => info.name.clone(),
+            }
+        };
+        let mut reports = Vec::new();
+        for cycle in &found {
+            let f = cycle.report;
+            let info = self.tables.fn_info(f);
+            let name = name_of(f);
+            // Three times round reaches `f` three times, wherever the cycle
+            // is read from.
+            let seen = endless::instantiations(&self.tables, cycle, 3);
+            let from = &self.tables.fn_info(cycle.from).generics;
+            let at: Vec<usize> = seen.iter().enumerate().filter(|(_, (g, _))| *g == f).map(|(i, _)| i).collect();
+            let nth = |n: usize| {
+                let i = *at.get(n).or_ice("a cycle reaches each function on it once a round");
+                let args = &seen.get(i).or_ice("found above").1;
+                let shown: Vec<String> = args.iter().map(|a| show(&self.tables, None, from, a)).collect();
+                (i, format!("{name}<{}>", shown.join(", ")))
             };
-            let at = |args: &[Ty]| {
-                let shown: Vec<String> = args.iter().map(|a| show(&self.tables, None, &info.generics, a)).collect();
-                format!("{name}<{}>", shown.join(", "))
-            };
-            let params: Vec<Ty> = (0..info.generics.len()).map(|i| Ty::param(i as u32)).collect();
-            let again: Vec<Ty> = targs.iter().map(|a| substitute(a, &targs, None)).collect();
-            let (mine, grown, grown_again) = (at(&params), at(&targs), at(&again));
-            let span = info.span;
+            let ((first, mine_at), (second, grown), (_, grown_again)) = (nth(0), nth(1), nth(2));
+            let mut through: Vec<String> = Vec::new();
+            if cycle.steps.iter().any(|s| matches!(s, endless::Step::Dispatch { .. })) {
+                through.extend(seen.get(first.saturating_add(1)..second).unwrap_or_default().iter().map(|(g, _)| format!("`{}`", name_of(*g))));
+            }
+            let through = if through.is_empty() { String::new() } else { format!(" through {}", through.join(", ")) };
+            let own: Vec<String> =
+                (0..info.generics.len()).map(|i| show(&self.tables, None, &info.generics, &Ty::param(i as u32))).collect();
+            let mine = format!("{name}<{}>", own.join(", "));
+            let growth = format!("`{mine_at}` calls `{grown}`{through}, which calls `{grown_again}`, and so on");
+            reports.push((info.span, name, growth, mine));
+        }
+        for (span, name, growth, mine) in reports {
             self.templated("endless-function", span)
-                .bind("growth", format!("`{mine}` calls `{grown}`, which calls `{grown_again}`, and so on"))
+                .bind("growth", growth)
                 .bind("fix", format!("where `{name}` calls itself, call it at its own type parameters: `{mine}`"))
                 .bind("name", name);
         }

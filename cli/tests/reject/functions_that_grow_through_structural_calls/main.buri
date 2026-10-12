@@ -1,0 +1,65 @@
+// EXPECT: `Bag.equal` needs endless instantiations: `Bag.equal<T>` calls `Bag.equal<Bag<T>>`, which calls `Bag.equal<Bag<Bag<T>>>`, and so on
+//
+// `==` on an array or a tuple compares the elements, and on a type that
+// derives `Equal`, the fields, each with its own `impl`. So growth counts
+// through those too: `[Bag<Bag<T>>] == [Bag<Bag<T>>]` runs `Bag<Bag<T>>`'s
+// `equal`. Comparing at the same type, or a smaller one, is fine.
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+
+struct Bag<T> {
+  value: T,
+}
+
+impl<T: Equal> Equal for Bag<T> {
+  fn equal(self, other: Bag<T>): Bool {
+    [Bag { value: self }] == [Bag { value: other }]
+  }
+}
+
+struct Duo<T> {
+  value: T,
+}
+
+impl<T: Equal> Equal for Duo<T> {
+  fn equal(self, other: Duo<T>): Bool {
+    (Duo { value: self }, Duo { value: other }) == (Duo { value: other }, Duo { value: self })
+  }
+}
+
+struct Shell<T> {
+  inner: T,
+}
+
+derive Equal for Shell;
+
+struct Nest<T> {
+  value: T,
+}
+
+impl<T: Equal> Equal for Nest<T> {
+  fn equal(self, other: Nest<T>): Bool {
+    Shell { inner: Nest { value: self } } == Shell { inner: Nest { value: other } }
+  }
+}
+
+struct Flat<T> {
+  value: T,
+}
+
+impl<T: Equal> Equal for Flat<T> {
+  fn equal(self, other: Flat<T>): Bool {
+    [self.value] == [other.value] && (self.value, other.value) == (other.value, self.value) && Shell { inner: self.value } == Shell { inner: other.value }
+  }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let bag = Bag { value: 1 } == Bag { value: 1 };
+  let duo = Duo { value: 1 } == Duo { value: 1 };
+  let nest = Nest { value: 1 } == Nest { value: 1 };
+  let flat = Flat { value: 1 } == Flat { value: 1 };
+  let _ = io.println(ctx, "${bag} ${duo} ${nest} ${flat}").ignore();
+  .Ok(())
+}

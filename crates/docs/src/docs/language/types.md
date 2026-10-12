@@ -415,7 +415,9 @@ other operation as a function: `sortBy(xs, cmp)`.
 
 A generic function that calls itself at bigger type arguments, like
 `nest(Option.Some(x))` inside `nest<T>`, is the `endless-function` error: it
-would need endless instantiations.
+would need endless instantiations. A trait method counts as a call to the
+`impl` it runs, so `x.grow()` inside `step<T>` calls `Boxed<U>`'s `grow` at
+`T = Boxed<U>`, and that `grow` calling `step(Boxed { value: self })` is one too.
 
 Explicit type arguments go on the expression:
 

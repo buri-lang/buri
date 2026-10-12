@@ -583,6 +583,42 @@ fn generic_functions_that_call_themselves_at_their_own_type_arguments_run() {
     prints("e2e-shape-same-type-recursion", &source, &["4 10 2 6".to_string()]);
 }
 
+/// **Trait methods that call back through generic functions, the standard
+/// library, arrays, tuples and derives, at the same type, a smaller one, or one
+/// another `impl` takes, build and run.** `Crate<T>`'s `size` calls
+/// `measure<Tray<Tray<T>>>`, bigger, but that runs `Tray`'s `size`, which never
+/// comes back to `Crate`'s.
+#[test]
+fn trait_methods_that_call_back_at_their_own_type_run() {
+    unless_ready!();
+    let source = format!(
+        "{HEAD}\ntrait Sizes {{\n    fn size(self, n: Int): Int;\n}}\n\n\
+         struct Leaf {{\n    depth: Int,\n}}\n\n\
+         impl Sizes for Leaf {{\n    fn size(self, n: Int): Int {{\n        self.depth\n    }}\n}}\n\n\
+         struct Pair<T> {{\n    left: T,\n    right: T,\n}}\n\n\
+         impl<T: Sizes> Sizes for Pair<T> {{\n    fn size(self, n: Int): Int {{\n        \
+         if (n == 0) {{ self.left.size(0) + measure(self.right, 0) }} else {{ measure(self, n - 1) }}\n    }}\n}}\n\n\
+         fn measure<T: Sizes>(x: T, n: Int): Int {{\n    x.size(n)\n}}\n\n\
+         struct Crate<T> {{\n    value: T,\n}}\n\n\
+         struct Tray<T> {{\n    value: T,\n}}\n\n\
+         impl<T: Sizes> Sizes for Crate<T> {{\n    fn size(self, n: Int): Int {{\n        \
+         if (n == 0) {{ self.value.size(0) }} else {{ measure(Tray {{ value: Tray {{ value: self.value }} }}, n - 1) }}\n    }}\n}}\n\n\
+         impl<T: Sizes> Sizes for Tray<T> {{\n    fn size(self, n: Int): Int {{\n        self.value.size(0) + 1\n    }}\n}}\n\n\
+         struct Shell<T> {{\n    inner: T,\n}}\n\n\
+         derive Equal for Shell;\n\n\
+         struct Flat<T> {{\n    value: T,\n}}\n\n\
+         impl<T: Equal> Equal for Flat<T> {{\n    fn equal(self, other: Flat<T>): Bool {{\n        \
+         [self.value].contains(other.value) && [self.value] == [other.value] \
+         && (self.value, other.value) == (other.value, self.value) && Shell {{ inner: self.value }} == Shell {{ inner: other.value }}\n    }}\n}}\n\n\
+         {MAIN}    let pair = Pair {{ left: Leaf {{ depth: 1 }}, right: Leaf {{ depth: 2 }} }};\n    \
+         let boxes = Crate {{ value: Leaf {{ depth: 4 }} }};\n    \
+         let same = Flat {{ value: 1 }} == Flat {{ value: 1 }};\n    \
+         let other = Flat {{ value: 1 }} == Flat {{ value: 2 }};\n{}    .Ok(())\n}}\n",
+        say("\"${measure(pair, 3)} ${measure(boxes, 2)} ${same} ${other}\""),
+    );
+    prints("e2e-shape-trait-recursion", &source, &["3 6 true false".to_string()]);
+}
+
 /// **A tuple of twenty-four elements, taken apart, compared, sorted and shown.**
 #[test]
 fn a_long_tuple_is_taken_apart_compared_and_shown() {

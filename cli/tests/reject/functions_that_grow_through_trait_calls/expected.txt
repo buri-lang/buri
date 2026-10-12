@@ -1,0 +1,21 @@
+error: `Boxed.grow` needs endless instantiations: `Boxed.grow<T>` calls `Boxed.grow<Boxed<T>>` through `step`, which calls `Boxed.grow<Boxed<Boxed<T>>>`, and so on [endless-function]
+  --> cmd/functions_that_grow_through_trait_calls/main.buri:20:6
+   |
+20 |   fn grow(self, n: Int): Int {
+   |      ^^^^
+   |
+   = fix: where `Boxed.grow` calls itself, call it at its own type parameters: `Boxed.grow<T>`
+
+     Each instantiation of a generic function compiles on its own, so nest<Int>
+     would need nest<Option<Int>>, then a bigger one, forever. Where a function
+     calls itself, directly or through others, pass its own type parameters,
+     like count<T> calling count<T>. Swapped is fine too: swap<B, A> inside
+     swap<A, B>.
+
+error: `Wrap.deepen` needs endless instantiations: `Wrap.deepen<T>` calls `Wrap.deepen<Wrap<T>>`, which calls `Wrap.deepen<Wrap<Wrap<T>>>`, and so on [endless-function]
+  --> cmd/functions_that_grow_through_trait_calls/main.buri:48:6
+   |
+48 |   fn deepen(self, n: Int): Int {
+   |      ^^^^^^
+   |
+   = fix: where `Wrap.deepen` calls itself, call it at its own type parameters: `Wrap.deepen<T>`
