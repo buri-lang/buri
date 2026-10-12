@@ -302,9 +302,6 @@ impl DocSource for Std {
         if !is_std_path(id) && !module.is_some_and(is_std_path) {
             return None;
         }
-        if let Some(all) = self.modules.get() {
-            return module_page(all, id, "standard library");
-        }
         // The prelude and the module the id names, with what it imports:
         // everything its page reads. A re-export names a module the
         // re-exporter imports, and a derive names a trait the prelude
@@ -796,9 +793,10 @@ fn show(id: &str, presentation: &Presentation) -> i32 {
 }
 
 fn emit(page: &Page, presentation: &Presentation) -> String {
+    let body = crate::documentation::examples::shown(&page.body);
     let body = match presentation.density {
-        Density::Full => page.body.clone(),
-        Density::Dense => markdown::dense(&page.body),
+        Density::Full => body,
+        Density::Dense => markdown::dense(&body),
     };
     match presentation.render {
         Render::Markdown => body,
@@ -882,13 +880,11 @@ fn index(presentation: &Presentation) -> String {
         "{bold}Diagnostics{reset}\n  {} codes — `buri docs error <code>`, or `buri docs error` to list them",
         crate::documentation::errors::ERRORS.len()
     );
-    let lints = crate::documentation::lints::LINTS.len();
-    if lints > 0 {
-        let _ = writeln!(
-            out,
-            "  {lints} lints — `buri docs lint <code>`, or `buri docs lint` to list them"
-        );
-    }
+    let _ = writeln!(
+        out,
+        "  {} lints — `buri docs lint <code>`, or `buri docs lint` to list them",
+        crate::documentation::lints::LINTS.len()
+    );
     out.push('\n');
 
     let _ = writeln!(out, "{bold}The standard library{reset}");
@@ -1419,30 +1415,18 @@ fn doctest_command(paths: &[&str], presentation: &Presentation) -> i32 {
     1
 }
 
-/// Every `.md` in the tree, skipping the build directory and anything hidden.
+/// Every `.md` and `.buri` in the tree, skipping the build directory and anything hidden.
+///
+/// `.buri` too: a documentation comment is documentation, and an example in one
+/// has the same claim on being true as an example in a prose page. `BUILD.buri`
+/// and `REPO.buri` wear the extension but are textproto, and have no doc
+/// comments to find.
 fn markdown_under(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
-    entries.sort_by_key(|e| e.path());
-    for e in entries {
-        let p = e.path();
-        let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
-        if name.starts_with('.') || name == "target" || name == "node_modules" {
-            continue;
-        }
-        if p.is_dir() {
-            markdown_under(&p, out);
-        } else if p.extension().is_some_and(|x| x == "md" || x == "buri") {
-            // `.buri` too: a documentation comment is documentation, and an
-            // example in one has the same claim on being true as an example in
-            // a prose page. `BUILD.buri` and `REPO.buri` wear the extension but
-            // are textproto, and have no doc comments to find.
-            if p.file_name().is_some_and(|n| n == "BUILD.buri" || n == "REPO.buri") {
-                continue;
-            }
-            out.push(p);
-        }
-    }
+    let documented = |p: &std::path::Path| {
+        p.extension().is_some_and(|x| x == "md" || x == "buri")
+            && !p.file_name().is_some_and(|n| n == "BUILD.buri" || n == "REPO.buri")
+    };
+    crate::documentation::layout::files_under(dir, &documented, out);
 }
 
 fn command_assemble(check_only: bool) -> i32 {
@@ -1559,7 +1543,7 @@ mod tests {
             &Presentation { render: Render::Markdown, density: Density::Dense, ..presentation() },
         );
         assert!(dense.len() < full.len());
-        for f in markdown::fences(&page.body) {
+        for f in markdown::fences(&crate::documentation::examples::shown(&page.body)) {
             if f.body.trim().is_empty() {
                 continue;
             }

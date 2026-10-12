@@ -1,0 +1,13 @@
+/// An example a line of code cuts into: its comment is two comments, so
+/// what it would lay out isn't one fence's lines.
+///
+/// ```buri
+export fn nine(): I64 {
+    9
+}
+
+/// export fn  ten(): I64 { 10 }
+/// ```
+export fn eleven(): I64 {
+    11
+}

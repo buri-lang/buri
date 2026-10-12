@@ -1,0 +1,3 @@
+export fn latte(): I64 {
+    450
+}

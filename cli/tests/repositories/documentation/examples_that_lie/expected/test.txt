@@ -65,6 +65,5 @@ page.md:191: this block is marked `fail` but compiles
     either the language changed and the document is now wrong, or the block needs to be retagged
 
 page.md:191: this example does not produce `type-mismatch`
-    it produced no coded diagnostic; got:
-    nothing
+    it produced no coded diagnostic
 19 example(s) do not do what the documentation says

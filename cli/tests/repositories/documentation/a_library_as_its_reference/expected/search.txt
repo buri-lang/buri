@@ -2,6 +2,8 @@ buri docs //lib/cafe/lib.buri  //lib/cafe/lib.buri
   The café's counter.
 buri docs //lib/cafe/lib.buri.Priced  trait Priced
   Something the till can ring up.
+buri docs //lib/cafe/lib.buri.Shift  context Shift
+  What the till runs with.
 buri docs //lib/cafe/lib.buri.open  fn open
   Opens the till.
 buri docs //lib/cafe/lib.buri.openBlank  fn openBlank

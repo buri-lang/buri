@@ -13,6 +13,7 @@
 //! in somebody else's repository without any of this knowing about it.
 
 use crate::compiler::modules::{Loaded, ModuleData, Role};
+use crate::diagnostics::Invariant as _;
 use crate::formatting;
 use crate::parsing::tree::{self, Item, ParamKind};
 use std::fmt::Write as _;
@@ -285,16 +286,10 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
     out
 }
 
-/// The standard library: every module under one of its reserved roots, but
-/// not the compiler's internal ones.
-///
-/// The role alone is not enough — a documentation example is loaded with
-/// `Role::Std` so that a fence may show a signature without a body — so this
-/// asks the path too.
+/// The standard library's modules, but not the compiler's internal ones. What
+/// it filters is a load of the standard library alone, so the role says it.
 pub fn std_filter(m: &ModuleData) -> bool {
-    matches!(m.role, Role::Std | Role::Platform)
-        && crate::compiler::standard_library::is_std_path(&m.path)
-        && !crate::compiler::standard_library::is_internal(&m.path)
+    matches!(m.role, Role::Std | Role::Platform) && !crate::compiler::standard_library::is_internal(&m.path)
 }
 
 /// Every `trait` declared anywhere in a compilation, so a `derive` can be
@@ -493,7 +488,7 @@ fn effects_of(t: &crate::parsing::flat::Tree, d: &tree::FnDecl) -> Vec<String> {
     let Some(ctx) = t.list(d.params).iter().find(|p| p.kind == ParamKind::CtxParam) else {
         return Vec::new();
     };
-    let Some(ty) = ctx.written_type() else { return Vec::new() };
+    let ty = ctx.written_type().or_ice("only `self` is written without a type");
     let name = formatting::type_text(t, ty);
     t.list(d.generics)
         .iter()
@@ -558,7 +553,7 @@ fn structure(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> ApiItem {
 fn config_of(module: &tree::Module, d: &tree::FnDecl) -> Option<Config> {
     let t = &module.tree;
     for p in t.list(d.params).iter().filter(|p| p.kind == ParamKind::Normal) {
-        let Some(ty) = p.written_type() else { continue };
+        let ty = p.written_type().or_ice("only `self` is written without a type");
         let written = formatting::type_text(t, ty);
         let head = written.split('<').next().unwrap_or(&written).trim();
         let head = head.rsplit('.').next().unwrap_or(head);

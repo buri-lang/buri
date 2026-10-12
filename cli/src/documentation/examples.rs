@@ -608,9 +608,13 @@ fn error_annotation(line: &str) -> Option<String> {
 
 /// The line as it appears in the rendered document: hidden lines gone, the
 /// `// ERROR:` comments kept, since they are what makes the example legible.
+/// The blank line that parts hidden imports from the code goes with them.
 pub fn rendered(body: &str) -> String {
     let mut out = String::with_capacity(body.len());
     for line in body.lines() {
+        if out.is_empty() && line.trim().is_empty() {
+            continue;
+        }
         if let Some(rest) = line.strip_prefix("##") {
             out.push('#');
             out.push_str(rest);
@@ -624,6 +628,21 @@ pub fn rendered(body: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+/// A document as its reader is shown it: every Buri fence `rendered`, so a page
+/// or a hover never shows a line that only the compiler reads.
+pub fn shown(text: &str) -> String {
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    for fence in markdown::fences(text).iter().rev().filter(|f| f.lang == "buri") {
+        let pad = " ".repeat(fence.indent);
+        let body: Vec<String> =
+            rendered(&fence.body).lines().map(|l| if l.is_empty() { String::new() } else { format!("{pad}{l}") }).collect();
+        let first = fence.body_line.saturating_sub(1).min(lines.len());
+        let last = first.saturating_add(fence.body.lines().count()).min(lines.len());
+        lines.splice(first..last, body);
+    }
+    lines.iter().map(|l| format!("{l}\n")).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -751,10 +770,9 @@ pub fn assemble(
                     .into(),
             });
         };
+        // A blank line after each, so one with no final newline still ends.
         prefix.push_str(text);
-        if !prefix.ends_with('\n') {
-            prefix.push('\n');
-        }
+        prefix.push('\n');
     }
 
     let sig = matches!(block.claim, Claim::Sig);
@@ -1042,10 +1060,10 @@ fn run_block_in(
                 origin: block.origin.clone(),
                 what: format!("this example does not produce `{want}`"),
                 detail: if coded.is_empty() {
-                    format!(
-                        "it produced no coded diagnostic; got:\n{}",
-                        if diagnostics.is_empty() { "nothing".into() } else { diagnostics.join("\n") }
-                    )
+                    std::iter::once("it produced no coded diagnostic")
+                        .chain(diagnostics.iter().map(String::as_str))
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 } else {
                     format!("it produced: {}", coded.join(", "))
                 },
@@ -1330,7 +1348,7 @@ fn run_repositories(root: &std::path::Path, files: &[RepoFile]) -> Vec<Failure> 
             seen.push(&f.path);
         }
         let clean: Vec<&RepoFile> = mine.iter().copied().filter(|f| f.fails_with.is_none()).collect();
-        let Some(first) = mine.first() else { continue };
+        let first = mine.first().or_ice("every repository is named by one of the files in it");
         match build_with(root, repo, &clean) {
             Err(why) => {
                 failures.push(Failure {
@@ -1446,9 +1464,8 @@ fn write_and_build(
     }
     for f in files {
         let path = scratch.join(&f.path);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
+        let parent = path.parent().or_ice("a file joined onto the scratch directory is inside it");
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         std::fs::write(&path, &f.text).map_err(|e| e.to_string())?;
     }
     build_repository(scratch)
@@ -1579,241 +1596,4 @@ pub fn doc_comments(source: &str) -> String {
 /// scan, so a repository full of files with no examples costs nothing.
 pub fn has_examples(source: &str) -> bool {
     source.contains("```")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Runs a synthetic document and returns its failures, rendered.
-    fn check(doc: &str) -> String {
-        // The repository root, as the docs' own `repo=` paths are written, and
-        // not the working directory, which depends on how the test is run.
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        report(&run_file_at(&root, "test.md", doc))
-    }
-
-    #[test]
-    fn a_whole_module_compiles() {
-        let doc = "```buri\n\
-                   export fn double(n: Int): Int {\n    n * 2\n}\n\
-                   ```\n";
-        assert_eq!(check(doc), "");
-    }
-
-    #[test]
-    fn a_statement_fragment_compiles_with_a_context() {
-        let doc = "```buri wrap=body\n\
-                   let a = 5;\n\
-                   let _ = io.println(ctx, \"a is ${a}\").ignore();\n\
-                   ```\n";
-        assert_eq!(check(doc), "");
-    }
-
-    #[test]
-    fn a_signature_list_compiles() {
-        let doc = "```buri sig\n\
-                   export fn allocate(bytes: Int): Int;\n\
-                   ```\n";
-        assert_eq!(check(doc), "");
-    }
-
-    /// A method signature needs its `impl`, which a document can supply with
-    /// hidden lines rather than a fourth wrapper mode.
-    #[test]
-    fn a_method_signature_list_compiles_inside_a_hidden_impl() {
-        let doc = "```buri sig\n\
-                   # export struct Ring(export Int);\n\
-                   #\n\
-                   # impl Ring {\n\
-                   \x20   export fn size(self): Int;\n\
-                   # }\n\
-                   ```\n";
-        assert_eq!(check(doc), "");
-    }
-
-    /// A block documenting a method on a *built-in* cannot be compiled where
-    /// it is written: a type's operations may only be declared in its defining
-    /// module (SPEC 6.7.3). Those blocks belong in the generated standard
-    /// library reference, which renders them from `crates/stdlib/src/compiler/standard_library/sources/*.buri`; until
-    /// a document is converted, they carry `ignore` and a reason. This test
-    /// pins the rule so the reason stays true.
-    #[test]
-    fn a_builtin_impl_cannot_be_documented_as_a_compilable_block() {
-        let doc = "```buri sig\n\
-                   # impl<T> [T] {\n\
-                   export fn length(self): Int;\n\
-                   # }\n\
-                   ```\n";
-        assert!(check(doc).contains("defining module of `[T]` is `core/list`"));
-    }
-
-    #[test]
-    fn a_broken_example_is_reported_at_its_own_line() {
-        let doc = "prose\n\nmore prose\n\n```buri wrap=body\n\
-                   let a: Int = \"not an int\";\n\
-                   ```\n";
-        let out = check(doc);
-        assert!(out.contains("does not compile"), "{out}");
-        // The fence body starts on line 6 of the document.
-        assert!(out.contains("test.md:6:"), "location should point at the fence:\n{out}");
-    }
-
-    #[test]
-    fn a_fail_block_must_actually_fail() {
-        let good = "```buri fail wrap=body\n\
-                    let a: Int = \"not an int\";\n\
-                    ```\n\
-                    ```error\n\
-                    expected `I64`, found `Str`\n\
-                    ```\n";
-        assert_eq!(check(good), "");
-
-        let bad = "```buri fail wrap=body\n\
-                   let a = 5;\n\
-                   ```\n\
-                   ```error\n\
-                   expected `I64`, found `Str`\n\
-                   ```\n";
-        assert!(check(bad).contains("compiles"), "a compiling `fail` block must be caught");
-    }
-
-    #[test]
-    fn an_error_annotation_is_compiled_on_its_own() {
-        let doc = "```buri wrap=body\n\
-                   let ok: Int = 5;\n\
-                   let bad: Int = \"nope\"; // ERROR: expected `I64`, found `Str`\n\
-                   let alsoOk = ok + 1;\n\
-                   ```\n";
-        assert_eq!(check(doc), "", "the annotated line should satisfy its own claim");
-    }
-
-    #[test]
-    fn an_error_annotation_that_does_not_hold_is_caught() {
-        let doc = "```buri wrap=body\n\
-                   let ok: Int = 5;                // ERROR: expected `I64`, found `Str`\n\
-                   ```\n";
-        let out = check(doc);
-        assert!(out.contains("should not compile"), "{out}");
-    }
-
-    #[test]
-    fn a_named_block_is_reusable() {
-        let doc = "```buri name=pt\n\
-                   export struct Point {\n    export x: Int,\n    export y: Int,\n}\n\
-                   ```\n\
-                   ```buri use=pt wrap=body\n\
-                   let p = Point { x: 1, y: 2 };\n\
-                   let _ = io.println(ctx, \"${p.x}\").ignore();\n\
-                   ```\n";
-        assert_eq!(check(doc), "");
-    }
-
-    #[test]
-    fn a_harness_is_reusable() {
-        let doc = "```buri use=shapes wrap=body\n\
-                   let a = area(.Circle(2.0));\n\
-                   let _ = io.println(ctx, \"${a}\").ignore();\n\
-                   ```\n";
-        assert_eq!(check(doc), "");
-    }
-
-    /// Every example is compiled, so there is no mode that leaves one out.
-    #[test]
-    fn there_is_no_way_to_leave_an_example_out() {
-        let doc = "```buri ignore\nwhatever\n```\n";
-        assert!(check(doc).contains("`ignore` is not a mode"), "{}", check(doc));
-        let doc = "```textproto ignore\nname: \"api\"\n```\n";
-        assert!(check(doc).contains("`ignore` is not a mode"), "{}", check(doc));
-        let doc = "```textproto\nname: \"api\"\n```\n";
-        assert!(check(doc).contains("does not say what it is"), "{}", check(doc));
-    }
-
-    /// The fences labelled as files make one repository, and it is built: a
-    /// build file naming an entry is what makes that function an entry.
-    #[test]
-    fn a_page_s_files_are_built_as_one_repository() {
-        let build = "```textproto schema=build file=cmd/hello/BUILD.buri\n\
-                     binary {\n    outputs: [\n        { platform: \"node\", entries: [{ name: \"main\", function: \"start\" }] },\n    ]\n}\n```\n";
-        let main = "```buri file=cmd/hello/main.buri\n\
-                    from \"node\" import { NodeHost };\n\n\
-                    export fn start(host: NodeHost): Result<(), Str> {\n    .Ok(())\n}\n```\n";
-        assert_eq!(check(&format!("{build}\n{main}")), "");
-
-        let wrong = main.replace("export fn start", "export fn begin");
-        let out = check(&format!("{build}\n{wrong}"));
-        assert!(out.contains("this repository does not build"), "{out}");
-    }
-
-    /// A `fail` fence is written in on its own and must fail the build with
-    /// its code; one that builds is caught.
-    #[test]
-    fn a_failing_file_must_fail_with_its_code() {
-        let broken = "```textproto fail code=textproto-syntax repo=cli/tests/docs/repositories/deploy \
-                      file=lib/deploy/server.txtpb\n\
-                      # proto-file: server.proto\n# proto-message: Server\nports: [80 443]\n```\n";
-        assert_eq!(check(broken), "");
-
-        let fine = broken.replace("[80 443]", "[80, 443]");
-        let out = check(&fine);
-        assert!(out.contains("does not fail the build with `textproto-syntax`"), "{out}");
-    }
-
-    /// A fence whose info string does not parse used to be silently downgraded
-    /// to "a fence in no language", which meant it was neither compiled nor
-    /// reported — the worst of both. It is now a failure whatever it claims to
-    /// be.
-    #[test]
-    fn a_malformed_info_string_is_reported_rather_than_swallowed() {
-        let doc = "```buri file=\"unterminated\nwhatever\n```\n";
-        assert!(check(doc).contains("unterminated"), "{}", check(doc));
-
-        // Not only for `buri`: nothing else can be trusted to notice.
-        let doc = "```textproto schema=build schema=repo\nx: 1\n```\n";
-        assert!(check(doc).contains("given twice"), "{}", check(doc));
-
-        // And a well-formed fence in a language nobody compiles stays silent.
-        assert_eq!(check("```text\nfree prose\n```\n"), "");
-    }
-
-    #[test]
-    fn a_run_block_must_pin_its_output() {
-        let doc = "```buri run wrap=body\nlet _ = io.println(ctx, \"hi\").ignore();\n```\n";
-        assert!(check(doc).contains("```stdout"));
-    }
-
-    /// The end-to-end case: compile, execute under the JS runtime, and
-    /// compare stdout with what the document promises.
-    #[test]
-    fn a_run_block_executes_and_its_output_is_pinned() {
-        let runtime = crate::commands::test::js_runtime();
-        if std::process::Command::new(runtime).arg("--version").output().is_err() {
-            eprintln!("skipping: no JavaScript runtime");
-            return;
-        }
-        let good = "```buri run wrap=body\n\
-                    let _ = io.println(ctx, \"basket total: $36.50\").ignore();\n\
-                    ```\n\
-                    ```stdout\n\
-                    basket total: $36.50\n\
-                    ```\n";
-        assert_eq!(check(good), "");
-
-        let wrong = "```buri run wrap=body\n\
-                     let _ = io.println(ctx, \"one thing\").ignore();\n\
-                     ```\n\
-                     ```stdout\n\
-                     another thing\n\
-                     ```\n";
-        assert!(check(wrong).contains("prints something else"), "a wrong transcript must be caught");
-    }
-
-    #[test]
-    fn hidden_lines_are_compiled_but_not_shown() {
-        let body = "# from \"core/str\" import * as str;\nlet s = str.trim(\"  x  \");\n";
-        let (source, _, _) = strip_annotations(body);
-        assert!(source.starts_with("from \"core/str\""));
-        assert!(!rendered(body).contains("core/str"));
-        assert!(rendered(body).contains("str.trim"));
-    }
 }

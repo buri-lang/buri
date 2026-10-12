@@ -1,0 +1,30 @@
+//! Angles, shown the way a reader copies them.
+
+/// A right angle, in radians.
+///
+/// ```buri
+/// # from "core/math" import * as math;
+/// #
+/// /*
+/// ## a note
+/// */
+/// export fn level(): Float {
+///     math.sin(0.0)
+/// }
+/// ```
+export fn right(): Float {
+    1.5707963267948966
+}
+
+/// No angle at all.
+///
+/// ```buri
+/// # from "core/math" import * as math;
+///
+/// export fn flat(): Float {
+///     math.cos(0.0)
+/// }
+/// ```
+export fn none(): Float {
+    0.0
+}

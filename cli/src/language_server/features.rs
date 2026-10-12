@@ -130,7 +130,7 @@ pub(super) fn rendered(
     };
     if !docs.is_empty() {
         value.push_str("\n\n");
-        value.push_str(&docs.join("\n"));
+        value.push_str(crate::documentation::examples::shown(&docs.join("\n")).trim_end_matches('\n'));
     }
     Value::object(vec![
         ("contents", markup(kind, &value)),

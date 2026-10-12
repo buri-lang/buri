@@ -34,6 +34,7 @@
 //!   * `wrap=expr`, whose layout is the layout of the expression it is bound
 //!     into rather than anything the fence owns.
 
+use crate::diagnostics::invariant;
 use crate::documentation::examples::{Block, Claim, Failure, Wrap};
 use crate::documentation::markdown;
 use crate::formatting::{self, Dialect};
@@ -244,9 +245,7 @@ pub fn format_document(file: &str, text: &str) -> Option<String> {
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
     for (first, count, replacement) in edits {
         let last = first.saturating_add(count);
-        if last > lines.len() {
-            continue;
-        }
+        invariant(last <= lines.len(), "a fence's body is lines of the document it was found in");
         lines.splice(first..last, replacement);
     }
     let mut out = lines.join("\n");
@@ -423,9 +422,7 @@ pub fn format_doc_comments(source: &str) -> Option<String> {
         };
         let first = block.origin.line.saturating_sub(1);
         let last = first.saturating_add(block.body.lines().count());
-        if last > lines.len() {
-            continue;
-        }
+        invariant(last <= lines.len(), "`doc_comments` keeps one line per source line");
         // The marker every line of this comment carries — `///` or `//!`, at
         // whatever column the comment is written in.
         let Some(marker) = lines.get(first).and_then(|l| comment_marker(l)) else {
@@ -441,10 +438,9 @@ pub fn format_doc_comments(source: &str) -> Option<String> {
     if !changed {
         return None;
     }
+    // The source is the formatter's output, which always ends with a newline.
     let mut out = lines.join("\n");
-    if source.ends_with('\n') {
-        out.push('\n');
-    }
+    out.push('\n');
     Some(out)
 }
 
@@ -461,12 +457,19 @@ fn comment_marker(line: &str) -> Option<String> {
 /// The same walk `buri format` does over sources, and the same two exclusions:
 /// nothing hidden, nothing built.
 pub fn documents_under(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let markdown = |p: &std::path::Path| p.extension().is_some_and(|x| x == "md");
     if dir.is_file() {
-        if dir.extension().is_some_and(|x| x == "md") {
+        if markdown(dir) {
             out.push(dir.to_path_buf());
         }
         return;
     }
+    files_under(dir, &markdown, out);
+}
+
+/// Every file under `dir` that `keep` wants, in path order, with nothing hidden
+/// and nothing built. A directory that can't be read has nothing to give.
+pub fn files_under(dir: &std::path::Path, keep: &dyn Fn(&std::path::Path) -> bool, out: &mut Vec<std::path::PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
     entries.sort_by_key(std::fs::DirEntry::path);
@@ -477,8 +480,8 @@ pub fn documents_under(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>)
             continue;
         }
         if p.is_dir() {
-            documents_under(&p, out);
-        } else if p.extension().is_some_and(|x| x == "md") {
+            files_under(&p, keep, out);
+        } else if keep(&p) {
             out.push(p);
         }
     }
