@@ -382,16 +382,13 @@ impl Cycles {
     /// no layout table asks it here.
     pub fn boxes(&self, owner: &Ty, field: &Ty) -> bool {
         let Some(con) = owner.head() else { return false };
-        if !self.knows(con) {
-            return false;
-        }
         let group = self.group(con);
         if !self.recursive.get(group).copied().unwrap_or(false) {
             return false;
         }
         let mut mentioned = Vec::new();
         inline_cons(field, &mut mentioned);
-        mentioned.into_iter().any(|c| self.knows(c) && self.group(c) == group)
+        mentioned.into_iter().any(|c| self.group(c) == group)
     }
 
     fn group(&self, con: TyConId) -> usize {
@@ -399,13 +396,6 @@ impl Cycles {
             .groups
             .get(con.index())
             .or_ice("every TyConId was minted by add_tycon on this table")
-    }
-
-    /// Whether a group is a cycle, without the panic a constructor this
-    /// analysis never saw would raise: [`Cycles::from_shapes`] over a
-    /// hand-built `Program` may know no constructors at all.
-    fn knows(&self, con: TyConId) -> bool {
-        con.index() < self.groups.len()
     }
 
     pub fn new(tables: &Tables) -> Cycles {

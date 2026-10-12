@@ -78,15 +78,8 @@ use crate::compiler::semantics::typed::Callee;
 use crate::diagnostics::Invariant as _;
 
 /// What the shared half of the middle end is allowed to do.
-///
-/// One field, and every caller in the toolchain passes `default()`: inlining
-/// is off only where a test wants to read a body it can predict. A struct
-/// rather than a `bool` parameter because the passes below take the whole of
-/// it, and because a second thing a caller may switch off belongs beside the
-/// first rather than in a second parameter list.
 #[derive(Default)]
 pub struct Options {
-    pub inline: inline::Options,
     /// Whether this artifact can have chunks beside it.
     ///
     /// `false` is the answer for a native build, which is one file, and it is
@@ -103,7 +96,7 @@ pub struct Options {
 /// that returned a new `Program` would make that promise harder to keep than
 /// to state.
 pub fn run(program: &mut Program, opts: &Options) {
-    inline::run(program, &opts.inline);
+    inline::run(program);
     // Inlining creates *new* dead functions — a body inlined at its single
     // call site leaves the original unreachable — so reachability is
     // recomputed after it rather than only at monomorphization.
