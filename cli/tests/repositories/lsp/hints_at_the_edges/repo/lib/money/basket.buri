@@ -1,0 +1,26 @@
+from "//lib/money/cents.buri" import { Money };
+
+struct Point(I64, I64);
+
+struct Pair {
+    a: I64,
+}
+
+fn scale(by: I64, base: I64): I64 {
+    by * base
+}
+
+fn flip(on: Bool): Bool {
+    !on
+}
+
+/// The arguments and the bindings a hint has something unusual to say about.
+export fn edges(p: Point, pair: Pair, _count: I64, on: Bool): Money {
+    let Point(x, y) = p;
+    let flipped = flip(!on);
+    let starts = "abc".startsWith("a");
+    scale(x, y);
+    let a = scale(-x, pair.a);
+    let b = scale(_count, x + y);
+    Money { cents: a + b }
+}

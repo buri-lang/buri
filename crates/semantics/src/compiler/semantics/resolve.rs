@@ -138,12 +138,16 @@ pub enum Bodies {
 pub type BodyMap = IdMap<FnId, std::sync::Arc<typed::Body>>;
 /// Every checked module-level `let`, by the constant's id.
 pub type ConstMap = IdMap<ConstId, typed::Expr>;
+/// The locals each checked module-level `let` binds inside its value.
+pub type ConstLocals = IdMap<ConstId, Vec<typed::Local>>;
 
 pub struct Checked {
     pub tables: Tables,
     pub scopes: Layered<ModuleScope>,
     pub bodies: BodyMap,
     pub consts: ConstMap,
+    /// See [`ConstLocals`].
+    pub const_locals: ConstLocals,
     /// `main`, when this compilation has one.
     pub entry: Option<FnId>,
     /// Every exported free function of the entry module, by name.
@@ -246,6 +250,7 @@ pub struct Checker<'a> {
     pub scopes: Layered<ModuleScope>,
     pub bodies: BodyMap,
     pub const_values: ConstMap,
+    pub const_locals: ConstLocals,
     pub entry: Option<FnId>,
     /// See [`Checked::entries`].
     pub entries: HashMap<String, FnId>,
@@ -361,6 +366,7 @@ pub struct Base {
     scopes: Layered<ModuleScope>,
     bodies: BodyMap,
     const_values: ConstMap,
+    const_locals: ConstLocals,
     known_traits: HashMap<String, TraitId>,
     known_types: HashMap<String, TyConId>,
     /// What every prelude name refers to, which is the same in every module
@@ -471,6 +477,7 @@ impl<'a> Checker<'a> {
             scopes,
             bodies: IdMap::default(),
             const_values: IdMap::default(),
+            const_locals: IdMap::default(),
             entry: None,
             entries: HashMap::default(),
             entry_points: HashSet::default(),
@@ -518,6 +525,7 @@ impl<'a> Checker<'a> {
         c.tables = base.tables.layer();
         c.bodies = base.bodies.layer();
         c.const_values = base.const_values.layer();
+        c.const_locals = base.const_locals.layer();
         c.known_traits = base.known_traits.clone();
         c.known_types = base.known_types.clone();
         c.prim_module = base.prim_module;
@@ -546,6 +554,7 @@ impl<'a> Checker<'a> {
         self.scopes.freeze();
         self.bodies.freeze();
         self.const_values.freeze();
+        self.const_locals.freeze();
         let (mut waiting, mut styled) = Default::default();
         if bodies_checked {
             let walked = self.walked();
@@ -577,6 +586,7 @@ impl<'a> Checker<'a> {
             scopes: self.scopes,
             bodies: self.bodies,
             const_values: self.const_values,
+            const_locals: self.const_locals,
             prelude,
             known_traits: self.known_traits,
             known_types: self.known_types,
@@ -673,6 +683,7 @@ impl<'a> Checker<'a> {
             scopes: self.scopes,
             bodies: self.bodies,
             consts: self.const_values,
+            const_locals: self.const_locals,
             entry: self.entry,
             entries: self.entries,
             tests: self.tests,

@@ -1,0 +1,6 @@
+from "//shape.buri" import { area, Shape };
+
+/// A shape, and what it is called.
+export fn describe(name: Str, shape: Shape): I64 {
+    area(shape)
+}

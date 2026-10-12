@@ -1,0 +1,8 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "workspaceFolders": [{"uri": "file://<scratch>/../no-repository-here", "name": "elsewhere"}, {"uri": "file://<scratch>", "name": "stock"}]}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# One folder holds no repository. It has no symbols to offer, and the other
+# folder's are still listed.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/symbol", "params": {"query": "size"}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -1,0 +1,4 @@
+library {
+    sources: ["shelf.buri", "stock.buri"]
+    visibility: ["//visibility:public"]
+}

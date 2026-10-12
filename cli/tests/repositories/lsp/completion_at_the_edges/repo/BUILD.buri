@@ -1,0 +1,8 @@
+library {
+    sources: ["shape.buri", "draw.buri"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/shape.buri"]
+    }
+}

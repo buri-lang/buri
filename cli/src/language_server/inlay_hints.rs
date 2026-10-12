@@ -18,7 +18,7 @@
 
 use crate::compiler::modules::ModuleData;
 use crate::compiler::semantics::typed::{self, ExprKind};
-use crate::compiler::semantics::types::{self, ParamInfo, ParamRole};
+use crate::compiler::semantics::types::{self, ParamInfo, ParamRole, Tables};
 use crate::diagnostics::FileId;
 use crate::json::Value;
 use crate::parsing::flat::{self, ExprId, ExprView, PatId, PatView, StmtKind};
@@ -78,32 +78,14 @@ pub fn hints(
         if tables.fn_info(fid).span.file != file {
             continue;
         }
-        for local in &body.locals {
-            if local.span.file != file || !unwritten.contains(&(local.span.start, local.span.end)) {
-                continue;
-            }
-            // A type the checker could not work out is not one to paint. The
-            // squiggle already says so, and a hint reading `?` beside it would
-            // be the server repeating itself in a place nobody asked.
-            if local.ty.has_error() {
-                continue;
-            }
-            found.push(Hint {
-                at: local.span.end,
-                kind: TYPE,
-                parts: vec![": ".to_string(), types::show(tables, None, &[], &local.ty)],
-                part: 1,
-                about: local.ty.head().map(Symbol::Type),
-                parameter: None,
-                padding_right: false,
-            });
-        }
+        type_hints(tables, file, &unwritten, &body.locals, &mut found);
         parameter_hints(analyzed, file, text, &body.expr, &mut found);
     }
-    // A module-level `let`'s value is checked on its own, with no body around
-    // it — and it writes its type, so only its call sites can be hinted.
+    // A module-level `let` writes its own type, so what is hinted in one is
+    // what its value binds and calls.
     for (id, expr) in &checked.consts {
         if tables.const_(id).span.file == file {
+            type_hints(tables, file, &unwritten, symbols::const_locals(checked, id), &mut found);
             parameter_hints(analyzed, file, text, expr, &mut found);
         }
     }
@@ -112,6 +94,36 @@ pub fn hints(
     found.sort_by(|a, b| a.at.cmp(&b.at).then(a.kind.cmp(&b.kind)));
     found.dedup_by(|a, b| a.at == b.at && a.kind == b.kind && a.parts == b.parts);
     Some(render(analyzed, text, &found))
+}
+
+/// A type hint after each of `locals` written with no type.
+fn type_hints(
+    tables: &Tables,
+    file: FileId,
+    unwritten: &BTreeSet<(u32, u32)>,
+    locals: &[typed::Local],
+    found: &mut Vec<Hint>,
+) {
+    for local in locals {
+        if local.span.file != file || !unwritten.contains(&(local.span.start, local.span.end)) {
+            continue;
+        }
+        // A type the checker could not work out is not one to paint. The
+        // squiggle already says so, and a hint reading `?` beside it would
+        // be the server repeating itself in a place nobody asked.
+        if local.ty.has_error() {
+            continue;
+        }
+        found.push(Hint {
+            at: local.span.end,
+            kind: TYPE,
+            parts: vec![": ".to_string(), types::show(tables, None, &[], &local.ty)],
+            part: 1,
+            about: local.ty.head().map(Symbol::Type),
+            parameter: None,
+            padding_right: false,
+        });
+    }
 }
 
 /// The protocol objects, with every position counted in one pass over the text.

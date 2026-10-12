@@ -1,0 +1,4 @@
+/// How many items one shelf holds.
+export fn size(): I64 {
+    12
+}

@@ -1,0 +1,31 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/stock/stock.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/stock/shelf.buri\" import * as shelf;\n\n/// How much of an item is on the shelf.\nexport enum Stock {\n    Out { reorder: I64 },\n    OnHand { count: I64 },\n}\n\n/// A box, by how many it holds.\nexport struct Box {\n    export size: I64,\n}\n\n/// How many there are, or will be once the order comes.\nexport fn count(stock: Stock): I64 {\n    match (stock) {\n        Stock.Out { reorder } => reorder,\n        Stock.OnHand { count } => count,\n    }\n}\n\n/// How many fit, where `shelf` is a box rather than the module.\nexport fn fits(shelf: Box): I64 {\n    shelf.size\n}\n\n/// One shelf's worth, unless there are none.\nexport fn worth(n: I64): I64 {\n    match (n) {\n        0 => 0,\n        _ => shelf.size(),\n    }\n}\n\n/// Two shelves' worth, worked out once.\nexport let pair: I64 = {\n    let one = 12;\n    one * 2\n};\n"}}}
+# A parameter named like a namespace the file imports. The cursor is on the
+# parameter, so hover describes it rather than the module.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/stock/stock.buri"}, "position": {"line": 23, "character": 5}}}
+# Every reference to `count` the field. The other variant's field sits at the
+# same index and is not one of them.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/stock/stock.buri"}, "position": {"line": 5, "character": 14}, "context": {"includeDeclaration": true}}}
+# A wildcard names nothing, so hover over it falls back to the innermost
+# expression around it: the whole `match`.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/stock/stock.buri"}, "position": {"line": 30, "character": 8}}}
+# A name bound inside a module-level `let`'s value. Hover describes it, and
+# its references are found.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/stock/stock.buri"}, "position": {"line": 37, "character": 4}}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/stock/stock.buri"}, "position": {"line": 37, "character": 4}, "context": {"includeDeclaration": true}}}
+# Its type is hinted where it is bound, as a local in a function's body is.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/stock/stock.buri"}, "range": {"start": {"line": 35, "character": 0}, "end": {"line": 38, "character": 2}}}}
+# In a file no package holds there is no analysis: completion after a `.`
+# offers nothing, and with a word typed it offers the buffer's words.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/notes/scratch.buri", "languageId": "buri", "version": 1, "text": "fn twice(count: I64): I64 {\n    count.\n}\n"}}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/notes/scratch.buri"}, "position": {"line": 1, "character": 10}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/notes/scratch.buri", "version": 2}, "contentChanges": [{"text": "fn twice(count: I64): I64 {\n    co\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/notes/scratch.buri"}, "position": {"line": 1, "character": 6}}}
+# Signature help on a method the toolchain declares, which has no syntax to
+# read the signature from: its parameters come from the tables.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/stock/stock.buri", "version": 2}, "contentChanges": [{"text": "from \"//lib/stock/shelf.buri\" import * as shelf;\n\n/// How much of an item is on the shelf.\nexport enum Stock {\n    Out { reorder: I64 },\n    OnHand { count: I64 },\n}\n\n/// A box, by how many it holds.\nexport struct Box {\n    export size: I64,\n}\n\n/// How many there are, or will be once the order comes.\nexport fn count(stock: Stock): I64 {\n    match (stock) {\n        Stock.Out { reorder } => reorder,\n        Stock.OnHand { count } => count,\n    }\n}\n\n/// How many fit, where `shelf` is a box rather than the module.\nexport fn fits(shelf: Box): I64 {\n    shelf.size.show(\n}\n\n/// One shelf's worth, unless there are none.\nexport fn worth(n: I64): I64 {\n    match (n) {\n        0 => 0,\n        _ => shelf.size(),\n    }\n}\n\n/// Two shelves' worth, worked out once.\nexport let pair: I64 = {\n    let one = 12;\n    one * 2\n};\n"}]}}
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/lib/stock/stock.buri"}, "position": {"line": 23, "character": 20}}}
+{"jsonrpc": "2.0", "id": 11, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

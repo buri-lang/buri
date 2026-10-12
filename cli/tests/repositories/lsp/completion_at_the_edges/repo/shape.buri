@@ -1,0 +1,9 @@
+/// A square, by the length of its side.
+export struct Shape {
+    export side: I64,
+}
+
+/// How much of the page a shape covers.
+export fn area(shape: Shape): I64 {
+    shape.side * shape.side
+}
