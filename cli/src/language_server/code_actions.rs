@@ -235,14 +235,14 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
             continue;
         }
         let Some(package) = package_of(session, d.span.file, path) else { continue };
-        let where_it_is = session.workspace.package(package).path.clone();
+        let where_it_is = session.workspace.file_in(package, "BUILD.buri");
         if !regenerated.insert(where_it_is.clone()) {
             continue;
         }
         // The summary of what changed is not in the title, because reading it
         // means writing the file first — which is the work this half exists to
         // put off. What `buri gen` writes is the whole answer either way.
-        let title = format!("{where_it_is}/BUILD.buri: as `buri gen` would write it");
+        let title = format!("{where_it_is}: as `buri gen` would write it");
         if !with_edits {
             out.push(Action { title, code: code.to_string(), edit: None });
             continue;

@@ -1,0 +1,9 @@
+library {
+    visibility: ["//visibility:public"]
+}
+
+binary {
+    outputs: [
+        { platform: "node" },
+    ]
+}

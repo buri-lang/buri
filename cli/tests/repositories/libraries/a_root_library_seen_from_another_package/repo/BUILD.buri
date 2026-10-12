@@ -1,0 +1,6 @@
+# Visible to //lib/... and to nothing else, and missing the `testing` block
+# its testing/ directory needs and the dependency its surface uses.
+library {
+    sources: ["shape.buri"]
+    visibility: ["//lib/..."]
+}

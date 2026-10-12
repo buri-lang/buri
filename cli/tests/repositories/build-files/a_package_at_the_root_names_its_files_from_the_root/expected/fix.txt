@@ -1,0 +1,5 @@
+updated BUILD.buri
+  + library.sources: shape.buri
+  + binary.sources: flags.buri
+fixed 1 finding
+no findings

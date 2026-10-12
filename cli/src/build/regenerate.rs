@@ -140,7 +140,7 @@ fn regenerate_reading(
     // belongs to, and the answer is which entry point reaches it. Computed
     // once, and only where the question can arise: a package with one rule has
     // one answer, and asking would be work with nothing to decide.
-    let main_module = format!("//{package_path}/main.buri");
+    let main_module = format!("//{}", session.workspace.file_in(package, "main.buri"));
     let (from_main, from_lib) = if has_library && has_binary {
         (
             reachable(&dir, &package_path, "main.buri", &mut read.files),
@@ -675,9 +675,12 @@ fn reachable(dir: &Path, package_path: &str, entry: &str, read: &mut Vec<PathBuf
     while let Some(f) = queue.pop() {
         for path in imports_read(dir, &f, read) {
             let Some(rest) = path.strip_prefix("//") else { continue };
-            let Some(rel) = rest.strip_prefix(package_path).and_then(|r| r.strip_prefix('/')) else {
-                continue;
+            // Every path is inside the root package.
+            let rel = match package_path.is_empty() {
+                true => Some(rest),
+                false => rest.strip_prefix(package_path).and_then(|r| r.strip_prefix('/')),
             };
+            let Some(rel) = rel else { continue };
             // The path is the file, so there is nothing to derive: what
             // the import wrote is what to look for on disk.
             let file = rel.to_string();

@@ -1,0 +1,4 @@
+/// Reached from `main.buri`, so it is the binary's.
+export fn label(): Str {
+    "root"
+}

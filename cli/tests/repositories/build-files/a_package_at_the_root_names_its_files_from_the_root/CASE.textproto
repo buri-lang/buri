@@ -1,0 +1,48 @@
+# A package at the repository root has the empty path, so its files are named
+# with no directory in front: `BUILD.buri`, never `/BUILD.buri`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a package at the repository root: lint, gen and lint --fix name its files from the root, and gen places each file by which entry point reaches it"
+
+run {
+  args: ["lint", "//"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["gen", "//", "--check"]
+  exit: 1
+  golden: "check.txt"
+}
+
+run {
+  args: ["lint", "//", "--fix"]
+  exit: 0
+  golden: "fix.txt"
+}
+
+# `shape.buri` is reached from `lib.buri` and `flags.buri` from `main.buri`.
+file {
+  path: "BUILD.buri"
+  golden: "BUILD.buri"
+}
+
+run {
+  args: ["build", "//"]
+  exit: 0
+}
+
+edit {
+  file: "shape.buri"
+  replace: "    2\n}\n"
+  with: "    2\n}\n\n/// Nothing reaches this.\nexport fn spare(): I64 {\n    3\n}\n"
+}
+
+run {
+  args: ["lint", "//"]
+  exit: 1
+  golden: "dead_code.txt"
+}

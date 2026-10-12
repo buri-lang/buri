@@ -754,6 +754,7 @@ fn regenerate_build_files(session: &mut Session, diagnostics: &Diagnostics) -> u
         for t in session.workspace.targets() {
             let p = session.workspace.package(t.package);
             let owns = p.build_file_id == d.span.file
+                || p.path.is_empty()
                 || name.strip_prefix(&p.path).is_some_and(|r| r.starts_with('/'));
             if owns && best.is_none_or(|(len, _)| p.path.len() > len) {
                 best = Some((p.path.len(), t.package));
@@ -773,7 +774,7 @@ fn regenerate_build_files(session: &mut Session, diagnostics: &Diagnostics) -> u
                     eprintln!("error: writing {}: {err}", path.display());
                     continue;
                 }
-                println!("updated {}/BUILD.buri", session.workspace.package(package).path);
+                println!("updated {}", session.workspace.file_in(package, "BUILD.buri"));
                 for line in &update.summary {
                     println!("  {line}");
                 }
@@ -1116,8 +1117,7 @@ fn report_unlisted(session: &Session, package: PackageId, declared: &[(String, S
         };
         diagnostics.push(
             Diagnostic::templated("unused-source", Span::point(p.build_file_id, 0))
-                .with_bind("package_path", p.path.as_str())
-                .with_bind("source", rel)
+                .with_bind("file", session.workspace.file_in(package, &rel))
                 .with_bind("field", field)
                 .with_bind("how", how),
         );
@@ -1225,7 +1225,8 @@ fn check_dependencies(
                         .with_bind("user", importer)
                         .with_bind("reaches", "imports")
                         .with_bind("dependency", wanted.as_str())
-                        .with_bind("package_path", package_path),
+                        .with_bind("package_path", package_path)
+                        .with_bind("build_file", session.workspace.file_in(own, "BUILD.buri")),
                 );
             }
         }
@@ -1254,6 +1255,7 @@ fn check_dependencies(
             .with_bind("reaches", "uses")
             .with_bind("dependency", wanted.as_str())
             .with_bind("package_path", package_path.as_str())
+            .with_bind("build_file", session.workspace.file_in(own, "BUILD.buri"))
             // Only this site: no import names the library, so the page cannot
             // carry the note — the other site would print it wrongly.
             .with_note(
@@ -2252,7 +2254,7 @@ fn check_dead_code(
             {
                 continue;
             }
-            let lib = format!("{}/{decides}", session.workspace.package(own).path);
+            let lib = session.workspace.file_in(own, decides);
             diagnostics.push(
                 Diagnostic::templated("dead-code", span)
                     .with_bind("name", name)

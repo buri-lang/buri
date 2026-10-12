@@ -1,0 +1,14 @@
+# A library at the repository root has the empty path, so the files a finding
+# names are named with no directory in front, and its surface is imported as
+# `//lib.buri`: its label `//` names no file.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a library at the repository root: every finding about it names BUILD.buri and lib.buri from the root, and offers //lib.buri as its import"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}

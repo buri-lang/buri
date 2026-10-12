@@ -142,6 +142,7 @@ joining; the template supplies the backticks.
 | `{artifact}` | What a non-native platform produces, as the fix's subject: `JavaScript`, `a page`. |
 | `{binding}` | What a context binding wrote where an effect belongs, as a noun phrase with its own backticks: `` the trait `Measurable` ``, `this type`. |
 | `{block}` | Where an unknown build-file field was written, already described: `` a `binary` rule ``, `` a `tag` block ``, `REPO.buri`. |
+| `{build_file}` | The `BUILD.buri` a fix edits, from the repository root. |
 | `{callee}` | What a miscounted call called, with its own backticks: `` `add` ``, or `this function` for a call through a value. |
 | `{candidates}` | The schemas that could claim an ambiguous proto type name, sorted and joined with `, or `. |
 | `{character}` | The character the lexer could not start a token with, as the source wrote it. |
@@ -165,6 +166,7 @@ joining; the template supplies the backticks.
 | `{field}` | A field's name: a build-file field as the schema spells it (`sources`, `variant`), a struct field as the source wrote it, or the `sources`/`generators` a file belongs under. |
 | `{field_type}` | The type of the field that blocks a derive. |
 | `{fields}` | The `diagnostics::names` enumeration of the fields with no value, or with no pattern. |
+| `{file}` | A file, from the repository root. |
 | `{first_origin}` | The first of the two schemas that declare one proto type. |
 | `{first_tag}` | The first of the two tags that forbid each other. |
 | `{first_trait}` | The first of the two bounds declaring one method name, in the order the search met them — the fix quotes it. |
@@ -179,7 +181,7 @@ joining; the template supplies the backticks.
 | `{known_features}` | The proto features this reader models, joined with `, `. |
 | `{known_fields}` | The fields a build-file block accepts, joined with `, `. |
 | `{last}` | The highest legal tuple index, which the fix names. |
-| `{library_file}` | The path of a library's `lib.buri`, which is where the re-export would go. |
+| `{library_file}` | A library's `lib.buri`, from the repository root: where a re-export would go. |
 | `{limit}` | The fixed lint threshold, bound from the constant in `lint.rs` so the number exists in one place. |
 | `{lines}` | How many lines a function body spans, opening brace to closing brace inclusive. |
 | `{literal}` | The literal exactly as the source wrote it — prefix, underscores and sign included. |
@@ -196,7 +198,6 @@ joining; the template supplies the backticks.
 | `{operator}` | The operator's source text (`~`, `<<`, `Add`, `Negate`). |
 | `{other}` | The label at the far end of the reported dependency edge. |
 | `{owner}` | The label of the library whose surface or internals are being reached (`//lib/money`). |
-| `{owner_path}` | That label with `//` stripped, because the note names `lib/money/lib.buri`. |
 | `{package}` | The label of the package the build-graph rule is reported against. |
 | `{package_path}` | A package's path from the repository root, with no leading `//` — every use already prefixes it. |
 | `{parent_package}` | The package that holds the colliding module. |
@@ -221,12 +222,12 @@ joining; the template supplies the backticks.
 | `{seconds}` | A suite's declared `timeout_seconds`, or `0` when it declares none. Bound as a string; the `s` suffix is in the page. |
 | `{source}` | A source file as the rule, or the directory walk, spells it — relative to its package. |
 | `{subject}` | What takes the type arguments, with its own backticks: `` `Pair` ``, `` the type parameter `T` ``, `this function`. |
+| `{surface}` | The path an import writes for a library's surface: `//lib/money`, or `//lib.buri` at the repository root. |
 | `{tag}` | A tag's name as `REPO.buri` or a `tags` list wrote it. |
 | `{target}` | The label of the target the rule is reported against. |
 | `{tuple}` | `tuple` or `tuple type`, for the one rule both state. |
 | `{test_source}` | The importing test source's file. |
 | `{to}` | The error type the function returns. |
-| `{to_package_path}` | The dependency's package path, for the `BUILD.buri` to edit. |
 | `{to_target}` | The label of the dependency that is not visible. |
 | `{tool}` | A `generators` entry's `tool`, exactly as the build file wrote it. |
 | `{trait}` | The trait, or the effect, the diagnostic is about — without backticks, which the templates carry. |
@@ -249,9 +250,9 @@ Three families stay parallel rather than unified, because their sentences are:
 `{matched}`.
 
 `{arity}` is always the *N* in `{arity}-tuple`; `{count}` is a number in prose.
-`{package_path}`, `{owner_path}` and `{to_package_path}` are paths with no
-leading `//`; `{package}`, `{owner}`, `{target}`, `{dependency}`, `{from_target}`
-and `{to_target}` are labels that keep it.
+`{package_path}` is a path with no leading `//`; `{package}`, `{owner}`,
+`{target}`, `{dependency}`, `{from_target}` and `{to_target}` are labels that
+keep it.
 
 `{declaration}` carries two meanings: the noun phrase for a thing declared on
 `duplicate-declaration` and `private-to-module`, and the text of a schema's own

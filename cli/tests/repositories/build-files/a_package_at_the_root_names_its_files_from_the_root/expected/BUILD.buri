@@ -1,0 +1,11 @@
+library {
+    sources: ["shape.buri"]
+    visibility: ["//visibility:public"]
+}
+
+binary {
+    sources: ["flags.buri"]
+    outputs: [
+        { platform: "node" },
+    ]
+}

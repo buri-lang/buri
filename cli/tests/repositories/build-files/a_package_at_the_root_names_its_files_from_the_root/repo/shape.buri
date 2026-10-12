@@ -1,0 +1,4 @@
+/// Reached from `lib.buri`, so it is the library's.
+export fn area(): I64 {
+    2
+}

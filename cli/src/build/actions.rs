@@ -3298,7 +3298,7 @@ fn check_platform_visibility(session: &Session, platform: &OutputPlatform, diagn
                 .with_bind("from_target", ws.package(from).label())
                 .with_bind("to_target", ws.label(dep))
                 .with_bind("visible_to", ws.visibility_list(dep))
-                .with_bind("to_package_path", ws.package(dep.package).path.clone()),
+                .with_bind("build_file", ws.file_in(dep.package, "BUILD.buri")),
         );
     }
 }
@@ -3322,13 +3322,13 @@ pub fn check_visibility(session: &Session, target: TargetId, diagnostics: &mut D
             }
             let from = session.workspace.package(member.package).label();
             let to = session.workspace.label(dep);
-            let to_path = session.workspace.package(dep.package).path.clone();
+            let build_file = session.workspace.file_in(dep.package, "BUILD.buri");
             diagnostics.push(
                 Diagnostic::templated("visibility-violation", span)
                     .with_bind("from_target", from)
                     .with_bind("to_target", to)
                     .with_bind("visible_to", session.workspace.visibility_list(dep))
-                    .with_bind("to_package_path", to_path),
+                    .with_bind("build_file", build_file),
             );
         }
     }
