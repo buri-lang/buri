@@ -38,7 +38,7 @@ use crate::commands::watch;
 use crate::compiler::backend::js::javascript;
 use crate::compiler::modules::Unit;
 use crate::compiler::middle::monomorphize;
-use crate::diagnostics::{Diagnostic, Diagnostics, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::json::Value;
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -500,8 +500,10 @@ fn has_tests(session: &Session, target: TargetId) -> bool {
         .is_some_and(|t| !t.sources.is_empty())
 }
 
-fn suite(session: &Session, target: TargetId) -> Option<crate::build::buildfile::TestSuite> {
-    session.workspace.package(target.package).test_suite(target.kind).cloned()
+/// A planned target's suite: only targets with one are planned.
+fn suite(session: &Session, target: TargetId) -> crate::build::buildfile::TestSuite {
+    let suite = session.workspace.package(target.package).test_suite(target.kind);
+    suite.cloned().or_ice("a planned target has a test suite")
 }
 
 // ---------------------------------------------------------------------------
@@ -531,6 +533,10 @@ fn suite(session: &Session, target: TargetId) -> Option<crate::build::buildfile:
 // The report never depends on which worker finished first. Each run fills its
 // own [`Slot`], `--explain` lines included, and a suite is printed only once
 // every suite before it has been.
+
+/// What a slot index's lookup claims: every index was minted by the pass's own
+/// slot list.
+const SLOT: &str = "every slot index names a slot of this pass";
 
 /// One run of one suite on one platform: what the report is written in.
 struct Slot {
@@ -592,16 +598,15 @@ fn verdict_keys(
         .enumerate()
         .flat_map(|(i, &t)| runs_of(session, t, flags).into_iter().map(move |(p, _)| (i, p)))
         .collect();
+    const RUN: &str = "every run is of a suite in the list";
     let keys = crate::parallel::map(runs.len(), |r| {
-        let &(i, platform) = runs.get(r)?;
+        let &(i, platform) = runs.get(r).or_ice("`map` asks for each run once");
         let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-        Some(actions::test_key(session, *suites.get(i)?, &output, flags))
+        actions::test_key(session, *suites.get(i).or_ice(RUN), &output, flags)
     });
     let mut by_suite: Vec<Vec<(Platform, crate::build::cache::ActionKey)>> = vec![Vec::new(); suites.len()];
     for ((i, platform), key) in runs.into_iter().zip(keys) {
-        if let (Some(keys), Some(key)) = (by_suite.get_mut(i), key) {
-            keys.push((platform, key));
-        }
+        by_suite.get_mut(i).or_ice(RUN).push((platform, key));
     }
     by_suite
 }
@@ -650,7 +655,7 @@ fn plan(
     let mut mine = Vec::new();
     for (platform, chosen) in runs {
         if platform.is_native() && !native_ready(platform, &args.flags) {
-            let span = suite(session, target).map(|x| x.span).unwrap_or(Span::NONE);
+            let span = suite(session, target).span;
             refused.push(not_ready(platform, &args.flags, chosen, span));
             continue;
         }
@@ -828,42 +833,23 @@ fn drive(
         if next >= plans.len() {
             return tally;
         }
-        let Ok(Some(answer)) = done.recv() else {
-            // A job panicked, or no worker is left. Which suite it was is
-            // unknown, so every suite still waiting says so rather than hangs.
-            for s in slots.iter_mut().filter(|s| s.answer.is_none() || s.awaiting_build) {
-                let mut lost = Diagnostics::new();
-                lost.push(
-                    Diagnostic::error(Span::NONE, "internal error: a test job stopped without an answer")
-                        .with_fix("report it: this is a toolchain bug"),
-                );
-                s.answer = Some(Err(lost));
-                s.awaiting_build = false;
-            }
-            continue;
-        };
+        // `None` is a job that panicked, which is a toolchain bug.
+        let answer = done.recv().ok().flatten().or_ice("a test job stopped without an answer");
         match answer {
             Done::Answer { slot, answer, explain, notes, built } => {
-                if let (Some(built), Some(s)) = (built, slots.get(slot)) {
-                    if let Some(at) = &s.build {
-                        remember(session, at, &s.key, &built, &answer);
-                    }
+                let s = slots.get_mut(slot).or_ice(SLOT);
+                if let Some(built) = built {
+                    let at = s.build.as_ref().or_ice("a suite that was built was planned with a build key");
+                    remember(session, at, &s.key, &built, &answer);
                 }
-                let answer = answer.map(|ran| located(session, ran));
-                if let Some(s) = slots.get_mut(slot) {
-                    s.explain.push_str(&explain);
-                    s.notes.push_str(&notes);
-                    s.answer = Some(answer);
-                }
+                s.explain.push_str(&explain);
+                s.notes.push_str(&notes);
+                s.answer = Some(answer.map(|ran| located(session, ran)));
             }
             Done::Progress => {}
             Done::Shared { ns } => add_shared(&mut tally.shared_build, ns),
             Done::Checked { target, analysis } => pre.analyses.push((target, *analysis)),
-            Done::Linking { slot } => {
-                if let Some(s) = slots.get_mut(slot) {
-                    s.awaiting_build = true;
-                }
-            }
+            Done::Linking { slot } => slots.get_mut(slot).or_ice(SLOT).awaiting_build = true,
             // A batch whose type check failed: again without the members whose
             // code failed it, and those alone, where a diagnostic names them.
             Done::Broken { members, member_slots, diagnostics } => {
@@ -875,9 +861,7 @@ fn drive(
                     .filter(|(m, _)| !broken.is_empty() && !broken.contains(m))
                     .collect();
                 for &i in &member_slots {
-                    if let Some(s) = slots.get_mut(i) {
-                        s.queued = false;
-                    }
+                    slots.get_mut(i).or_ice(SLOT).queued = false;
                 }
                 if kept.len() >= 2 {
                     let (members, member_slots): (Vec<TargetId>, Vec<usize>) = kept.into_iter().unzip();
@@ -888,23 +872,20 @@ fn drive(
                 }
             }
             Done::Built { slot, explain } => {
-                if let Some(s) = slots.get_mut(slot) {
-                    s.explain.push_str(&explain);
-                    s.awaiting_build = false;
-                }
+                let s = slots.get_mut(slot).or_ice(SLOT);
+                s.explain.push_str(&explain);
+                s.awaiting_build = false;
             }
             // A batch that could not be trusted, or a member whose process
             // ended badly: each goes back to run alone, where a diagnostic
             // can name it.
             Done::Abandoned { slots: abandoned, explain } => {
-                if let Some(s) = abandoned.first().and_then(|&i| slots.get_mut(i)) {
-                    s.explain.push_str(&explain);
-                }
+                let first = abandoned.first().or_ice("an abandoned batch has members");
+                slots.get_mut(*first).or_ice(SLOT).explain.push_str(&explain);
                 for &i in &abandoned {
-                    if let Some(s) = slots.get_mut(i) {
-                        s.queued = false;
-                        s.awaiting_build = false;
-                    }
+                    let s = slots.get_mut(i).or_ice(SLOT);
+                    s.queued = false;
+                    s.awaiting_build = false;
                     solo(session, args, pre, slots, i, queue, &mut tally.shared_build);
                 }
             }
@@ -926,7 +907,7 @@ fn report(
     let mut diagnostics = plan.refused.clone();
     let mut runs: Vec<(Platform, Outcome)> = Vec::new();
     for &i in &plan.slots {
-        let Some(slot) = slots.get_mut(i) else { continue };
+        let slot = slots.get_mut(i).or_ice(SLOT);
         print!("{}", slot.explain);
         eprint!("{}", slot.notes);
         match slot.answer.take() {
@@ -1216,7 +1197,7 @@ fn solo(
     queue: &Queue,
     shared_build: &mut Option<u64>,
 ) {
-    let Some(slot) = slots.get_mut(i) else { return };
+    let slot = slots.get_mut(i).or_ice(SLOT);
     if slot.answer.is_some() || slot.queued {
         return;
     }
@@ -1234,7 +1215,7 @@ fn solo(
     add_shared(shared_build, since(began));
     let bytes = build_bytes(loading.source_bytes(&session.map));
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-    let limit = suite(session, target).and_then(|x| x.timeout_seconds);
+    let limit = suite(session, target).timeout_seconds;
     let js = bundle_path(session, target);
     let job = FrontJob {
         slot: i,
@@ -1376,8 +1357,8 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         return run_js(job, held, queue, shared);
     }
     // A filtered native run does not even generate the tests it leaves out.
-    if let (Some(f), monomorphize::ProgramRoots::Tests(tests)) = (filter, &mut program.roots) {
-        tests.retain(|t| t.name.contains(f));
+    if let Some(f) = filter {
+        tests_mut(&mut program).retain(|t| t.name.contains(f));
     }
     let tests: Vec<(String, String)> =
         program.roots.tests().iter().map(|t| (t.name.clone(), t.module.clone())).collect();
@@ -1800,7 +1781,8 @@ fn run_js_member(pulled: std::sync::Arc<JsPulled>, shared: &Shared) -> Done {
     // The array `$run` writes, joined from the records `$pull` wrote.
     let records: Vec<&str> = state.records.iter().map(|r| r.as_deref().unwrap_or_default()).collect();
     let stdout = format!("[{}]", records.join(","));
-    let cases = cases_of(&stdout, &pulled.suite.run, shared);
+    // Joined from records `$pull` wrote, so always an array.
+    let cases = cases_of(&stdout, &pulled.suite.run, shared).unwrap_or_default();
     answer_js(&pulled.suite, JsRan::Ran(Ok(cases)), shared)
 }
 
@@ -1940,14 +1922,14 @@ fn did_not_run(stderr: &str) -> Diagnostics {
 }
 
 /// The cases in a suite's record array, stored with its build where
-/// [`may_cache`] allows.
-fn cases_of(stdout: &str, run: &JsRun, shared: &Shared) -> Vec<Case> {
-    let cases = parse_results(stdout);
+/// [`may_cache`] allows. `None` when no array was written.
+fn cases_of(stdout: &str, run: &JsRun, shared: &Shared) -> Option<Vec<Case>> {
+    let cases = cases_in(&records_of(stdout)?);
     if may_cache(&cases, &shared.flags) {
         let record = build_line(run.build) + stdout;
         store_verdict(&shared.root, &run.key, record.as_bytes());
     }
-    cases
+    Some(cases)
 }
 
 /// Writes a bundle with this run's driver and runs it in one process, storing
@@ -1965,10 +1947,10 @@ fn run_bundle(bundle: &str, run: &JsRun, shared: &Shared) -> JsRan {
         Err(e) => return JsRan::NotRun(cannot_run(&e.to_string())),
     };
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let cases = cases_of(&stdout, run, shared);
-    if cases.is_empty() && !out.status.success() {
+    // A run that wrote no array ran nothing, however it exited.
+    let Some(cases) = cases_of(&stdout, run, shared) else {
         return JsRan::NotRun(did_not_run(&String::from_utf8_lossy(&out.stderr)));
-    }
+    };
     JsRan::Ran(Ok(cases))
 }
 
@@ -2751,7 +2733,7 @@ fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue, whole: bool) -> V
         let Some(again) = slot.served.take() else { continue };
         slot.queued = true;
         let target = slot.target;
-        let limit = suite(session, target).and_then(|x| x.timeout_seconds);
+        let limit = suite(session, target).timeout_seconds;
         let linked = match again {
             Again::Linked(linked) => linked,
             Again::Bundled(bundled) => {
@@ -3525,7 +3507,7 @@ fn broken_members(session: &Session, members: &[TargetId], diagnostics: &Diagnos
 /// a declared platform is a request rather than a preference, and a declared
 /// timeout has to bound one suite's process rather than several suites'.
 fn may_batch(session: &Session, target: TargetId) -> bool {
-    let Some(suite) = suite(session, target) else { return false };
+    let suite = suite(session, target);
     suite.backends.is_empty() && suite.timeout_seconds.is_none()
 }
 /// Every tag that would be carried by a suite's own test binary: its production
@@ -3600,7 +3582,7 @@ fn batches_of(session: &Session, candidates: &[TargetId]) -> Vec<Vec<TargetId>> 
 /// it: a root records the module its `test` block was declared in, and a module
 /// is named by its package-relative path from the repository root.
 fn test_modules_of(session: &Session, target: TargetId) -> Vec<String> {
-    let Some(suite) = suite(session, target) else { return Vec::new() };
+    let suite = suite(session, target);
     let pkg = session.workspace.package(target.package);
     suite.sources.iter().map(|src| pkg.module_path(&src.value)).collect()
 }
@@ -3662,9 +3644,7 @@ fn queue_batch(
     );
     let imports = actions::Imports::of(loading.loaded());
     for (&target, &i) in members.iter().zip(member_slots) {
-        if let Some(slot) = slots.get(i) {
-            note_reads(session, target, &slot.key, &loading, &imports);
-        }
+        note_reads(session, target, &slots.get(i).or_ice(SLOT).key, &loading, &imports);
     }
     add_shared(shared_build, since(began));
     let platform = crate::compiler::driver::host_native_platform();
@@ -3689,9 +3669,7 @@ fn queue_batch(
         output,
     };
     for &i in member_slots {
-        if let Some(s) = slots.get_mut(i) {
-            s.queued = true;
-        }
+        slots.get_mut(i).or_ice(SLOT).queued = true;
     }
     let bytes = build_bytes(loading.source_bytes(&session.map));
     let job = BatchJob { info: std::sync::Arc::new(info), loading, map: session.map.shared(), bytes };
@@ -3716,8 +3694,11 @@ struct BatchInfo {
 }
 
 impl BatchInfo {
-    fn owner_of(&self, module: &str) -> Option<usize> {
-        self.owners.iter().find(|(m, _)| m == module).map(|(_, i)| *i)
+    /// The member that owns a test module. Only a member's test sources are
+    /// loaded as test sources, so every test has one.
+    fn owner_of(&self, module: &str) -> usize {
+        let owner = self.owners.iter().find(|(m, _)| m == module);
+        owner.map(|(_, i)| *i).or_ice("every test belongs to a member")
     }
 
     fn slot_of(&self, member: usize) -> usize {
@@ -3786,16 +3767,13 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
     if let Some(f) = &shared.flags.filter {
         for test in program.roots.tests() {
             if !test.name.contains(f.as_str()) {
-                if let Some(left) = info.owner_of(&test.module).and_then(|i| skipped.get_mut(i)) {
-                    left.push((test.name.clone(), test.module.clone()));
-                }
+                let left = skipped.get_mut(info.owner_of(&test.module)).or_ice("a member's tests are its own");
+                left.push((test.name.clone(), test.module.clone()));
             }
         }
-        if let monomorphize::ProgramRoots::Tests(tests) = &mut program.roots {
-            tests.retain(|t| t.name.contains(f.as_str()));
-        }
+        tests_mut(&mut program).retain(|t| t.name.contains(f.as_str()));
     }
-    let Some(selected) = selected_of(&program, &|m| info.owner_of(m)) else { return abandoned() };
+    let selected = selected_of(&program, &info);
     let groups = groups_of(&info.dirs, &program, &selected, batch_limit());
     if let [group] = groups.as_slice() {
         let tables = std::sync::Arc::new(std::mem::take(&mut analysis.checked.tables));
@@ -3871,12 +3849,10 @@ fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -
     if diagnostics.has_errors() {
         return abandoned();
     }
-    if let (Some(f), monomorphize::ProgramRoots::Tests(tests)) =
-        (&shared.flags.filter, &mut program.roots)
-    {
-        tests.retain(|t| t.name.contains(f.as_str()));
+    if let Some(f) = &shared.flags.filter {
+        tests_mut(&mut program).retain(|t| t.name.contains(f.as_str()));
     }
-    let Some(mine) = selected_of(&program, &|m| info.owner_of(m)) else { return abandoned() };
+    let mine = selected_of(&program, &info);
     submit_group(&info, &skipped, &group, &mine, program, tables, step, held, queue, tell, shared)
 }
 
@@ -3924,7 +3900,7 @@ fn submit_group(
         }
         return Done::Progress;
     }
-    let Some(&first) = group.members.first() else { return Done::Progress };
+    let &first = group.members.first().or_ice("a group has members");
     // One seed per *block*, because a suite's order is its own key's: a suite
     // schedules the same way batched or alone.
     let seed = |i: usize| info.keys.get(i).map(seed_of).unwrap_or_default();
@@ -3975,9 +3951,8 @@ fn submit_group(
     let members: Vec<MemberSpec> = members.into_iter().map(|(_, m)| m).collect();
     // Told before the link queues anything, so `drive` knows the first member
     // waits for it before any member's answer can arrive.
-    if let Some(m) = members.first() {
-        tell.tell(Done::Linking { slot: m.slot });
-    }
+    let m = members.first().or_ice("a member holds a selected block");
+    tell.tell(Done::Linking { slot: m.slot });
     let label = group
         .members
         .iter()
@@ -4507,28 +4482,27 @@ fn linked_of(spec: &MemberSpec) -> Option<Built> {
 }
 
 /// Each of a program's tests with the member that owns it, in block order.
-///
-/// `None` when a test belongs to no member. That cannot arise — only a member's
-/// test sources are loaded with `Role::TestSource` — and if it ever did, the
-/// batch is abandoned rather than a test attributed to a suite that does not
-/// own it.
-fn selected_of(
-    program: &monomorphize::Program,
-    owner_of: &impl Fn(&str) -> Option<usize>,
-) -> Option<Vec<Selected>> {
+fn selected_of(program: &monomorphize::Program, info: &BatchInfo) -> Vec<Selected> {
     program
         .roots
         .tests()
         .iter()
-        .map(|test| {
-            Some(Selected {
-                owner: owner_of(&test.module)?,
-                name: test.name.clone(),
-                module: test.module.clone(),
-                func: test.func.index(),
-            })
+        .map(|test| Selected {
+            owner: info.owner_of(&test.module),
+            name: test.name.clone(),
+            module: test.module.clone(),
+            func: test.func.index(),
         })
         .collect()
+}
+
+/// A test program's roots, which are its tests.
+fn tests_mut(program: &mut monomorphize::Program) -> &mut Vec<monomorphize::TestEntry> {
+    let tests = match &mut program.roots {
+        monomorphize::ProgramRoots::Tests(tests) => Some(tests),
+        monomorphize::ProgramRoots::Main(_) => None,
+    };
+    tests.or_ice("a test program is rooted at its tests")
 }
 
 /// One test block of a batch: the member that owns it, its title and module,
@@ -4618,6 +4592,7 @@ fn groups_of(
     selected: &[Selected],
     limit: u64,
 ) -> Vec<Group> {
+    const FUNC: &str = "a function reached is one of the program's";
     let funcs = program.funcs.len();
     let callees: Vec<Vec<usize>> =
         crate::parallel::map(funcs, |f| crate::compiler::middle::dce::callees(program, f));
@@ -4635,9 +4610,7 @@ fn groups_of(
                 _ => continue,
             }
             out.push(f);
-            if let Some(next) = callees.get(f) {
-                work.extend(next.iter().copied());
-            }
+            work.extend(callees.get(f).or_ice(FUNC).iter().copied());
         }
         out
     };
@@ -4673,12 +4646,11 @@ fn groups_of(
             groups.push((empty, 0));
             groups.len() - 1
         });
-        if let Some((group, size)) = groups.get_mut(slot) {
+        {
+            let (group, size) = groups.get_mut(slot).or_ice("`fits` names a group in the list");
             *size = size.saturating_add(added(&group.reaches));
             for &f in &reached {
-                if let Some(h) = group.reaches.get_mut(f) {
-                    *h = true;
-                }
+                *group.reaches.get_mut(f).or_ice(FUNC) = true;
             }
             group.members.push(member);
             if paints {
@@ -4759,7 +4731,7 @@ fn locate(session: &Session, roots: &[Root], cases: &mut [Case]) {
 /// The diagnostic a suite that ran past its own `timeout_seconds` gets.
 fn timed_out(session: &Session, target: TargetId, limit: Option<u32>) -> Diagnostics {
     let mut diagnostics = Diagnostics::new();
-    let span = suite(session, target).map(|x| x.span).unwrap_or(Span::NONE);
+    let span = suite(session, target).span;
     let seconds = limit.unwrap_or(0);
     diagnostics.push(
         Diagnostic::templated("test-timeout", span)
@@ -4930,11 +4902,21 @@ fn execute(
 /// record that is not a whole array is no record, so a run cut off part way
 /// reads as a run that produced nothing rather than as the tests it got to.
 fn parse_results(text: &str) -> Vec<Case> {
+    records_of(text).map(|records| cases_in(&records)).unwrap_or_default()
+}
+
+/// The record array in what a runner wrote, if it wrote one.
+fn records_of(text: &str) -> Option<Vec<Value>> {
     let last = text.trim_end().lines().next_back().unwrap_or_default();
     let array = last.find('[').and_then(|i| last.get(i..)).unwrap_or_default();
-    let Ok(Value::Array(records)) = crate::json::parse(array) else {
-        return Vec::new();
-    };
+    match crate::json::parse(array) {
+        Ok(Value::Array(records)) => Some(records),
+        _ => None,
+    }
+}
+
+/// The cases a record array holds.
+fn cases_in(records: &[Value]) -> Vec<Case> {
     records
         .iter()
         .map(|record| {

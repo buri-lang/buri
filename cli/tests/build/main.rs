@@ -106,6 +106,7 @@ mod repositories;
 mod scheduling;
 mod serving;
 mod stencil;
+mod test_corners;
 mod test_host;
 mod verbose;
 mod watch;
