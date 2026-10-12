@@ -7964,7 +7964,9 @@ buri ──spawn──▶ test-host   BURI_TEST_IMAGE=<image>   (one process per
   Any `Command::new(program)` runs it as one process with the program's own
   arguments. `stencil::a_loaded_program_runs_as_its_linked_executable` checks
   output, exit status and signal against the linked program. A program with a
-  C probe and every LLVM program still link.
+  C probe and every LLVM program still link. On an M3 Pro, idle, the
+  `tests/native` binary goes from 91 s to 28 s after a change that alters
+  every program's bytes, and from 30 s to 27 s when nothing did.
 - **Linux keeps linked runners.** It has no launch check, and the link is
   40–100 ms. ELF images would need their own relocations on two
   architectures, which only CI could run. `--release`, `buri build` and
