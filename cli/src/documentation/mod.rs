@@ -1454,7 +1454,9 @@ fn command_assemble(check_only: bool) -> i32 {
             return 2;
         }
     };
-    let Some(root) = crate::build::workspace::find_root(&cwd).or_else(|| repo_root_of(&cwd)) else {
+    // Only the toolchain's own checkout has topics to assemble. Another
+    // repository is never written the toolchain's tree.
+    let Some(root) = repo_root_of(&cwd) else {
         eprintln!("error: `buri docs assemble` must run inside the Buri repository");
         return 2;
     };
