@@ -323,6 +323,10 @@ pub const MODULES: &[StdModule] = &[
     m("ui/signal", include_str!("sources/ui_signal.buri")),
     m("ui/prop", include_str!("sources/ui_prop.buri")),
     m("ui/style", include_str!("sources/ui_style.buri")),
+    // How a style a node is handed becomes classes at run time. It exports
+    // nothing: the compiler calls it, and loads it only where a program's own
+    // module imports from `ui/` (see [`CLASSIFY_MODULE`]).
+    m(CLASSIFY_MODULE, include_str!("sources/ui_style_classify.buri")),
     m("ui/theme", include_str!("sources/ui_theme.buri")),
     m("ui/node", include_str!("sources/ui_node.buri")),
     // A website: the same tree, rendered to HTML on a worker and resumed on
@@ -346,6 +350,12 @@ pub const ROOTS: [&str; 4] = ["core/", "ui/", "std/", "platform/"];
 /// The module `platform/host`: the backends' production structs, which only a
 /// platform's `platform.buri` may import.
 pub const HOST_STRUCTS_MODULE: &str = "platform/host";
+
+/// `ui/style/classify`, which a program loads when a module of its own imports
+/// from `ui/`: only such a program can hand a node a style the compiler wraps
+/// in `classify`. A test that imports `platform/effect/testing`, and so
+/// `ui/node`, but builds no node of its own doesn't pay to compile it.
+pub const CLASSIFY_MODULE: &str = "ui/style/classify";
 
 /// Whether a module path names the embedded standard library at all.
 ///

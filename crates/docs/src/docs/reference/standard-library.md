@@ -953,6 +953,11 @@ reserved root. They have a page of their own:
 over, `Ui`, `Watch` and `Location`, are `platform/effect`'s, and the headless
 doubles a test binds are `platform/effect/testing`'s.
 
+[`ui/style/classify`](../../../../stdlib/src/compiler/standard_library/sources/ui_style_classify.buri)
+is the compiler's own. It turns a style the compiler couldn't pin down into
+the stylesheet's classes at run time. It loads only into a program that
+imports from `ui/`, so nothing else pays for it.
+
 A reactive closure is handed a `Scope`, which implements `Watch` and
 `Allocator`. So a derivation may map, filter, sort or format what it read —
 `.Computed(fn(s) => xs.get(s).filter(s, isEven))` is a `Prop<[Int]>` — and it

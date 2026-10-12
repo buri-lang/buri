@@ -30,7 +30,7 @@
 //! the `let`, field or function it came from keeps the variant it names.
 //!
 //! A node given a parameter, a field or a result instead has it wrapped in
-//! `ui/style`'s `classify`, which names each class the way this pass does and
+//! `ui/style/classify`'s `classify`, which names each class the way this pass does and
 //! looks it up among the `(name, class)` pairs this pass found for the values
 //! that can reach it. Those values stay what the source wrote, and the sheet
 //! holds their classes because [`survey`] counts each one where it's written.
@@ -453,8 +453,8 @@ pub fn run(
     else {
         return (Styled::default(), None);
     };
-    let (classify, classify_style) =
-        classifiers(loaded, scopes).or_ice("`ui/style` declares `classify` and `classifyStyle`");
+    let classifiers = classifiers(loaded, scopes);
+    let extracted = own_fn(loaded, scopes, "ui/style", "extracted").or_ice("`ui/style` declares `extracted`");
 
     // The interpreter reads bodies and constants as they were *before* this
     // pass rewrote any of them: folding a call into an already-extracted style
@@ -469,8 +469,9 @@ pub fn run(
         style_con,
         classes_con,
         color_con: own_type(loaded, scopes, "ui/style", "Color"),
-        classify,
-        classify_style,
+        classify: classifiers.map(|c| c.0),
+        classify_style: classifiers.map(|c| c.1),
+        extracted,
         tables,
         original_bodies: bodies,
         original_consts: consts,
@@ -527,10 +528,12 @@ pub fn run(
     (styled, Some(style_con))
 }
 
-/// `ui/style`'s `classify` and `classifyStyle`: what a style a node is given
-/// goes through where the compiler can't say which value it is.
+/// `ui/style/classify`'s `classify` and `classifyStyle`: what a style a node is
+/// given goes through where the compiler can't say which value it is. Not
+/// there in a program none of whose own modules imports from `ui/`.
 pub fn classifiers(loaded: &Loaded, scopes: &Layered<ModuleScope>) -> Option<(FnId, FnId)> {
-    Some((own_fn(loaded, scopes, "ui/style", "classify")?, own_fn(loaded, scopes, "ui/style", "classifyStyle")?))
+    let module = "ui/style/classify";
+    Some((own_fn(loaded, scopes, module, "classify")?, own_fn(loaded, scopes, module, "classifyStyle")?))
 }
 
 struct Extractor<'a> {
@@ -540,10 +543,13 @@ struct Extractor<'a> {
     classes_con: TyConId,
     /// `ui/style`'s `Color`, which is how [`Extractor::alphas`] recognises one.
     color_con: Option<TyConId>,
-    /// `ui/style`'s `classify`, for a list of styles, and `classifyStyle`, for
-    /// one.
-    classify: FnId,
-    classify_style: FnId,
+    /// `ui/style/classify`'s `classify`, for a list of styles, and
+    /// `classifyStyle`, for one, where the program loads them.
+    classify: Option<FnId>,
+    classify_style: Option<FnId>,
+    /// `ui/style`'s `extracted`, which `classify` is handed to build the
+    /// `Classes` it can't.
+    extracted: FnId,
     tables: &'a Tables,
     original_bodies: &'a BodyMap,
     original_consts: &'a ConstMap,
@@ -872,12 +878,13 @@ impl<'a> Extractor<'a> {
     /// `classify` where it can be, so each value it holds at run time becomes
     /// the classes the sheet has for it. A choice is descended rather than
     /// wrapped, so that each branch is extracted or wrapped on its own.
-    fn leaf_or_descend(&mut self, e: &mut typed::Expr, s: Sink, cond: Cond, classify: FnId) {
+    fn leaf_or_descend(&mut self, e: &mut typed::Expr, s: Sink, cond: Cond, classify: Option<FnId>) {
         let choice = matches!(e.kind, ExprKind::If { .. } | ExprKind::Match { .. } | ExprKind::Block { .. });
         if !self.leaf_site(s) || choice {
             self.descend(e, Some(s), cond);
             return;
         }
+        let classify = classify.or_ice("a program that hands a node a style loads `ui/style/classify`");
         let to = Demand::Leaf(self.wrapped.len());
         self.flow.edges(self.owner, e, Some(to), false, &mut self.extra);
         self.descend(e, Some(Sink { to, site: false }), cond);
@@ -888,7 +895,7 @@ impl<'a> Extractor<'a> {
         *e = typed::Expr::new(
             ExprKind::CallFn {
                 func: typed::Callee::Decl { id: classify, targs: Vec::new() },
-                args: vec![value, self.known(Vec::new(), span), self.boolean(true, span)],
+                args: vec![value, self.known(Vec::new(), span), self.boolean(true, span), self.make(span)],
             },
             ty,
             span,
@@ -922,7 +929,7 @@ impl<'a> Extractor<'a> {
         typed::children_mut(e, &mut |child| self.fill_in(child, found));
         let span = e.span;
         let ExprKind::CallFn { func, args } = &mut e.kind else { return };
-        if ![Some(self.classify), Some(self.classify_style)].contains(&func.decl()) {
+        if func.decl().is_none() || ![self.classify, self.classify_style].contains(&func.decl()) {
             return;
         }
         let (known, strict) = found.next().or_ice("every `classify` this pass wrote is one leaf");
@@ -974,6 +981,14 @@ impl<'a> Extractor<'a> {
     fn boolean(&self, value: bool, span: Span) -> typed::Expr {
         let ty = self.tables.prim(crate::compiler::semantics::types::Prim::Bool);
         typed::Expr::new(ExprKind::Bool(value), ty, span)
+    }
+
+    /// `ui/style`'s `extracted`, as the `fn([(Int, Str)]) => Style` that
+    /// `classify` builds its `Classes` with.
+    fn make(&self, span: Span) -> typed::Expr {
+        let info = self.tables.fn_info(self.extracted);
+        let ty = Ty::func(info.params.iter().map(|p| p.ty), info.ret);
+        typed::Expr::new(ExprKind::FnRef(typed::Callee::Decl { id: self.extracted, targs: Vec::new() }), ty, span)
     }
 
     /// Records the variable-backed rule a dynamic value at no condition needs
@@ -3108,7 +3123,7 @@ pub fn survey(e: &mut typed::Expr, ui: UiTypes, sources: &Sources, unchecked: &[
         }
         ExprKind::StructLit { con, .. } if Some(*con) == ui.theme => out.themes = true,
         ExprKind::CallFn { func: typed::Callee::Func(f), args } if unchecked.contains(f) => {
-            let strict = args.last_mut().or_ice("`classify` is given strictness last");
+            let strict = args.get_mut(2).or_ice("`classify` is given strictness third");
             strict.kind = ExprKind::Bool(false);
         }
         _ => {}

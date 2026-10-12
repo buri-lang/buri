@@ -7481,7 +7481,7 @@ function $ui_node_exitElement(builder) {
 // `ui/style`'s check that a class a style names at a node is in the sheet,
 // which the compiler arms only in a test build. `cli/runtime/document.rs`'s,
 // word for word.
-function $ui_style_unextracted(strict, name) {
+function $ui_style_classify_unextracted(strict, name) {
   if (strict) $abort("compiler bug: the stylesheet has no class `" + name + "`");
 }
 

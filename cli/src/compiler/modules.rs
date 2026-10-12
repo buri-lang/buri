@@ -807,6 +807,11 @@ impl<'a> Loader<'a> {
             // implies, not in the importer's role.
             let target_role = self.role_for(&path);
             self.load_path(&path, target_role, span);
+            // Only a module of the program's own that imports from `ui/` can
+            // hand a node a style that `classify` names at run time.
+            if !matches!(role, Role::Std | Role::Platform) && path.starts_with("ui/") {
+                self.load_std(standard_library::CLASSIFY_MODULE, Span::NONE);
+            }
         }
     }
 
