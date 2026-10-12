@@ -218,10 +218,11 @@ export fn readTag(
     let wire = key % 8;
     let field = divide(key - wire, 8);
     // A tag is a `uint32` and a five-byte varint carries more than 32 bits, so
-    // this checks the value too rather than reading the low 32 bits.
-    if (next - at > 5 || key < 0 || key > 4294967295) {
+    // this checks the value too rather than reading the low 32 bits. Within 32
+    // bits the field number is at most 2^29 - 1, the largest there is.
+    if (next - at > 5 || key > 4294967295) {
         .Err(.BadFieldNumber(at - base))
-    } else if (field <= 0 || field > 536870911) {
+    } else if (field <= 0) {
         .Err(.BadFieldNumber(at - base))
     } else if (wire == 3 || wire == 4 || wire == 6 || wire == 7) {
         .Err(.BadWireType { field: field, wire: wire })
@@ -838,7 +839,7 @@ fn plainDigits(doc: Json): Option<(Bool, Str)> {
         .Str(s) => {
             let negative = s.startsWith("-");
             let digits = if (negative) { s.slice(1, s.length()) } else { s };
-            if (wellFormedNumber(s) && digits.length() > 0 && allDigits(digits, 0)) {
+            if (wellFormedNumber(s) && allDigits(digits, 0)) {
                 .Some((negative, digits))
             } else {
                 .None
@@ -1331,7 +1332,8 @@ fn instant<C: Allocator>(ctx: C, text: Str): Option<(Int, Int)> {
             let end = digitsEnd(rest, 1);
             let part = rest.slice(1, end);
             if (part.length() == 0 || part.length() > 9) {
-                (-1, "")
+                // No zone is a zone `zoneSeconds` refuses, so the instant is.
+                (0, "")
             } else {
                 (
                     part.padEnd(ctx, 9, '0').toInt().withDefault(-1),
@@ -1351,8 +1353,7 @@ fn instant<C: Allocator>(ctx: C, text: Str): Option<(Int, Int)> {
                     && d <= daysIn(y, mo)
                     && h <= 23
                     && mi <= 59
-                    && s <= 59
-                    && nanos >= 0;
+                    && s <= 59;
                 if (valid) {
                     .Some(
                         (
@@ -1394,14 +1395,11 @@ fn zoneSeconds(zone: Str): Option<Int> {
     }
 }
 
-/// The digits from `start` to `end` as a number, if they are all digits.
+/// The digits from `start` to `end` as a number, if they are all digits. Every
+/// caller has checked the text is long enough.
 fn number(text: Str, start: Int, end: Int): Option<Int> {
     let part = text.slice(start, end);
-    if (part.length() == end - start && allDigits(part, 0)) {
-        part.toInt()
-    } else {
-        .None
-    }
+    if (allDigits(part, 0)) { part.toInt() } else { .None }
 }
 
 fn digitsEnd(text: Str, i: Int): Int {
