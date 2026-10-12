@@ -325,6 +325,29 @@ fn a_page_outside_a_repository_has_no_packages() {
     );
 }
 
+/// A directory nobody can read holds no documents: `buri docs test` and
+/// `buri format` check the pages they can reach and pass over the rest.
+#[test]
+fn a_directory_that_cannot_be_read_is_passed_over() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("buri-unreadable-{}", std::process::id()));
+    let locked = dir.join("locked");
+    std::fs::create_dir_all(&locked).expect("a scratch directory");
+    std::fs::write(dir.join("REPO.buri"), "").expect("the repository");
+    std::fs::write(dir.join("page.md"), "```buri\nexport fn one(): I64 {\n    1\n}\n```\n").expect("the page");
+    std::fs::write(locked.join("page.md"), "```buri\nexport fn  two(): I64 { \"2\" }\n```\n").expect("a page");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).expect("locked");
+    let tested = ran(&dir, &["docs", "test"]);
+    let formatted = ran(&dir, &["format", "--check"]);
+    let _ = std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755));
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        (tested.status.code(), String::from_utf8_lossy(&tested.stderr).to_string()),
+        (Some(0), String::new())
+    );
+    assert_eq!(formatted.status.code(), Some(0), "{}", String::from_utf8_lossy(&formatted.stderr));
+}
+
 /// Every file of `cli/tests/tutorial/` appears verbatim as a fence body of
 /// the tutorial page. The harness already compiles the page's fences against
 /// that repository, so a broken import fails on both sides — but a
@@ -615,6 +638,24 @@ fn colour_changes_nothing_but_the_escapes() {
     let mut broken: Vec<&String> = pages.iter().zip(differ).filter(|(_, d)| *d).map(|(id, _)| id).collect();
     broken.sort();
     assert!(broken.is_empty(), "these pages read differently in colour: {broken:?}");
+}
+
+/// A hidden `# ` line is compiled and never shown, on a topic page and on a
+/// library one alike.
+#[test]
+fn no_page_shows_a_hidden_line() {
+    let ids = pages();
+    let shown = pool::map(&ids, |id| {
+        let page = ran(&std::env::temp_dir(), &["docs", id, "--format=markdown"]);
+        let page = String::from_utf8_lossy(&page.stdout).to_string();
+        markdown::fences(&page)
+            .iter()
+            .filter(|f| f.lang == "buri")
+            .any(|f| f.body.lines().any(|l| l == "#" || l.starts_with("# ")))
+    });
+    let mut broken: Vec<&String> = ids.iter().zip(shown).filter(|(_, s)| *s).map(|(id, _)| id).collect();
+    broken.sort();
+    assert!(broken.is_empty(), "these pages show a hidden line: {broken:?}");
 }
 
 /// The text with every `ESC [ … m` sequence taken out.

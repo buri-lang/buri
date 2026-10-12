@@ -67,3 +67,11 @@ export fn openBlank(till: Unwritten): Bool {
 export fn call<C: Stdout + Allocator>(ctx: C, name: Str): () {
     ()
 }
+
+/// What the till runs with.
+export context Shift {
+}
+
+/// Kept behind the counter, so it has no page.
+context Closing {
+}

@@ -1,0 +1,30 @@
+# What a build leaves behind isn't documentation. A page under `target/`
+# is neither checked by `buri docs test` nor laid out by `buri format`,
+# and a repository a page copies is copied without its `.buri` output.
+# The staged files are moved into place here because the repository
+# ignores both directories.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "`buri docs test` and `buri format` leave out what a build wrote"
+
+move {
+  from: "staged/README.md"
+  to: "target/README.md"
+}
+
+move {
+  from: "staged/stale.txt"
+  to: "sample/.buri/stale.txt"
+}
+
+run {
+  args: ["docs", "test"]
+  exit: 0
+  golden: "test.txt"
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}

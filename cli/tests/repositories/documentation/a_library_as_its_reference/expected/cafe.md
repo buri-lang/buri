@@ -72,6 +72,16 @@ let STAMPS: I64
 
 How many drinks a card holds before one is free.
 
+## Contexts
+
+### Shift
+
+```buri sig
+context Shift
+```
+
+What the till runs with.
+
 ## Methods
 
 *Pure* means the function takes no context parameter, so it cannot allocate, read, write, or observe anything — the guarantee is the absence of an argument rather than an annotation.

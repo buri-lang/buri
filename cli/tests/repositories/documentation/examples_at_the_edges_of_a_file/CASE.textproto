@@ -1,0 +1,45 @@
+# `buri format` at the edges of what it lays out: a blank line between a
+# build rule's fields stays, a source without a final newline gains one
+# along with its laid-out example, and an example a line of code cuts
+# into is left as written. The sources are staged as `.txt` because the
+# repository's own formatting check would lay them out.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "`buri format` keeps what it can't lay out and ends what it can"
+
+move {
+  from: "staged/unended.txt"
+  to: "lib/a/unended.buri"
+}
+
+move {
+  from: "staged/interrupted.txt"
+  to: "lib/a/interrupted.buri"
+}
+
+run {
+  args: ["format"]
+  exit: 0
+  golden: "format.txt"
+}
+
+file {
+  path: "README.md"
+  golden: "README.md"
+}
+
+file {
+  path: "lib/a/unended.buri"
+  golden: "unended.buri"
+}
+
+file {
+  path: "lib/a/interrupted.buri"
+  golden: "interrupted.buri"
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}

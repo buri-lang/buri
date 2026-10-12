@@ -1,0 +1,33 @@
+# An example in a doc comment is shown the way a reader copies it: its
+# hidden `# ` lines and bare `#` lines are compiled by `buri docs test`
+# and left off the page and the hover, along with the blank line that
+# parts them from the code, and a `##` line shows the `#` it escapes.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a page and a hover show an example without its hidden lines"
+
+run {
+  args: ["docs", "test"]
+  exit: 0
+}
+
+run {
+  args: ["docs", "//lib/shown/lib.buri", "--color=never"]
+  exit: 0
+  golden: "page.txt"
+}
+
+run {
+  args: ["docs", "//lib/shown/lib.buri", "--format=markdown"]
+  exit: 0
+  golden: "page.md"
+}
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "hover.txt"
+}

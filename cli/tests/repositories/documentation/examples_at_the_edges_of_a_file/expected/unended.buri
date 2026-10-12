@@ -1,0 +1,8 @@
+/// ```buri
+/// export fn seven(): I64 {
+///     7
+/// }
+/// ```
+export fn eight(): I64 {
+    8
+}
