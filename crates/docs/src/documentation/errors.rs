@@ -170,6 +170,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("integer-missing-digits", "A base prefix is followed by digits"),
     e!("integer-too-wide", "An integer literal fits in 128 bits"),
     e!("internal-import", "A library is imported through its surface", &["build/libraries"]),
+    e!("internal-std-import", "A program doesn't import the compiler's own modules"),
     e!("invalid-entry-function", "An output's `entries` name functions", &["build/build-files"]),
     e!("invalid-extension", "An extension starts with a dot", &["build/repo-config"]),
     e!("invalid-float", "A float literal has a digit on each side of the point"),

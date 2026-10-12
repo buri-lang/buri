@@ -69,10 +69,14 @@ pub struct StdModule {
     /// scope everywhere, so it is part of every compilation. `MODULES_AGREE`
     /// below checks that rather than leaving it to review.
     pub prelude: &'static [&'static str],
+    /// The compiler's own: it loads the module and calls into it on a
+    /// program's behalf, but no module imports it and `buri docs` doesn't
+    /// list it.
+    pub internal: bool,
 }
 
 const fn m(path: &'static str, source: &'static str) -> StdModule {
-    StdModule { path, source, eager: false, platform: false, prelude: &[] }
+    StdModule { path, source, eager: false, platform: false, prelude: &[], internal: false }
 }
 
 /// Every module the standard library provides. The single source of truth for
@@ -323,10 +327,10 @@ pub const MODULES: &[StdModule] = &[
     m("ui/signal", include_str!("sources/ui_signal.buri")),
     m("ui/prop", include_str!("sources/ui_prop.buri")),
     m("ui/style", include_str!("sources/ui_style.buri")),
-    // How a style a node is handed becomes classes at run time. It exports
-    // nothing: the compiler calls it, and loads it only where a program's own
-    // module imports from `ui/` (see [`CLASSIFY_MODULE`]).
-    m(CLASSIFY_MODULE, include_str!("sources/ui_style_classify.buri")),
+    // How a style a node is handed becomes classes at run time. Internal: the
+    // compiler calls it, and loads it only where a program's own module
+    // imports from `ui/` (see [`CLASSIFY_MODULE`]).
+    StdModule { internal: true, ..m(CLASSIFY_MODULE, include_str!("sources/ui_style_classify.buri")) },
     m("ui/theme", include_str!("sources/ui_theme.buri")),
     m("ui/node", include_str!("sources/ui_node.buri")),
     // A website: the same tree, rendered to HTML on a worker and resumed on
@@ -442,6 +446,11 @@ pub fn canonical(path: &str) -> Option<&'static str> {
 /// Module path -> source text.
 pub fn source(path: &str) -> Option<&'static str> {
     find(path).map(|m| m.source)
+}
+
+/// Whether a path names an internal module, which only the compiler reaches.
+pub fn is_internal(path: &str) -> bool {
+    find(path).is_some_and(|m| m.internal)
 }
 
 pub fn is_platform_module(path: &str) -> bool {

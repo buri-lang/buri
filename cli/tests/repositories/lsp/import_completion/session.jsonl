@@ -8,5 +8,8 @@
 # Inside the `{ ... }`: what that module exports.
 {"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 3}, "contentChanges": [{"text": "from \"core/order\" import { "}]}}
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 0, "character": 27}}}
-{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+# The compiler's internal modules are left out: `ui/style`, not `ui/style/classify`.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 4}, "contentChanges": [{"text": "from \"ui/style"}]}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 0, "character": 14}}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

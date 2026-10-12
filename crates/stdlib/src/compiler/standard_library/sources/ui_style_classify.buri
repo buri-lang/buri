@@ -7,7 +7,8 @@
 //! and looks the name up among those the compiler found could get there.
 //!
 //! The compiler loads this module only into a program with a module of its
-//! own that imports from `ui/`, and calls `classify` itself.
+//! own that imports from `ui/`, and calls `classify` itself. It is internal: no
+//! module imports it.
 
 from "core/alloc" import * as alloc;
 from "core/str" import * as str;
@@ -42,7 +43,7 @@ enum Found {
 /// every value that can reach here, which `unextracted` checks in a test build.
 /// `make` is `ui/style`'s own `Extracted` for a list of classes, which only
 /// that module can write.
-export fn classify(
+fn classify(
     styles: [Style],
     known: [(Str, Str)],
     strict: Bool,
