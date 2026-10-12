@@ -147,9 +147,6 @@
 //!   calls it, so what reaches the runtime is a rendered `Str` rather than a
 //!   value and a walk. Only a descriptor with no generated `Show` is left as it
 //!   arrived.
-//! * **`ExprKind::StructuralCmp`** is left alone: nothing in the front end
-//!   constructs one today (`monomorphize` only rewrites it), so generating for
-//!   it would be generating for a shape no test could reach.
 //!
 //! # The JavaScript path
 //!

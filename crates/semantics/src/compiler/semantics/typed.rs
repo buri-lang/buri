@@ -269,9 +269,8 @@ pub enum ExprKind {
     /// resolved to a primitive, and a missing one used to default to `I64` in
     /// the backend — which is integer division semantics for a float divide.
     Prim { op: PrimOp, prim: Prim, args: Vec<Expr> },
-    /// Structural equality or ordering on a compound type, compiled per type.
+    /// Structural equality on a compound type, compiled per type.
     StructuralEq { args: Vec<Expr> },
-    StructuralCmp { op: PrimOp, args: Vec<Expr> },
 
     Template { parts: Vec<TemplatePart> },
 
@@ -469,7 +468,6 @@ pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
         | ExprKind::Array(args)
         | ExprKind::Prim { args, .. }
         | ExprKind::StructuralEq { args, .. }
-        | ExprKind::StructuralCmp { args, .. }
         | ExprKind::Intrinsic { args, .. }
         // `Continue`'s arguments and `Loop`'s entries are children like any
         // other. A walk that left them out reported a whole loop as one node,
@@ -564,7 +562,6 @@ pub fn children_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
         | ExprKind::Array(args)
         | ExprKind::Prim { args, .. }
         | ExprKind::StructuralEq { args, .. }
-        | ExprKind::StructuralCmp { args, .. }
         | ExprKind::Intrinsic { args, .. }
         // `Continue`'s arguments and `Loop`'s entries are children like any
         // other. A walk that left them out reported a whole loop as one node,

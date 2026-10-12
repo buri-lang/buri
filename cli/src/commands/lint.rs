@@ -2672,8 +2672,7 @@ impl Census {
                     }
                 }
                 typed::ExprKind::Intrinsic { args, .. }
-                | typed::ExprKind::StructuralEq { args, .. }
-                | typed::ExprKind::StructuralCmp { args, .. } => {
+                | typed::ExprKind::StructuralEq { args, .. } => {
                     for a in args {
                         let mut whole = Vec::new();
                         cons_in(&a.ty, &mut whole);

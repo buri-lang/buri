@@ -321,7 +321,6 @@ impl<'a> Folder<'a> {
             | ExprKind::Loop { .. }
             | ExprKind::Continue { .. }
             | ExprKind::StructuralEq { .. }
-            | ExprKind::StructuralCmp { .. }
             | ExprKind::CtxLit { .. }
             | ExprKind::CtxGet { .. }
             | ExprKind::CtxCall { .. }

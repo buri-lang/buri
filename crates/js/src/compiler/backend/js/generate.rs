@@ -2618,13 +2618,6 @@ impl<'a> Gen<'a> {
                     None => Expr::call(Expr::ident("$eq"), a),
                 }
             }
-            ExprKind::StructuralCmp { args, .. } => {
-                let desc = args
-                    .first()
-                    .and_then(|a| self.program.desc_index.get(&a.ty).copied());
-                let a = self.exprs(args, out);
-                self.cmp_call(desc, a)
-            }
             ExprKind::Template { parts } => {
                 // Every part is rendered to a string from its static type, so
                 // the whole interpolation is a concatenation: no array to
