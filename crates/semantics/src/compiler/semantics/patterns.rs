@@ -327,9 +327,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         let (resolved, rest) = match namespaced {
             Some((ns, second, tail)) => {
                 let found = self.c.lookup_export(ns, second);
-                if found.is_none() && self.c.scope(ns).own.contains_key(second) {
-                    let path = self.c.import_path(ns);
-                    self.c.report_private(second, &path, span);
+                if found.is_none() {
+                    self.c.report_no_such_member(ns, second, span);
                     self.poisoned_payload(payload);
                     return typed::PatKind::Error;
                 }

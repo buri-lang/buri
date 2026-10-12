@@ -17,6 +17,13 @@ error: `Quiet` is private to its module [private-to-module]
     the inside. Functional update still works, because it never names the hidden
     fields.
 
+error: `Loud` is not a declared effect [unknown-effect]
+ --> cmd/app/main.buri:7:9
+  |
+7 |         Loud: host.alloc,
+  |         ^^^^
+  |
+  = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Loud` is not one
 error: `Quiet` has no test implementation in `//platform/effect/quiet/testing` [effect-missing-test-implementation]
  --> platform/effect/quiet/lib.buri:2:8
   |
