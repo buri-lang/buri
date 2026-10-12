@@ -1,0 +1,4 @@
+/// One, counted.
+export fn one(): I64 {
+    1
+}
