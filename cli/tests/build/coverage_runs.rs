@@ -5,7 +5,7 @@
 use crate::harness::{buri_command, ci, indent, tests_dir, Scratch};
 use crate::held::Held;
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
 const SIGINT: i32 = 2;
@@ -36,25 +36,6 @@ fn endless(name: &str) -> Scratch {
          test \"never ends\" {\n    assert.equal(spin(9000000000000000000), 0);\n}\n",
     );
     scratch
-}
-
-/// `buri` with `args` in `scratch`, held at `held`, its output in files there.
-fn start(scratch: &Scratch, args: &[&str], held: &Held) -> Child {
-    let mut command = buri_command();
-    command
-        .args(args)
-        .current_dir(&scratch.root)
-        .env("BURI_HOLD", held.dir())
-        .stdin(Stdio::null())
-        .stdout(std::fs::File::create(held.dir().join("stdout")).unwrap())
-        .stderr(std::fs::File::create(held.dir().join("stderr")).unwrap());
-    command.spawn().expect("`buri` starts")
-}
-
-/// What a run [`start`]ed printed.
-fn printed(held: &Held) -> String {
-    let read = |name: &str| std::fs::read_to_string(held.dir().join(name)).unwrap_or_default();
-    indent(&format!("{}{}", read("stdout"), read("stderr")))
 }
 
 /// Kills `buri test --coverage` with `sig` once its test runner is running,
@@ -100,7 +81,7 @@ fn killed_with(sig: i32, name: &str) {
     let mut buri = command.spawn().expect("`buri` starts");
     drop(writer);
     let status: ExitStatus = buri.wait().unwrap();
-    assert_eq!(status.signal(), Some(sig), "`buri` was not killed once its runner ran: {status}\n{}", printed(&held));
+    assert_eq!(status.signal(), Some(sig), "`buri` was not killed once its runner ran: {status}\n{}", held.printed());
     let (ended, ending) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _ = std::io::Read::read_to_end(&mut reader, &mut Vec::new());
@@ -153,16 +134,16 @@ fn two_coverage_runs_at_once_each_report_their_own_counts() {
     let (first, second) = (Held::new("coverage-runs-first"), Held::new("coverage-runs-second"));
     first.hold("handed", 1);
     second.hold("merging", 1);
-    let mut one = start(&scratch, &SHAPES, &first);
+    let mut one = first.start(&scratch, &SHAPES);
     let waiting = first.reached("handed", 1);
-    let mut two = start(&scratch, &SHAPES, &second);
+    let mut two = second.start(&scratch, &SHAPES);
     let merging = second.reached("merging", 1);
     waiting.go();
-    assert!(one.wait().unwrap().success(), "{}", printed(&first));
-    assert_eq!(scratch.read(".buri/coverage/lcov.info"), want, "the first run's report:\n{}", printed(&first));
+    assert!(one.wait().unwrap().success(), "{}", first.printed());
+    assert_eq!(scratch.read(".buri/coverage/lcov.info"), want, "the first run's report:\n{}", first.printed());
     merging.go();
-    assert!(two.wait().unwrap().success(), "{}", printed(&second));
-    assert_eq!(scratch.read(".buri/coverage/lcov.info"), want, "the second run's report:\n{}", printed(&second));
+    assert!(two.wait().unwrap().success(), "{}", second.printed());
+    assert_eq!(scratch.read(".buri/coverage/lcov.info"), want, "the second run's report:\n{}", second.printed());
 }
 
 /// A run killed before it reported leaves nothing behind once the next one
@@ -172,8 +153,8 @@ fn a_killed_runs_counts_are_gone_after_the_next_run() {
     let scratch = shapes("coverage-runs-leftover");
     let held = Held::new("coverage-runs-leftover");
     held.raise("merging", 1, &[u8::try_from(SIGKILL).unwrap()]);
-    let status = start(&scratch, &SHAPES, &held).wait().unwrap();
-    assert_eq!(status.signal(), Some(SIGKILL), "`buri` was not killed before it reported: {status}\n{}", printed(&held));
+    let status = held.start(&scratch, &SHAPES).wait().unwrap();
+    assert_eq!(status.signal(), Some(SIGKILL), "`buri` was not killed before it reported: {status}\n{}", held.printed());
     let want = alone(&scratch);
     let mut left: Vec<String> = std::fs::read_dir(scratch.path(".buri/coverage"))
         .unwrap()

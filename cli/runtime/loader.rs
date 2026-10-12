@@ -39,9 +39,6 @@ const ABS64: u32 = 0;
 /// A `b`/`bl`, straight to its target where it reaches and through the
 /// import's stub where it doesn't.
 const BRANCH26: u32 = 1;
-/// An `adrp`. Its `add` or `ldr` was patched by `buri`, since the host's Mach
-/// header, which every host offset is from, is page-aligned.
-const PAGE21: u32 = 2;
 /// An import that is an offset from the host's Mach header.
 const HOST: u32 = 0;
 /// An import the C library answers, by name.
@@ -267,14 +264,6 @@ fn fix(code: &mut [u8], rest: &mut [u8], l: &Layout, base: u64, f: &Fixup, targe
             };
             let words = (to.wrapping_sub(place).cast_signed() >> 2).cast_unsigned();
             put(code, f.at, 4, |insn| (insn & 0xfc00_0000) | (words & 0x03ff_ffff))
-        }
-        PAGE21 if f.at < l.text => {
-            let pages = (target >> 12).wrapping_sub(place >> 12).cast_signed();
-            if !(-(1 << 20)..(1 << 20)).contains(&pages) {
-                return Err("the image is out of a page reference's reach of the host".into());
-            }
-            let p = pages.cast_unsigned();
-            put(code, f.at, 4, |insn| (insn & 0x9f00_001f) | ((p & 3) << 29) | (((p >> 2) & 0x7_ffff) << 5))
         }
         kind => Err(format!("a fixup of kind {kind} at {:#x}", f.at)),
     }
@@ -527,17 +516,10 @@ mod tests {
         assert_eq!(code.get(0xf8..0x100), Some(&far.to_le_bytes()[..]));
     }
 
-    /// An `adrp` gets the page distance, and an address word the address.
+    /// An address word gets the address.
     #[test]
-    fn pages_and_words() {
+    fn words() {
         let (mut code, mut rest) = (vec![0u8; 0x100], vec![0u8; 2 * PAGE]);
-        if let Some(w) = code.get_mut(0..4) {
-            w.copy_from_slice(&0x9000_0010u32.to_le_bytes());
-        }
-        let adrp = Fixup { at: 0, kind: PAGE21, import: 0, addend: 0 };
-        assert!(fix(&mut code, &mut rest, &layout(), 0x1_0000_0000, &adrp, 0x1_0000_0000 + 5 * 4096 + 12).is_ok());
-        // immlo = 1, immhi = 1: five pages.
-        assert_eq!(word(&code, 0), 0x9000_0010 | (1 << 29) | (1 << 5));
         let abs = Fixup { at: PAGE + 8, kind: ABS64, import: SELF, addend: 0 };
         assert!(fix(&mut code, &mut rest, &layout(), 0x1_0000_0000, &abs, 0x1234).is_ok());
         assert_eq!(rest.get(8..16), Some(&0x1234u64.to_le_bytes()[..]));

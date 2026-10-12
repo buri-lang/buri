@@ -656,7 +656,8 @@ fn a_second_repository_links_without_starting_the_c_driver() {
     let first = Scratch::repo("link-replay-first-repository");
     let log = first.path("driver-calls");
     counting_driver(&first, &log, "");
-    let env = driver_env(&first);
+    let mut env = driver_env(&first);
+    env.push((LINKED.0.into(), LINKED.1.into()));
     one_suite(&first, 1);
     if test_with_driver(&first, &env).is_none() {
         crate::harness::ci::skipped("build", "this toolchain cannot run a suite on its own host");

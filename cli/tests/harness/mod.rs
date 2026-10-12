@@ -175,6 +175,11 @@ pub const HEAP_CHECK_STATUS: i32 = 97;
 /// The prefix on every line the check prints.
 pub const HEAP_CHECK_LINE: &str = "buri heap check:";
 
+/// Asks a test-hooks `buri` for linked test runners where its debug suites
+/// would load into the test host (`design/PERFORMANCE.md` §6.85), for a test
+/// about what a linked runner does. Linux and release suites link anyway.
+pub const LINKED: (&str, &str) = ("BURI_TEST_LINKED", "1");
+
 /// A `Command` for the `buri` binary, under the heap check.
 ///
 /// Every suite that spawns the binary itself rather than through [`run_in`]

@@ -15,13 +15,14 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
 
 /// The counts `BURI_PROFILE=1` prints for a build.
-const PROFILED: [&str; 8] = [
+const PROFILED: [&str; 9] = [
     "suites built",
     "suites restored",
     "suites reused",
     "objects compiled",
     "objects restored",
     "links",
+    "images linked",
     "new executables launched",
     "test processes",
 ];
@@ -170,9 +171,32 @@ fn scenarios(scratch: &Scratch, extra: &[&str], want: [String; 8]) {
 /// so there is no store and the runner is a file.
 const KEPT_BY_BYTES: bool = cfg!(target_os = "macos");
 
+/// Whether a debug native suite loads into the test host rather than linking a
+/// runner (`design/PERFORMANCE.md` §6.85). The host is linked once per home,
+/// and each test here has a home of its own, so a cold run links it.
+const LOADED: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+
+/// A loaded run links every suite it builds into one image, and starts no new
+/// executable after the host.
+const LOADED_NATIVE: [&str; 8] = [
+    "suites built 3, objects compiled 10, links 1, images linked 1, new executables launched 1, test processes 3",
+    "suites reused 3, files written 0",
+    "suites built 1, suites reused 2, objects compiled 2, objects restored 4, images linked 1, test processes 1, \
+     files written 5",
+    "suites built 2, suites reused 1, objects compiled 3, objects restored 5, images linked 1, test processes 2, \
+     files written 8",
+    "suites built 1, objects compiled 1, objects restored 4, images linked 1, test processes 1, files written 3",
+    "suites restored 1, test processes 1, files written 0",
+    "suites built 1, objects compiled 1, objects restored 4, images linked 1, test processes 1, files written 4",
+    "suites reused 1, files written 0",
+];
+
 /// A native run links every suite it builds into one runner. A cold run's
 /// files written are left out: on Linux it also writes the musl sysroot.
 fn native(release: bool) -> [String; 8] {
+    if LOADED && !release {
+        return LOADED_NATIVE.map(String::from);
+    }
     let runner = u64::from(!KEPT_BY_BYTES);
     // Under LLVM's `-O3`, `//lib/c`'s runner folds to the bytes of a runner an
     // earlier step linked, so on macOS the store already holds it.
@@ -273,7 +297,7 @@ fn a_failing_suites_runner_stays_put_while_another_suite_is_edited() {
     suite_asserting(&scratch, "e", 0, 0);
     suite_asserting(&scratch, "f", 0, 1);
     // A runner per suite, so the cold run leaves `//lib/f`'s at its own path.
-    let env = [("BURI_TEST_BATCH_BYTES", "1")];
+    let env = [("BURI_TEST_BATCH_BYTES", "1"), LINKED];
     let args = ["test", "//..."];
     // The two runners share three units, which a run emits once.
     holds_exiting(
@@ -307,7 +331,7 @@ fn a_runner_an_earlier_run_started_is_not_a_new_executable() {
     let first = repo("counted-kept-first");
     let second = repo("counted-kept-second");
     let home = home_of(&first);
-    let env = [("BURI_HOME", home.as_str())];
+    let env = [("BURI_HOME", home.as_str()), LINKED];
     let args = ["test", "//..."];
     let cold = "suites built 3, objects compiled 10, links 1, test processes 3";
     let first_start = format!("{cold}, new executables launched 1");
@@ -427,9 +451,32 @@ const JAVASCRIPT_FAILING: [&str; 11] = [
     "suites reused 3, suites restored 2, test processes 2, files written 1",
 ];
 
+/// [`NATIVE_FAILING`], loaded: each link is an image, and only the cold run's
+/// host is a new executable.
+const LOADED_FAILING: [&str; 11] = [
+    "suites built 5, objects compiled 13, objects restored 3, links 1, images linked 2, \
+     new executables launched 1, test processes 5",
+    "suites reused 3, suites restored 2, test processes 2, files written 0",
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 2, objects restored 3, images linked 1, \
+     test processes 3",
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, images linked 1, \
+     test processes 3",
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, images linked 1, \
+     test processes 3",
+    "suites reused 2, suites restored 3, test processes 3, files written 0",
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, images linked 1, \
+     test processes 3",
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, images linked 1, \
+     test processes 3",
+    "suites built 1, objects compiled 1, objects restored 4, images linked 1, test processes 1",
+    "suites restored 1, test processes 1, files written 0",
+    "suites reused 3, suites restored 2, test processes 2, files written 0",
+];
+
 #[test]
 fn a_native_failing_suites_runner_is_never_a_new_executable_again() {
-    failing_groups(&two_runners_failing("counted-failing-groups"), &[], NATIVE_FAILING);
+    let want = if LOADED { LOADED_FAILING } else { NATIVE_FAILING };
+    failing_groups(&two_runners_failing("counted-failing-groups"), &[], want);
 }
 
 #[test]

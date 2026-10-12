@@ -362,7 +362,7 @@ fn links_after_the_first_do_not_start_the_c_driver() {
     );
     let driver = driver.display().to_string();
     // A batch limit of one byte puts every suite in a binary of its own.
-    let env = [("CC", driver.as_str()), ("BURI_TEST_BATCH_BYTES", "1")];
+    let env = [("CC", driver.as_str()), ("BURI_TEST_BATCH_BYTES", "1"), LINKED];
     let run = || {
         let run = scratch.run_with_env(&["test", "//...", "--explain"], &env);
         if run.stderr.contains("test-run-unavailable") {

@@ -12,7 +12,7 @@
 //!          text, const_at, consts, data_at, data, total, entry, stubs: u64,
 //!          imports u32, fixups u32
 //! imports  kind u32 (0 host offset, 1 C library name), name length u32, offset u64, name
-//! fixups   at u64, kind u32 (0 address word, 1 b/bl, 2 adrp), import u32 (MAX: the image), addend u64
+//! fixups   at u64, kind u32 (0 address word, 1 b/bl), import u32 (MAX: the image), addend u64
 //! bytes    text (its last 16 × imports bytes are the stubs), constants, data
 //! ```
 //!
@@ -20,9 +20,10 @@
 //! key holds the runtime archive's hash, so a host and the `buri` that built
 //! it always agree.
 //!
-//! macOS arm64 only: the objects are the four relocation kinds
-//! `stencil/object.rs` writes. Anything else is an `Err`, and the suite links a
-//! runner as before.
+//! macOS arm64 only: the objects are what `stencil/object.rs` writes, four
+//! relocation kinds with page references only into the image itself, so
+//! anything else is a toolchain bug. A branch or page reference too far to
+//! patch is an `Err`, and the suite links a runner as before.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -33,6 +34,7 @@
               follows catches the result"
 )]
 
+use crate::diagnostics::{ice, invariant};
 use crate::hash::Map as HashMap;
 
 pub const MAGIC: &[u8; 8] = b"BURIIMG\0";
@@ -40,7 +42,6 @@ pub const VERSION: u32 = 1;
 
 const ABS64: u32 = 0;
 const BRANCH26: u32 = 1;
-const PAGE21: u32 = 2;
 const HOST: u32 = 0;
 const NAMED: u32 = 1;
 const SELF: u32 = u32::MAX;
@@ -83,12 +84,12 @@ pub struct HostSymbols(HashMap<String, u64>);
 impl HostSymbols {
     /// The external symbols an executable defines.
     pub fn of_executable(bytes: &[u8]) -> Result<HostSymbols, String> {
-        let file = MachO::parse(bytes, None)?;
+        let file = MachO::parse(bytes)?;
         let text = file.segments.iter().find(|s| s.name == "__TEXT").map(|s| s.vmaddr);
         let text = text.ok_or("the host has no __TEXT segment")?;
         let mut map = HashMap::default();
         for sym in &file.symbols {
-            if sym.n_type & N_STAB == 0 && sym.n_type & N_TYPE == N_SECT && sym.n_type & N_EXT != 0 {
+            if sym.global() {
                 map.insert(sym.name.to_string(), sym.n_value.wrapping_sub(text));
             }
         }
@@ -123,6 +124,8 @@ enum Area {
     Const,
     Data,
     Zero,
+    /// In a segment an object never has, as an executable's `__LINKEDIT`.
+    Other,
 }
 
 struct Section {
@@ -150,9 +153,17 @@ struct Symbol<'a> {
     n_value: u64,
 }
 
+impl Symbol<'_> {
+    /// Defined in a section and visible outside its file.
+    fn global(&self) -> bool {
+        self.n_type & (N_STAB | N_TYPE | N_EXT) == N_SECT | N_EXT
+    }
+}
+
 /// The parts of a Mach-O file this reads.
 struct MachO<'a> {
     bytes: &'a [u8],
+    filetype: u32,
     sections: Vec<Section>,
     segments: Vec<Segment<'a>>,
     symbols: Vec<Symbol<'a>>,
@@ -179,24 +190,20 @@ fn name16(bytes: &[u8], at: usize) -> Result<&str, String> {
 }
 
 impl<'a> MachO<'a> {
-    /// `filetype`, when given, is what the file must be.
-    fn parse(bytes: &'a [u8], filetype: Option<u32>) -> Result<MachO<'a>, String> {
+    fn parse(bytes: &'a [u8]) -> Result<MachO<'a>, String> {
         if u32_at(bytes, 0)? != MH_MAGIC_64 {
             return Err("not a 64-bit Mach-O file".into());
         }
-        if filetype.is_some_and(|t| u32_at(bytes, 12).ok() != Some(t)) {
-            return Err("not a Mach-O object".into());
-        }
-        let ncmds = u32_at(bytes, 16)?;
+        let (filetype, ncmds) = (u32_at(bytes, 12)?, u32_at(bytes, 16)?);
         let mut at = 32usize;
-        let mut file = MachO { bytes, sections: Vec::new(), segments: Vec::new(), symbols: Vec::new() };
+        let mut file = MachO { bytes, filetype, sections: Vec::new(), segments: Vec::new(), symbols: Vec::new() };
         for _ in 0..ncmds {
             let (cmd, size) = (u32_at(bytes, at)?, u32_at(bytes, at + 4)? as usize);
             if cmd == LC_SEGMENT_64 {
                 file.segments.push(Segment { name: name16(bytes, at + 8)?, vmaddr: u64_at(bytes, at + 24)? });
                 for i in 0..u32_at(bytes, at + 64)? as usize {
                     let s = at + 72 + 80 * i;
-                    let (sectname, segname) = (name16(bytes, s)?, name16(bytes, s + 16)?);
+                    let segname = name16(bytes, s + 16)?;
                     let flags = u32_at(bytes, s + 64)?;
                     let area = if flags & 0xff == S_ZEROFILL {
                         Area::Zero
@@ -205,7 +212,7 @@ impl<'a> MachO<'a> {
                             "__TEXT" => Area::Text,
                             "__DATA_CONST" => Area::Const,
                             "__DATA" => Area::Data,
-                            other => return Err(format!("a section {other},{sectname}")),
+                            _ => Area::Other,
                         }
                     };
                     file.sections.push(Section {
@@ -242,7 +249,7 @@ impl<'a> MachO<'a> {
 }
 
 /// What a symbol resolves to.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Resolved {
     /// An offset in the image.
     Image(u64),
@@ -259,30 +266,22 @@ struct Import {
 /// The image `objects` link into, against the symbols of the host whose key
 /// is `host_key`.
 pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec<u8>, String> {
-    if host_key.len() != HEAD - 16 {
-        return Err("a host key that isn't a digest".into());
-    }
-    let mut files: Vec<MachO<'_>> =
-        objects.iter().map(|bytes| MachO::parse(bytes, Some(MH_OBJECT))).collect::<Result<_, _>>()?;
+    invariant(host_key.len() == HEAD - 16, "a test host's key is a digest");
+    let mut files: Vec<MachO<'_>> = objects.iter().map(|bytes| MachO::parse(bytes)).collect::<Result<_, _>>()?;
+    invariant(
+        files.iter().all(|f| (f.filetype == MH_OBJECT) & f.sections.iter().all(|s| s.area != Area::Other)),
+        "a test suite's objects are objects in the segments stencil writes",
+    );
 
-    // Who defines each global. A weak definition gives way to a strong one,
-    // and the first of several weak ones stands, as `ld` keeps it.
-    let mut globals: HashMap<&str, (usize, usize, bool)> = HashMap::default();
-    for (o, file) in files.iter().enumerate() {
-        for (i, sym) in file.symbols.iter().enumerate() {
-            if sym.n_type & N_STAB != 0 || sym.n_type & N_TYPE != N_SECT || sym.n_type & N_EXT == 0 {
-                continue;
-            }
-            let weak = sym.n_desc & N_WEAK_DEF != 0;
-            match globals.get(sym.name) {
-                None => {
-                    globals.insert(sym.name, (o, i, weak));
-                }
-                Some(&(_, _, true)) if !weak => {
-                    globals.insert(sym.name, (o, i, weak));
-                }
-                Some(&(_, _, false)) if !weak => return Err(format!("{} is defined twice", sym.name)),
-                Some(_) => {}
+    // Who defines each global: its one strong definition, else the first of
+    // its weak ones, as `ld` keeps it.
+    let mut globals: HashMap<&str, (usize, usize)> = HashMap::default();
+    for weak in [false, true] {
+        for (o, file) in files.iter().enumerate() {
+            let defined = |(_, sym): &(usize, &Symbol<'_>)| sym.global() & ((sym.n_desc & N_WEAK_DEF != 0) == weak);
+            for (i, sym) in file.symbols.iter().enumerate().filter(defined) {
+                let first = *globals.entry(sym.name).or_insert((o, i));
+                invariant(weak | (first == (o, i)), "a global has one strong definition");
             }
         }
     }
@@ -341,7 +340,8 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
     let resolve = |o: usize, index: usize| -> Result<Resolved, String> {
         let sym = files.get(o).and_then(|f| f.symbols.get(index)).ok_or("a relocation names no symbol")?;
         let defined_here = sym.n_type & N_TYPE == N_SECT;
-        if let Some(&(g, i, _)) = globals.get(sym.name).filter(|_| sym.n_type & N_EXT != 0 || !defined_here) {
+        // A file's own local symbol may share a global's name.
+        if let Some(&(g, i)) = globals.get(sym.name).filter(|_| sym.n_type & (N_EXT | N_TYPE) != N_SECT) {
             let def = files.get(g).and_then(|f| f.symbols.get(i)).ok_or("a global names no symbol")?;
             return address(g, def).map(Resolved::Image).ok_or_else(|| format!("{} is in no section", sym.name));
         }
@@ -362,13 +362,12 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
                     continue;
                 }
                 let a = std::mem::take(&mut addend);
-                if !r.external {
-                    return Err("a relocation against a section rather than a symbol".into());
-                }
+                invariant(r.external, "stencil relocates against symbols, never sections");
                 let place = s.placed + u64::from(r.address);
                 let target = resolve(o, r.symbol)?;
                 match (r.kind, target) {
-                    (ARM64_RELOC_UNSIGNED, _) if r.length == 3 => {
+                    (ARM64_RELOC_UNSIGNED, _) => {
+                        invariant(r.length == 3, "stencil's absolute relocations are eight bytes");
                         let implicit = u64::from_le_bytes(word8(&bytes, place)?).cast_signed();
                         image_slice(&mut bytes, place, 8)?.fill(0);
                         match target {
@@ -378,47 +377,24 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
                     }
                     (ARM64_RELOC_BRANCH26, Resolved::Image(t)) => {
                         let delta = t.wrapping_add_signed(a).wrapping_sub(place).cast_signed();
-                        if !(-(1i64 << 27)..(1i64 << 27)).contains(&delta) {
-                            return Err("a branch inside the image is out of reach".into());
-                        }
-                        let words = (delta >> 2).cast_unsigned();
+                        let reach = (-(1i64 << 27)..(1i64 << 27)).contains(&delta);
+                        let words = reach.then_some(delta >> 2).ok_or("a branch inside the image is out of reach")?;
+                        let words = words.cast_unsigned();
                         patch(&mut bytes, place, |insn| (insn & 0xfc00_0000) | (words as u32 & 0x03ff_ffff))?;
                     }
                     (ARM64_RELOC_BRANCH26, Resolved::Import(i)) => fixups.push((place, BRANCH26, i, a)),
                     (ARM64_RELOC_PAGE21, Resolved::Image(t)) => {
                         let pages = (t.wrapping_add_signed(a) >> 12).wrapping_sub(place >> 12).cast_signed();
-                        if !(-(1i64 << 20)..(1i64 << 20)).contains(&pages) {
-                            return Err("a page reference inside the image is out of reach".into());
-                        }
+                        let reach = (-(1i64 << 20)..(1i64 << 20)).contains(&pages);
+                        let pages = reach.then_some(pages).ok_or("a page reference inside the image is out of reach")?;
                         let p = pages.cast_unsigned() as u32;
                         patch(&mut bytes, place, |insn| (insn & 0x9f00_001f) | ((p & 3) << 29) | (((p >> 2) & 0x7_ffff) << 5))?;
                     }
-                    (ARM64_RELOC_PAGE21, Resolved::Import(i)) if imports.get(i as usize).is_some_and(|m| m.host.is_some()) => {
-                        fixups.push((place, PAGE21, i, a));
+                    (ARM64_RELOC_PAGEOFF12, Resolved::Image(t)) => {
+                        let low = (t.wrapping_add_signed(a) & 0xfff) as u32;
+                        patch(&mut bytes, place, |insn| pageoff12(insn, low))?;
                     }
-                    (ARM64_RELOC_PAGEOFF12, _) => {
-                        // The host's Mach header is page-aligned, so the low
-                        // twelve bits of a host address are its offset's.
-                        let low = match target {
-                            Resolved::Image(t) => t.wrapping_add_signed(a),
-                            Resolved::Import(i) => imports
-                                .get(i as usize)
-                                .and_then(|m| m.host)
-                                .ok_or("a page offset into the C library")?
-                                .wrapping_add_signed(a),
-                        } & 0xfff;
-                        let mut failed = false;
-                        patch(&mut bytes, place, |insn| {
-                            pageoff12(insn, low as u32).unwrap_or_else(|| {
-                                failed = true;
-                                insn
-                            })
-                        })?;
-                        if failed {
-                            return Err("a misaligned page offset".into());
-                        }
-                    }
-                    (kind, _) => return Err(format!("a relocation of type {kind}")),
+                    (kind, _) => ice(&format!("stencil wrote a relocation of type {kind} against {target:?}")),
                 }
             }
         }
@@ -426,7 +402,7 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
 
     let entry = globals
         .get("_main")
-        .and_then(|&(g, i, _)| address(g, files.get(g)?.symbols.get(i)?))
+        .and_then(|&(g, i)| address(g, files.get(g)?.symbols.get(i)?))
         .filter(|&e| e < text)
         .ok_or("the objects define no main")?;
 
@@ -463,9 +439,7 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
 fn place(files: &mut [MachO<'_>], area: Area, cursor: &mut u64) -> Result<(), String> {
     for file in files {
         for s in file.sections.iter_mut().filter(|s| s.area == area) {
-            if s.align > 15 {
-                return Err("a section asks for more than a page's alignment".into());
-            }
+            invariant(s.align <= 15, "stencil's sections ask for at most a page's alignment");
             *cursor = cursor.next_multiple_of(1 << s.align);
             s.placed = *cursor;
             *cursor += s.size;
@@ -495,18 +469,15 @@ fn patch(bytes: &mut [u8], at: u64, f: impl FnOnce(u32) -> u32) -> Result<(), St
     Ok(())
 }
 
-/// An `add` or a load or store's twelve-bit offset, scaled by its access size.
-/// `None` when the offset isn't a multiple of it.
-fn pageoff12(insn: u32, low: u32) -> Option<u32> {
-    let imm = if insn & 0x3b00_0000 == 0x3900_0000 {
-        // A load or store with an unsigned offset: scaled, and a 128-bit
-        // vector one by sixteen.
-        let scale = if insn & 0x0480_0000 == 0x0480_0000 { 4 } else { insn >> 30 };
-        low.is_multiple_of(1 << scale).then_some(low >> scale)?
-    } else {
-        low
-    };
-    Some((insn & !(0xfff << 10)) | (imm << 10))
+/// An `add` or a general register load or store's twelve-bit offset, scaled
+/// by its access size. Stencil writes no other instruction here and offsets
+/// only to what its access size aligns.
+fn pageoff12(insn: u32, low: u32) -> u32 {
+    let load = insn & 0x3b00_0000 == 0x3900_0000;
+    invariant(!load | (insn & 0x0400_0000 == 0), "stencil's page offsets load general registers");
+    let scale = u32::from(load) * (insn >> 30);
+    invariant(low.is_multiple_of(1 << scale), "stencil's page offsets are aligned to their access");
+    (insn & !(0xfff << 10)) | ((low >> scale) << 10)
 }
 
 /// One relocation record.
@@ -541,10 +512,9 @@ mod tests {
     #[test]
     fn a_page_offset_is_scaled_by_its_access() {
         // `add x0, x0, #0` takes the offset as it is.
-        assert_eq!(pageoff12(0x9100_0000, 0x123), Some(0x9100_0000 | (0x123 << 10)));
+        assert_eq!(pageoff12(0x9100_0000, 0x123), 0x9100_0000 | (0x123 << 10));
         // `ldr x0, [x0]` takes it in eight-byte steps.
-        assert_eq!(pageoff12(0xf940_0000, 0x128), Some(0xf940_0000 | (0x25 << 10)));
-        assert_eq!(pageoff12(0xf940_0000, 0x124), None);
+        assert_eq!(pageoff12(0xf940_0000, 0x128), 0xf940_0000 | (0x25 << 10));
     }
 
     #[test]
