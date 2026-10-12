@@ -1,0 +1,6 @@
+platform {
+    entry {
+        name: "main"
+        backend: JS
+    }
+}
