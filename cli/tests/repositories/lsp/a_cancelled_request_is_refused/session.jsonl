@@ -10,15 +10,15 @@
 # below is refused with -32800 rather than analysing the repository for an
 # answer nobody is waiting for any more.
 {"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 2}}
-{"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 23}, "context": {"includeDeclaration": true}}}
 # The same request, not withdrawn, is answered.
-{"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 23}, "context": {"includeDeclaration": true}}}
 # And a cancel that lost its race with that answer says nothing at all: there is
 # no reply to a notification, and nothing left to refuse.
 {"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 3}}
 # It does not linger, either. A client that counts its ids from the start again
 # is not answered with a refusal for a request it never withdrew.
-{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 20}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 23}}}
 # An id is whatever the client says it is: a string one is withdrawn the same
 # way a number is.
 {"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": "a-string-id"}}
