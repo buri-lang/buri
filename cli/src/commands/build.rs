@@ -54,13 +54,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         let example = if matched { None } else { declared.first() };
         if let Some(example) = example {
             let names: Vec<&str> = declared.iter().map(String::as_str).collect();
-            eprintln!("error: no declared output matches `--output={selector}`");
-            eprintln!("  = declared: {}", names.join(", "));
-            eprintln!(
-                "  = fix: name one of them, as in `--output={example}`, or add the output to \
-                 the rule"
-            );
-            return 2;
+            return no_output_matches(selector, &names, example);
         }
     }
 
@@ -180,6 +174,15 @@ pub fn command_build(args: &arguments::Args) -> i32 {
 /// output for another machine, refused for the host or for a capability its
 /// cross runtime lacks. A build that selects no output skips one of these
 /// rather than failing (buri-lang/buri#194); `--output` naming it still fails.
+/// The refusal for an `--output` that matches none of the outputs `declared`,
+/// and the status it exits with. `buri run` says the same.
+pub fn no_output_matches(selector: &str, declared: &[&str], example: &str) -> i32 {
+    eprintln!("error: no declared output matches `--output={selector}`");
+    eprintln!("  = declared: {}", declared.join(", "));
+    eprintln!("  = fix: name one of them, as in `--output={example}`, or add the output to the rule");
+    2
+}
+
 fn foreign(output: &crate::build::buildfile::Output, diagnostics: &crate::diagnostics::Diagnostics) -> bool {
     const HOST_REFUSALS: [&str; 3] =
         ["native-artifact-unavailable", "networking-unavailable", "cryptography-unavailable"];

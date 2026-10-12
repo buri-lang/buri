@@ -144,8 +144,9 @@ pub fn serve(listener: &TcpListener, page: &Arc<Page>) {
                     let _ = respond(&stream, &page);
                 });
             }
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(LOOK),
-            Err(_) => {}
+            // Nobody waiting, or a connection that failed before it was
+            // accepted: either way the next look tries again.
+            Err(_) => std::thread::sleep(LOOK),
         }
     }
 }

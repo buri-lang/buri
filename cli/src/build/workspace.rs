@@ -140,6 +140,12 @@ pub fn find_root(start: &Path) -> Option<PathBuf> {
     }
 }
 
+/// A build file that could not be read, named: the error alone says what went
+/// wrong and not where.
+fn unreadable(rel: &str, e: &std::io::Error) -> std::io::Error {
+    std::io::Error::new(e.kind(), format!("cannot read {rel}: {e}"))
+}
+
 impl Workspace {
     pub fn load(
         root: &Path,
@@ -147,7 +153,7 @@ impl Workspace {
         diagnostics: &mut Diagnostics,
     ) -> std::io::Result<Workspace> {
         let repo_path = root.join("REPO.buri");
-        let repo_id = map.load("REPO.buri", &repo_path)?;
+        let repo_id = map.load("REPO.buri", &repo_path).map_err(|e| unreadable("REPO.buri", &e))?;
         let read = buildfile::read_repo_config(map.text(repo_id), repo_id);
         diagnostics.extend(read.errors);
         let repo = read.value;
@@ -169,7 +175,7 @@ impl Workspace {
             } else {
                 format!("{path}/BUILD.buri")
             };
-            let id = map.load(&rel, &build_path)?;
+            let id = map.load(&rel, &build_path).map_err(|e| unreadable(&rel, &e))?;
             let read = buildfile::read_build_file(map.text(id), id);
             if read.value.platform.is_some() && !read.errors.is_empty() {
                 refused.push(path.clone());

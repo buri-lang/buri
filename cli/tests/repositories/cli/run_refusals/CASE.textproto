@@ -1,0 +1,32 @@
+# What `buri run` refuses before it starts anything, and what it says when the
+# artifact it built is not one this machine can start.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "run refuses a pattern with no binary, a selector naming no declared output, and says why an artifact for another platform does not start"
+
+# A library is not a binary, so a pattern naming only one matches none.
+run {
+  args: ["run", "//lib/words"]
+  exit: 2
+  golden: "no_binary.txt"
+}
+
+# `--output` naming nothing //cmd/app declares is the same refusal `buri build`
+# gives, naming the outputs that are declared.
+run {
+  args: ["run", "//cmd/app", "--output=nothing"]
+  exit: 2
+  golden: "no_such_output.txt"
+}
+
+# On a macOS host the cross variant is Linux, which builds (see
+# cli/output_selection) but cannot be started here. The build succeeded, so the
+# refusal is about executing it.
+run {
+  args: ["run", "//cmd/app", "--output=native/{{CROSS_VARIANT}}"]
+  exit: 2
+  golden: "foreign_artifact.txt"
+  host: MACOS
+}

@@ -27,6 +27,7 @@ use crate::build::workspace::{RuleKind, TargetId};
 use crate::commands::arguments;
 use crate::commands::serve;
 use crate::commands::watch;
+use crate::diagnostics::Invariant as _;
 
 pub fn command_run(args: &arguments::Args) -> i32 {
     let (mut session, targets) = match session::open_and_resolve_to_build(&args.flags, &args.targets) {
@@ -53,34 +54,29 @@ pub fn command_run(args: &arguments::Args) -> i32 {
     };
     let outputs = actions::selected_outputs(&session, target, &args.flags);
     let Some(output) = choose(&outputs, &args.flags, &|o| actions::is_page(&session, o)) else {
-        // An entry with a `js` file is called by the file, not started: the
-        // platform's own host calls in.
-        if let Some(hosted) = outputs.iter().find(|o| !starts_itself(o)) {
-            let custom = hosted.custom.as_ref().map(|c| (c.label.value.clone(), c.point.clone()));
-            let (platform, entry) = custom.unwrap_or_default();
-            let d = crate::diagnostics::Diagnostic::templated("entry-not-runnable", hosted.span)
-                .with_bind("target", session.workspace.label(target))
-                .with_bind("platform", platform)
-                .with_bind("entry", entry);
-            let mut diagnostics = crate::diagnostics::Diagnostics::new();
-            diagnostics.push(d);
-            session.print(&diagnostics);
-            return 2;
-        }
-        let declared: Vec<String> = outputs.iter().map(crate::build::buildfile::Output::dir).collect();
-        eprintln!(
-            "error: {} declares no output this toolchain can run",
-            session.workspace.label(target)
-        );
-        if declared.is_empty() {
-            eprintln!("  = it declares no outputs at all");
-        } else {
-            eprintln!("  = declared: {}", declared.join(", "));
-        }
-        eprintln!(
-            "  = fix: add `{{ platform: \"node\" }}` to outputs, or declare the host's platform and \
-             build a toolchain with a native backend"
-        );
+        // `choose` takes any output that starts itself, so every one left is
+        // an entry a `js` file calls: the platform's own host calls in.
+        let Some(hosted) = outputs.first() else {
+            // A binary that declares no output still builds for the host, so
+            // only `--output` can leave nothing.
+            let declared: Vec<String> = actions::selected_outputs(&session, target, &arguments::Flags::default())
+                .iter()
+                .map(Output::dir)
+                .collect();
+            let names: Vec<&str> = declared.iter().map(String::as_str).collect();
+            let example = names.first().copied().or_ice("a binary has an output");
+            let selector = args.flags.output.as_deref().or_ice("only `--output` leaves no output");
+            return crate::commands::build::no_output_matches(selector, &names, example);
+        };
+        let custom = hosted.custom.as_ref().map(|c| (c.label.value.clone(), c.point.clone()));
+        let (platform, entry) = custom.unwrap_or_default();
+        let d = crate::diagnostics::Diagnostic::templated("entry-not-runnable", hosted.span)
+            .with_bind("target", session.workspace.label(target))
+            .with_bind("platform", platform)
+            .with_bind("entry", entry);
+        let mut diagnostics = crate::diagnostics::Diagnostics::new();
+        diagnostics.push(d);
+        session.print(&diagnostics);
         return 2;
     };
     // A page has no process to start, so `run` serves it instead.
@@ -124,6 +120,19 @@ pub fn command_run(args: &arguments::Args) -> i32 {
         }
     };
 
+    // A native artifact for another machine builds here — a Linux one builds
+    // on any host — but cannot start here, and handed to the operating system
+    // anyway it is run as a shell script.
+    if native && !starts_here(&output) {
+        eprintln!(
+            "error: {} built its {} output, which is for another machine and cannot start on this one",
+            session.workspace.label(target),
+            output.dir()
+        );
+        eprintln!("  = fix: run it on the machine it is for, or pick this machine's output with `--output`");
+        return 2;
+    }
+
     // Outside the sandbox, with the real environment and the real filesystem.
     // That is the point of `run`: it is the one command that produces a
     // program with authority.
@@ -141,10 +150,7 @@ pub fn command_run(args: &arguments::Args) -> i32 {
     command.args(&args.passthrough);
     match stopping::start(&mut command) {
         Ok(mut child) => {
-            let Ok(st) = stopping::wait(&mut child) else {
-                eprintln!("error: cannot wait for the artifact");
-                return 2;
-            };
+            let st = stopping::wait(&mut child).or_ice("a program this process started can be waited for");
             stopping::status(&st)
         }
         Err(e) => {
@@ -197,6 +203,8 @@ fn serve_page(
         }
     };
     let label = session.workspace.label(target);
+    #[cfg(feature = "test-hooks")]
+    BUILT.held();
     let page = match serve::Page::beside(&artifact.path) {
         Ok(page) => std::sync::Arc::new(page),
         Err(why) => {
@@ -220,9 +228,10 @@ fn serve_page(
     let root = session.root.clone();
     drop(session);
     let mut sources = crate::build::sources::Sources::at(&root, args.flags.clone());
-    let mut listener = Some(listener);
+    // Answering before the address is printed is harmless: nobody has it yet
+    // under `--port=0`, and the page is already built.
     let serving = std::sync::Arc::clone(&page);
-    let mut server = None;
+    let server = std::thread::spawn(move || serve::serve(&listener, &serving));
     let code = watch::Watch::on(root, args.flags.explain).drive_armed(
         |trigger| {
             if trigger.pass == 1 {
@@ -236,22 +245,20 @@ fn serve_page(
             rebuild(&mut sources, args, &page)
         },
         |pass| {
-            if pass != 1 {
-                return;
-            }
-            serve::announce(&label, port);
-            if let Some(listener) = listener.take() {
-                let page = std::sync::Arc::clone(&serving);
-                server = Some(std::thread::spawn(move || serve::serve(&listener, &page)));
+            if pass == 1 {
+                serve::announce(&label, port);
             }
         },
     );
     // The loop ends only on a signal, which stops the server too.
-    if let Some(server) = server {
-        let _ = server.join();
-    }
+    let _ = server.join();
     code
 }
+
+/// Where a test holds `buri run` between building a page and serving it
+/// ([`crate::hold`]), to empty the artifact directory under it.
+#[cfg(feature = "test-hooks")]
+static BUILT: crate::hold::Point = crate::hold::Point::new("page-built");
 
 /// One pass of the watch loop: build the page again, into the same directory
 /// the server is answering out of.
@@ -353,17 +360,14 @@ fn choose(
     flags: &crate::commands::arguments::Flags,
     is_page: &dyn Fn(&Output) -> bool,
 ) -> Option<crate::build::buildfile::Output> {
-    let host = crate::compiler::driver::host_native_platform();
-    // The host's own variant: a Linux host links any Linux variant, and runs
-    // only its own architecture.
+    // A native entry starts itself: `js-on-a-native-entry` refuses a `js` file
+    // on one.
     let runnable = |o: &&crate::build::buildfile::Output| {
-        starts_itself(o)
-            && o.arch().is_none_or(|a| Some(a) == crate::build::link::host_arch())
-            && actions::native_ready(actions::target_of(o), actions::profile_of(flags))
+        starts_here(o) && actions::native_ready(actions::target_of(o), actions::profile_of(flags))
     };
     outputs
         .iter()
-        .find(|o| o.platform() == host && runnable(o))
+        .find(runnable)
         // Any JavaScript output that starts itself is runnable here, and a
         // page is served. Any other entry a `js` file calls is the exception:
         // its host calls it, so there is nothing to start.
@@ -378,6 +382,14 @@ fn choose(
         // command invented about outputs it can see.
         .or_else(|| outputs.iter().find(|o| starts_itself(o)))
         .cloned()
+}
+
+/// Whether an output is a program for this machine: the host's own platform
+/// and architecture. A Linux host links any Linux variant, and runs only its
+/// own architecture.
+fn starts_here(output: &Output) -> bool {
+    output.platform() == crate::compiler::driver::host_native_platform()
+        && output.arch().is_none_or(|a| Some(a) == crate::build::link::host_arch())
 }
 
 /// Whether an output's entry starts itself: it does when its platform gives
@@ -423,6 +435,7 @@ fn starts_itself(output: &crate::build::buildfile::Output) -> bool {
 /// beats the child is kept in [`stopping::STATE`] and sent on the moment there
 /// is a child to send it to.
 mod stopping {
+    use crate::diagnostics::Invariant as _;
     use std::process::{Child, Command, ExitStatus};
     use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
@@ -583,6 +596,10 @@ mod stopping {
         use std::os::unix::process::CommandExt as _;
 
         let shares = a_terminal_in_front();
+        // The program keeps this group where a terminal is shared, and gets a
+        // group of its own otherwise.
+        // SAFETY: this reads the calling process's own group and nothing else.
+        let group = if shares { unsafe { getpgrp() } } else { 0 };
         // **What the program is between the fork and the exec.** The exec is
         // what resets a caught disposition, so until it happens the program is
         // a copy of this process running [`forward`] — and a signal delivered
@@ -599,9 +616,7 @@ mod stopping {
                 for sig in CAUGHT {
                     signal(sig, SIG_DFL);
                 }
-                if !shares {
-                    setpgid(0, 0);
-                }
+                setpgid(0, group);
                 Ok(())
             })
         };
@@ -636,10 +651,8 @@ mod stopping {
         // Zero is not a pid this can publish: `kill(0, …)` is every process in
         // this group, which is the one thing a command that forwards a signal
         // to one child must never do.
-        let pid = i32::try_from(child.id()).unwrap_or(0);
-        if pid > 0 {
-            hand_over(pid);
-        }
+        let pid = i32::try_from(child.id()).ok().filter(|&pid| pid > 0).or_ice("a child's pid is a positive i32");
+        hand_over(pid);
         #[cfg(feature = "test-hooks")]
         STARTED.raised();
         Ok(child)

@@ -12,7 +12,13 @@ Stopping `buri run` stops the program it started: `SIGINT`, `SIGTERM` and
 exits with the program's own status — 128 plus the signal where one ended it.
 
 A binary with several outputs runs the host's own platform where this toolchain
-can build for it, and a page or a script otherwise.
+can build for it, and a page or a script otherwise. A native output for another
+machine still builds, then `run` refuses to start it:
+
+```text
+$ buri run //cmd/app --output=native/linux-x86_64
+error: //cmd/app built its native/linux-x86_64 output, which is for another machine and cannot start on this one
+```
 
 A [repository platform](../build/platforms.md)'s entry runs when it starts
 itself: no `js` file, and the program signature, `fn(host: H): Result<(), Str>`.

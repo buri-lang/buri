@@ -112,14 +112,15 @@ impl Drop for Serving {
         // for its wrapper signals nothing here.
         let alive = matches!(self.child.try_wait(), Ok(None));
         if let (true, Ok(pid)) = (alive, i32::try_from(self.child.id())) {
+            // **The wrapper is asked before it is killed.** For a program it
+            // started, asking is the only thing that reaches it: a `SIGTERM`
+            // here is forwarded to a program in a group this row cannot name,
+            // and a `SIGKILL` is not forwarded at all. A page server asked
+            // stops through its normal exit, as a reader's Ctrl-C stops it.
+            // SAFETY: an ordinary `kill` on this row's own child.
+            unsafe { kill(pid, SIGTERM) };
+            let _ = until(GRACE, || self.child.try_wait().ok().flatten());
             if self.own_group {
-                // **The wrapper is asked before it is killed**, because asking
-                // is the only thing that reaches the program: a `SIGTERM` here
-                // is forwarded to a program in a group this row cannot name,
-                // and a `SIGKILL` is not forwarded at all.
-                // SAFETY: an ordinary `kill` on this row's own child.
-                unsafe { kill(pid, SIGTERM) };
-                let _ = until(GRACE, || self.child.try_wait().ok().flatten());
                 // SAFETY: the process group `running` made for this row.
                 unsafe { kill(-pid, SIGKILL) };
             }
@@ -364,6 +365,15 @@ fn resolved(base: &str, reference: &str) -> String {
 
 /// One `GET`, read until the peer closes.
 fn get(port: u16, path: &str) -> Reply {
+    ask(port, &format!("GET {path} HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n"), false)
+}
+
+/// Sends `request` as it is, then reads the answer until the peer closes.
+///
+/// `hang_up` closes the writing half once the request is sent, which is what a
+/// client does when it has nothing more to say — so a request that never ends
+/// its headers still ends.
+fn ask(port: u16, request: &str, hang_up: bool) -> Reply {
     let stop = Instant::now() + DEADLINE;
     let at = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let mut socket = loop {
@@ -377,8 +387,11 @@ fn get(port: u16, path: &str) -> Reply {
     };
     socket.set_read_timeout(Some(DEADLINE)).unwrap();
     socket.set_write_timeout(Some(DEADLINE)).unwrap();
-    socket.write_all(format!("GET {path} HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").as_bytes()).unwrap();
+    socket.write_all(request.as_bytes()).unwrap();
     socket.flush().unwrap();
+    if hang_up {
+        socket.shutdown(std::net::Shutdown::Write).unwrap();
+    }
     // To the close rather than to a length: the server says `Connection:
     // close`, so the end of the answer is the end of the stream.
     let mut raw = Vec::new();
@@ -670,6 +683,115 @@ fn a_port_already_taken_is_refused_by_name() {
     let run = scratch.run(&["run", "//cmd/site", &format!("--port={port}")]);
     run.exits(2).says(&format!("cannot listen on 127.0.0.1:{port}")).says("--port=0");
     drop(held);
+}
+
+/// What a client that is not a browser gets: `HEAD` is the answer without its
+/// body, every other method is refused, and a path is read the way a browser
+/// writes one — escapes decoded, empty and `.` segments skipped, a stray `%`
+/// kept as it is.
+///
+/// **A path that could name something outside the artifact is missing**,
+/// however it is spelled: `..` written out or escaped, and a backslash, which
+/// is a separator on the one platform where a path could climb with it.
+#[test]
+fn a_request_is_read_the_way_a_browser_writes_it() {
+    let scratch = page_repo("serving-requests");
+    let server = serving(&scratch, "//cmd/site", &[]);
+    let shell = scratch.read(".buri/out/web/cmd/site/index.html");
+
+    let head = ask(server.port, "HEAD / HTTP/1.1\r\n\r\n", false);
+    head.ok();
+    assert_eq!(head.body, "", "`HEAD` answered with a body");
+    assert_eq!(head.header("content-length"), format!("Content-Length: {}", shell.len()));
+    let head = ask(server.port, "HEAD /theme.css HTTP/1.1\r\n\r\n", false);
+    head.missing();
+    assert_eq!(head.body, "", "`HEAD` of a missing file answered with a body");
+
+    let post = ask(server.port, "POST / HTTP/1.1\r\ncontent-length: 0\r\n\r\n", false);
+    assert!(post.status.starts_with("HTTP/1.1 405"), "not a 405: {}", post.status);
+    // Nothing at all is not a method either.
+    let nothing = ask(server.port, "", true);
+    assert!(nothing.status.starts_with("HTTP/1.1 405"), "not a 405: {}", nothing.status);
+
+    for path in ["/./main.css", "//main.css", "/main%2Ecss"] {
+        get(server.port, path).ok().holds("padding:1rem");
+    }
+    // A `%` with no two hex digits after it is kept, and neither path names a
+    // file, so both are routes.
+    for path in ["/%zz", "/100%"] {
+        assert_eq!(get(server.port, path).ok().body, shell, "{path} is not the shell");
+    }
+    // A request line with no path asks for the front page.
+    assert_eq!(ask(server.port, "GET\r\n\r\n", false).ok().body, shell);
+    // A client that hangs up before the blank line still gets its answer.
+    ask(server.port, "GET /main.css HTTP/1.1\r\nhost: 127.0.0.1\r\n", true).ok().holds("padding:1rem");
+
+    for path in ["/a\\b", "/%5Cmain.css", "/%2e%2e/x", "/%2E%2E/%2E%2E/etc/passwd"] {
+        get(server.port, path).missing();
+    }
+}
+
+/// A page whose `index.html` is gone by the time the server would answer it is
+/// a refusal naming the file, rather than a server answering 404 for every
+/// route.
+///
+/// A build that wrote the page and then lost it is the only way here, so the
+/// row holds `buri run` between the two and deletes the file there.
+#[test]
+fn a_page_with_no_shell_is_refused_by_name() {
+    let scratch = page_repo("serving-no-shell");
+    let held = crate::held::Held::new("serving-no-shell");
+    held.hold("page-built", 1);
+    let mut child = held.start(&scratch, &["run", "//cmd/site", "--port=0"]);
+    held.at("page-built", 1, || {
+        std::fs::remove_file(scratch.path(".buri/out/web/cmd/site/index.html")).unwrap();
+    });
+    let status = until(DEADLINE, || child.try_wait().ok().flatten());
+    let Some(status) = status else {
+        let _ = child.kill();
+        panic!("`buri run` was still running {DEADLINE:?} later:\n{}", held.printed())
+    };
+    let printed = held.printed();
+    assert_eq!(status.code(), Some(2), "`buri run` ended {status}:\n{printed}");
+    for needle in ["//cmd/site has no page to serve", "index.html is not there", "buri build //cmd/site"] {
+        assert!(printed.contains(needle), "the refusal does not say {needle:?}:\n{printed}");
+    }
+}
+
+/// **A rebuild the build files themselves stop is a stall, not an exit.** Each
+/// of these is a save half-way through an edit, and the page the reader has
+/// open stays up while it lasts: a build file that does not parse, a binary
+/// that no longer declares a page, and a repository root that is gone for a
+/// moment. The diagnostic is what says each pass ran, and the repair at the end
+/// is what says the loop kept watching through all three.
+#[test]
+fn a_watching_run_rides_out_broken_build_files() {
+    let scratch = page_repo("serving-watch-build-files");
+    let server = serving(&scratch, "//cmd/site", &["--watch"]);
+    get(server.port, "/main.mjs").ok().holds("the front page");
+    let build = scratch.read("cmd/site/BUILD.buri");
+    let repo = scratch.read("REPO.buri");
+
+    scratch.write("cmd/site/BUILD.buri", "binary {\n    outputs: [\n");
+    server.complained_about("error");
+    get(server.port, "/main.mjs").ok().holds("the front page");
+
+    scratch.write("cmd/site/BUILD.buri", "binary {\n    outputs: [{ platform: \"node\" }]\n}\n");
+    server.complained_about("no longer names one page");
+    get(server.port, "/main.mjs").ok().holds("the front page");
+
+    scratch.write("cmd/site/BUILD.buri", &build);
+    std::fs::remove_file(scratch.path("REPO.buri")).unwrap();
+    server.complained_about("cannot read REPO.buri");
+    get(server.port, "/main.mjs").ok().holds("the front page");
+
+    scratch.write("REPO.buri", &repo);
+    let source = scratch.read("cmd/site/main.buri");
+    scratch.write("cmd/site/main.buri", &source.replace("the front page", "the repaired front page"));
+    let served = until(DEADLINE, || {
+        get(server.port, "/main.mjs").body.contains("the repaired front page").then_some(())
+    });
+    assert!(served.is_some(), "the repair was not served within {DEADLINE:?}");
 }
 
 // ---------------------------------------------------------------------------
@@ -1142,6 +1264,30 @@ fn a_signal_reaches_the_program_before_or_after_it_starts() {
         );
         gone(&server);
     }
+}
+
+/// A program that is gone by the time `buri run` starts it is a refusal saying
+/// so, rather than a status nobody can read. The row holds `buri run` just
+/// before it starts the program and deletes the program there.
+#[test]
+fn a_program_gone_before_it_starts_is_refused() {
+    let Some(scratch) = native_repo("run-program-gone", SLEEPER) else { return };
+    let held = crate::held::Held::new("run-program-gone");
+    held.hold("spawning", 1);
+    let mut child = held.start(&scratch, &["run", "//cmd/program"]);
+    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    held.at("spawning", 1, || {
+        std::fs::remove_file(scratch.path(&format!(".buri/out/native/{os}-{arch}/cmd/program/program"))).unwrap();
+    });
+    let Some(status) = until(DEADLINE, || child.try_wait().ok().flatten()) else {
+        let _ = child.kill();
+        panic!("`buri run` was still running {DEADLINE:?} later:\n{}", held.printed())
+    };
+    let printed = held.printed();
+    assert_eq!(status.code(), Some(2), "`buri run` ended {status}:\n{printed}");
+    assert!(printed.contains("error: cannot execute the artifact"), "{printed}");
+    assert!(!printed.contains("JavaScript runtime"), "a native program was blamed on JavaScript:\n{printed}");
 }
 
 /// **At a terminal, `buri run` sends on only `SIGTERM`.** The terminal sends
