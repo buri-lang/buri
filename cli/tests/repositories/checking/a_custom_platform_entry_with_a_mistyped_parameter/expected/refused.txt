@@ -1,0 +1,30 @@
+error: there is no type `Nope` [unknown-type]
+ --> cmd/app/main.buri:3:37
+  |
+3 | export fn main(host: KitHost, name: Nope): Str {
+  |                                     ^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+
+    Types are nominal, with no structural fallback, so a misspelling can't
+    quietly become a different type that happens to fit.
+
+error: `hidden` is private to its module [private-to-module]
+ --> cmd/app/main.buri:4:30
+  |
+4 |     if (host.twice(3) > host.hidden()) { "a" } else { "" }
+  |                              ^^^^^^
+  |
+  = fix: add `export` to `hidden`'s declaration, if it is meant to be part of the API
+
+    Add export to the declaration, or go through a method the type provides.
+
+    Without export, a declaration, field, method or variant of a private enum is
+    reachable only from its own module.
+
+    A struct with any private field can't be constructed outside its module at
+    all, because writing Scope(0) names the hidden field. That makes a private
+    field an invariant, and it's how the standard library mints a type only from
+    the inside. Functional update still works, because it never names the hidden
+    fields.
+

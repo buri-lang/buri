@@ -1,0 +1,17 @@
+// EXPECT: this pattern does not match every value of its type
+//
+// `[..]` fits a list of any length, so it may stand in a `let`. `[a, ..]`
+// needs at least one element, and an empty list has none, so it is refused
+// there and belongs in a `match`.
+from "node" import { NodeHost };
+
+fn first(xs: [Int]): Int {
+  let [..] = xs;
+  let [a, ..] = xs;
+  a
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let _ = first([1]);
+  .Ok(())
+}

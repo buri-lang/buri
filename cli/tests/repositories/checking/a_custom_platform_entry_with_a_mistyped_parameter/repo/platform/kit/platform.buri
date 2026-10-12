@@ -1,0 +1,19 @@
+from "platform/host" import { HostAllocator };
+
+export struct KitHost {
+    export alloc: HostAllocator,
+}
+
+impl KitHost {
+    export fn twice(self, n: Int): Int {
+        n * 2
+    }
+
+    fn hidden(self): Int {
+        1
+    }
+}
+
+export fn main(host: KitHost, name: Str): Str;
+
+export fn load(host: KitHost, n: Int): Int;

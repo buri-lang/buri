@@ -1,0 +1,12 @@
+error: this pattern does not match every value of its type [refutable-pattern]
+  --> cmd/array_pattern_in_a_let_must_fit_every_length/main.buri:10:7
+   |
+10 |   let [a, ..] = xs;
+   |       ^^^^^^^
+   |
+   = a `let` binds unconditionally, so its pattern has to be irrefutable
+   = fix: use `match`, which makes you say what the other cases do
+
+     Use match. No exception is thrown when the value doesn't fit, so you write
+     out the other cases.
+

@@ -1,0 +1,32 @@
+# `//platform/kit` declares `main(host: KitHost, name: Str)`, and the program's
+# `main` names a type that doesn't exist for `name` and calls a method the
+# platform keeps private. Each mistake is reported once, where it's written:
+# the unknown type isn't reported again as an entry that disagrees with the
+# platform. Naming `Str` and calling the exported method builds.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an entry parameter of an unknown type and a private host method are each reported once, and fixing both builds"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "refused.txt"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "name: Nope"
+  with: "name: Str"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "host.hidden()"
+  with: "host.twice(0)"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}

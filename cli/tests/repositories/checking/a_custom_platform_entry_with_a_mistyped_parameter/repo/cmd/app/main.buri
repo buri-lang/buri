@@ -1,0 +1,9 @@
+from "//platform/kit" import { KitHost };
+
+export fn main(host: KitHost, name: Nope): Str {
+    if (host.twice(3) > host.hidden()) { "a" } else { "" }
+}
+
+export fn fill(host: KitHost, n: Int): Int {
+    n
+}

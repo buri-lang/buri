@@ -49,16 +49,16 @@ error: nothing here says what this literal builds [untyped-struct-literal]
      fine: { hi: hi, hello }.
 
 error: an icon's artwork has to be an `<svg>`, and this one holds no tag at all [icon-not-drawable]
-  --> cmd/ui_icon_artwork_is_read_whole/main.buri:30:28
+  --> cmd/ui_icon_artwork_is_read_whole/main.buri:31:28
    |
-30 |         ui.image({ source: .Const("a check mark"), alt: .Decorative, styles: [] }),
+31 |         ui.image({ source: .Const("a check mark"), alt: .Decorative, styles: [] }),
    |                            ^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: write the artwork out at the call site, and keep it to an `<svg>` and the shapes inside it
 error: `Image` is missing `source` [missing-field-value]
-  --> cmd/ui_icon_artwork_is_read_whole/main.buri:32:18
+  --> cmd/ui_icon_artwork_is_read_whole/main.buri:33:18
    |
-32 |         ui.image({ alt: .Decorative, styles: [] }),
+33 |         ui.image({ alt: .Decorative, styles: [] }),
    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: give `source` a value — only an `Option` field may be left out — or start from an existing one with `Image { ..base, field: value }`
@@ -67,23 +67,23 @@ error: `Image` is missing `source` [missing-field-value]
      message names only the other fields.
 
 error: a decorative picture's artwork has to be written out at the call site, because the compiler reads it [icon-not-drawable]
-  --> cmd/ui_icon_artwork_is_read_whole/main.buri:32:18
+  --> cmd/ui_icon_artwork_is_read_whole/main.buri:33:18
    |
-32 |         ui.image({ alt: .Decorative, styles: [] }),
+33 |         ui.image({ alt: .Decorative, styles: [] }),
    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: write the artwork out at the call site, and keep it to an `<svg>` and the shapes inside it
 error: a decorative picture's artwork has to be written out at the call site, because the compiler reads it [icon-not-drawable]
-  --> cmd/ui_icon_artwork_is_read_whole/main.buri:33:28
+  --> cmd/ui_icon_artwork_is_read_whole/main.buri:34:28
    |
-33 |         ui.image({ source: .Cell(1), alt: .Decorative, styles: [] }),
+34 |         ui.image({ source: .Cell(1), alt: .Decorative, styles: [] }),
    |                            ^^^^^^^^
    |
    = fix: write the artwork out at the call site, and keep it to an `<svg>` and the shapes inside it
 error: expected `Signal<Str>`, found `Int` [type-mismatch]
-  --> cmd/ui_icon_artwork_is_read_whole/main.buri:33:34
+  --> cmd/ui_icon_artwork_is_read_whole/main.buri:34:34
    |
-33 |         ui.image({ source: .Cell(1), alt: .Decorative, styles: [] }),
+34 |         ui.image({ source: .Cell(1), alt: .Decorative, styles: [] }),
    |                                  ^ the parameter type is `Signal<Str>`
    |
    = expected: `Signal<Str>`
@@ -110,9 +110,9 @@ error: expected `Signal<Str>`, found `Int` [type-mismatch]
      enum from the payload.
 
 error: `image` takes 1 argument, but none were given [argument-count]
-  --> cmd/ui_icon_artwork_is_read_whole/main.buri:34:9
+  --> cmd/ui_icon_artwork_is_read_whole/main.buri:35:9
    |
-34 |         ui.image(),
+35 |         ui.image(),
    |         ^^^^^^^^^^
    |
    = expected: 1

@@ -1,0 +1,29 @@
+// EXPECT: `stack` takes 1 argument, but none were given
+//
+// A stack takes its props, and leaving them out is refused like any missing
+// argument. The other two stacks are fine: one works its props out with a
+// `match`, and one gives no role at all.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let n = 1;
+  ui.mount(
+    ctx,
+    ui.stack({
+      styles: [],
+      children: [
+        ui.stack(match (n) {
+          _ => { styles: [], children: [], role: .None, isDecorative: .Some(true) },
+        }),
+        ui.stack({ styles: [], children: [] }),
+        ui.stack(),
+      ],
+    }),
+    [],
+  )
+}
