@@ -44,6 +44,20 @@ run {
   golden: "search-name.txt"
 }
 
+# A plural finds the singular, and a question its words.
+run {
+  args: ["docs", "search", "where", "are", "the", "tills"]
+  exit: 0
+  golden: "search-question.txt"
+}
+
+# A path searches by name, and tools get JSON.
+run {
+  args: ["docs", "search", "//lib/cafe/lib.buri.open", "--format=json"]
+  exit: 0
+  golden: "search-path.txt"
+}
+
 run {
   args: ["docs", "search"]
   exit: 2
