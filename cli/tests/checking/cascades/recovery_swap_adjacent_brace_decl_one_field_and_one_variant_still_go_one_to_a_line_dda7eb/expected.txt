@@ -1,10 +1,9 @@
-error: `Just` has no variants [empty-enum]
+error: `Just` can never be built: it has no variants [unconstructible-type]
  --> main.buri:9:1
   |
 9 | export enum Just { } Here
   | ^^^^^^^^^^^^^^^^^^^^
   |
-  = an enum with no variants has no values, so nothing could ever build one
   = fix: give `Just` a variant, or use `()` where a type needs no information
 error: expected a declaration, found `Here` [unexpected-token]
  --> main.buri:9:22

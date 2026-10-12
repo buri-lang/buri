@@ -1,12 +1,18 @@
-error: `Endless` can never be constructed [uninhabited]
+error: `Endless` can never be built: every variant contains another `Endless` [unconstructible-type]
  --> cmd/non_productive_recursive_enum/main.buri:6:1
   |
 6 | enum Endless { Node(Endless) }
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
-  = every variant recurses, so building one would need one already
-  = fix: give `Endless` a variant that does not mention itself, the way `.None` terminates an `Option`
+  = fix: add a variant that does not contain `Endless`, the way `.None` ends an `Option`
 
-    There is no laziness and no null to break the cycle, so the compiler reports
-    it at the declaration.
+    Building a Loop needs a Loop already, so give it a way to end: an Option
+    field, or a variant that doesn't hold the type. enum Wrap { W(Option<Wrap>)
+    } is fine, because .W(.None) is a value.
+
+    An enum with no variants can't be built either, and nor can types that only
+    hold each other.
+
+    Where a Result can't fail, return the value itself rather than a Result
+    whose error type can't be built.
 

@@ -257,8 +257,9 @@ enum Tree<T> {
 }
 ```
 
-An enum has at least one variant, so every type has a value: `enum Never {}` is
-the `empty-enum` error.
+Every type can be built. `enum Never {}`, `struct Loop { next: Loop }`, and types
+that only hold each other are the `unconstructible-type` error.
+`enum Wrap { W(Option<Wrap>) }` is fine, because `.W(.None)` is a value.
 
 An exported enum exports every variant and payload field; a private one exports
 none. `export` on a variant is the `variant-export` error. To hide a

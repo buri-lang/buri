@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:37:1
+   |
+37 | test "a type declared later can end the recursion" {
+   | ^^^^
+   |
+  --> main.buri:30:24
+   |
+30 | fn count(n: Nest): Int {
+   |                        ^ opened here
+   |
+   = fix: write `}` here

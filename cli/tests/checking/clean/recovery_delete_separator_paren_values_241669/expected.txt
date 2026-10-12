@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:47:65
+   |
+47 |         .Node(n, kids) => kids.fold(fn(acc, k) => acc + total(k) n),
+   |                                                                 ^
+   |
+   = fix: write `,` here

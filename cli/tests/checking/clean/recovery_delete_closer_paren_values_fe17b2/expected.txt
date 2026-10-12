@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:18:63
+   |
+18 |     assert.equal([depth(.W(.None)), depth(.W(.Some(.W(.None)))], [1, 2]);
+   |                                                               ^
+   |
+  --> main.buri:18:42
+   |
+18 |     assert.equal([depth(.W(.None)), depth(.W(.Some(.W(.None)))], [1, 2]);
+   |                                          ^ opened here
+   |
+   = fix: write `)` here
