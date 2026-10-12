@@ -1,0 +1,52 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Notifications missing the part they are about are ignored, one by one: an open
+# with no document, a change with no document, a change with no content, a
+# change whose content has no text, a save and a close with no document, and a
+# cancel that names no request.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"contentChanges": [{"text": "garbage"}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri", "version": 2}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri", "version": 3}, "contentChanges": [{}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didClose", "params": {}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {}}
+# None of them changed what the server holds: the file on disk still answers.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 23}}}
+# A cancel for a request not sent yet is remembered, and a second cancel of it
+# is the same one. Seventeen more push the oldest two out of what is remembered:
+# the first two requests are answered and the third is refused.
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 50}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 50}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 100}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 101}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 102}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 103}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 104}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 105}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 106}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 107}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 108}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 109}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 110}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 111}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 112}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 113}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 114}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 115}}
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 116}}
+{"jsonrpc": "2.0", "id": 50, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 23}}}
+{"jsonrpc": "2.0", "id": 100, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 23}}}
+{"jsonrpc": "2.0", "id": 101, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 23}}}
+# Folders added and removed: a package inside the repository already open is the
+# same repository, and a folder in no repository is not one at all. A folder
+# whose repository does not load adds a root the workspace outline skips.
+{"jsonrpc": "2.0", "method": "workspace/didChangeWorkspaceFolders", "params": {"event": {"added": [{"uri": "file://<scratch>/lib/shop", "name": "shop"}, {"uri": "file:///nowhere", "name": "nowhere"}, {"uri": "file://<scratch>/broken", "name": "broken"}], "removed": [{"uri": "file:///elsewhere", "name": "elsewhere"}]}}}
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/symbol", "params": {"query": "sub"}}
+# A build file: no colours for a range of it, and a typed brace in it formats
+# nothing.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/semanticTokens/range", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/BUILD.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 4, "character": 0}}}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/onTypeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/BUILD.buri"}, "position": {"line": 3, "character": 1}, "ch": "}", "options": {"tabSize": 4, "insertSpaces": true}}}
+{"jsonrpc": "2.0", "id": 6, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
