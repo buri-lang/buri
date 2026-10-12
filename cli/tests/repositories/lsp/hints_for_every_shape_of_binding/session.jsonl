@@ -1,0 +1,24 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/money/cents.buri\" import { line, Money };\n\nenum Pick {\n    One(I64),\n    Many { count: I64, each: I64 },\n}\n\nstruct Pair {\n    a: I64,\n}\n\nimpl Pair {\n    fn plus(self, by: I64): I64 {\n        self.a + by\n    }\n}\n\nlet rate: I64 = scale(2, 3);\n\nfn scale(by: I64, base: I64): I64 {\n    by * base\n}\n\n/// Every shape of binding a `let` writes.\nexport fn shapes(m: Money, p: Pick): I64 {\n    let typed: I64 = 1;\n    let (left, right) = (1, 2);\n    let whole @ Money { cents } = m;\n    let Money { cents: renamed } = m;\n    let broken = nothing();\n    let pair = Pair { a: 1 };\n    let summed = scale(left + right, (renamed));\n    let again = scale(-1, typed);\n    let more = pair.plus(3);\n    match p {\n        Pick.One(n) => n + summed + again + more + whole.cents + cents,\n        Pick.Many { count, each } => count * each,\n    }\n}\n"}}}
+# Every hint in the buffer. A `let` binding several names hints each of them,
+# whether by a tuple, a struct's fields (shorthand or renamed) or a name bound
+# around a pattern. A name whose type the checker could not work out gets no hint,
+# and neither does one that wrote its type. An argument with structure, one in
+# parentheses of its own, a receiver written before its method, and an operator's
+# operand get no parameter name. The module-level `let` writes its type, so only
+# its call's arguments are named.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 60, "character": 0}}}}
+# A hint about `I64` carries no data, and resolving it hands it straight back.
+{"jsonrpc": "2.0", "id": 3, "method": "inlayHint/resolve", "params": {"kind": 1, "label": [{"value": ": "}, {"value": "I64"}], "paddingLeft": false, "paddingRight": false, "position": {"character": 13, "line": 26}}}
+# A hint about `Pair`: the tooltip is its declaration, with no documentation
+# because `Pair` has none, and the label's `Pair` goes to it.
+{"jsonrpc": "2.0", "id": 4, "method": "inlayHint/resolve", "params": {"data": {"part": 1, "position": {"character": 7, "line": 7}, "uri": "file://<scratch>/lib/money/basket.buri"}, "kind": 1, "label": [{"value": ": "}, {"value": "Pair"}], "paddingLeft": false, "paddingRight": false, "position": {"character": 12, "line": 30}}}
+# The same hint with its label as one string, which the protocol allows: the
+# tooltip, and no part to hang a location on.
+{"jsonrpc": "2.0", "id": 5, "method": "inlayHint/resolve", "params": {"data": {"part": 1, "position": {"character": 7, "line": 7}, "uri": "file://<scratch>/lib/money/basket.buri"}, "kind": 1, "label": ": Pair", "paddingLeft": false, "paddingRight": false, "position": {"character": 12, "line": 30}}}
+# The same hint with its label as one part: the tooltip, and no second part for the location.
+{"jsonrpc": "2.0", "id": 6, "method": "inlayHint/resolve", "params": {"data": {"part": 1, "position": {"character": 7, "line": 7}, "uri": "file://<scratch>/lib/money/basket.buri"}, "kind": 1, "label": [{"value": ": Pair"}], "paddingLeft": false, "paddingRight": false, "position": {"character": 12, "line": 30}}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
