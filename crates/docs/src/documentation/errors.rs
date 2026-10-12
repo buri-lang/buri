@@ -346,6 +346,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("unterminated-comment", "A block comment is closed"),
     e!("unterminated-string", "A string literal closes on the line it opens"),
     e!("unterminated-unicode-escape", "A Unicode escape closes its brace"),
+    e!("untyped-receiver", "A member is read from a value of known type"),
     e!("untyped-struct-literal", "An untyped literal needs an expected type", &["language/types"]),
     e!("untyped-variant", "A `.Variant` needs a known expected type"),
     e!("variant-export", "An exported enum exports every variant", &["language/types"]),

@@ -1723,12 +1723,11 @@ fn write_ty(
     match ty.kind() {
         TyKind::Var(id) => {
             // Nothing has pinned this literal yet, so the name to print is the
-            // one it would default to — a spelling a program can write.
+            // one it would default to — a spelling a program can write. A type
+            // nothing has pinned is `_`; its number means nothing to a reader.
             match subst.and_then(|s| s.class_of(*id)) {
                 Some(class) => out.push_str(class.default_name()),
-                None => {
-                    let _ = write!(out, "_{}", id.0);
-                }
+                None => out.push('_'),
             }
         }
         TyKind::Param(i) => match generics.get(*i as usize) {

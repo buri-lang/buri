@@ -1,0 +1,15 @@
+error: `.0` needs a value whose type is known [untyped-receiver]
+ --> cmd/tuple_index_on_a_value_of_no_known_type/main.buri:3:22
+  |
+3 |   let f = fn(o) => o.0;
+  |                      ^
+  |
+  = fix: annotate the value, as in `fn(q: Str) => ...` for a closure's parameter
+
+    Write the parameter's type: fn(q: Str) => q.length().
+
+    A method or field belongs to a type, so the checker needs the type before it
+    can look one up. It reads types left to right, and a closure with no
+    expected function type gives its parameters none until later code uses them,
+    which is too late.
+

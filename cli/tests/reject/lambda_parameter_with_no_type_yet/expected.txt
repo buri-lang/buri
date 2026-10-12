@@ -1,12 +1,15 @@
-error: `_0` has no method `size` [unknown-method]
+error: `.size` needs a value whose type is known [untyped-receiver]
  --> cmd/lambda_parameter_with_no_type_yet/main.buri:3:22
   |
 3 |   let f = fn(q) => q.size();
   |                      ^^^^
   |
-  = fix: check the spelling, or declare it in `impl _0 { ... }` in that type's own module
+  = fix: annotate the value, as in `fn(q: Str) => ...` for a closure's parameter
 
-    Methods live only in the module that declares the receiver's type. Nothing
-    can add a method from outside, so for a toolchain type the fix points at its
-    page instead of an impl block you couldn't write.
+    Write the parameter's type: fn(q: Str) => q.length().
+
+    A method or field belongs to a type, so the checker needs the type before it
+    can look one up. It reads types left to right, and a closure with no
+    expected function type gives its parameters none until later code uses them,
+    which is too late.
 

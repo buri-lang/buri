@@ -1,0 +1,13 @@
+// EXPECT: `.Width` needs a known expected type
+//
+// Nothing says what the closure answers, so the dot has no enum to read. The
+// fix names the one enum in scope that declares `Width`.
+enum Size {
+  Width(Int),
+  Height(Int),
+}
+
+fn go(): Int {
+  let f = fn(scope: Int) => [.Width(scope)];
+  1
+}

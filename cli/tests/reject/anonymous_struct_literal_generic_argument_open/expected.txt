@@ -5,7 +5,7 @@ error: nothing here says what this literal builds [untyped-struct-literal]
    |                 ^^^^^^^^^^^
    |
    = a `{ ... }` with no type in front of it is given one by what it is checked against, and that is the only place it looks
-   = fix: write the type before the `{` — `Holder<_0>` still has a type argument nothing has settled
+   = fix: write the type before the `{` — `Holder<_>` still has a type argument nothing has settled
 
      Write the type in front of the {, or annotate the binding: World { hi: "hi"
      } and let w: World = { hi: "hi" }; both work.

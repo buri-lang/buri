@@ -1,11 +1,11 @@
-error: expected `[Node<C>]`, found `Node<_1>` [type-mismatch]
+error: expected `[Node<C>]`, found `Node<_>` [type-mismatch]
   --> cmd/ui_button_children_are_a_list/main.buri:16:70
    |
 16 |   ui.button({ label: .Const("Overview"), styles: [], children: .Some(ui.text({ content: .Const("Overview") })) })
    |                                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `[Node<C>]`
    |
    = expected: `[Node<C>]`
-   = actual: `Node<_1>`
+   = actual: `Node<_>`
 
      Numbers don't convert on their own
      ──────────────────────────────────

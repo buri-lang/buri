@@ -27,4 +27,4 @@ error: `.Yes` needs a known expected type [untyped-variant]
 36 |     assert.equal([graded(.Yes, true)graded ,(.Yes, false), graded(.No, true)], [
    |                                              ^^^^
    |
-   = fix: write the qualified form, as in `Option.Yes(...)`, or annotate what this value is being used as
+   = fix: write `Reply.Yes`, or annotate what this value is being used as

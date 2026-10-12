@@ -146,7 +146,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                     let e = self.check_expr(ExprId(s.value), None);
                     let ty = self.resolve(&e.ty);
                     let dropped_result = self.is_known_result(&ty).then(result_discard_fix).flatten();
-                    if !matches!(ty.kind(), TyKind::Unit | TyKind::Error) {
+                    // A type nothing has pinned yet is pinned here, to `()`.
+                    if self.is_unsolved(&ty) {
+                        self.unify_at(span, &ty, &Ty::UNIT, "a statement");
+                    } else if !matches!(ty.kind(), TyKind::Unit | TyKind::Error) {
                         let shown = self.show_ty(&ty);
                         let d = self.templated("statement-not-unit", span).bind("type", shown);
                         if let Some(fix) = dropped_result {
@@ -532,7 +535,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                         }
                     }
                     _ => {
-                        if !bty.is_error() {
+                        if self.is_unsolved(&bty) {
+                            self.report_untyped_receiver(&index.to_string(), index_span);
+                        } else if !bty.is_error() {
                             let shown = self.show_ty(&bty);
                             self.templated("not-tuple", span).bind("type", shown);
                         }
@@ -1809,6 +1814,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         if recv.is_error() {
             return;
         }
+        if self.is_unsolved(recv) {
+            return self.report_untyped_receiver(name, span);
+        }
         let shown = self.show_ty(recv);
         let mut notes = Vec::new();
         let home = self.method_home(recv);
@@ -2070,6 +2078,9 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn report_no_field(&mut self, ty: &Ty, name: &str, span: Span) {
+        if self.is_unsolved(ty) {
+            return self.report_untyped_receiver(name, span);
+        }
         let shown = self.show_ty(ty);
         let mut near = None;
         if let TyKind::Con(con, _) = ty.kind() {
@@ -2158,9 +2169,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
-        let Some(exp) = expected.map(|t| self.resolve(t)) else {
-            let n = name.to_string();
-            self.templated("untyped-variant", dot_span).bind("variant", n);
+        // An expected type nothing has solved yet, such as a closure's answer,
+        // names no enum either.
+        let exp = expected.map(|t| self.resolve(t));
+        let Some(exp) = exp.filter(|t| !self.is_unsolved(t)) else {
+            self.report_untyped_variant(name, dot_span);
             return self.error_expr(span);
         };
         let TyKind::Con(con, _) = exp.kind() else {

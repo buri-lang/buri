@@ -1,5 +1,5 @@
 error [type-mismatch] 2:40-4:2
-message: expected `Option<I64>`, found `[_0]`
+message: expected `Option<I64>`, found `[_]`
 
 error [unknown-name] 3:4-3:7
 message: there is nothing named `xs0` in scope

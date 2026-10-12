@@ -1,0 +1,5 @@
+// EXPECT: `.0` needs a value whose type is known
+fn go(): Int {
+  let f = fn(o) => o.0;
+  1
+}

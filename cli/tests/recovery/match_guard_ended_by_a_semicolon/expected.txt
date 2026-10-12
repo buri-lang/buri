@@ -8,11 +8,6 @@ message: this `match` does not cover `.Zero`
 fix: add an arm for `.Zero`, or a `_` arm for everything left
 note: every `match` must cover its scrutinee's type
 
-error [statement-not-unit] 5:3-7:10
-message: this statement has type `_0`, not `()`
-fix: bind it with `let _ = ...;`
-note: only an expression whose type is `()` may stand alone; bind anything else
-
 error [unknown-field] 7:6-7:10
 message: `Int` has no field `Zero`
 fix: check the spelling, or name a field the type declares

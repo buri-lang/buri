@@ -22,3 +22,6 @@ fn mystery(): Int {
 `.Variant` means "that variant of whatever type is expected here", and a `let`
 with no annotation expects nothing. Inference flows into the shorthand, never
 out of it, so two enums can share a variant name.
+
+A closure's answer expects nothing either, unless something gives the closure a
+function type, such as an annotated `let` or the parameter it's passed to.

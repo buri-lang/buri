@@ -288,11 +288,16 @@ impl<'a, 'b> Infer<'a, 'b> {
         if dotted {
             let TyKind::Con(con, args) = ty.kind() else {
                 if ty.is_error() {
-                    self.poisoned_payload(payload);
+                    // Already reported.
+                } else if self.is_unsolved(ty) {
+                    self.report_untyped_variant(head, span);
                 } else {
                     let shown = self.show_ty(ty);
                     self.report_dot_form_against(&shown, head, span);
                 }
+                // What the payload binds is still in scope for the arm, so a
+                // name it binds isn't a second error.
+                self.poisoned_payload(payload);
                 return typed::PatKind::Error;
             };
             let Some(index) = self.c.tables.variant_index(*con, head) else {

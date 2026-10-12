@@ -1,4 +1,4 @@
-// EXPECT: has no method `size`
+// EXPECT: `.size` needs a value whose type is known
 fn go(): Int {
   let f = fn(q) => q.size();
   1
