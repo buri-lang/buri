@@ -57,12 +57,14 @@ pub(super) fn endless(tables: &Tables, decls: &[TyConId]) -> Vec<(TyConId, Vec<T
 
 /// The functions among `fns` whose instantiations never end, each with the
 /// type arguments it calls itself at. Functions that grow through each other
-/// are reported once, on the first declared.
+/// are reported once, on the first declared. A cycle stays among `fns`, so
+/// calls out of them are not followed: what they call can't call them back.
 pub(super) fn endless_functions(tables: &Tables, bodies: &BodyMap, fns: &[FnId]) -> Vec<(FnId, Vec<Ty>)> {
     let owners: Vec<(FnId, usize)> = fns.iter().map(|&f| (f, tables.fn_info(f).generics.len())).collect();
+    let mine: HashSet<FnId> = fns.iter().copied().collect();
     search(&owners, |f| {
         let mut out = Vec::new();
-        if let Some(body) = bodies.get(&f) {
+        if let Some(body) = bodies.get(&f).filter(|_| mine.contains(&f)) {
             typed::walk(&body.expr, &mut |e| {
                 if let typed::ExprKind::CallFn { func: typed::Callee::Decl { id, targs }, .. }
                 | typed::ExprKind::FnRef(typed::Callee::Decl { id, targs }) = &e.kind
