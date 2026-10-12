@@ -36,7 +36,7 @@ core/option                          0/0       -         0/0       -       409/6
 core/order                           0/0       -         0/0       -         38/52   73.1%
 core/orderedmap                      0/0       -         0/0       -      844/2003   42.1%
 core/orderedset                      0/0       -         0/0       -         14/16   87.5%
-core/path                          20/21   95.2%        9/10   90.0%       140/150   93.3%
+core/path                          21/21  100.0%       10/10  100.0%       141/150   94.0%
 core/proto                         89/89  100.0%       33/33  100.0%       489/599   81.6%
 core/proto/any                       4/4  100.0%         2/2  100.0%         22/42   52.4%
 core/proto/duration                  4/4  100.0%         2/2  100.0%         21/30   70.0%
@@ -59,19 +59,17 @@ core/uuid                            3/3  100.0%         1/1  100.0%         28/
 std/codegen/proto                  87/87  100.0%       38/38  100.0%       482/513   94.0%
 std/codegen/proto/schema           89/90   98.9%       39/40   97.5%       492/603   81.6%
 std/codegen/proto/wellknown          2/2  100.0%         1/1  100.0%         18/40   45.0%
-ui/node                            10/15   66.7%         3/6   50.0%       461/943   48.9%
+ui/node                            15/15  100.0%         6/6  100.0%       464/943   49.2%
 ui/prop                              0/0       -         0/0       -         13/15   86.7%
 ui/signal                            0/0       -         0/0       -           0/0       -
 ui/style                             0/0       -         0/0       -           1/6   16.7%
-ui/style/classify                    0/0       -         0/0       -        72/230   31.3%
+ui/style/classify                    0/0       -         0/0       -        74/230   32.2%
 ui/theme                             0/0       -         0/0       -         19/24   79.2%
 ui/web                               0/0       -         0/0       -           3/4   75.0%
-total                            977/985   99.2%     358/364   98.4%    9264/13862   66.8%
+total                            983/985   99.8%     362/364   99.5%    9270/13862   66.9%
 
 The 30 modules with the most unshown conditions:
 
  unshown          conditions  module
-       5       10/15   66.7%  ui/node
-       1       20/21   95.2%  core/path
        1         1/2   50.0%  core/random
        1       89/90   98.9%  std/codegen/proto/schema
