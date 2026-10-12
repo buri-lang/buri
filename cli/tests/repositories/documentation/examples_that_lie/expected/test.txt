@@ -39,4 +39,15 @@ page.md:88: `package=//lib/nowhere` is not a package of this repository
 
 page.md:94: `repo=missing` is not a repository
     the path is relative to the repository root and must contain a REPO.buri
-13 example(s) do not do what the documentation says
+
+page.md:136: `buri lint` does not report `dead-code` about this example
+    it reported: todo-comment
+
+page.md:145: this example does not compile
+    page.md:145:26: expected `I64`, found `Str`
+
+page.md:151: this example does not compile
+    page.md:151:1: `main` takes no host
+    page.md:151:19: `main` must return `Result<(), Str>`
+    page.md:151:23: expected `I64`, found `Str`
+16 example(s) do not do what the documentation says
