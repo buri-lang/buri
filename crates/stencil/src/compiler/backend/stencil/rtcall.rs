@@ -221,7 +221,7 @@ impl Jit<'_> {
                 continue;
             }
             // An integer leaf is a whole word (`leaves`).
-            for leaf in self.leaves(prog, t)? {
+            for leaf in self.leaves(prog, t) {
                 let at = slot + leaf.offset;
                 if leaf.float {
                     floats.push(Src::Word(at));
@@ -381,7 +381,12 @@ impl Jit<'_> {
                     _ => None,
                 };
                 let err_at = super::lists::payload_at(&l, err);
-                if tag_w.is_none() && err_l.size > 0 {
+                if tag_w.is_none() {
+                    // Every row's non-enum error is a `Str` or has fields.
+                    crate::diagnostics::invariant(
+                        err_l.size > 0,
+                        "stencil: a runtime row's error has bytes",
+                    );
                     ints.push(Src::Addr(dslot + err_at));
                 }
                 // The message shape: the entry writes `E`'s one `Str` where the
@@ -390,7 +395,8 @@ impl Jit<'_> {
                 let message_at = crate::compiler::backend::runtime_native::error_message_offset(
                     &err_l,
                 )
-                .filter(|_| tag_w.is_some() && entry.ret == Ret::ResMsg);
+                // A message offset is a tagged enum's, which has a tag.
+                .filter(|_| entry.ret == Ret::ResMsg);
                 if let Some(at) = message_at {
                     ints.push(Src::Addr(dslot + err_at + at));
                     // The half of the shape the **caller** owes, and it is paid
@@ -428,7 +434,7 @@ impl Jit<'_> {
             // store below.
             Ret::Sum | Ret::Int(32) | Ret::Res | Ret::ResMsg => "w",
             Ret::Scalar | Ret::Int(_) => {
-                let mut leaves = self.leaves(prog, dty)?;
+                let mut leaves = self.leaves(prog, dty);
                 let one = leaves.pop().filter(|_| leaves.is_empty());
                 scalar_kind(one.or_ice("a scalar row answers one scalar"), dty)
             }
@@ -455,7 +461,7 @@ impl Jit<'_> {
         } else {
             dslot
         };
-        self.c_call_flat(entry.symbol(), st, (&ints, &floats), into, kind)?;
+        self.c_call_flat(entry.symbol(), st, (&ints, &floats), into, kind);
         if let Some(o) = opt {
             self.store_option_tag(st, dslot, &o);
         }
@@ -592,7 +598,7 @@ impl Jit<'_> {
     }
 
     /// [`Jit::c_call`] with the arguments a runtime row's signature flattens
-    /// to, which a wide value can carry past what a `crt` stencil holds.
+    /// to. Every row fits a `crt` stencil: a wide value crosses `Spilled`.
     fn c_call_flat(
         &mut self,
         symbol: String,
@@ -600,16 +606,15 @@ impl Jit<'_> {
         (ints, floats): (&[Src], &[Src]),
         dslot: u32,
         kind: &str,
-    ) -> Result<(), String> {
-        if ints.len() > MAX_INT || floats.len() > MAX_FLOAT {
-            return Err(format!(
-                "{symbol}: {} integer and {} float arguments, past what a `crt` stencil holds",
-                ints.len(),
-                floats.len()
-            ));
-        }
+    ) {
+        let fits = |n: usize, max: usize, what: &str| {
+            crate::diagnostics::invariant_with(n <= max, || {
+                format!("stencil: {symbol}: {n} {what} arguments, past what a `crt` stencil holds")
+            });
+        };
+        fits(ints.len(), MAX_INT, "integer");
+        fits(floats.len(), MAX_FLOAT, "float");
         self.c_call_to(V::Sym(symbol), st, ints, floats, dslot, kind);
-        Ok(())
     }
 
     /// The call itself, for at most `MAX_INT` and `MAX_FLOAT` arguments.
@@ -1188,12 +1193,11 @@ impl Jit<'_> {
     /// A value's flattened form: the scalars a C signature would carry it as.
     ///
     /// `llvm/repr.rs`'s slot cover is the same one, and the two must agree leaf
-    /// for leaf because they describe the same C function. An aggregate
-    /// whose width is not a multiple of eight is refused rather than covered
-    /// with narrow chunks: no `buri_rt_*` entry takes one, so a program that
-    /// produced one would be a signature this table has got wrong.
-    fn leaves(&mut self, prog: &ir::Program, t: ir::Type) -> Result<Vec<Leaf>, String> {
-        Ok(match t {
+    /// for leaf because they describe the same C function. No `buri_rt_*`
+    /// entry takes an aggregate whose width is not a multiple of eight, so one
+    /// here is a signature this table has got wrong.
+    fn leaves(&mut self, prog: &ir::Program, t: ir::Type) -> Vec<Leaf> {
+        match t {
             ir::Type::Unit => Vec::new(),
             ir::Type::I1 | ir::Type::I8 => vec![Leaf { offset: 0, width: 8, float: false }],
             ir::Type::I16 | ir::Type::I32 | ir::Type::I64 | ir::Type::Ptr => {
@@ -1207,14 +1211,14 @@ impl Jit<'_> {
             ],
             ir::Type::Agg(id) => {
                 let size = self.layout_id_shared(prog, id).size;
-                if !size.is_multiple_of(8) {
-                    return Err(format!("an aggregate of {size} bytes at a runtime boundary"));
-                }
+                crate::diagnostics::invariant_with(size.is_multiple_of(8), || {
+                    format!("stencil: an aggregate of {size} bytes at a runtime boundary")
+                });
                 (0..size / 8)
                     .map(|i| Leaf { offset: i * 8, width: 8, float: false })
                     .collect()
             }
-        })
+        }
     }
 }
 

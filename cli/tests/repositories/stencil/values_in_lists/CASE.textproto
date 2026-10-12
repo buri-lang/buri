@@ -1,6 +1,6 @@
 # Values of awkward shapes in lists: a struct nested ten deep, a struct of
-# sixteen strings, an enum with every kind of payload, and elements narrower
-# than a word. Both backends run every block.
+# sixteen strings, a struct of lists past four kilobytes, an enum with every
+# kind of payload, and elements narrower than a word. Both backends run every block.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.

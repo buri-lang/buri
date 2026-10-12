@@ -198,3 +198,75 @@ test "small values sit in a list at their own stride" {
     assert.equal(flags.filter(ctx, fn(f) => f).length(), 2);
     assert.equal(pairs.map(ctx, fn(p) => p.0), [1, 2]);
 }
+
+struct Row {
+    a: [Int],
+    b: [Int],
+    c: [Int],
+    d: [Int],
+    e: [Int],
+    f: [Int],
+    g: [Int],
+    h: [Int],
+}
+
+struct Page {
+    a: Row,
+    b: Row,
+    c: Row,
+    d: Row,
+    e: Row,
+    f: Row,
+    g: Row,
+    h: Row,
+}
+
+struct Book {
+    a: Page,
+    b: Page,
+    c: Page,
+    d: Page,
+    e: Page,
+    f: Page,
+    g: Page,
+    h: Page,
+}
+
+fn row(n: Int): Row {
+    let x = [n, n];
+    Row { a: x, b: x, c: x, d: x, e: x, f: x, g: x, h: [n] }
+}
+
+fn page(n: Int): Page {
+    Page {
+        a: row(n),
+        b: row(n),
+        c: row(n),
+        d: row(n),
+        e: row(n),
+        f: row(n),
+        g: row(n),
+        h: row(n),
+    }
+}
+
+fn book(n: Int): Book {
+    Book {
+        a: page(n),
+        b: page(n),
+        c: page(n),
+        d: page(n),
+        e: page(n),
+        f: page(n),
+        g: page(n),
+        h: page(n),
+    }
+}
+
+test "a struct of twelve kilobytes of lists goes into a list and out again" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let books = [book(1), book(2)];
+    assert.equal(books.map(ctx, fn(b) => b.h.h.h), [[1], [2]]);
+}

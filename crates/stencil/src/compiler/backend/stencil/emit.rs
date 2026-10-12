@@ -1429,9 +1429,9 @@ impl<'a> Jit<'a> {
                     self.json_prim(prog, code, st, prim, a, dest);
                     return;
                 }
-                let Some(entry) = super::runtime::entry(key) else {
-                    return self.unsupported(format!("CallIntrinsic {key}"));
-                };
+                // `middle` writes every other key itself, and each has a row.
+                let entry = super::runtime::entry(key)
+                    .or_ice("an intrinsic key middle writes has a runtime row");
                 let list: Vec<(u32, ir::Type)> =
                     args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
                 if let Err(why) = self.rt_call(prog, st, entry, (d, code.ty_of(dest)), &list) {
@@ -2190,13 +2190,12 @@ impl<'a> Jit<'a> {
             self.emit("ret", &[]);
             return;
         }
-        if key == "str.concat" {
-            let argc = prog.funcs.get(fi).map_or(0, |f| f.sig.params.len());
-            self.str_concat(st, Self::concat_strs(argc).map(p), ret0);
-            self.emit("ret", &[]);
-            return;
-        }
-        self.unsupported(format!("Body::Runtime {key}"));
+        // `missing_intrinsics` refused every key no arm above answers.
+        crate::diagnostics::invariant_with(key == "str.concat", || {
+            format!("stencil: the runtime function {key} has no body here")
+        });
+        let argc = prog.funcs.get(fi).map_or(0, |f| f.sig.params.len());
+        self.str_concat(st, Self::concat_strs(argc).map(p), ret0);
         self.emit("ret", &[]);
     }
 }
