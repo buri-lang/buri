@@ -1,5 +1,6 @@
 //! What the café serves.
 
+derive Equal, Show for Drink;
 /// A drink on the menu.
 export struct Drink {
     /// What it's called at the counter.
@@ -12,8 +13,6 @@ export enum Serving {
     Here,
     ToGo,
 }
-
-derive Equal, Show for Drink;
 
 /// What a drink costs.
 export fn price(drink: Drink): I64 {
