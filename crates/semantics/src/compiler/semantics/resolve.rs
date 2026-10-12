@@ -3415,11 +3415,20 @@ impl<'a> Checker<'a> {
 
     /// Reports every checked generic function that calls itself at bigger
     /// type arguments, directly or through others (`resolve/endless.rs`).
+    ///
+    /// Only generic functions have parameters to grow, and the toolchain's
+    /// own are left out: its tests build them, and walking them would cost
+    /// every build.
     fn check_endless_functions(&mut self) {
         let fns: Vec<FnId> = (0..self.tables.fns.len())
             .map(|i| FnId(i as u32))
             .filter(|&f| {
-                self.settled_by_base(f) != Some(true) && crate::compiler::semantics::inference::wanted(self, f)
+                let info = self.tables.fn_info(f);
+                !info.generics.is_empty()
+                    // A primitive's methods have no module.
+                    && self.loaded.modules.get(info.module.index()).is_some_and(|m| !matches!(m.role, Role::Std | Role::Platform))
+                    && self.settled_by_base(f) != Some(true)
+                    && crate::compiler::semantics::inference::wanted(self, f)
             })
             .collect();
         for (f, targs) in endless::endless_functions(&self.tables, &self.bodies, &fns) {
