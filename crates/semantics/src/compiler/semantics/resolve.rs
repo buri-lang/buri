@@ -3410,6 +3410,37 @@ impl<'a> Checker<'a> {
 
     fn check_bodies(&mut self) {
         crate::compiler::semantics::inference::check_all(self);
+        self.check_endless_functions();
+    }
+
+    /// Reports every checked generic function that calls itself at bigger
+    /// type arguments, directly or through others (`resolve/endless.rs`).
+    fn check_endless_functions(&mut self) {
+        let fns: Vec<FnId> = (0..self.tables.fns.len())
+            .map(|i| FnId(i as u32))
+            .filter(|&f| {
+                self.settled_by_base(f) != Some(true) && crate::compiler::semantics::inference::wanted(self, f)
+            })
+            .collect();
+        for (f, targs) in endless::endless_functions(&self.tables, &self.bodies, &fns) {
+            let info = self.tables.fn_info(f);
+            let name = match info.self_ty {
+                Some(con) => format!("{}.{}", self.tables.tycon(con).name, info.name),
+                None => info.name.clone(),
+            };
+            let at = |args: &[Ty]| {
+                let shown: Vec<String> = args.iter().map(|a| show(&self.tables, None, &info.generics, a)).collect();
+                format!("{name}<{}>", shown.join(", "))
+            };
+            let params: Vec<Ty> = (0..info.generics.len()).map(|i| Ty::param(i as u32)).collect();
+            let again: Vec<Ty> = targs.iter().map(|a| substitute(a, &targs, None)).collect();
+            let (mine, grown, grown_again) = (at(&params), at(&targs), at(&again));
+            let span = info.span;
+            self.templated("endless-function", span)
+                .bind("growth", format!("`{mine}` calls `{grown}`, which calls `{grown_again}`, and so on"))
+                .bind("fix", format!("where `{name}` calls itself, call it at its own type parameters: `{mine}`"))
+                .bind("name", name);
+        }
     }
 
     /// Every trait a type is known to satisfy, for diagnostics.

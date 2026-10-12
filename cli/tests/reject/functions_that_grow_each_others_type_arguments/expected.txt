@@ -1,0 +1,28 @@
+error: `ping` needs endless instantiations: `ping<T>` calls `ping<[T]>`, which calls `ping<[[T]]>`, and so on [endless-function]
+  --> cmd/functions_that_grow_each_others_type_arguments/main.buri:10:4
+   |
+10 | fn ping<T>(x: T, n: Int): Int {
+   |    ^^^^
+   |
+   = fix: where `ping` calls itself, call it at its own type parameters: `ping<T>`
+
+     Each instantiation of a generic function compiles on its own, so nest<Int>
+     would need nest<Option<Int>>, then a bigger one, forever. Where a function
+     calls itself, directly or through others, pass its own type parameters,
+     like count<T> calling count<T>. Swapped is fine too: swap<B, A> inside
+     swap<A, B>.
+
+error: `Boxed.depth` needs endless instantiations: `Boxed.depth<T>` calls `Boxed.depth<(T, T)>`, which calls `Boxed.depth<((T, T), (T, T))>`, and so on [endless-function]
+  --> cmd/functions_that_grow_each_others_type_arguments/main.buri:23:6
+   |
+23 |   fn depth(self, n: Int): Int {
+   |      ^^^^^
+   |
+   = fix: where `Boxed.depth` calls itself, call it at its own type parameters: `Boxed.depth<T>`
+error: `Counter.tally` needs endless instantiations: `Counter.tally<U>` calls `Counter.tally<Option<U>>`, which calls `Counter.tally<Option<Option<U>>>`, and so on [endless-function]
+  --> cmd/functions_that_grow_each_others_type_arguments/main.buri:33:6
+   |
+33 |   fn tally<U>(self, u: U, n: Int): Int {
+   |      ^^^^^
+   |
+   = fix: where `Counter.tally` calls itself, call it at its own type parameters: `Counter.tally<U>`

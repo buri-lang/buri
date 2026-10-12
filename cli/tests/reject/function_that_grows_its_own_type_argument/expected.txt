@@ -1,0 +1,14 @@
+error: `nest` needs endless instantiations: `nest<T>` calls `nest<Option<T>>`, which calls `nest<Option<Option<T>>>`, and so on [endless-function]
+  --> cmd/function_that_grows_its_own_type_argument/main.buri:11:4
+   |
+11 | fn nest<T>(x: T, n: Int): Int {
+   |    ^^^^
+   |
+   = fix: where `nest` calls itself, call it at its own type parameters: `nest<T>`
+
+     Each instantiation of a generic function compiles on its own, so nest<Int>
+     would need nest<Option<Int>>, then a bigger one, forever. Where a function
+     calls itself, directly or through others, pass its own type parameters,
+     like count<T> calling count<T>. Swapped is fine too: swap<B, A> inside
+     swap<A, B>.
+

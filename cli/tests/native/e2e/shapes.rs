@@ -528,6 +528,61 @@ fn a_type_that_grows_its_own_argument_stops_the_run_with_an_error() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// **A generic function that calls itself at a bigger type argument is an
+/// error, not a build that never ends.** `nest<Int>` would need
+/// `nest<Option<Int>>`, then `nest<Option<Option<Int>>>`, without end.
+#[test]
+fn a_function_that_grows_its_own_type_argument_stops_the_run_with_an_error() {
+    unless_ready!();
+    let root = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("e2e-shape-nest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let dir = root.join("cmd").join("nest");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(root.join("REPO.buri"), "").unwrap();
+    std::fs::write(dir.join("BUILD.buri"), "binary {\n  outputs: [{ platform: \"native\" }]\n}\n").unwrap();
+    let program = format!(
+        "{HEAD}\nfn nest<T>(x: T, n: Int): Int {{\n    \
+         if (n == 0) {{ 0 }} else {{ nest(Option.Some(x), n - 1) + 1 }}\n}}\n\n{MAIN}{}    .Ok(())\n}}\n",
+        say("\"${nest(1, 3)}\""),
+    );
+    std::fs::write(dir.join("main.buri"), program).unwrap();
+    let ran = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
+        .current_dir(&root)
+        .args(["run", "//cmd/nest"])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&ran.stderr);
+    assert!(!ran.status.success(), "ran: {}", String::from_utf8_lossy(&ran.stdout));
+    assert!(
+        stderr.contains(
+            "`nest` needs endless instantiations: `nest<T>` calls `nest<Option<T>>`, which calls \
+             `nest<Option<Option<T>>>`, and so on"
+        ),
+        "{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// **Generic functions and methods that call themselves at the same type
+/// arguments, or swapped, or through each other, build and run.**
+#[test]
+fn generic_functions_that_call_themselves_at_their_own_type_arguments_run() {
+    unless_ready!();
+    let source = format!(
+        "{HEAD}\nfn count<T>(x: T, n: Int): Int {{\n    if (n == 0) {{ 0 }} else {{ count(x, n - 1) + 1 }}\n}}\n\n\
+         fn swap<A, B>(a: A, b: B, n: Int): Int {{\n    if (n == 0) {{ 0 }} else {{ swap(b, a, n - 1) + 2 }}\n}}\n\n\
+         fn ping<T>(xs: [T], n: Int): Int {{\n    if (n == 0) {{ xs.length() }} else {{ pong(xs, n - 1) }}\n}}\n\n\
+         fn pong<T>(xs: [T], n: Int): Int {{\n    if (n == 0) {{ 0 }} else {{ ping(xs, n - 1) }}\n}}\n\n\
+         struct Boxed<T> {{\n    value: T,\n}}\n\n\
+         impl<T> Boxed<T> {{\n    fn depth(self, n: Int): Int {{\n        \
+         if (n == 0) {{ 0 }} else {{ Boxed {{ value: self.value }}.depth(n - 1) + 3 }}\n    }}\n}}\n\n\
+         {MAIN}{}    .Ok(())\n}}\n",
+        say("\"${count(\"a\", 4)} ${swap(1, true, 5)} ${ping([1, 2], 4)} ${Boxed { value: 1 }.depth(2)}\""),
+    );
+    prints("e2e-shape-same-type-recursion", &source, &["4 10 2 6".to_string()]);
+}
+
 /// **A tuple of twenty-four elements, taken apart, compared, sorted and shown.**
 #[test]
 fn a_long_tuple_is_taken_apart_compared_and_shown() {
