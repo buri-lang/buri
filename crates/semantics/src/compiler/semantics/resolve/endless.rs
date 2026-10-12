@@ -185,13 +185,10 @@ where
                 }
                 if Some(&lu) == index.get(&u) {
                     let id = members.len();
-                    let mut these = Vec::new();
-                    while let Some(n) = stack.pop() {
+                    let at = stack.iter().rposition(|n| *n == u).or_ice("`u` is on the stack");
+                    let these = stack.split_off(at);
+                    for &n in &these {
                         component.insert(n, id);
-                        these.push(n);
-                        if n == u {
-                            break;
-                        }
                     }
                     members.push(these);
                 }

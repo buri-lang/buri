@@ -3418,7 +3418,7 @@ impl<'a> Checker<'a> {
     ///
     /// Only generic functions have parameters to grow, and the toolchain's
     /// own are left out: its tests build them, and walking them would cost
-    /// every build.
+    /// every build. That leaves out everything a [`Base`] checked too.
     fn check_endless_functions(&mut self) {
         let fns: Vec<FnId> = (0..self.tables.fns.len())
             .map(|i| FnId(i as u32))
@@ -3427,7 +3427,6 @@ impl<'a> Checker<'a> {
                 !info.generics.is_empty()
                     // A primitive's methods have no module.
                     && self.loaded.modules.get(info.module.index()).is_some_and(|m| !matches!(m.role, Role::Std | Role::Platform))
-                    && self.settled_by_base(f) != Some(true)
                     && crate::compiler::semantics::inference::wanted(self, f)
             })
             .collect();
