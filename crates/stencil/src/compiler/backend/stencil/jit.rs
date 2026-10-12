@@ -1499,12 +1499,9 @@ impl<'a> Jit<'a> {
                 // undefined but the `_JIT_*` holes and `cli/runtime/lib.rs`'s
                 // exports, so the name *is* the symbol; `EXTERNALS` records the
                 // set for a test to check rather than for this to consult.
-                if h.name.starts_with("JIT_") {
-                    crate::diagnostics::ice(&format!(
-                        "stencil: stencil {key} has an unbound hole {}",
-                        h.name
-                    ));
-                }
+                crate::diagnostics::invariant_with(!h.name.starts_with("JIT_"), || {
+                    format!("stencil: stencil {key} has an unbound hole {}", h.name)
+                });
                 self.import(at, h);
                 continue;
             };
