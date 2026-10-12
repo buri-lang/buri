@@ -46,7 +46,7 @@ pub fn check_all(c: &mut Checker) {
 }
 
 /// Whether this analysis was asked for this function's body.
-fn wanted(c: &Checker, fid: FnId) -> bool {
+pub(crate) fn wanted(c: &Checker, fid: FnId) -> bool {
     match &c.wanted {
         Bodies::All => true,
         Bodies::In(_) => c.file_of(c.tables.fn_info(fid).ast).is_some_and(|f| c.wants_file(f)),

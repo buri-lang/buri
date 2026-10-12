@@ -1,0 +1,42 @@
+// EXPECT: `ping` needs endless instantiations: `ping<T>` calls `ping<[T]>`, which calls `ping<[[T]]>`, and so on
+//
+// Growth counts through other functions and methods alike. Functions that grow
+// through each other are one error, on the first of them, wherever in the
+// cycle the growth is.
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+
+fn ping<T>(x: T, n: Int): Int {
+  if (n == 0) { 0 } else { pong(x, n - 1) }
+}
+
+fn pong<T>(x: T, n: Int): Int {
+  if (n == 0) { 0 } else { ping([x], n - 1) }
+}
+
+struct Boxed<T> {
+  value: T,
+}
+
+impl<T> Boxed<T> {
+  fn depth(self, n: Int): Int {
+    if (n == 0) { 0 } else { Boxed { value: (self.value, self.value) }.depth(n - 1) }
+  }
+}
+
+struct Counter {
+  start: Int,
+}
+
+impl Counter {
+  fn tally<U>(self, u: U, n: Int): Int {
+    if (n == 0) { self.start } else { self.tally(Option.Some(u), n - 1) }
+  }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "${ping(1, 3)} ${Boxed { value: 1 }.depth(3)} ${Counter { start: 0 }.tally(1, 3)}").ignore();
+  .Ok(())
+}

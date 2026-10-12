@@ -413,6 +413,10 @@ fn report<T: Ordered + Show, C: Allocator>(ctx: C, xs: [T]): Str;
 A generic body may call only the bounds' methods, like `x.compare(y)`. Pass any
 other operation as a function: `sortBy(xs, cmp)`.
 
+A generic function that calls itself at bigger type arguments, like
+`nest(Option.Some(x))` inside `nest<T>`, is the `endless-function` error: it
+would need endless instantiations.
+
 Explicit type arguments go on the expression:
 
 ```buri
