@@ -534,6 +534,9 @@ fn suite(session: &Session, target: TargetId) -> crate::build::buildfile::TestSu
 // own [`Slot`], `--explain` lines included, and a suite is printed only once
 // every suite before it has been.
 
+/// What a child's piped standard stream claims.
+const PIPED: &str = "a stream the runner piped is there to take";
+
 /// What a slot index's lookup claims: every index was minted by the pass's own
 /// slot list.
 const SLOT: &str = "every slot index names a slot of this pass";
@@ -1814,43 +1817,39 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
     let mut child = started.map_err(|e| cannot_run(&e.to_string()))?;
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let mut input = child.stdin.take();
-    let errors = child.stderr.take();
+    let mut errors = child.stderr.take().or_ice(PIPED);
     // On a thread of its own, so a process that fills the pipe never waits
     // on this one.
     let reading_err = std::thread::spawn(move || {
         let mut text = String::new();
-        if let Some(mut pipe) = errors {
-            let _ = pipe.read_to_string(&mut text);
-        }
+        let _ = errors.read_to_string(&mut text);
         text
     });
     let mut asked = false;
     let mut held: Option<usize> = None;
-    if let Some(output) = child.stdout.take() {
-        for line in std::io::BufReader::new(output).lines() {
-            let Ok(line) = line else { break };
-            if line.starts_with("{\"next\":") {
-                asked = true;
-                let next = if input.is_some() { js_state(pulled).claim() } else { None };
-                match (next, input.as_mut()) {
-                    (Some(test), Some(pipe)) => {
-                        // A write to a process that has just died fails, and
-                        // the test it holds says so below.
-                        let _ = writeln!(pipe, "{test}");
-                        let _ = pipe.flush();
-                        held = Some(test);
-                        #[cfg(feature = "test-hooks")]
-                        HANDED.raised();
-                    }
-                    _ => input = None,
+    let output = child.stdout.take().or_ice(PIPED);
+    for line in std::io::BufReader::new(output).lines().map_while(Result::ok) {
+        if line.starts_with("{\"next\":") {
+            asked = true;
+            // Nothing is claimed once the input is closed.
+            match input.as_mut().and_then(|pipe| Some((js_state(pulled).claim()?, pipe))) {
+                Some((test, pipe)) => {
+                    // A write to a process that has just died fails, and
+                    // the test it holds says so below.
+                    let _ = writeln!(pipe, "{test}");
+                    let _ = pipe.flush();
+                    held = Some(test);
+                    #[cfg(feature = "test-hooks")]
+                    HANDED.raised();
                 }
-            } else if let Some((test, record)) = ran_line(&line) {
-                if held == Some(test) {
-                    held = None;
-                    if let Some(slot) = js_state(pulled).records.get_mut(test) {
-                        *slot = Some(record.to_string());
-                    }
-                }
+                None => input = None,
+            }
+        } else if let Some((test, record)) = ran_line(&line) {
+            if held == Some(test) {
+                held = None;
+                let mut state = js_state(pulled);
+                let slot = state.records.get_mut(test).or_ice("a test handed out is one of the suite's");
+                *slot = Some(record.to_string());
             }
         }
     }
@@ -4380,14 +4379,12 @@ fn run_pulled(
     let Ok(mut child) = started else { return Pulled::Broken };
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let mut input = child.stdin.take();
-    let errors = child.stderr.take();
+    let mut errors = child.stderr.take().or_ice(PIPED);
     // On a thread of its own, so a process that fills the pipe never waits
     // on this one.
     let reading_err = std::thread::spawn(move || {
         let mut text = String::new();
-        if let Some(mut pipe) = errors {
-            let _ = pipe.read_to_string(&mut text);
-        }
+        let _ = errors.read_to_string(&mut text);
         text
     });
     let mut verdicts: Vec<(usize, Block)> = Vec::new();
@@ -4396,38 +4393,36 @@ fn run_pulled(
     let mut returned = false;
     let mut took: Option<u64> = None;
     let mut noted: Option<Noted> = None;
-    if let Some(output) = child.stdout.take() {
-        for line in std::io::BufReader::new(output).lines() {
-            let Ok(line) = line else { break };
-            let Ok(value) = crate::json::parse(&line) else { continue };
-            if value.get("started").is_some() {
-                reached = true;
-                gathered_of(gathered).started = true;
-            } else if value.get("next").is_some() {
-                if let Some(block) = held.take() {
-                    verdicts.push((block, Block::Passed { ns: took.take() }));
-                }
-                let next = if input.is_some() { gathered_of(gathered).claim() } else { None };
-                match (next, input.as_mut()) {
-                    (Some(block), Some(pipe)) => {
-                        // A write to a process that has just died fails, and
-                        // its status below says how it ended.
-                        let _ = writeln!(pipe, "{block}");
-                        let _ = pipe.flush();
-                        held = Some(block);
-                        returned = false;
-                        took = None;
-                        #[cfg(feature = "test-hooks")]
-                        HANDED.raised();
-                    }
-                    _ => input = None,
-                }
-            } else if text_of(&value, "message").is_some() {
-                noted = noted_of(&value);
-            } else if value.get("left").is_some() && held.is_some() && index_of(&value, "i") == held {
-                returned = true;
-                took = nanoseconds_of(&value);
+    let output = child.stdout.take().or_ice(PIPED);
+    let lines = std::io::BufReader::new(output).lines().map_while(Result::ok);
+    for value in lines.filter_map(|line| crate::json::parse(&line).ok()) {
+        if value.get("started").is_some() {
+            reached = true;
+            gathered_of(gathered).started = true;
+        } else if value.get("next").is_some() {
+            if let Some(block) = held.take() {
+                verdicts.push((block, Block::Passed { ns: took.take() }));
             }
+            // Nothing is claimed once the input is closed.
+            match input.as_mut().and_then(|pipe| Some((gathered_of(gathered).claim()?, pipe))) {
+                Some((block, pipe)) => {
+                    // A write to a process that has just died fails, and
+                    // its status below says how it ended.
+                    let _ = writeln!(pipe, "{block}");
+                    let _ = pipe.flush();
+                    held = Some(block);
+                    returned = false;
+                    took = None;
+                    #[cfg(feature = "test-hooks")]
+                    HANDED.raised();
+                }
+                None => input = None,
+            }
+        } else if text_of(&value, "message").is_some() {
+            noted = noted_of(&value);
+        } else if value.get("left").is_some() && held.is_some() && index_of(&value, "i") == held {
+            returned = true;
+            took = nanoseconds_of(&value);
         }
     }
     drop(input);
