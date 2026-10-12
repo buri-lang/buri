@@ -55,6 +55,10 @@ test "a time outside the clock cannot be built" {
     assert.isTrue(date.time(24, 0, 0, 0).isNone());
     assert.isTrue(date.time(0, 60, 0, 0).isNone());
     assert.isTrue(date.time(0, 0, 0, 1000).isNone());
+    assert.isTrue(date.time(-1, 0, 0, 0).isNone());
+    assert.isTrue(date.time(0, -1, 0, 0).isNone());
+    assert.isTrue(date.time(0, 0, -1, 0).isNone());
+    assert.isTrue(date.time(0, 0, 0, -1).isNone());
     assert.isTrue(date.time(23, 59, 59, 999).isSome());
 }
 

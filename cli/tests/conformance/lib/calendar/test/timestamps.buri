@@ -316,6 +316,21 @@ test "an HTTP date that is not one is refused" {
     assert.none(date.parseHttpDate(ctx, "2026-08-15T13:45:00Z"));
 }
 
+test "each HTTP date form is refused at each of its own parts" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // RFC 850: the zone, the weekday's comma, and the hyphenated date.
+    assert.none(date.parseHttpDate(ctx, "Sunday, 06-Nov-94 08:49:37 UTC"));
+    assert.none(date.parseHttpDate(ctx, "Sunday 06-Nov-94 08:49:37 GMT"));
+    assert.none(date.parseHttpDate(ctx, "Sunday, 06-Nov 08:49:37 GMT"));
+    // asctime: a day of three digits, or of something else.
+    assert.none(date.parseHttpDate(ctx, "Sun Nov 006 08:49:37 1994"));
+    assert.none(date.parseHttpDate(ctx, "Sun Nov +6 08:49:37 1994"));
+    // IMF-fixdate: a year of four characters that are not all digits.
+    assert.none(date.parseHttpDate(ctx, "Sun, 06 Nov +994 08:49:37 GMT"));
+}
+
 // --- the edges of the RFC 3339 grammar ---------------------------------------------
 
 test "every offset the grammar admits, and every one it does not" {

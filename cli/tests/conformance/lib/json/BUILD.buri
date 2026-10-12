@@ -2,7 +2,11 @@ library {
     sources: ["shapes.buri"]
 
     test {
-        sources: ["test/encoding.buri", "test/decoding.buri"]
+        sources: [
+            "test/encoding.buri",
+            "test/decoding.buri",
+            "test/parsing.buri",
+        ]
 
         # The reference run, on the reference backend: `native::conformance`
         # drives these same files through the stencil backend
