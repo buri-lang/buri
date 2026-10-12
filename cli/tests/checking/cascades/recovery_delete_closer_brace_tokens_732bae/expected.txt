@@ -21,7 +21,7 @@ error: `.Accent` needs a known expected type [untyped-variant]
 42 |             .Accent => style.token("kit", "accent"),
    |             ^^^^^^^
    |
-   = fix: write the qualified form, as in `Option.Accent(...)`, or annotate what this value is being used as
+   = fix: write `Token.Accent`, or annotate what this value is being used as
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:42:21
    |

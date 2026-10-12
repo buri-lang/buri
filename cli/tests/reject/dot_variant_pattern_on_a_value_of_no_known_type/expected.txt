@@ -1,0 +1,23 @@
+error: `.Some` needs a known expected type [untyped-variant]
+ --> cmd/dot_variant_pattern_on_a_value_of_no_known_type/main.buri:7:5
+  |
+7 |     .Some(n) => n,
+  |     ^^^^^^^^
+  |
+  = fix: write `Option.Some(...)`, or annotate what this value is being used as
+
+    .Variant means "that variant of whatever type is expected here", and a let
+    with no annotation expects nothing. Inference flows into the shorthand,
+    never out of it, so two enums can share a variant name.
+
+    A closure's answer expects nothing either, unless something gives the
+    closure a function type, such as an annotated let or the parameter it's
+    passed to.
+
+error: `.None` needs a known expected type [untyped-variant]
+ --> cmd/dot_variant_pattern_on_a_value_of_no_known_type/main.buri:8:5
+  |
+8 |     .None => 0,
+  |     ^^^^^
+  |
+  = fix: write `Option.None`, or annotate what this value is being used as

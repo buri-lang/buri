@@ -20,7 +20,7 @@ error: `.Equal` needs a known expected type [untyped-variant]
 25 |     if (left == right) { .Equal } else if (left) { .Greater } else { .} Less
    |                          ^^^^^^
    |
-   = fix: write the qualified form, as in `Option.Equal(...)`, or annotate what this value is being used as
+   = fix: write `Order.Equal`, or annotate what this value is being used as
 error: expected an identifier, found `}` [unexpected-token]
   --> lib/recovery_swap_adjacent_brace_app_56bd60/main.buri:25:71
    |

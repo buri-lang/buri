@@ -193,6 +193,47 @@ fn case_name(case: &std::path::Path) -> String {
     case.file_name().unwrap().to_string_lossy().to_string()
 }
 
+/// No recorded diagnostic quotes a type the checker hadn't worked out yet as
+/// `_7`: no program can write that name, so it tells the reader nothing.
+#[test]
+fn no_recorded_diagnostic_names_an_unsolved_type() {
+    fn walk(dir: &std::path::Path, out: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+                continue;
+            }
+            let name = path.file_name().unwrap().to_string_lossy();
+            if !name.starts_with("expected") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            for (i, line) in text.lines().enumerate() {
+                // Inside a backticked span, `_` then digits with no word on either side.
+                let quoted = line.split('`').skip(1).step_by(2);
+                let leaks = quoted.into_iter().any(|span| {
+                    let b = span.as_bytes();
+                    (0..b.len()).any(|at| {
+                        let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'.';
+                        let digits = b[at + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+                        b[at] == b'_'
+                            && digits > 0
+                            && (at == 0 || !word(b[at - 1]))
+                            && b.get(at + 1 + digits).is_none_or(|c| !word(*c))
+                    })
+                });
+                if leaks {
+                    out.push(format!("{}:{}: {line}", path.display(), i + 1));
+                }
+            }
+        }
+    }
+    let mut leaks = Vec::new();
+    walk(&tests_dir(), &mut leaks);
+    assert!(leaks.is_empty(), "a diagnostic names an unsolved type:\n{}", leaks.join("\n"));
+}
+
 // ---------------------------------------------------------------------------
 // Programs that must crash
 // ---------------------------------------------------------------------------

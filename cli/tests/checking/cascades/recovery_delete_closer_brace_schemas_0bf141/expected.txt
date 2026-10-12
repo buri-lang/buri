@@ -18,28 +18,21 @@ error: this call is missing its closing `)` [unclosed-delimiter]
    |                ^ opened here
    |
    = fix: write `)` here
-error: expected `[_3]`, found a variant `.Some` [type-mismatch]
+error: expected `[_]`, found a variant `.Some` [type-mismatch]
   --> main.buri:76:9
    |
 76 |         .Some(pair) => .Some(pair.0),
    |         ^^^^^^^^^^^
    |
-   = expected: `[_3]`
+   = expected: `[_]`
    = actual: a variant `.Some`
-   = a value written with a leading dot names a variant of the enum the position expects, and this position expects `[_3]`
-error: there is nothing named `pair` in scope [unknown-name]
-  --> main.buri:76:30
-   |
-76 |         .Some(pair) => .Some(pair.0),
-   |                              ^^^^
-   |
-   = fix: declare `pair`, or import it — a name is in scope only from this module's own declarations and its imports
-error: expected `[_3]`, found a variant `.None` [type-mismatch]
+   = a value written with a leading dot names a variant of the enum the position expects, and this position expects `[_]`
+error: expected `[_]`, found a variant `.None` [type-mismatch]
   --> main.buri:77:9
    |
 77 |         .None => .None,
    |         ^^^^^
    |
-   = expected: `[_3]`
+   = expected: `[_]`
    = actual: a variant `.None`
-   = a value written with a leading dot names a variant of the enum the position expects, and this position expects `[_3]`
+   = a value written with a leading dot names a variant of the enum the position expects, and this position expects `[_]`

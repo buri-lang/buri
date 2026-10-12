@@ -7,10 +7,10 @@ error: expected a pattern, found `?` [unexpected-token]
   = expected: a pattern
   = actual: `?`
   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
-error: `_0` has no method `abs` [unknown-method]
+error: `.abs` needs a value whose type is known [untyped-receiver]
  --> main.buri:3:57
   |
 3 | fn match_headed(x: Int): Int { (match (x) { ? _ => 1 }).abs() }
   |                                                         ^^^
   |
-  = fix: check the spelling, or declare it in `impl _0 { ... }` in that type's own module
+  = fix: annotate the value, as in `fn(q: Str) => ...` for a closure's parameter

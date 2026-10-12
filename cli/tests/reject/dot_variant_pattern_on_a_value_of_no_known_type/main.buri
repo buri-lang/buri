@@ -1,0 +1,11 @@
+// EXPECT: `.Some` needs a known expected type
+//
+// The parameter's type is unknown, so the pattern's dot has no enum to read,
+// and `n` binds nothing that a second error should complain about.
+fn go(): Int {
+  let f = fn(o) => match (o) {
+    .Some(n) => n,
+    .None => 0,
+  };
+  1
+}

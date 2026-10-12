@@ -1,12 +1,12 @@
-error: expected `fn(_1) => I64`, found an unknown type [type-mismatch]
+error: expected `fn(_) => I64`, found an unknown type [type-mismatch]
   --> cmd/function_type_containing_itself/main.buri:20:19
    |
 20 |   let n = feed(k, k);
-   |                   ^ the parameter type is `fn(_1) => I64`
+   |                   ^ the parameter type is `fn(_) => I64`
    |
-   = expected: `fn(_1) => I64`
+   = expected: `fn(_) => I64`
    = actual: an unknown type
-   = the unknown type appears inside `fn(_1) => I64`, and no type can contain itself
+   = the unknown type appears inside `fn(_) => I64`, and no type can contain itself
 
      Numbers don't convert on their own
      ──────────────────────────────────

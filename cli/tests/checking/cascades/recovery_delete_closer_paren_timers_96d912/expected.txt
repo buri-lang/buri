@@ -13,7 +13,7 @@ error: `.Computed` needs a known expected type [untyped-variant]
 39 |                 .Computed(fn(scope) => message.get(scope != ""),
    |                 ^^^^^^^^^
    |
-   = fix: write the qualified form, as in `Option.Computed(...)`, or annotate what this value is being used as
+   = fix: write `Prop.Computed(...)`, or annotate what this value is being used as
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:43:9
    |

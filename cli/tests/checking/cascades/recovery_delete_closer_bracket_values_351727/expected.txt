@@ -13,7 +13,7 @@ error: `.Node` needs a known expected type [untyped-variant]
 52 |     assert.equal(total(.Node(1, [.Node(2, [], .Node(3, [])])), 6);
    |                                               ^^^^^
    |
-   = fix: write the qualified form, as in `Option.Node(...)`, or annotate what this value is being used as
+   = fix: write `Rose.Node(...)`, or annotate what this value is being used as
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> main.buri:52:59
    |

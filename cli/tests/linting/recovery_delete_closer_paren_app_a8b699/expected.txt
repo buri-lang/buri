@@ -21,7 +21,7 @@ error: `.Err` needs a known expected type [untyped-variant]
 20 |         .Err(_error) => .Err("could not write to standard output"),
    |         ^^^^
    |
-   = fix: write the qualified form, as in `Option.Err(...)`, or annotate what this value is being used as
+   = fix: write `Result.Err(...)`, or annotate what this value is being used as
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_paren_app_a8b699/main.buri:20:22
    |

@@ -1,0 +1,1 @@
+{"severity":"error","message":"`.0` needs a value whose type is known","code":"untyped-receiver","location":{"file":"cmd/tuple_index_on_a_value_of_no_known_type/main.buri","line":3,"column":22,"endLine":3,"endColumn":23,"text":"  let f = fn(o) => o.0;"},"fix":"annotate the value, as in `fn(q: Str) => ...` for a closure's parameter","notes":[],"related":[]}

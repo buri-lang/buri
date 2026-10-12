@@ -9,7 +9,7 @@
 //! overloading (guides/compile-speed.md).
 
 use crate::compiler::modules::Role;
-use crate::compiler::semantics::resolve::{Bodies, Checker};
+use crate::compiler::semantics::resolve::{Bodies, Checker, Sym};
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
@@ -1009,6 +1009,47 @@ impl<'a, 'b> Infer<'a, 'b> {
                 "a value written with a leading dot names a variant of the enum the \
                  position expects, and this position expects `{expected}`"
             ));
+    }
+
+    /// A `.Variant` — as an expression or as a pattern — where nothing says
+    /// which enum it belongs to. When exactly one enum in scope declares it,
+    /// the fix names that enum.
+    pub(crate) fn report_untyped_variant(&mut self, variant: &str, span: Span) {
+        let tables = &self.c.tables;
+        let owners: Vec<(&str, TyConId, usize)> = self
+            .c
+            .scope(self.module)
+            .visible()
+            .filter_map(|(name, sym)| match sym {
+                Sym::Ty(con) => tables.variant_index(*con, variant).map(|i| (name, *con, i)),
+                _ => None,
+            })
+            .take(2)
+            .collect();
+        let fix = match owners[..] {
+            [(name, con, i)] => {
+                let carries = tables.tycon(con).variants().get(i).is_some_and(|v| !v.fields.is_empty());
+                let payload = if carries { "(...)" } else { "" };
+                Some(format!("write `{name}.{variant}{payload}`, or annotate what this value is being used as"))
+            }
+            _ => None,
+        };
+        let d = self.templated("untyped-variant", span).bind("variant", variant.to_string());
+        // After the bind: every `bind` re-renders the page's own fix over it.
+        if let Some(fix) = fix {
+            d.fix(fix);
+        }
+    }
+
+    /// A `.member` read from a value nothing has given a type yet, such as a
+    /// closure's parameter with no annotation.
+    pub(crate) fn report_untyped_receiver(&mut self, member: &str, span: Span) {
+        self.templated("untyped-receiver", span).bind("member", member.to_string());
+    }
+
+    /// Whether nothing has said what `t` is yet: not even that it's a number.
+    pub(crate) fn is_unsolved(&self, t: &Ty) -> bool {
+        matches!(self.resolve(t).kind(), TyKind::Var(id) if self.subst.class_of(*id).is_none())
     }
 
     pub(crate) fn resolve(&self, t: &Ty) -> Ty {

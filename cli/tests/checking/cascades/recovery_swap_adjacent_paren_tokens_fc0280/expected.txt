@@ -19,4 +19,4 @@ error: `.OnSurface` needs a known expected type [untyped-variant]
 60 |         (Token.OnSurface.color()f ,(.OnSurface)),
    |                                     ^^^^^^^^^^
    |
-   = fix: write the qualified form, as in `Option.OnSurface(...)`, or annotate what this value is being used as
+   = fix: write `Token.OnSurface`, or annotate what this value is being used as
