@@ -623,10 +623,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.error_expr(span)
             }
             Some(Sym::Method(owner)) => {
-                self.templated("method-not-value", span).bind("name", name).fix(format!(
-                    "call it on a receiver: `x.{name}(...)`, where `x` is a `{owner}`; to \
-                     pass it on, wrap it in a lambda"
-                ));
+                self.report_method_not_value(name, name, &owner, span);
                 self.error_expr(span)
             }
             Some(Sym::Ty(_)) | Some(Sym::Trait(_)) | Some(Sym::Alias(..)) => {
@@ -2057,9 +2054,24 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let written = format!("{head}.{name}");
                 self.templated("type-not-value", name_span).bind("name", written);
             }
+            // `str.trim`: the module exports `trim` only as a method of `Str`,
+            // which a receiver reaches, not the namespace.
+            Some(Sym::Method(owner)) => {
+                let written = format!("{head}.{name}");
+                self.report_method_not_value(&written, name, &owner, name_span);
+            }
             Some(_) => return false,
         }
         true
+    }
+
+    /// Reports naming a method, written as `written`, where a value or a
+    /// function belongs.
+    fn report_method_not_value(&mut self, written: &str, name: &str, owner: &str, span: Span) {
+        self.templated("method-not-value", span).bind("name", written).fix(format!(
+            "call it on a receiver: `x.{name}(...)`, where `x` is a `{owner}`; to \
+             pass it on, wrap it in a lambda"
+        ));
     }
 
     /// The derivable trait that declares `name`, or `None` when no such trait

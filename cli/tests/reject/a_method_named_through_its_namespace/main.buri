@@ -1,0 +1,37 @@
+// EXPECT: `str.trim` is a method, and a method is not a value
+//
+// `core/str` exports `trim` as a method of `Str`, which a receiver reaches
+// and the namespace doesn't. So `str.trim` says it's a method, wherever it's
+// written, rather than that `str` isn't in scope. A private function named
+// the same way is still private, and a pattern headed by the method still
+// binds its payload's names.
+from "core/str" import * as str;
+from "core/order" import * as order;
+
+fn value(): Int {
+  let f = str.trim;
+  1
+}
+
+fn call(): Str {
+  str.trim(" a ")
+}
+
+fn chain(): Int {
+  str.trim.length
+}
+
+fn method(): Str {
+  str.trim(" a ").trimEnd()
+}
+
+fn private(): Bool {
+  order.isNan(1.0)
+}
+
+fn pattern(n: Int): Int {
+  match (n) {
+    str.trim.Less(at) => at,
+    _ => 0,
+  }
+}

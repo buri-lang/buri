@@ -386,6 +386,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                          written `.Variant` or `Enum.Variant`",
                     )
                     .fix("write `.Variant` for a variant, or a lowerCamelCase name to bind the value");
+                self.poisoned_payload(payload);
                 typed::PatKind::Error
             }
         }

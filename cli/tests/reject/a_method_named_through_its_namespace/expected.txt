@@ -1,0 +1,64 @@
+error: `str.trim` is a method, and a method is not a value [method-not-value]
+  --> cmd/a_method_named_through_its_namespace/main.buri:12:15
+   |
+12 |   let f = str.trim;
+   |               ^^^^
+   |
+   = fix: call it on a receiver: `x.trim(...)`, where `x` is a `Str`; to pass it on, wrap it in a lambda
+
+     A method is found through its receiver's type, not looked up in scope, so
+     sq.area alone has nothing to evaluate to. The lambda turns the receiver
+     into an argument.
+
+error: `str.trim` is a method, and a method is not a value [method-not-value]
+  --> cmd/a_method_named_through_its_namespace/main.buri:17:7
+   |
+17 |   str.trim(" a ")
+   |       ^^^^
+   |
+   = fix: call it on a receiver: `x.trim(...)`, where `x` is a `Str`; to pass it on, wrap it in a lambda
+error: `str.trim` is a method, and a method is not a value [method-not-value]
+  --> cmd/a_method_named_through_its_namespace/main.buri:21:7
+   |
+21 |   str.trim.length
+   |       ^^^^
+   |
+   = fix: call it on a receiver: `x.trim(...)`, where `x` is a `Str`; to pass it on, wrap it in a lambda
+error: `str.trim` is a method, and a method is not a value [method-not-value]
+  --> cmd/a_method_named_through_its_namespace/main.buri:25:7
+   |
+25 |   str.trim(" a ").trimEnd()
+   |       ^^^^
+   |
+   = fix: call it on a receiver: `x.trim(...)`, where `x` is a `Str`; to pass it on, wrap it in a lambda
+error: `isNan` is private to its module [private-to-module]
+  --> cmd/a_method_named_through_its_namespace/main.buri:29:9
+   |
+29 |   order.isNan(1.0)
+   |         ^^^^^
+   |
+   = fix: use what "core/order" exports instead; `buri docs core/order` lists it
+
+     Add export to the declaration, or go through a method the type provides.
+
+     Without export, a declaration, field, method or variant of a private enum
+     is reachable only from its own module.
+
+     A struct with any private field can't be constructed outside its module at
+     all, because writing Scope(0) names the hidden field. That makes a private
+     field an invariant, and it's how the standard library mints a type only
+     from the inside. Functional update still works, because it never names the
+     hidden fields.
+
+error: there is no type `str.trim.Less` [unknown-type]
+  --> cmd/a_method_named_through_its_namespace/main.buri:34:5
+   |
+34 |     str.trim.Less(at) => at,
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = a bare identifier in a pattern is always a binding; a variant is written `.Variant` or `Enum.Variant`
+   = fix: write `.Variant` for a variant, or a lowerCamelCase name to bind the value
+
+     Types are nominal, with no structural fallback, so a misspelling can't
+     quietly become a different type that happens to fit.
+
