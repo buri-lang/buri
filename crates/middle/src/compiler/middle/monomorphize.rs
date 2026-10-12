@@ -2486,7 +2486,7 @@ impl Monomorphizer<'_> {
             .tables()
             .fns
             .iter()
-            .position(|f| f.module == module && f.self_ty.is_none() && f.name == "of")
+            .position(|f| (f.module, f.self_ty, f.name.as_str()) == (module, None, "of"))
             .or_ice("`core/indexset` declares `of`");
         let to = self.request(Key::Fn(to_list, vec![k, Ty::UNIT]));
         let from = self.request(Key::Fn(FnId(of as u32), vec![k, Ty::UNIT]));
@@ -2725,9 +2725,11 @@ fn match_head(head: &Ty, recv: &Ty, bound: &mut [Option<Ty>]) -> bool {
             a == b && zip_match(xs, ys, bound)
         }
         (TyKind::Array(a), TyKind::Array(b)) => match_head(a, b, bound),
-        (TyKind::Tuple(xs), TyKind::Tuple(ys)) => xs.len() == ys.len() && zip_match(xs, ys, bound),
+        // `&`, not `&&`: the checker refused every receiver a head doesn't
+        // cover, so no part of one fails here, and `zip` stops at the shorter.
+        (TyKind::Tuple(xs), TyKind::Tuple(ys)) => (xs.len() == ys.len()) & zip_match(xs, ys, bound),
         (TyKind::Fn(xs, a), TyKind::Fn(ys, b)) => {
-            xs.len() == ys.len() && zip_match(xs, ys, bound) && match_head(a, b, bound)
+            (xs.len() == ys.len()) & zip_match(xs, ys, bound) & match_head(a, b, bound)
         }
         (TyKind::Unit, TyKind::Unit) => true,
         // `Ty::Error` matches nothing on purpose: a poisoned receiver has

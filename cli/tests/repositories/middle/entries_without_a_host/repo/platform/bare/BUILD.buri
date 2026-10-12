@@ -31,4 +31,9 @@ platform {
         backend: JS
         js: "unwrap.mjs"
     }
+    entry {
+        name: "peek"
+        backend: JS
+        js: "peek.mjs"
+    }
 }

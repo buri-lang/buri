@@ -1,0 +1,166 @@
+// Tests only.
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+// More fields than a 64-bit mask of moved fields has bits.
+struct Wide {
+    t0: [Int],
+    t1: [Int],
+    t2: [Int],
+    t3: [Int],
+    t4: [Int],
+    t5: [Int],
+    t6: [Int],
+    t7: [Int],
+    t8: [Int],
+    t9: [Int],
+    t10: [Int],
+    t11: [Int],
+    t12: [Int],
+    t13: [Int],
+    t14: [Int],
+    t15: [Int],
+    t16: [Int],
+    t17: [Int],
+    t18: [Int],
+    t19: [Int],
+    t20: [Int],
+    t21: [Int],
+    t22: [Int],
+    t23: [Int],
+    t24: [Int],
+    t25: [Int],
+    t26: [Int],
+    t27: [Int],
+    t28: [Int],
+    t29: [Int],
+    t30: [Int],
+    t31: [Int],
+    t32: [Int],
+    t33: [Int],
+    t34: [Int],
+    t35: [Int],
+    t36: [Int],
+    t37: [Int],
+    t38: [Int],
+    t39: [Int],
+    t40: [Int],
+    t41: [Int],
+    t42: [Int],
+    t43: [Int],
+    t44: [Int],
+    t45: [Int],
+    t46: [Int],
+    t47: [Int],
+    t48: [Int],
+    t49: [Int],
+    t50: [Int],
+    t51: [Int],
+    t52: [Int],
+    t53: [Int],
+    t54: [Int],
+    t55: [Int],
+    t56: [Int],
+    t57: [Int],
+    t58: [Int],
+    t59: [Int],
+    t60: [Int],
+    t61: [Int],
+    t62: [Int],
+    t63: [Int],
+    t64: [Int],
+    t65: [Int],
+}
+
+fn wide(): Wide {
+    Wide {
+        t0: [0],
+        t1: [1],
+        t2: [2],
+        t3: [3],
+        t4: [4],
+        t5: [5],
+        t6: [6],
+        t7: [7],
+        t8: [8],
+        t9: [9],
+        t10: [10],
+        t11: [11],
+        t12: [12],
+        t13: [13],
+        t14: [14],
+        t15: [15],
+        t16: [16],
+        t17: [17],
+        t18: [18],
+        t19: [19],
+        t20: [20],
+        t21: [21],
+        t22: [22],
+        t23: [23],
+        t24: [24],
+        t25: [25],
+        t26: [26],
+        t27: [27],
+        t28: [28],
+        t29: [29],
+        t30: [30],
+        t31: [31],
+        t32: [32],
+        t33: [33],
+        t34: [34],
+        t35: [35],
+        t36: [36],
+        t37: [37],
+        t38: [38],
+        t39: [39],
+        t40: [40],
+        t41: [41],
+        t42: [42],
+        t43: [43],
+        t44: [44],
+        t45: [45],
+        t46: [46],
+        t47: [47],
+        t48: [48],
+        t49: [49],
+        t50: [50],
+        t51: [51],
+        t52: [52],
+        t53: [53],
+        t54: [54],
+        t55: [55],
+        t56: [56],
+        t57: [57],
+        t58: [58],
+        t59: [59],
+        t60: [60],
+        t61: [61],
+        t62: [62],
+        t63: [63],
+        t64: [64],
+        t65: [65],
+    }
+}
+
+fn half(n: Int): Result<Int, Str> {
+    if (n % 2 == 0) { .Ok(n / 2) } else { .Err("odd") }
+}
+
+// The replaced field is read, but only borrowed, before the replacement can
+// leave early.
+fn counted(w: Wide, k: Int): Result<Wide, Str> {
+    .Ok(Wide { ..w, t0: [w.t0.length(), half(k)?] })
+}
+
+test "a functional update of a record past sixty-four fields can leave early" {
+    match (counted(wide(), 4)) {
+        .Ok(w) => {
+            assert.equal(w.t0, [1, 2]);
+            assert.equal(w.t65, [65]);
+        },
+        .Err(_) => assert.equal(true, false),
+    };
+    assert.equal(counted(wide(), 3).isOk(), false);
+}
