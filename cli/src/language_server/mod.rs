@@ -2244,6 +2244,10 @@ fn findings_for(state: &mut State, path: &std::path::Path, published: &mut Publi
 /// A build file's own errors. No analysis reports them — `driver::analyze` never
 /// opens one — so an unreadable `BUILD.buri` used to be a repository that
 /// quietly stopped answering rather than a file with a squiggle in it.
+///
+/// Merged rather than appended: an open build file is asked about both as the
+/// file that prompted a publish and as one of the open buffers, and its error
+/// is one squiggle, not two.
 fn build_file_findings(state: &mut State, path: &std::path::Path, published: &mut Published) {
     if !build_files::is_build_file(path) {
         return;
@@ -2255,7 +2259,7 @@ fn build_file_findings(state: &mut State, path: &std::path::Path, published: &mu
             .iter()
             .map(|d| convert::diagnostic(&lines, d, &uri))
             .collect();
-        published.entry(uri).or_default().extend(items);
+        state::merge_findings(published, &Published::from([(uri, items)]));
     }
 }
 
