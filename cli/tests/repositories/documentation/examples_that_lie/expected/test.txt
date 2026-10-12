@@ -1,0 +1,42 @@
+page.md:6: this example does not compile
+    page.md:6:25: expected `I64`, found `Str`
+
+page.md:12: there is no preamble named `nowhere`
+    name an earlier block with `name=...`, or add a file to `crates/docs/src/docs/harness/` and register it in `documentation/harness.rs`
+
+page.md:18: this example does not produce `type-mismatch`
+    it produced: example-missing-main
+
+page.md:24: this example does not produce `type-mismatch`
+    it produced: unknown-name
+
+page.md:30: no diagnostic contains `a message nobody prints`
+    page.md:30:24: expected `I64`, found `Str`
+
+page.md:40: this block is marked `fail` but compiles
+    either the language changed and the document is now wrong, or the block needs to be retagged
+
+page.md:40: no diagnostic contains `a message nobody prints`
+    it compiled cleanly
+
+page.md:51: this line should not compile: expected `expected a mismatch`
+    it compiled cleanly
+
+page.md:58: this line should not compile: expected `a message nobody prints`
+    expected `I64`, found `Str`
+
+page.md:64: `buri lint` does not report `todo-comment` about this example
+    it reported nothing
+
+page.md:70: this example prints something else
+    expected:
+      | a mocha
+      actual:
+      | a latte
+
+page.md:88: `package=//lib/nowhere` is not a package of this repository
+    name a package that exists, as in `package=//lib/money`
+
+page.md:94: `repo=missing` is not a repository
+    the path is relative to the repository root and must contain a REPO.buri
+13 example(s) do not do what the documentation says

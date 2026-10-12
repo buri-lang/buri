@@ -1348,9 +1348,15 @@ fn doctest_command(paths: &[&str], presentation: &Presentation) -> i32 {
             return 2;
         }
     };
-    let root = crate::build::workspace::find_root(&cwd)
-        .or_else(|| repo_root_of(&cwd))
-        .unwrap_or(cwd.clone());
+    // Outside a repository there is nothing to compile an example against, so
+    // each one stands alone, the way the toolchain's own pages are written.
+    let repository = crate::build::workspace::find_root(&cwd);
+    let run_file = if repository.is_some() {
+        crate::documentation::examples::run_file_in_repo
+    } else {
+        crate::documentation::examples::run_file_at
+    };
+    let root = repository.or_else(|| repo_root_of(&cwd)).unwrap_or(cwd.clone());
 
     let files: Vec<std::path::PathBuf> = if paths.is_empty() {
         let mut found = Vec::new();
@@ -1369,8 +1375,17 @@ fn doctest_command(paths: &[&str], presentation: &Presentation) -> i32 {
     let mut blocks = 0usize;
     let mut checked = 0usize;
     for file in &files {
-        let Ok(raw) = std::fs::read_to_string(file) else { continue };
         let rel = file.strip_prefix(&root).unwrap_or(file).display().to_string();
+        // A document the command line names has to be there. One found by the
+        // walk that can't be read as text isn't documentation.
+        let raw = match std::fs::read_to_string(file) {
+            Ok(raw) => raw,
+            Err(e) if !paths.is_empty() => {
+                eprintln!("error: cannot read {rel}: {e}");
+                return 2;
+            }
+            Err(_) => continue,
+        };
         // A source file is read through its documentation comments, which come
         // back as a document with the source's own line numbers — so a failure
         // points at the `.buri` line the example is written on.
@@ -1388,7 +1403,7 @@ fn doctest_command(paths: &[&str], presentation: &Presentation) -> i32 {
         }
         checked += 1;
         blocks += found;
-        failures.extend(crate::documentation::examples::run_file_in_repo(&root, &rel, &text));
+        failures.extend(run_file(&root, &rel, &text));
     }
     let files_checked = checked;
 

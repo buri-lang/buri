@@ -1,0 +1,26 @@
+# Where `buri docs test` finds documentation: every markdown file and
+# every source's documentation comments, less hidden directories,
+# node_modules and build files. A document named on the command line
+# that isn't there is an error, not a document with nothing in it.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "buri docs test finds every document, and refuses one that isn't there"
+
+run {
+  args: ["docs", "test"]
+  exit: 1
+  golden: "everything.txt"
+}
+
+run {
+  args: ["docs", "test", "docs/guide.md", "lib/a/lib.buri"]
+  exit: 0
+  golden: "named.txt"
+}
+
+run {
+  args: ["docs", "test", "docs/missing.md"]
+  exit: 2
+  golden: "missing.txt"
+}

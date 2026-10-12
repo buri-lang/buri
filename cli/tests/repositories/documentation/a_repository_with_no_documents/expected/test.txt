@@ -1,0 +1,2 @@
+error: no markdown files to check
+  = name some, or run this where the repository's documentation is

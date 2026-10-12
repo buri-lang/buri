@@ -1,0 +1,13 @@
+# A page whose `file=` fences are files of repositories: its own, built
+# from an empty `REPO.buri`, and `sample`, copied. Each way such a page
+# can be wrong fails `buri docs test` at the fence that's wrong.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a repository a page builds is held to what its fences say"
+
+run {
+  args: ["docs", "test", "page.md"]
+  exit: 1
+  golden: "test.txt"
+}

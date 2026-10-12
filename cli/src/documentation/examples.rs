@@ -408,7 +408,7 @@ fn parse_block(
             return Err(fail(
                 format!("`{e}` is not an effect this harness can build"),
                 "the effects are alloc, stdout, stderr, stdin, fsread, fswrite, net, clock, \
-                 rand, entropy, env, proc, tasks, listen, sockets",
+                 rand, entropy, env, proc, tasks, listen, sockets, websocketclient",
             ));
         }
     }
@@ -1170,6 +1170,14 @@ pub fn run_file_in_repo(root: &std::path::Path, file: &str, text: &str) -> Vec<F
 /// workspace was loaded into the caller's source map: a second load would give
 /// every build file a second file id, and a diagnostic pointing at one would
 /// then be rendered against the wrong text.
+/// One repository a document's blocks compile against, with the source map
+/// and parses its files belong to.
+struct Compiling {
+    workspace: std::sync::Arc<crate::build::workspace::Workspace>,
+    map: SourceMap,
+    cache: crate::parsing::parser::Cache,
+}
+
 fn prepared(
     root: &std::path::Path,
     workspace: crate::build::workspace::Workspace,
@@ -1201,13 +1209,13 @@ fn run_file_with(
     let extracted = extract(file, text);
     let mut failures = extracted.failures;
     let mut registry = Registry::new();
-    let mut map = SourceMap::new();
-    let mut cache = crate::parsing::parser::Cache::new();
+    let mut standalone = (SourceMap::new(), crate::parsing::parser::Cache::new());
     // One `Workspace` per repository named in this document, not per block:
     // loading a monorepo reads every build file in it, and running its
-    // generators runs a program per rule that declares one.
-    let mut repos: HashMap<String, Option<std::sync::Arc<crate::build::workspace::Workspace>>> =
-        HashMap::new();
+    // generators runs a program per rule that declares one. Each has its own
+    // source map, which knows a file by its repository-relative name, so two
+    // repositories' `REPO.buri` are two files.
+    let mut repos: HashMap<String, Option<Compiling>> = HashMap::new();
 
     for block in &extracted.blocks {
         // A repository's file is built with its repository below, so it
@@ -1221,22 +1229,22 @@ fn run_file_with(
             (None, true) => Some(String::new()),
             (None, false) => None,
         };
-        let workspace = match &named {
-            None => None,
+        let (workspace, map, cache) = match &named {
+            None => (None, &mut standalone.0, &mut standalone.1),
             Some(rel) => {
-                if !repos.contains_key(rel) {
+                let compiling = repos.entry(rel.clone()).or_insert_with(|| {
+                    let mut map = SourceMap::new();
                     let mut diagnostics = crate::diagnostics::Diagnostics::new();
-                    let loaded = crate::build::workspace::Workspace::load(
-                        &root.join(rel),
-                        &mut map,
-                        &mut diagnostics,
-                    )
-                    .ok()
-                    .map(|loaded| prepared(&root.join(rel), loaded, &map));
-                    repos.insert(rel.clone(), loaded);
-                }
-                match repos.get(rel).and_then(|w| w.as_ref()) {
-                    Some(workspace) => Some(&**workspace),
+                    crate::build::workspace::Workspace::load(&root.join(rel), &mut map, &mut diagnostics)
+                        .ok()
+                        .map(|loaded| Compiling {
+                            workspace: prepared(&root.join(rel), loaded, &map),
+                            map,
+                            cache: crate::parsing::parser::Cache::new(),
+                        })
+                });
+                match compiling {
+                    Some(c) => (Some(&*c.workspace), &mut c.map, &mut c.cache),
                     None => {
                         failures.push(Failure {
                             origin: block.origin.clone(),
@@ -1251,7 +1259,7 @@ fn run_file_with(
             }
         };
         failures.extend(crate::documentation::layout::check(block));
-        failures.extend(run_block_in(workspace, block, &registry, &mut map, &mut cache));
+        failures.extend(run_block_in(workspace, block, &registry, map, cache));
         registry.record(block);
     }
     for proto in &extracted.protos {

@@ -1,0 +1,18 @@
+//! The library's examples live in its comments.
+//!
+//! ```buri
+//! from "//lib/a" import { a };
+//!
+//! export fn thrice(): I64 {
+//!     a() * 3
+//! }
+//! ```
+
+/// One.
+///
+/// ```text
+/// not an example
+/// ```
+export fn a(): I64 {
+    1
+}

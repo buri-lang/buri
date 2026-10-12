@@ -1,0 +1,3 @@
+lib/b/lib.buri:4: `wrap=bogus` is not a wrapper
+    the wrappers are module, body, expr
+1 example(s) do not do what the documentation says

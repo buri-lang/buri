@@ -1,0 +1,72 @@
+page.md:6: unterminated `"` in the fence info string `buri file="lib/a b`
+    the info string is `<lang> [mode] [key=value]...`
+
+page.md:9: `=lonely` has no key before its `=`
+    the info string is `<lang> [mode] [key=value]...`
+
+page.md:12: `wrap` is given twice
+    the info string is `<lang> [mode] [key=value]...`
+
+page.md:15: `run` and `fail` are both modes; a fence takes at most one
+    the info string is `<lang> [mode] [key=value]...`
+
+page.md:20: `schema=bogus` is not a schema
+    the schemas are build and repo
+
+page.md:23: `repo=` says nothing without `file=`
+    name the file this fence is
+
+page.md:26: `code=` says nothing outside `fail`
+    tag the fence `fail`
+
+page.md:29: this textproto block does not say what it is
+    tag it `schema=build` or `schema=repo`, or `file=<path>` (and `repo=`) for a file of a repository, such as a data file a generator reads
+
+page.md:33: a textproto `fail` block names its code and its file
+    add `code=<diagnostic code>` and `file=<path>`, and `repo=` for the repository that gives it a schema
+
+page.md:36: a `fail` fence takes no `schema=`
+    its build is what fails it
+
+page.md:39: `check` is not a mode
+    the one textproto mode is fail
+
+page.md:44: `wrap=bogus` is not a wrapper
+    the wrappers are module, body, expr
+
+page.md:47: `role=bogus` is not a role
+    the roles are source, entry, std, platform, test, testing
+
+page.md:50: `bogus` is not an effect this harness can build
+    the effects are alloc, stdout, stderr, stdin, fsread, fswrite, net, clock, rand, entropy, env, proc, tasks, listen, sockets, websocketclient
+
+page.md:53: a ```stdout fence under a `check` block is never compared against anything
+    tag the block `run`, or drop the fence
+
+page.md:63: `// ERROR:` annotations are not compiled in `run` mode
+    use the default mode, or `fail`
+
+page.md:67: a `run` block must be followed by a ```stdout fence
+    add one directly beneath it holding exactly what the program prints; `BURI_BLESS=1` fills it in
+
+page.md:71: a `fail` block must say what it fails with
+    add a ```error fence beneath it, or annotate the offending line `// ERROR: <substring of the message>`
+
+page.md:77: a `lint` block must name the finding it shows
+    add `code=<lint code>`
+
+page.md:83: `explode` is not a mode
+    the modes are check, sig, run, fail, lint. Every example is compiled: one that needs a repository names a file of one with `file=`
+
+page.md:86: `code=` says nothing in a `check` block
+    it is read only by `fail` and `lint`
+
+page.md:89: a `file=` fence is built, not compiled on its own
+    drop the mode and any `// ERROR:` annotations: it must build cleanly
+
+page.md:92: `wrap=` says nothing in a `file=` fence
+    the repository and the file's path say how it is compiled
+
+page.md:95: `moon` is not a platform
+    the platforms are native, node, web
+24 example(s) do not do what the documentation says
