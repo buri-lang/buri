@@ -2600,7 +2600,7 @@ impl<'a> Gen<'a> {
                 let a = self.exprs(args, out);
                 self.prim_op(*op, *prim, a)
             }
-            ExprKind::StructuralEq { negate, args } => {
+            ExprKind::StructuralEq { args } => {
                 // Compiled at the type where the shape is known — which for a
                 // primitive is `===` and no call at all. `desc_index` misses
                 // only if nothing built a descriptor for this type, and then
@@ -2609,18 +2609,13 @@ impl<'a> Gen<'a> {
                     .first()
                     .and_then(|a| self.program.desc_index.get(&a.ty).copied());
                 let a = self.exprs(args, out);
-                let call = match desc {
+                match desc {
                     // Anything other than a pair is the generic walker's job.
                     Some(d) => match <[Expr; 2]>::try_from(a) {
                         Ok([lhs, rhs]) => self.eq_call(d, lhs, rhs),
                         Err(a) => Expr::call(Expr::ident("$eq"), a),
                     },
                     None => Expr::call(Expr::ident("$eq"), a),
-                };
-                if *negate {
-                    Expr::un(UnOp::Not, call)
-                } else {
-                    call
                 }
             }
             ExprKind::StructuralCmp { args, .. } => {

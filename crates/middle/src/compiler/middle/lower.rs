@@ -1190,10 +1190,7 @@ impl FnLower<'_> {
             }
 
             ExprKind::Prim { op, prim, args } => self.prim(ty, *op, *prim, args),
-            ExprKind::StructuralEq { negate, args } => {
-                let op = if *negate { StructuralOp::Ne } else { StructuralOp::Eq };
-                self.structural(ty, op, args)
-            }
+            ExprKind::StructuralEq { args } => self.structural(ty, StructuralOp::Eq, args),
             ExprKind::StructuralCmp { args, .. } => self.structural(ty, StructuralOp::Cmp, args),
             ExprKind::Template { parts } => self.template(ty, parts),
 

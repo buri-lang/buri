@@ -3355,25 +3355,10 @@ fn rewrite_expr(
                 _ => None,
             }
         }
-        ExprKind::StructuralEq { negate, args } => {
+        ExprKind::StructuralEq { args } => {
             let d = args.first().and_then(|a| index.get(&a.ty)).copied();
-            match d.and_then(|d| routed.get(&(Op::Eq, d))) {
-                Some(f) => {
-                    let call = ExprKind::CallFn { func: Callee::Func(*f), args: args.clone() };
-                    if *negate {
-                        // `!=` is the same call under a negation, which is one
-                        // instruction rather than a second generated function.
-                        Some(ExprKind::Prim {
-                            op: PrimOp::Not,
-                            prim: Prim::Bool,
-                            args: vec![Expr::new(call, e.ty, e.span)],
-                        })
-                    } else {
-                        Some(call)
-                    }
-                }
-                None => None,
-            }
+            d.and_then(|d| routed.get(&(Op::Eq, d)))
+                .map(|f| ExprKind::CallFn { func: Callee::Func(*f), args: args.clone() })
         }
         _ => None,
     };

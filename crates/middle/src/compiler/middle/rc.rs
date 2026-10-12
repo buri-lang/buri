@@ -1213,14 +1213,13 @@ pub fn order_sites(sites: &mut [Site]) {
 /// this reads back.
 pub fn release_then_retain<V: Copy + PartialEq>(ops: &[(RcOp, V)]) -> Option<V> {
     let mut released: Vec<V> = Vec::new();
-    for (op, v) in ops {
-        match op {
-            RcOp::DecRef => released.push(*v),
-            RcOp::IncRef if released.contains(v) => return Some(*v),
-            RcOp::IncRef => {}
+    ops.iter().find_map(|(op, v)| match op {
+        RcOp::DecRef => {
+            released.push(*v);
+            None
         }
-    }
-    None
+        RcOp::IncRef => released.contains(v).then_some(*v),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1976,13 +1975,13 @@ fn effects_once(
         ExprKind::CallFn { func, .. } => {
             let c = resolved(func);
             p = worse(p, purity.get(c).copied().unwrap_or(ir::Purity::Effectful));
-            a = a || aborts.get(c).copied().unwrap_or(true);
+            a |= aborts.get(c).copied().unwrap_or(true);
         }
         // A jump into another function's loop is a call, and one whose effects
         // propagate the same way.
         ExprKind::Continue { func: Some(c), .. } => {
             p = worse(p, purity.get(c.index()).copied().unwrap_or(ir::Purity::Effectful));
-            a = a || aborts.get(c.index()).copied().unwrap_or(true);
+            a |= aborts.get(c.index()).copied().unwrap_or(true);
         }
         // An indirect call reaches a code pointer this pass cannot name, so it
         // is whatever the worst function in the program is.

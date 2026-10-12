@@ -270,7 +270,7 @@ pub enum ExprKind {
     /// the backend — which is integer division semantics for a float divide.
     Prim { op: PrimOp, prim: Prim, args: Vec<Expr> },
     /// Structural equality or ordering on a compound type, compiled per type.
-    StructuralEq { negate: bool, args: Vec<Expr> },
+    StructuralEq { args: Vec<Expr> },
     StructuralCmp { op: PrimOp, args: Vec<Expr> },
 
     Template { parts: Vec<TemplatePart> },

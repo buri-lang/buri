@@ -411,7 +411,7 @@ impl Shadows<'_> {
                 Some(Expr::new(ExprKind::Prim { op: PrimOp::Eq, prim: *p, args: vec![x, y] }, self.bool_ty, span))
             }
             (_, Desc::Unit) => Some(Expr::new(ExprKind::Bool(true), self.bool_ty, span)),
-            (Op::Equal, _) => Some(Expr::new(ExprKind::StructuralEq { negate: false, args: vec![x, y] }, self.bool_ty, span)),
+            (Op::Equal, _) => Some(Expr::new(ExprKind::StructuralEq { args: vec![x, y] }, self.bool_ty, span)),
             (Op::Ordered, _) => {
                 let order = self.order?;
                 let con = order.head()?;
