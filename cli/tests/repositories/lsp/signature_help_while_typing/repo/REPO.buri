@@ -1,0 +1,6 @@
+# The tag vocabulary. A `tags` entry in a build file names one of these blocks
+# and nothing else, which is what gives it somewhere to go.
+tag {
+    name: "server"
+    doc: "runs on infrastructure we operate"
+}

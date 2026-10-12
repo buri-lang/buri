@@ -1,0 +1,12 @@
+binary {
+    dependencies: ["//lib/shop"]
+    tags: ["server"]
+    outputs: [
+        { platform: "node" },
+    ]
+
+    test {
+        sources: ["test/app.buri"]
+        dependencies: ["//lib/shop/testing"]
+    }
+}

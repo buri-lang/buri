@@ -1,0 +1,14 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "signature help while a buffer is mid-edit: parentheses inside strings and comments, a cursor inside an unclosed literal, and calls the editor shows nothing for"
+
+# Each request follows a didChange that replaces the whole buffer. The
+# diagnostics each change publishes are part of the golden.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}
