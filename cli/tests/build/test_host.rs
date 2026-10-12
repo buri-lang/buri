@@ -58,7 +58,11 @@ fn passes(scratch: &Scratch, args: &[&str], env: &[(&str, &str)]) -> Run {
 #[test]
 fn a_test_host_that_cannot_be_used_leaves_suites_linking_runners() {
     let cases = [
-        ("didn't link", "echo 'ld: no test host today' >&2; exit 1", "the test host didn't link: ld: no test host today"),
+        (
+            "didn't link",
+            "echo 'ld: warning: an object built for a newer macOS' >&2; echo 'ld: no test host today' >&2; exit 1",
+            "the test host didn't link: ld: no test host today",
+        ),
         ("isn't a program", "printf 'not a program' > test-host", "not a 64-bit Mach-O file"),
         ("can't be started", "chmod -x test-host", "the test host can't be started: "),
         ("is unsigned", "/usr/bin/codesign --remove-signature test-host", "the test host's probe was killed by SIGKILL"),

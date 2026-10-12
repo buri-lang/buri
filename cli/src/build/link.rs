@@ -2057,7 +2057,13 @@ impl CDriver {
         command.arg(format!("-Wl,-force_load,{}", runtime_native::ARCHIVE_NAME));
         match spawn::output(&mut command) {
             Ok(out) if out.status.success() => Ok(()),
-            Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            // Without the warnings, which an SDK older than the archive's
+            // objects prints one of per object.
+            Ok(out) => Err(String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .filter(|line| !line.contains("warning:"))
+                .collect::<Vec<_>>()
+                .join("\n")),
             Err(e) => Err(format!("cannot run {}: {e}", self.driver.display())),
         }
     }
