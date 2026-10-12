@@ -32,6 +32,7 @@ use std::collections::BTreeSet;
 
 mod platforms;
 mod constructible;
+mod endless;
 pub use platforms::{declared_host, is_effect_package_module, is_effect_package_path, js_structs};
 
 /// What a name in scope refers to.
@@ -2510,6 +2511,22 @@ impl<'a> Checker<'a> {
                 ),
             };
             self.templated("unconstructible-type", span).bind("name", name).bind("reason", reason).bind("fix", fix);
+        }
+        // One that can't be built is reported once, above, whether or not it
+        // also grows.
+        let buildable: Vec<TyConId> = cons.into_iter().filter(|c| !self.valueless.contains(c)).collect();
+        for (con, args) in endless::endless(&self.tables, &buildable) {
+            let span = declared.iter().find(|(c, _)| *c == con).or_ice("reported from `declared`").1;
+            let decl = self.tables.tycon(con);
+            let at = |args: &[Ty]| show(&self.tables, None, &decl.generics, &Ty::con(con, args.iter().copied()));
+            let params: Vec<Ty> = (0..decl.arity()).map(|i| Ty::param(i as u32)).collect();
+            let again: Vec<Ty> = args.iter().map(|a| substitute(a, &args, None)).collect();
+            let (mine, grown, grown_again) = (at(&params), at(&args), at(&again));
+            let name = decl.name.clone();
+            self.templated("endless-type", span)
+                .bind("growth", format!("`{mine}` contains `{grown}`, which contains `{grown_again}`, and so on"))
+                .bind("fix", format!("where `{name}` contains itself, give it its own parameters: `{mine}`"))
+                .bind("name", name);
         }
     }
 
