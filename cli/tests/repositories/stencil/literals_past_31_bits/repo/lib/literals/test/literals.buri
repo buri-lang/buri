@@ -40,6 +40,10 @@ fn unsignedAdd(a: U64, on: Bool): U64 {
     if (on) { a + 3000000000 } else { a }
 }
 
+fn lowWord(a: U64, on: Bool): U64 {
+    if (on) { a + 3000000016 & 4294967295 } else { a }
+}
+
 test "integer literals past 31 bits" {
     assert.equal(add(1, true), 3000000001);
     assert.equal(add(-3000000000, true), 0);
@@ -64,4 +68,6 @@ test "unsigned literals past 31 bits" {
     assert.equal(flipped(1, true), 4294967294);
     assert.equal(unsignedAdd(1, true), 3000000001);
     assert.equal(unsignedAdd(1294967295, true), 4294967295);
+    assert.equal(lowWord(1, true), 3000000017);
+    assert.equal(lowWord(1294967280, true), 0);
 }

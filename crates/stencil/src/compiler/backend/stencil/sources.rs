@@ -39,7 +39,7 @@ use super::extract::{
     extract, extract_elf_arm64, fold_addressing, fold_cond, fold_imm, swap_arms,
 };
 use super::machobj as macho;
-use super::library::{Builder, Stencil};
+use super::library::{Builder, HoleKind, Stencil};
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::Mutex;
@@ -1936,12 +1936,39 @@ fn assemble(
                 variants.append(&mut extra);
             }
             for (k, mut v) in variants {
+                if target.is_arm64() {
+                    one_register_pairs(&k, &v)?;
+                }
                 v.name.clone_from(&k);
                 lib.push(k, v);
             }
         }
     }
     Ok(lib)
+}
+
+/// Refuses an arm64 stencil whose immediate pair writes more than one register.
+///
+/// `Jit::patch_hole` turns a GOT `adrp`/`ldr` pair into `movz`/`movk` when the
+/// value fits 32 bits, which is only the same code when both instructions name
+/// one register: the `adrp`'s destination, the `ldr`'s base and the `ldr`'s
+/// destination. The extractor already matched the first two.
+fn one_register_pairs(key: &str, v: &Stencil) -> Result<(), String> {
+    let word = |o: u32| {
+        let o = o as usize;
+        v.code.get(o..o + 4).and_then(|b| <[u8; 4]>::try_from(b).ok()).map(u32::from_le_bytes)
+    };
+    for h in v.holes.iter().filter(|h| h.kind == HoleKind::Imm64) {
+        for (a, b) in &h.pairs {
+            let (Some(wa), Some(wb)) = (word(*a), word(*b)) else {
+                return Err(format!("{key} pairs {} past its own code", h.name));
+            };
+            if (wa & 0x1f) != (wb & 0x1f) || (wa & 0x1f) != ((wb >> 5) & 0x1f) {
+                return Err(format!("{key} loads {} through two registers", h.name));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The `cc` arguments one target's shards are compiled with.
