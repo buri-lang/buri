@@ -367,7 +367,7 @@ impl<'a> Loader<'a> {
         self.diags.push(
             Diagnostic::templated("undeclared-testing-surface", Span::point(pkg.build_file_id, 0))
                 .with_bind("package", pkg.label())
-                .with_bind("package_path", pkg.path.as_str()),
+                .with_bind("build_file", ws.file_in(target.package, "BUILD.buri")),
         );
     }
 
@@ -1096,7 +1096,8 @@ impl<'a> Loader<'a> {
                     self.diags.push(
                         Diagnostic::templated("internal-import", span)
                             .with_bind("path", path)
-                            .with_bind("owner_path", owner.trim_start_matches("//"))
+                            .with_bind("library_file", ws.file_in(loc.package, "lib.buri"))
+                            .with_bind("surface", ws.import_path(loc.package, "lib.buri"))
                             .with_bind("owner", owner.as_str()),
                     );
                     return false;
@@ -1107,7 +1108,6 @@ impl<'a> Loader<'a> {
                 // the public surface (TESTING.md:105-130).
                 if is_declared_test_source(ws, importer_pkg, importer_path) {
                     let owner = ws.package(loc.package).label();
-                    let dir = owner.trim_start_matches("//");
                     // The names the import asked for, already spelled as a
                     // phrase — the page has no way to list them.
                     let what = match names {
@@ -1120,7 +1120,7 @@ impl<'a> Loader<'a> {
                             .with_bind("test_source", source_file_of(importer_path))
                             .with_bind("owner", owner.as_str())
                             .with_bind("exports", what)
-                            .with_bind("owner_path", dir),
+                            .with_bind("library_file", ws.file_in(loc.package, "lib.buri")),
                     );
                     return false;
                 }
@@ -1145,14 +1145,14 @@ impl<'a> Loader<'a> {
                 if let (Some(from), Some(to)) = (importer_rule, target_rule) {
                     if from != to {
                         let owner = ws.package(loc.package).label();
-                        let dir = owner.trim_start_matches("//");
                         let importer_file = source_file_of(importer_path);
                         let d = match to {
                             RuleKind::Library => {
                                 Diagnostic::templated("binary-internal-import", span)
                                     .with_bind("path", path)
                                     .with_bind("owner", owner.as_str())
-                                    .with_bind("owner_path", dir)
+                                    .with_bind("library_file", ws.file_in(loc.package, "lib.buri"))
+                                    .with_bind("surface", ws.import_path(loc.package, "lib.buri"))
                                     .with_bind("importer_file", importer_file)
                                     .with_bind("rule", from.name())
                             }

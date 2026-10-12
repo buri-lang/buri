@@ -1,0 +1,4 @@
+/// One cent.
+export fn cents(): I64 {
+    1
+}

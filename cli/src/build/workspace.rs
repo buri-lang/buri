@@ -791,6 +791,32 @@ impl Workspace {
         p.strip_prefix(&self.root).unwrap_or(p).display().to_string().replace('\\', "/")
     }
 
+    /// A file of a package, by its path from the repository root. Joined on
+    /// disk rather than by `format!`, so the root package's files carry no
+    /// leading `/`.
+    pub fn file_in(&self, package: PackageId, rel: &str) -> String {
+        self.rel_of(&self.package(package).dir.join(rel))
+    }
+
+    /// The path an import writes for one of a package's files (SPEC 4.1.1): a
+    /// surface by its label, `//lib/money` or `//lib/money/testing`, and any
+    /// other file by its path. The root package's label is `//`, which names
+    /// no file, so its surface is `//lib.buri`.
+    pub fn import_path(&self, package: PackageId, rel: &str) -> String {
+        let p = self.package(package);
+        let platform = p.build.platform.is_some() && is_platform_directory(&p.path);
+        let surface = match rel {
+            "lib.buri" => Some(""),
+            "testing/lib.buri" => Some("/testing"),
+            "platform.buri" if platform => Some(""),
+            _ => None,
+        };
+        match surface {
+            Some(suffix) if !p.path.is_empty() => format!("//{}{suffix}", p.path),
+            _ => format!("//{}", self.file_in(package, rel)),
+        }
+    }
+
     /// The package a path on disk belongs to: the nearest ancestor with a
     /// `BUILD.buri`.
     pub fn owning_package(&self, p: &Path) -> Option<PackageId> {

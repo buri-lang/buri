@@ -1,0 +1,4 @@
+/// A fixture no block declares.
+export fn fixture(): I64 {
+    1
+}

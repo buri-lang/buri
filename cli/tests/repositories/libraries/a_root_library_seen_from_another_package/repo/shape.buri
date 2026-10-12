@@ -1,0 +1,4 @@
+/// Internal to the root library.
+export fn area(): I64 {
+    2
+}

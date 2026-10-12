@@ -112,17 +112,17 @@ fn generate_all(args: &arguments::Args) -> i32 {
             }
             None => {
                 if recalled == Some(true) {
-                    stale.push(session.workspace.package(package).path.clone());
+                    stale.push(session.workspace.file_in(package, "BUILD.buri"));
                 }
                 continue;
             }
         };
         let Some(update) = update else { continue };
-        stale.push(session.workspace.package(package).path.clone());
+        stale.push(session.workspace.file_in(package, "BUILD.buri"));
         if !check {
             let path = session.workspace.package(package).build_path.clone();
             if std::fs::write(&path, &update.text).is_ok() {
-                println!("updated {}/BUILD.buri", session.workspace.package(package).path);
+                println!("updated {}", session.workspace.file_in(package, "BUILD.buri"));
                 for line in &update.summary {
                     println!("  {line}");
                 }
@@ -132,7 +132,7 @@ fn generate_all(args: &arguments::Args) -> i32 {
 
     if check {
         for p in &stale {
-            println!("{p}/BUILD.buri is out of date");
+            println!("{p} is out of date");
         }
         return if stale.is_empty() { 0 } else { 1 };
     }
