@@ -1,0 +1,5 @@
+Notes that are not markdown.
+
+```buri
+export fn  never(): I64 { "checked" }
+```

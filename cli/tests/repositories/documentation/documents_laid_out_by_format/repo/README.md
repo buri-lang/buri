@@ -27,6 +27,50 @@ let   y = 1;
 y
 ```
 
+So is one in the middle of a fence its hidden lines enclose, and a hidden
+line that changes how a visible one is laid out.
+
+```buri
+# export fn six(): I64 {
+let   x = 6;
+# let z = 2;
+x
+# }
+```
+
+```buri
+export fn  nine(): I64 {
+    let n =
+#        4 +
+        5;
+    n
+}
+```
+
+A hidden blank line hides nothing.
+
+```buri
+export fn  seven(): I64 { 7 }
+#
+```
+
+A line that starts `##` shows `#`, and stays escaped.
+
+```buri
+/*
+## not hidden
+*/
+export fn  eight(): I64 { 8 }
+```
+
+```buri
+# from "core/io" import * as io;
+/*
+## shown
+*/
+export fn  ten(): I64 { 10 }
+```
+
 Statements are laid out as the body of a function.
 
 ```buri wrap=body

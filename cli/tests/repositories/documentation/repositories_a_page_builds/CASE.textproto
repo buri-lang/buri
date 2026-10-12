@@ -1,6 +1,8 @@
 # A page whose `file=` fences are files of repositories: its own, built
-# from an empty `REPO.buri`, and `sample`, copied. Each way such a page
-# can be wrong fails `buri docs test` at the fence that's wrong.
+# from an empty `REPO.buri`, and `sample` and `apps`, copied. Each way
+# such a page can be wrong fails `buri docs test` at the fence that's
+# wrong, or at the repository's first fence for a program with no file to
+# point at.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 

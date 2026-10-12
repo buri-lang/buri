@@ -178,3 +178,19 @@ export fn macchiato(): I64 {
     "marked"
 }
 ```
+
+A fence out of layout.
+
+```buri
+export fn  spaced(): I64 { 1 }
+```
+
+A failure that names a code, for a program that compiles cleanly.
+
+```buri fail code=type-mismatch
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
+    .Ok(())
+}
+```

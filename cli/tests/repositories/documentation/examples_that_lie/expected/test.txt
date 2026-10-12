@@ -50,4 +50,21 @@ page.md:151: this example does not compile
     page.md:151:1: `main` takes no host
     page.md:151:19: `main` must return `Result<(), Str>`
     page.md:151:23: expected `I64`, found `Str`
-16 example(s) do not do what the documentation says
+
+page.md:185: this example is not laid out the way `buri format` lays out source
+    what a reader copies out of a page is the house style, so it is the house style that is printed there.
+    Run `buri format` over the documentation, which rewrites the fence and nothing else around it.
+    expected:
+      | export fn spaced(): I64 {
+      |     1
+      | }
+      actual:
+      | export fn  spaced(): I64 { 1 }
+
+page.md:191: this block is marked `fail` but compiles
+    either the language changed and the document is now wrong, or the block needs to be retagged
+
+page.md:191: this example does not produce `type-mismatch`
+    it produced no coded diagnostic; got:
+    nothing
+19 example(s) do not do what the documentation says

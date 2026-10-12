@@ -77,3 +77,83 @@ library {
     bogus: 1
 }
 ```
+
+Programs of `apps` that each fail their own way: a library with a tag no
+`tag` block declares, a native program the policy forbids, one with no
+`main`, one that doesn't type check, and a Node program that doesn't either.
+
+```textproto file=lib/store/BUILD.buri repo=apps
+library {
+    sources: ["m.buri"]
+    tags: ["sever"]
+}
+```
+
+```buri file=lib/store/m.buri repo=apps
+export fn stock(): I64 {
+    1
+}
+```
+
+```textproto file=cmd/page/BUILD.buri repo=apps
+binary {
+    tags: ["browser"]
+    outputs: [
+        { platform: "native", variant: "linux-x86_64" },
+    ]
+}
+```
+
+```buri file=cmd/page/main.buri repo=apps
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
+    .Ok(())
+}
+```
+
+```textproto file=cmd/quiet/BUILD.buri repo=apps
+binary {
+    outputs: [
+        { platform: "native", variant: "linux-x86_64" },
+    ]
+}
+```
+
+```buri file=cmd/quiet/main.buri repo=apps
+export fn helper(): I64 {
+    1
+}
+```
+
+```textproto file=cmd/broken/BUILD.buri repo=apps
+binary {
+    outputs: [
+        { platform: "native", variant: "linux-x86_64" },
+    ]
+}
+```
+
+```buri file=cmd/broken/main.buri repo=apps
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
+    "broken"
+}
+```
+
+```textproto file=cmd/node/BUILD.buri repo=apps
+binary {
+    outputs: [
+        { platform: "node" },
+    ]
+}
+```
+
+```buri file=cmd/node/main.buri repo=apps
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
+    "node"
+}
+```

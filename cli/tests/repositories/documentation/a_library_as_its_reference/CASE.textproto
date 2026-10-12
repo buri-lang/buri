@@ -1,8 +1,9 @@
 # A repository's own libraries, read by `buri docs` the way the standard
 # library is: a module's page lists every kind of item it exports, a
 # re-export shows the name it's exported as, a derive shows the methods it
-# gives, a function taking private settings shows them, and a module that
-# exports nothing says so. Search finds the library's items too.
+# gives, a function taking private settings shows them, a private item
+# has no page, and a module that exports nothing says so. Search finds
+# the library's items too, and says when it finds nothing.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
@@ -68,4 +69,10 @@ run {
   args: ["docs", "search", "zqxjv"]
   exit: 1
   golden: "search-missing.txt"
+}
+
+run {
+  args: ["docs", "search", "zqxjv", "--format=json"]
+  exit: 1
+  golden: "search-missing-json.txt"
 }

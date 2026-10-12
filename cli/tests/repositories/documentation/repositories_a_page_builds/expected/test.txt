@@ -19,4 +19,19 @@ page.md:62: this repository does not build
 
 page.md:76: the repository these fences are files of could not be built
     `repo=absent` cannot be copied: No such file or directory (os error 2)
-7 example(s) do not do what the documentation says
+
+page.md:140: this repository does not build
+    expected `Result<(), Str>`, found `Str`
+
+page.md:156: this repository does not build
+    expected `Result<(), Str>`, found `Str`
+
+page.md:102: this repository does not build
+    //cmd/page cannot be built for native
+
+page.md:86: this repository does not build
+    //cmd/quiet exports no `main` [missing-main]
+
+page.md:88: this repository does not build
+    unknown tag "sever"
+12 example(s) do not do what the documentation says

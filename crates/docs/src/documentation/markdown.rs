@@ -633,14 +633,18 @@ pub fn dense(text: &str) -> String {
         paragraph.push_str(t);
     }
     flush(&mut out, &mut paragraph);
-    collapse_blank_runs(&out)
+    collapse_blank_runs(&out, true)
 }
 
-fn collapse_blank_runs(text: &str) -> String {
+/// Squeezes runs of empty lines to one. With `fenced`, the text is markdown
+/// and a fenced block's own blank lines are kept: they are part of the code.
+fn collapse_blank_runs(text: &str, fenced: bool) -> String {
     let mut out = String::with_capacity(text.len());
     let mut blank = 0;
+    let mut state = FenceState::default();
     for line in text.lines() {
-        if line.trim().is_empty() {
+        let inside = fenced && matches!(state.feed(line), Where::Inside);
+        if line.is_empty() && !inside {
             blank += 1;
             if blank > 1 {
                 continue;
@@ -735,7 +739,8 @@ pub fn to_terminal(text: &str, width: super::Width, color: bool) -> String {
             let title = inline(heading, color);
             if hashes <= 2 {
                 let _ = writeln!(out, "{bold}{title}{reset}");
-                let _ = writeln!(out, "{blue}{}{reset}", "─".repeat(title.chars().count().min(width)));
+                let plain = inline(heading, false).chars().count();
+                let _ = writeln!(out, "{blue}{}{reset}", "─".repeat(plain.min(width)));
             } else {
                 let _ = writeln!(out, "{bold}{title}{reset}");
             }
@@ -769,7 +774,7 @@ pub fn to_terminal(text: &str, width: super::Width, color: bool) -> String {
     if !table.is_empty() {
         render_table(&mut out, &table, width, color);
     }
-    collapse_blank_runs(&out)
+    collapse_blank_runs(&out, false)
 }
 
 /// A pipe table as aligned columns, with the alignment row dropped and the

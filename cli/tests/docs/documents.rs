@@ -259,6 +259,52 @@ fn assembling_is_refused_outside_the_toolchain_checkout() {
     assert_eq!(written, ["REPO.buri"]);
 }
 
+/// In a checkout whose `SPEC.md` has drifted, `--check` names it and changes
+/// nothing, `buri docs assemble` writes it back, and then neither finds drift.
+/// The checkout is a scratch copy of its shape, so the real `SPEC.md` is never
+/// written; without its `language/` directory it is no checkout at all.
+#[test]
+fn assembling_writes_back_what_drifted() {
+    let dir = std::env::temp_dir().join(format!("buri-assemble-drift-{}", std::process::id()));
+    let docs = dir.join("crates/docs/src/docs");
+    std::fs::create_dir_all(&docs).expect("a scratch checkout");
+    let spec = docs.join("SPEC.md");
+    std::fs::write(&spec, "# An old specification\n").expect("a stale SPEC.md");
+    let said = |args: &[&str]| {
+        let out = ran(&dir, args);
+        let text = |b: &[u8]| String::from_utf8_lossy(b).to_string();
+        (out.status.code(), text(&out.stdout), text(&out.stderr))
+    };
+
+    let refused = said(&["docs", "assemble", "--check"]);
+    assert_eq!(refused.0, Some(2), "a SPEC.md with no topics beside it is no checkout: {refused:?}");
+
+    std::fs::create_dir_all(docs.join("language")).expect("the topics' directory");
+    assert_eq!(
+        said(&["docs", "assemble", "--check"]),
+        (
+            Some(1),
+            String::new(),
+            "error: crates/docs/src/docs/SPEC.md is not what its topics assemble to\n  \
+             = run `buri docs assemble` to regenerate it\n  \
+             = edit the topics under crates/docs/src/docs, never the assembled file\n"
+                .to_string()
+        )
+    );
+    assert_eq!(std::fs::read_to_string(&spec).expect("SPEC.md"), "# An old specification\n");
+
+    assert_eq!(
+        said(&["docs", "assemble"]),
+        (Some(0), "wrote crates/docs/src/docs/SPEC.md\n".to_string(), String::new())
+    );
+    let written = std::fs::read_to_string(&spec).expect("SPEC.md");
+    for args in [&["docs", "assemble", "--check"][..], &["docs", "assemble"][..]] {
+        assert_eq!(said(args), (Some(0), "no drift\n".to_string(), String::new()), "`buri {}`", args.join(" "));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(written, read("crates/docs/src/docs/SPEC.md"));
+}
+
 /// Outside any repository a page's examples each compile on their own, and
 /// one that names a package has nothing to find it in.
 #[test]
@@ -396,17 +442,7 @@ fn manifest_ids() -> Vec<String> {
     let text = String::from_utf8_lossy(&out.stdout);
     assert_eq!(text.lines().count(), 1, "the manifest must be one line");
 
-    // Pull out every `"id":"..."` without a JSON parser — the toolchain has no
-    // dependencies, and asserting the invariant matters more than re-parsing
-    // our own output.
-    let mut ids = Vec::new();
-    let mut rest = text.as_ref();
-    while let Some(at) = rest.find("\"id\":\"") {
-        rest = &rest[at + 6..];
-        let end = rest.find('"').expect("an id is terminated");
-        ids.push(rest[..end].to_string());
-        rest = &rest[end..];
-    }
+    let ids = ids_in(&text);
     assert!(ids.len() > 30, "the manifest advertises only {} pages", ids.len());
     ids
 }
@@ -453,6 +489,13 @@ fn search_answers_an_intent_and_every_result_is_runnable() {
         (&["pad"][..], "core/str.padStart"),
         (&["hex"][..], "core/bytes.toHex"),
         (&["ignore", "a", "result"][..], "core/result.ignore"),
+        // A phrase in a title, a word that is a whole title, two words naming
+        // one concept, and words that end in an `s` that isn't a plural.
+        (&["your", "first", "program"][..], "getting-started/first-program"),
+        (&["installing"][..], "getting-started/installing"),
+        (&["sort", "comparator"][..], "core/list.sortBy"),
+        (&["address"][..], "core/actor.Address"),
+        (&["its", "effects"][..], "language/effects"),
     ] {
         let mut argv: Vec<&str> = vec!["docs", "search"];
         argv.extend(query.iter().copied());
@@ -496,6 +539,119 @@ fn a_json_search_hit_carries_its_command() {
         json.contains("\"command\":\"buri docs core/order.int\""),
         "a hit does not carry its command:\n{json}"
     );
+}
+
+/// A query of nothing but filler is searched as written rather than as
+/// nothing. Which pages win is a judgement that will keep changing, so what
+/// is held is that it answers, with commands.
+#[test]
+fn a_query_of_filler_still_answers() {
+    let out = ran(&std::env::temp_dir(), &["docs", "search", "the", "--color=never"]);
+    assert!(out.status.success(), "`buri docs search the` found nothing");
+    let listing = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(listing.lines().any(|l| l.starts_with("buri docs ")), "no page offered:\n{listing}");
+}
+
+/// The ids in one line of `buri docs` JSON, in order, without a JSON parser:
+/// the toolchain has no dependencies, and the invariant matters more than
+/// re-parsing its own output.
+fn ids_in(json: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+    let mut rest = json;
+    while let Some(at) = rest.find("\"id\":\"") {
+        rest = &rest[at + 6..];
+        let end = rest.find('"').expect("an id is terminated");
+        ids.push(rest[..end].to_string());
+        rest = &rest[end..];
+    }
+    ids
+}
+
+/// The front page as JSON: one line, one row per page, each with its kind,
+/// id, title and summary, and every kind of page in it. The rows change with
+/// every edit to the documentation, so it is their shape that is held.
+fn index() -> String {
+    let out = ran(&std::env::temp_dir(), &["docs", "--format=json"]);
+    assert!(out.status.success(), "`buri docs --format=json` failed");
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+#[test]
+fn the_json_index_lists_every_page() {
+    let json = index();
+    assert_eq!(json.lines().count(), 1, "the index must be one line");
+    assert!(json.starts_with("{\"topics\":[{\"kind\":") && json.ends_with("]}\n"), "{json}");
+    let rows = json.matches("{\"kind\":").count();
+    for key in ["\",\"id\":", "\",\"title\":", "\",\"summary\":"] {
+        assert_eq!(json.matches(key).count(), rows, "a row without `{key}`");
+    }
+    for kind in ["topic", "normative", "command", "error", "lint", "api"] {
+        assert!(json.contains(&format!("{{\"kind\":\"{kind}\"")), "no `{kind}` page in the index");
+    }
+    let ids = ids_in(&json);
+    for topic in topics::TOPICS {
+        assert!(ids.iter().any(|id| id == topic.id), "the index leaves out `{}`", topic.id);
+    }
+}
+
+/// Every page that isn't one item of a library's API: the topics, the
+/// commands, the diagnostics. The rendering is the same code for all of them.
+fn pages() -> Vec<String> {
+    ids_in(&index()).into_iter().filter(|id| !id.contains('.')).collect()
+}
+
+/// `--color=always` changes a page by its escapes and nothing else: the same
+/// words, the same lines, a heading's rule as long as the heading.
+#[test]
+fn colour_changes_nothing_but_the_escapes() {
+    let pages = pages();
+    let differ = pool::map(&pages, |id| {
+        let plain = ran(&std::env::temp_dir(), &["docs", id, "--color=never"]);
+        let colour = ran(&std::env::temp_dir(), &["docs", id, "--color=always"]);
+        let colour = String::from_utf8_lossy(&colour.stdout).to_string();
+        let stripped = strip_escapes(&colour);
+        colour == stripped || stripped != String::from_utf8_lossy(&plain.stdout)
+    });
+    let mut broken: Vec<&String> = pages.iter().zip(differ).filter(|(_, d)| *d).map(|(id, _)| id).collect();
+    broken.sort();
+    assert!(broken.is_empty(), "these pages read differently in colour: {broken:?}");
+}
+
+/// The text with every `ESC [ … m` sequence taken out.
+fn strip_escapes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('\x1b') {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let end = rest.find('m').map_or(rest.len(), |m| m + 1);
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// `--dense` drops prose and keeps every fenced block verbatim, blank lines
+/// and all: a dense page with its examples abridged would look complete and
+/// not be.
+#[test]
+fn dense_keeps_every_example_verbatim() {
+    let pages = pages();
+    let abridged = pool::map(&pages, |id| {
+        let page = |dense: bool| {
+            let mut args = vec!["docs", id.as_str(), "--format=markdown"];
+            if dense {
+                args.push("--dense");
+            }
+            String::from_utf8_lossy(&ran(&std::env::temp_dir(), &args).stdout).to_string()
+        };
+        let (full, dense) = (page(false), page(true));
+        let bodies = |text: &str| markdown::fences(text).into_iter().map(|f| f.body).collect::<Vec<_>>();
+        dense.len() > full.len() || bodies(&dense) != bodies(&full)
+    });
+    let mut broken: Vec<&String> = pages.iter().zip(abridged).filter(|(_, a)| *a).map(|(id, _)| id).collect();
+    broken.sort();
+    assert!(broken.is_empty(), "these pages lose an example under --dense: {broken:?}");
 }
 
 /// An unknown topic is a bad invocation, not a failure of the thing asked

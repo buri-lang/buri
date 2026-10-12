@@ -18,6 +18,14 @@
 ///     5
 /// }
 /// ```
+///
+/// ```buri
+/// # export fn six(): I64 {
+/// let   x = 6;
+/// # let z = 2;
+/// x
+/// # }
+/// ```
 export fn double(n: I64): I64 {
     n * 2
 }
