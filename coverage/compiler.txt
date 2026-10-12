@@ -18,13 +18,13 @@ crates/docs                        197/304   64.80%           634/889   71.32%
 crates/hash                          18/18  100.00%           241/294   81.97%
 crates/js                        1022/1062   96.23%         4816/5042   95.52%
 crates/llvm                        610/616   99.03%         6693/6879   97.30%
-crates/middle                    1909/2010   94.98%       12389/12837   96.51%
+crates/middle                    1915/2016   94.99%       12401/12849   96.51%
 crates/project                   1341/1358   98.75%         4990/5143   97.03%
 crates/semantics                 2076/2122   97.83%       11190/11495   97.35%
 crates/stdlib                        12/12  100.00%           108/120   90.00%
 crates/stencil                   1235/1298   95.15%         7746/8169   94.82%
 crates/syntax                    1209/1234   97.97%         5875/6052   97.08%
-total                          14638/16310   89.75%       81387/87027   93.52%
+total                          14644/16316   89.75%       81399/87039   93.52%
 
 cli/src                           branches                      lines         
 build                            1616/1633   98.96%         8237/8499   96.92%
@@ -77,7 +77,7 @@ uncovered          branches           file
        18             48/66   72.73%  cli/src/commands/run.rs
        18             48/66   72.73%  cli/src/compiler/driver.rs
        18            92/110   83.64%  cli/src/language_server/state.rs
-       18           602/620   97.10%  crates/middle/src/compiler/middle/rc.rs
+       18           608/626   97.12%  crates/middle/src/compiler/middle/rc.rs
        16             54/70   77.14%  cli/src/language_server/build_files.rs
        13             85/98   86.73%  cli/src/commands/format.rs
        13             35/48   72.92%  cli/src/commands/watch.rs
