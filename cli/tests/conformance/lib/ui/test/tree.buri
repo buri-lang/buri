@@ -2550,6 +2550,60 @@ test "a `When` puts both branches in the stylesheet and swaps between them" {
     assert.isTrue(sheet.contains(".bg-0000ff{background-color:rgb(0,0,255)}"));
 }
 
+/// A button styled by `styles`, named `label`.
+fn styledButton<C: Ui>(label: Str, styles: [Style]): Node<C> {
+    ui.button({ label: .Const(label), styles: styles, onPress: .Some(fn(_c) => ()) })
+}
+
+test "a button's `When` follows its condition, and a constant one follows the branch it picks" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let lit = signal(ctx, false);
+    let width = signal(ctx, 137);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                styledButton("Lit", [
+                    .When(.Cell(lit), [.Background(.Rgb(255, 0, 0))], [
+                        .Background(.Rgb(0, 0, 255)),
+                    ]),
+                ]),
+                styledButton("Then", [
+                    .When(
+                        .Const(true),
+                        [.Computed(fn(s) => [.Width(.Px(width.get(s)))])],
+                        [],
+                    ),
+                ]),
+                styledButton("Otherwise", [
+                    .When(.Const(false), [], [
+                        .Computed(fn(s) => [.Width(.Px(width.get(s)))]),
+                    ]),
+                ]),
+                styledButton("Still", [
+                    .When(.Const(true), [.Background(.Rgb(0, 255, 0))], []),
+                ]),
+            ],
+        }),
+    );
+    assert.equal(
+        page.markup(),
+        "e 0 \ne 1 class:bg-0000ff\nt 2 Lit\ne 1 class:w-var;--buri-w:137px\nt 2 Then\ne 1 class:w-var;--buri-w:137px\nt 2 Otherwise\ne 1 class:bg-00ff00\nt 2 Still",
+    );
+    // A `When` over a signal swaps branches, and the branch a constant picks
+    // keeps following what it reads, whichever branch that is.
+    lit.set(ctx, true);
+    width.set(ctx, 241);
+    assert.equal(
+        page.markup(),
+        "e 0 \ne 1 class:bg-ff0000\nt 2 Lit\ne 1 class:w-var;--buri-w:241px\nt 2 Then\ne 1 class:w-var;--buri-w:241px\nt 2 Otherwise\ne 1 class:bg-00ff00\nt 2 Still",
+    );
+}
+
 test "a `Computed` style re-serialises its value, which is never in the stylesheet" {
     let ctx = context {
         Ui: headless(),
@@ -3418,6 +3472,32 @@ test "a file picker refuses a file no accept entry matches" {
         picked.get(ctx),
         .Err("notes.txt is not one of the accepted types: .csv, text/csv"),
     );
+}
+
+test "a file picker's blank accept entry lets no file through, not even an untyped one" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let picked = unpicked(ctx);
+    let page = render(
+        ctx,
+        ui.filePicker({
+            label: .Const("Import"),
+            accept: .Some([" ", ".csv"]),
+            maxBytes: 100,
+            onPick: fn(c, file) => picked.set(c, file),
+            styles: [],
+        }),
+    );
+    let _ = page.pickFile("Import", "notes", "", bytes.toUtf8(ctx, "hi"));
+    assert.equal(
+        picked.get(ctx),
+        .Err("notes is not one of the accepted types:  , .csv"),
+    );
+    let _ = page.pickFile("Import", "sales.csv", "", bytes.toUtf8(ctx, "a"));
+    assert.equal(picked.get(ctx), .Ok(PickedFile { name: "sales.csv", text: "a" }));
 }
 
 test "a file picker's accept takes a type family, and no accept takes any file" {
@@ -6376,6 +6456,40 @@ test "a radio group is one stop, at its checked option, and isInFocusOrder takes
     let _ = page.tab();
     assert.equal(page.focused(), "Next");
     reached.set(ctx, false);
+    let _ = page.tab();
+    assert.equal(page.focused(), "Next");
+}
+
+test "a radio group with nothing checked is one stop, at its first option" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.picker({
+                    label: .Const("Plan"),
+                    options: [
+                        ("free", ui.text({ content: .Const("Free") })),
+                        ("pro", ui.text({ content: .Const("Pro") })),
+                        ("team", ui.text({ content: .Const("Team") })),
+                    ],
+                    value: signal(ctx, "none"),
+                    styles: [],
+                }),
+                ui.button({
+                    label: .Const("Next"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+            ],
+        }),
+    );
+    let _ = page.tab();
+    assert.equal(page.focused(), "Free");
     let _ = page.tab();
     assert.equal(page.focused(), "Next");
 }
