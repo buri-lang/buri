@@ -722,8 +722,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             typed::ExprKind::Tuple(args)
             | typed::ExprKind::Array(args)
             | typed::ExprKind::Prim { args, .. }
-            | typed::ExprKind::StructuralEq { args, .. }
-            | typed::ExprKind::StructuralCmp { args, .. } => {
+            | typed::ExprKind::StructuralEq { args, .. } => {
                 args.iter_mut().for_each(|a| self.resolve_expr(a));
             }
             typed::ExprKind::Field { base, .. }

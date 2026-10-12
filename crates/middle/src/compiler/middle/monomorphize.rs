@@ -1982,9 +1982,6 @@ impl Monomorphizer<'_> {
             ExprKind::StructuralEq { args } => {
                 ExprKind::StructuralEq { args: self.rewrite_all(args, targs) }
             }
-            ExprKind::StructuralCmp { op, args } => {
-                ExprKind::StructuralCmp { op, args: self.rewrite_all(args, targs) }
-            }
             ExprKind::Template { parts } => ExprKind::Template {
                 parts: parts
                     .into_iter()
