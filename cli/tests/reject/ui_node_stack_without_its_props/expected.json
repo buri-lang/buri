@@ -1,0 +1,1 @@
+{"severity":"error","message":"`stack` takes 1 argument, but none were given","code":"argument-count","location":{"file":"cmd/ui_node_stack_without_its_props/main.buri","line":24,"column":9,"endLine":24,"endColumn":19,"text":"        ui.stack(),"},"expected":"1","actual":"0","fix":"`stack` requires a `config` parameter: stack<C>(config: Stack<C>)","notes":[],"related":[]}

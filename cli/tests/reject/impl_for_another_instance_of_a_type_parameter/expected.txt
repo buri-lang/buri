@@ -1,0 +1,13 @@
+error: `Box<T>` does not implement `Show` [missing-impl]
+  --> cmd/impl_for_another_instance_of_a_type_parameter/main.buri:32:3
+   |
+32 |   shown(ctx, b)
+   |   ^^^^^^^^^^^^^
+   |
+   = the `impl Show` is for `Box<I64>`, and `Box<T>` isn't one
+   = fix: pass a `Box<I64>`, or widen the `impl` to cover `Box<T>`
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

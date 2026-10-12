@@ -1,10 +1,10 @@
 // EXPECT: an icon's artwork has to be an `<svg>`, and this one holds no tag at all
 //
-// Each picture below is read as written. The first three are drawings,
+// Each picture below is read as written. The first four are drawings,
 // spelled the loose ways an icon set writes them: an attribute with no value,
-// an unquoted value, a single-quoted one, a space before `=`, a slash straight
-// after a name. The rest each break the rule a different way, and each is
-// reported once.
+// one straight before `>`, an unquoted value, a single-quoted one, a space
+// before `=`, a slash straight after a name. The rest each break the rule a
+// different way, and each is reported once.
 from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "web" import { WebHost };
@@ -25,6 +25,7 @@ export fn main(host: WebHost): Result<(), Str> {
       styles: [],
       children: [
         ui.image({ source: .Const("<svg fill viewBox='0 0 24 24'><path d='M0 0'/></svg>"), alt: .Decorative, styles: [] }),
+        ui.image({ source: .Const("<svg fill><path d='M0 0'/></svg>"), alt: .Decorative, styles: [] }),
         ui.image({ source: .Const("<svg width =24 height= \"24\"><g/><rect x/></svg>"), alt: .Decorative, styles: [] }),
         ui.image({ source: .Const("<svg width=24"), alt: .Decorative, styles: [] }),
         ui.image({ source: .Const("a check mark"), alt: .Decorative, styles: [] }),

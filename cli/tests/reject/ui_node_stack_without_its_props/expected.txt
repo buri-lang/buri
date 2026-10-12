@@ -1,0 +1,9 @@
+error: `stack` takes 1 argument, but none were given [argument-count]
+  --> cmd/ui_node_stack_without_its_props/main.buri:24:9
+   |
+24 |         ui.stack(),
+   |         ^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 0
+   = fix: `stack` requires a `config` parameter: stack<C>(config: Stack<C>)

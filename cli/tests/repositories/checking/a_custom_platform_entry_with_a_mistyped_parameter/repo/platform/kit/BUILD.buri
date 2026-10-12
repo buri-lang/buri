@@ -1,0 +1,12 @@
+platform {
+    entry {
+        name: "main"
+        backend: JS
+        js: "main.mjs"
+    }
+    entry {
+        name: "load"
+        backend: JS
+        js: "load.mjs"
+    }
+}

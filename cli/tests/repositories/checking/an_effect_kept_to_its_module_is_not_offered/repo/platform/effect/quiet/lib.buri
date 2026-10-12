@@ -1,0 +1,8 @@
+/// Kept to this file: nothing outside may bind it.
+effect Quiet {
+    fn hush(self): Int;
+}
+
+export fn calm(): Int {
+    0
+}
