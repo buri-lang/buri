@@ -20,12 +20,21 @@
 # nothing lists it in its new place. No import can name it there, so its importer
 # is left for the finding that will follow.
 {"jsonrpc": "2.0", "id": 7, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/money.buri", "newUri": "file://<scratch>/notes/money.buri"}]}}
-# A module renamed to a name no import can write keeps the build file's entry in
-# step and rewrites no import.
+# A module renamed to a name that is no Buri source leaves its list, as a
+# deleted one would, and no import can write the new name.
 {"jsonrpc": "2.0", "id": 8, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/money.buri", "newUri": "file://<scratch>/lib/shop/money.txt"}]}}
+# A schema is a generator's input, which a person lists, so it joins no list
+# either. A module that became a schema is a different kind of file, so its
+# importer is left for the finding that will follow.
+{"jsonrpc": "2.0", "id": 18, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/money.buri", "newUri": "file://<scratch>/lib/shop/money.proto"}]}}
+# A module moving under `test/` moves from `sources` to `test.sources`.
+{"jsonrpc": "2.0", "id": 19, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/money.buri", "newUri": "file://<scratch>/lib/shop/test/money.buri"}]}}
 # A module moving onto another package's entry point leaves its old list; the
-# entry point is named by the rule itself and joins no list.
+# entry point is named by the rule itself and joins no list. The import that
+# named it now names that package's surface, the way an import writes it.
 {"jsonrpc": "2.0", "id": 9, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/cart.buri", "newUri": "file://<scratch>/lib/pricing/lib.buri"}]}}
+# And onto its testing surface's entry point, the same.
+{"jsonrpc": "2.0", "id": 20, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/cart.buri", "newUri": "file://<scratch>/lib/pricing/testing/lib.buri"}]}}
 # A rename onto a name the list already has drops the old entry and adds nothing twice.
 {"jsonrpc": "2.0", "id": 10, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/cart.buri", "newUri": "file://<scratch>/lib/shop/money.buri"}]}}
 # A rename request that names no files has nothing to answer.
