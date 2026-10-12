@@ -132,15 +132,24 @@ pub fn will_rename(state: &mut State, params: &Value) -> Option<Value> {
         let after = placement(&session, &new);
 
         match (&before, &after) {
-            (Some(b), Some(a)) if b.build_path == a.build_path => {
+            // Within one list the entry is renamed in place, so it stays with
+            // the rule that held it.
+            (Some(b), Some(a))
+                if b.build_path == a.build_path
+                    && listed_in(b).is_some()
+                    && listed_in(b) == listed_in(a) =>
+            {
                 let change = Change::Renamed { from: b.rel.clone(), to: a.rel.clone() };
                 sources(state, &mut edits, &b.build_path, &change);
             }
             _ => {
-                // Across packages the entry moves between two build files. What
-                // the move does to either package's `dependencies` is derived
-                // from the repository as it will be, so it is left to `buri gen`
-                // and to the `missing-dependency` finding that asks for it.
+                // Otherwise it leaves one list and joins another, if any list
+                // holds its new name: a `.txt` is no source, and an entry point
+                // is named by its rule. Across packages the two lists are in
+                // two build files. What the move does to either package's
+                // `dependencies` is derived from the repository as it will be,
+                // so it is left to `buri gen` and to the `missing-dependency`
+                // finding that asks for it.
                 if let Some(b) = &before {
                     let dropped = Change::Dropped { rel: b.rel.clone() };
                     sources(state, &mut edits, &b.build_path, &dropped);
@@ -159,7 +168,9 @@ pub fn will_rename(state: &mut State, params: &Value) -> Option<Value> {
         let (Some(from), Some(to)) = (from, to) else {
             continue;
         };
-        if from != to {
+        // A module renamed to a schema, or a schema to a module, is a different
+        // kind of file, and what its importers should name is a judgement.
+        if from != to && old.extension() == new.extension() {
             imports(state, &old, &to, &mut edits);
         }
     }
@@ -245,32 +256,12 @@ fn placement(session: &Session, path: &Path) -> Option<Placement> {
     let rel = path.strip_prefix(&p.dir).ok()?.display().to_string().replace('\\', "/");
     Some(Placement {
         build_path: p.build_path.clone(),
-        module: module_path(&p.path, &rel),
+        module: crate::build::workspace::names_a_file(&rel)
+            .then(|| session.workspace.import_path(package, &rel)),
         rel,
         has_library: p.has_library(),
         has_binary: p.has_binary(),
     })
-}
-
-/// The inverse of `Workspace::resolve_module`: the one path an import writes to
-/// name this file.
-///
-/// Written out rather than resolved, because the file this is asked about is
-/// either not there yet or about to go — and resolution insists the file exist.
-///
-/// Since an import names a file this is now only the repository-relative name
-/// with `//` in front of it. The four shapes it used to spell differently —
-/// surface, testing surface, entry point, inner module — are one shape, and a
-/// package at the repository root no longer has a surface with no way to write
-/// it down.
-fn module_path(package_path: &str, rel: &str) -> Option<String> {
-    if !crate::build::workspace::names_a_file(rel) {
-        return None;
-    }
-    match package_path.is_empty() {
-        true => Some(format!("//{rel}")),
-        false => Some(format!("//{package_path}/{rel}")),
-    }
 }
 
 /// The rule and the field a *new* entry belongs in, or `None` when placing it
@@ -286,9 +277,7 @@ fn module_path(package_path: &str, rel: &str) -> Option<String> {
 /// can work out which entry owns a new file — so a `.proto` that appears is
 /// left for whoever writes the entry.
 fn destination(place: &Placement) -> Option<(&'static str, &'static [&'static str])> {
-    if ENTRY_POINTS.contains(&place.rel.as_str()) {
-        return None;
-    }
+    let field = listed_in(place)?;
     let rule = match (place.rel.starts_with("testing/"), place.has_library, place.has_binary) {
         // A `testing/` surface is a library's, and only a library declares one.
         (true, true, _) => "library",
@@ -297,13 +286,15 @@ fn destination(place: &Placement) -> Option<(&'static str, &'static [&'static st
         (false, false, true) => "binary",
         (false, _, _) => return None,
     };
-    Some((rule, field_for(&place.rel)?))
+    Some((rule, field))
 }
 
 /// Which list holds a file, by the same reading of its path `buri gen` uses.
-/// `None` when no list does.
-fn field_for(rel: &str) -> Option<&'static [&'static str]> {
-    if rel.ends_with(".proto") {
+/// `None` when no list does: an entry point is named by its rule, and only a
+/// `.buri` module is a source.
+fn listed_in(place: &Placement) -> Option<&'static [&'static str]> {
+    let rel = place.rel.as_str();
+    if ENTRY_POINTS.contains(&rel) || !rel.ends_with(".buri") {
         None
     } else if rel.starts_with("testing/") {
         Some(&["testing", "sources"])
@@ -514,30 +505,6 @@ fn pairs(params: &Value) -> Vec<(PathBuf, PathBuf)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The inverse of module resolution, at each of the four shapes a package
-    /// module has — all one shape now — and at a file that is not a module.
-    #[test]
-    fn a_file_is_named_by_the_path_an_import_writes() {
-        assert_eq!(module_path("lib/money", "lib.buri").as_deref(), Some("//lib/money/lib.buri"));
-        assert_eq!(
-            module_path("lib/money", "cents.buri").as_deref(),
-            Some("//lib/money/cents.buri")
-        );
-        assert_eq!(module_path("lib/money", "main.buri").as_deref(), Some("//lib/money/main.buri"));
-        assert_eq!(
-            module_path("lib/money", "testing/lib.buri").as_deref(),
-            Some("//lib/money/testing/lib.buri")
-        );
-        assert_eq!(
-            module_path("lib/money", "shop.proto").as_deref(),
-            Some("//lib/money/shop.proto")
-        );
-        // A package at the repository root: its surface is `//lib.buri`, which
-        // under the old spelling was the one module with no path at all.
-        assert_eq!(module_path("", "lib.buri").as_deref(), Some("//lib.buri"));
-        assert_eq!(module_path("lib/money", "notes.txt"), None);
-    }
 
     /// A package with both rules is where `buri gen` refuses to place a new
     /// file, and this refuses in the same place for the same reason.
