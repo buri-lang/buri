@@ -924,12 +924,13 @@ impl<'a> Extractor<'a> {
     }
 
     /// The `classify`s under `e`, in the order [`Extractor::leaf_or_descend`]
-    /// wrote them: each one's children first.
+    /// wrote them: each one's children first. Only a declaration that holds
+    /// one is filled in, so `classify` is loaded whenever this runs.
     fn fill_in(&self, e: &mut typed::Expr, found: &mut dyn Iterator<Item = (Vec<(String, String)>, bool)>) {
         typed::children_mut(e, &mut |child| self.fill_in(child, found));
         let span = e.span;
         let ExprKind::CallFn { func, args } = &mut e.kind else { return };
-        if func.decl().is_none() || ![self.classify, self.classify_style].contains(&func.decl()) {
+        if ![self.classify, self.classify_style].contains(&func.decl()) {
             return;
         }
         let (known, strict) = found.next().or_ice("every `classify` this pass wrote is one leaf");
