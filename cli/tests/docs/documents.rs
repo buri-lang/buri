@@ -31,7 +31,7 @@ fn buri() -> std::process::Command {
 
 /// Runs `buri` in `dir` and answers what it said, having first checked that no
 /// Buri program it started leaked a block or reached a freed one.
-fn ran(dir: &Path, args: &[&str]) -> std::process::Output {
+pub fn ran(dir: &Path, args: &[&str]) -> std::process::Output {
     let out = buri().args(args).current_dir(dir).output().expect("the buri binary runs");
     heap_ok(&format!("buri {}", args.join(" ")), &out);
     out
@@ -1100,36 +1100,26 @@ fn a_module_doc_comment_must_come_first() {
 /// because it reads as current.
 #[test]
 fn every_error_page_is_provoked_by_its_own_example() {
-    let mut failures = Vec::new();
+    let mut paths = Vec::new();
     for e in buri::documentation::errors::ERRORS {
         let doc = format!("crates/docs/src/docs/reference/errors/{}.md", e.code);
-        let text = crate::examples::document(&repo_root(), &doc, e.text);
-        failures.extend(buri::documentation::examples::run_file_at(&repo_root(), &doc, &text));
+        crate::examples::document(&repo_root(), &doc, e.text);
+        paths.push(doc);
     }
-    assert!(
-        failures.is_empty(),
-        "{} error page(s) do not provoke what they describe:\n\n{}",
-        failures.len(),
-        buri::documentation::examples::report(&failures)
-    );
+    crate::examples::docs_test(&repo_root(), &paths);
 }
 
 /// Every lint page's example compiles, and `buri lint` reports the code its
 /// fence names.
 #[test]
 fn every_lint_page_example_is_reported() {
-    let mut failures = Vec::new();
+    let mut paths = Vec::new();
     for l in buri::documentation::lints::LINTS {
         let doc = format!("crates/docs/src/docs/reference/lints/{}.md", l.code);
-        let text = crate::examples::document(&repo_root(), &doc, l.text);
-        failures.extend(buri::documentation::examples::run_file_at(&repo_root(), &doc, &text));
+        crate::examples::document(&repo_root(), &doc, l.text);
+        paths.push(doc);
     }
-    assert!(
-        failures.is_empty(),
-        "{} lint page example(s) do not do what they say:\n\n{}",
-        failures.len(),
-        buri::documentation::examples::report(&failures)
-    );
+    crate::examples::docs_test(&repo_root(), &paths);
 }
 
 /// Every code the compiler can emit has a page, and every page names a code
