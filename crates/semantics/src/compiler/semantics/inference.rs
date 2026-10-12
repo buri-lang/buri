@@ -159,6 +159,8 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     // is copied once, into its local.
     let (module, self_ty, generics, expected, arity) =
         (info.module, info.self_ty, info.generics.clone(), info.ret, info.params.len());
+    // `Self` in a method's body names its `impl`'s head, as in its signature.
+    c.self_scope = info.head;
 
     let mut inf = Infer::new(c, module, generics, expected);
     inf.self_con = self_ty;
@@ -315,6 +317,7 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
         exported: info.exported,
         span: info.span,
         self_ty: None,
+        head: None,
         impl_of: None,
         ast: AstRef::Builtin,
         intrinsic: false,
@@ -344,6 +347,7 @@ fn check_tests(c: &mut Checker) {
                 exported: false,
                 span: t.span,
                 self_ty: None,
+                head: None,
                 impl_of: None,
                 ast: AstRef::Item { module, item: index as u32 },
                 intrinsic: false,

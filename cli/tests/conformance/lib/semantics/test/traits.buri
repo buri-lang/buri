@@ -573,3 +573,40 @@ test "nesting through the container is followed to the bottom" {
         Rose.Branch([Rose.Branch([Rose.Leaf(2), Rose.Leaf(3)]), Rose.Leaf(4)]),
     );
 }
+
+// -----------------------------------------------------------------------------
+// `Self` written inside a method body (SPEC 2, 5.12)
+// -----------------------------------------------------------------------------
+//
+// `Self` is legal anywhere inside an `impl`, so a body may annotate a local
+// with it as well as a signature may. It names the `impl`'s head type.
+
+struct Tally {
+    n: Int,
+}
+
+impl Tally {
+    fn bumped(self): Self {
+        let next: Self = Tally { n: self.n + 1 };
+        next
+    }
+}
+
+trait Doubling {
+    fn doubled(self): Self;
+}
+
+impl Doubling for Tally {
+    fn doubled(self): Self {
+        let twice: Self = Tally { n: self.n * 2 };
+        twice
+    }
+}
+
+test "an inherent method's body annotates a local with Self" {
+    assert.equal(Tally { n: 1 }.bumped().n, 2);
+}
+
+test "a trait method's body annotates a local with Self" {
+    assert.equal(Tally { n: 3 }.doubled().n, 6);
+}

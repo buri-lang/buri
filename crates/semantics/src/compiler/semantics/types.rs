@@ -336,6 +336,9 @@ pub struct FnInfo {
     pub span: Span,
     /// `Some` when this is a method: the head constructor of its `self` type.
     pub self_ty: Option<TyConId>,
+    /// `Some` when this is a method written in an `impl`: the head's type,
+    /// which `Self` names in the method's body as it does in its signature.
+    pub head: Option<Ty>,
     /// `Some` when this function is a trait method supplied by an `impl`.
     pub impl_of: Option<(TraitId, usize)>,
     /// Index of the AST item this came from, for the checker to find the body.

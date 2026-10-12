@@ -318,8 +318,9 @@ pub struct Checker<'a> {
     /// parameter does — a `Ty::SelfTy` left in an `impl` method's `FnInfo` is
     /// substituted by nothing downstream and reaches `middle::layout` as a
     /// type it has no size for. `None` outside both, where `Self` is the
-    /// mistake `self-type-outside-impl` reports.
-    self_scope: Option<Ty>,
+    /// mistake `self-type-outside-impl` reports. `check_fn` sets it to a
+    /// method's `FnInfo::head` for the body too.
+    pub(crate) self_scope: Option<Ty>,
     /// Which bodies step 5 is asked for. [`Bodies::All`] unless a caller said
     /// otherwise.
     pub wanted: Bodies,
@@ -979,6 +980,7 @@ impl<'a> Checker<'a> {
                     exported: d.exported,
                     span: d.name.span,
                     self_ty: None,
+                    head: None,
                     impl_of: None,
                     ast: ast_ref,
                     intrinsic: d.body.is_none(),
@@ -2849,6 +2851,7 @@ impl<'a> Checker<'a> {
                 exported: true,
                 span: method.name.span,
                 self_ty: Some(self_con),
+                head: Some(self_ty),
                 impl_of: Some((trait_id, slot)),
                 ast: AstRef::Method { module, item: index, sub: sub as u32 },
                 intrinsic: method.body.is_none(),
@@ -3045,6 +3048,7 @@ impl<'a> Checker<'a> {
                 exported: method.exported,
                 span: method.name.span,
                 self_ty: target,
+                head: Some(self_ty),
                 impl_of: None,
                 ast: AstRef::Method { module, item: index, sub: sub as u32 },
                 intrinsic: method.body.is_none(),
