@@ -124,27 +124,29 @@ fn source_text(root: &Path, rel: &str, compiled_in: &str) -> String {
     }
 }
 
-/// Compiles every block of every topic of one kind, and fails with all of them
-/// at once — a fence at a time would make fixing a document a dozen round
-/// trips.
+/// `buri docs test` over `documents`, run from the checkout's root the way
+/// someone checking the toolchain's own pages runs it.
+///
+/// Fails with every failure at once — a fence at a time would make fixing a
+/// document a dozen round trips.
+pub fn docs_test(root: &Path, documents: &[String]) {
+    let mut args = vec!["docs", "test", "--color=never"];
+    args.extend(documents.iter().map(String::as_str));
+    let out = crate::documents::ran(root, &args);
+    assert!(out.status.success(), "\n{}", String::from_utf8_lossy(&out.stderr));
+}
+
+/// Compiles every block of every topic of one kind.
 fn check_kind(kind: topics::Kind) {
     let root = repo_root();
-    let mut failures = Vec::new();
-    let mut topics = 0;
+    let mut paths = Vec::new();
     for t in topics::TOPICS.iter().filter(|t| t.kind == kind) {
-        topics += 1;
         let path = topic_path(t);
-        let text = document(&root, &path, t.text);
-        failures.extend(examples::run_file_at(&root, &path, &text));
+        document(&root, &path, t.text);
+        paths.push(path);
     }
-    assert!(topics > 0, "no topics of this kind");
-    assert!(
-        failures.is_empty(),
-        "{} example(s) across {topics} {} topic(s) do not do what the document says:\n\n{}",
-        failures.len(),
-        kind.label(),
-        examples::report(&failures)
-    );
+    assert!(!paths.is_empty(), "no topics of this kind");
+    docs_test(&root, &paths);
 }
 
 #[test]
@@ -182,8 +184,7 @@ fn readme_examples() {
     // below over nothing at all.
     let compiled = examples::extract("README.md", &text).blocks.len();
     assert!(compiled > 0, "no example extracts from README.md; this test has gone vacuous");
-    let failures = examples::run_file_at(&root, "README.md", &text);
-    assert!(failures.is_empty(), "\n{}", examples::report(&failures));
+    docs_test(&root, &["README.md".to_string()]);
 }
 
 /// The per-command pages. Their prose is hand-written, so it gets the same
@@ -191,13 +192,13 @@ fn readme_examples() {
 #[test]
 fn cli_reference_examples() {
     let root = repo_root();
-    let mut failures = Vec::new();
+    let mut paths = Vec::new();
     for c in buri::commands::COMMANDS {
         let path = format!("crates/docs/src/docs/reference/cli/{}.md", c.name);
-        let text = document(&root, &path, c.doc);
-        failures.extend(examples::run_file_at(&root, &path, &text));
+        document(&root, &path, c.doc);
+        paths.push(path);
     }
-    assert!(failures.is_empty(), "\n{}", examples::report(&failures));
+    docs_test(&root, &paths);
 }
 
 /// The skill pages `buri add skills` installs, which the site serves under
@@ -205,16 +206,16 @@ fn cli_reference_examples() {
 #[test]
 fn skill_examples() {
     let root = repo_root();
-    let mut failures = Vec::new();
+    let mut paths = Vec::new();
     let mut compiled = 0;
     for s in buri::commands::add::skills::SKILLS {
         let path = format!("crates/docs/src/docs/reference/skills/{}.md", s.name);
         let text = document(&root, &path, s.text);
         compiled += examples::extract(&path, &text).blocks.len();
-        failures.extend(examples::run_file_at(&root, &path, &text));
+        paths.push(path);
     }
     assert!(compiled > 0, "no example extracts from the skill pages; this test has gone vacuous");
-    assert!(failures.is_empty(), "\n{}", examples::report(&failures));
+    docs_test(&root, &paths);
 }
 
 /// A census, so that a harness regression shows up as a changed count rather
@@ -247,20 +248,15 @@ fn doc_comments_shard(at: usize, count: usize) {
     let root = repo_root();
     let all = documented_modules(&root);
     let mine = shard::of(&all, at, count);
-    let mut failures = Vec::new();
+    let mut paths = Vec::new();
     let mut blocks = 0;
-    for (rel, text, found) in mine.iter().copied() {
+    for (rel, _, found) in mine.iter().copied() {
         blocks += found;
-        failures.extend(examples::run_file_at(&root, rel, text));
+        paths.push(rel.clone());
     }
     let modules = mine.len();
 
-    assert!(
-        failures.is_empty(),
-        "{} example(s) in standard library documentation comments do not do what they say:\n\n{}",
-        failures.len(),
-        examples::report(&failures)
-    );
+    docs_test(&root, &paths);
     // A corpus that discovers nothing passes every assertion. The whole corpus
     // owes eight examples across four modules, and each shard its share of
     // that, rounded up.
