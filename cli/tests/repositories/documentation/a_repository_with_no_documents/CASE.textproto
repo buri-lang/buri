@@ -1,0 +1,12 @@
+# A repository with no documentation has nothing for `buri docs test` to
+# check, and says so rather than passing over nothing.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "buri docs test refuses a repository with no documents"
+
+run {
+  args: ["docs", "test"]
+  exit: 2
+  golden: "test.txt"
+}

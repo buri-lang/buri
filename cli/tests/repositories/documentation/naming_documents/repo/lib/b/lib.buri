@@ -1,0 +1,12 @@
+//! A fence that doesn't say what it is.
+//!
+//! ```buri wrap=bogus
+//! export fn b(): I64 {
+//!     2
+//! }
+//! ```
+
+/// Two.
+export fn b(): I64 {
+    2
+}

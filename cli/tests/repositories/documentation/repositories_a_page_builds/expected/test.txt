@@ -1,0 +1,22 @@
+page.md:6: this build file does not satisfy the schema
+    unknown field `bogus` in a `library` rule
+
+page.md:30: `lib/a/BUILD.buri` is already a fence on this page
+    a repository has one file at a path, so only one fence may be it
+
+page.md:42: this file does not fail the build with `build-unknown-field`
+    the repository built cleanly
+
+page.md:48: this file does not fail the build with `build-unknown-field`
+    lib/c/BUILD.buri:2:20: `//lib/nowhere` names no library [unknown-dependency]
+    "//lib/c/lib.buri" names no file (lib/c/lib.buri) [unknown-module]
+
+page.md:56: the repository these fences are files of could not be built
+    `repo=missing` cannot be copied: No such file or directory (os error 2)
+
+page.md:62: this repository does not build
+    expected `I64`, found `Str`
+
+page.md:76: the repository these fences are files of could not be built
+    `repo=absent` cannot be copied: No such file or directory (os error 2)
+7 example(s) do not do what the documentation says

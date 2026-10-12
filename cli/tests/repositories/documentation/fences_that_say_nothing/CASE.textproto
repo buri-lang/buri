@@ -1,0 +1,12 @@
+# A page whose fences can't say what they are. `buri docs test` names
+# each one and checks nothing it can't read.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a fence that does not say what it is fails `buri docs test`"
+
+run {
+  args: ["docs", "test", "page.md"]
+  exit: 1
+  golden: "test.txt"
+}

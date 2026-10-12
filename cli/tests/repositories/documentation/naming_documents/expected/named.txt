@@ -1,0 +1,1 @@
+2 example(s) in 2 document(s) compile — and the ones that print something were run

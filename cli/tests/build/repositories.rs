@@ -65,6 +65,14 @@ fn operation_refusals() {
     run_corpus(&tests_dir().join("repositories/diagnostics"), "diagnostics", 1);
 }
 
+/// CLI.md's `docs`: what `buri docs` shows a repository's own code as, and
+/// what `buri docs test` says about a repository's documentation, one way of
+/// being wrong at a time.
+#[test]
+fn documentation() {
+    run_corpus(&tests_dir().join("repositories/documentation"), "documentation", 5);
+}
+
 /// CLI.md's `query`: what the graph says, asked without building anything.
 /// Its own corpus because the answers are the recorded output rather than a
 /// diagnostic — a query that has stopped working prints a plausible wrong
