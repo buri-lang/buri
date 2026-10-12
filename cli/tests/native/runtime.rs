@@ -104,7 +104,12 @@ fn run(args: &[&str]) -> Output {
 }
 
 fn run_with(args: &[&str], env: &[(&str, &str)], stdin: &str) -> Output {
-    run_command(Command::new(driver()), args, env, stdin)
+    run_command(
+        crate::shared::program(driver(), "the runtime driver"),
+        args,
+        env,
+        stdin,
+    )
 }
 
 /// The driver with the heap check off, whatever the suite's own environment
@@ -114,7 +119,7 @@ fn run_with(args: &[&str], env: &[(&str, &str)], stdin: &str) -> Output {
 /// inherited `BURI_RT_HEAP_CHECK=1` from a person running the whole suite
 /// under it would otherwise answer a different question.
 fn run_unchecked(args: &[&str]) -> Output {
-    let mut cmd = Command::new(driver());
+    let mut cmd = crate::shared::program(driver(), "the runtime driver");
     cmd.env_remove("BURI_RT_HEAP_CHECK")
         .env_remove("BURI_RT_HEAP_REPORT");
     run_command(cmd, args, &[], "")

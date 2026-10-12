@@ -21,7 +21,7 @@ struct Built {
 
 impl Built {
     fn command(&self) -> Command {
-        let mut cmd = Command::new(&self.program[0]);
+        let mut cmd = crate::shared::program(Path::new(&self.program[0]), self.backend);
         cmd.args(&self.program[1..]);
         cmd
     }

@@ -1712,7 +1712,7 @@ fn a_closing_socket_stopped_and_continued(row: &str, tls: bool) {
     let running = crate::shared::announced(&server);
     let scheme = if tls { "wss" } else { "ws" };
     let mut dialling = crate::shared::started(
-        std::process::Command::new(&client)
+        crate::shared::program(&client, "e2e")
             .arg(format!("{scheme}://localhost:{}/socket", running.2))
             .env("SSL_CERT_FILE", &authority)
             .env("BURI_RT_HEAP_CHECK", "1")
@@ -1981,7 +1981,7 @@ impl Resetting {
     fn start(binary: &std::path::Path, workers: usize) -> Resetting {
         use std::io::BufRead;
         let mut child = crate::shared::started(
-            std::process::Command::new(binary)
+            crate::shared::program(binary, "e2e")
                 .arg(workers.to_string())
                 .env("BURI_RT_HEAP_CHECK", "1")
                 .stdin(std::process::Stdio::piped())
@@ -2693,7 +2693,7 @@ fn a_native_binary_writes_atomically_and_reads_what_may_not_be_there() {
     let dir = binary
         .parent()
         .expect("the program is in a workspace of its own");
-    let out = std::process::Command::new(&binary)
+    let out = crate::shared::program(&binary, "e2e")
         .current_dir(dir)
         .output()
         .expect("the program did not start");
@@ -2815,7 +2815,7 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
     });
 
     let mut child = crate::shared::started(
-        std::process::Command::new(&binary)
+        crate::shared::program(&binary, "e2e")
             .arg(port.to_string())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped()),
@@ -2887,7 +2887,7 @@ fn a_native_binary_dials_the_next_address_when_the_first_refuses() {
         socket.write_all(b"pong\n").expect("the answer");
     });
     let mut child = crate::shared::started(
-        std::process::Command::new(&binary)
+        crate::shared::program(&binary, "e2e")
             .arg(port.to_string())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped()),
@@ -2926,7 +2926,7 @@ fn a_native_binary_touches_files_and_reads_its_own_arguments() {
     let dir = binary
         .parent()
         .expect("the program is in a workspace of its own");
-    let out = std::process::Command::new(&binary)
+    let out = crate::shared::program(&binary, "e2e")
         .current_dir(dir)
         .args(["alpha", "beta"])
         .env("BURI_E2E_VARIABLE", "seen")
@@ -3272,7 +3272,7 @@ fn a_native_binary_reads_a_real_tree_and_removes_it() {
         // or fail, so whatever reads the target directory afterwards (a cache
         // save, a sweep) is not refused it.
         let _reopen = Reopen(dir.join("closed"));
-        let mut command = std::process::Command::new(&binary);
+        let mut command = crate::shared::program(&binary, "e2e");
         command.current_dir(&dir).env("BURI_E2E_VARIABLE", "seen");
         if scrubbed {
             command.env_remove("HOME").env_remove("TMPDIR");
@@ -3802,7 +3802,7 @@ fn a_native_binary_runs_a_real_child_and_reads_what_it_wrote() {
     // only thing left to bound is the exit, which `shared::waited` does.
     let ran = |arguments: &[&str], input: &[u8], path: Option<&str>| -> String {
         use std::io::{Read, Write};
-        let mut command = std::process::Command::new(&binary);
+        let mut command = crate::shared::program(&binary, "e2e");
         command
             .current_dir(&dir)
             .args(arguments)
@@ -3962,7 +3962,7 @@ fn a_native_binary_runs_a_real_child_and_reads_what_it_wrote() {
 /// one.
 fn heap_checked(name: &str, source: &str) -> (Vec<String>, String) {
     let binary = built(name, source);
-    let out = std::process::Command::new(&binary)
+    let out = crate::shared::program(&binary, "e2e")
         .env("BURI_RT_HEAP_CHECK", "1")
         .env("BURI_RT_HEAP_REPORT", "1")
         .output()
@@ -4825,7 +4825,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 fn an_actor_leaks_none_of_what_its_messages_and_answers_carried() {
     unless_ready!();
     let binary = built("e2e-actor-payloads", &actor_payloads());
-    let out = std::process::Command::new(&binary)
+    let out = crate::shared::program(&binary, "e2e")
         .env("BURI_RT_HEAP_CHECK", "1")
         .env("BURI_RT_HEAP_REPORT", "1")
         .output()
@@ -4883,7 +4883,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#;
     for (backend, build) in probed_backends() {
         let binary = build("e2e-actor-left-running", source);
-        let out = std::process::Command::new(&binary)
+        let out = crate::shared::program(&binary, "e2e")
             .env("BURI_RT_HEAP_CHECK", "1")
             .env("BURI_RT_HEAP_REPORT", "1")
             .output()
@@ -5649,7 +5649,7 @@ fn a_projection_off_a_defaulted_option_leaks_nothing() {
 /// it printed those lines, exited zero, and gave every block back.
 fn heap_is_clean(name: &str, source: &str, lines: &[&str]) {
     let binary = built(name, source);
-    let out = std::process::Command::new(&binary)
+    let out = crate::shared::program(&binary, "e2e")
         .env("BURI_RT_HEAP_CHECK", "1")
         .env("BURI_RT_HEAP_REPORT", "1")
         .output()
@@ -5979,7 +5979,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// this domain runs answers.
 fn dialled_client(binary: &std::path::Path, port: u16) -> crate::shared::Ran {
     crate::shared::ran_command(
-        std::process::Command::new(binary)
+        crate::shared::program(binary, "e2e")
             .arg(port.to_string())
             .env("BURI_RT_HEAP_CHECK", "1"),
     )
@@ -6286,7 +6286,7 @@ fn a_client_stopped_and_continued_mid_handshake_reads_the_whole_answer() {
         .set_nonblocking(true)
         .expect("a non-blocking listener");
     let mut child = crate::shared::started(
-        std::process::Command::new(&client)
+        crate::shared::program(&client, "e2e")
             .arg(port.to_string())
             .env("BURI_RT_HEAP_CHECK", "1")
             .stdout(std::process::Stdio::piped())
@@ -6584,7 +6584,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// in this domain answers.
 fn dialled_client_rounds(binary: &std::path::Path, port: u16, rounds: usize) -> crate::shared::Ran {
     crate::shared::ran_command(
-        std::process::Command::new(binary)
+        crate::shared::program(binary, "e2e")
             .arg(port.to_string())
             .arg(rounds.to_string())
             .env("BURI_RT_HEAP_CHECK", "1"),
@@ -7051,7 +7051,7 @@ fn fetched(
     environment: &[(&str, &str)],
 ) -> crate::shared::Ran {
     use std::io::Read;
-    let mut command = std::process::Command::new(binary);
+    let mut command = crate::shared::program(binary, "e2e");
     command
         .args(urls)
         .env("BURI_RT_HEAP_CHECK", "1")
