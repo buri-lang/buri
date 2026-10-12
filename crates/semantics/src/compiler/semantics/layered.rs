@@ -99,15 +99,8 @@ impl<T> Layered<T> {
     where
         T: Clone,
     {
-        if self.own.is_empty() {
-            return;
-        }
         let own = std::mem::take(&mut self.own);
-        self.base = if self.base.is_empty() {
-            Arc::from(own)
-        } else {
-            self.base.iter().cloned().chain(own).collect()
-        };
+        self.base = self.base.iter().cloned().chain(own).collect();
     }
 
     /// A list that shares every entry of this one and has none of its own.
@@ -284,9 +277,6 @@ impl<I: DenseId, T> IdMap<I, T> {
     where
         T: Clone,
     {
-        if self.own.is_empty() && self.replaced.is_empty() {
-            return;
-        }
         let len = self.base.len().saturating_add(self.own.len());
         let all: Vec<Option<T>> = (0..len).map(|i| self.get(&I::from_index(i)).cloned()).collect();
         self.base = Arc::from(all);
@@ -381,9 +371,6 @@ impl<K: Eq + Hash, V> LayeredMap<K, V> {
         K: Clone,
         V: Clone,
     {
-        if self.own.is_empty() {
-            return;
-        }
         let own = std::mem::take(&mut self.own);
         match Arc::get_mut(&mut self.base) {
             Some(base) => base.extend(own),

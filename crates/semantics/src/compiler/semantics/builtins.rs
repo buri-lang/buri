@@ -54,14 +54,14 @@ impl<'a> Checker<'a> {
         if !self.known_traits.contains_key("ToJson") {
             return;
         }
-        let Some(&json) = self.known_types.get("Json") else { return };
+        let json = *self.known_types.get("Json").or_ice("`core/json` declares `Json` beside `ToJson`");
         let json_ty = Ty::con(json, []);
         let decoded = |me: &Self, p: Prim| -> Ty {
-            let (Some(&result), Some(&err)) =
-                (me.known_types.get("Result"), me.known_types.get("DecodeError"))
-            else {
-                return Ty::ERROR;
-            };
+            let result = *me.known_types.get("Result").or_ice("`Result` is a prelude name");
+            let err = *me
+                .known_types
+                .get("DecodeError")
+                .or_ice("`core/json` declares `DecodeError` beside `ToJson`");
             Ty::con(result, [me.tables.prim(p), Ty::con(err, [])])
         };
 
@@ -83,10 +83,9 @@ impl<'a> Checker<'a> {
         // `Option` is `derive`d rather than given methods: `.None` is `null`
         // and `.Some(x)` is whatever `x` is, which is a fold over the payload
         // and so exactly what a derived implementation means.
-        if let Some(&option) = self.known_types.get("Option") {
-            self.add_derived_impl("ToJson", option);
-            self.add_derived_impl("FromJson", option);
-        }
+        let option = *self.known_types.get("Option").or_ice("`Option` is a prelude name");
+        self.add_derived_impl("ToJson", option);
+        self.add_derived_impl("FromJson", option);
     }
 
     /// `fn toJson<C: Allocator>(self, ctx: C): Json` — `Show.show`'s shape,
@@ -277,8 +276,8 @@ impl<'a> Checker<'a> {
         let bool_ty = self.tables.prim(Prim::Bool);
         let str_ty = self.tables.prim(Prim::Str);
         let u64_ty = self.tables.prim(Prim::U64);
-        let order = self.known_types.get("Order").map(|c| Ty::con(*c, []));
-        let option = self.known_types.get("Option").copied();
+        let order = Ty::con(*self.known_types.get("Order").or_ice("`Order` is a prelude name"), []);
+        let opt = *self.known_types.get("Option").or_ice("`Option` is a prelude name");
 
         if p.is_signed() || p.is_float() {
             self.method(p, "abs", Vec::new(), self_ty);
@@ -299,8 +298,7 @@ impl<'a> Checker<'a> {
         }
 
         let eq = self.method(p, "equal", vec![self_ty], bool_ty);
-        let compare =
-            order.as_ref().map(|o| self.method(p, "compare", vec![self_ty], *o));
+        let compare = self.method(p, "compare", vec![self_ty], order);
         // Rendering allocates, so `show` names `Allocator`.
         let show = self.show_method(p, str_ty);
         let hash = self.method(p, "hash", Vec::new(), u64_ty);
@@ -309,21 +307,19 @@ impl<'a> Checker<'a> {
         let mut wrapping = Vec::new();
         let mut saturating = Vec::new();
         if p.is_integer() {
-            if let Some(opt) = option {
-                let opt_self = Ty::con(opt, [self_ty]);
-                for name in
-                    ["checkedAdd", "checkedSubtract", "checkedMultiply", "checkedDivide", "checkedRemainder"]
-                {
-                    checked.push(self.method(p, name, vec![self_ty], opt_self));
-                }
-                // The two whose shape is not "another `Self` alongside": a
-                // negation takes nothing, and an exponent counts
-                // multiplications rather than being one of the values
-                // multiplied, so it is an `Int` at every width.
-                checked.push(self.method(p, "checkedNegate", Vec::new(), opt_self));
-                let int_ty = self.tables.prim(Prim::I64);
-                checked.push(self.method(p, "checkedPower", vec![int_ty], opt_self));
+            let opt_self = Ty::con(opt, [self_ty]);
+            for name in
+                ["checkedAdd", "checkedSubtract", "checkedMultiply", "checkedDivide", "checkedRemainder"]
+            {
+                checked.push(self.method(p, name, vec![self_ty], opt_self));
             }
+            // The two whose shape is not "another `Self` alongside": a
+            // negation takes nothing, and an exponent counts
+            // multiplications rather than being one of the values
+            // multiplied, so it is an `Int` at every width.
+            checked.push(self.method(p, "checkedNegate", Vec::new(), opt_self));
+            let int_ty = self.tables.prim(Prim::I64);
+            checked.push(self.method(p, "checkedPower", vec![int_ty], opt_self));
             for name in ["wrappingAdd", "wrappingSubtract", "wrappingMultiply"] {
                 wrapping.push(self.method(p, name, vec![self_ty], self_ty));
             }
@@ -341,9 +337,7 @@ impl<'a> Checker<'a> {
         ];
 
         self.add_impl("Equal", con, vec![eq]);
-        if let Some(c) = compare {
-            self.add_impl("Ordered", con, vec![c]);
-        }
+        self.add_impl("Ordered", con, vec![compare]);
         self.add_impl("Show", con, vec![show]);
         self.add_impl("Hash", con, vec![hash]);
         for (name, fid) in op_methods {
@@ -441,16 +435,15 @@ impl<'a> Checker<'a> {
             .get("RangeError")
             .map(|c| Ty::con(*c, []))
             .unwrap_or(Ty::ERROR);
-        if let Some(result) = self.known_types.get("Result").copied() {
-            let ret = Ty::con(result, [char_ty, range_error]);
-            self.method(Prim::U32, "toChar", Vec::new(), ret);
-        }
+        let result = *self.known_types.get("Result").or_ice("`Result` is a prelude name");
+        let ret = Ty::con(result, [char_ty, range_error]);
+        self.method(Prim::U32, "toChar", Vec::new(), ret);
 
         let char_con = self.tables.prim_id(Prim::Char);
         let bool_ty = self.tables.prim(Prim::Bool);
         let str_ty = self.tables.prim(Prim::Str);
         let u64_ty = self.tables.prim(Prim::U64);
-        let order = self.known_types.get("Order").map(|c| Ty::con(*c, []));
+        let order = Ty::con(*self.known_types.get("Order").or_ice("`Order` is a prelude name"), []);
 
         let eq =
             self.method(Prim::Char, "equal", vec![self_of(self, Prim::Char)], bool_ty);
@@ -459,11 +452,8 @@ impl<'a> Checker<'a> {
         self.add_impl("Equal", char_con, vec![eq]);
         self.add_impl("Show", char_con, vec![show]);
         self.add_impl("Hash", char_con, vec![hash]);
-        if let Some(o) = &order {
-            let cmp =
-                self.method(Prim::Char, "compare", vec![self_of(self, Prim::Char)], *o);
-            self.add_impl("Ordered", char_con, vec![cmp]);
-        }
+        let cmp = self.method(Prim::Char, "compare", vec![self_of(self, Prim::Char)], order);
+        self.add_impl("Ordered", char_con, vec![cmp]);
 
         // Str, Bool and Template.
         for p in [Prim::Str, Prim::Bool] {
@@ -474,10 +464,8 @@ impl<'a> Checker<'a> {
             self.add_impl("Equal", con, vec![eq]);
             self.add_impl("Show", con, vec![show]);
             self.add_impl("Hash", con, vec![hash]);
-            if let Some(o) = &order {
-                let cmp = self.method(p, "compare", vec![self_of(self, p)], *o);
-                self.add_impl("Ordered", con, vec![cmp]);
-            }
+            let cmp = self.method(p, "compare", vec![self_of(self, p)], order);
+            self.add_impl("Ordered", con, vec![cmp]);
         }
     }
 
@@ -488,7 +476,7 @@ impl<'a> Checker<'a> {
     /// supplies too few or too many cannot leave the table holding a row of a
     /// length no consumer expects.
     fn add_impl(&mut self, trait_name: &str, con: TyConId, methods: Vec<FnId>) {
-        let Some(&trait_id) = self.known_traits.get(trait_name) else { return };
+        let trait_id = *self.known_traits.get(trait_name).or_ice("a builtin `impl` names a known trait");
         let declared = self.tables.trait_(trait_id).methods.len();
         let mut slots: Vec<Option<FnId>> = vec![None; declared];
         for (slot, fid) in slots.iter_mut().zip(methods) {
@@ -509,7 +497,7 @@ impl<'a> Checker<'a> {
     /// type's components rather than a body, so it has no methods and
     /// `satisfies` recurses into the payload before answering.
     fn add_derived_impl(&mut self, trait_name: &str, con: TyConId) {
-        let Some(&trait_id) = self.known_traits.get(trait_name) else { return };
+        let trait_id = *self.known_traits.get(trait_name).or_ice("a builtin `impl` names a known trait");
         let head = self.tables.generic_head(con);
         self.tables.add_impl(ImplInfo {
             trait_id,

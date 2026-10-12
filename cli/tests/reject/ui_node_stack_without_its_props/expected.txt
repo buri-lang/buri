@@ -1,9 +1,37 @@
 error: `stack` takes 1 argument, but none were given [argument-count]
-  --> cmd/ui_node_stack_without_its_props/main.buri:24:9
+  --> cmd/ui_node_stack_without_its_props/main.buri:29:9
    |
-24 |         ui.stack(),
+29 |         ui.stack(),
    |         ^^^^^^^^^^
    |
    = expected: 1
    = actual: 0
    = fix: `stack` requires a `config` parameter: stack<C>(config: Stack<C>)
+error: expected `Stack<a context>`, found `Point` [type-mismatch]
+  --> cmd/ui_node_stack_without_its_props/main.buri:30:18
+   |
+30 |         ui.stack(Point { x: 1 }),
+   |                  ^^^^^^^^^^^^^^ the parameter type is `Stack<a context>`
+   |
+   = expected: `Stack<a context>`
+   = actual: `Point`
+
+     Numbers don't convert on their own
+     ──────────────────────────────────
+
+     There is no implicit widening or narrowing, so convert explicitly. A
+     widening conversion such as .toI64() on an I32 is exact. A narrowing one
+     returns a Result, because not every value fits.
+
+     A bare literal is reported as Int or Float when nothing pins its type.
+     Annotate it, as in let x: U8 = 1 or let x: F64 = 1.0, and it takes any type
+     of the same kind.
+
+     A .Variant is a variant
+     ───────────────────────
+
+     A leading dot takes its enum from its position, so a position that isn't an
+     enum can't resolve it. expected is the type to write instead. The found
+     side names the variant, not a type, because the compiler won't guess an
+     enum from the payload.
+
