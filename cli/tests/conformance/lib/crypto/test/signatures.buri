@@ -249,6 +249,35 @@ test "keys in the wrong shape are not keys" {
     );
 }
 
+test "each half of a P-256 key is checked on its own" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // A good x and a short y.
+    assert.equal(
+        crypto.p256PublicKeyFromJwk(ctx, JWK_X, "f83OJ3D2").map(fn(_k) => ()),
+        .Err("a P-256 coordinate is 32 bytes"),
+    );
+    // 65 bytes, and a first octet that is not 0x04.
+    let five: [U8] = [5];
+    assert.equal(
+        crypto
+            .p256PublicKeyFromSec1(five.concat(ctx, hex(SEC1).drop(ctx, 1)))
+            .map(fn(_k) => ()),
+        .Err("a P-256 key is 65 bytes starting with 0x04"),
+    );
+    // 91 bytes, with the curve's OID ending 08 where P-256's ends 07.
+    assert.equal(
+        crypto
+            .p256PublicKeyFromSpki(
+                ctx,
+                hex("3059301306072a8648ce3d020106082a8648ce3d030108034200${SEC1}"),
+            )
+            .map(fn(_k) => ()),
+        .Err("not a P-256 SubjectPublicKeyInfo"),
+    );
+}
+
 // --- RS256, RFC 7515 appendix A.2 -------------------------------------------------
 
 let RSA_N: Str =
@@ -495,5 +524,37 @@ test "RSA SubjectPublicKeyInfo bytes are read strictly" {
     assert.equal(
         spki(hex("301a300d06092a864886f70d01010105000309003006020165020103")),
         .Err("an RSA modulus is 2048 to 8192 bits"),
+    );
+}
+
+test "a DER length is read in one or two octets, and only where it needs them" {
+    let notRsa = "not an RSA SubjectPublicKeyInfo";
+    let tooSmall = "an RSA modulus is 2048 to 8192 bits";
+    // A 1024-bit key: every length past 127 takes one octet after 0x81. It
+    // reads, and is then refused for its size.
+    assert.equal(
+        spki(
+            hex(
+                "30819d300d06092a864886f70d010101050003818b0030818702818100c10102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e01020103",
+            ),
+        ),
+        .Err(tooSmall),
+    );
+    // A length under 128 written after 0x81, or after 0x82 with a zero first.
+    assert.equal(
+        spki(hex("30811a300d06092a864886f70d01010105000309003006020165020103")),
+        .Err(notRsa),
+    );
+    assert.equal(
+        spki(hex("3082001a300d06092a864886f70d01010105000309003006020165020103")),
+        .Err(notRsa),
+    );
+    // A tag with no length after it, and a two-octet length cut after one.
+    assert.equal(spki(hex("30")), .Err(notRsa));
+    assert.equal(spki(hex("308201")), .Err(notRsa));
+    // An exponent with no octets at all.
+    assert.equal(
+        spki(hex("3019300d06092a864886f70d010101050003080030050201650200")),
+        .Err(notRsa),
     );
 }

@@ -778,7 +778,8 @@ fn asctime<C: Allocator>(ctx: C, fields: [Str]): Option<DateTime> {
     let day = fields
         .get(2)
         .andThen(fn(text) => {
-            if (text.isEmpty() || text.length() > 2 || !allDigits(text, 0)) {
+            // Never empty: `parseHttpDate` drops the empty fields.
+            if (text.length() > 2 || !allDigits(text, 0)) {
                 .None
             } else {
                 text.toInt()
