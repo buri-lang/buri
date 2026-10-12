@@ -4,7 +4,7 @@
 // is written down. It carries what tree-sitter needs beyond a context-free
 // grammar — node names, hidden rules, field names, the external scanner's
 // terminals, and the precedence cascade — as `@` directives in its comments,
-// and `cli/src/documentation/grammar.rs` turns them into this file.
+// and `cli/tests/language/grammar.rs` turns them into this file.
 //
 // To change the grammar, edit the EBNF and run:
 //

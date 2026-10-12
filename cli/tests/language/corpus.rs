@@ -1488,7 +1488,7 @@ fn the_llvm_feature_is_confined_to_the_files_the_bar_names() {
 #[test]
 fn the_tree_sitter_grammar_is_generated_from_the_ebnf() {
     let path = repo_root().join("editors/tree-sitter-buri/grammar.js");
-    let generated = buri::documentation::grammar::generate(buri::documentation::topics::GRAMMAR)
+    let generated = crate::grammar::generate(buri::documentation::topics::GRAMMAR)
         .unwrap_or_else(|e| panic!("crates/docs/src/docs/grammar.ebnf does not generate:\n{e}"));
 
     if std::env::var_os("BURI_BLESS").is_some() {
@@ -1542,9 +1542,9 @@ fn first_differences(recorded: &str, generated: &str) -> String {
 /// rather than failing somewhere downstream.
 #[test]
 fn every_reference_in_the_ebnf_resolves() {
-    let ebnf = buri::documentation::grammar::parse(buri::documentation::topics::GRAMMAR)
+    let ebnf = crate::grammar::parse(buri::documentation::topics::GRAMMAR)
         .unwrap_or_else(|e| panic!("crates/docs/src/docs/grammar.ebnf does not parse:\n{e}"));
-    let dangling = buri::documentation::grammar::dangling_references(&ebnf);
+    let dangling = crate::grammar::dangling_references(&ebnf);
     assert!(dangling.is_empty(), "crates/docs/src/docs/grammar.ebnf:\n  {}", dangling.join("\n  "));
     assert!(
         ebnf.productions.len() > 80,

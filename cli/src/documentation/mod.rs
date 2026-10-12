@@ -30,7 +30,6 @@
 
 pub mod assemble;
 pub mod examples;
-pub mod grammar;
 pub mod layout;
 pub mod reference;
 

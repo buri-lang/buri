@@ -14,7 +14,7 @@ BURI_BLESS=1 cargo test -p buri --test language corpus::the_tree_sitter_grammar
 The EBNF carries everything tree-sitter needs beyond a context-free grammar —
 node names, hidden rules, field names, the external scanner's terminals, and the
 precedence cascade — as directives in its own comments. Its header documents
-them, and `cli/src/documentation/grammar.rs` turns them into this file. The
+them, and `cli/tests/language/grammar.rs` turns them into this file. The
 cargo test above regenerates the grammar and compares it byte for byte against
 the copy here, so the two cannot drift.
 

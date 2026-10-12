@@ -44,7 +44,7 @@
               binary; the subtractions are saturating"
 )]
 
-use crate::diagnostics::Invariant as _;
+use buri::diagnostics::Invariant as _;
 use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
@@ -197,8 +197,6 @@ pub struct Production {
     pub name: String,
     pub body: Node,
     pub annotations: Annotations,
-    /// For a diagnostic that can say where.
-    pub line: usize,
 }
 
 /// One level of the operator cascade: a production, and the node its
@@ -513,7 +511,7 @@ pub fn parse(src: &str) -> Result<Ebnf, String> {
                     }
                     node
                 };
-                out.productions.push(Production { name, body, annotations, line });
+                out.productions.push(Production { name, body, annotations });
                 for (text, at) in trailing {
                     take_directives(&text, &mut out, &mut pending, at)?;
                 }
@@ -1586,7 +1584,7 @@ const HEADER: &str = "\
 // is written down. It carries what tree-sitter needs beyond a context-free
 // grammar — node names, hidden rules, field names, the external scanner's
 // terminals, and the precedence cascade — as `@` directives in its comments,
-// and `cli/src/documentation/grammar.rs` turns them into this file.
+// and `cli/tests/language/grammar.rs` turns them into this file.
 //
 // To change the grammar, edit the EBNF and run:
 //
@@ -1604,7 +1602,7 @@ mod tests {
     use super::*;
 
     fn ebnf() -> Ebnf {
-        parse(crate::documentation::topics::GRAMMAR).expect("the grammar parses")
+        parse(buri::documentation::topics::GRAMMAR).expect("the grammar parses")
     }
 
     #[test]
@@ -1630,14 +1628,14 @@ mod tests {
 
     #[test]
     fn a_lexical_production_compiles_to_a_pattern() {
-        let out = generate(crate::documentation::topics::GRAMMAR).expect("generates");
+        let out = generate(buri::documentation::topics::GRAMMAR).expect("generates");
         assert!(out.contains("integer_literal: $ => /"), "no integer pattern:\n{out}");
         assert!(out.contains("0x[0-9a-fA-F]"), "the hexadecimal form is not derived");
     }
 
     #[test]
     fn the_cascade_becomes_one_node_with_precedences() {
-        let out = generate(crate::documentation::topics::GRAMMAR).expect("generates");
+        let out = generate(buri::documentation::topics::GRAMMAR).expect("generates");
         assert!(out.contains("prec.left(1, seq($._operand, '||', $._operand))"));
         assert!(out.contains("prec.left(2, seq($._operand, '&&', $._operand))"));
         assert!(out.contains("prec.right(9,"), "the prefix level is not right-associative");
@@ -1645,8 +1643,8 @@ mod tests {
 
     #[test]
     fn generating_twice_gives_the_same_bytes() {
-        let once = generate(crate::documentation::topics::GRAMMAR).expect("generates");
-        let twice = generate(crate::documentation::topics::GRAMMAR).expect("generates");
+        let once = generate(buri::documentation::topics::GRAMMAR).expect("generates");
+        let twice = generate(buri::documentation::topics::GRAMMAR).expect("generates");
         assert_eq!(once, twice);
     }
 
