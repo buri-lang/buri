@@ -3,7 +3,7 @@
 {"id":50,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn listing(name: Str, price: I64): Item\n```\n\nAn item nobody has stocked yet."},"range":{"end":{"character":29,"line":22},"start":{"character":22,"line":22}}}}
 {"id":100,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn listing(name: Str, price: I64): Item\n```\n\nAn item nobody has stocked yet."},"range":{"end":{"character":29,"line":22},"start":{"character":22,"line":22}}}}
 {"error":{"code":-32800,"message":"the client cancelled this request"},"id":101,"jsonrpc":"2.0"}
-{"jsonrpc":"2.0","method":"window/showMessage","params":{"message":"REPO.buri: expected `:` or `{` after `not`. That file is the repository's own, so no analysis publishes the finding — and the lint pass does not run until it is fixed.","type":1}}
+{"jsonrpc":"2.0","method":"window/showMessage","params":{"message":"REPO.buri: unknown field `unknown` in REPO.buri. That file is the repository's own, so no analysis publishes the finding — and the lint pass does not run until it is fixed.","type":1}}
 {"id":3,"jsonrpc":"2.0","result":[{"containerName":"//lib/shop/cart.buri","kind":12,"location":{"range":{"end":{"character":18,"line":3},"start":{"character":10,"line":3}},"uri":"file://<scratch>/lib/shop/cart.buri"},"name":"subtotal"}]}
 {"id":4,"jsonrpc":"2.0","result":{"data":[]}}
 {"id":5,"jsonrpc":"2.0","result":[]}
