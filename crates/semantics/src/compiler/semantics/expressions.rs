@@ -1869,10 +1869,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             _ => {}
         }
         let fix = match &near {
-            Some(n) => Some(crate::diagnostics::candidate_fix(
-                n,
-                &Self::where_the_methods_are(home.as_ref(), &shown),
-            )),
+            Some(n) => crate::diagnostics::candidate_fix(n, &Self::where_the_methods_are(home.as_ref(), &shown)),
             None => self.no_method_fix(recv, &shown, name),
         };
         let d = self
@@ -1881,14 +1878,12 @@ impl<'a, 'b> Infer<'a, 'b> {
             .bind("method", name.to_string());
         d.notes.extend(notes);
         // After the binds: every `bind` re-renders the page's own fix over it.
-        if let Some(fix) = fix {
-            d.fix(fix);
-        }
+        d.fix(fix);
     }
 
     /// Whether a type has no module to declare a method in (SPEC 6.7.3).
     fn has_no_module(&self, ty: &Ty) -> bool {
-        matches!(ty.kind(), TyKind::Tuple(_) | TyKind::Fn(..)) || self.as_prim(ty) == Some(Prim::Template)
+        matches!(ty.kind(), TyKind::Unit | TyKind::Tuple(_) | TyKind::Fn(..)) || self.as_prim(ty) == Some(Prim::Template)
     }
 
     /// Where a receiver's methods live: its defining module, that module's
@@ -1898,7 +1893,12 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// A primitive's table entry lives in a synthetic module, so its methods'
     /// module is the one SPEC names rather than the one the entry points at.
     fn method_home(&self, recv: &Ty) -> Option<(String, Role, Option<String>)> {
-        let TyKind::Con(con, _) = recv.kind() else { return None };
+        let con = match recv.kind() {
+            TyKind::Con(con, _) => con,
+            // Only `core/list` may declare a method on `[T]`.
+            TyKind::Array(_) => return Some(("core/list".to_string(), Role::Std, None)),
+            _ => return None,
+        };
         let info = self.c.tables.tycon(*con);
         match &info.def {
             TyDef::Prim(p) => {
@@ -1938,33 +1938,23 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// receiver's type. The page's fix — "declare it in an `impl` block in
     /// that type's own module" — is an instruction only the owner can follow,
     /// and a `Result` or an `I64` is owned by the toolchain.
-    fn no_method_fix(&self, recv: &Ty, shown: &str, name: &str) -> Option<String> {
+    fn no_method_fix(&self, recv: &Ty, shown: &str, name: &str) -> String {
         match recv.kind() {
-            TyKind::Param(_) => Some(format!(
+            TyKind::Param(_) => format!(
                 "add a bound to `{shown}` that declares `{name}`, or call one the bounds it \
                  already carries declare"
-            )),
-            _ if self.has_no_module(recv) => Some(format!(
+            ),
+            _ if self.has_no_module(recv) => format!(
                 "there is no module to declare `{name}` in, so write a free function taking \
                  the value, or wrap it in a struct of yours and give that the method"
-            )),
-            TyKind::Con(..) => {
-                let home = self.method_home(recv);
-                match home.as_ref() {
-                    Some((_, Role::Std | Role::Platform, _)) | Some((_, _, None)) => {
-                        Some(format!(
-                            "check the spelling — {}",
-                            Self::where_the_methods_are(home.as_ref(), shown)
-                        ))
-                    }
-                    Some((path, _, Some(header))) => Some(format!(
-                        "check the spelling, or declare it in `{header} {{ ... }}` in \
-                         `{path}`, where the type is declared"
-                    )),
-                    None => None,
-                }
-            }
-            _ => None,
+            ),
+            _ => match self.method_home(recv) {
+                Some((path, role, Some(header))) if !matches!(role, Role::Std | Role::Platform) => format!(
+                    "check the spelling, or declare it in `{header} {{ ... }}` in \
+                     `{path}`, where the type is declared"
+                ),
+                home => format!("check the spelling — {}", Self::where_the_methods_are(home.as_ref(), shown)),
+            },
         }
     }
 

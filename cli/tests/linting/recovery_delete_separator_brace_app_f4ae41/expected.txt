@@ -20,7 +20,8 @@ error: `()` has no method `Ok` [unknown-method]
 60 |     .Ok(())
    |      ^^
    |
-   = fix: check the spelling, or declare it in `impl () { ... }` in that type's own module
+   = tuples, function types, and `Template` have no defining module, so they have no methods
+   = fix: there is no module to declare `Ok` in, so write a free function taking the value, or wrap it in a struct of yours and give that the method
 error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_separator_brace_app_f4ae41/main.buri:60:12
    |

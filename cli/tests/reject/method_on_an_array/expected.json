@@ -1,0 +1,1 @@
+{"severity":"error","message":"`[I64]` has no method `middle`","code":"unknown-method","location":{"file":"cmd/method_on_an_array/main.buri","line":5,"column":6,"endLine":5,"endColumn":12,"text":"  xs.middle()"},"fix":"check the spelling — `buri docs core/list` lists every method `[I64]` has","notes":[],"related":[]}
