@@ -3526,6 +3526,41 @@ mod tests {
         );
     }
 
+    /// **A waker that wakes a task from a thread the runtime didn't start,
+    /// while the task is still being polled, is a wake and nothing else.**
+    ///
+    /// A tokio timer firing during the poll that registered it is this case:
+    /// the waker reaches the waking thread through a channel helgrind can't
+    /// see, finds the task running, and drops its count there. The waking
+    /// thread is started before the task is made, so nothing but the waker
+    /// orders the two. The poll waits for the wake, so it lands mid-poll every
+    /// time.
+    #[test]
+    fn a_task_woken_mid_poll_from_a_foreign_thread_answers() {
+        let _alone = alone();
+        let (wakers, waker_rx) = channel::<Waker>();
+        let (woken_tx, woken) = channel::<()>();
+        let waking = thread::spawn(move || {
+            let waker = waker_rx.recv().expect("no waker arrived");
+            waker.wake();
+            woken_tx.send(()).expect("the task stopped listening");
+        });
+        let job = on_thread(move || {
+            let mut sent = false;
+            park_on(std::future::poll_fn(move |cx| {
+                if sent {
+                    return Poll::Ready(5u8);
+                }
+                sent = true;
+                wakers.send(cx.waker().clone()).expect("the waking thread is gone");
+                woken.recv().expect("the waking thread never woke the task");
+                Poll::Pending
+            }))
+        });
+        assert_eq!(job.join(), Some(5));
+        waking.join().expect("the waking thread panicked");
+    }
+
     #[test]
     fn a_task_handle_names_a_position_and_is_tombstoned() {
         let _alone = alone();
