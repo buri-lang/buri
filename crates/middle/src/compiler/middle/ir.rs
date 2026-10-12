@@ -267,7 +267,6 @@ impl BinOp {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StructuralOp {
     Eq,
-    Ne,
     /// Three-way comparison, answering an `Order`.
     Cmp,
     /// `Show::show`, and the rendering of a template hole.
@@ -1712,7 +1711,6 @@ fn un_op(op: UnOp) -> &'static str {
 fn structural_op(op: StructuralOp) -> &'static str {
     match op {
         StructuralOp::Eq => "eq",
-        StructuralOp::Ne => "ne",
         StructuralOp::Cmp => "cmp",
         StructuralOp::Show => "show",
         StructuralOp::Hash => "hash",

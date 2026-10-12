@@ -1979,8 +1979,8 @@ impl Monomorphizer<'_> {
                 ExprKind::Prim { op, prim, args: self.rewrite_all(args, targs) }
             }
             // Only `coverage::derived` builds one, after this pass.
-            ExprKind::StructuralEq { negate, args } => {
-                ExprKind::StructuralEq { negate, args: self.rewrite_all(args, targs) }
+            ExprKind::StructuralEq { args } => {
+                ExprKind::StructuralEq { args: self.rewrite_all(args, targs) }
             }
             ExprKind::StructuralCmp { op, args } => {
                 ExprKind::StructuralCmp { op, args: self.rewrite_all(args, targs) }
