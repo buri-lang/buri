@@ -94,6 +94,13 @@ export fn one(): Int {
 ```buri platform=moon
 ```
 
+```buri file=lib/a/lib.buri
+export fn a(): I64 {
+    let b: I64 = "b"; // ERROR: expected
+    1
+}
+```
+
 A plain fence, and one in another language, are prose.
 
 ```

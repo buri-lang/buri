@@ -925,38 +925,14 @@ fn run_block_in(
         .map(|d| describe(map, d, &base, &block.origin))
         .collect();
 
+    // The codes the block produces: the ones it produces whole, and below, the
+    // ones each annotated line produces on its own, since those lines are
+    // blanked here.
+    let mut coded: Vec<String> =
+        reported.items.iter().filter(|d| d.is_error()).filter_map(|d| d.code.clone()).collect();
+
     match &block.claim {
-        Claim::Fail { code, messages, errors } => {
-            // `code=` is what makes the error catalog self-verifying: a page
-            // claims to explain a rule, and its example must provoke exactly
-            // that rule. A page nothing can provoke is a page that describes an
-            // error the compiler no longer emits.
-            if let Some(want) = code {
-                let got: Vec<String> = reported
-                    .items
-                    .iter()
-                    .filter(|d| d.is_error())
-                    .filter_map(|d| d.code.clone())
-                    .collect();
-                if !got.iter().any(|c| c == want) {
-                    failures.push(Failure {
-                        origin: block.origin.clone(),
-                        what: format!("this example does not produce `{want}`"),
-                        detail: if got.is_empty() {
-                            format!(
-                                "it produced no coded diagnostic; got:\n{}",
-                                if diagnostics.is_empty() {
-                                    "nothing".into()
-                                } else {
-                                    diagnostics.join("\n")
-                                }
-                            )
-                        } else {
-                            format!("it produced: {}", got.join(", "))
-                        },
-                    });
-                }
-            }
+        Claim::Fail { messages, errors, .. } => {
             if diagnostics.is_empty() && errors.is_empty() {
                 failures.push(Failure {
                     origin: block.origin.clone(),
@@ -1038,6 +1014,7 @@ fn run_block_in(
             .filter(|d| d.is_error())
             .map(|d| d.message.clone())
             .collect();
+        coded.extend(a.diagnostics.items.iter().filter(|d| d.is_error()).filter_map(|d| d.code.clone()));
         if !got.iter().any(|m| m.contains(want.as_str())) {
             let line = variant.document_line(
                 &block.origin,
@@ -1050,6 +1027,27 @@ fn run_block_in(
                     "it compiled cleanly".into()
                 } else {
                     got.join("\n")
+                },
+            });
+        }
+    }
+
+    // `code=` is what makes the error catalog self-verifying: a page claims
+    // to explain a rule, and its example must provoke exactly that rule. A
+    // page nothing can provoke is a page that describes an error the compiler
+    // no longer emits.
+    if let Claim::Fail { code: Some(want), .. } = &block.claim {
+        if !coded.iter().any(|c| c == want) {
+            failures.push(Failure {
+                origin: block.origin.clone(),
+                what: format!("this example does not produce `{want}`"),
+                detail: if coded.is_empty() {
+                    format!(
+                        "it produced no coded diagnostic; got:\n{}",
+                        if diagnostics.is_empty() { "nothing".into() } else { diagnostics.join("\n") }
+                    )
+                } else {
+                    format!("it produced: {}", coded.join(", "))
                 },
             });
         }

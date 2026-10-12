@@ -69,4 +69,7 @@ page.md:92: `wrap=` says nothing in a `file=` fence
 
 page.md:95: `moon` is not a platform
     the platforms are native, node, web
-24 example(s) do not do what the documentation says
+
+page.md:98: a `file=` fence is built, not compiled on its own
+    drop the mode and any `// ERROR:` annotations: it must build cleanly
+25 example(s) do not do what the documentation says
