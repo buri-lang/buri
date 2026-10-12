@@ -265,11 +265,12 @@ fn word_before(text: &str, at: u32) -> (&str, u32) {
 /// The offset of the `.` immediately before `at`, if there is one.
 ///
 /// Immediately: `x .f` is not a member access anybody writes, and a `.` after
-/// a digit is a number rather than a receiver.
+/// a digit is a number rather than a receiver. A `.` after another `.` is the
+/// end of a `..spread` or a range, and what follows it is a value.
 fn dot_before(text: &str, at: u32) -> Option<u32> {
     let before = text.get(..at as usize)?;
     let dot = before.strip_suffix('.')?;
-    (!dot.ends_with(|c: char| c.is_ascii_digit())).then_some(dot.len() as u32)
+    (!dot.ends_with(|c: char| c.is_ascii_digit() || c == '.')).then_some(dot.len() as u32)
 }
 
 /// The module the file holds, if the analysis loaded one.
