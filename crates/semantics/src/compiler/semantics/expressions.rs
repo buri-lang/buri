@@ -2048,10 +2048,16 @@ impl<'a, 'b> Infer<'a, 'b> {
         let Some(ns) = self.c.scope(self.module).namespaces.get(head).copied() else {
             return false;
         };
-        if self.c.lookup_export(ns, name).is_some() {
-            return false;
+        match self.c.lookup_export(ns, name) {
+            None => self.c.report_no_such_member(ns, name, name_span),
+            // `json.Json` as a value is refused the way `Json` is; going on
+            // would check `json` as a value and call it unknown.
+            Some(Sym::Ty(_) | Sym::Trait(_) | Sym::Alias(..)) => {
+                let written = format!("{head}.{name}");
+                self.templated("type-not-value", name_span).bind("name", written);
+            }
+            Some(_) => return false,
         }
-        self.c.report_no_such_member(ns, name, name_span);
         true
     }
 

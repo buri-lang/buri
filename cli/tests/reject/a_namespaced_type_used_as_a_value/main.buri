@@ -1,0 +1,13 @@
+// EXPECT: `json.Json` is a type, not a value
+//
+// A type reached through a namespace import is a type all the same, so it is
+// refused as a value the way `Json` on its own is, rather than as a namespace
+// with nothing in it.
+from "core/json" import * as json;
+
+fn go(): Int {
+  let j = json.Json;
+  let k = json.Json(1);
+  let n = json.Json.Null;
+  1
+}
