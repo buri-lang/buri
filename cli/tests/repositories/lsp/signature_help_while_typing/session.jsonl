@@ -1,0 +1,47 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "fn bare(a: I64, b: I64): I64 {\n    a + b\n}\n\nexport fn go(): I64 {\n    let s = \"a \\\" ( b\";\n    // a ( comment\n    /* a /* nested ( */ block */\n    bare (1, \n}\n"}}}
+# A `(` inside a string, a line comment and a nested block comment opens no
+# call, so the call the cursor is in is still `bare`, past its comma. A space
+# between the name and its `(` is still a call. `bare` has no doc comment, so the
+# signature carries no documentation.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 8, "character": 13}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 2}, "contentChanges": [{"text": "("}]}}
+# A `(` at the very top of the file has no name before it: nothing to show.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 0, "character": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 3}, "contentChanges": [{"text": "f("}]}}
+# A name nothing declares: nothing to show.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 0, "character": 2}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 4}, "contentChanges": [{"text": "export fn go(): I64 {\n    let f = fn(x: I64) => x;\n    f(\n}\n"}]}}
+# A local closure is not a declaration with a signature: nothing to show.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 2, "character": 6}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 5}, "contentChanges": [{"text": "export fn go(): I64 {\n    nope(\n}\n"}]}}
+# A call to a function that does not exist: nothing to show.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 1, "character": 9}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 6}, "contentChanges": [{"text": "fn bare(a: I64, b: I64): I64 {\n    a + b\n}\n\nexport fn go(): Str {\n    \"never closed bare("}]}}
+# The cursor inside a string that never closes is not in a call.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 5, "character": 23}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 7}, "contentChanges": [{"text": "fn bare(a: I64, b: I64): I64 {\n    a + b\n}\n\nexport fn go(): I64 {\n    1 // trailing bare("}]}}
+# The cursor inside a line comment is not in a call.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 5, "character": 23}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 8}, "contentChanges": [{"text": "fn bare(a: I64, b: I64): I64 {\n    a + b\n}\n\nexport fn go(): I64 {\n    1 /* never closed bare("}]}}
+# The cursor inside a block comment that never closes is not in a call.
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 5, "character": 27}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 9}, "contentChanges": [{"text": "fn bare(a: I64, b: I64): I64 {\n    a + b\n}\n\nlet x: I64 = bare(\n"}]}}
+# A call being typed at the top level, outside any function.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 4, "character": 18}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 10}, "contentChanges": [{"text": "fn bare(a: I64, b: I64): I64 {\n    a + b\n}\n\nexport fn go(): I64 {\n    let = bare(\n}\n"}]}}
+# A call being typed inside a statement that does not parse.
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 5, "character": 15}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 11}, "contentChanges": [{"text": "fn bare(a: I64, b: I64): I64 {\n    a + b\n}\n\nexport fn go(): I64 {\n    match bare(\n}\n"}]}}
+# A call being typed after `match`.
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 5, "character": 15}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 12}, "contentChanges": [{"text": "fn bare(a: I64, b: I64): I64 {\n    a + b\n}\n\nexport fn go(): I64 {\n    bare(1, "}]}}
+# A call being typed at the end of the file, before the body is closed.
+{"jsonrpc": "2.0", "id": 13, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 5, "character": 12}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 13}, "contentChanges": [{"text": "fn bare(a: I64, b: I64): I64 {\n    a + b\n}\n\nexport fn go(): I64 {\n    bare(1, bare()\n}\n"}]}}
+# The innermost call is the one shown: `bare` inside `bare`'s second argument.
+{"jsonrpc": "2.0", "id": 14, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 5, "character": 17}}}
+{"jsonrpc": "2.0", "id": 15, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
