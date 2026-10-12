@@ -1250,14 +1250,14 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
 
-        // The write-back half, and it analyses nothing: the range came from the
-        // answer above, and what to write there is the colour plus how the
-        // source already spelled the call.
+        // The write-back half: a range the answer above reported, and what to
+        // write there is the colour plus how the source already spelled the call.
         ("textDocument/colorPresentation", Some(id)) => {
             let result = (|| {
                 let path = uri_param(&params)?;
                 let text = state.text_of(&path)?;
-                Some(color::presentations(&text, &params))
+                let analyzed = state.analyze_for_query(&path)?;
+                Some(color::presentations(&analyzed, &path, &text, &params))
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
