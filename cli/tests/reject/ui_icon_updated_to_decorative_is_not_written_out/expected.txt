@@ -1,0 +1,22 @@
+error: a decorative picture's artwork has to be written out at the call site, because the compiler reads it [icon-not-drawable]
+  --> cmd/ui_icon_updated_to_decorative_is_not_written_out/main.buri:17:14
+   |
+17 |     ui.image({
+   |              ^
+   |
+   = fix: write the artwork out at the call site, and keep it to an `<svg>` and the shapes inside it
+
+     A decorative image, one whose alt is .Decorative, writes its source into
+     the document as an <svg>. That's what lets currentColor inside it follow
+     the element's Foreground, so a theme switch recolours it for free. It's
+     also why the compiler reads the source: whatever the artwork says lands in
+     the page.
+
+     The allowed shapes are g, path, rect, circle, ellipse, line, polyline and
+     polygon, with only the attributes that draw them. A script, an event
+     handler, a <use>, or an <image> pointing elsewhere is refused rather than
+     silently dropped by the renderer.
+
+     The artwork must be a string the compiler can read: written at the call
+     site or in a module-level let, not computed at run time.
+

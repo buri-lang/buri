@@ -1,0 +1,27 @@
+# `//platform/effect/quiet` declares `effect Quiet`, `fn loud` and `enum Mood`
+# without `export`. Each program names them from outside: `app` binds `Quiet`
+# by its bare name, `named` binds it through a namespace, and `members` names
+# them through a namespace as a bound, a type, a pattern and a call. Every one
+# says the name is private, and none offers an import.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "naming what another module keeps private says it's private"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "refused.txt"
+}
+
+run {
+  args: ["build", "//cmd/named"]
+  exit: 1
+  golden: "named.txt"
+}
+
+run {
+  args: ["build", "//cmd/members"]
+  exit: 1
+  golden: "members.txt"
+}

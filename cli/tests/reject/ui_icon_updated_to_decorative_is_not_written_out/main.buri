@@ -1,0 +1,26 @@
+// EXPECT: a decorative picture's artwork has to be written out at the call site
+//
+// Updating a picture to `.Decorative` inlines its artwork, so the compiler has
+// to read it. One that a `match` picks before the update isn't written out
+// where the compiler can read it.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let plain = false;
+  ui.mount(
+    ctx,
+    ui.image({
+      ..match (plain) {
+        true => { source: .Const("a.png"), alt: .AccessibilityText("a"), styles: [] },
+        false => { source: .Const("b.png"), alt: .AccessibilityText("b"), styles: [] },
+      },
+      alt: .Decorative,
+    }),
+    [],
+  )
+}

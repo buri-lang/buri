@@ -6,3 +6,14 @@ effect Quiet {
 export fn calm(): Int {
     0
 }
+
+/// Kept to this file too.
+fn loud(): Int {
+    1
+}
+
+/// And this.
+enum Mood {
+    Calm(Int),
+    Loud,
+}

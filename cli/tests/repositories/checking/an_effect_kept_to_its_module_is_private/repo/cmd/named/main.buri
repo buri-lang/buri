@@ -1,0 +1,9 @@
+from "node" import { NodeHost };
+from "//platform/effect/quiet" import * as quiet;
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        quiet.Quiet: host.alloc,
+    };
+    if (quiet.calm() == 0) { .Ok(()) } else { .Err("loud") }
+}

@@ -1,10 +1,22 @@
-error: `Quiet` is not a declared effect [unknown-effect]
- --> cmd/app/main.buri:6:9
+error: `Quiet` is private to its module [private-to-module]
+ --> cmd/named/main.buri:6:9
   |
-6 |         Quiet: host.alloc,
-  |         ^^^^^
+6 |         quiet.Quiet: host.alloc,
+  |         ^^^^^^^^^^^
   |
-  = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Quiet` is not one
+  = fix: add `export` to `Quiet`'s declaration in "//platform/effect/quiet", if it is meant to be part of the API
+
+    Add export to the declaration, or go through a method the type provides.
+
+    Without export, a declaration, field, method or variant of a private enum is
+    reachable only from its own module.
+
+    A struct with any private field can't be constructed outside its module at
+    all, because writing Scope(0) names the hidden field. That makes a private
+    field an invariant, and it's how the standard library mints a type only from
+    the inside. Functional update still works, because it never names the hidden
+    fields.
+
 error: `Quiet` has no test implementation in `//platform/effect/quiet/testing` [effect-missing-test-implementation]
  --> platform/effect/quiet/lib.buri:2:8
   |

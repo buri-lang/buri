@@ -10,19 +10,22 @@ error: `Slot` has no method `position` [unknown-method]
      can add a method from outside, so for a toolchain type the fix points at
      its page instead of an impl block you couldn't write.
 
-error: "core/indexset" does not export `position` [unknown-export]
+error: `position` is private to its module [private-to-module]
   --> cmd/index_adds_no_methods/main.buri:14:39
    |
 14 |   let _ = io.println(ctx, "${indexSet.position(Slot(3))}").ignore();
    |                                       ^^^^^^^^
    |
-   = the module exports 20 names
-   = fix: correct the member name, or check `buri docs core/indexset`
+   = fix: use what "core/indexset" exports instead; `buri docs core/indexset` lists it
 
-     A re-export names only what its module exports, so a library's surface is
-     never wider than the modules behind it. A namespace like fs stands for the
-     module its import named, and only that module's exports may follow the dot.
-     This covers types, bounds and impl heads too, such as list.Vector<Int> and
-     <T: order.Comparable>. If no import bound the namespace at all, the error
-     is unknown-name instead.
+     Add export to the declaration, or go through a method the type provides.
+
+     Without export, a declaration, field, method or variant of a private enum
+     is reachable only from its own module.
+
+     A struct with any private field can't be constructed outside its module at
+     all, because writing Scope(0) names the hidden field. That makes a private
+     field an invariant, and it's how the standard library mints a type only
+     from the inside. Functional update still works, because it never names the
+     hidden fields.
 

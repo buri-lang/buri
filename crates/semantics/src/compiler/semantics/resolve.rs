@@ -1311,6 +1311,23 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// Reports naming `name`, which the module imported as `path` declares
+    /// without `export`. A standard library module isn't the reader's to
+    /// change, so the fix there is its surface.
+    pub(crate) fn report_private(&mut self, name: &str, path: &str, span: Span) {
+        let fix = match standard_library::is_std_path(path) {
+            true => format!("use what \"{path}\" exports instead; `buri docs {path}` lists it"),
+            false => format!("add `export` to `{name}`'s declaration in \"{path}\", if it is meant to be part of the API"),
+        };
+        self.templated("private-to-module", span).bind("declaration", format!("`{name}`")).fix(fix);
+    }
+
+    /// The path a file imports a module by: a `lib.buri` by its directory.
+    pub(crate) fn import_path(&self, module: ModuleId) -> String {
+        let path = &self.loaded.module(module).path;
+        path.strip_suffix("/lib.buri").unwrap_or(path).to_string()
+    }
+
     pub(crate) fn nearest_export(&self, module: ModuleId, name: &str) -> Option<String> {
         let names: Vec<&str> =
             self.scope(module).exports.keys().map(|s| s.as_str()).collect();
@@ -1327,7 +1344,14 @@ impl<'a> Checker<'a> {
     /// that lists the rest. Reporting the *base* instead — "there is nothing
     /// named `fs` in scope" — sends a reader after a missing import when the
     /// import is the one part that was right.
+    ///
+    /// A member the module declares without `export` is private, and says so.
     pub(crate) fn report_no_such_member(&mut self, ns: ModuleId, name: &str, span: Span) {
+        if self.scope(ns).own.contains_key(name) {
+            let path = self.import_path(ns);
+            self.report_private(name, &path, span);
+            return;
+        }
         let path = self.loaded.module(ns).path.clone();
         let mut exports: Vec<String> = self.scope(ns).exports.keys().cloned().collect();
         exports.sort();
@@ -2397,7 +2421,7 @@ impl<'a> Checker<'a> {
     /// is. `false` for every other path, including one whose head names no
     /// namespace at all — a module that was never imported is a different
     /// mistake, and keeps the answer about the path as written.
-    fn namespace_member_missing(
+    pub(crate) fn namespace_member_missing(
         &mut self,
         module: ModuleId,
         path: &[flat::Location],
