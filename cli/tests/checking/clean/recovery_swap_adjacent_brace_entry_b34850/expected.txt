@@ -1,0 +1,9 @@
+error: expected `let`, found `text` [unexpected-token]
+  --> main.buri:84:5
+   |
+84 |     text let = ast.print(ctx, assert.some(out.modules.first()).1).text.lines(ctx);
+   |     ^^^^
+   |
+   = expected: `let`
+   = actual: `text`
+   = fix: write `let` first: `let text`

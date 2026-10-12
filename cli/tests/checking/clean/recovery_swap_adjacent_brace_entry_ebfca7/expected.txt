@@ -1,9 +1,0 @@
-error: expected `let`, found `request` [unexpected-token]
-  --> main.buri:47:5
-   |
-47 |     request let = Request {
-   |     ^^^^^^^
-   |
-   = expected: `let`
-   = actual: `request`
-   = fix: write `let` first: `let request`

@@ -1,0 +1,9 @@
+error: expected a pattern, found `=` [unexpected-token]
+  --> main.buri:30:9
+   |
+30 |     let = ctx context {
+   |         ^
+   |
+   = expected: a pattern
+   = actual: `=`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
