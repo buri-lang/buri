@@ -746,3 +746,118 @@ test "a member of exactly the length the header check allows" {
     let seventeen = GZIP_HELLO.take(ctx, 17);
     assert.equal(assert.err(unwrapped(seventeen)), DecodeError(0));
 }
+
+// --- What `inflate` refuses, part-way through a symbol or a tree ---------------------------
+
+test "a stream that stops inside a length's extra bits" {
+    // A fixed block of six literals and a length code of 265, whose one extra
+    // bit is past the end.
+    assert.equal(
+        assert.err(unpacked([59, 113, 226, 196, 137, 19, 39, 144])),
+        DecodeError(8),
+    );
+}
+
+test "a stream that stops inside a distance's extra bits" {
+    // One literal, a length of 3, and distance code 4, whose extra bit is past
+    // the end.
+    assert.equal(assert.err(unpacked([59, 1, 36])), DecodeError(3));
+}
+
+test "the two distance codes a fixed block has no distance for" {
+    // One literal, a length of 3, and distance code 30. Code 30 is no code at
+    // all, so the reader walks on through the zeroes after it looking for one.
+    assert.equal(assert.err(unpacked([75, 4, 62, 0, 0])), DecodeError(4));
+}
+
+test "a dynamic block that stops inside its code-length code" {
+    assert.equal(assert.err(unpacked([5, 0, 0])), DecodeError(3));
+}
+
+test "a dynamic block that stops inside a repeat's extra bits" {
+    // The code-length code has 18 and 0; the stream ends seven bits into an 18.
+    assert.equal(assert.err(unpacked([5, 0, 128, 36])), DecodeError(4));
+}
+
+test "a dynamic block whose literal code claims more codes than there is room for" {
+    // 257 literal codes of length 8, where eight bits have room for 256.
+    let body: [U8] = [
+        5,
+        32,
+        2,
+        32,
+        254,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        2,
+    ];
+    assert.equal(assert.err(unpacked(body)), DecodeError(20));
+}
+
+test "a dynamic block whose distance code claims more codes than there is room for" {
+    // A complete literal code, then three distance codes of length 1.
+    let body: [U8] = [
+        5,
+        194,
+        5,
+        64,
+        16,
+        0,
+        0,
+        0,
+        32,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        181,
+        0,
+    ];
+    assert.equal(assert.err(unpacked(body)), DecodeError(31));
+}
+
+// --- gzip, the header's other ways to be wrong ----------------------------------------------
+
+test "a member whose second magic byte is wrong" {
+    assert.equal(assert.err(unwrapped(changed(GZIP_HELLO, 1, 0))), DecodeError(0));
+}
+
+test "a member whose extra field runs past its end" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // FEXTRA, with a length of 65535 and twenty bytes in all.
+    let header: [U8] = [31, 139, 8, 4, 0, 0, 0, 0, 0, 255, 255, 255];
+    let body = header.concat(ctx, list.repeat(ctx, 0, 8));
+    assert.equal(assert.err(unwrapped(body)), DecodeError(3));
+}
