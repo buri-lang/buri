@@ -1,0 +1,4 @@
+library {
+    sources: ["count.buri"]
+    visibility: ["//visibility:public"]
+}

@@ -1,0 +1,30 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Every finding in the file, from a client that echoed none back.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "context": {"diagnostics": []}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 30, "character": 0}}}}
+# The blank line between the imports' findings and the unused context's: a
+# range that touches neither the findings above it nor the ones below it.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "context": {"diagnostics": []}, "range": {"start": {"line": 8, "character": 0}, "end": {"line": 8, "character": 0}}}}
+# Two findings of `missing-dependency` in one package have one answer, the build
+# file `buri gen` would write, and are offered as one action.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "context": {"diagnostics": []}, "range": {"start": {"line": 6, "character": 0}, "end": {"line": 7, "character": 40}}}}
+# A request that names no document has no file to offer fixes in.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/codeAction", "params": {"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": []}}}
+# A file that does not exist has no findings to fix.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file:///nowhere/absent.buri"}, "context": {"diagnostics": []}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}}}
+# No range, and nothing echoed: there is nothing to say which findings are meant.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "context": {"diagnostics": []}}}
+# A range with no start, and one whose end is not a position, say no more than none.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"end": {"line": 0, "character": 0}}, "context": {"diagnostics": []}}}
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": "here"}, "context": {"diagnostics": []}}}
+# A build file with nothing wrong in it has nothing to fix.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "context": {"diagnostics": []}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 10, "character": 0}}}}
+# A library with an unused context of its own, open in the editor. Its finding is
+# in the analysis a request about `main.buri` reads, and is not offered there:
+# an action in one file never carries an edit to another.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "from \"platform/effect\" import { Allocator };\n\nderive Equal, Show for Cents;\nexport struct Cents(I64);\n\nfn spare<C: Allocator>(ctx: C): I64 {\n    1\n}\n\nexport fn fromCents(c: I64): Cents {\n    Cents(c)\n}\n"}}}
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "context": {"diagnostics": []}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 30, "character": 0}}}}
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "context": {"diagnostics": [{"code": "unused-context", "message": "x", "range": {"start": {"line": 9, "character": 23}, "end": {"line": 9, "character": 29}}}]}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}}}
+{"jsonrpc": "2.0", "id": 13, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
