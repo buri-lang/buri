@@ -80,7 +80,9 @@ pub fn hover(
             continue;
         }
         crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
-            if e.span.file != file || e.span.start > offset || e.span.end < offset {
+            // A type that did not resolve is no answer; the squiggle says so.
+            let covers = e.span.file == file && e.span.start <= offset && offset <= e.span.end;
+            if !covers || e.ty.has_error() {
                 return;
             }
             let width = e.span.end.saturating_sub(e.span.start);

@@ -448,6 +448,13 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
             Some(m) => (format!("from \"{}\"", m.path), m.ast.tree.docs(m.ast.docs)),
             None => (String::new(), Vec::new()),
         },
+        // A type that did not resolve has nothing to show but what the source
+        // wrote, which for a parameter is `a: Nope` and for a `let` is the name.
+        Symbol::Local { name, ty, span } if ty.has_error() => {
+            let file = analyzed.session.map.get(span.file);
+            let written = file.text.get(span.start as usize..span.end as usize);
+            (written.unwrap_or(name).to_string(), Vec::new())
+        }
         Symbol::Local { name, ty, .. } => (
             format!("{name}: {}", types::show(tables, None, &[], ty)),
             Vec::new(),
