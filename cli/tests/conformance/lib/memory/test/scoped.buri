@@ -471,10 +471,12 @@ test "a scope forwards standard input" {
 test "a scope forwards the filesystem" {
     let ctx = context {
         Allocator: alloc.generalPurpose(),
-        FileSystemRead: testing.fs().files([("a", "A")]),
+        FileSystemRead: testing.fs().files([("a", "A"), ("d/a", "DA")]),
     };
     assert.equal(alloc.scoped(ctx, fn(c) => readBack(c, "a")), "A");
     assert.equal(alloc.scoped(ctx, fn(c) => readBack(c, "nope")), "missing");
+    // A doubled separator names the same file inside a scope as outside one.
+    assert.equal(alloc.scoped(ctx, fn(c) => readBack(c, "d//a")), "DA");
 }
 
 test "a scope forwards every method of the filesystem" {
