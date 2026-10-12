@@ -3,8 +3,8 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
-total 14708 16380 89.79%
-area cli/build 1616 1633 98.96%
+total 14771 16440 89.85%
+area cli/build 1672 1689 98.99%
 area cli/documentation 258 771 33.46%
 area cli/format 85 98 86.73%
 area cli/language_server 1150 1464 78.55%
@@ -12,7 +12,7 @@ area cli/lint 588 708 83.05%
 area cli/other 512 606 84.49%
 area cli/run 48 66 72.73%
 area cli/serve+watch 51 84 60.71%
-area cli/test 446 588 75.85%
+area cli/test 453 592 76.52%
 area crates/backend 68 68 100.00%
 area crates/diagnostics 191 194 98.45%
 area crates/docs 197 304 64.80%
@@ -25,14 +25,15 @@ area crates/semantics 2136 2182 97.89%
 area crates/stdlib 12 12 100.00%
 area crates/stencil 1235 1298 95.15%
 area crates/syntax 1209 1234 97.97%
-254 259 cli/src/build/actions.rs
+264 269 cli/src/build/actions.rs
 44 44 cli/src/build/cache.rs
 14 14 cli/src/build/counted.rs
 80 80 cli/src/build/coverage.rs
 30 32 cli/src/build/exe_identity.rs
 164 164 cli/src/build/generators.rs
 230 230 cli/src/build/hosted.rs
-156 162 cli/src/build/link.rs
+30 30 cli/src/build/image.rs
+158 164 cli/src/build/link.rs
 0 0 cli/src/build/mod.rs
 0 0 cli/src/build/musl.rs
 35 37 cli/src/build/programs.rs
@@ -42,6 +43,7 @@ area crates/syntax 1209 1234 97.97%
 8 8 cli/src/build/session.rs
 28 28 cli/src/build/sources.rs
 14 14 cli/src/build/spawn.rs
+14 14 cli/src/build/test_host.rs
 108 108 cli/src/build/tools.rs
 294 294 cli/src/build/workspace.rs
 0 0 cli/src/commands/add/mod.rs
@@ -59,7 +61,7 @@ area crates/syntax 1209 1234 97.97%
 34 42 cli/src/commands/query.rs
 48 66 cli/src/commands/run.rs
 16 36 cli/src/commands/serve.rs
-446 588 cli/src/commands/test.rs
+453 592 cli/src/commands/test.rs
 3 6 cli/src/commands/version.rs
 35 48 cli/src/commands/watch.rs
 0 0 cli/src/compiler/backend/mod.rs
