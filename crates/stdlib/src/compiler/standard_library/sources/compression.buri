@@ -198,11 +198,7 @@ fn memberStart(body: [U8]): Result<Int, DecodeError> {
             afterName
         };
         let start = if (flags & 2 == 2) { afterComment + 2 } else { afterComment };
-        if (start < 0 || start + 8 > body.length()) {
-            .Err(DecodeError(3))
-        } else {
-            .Ok(start)
-        }
+        if (start + 8 > body.length()) { .Err(DecodeError(3)) } else { .Ok(start) }
     }
 }
 
@@ -1064,12 +1060,14 @@ fn pairs<C: Allocator>(
         let extra = takeBits(data, symbol.1, at(LENGTH_EXTRA, index));
         let length = at(LENGTH_BASE, index) + extra.0;
         let which = takeSymbol(data, extra.1, distances);
-        if (which.1.error >= 0 || which.0 > 29) {
+        // A code of thirty lengths has no symbol past 29: 30 and 31 in a fixed
+        // block fail in `takeSymbol` as codes no symbol has.
+        if (which.1.error >= 0) {
             (failed(which.1), out)
         } else {
             let more = takeBits(data, which.1, at(DISTANCE_EXTRA, which.0));
             let distance = at(DISTANCE_BASE, which.0) + more.0;
-            if (more.1.error >= 0 || distance <= 0 || distance > out.length()) {
+            if (more.1.error >= 0 || distance > out.length()) {
                 (failed(more.1), out)
             } else {
                 pairs(
