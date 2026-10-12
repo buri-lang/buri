@@ -1,0 +1,16 @@
+# Helpers that recurse on the right of a short-circuit nested in another one —
+# `a && (b || self(..))` — and own a string only `b` reads (buri-lang/buri#303).
+# Natively that string was released twice, and the test binary died in
+# whichever block ran next. The harness runs `buri` under the heap check, so a
+# double release is a failed run here rather than a crash somewhere else.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a helper recursing inside a nested short-circuit passes every block on both backends"
+
+run {
+  args: ["test", "//lib/walks", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

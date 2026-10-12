@@ -1,0 +1,8 @@
+library {
+    sources: []
+
+    test {
+        sources: ["test/walks.buri"]
+        backends: [NATIVE, JS]
+    }
+}
