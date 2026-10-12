@@ -1,0 +1,4 @@
+/// The number for `c`.
+export fn c(): I64 {
+    1
+}

@@ -1,0 +1,23 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# `lib/one/extra.buri` is on disk and no rule lists it, so no analysis loads
+# it: there is no type behind any name in it. What the server still has is
+# the file's own text.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Hover on `twice`: nothing to say.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/extra.buri"}, "position": {"line": 6, "character": 11}}}
+# Completion right after `money.`: the fields of a type, and the file has no
+# types. Nothing, rather than a guess.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/extra.buri"}, "position": {"line": 7, "character": 10}}}
+# Completion after `mo`: the words in the file that start with it.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/extra.buri"}, "position": {"line": 7, "character": 6}}}
+# A file the library does list is opened, which analyses the whole library.
+# That analysis has no more of `extra.buri` in it than the first did.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/one.buri", "languageId": "buri", "version": 1, "text": "/// The first number there is.\nexport fn one(): I64 {\n    1\n}\n"}}}
+# So the same three questions get the same three answers.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/extra.buri"}, "position": {"line": 6, "character": 11}}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/extra.buri"}, "position": {"line": 7, "character": 10}}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/extra.buri"}, "position": {"line": 7, "character": 6}}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -1,0 +1,9 @@
+/// A file on disk that `lib/one/BUILD.buri` lists in no rule.
+export struct Money {
+    export cents: I64,
+}
+
+/// Twice the amount.
+export fn twice(money: Money): I64 {
+    money.cents * 2
+}

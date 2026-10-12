@@ -1,0 +1,4 @@
+/// The number for `d`.
+export fn d(): I64 {
+    1
+}

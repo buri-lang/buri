@@ -1,0 +1,4 @@
+/// The number for `a`.
+export fn a(): I64 {
+    1
+}

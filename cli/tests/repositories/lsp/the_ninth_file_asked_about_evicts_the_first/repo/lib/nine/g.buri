@@ -1,0 +1,4 @@
+/// The number for `g`.
+export fn g(): I64 {
+    1
+}

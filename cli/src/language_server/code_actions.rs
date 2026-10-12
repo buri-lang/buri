@@ -235,6 +235,11 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
             continue;
         }
         let Some(package) = package_of(session, d.span.file, path) else { continue };
+        // `buri gen` leaves a tool's build file as written, so a title
+        // offered here would resolve to no edit.
+        if session.workspace.package(package).has_tool() {
+            continue;
+        }
         let where_it_is = session.workspace.file_in(package, "BUILD.buri");
         if !regenerated.insert(where_it_is.clone()) {
             continue;

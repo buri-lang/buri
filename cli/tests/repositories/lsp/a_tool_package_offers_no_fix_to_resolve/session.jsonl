@@ -1,0 +1,13 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# This client names `edit` in its `resolveSupport`, so the list carries titles
+# and the edit waits for `codeAction/resolve`. `tools/price/tool.buri` imports
+# `//lib/money` without naming it in `dependencies`, and `buri gen` leaves a
+# tool's build file as written: there is no edit to resolve to.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"textDocument": {"codeAction": {"resolveSupport": {"properties": ["edit"]}}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# So the list offers nothing. A title here would be a lightbulb whose fix,
+# once accepted, changes nothing.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/tools/price/tool.buri"}, "range": {"start": {"line": 5, "character": 5}, "end": {"line": 5, "character": 18}}, "context": {"diagnostics": [{"code": "missing-dependency", "message": "tools/price/tool.buri imports //lib/money, which is not in dependencies", "range": {"start": {"line": 5, "character": 5}, "end": {"line": 5, "character": 18}}}]}}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
