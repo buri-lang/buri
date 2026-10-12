@@ -468,6 +468,8 @@ fn reached_by(
         // writes and so is the whole of the left-hand side.
         None => "",
     };
+    // `lib.buri` is the package's surface, which an import reaches by the label alone.
+    let inside = if inside == "lib.buri" { "" } else { inside };
     let label = package.unwrap_or_else(|| data.path.clone());
     Some(if inside.is_empty() { format!("{label}:") } else { format!("{label}:{inside}.") })
 }
