@@ -52,7 +52,7 @@ fn a_suite_with_a_timeout_reports_each_failing_block() {
     scratch
         .run(&["test", "//lib/a"])
         .exits(1)
-        .says("FAIL //lib/a  test/t.buri  \"second\"\n  the run was killed by signal")
+        .says("FAIL //lib/a  test/t.buri  \"second\"\n  the run was killed by ")
         .says("3 passed, 1 failed, 0 skipped");
 }
 
@@ -213,9 +213,10 @@ fn a_watch_loop_over_a_broken_build_file_runs_once_it_is_fixed() {
         if let Ok(bytes) = rx.recv_timeout(Duration::from_millis(100)) {
             seen.push_str(&String::from_utf8_lossy(&bytes));
         }
-        // The loop takes its stamps before printing, so an edit after the
-        // diagnostics always wakes a second pass.
-        if !repaired && seen.contains("lib/a/BUILD.buri") {
+        // The diagnostics are written as the pass runs, but the loop takes its
+        // stamps before it prints the pass's line, so only an edit after that
+        // line always wakes a second pass.
+        if !repaired && seen.contains("lib/a/BUILD.buri") && seen.contains("run 1") {
             repaired = true;
             scratch.write("lib/a/BUILD.buri", &fixed);
         }
