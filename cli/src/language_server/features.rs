@@ -74,25 +74,21 @@ pub fn hover(
 
     // Otherwise the innermost expression whose span contains the offset. It is
     // innermost because a smaller span is always the more specific answer.
-    let mut best: Option<(u32, String, crate::diagnostics::Span)> = None;
+    let mut walked = Vec::new();
     for (fid, body) in &analyzed.analysis.checked.bodies {
         if analyzed.analysis.checked.tables.fn_info(fid).span.file != file {
             continue;
         }
-        crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
-            // A type that did not resolve is no answer; the squiggle says so.
-            let covers = e.span.file == file && e.span.start <= offset && offset <= e.span.end;
-            if !covers || e.ty.has_error() {
-                return;
-            }
-            let width = e.span.end.saturating_sub(e.span.start);
-            if best.as_ref().is_none_or(|(w, _, _)| width < *w) {
-                let ty = types::show(&analyzed.analysis.checked.tables, None, &[], &e.ty);
-                best = Some((width, ty, e.span));
-            }
-        });
+        crate::compiler::semantics::typed::walk(&body.expr, &mut |e| walked.push((e.span, e.ty)));
     }
-    if let Some((_, ty, span)) = best {
+    // A type that did not resolve is no answer; the squiggle says so. The
+    // first of equally narrow expressions wins.
+    let best = walked
+        .into_iter()
+        .filter(|(span, ty)| span.file == file && span.start <= offset && offset <= span.end && !ty.has_error())
+        .min_by_key(|(span, _)| span.end.saturating_sub(span.start));
+    if let Some((span, ty)) = best {
+        let ty = types::show(&analyzed.analysis.checked.tables, None, &[], &ty);
         return Some(rendered(text, "buri", &ty, &[], span, kind));
     }
 

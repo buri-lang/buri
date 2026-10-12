@@ -1,0 +1,9 @@
+export enum Shape {
+    Circle(I64),
+    Square { side: I64 },
+    Dot,
+}
+
+export fn odd(): Shape {
+    Shape.Square(1, 2)
+}

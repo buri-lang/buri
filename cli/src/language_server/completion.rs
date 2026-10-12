@@ -295,8 +295,9 @@ fn module_scope<'a>(analyzed: &'a Analyzed, path: &Path) -> Option<(&'a ModuleDa
 fn in_a_type(module: &ModuleData, cursor: u32) -> bool {
     let tree = &module.ast.tree;
     (0..tree.type_nodes().len()).any(|index| {
+        // The module's own tree holds only spans in its own file.
         let TypeView::Named { span, .. } = tree.ty(TypeId(index as u32)) else { return false };
-        span.file == module.file && covers(span, cursor)
+        covers(span, cursor)
     })
 }
 
@@ -398,20 +399,7 @@ fn annotated_enum(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> 
 fn checked_enum(analyzed: &Analyzed, path: &Path, cursor: u32) -> Option<TyConId> {
     let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
     let tables = &analyzed.analysis.checked.tables;
-    let mut best: Option<(u32, TyConId)> = None;
-    let mut offer = |span: Span, ty: &Ty| {
-        if span.file != file || !covers(span, cursor) {
-            return;
-        }
-        let Some(con) = ty.head() else { return };
-        if tables.tycon(con).variants().is_empty() {
-            return;
-        }
-        let width = span.end.saturating_sub(span.start);
-        if best.is_none_or(|(w, _)| width < w) {
-            best = Some((width, con));
-        }
-    };
+    let mut offered: Vec<(Span, Ty)> = Vec::new();
     for body in analyzed.analysis.checked.bodies.values() {
         if body.expr.span.file != file || !covers(body.expr.span, cursor) {
             continue;
@@ -422,14 +410,22 @@ fn checked_enum(analyzed: &Analyzed, path: &Path, cursor: u32) -> Option<TyConId
             // type is the type of the arms' results, not of what is matched.
             if let typed::ExprKind::Match { scrutinee, .. } = &e.kind {
                 if scrutinee.span.end <= cursor {
-                    offer(e.span, &scrutinee.ty);
+                    offered.push((e.span, scrutinee.ty));
                     return;
                 }
             }
-            offer(e.span, &e.ty);
+            offered.push((e.span, e.ty));
         });
     }
-    best.map(|(_, con)| con)
+    // The narrowest enum-typed node holding the cursor; the first of equally
+    // narrow ones wins.
+    offered
+        .into_iter()
+        .filter(|(span, _)| span.file == file && covers(*span, cursor))
+        .filter_map(|(span, ty)| Some((span.end.saturating_sub(span.start), ty.head()?)))
+        .filter(|(_, con)| !tables.tycon(*con).variants().is_empty())
+        .min_by_key(|(width, _)| *width)
+        .map(|(_, con)| con)
 }
 
 fn covers(span: Span, offset: u32) -> bool {
@@ -479,7 +475,8 @@ fn literal_at(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Opti
         let ExprView::StructLit { span, head, spread, fields } = tree.expr(ExprId(index as u32)) else {
             continue;
         };
-        if span.file != file || !covers(span, cursor) {
+        // The module's own tree holds only spans in its own file.
+        if !covers(span, cursor) {
             continue;
         }
         let width = span.end.saturating_sub(span.start);

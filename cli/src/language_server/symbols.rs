@@ -41,6 +41,21 @@ const VARIANT: &str = "a checked variant is numbered from its own enum";
 /// Why a trait method's entry is always there: the checker numbered it from its trait.
 const METHOD: &str = "a checked trait method is numbered from its own trait";
 
+/// Why a trait's declaration is always there: the checker adds a trait only
+/// for a `trait` or `effect` item, under that item's name span.
+const TRAIT: &str = "every trait is declared by an item named at its span";
+
+/// Why a local's entry is always there: the checker numbered it from its body.
+const LOCAL: &str = "a checked local is numbered from the body that binds it";
+
+/// Why a call names a declaration: monomorphization, which swaps in concrete
+/// functions, runs after everything the language server reads.
+const DECLARED: &str = "a checked call names its declaration until monomorphization";
+
+/// Why a field access names a field: the checker builds one only on a resolved
+/// struct type that has the field.
+const FIELD: &str = "a checked field access is on a struct that has the field";
+
 /// A declaration the source is able to name.
 #[derive(Clone)]
 pub enum Symbol {
@@ -363,21 +378,16 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
         }
         Symbol::Trait(id) => {
             let info = tables.trait_(*id);
-            match declaration_syntax(analyzed, info.module, info.span) {
-                Some((t, Item::Trait(d))) => (
-                    format!(
-                        "{} {}{}",
-                        if d.is_effect { "effect" } else { "trait" },
-                        t.name(d.name),
-                        formatting::generics(t, t.list(d.generics))
-                    ),
-                    t.docs(d.docs),
+            let (t, d) = trait_syntax(analyzed, info.module, info.span).or_ice(TRAIT);
+            (
+                format!(
+                    "{} {}{}",
+                    if d.is_effect { "effect" } else { "trait" },
+                    t.name(d.name),
+                    formatting::generics(t, t.list(d.generics))
                 ),
-                _ => (
-                    format!("{} {}", if info.is_effect { "effect" } else { "trait" }, info.name),
-                    Vec::new(),
-                ),
-            }
+                t.docs(d.docs),
+            )
         }
         Symbol::TraitMethod { trait_id, method } => {
             let info = tables.trait_(*trait_id);
@@ -548,22 +558,14 @@ pub fn signature(analyzed: &Analyzed, symbol: &Symbol) -> Option<Signature> {
             tree.name(declared.name),
             formatting::generics(tree, tree.list(declared.generics))
         );
-        let mut parameters = Vec::new();
-        for p in tree.list(declared.params).iter().filter(|p| !matches!(p.kind, tree::ParamKind::SelfParam)) {
-            if !parameters.is_empty() {
-                label.push_str(", ");
-            }
-            let start = utf16_len(&label);
-            match p.written_type() {
-                Some(ty) => label.push_str(&format!(
-                    "{}: {}",
-                    tree.name(p.name),
-                    formatting::type_text(tree, ty)
-                )),
-                None => label.push_str(tree.name(p.name)),
-            }
-            parameters.push((start, utf16_len(&label)));
-        }
+        let shown = tree.list(declared.params).iter().filter(|p| !matches!(p.kind, tree::ParamKind::SelfParam));
+        let parameters = parameter_list(
+            &mut label,
+            shown.map(|p| match p.written_type() {
+                Some(ty) => format!("{}: {}", tree.name(p.name), formatting::type_text(tree, ty)),
+                None => tree.name(p.name).to_string(),
+            }),
+        );
         label.push_str(&format!("): {}", formatting::type_text(tree, declared.ret)));
         return Some(Signature { label, parameters, docs: tree.docs(declared.docs) });
     }
@@ -580,17 +582,28 @@ pub fn signature(analyzed: &Analyzed, symbol: &Symbol) -> Option<Signature> {
         _ => return None,
     };
     let mut label = format!("fn {written}(");
-    let mut parameters = Vec::new();
-    for p in params.iter().filter(|p| p.role != types::ParamRole::SelfParam) {
-        if !parameters.is_empty() {
-            label.push_str(", ");
-        }
-        let start = utf16_len(&label);
-        label.push_str(&format!("{}: {}", p.name, types::show(tables, None, generics, &p.ty)));
-        parameters.push((start, utf16_len(&label)));
-    }
+    let shown = params.iter().filter(|p| p.role != types::ParamRole::SelfParam);
+    let parameters = parameter_list(
+        &mut label,
+        shown.map(|p| format!("{}: {}", p.name, types::show(tables, None, generics, &p.ty))),
+    );
     label.push_str(&format!("): {}", types::show(tables, None, generics, ret)));
     Some(Signature { label, parameters, docs: Vec::new() })
+}
+
+/// Appends each parameter's text to `label`, comma-separated, and returns where
+/// each one sits in it, in UTF-16 offsets.
+fn parameter_list(label: &mut String, shown: impl Iterator<Item = String>) -> Vec<(u32, u32)> {
+    let mut separator = "";
+    shown
+        .map(|text| {
+            label.push_str(separator);
+            separator = ", ";
+            let start = utf16_len(label);
+            label.push_str(&text);
+            (start, utf16_len(label))
+        })
+        .collect()
 }
 
 /// The declaration of a callable symbol, whichever of the two kinds it is.
@@ -1210,22 +1223,14 @@ fn in_one_body(
 ) -> Option<Found> {
     // A binding site and a pattern come first: both sit inside the block or
     // the `match` that holds them, so no expression is ever narrower.
-    let mut bound: Option<(u32, &typed::Local)> = None;
-    for local in &body.locals {
-        if !within(local.span, file, offset) {
-            continue;
-        }
-        let width = local.span.end.saturating_sub(local.span.start);
-        if bound.as_ref().is_none_or(|(w, _)| width < *w) {
-            bound = Some((width, local));
-        }
-    }
-    let mut matched: Option<(u32, &typed::Pattern)> = None;
+    let bound = narrowest_span(body.locals.iter(), |l| l.span, file, offset);
+    let mut patterns = Vec::new();
     typed::walk(&body.expr, &mut |e| {
         for pattern in patterns_of(e) {
-            narrowest_pattern(pattern, file, offset, &mut matched);
+            all_patterns(pattern, &mut patterns);
         }
     });
+    let matched = narrowest_span(patterns.into_iter(), |p| p.span, file, offset);
     // A pattern that binds a name is the name's declaration; the bind is the
     // narrower and more specific of the two, so it wins a tie.
     let pattern = matched.filter(|(w, _)| bound.as_ref().is_none_or(|(b, _)| w < b));
@@ -1265,21 +1270,26 @@ fn patterns_of(e: &typed::Expr) -> Vec<&typed::Pattern> {
     }
 }
 
-fn narrowest_pattern<'a>(
-    pattern: &'a typed::Pattern,
+/// A pattern and every pattern nested in it, outermost first.
+fn all_patterns<'a>(pattern: &'a typed::Pattern, out: &mut Vec<&'a typed::Pattern>) {
+    out.push(pattern);
+    for sub in sub_patterns(pattern) {
+        all_patterns(sub, out);
+    }
+}
+
+/// The narrowest of `items` whose span holds the cursor, with its width; the
+/// first of equally narrow ones wins.
+fn narrowest_span<T>(
+    items: impl Iterator<Item = T>,
+    span: impl Fn(&T) -> Span,
     file: FileId,
     offset: u32,
-    best: &mut Option<(u32, &'a typed::Pattern)>,
-) {
-    if within(pattern.span, file, offset) {
-        let width = pattern.span.end.saturating_sub(pattern.span.start);
-        if best.as_ref().is_none_or(|(w, _)| width < *w) {
-            *best = Some((width, pattern));
-        }
-    }
-    for sub in sub_patterns(pattern) {
-        narrowest_pattern(sub, file, offset, best);
-    }
+) -> Option<(u32, T)> {
+    items
+        .filter(|item| within(span(item), file, offset))
+        .map(|item| (span(&item).end.saturating_sub(span(&item).start), item))
+        .min_by_key(|(width, _)| *width)
 }
 
 fn sub_patterns(pattern: &typed::Pattern) -> Vec<&typed::Pattern> {
@@ -1411,18 +1421,13 @@ fn expression_symbols(
 ) {
     match &expr.kind {
         ExprKind::Local(id) => {
-            if let Some(l) = locals.get(id.index()) {
-                out(
-                    l.name.to_string(),
-                    Symbol::Local { name: l.name.to_string(), ty: l.ty, span: l.span },
-                );
-            }
+            let l = locals.get(id.index()).or_ice(LOCAL);
+            out(l.name.to_string(), Symbol::Local { name: l.name.to_string(), ty: l.ty, span: l.span });
         }
         ExprKind::Const(id) => out(tables.const_(*id).name.clone(), Symbol::Const(*id)),
         ExprKind::FnRef(func) | ExprKind::CallFn { func, .. } => {
-            if let Some(id) = func.decl() {
-                out(tables.fn_info(id).name.clone(), Symbol::Function(id));
-            }
+            let id = func.decl().or_ice(DECLARED);
+            out(tables.fn_info(id).name.clone(), Symbol::Function(id));
         }
         ExprKind::CallTrait { trait_id, method, .. } => {
             let m = tables.trait_(*trait_id).methods.get(*method).or_ice(METHOD);
@@ -1448,11 +1453,9 @@ fn expression_symbols(
             labelled_fields(tables, *con, Some(*variant), 0..args.len(), out);
         }
         ExprKind::Field { base, index } => {
-            if let Some(con) = base.ty.head() {
-                if let Some(info) = field_info(tables, con, None, *index) {
-                    out(info.name.clone(), Symbol::Field { con, variant: None, index: *index });
-                }
-            }
+            let con = base.ty.head().or_ice(FIELD);
+            let info = field_info(tables, con, None, *index).or_ice(FIELD);
+            out(info.name.clone(), Symbol::Field { con, variant: None, index: *index });
         }
         ExprKind::CtxCall { decl } => {
             let info = tables.ctx_decls.get(decl.index()).or_ice(CONTEXT);
@@ -1556,6 +1559,14 @@ fn declaration_syntax(
         declared == name
     })?;
     Some((&ast.tree, item))
+}
+
+/// The `trait` or `effect` item a trait's name span belongs to.
+fn trait_syntax(analyzed: &Analyzed, module: ModuleId, name: Span) -> Option<(&flat::Tree, &tree::TraitDecl)> {
+    match declaration_syntax(analyzed, module, name)? {
+        (t, Item::Trait(d)) => Some((t, d)),
+        _ => None,
+    }
 }
 
 /// The item an [`AstRef`] points at, for the tables that carry one.

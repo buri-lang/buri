@@ -19,7 +19,7 @@
 use crate::compiler::modules::ModuleData;
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{self, ParamInfo, ParamRole, Tables};
-use crate::diagnostics::FileId;
+use crate::diagnostics::{FileId, Invariant as _};
 use crate::json::Value;
 use crate::parsing::flat::{self, ExprId, ExprView, PatId, PatView, StmtKind};
 use std::collections::BTreeSet;
@@ -210,7 +210,11 @@ pub fn resolve(analyzed: &Analyzed, path: &Path, text: &str, hint: &Value) -> Va
     let parameter = hint.at("data.parameter").and_then(|p| p.as_u32()).map(|i| i as usize);
     let location = navigation(analyzed, &found.symbol, parameter);
 
-    let Value::Object(fields) = &mut resolved else { return resolved };
+    let fields = match &mut resolved {
+        Value::Object(fields) => Some(fields),
+        _ => None,
+    }
+    .or_ice("a hint with a `data.position` is an object");
     fields.insert(
         "tooltip".to_string(),
         Value::object(vec![
@@ -391,9 +395,8 @@ fn names_with_no_written_type(module: &ModuleData) -> BTreeSet<(u32, u32)> {
             if stmt.kind != StmtKind::Let || stmt.is_ctx || stmt.ty != flat::NONE {
                 continue;
             }
-            if let Some(pattern) = tree.opt_pat(stmt.pattern) {
-                bound_names(tree, pattern, &mut out);
-            }
+            let pattern = tree.opt_pat(stmt.pattern).or_ice("the parser writes a pattern into every `let`");
+            bound_names(tree, pattern, &mut out);
         }
     }
     out

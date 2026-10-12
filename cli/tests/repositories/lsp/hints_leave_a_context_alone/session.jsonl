@@ -1,0 +1,8 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# `ctx` gets no type hint. `cents` and the lambda's `_e` get one each, and
+# `450` is named for the parameter it fills.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 20, "character": 0}}}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
