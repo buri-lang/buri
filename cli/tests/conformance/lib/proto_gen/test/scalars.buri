@@ -14,14 +14,26 @@ from "//lib/proto_gen" import { block, HEAD, lines };
 /// `<label><kind> <name> = <number><options>;`.
 fn everyKind<C: Allocator>(ctx: C, message: Str, label: Str, options: Str): Str {
     let fields = [
-        ("double", "d", "1"), ("float", "f", "2"), ("int32", "i32", "3"), ("int64", "i64", "4"),
-        ("uint32", "u32", "5"), ("uint64", "u64", "6"), ("sint32", "s32", "7"),
-        ("sint64", "s64", "8"), ("fixed32", "x32", "9"), ("fixed64", "x64", "10"),
-        ("sfixed32", "y32", "11"), ("sfixed64", "y64", "12"), ("bool", "b", "13"),
-        ("string", "s", "14"), ("bytes", "by", "15"),
+        ("double", "d", "1"),
+        ("float", "f", "2"),
+        ("int32", "i32", "3"),
+        ("int64", "i64", "4"),
+        ("uint32", "u32", "5"),
+        ("uint64", "u64", "6"),
+        ("sint32", "s32", "7"),
+        ("sint64", "s64", "8"),
+        ("fixed32", "x32", "9"),
+        ("fixed64", "x64", "10"),
+        ("sfixed32", "y32", "11"),
+        ("sfixed64", "y64", "12"),
+        ("bool", "b", "13"),
+        ("string", "s", "14"),
+        ("bytes", "by", "15"),
     ];
     let body = fields
-        .mapCtx(ctx, fn(c, f) => ["  ", label, f.0, " ", f.1, " = ", f.2, options, ";\n"].join(c, ""))
+        .mapCtx(ctx, fn(c, f) => {
+            ["  ", label, f.0, " ", f.1, " = ", f.2, options, ";\n"].join(c, "")
+        })
         .join(ctx, "");
     [HEAD, "message ", message, " {\n", body, "}\n"].join(ctx, "")
 }
@@ -35,36 +47,56 @@ test "each scalar kind is written with its own tag and wire type, and only when 
     let ctx = context {
         Allocator: alloc(),
     };
-    let out = lines(ctx, everyKind(ctx, "M", "", " [features.field_presence = IMPLICIT]"));
-    assert.equal(block(ctx, out, "export fn writeM<C: Allocator>(ctx: C, out: [U8], value: M): [U8] {", 17), [
-        "export fn writeM<C: Allocator>(ctx: C, out: [U8], value: M): [U8] {",
-        "    let out = if (value.d == 0.0) { out } else { proto.writeF64(ctx, out.push(ctx, 9), value.d) };",
-        "    let out = if (value.f == 0.0) { out } else { proto.writeF32(ctx, out.push(ctx, 21), value.f) };",
-        "    let out = if (value.i32 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 24), value.i32) };",
-        "    let out = if (value.i64 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 32), value.i64) };",
-        "    let out = if (value.u32 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 40), value.u32) };",
-        "    let out = if (value.u64 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 48), value.u64) };",
-        "    let out = if (value.s32 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 56), bytes.zigzag(value.s32)) };",
-        "    let out = if (value.s64 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 64), bytes.zigzag(value.s64)) };",
-        "    let out = if (value.x32 == 0) { out } else { proto.writeFixed32(ctx, out.push(ctx, 77), value.x32) };",
-        "    let out = if (value.x64 == 0) { out } else { proto.writeFixed64(ctx, out.push(ctx, 81), value.x64) };",
-        "    let out = if (value.y32 == 0) { out } else { proto.writeFixed32(ctx, out.push(ctx, 93), value.y32) };",
-        "    let out = if (value.y64 == 0) { out } else { proto.writeFixed64(ctx, out.push(ctx, 97), value.y64) };",
-        "    let out = if (value.b == false) { out } else { proto.writeVarint(ctx, out.push(ctx, 104), if (value.b) { 1 } else { 0 }) };",
-        "    let out = if (value.s == \"\") { out } else { proto.writeStr(ctx, out.push(ctx, 114), value.s) };",
-        "    if (value.by.length() == 0) { out } else { proto.writeBytes(ctx, out.push(ctx, 122), value.by) }",
-        "}",
-    ]);
+    let out = lines(
+        ctx,
+        everyKind(ctx, "M", "", " [features.field_presence = IMPLICIT]"),
+    );
+    assert.equal(
+        block(
+            ctx,
+            out,
+            "export fn writeM<C: Allocator>(ctx: C, out: [U8], value: M): [U8] {",
+            17,
+        ),
+        [
+            "export fn writeM<C: Allocator>(ctx: C, out: [U8], value: M): [U8] {",
+            "    let out = if (value.d == 0.0) { out } else { proto.writeF64(ctx, out.push(ctx, 9), value.d) };",
+            "    let out = if (value.f == 0.0) { out } else { proto.writeF32(ctx, out.push(ctx, 21), value.f) };",
+            "    let out = if (value.i32 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 24), value.i32) };",
+            "    let out = if (value.i64 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 32), value.i64) };",
+            "    let out = if (value.u32 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 40), value.u32) };",
+            "    let out = if (value.u64 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 48), value.u64) };",
+            "    let out = if (value.s32 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 56), bytes.zigzag(value.s32)) };",
+            "    let out = if (value.s64 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 64), bytes.zigzag(value.s64)) };",
+            "    let out = if (value.x32 == 0) { out } else { proto.writeFixed32(ctx, out.push(ctx, 77), value.x32) };",
+            "    let out = if (value.x64 == 0) { out } else { proto.writeFixed64(ctx, out.push(ctx, 81), value.x64) };",
+            "    let out = if (value.y32 == 0) { out } else { proto.writeFixed32(ctx, out.push(ctx, 93), value.y32) };",
+            "    let out = if (value.y64 == 0) { out } else { proto.writeFixed64(ctx, out.push(ctx, 97), value.y64) };",
+            "    let out = if (value.b == false) { out } else { proto.writeVarint(ctx, out.push(ctx, 104), if (value.b) { 1 } else { 0 }) };",
+            "    let out = if (value.s == \"\") { out } else { proto.writeStr(ctx, out.push(ctx, 114), value.s) };",
+            "    if (value.by.length() == 0) { out } else { proto.writeBytes(ctx, out.push(ctx, 122), value.by) }",
+            "}",
+        ],
+    );
     // The size a parent writes before the message: a fixed width is a constant,
     // and a zigzagged one is measured after the transform.
     assert.contains(out, "    let size = if (value.d == 0.0) { 0 } else { 1 + 8 };");
     assert.contains(out, "    let s = if (value.f == 0.0) { 0 } else { 1 + 4 };");
-    assert.contains(out, "    let s = if (value.s64 == 0) { 0 } else { 1 + proto.varintSize(bytes.zigzag(value.s64)) };");
+    assert.contains(
+        out,
+        "    let s = if (value.s64 == 0) { 0 } else { 1 + proto.varintSize(bytes.zigzag(value.s64)) };",
+    );
     assert.contains(out, "    let s = if (value.x32 == 0) { 0 } else { 1 + 4 };");
     assert.contains(out, "    let s = if (value.y64 == 0) { 0 } else { 1 + 8 };");
     assert.contains(out, "    let s = if (value.b == false) { 0 } else { 1 + 1 };");
-    assert.contains(out, "    let s = if (value.by.length() == 0) { 0 } else { 1 + proto.lenSize(value.by.length()) };");
-    assert.contains(out, "    M { d: 0.0, f: 0.0, i32: 0, i64: 0, u32: 0, u64: 0, s32: 0, s64: 0, x32: 0, x64: 0, y32: 0, y64: 0, b: false, s: \"\", by: list.empty<U8>() }");
+    assert.contains(
+        out,
+        "    let s = if (value.by.length() == 0) { 0 } else { 1 + proto.lenSize(value.by.length()) };",
+    );
+    assert.contains(
+        out,
+        "    M { d: 0.0, f: 0.0, i32: 0, i64: 0, u32: 0, u64: 0, s32: 0, s64: 0, x32: 0, x64: 0, y32: 0, y64: 0, b: false, s: \"\", by: list.empty<U8>() }",
+    );
 }
 
 test "each scalar kind is read by its own reader and turned into its Buri value" {

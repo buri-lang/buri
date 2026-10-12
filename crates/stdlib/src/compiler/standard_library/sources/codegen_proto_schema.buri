@@ -945,9 +945,44 @@ fn feature<C: Allocator>(
         // Source-retention lints. They say nothing about what a message means,
         // so they are read past rather than refused.
         (p, inherited())
+    } else if (KNOWN_FEATURES.contains(name)) {
+        (unknownValue(ctx, p, name, value, origin), inherited())
     } else {
         (unknownFeature(ctx, p, name, value, origin), inherited())
     }
+}
+
+/// A feature this reader knows, set to a value it does not take. The fix
+/// names the values it does take rather than the feature it already is.
+fn unknownValue<C: Allocator>(
+    ctx: C,
+    p: P,
+    name: Str,
+    value: Str,
+    origin: ast.Origin,
+): P {
+    let accepted = if (name == "field_presence") {
+        "EXPLICIT` or `IMPLICIT"
+    } else if (name == "repeated_field_encoding") {
+        "PACKED` or `EXPANDED"
+    } else if (name == "enum_type") {
+        "OPEN"
+    } else if (name == "message_encoding") {
+        "LENGTH_PREFIXED"
+    } else if (name == "utf8_validation") {
+        "VERIFY"
+    } else {
+        "ALLOW"
+    };
+    capped(ctx, p, codegen.Diagnostic {
+        code: "proto-unknown-feature",
+        message: str.format(ctx, "`${value}` is not a value of `features.${name}`"),
+        note: .Some(
+            "a feature it ignored would be a schema that means something other than what it says",
+        ),
+        fix: .Some(str.format(ctx, "write `features.${name} = ${accepted}`")),
+        origin: .Some(origin),
+    })
 }
 
 fn unknownFeature<C: Allocator>(

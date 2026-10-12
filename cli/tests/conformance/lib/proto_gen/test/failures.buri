@@ -105,7 +105,9 @@ test "two nested messages of one short name are ambiguous where a field reaches 
     assert.equal(d.message, "`Inner` is ambiguous");
     assert.equal(
         d.note,
-        .Some("it could be A_Inner in lib/wire/point.proto, or B_Inner in lib/wire/point.proto"),
+        .Some(
+            "it could be A_Inner in lib/wire/point.proto, or B_Inner in lib/wire/point.proto",
+        ),
     );
 }
 
