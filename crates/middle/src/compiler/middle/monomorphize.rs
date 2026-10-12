@@ -27,7 +27,7 @@ use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::resolve::Checked;
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind};
 use crate::compiler::semantics::types::*;
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
+use crate::diagnostics::{invariant_with, Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::hash::Map as HashMap;
 
 mod hand_written;
@@ -678,19 +678,20 @@ pub fn run(
     // the compiler. A clean program's symbols are a claim this pass makes, and
     // this is where it is checked.
     if !m.diags.has_errors() {
-        if let Some(clash) = one_symbol_per_function(&m.funcs) {
-            crate::ice!(
-                "`{}` names two functions — `{}` and `{}`. A symbol names exactly one \
-                 body, so one of the two would silently answer the other's calls: the \
-                 JavaScript emitter writes two declarations and keeps the second, and a \
-                 native link binds every call to whichever definition the linker kept. \
-                 Whatever mangled the two alike in `middle/monomorphize.rs::name_of` has \
-                 to tell them apart",
-                clash.symbol,
-                clash.first,
-                clash.second
-            );
-        }
+        let clash = one_symbol_per_function(&m.funcs);
+        invariant_with(clash.is_none(), || {
+            clash.map_or_else(String::new, |clash| {
+                format!(
+                    "`{}` names two functions — `{}` and `{}`. A symbol names exactly one \
+                     body, so one of the two would silently answer the other's calls: the \
+                     JavaScript emitter writes two declarations and keeps the second, and a \
+                     native link binds every call to whichever definition the linker kept. \
+                     Whatever mangled the two alike in `middle/monomorphize.rs::name_of` has \
+                     to tell them apart",
+                    clash.symbol, clash.first, clash.second
+                )
+            })
+        });
     }
 
     let instances = m
@@ -768,29 +769,24 @@ struct SymbolClash<'a> {
 /// but "one symbol, one body" is a statement about the *program*, not about
 /// either minter, so the pipeline asks once more when every minter has run.
 pub(crate) fn assert_one_symbol_per_function(funcs: &[Func], after: &str) {
-    if let Some(clash) = one_symbol_per_function(funcs) {
-        crate::ice!(
-            "`{}` names two functions after {} — `{}` and `{}`. A symbol names exactly one body, so one of the two would silently answer the other's calls",
-            clash.symbol,
-            after,
-            clash.first,
-            clash.second
-        );
-    }
+    let clash = one_symbol_per_function(funcs);
+    invariant_with(clash.is_none(), || {
+        clash.map_or_else(String::new, |clash| {
+            format!(
+                "`{}` names two functions after {after} — `{}` and `{}`. A symbol names exactly one body, so one of the two would silently answer the other's calls",
+                clash.symbol, clash.first, clash.second
+            )
+        })
+    });
 }
 
 fn one_symbol_per_function(funcs: &[Func]) -> Option<SymbolClash<'_>> {
     let mut seen: HashMap<&str, &str> =
         HashMap::with_capacity_and_hasher(funcs.len(), std::hash::BuildHasherDefault::default());
-    for func in funcs {
-        if matches!(func.kind, FuncKind::Intrinsic(_)) {
-            continue;
-        }
-        if let Some(first) = seen.insert(&func.symbol, &func.debug_name) {
-            return Some(SymbolClash { symbol: &func.symbol, first, second: &func.debug_name });
-        }
-    }
-    None
+    funcs.iter().filter(|func| !matches!(func.kind, FuncKind::Intrinsic(_))).find_map(|func| {
+        let first = seen.insert(&func.symbol, &func.debug_name)?;
+        Some(SymbolClash { symbol: &func.symbol, first, second: &func.debug_name })
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -1155,15 +1151,13 @@ fn instantiation_symbol(taken: &mut HashMap<String, u64>, base: &str, targs: &st
 /// [`instantiation_symbol`], given the type arguments' hash.
 fn instantiation_symbol_hashed(taken: &mut HashMap<String, u64>, base: &str, hash: u64) -> String {
     let mut symbol = format!("{base}${}", base36(hash, TAG_DIGITS));
-    match taken.get(&symbol) {
-        // One name, one tag and the *same* type arguments is not a hash
-        // collision: `request` answers a repeated instantiation out of `index`
-        // long before this, so reaching here means two different functions are
-        // mangling to one name. Widening would paper over a naming bug, so
-        // this leaves it for the check at the end of `run` to say out loud.
-        Some(seen) if *seen == hash => return symbol,
-        Some(_) => symbol = format!("{base}${}", base36(hash, WIDE_DIGITS)),
-        None => {}
+    // One name, one tag and the *same* type arguments is not a hash collision:
+    // `request` answers a repeated instantiation out of `index` long before
+    // this, so it would mean two different functions are mangling to one name.
+    // Widening would paper over a naming bug, so only a different hash widens,
+    // and the check at the end of `run` says the rest out loud.
+    if taken.get(&symbol).is_some_and(|seen| *seen != hash) {
+        symbol = format!("{base}${}", base36(hash, WIDE_DIGITS));
     }
     taken.insert(symbol.clone(), hash);
     symbol
@@ -1457,18 +1451,15 @@ impl Monomorphizer<'_> {
         // what makes an `ice` the right shape for it rather than a diagnostic:
         // there is nothing the author of the *program* could do about it.
         let generic = !targs.is_empty() || !info.generics.is_empty();
-        if generic
-            && crate::compiler::standard_library::find(&module).is_some()
-            && !generic_intrinsic_allowed(&key)
-        {
-            crate::ice!(
+        invariant_with(!generic | generic_intrinsic_allowed(&key), || {
+            format!(
                 "the intrinsic `{key}` is generic, and the key the runtime is reached by \
                  carries no type arguments — so nothing tells the runtime what it was \
                  instantiated at; if that is intended, add `{key}` to `GENERIC_INTRINSICS` \
                  in `middle/monomorphize.rs` alongside the stride, glue or descriptor \
                  that makes it sound"
-            );
-        }
+            )
+        });
         key
     }
 

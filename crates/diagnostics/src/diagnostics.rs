@@ -88,6 +88,13 @@ pub fn invariant(holds: bool, what: &str) {
     }
 }
 
+/// [`invariant`] with a message built only when it fails, for a check that runs
+/// too often to format one every time.
+pub fn invariant_with(holds: bool, what: impl FnOnce() -> String) {
+    // No `if`: the failure is a closure, as in `or_ice`.
+    holds.then_some(()).ok_or_else(what).unwrap_or_else(|what| ice(&what));
+}
+
 /// `.expect(…)` for an invariant, without the panic.
 ///
 /// Reads as the claim it is — `or_ice("every id in this table was minted by

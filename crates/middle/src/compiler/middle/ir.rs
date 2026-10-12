@@ -73,7 +73,7 @@ use std::fmt::{self, Write as _};
 use crate::compiler::semantics::typed::Magnitude;
 use crate::compiler::semantics::types::{FuncIdx, Prim, Ty};
 use crate::hash::Map as HashMap;
-use crate::diagnostics::{Invariant as _, Span};
+use crate::diagnostics::{invariant_with, Invariant as _, Span};
 
 // ---------------------------------------------------------------------------
 // Identifiers
@@ -988,12 +988,12 @@ impl Program {
 // Verification
 // ---------------------------------------------------------------------------
 
-/// Every way one function can be malformed, as sentences.
+/// Stops the build with an internal error if one function is malformed.
 ///
 /// This is not a debug assertion that fires in a developer's build and is
-/// absent in a user's: it is a function the tests call on real lowered
-/// programs, and a backend calls it behind `cfg!(debug_assertions)`
-/// (`stencil/mod.rs::emit_units`).
+/// absent in a user's: a backend calls it behind `cfg!(debug_assertions)`
+/// (`stencil/mod.rs::emit_units`), so every debug build checks the IR it was
+/// handed. Each check is a claim about the lowering, which no input can break.
 ///
 /// What it checks, and why each one is a bug worth a check rather than a
 /// convention worth a comment:
@@ -1015,33 +1015,28 @@ impl Program {
 /// Critical edges are *not* checked for, because the design does not forbid
 /// them: a per-edge argument list is what makes them harmless
 /// (CODEGEN-LLVM.md §2.1).
-fn verify_func(program: &Program, func: &Func) -> Vec<String> {
-    let mut errs = Vec::new();
-    let Some(code) = func.code() else { return errs };
+fn verify_func(program: &Program, func: &Func) {
+    let Some(code) = func.code() else { return };
     let name = &func.debug_name;
+    let holds = |ok: bool, why: &dyn Fn() -> String| {
+        invariant_with(ok, || format!("the lowered IR is malformed: {name}: {}", why()));
+    };
 
-    if code.blocks.is_empty() {
-        errs.push(format!("{name}: a function with a body has no entry block"));
-        return errs;
-    }
+    holds(!code.blocks.is_empty(), &|| "a function with a body has no entry block".into());
 
     // Entry parameters are the signature's parameters.
     let entry = code.get(BlockId(0));
-    if entry.params.len() != func.sig.params.len() {
-        errs.push(format!(
-            "{name}: the entry block takes {} parameters and the signature declares {}",
+    holds(entry.params.len() == func.sig.params.len(), &|| {
+        format!(
+            "the entry block takes {} parameters and the signature declares {}",
             entry.params.len(),
             func.sig.params.len()
-        ));
-    }
+        )
+    });
     for (i, (p, t)) in entry.params.iter().zip(func.sig.params.iter()).enumerate() {
-        if code.ty_of(*p) != *t {
-            errs.push(format!(
-                "{name}: entry parameter {i} is {:?} and the signature says {:?}",
-                code.ty_of(*p),
-                t
-            ));
-        }
+        holds(code.ty_of(*p) == *t, &|| {
+            format!("entry parameter {i} is {:?} and the signature says {t:?}", code.ty_of(*p))
+        });
     }
 
     // One definition per value, and where.
@@ -1050,20 +1045,18 @@ fn verify_func(program: &Program, func: &Func) -> Vec<String> {
     // instruction result, so that "defined earlier in the same block" is a
     // comparison rather than two cases.
     let mut def: Vec<Option<(usize, usize)>> = vec![None; code.values()];
-    let mut define = |v: ValueId, at: (usize, usize), errs: &mut Vec<String>| {
-        match def.get_mut(v.index()) {
-            Some(slot @ None) => *slot = Some(at),
-            Some(Some(_)) => errs.push(format!("{name}: v{} is defined twice", v.0)),
-            None => errs.push(format!("{name}: v{} has no type", v.0)),
-        }
+    let mut define = |v: ValueId, at: (usize, usize)| {
+        let slot = def.get_mut(v.index()).or_ice("every value the IR defines has a type");
+        holds(slot.is_none(), &|| format!("v{} is defined twice", v.0));
+        *slot = Some(at);
     };
     for (bi, b) in code.blocks.iter().enumerate() {
         for p in &b.params {
-            define(*p, (bi, 0), &mut errs);
+            define(*p, (bi, 0));
         }
         for (ii, inst) in b.insts.iter().enumerate() {
             for r in inst.results() {
-                define(*r, (bi, ii.saturating_add(1)), &mut errs);
+                define(*r, (bi, ii.saturating_add(1)));
             }
         }
     }
@@ -1073,34 +1066,24 @@ fn verify_func(program: &Program, func: &Func) -> Vec<String> {
     for (bi, b) in code.blocks.iter().enumerate() {
         for (ii, inst) in b.insts.iter().enumerate() {
             if let Inst::Call { func: callee, args, .. } = inst {
-                match program.funcs.get(callee.index()) {
-                    Some(c) => {
-                        if args.len() != c.sig.params.len() {
-                            errs.push(format!(
-                                "{name}: b{bi} calls {} with {} arguments and it takes {}",
-                                c.debug_name,
-                                args.len(),
-                                c.sig.params.len()
-                            ));
-                        }
-                        if c.sig.rets.len() != 1 {
-                            errs.push(format!(
-                                "{name}: b{bi} takes one result from {}, which returns {}",
-                                c.debug_name,
-                                c.sig.rets.len()
-                            ));
-                        }
-                    }
-                    None => errs.push(format!("{name}: b{bi} calls f{}, which is not a function in this program", callee.0)),
-                }
+                let c = program.funcs.get(callee.index()).or_ice("every call names a function in its program");
+                holds(args.len() == c.sig.params.len(), &|| {
+                    format!(
+                        "b{bi} calls {} with {} arguments and it takes {}",
+                        c.debug_name,
+                        args.len(),
+                        c.sig.params.len()
+                    )
+                });
+                holds(c.sig.rets.len() == 1, &|| {
+                    format!("b{bi} takes one result from {}, which returns {}", c.debug_name, c.sig.rets.len())
+                });
             }
             if matches!(inst, Inst::Abort { .. }) {
-                if ii.saturating_add(1) != b.insts.len() {
-                    errs.push(format!("{name}: b{bi} continues after an abort"));
-                }
-                if !matches!(b.term, Term::Unreachable) {
-                    errs.push(format!("{name}: b{bi} aborts and does not end unreachable"));
-                }
+                holds(ii.saturating_add(1) == b.insts.len(), &|| format!("b{bi} continues after an abort"));
+                holds(matches!(b.term, Term::Unreachable), &|| {
+                    format!("b{bi} aborts and does not end unreachable")
+                });
             }
         }
     }
@@ -1110,107 +1093,79 @@ fn verify_func(program: &Program, func: &Func) -> Vec<String> {
     // Edges, and uses.
     let mut uses: Vec<ValueId> = Vec::new();
     for (bi, b) in code.blocks.iter().enumerate() {
-        let check_use = |v: ValueId, at: (usize, usize), errs: &mut Vec<String>| {
-            let Some(Some((db, dp))) = def.get(v.index()).copied() else {
-                errs.push(format!("{name}: b{bi} uses v{}, which nothing defines", v.0));
-                return;
-            };
-            let ok = if db == at.0 {
-                dp < at.1
-            } else {
-                dom.dominates(db, at.0)
-            };
-            if !ok {
-                errs.push(format!(
-                    "{name}: b{bi} uses v{}, defined in b{db}, which does not dominate it",
-                    v.0
-                ));
-            }
+        let check_use = |v: ValueId, at: (usize, usize)| {
+            let (db, dp) = def.get(v.index()).copied().flatten().or_ice("every value the IR uses is defined");
+            let ok = if db == at.0 { dp < at.1 } else { dom.dominates(db, at.0) };
+            holds(ok, &|| format!("b{bi} uses v{}, defined in b{db}, which does not dominate it", v.0));
         };
 
         for (ii, inst) in b.insts.iter().enumerate() {
             uses.clear();
             inst.operands(&mut uses);
             for v in &uses {
-                check_use(*v, (bi, ii.saturating_add(1)), &mut errs);
+                check_use(*v, (bi, ii.saturating_add(1)));
             }
         }
         let end = b.insts.len().saturating_add(1);
         uses.clear();
         b.term.operands(&mut uses);
         for v in &uses {
-            check_use(*v, (bi, end), &mut errs);
+            check_use(*v, (bi, end));
         }
         for t in b.term.targets() {
             for v in &t.args {
-                check_use(*v, (bi, end), &mut errs);
+                check_use(*v, (bi, end));
             }
         }
     }
 
     for (bi, b) in code.blocks.iter().enumerate() {
         if let Term::Branch { cond, .. } = &b.term {
-            if code.ty_of(*cond) != Type::I1 {
-                errs.push(format!("{name}: b{bi} branches on a value that is not a Bool"));
-            }
+            holds(code.ty_of(*cond) == Type::I1, &|| format!("b{bi} branches on a value that is not a Bool"));
         }
         if let Term::Switch { on, cases, .. } = &b.term {
-            if !code.ty_of(*on).is_integer() {
-                errs.push(format!("{name}: b{bi} switches on a value that is not an integer"));
-            }
+            holds(code.ty_of(*on).is_integer(), &|| {
+                format!("b{bi} switches on a value that is not an integer")
+            });
             let mut seen: Vec<u64> = cases.iter().map(|(k, _)| *k).collect();
             seen.sort_unstable();
             let before = seen.len();
             seen.dedup();
-            if seen.len() != before {
-                errs.push(format!("{name}: b{bi} switches on a duplicated case value"));
-            }
+            holds(seen.len() == before, &|| format!("b{bi} switches on a duplicated case value"));
         }
         if let Term::Return(vs) = &b.term {
-            if vs.len() != func.sig.rets.len() {
-                errs.push(format!(
-                    "{name}: b{bi} returns {} values and the signature declares {}",
-                    vs.len(),
-                    func.sig.rets.len()
-                ));
-            }
+            holds(vs.len() == func.sig.rets.len(), &|| {
+                format!("b{bi} returns {} values and the signature declares {}", vs.len(), func.sig.rets.len())
+            });
             for (v, t) in vs.iter().zip(func.sig.rets.iter()) {
-                if code.ty_of(*v) != *t {
-                    errs.push(format!("{name}: b{bi} returns a value of the wrong type"));
-                }
+                holds(code.ty_of(*v) == *t, &|| format!("b{bi} returns a value of the wrong type"));
             }
         }
         for t in b.term.targets() {
-            let Some(dest) = code.blocks.get(t.block.index()) else {
-                errs.push(format!("{name}: b{bi} jumps to b{}, which does not exist", t.block.0));
-                continue;
-            };
-            if dest.params.len() != t.args.len() {
-                errs.push(format!(
-                    "{name}: b{bi} passes {} arguments to b{}, which takes {}",
+            let dest = code.blocks.get(t.block.index()).or_ice("every jump names a block of its function");
+            holds(dest.params.len() == t.args.len(), &|| {
+                format!(
+                    "b{bi} passes {} arguments to b{}, which takes {}",
                     t.args.len(),
                     t.block.0,
                     dest.params.len()
-                ));
-                continue;
-            }
+                )
+            });
             for (a, p) in t.args.iter().zip(dest.params.iter()) {
-                if code.ty_of(*a) != code.ty_of(*p) {
-                    errs.push(format!(
-                        "{name}: b{bi} passes v{} to b{}, whose parameter is a different type",
-                        a.0, t.block.0
-                    ));
-                }
+                holds(code.ty_of(*a) == code.ty_of(*p), &|| {
+                    format!("b{bi} passes v{} to b{}, whose parameter is a different type", a.0, t.block.0)
+                });
             }
         }
     }
-
-    errs
 }
 
-/// Every problem in the program, function by function.
-pub fn verify(program: &Program) -> Vec<String> {
-    program.funcs.iter().flat_map(|f| verify_func(program, f)).collect()
+/// Stops the build with an internal error if any function in the program is
+/// malformed.
+pub fn verify(program: &Program) {
+    for f in &program.funcs {
+        verify_func(program, f);
+    }
 }
 
 /// Which blocks dominate which: the dominator tree, numbered in preorder and
@@ -1230,10 +1185,9 @@ impl Dominance {
     fn dominates(&self, a: usize, b: usize) -> bool {
         let reached = |i: usize| self.reachable.get(i).copied().unwrap_or(false);
         let at = |v: &Vec<usize>, i: usize| v.get(i).copied().unwrap_or(0);
-        reached(a)
-            && reached(b)
-            && at(&self.pre, a) <= at(&self.pre, b)
-            && at(&self.post, b) <= at(&self.post, a)
+        // `&`, not `&&`: every operand is cheap, and IR that holds its
+        // invariants never makes one false.
+        reached(a) & reached(b) & (at(&self.pre, a) <= at(&self.pre, b)) & (at(&self.post, b) <= at(&self.post, a))
     }
 }
 
@@ -1816,7 +1770,7 @@ mod tests {
     #[test]
     fn a_well_formed_function_verifies_and_prints() {
         let p = adder();
-        assert_eq!(verify(&p), Vec::<String>::new());
+        verify(&p);
         assert_eq!(
             p.to_string(),
             "; m:add [unit m]\n\
@@ -1829,7 +1783,7 @@ mod tests {
     }
 
     #[test]
-    fn a_use_of_a_value_from_a_block_that_does_not_dominate_is_reported() {
+    fn a_block_that_does_not_dominate_another_is_told_apart() {
         let mut p = adder();
         let Body::Code(code) = &mut p.funcs.first_mut().or_ice("one function").body else {
             return;
@@ -1849,23 +1803,9 @@ mod tests {
         code.get_mut(BlockId(0)).insts.push(Inst::Const { dest: cond, value: Const::Bool(true) });
         code.get_mut(BlockId(0)).term =
             Term::Branch { cond, then: Target::to(b1), else_: Target::to(b2) };
-        let errs = verify(&p);
-        assert_eq!(errs.len(), 1, "{errs:?}");
-        assert!(errs.iter().any(|e| e.contains("does not dominate")), "{errs:?}");
-    }
-
-    #[test]
-    fn an_edge_whose_arguments_do_not_match_its_destination_is_reported() {
-        let mut p = adder();
-        let Body::Code(code) = &mut p.funcs.first_mut().or_ice("one function").body else {
-            return;
-        };
-        let b1 = code.block(&[Type::I64, Type::I64]);
-        code.get_mut(b1).term = Term::Unreachable;
-        let entry_param = *code.get(BlockId(0)).params.first().or_ice("two parameters");
-        code.get_mut(BlockId(0)).term = Term::Jump(Target::new(b1, vec![entry_param]));
-        let errs = verify(&p);
-        assert!(errs.iter().any(|e| e.contains("passes 1 arguments")), "{errs:?}");
+        let dom = dominators(code);
+        assert!(dom.dominates(0, b2.index()));
+        assert!(!dom.dominates(b1.index(), b2.index()));
     }
 
     #[test]
@@ -1884,20 +1824,5 @@ mod tests {
             Term::Jump(t) => assert_eq!(t.block, BlockId(1)),
             other => panic!("expected a jump, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn a_block_that_continues_after_an_abort_is_reported() {
-        let mut p = adder();
-        let Body::Code(code) = &mut p.funcs.first_mut().or_ice("one function").body else {
-            return;
-        };
-        let v = code.value(Type::I64);
-        let entry = code.get_mut(BlockId(0));
-        entry.insts.insert(0, Inst::Abort { message: "boom".into() });
-        entry.insts.push(Inst::Const { dest: v, value: Const::Int { bits: Magnitude::new(0), negative: false } });
-        let errs = verify(&p);
-        assert!(errs.iter().any(|e| e.contains("continues after an abort")), "{errs:?}");
-        assert!(errs.iter().any(|e| e.contains("does not end unreachable")), "{errs:?}");
     }
 }

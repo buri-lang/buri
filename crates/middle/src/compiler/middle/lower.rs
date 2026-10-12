@@ -2023,9 +2023,7 @@ impl FnLower<'_> {
                     let mut theirs: Vec<LocalId> = Vec::new();
                     alt.binds(&mut theirs);
                     theirs.sort_unstable();
-                    if theirs != want {
-                        crate::ice!("an or-pattern's alternatives bind different locals");
-                    }
+                    crate::diagnostics::invariant(theirs == want, "an or-pattern's alternatives bind different locals");
                 }
                 let types: Vec<Type> = binds.iter().map(|b| self.local_type(*b)).collect();
                 let merge = self.block(&types);

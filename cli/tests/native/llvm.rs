@@ -108,8 +108,7 @@ fn lower(source: &str) -> Lowered {
 
     // The IR the backend is handed is verified first, so a backend failure is
     // never a lowering failure wearing a backend's clothes.
-    let errs = middle::ir::verify(&ir);
-    assert!(errs.is_empty(), "the lowered IR does not verify: {errs:#?}");
+    middle::ir::verify(&ir);
 
     Lowered { program, ir, tables: analysis.checked.tables }
 }

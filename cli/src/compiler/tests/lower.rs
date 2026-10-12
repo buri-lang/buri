@@ -71,11 +71,10 @@ fn compiled(text: &str, inline: bool) -> (Program, driver::Analysis) {
 /// Every test verifies what it lowered: a lowering that produced a
 /// malformed CFG and an assertion about one instruction in it would pass.
 fn checked(lowered: ir::Program) -> ir::Program {
-    let problems = ir::verify(&lowered);
-    if !problems.is_empty() && std::env::var("IR_DEBUG").is_ok() {
+    if std::env::var("IR_DEBUG").is_ok() {
         println!("{lowered}");
     }
-    assert!(problems.is_empty(), "the lowered IR is malformed:\n{}", problems.join("\n"));
+    ir::verify(&lowered);
     lowered
 }
 
@@ -525,7 +524,7 @@ export fn both(t: (Int, Bool)): Int { match (t) { (n, true) => n, (n, false) => 
   let _b = both((1, true));
 ",
     ));
-    assert!(ir::verify(&p).is_empty());
+    ir::verify(&p);
     let all: String = p.to_string();
     assert!(all.contains("payload."), "an enum arm projects its payload: {all}");
     assert!(all.contains("= len "), "an array pattern tests the length");
@@ -717,7 +716,7 @@ export fn sum(xs: [Int]): Int { xs.fold(fn(a, b) => a + b, 0) }
   let _l = [1, 2, 3].length();
 ",
     ));
-    assert!(ir::verify(&p).is_empty());
+    ir::verify(&p);
     // Both kinds of body reach the backend: generated code, and a
     // runtime symbol. `fold` and `get` are code now (`lower/lists.rs`);
     // `length` is the runtime symbol.
