@@ -1,0 +1,37 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A dependency being written: every library's label, and a library's testing
+# surface as a second label beside it. The library at the repository's root is
+# `//`.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri", "languageId": "buri", "version": 1, "text": "binary {\n    dependencies: [\"//lib/shop\", \"\"]\n    tags: [\"server\"]\n    outputs: [\n        { platform: \"node\" },\n    ]\n\n    test {\n        sources: [\"test/app.buri\"]\n        dependencies: [\"//lib/shop/testing\"]\n    }\n}\n"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 1, "character": 34}}}
+# A tag being written: a tag declared with no `doc` has nothing more to show.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri", "version": 2}, "contentChanges": [{"text": "binary {\n    dependencies: [\"//lib/shop\"]\n    tags: [\"server\", \"\"]\n    outputs: [\n        { platform: \"node\" },\n    ]\n\n    test {\n        sources: [\"test/app.buri\"]\n        dependencies: [\"//lib/shop/testing\"]\n    }\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 2, "character": 22}}}
+# Inside a comment, nothing is offered, and a field's name written in one is
+# prose: hovering it shows nothing.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri", "version": 3}, "contentChanges": [{"text": "# a note about the \nbinary {\n    dependencies: [\"//lib/shop\"]\n    tags: [\"server\"]\n    outputs: [\n        { platform: \"node\" },\n    ]\n\n    test {\n        sources: [\"test/app.buri\"]\n        dependencies: [\"//lib/shop/testing\"]\n    }\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 0, "character": 19}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri", "version": 4}, "contentChanges": [{"text": "# the binary\nbinary {\n    dependencies: [\"//lib/shop\"]\n    tags: [\"server\"]\n    outputs: [\n        { platform: \"node\" },\n    ]\n\n    test {\n        sources: [\"test/app.buri\"]\n        dependencies: [\"//lib/shop/testing\"]\n    }\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 0, "character": 7}}}
+# A brace closing nothing, and a colon with no name before it, are skipped: the
+# cursor is still in `binary`, and its fields are offered.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri", "version": 5}, "contentChanges": [{"text": "}\nbinary {\n    : stray\n    t\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 3, "character": 5}}}
+# A letter outside ASCII is not part of a field name: the fields, from scratch.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri", "version": 6}, "contentChanges": [{"text": "binary {\n    \u00e9\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 1, "character": 5}}}
+# A `bool` field's value: `false` and `true`.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/REPO.buri", "languageId": "buri", "version": 1, "text": "# The tag vocabulary. A `tags` entry in a build file names one of these blocks\n# and nothing else, which is what gives it somewhere to go.\ntag {\n    name: \"server\"\n    doc: \"runs on infrastructure we operate\"\n}\n\ntag {\n    name: \"quiet\"\n}\n\nlint {\n    check_during_build: \n}\n"}}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/REPO.buri"}, "position": {"line": 12, "character": 24}}}
+# A string field's value, written without its quotes: nothing to offer.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/REPO.buri", "version": 2}, "contentChanges": [{"text": "# The tag vocabulary. A `tags` entry in a build file names one of these blocks\n# and nothing else, which is what gives it somewhere to go.\ntag {\n    name: \"server\"\n    doc: \"runs on infrastructure we operate\"\n}\n\ntag {\n    name: \"quiet\"\n}\n\ntag {\n    name: \n}\n"}]}}
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/REPO.buri"}, "position": {"line": 12, "character": 10}}}
+# Going to the root library's label lands on the build file at the root, and
+# going from a field's name rather than its value goes nowhere.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri", "version": 10}, "contentChanges": [{"text": "binary {\n    dependencies: [\"//lib/shop\", \"//\"]\n    tags: [\"server\"]\n    outputs: [\n        { platform: \"node\" },\n    ]\n\n    test {\n        sources: [\"test/app.buri\"]\n        dependencies: [\"//lib/shop/testing\"]\n    }\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 1, "character": 34}}}
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 4, "character": 12}}}
+{"jsonrpc": "2.0", "id": 12, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
