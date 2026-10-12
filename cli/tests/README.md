@@ -620,8 +620,10 @@ nix develop .#perf -c cargo run -p buri --features backend-llvm,valgrind --examp
   see, and `report` drops it. `valgrind.rs`'s `UNSEEN` lists each with its
   reason. The two `rt::` rows that park a thousand tasks don't run: helgrind
   shadows each task's 64 MiB stack and runs out of memory.
-- arm64 runs memcheck's compiled programs too. Its port reports uninitialised
-  values in safe Rust under the runtime's tests, so those run on x86_64.
+- arm64 runs memcheck's compiled programs too, but not the runtime's tests.
+  There LLVM selects with `csel` on fields that are unset and can't change the
+  result, and memcheck reports each one. At opt-level 0 the same tests are
+  clean.
 
 A memcheck run takes about ten minutes and a race run a few, most of each
 the build.

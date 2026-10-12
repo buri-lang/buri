@@ -53,9 +53,10 @@ jobs:
         include:
           - { arch: x86_64, os: blacksmith-8vcpu-ubuntu-2404 }
           - { arch: arm64, os: blacksmith-8vcpu-ubuntu-2404-arm }
-        # Valgrind's arm64 port reports uninitialised values in safe Rust under
-        # the runtime's tests (tokio's timer wheel, taffy's layout) that the
-        # x86_64 port doesn't. Its compiled programs agree with x86_64's.
+        # On arm64, LLVM turns some branches into a `csel` keyed on a field
+        # that is unset but whose value can't change the answer. Memcheck
+        # reports that, about 120 sites (tokio, taffy, tiny-skia, paint). At
+        # opt-level 0 they are clean (cli/tests/README.md, "Valgrind").
         exclude:
           - { arch: arm64, shard: runtime }
     runs-on: ${{ matrix.os }}
