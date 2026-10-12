@@ -45,6 +45,11 @@ fn spoiling_driver(scratch: &Scratch, spoil: &str) -> String {
     driver.display().to_string()
 }
 
+/// A spoil that puts the C program `source` where the host was.
+fn host_from(source: &str) -> String {
+    format!("cat > spoilt.c <<'EOF'\n{source}\nEOF\n\"$real\" spoilt.c -o spoilt && mv spoilt test-host")
+}
+
 /// `buri test //lib/a` in `scratch` under the home `home`, passing both tests.
 fn passes(scratch: &Scratch, args: &[&str], env: &[(&str, &str)]) -> Run {
     let args: Vec<&str> = ["test", "//lib/a"].iter().chain(args).copied().collect();
@@ -61,27 +66,27 @@ fn a_test_host_that_cannot_be_used_leaves_suites_linking_runners() {
     let cases = [
         (
             "didn't link",
-            "echo 'ld: warning: an object built for a newer macOS' >&2; echo 'ld: no test host today' >&2; exit 1",
+            String::from("echo 'ld: warning: an object built for a newer macOS' >&2; echo 'ld: no test host today' >&2; exit 1"),
             "the test host didn't link: ld: no test host today",
         ),
-        ("isn't a program", "printf 'not a program' > test-host", "not a 64-bit Mach-O file"),
-        ("can't be started", "chmod -x test-host", "the test host can't be started: "),
+        ("isn't a program", String::from("printf 'not a program' > test-host"), "not a 64-bit Mach-O file"),
+        ("can't be started", String::from("chmod -x test-host"), "the test host can't be started: "),
         // As macOS kills an unsigned one, where it checks signatures.
         (
             "is killed as it starts",
-            "printf '#include <signal.h>\\n#include <unistd.h>\\nint main(void) { kill(getpid(), SIGKILL); }\\n' > k.c \
-             && \"$real\" k.c -o killed && mv killed test-host",
+            host_from("#include <signal.h>\n#include <unistd.h>\nint main(void) { kill(getpid(), SIGKILL); }"),
             "the test host's probe was killed by SIGKILL",
         ),
+        // As a hardened one does, where macOS enforces it.
         (
             "can't write code",
-            "/usr/bin/codesign -f -s - -o runtime test-host 2>/dev/null",
+            host_from("#include <stdio.h>\nint main(void) { fputs(\"buri test host: cannot map code memory\", stderr); return 96; }"),
             "buri test host: cannot map code memory",
         ),
     ];
     for (name, spoil, why) in cases {
         let scratch = suite(&format!("test-host-{}", name.replace(['\'', ' '], "-")));
-        let cc = spoiling_driver(&scratch, spoil);
+        let cc = spoiling_driver(&scratch, &spoil);
         let home = scratch.path("home").display().to_string();
         let env = [("CC", cc.as_str()), ("BURI_HOME", home.as_str())];
         for flag in ["--verbose", "--explain"] {
