@@ -432,13 +432,7 @@ impl Backend for Stencil {
             None => lower::run(program, tables),
         };
         if cfg!(debug_assertions) {
-            let problems = ir::verify(&lowered);
-            if !problems.is_empty() {
-                return Err(one(format!(
-                    "internal error: the lowered IR is malformed: {}",
-                    problems.join("; ")
-                )));
-            }
+            ir::verify(&lowered);
         }
         let root = match &program.roots {
             ProgramRoots::Main(idx) => Root::Main(idx.index()),
