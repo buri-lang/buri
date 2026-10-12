@@ -1,0 +1,12 @@
+from "platform/effect" import { Allocator };
+
+derive Equal, Show for Cents;
+export struct Cents(I64);
+
+fn wrap<C: Allocator>(ctx: C, c: I64): Cents {
+    Cents(c)
+}
+
+export fn fromCents<C: Allocator>(ctx: C, c: I64): Cents {
+    wrap(ctx, c)
+}

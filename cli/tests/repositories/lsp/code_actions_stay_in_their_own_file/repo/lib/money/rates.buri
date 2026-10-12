@@ -1,0 +1,9 @@
+from "platform/effect" import { Allocator };
+
+fn scaled<C: Allocator>(ctx: C, percent: I64): I64 {
+    percent * 100
+}
+
+export fn rate<C: Allocator>(ctx: C, percent: I64): I64 {
+    scaled(ctx, percent)
+}

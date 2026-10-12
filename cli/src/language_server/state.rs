@@ -1583,10 +1583,9 @@ impl State {
     /// is the point: the files an edit did not touch are not read at all.
     fn cached_analysis(&mut self, root: &Path, target: Option<TargetId>) -> Option<Rc<Analyzed>> {
         let filed = self.cache.analyses.iter().find(|c| c.root == root && c.target == target)?;
-        let (was, closure) = (filed.key, Rc::clone(&filed.closure));
+        let (was, closure, value) = (filed.key, Rc::clone(&filed.closure), Rc::clone(&filed.value));
         let now = self.closure_key(root, target, &closure);
-        let filed = self.cache.analyses.iter().find(|c| c.root == root && c.target == target)?;
-        (was == now).then(|| Rc::clone(&filed.value))
+        (was == now).then_some(value)
     }
 
     /// The same lookup for a scoped analysis, which is filed by the file whose
@@ -1599,20 +1598,19 @@ impl State {
     fn cached_query(&mut self, root: &Path, path: &Path) -> Option<Rc<Analyzed>> {
         let scope = Some(path.to_path_buf());
         let filed = self.cache.queries.iter().find(|c| c.root == root && c.scope == scope)?;
-        let (was, target, closure) = (filed.key, filed.target, Rc::clone(&filed.closure));
+        let (was, target, closure, value) =
+            (filed.key, filed.target, Rc::clone(&filed.closure), Rc::clone(&filed.value));
         let now = self.closure_key(root, target, &closure);
-        let filed = self.cache.queries.iter().find(|c| c.root == root && c.scope == scope)?;
-        (was == now).then(|| Rc::clone(&filed.value))
+        (was == now).then_some(value)
     }
 
     /// The same lookup for the lint pass.
     fn cached_lint(&mut self, root: &Path, target: TargetId) -> Option<Rc<Linted>> {
         let wanted = Some(target);
         let filed = self.cache.lints.iter().find(|c| c.root == root && c.target == wanted)?;
-        let (was, closure) = (filed.key, Rc::clone(&filed.closure));
+        let (was, closure, value) = (filed.key, Rc::clone(&filed.closure), Rc::clone(&filed.value));
         let now = self.closure_key(root, wanted, &closure);
-        let filed = self.cache.lints.iter().find(|c| c.root == root && c.target == wanted)?;
-        (was == now).then(|| Rc::clone(&filed.value))
+        (was == now).then_some(value)
     }
 }
 

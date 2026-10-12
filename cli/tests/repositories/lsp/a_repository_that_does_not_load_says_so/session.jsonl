@@ -19,5 +19,9 @@
 # invisible without a message — nothing on screen looks wrong.
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 12, "character": 8}}}
 {"jsonrpc": "2.0", "id": 4, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}}}
-{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+# The lint pass refuses to run, so there is nothing to fix, whether the client
+# echoes a finding or leaves the server to find its own.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "context": {"diagnostics": []}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 20, "character": 0}}}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "context": {"diagnostics": [{"code": "unused-context", "message": "x", "range": {"start": {"line": 11, "character": 10}, "end": {"line": 11, "character": 16}}}]}, "range": {"start": {"line": 11, "character": 10}, "end": {"line": 11, "character": 10}}}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

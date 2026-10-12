@@ -1,0 +1,12 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# `cents.buri` and `rates.buri` are one library, and each has an unused
+# context. A range over all of `cents.buri`, from a client that echoed nothing,
+# also covers bytes `rates.buri` has its finding at: only the one in
+# `cents.buri` is offered.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "context": {"diagnostics": []}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 20, "character": 0}}}}
+# The same, from a client that echoed the code: one action, editing only `cents.buri`.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "context": {"diagnostics": [{"code": "unused-context", "message": "x", "range": {"start": {"line": 5, "character": 22}, "end": {"line": 5, "character": 28}}}]}, "range": {"start": {"line": 5, "character": 22}, "end": {"line": 5, "character": 22}}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
