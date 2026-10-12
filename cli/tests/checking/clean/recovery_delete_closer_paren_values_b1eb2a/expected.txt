@@ -1,0 +1,12 @@
+error: this array is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:52:44
+   |
+52 |     assert.equal(total(.Node(1, [.Node(2, [), .Node(3, [])])), 6);
+   |                                            ^
+   |
+  --> main.buri:52:43
+   |
+52 |     assert.equal(total(.Node(1, [.Node(2, [), .Node(3, [])])), 6);
+   |                                           ^ opened here
+   |
+   = fix: write `]` here

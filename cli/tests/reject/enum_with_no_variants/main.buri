@@ -1,4 +1,4 @@
-// EXPECT: `Never` has no variants
+// EXPECT: `Never` can never be built: it has no variants
 //
 // An enum with no variants is refused, generic or not, and each is one error:
 // a type that names one is the error type, so no `match` over it, no arm it

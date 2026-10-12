@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> main.buri:47:57
+   |
+47 |         .Node(n, kids) => kids.fold(fn(acc, k) => acc + @ total(k), n),
+   |                                                         ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

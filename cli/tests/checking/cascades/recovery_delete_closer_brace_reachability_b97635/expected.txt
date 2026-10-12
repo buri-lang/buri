@@ -1,11 +1,10 @@
-error: `Chain` can never be constructed [uninhabited]
+error: `Chain` can never be built: every variant contains another `Chain` [unconstructible-type]
   --> main.buri:19:1
    |
 19 | enum Chain {
    | ^^^^^^^^^^^^
    |
-   = every variant recurses, so building one would need one already
-   = fix: give `Chain` a variant that does not mention itself, the way `.None` terminates an `Option`
+   = fix: add a variant that does not contain `Chain`, the way `.None` ends an `Option`
 error: there is no type `End` [unknown-type]
   --> main.buri:21:5
    |
@@ -26,36 +25,3 @@ error: this variant payload is missing its closing `)` [unclosed-delimiter]
    |         ^ opened here
    |
    = fix: write `)` here
-error: `Link` holds 3 values, but the pattern matches 2 values [payload-pattern-count]
-  --> main.buri:26:9
-   |
-26 |         .Link(_, rest) => 1 + length(rest),
-   |         ^^^^^^^^^^^^^^
-   |
-   = expected: 3
-   = actual: 2
-   = fix: match exactly 3 values, with `_` for any the arm does not need
-error: `Chain` has no variant `End` [unknown-variant]
-  --> main.buri:27:9
-   |
-27 |         .End => 0,
-   |         ^^^^
-   |
-   = its variants are `Link`
-   = fix: name a variant the enum declares
-error: `Link` holds 3 values, but 2 were given [payload-count]
-  --> main.buri:32:25
-   |
-32 |     assert.equal(length(.Link(1, .Link(2, .End))), 2);
-   |                         ^^^^^
-   |
-   = expected: 3
-   = actual: 2
-   = fix: `Link` is missing its third value: Link(Int, Chain, End)
-error: `.Link` needs a known expected type [untyped-variant]
-  --> main.buri:32:34
-   |
-32 |     assert.equal(length(.Link(1, .Link(2, .End))), 2);
-   |                                  ^^^^^
-   |
-   = fix: write the qualified form, as in `Option.Link(...)`, or annotate what this value is being used as

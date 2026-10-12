@@ -583,6 +583,9 @@ const PACKAGES: &[Case] = &[
     included("semantics/conditions.buri"),
     // An arm after a guarded one, reached when the guard fails.
     included("semantics/reachability.buri"),
+    // Types that hold themselves through an `Option`, a later enum and a
+    // list, built and taken apart.
+    included("semantics/values.buri"),
     // `core/cli`, driven end to end through `run` — which means the
     // environment double, two captured streams, and a handler reached through
     // a `fn(C, Arguments)` stored in a struct field. Nothing in it is an

@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-comma]
+  --> main.buri:18:35
+   |
+18 |     assert.equal([depth(.W(.None)) depth(.W(.Some(.W(.None))))], [1, 2]);
+   |                                   ^
+   |
+   = fix: write `,` here

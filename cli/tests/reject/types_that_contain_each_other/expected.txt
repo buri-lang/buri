@@ -1,0 +1,46 @@
+error: `Ping` can never be built: every variant contains another `Ping` [unconstructible-type]
+ --> cmd/types_that_contain_each_other/main.buri:9:1
+  |
+9 | enum Ping {
+  | ^^^^^^^^^^^
+  |
+  = fix: add a variant that does not contain `Ping`, the way `.None` ends an `Option`
+
+    Building a Loop needs a Loop already, so give it a way to end: an Option
+    field, or a variant that doesn't hold the type. enum Wrap { W(Option<Wrap>)
+    } is fine, because .W(.None) is a value.
+
+    An enum with no variants can't be built either, and nor can types that only
+    hold each other.
+
+    Where a Result can't fail, return the value itself rather than a Result
+    whose error type can't be built.
+
+error: `Pong` can never be built: every variant contains another `Pong` [unconstructible-type]
+  --> cmd/types_that_contain_each_other/main.buri:13:1
+   |
+13 | enum Pong {
+   | ^^^^^^^^^^^
+   |
+   = fix: add a variant that does not contain `Pong`, the way `.None` ends an `Option`
+error: `Left` can never be built: it always contains another `Left` (through `right`) [unconstructible-type]
+  --> cmd/types_that_contain_each_other/main.buri:17:1
+   |
+17 | struct Left {
+   | ^^^^^^^^^^^^^
+   |
+   = fix: make `right` an `Option`, so `.None` can end the chain
+error: `Right` can never be built: it always contains another `Right` (through `left`) [unconstructible-type]
+  --> cmd/types_that_contain_each_other/main.buri:21:1
+   |
+21 | struct Right {
+   | ^^^^^^^^^^^^^^
+   |
+   = fix: make `left` an `Option`, so `.None` can end the chain
+error: `Stuck` can never be built: every variant contains another `Stuck` [unconstructible-type]
+  --> cmd/types_that_contain_each_other/main.buri:30:1
+   |
+30 | enum Stuck {
+   | ^^^^^^^^^^^^
+   |
+   = fix: add a variant that does not contain `Stuck`, the way `.None` ends an `Option`

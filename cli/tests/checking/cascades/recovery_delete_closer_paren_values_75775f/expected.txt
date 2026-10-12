@@ -1,0 +1,28 @@
+error: `depth` takes 1 argument, but 2 were given [argument-count]
+  --> main.buri:18:19
+   |
+18 |     assert.equal([depth(.W(.None), depth(.W(.Some(.W(.None))))], [1, 2]);
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass `depth` the following arguments: depth(w: Wrap)
+error: `.W` needs a known expected type [untyped-variant]
+  --> main.buri:18:25
+   |
+18 |     assert.equal([depth(.W(.None), depth(.W(.Some(.W(.None))))], [1, 2]);
+   |                         ^^
+   |
+   = fix: write the qualified form, as in `Option.W(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:18:63
+   |
+18 |     assert.equal([depth(.W(.None), depth(.W(.Some(.W(.None))))], [1, 2]);
+   |                                                               ^
+   |
+  --> main.buri:18:24
+   |
+18 |     assert.equal([depth(.W(.None), depth(.W(.Some(.W(.None))))], [1, 2]);
+   |                        ^ opened here
+   |
+   = fix: write `)` here

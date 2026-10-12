@@ -386,8 +386,7 @@ independently per variant.
 
 The tag is at **offset 0** and its value is the variant's **index in declaration
 order**, which is the number `derive Ordered` compares and the number a decision tree
-switches on. An enum with no variants is uninhabited, has no value, and occupies
-nothing.
+switches on. Every enum has a variant (the `unconstructible-type` error).
 
 Two niches, both on day one, both because the IR already assumes them:
 
