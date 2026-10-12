@@ -2,7 +2,8 @@
 //!
 //! Orders, the menu, and the till.
 
-from "//lib/cafe/menu.buri" export { Drink, Serving, price as cost };
+from "//lib/cafe/menu.buri" export { Drink, price as cost, Serving };
+
 from "//lib/cafe/gone.buri" export { vanished };
 
 /// An amount of money, in cents.
@@ -17,12 +18,11 @@ export trait Priced {
     fn cents(self): I64;
 }
 
+derive Equal, Show, Nowhere for Card;
 /// A loyalty card.
 export struct Card {
     export stamps: I64,
 }
-
-derive Equal, Show, Nowhere for Card;
 
 impl Priced for Card {
     fn cents(self): I64 {
