@@ -1,0 +1,333 @@
+// The corners of `core/buri/ast`: every reserved word and punctuation
+// character, the spellings a number or an escape can stop part-way through,
+// where a parser that failed picks up again, and what `<` means in front of
+// each thing that can follow a `>`.
+
+from "core/buri/ast" import * as ast;
+from "core/buri/ast" import { TokenKind };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//lib/buri_ast" import { ex, letOf };
+
+fn kinds<C: Allocator>(ctx: C, source: Str): [TokenKind] {
+    ast.tokenize(ctx, source).map(ctx, fn(t) => t.kind)
+}
+
+fn texts<C: Allocator>(ctx: C, source: Str): [Str] {
+    ast.tokenize(ctx, source).map(ctx, fn(t) => t.text)
+}
+
+/// What each source prints back as, or its errors.
+fn printed<C: Allocator>(ctx: C, sources: [Str]): [Str] {
+    sources.mapCtx(ctx, fn(c, source) => {
+        match (ast.parse(c, "probe.buri", source)) {
+            .Ok(m) => ast.print(c, m).text,
+            .Err(errors) => errors.map(c, fn(e) => e.message).join(c, "; "),
+        }
+    })
+}
+
+fn strLine<C: Allocator>(ctx: C, text: Str): Str {
+    ast.print(ctx, letOf(ex(.Str(text)))).text
+}
+
+// --- tokens -----------------------------------------------------------------------
+
+test "every reserved word is Unknown" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let words = "async await break continue do in is loop module mut opaque panic pub ".concat(
+        ctx,
+        "return unreachable use when where while with yield",
+    );
+    let found = kinds(ctx, words);
+    assert.equal(found.length(), 21);
+    assert.isTrue(found.all(fn(k) => k == TokenKind.Unknown));
+}
+
+test "every punctuation character is one token" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let marks = "{ } ( ) [ ] , ; : . @ _ = < > + - * / % & | ^ ~ ! ?";
+    let found = kinds(ctx, marks);
+    assert.equal(found.length(), 26);
+    assert.isTrue(found.all(fn(k) => k == TokenKind.Punctuation));
+}
+
+test "a hex literal takes both cases of digit, and stops at the first that is not one" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(texts(ctx, "0xaF_09 0xfg 0xFG a_1"), [
+        "0xaF_09",
+        "0xf",
+        "g",
+        "0xF",
+        "G",
+        "a_1",
+    ]);
+}
+
+test "a block comment holds a lone slash and a lone star" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(texts(ctx, "/* a / b * c */ x"), ["/* a / b * c */", "x"]);
+}
+
+test "an exponent is a digit, or a sign and a digit, after the e" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(texts(ctx, "1e5 1E5 1e+5 1e-5 1e+x 1ex 1.x"), [
+        "1e5",
+        "1E5",
+        "1e+5",
+        "1e-5",
+        "1",
+        "e",
+        "+",
+        "x",
+        "1",
+        "ex",
+        "1",
+        ".",
+        "x",
+    ]);
+    assert.equal(kinds(ctx, "1e5 1E5 1e+5 1e-5"), [
+        TokenKind.Float,
+        TokenKind.Float,
+        TokenKind.Float,
+        TokenKind.Float,
+    ]);
+}
+
+test "a dollar with no brace after it is text, and a u with no brace is an escape of its own" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(texts(ctx, "\"a$b\" x"), ["\"a$b\"", "x"]);
+    assert.equal(texts(ctx, "'\\u{41}' '\\u' x"), ["'\\u{41}'", "'\\u'", "x"]);
+}
+
+// --- what a string reads as ----------------------------------------------------------
+
+test "a unicode escape reads as the character it names" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        printed(ctx, [
+            "let S: Str = \"\\u{41}\\u{1F600}b\";\n",
+            "let S: Str = \"\\u{41\";\n",
+        ]),
+        ["let S: Str = \"A😀b\";\n", "let S: Str = \"A\";\n"],
+    );
+}
+
+test "a tag with no flag before it, or no cancel after it, is an escape" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        strLine(ctx, "\u{e0067}\u{e007f}"),
+        "let X: Int = \"\\u{e0067}\\u{e007f}\";\n",
+    );
+    assert.equal(strLine(ctx, "🏴\u{e0067}"), "let X: Int = \"🏴\\u{e0067}\";\n");
+}
+
+test "a float that prints with an exponent keeps it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        ast.print(ctx, letOf(ex(.Float(1.0e300)))).text,
+        "let X: Int = 1e+300;\n",
+    );
+    assert.equal(ast.print(ctx, letOf(ex(.Float(2.0)))).text, "let X: Int = 2.0;\n");
+}
+
+// --- the module and its blocks --------------------------------------------------------
+
+test "comments that are not docs are dropped, and module docs stand alone" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        printed(ctx, ["// line\n/* block */\ntype A = Int;\n", "//! only docs\n"]),
+        ["type A = Int;\n", "//! only docs\n"],
+    );
+}
+
+test "blocks, bare spreads and struct literals print" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let same = [
+        "fn f(): () {\n    let x = {\n    };\n}\n",
+        "fn f(): () {\n    let x = { 1 };\n}\n",
+        "fn f(): () {\n    let x = {\n        let y = 1;\n        y\n    };\n}\n",
+        "fn f(): () {\n    let c = context {\n        ..ctx,\n    };\n}\n",
+        "fn f(): P {\n    P { ..p, x: if (a) { 1 } else { 2 } }\n}\n",
+        "fn f(): P {\n    P { x: if (a) { 1 } else if (b) { 2 } else { 3 } }\n}\n",
+    ];
+    assert.equal(printed(ctx, same), same);
+    // A match, or a branch of two lines, anywhere in a literal breaks all of it.
+    assert.equal(
+        printed(ctx, [
+            "fn f(): P {\n    P { ..match (a) { _ => p }, x: 1 }\n}\n",
+            "fn f(): P {\n    P { ..p, x: match (a) { _ => 1 } }\n}\n",
+            "fn f(): P {\n    P { x: if (a) { 1 } else if (b) { let y = 2; y } else { 3 } }\n}\n",
+        ]),
+        [
+            "fn f(): P {\n    P {\n        ..match (a) {\n            _ => p,\n        },\n        x: 1,\n    }\n}\n",
+            "fn f(): P {\n    P {\n        ..p,\n        x: match (a) {\n            _ => 1,\n        },\n    }\n}\n",
+            "fn f(): P {\n    P {\n        x: if (a) {\n            1\n        } else if (b) {\n            let y = 2;\n            y\n        } else {\n            3\n        },\n    }\n}\n",
+        ],
+    );
+    assert.equal(
+        printed(ctx, [
+            "fn f(): P {\n    P { x: if (a) { 1 } else if (match (b) { _ => true }) { 2 } else { 3 } }\n}\n",
+        ]),
+        [
+            "fn f(): P {\n    P {\n        x: if (a) {\n            1\n        } else if (match (b) {\n            _ => true,\n        }) {\n            2\n        } else {\n            3\n        },\n    }\n}\n",
+        ],
+    );
+}
+
+// --- what the parser picks up after ----------------------------------------------------
+
+test "after a declaration that failed, each keyword that begins one is where reading resumes" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let after = [
+        "from \"a\" import * as a;",
+        "export type B = Int;",
+        "fn g(): Int {\n    1\n}",
+        "struct S {}",
+        "enum E {}",
+        "type B = Int;",
+        "let B: Int = 1;",
+        "trait T {}",
+        "effect F {}",
+        "impl S {}",
+        "derive Equal for S;",
+        "context D {}",
+        "test \"t\" {}",
+    ];
+    let errors = after.mapCtx(ctx, fn(c, item) => {
+        match (ast.parse(c, "probe.buri", "type = Int;\n".concat(c, item))) {
+            .Ok(_m) => 0,
+            .Err(es) => es.length(),
+        }
+    });
+    assert.equal(errors, [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+}
+
+test "a keyword inside brackets after a failure does not resume reading" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(printed(ctx, ["type = [fn] (fn) {fn};\ntype B = Int;\n"]), [
+        "expected an identifier, found `=`",
+    ]);
+}
+
+test "a failure in the right operand stops the operator chain" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(printed(ctx, ["let X: Int = 1 + ; + 2;\n"]), [
+        "expected an expression, found `;`",
+    ]);
+}
+
+// --- the operators in front -------------------------------------------------------------
+
+test "not and bitwise not round-trip" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = ["let X: Bool = !a;\n", "let X: Int = ~a;\n"];
+    assert.equal(printed(ctx, sources), sources);
+}
+
+// --- a less-than that might open type arguments -------------------------------------------
+
+test "type arguments are read wherever a type can be written" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        "let X: Int = f<Self>();\n",
+        "let X: Int = f<fn(Int) => Int>();\n",
+        "let X: Int = f<[Int]>();\n",
+        "let X: Int = f<(Int, Str)>();\n",
+        "let X: Int = f<Map<Int, a.B>>();\n",
+        "let X: Int = f<Int> { x: 1 };\n",
+        "let X: Int = f<Int>;\n",
+    ];
+    assert.equal(printed(ctx, sources), sources);
+}
+
+test "a comparison does not chain, unless a ( or a { after the > makes type arguments" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let follow = [
+        "c",
+        "1",
+        "1.5",
+        "\"s\"",
+        "'c'",
+        "\"\${x}\"",
+        "self",
+        "ctx",
+        "true",
+        "false",
+        "if (x) { 1 } else { 2 }",
+        "match (x) { _ => 1 }",
+        ".C",
+        "[c]",
+        "-c",
+        "!c",
+        "~c",
+    ];
+    let results = printed(
+        ctx,
+        follow.mapCtx(ctx, fn(c, f) => {
+            "let X: Bool = a < b > ".concat(c, f).concat(c, ";\n")
+        }),
+    );
+    assert.isTrue(results.all(fn(r) => r == "expected `;`, found `>`"));
+    assert.equal(
+        printed(ctx, [
+            "let X: Bool = a < b > (c);\n",
+            "let X: Bool = a < b > { c };\n",
+            "let X: Bool = a < b > fn() => 1;\n",
+            "let X: Bool = a < b > context { ..ctx };\n",
+        ]),
+        [
+            "let X: Bool = a<b>(c);\n",
+            "let X: Bool = a<b> { c };\n",
+            "expected `;`, found `>`; expected an identifier, found `(`",
+            "expected `;`, found `>`; expected an identifier, found `{`",
+        ],
+    );
+}
+
+test "a dotted pattern that stops at a dot without a name" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        printed(ctx, [
+            "fn f(): Int {\n    match (x) {\n        a.b. => 1,\n    }\n}\n",
+        ]),
+        ["expected `=>`, found `.`"],
+    );
+}
