@@ -563,6 +563,9 @@ impl Task {
     /// address, and the `Arc` it came from is the one the thread is holding.
     fn waker(&self) -> Waker {
         let p: *const Task = self;
+        // Everything this thread knows of the task, its making included,
+        // happens before a wake on another thread: `waker_wake`.
+        valgrind::happens_before(p);
         // SAFETY: `p` came from an `Arc<Task>` the thread holds for the
         // length of this task's turn, so incrementing is sound and the count
         // the vtable's `drop` decrements is the one incremented here.
@@ -578,6 +581,8 @@ static WAKER: RawWakerVTable = RawWakerVTable::new(waker_clone, waker_wake, wake
 /// # Safety
 /// `p` came from `Arc<Task>::into_raw`, or from a live `Arc<Task>`.
 unsafe fn waker_clone(p: *const ()) -> RawWaker {
+    // As in [`waker_wake`].
+    valgrind::happens_after(p);
     // SAFETY: the caller's promise.
     unsafe { Arc::increment_strong_count(p.cast::<Task>()) };
     RawWaker::new(p, &WAKER)
@@ -586,6 +591,10 @@ unsafe fn waker_clone(p: *const ()) -> RawWaker {
 /// # Safety
 /// As [`waker_clone`], and this consumes the count.
 unsafe fn waker_wake(p: *const ()) {
+    // The waker reached this thread through whatever the waking side uses to
+    // hand it on, a tokio timer's atomics say, which helgrind can't see. What
+    // that orders is told: the task was made before its count is touched here.
+    valgrind::happens_after(p);
     // SAFETY: the caller's promise; the `Arc` is dropped at the end of the
     // scope, after the notification has taken a count of its own if it needs
     // one.
@@ -605,6 +614,8 @@ unsafe fn waker_wake_ref(p: *const ()) {
 /// # Safety
 /// As [`waker_clone`], and this consumes the count.
 unsafe fn waker_drop(p: *const ()) {
+    // As in [`waker_wake`].
+    valgrind::happens_after(p);
     // SAFETY: the caller's promise.
     unsafe { Arc::decrement_strong_count(p.cast::<Task>()) };
 }
