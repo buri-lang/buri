@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//platform/effect/quiet"]
+    outputs: [
+        { platform: "node" },
+    ]
+}

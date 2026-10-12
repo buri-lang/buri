@@ -26,10 +26,10 @@ use core::str::Chars;
 use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
 use crate::compiler::semantics::layered::Layered;
-use crate::compiler::semantics::resolve::{own_fn, BodyMap, ConstMap, ModuleScope, Walked};
+use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, ModuleScope, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
-use crate::compiler::semantics::types::{FnId, Tables};
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
+use crate::compiler::semantics::types::{Tables, TyConId};
+use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 
 /// The elements an icon may hold: a coordinate system, a group, and the shapes
 /// the painter's own SVG subset draws (`cli/runtime/image.rs`).
@@ -85,7 +85,7 @@ const ALT_DECORATIVE: usize = 0;
 /// written out at the call site.
 const PROP_CONST: usize = 0;
 
-/// Reads every decorative `image` in the compilation, and refuses one it
+/// Reads every decorative `Image` in the compilation, and refuses one it
 /// cannot.
 ///
 /// A compilation that did not load `ui/node` returns immediately, which is
@@ -99,59 +99,46 @@ pub fn run(
     diags: &mut Diagnostics,
     walked: &Walked,
 ) {
-    // `ui/node`'s `image`: a decorative one is what lowers to an inline
-    // `<svg>`, so this is the constructor whose calls the walk reads.
-    let Some(image) = own_fn(loaded, scopes, "ui/node", "image") else { return };
-
+    // `ui/node`'s `Image`, wherever one is written: a decorative one is what
+    // lowers to an inline `<svg>`, whether or not it's written in the call.
+    let Some(image) = own_type(loaded, scopes, "ui/node", "Image") else { return };
+    let mut each = |e: &typed::Expr| {
+        typed::walk(e, &mut |e| check(e, image, tables, bodies, consts, diags));
+    };
     for (_, init) in walked.constants(tables, consts) {
-        walk(init, image, tables, bodies, consts, diags);
+        each(init);
     }
     for (_, body) in walked.functions(tables, bodies) {
-        walk(&body.expr, image, tables, bodies, consts, diags);
+        each(&body.expr);
     }
 }
 
-/// Every call to it, in walk order.
-fn walk(
-    e: &typed::Expr,
-    image: FnId,
-    tables: &Tables,
-    bodies: &BodyMap,
-    consts: &ConstMap,
-    diags: &mut Diagnostics,
-) {
-    if let ExprKind::CallFn { func, args } = &e.kind {
-        if func.decl() == Some(image) {
-            // The one argument is an `Image<C>` struct literal.
-            if let Some(arg) = args.first() {
-                check(arg, tables, bodies, consts, diags);
-            }
-        }
-    }
-    typed::children(e, &mut |child| walk(child, image, tables, bodies, consts, diags));
-}
-
-/// One `image` call: read a decorative one's artwork, or say why it could not
-/// be — and leave an `AccessibilityText` one, whose source is a fetched
-/// address, alone.
+/// One `Image` as written: read a decorative one's artwork, or say why it
+/// could not be — and leave an `AccessibilityText` one, whose source is a
+/// fetched address, alone. An update that sets neither field keeps its base's
+/// pair, which was read where the base was written.
 fn check(
-    arg: &typed::Expr,
+    e: &typed::Expr,
+    image: TyConId,
     tables: &Tables,
     bodies: &BodyMap,
     consts: &ConstMap,
     diags: &mut Diagnostics,
 ) {
-    // A struct literal stores its fields in declaration order, so the `source`
-    // and the `alt` this pass reads are taken by position.
-    let ExprKind::StructLit { fields, .. } = &arg.kind else { return };
+    match &e.kind {
+        ExprKind::StructLit { con, .. } if *con == image => {}
+        ExprKind::StructUpdate { con, updates, .. }
+            if *con == image && updates.iter().any(|(i, _)| [IMAGE_SOURCE, IMAGE_ALT].contains(i)) => {}
+        _ => return,
+    }
     let mut folder = Folder::new(tables, bodies, consts);
 
     // Only a decorative picture inlines an `<svg>`. An `AccessibilityText` one
     // — and any whose `alt` cannot be reduced, since it may be either — is left
     // for the browser to fetch, so nothing here reads its source.
-    let decorative = fields
-        .get(IMAGE_ALT)
-        .and_then(|e| folder.eval(e, &Env::default()))
+    let decorative = e
+        .written_field(IMAGE_ALT)
+        .and_then(|alt| folder.eval(alt, &Env::default()))
         .as_ref()
         .and_then(Value::as_variant)
         .is_some_and(|(variant, _)| variant == ALT_DECORATIVE);
@@ -159,18 +146,19 @@ fn check(
         return;
     }
 
-    let source = fields.get(IMAGE_SOURCE).or_ice("an `Image` literal holds every field, a missing one as an error");
-    let folded = folder.eval(source, &Env::default());
+    let source = e.written_field(IMAGE_SOURCE);
+    let folded = source.and_then(|s| folder.eval(s, &Env::default()));
+    let span = source.map_or(e.span, |s| s.span);
     let Some(text) = folded.as_ref().and_then(const_source) else {
         refuse(
             diags,
-            source.span,
+            span,
             "a decorative picture's artwork has to be written out at the call site, because the compiler reads it",
         );
         return;
     };
     if let Some(problem) = problem(text) {
-        refuse(diags, source.span, &problem);
+        refuse(diags, span, &problem);
     }
 }
 

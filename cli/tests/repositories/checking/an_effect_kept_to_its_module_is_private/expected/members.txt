@@ -1,0 +1,77 @@
+error: `Quiet` is private to its module [private-to-module]
+ --> cmd/members/main.buri:4:14
+  |
+4 | fn hushed<C: quiet.Quiet>(ctx: C): Int {
+  |              ^^^^^^^^^^^
+  |
+  = fix: add `export` to `Quiet`'s declaration in "//platform/effect/quiet", if it is meant to be part of the API
+
+    Add export to the declaration, or go through a method the type provides.
+
+    Without export, a declaration, field, method or variant of a private enum is
+    reachable only from its own module.
+
+    A struct with any private field can't be constructed outside its module at
+    all, because writing Scope(0) names the hidden field. That makes a private
+    field an invariant, and it's how the standard library mints a type only from
+    the inside. Functional update still works, because it never names the hidden
+    fields.
+
+error: `Quiet` is private to its module [private-to-module]
+ --> cmd/members/main.buri:9:16
+  |
+9 |     let level: quiet.Quiet = 1;
+  |                ^^^^^^^^^^^
+  |
+  = fix: add `export` to `Quiet`'s declaration in "//platform/effect/quiet", if it is meant to be part of the API
+error: `Mood` is private to its module [private-to-module]
+  --> cmd/members/main.buri:11:9
+   |
+11 |         quiet.Mood.Calm(at) => .Ok(()),
+   |         ^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: add `export` to `Mood`'s declaration in "//platform/effect/quiet", if it is meant to be part of the API
+error: `loud` is private to its module [private-to-module]
+  --> cmd/members/main.buri:12:24
+   |
+12 |         _ => if (quiet.loud() == 0) { .Ok(()) } else { .Err("loud") },
+   |                        ^^^^
+   |
+   = fix: add `export` to `loud`'s declaration in "//platform/effect/quiet", if it is meant to be part of the API
+error: `Quiet` has no test implementation in `//platform/effect/quiet/testing` [effect-missing-test-implementation]
+ --> platform/effect/quiet/lib.buri:2:8
+  |
+2 | effect Quiet {
+  |        ^^^^^
+  |
+  = an effect package ships a `testing` surface with a type that implements each of its effects
+  = fix: give the library rule a `testing` block, and `impl Quiet for` a type in `testing/lib.buri`
+
+    A test plugs in a test implementation where production binds a host's field,
+    so an effect without one is an effect nobody can test. Keep its state in
+    core/platforms/testing/state, which only an effect's testing surface may
+    import:
+
+      from "core/map" import * as map;
+      from "core/map" import { Map };
+      from "core/platforms/testing/state" import * as state;
+      from "//platform/effect/kv" import { Kv };
+
+      export struct TestKv {
+          store: state.State<Map<(Str, Str), Str>>,
+      }
+
+      impl Kv for TestKv {
+          fn get(self, namespace: Str, key: Str): Option<Str> {
+              state.read(self.store).get((namespace, key))
+          }
+
+          fn put(self, namespace: Str, key: Str, value: Str): () {
+              state.update(self.store, fn(c, m) => (m.insert(c, (namespace, key), value), ()))
+          }
+      }
+
+      export fn kv(): TestKv {
+          TestKv { store: state.new(map.empty()) }
+      }
+

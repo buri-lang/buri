@@ -66,6 +66,18 @@ impl Expr {
     pub fn new(kind: ExprKind, ty: Ty, span: Span) -> Expr {
         Expr { kind, ty, span }
     }
+
+    /// What a struct literal or update wrote for one field, through an
+    /// update's base when the update leaves it alone.
+    pub fn written_field(&self, index: usize) -> Option<&Expr> {
+        match &self.kind {
+            ExprKind::StructLit { fields, .. } => fields.get(index),
+            ExprKind::StructUpdate { base, updates, .. } => {
+                updates.iter().find(|(i, _)| *i == index).map(|(_, e)| e).or_else(|| base.written_field(index))
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

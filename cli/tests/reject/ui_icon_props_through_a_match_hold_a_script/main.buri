@@ -1,0 +1,26 @@
+// EXPECT: an icon may hold only an `<svg>` and the shapes inside it
+//
+// The artwork is read wherever the picture's props are written, so props a
+// `match` picks are read just like props written in the call.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let plain = false;
+  ui.mount(
+    ctx,
+    ui.image(match (plain) {
+      true => { source: .Const("<svg viewBox='0 0 24 24'></svg>"), alt: .Decorative, styles: [] },
+      false => {
+        source: .Const("<svg viewBox='0 0 24 24'><script>steal()</script></svg>"),
+        alt: .Decorative,
+        styles: [],
+      },
+    }),
+    [],
+  )
+}

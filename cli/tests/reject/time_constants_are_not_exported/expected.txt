@@ -1,24 +1,26 @@
-error: "core/time" does not export `NANOSECONDS_PER_SECOND` [unknown-export]
+error: `NANOSECONDS_PER_SECOND` is private to its module [private-to-module]
   --> cmd/time_constants_are_not_exported/main.buri:12:35
    |
 12 |   let _ = io.println(ctx, "${time.NANOSECONDS_PER_SECOND}").ignore();
    |                                   ^^^^^^^^^^^^^^^^^^^^^^
    |
-   = the module exports 30 names
-   = fix: correct the member name, or check `buri docs core/time`
+   = fix: use what "core/time" exports instead; `buri docs core/time` lists it
 
-     A re-export names only what its module exports, so a library's surface is
-     never wider than the modules behind it. A namespace like fs stands for the
-     module its import named, and only that module's exports may follow the dot.
-     This covers types, bounds and impl heads too, such as list.Vector<Int> and
-     <T: order.Comparable>. If no import bound the namespace at all, the error
-     is unknown-name instead.
+     Add export to the declaration, or go through a method the type provides.
 
-error: "core/time" does not export `ZERO` [unknown-export]
+     Without export, a declaration, field, method or variant of a private enum
+     is reachable only from its own module.
+
+     A struct with any private field can't be constructed outside its module at
+     all, because writing Scope(0) names the hidden field. That makes a private
+     field an invariant, and it's how the standard library mints a type only
+     from the inside. Functional update still works, because it never names the
+     hidden fields.
+
+error: `ZERO` is private to its module [private-to-module]
   --> cmd/time_constants_are_not_exported/main.buri:13:35
    |
 13 |   let _ = io.println(ctx, "${time.ZERO.isZero()}").ignore();
    |                                   ^^^^
    |
-   = the module exports 30 names
-   = fix: correct the member name, or check `buri docs core/time`
+   = fix: use what "core/time" exports instead; `buri docs core/time` lists it

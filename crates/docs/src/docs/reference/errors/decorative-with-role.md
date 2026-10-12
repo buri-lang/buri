@@ -49,5 +49,6 @@ fn crumb<C>(name: Str): Node<C> {
 }
 ```
 
-The compiler reads both fields at the call site. A pair it can't read is
-refused too, because it can't tell that they don't hold together.
+The compiler reads both fields where the stack is written, in the call or not.
+A pair it can't read is refused too, because it can't tell that they don't
+hold together.

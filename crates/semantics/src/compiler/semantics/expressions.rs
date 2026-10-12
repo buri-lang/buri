@@ -3352,7 +3352,15 @@ impl<'a, 'b> Infer<'a, 'b> {
                         .then(|| self.exported_effect(&shown))
                         .flatten();
                     let Some((tid, module)) = declared else {
-                        self.templated("unknown-effect", effect_span).bind("name", shown);
+                        if self.c.namespace_member_missing(self.module, path, effect_span) {
+                            continue;
+                        }
+                        match self.private_effect(&shown) {
+                            Some(module) => self.c.report_private(&shown, &module, effect_span),
+                            None => {
+                                self.templated("unknown-effect", effect_span).bind("name", shown);
+                            }
+                        }
                         continue;
                     };
                     let line = format!("from \"{module}\" import {{ {shown} }};");
@@ -3424,9 +3432,19 @@ impl<'a, 'b> Infer<'a, 'b> {
             .iter()
             .enumerate()
             .find(|(_, tr)| tr.is_effect && tr.exported && tr.name == name)?;
-        let path = &self.c.module(info.module).path;
-        let path = path.strip_suffix("/lib.buri").unwrap_or(path).to_string();
-        Some((TraitId(u32::try_from(index).ok()?), path))
+        Some((TraitId(u32::try_from(index).ok()?), self.c.import_path(info.module)))
+    }
+
+    /// The path of a module other than this one that declares an effect named
+    /// `name` without `export`.
+    fn private_effect(&self, name: &str) -> Option<String> {
+        let info = self
+            .c
+            .tables
+            .traits
+            .iter()
+            .find(|tr| tr.is_effect && !tr.exported && tr.name == name && tr.module != self.module)?;
+        Some(self.c.import_path(info.module))
     }
 
     fn check_match(

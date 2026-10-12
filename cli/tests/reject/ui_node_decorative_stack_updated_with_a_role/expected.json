@@ -1,0 +1,1 @@
+{"severity":"error","message":"a `stack` that is decorative takes no `role`, because a hidden element has nothing to announce","code":"decorative-with-role","location":{"file":"cmd/ui_node_decorative_stack_updated_with_a_role/main.buri","line":16,"column":14,"endLine":22,"endColumn":6,"text":"    ui.stack({"},"fix":"drop the `role`, or the `isDecorative`","notes":[],"related":[]}

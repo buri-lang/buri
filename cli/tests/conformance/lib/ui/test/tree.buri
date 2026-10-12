@@ -5441,6 +5441,39 @@ test "a decorative stack is drawn and never read out" {
     assert.equal(page.spoken(), "Home Reports");
 }
 
+/// A picture whose props a match picks, with one more style given by an update.
+fn glyph<C>(quiet: Bool): Node<C> {
+    ui.image({
+        ..match (quiet) {
+            true => { source: .Const("<svg></svg>"), alt: .Decorative, styles: [] },
+            false => { source: .Const("a"), alt: .AccessibilityText("A"), styles: [] },
+        },
+        styles: [.Padding(.Px(4))],
+    })
+}
+
+test "props a match picks, updated in the call, render as if written there" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let quiet = true;
+    // Each arm is read where it's written, and an update that touches neither
+    // field of the pair keeps the pair it was given.
+    let page = render(
+        ctx,
+        ui.stack({
+            ..match (quiet) {
+                true => { styles: [], children: [], isDecorative: .Some(true) },
+                false => { styles: [], children: [], role: .Some(.List) },
+            },
+            children: [ui.text({ content: .Const("/") }), glyph(quiet)],
+        }),
+    );
+    assert.equal(page.text(), "/");
+    assert.equal(page.spoken(), "");
+    assert.containsText(page.markup(), "<svg");
+}
+
 test "being current and being decorative are announced, not painted" {
     let ctx = context {
         Allocator: alloc(),
