@@ -1,0 +1,21 @@
+error: `Ring.equal` needs endless instantiations: `Ring.equal<T>` calls `Ring.equal<Ring<T>>` through `contains`, which calls `Ring.equal<Ring<Ring<T>>>`, and so on [endless-function]
+  --> cmd/functions_that_grow_through_the_standard_library/main.buri:16:6
+   |
+16 |   fn equal(self, other: Ring<T>): Bool {
+   |      ^^^^^
+   |
+   = fix: where `Ring.equal` calls itself, call it at its own type parameters: `Ring.equal<T>`
+
+     Each instantiation of a generic function compiles on its own, so nest<Int>
+     would need nest<Option<Int>>, then a bigger one, forever. Where a function
+     calls itself, directly or through others, pass its own type parameters,
+     like count<T> calling count<T>. Swapped is fine too: swap<B, A> inside
+     swap<A, B>.
+
+error: `Tag.show` needs endless instantiations: `Tag.show<T, C>` calls `Tag.show<Tag<T>, C>` through `render`, which calls `Tag.show<Tag<Tag<T>>, C>`, and so on [endless-function]
+  --> cmd/functions_that_grow_through_the_standard_library/main.buri:26:6
+   |
+26 |   fn show<C: Allocator>(self, ctx: C): Str {
+   |      ^^^^
+   |
+   = fix: where `Tag.show` calls itself, call it at its own type parameters: `Tag.show<T, C>`

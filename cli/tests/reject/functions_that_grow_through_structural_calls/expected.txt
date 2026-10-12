@@ -1,0 +1,28 @@
+error: `Bag.equal` needs endless instantiations: `Bag.equal<T>` calls `Bag.equal<Bag<T>>`, which calls `Bag.equal<Bag<Bag<T>>>`, and so on [endless-function]
+  --> cmd/functions_that_grow_through_structural_calls/main.buri:16:6
+   |
+16 |   fn equal(self, other: Bag<T>): Bool {
+   |      ^^^^^
+   |
+   = fix: where `Bag.equal` calls itself, call it at its own type parameters: `Bag.equal<T>`
+
+     Each instantiation of a generic function compiles on its own, so nest<Int>
+     would need nest<Option<Int>>, then a bigger one, forever. Where a function
+     calls itself, directly or through others, pass its own type parameters,
+     like count<T> calling count<T>. Swapped is fine too: swap<B, A> inside
+     swap<A, B>.
+
+error: `Duo.equal` needs endless instantiations: `Duo.equal<T>` calls `Duo.equal<Duo<T>>`, which calls `Duo.equal<Duo<Duo<T>>>`, and so on [endless-function]
+  --> cmd/functions_that_grow_through_structural_calls/main.buri:26:6
+   |
+26 |   fn equal(self, other: Duo<T>): Bool {
+   |      ^^^^^
+   |
+   = fix: where `Duo.equal` calls itself, call it at its own type parameters: `Duo.equal<T>`
+error: `Nest.equal` needs endless instantiations: `Nest.equal<T>` calls `Nest.equal<Nest<T>>`, which calls `Nest.equal<Nest<Nest<T>>>`, and so on [endless-function]
+  --> cmd/functions_that_grow_through_structural_calls/main.buri:42:6
+   |
+42 |   fn equal(self, other: Nest<T>): Bool {
+   |      ^^^^^
+   |
+   = fix: where `Nest.equal` calls itself, call it at its own type parameters: `Nest.equal<T>`
