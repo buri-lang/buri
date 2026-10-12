@@ -38,6 +38,7 @@
 //! run  { args: [...]  exit: 1  golden: "order.txt"  stream: MERGED }
 //! run  { args: ["build"]  exit: 0  cwd: "lib/money" }
 //! run  { args: [...]  exit: 1  golden: "cross.txt"  host: LINUX }
+//! run  { args: ["clean"]  exit: 0  golden: "loaded.txt"  suites: LOADED }
 //! edit { file: "cmd/app/BUILD.buri"  replace: "..."  with: "..." }
 //! file { path: "cmd/f/main.buri"  golden: "formatted.buri" }
 //! file { path: ".buri/out/node/cmd/app/app.mjs"  absent: "a marker" }
@@ -149,6 +150,11 @@ pub enum Step {
         /// The golden files stay checked in either way — [`no_golden_has_collapsed`]
         /// reads them off disk — so a run skipped here does not orphan one.
         host: Option<String>,
+        /// Whether this run is about a host whose debug suites load into the
+        /// test host (`LOADED`) or link runners (`LINKED`), or `None` for
+        /// either. Decided by the predicate `buri` itself uses, so a case is
+        /// right on hosts CI doesn't run, such as an Intel mac.
+        loaded: Option<bool>,
     },
     Edit {
         file: String,
@@ -528,6 +534,12 @@ pub fn load_case(dir: &Path) -> Case {
                         ),
                     },
                     host: host_of(&name, "run.host", &message),
+                    loaded: match optional_ident(&name, "run.suites", &message).as_deref() {
+                        None => None,
+                        Some("LOADED") => Some(true),
+                        Some("LINKED") => Some(false),
+                        Some(other) => panic!("{name}: run.suites is {other}, not one of LOADED, LINKED"),
+                    },
                 });
             }
             "edit" => {
@@ -644,6 +656,13 @@ fn optional_str(case: &str, what: &str, message: &Message) -> Option<String> {
     message.get(field).map(|f| as_str(case, what, &f.value))
 }
 
+/// Whether a debug suite built for this host loads into the test host, as
+/// `buri test` decides it.
+fn suites_load() -> bool {
+    let target = buri::compiler::backend::Target { platform: buri::compiler::driver::host_native_platform(), arch: None };
+    buri::build::test_host::wanted(target, buri::compiler::backend::Profile::Debug)
+}
+
 /// A step's `host`: `MACOS` or `LINUX`, as `std::env::consts::OS` spells it.
 fn host_of(case: &str, what: &str, message: &Message) -> Option<String> {
     match optional_ident(case, what, message).as_deref() {
@@ -708,11 +727,13 @@ pub fn run_case(case: &Case, g: &mut Golden) {
     }
     for (i, step) in case.steps.iter().enumerate() {
         match step {
-            Step::Run { args, exit, golden, stream, stdin, cwd, host } => {
+            Step::Run { args, exit, golden, stream, stdin, cwd, host, loaded } => {
                 // A run named for another host is skipped: its golden is another
                 // host's to bless and compare, and this one asserts nothing
                 // about it. The file stays on disk for `no_golden_has_collapsed`.
-                if host.as_deref().is_some_and(|h| h != std::env::consts::OS) {
+                if host.as_deref().is_some_and(|h| h != std::env::consts::OS)
+                    || loaded.is_some_and(|l| l != suites_load())
+                {
                     continue;
                 }
                 let argv: Vec<&str> = args.iter().map(String::as_str).collect();
