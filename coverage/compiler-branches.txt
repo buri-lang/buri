@@ -3,13 +3,13 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
-total 14592 16264 89.72%
+total 14638 16310 89.75%
 area cli/build 1616 1633 98.96%
 area cli/documentation 256 769 33.29%
 area cli/format 85 98 86.73%
 area cli/language_server 1150 1464 78.55%
 area cli/lint 588 708 83.05%
-area cli/other 506 600 84.33%
+area cli/other 510 604 84.44%
 area cli/run 48 66 72.73%
 area cli/serve+watch 51 84 60.71%
 area cli/test 446 588 75.85%
@@ -19,9 +19,9 @@ area crates/docs 197 304 64.80%
 area crates/hash 18 18 100.00%
 area crates/js 1022 1062 96.23%
 area crates/llvm 610 616 99.03%
-area crates/middle 1901 2002 94.96%
+area crates/middle 1909 2010 94.98%
 area crates/project 1341 1358 98.75%
-area crates/semantics 2042 2088 97.80%
+area crates/semantics 2076 2122 97.83%
 area crates/stdlib 12 12 100.00%
 area crates/stencil 1235 1298 95.15%
 area crates/syntax 1209 1234 97.97%
@@ -65,7 +65,7 @@ area crates/syntax 1209 1234 97.97%
 0 0 cli/src/compiler/backend/mod.rs
 1 2 cli/src/compiler/backend/runtime_native.rs
 48 66 cli/src/compiler/driver.rs
-187 218 cli/src/compiler/modules.rs
+191 222 cli/src/compiler/modules.rs
 4 4 cli/src/compiler/snapshot.rs
 0 4 cli/src/documentation/assemble.rs
 41 174 cli/src/documentation/examples.rs
@@ -147,7 +147,7 @@ area crates/syntax 1209 1234 97.97%
 139 144 crates/middle/src/compiler/middle/lower.rs
 39 40 crates/middle/src/compiler/middle/lower/lists.rs
 18 18 crates/middle/src/compiler/middle/mod.rs
-189 214 crates/middle/src/compiler/middle/monomorphize.rs
+197 222 crates/middle/src/compiler/middle/monomorphize.rs
 104 108 crates/middle/src/compiler/middle/monomorphize/hand_written.rs
 602 620 crates/middle/src/compiler/middle/rc.rs
 40 40 crates/middle/src/compiler/middle/tail_calls.rs
@@ -181,7 +181,7 @@ area crates/syntax 1209 1234 97.97%
 28 28 crates/semantics/src/compiler/semantics/reactive.rs
 416 424 crates/semantics/src/compiler/semantics/resolve.rs
 139 140 crates/semantics/src/compiler/semantics/resolve/platforms.rs
-266 266 crates/semantics/src/compiler/semantics/styles.rs
+300 300 crates/semantics/src/compiler/semantics/styles.rs
 22 26 crates/semantics/src/compiler/semantics/typed.rs
 117 120 crates/semantics/src/compiler/semantics/types.rs
 0 0 crates/semantics/src/compiler/standard_library.rs
