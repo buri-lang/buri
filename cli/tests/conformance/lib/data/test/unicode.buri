@@ -70,6 +70,19 @@ test "a zero-width joiner sequence is one cluster" {
     assert.equal("👨‍👩‍👦".graphemeCount(), 1);
     assert.equal("👍🏽".graphemeCount(), 1);
     assert.equal("👨👩".graphemeCount(), 2);
+    // A joiner holds on to the pictograph before it, and joins only another.
+    assert.equal("😀\u{200d}a".graphemes(ctx), ["😀\u{200d}", "a"]);
+}
+
+test "Hangul composes only the jamo the arithmetic covers" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // U+1176 is a vowel past the modern ones, and U+11C3 a final past them.
+    assert.equal("ᄀᅶ".normalize(ctx, .Nfc), "ᄀᅶ");
+    assert.equal("가ᇃ".normalize(ctx, .Nfc), "가ᇃ");
+    assert.equal("기".normalize(ctx, .Nfc), "기");
+    assert.equal("갛".normalize(ctx, .Nfc), "갛");
 }
 
 // GB12 and GB13: regional indicators pair up, so a flag is one cluster and an

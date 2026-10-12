@@ -57,3 +57,34 @@ test "a schema the reader refuses answers its diagnostics and no module" {
     // bad declaration must not hide what the rest of the file says.
     assert.equal(assert.some(out.modules.first()).0, "old.proto");
 }
+
+test "only a Value or a NullValue field reads a JSON null as itself" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let request = Request {
+        inputs: [
+            (
+                "lib/wire/nulls.proto",
+                [
+                    "edition = \"2026\";\n",
+                    "import \"google/protobuf/struct.proto\";\n",
+                    "message M {\n",
+                    "  google.protobuf.Value v = 1;\n",
+                    "  google.protobuf.NullValue n = 2;\n",
+                    "  google.protobuf.Struct s = 3;\n",
+                    "}\n",
+                ].join(ctx, ""),
+            ),
+        ],
+        dependencies: [],
+    };
+    let out = proto.emit(ctx, request);
+    assert.isEmpty(out.diagnostics);
+    let text = ast.print(ctx, assert.some(out.modules.first()).1).text.lines(ctx);
+    assert.equal(text.filter(ctx, fn(l) => l.contains("proto.member")), [
+        "            let f_v: Option<Value> = match (proto.memberKeepingNull(doc, \"v\", \"v\")) {",
+        "            let f_n: Option<NullValue> = match (proto.memberKeepingNull(doc, \"n\", \"n\")) {",
+        "            let f_s: Option<Struct> = match (proto.member(doc, \"s\")) {",
+    ]);
+}

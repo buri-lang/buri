@@ -431,6 +431,11 @@ test "a set matches one of its members, and `!` turns it round" {
     assert.isFalse(path.of(ctx, "d").matchesGlob("[abc]"));
     assert.isTrue(path.of(ctx, "q7").matchesGlob("q[0-9]"));
     assert.isFalse(path.of(ctx, "qx").matchesGlob("q[0-9]"));
+    assert.isFalse(path.of(ctx, "q-").matchesGlob("q[0-9]"));
+    // A dash with nothing after it before the `]` is a dash.
+    assert.isTrue(path.of(ctx, "-").matchesGlob("[a-]"));
+    assert.isTrue(path.of(ctx, "a").matchesGlob("[a-]"));
+    assert.isFalse(path.of(ctx, "b").matchesGlob("[a-]"));
     assert.isTrue(path.of(ctx, "d").matchesGlob("[!abc]"));
     assert.isTrue(path.of(ctx, "d").matchesGlob("[^abc]"));
     assert.isFalse(path.of(ctx, "a").matchesGlob("[!abc]"));

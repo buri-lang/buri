@@ -124,6 +124,13 @@ test "allTrue and anyTrue read a mask" {
     assert.isFalse(simd.i32x4(1, 1, 0, 1).allTrue());
     assert.isTrue(simd.i32x4(0, 0, 1, 0).anyTrue());
     assert.isFalse(simd.ZERO_INT.anyTrue());
+    // Each lane decides on its own.
+    assert.isFalse(simd.i32x4(0, 1, 1, 1).allTrue());
+    assert.isFalse(simd.i32x4(1, 0, 1, 1).allTrue());
+    assert.isFalse(simd.i32x4(1, 1, 1, 0).allTrue());
+    assert.isTrue(simd.i32x4(1, 0, 0, 0).anyTrue());
+    assert.isTrue(simd.i32x4(0, 1, 0, 0).anyTrue());
+    assert.isTrue(simd.i32x4(0, 0, 0, 1).anyTrue());
 }
 
 test "bitwise operations are lane-wise" {

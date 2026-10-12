@@ -252,11 +252,8 @@ export fn roundEven(x: Float): Float {
 export fn roundTo(x: Float, decimals: Int): Float {
     let scale = tenTo(decimals);
     let scaled = x * scale;
-    if (!isFinite(scaled) || scale == 0.0 || isInfinite(scale)) {
-        x
-    } else {
-        roundEven(scaled) / scale
-    }
+    // An infinite scale makes `scaled` infinite or NaN, so the first test has it.
+    if (!isFinite(scaled) || scale == 0.0) { x } else { roundEven(scaled) / scale }
 }
 
 /// `10^n`, by repeated multiplication. `n` past a double's range gives `0.0` or

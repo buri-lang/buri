@@ -1078,7 +1078,8 @@ fn advance(state: Boundary, next: Int, broke: Bool): Boundary {
         previous: next,
         regionals,
         pictographic: isPictographic(next) || state.pictographic && kind == 4,
-        joined: state.pictographic && kind == 5 && !isPictographic(next),
+        // A joiner is never a pictograph itself.
+        joined: state.pictographic && kind == 5,
         consonant: isConsonant(next) || carried,
         linked: !isConsonant(next) && carried && (state.linked || isLinker(next)),
     }
@@ -1159,7 +1160,7 @@ fn asciiClass(cp: Int): Option<Int> {
         .Some(2)
     } else if (cp == 0x0d) {
         .Some(1)
-    } else if (cp >= 0 && cp < 0x80) {
+    } else if (cp < 0x80) {
         .Some(3)
     } else {
         .None

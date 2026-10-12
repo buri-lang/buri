@@ -272,6 +272,29 @@ test "reading past the end is .None rather than a short number" {
     assert.none(bytes.toU32LittleEndian([1, 2, 3, 4], 0 - 1));
 }
 
+test "every reader refuses a negative offset and one too near the end" {
+    let raw: [U8] = [1, 2, 3, 4, 5, 6, 7, 8];
+    assert.none(bytes.toU16BigEndian(raw, -1));
+    assert.none(bytes.toU16BigEndian(raw, 7));
+    assert.none(bytes.toU16LittleEndian(raw, -1));
+    assert.none(bytes.toU16LittleEndian(raw, 7));
+    assert.none(bytes.toU32BigEndian(raw, -1));
+    assert.none(bytes.toU32BigEndian(raw, 5));
+    assert.none(bytes.toU32LittleEndian(raw, -1));
+    assert.none(bytes.toU32LittleEndian(raw, 5));
+    assert.none(bytes.toU64BigEndian(raw, -1));
+    assert.none(bytes.toU64BigEndian(raw, 1));
+    assert.none(bytes.toU64LittleEndian(raw, -1));
+    assert.none(bytes.toU64LittleEndian(raw, 1));
+    // And each reads the octets at the very end.
+    assert.equal(bytes.toU16BigEndian(raw, 6), .Some(0x0708));
+    assert.equal(bytes.toU16LittleEndian(raw, 6), .Some(0x0807));
+    assert.equal(bytes.toU32BigEndian(raw, 4), .Some(0x05060708));
+    assert.equal(bytes.toU32LittleEndian(raw, 4), .Some(0x08070605));
+    assert.equal(bytes.toU64BigEndian(raw, 0), .Some(0x0102030405060708));
+    assert.equal(bytes.toU64LittleEndian(raw, 0), .Some(0x0807060504030201));
+}
+
 test "an offset reads from where it points" {
     let raw: [U8] = [0xff, 0xff, 0x00, 0x00, 0x01, 0x00];
     assert.equal(assert.some(bytes.toU32BigEndian(raw, 2)), 0x00000100);

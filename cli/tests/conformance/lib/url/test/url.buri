@@ -238,6 +238,31 @@ test "a relative reference is not a URL" {
 test "a port has to be a number in range" {
     assert.equal(assert.err(read("http://a:eighty/")), UrlError.BadPort("eighty"));
     assert.equal(assert.err(read("http://a:70000/")), UrlError.BadPort("70000"));
+    assert.equal(assert.err(read("http://a:-1/")), UrlError.BadPort("-1"));
+}
+
+/// `reference` resolved against `base`.
+fn resolvedAgainst(base: Str, reference: Str): Str {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    match (url.parse(ctx, base)) {
+        .Err(_e) => "<not a base>",
+        .Ok(b) => {
+            match (b.resolve(ctx, reference)) {
+                .Err(_e) => "<not a reference>",
+                .Ok(target) => target.text(ctx),
+            }
+        },
+    }
+}
+
+test "a base with no host and no path takes the reference's path as it is" {
+    assert.equal(resolvedAgainst("foo:", "g"), "foo:g");
+    assert.equal(resolvedAgainst("foo:", "."), "foo:");
+    assert.equal(resolvedAgainst("foo:", ".."), "foo:");
+    // With a host, an empty path is the root.
+    assert.equal(resolvedAgainst("http://a", "g"), "http://a/g");
 }
 
 test "an empty port is no port" {

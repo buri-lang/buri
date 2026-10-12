@@ -206,6 +206,8 @@ test "a value that is not a long flag is taken whatever it looks like" {
     // `-` is the conventional name for standard input and `-1` is a number:
     // both are values, and neither is a flag this spec declares.
     assert.equal(printed(ran(["count", "--out", "-", "f"])), "count f none loud - [f]");
+    // On its own, `-` is a positional like any other word.
+    assert.equal(printed(ran(["count", "-"])), "count - none loud stdout [-]");
     assert.equal(
         printed(ran(["count", "--out", "-1", "f"])),
         "count f none loud -1 [f]",
