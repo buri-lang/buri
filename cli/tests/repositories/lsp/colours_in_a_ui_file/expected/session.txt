@@ -4,4 +4,6 @@
 {"id":4,"jsonrpc":"2.0","result":[{"label":".Rgba(16, 32, 48, 0.5)","textEdit":{"newText":".Rgba(16, 32, 48, 0.5)","range":{"end":{"character":26,"line":9},"start":{"character":4,"line":9}}}}]}
 {"id":5,"jsonrpc":"2.0","result":[{"label":".Rgb(255, 255, 255)","textEdit":{"newText":".Rgb(255, 255, 255)","range":{"end":{"character":26,"line":9},"start":{"character":4,"line":9}}}}]}
 {"id":6,"jsonrpc":"2.0","result":[]}
-{"id":7,"jsonrpc":"2.0","result":null}
+{"id":7,"jsonrpc":"2.0","result":[]}
+{"id":8,"jsonrpc":"2.0","result":[]}
+{"id":9,"jsonrpc":"2.0","result":null}

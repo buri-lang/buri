@@ -17,5 +17,9 @@
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/colorPresentation", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/palette.buri"}, "color": {"red": 1, "green": 1, "blue": 1, "alpha": 1}, "range": {"start": {"line": 9, "character": 4}, "end": {"line": 9, "character": 26}}}}
 # A file that names no colour has none, rather than having nothing to say.
 {"jsonrpc": "2.0", "id": 6, "method": "textDocument/documentColor", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/lib.buri"}}}
-{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+# A range that holds no colour has nothing to replace: not the name `brand`,
+# and not the colour whose red channel is decided at run time.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/colorPresentation", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/palette.buri"}, "color": {"red": 1, "green": 0, "blue": 0, "alpha": 1}, "range": {"start": {"line": 5, "character": 11}, "end": {"line": 5, "character": 16}}}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/colorPresentation", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/palette.buri"}, "color": {"red": 1, "green": 0, "blue": 0, "alpha": 1}, "range": {"start": {"line": 15, "character": 4}, "end": {"line": 15, "character": 19}}}}
+{"jsonrpc": "2.0", "id": 9, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

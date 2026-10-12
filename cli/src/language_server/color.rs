@@ -30,6 +30,21 @@ type Rgba = [f64; 4];
 /// what `hover` does with the same tree: a body belongs to a file, so the
 /// filter is on the declaring function rather than on every expression in it.
 pub fn document_colors(analyzed: &Analyzed, path: &Path, text: &str) -> Option<Value> {
+    Some(Value::Array(
+        swatches(analyzed, path)?
+            .iter()
+            .map(|(span, rgba)| {
+                Value::object(vec![
+                    ("range", convert::range(text, *span)),
+                    ("color", color_value(*rgba)),
+                ])
+            })
+            .collect(),
+    ))
+}
+
+/// The colours `document_colors` reports, by span.
+fn swatches(analyzed: &Analyzed, path: &Path) -> Option<Vec<(Span, Rgba)>> {
     let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
     let con = color_constructor(analyzed)?;
     let tables = &analyzed.analysis.checked.tables;
@@ -63,28 +78,18 @@ pub fn document_colors(analyzed: &Analyzed, path: &Path, text: &str) -> Option<V
     // Both maps are hashed, so the walk order is not the same twice.
     found.sort_by_key(|(span, _)| (span.start, span.end));
     found.dedup_by_key(|(span, _)| (span.start, span.end));
-    Some(Value::Array(
-        found
-            .iter()
-            .map(|(span, rgba)| {
-                Value::object(vec![
-                    ("range", convert::range(text, *span)),
-                    ("color", color_value(*rgba)),
-                ])
-            })
-            .collect(),
-    ))
+    Some(found)
 }
 
 /// The presentations for a colour the picker chose, over the range it chose it
 /// on.
 ///
-/// No analysis: the range came from [`document_colors`], and what has to be
-/// written there is decided by the colour and by how the source spelled the
-/// call. Which constructor is offered is decided by the colour too — `Rgb`
-/// cannot say "half transparent", so a translucent colour is offered as `Rgba`
-/// and nothing else.
-pub fn presentations(text: &str, params: &Value) -> Value {
+/// The range has to be one [`document_colors`] reports: anywhere else there is
+/// no colour to replace. What is written there is decided by the colour and by
+/// how the source spelled the call. Which constructor is offered is decided by
+/// the colour too — `Rgb` cannot say "half transparent", so a translucent
+/// colour is offered as `Rgba` and nothing else.
+pub fn presentations(analyzed: &Analyzed, path: &Path, text: &str, params: &Value) -> Value {
     let built = (|| {
         let rgba = [
             number(params.at("color.red"))?,
@@ -96,6 +101,11 @@ pub fn presentations(text: &str, params: &Value) -> Value {
         let end = convert::Position::from_json(params.at("range.end")?)?;
         let from = convert::offset_of(text, start) as usize;
         let to = convert::offset_of(text, end) as usize;
+        let swatches = swatches(analyzed, path)?;
+        let at = |(span, _): &(Span, Rgba)| (span.start as usize, span.end as usize) == (from, to);
+        if !swatches.iter().any(at) {
+            return None;
+        }
         let written = text.get(from..to).unwrap_or("");
         let label = format!("{}{}", qualifier(written), call(rgba));
         Some(Value::Array(vec![Value::object(vec![
