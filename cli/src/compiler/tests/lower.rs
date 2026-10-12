@@ -27,9 +27,8 @@ fn lower(text: &str) -> ir::Program {
 /// A golden print of a two-line function has to be a print of *that*
 /// function, and with the inliner on a two-line function is inlined into
 /// its caller and then dropped by `dce` — so the test would assert on an
-/// abort. The pipeline is still the real one; only the budget differs, and
-/// the tests that care about what the whole middle end produces run with
-/// it on.
+/// abort. Every other pass is the real one, and the tests that care about
+/// what the whole middle end produces run with the inliner on.
 fn lower_plain(text: &str) -> ir::Program {
     lower_with(text, false)
 }
@@ -59,13 +58,22 @@ fn compiled(text: &str, inline: bool) -> (Program, driver::Analysis) {
         monomorphize::Roots::Main(entry),
     );
     assert!(!diags.has_errors(), "monomorphization failed");
-    let opts = middle::Options {
-        inline: crate::compiler::middle::inline::Options { inline },
-        ..middle::Options::default()
-    };
-    middle::run(&mut program, &opts);
+    if inline {
+        middle::run(&mut program, &middle::Options::default());
+    } else {
+        run_without_inlining(&mut program);
+    }
     middle::native(&mut program);
     (program, analysis)
+}
+
+/// `middle::run` with every pass but the inliner, in its order. Keep the two
+/// in step.
+fn run_without_inlining(program: &mut Program) {
+    middle::dce::run(program);
+    middle::tail_calls::rewrite(program);
+    middle::decision::run(program);
+    middle::chunks::run(program, false);
 }
 
 /// Every test verifies what it lowered: a lowering that produced a

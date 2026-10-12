@@ -1685,12 +1685,13 @@ export fn main(host: NodeHost): Result<(), Str> {
     assert_eq!(swap.params, vec![ir::Ownership::Own], "the match consumes it");
     assert_eq!(swap.reuse.len(), 2, "one per arm: {:?}", swap.reuse);
     assert!(swap.reuse.iter().any(|r| r.fields == 2), "{:?}", swap.reuse);
-    // Turning the pairing off leaves everything else where it was.
-    let mut counted = Syntactic::new(&program);
-    let without = analyze(&program, &mut counted, &Options { reuse: false, sharing: false });
-    let swap_off = without.func(find(&program, "swap")).expect("a plan");
-    assert!(swap_off.reuse.is_empty());
-    assert_eq!(swap_off.sites, swap.sites);
+    // The pairing is beside the drop, not in place of it: each paired value
+    // is still released where the arm takes it.
+    for r in &swap.reuse {
+        let target = Target::Local(r.token);
+        let drop = Site { node: r.at, at: Position::Before, op: RcOp::DecRef, target };
+        assert!(swap.sites.contains(&drop), "{r:?} has no drop in {:?}", swap.sites);
+    }
 }
 
 /// A scrutinee that is **still live after the match** is not dying, so

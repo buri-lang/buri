@@ -1533,10 +1533,7 @@ pub fn prepare(
     // writes files can have one. `middle::chunks` takes `core/lazy`'s `load`
     // back out everywhere else, which is the identity the module promises.
     let _phase = crate::profile::enter(crate::profile::Phase::Middle);
-    let opts = middle::Options {
-        split_lazy: !target.platform.is_native(),
-        ..middle::Options::default()
-    };
+    let opts = middle::Options { split_lazy: !target.platform.is_native() };
     middle::run(program, &opts);
     // The native branch is chosen by what the artifact *is*, and a WEB artifact
     // is JavaScript: closure conversion and reference counting are the same

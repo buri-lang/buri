@@ -25,16 +25,6 @@ use crate::compiler::middle::monomorphize::{Func, Program};
 use crate::compiler::middle::{resolved, strongly_connected};
 use crate::diagnostics::Invariant as _;
 
-pub struct Options {
-    pub inline: bool,
-}
-
-impl Default for Options {
-    fn default() -> Options {
-        Options { inline: true }
-    }
-}
-
 /// How many times the pipeline may run.
 ///
 /// Inlining exposes calls that were not visible before, so one round is not
@@ -64,11 +54,8 @@ const SINGLE_USE: usize = 96;
 /// compound.
 const GROWTH: usize = 96;
 
-pub fn run(program: &mut Program, opts: &Options) -> Stats {
+pub fn run(program: &mut Program) -> Stats {
     let mut stats = Stats::default();
-    if !opts.inline {
-        return stats;
-    }
     let n = program.funcs.len();
     let mut own: Vec<Own> = program.funcs.iter().map(Own::of).collect();
     // Measured once, from the original bodies: the ceiling must not move as
@@ -656,7 +643,7 @@ mod tests {
         let main = func("main", vec![0], 1, Some(call(1, vec![local(0)])));
         let mut p = program(vec![main, double]);
 
-        let stats = run(&mut p, &Options::default());
+        let stats = run(&mut p);
         assert!(stats.inlined >= 1, "nothing was inlined");
         let body = p.funcs[0].body().unwrap();
         assert!(
@@ -677,7 +664,7 @@ mod tests {
         let main = func("main", vec![0], 3, Some(call(1, vec![local(2)])));
         let mut p = program(vec![main, callee]);
 
-        run(&mut p, &Options::default());
+        run(&mut p);
         assert_eq!(p.funcs[0].locals.len(), 5, "the callee's locals were not appended");
 
         let mut ids = HashSet::new();
@@ -707,7 +694,7 @@ mod tests {
         let main = func("main", vec![0], 1, Some(call(1, vec![local(0)])));
         let mut p = program(vec![main, risky]);
 
-        let stats = run(&mut p, &Options::default());
+        let stats = run(&mut p);
         assert_eq!(stats.inlined, 0, "a body with `?` was inlined");
     }
 
@@ -717,7 +704,7 @@ mod tests {
         let main = func("main", vec![0], 1, Some(call(1, vec![local(0)])));
         let mut p = program(vec![main, loopy]);
 
-        let stats = run(&mut p, &Options::default());
+        let stats = run(&mut p);
         assert_eq!(stats.inlined, 0, "a self-recursive function was inlined");
     }
 
@@ -728,7 +715,7 @@ mod tests {
         let main = func("main", vec![0], 1, Some(call(1, vec![local(0)])));
         let mut p = program(vec![main, a, b]);
 
-        let stats = run(&mut p, &Options::default());
+        let stats = run(&mut p);
         assert_eq!(stats.inlined, 0, "a member of a cycle was inlined");
     }
 
@@ -741,7 +728,7 @@ mod tests {
         let mut p = program(vec![main, unused]);
         let before: Vec<String> = p.funcs.iter().map(|f| f.symbol.clone()).collect();
 
-        run(&mut p, &Options::default());
+        run(&mut p);
         let after: Vec<String> = p.funcs.iter().map(|f| f.symbol.clone()).collect();
         assert_eq!(before, after);
         assert!(matches!(

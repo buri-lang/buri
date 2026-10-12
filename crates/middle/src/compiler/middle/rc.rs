@@ -164,7 +164,7 @@
 //!
 //! **Analysis only, and deliberately so.** [`FuncPlan::reuse`] pairs a dying
 //! value with a construction in the same arm (MEMORY.md §5.3's "same basic
-//! block, matching size class"), behind [`Options::reuse`], which is on.
+//! block, matching size class"), on the native branch.
 //! Nothing consumes it, and the reason is not that the transformation is hard:
 //! **the construction it would rewrite does not allocate.** A struct, a tuple,
 //! an enum and a closure record are register or stack values in both backends
@@ -270,7 +270,7 @@
 )]
 
 use crate::compiler::middle::{ir, resolved};
-use crate::compiler::middle::monomorphize::{self, Desc, Func, FuncKind, Program};
+use crate::compiler::middle::monomorphize::{self, Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, OptionOrResult, PatKind, Pattern, Stmt};
 use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty, TyKind};
@@ -477,13 +477,8 @@ impl Plan {
 }
 
 /// What the pass is allowed to do.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Options {
-    /// Whether to pair dying values with constructions. On by default: the
-    /// pairing is inert until a backend acts on it, and a backend being
-    /// brought up can ignore the field or turn this off and see the same
-    /// program without it.
-    pub reuse: bool,
     /// Whether to answer JavaScript's question instead of the native one:
     /// *where does a second reference to a value come into existence*, with no
     /// releases anywhere. Off by default, and [`sharing`] is the only caller
@@ -503,13 +498,10 @@ pub struct Options {
     ///  * A projection out of a **dying** parent records [`FuncPlan::inherits`]
     ///    rather than only a duplicating use, which is Perceus's drop
     ///    specialisation with the answer deferred to run time.
+    ///
+    /// It also leaves [`FuncPlan::reuse`] empty, because nothing on that
+    /// branch reads it.
     pub sharing: bool,
-}
-
-impl Default for Options {
-    fn default() -> Options {
-        Options { reuse: true, sharing: false }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -556,18 +548,12 @@ pub trait Counted {
 /// this pass completes (`stencil::emit`'s `rc_counted`). So the shapes are
 /// the single source of the answer, and the two halves cannot disagree.
 ///
-/// The descriptor and body scans below stay as the answer for a `Program` that
-/// carries no shapes — every unit test in this file builds one, and so does
-/// every caller that assembles a `Program` by hand.
-///
 /// The name is now narrower than the type: this is no longer only what syntax
 /// can say. It stays because `stencil/mod.rs` and `llvm/emit.rs` name it, and
 /// a rename would be an edit to two files for a word.
 #[derive(Clone)]
 pub struct Syntactic {
     shapes: monomorphize::Shapes,
-    prim_of: HashMap<Ty, Prim>,
-    fields_of: HashMap<Ty, Vec<Ty>>,
     memo: HashMap<Ty, Answer>,
     /// Which leaves answer `Yes`. See [`Leaves`].
     leaves: Leaves,
@@ -600,107 +586,8 @@ pub enum Leaves {
 
 impl Syntactic {
     pub fn new(program: &Program) -> Syntactic {
-        let mut prim_of = HashMap::default();
-        let mut fields_of: HashMap<Ty, Vec<Ty>> = HashMap::default();
-        // The descriptor graph, read back as types: `desc_index` says which
-        // descriptor a type has, and a descriptor says what its components are.
-        let mut ty_of: Vec<Option<Ty>> = vec![None; program.descriptors.len()];
-        for (ty, i) in &program.desc_index {
-            *ty_of.get_mut(*i).or_ice("`desc_index` names descriptors the program has") = Some(*ty);
-        }
-        let lookup = |d: usize, ty_of: &[Option<Ty>]| ty_of.get(d).cloned().flatten();
-        for (i, d) in program.descriptors.iter().enumerate() {
-            let ty = lookup(i, &ty_of).or_ice("every descriptor is some type's");
-            match d {
-                // A `derive Flags` struct is its word.
-                Desc::Prim(p) | Desc::Flags { prim: p, .. } => {
-                    prim_of.insert(ty, *p);
-                }
-                Desc::Struct { fields, .. } => {
-                    let cs = fields.iter().filter_map(|f| lookup(f.ty, &ty_of)).collect();
-                    fields_of.insert(ty, cs);
-                }
-                Desc::Enum { variants, .. } => {
-                    let cs = variants
-                        .iter()
-                        .flat_map(|v| v.fields.iter().filter_map(|f| lookup(f.ty, &ty_of)))
-                        .collect();
-                    fields_of.insert(ty, cs);
-                }
-                Desc::Unit => {
-                    fields_of.insert(ty, Vec::new());
-                }
-                Desc::Option(inner) => {
-                    let cs = lookup(*inner, &ty_of).into_iter().collect();
-                    fields_of.insert(ty, cs);
-                }
-                Desc::Tuple(_)
-                | Desc::Array(_)
-                | Desc::Members { .. }
-                | Desc::Opaque(_)
-                | Desc::Reserved => {}
-            }
-        }
-        // Descriptors exist only for the types a structural operation reached,
-        // and a program that derives nothing has none at all. The bodies say
-        // the rest: a literal names its own primitive, a primitive operation
-        // names the type of its operands, and a construction names its
-        // components — which is a struct's field types without a `Tables`.
-        for f in &program.funcs {
-            let Some(body) = f.body() else { continue };
-            typed::walk(body, &mut |e| match &e.kind {
-                ExprKind::Str(_) => {
-                    prim_of.entry(e.ty).or_insert(Prim::Str);
-                }
-                // An interpolation names `Template`, and nothing else in a
-                // body does: a text run is not an `ExprKind::Str` and no
-                // literal has the type. Without this row every `Template` was
-                // `Answer::Unknown` — read as "not counted" — so the block
-                // `lower::template`'s `str.concat` chain ends holding was
-                // never dropped, and `println("[${x}]")` in a loop grew the
-                // heap by a block an iteration.
-                ExprKind::Template { .. } => {
-                    prim_of.entry(e.ty).or_insert(Prim::Template);
-                }
-                ExprKind::Bool(_) => {
-                    prim_of.entry(e.ty).or_insert(Prim::Bool);
-                }
-                ExprKind::Char(_) => {
-                    prim_of.entry(e.ty).or_insert(Prim::Char);
-                }
-                ExprKind::Int(..) => {
-                    prim_of.entry(e.ty).or_insert(Prim::I64);
-                }
-                ExprKind::Float(_) => {
-                    prim_of.entry(e.ty).or_insert(Prim::F64);
-                }
-                ExprKind::Prim { prim, args, .. } => {
-                    let a = args.first().or_ice("a primitive operation has an operand");
-                    prim_of.entry(a.ty).or_insert(*prim);
-                }
-                ExprKind::StructLit { fields, .. } => {
-                    fields_of
-                        .entry(e.ty)
-                        .or_insert_with(|| fields.iter().map(|x| x.ty).collect());
-                }
-                ExprKind::EnumLit { args, .. } => {
-                    // One variant at a time: a type is counted if *any*
-                    // variant carries a counted field, so the union is the
-                    // right accumulation.
-                    let entry = fields_of.entry(e.ty).or_default();
-                    for a in args {
-                        if !entry.contains(&a.ty) {
-                            entry.push(a.ty);
-                        }
-                    }
-                }
-                _ => {}
-            });
-        }
         Syntactic {
             shapes: program.shapes.clone(),
-            prim_of,
-            fields_of,
             memo: HashMap::default(),
             leaves: Leaves::Counted,
             visiting: HashSet::default(),
@@ -786,15 +673,20 @@ impl Syntactic {
                 Some(bindings) => self.join_of(&bindings.clone(), depth),
                 None => Answer::Unknown,
             },
-            TyKind::Con(con, args) => match self.shapes.cons.get(con.index()) {
-                Some(monomorphize::ConShape::Prim(p)) => {
+            TyKind::Con(con, args) => match self
+                .shapes
+                .cons
+                .get(con.index())
+                .or_ice("`monomorphize::shapes_of` records every constructor")
+            {
+                monomorphize::ConShape::Prim(p) => {
                     if matches!(p, Prim::Str | Prim::Template) {
                         self.opaque_leaf()
                     } else {
                         Answer::No
                     }
                 }
-                Some(monomorphize::ConShape::Fields(declared)) => {
+                monomorphize::ConShape::Fields(declared) => {
                     // The declared fields still carry the type's own
                     // `Ty::Param`s, so this instantiation's arguments are what
                     // turn `Option<T>`'s payload into the `Str` it is here.
@@ -805,24 +697,8 @@ impl Syntactic {
                         .collect();
                     self.join_of(&fields, depth)
                 }
-                None => self.scanned(ty, depth),
             },
             _ => Answer::Unknown,
-        }
-    }
-
-    /// The answer for a `Ty::Con` from the descriptor graph and the bodies.
-    fn scanned(&mut self, ty: &Ty, depth: usize) -> Answer {
-        if let Some(p) = self.prim_of.get(ty).copied() {
-            if matches!(p, Prim::Str | Prim::Template) {
-                self.opaque_leaf()
-            } else {
-                Answer::No
-            }
-        } else if let Some(fields) = self.fields_of.get(ty).cloned() {
-            self.join_of(&fields, depth)
-        } else {
-            Answer::Unknown
         }
     }
 
@@ -985,11 +861,10 @@ pub fn run(program: &Program) -> Plan {
 ///
 /// The plan that comes back is read for its [`RcOp::IncRef`] sites and its
 /// [`FuncPlan::inherits`] and for nothing else — a garbage collector has no
-/// use for a release, and the JavaScript backend emits none. `reuse` is off
-/// because nothing on this branch reads it. MEMORY.md §5.5.
+/// use for a release, and the JavaScript backend emits none. MEMORY.md §5.5.
 pub fn sharing(program: &Program) -> Plan {
     let mut counted = Syntactic::for_lists(program);
-    analyze(program, &mut counted, &Options { reuse: false, sharing: true })
+    analyze(program, &mut counted, &Options { sharing: true })
 }
 
 /// The same, against a caller's own [`Counted`] and options — which is how wave
@@ -3871,7 +3746,7 @@ impl Scan<'_> {
             // would take the count to zero before the arm ran.
             if !live.contains(&t) {
                 self.push(bid, Position::Before, RcOp::DecRef, Target::Local(t));
-                if self.opts.reuse {
+                if !self.opts.sharing {
                     if let Some(fields) = construction(&a.body) {
                         self.reuse.push(Reuse { token: t, at: bid, fields });
                     }

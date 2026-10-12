@@ -265,27 +265,13 @@ pub struct Instance {
     pub shape: String,
 }
 
-/// Why an instance was not generated. Recorded rather than diagnosed: a shape
-/// this pass declines is one the run-time walker still handles, so declining is
-/// a missing optimisation and not a broken program.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Declined {
-    /// `Desc::Opaque` or `Desc::Reserved` somewhere in the shape.
-    NoStructure,
-    /// A type the descriptor names that `Program::desc_index` does not.
-    NoType,
-    /// The operation's own result type never appeared in the program, so there
-    /// is nothing to give the generated function as a return type.
-    NoResultType,
-}
-
 /// What the pass did.
 ///
 /// Returned rather than stored: the pass writes its answers into the program
 /// itself, and this is the record of *which* answers it wrote. `middle::native`
 /// drops it — nothing downstream reads a row — and what keeps every field here
-/// is this file's own tests, which are where "one function per shape" and
-/// "a declined shape is still handled by the walker" are checked at all.
+/// is this pass's own tests, which are where "one function per shape" is
+/// checked at all.
 #[derive(Default, Debug)]
 pub struct Derives {
     /// Every generated function, in generation order.
@@ -293,8 +279,6 @@ pub struct Derives {
     /// Which function serves `(operation, descriptor)`. More rows than
     /// [`Derives::instances`] exactly where two shapes share one function.
     pub routes: Vec<(Op, usize, FuncIdx)>,
-    /// Shapes that were asked for and not generated.
-    pub declined: Vec<(Op, usize, Declined)>,
     /// How many call sites became direct calls.
     pub rewritten: usize,
     /// Descriptors `json.decode` was handed, each of which gets a decoder.
@@ -821,9 +805,6 @@ impl Generator {
             .collect();
         if !unbuilt.is_empty() {
             self.routed.retain(|_, f| !unbuilt.contains(f));
-            for i in self.out.instances.iter().filter(|i| unbuilt.contains(&i.func)) {
-                self.out.declined.push((i.op, i.desc, Declined::NoStructure));
-            }
             self.out.instances.retain(|i| !unbuilt.contains(&i.func));
         }
         let mut routes: Vec<(Op, usize, FuncIdx)> =
@@ -845,19 +826,13 @@ impl Generator {
             return Some(*f);
         }
         if !self.ok.get(desc).copied().unwrap_or(false) {
-            let why = if self.env.ty(desc).is_none() { Declined::NoType } else { Declined::NoStructure };
-            self.decline(op, desc, why);
             return None;
         }
-        let Some(ret) = self.op_ret(op, desc) else {
-            self.decline(op, desc, Declined::NoResultType);
-            return None;
-        };
+        let ret = self.op_ret(op, desc)?;
         // `ToJson` writes object keys and `FromJson` reads them, so both need
         // `Str` as well.
         let keyed = matches!(op, Op::ToJson | Op::FromJson);
         if keyed && !self.env.prim_of.contains_key(&Prim::Str) {
-            self.decline(op, desc, Declined::NoResultType);
             return None;
         }
         let shape = self.shape_key(op, desc);
@@ -902,12 +877,6 @@ impl Generator {
         match op {
             Op::FromJson => self.decoded(&self.ty_of(desc)),
             _ => self.env.result(op).cloned(),
-        }
-    }
-
-    fn decline(&mut self, op: Op, desc: usize, why: Declined) {
-        if !self.out.declined.iter().any(|(o, d, _)| *o == op && *d == desc) {
-            self.out.declined.push((op, desc, why));
         }
     }
 
