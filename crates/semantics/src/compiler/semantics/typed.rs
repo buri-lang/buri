@@ -374,11 +374,7 @@ impl Pattern {
             }
             // Alternatives bind identical names at identical types, so the
             // first is representative.
-            PatKind::Or(alts) => {
-                if let Some(first) = alts.first() {
-                    first.each_bind(f)
-                }
-            }
+            PatKind::Or(alts) => alts.iter().take(1).for_each(|first| first.each_bind(f)),
             _ => {}
         }
     }
@@ -403,11 +399,7 @@ impl Pattern {
                     out.push(*l);
                 }
             }
-            PatKind::Or(alts) => {
-                if let Some(f) = alts.first() {
-                    f.fresh_binds(out)
-                }
-            }
+            PatKind::Or(alts) => alts.iter().take(1).for_each(|first| first.fresh_binds(out)),
             _ => {}
         }
     }

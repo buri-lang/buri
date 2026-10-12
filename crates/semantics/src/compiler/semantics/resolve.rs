@@ -1659,10 +1659,10 @@ impl<'a> Checker<'a> {
         if name == "main" {
             self.entry = Some(fid);
         }
-        let Some(tree::Item::Fn(d)) = self.module(module).ast.items.get(item as usize) else {
-            crate::ice!("a free function's rule is recorded with its own `fn` item");
+        let d = match self.module(module).ast.items.get(item as usize) {
+            Some(tree::Item::Fn(d)) => d.clone(),
+            _ => crate::ice!("a free function's rule is recorded with its own `fn` item"),
         };
-        let d = d.clone();
         // Asked of every output the binary declares, not of the one being
         // built: `fetch` is an entry and builds its own context while the page
         // is the artifact being compiled, and refusing it there would refuse a
@@ -2555,8 +2555,8 @@ impl<'a> Checker<'a> {
     fn prelude(&self) -> std::sync::Arc<Prelude> {
         let mut out = Prelude::default();
         for (path, name) in standard_library::prelude() {
-            let Some(from) = self.loaded.find(path) else { continue };
-            let Some(sym) = self.scope(from).exports.get(name) else { continue };
+            let from = self.loaded.find(path).or_ice("every loader loads the prelude's modules");
+            let sym = self.scope(from).exports.get(name).or_ice("a prelude module exports its prelude names");
             // The first of two prelude entries of one name is the one seen.
             out.entry(name.to_string()).or_insert_with(|| sym.clone());
         }
@@ -2565,9 +2565,8 @@ impl<'a> Checker<'a> {
 
     fn register_known_names(&mut self) {
         for (path, name) in standard_library::prelude() {
-            if let Some(m) = self.loaded.find(path) {
-                self.know(m, name);
-            }
+            let m = self.loaded.find(path).or_ice("every loader loads the prelude's modules");
+            self.know(m, name);
         }
         // `core/json` is loaded on import rather than eagerly, so these are
         // known exactly when a program could name them — which is the only
@@ -2582,16 +2581,14 @@ impl<'a> Checker<'a> {
             // members, so whether it has one is a question about `K`.
             self.know(m, "IndexSet");
         }
-        if let Some(m) = self.loaded.find("platform/effect") {
-            // `Request` and `Response` are here for the entry check: a
-            // platform that calls its entry fixes those two types, and the
-            // check is a comparison against the ids rather than against a
-            // spelling a program could shadow.
-            // `Scope` is the allocator that charges nothing, which a test
-            // report renders a hand-written `Show` with.
-            for name in ["Allocator", "IoError", "Region", "Request", "Response", "Scope"] {
-                self.know(m, name);
-            }
+        // `Request` and `Response` are here for the entry check: a platform
+        // that calls its entry fixes those two types, and the check is a
+        // comparison against the ids rather than against a spelling a program
+        // could shadow. `Scope` is the allocator that charges nothing, which a
+        // test report renders a hand-written `Show` with.
+        let m = self.loaded.find("platform/effect").or_ice("every loader loads `platform/effect`");
+        for name in ["Allocator", "IoError", "Region", "Request", "Response", "Scope"] {
+            self.know(m, name);
         }
         self.option_con = self.known_types.get("Option").copied();
         self.result_con = self.known_types.get("Result").copied();
@@ -3217,14 +3214,15 @@ impl<'a> Checker<'a> {
                 // A hand-written `impl` for another instance, as `Box<Int>` for a
                 // `Box<Str>` field: a second `impl` or a `derive` would clash with it.
                 let other_instance = match lacking_ty.kind() {
+                    // A derived head is the type's own parameters, which
+                    // cover every instance, so only a hand-written one passes.
                     TyKind::Con(id, _) => self.tables.impls.get(&(tr, *id)).filter(|imp| {
-                        !imp.is_derived()
-                            && !crate::compiler::semantics::inference::head_covers(
-                                &imp.head,
-                                &lacking_ty,
-                                imp.generics.len(),
-                                true,
-                            )
+                        !crate::compiler::semantics::inference::head_covers(
+                            &imp.head,
+                            &lacking_ty,
+                            imp.generics.len(),
+                            true,
+                        )
                     }),
                     _ => None,
                 }

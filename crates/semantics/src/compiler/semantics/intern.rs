@@ -55,6 +55,7 @@ use std::hash::{BuildHasherDefault, Hash, Hasher};
 use std::sync::{Mutex, PoisonError};
 
 use crate::compiler::semantics::types::{CtxTypeId, TyConId, TyVarId};
+use crate::diagnostics::Invariant as _;
 use crate::hash::{FxHasher, Map};
 
 /// The structure of a type, with every child already interned.
@@ -284,7 +285,7 @@ fn intern(probe: TyKindIn<'_>) -> Ty {
     }
     let hash = structural_hash(&probe);
     let shard = (hash >> (u64::BITS - SHARD_BITS)) as usize;
-    let Some(shard) = TABLE.get(shard) else { return Ty::ERROR };
+    let shard = TABLE.get(shard).or_ice("the top `SHARD_BITS` bits of a hash index `SHARDS`");
     let mut shard = shard.lock().unwrap_or_else(PoisonError::into_inner);
     let bucket = shard.entry(hash).or_default();
     if let Some(found) = bucket.iter().find(|t| t.0.kind == probe) {
