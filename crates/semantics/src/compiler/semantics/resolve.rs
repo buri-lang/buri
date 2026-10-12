@@ -93,6 +93,9 @@ pub struct ModuleScope {
     pub own: HashMap<String, Sym>,
     /// Namespace imports, by local name.
     pub namespaces: HashMap<String, ModuleId>,
+    /// Local names an import would have bound, had it not failed. The import
+    /// reported it, so nothing that uses one of these reports it again.
+    failed: HashSet<String>,
 }
 
 /// What every prelude name refers to, by name.
@@ -114,6 +117,12 @@ impl ModuleScope {
             .iter()
             .filter(|(k, _)| !self.imported.contains_key(*k) && !self.own.contains_key(*k));
         self.imported.iter().chain(own).chain(prelude).map(|(k, s)| (k.as_str(), s))
+    }
+
+    /// Whether `name` is what a failed import would have bound here, which
+    /// that import already reported.
+    pub(crate) fn import_failed(&self, name: &str) -> bool {
+        self.failed.contains(name)
     }
 }
 
@@ -1148,8 +1157,18 @@ impl<'a> Checker<'a> {
     }
 
     fn apply_import(&mut self, module: ModuleId, imp: &tree::Import) {
-        let Some(from) = self.loaded.find(&imp.path) else { return };
         let t = self.tree(module);
+        // The loader reported a module it couldn't load, or refused.
+        let Some(from) = self.loaded.find(&imp.path) else {
+            let names: Vec<String> = match &imp.clause {
+                tree::ImportClause::Namespace(alias) => vec![t.name(*alias).to_string()],
+                tree::ImportClause::Named(specs) => {
+                    t.list(*specs).iter().map(|s| t.name(s.local()).to_string()).collect()
+                }
+            };
+            self.scope_mut(module).failed.extend(names);
+            return;
+        };
         match &imp.clause {
             tree::ImportClause::Namespace(alias) => {
                 self.scope_mut(module).namespaces.insert(t.name(*alias).to_string(), from);
@@ -1165,6 +1184,8 @@ impl<'a> Checker<'a> {
                         self.templated("entry-declaration-imported", spec.name.span)
                             .bind("entry", name.to_string())
                             .bind("platform", platform.clone());
+                        let local = t.name(spec.local()).to_string();
+                        self.scope_mut(module).failed.insert(local);
                         continue;
                     }
                     let Some(sym) = self.lookup_export(from, t.name(spec.name)) else {
@@ -1216,6 +1237,8 @@ impl<'a> Checker<'a> {
                         if let Some(n) = note {
                             d.notes.push(n);
                         }
+                        let local = t.name(spec.local()).to_string();
+                        self.scope_mut(module).failed.insert(local);
                         continue;
                     };
                     let local = t.name(spec.local()).to_string();
@@ -1797,8 +1820,11 @@ impl<'a> Checker<'a> {
     }
 
     /// Whether an output of a repository platform enters through `name`.
+    /// Asked only by a build of one output, which reads a workspace, of its
+    /// binary's entry module.
     fn fills_custom_entry(&self, module: ModuleId, name: &str) -> bool {
-        let (Some(ws), Some(pkg)) = (self.ws, self.module(module).pkg) else { return false };
+        let ws = self.ws.or_ice("a build of one output reads a workspace");
+        let pkg = self.module(module).pkg.or_ice("a build's entry module is its binary's");
         let target = TargetId { package: pkg, kind: RuleKind::Binary };
         ws.declared_entries(target).iter().any(|e| e.name == name && e.custom.is_some())
     }
@@ -2130,7 +2156,7 @@ impl<'a> Checker<'a> {
                     // `T: ns.Name` with no `Name` in `ns` is a missing
                     // member, not a name that is "not a trait": the module
                     // has no such thing to be one.
-                    if self.namespace_member_missing_in(module, *b) {
+                    if self.type_answered(module, *b) {
                         continue;
                     }
                     let shown = t.type_head(*b).map_or_else(|| crate::formatting::type_text(t, *b), str::to_string);
@@ -2297,7 +2323,7 @@ impl<'a> Checker<'a> {
                         // is not: the answer is about the member, and
                         // `nearest_type_name` below draws from *this* module's
                         // types, which are the wrong set to offer.
-                        if self.namespace_member_missing(module, path, span) {
+                        if self.path_answered(module, path, span) {
                             return Ty::ERROR;
                         }
                         let shown = t.path_text(path);
@@ -2416,18 +2442,18 @@ impl<'a> Checker<'a> {
         })
     }
 
-    /// Whether a written type path is `ns.Name` with `ns` a namespace import
-    /// whose module exports no `Name`, reporting it as the missing member it
-    /// is. `false` for every other path, including one whose head names no
-    /// namespace at all — a module that was never imported is a different
-    /// mistake, and keeps the answer about the path as written.
-    pub(crate) fn namespace_member_missing(
-        &mut self,
-        module: ModuleId,
-        path: &[flat::Location],
-        span: Span,
-    ) -> bool {
+    /// Whether what a written path names is already answered, so the caller
+    /// says nothing more: its head names a failed import, which reported it,
+    /// or it is `ns.Name` with `ns` a namespace import whose module exports no
+    /// `Name`, reported here as the missing member it is. `false` for every
+    /// other path, including one whose head names no namespace at all — a
+    /// module that was never imported is a different mistake, and keeps the
+    /// answer about the path as written.
+    pub(crate) fn path_answered(&mut self, module: ModuleId, path: &[flat::Location], span: Span) -> bool {
         let t = self.tree(module);
+        if path.first().is_some_and(|head| self.scope(module).import_failed(t.text(*head))) {
+            return true;
+        }
         let [ns, member] = path else { return false };
         let Some(from) = self.scope(module).namespaces.get(t.text(*ns)).copied() else {
             return false;
@@ -2442,11 +2468,11 @@ impl<'a> Checker<'a> {
 
     /// The same question asked of a written type rather than of a path, for
     /// the positions that resolve one whole: a bound, and an `impl` head.
-    fn namespace_member_missing_in(&mut self, module: ModuleId, id: TypeId) -> bool {
+    fn type_answered(&mut self, module: ModuleId, id: TypeId) -> bool {
         let flat::TypeView::Named { path, span, .. } = self.tree(module).ty(id) else {
             return false;
         };
-        self.namespace_member_missing(module, path, span)
+        self.path_answered(module, path, span)
     }
 
     fn nearest_type_name(&self, module: ModuleId, name: &str) -> Option<String> {
@@ -2708,7 +2734,7 @@ impl<'a> Checker<'a> {
             return;
         };
         let Some(trait_id) = self.resolve_trait(module, trait_ref) else {
-            if self.namespace_member_missing_in(module, trait_ref) {
+            if self.type_answered(module, trait_ref) {
                 return;
             }
             let t = self.tree(module);
@@ -3173,8 +3199,10 @@ impl<'a> Checker<'a> {
                 Some(con)
             }
             _ => {
-                let shown = self.tree(module).path_text(path);
-                self.templated("unknown-type", span).bind("name", shown);
+                if !self.path_answered(module, path, span) {
+                    let shown = self.tree(module).path_text(path);
+                    self.templated("unknown-type", span).bind("name", shown);
+                }
                 None
             }
         }

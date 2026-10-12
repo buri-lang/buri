@@ -1,0 +1,69 @@
+error: "//platform/effect/quiet" does not export `loud` [unknown-export]
+ --> cmd/imported/main.buri:2:47
+  |
+2 | from "//platform/effect/quiet" import { calm, loud, Mood, Quiet };
+  |                                               ^^^^
+  |
+  = `loud` is declared in "//platform/effect/quiet" but not exported
+  = fix: check the spelling, or re-export `loud` from "//platform/effect/quiet"'s `lib.buri`
+
+    A re-export names only what its module exports, so a library's surface is
+    never wider than the modules behind it. A namespace like fs stands for the
+    module its import named, and only that module's exports may follow the dot.
+    This covers types, bounds and impl heads too, such as list.Vector<Int> and
+    <T: order.Comparable>. If no import bound the namespace at all, the error is
+    unknown-name instead.
+
+error: "//platform/effect/quiet" does not export `Mood` [unknown-export]
+ --> cmd/imported/main.buri:2:53
+  |
+2 | from "//platform/effect/quiet" import { calm, loud, Mood, Quiet };
+  |                                                     ^^^^
+  |
+  = `Mood` is declared in "//platform/effect/quiet" but not exported
+  = fix: check the spelling, or re-export `Mood` from "//platform/effect/quiet"'s `lib.buri`
+error: "//platform/effect/quiet" does not export `Quiet` [unknown-export]
+ --> cmd/imported/main.buri:2:59
+  |
+2 | from "//platform/effect/quiet" import { calm, loud, Mood, Quiet };
+  |                                                           ^^^^^
+  |
+  = `Quiet` is declared in "//platform/effect/quiet" but not exported
+  = fix: check the spelling, or re-export `Quiet` from "//platform/effect/quiet"'s `lib.buri`
+error: `Quiet` has no test implementation in `//platform/effect/quiet/testing` [effect-missing-test-implementation]
+ --> platform/effect/quiet/lib.buri:2:8
+  |
+2 | effect Quiet {
+  |        ^^^^^
+  |
+  = an effect package ships a `testing` surface with a type that implements each of its effects
+  = fix: give the library rule a `testing` block, and `impl Quiet for` a type in `testing/lib.buri`
+
+    A test plugs in a test implementation where production binds a host's field,
+    so an effect without one is an effect nobody can test. Keep its state in
+    core/platforms/testing/state, which only an effect's testing surface may
+    import:
+
+      from "core/map" import * as map;
+      from "core/map" import { Map };
+      from "core/platforms/testing/state" import * as state;
+      from "//platform/effect/kv" import { Kv };
+
+      export struct TestKv {
+          store: state.State<Map<(Str, Str), Str>>,
+      }
+
+      impl Kv for TestKv {
+          fn get(self, namespace: Str, key: Str): Option<Str> {
+              state.read(self.store).get((namespace, key))
+          }
+
+          fn put(self, namespace: Str, key: Str, value: Str): () {
+              state.update(self.store, fn(c, m) => (m.insert(c, (namespace, key), value), ()))
+          }
+      }
+
+      export fn kv(): TestKv {
+          TestKv { store: state.new(map.empty()) }
+      }
+

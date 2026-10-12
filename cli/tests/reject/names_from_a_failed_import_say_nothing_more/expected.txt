@@ -1,0 +1,32 @@
+error: there is no module "core/lists" [unknown-module]
+ --> cmd/names_from_a_failed_import_say_nothing_more/main.buri:6:6
+  |
+6 | from "core/lists" import { Vector, Sortable, size };
+  |      ^^^^^^^^^^^^
+  |
+  = fix: check the path; the standard library's modules are all `core/...`, `ui/...`, `std/...` or `platform/...`
+
+    There's no search path and no fallback, so a path never has two candidates.
+
+error: there is no module "core/lists" [unknown-module]
+ --> cmd/names_from_a_failed_import_say_nothing_more/main.buri:7:6
+  |
+7 | from "core/lists" import * as lists;
+  |      ^^^^^^^^^^^^
+  |
+  = fix: check the path; the standard library's modules are all `core/...`, `ui/...`, `std/...` or `platform/...`
+error: "core/list" does not export `Missing` [unknown-export]
+ --> cmd/names_from_a_failed_import_say_nothing_more/main.buri:8:27
+  |
+8 | from "core/list" import { Missing };
+  |                           ^^^^^^^
+  |
+  = fix: check the spelling, or add `export` to `Missing`'s declaration in "core/list"
+
+    A re-export names only what its module exports, so a library's surface is
+    never wider than the modules behind it. A namespace like fs stands for the
+    module its import named, and only that module's exports may follow the dot.
+    This covers types, bounds and impl heads too, such as list.Vector<Int> and
+    <T: order.Comparable>. If no import bound the namespace at all, the error is
+    unknown-name instead.
+

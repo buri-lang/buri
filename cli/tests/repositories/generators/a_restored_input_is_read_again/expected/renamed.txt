@@ -13,14 +13,3 @@ error: "//lib/schemas/files" does not export `A_TXT` [unknown-export]
     <T: order.Comparable>. If no import bound the namespace at all, the error is
     unknown-name instead.
 
-error: there is nothing named `A_TXT` in scope [unknown-name]
- --> lib/schemas/schemas.buri:5:5
-  |
-5 |     A_TXT
-  |     ^^^^^
-  |
-  = fix: declare `A_TXT`, or import it — a name is in scope only from this module's own declarations and its imports
-
-    There is no prelude. A module sees only what it declares and what its own
-    imports name, which is why the suggestion is trustworthy.
-

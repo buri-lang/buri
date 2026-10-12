@@ -633,6 +633,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.templated("type-not-value", span).bind("name", name);
                 self.error_expr(span)
             }
+            None if self.c.scope(self.module).import_failed(name) => self.error_expr(span),
             None => {
                 let _ = expected;
                 let note;
@@ -1762,7 +1763,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         if here == there {
             return;
         }
-        let Some(ws) = self.c.ws else { return };
+        let ws = self.c.ws.or_ice("a module has a package only where a workspace was read");
         let package = ws.package(there);
         // A package has two surfaces, and a method answers to the one in front
         // of the directory it is declared in: `testing/lib.buri` for a method
@@ -2337,6 +2338,9 @@ impl<'a, 'b> Infer<'a, 'b> {
             _ => None,
         };
         let Some(con) = self.struct_lit_head(head) else {
+            if self.head_import_failed(head) {
+                return self.error_expr(span);
+            }
             self.templated("struct-literal-head", head_span);
             return self.error_expr(span);
         };
@@ -2551,6 +2555,18 @@ impl<'a, 'b> Infer<'a, 'b> {
             );
         }
         Some((con, targs.to_vec()))
+    }
+
+    /// Whether the name a type path starts with is what a failed import
+    /// would have bound, which that import already reported.
+    fn head_import_failed(&self, e: ExprId) -> bool {
+        match self.tree().expr(e) {
+            V::Ident { name, .. } => {
+                self.lookup_local(name).is_none() && self.c.scope(self.module).import_failed(name)
+            }
+            V::Generic { base, .. } | V::Field { base, .. } => self.head_import_failed(base),
+            _ => false,
+        }
     }
 
     fn struct_lit_head(&mut self, head: ExprId) -> Option<TyConId> {
@@ -3340,6 +3356,9 @@ impl<'a, 'b> Infer<'a, 'b> {
             let tid = match resolved {
                 Some(Sym::Trait(tid)) => tid,
                 _ => {
+                    if self.c.path_answered(self.module, path, effect_span) {
+                        continue;
+                    }
                     let shown = t.type_head(effect_id).unwrap_or("?").to_string();
                     // A bare name that resolves to nothing here, and that an
                     // effect a loaded module exports is called: what is
@@ -3352,9 +3371,6 @@ impl<'a, 'b> Infer<'a, 'b> {
                         .then(|| self.exported_effect(&shown))
                         .flatten();
                     let Some((tid, module)) = declared else {
-                        if self.c.namespace_member_missing(self.module, path, effect_span) {
-                            continue;
-                        }
                         match self.private_effect(&shown) {
                             Some(module) => self.c.report_private(&shown, &module, effect_span),
                             None => {

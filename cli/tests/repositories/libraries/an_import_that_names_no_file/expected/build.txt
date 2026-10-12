@@ -28,17 +28,6 @@ error: "//lib/money/cents" names no file [import-missing-extension]
 
     A path that names a file inside another package is internal-import instead.
 
-error: there is no type `Cents` [unknown-type]
- --> lib/money/parse.buri:7:22
-  |
-7 | export fn isSmall(c: Cents): Bool {
-  |                      ^^^^^
-  |
-  = fix: declare it, import it, or correct the spelling
-
-    Types are nominal, with no structural fallback, so a misspelling can't
-    quietly become a different type that happens to fit.
-
 error: "//lib/money/cents" names no file [import-missing-extension]
  --> lib/money/parse.buri:5:6
   |
@@ -47,10 +36,3 @@ error: "//lib/money/cents" names no file [import-missing-extension]
   |
   = a surface is named as a module and everything else is a file, so this path is that file's name — the one you would type into an editor, extension and all
   = fix: write "//lib/money/cents.buri"
-error: there is no type `Cents` [unknown-type]
- --> lib/money/parse.buri:7:22
-  |
-7 | export fn isSmall(c: Cents): Bool {
-  |                      ^^^^^
-  |
-  = fix: declare it, import it, or correct the spelling

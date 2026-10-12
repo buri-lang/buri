@@ -29,10 +29,3 @@ error: "//lib/deploy" does not export `inputs` [unknown-export]
   |                              ^^^^^^
   |
   = fix: check the spelling, or re-export `inputs` from "//lib/deploy"'s `lib.buri`
-error: there is nothing named `inputs` in scope [unknown-name]
- --> lib/deploy/test/deploy.buri:5:18
-  |
-5 |     assert.equal(inputs, 3);
-  |                  ^^^^^^
-  |
-  = fix: declare `inputs`, or import it — a name is in scope only from this module's own declarations and its imports

@@ -20,24 +20,6 @@ error: "//lib/wire" does not export `width` [unknown-export]
   |                                    ^^^^^
   |
   = fix: check the spelling, or re-export `width` from "//lib/wire"'s `lib.buri`
-error: there is nothing named `width` in scope [unknown-name]
-  --> cmd/app/main.buri:12:26
-   |
-12 |         .println(ctx, "${width * height}")
-   |                          ^^^^^
-   |
-   = fix: declare `width`, or import it — a name is in scope only from this module's own declarations and its imports
-
-     There is no prelude. A module sees only what it declares and what its own
-     imports name, which is why the suggestion is trustworthy.
-
-error: there is nothing named `height` in scope [unknown-name]
-  --> cmd/app/main.buri:12:34
-   |
-12 |         .println(ctx, "${width * height}")
-   |                                  ^^^^^^
-   |
-   = fix: declare `height`, or import it — a name is in scope only from this module's own declarations and its imports
 error: `//tools/gen` did not answer [tool-failed]
  --> lib/wire/BUILD.buri:3:9
   |

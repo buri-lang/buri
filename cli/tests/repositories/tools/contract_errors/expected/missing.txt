@@ -20,14 +20,3 @@ error: "//tools/b/json" names no file (tools/b/json.buri) [unknown-module]
 
     There's no search path and no fallback, so a path never has two candidates.
 
-error: there is no type `a.Names` [unknown-type]
- --> tools/b/tool.buri:8:67
-  |
-8 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<a.Names>): Generated {
-  |                                                                   ^^^^^^^
-  |
-  = fix: declare it, import it, or correct the spelling
-
-    Types are nominal, with no structural fallback, so a misspelling can't
-    quietly become a different type that happens to fit.
-
