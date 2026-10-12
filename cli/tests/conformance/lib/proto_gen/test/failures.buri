@@ -2,10 +2,12 @@
 // each. A diagnostic's origin is a span in the schema, so the message arrives
 // pointing at the line that has to change.
 
-from "core/codegen" import { Diagnostic };
+from "core/buri/ast" import * as ast;
+from "core/codegen" import { Diagnostic, Request };
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
+from "std/codegen/proto" import * as proto;
 from "//lib/proto_gen" import { generated, generatedWith, HEAD, spanText };
 
 fn codes<C: Allocator>(ctx: C, diagnostics: [Diagnostic]): [Str] {
@@ -85,4 +87,54 @@ test "a fully-qualified name declared twice names both files" {
     // It is reported whether or not anything reaches the name, because the
     // mistake is in the schemas rather than in a reference to them.
     assert.equal(spanText(there, assert.some(d.origin)), "Dup");
+}
+
+test "two nested messages of one short name are ambiguous where a field reaches through it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = [
+        HEAD,
+        "message A { message Inner {} }\n",
+        "message B { message Inner {} }\n",
+        "message Use { Inner i = 1; }\n",
+    ].join(ctx, "");
+    let out = generated(ctx, text);
+    assert.equal(codes(ctx, out.diagnostics), ["proto-ambiguous-type"]);
+    let d = assert.some(out.diagnostics.first());
+    assert.equal(d.message, "`Inner` is ambiguous");
+    assert.equal(
+        d.note,
+        .Some("it could be A_Inner in lib/wire/point.proto, or B_Inner in lib/wire/point.proto"),
+    );
+}
+
+test "a schema imported twice, under two spellings, is one schema and no complaint" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let request = Request {
+        inputs: [
+            (
+                "lib/proto/address.proto",
+                "edition = \"2026\";\npackage q;\nmessage Address { string city = 1; }\n",
+            ),
+            (
+                "lib/wire/point.proto",
+                [
+                    HEAD,
+                    "import \"lib/proto/address.proto\";\n",
+                    "import \"./lib/proto/address.proto\";\n",
+                    "message Person { Address home = 1; q.Address work = 2; }\n",
+                ].join(ctx, ""),
+            ),
+        ],
+        dependencies: [],
+    };
+    let out = proto.emit(ctx, request);
+    assert.isEmpty(out.diagnostics);
+    let person = assert.some(out.modules.get(1));
+    let text = ast.print(ctx, person.1).text.lines(ctx);
+    assert.contains(text, "    export home: Option<Address>,");
+    assert.contains(text, "    export work: Option<Address>,");
 }
