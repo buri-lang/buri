@@ -1,0 +1,2 @@
+error: nothing matches `zqxjv`
+  = `buri docs` lists every topic
