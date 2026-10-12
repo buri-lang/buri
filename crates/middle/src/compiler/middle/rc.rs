@@ -3934,12 +3934,39 @@ impl Scan<'_> {
         if matches!(rhs.kind, ExprKind::And { .. } | ExprKind::Or { .. }) {
             self.chain_link = Some(rid);
         }
+        // **A right operand that always jumps forgets what is live after the
+        // whole expression**, because a `Continue` scans against an empty
+        // liveness. The left operand still falls through to that point when
+        // it decides the answer, so it is scanned against both sets — and a
+        // local the jump does not carry is released on its way in, as
+        // [`Scan::balance`] releases one at a jumping arm's entry. Without
+        // this, `a && (b || self(..))` let `b` release a string it read while
+        // the `&&` above still owed it a drop (#303).
+        //
+        // Only owned locals are asked about. A tail position's liveness starts
+        // empty at the end of the function, and what an enclosing construct
+        // adds to it on the way here is a drop it deferred, which is owned.
+        let after: Vec<LocalId> = if self.jumps_within(rid) {
+            live.iter().filter(|l| self.owned.contains(l)).collect()
+        } else {
+            Vec::new()
+        };
         // A jump in the right operand is one path of two: the left one
         // falls through, so the whole expression never diverges.
-        let diverged = self.diverged;
+        let diverged = std::mem::replace(&mut self.diverged, false);
         self.expr(rhs, rid, live, Mode::Borrow);
+        let jumped = self.diverged;
         self.diverged = diverged;
         self.flush(rid);
+        if jumped {
+            for l in after {
+                if live.contains(&l) {
+                    continue;
+                }
+                self.push(rid, Position::Before, RcOp::DecRef, Target::Local(l));
+                self.enliven(live, l);
+            }
+        }
         for l in &deferred {
             self.push(id, Position::After, RcOp::DecRef, Target::Local(*l));
         }

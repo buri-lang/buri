@@ -523,3 +523,121 @@ export fn main(host: NativeHost): Result<(), Str> {
         assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
     }
 }
+
+/// A helper that recurses on the right of a short-circuit nested in another one
+/// — `a && (b || self(...))` — and owns a string only `b` reads (#303). Each
+/// shape is run down every path: `a` false, `b` true, and the recursion.
+///
+/// The string was released once by `b` and again after the whole expression,
+/// so the program read a freed block and, in a test binary, died with
+/// `SIGSEGV` in whichever test ran next.
+#[test]
+fn a_helper_recursing_inside_a_nested_short_circuit_releases_once() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+fn andOr<C: Allocator>(ctx: C, n: Int): Bool {
+  let k = str.format(ctx, "k${n}");
+  n >= 0 && (k == "k0" || andOr(ctx, n - 1))
+}
+
+fn orAnd<C: Allocator>(ctx: C, n: Int): Bool {
+  let k = str.format(ctx, "k${n}");
+  n < 0 || (k != "k0" && orAnd(ctx, n - 1))
+}
+
+fn andAnd<C: Allocator>(ctx: C, n: Int): Bool {
+  let k = str.format(ctx, "k${n}");
+  n >= 0 && (k != "k0" && andAnd(ctx, n - 1))
+}
+
+fn deeper<C: Allocator>(ctx: C, n: Int): Bool {
+  let k = str.format(ctx, "k${n}");
+  n >= 0 && (k == "k0" || (n > 0 && deeper(ctx, n - 1)))
+}
+
+fn lent<C: Allocator>(ctx: C, label: Str, n: Int): Bool {
+  n >= 0 && (label == "k0" || lent(ctx, str.format(ctx, "k${n - 1}"), n - 1))
+}
+
+fn carried<C: Allocator>(ctx: C, label: Str, n: Int): Bool {
+  let k = str.format(ctx, "${label}");
+  n >= 0 && (k == "k0" || carried(ctx, k, n - 1))
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let a = str.format(ctx, "${andOr(ctx, 5)} ${andOr(ctx, -1)}");
+  let b = str.format(ctx, "${orAnd(ctx, 5)} ${orAnd(ctx, -1)}");
+  let c = str.format(ctx, "${andAnd(ctx, 5)} ${andAnd(ctx, -1)}");
+  let d = str.format(ctx, "${deeper(ctx, 5)} ${deeper(ctx, -1)}");
+  let e = str.format(ctx, "${lent(ctx, "k5", 5)} ${lent(ctx, "x", -1)}");
+  let f = str.format(ctx, "${carried(ctx, "k0", 3)} ${carried(ctx, "x", 3)}");
+  let _ = io.println(host.stdout, "${a} | ${b} | ${c} | ${d} | ${e} | ${f}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("short-circuit-recursion", source) {
+        assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
+        assert_eq!(
+            r.stdout,
+            "true false | false true | false false | true false | true false | true false\n",
+            "{backend}: {}",
+            r.stderr
+        );
+        let (blocks, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
+/// The same recursion one construct further in: the inner `||` is a `match`
+/// arm, an `if` branch or a block's result, and the `&&` around it is what
+/// keeps the string alive (#303).
+#[test]
+fn a_helper_recursing_under_a_branch_inside_a_short_circuit_releases_once() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+fn inArm<C: Allocator>(ctx: C, n: Int): Bool {
+  let k = str.format(ctx, "k${n}");
+  n >= 0 && match (n) {
+    99 => false,
+    _ => k == "k0" || inArm(ctx, n - 1),
+  }
+}
+
+fn inBranch<C: Allocator>(ctx: C, n: Int): Bool {
+  let k = str.format(ctx, "k${n}");
+  n >= 0 && (if (n == 99) { false } else { k == "k0" || inBranch(ctx, n - 1) })
+}
+
+fn inBlock<C: Allocator>(ctx: C, n: Int): Bool {
+  let k = str.format(ctx, "k${n}");
+  n >= 0 && {
+    let next = n - 1;
+    k == "k0" || inBlock(ctx, next)
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let a = str.format(ctx, "${inArm(ctx, 5)} ${inArm(ctx, -1)}");
+  let b = str.format(ctx, "${inBranch(ctx, 5)} ${inBranch(ctx, -1)}");
+  let c = str.format(ctx, "${inBlock(ctx, 5)} ${inBlock(ctx, -1)}");
+  let _ = io.println(host.stdout, "${a} | ${b} | ${c}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("short-circuit-recursion-nested", source) {
+        assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
+        assert_eq!(r.stdout, "true false | true false | true false\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
