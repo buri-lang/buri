@@ -331,3 +331,111 @@ test "a dotted pattern that stops at a dot without a name" {
         ["expected `=>`, found `.`"],
     );
 }
+
+test "an argument list hugs its last argument only when that one has a shape of its own" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        printed(ctx, [
+            "let X: Int = f(match (a) { _ => 1 }, 2);\n",
+            "let X: Int = f(1, \"\${match (a) { _ => 1 }}\");\n",
+            "let X: Int = f(1, fn() => match (a) { _ => 1 });\n",
+        ]),
+        [
+            "let X: Int = f(\n    match (a) {\n        _ => 1,\n    },\n    2,\n);\n",
+            "let X: Int = f(\n    1,\n    \"\${match (a) {\n        _ => 1,\n    }}\",\n);\n",
+            "let X: Int = f(1, fn() => {\n    match (a) {\n        _ => 1,\n    }\n});\n",
+        ],
+    );
+}
+
+test "an empty struct literal prints its braces with a space" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(printed(ctx, ["let X: P = P {};\n", "let X: P = P { };\n"]), [
+        "let X: P = P { };\n",
+        "let X: P = P { };\n",
+    ]);
+}
+
+test "type arguments that hold an operator, hold nothing, or do not parse are a comparison" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        printed(ctx, [
+            "let X: Bool = a < b + c > (d);\n",
+            "let X: Int = f<>();\n",
+            "let X: Int = f<Int Int>();\n",
+        ]),
+        [
+            "expected `;`, found `>`",
+            "expected an expression, found `>`",
+            "expected `;`, found `Int`",
+        ],
+    );
+}
+
+test "a pattern with a payload names a variant, and a dot with no name after it is refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let fine =
+        "fn f(): Int {\n    match (x) {\n        Some(y) => 1,\n        a.b => 2,\n    }\n}\n";
+    assert.equal(
+        printed(ctx, [
+            fine,
+            "fn f(): Int {\n    match (x) {\n        a. => 1,\n    }\n}\n",
+        ]),
+        [fine, "expected `=>`, found `.`"],
+    );
+}
+
+test "a float with no literal of its own prints as the division that makes it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let floats = [1.0 / 0.0, -1.0 / 0.0, 0.0 / 0.0];
+    assert.equal(
+        floats.mapCtx(ctx, fn(c, x) => ast.print(c, letOf(ex(.Float(x)))).text),
+        [
+            "let X: Int = (1.0 / 0.0);\n",
+            "let X: Int = (-1.0 / 0.0);\n",
+            "let X: Int = (0.0 / 0.0);\n",
+        ],
+    );
+    // And what prints reads back as that division.
+    assert.equal(
+        printed(ctx, [
+            "let X: Float = (1.0 / 0.0);\n",
+            "let X: Float = (-1.0 / 0.0);\n",
+            "let X: Float = (0.0 / 0.0);\n",
+        ]),
+        [
+            "let X: Float = 1.0 / 0.0;\n",
+            "let X: Float = -1.0 / 0.0;\n",
+            "let X: Float = 0.0 / 0.0;\n",
+        ],
+    );
+}
+
+test "a whole float keeps its point at every size" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let floats = [2.0, -2.0, 0.0, 1.0e20, 1.0e21, 1.0e-7, 0.5];
+    assert.equal(
+        floats.mapCtx(ctx, fn(c, x) => ast.print(c, letOf(ex(.Float(x)))).text),
+        [
+            "let X: Int = 2.0;\n",
+            "let X: Int = -2.0;\n",
+            "let X: Int = 0.0;\n",
+            "let X: Int = 100000000000000000000.0;\n",
+            "let X: Int = 1e+21;\n",
+            "let X: Int = 1e-7;\n",
+            "let X: Int = 0.5;\n",
+        ],
+    );
+}

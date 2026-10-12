@@ -73,6 +73,7 @@
 from "core/bytes" import * as bytes;
 from "core/list" import * as list;
 from "core/map" import * as map;
+from "core/math" import * as math;
 from "core/number" import * as number;
 from "core/order" import * as order;
 from "core/str" import * as str;
@@ -2089,14 +2090,18 @@ fn unOpText(op: UnOp): Str {
 
 // --- literals ------------------------------------------------------------------
 
-/// A float literal always carries a point or an exponent, so that what comes
-/// back reads as a float rather than as an integer.
+/// `str.fromFloat` already writes a point or an exponent, so what comes back
+/// reads as a float. Infinity and NaN have no literal, so they print as the
+/// division that makes them.
 fn floatText<C: Allocator>(ctx: C, x: Float): Str {
-    let text = str.fromFloat(ctx, x);
-    if (text.contains(".") || text.contains("e") || text.contains("E")) {
-        text
+    if (math.isNan(x)) {
+        "(0.0 / 0.0)"
+    } else if (math.isFinite(x)) {
+        str.fromFloat(ctx, x)
+    } else if (x > 0.0) {
+        "(1.0 / 0.0)"
     } else {
-        str.format(ctx, "${text}.0")
+        "(-1.0 / 0.0)"
     }
 }
 
@@ -2873,10 +2878,9 @@ fn scanPunctuation<C: Allocator>(ctx: C, lx: Lex): Lex {
     }
 }
 
+/// `{`, `}` and `_` never reach here: `lexStep` takes them first.
 fn isPunctuation(c: Char): Bool {
-    c == '{'
-        || c == '}'
-        || c == '('
+    c == '('
         || c == ')'
         || c == '['
         || c == ']'
@@ -2885,7 +2889,6 @@ fn isPunctuation(c: Char): Bool {
         || c == ':'
         || c == '.'
         || c == '@'
-        || c == '_'
         || c == '='
         || c == '<'
         || c == '>'
@@ -3079,8 +3082,10 @@ fn at(p: P, text: Str): Bool {
     p.panicking == false && tokenAt(p, 0).text == text
 }
 
+/// Unlike `at`, no check for a failure: every caller is reached only while
+/// nothing has failed.
 fn atKind(p: P, kind: TokenKind): Bool {
-    p.panicking == false && tokenAt(p, 0).kind == kind
+    tokenAt(p, 0).kind == kind
 }
 
 fn here(p: P): Span {
@@ -4116,11 +4121,10 @@ fn parseBlockLike<C: Allocator>(ctx: C, p: P): (P, Expr) {
 
 /// Two tokens after the `{` decide: a `..`, or a name and a `:`. Neither can
 /// begin a statement or an expression, so `{ }`, `{ name }` and `{ name, ... }`
-/// are all blocks.
+/// are all blocks. The caller has already seen the `{`.
 fn opensAnonymousStruct(p: P): Bool {
-    at(p, "{")
-        && (tokenAt(p, 1).text == ".."
-            || tokenAt(p, 1).kind == TokenKind.Identifier && tokenAt(p, 2).text == ":")
+    tokenAt(p, 1).text == ".."
+        || tokenAt(p, 1).kind == TokenKind.Identifier && tokenAt(p, 2).text == ":"
 }
 
 fn parseIf<C: Allocator>(ctx: C, p: P): (P, Expr) {
@@ -4485,6 +4489,8 @@ fn typeToken(t: Token): Bool {
         || t.text == "=>"
 }
 
+/// What else can begin an expression: `commits` has already looked for `(`
+/// and `{`.
 fn startsExpr(t: Token): Bool {
     t.kind == TokenKind.Identifier
         || t.kind == TokenKind.Int
@@ -4500,9 +4506,7 @@ fn startsExpr(t: Token): Bool {
         || t.text == "match"
         || t.text == "context"
         || t.text == "fn"
-        || t.text == "("
         || t.text == "["
-        || t.text == "{"
         || t.text == "."
         || t.text == "-"
         || t.text == "!"
