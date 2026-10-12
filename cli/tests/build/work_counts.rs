@@ -99,8 +99,8 @@ fn wanted(spec: &str) -> Vec<(&'static str, u64)> {
 
 /// Runs `buri test <args>` under `BURI_PROFILE=1` and holds what it did to
 /// `spec`, naming each count that moved.
-fn holds(scratch: &Scratch, scenario: &str, args: &[&str], spec: &str) {
-    holds_exiting(scratch, scenario, args, &[], 0, spec);
+fn holds(scratch: &Scratch, scenario: &str, args: &[&str], env: &[(&str, &str)], spec: &str) {
+    holds_exiting(scratch, scenario, args, env, 0, spec);
 }
 
 /// A `BURI_HOME` of the repository's own, which [`files`] doesn't count: `buri`
@@ -148,21 +148,22 @@ fn holds_exiting(scratch: &Scratch, scenario: &str, args: &[&str], env: &[(&str,
 }
 
 /// The scenarios, in order on one repository. `extra` picks the backend and
-/// profile; `want` is each scenario's work, as [`wanted`] reads it.
-fn scenarios(scratch: &Scratch, extra: &[&str], want: [String; 8]) {
+/// profile, and `env` is added to each run's; `want` is each scenario's work,
+/// as [`wanted`] reads it.
+fn scenarios(scratch: &Scratch, extra: &[&str], env: &[(&str, &str)], want: [String; 8]) {
     let args = |given: &[&'static str]| -> Vec<&str> { ["test"].iter().chain(given).chain(extra).copied().collect() };
     let [cold, rerun, edited_test, edited_shared, filtered, filtered_again, alone, alone_again] = want.each_ref().map(String::as_str);
-    holds(scratch, "a cold run", &args(&["//..."]), cold);
-    holds(scratch, "a rerun with nothing changed", &args(&["//..."]), rerun);
+    holds(scratch, "a cold run", &args(&["//..."]), env, cold);
+    holds(scratch, "a rerun with nothing changed", &args(&["//..."]), env, rerun);
     scratch.edit("lib/a/test/a.buri", "a answers", "a still answers");
-    holds(scratch, "a run after editing one test", &args(&["//..."]), edited_test);
+    holds(scratch, "a run after editing one test", &args(&["//..."]), env, edited_test);
     scratch.edit("lib/shared/lib.buri", "    40", "    39 + 1");
-    holds(scratch, "a run after editing a library two suites share", &args(&["//..."]), edited_shared);
-    holds(scratch, "a filtered run", &args(&["//...", "--filter=c answers"]), filtered);
-    holds(scratch, "the same filtered run again", &args(&["//...", "--filter=c answers"]), filtered_again);
+    holds(scratch, "a run after editing a library two suites share", &args(&["//..."]), env, edited_shared);
+    holds(scratch, "a filtered run", &args(&["//...", "--filter=c answers"]), env, filtered);
+    holds(scratch, "the same filtered run again", &args(&["//...", "--filter=c answers"]), env, filtered_again);
     scratch.edit("lib/c/test/c.buri", "c answers", "c still answers");
-    holds(scratch, "one edited suite named alone", &args(&["//lib/c"]), alone);
-    holds(scratch, "the same suite named alone again", &args(&["//lib/c"]), alone_again);
+    holds(scratch, "one edited suite named alone", &args(&["//lib/c"]), env, alone);
+    holds(scratch, "the same suite named alone again", &args(&["//lib/c"]), env, alone_again);
 }
 
 /// Whether a run's runner is one of the files it writes. On macOS it is a
@@ -193,8 +194,8 @@ const LOADED_NATIVE: [&str; 8] = [
 
 /// A native run links every suite it builds into one runner. A cold run's
 /// files written are left out: on Linux it also writes the musl sysroot.
-fn native(release: bool) -> [String; 8] {
-    if LOADED && !release {
+fn native(release: bool, linked: bool) -> [String; 8] {
+    if LOADED && !release && !linked {
         return LOADED_NATIVE.map(String::from);
     }
     let runner = u64::from(!KEPT_BY_BYTES);
@@ -241,7 +242,16 @@ const JAVASCRIPT: [&str; 8] = [
 /// The default: the stencil backend.
 #[test]
 fn a_native_test_run_does_the_pinned_work() {
-    scenarios(&repo("counted-native"), &[], native(false));
+    scenarios(&repo("counted-native"), &[], &[], native(false, false));
+}
+
+/// The same, with every suite linking a runner, as each does where the test
+/// host can't be had. Elsewhere every debug suite links one, and the test above
+/// is this one.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn a_native_linked_test_run_does_the_pinned_work() {
+    scenarios(&repo("counted-native-linked"), &[], &[LINKED], native(false, true));
 }
 
 /// LLVM, under `backend-llvm`. A toolchain without it refuses, having built
@@ -256,17 +266,17 @@ fn a_native_release_test_run_does_the_pinned_work() {
     }
     first.ok();
     std::fs::remove_dir_all(scratch.path(".buri")).unwrap();
-    scenarios(&scratch, &["--release"], native(true));
+    scenarios(&scratch, &["--release"], &[], native(true, false));
 }
 
 #[test]
 fn a_javascript_test_run_does_the_pinned_work() {
-    scenarios(&repo("counted-js"), &["--output=js"], JAVASCRIPT.map(String::from));
+    scenarios(&repo("counted-js"), &["--output=js"], &[], JAVASCRIPT.map(String::from));
 }
 
 #[test]
 fn a_javascript_release_test_run_does_the_pinned_work() {
-    scenarios(&repo("counted-js-release"), &["--output=js", "--release"], JAVASCRIPT.map(String::from));
+    scenarios(&repo("counted-js-release"), &["--output=js", "--release"], &[], JAVASCRIPT.map(String::from));
 }
 
 /// Suite `s`, whose one test asserts `same(k)` is `want`.
@@ -397,7 +407,7 @@ const FAILING_GROUPS: [Step; 15] = [
 ];
 
 /// Runs [`FAILING_GROUPS`] then a rerun, holding each run to its line of `want`.
-fn failing_groups(scratch: &Scratch, extra: &[&str], want: [&str; 11]) {
+fn failing_groups(scratch: &Scratch, extra: &[&str], env: &[(&str, &str)], want: [&str; 11]) {
     let mut want = want.into_iter();
     let runs = FAILING_GROUPS.iter().chain([&Step::Run("a rerun after the filtered runs", ALL)]);
     for step in runs {
@@ -405,7 +415,7 @@ fn failing_groups(scratch: &Scratch, extra: &[&str], want: [&str; 11]) {
             Step::Edit(s, k, w) => suite_asserting(scratch, s, k, w),
             Step::Run(scenario, given) => {
                 let args: Vec<&str> = ["test"].iter().chain(given).chain(extra).copied().collect();
-                holds_exiting(scratch, scenario, &args, &[], 1, want.next().expect("a count per run"));
+                holds_exiting(scratch, scenario, &args, env, 1, want.next().expect("a count per run"));
             }
         }
     }
@@ -476,7 +486,14 @@ const LOADED_FAILING: [&str; 11] = [
 #[test]
 fn a_native_failing_suites_runner_is_never_a_new_executable_again() {
     let want = if LOADED { LOADED_FAILING } else { NATIVE_FAILING };
-    failing_groups(&two_runners_failing("counted-failing-groups"), &[], want);
+    failing_groups(&two_runners_failing("counted-failing-groups"), &[], &[], want);
+}
+
+/// The same, with every suite linking a runner, where suites load otherwise.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn a_native_linked_failing_suites_runner_is_never_a_new_executable_again() {
+    failing_groups(&two_runners_failing("counted-failing-groups-linked"), &[], &[LINKED], NATIVE_FAILING);
 }
 
 #[test]
@@ -489,10 +506,10 @@ fn a_native_release_failing_suites_runner_is_never_a_new_executable_again() {
     }
     first.ok();
     std::fs::remove_dir_all(scratch.path(".buri")).unwrap();
-    failing_groups(&scratch, &["--release"], NATIVE_FAILING);
+    failing_groups(&scratch, &["--release"], &[], NATIVE_FAILING);
 }
 
 #[test]
 fn a_javascript_failing_suites_bundle_is_written_only_when_it_changes() {
-    failing_groups(&two_runners_failing("counted-failing-groups-js"), &["--output=js"], JAVASCRIPT_FAILING);
+    failing_groups(&two_runners_failing("counted-failing-groups-js"), &["--output=js"], &[], JAVASCRIPT_FAILING);
 }
