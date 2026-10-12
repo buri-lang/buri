@@ -1,0 +1,30 @@
+# The repository's root directory is a package too: a BUILD.buri beside
+# REPO.buri declares a library rooted at the root's lib.buri. REPO.buri is the
+# repository's own configuration, never one of the package's sources.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a library at the repository's root: REPO.buri beside it is no source of it, so lint has nothing to say and gen writes nothing"
+
+run {
+  args: ["lint", "//"]
+  exit: 0
+  golden: "lint.txt"
+}
+
+run {
+  args: ["gen", "//"]
+  exit: 0
+  golden: "gen.txt"
+}
+
+file {
+  path: "BUILD.buri"
+  absent: "REPO.buri"
+}
+
+run {
+  args: ["build", "//"]
+  exit: 0
+}
