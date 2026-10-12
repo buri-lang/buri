@@ -312,9 +312,15 @@ fn parameter_hints(
 /// with two arguments in the tables, and `b` there follows a `+` rather than a
 /// `(` or a `,` — so the one rule that says "this is written as an argument"
 /// says no, and `a + other: b` never appears.
+///
+/// A `(` is the list's own only when a callee is written before it. One that
+/// follows another `(` or a `,` wraps the argument in parentheses of its own,
+/// which the typed tree does not keep — and a hint after it would land inside
+/// them, as `(count: n)`.
 fn opens_an_argument(text: &str, start: u32) -> bool {
     let before = text.get(..start as usize).unwrap_or("").trim_end();
-    before.ends_with('(') || before.ends_with(',')
+    before.ends_with(',')
+        || before.strip_suffix('(').is_some_and(|rest| !rest.trim_end().ends_with(['(', ',']))
 }
 
 /// Whether naming this argument tells the reader anything.
@@ -468,6 +474,9 @@ mod tests {
         assert!(!opens_an_argument("running + ", 10));
         assert!(!opens_an_argument("-", 1));
         assert!(!opens_an_argument("", 0));
+        // An argument in parentheses of its own, first or later in the list.
+        assert!(!opens_an_argument("line((", 6));
+        assert!(!opens_an_argument("line(1, (", 9));
     }
 
     #[test]
