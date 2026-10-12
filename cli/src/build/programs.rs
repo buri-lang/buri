@@ -238,7 +238,11 @@ mod tests {
         let entry = std::fs::read_link(&first).unwrap().parent().unwrap().to_path_buf();
         sweep_older_than(&store, Duration::from_secs(3600));
         assert!(entry.is_dir());
-        sweep_older_than(&store, Duration::ZERO);
+        // Last used two hours ago, set outright: an entry touched a moment ago
+        // can read as no age at all on a coarse clock.
+        let used = SystemTime::now() - Duration::from_secs(7200);
+        File::open(&entry).unwrap().set_modified(used).unwrap();
+        sweep_older_than(&store, Duration::from_secs(3600));
         assert!(!entry.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
