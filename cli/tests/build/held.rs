@@ -45,25 +45,41 @@ impl Held {
     /// Waits until `buri` is held at `point`'s `n`th visit, runs `between`, and
     /// lets it go on.
     pub fn at(&self, point: &str, n: usize, between: impl FnOnce()) {
+        let holding = self.reached(point, n);
+        between();
+        holding.go();
+    }
+
+    /// Waits until `buri` is held at `point`'s `n`th visit, and keeps it there
+    /// until [`Holding::go`].
+    pub fn reached(&self, point: &str, n: usize) -> Holding {
         use std::os::unix::fs::OpenOptionsExt as _;
         const O_NONBLOCK: i32 = if cfg!(target_os = "macos") { 0x4 } else { 0o4000 };
         const DEADLINE: Duration = Duration::from_secs(240);
         let path = self.file(point, n);
         // A writer that won't wait is refused until `buri` has the FIFO open.
         let started = std::time::Instant::now();
-        let mut held = loop {
+        loop {
             if let Ok(file) = std::fs::OpenOptions::new().write(true).custom_flags(O_NONBLOCK).open(&path) {
-                break file;
+                return Holding(file);
             }
             assert!(started.elapsed() < DEADLINE, "`buri` never reached {point} {n} within {DEADLINE:?}");
             std::thread::sleep(Duration::from_millis(5));
-        };
-        between();
-        // The byte lets `buri` go (`cli/src/hold.rs`).
-        std::io::Write::write_all(&mut held, b"\n").expect("the held point takes its byte");
+        }
     }
 
     fn file(&self, point: &str, n: usize) -> PathBuf {
         self.scratch.path(&format!("{point}-{n}"))
+    }
+}
+
+/// `buri` waiting at a held point.
+pub struct Holding(std::fs::File);
+
+impl Holding {
+    /// Lets `buri` go on.
+    pub fn go(mut self) {
+        // The byte lets `buri` go (`cli/src/hold.rs`).
+        std::io::Write::write_all(&mut self.0, b"\n").expect("the held point takes its byte");
     }
 }

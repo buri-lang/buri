@@ -1822,7 +1822,7 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
         }
     }
     let started =
-        crate::build::spawn::start(cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()));
+        crate::build::spawn::start_runner(cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()));
     let mut child = started.map_err(|e| cannot_run(&e.to_string()))?;
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let mut input = child.stdin.take();
@@ -1851,6 +1851,8 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
                         let _ = writeln!(pipe, "{test}");
                         let _ = pipe.flush();
                         held = Some(test);
+                        #[cfg(feature = "test-hooks")]
+                        HANDED.raised();
                     }
                     _ => input = None,
                 }
@@ -3221,6 +3223,11 @@ fn nanoseconds_of(value: &Value) -> Option<u64> {
     ns
 }
 
+/// Where a test holds `buri test` once a runner holds a test, or kills it there
+/// ([`crate::hold`]).
+#[cfg(feature = "test-hooks")]
+static HANDED: crate::hold::Point = crate::hold::Point::new("handed");
+
 /// Where a test sets the time `buri test` reads ([`crate::hold`]).
 #[cfg(feature = "test-hooks")]
 static TIMED: crate::hold::Point = crate::hold::Point::new("time");
@@ -4387,7 +4394,7 @@ fn run_pulled(
         }
     }
     let started =
-        crate::build::spawn::start(cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()));
+        crate::build::spawn::start_runner(cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()));
     let Ok(mut child) = started else { return Pulled::Broken };
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let mut input = child.stdin.take();
@@ -4428,6 +4435,8 @@ fn run_pulled(
                         held = Some(block);
                         returned = false;
                         took = None;
+                        #[cfg(feature = "test-hooks")]
+                        HANDED.raised();
                     }
                     _ => input = None,
                 }
@@ -4884,7 +4893,7 @@ fn execute(
             cmd.env(name, value);
         }
     }
-    let mut child = crate::build::spawn::start(cmd.stdout(Stdio::piped()).stderr(Stdio::piped()))?;
+    let mut child = crate::build::spawn::start_runner(cmd.stdout(Stdio::piped()).stderr(Stdio::piped()))?;
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let Some(limit) = limit else {
         return Ok(Execution::Finished(crate::build::spawn::finish(child)?));

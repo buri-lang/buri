@@ -190,6 +190,36 @@ pub fn start_alone(command: &mut Command) -> std::io::Result<Child> {
     start_holding(command, true)
 }
 
+/// Starts one of `buri test`'s test runners: [`start`], in the process group
+/// [`reaper`] kills once this process has ended, however it ended.
+pub fn start_runner(command: &mut Command) -> std::io::Result<Child> {
+    use std::os::unix::process::CommandExt as _;
+    command.process_group(reaper()?);
+    start(command)
+}
+
+/// What [`reaper`] runs: it waits for its input to end, then kills its group.
+const REAPER: &str = "while read -r _; do :; done; kill -s KILL 0";
+
+/// The process group every test runner starts in, led by a shell that kills
+/// it once this process ends, however it ends (buri-lang/buri#302).
+///
+/// Only this process holds the shell's input, so the input ends with it. A
+/// signal handler would miss `SIGKILL`, and macOS has no parent-death signal.
+fn reaper() -> std::io::Result<i32> {
+    use std::os::unix::process::CommandExt as _;
+    static STARTED: std::sync::OnceLock<Option<(i32, std::process::ChildStdin)>> = std::sync::OnceLock::new();
+    let started = STARTED.get_or_init(|| {
+        let mut shell = Command::new("/bin/sh");
+        shell.args(["-c", REAPER]).process_group(0);
+        shell.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+        // Alone, so no process started beside it inherits the write end.
+        let mut child = start_alone(&mut shell).ok()?;
+        Some((i32::try_from(child.id()).ok()?, child.stdin.take()?))
+    });
+    started.as_ref().map(|(group, _)| *group).ok_or_else(|| std::io::Error::other("cannot start /bin/sh"))
+}
+
 fn start_holding(command: &mut Command, alone: bool) -> std::io::Result<Child> {
     let mut wait = Duration::from_millis(1);
     let mut retries = BUSY_RETRIES;

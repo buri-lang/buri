@@ -50,6 +50,18 @@ impl Point {
         out
     }
 
+    /// Waits for the test, and raises each byte it wrote as a signal, on this
+    /// thread, so a handler has run before this returns.
+    pub fn raised(&self) {
+        unsafe extern "C" {
+            fn raise(sig: i32) -> i32;
+        }
+        for sig in self.held() {
+            // SAFETY: an ordinary `raise`.
+            unsafe { raise(i32::from(sig)) };
+        }
+    }
+
     /// The nanoseconds the test wrote, or `measured` without them.
     pub fn time(&self, measured: u64) -> u64 {
         String::from_utf8_lossy(&self.held()).trim().parse().unwrap_or(measured)
