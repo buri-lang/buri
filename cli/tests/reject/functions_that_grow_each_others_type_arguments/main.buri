@@ -8,11 +8,15 @@ from "node" import { NodeHost };
 from "core/io" import * as io;
 
 fn ping<T>(x: T, n: Int): Int {
-  if (n == 0) { 0 } else { pong(x, n - 1) }
+  if (n == 0) { 0 } else { pong(n, x, n - 1) }
 }
 
-fn pong<T>(x: T, n: Int): Int {
-  if (n == 0) { 0 } else { ping([x], n - 1) }
+fn pong<A, B>(a: A, b: B, n: Int): Int {
+  if (n == 0) { keep(a) } else { ping([b], n - 1) }
+}
+
+fn keep<T>(x: T): Int {
+  0
 }
 
 struct Boxed<T> {
