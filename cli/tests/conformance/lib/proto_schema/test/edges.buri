@@ -1,0 +1,350 @@
+// The spellings at the edges of the grammar: the characters a schema may be
+// written with, the numbers it may use, and the words it may not.
+
+from "core/codegen" import { Diagnostic };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "std/codegen/proto/schema" import { Label, RepeatedEncoding, TypeRef };
+from "//lib/proto_schema" import { lines, pointsAt, read, under, withEdition };
+
+/// `text` is refused under `code` with `message`, the span over `token`.
+fn refuses<C: Allocator>(ctx: C, text: Str, code: Str, message: Str, token: Str): () {
+    let d = assert.some(under(read(ctx, text), code));
+    assert.equal(d.message, message);
+    assert.equal(pointsAt(ctx, text, d), token);
+    assert.isTrue(d.fix.isSome());
+}
+
+// --- characters -------------------------------------------------------------------
+
+test "tabs, carriage returns and a last-line comment with no newline read clean" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = withEdition(ctx, "message M {\r\n\tint32 x = 1;\r\n}\r\n// the end");
+    let parsed = read(ctx, text);
+    assert.isEmpty(parsed.errors);
+    assert.length(assert.some(parsed.schema.messages.get(0)).fields, 1);
+}
+
+test "a block comment may hold stars" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = withEdition(ctx, "/* a * b ** c */\nmessage M { int32 x = 1; }\n");
+    assert.isEmpty(read(ctx, text).errors);
+}
+
+test "a name may start with an underscore" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let parsed = read(ctx, withEdition(ctx, "message M { int32 _x = 1; }\n"));
+    assert.isEmpty(parsed.errors);
+    let m = assert.some(parsed.schema.messages.get(0));
+    assert.equal(assert.some(m.fields.get(0)).name, "_x");
+}
+
+test "an import path may be quoted with single quotes" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let parsed = read(ctx, withEdition(ctx, "import 'proto/a.proto';\n"));
+    assert.isEmpty(parsed.errors);
+    assert.equal(assert.some(parsed.schema.imports.get(0)).path, "proto/a.proto");
+}
+
+test "a string a newline breaks is unterminated where it starts" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = withEdition(ctx, "import \"proto/a\n.proto\";\n");
+    let parsed = read(ctx, text);
+    let d = assert.some(
+        parsed.errors.find(fn(d) => d.message == "unterminated string"),
+    );
+    assert.equal(pointsAt(ctx, text, d), "\"proto/a");
+}
+
+test "a stray slash or minus is refused, and the rest is still read" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = withEdition(
+        ctx,
+        "/ message M { int32 x = - 1; }\nmessage N { int32 y = 1; }\n",
+    );
+    let parsed = read(ctx, text);
+    assert.notEmpty(parsed.errors);
+    assert.isTrue(parsed.schema.messages.any(fn(m) => m.name == "N"));
+}
+
+test "a block inside a skipped block is skipped with it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = withEdition(
+        ctx,
+        lines(ctx, [
+            "option (my.opt) = { a: { b: 1 } };",
+            "message M { int32 x = 1; }",
+        ]),
+    );
+    let parsed = read(ctx, text);
+    assert.isEmpty(parsed.errors);
+    assert.length(parsed.schema.messages, 1);
+}
+
+// --- numbers ----------------------------------------------------------------------
+
+test "a field number may be written in hex, with either x" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let parsed = read(
+        ctx,
+        withEdition(ctx, "message M { int32 a = 0x10; int32 b = 0X11; }\n"),
+    );
+    assert.isEmpty(parsed.errors);
+    let m = assert.some(parsed.schema.messages.get(0));
+    assert.equal(assert.some(m.fields.get(0)).number, 16);
+    assert.equal(assert.some(m.fields.get(1)).number, 17);
+}
+
+test "a number with letters in it is refused at the number" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    refuses(
+        ctx,
+        withEdition(ctx, "message M { int32 a = 1abc; }\n"),
+        "proto-syntax",
+        "`1abc` is not a number",
+        "1abc",
+    );
+}
+
+test "a field number past the largest one is refused at the number" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    refuses(
+        ctx,
+        withEdition(ctx, "message M { int32 a = 536870912; }\n"),
+        "proto-syntax",
+        "536870912 is not a field number",
+        "536870912",
+    );
+    // The largest itself, and the numbers either side of protobuf's own range,
+    // are fields like any other.
+    let parsed = read(
+        ctx,
+        withEdition(
+            ctx,
+            "message M { int32 a = 536870911; int32 b = 18999; int32 c = 20000; }\n",
+        ),
+    );
+    assert.isEmpty(parsed.errors);
+}
+
+test "a field inside a reserved range is refused, and the numbers either side are not" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = withEdition(
+        ctx,
+        "message M { reserved 5 to 10; int32 a = 7; int32 b = 11; int32 c = 4; }\n",
+    );
+    let parsed = read(ctx, text);
+    assert.length(parsed.errors, 1);
+    refuses(
+        ctx,
+        text,
+        "proto-duplicate-field",
+        "`M` reserves 7, and `a` uses it",
+        "int32 a = 7;",
+    );
+}
+
+// --- words ------------------------------------------------------------------------
+
+test "a word that begins no declaration is refused, and the next one is read" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = withEdition(ctx, "widget W;\nmessage M { int32 x = 1; }\n");
+    refuses(
+        ctx,
+        text,
+        "proto-syntax",
+        "`widget` does not begin a declaration",
+        "widget",
+    );
+    assert.length(read(ctx, text).schema.messages, 1);
+}
+
+test "a weak import is refused like a public one, and a bare word is no path" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    refuses(
+        ctx,
+        withEdition(ctx, "import weak \"proto/a.proto\";\n"),
+        "proto-unsupported",
+        "`import weak` is not supported",
+        "weak",
+    );
+    let parsed = read(ctx, withEdition(ctx, "import elsewhere;\n"));
+    assert.notEmpty(parsed.errors);
+    assert.isEmpty(parsed.schema.imports);
+}
+
+test "extend inside a message is refused there, and the message keeps its fields" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = withEdition(
+        ctx,
+        "message M { extend Other { int32 y = 2; } int32 x = 1; }\n",
+    );
+    let d = assert.some(under(read(ctx, text), "proto-unsupported"));
+    assert.equal(pointsAt(ctx, text, d), "extend");
+    let m = assert.some(read(ctx, text).schema.messages.get(0));
+    assert.equal(m.fields.map(ctx, fn(f) => f.name), ["x"]);
+    // And `extensions` outside one is refused at the word, too.
+    let outside = withEdition(ctx, "extensions 100 to 199;\nmessage N {}\n");
+    let e = assert.some(under(read(ctx, outside), "proto-unsupported"));
+    assert.equal(pointsAt(ctx, outside, e), "extensions");
+    assert.length(read(ctx, outside).schema.messages, 1);
+}
+
+test "the removed labels are refused inside a oneof too, and the case is kept" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = withEdition(
+        ctx,
+        "message M { oneof o { optional int32 a = 1; required int32 b = 2; } }\n",
+    );
+    let parsed = read(ctx, text);
+    let refused = parsed.errors.filter(ctx, fn(d) => d.code == "proto-unsupported");
+    assert.equal(refused.mapCtx(ctx, fn(c, d) => pointsAt(c, text, d)), [
+        "optional",
+        "required",
+    ]);
+    let cases = assert
+        .some(assert.some(parsed.schema.messages.get(0)).oneofs.get(0))
+        .cases;
+    assert.equal(cases.map(ctx, fn(c) => c.name), ["a", "b"]);
+}
+
+test "a message named map is a type like any other" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let parsed = read(ctx, withEdition(ctx, "message M { map m = 1; }\n"));
+    assert.isEmpty(parsed.errors);
+    let f = assert.some(assert.some(parsed.schema.messages.get(0)).fields.get(0));
+    assert.equal(f.ty, TypeRef.Named("map"));
+    assert.equal(f.label, Label.Single);
+}
+
+test "a float key is refused like the other non-integer keys" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    refuses(
+        ctx,
+        withEdition(ctx, "message M { map<float, string> m = 1; }\n"),
+        "proto-syntax",
+        "`float` cannot be a map key",
+        "float",
+    );
+}
+
+// --- features ---------------------------------------------------------------------
+
+/// The refusal of `option features.<setting>;`.
+fn refusal<C: Allocator>(ctx: C, setting: Str): Diagnostic {
+    let text = withEdition(
+        ctx,
+        "option features.".concat(ctx, setting).concat(ctx, ";\n"),
+    );
+    assert.some(under(read(ctx, text), "proto-unknown-feature"))
+}
+
+/// The fix offered for a feature named `name`.
+fn fix<C: Allocator>(ctx: C, name: Str): Str {
+    refusal(ctx, name.concat(ctx, " = X")).fix.withDefault("")
+}
+
+test "every value a feature accepts reads clean" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = withEdition(
+        ctx,
+        lines(ctx, [
+            "option features.repeated_field_encoding = PACKED;",
+            "option features.enum_type = OPEN;",
+            "option features.message_encoding = LENGTH_PREFIXED;",
+            "option features.utf8_validation = VERIFY;",
+            "option features.json_format = ALLOW;",
+        ]),
+    );
+    let parsed = read(ctx, text);
+    assert.isEmpty(parsed.errors);
+    assert.equal(
+        assert.some(parsed.schema.features.repeatedFieldEncoding),
+        RepeatedEncoding.Packed,
+    );
+}
+
+test "a feature misspelt near two names is offered the closer one" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        fix(ctx, "mepea_feld_encoding"),
+        "did you mean `features.repeated_field_encoding`?",
+    );
+    assert.equal(
+        fix(ctx, "mepea_eld_encoding"),
+        "did you mean `features.message_encoding`?",
+    );
+    // Equally near both, the first in alphabetical order.
+    assert.equal(
+        fix(ctx, "mepea_eeld_encoding"),
+        "did you mean `features.message_encoding`?",
+    );
+}
+
+test "a known feature given a value it does not take lists the values it does" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let d = refusal(ctx, "enum_type = BOGUS");
+    assert.equal(d.message, "`BOGUS` is not a value of `features.enum_type`");
+    assert.equal(d.fix, .Some("write `features.enum_type = OPEN`"));
+    assert.equal(
+        refusal(ctx, "field_presence = BOGUS").fix,
+        .Some("write `features.field_presence = EXPLICIT` or `IMPLICIT`"),
+    );
+    assert.equal(
+        refusal(ctx, "repeated_field_encoding = BOGUS").fix,
+        .Some("write `features.repeated_field_encoding = PACKED` or `EXPANDED`"),
+    );
+    assert.equal(
+        refusal(ctx, "message_encoding = BOGUS").fix,
+        .Some("write `features.message_encoding = LENGTH_PREFIXED`"),
+    );
+    assert.equal(
+        refusal(ctx, "utf8_validation = BOGUS").fix,
+        .Some("write `features.utf8_validation = VERIFY`"),
+    );
+    assert.equal(
+        refusal(ctx, "json_format = BOGUS").fix,
+        .Some("write `features.json_format = ALLOW`"),
+    );
+}
