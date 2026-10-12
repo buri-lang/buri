@@ -1,7 +1,7 @@
 error: there is no module "core/lists" [unknown-module]
- --> cmd/names_from_a_failed_import_say_nothing_more/main.buri:6:6
+ --> cmd/names_from_a_failed_import_say_nothing_more/main.buri:7:6
   |
-6 | from "core/lists" import { Vector, Sortable, size };
+7 | from "core/lists" import { Vector, Sortable, size };
   |      ^^^^^^^^^^^^
   |
   = fix: check the path; the standard library's modules are all `core/...`, `ui/...`, `std/...` or `platform/...`
@@ -9,16 +9,16 @@ error: there is no module "core/lists" [unknown-module]
     There's no search path and no fallback, so a path never has two candidates.
 
 error: there is no module "core/lists" [unknown-module]
- --> cmd/names_from_a_failed_import_say_nothing_more/main.buri:7:6
+ --> cmd/names_from_a_failed_import_say_nothing_more/main.buri:8:6
   |
-7 | from "core/lists" import * as lists;
+8 | from "core/lists" import * as lists;
   |      ^^^^^^^^^^^^
   |
   = fix: check the path; the standard library's modules are all `core/...`, `ui/...`, `std/...` or `platform/...`
 error: "core/list" does not export `Missing` [unknown-export]
- --> cmd/names_from_a_failed_import_say_nothing_more/main.buri:8:27
+ --> cmd/names_from_a_failed_import_say_nothing_more/main.buri:9:27
   |
-8 | from "core/list" import { Missing };
+9 | from "core/list" import { Missing };
   |                           ^^^^^^^
   |
   = fix: check the spelling, or add `export` to `Missing`'s declaration in "core/list"

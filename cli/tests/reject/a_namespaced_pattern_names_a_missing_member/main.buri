@@ -1,0 +1,13 @@
+// EXPECT: "core/order" does not export `Ordering`
+//
+// A pattern that names a type through a namespace import, where the module
+// exports no such type, says the member is missing, like a type or a call
+// would. The name it binds is still in scope for the arm.
+from "core/order" import * as order;
+
+fn sign(n: Int): Int {
+  match (n) {
+    order.Ordering.Less(at) => at,
+    _ => 0,
+  }
+}

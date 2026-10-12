@@ -4,6 +4,7 @@ from "//platform/effect/quiet" import { calm };
 export fn main(host: NodeHost): Result<(), Str> {
     let ctx = context {
         Quiet: host.alloc,
+        Loud: host.alloc,
     };
     if (calm() == 0) { .Ok(()) } else { .Err("loud") }
 }

@@ -2,7 +2,8 @@
 //
 // Each import here fails once, where it's written. What the program then does
 // with the names those imports would have bound, as a type, a bound, an impl
-// head, a call, a struct, a pattern or a namespace member, says nothing more.
+// head, a derive, a call, a struct, a pattern or a namespace member, says
+// nothing more.
 from "core/lists" import { Vector, Sortable, size };
 from "core/lists" import * as lists;
 from "core/list" import { Missing };
@@ -12,6 +13,8 @@ fn sorted<T: Sortable>(xs: Vector<T>): lists.Vector<T> {
 }
 
 impl Sortable for Int {}
+
+derive Equal for Missing;
 
 fn go(n: Missing): Int {
     let made = Missing { count: 1 };
