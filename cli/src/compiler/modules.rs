@@ -961,6 +961,16 @@ impl<'a> Loader<'a> {
             return false;
         }
 
+        // An internal module is the compiler's own: it loads the module and
+        // calls into it itself, so no module, the library's included, imports
+        // it.
+        if let Some(module) = standard_library::find(path).filter(|m| m.internal) {
+            self.diags.push(
+                Diagnostic::templated("internal-std-import", span).with_bind("path", module.path),
+            );
+            return false;
+        }
+
         // A path containing a `testing` segment is importable only from a test
         // source — or from another test-only module.
         //

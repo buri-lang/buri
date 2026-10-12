@@ -281,7 +281,8 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
     out
 }
 
-/// The standard library: every module under one of its reserved roots.
+/// The standard library: every module under one of its reserved roots, but
+/// not the compiler's internal ones.
 ///
 /// The role alone is not enough — a documentation example is loaded with
 /// `Role::Std` so that a fence may show a signature without a body — so this
@@ -289,6 +290,7 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
 pub fn std_filter(m: &ModuleData) -> bool {
     matches!(m.role, Role::Std | Role::Platform)
         && crate::compiler::standard_library::is_std_path(&m.path)
+        && !crate::compiler::standard_library::is_internal(&m.path)
 }
 
 /// Every `trait` declared anywhere in a compilation, so a `derive` can be
@@ -759,7 +761,8 @@ mod tests {
     #[test]
     fn every_std_module_renders_something() {
         let modules = stdlib();
-        assert_eq!(modules.len(), crate::compiler::standard_library::MODULES.len());
+        let public = crate::compiler::standard_library::MODULES.iter().filter(|m| !m.internal);
+        assert_eq!(modules.len(), public.count());
         for m in &modules {
             let page = render(m);
             assert!(page.contains(&m.path), "{} has no title", m.path);

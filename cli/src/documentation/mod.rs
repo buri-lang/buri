@@ -894,7 +894,7 @@ fn index(presentation: &Presentation) -> String {
 
     let _ = writeln!(out, "{bold}The standard library{reset}");
     let mut line = String::from("  ");
-    for m in crate::compiler::standard_library::MODULES {
+    for m in crate::compiler::standard_library::MODULES.iter().filter(|m| !m.internal) {
         let path = m.path;
         if line.chars().count() + path.len() + 2 > presentation.width.get() {
             let _ = writeln!(out, "{line}");

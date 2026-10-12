@@ -710,7 +710,8 @@ fn the_standard_library_reference_is_complete() {
     assert!(!analysis.diagnostics.has_errors(), "the standard library must check");
     let modules = buri::documentation::reference::from_loaded(&analysis.loaded, &buri::documentation::reference::std_filter);
 
-    assert_eq!(modules.len(), buri::compiler::standard_library::MODULES.len(), "a module is missing from the reference");
+    let public = buri::compiler::standard_library::MODULES.iter().filter(|m| !m.internal);
+    assert_eq!(modules.len(), public.count(), "a module is missing from the reference");
     let mut empty = Vec::new();
     for m in &modules {
         if m.items.is_empty() {
@@ -718,6 +719,32 @@ fn the_standard_library_reference_is_complete() {
         }
     }
     assert!(empty.is_empty(), "these modules render no items: {empty:?}");
+}
+
+/// An internal standard-library module is the compiler's own: `buri docs`
+/// neither lists it nor has a page for it or its functions, and a search
+/// doesn't find it.
+#[test]
+fn buri_docs_leaves_out_internal_modules() {
+    let dir = std::env::temp_dir();
+    let index = ran(&dir, &["docs", "--color=never"]);
+    let index = String::from_utf8_lossy(&index.stdout);
+    assert!(index.contains("ui/style"), "the index lists no `ui/style`:\n{index}");
+    assert!(!index.contains("ui/style/classify"), "the index lists `ui/style/classify`:\n{index}");
+
+    for topic in ["ui/style/classify", "ui/style/classify.classify"] {
+        let out = ran(&dir, &["docs", topic, "--color=never"]);
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            said.contains(&format!("there is no documentation topic `{topic}`")),
+            "`buri docs {topic}` found a page:\n{}{said}",
+            String::from_utf8_lossy(&out.stdout)
+        );
+    }
+
+    let search = ran(&dir, &["docs", "search", "classify", "--color=never"]);
+    let search = String::from_utf8_lossy(&search.stdout);
+    assert!(!search.contains("ui/style/classify"), "a search finds `ui/style/classify`:\n{search}");
 }
 
 /// Every conformance the source declares is on the module's page.
@@ -745,7 +772,7 @@ fn every_conformance_in_the_source_is_on_its_module_page() {
 
     let mut missing = Vec::new();
     let mut checked = 0;
-    for std_module in buri::compiler::standard_library::MODULES {
+    for std_module in buri::compiler::standard_library::MODULES.iter().filter(|m| !m.internal) {
         let m = modules
             .iter()
             .find(|m| m.path == std_module.path)
@@ -912,15 +939,19 @@ fn a_builder_page_prints_its_config_struct() {
 /// exactly one way — a module lands and nothing on the map mentions it — and
 /// this is the assertion that stops it. The check runs in both directions,
 /// because a link to a source file that no longer backs a module is the same
-/// bug seen from the other end.
+/// bug seen from the other end. An internal module is the compiler's own, so
+/// the map leaves it out.
 #[test]
 fn the_prose_map_names_every_module_and_no_others() {
     let root = repo_root();
     let page = read("crates/docs/src/docs/reference/standard-library.md");
+    for module in buri::compiler::standard_library::MODULES.iter().filter(|m| m.internal) {
+        assert!(!page.contains(module.path), "the map names the internal module `{}`", module.path);
+    }
 
     let mut missing = Vec::new();
     let mut unlinked = Vec::new();
-    for module in buri::compiler::standard_library::MODULES {
+    for module in buri::compiler::standard_library::MODULES.iter().filter(|m| !m.internal) {
         if !page.contains(module.path) {
             missing.push(module.path);
             continue;

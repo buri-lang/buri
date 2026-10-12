@@ -256,6 +256,12 @@ fn every_standard_library_module_has_a_page_the_catalogue_names() {
     let catalogue = std::fs::read_to_string(out.join("reference/std/index.html")).unwrap();
     for module in buri::compiler::standard_library::MODULES {
         let page = out.join("reference/std").join(module.path).join("index.html");
+        // An internal module is the compiler's own, so the site leaves it out.
+        if module.internal {
+            assert!(!page.exists(), "the internal module `{}` has a page", module.path);
+            assert!(!catalogue.contains(module.path), "the catalogue names `{}`", module.path);
+            continue;
+        }
         assert!(page.is_file(), "`{}` has no page", module.path);
         assert!(
             catalogue.contains(&format!(">{}</a>", module.path)),

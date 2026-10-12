@@ -880,6 +880,7 @@ fn module_paths(
     let ws = &analyzed.session.workspace;
     let mut out: Vec<(String, Origin)> = standard_library::MODULES
         .iter()
+        .filter(|m| !m.internal)
         .map(|m| (m.path.to_string(), Origin::StandardLibrary))
         .collect();
     if let Some(package) = ws.owning_package(path) {

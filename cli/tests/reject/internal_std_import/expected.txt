@@ -1,0 +1,60 @@
+error: "ui/style/classify" is internal to the standard library [internal-std-import]
+ --> cmd/internal_std_import/main.buri:9:6
+  |
+9 | from "ui/style/classify" import { classify };
+  |      ^^^^^^^^^^^^^^^^^^^
+  |
+  = the compiler loads this module and calls it on a program's behalf
+  = fix: remove the import; `buri docs` lists the modules a program can import
+
+    ui/style/classify turns a style the compiler couldn't pin down into the
+    stylesheet's classes. Hand a node a Style and the compiler calls it for you.
+
+error: `main` takes `NativeHost`, and the node platform hands its entry a `NodeHost` [entry-host-mismatch]
+  --> cmd/internal_std_import/main.buri:11:16
+   |
+11 | export fn main(host: NativeHost): Result<(), Str> {
+   |                ^^^^^^^^^^^^^^^^
+   |
+   = fix: take `NodeHost`, imported with `from "node" import { NodeHost };` — or build this function for native, and give this output an entry of its own
+
+     What to do
+     ──────────
+
+     Take the host of the platform the output names:
+
+       from "node" import { NodeHost };
+
+       export fn main(host: NodeHost): Result<(), Str> {
+           .Ok(())
+       }
+
+     A program built for two platforms gives each output an entry of its own,
+     and both delegate to one function that takes ctx:
+
+       binary {
+           outputs: [
+               { platform: "native", variant: "linux-arm64" },
+               { platform: "node", entries: [
+                   { name: "main", function: "mainForNode" },
+               ] },
+           ]
+       }
+
+     Why
+     ───
+
+     Each platform offers different effects, so each declares its own host type.
+     One entry can't take two.
+
+error: there is nothing named `classify` in scope [unknown-name]
+  --> cmd/internal_std_import/main.buri:13:11
+   |
+13 |   let _ = classify;
+   |           ^^^^^^^^
+   |
+   = fix: declare `classify`, or import it — a name is in scope only from this module's own declarations and its imports
+
+     There is no prelude. A module sees only what it declares and what its own
+     imports name, which is why the suggestion is trustworthy.
+
