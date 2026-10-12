@@ -42,6 +42,8 @@ pub mod generators;
 // A repository platform's `js` file: its exports, the host-file check, and the
 // module the build bundles it into with the program.
 pub mod hosted;
+/// A debug test suite's objects, linked into an image the test host maps.
+pub mod image;
 pub mod link;
 /// The musl sysroot `cli/build.rs` baked in: the `libc.a`, unwinder and crt
 /// objects that finish a hermetic Linux link, and the `Libc` this toolchain's
@@ -64,6 +66,9 @@ pub mod sources;
 /// `cache` re-exports it, so nothing else spells this path.
 pub use buri_hash::build::sha256;
 pub mod spawn;
+/// The one executable debug test processes start as on macOS arm64, so macOS
+/// checks it once rather than a runner per edit.
+pub mod test_host;
 /// `tool` rules: resolving a tool name, the `main` the build writes for one,
 /// and asking one to check, format or generate.
 pub mod tools;

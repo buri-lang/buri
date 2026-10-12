@@ -2712,11 +2712,25 @@ fn link_cached(
 pub struct TestBinary {
     path: PathBuf,
     claim: Option<std::sync::Arc<Claim>>,
+    /// For a suite the test host maps: the host, and the image.
+    loaded: Option<(PathBuf, PathBuf)>,
 }
 
 impl TestBinary {
+    /// The runner, or where a loaded suite's companion files go.
     pub fn path(&self) -> &std::path::Path {
         &self.path
+    }
+
+    /// The executable a test process starts as.
+    pub fn program(&self) -> &std::path::Path {
+        self.loaded.as_ref().map_or(&self.path, |(host, _)| host)
+    }
+
+    /// What the test process is told to map, for a loaded suite.
+    pub fn environment(&self) -> Option<(&'static str, String)> {
+        let (_, image) = self.loaded.as_ref()?;
+        Some(("BURI_TEST_IMAGE", image.display().to_string()))
     }
 
     /// Asks for it to stay where it is for a later run, which will start it
@@ -2794,7 +2808,7 @@ const CLAIM_STALE: std::time::Duration = std::time::Duration::from_secs(900);
 fn claim_runner(dir: &std::path::Path, private: PathBuf) -> TestBinary {
     if dir.join(KEPT).exists() {
         crate::build::create_parent(&private);
-        return TestBinary { path: private, claim: None };
+        return TestBinary { path: private, claim: None, loaded: None };
     }
     claim_runner_after(dir, private, CLAIM_STALE)
 }
@@ -2827,11 +2841,11 @@ fn claim_runner_after(
         Ok(_) => {
             let keep = std::sync::atomic::AtomicBool::new(false);
             let claim = Claim { lock, keep, kept: dir.join(KEPT) };
-            TestBinary { path: dir.join("test-runner"), claim: Some(std::sync::Arc::new(claim)) }
+            TestBinary { path: dir.join("test-runner"), claim: Some(std::sync::Arc::new(claim)), loaded: None }
         }
         Err(_) => {
             crate::build::create_parent(&private);
-            TestBinary { path: private, claim: None }
+            TestBinary { path: private, claim: None, loaded: None }
         }
     }
 }
@@ -2870,6 +2884,18 @@ pub fn link_test_binary(
     };
     let objects =
         objects_named(root, prefix, label, output, flags, program, tables, diagnostics)?;
+    if super::test_host::wanted(target_of(output), profile_of(flags)) {
+        let loaded = super::test_host::get(&linker)
+            .and_then(|host| image_cached(root, label, output, flags, &host, &objects).map(|got| (host, got)));
+        match loaded {
+            Ok((host, (key, image))) => {
+                crate::build::create_parent(&private);
+                let binary = TestBinary { path: private, claim: None, loaded: Some((host.path.clone(), image)) };
+                return Ok((binary, key));
+            }
+            Err(why) => super::test_host::fall_back(&why),
+        }
+    }
     // Claimed after the objects exist and before anything is written, so a run
     // that fails to compile never takes the shared file at all.
     let binary = claim_runner(&root.join(".buri/out").join(output.dir()), private);
@@ -2899,7 +2925,13 @@ pub fn restored_test_binary(
     private: PathBuf,
     link: &ActionKey,
 ) -> Option<TestBinary> {
-    Cache::open(root).entry(link)?;
+    let entry = Cache::open(root).entry(link)?;
+    if let Some(key) = image_host(&entry) {
+        // Only into the host it was linked against.
+        let host = super::test_host::for_target(target_of(output)).ok().filter(|h| h.key == key)?;
+        crate::build::create_parent(&private);
+        return Some(TestBinary { path: private, claim: None, loaded: Some((host.path.clone(), entry)) });
+    }
     Some(claim_runner(&root.join(".buri/out").join(output.dir()), private))
 }
 
@@ -2918,7 +2950,7 @@ pub fn kept_test_binary(
         return None;
     }
     if at != dir.join("test-runner") {
-        return Some(TestBinary { path: at.to_path_buf(), claim: None });
+        return Some(TestBinary { path: at.to_path_buf(), claim: None, loaded: None });
     }
     let binary = claim_runner_after(&dir, PathBuf::new(), CLAIM_STALE);
     binary.claim.is_some().then_some(binary)
@@ -2939,9 +2971,71 @@ pub fn release_kept_runner(root: &std::path::Path, output: &Output) {
 /// holds it.
 pub fn place_test_binary(root: &std::path::Path, link: &ActionKey, binary: TestBinary) -> Option<TestBinary> {
     let entry = Cache::open(root).entry(link)?;
+    if binary.loaded.is_some() {
+        // Mapped from the cache where it is.
+        return Some(binary);
+    }
     write_executable(&entry, binary.path()).ok()?;
     super::programs::settle(binary.path());
     Some(binary)
+}
+
+/// The key of the host the cache entry at `entry` was linked against, when it
+/// is an image rather than an executable.
+fn image_host(entry: &std::path::Path) -> Option<String> {
+    use std::io::Read as _;
+    let mut head = [0u8; super::image::HEAD];
+    std::fs::File::open(entry).ok()?.read_exact(&mut head).ok()?;
+    super::image::host_of(&head).map(str::to_string)
+}
+
+/// The image `objects` link into for `host`, from the cache when it holds
+/// one: its key, and the entry the host maps it from. `Err` says why the
+/// suite links a runner instead.
+fn image_cached(
+    root: &std::path::Path,
+    label: &str,
+    output: &Output,
+    flags: &Flags,
+    host: &super::test_host::Host,
+    objects: &Objects,
+) -> Result<(ActionKey, PathBuf), String> {
+    let key = image_key(flags.mode, target_of(output), &host.key, &objects.keys);
+    let cache = Cache::open(root);
+    let explain = |status| crate::build::cache::explain(flags.explain, status, Action::Link, label, &output.platform_label(), &key);
+    if !flags.force {
+        if let Some(entry) = cache.entry(&key) {
+            explain(crate::build::cache::Status::Cached);
+            return Ok((key, entry));
+        }
+    }
+    let bytes = {
+        let _phase = crate::profile::enter(crate::profile::Phase::Link);
+        let units: Vec<&[u8]> = objects.units.iter().map(|u| u.bytes.as_slice()).collect();
+        super::image::link(&units, &host.symbols, &host.key)?
+    };
+    crate::build::counted::add(crate::build::counted::Count::ImagesLinked);
+    cache.put(&key, &bytes);
+    let entry = cache.entry(&key).ok_or("the cache didn't keep the image")?;
+    explain(crate::build::cache::Status::Run);
+    Ok((key, entry))
+}
+
+/// An image's key: the host it's for and its objects in order, as a runner's
+/// `link` key is its objects and its linker ([`link_key_of`]).
+fn image_key(
+    mode: crate::commands::arguments::BuildMode,
+    target: Target,
+    host: &str,
+    unit_keys: &[ActionKey],
+) -> ActionKey {
+    let mut k = KeyBuilder::new(Action::Link, mode);
+    k.platform(target.platform, target.arch);
+    k.input("test-host", host.as_bytes());
+    for key in unit_keys {
+        k.dependency(key);
+    }
+    k.finish()
 }
 
 /// Where a test binary whose first suite is `target` runs from when the shared

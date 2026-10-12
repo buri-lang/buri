@@ -649,6 +649,10 @@ mod hash;
 mod host;
 mod http;
 mod list;
+/// The test host's loader: `buri test`'s debug suites, mapped into a host
+/// macOS has already checked (`design/PERFORMANCE.md` §6.85).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod loader;
 mod math;
 mod memory;
 mod net;

@@ -2043,6 +2043,24 @@ impl CDriver {
         args.extend(self.platform_flags().into_iter().map(Into::into));
         args
     }
+
+    /// Links the test host in `dir` from `main.o` and all of
+    /// `libburi_rt.a`, both already there, into `dir/test-host`
+    /// (`build/test_host.rs`). The error is the linker's own words.
+    pub fn link_test_host(&self, dir: &Path) -> Result<(), String> {
+        let _phase = crate::profile::enter(crate::profile::Phase::Link);
+        crate::build::counted::add(crate::build::counted::Count::Links);
+        let mut command = Command::new(&self.driver);
+        self.clone().in_dir(dir.to_path_buf()).pin(&mut command);
+        command.args(self.flavour.driver_flag());
+        command.args(["-o", "test-host", "main.o"]);
+        command.arg(format!("-Wl,-force_load,{}", runtime_native::ARCHIVE_NAME));
+        match spawn::output(&mut command) {
+            Ok(out) if out.status.success() => Ok(()),
+            Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            Err(e) => Err(format!("cannot run {}: {e}", self.driver.display())),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
