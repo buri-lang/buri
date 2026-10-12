@@ -1,0 +1,1 @@
+{"id":"//lib/cafe/lib.buri.Card","title":"//lib/cafe/lib.buri.Card","kind":"this repository","body":"# //lib/cafe/lib.buri.Card\n\nFrom `//lib/cafe/lib.buri`.\n\n### Card\n\n```buri sig\nstruct Card\n```\n\nA loyalty card.\n\n- `stamps: I64`\n\n","seeAlso":["//lib/cafe/lib.buri"]}

@@ -1,0 +1,21 @@
+//! What the café serves.
+
+/// A drink on the menu.
+export struct Drink {
+    /// What it's called at the counter.
+    export name: Str,
+    export cents: I64,
+}
+
+/// How a drink is served.
+export enum Serving {
+    Here,
+    ToGo,
+}
+
+derive Equal, Show for Drink;
+
+/// What a drink costs.
+export fn price(drink: Drink): I64 {
+    drink.cents
+}

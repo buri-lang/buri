@@ -1,0 +1,61 @@
+//! The café's counter.
+//!
+//! Orders, the menu, and the till.
+
+from "//lib/cafe/menu.buri" export { Drink, Serving, price as cost };
+from "//lib/cafe/gone.buri" export { vanished };
+
+/// An amount of money, in cents.
+export type Cents = I64;
+
+/// How many drinks a card holds before one is free.
+export let STAMPS: I64 = 9;
+
+/// Something the till can ring up.
+export trait Priced {
+    /// What it costs, in cents.
+    fn cents(self): I64;
+}
+
+/// A loyalty card.
+export struct Card {
+    export stamps: I64,
+}
+
+derive Equal, Show, Nowhere for Card;
+
+impl Priced for Card {
+    fn cents(self): I64 {
+        0
+    }
+}
+
+impl Card {
+    /// One more stamp.
+    export fn stamped(self): Card {
+        Card { stamps: self.stamps + 1 }
+    }
+}
+
+/// Settings for the till, which has no page of its own.
+struct Till {
+    /// Whether it prints a receipt.
+    receipts: Bool,
+}
+
+struct Unwritten {}
+
+/// Opens the till.
+export fn open(till: Till): Bool {
+    till.receipts
+}
+
+/// Opens the till without being told how.
+export fn openBlank(till: Unwritten): Bool {
+    true
+}
+
+/// Says the order out loud.
+export fn call<C: Stdout + Allocator>(ctx: C, name: Str): () {
+    ()
+}

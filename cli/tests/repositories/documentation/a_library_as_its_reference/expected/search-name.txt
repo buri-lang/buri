@@ -1,0 +1,4 @@
+buri docs //lib/cafe/lib.buri.Priced  trait Priced
+  Something the till can ring up.
+
+Run any line above to read that page.

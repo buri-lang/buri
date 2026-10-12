@@ -1,0 +1,4 @@
+//lib/quiet/lib.buri
+────────────────────
+
+This module exports nothing.

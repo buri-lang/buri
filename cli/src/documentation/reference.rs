@@ -264,7 +264,11 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
                 let wanted = m.ast.tree.name(spec.name);
                 let shown = m.ast.tree.name(spec.local()).to_string();
                 for found in from.iter().filter(|i| i.name == wanted) {
-                    mine.push(ApiItem { name: shown.clone(), ..found.clone() });
+                    // Exported `as` another name, it is called by that name,
+                    // so the signature says it. The name is the first word
+                    // after the keyword in every signature.
+                    let signature = found.signature.replacen(&format!(" {wanted}"), &format!(" {shown}"), 1);
+                    mine.push(ApiItem { name: shown.clone(), signature, ..found.clone() });
                 }
                 // A method is *not* pulled in just because its type was. The
                 // re-export list is the surface, exactly: `toCents` is exported

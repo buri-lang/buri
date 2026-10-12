@@ -1,0 +1,57 @@
+# A repository's own libraries, read by `buri docs` the way the standard
+# library is: a module's page lists every kind of item it exports, a
+# re-export shows the name it's exported as, a derive shows the methods it
+# gives, a function taking private settings shows them, and a module that
+# exports nothing says so. Search finds the library's items too.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "`buri docs` shows a repository's library as its reference page"
+
+run {
+  args: ["docs", "//lib/cafe/lib.buri", "--format=markdown"]
+  exit: 0
+  golden: "cafe.md"
+}
+
+run {
+  args: ["docs", "//lib/quiet/lib.buri", "--dense"]
+  exit: 0
+  golden: "quiet.txt"
+}
+
+run {
+  args: ["docs", "//lib/cafe/lib.buri.Card", "--format=json"]
+  exit: 0
+  golden: "card.txt"
+}
+
+run {
+  args: ["docs", "//lib/cafe/lib.buri.stamp"]
+  exit: 2
+  golden: "nearly.txt"
+}
+
+run {
+  args: ["docs", "search", "the", "till"]
+  exit: 0
+  golden: "search.txt"
+}
+
+run {
+  args: ["docs", "search", "Priced"]
+  exit: 0
+  golden: "search-name.txt"
+}
+
+run {
+  args: ["docs", "search"]
+  exit: 2
+  golden: "search-nothing.txt"
+}
+
+run {
+  args: ["docs", "search", "zqxjv"]
+  exit: 1
+  golden: "search-missing.txt"
+}
