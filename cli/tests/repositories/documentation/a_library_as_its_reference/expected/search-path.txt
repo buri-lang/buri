@@ -1,0 +1,1 @@
+{"query":"//lib/cafe/lib.buri.open","hits":[{"id":"//lib/cafe/lib.buri.open","title":"fn open","summary":"Opens the till.","command":"buri docs //lib/cafe/lib.buri.open","score":120},{"id":"//lib/cafe/lib.buri.openBlank","title":"fn openBlank","summary":"Opens the till without being told how.","command":"buri docs //lib/cafe/lib.buri.openBlank","score":20}]}
