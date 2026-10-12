@@ -276,6 +276,11 @@ const UNFORMATTED_BY_DESIGN: &[(&str, &str)] = &[
         "the case that runs `buri format` itself: its repository is checked in misformatted \
          and its goldens record both halves of what the command did about that",
     ),
+    (
+        "cli/tests/repositories/documentation/documents_laid_out_by_format/repo/node_modules",
+        "a vendored file laid out wrongly on purpose, so the case shows `buri format` leaves \
+         everything under `node_modules` as written",
+    ),
 ];
 
 /// Where a `.buri` file is checked but must not be **rewritten** here, and how
