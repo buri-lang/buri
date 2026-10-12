@@ -13,18 +13,18 @@ cli/run                              48/66   72.73%           248/293   84.64%
 cli/serve+watch                      51/84   60.71%           304/367   82.83%
 cli/test                           440/518   84.94%         2490/2676   93.05%
 crates/backend                       68/68  100.00%           312/351   88.89%
-crates/diagnostics                 191/194   98.45%         1363/1440   94.65%
+crates/diagnostics                 191/194   98.45%         1366/1443   94.66%
 crates/docs                        246/308   79.87%           738/892   82.74%
 crates/hash                          18/18  100.00%           241/294   81.97%
-crates/js                        1022/1062   96.23%         4816/5042   95.52%
+crates/js                        1021/1060   96.32%         4814/5039   95.53%
 crates/llvm                        610/616   99.03%         6693/6879   97.30%
-crates/middle                    1915/2016   94.99%       12400/12848   96.51%
+crates/middle                    1880/1942   96.81%       12373/12789   96.75%
 crates/project                   1341/1358   98.75%         4997/5143   97.16%
 crates/semantics                 2171/2216   97.97%       11722/12023   97.50%
 crates/stdlib                        12/12  100.00%           111/123   90.24%
-crates/stencil                   1235/1298   95.15%         7746/8169   94.82%
+crates/stencil                   1234/1296   95.22%         7745/8163   94.88%
 crates/syntax                    1209/1234   97.97%         5886/6052   97.26%
-total                          15217/16420   92.67%       83649/88087   94.96%
+total                          15180/16342   92.89%       83622/88022   95.00%
 
 cli/src                           branches                      lines         
 build                            1678/1695   99.00%         8735/8999   97.07%
@@ -61,22 +61,21 @@ uncovered          branches           file
        30           164/194   84.54%  cli/src/language_server/symbols.rs
        30           496/526   94.30%  crates/stencil/src/compiler/backend/stencil/jit.rs
        27           521/548   95.07%  crates/js/src/compiler/backend/js/javascript.rs
-       25           197/222   88.74%  crates/middle/src/compiler/middle/monomorphize.rs
        24           152/176   86.36%  cli/src/language_server/completion.rs
        23           201/224   89.73%  cli/src/compiler/modules.rs
-       21            89/110   80.91%  crates/middle/src/compiler/middle/ir.rs
        20             16/36   44.44%  cli/src/commands/serve.rs
        18             48/66   72.73%  cli/src/commands/run.rs
        18             64/82   78.05%  cli/src/language_server/inlay_hints.rs
-       18           608/626   97.12%  crates/middle/src/compiler/middle/rc.rs
        16             50/66   75.76%  cli/src/compiler/driver.rs
+       16           604/620   97.42%  crates/middle/src/compiler/middle/rc.rs
        13             35/48   72.92%  cli/src/commands/watch.rs
        13             49/62   79.03%  cli/src/language_server/code_actions.rs
        13            97/110   88.18%  cli/src/language_server/state.rs
-       13           209/222   94.14%  crates/middle/src/compiler/middle/derives.rs
+       13           187/200   93.50%  crates/middle/src/compiler/middle/monomorphize.rs
        12            88/100   88.00%  cli/src/commands/format.rs
        12           160/172   93.02%  cli/src/documentation/examples.rs
        12             30/42   71.43%  crates/docs/src/documentation/frontmatter.rs
+       12           208/220   94.55%  crates/middle/src/compiler/middle/derives.rs
        12           354/366   96.72%  crates/stencil/src/compiler/backend/stencil/emit.rs
        12           388/400   97.00%  crates/syntax/src/formatting.rs
        11           153/164   93.29%  cli/src/language_server/mod.rs
@@ -84,3 +83,4 @@ uncovered          branches           file
        10             18/28   64.29%  cli/src/language_server/sweep.rs
        10             48/58   82.76%  crates/semantics/src/compiler/semantics/builtins.rs
         9             81/90   90.00%  cli/src/documentation/layout.rs
+        9             61/70   87.14%  cli/src/language_server/features.rs
