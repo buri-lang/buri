@@ -124,7 +124,11 @@ impl Catalog {
 /// keeps working; `Err` for one that opens a block and never closes it, which
 /// is a typo rather than a decision.
 pub fn parse(text: &str) -> Result<Option<(Frontmatter, &str)>, String> {
-    let Some(rest) = text.strip_prefix("---\n") else { return Ok(None) };
+    text.strip_prefix("---\n").map(split).transpose()
+}
+
+/// The frontmatter and the body of a page whose opening `---` is already gone.
+fn split(rest: &str) -> Result<(Frontmatter, &str), String> {
     let mut offset = 0usize;
     let mut end = None;
     for line in rest.split_inclusive('\n') {
@@ -134,12 +138,11 @@ pub fn parse(text: &str) -> Result<Option<(Frontmatter, &str)>, String> {
         }
         offset = offset.saturating_add(line.len());
     }
-    let Some((block_end, body_start)) = end else {
-        return Err("the frontmatter block is opened by `---` and never closed".to_string());
-    };
+    let (block_end, body_start) =
+        end.ok_or("the frontmatter block is opened by `---` and never closed")?;
     let block = rest.get(..block_end).unwrap_or("");
     let body = rest.get(body_start..).unwrap_or("");
-    Ok(Some((fields(block)?, body)))
+    Ok((fields(block)?, body))
 }
 
 /// The keys a page may carry. Anything else is a misspelling, and is reported
@@ -156,18 +159,15 @@ fn fields(block: &str) -> Result<Frontmatter, String> {
             continue;
         }
         let at = number.saturating_add(1);
-        if trimmed.len() != line.len() {
-            return Err(format!("line {at}: a value spans one line, so nothing is indented"));
-        }
-        let Some((key, raw)) = line.split_once(':') else {
-            return Err(format!("line {at}: expected `key: value`, found `{line}`"));
-        };
-        if !KEYS.contains(&key) {
-            return Err(format!("line {at}: `{key}` is not a frontmatter key"));
-        }
-        if found.iter().any(|(k, _)| *k == key) {
-            return Err(format!("line {at}: `{key}` is set twice"));
-        }
+        require(trimmed.len() == line.len(), || {
+            format!("line {at}: a value spans one line, so nothing is indented")
+        })?;
+        let (key, raw) = line
+            .split_once(':')
+            .ok_or_else(|| format!("line {at}: expected `key: value`, found `{line}`"))?;
+        require(KEYS.contains(&key), || format!("line {at}: `{key}` is not a frontmatter key"))?;
+        let unset = !found.iter().any(|(k, _)| *k == key);
+        require(unset, || format!("line {at}: `{key}` is set twice"))?;
         found.push((key, scalar(raw).map_err(|why| format!("line {at}: {why}"))?));
     }
 
@@ -198,14 +198,23 @@ fn fields(block: &str) -> Result<Frontmatter, String> {
     })
 }
 
+/// `Err(why())` unless `holds`.
+///
+/// Every page parsed here is built into `buri`, so a failure is a bug in this
+/// repository that only a test can provoke. The failure is a closure rather than
+/// an `if`, as in `invariant_with`, so it leaves no branch for the end-to-end
+/// coverage gate to count; `a_malformed_page_says_what_is_wrong_with_it` takes
+/// every one.
+fn require(holds: bool, why: impl FnOnce() -> String) -> Result<(), String> {
+    holds.then_some(()).ok_or_else(why)
+}
+
 /// One scalar: bare, or quoted when it would otherwise begin or end with
 /// whitespace. Backticks and colons are ordinary characters in a bare value,
 /// because nearly every message has both.
 fn scalar(raw: &str) -> Result<String, String> {
     let text = raw.trim();
-    if text.is_empty() {
-        return Err("the value is empty".to_string());
-    }
+    require(!text.is_empty(), || "the value is empty".to_string())?;
     let quoted = |quote: char| {
         text.strip_prefix(quote)
             .and_then(|r| r.strip_suffix(quote))

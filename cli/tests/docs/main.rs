@@ -4,6 +4,7 @@
 //! |---|---|
 //! | [`documents`] | What the documents *are*: every fence scannable and tagged, every link resolving, and the checked-in `SPEC.md` still what `buri docs assemble` produces. |
 //! | [`examples`] | What the documents *show*: every fenced example compiles or builds, and is laid out the way `buri format` lays out source. |
+//! | [`scanning`] | Where the links and unclosed fences are, which only these tests ask. |
 //!
 //! ```text
 //! cargo test -p buri --test docs
@@ -38,3 +39,4 @@ mod shard;
 
 mod documents;
 mod examples;
+mod scanning;
