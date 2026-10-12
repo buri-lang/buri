@@ -1145,7 +1145,8 @@ fn collect_package_sources(
                 continue;
             }
             collect_package_sources(root, &p, extensions, out);
-        } else if (p.extension().is_some_and(|x| x == "buri") && name != "BUILD.buri")
+        } else if (p.extension().is_some_and(|x| x == "buri")
+            && !crate::build::regenerate::is_configuration(&name))
             || p.extension().is_some_and(|x| x == "proto")
             || p.extension().is_some_and(|x| extensions.contains(&x.to_string_lossy().to_string()))
         {

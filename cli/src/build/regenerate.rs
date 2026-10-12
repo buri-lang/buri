@@ -749,6 +749,12 @@ pub(crate) fn imports_of(dir: &Path, file: &str) -> Vec<String> {
         .collect()
 }
 
+/// A build file, or the `REPO.buri` beside a package at the repository's root:
+/// the `.buri` files that configure the build rather than being built.
+pub(crate) fn is_configuration(name: &str) -> bool {
+    matches!(name, "BUILD.buri" | "REPO.buri")
+}
+
 /// Every source a package owns, package-relative: the `.buri` files in `out`
 /// and the `.proto` schemas in `schemas`.
 ///
@@ -778,7 +784,7 @@ pub(crate) fn collect(root: &Path, dir: &Path, out: &mut Vec<String>, schemas: &
                 continue;
             }
             collect(root, &p, out, schemas);
-        } else if p.extension().is_some_and(|x| x == "buri") && name != "BUILD.buri" {
+        } else if p.extension().is_some_and(|x| x == "buri") && !is_configuration(&name) {
             out.push(rel());
         } else if p.extension().is_some_and(|x| x == "proto") {
             schemas.push(rel());
