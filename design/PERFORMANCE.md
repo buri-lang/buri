@@ -7958,6 +7958,13 @@ buri ──spawn──▶ test-host   BURI_TEST_IMAGE=<image>   (one process per
   before, and `--explain` and `--verbose` say why. A test `buri` (the
   `test-hooks` feature) also links runners under `BURI_TEST_LINKED`, for the
   tests about linked runners.
+- **`cli/tests/native` loads its debug programs too.** A stencil program a
+  test builds is an image at `<program>.image`, and `<program>` is a symbolic
+  link to the host, which maps the image beside the name it was started by.
+  Any `Command::new(program)` runs it as one process with the program's own
+  arguments. `stencil::a_loaded_program_runs_as_its_linked_executable` checks
+  output, exit status and signal against the linked program. A program with a
+  C probe and every LLVM program still link.
 - **Linux keeps linked runners.** It has no launch check, and the link is
   40–100 ms. ELF images would need their own relocations on two
   architectures, which only CI could run. `--release`, `buri build` and

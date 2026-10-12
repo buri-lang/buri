@@ -496,7 +496,10 @@ pub(crate) fn link_and_run(row: &str, native: Native, units: &[backend::Emitted]
     // spelled out again: on Linux those are now a whole static-PIE musl link
     // (`shared::link_program`), and a harness that linked the old three `-l`s
     // would be asking the driver for a `libpthread.a` musl does not ship.
-    let linked = crate::shared::link_program(&objects, &binary);
+    let linked = match native.name {
+        "stencil" => crate::shared::place_program(&objects, &binary),
+        _ => crate::shared::link_program(&objects, &binary),
+    };
     assert!(
         linked.status.success(),
         "{row}: the `{}` link failed:\n{}",

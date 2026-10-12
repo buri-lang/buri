@@ -74,6 +74,13 @@ fn find(linker: &CDriver) -> Result<Host, String> {
         return Err(format!("{LINKED} is set"));
     }
     let home = crate::build::runtime_cross::buri_home().map_err(|_| "there is no home directory to keep it in")?;
+    in_home(&home, linker)
+}
+
+/// The host `linker` links, in `home` rather than `$BURI_HOME`, linked and
+/// probed if `home` has none yet. For a test harness that keeps a home of its
+/// own; `buri` itself asks [`get`].
+pub fn in_home(home: &Path, linker: &CDriver) -> Result<Host, String> {
     let key = key(linker);
     let dir = home.join("test-host").join(&key);
     if let Some(host) = ready(&dir, &key) {

@@ -213,8 +213,12 @@ pub fn warm_cross_runtime() {
 ///
 /// Call it straight after the link, before anything runs `binary`. Best
 /// effort: when the store cannot be used, `binary` stays the file the linker
-/// wrote, which runs just the same.
+/// wrote, which runs just the same. A `binary` that is already a symbolic
+/// link, to the store or to the test host (`shared::place_program`), stays.
 pub fn settle(binary: &Path) {
+    if binary.is_symlink() {
+        return;
+    }
     let Ok(bytes) = std::fs::read(binary) else { return };
     let sheet = std::fs::read(binary.with_extension("css")).ok();
     let mut keyed = bytes.clone();

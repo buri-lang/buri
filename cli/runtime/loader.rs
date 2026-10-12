@@ -5,7 +5,9 @@
 //! macOS would check before its first start (`design/PERFORMANCE.md` §6.85).
 //! The host is this archive force-loaded behind a `main` that branches to
 //! [`buri_rt_test_host`]. `BURI_TEST_IMAGE` names the suite's image, which
-//! `buri` linked from the objects a runner is linked from. The format is
+//! `buri` linked from the objects a runner is linked from. Without it, the
+//! host started by a symbolic link maps `<link>.image`, which is how
+//! `cli/tests/native` runs its debug programs. The format is
 //! `cli/src/build/image.rs`'s.
 //!
 //! The image's code goes into `MAP_JIT` memory, written while this thread has
@@ -78,11 +80,17 @@ pub unsafe extern "C" fn buri_rt_test_host(
             Err(why) => fail(&why),
         };
     }
-    let Some(path) = std::env::var_os(IMAGE) else {
-        return fail("BURI_TEST_IMAGE names no image");
+    // Where `buri test` started it, the image it named. Started by another
+    // name, a symbolic link to the host, the image beside that name, as the
+    // runtime finds `<executable>.css`.
+    let path = match std::env::var_os(IMAGE) {
+        Some(path) => {
+            // SAFETY: one thread, before the image's code can start another.
+            unsafe { std::env::remove_var(IMAGE) };
+            std::path::PathBuf::from(path)
+        }
+        None => std::env::current_exe().unwrap_or_default().with_extension("image"),
     };
-    // SAFETY: one thread, before the image's code can start another.
-    unsafe { std::env::remove_var(IMAGE) };
     let loaded = std::fs::read(&path)
         .map_err(|e| format!("cannot read {}: {e}", std::path::Path::new(&path).display()))
         .and_then(|bytes| load(&bytes));

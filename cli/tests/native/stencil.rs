@@ -147,7 +147,9 @@ fn lowered(source: &str) -> (monomorphize::Program, buri::compiler::semantics::t
 /// The whole pipeline, for one snippet, with an optional C probe linked
 /// beside it.
 pub fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
-    build_linked_by(name, source, probe, shared::link_program)
+    // A probe is C, which only a link takes.
+    let link = if probe.is_some() { shared::link_program } else { shared::place_program };
+    build_linked_by(name, source, probe, link)
 }
 
 /// [`build_with`], linked by `link`: [`shared::driver_link`] for a test about
@@ -2645,7 +2647,7 @@ fn link_and_run(path: &str, units: &[Emitted], sheet: &str) -> Ran {
     // that links more permissively than the product cannot see the product's
     // bugs, and one that links *less* completely than it invents failures the
     // product does not have.
-    let out = shared::link_program(&objects, &binary);
+    let out = shared::place_program(&objects, &binary);
     assert!(
         out.status.success(),
         "`{path}`: the link failed:\n{}",
@@ -3840,8 +3842,8 @@ fn build_tests_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     }
     let binary = dir.join("program");
     // `build/link.rs`'s platform flags and its driver, for `build_with`'s
-    // reason.
-    let out = shared::link_program(&objects, &binary);
+    // reason, where a probe is linked in.
+    let out = if probe.is_some() { shared::link_program(&objects, &binary) } else { shared::place_program(&objects, &binary) };
     assert!(out.status.success(), "the link failed:\n{}", String::from_utf8_lossy(&out.stderr));
     crate::sweep::kept::settle(&binary);
     binary
@@ -4970,4 +4972,90 @@ fn glue_for_a_wide_struct_frames_less_than_the_struct() {
         widest < width,
         "a glue frame of {widest} bytes holds the whole {width}-byte struct: {frames:?}"
     );
+}
+
+/// Programs for [`a_loaded_program_runs_as_its_linked_executable`]: a name,
+/// the source and the arguments it's started with.
+const LOADED_PROGRAMS: [(&str, &str, &[&str]); 3] = [
+    (
+        "loaded-arguments",
+        r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let args = env.arguments(ctx);
+  io.println(ctx, "${args.length()} ${args.first().withDefault("none")}").mapErr(fn(_e) => "stdout")
+}
+"#,
+        &["first", "second"],
+    ),
+    (
+        "loaded-refusal",
+        r#"
+from "native" import { NativeHost };
+export fn main(host: NativeHost): Result<(), Str> {
+  .Err("refused")
+}
+"#,
+        &[],
+    ),
+    (
+        "loaded-overflow",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+fn f(i: Int): Int { if (i <= 0) { 0 } else { 1 + f(i - 1) } }
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = io.println(host.stdout, "depth ${f(5000000)}").ignore();
+  .Ok(())
+}
+"#,
+        &[],
+    ),
+];
+
+/// **A program loaded into the test host runs as the executable it would link
+/// to**: the same output, exit status and signal, under the heap check, for
+/// one that prints its arguments, one that returns an error, and one that
+/// overflows its stack (`design/PERFORMANCE.md` §6.85). Each is built at the
+/// same path both ways, so a message that names the program reads the same.
+#[test]
+fn a_loaded_program_runs_as_its_linked_executable() {
+    use std::os::unix::process::ExitStatusExt as _;
+    if !supported() {
+        return;
+    }
+    let run = |binary: &Path, args: &[&str]| {
+        let out = shared::heap_checked(Command::new(binary).args(args)).output().unwrap();
+        let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+        (out.status.code(), out.status.signal(), text(&out.stdout), text(&out.stderr))
+    };
+    for (name, source, args) in LOADED_PROGRAMS {
+        let loaded = run(&build_linked_by(name, source, None, shared::place_program), args);
+        let linked = run(&build_linked_by(name, source, None, shared::link_program), args);
+        assert_eq!(loaded, linked, "{name}: loaded, then linked");
+    }
+}
+
+/// **A debug program and a debug suite start no new executable** where they
+/// load into the test host, so macOS checks no file per program. Elsewhere each
+/// is a link of its own.
+#[test]
+fn a_debug_program_and_suite_are_no_new_executables() {
+    if !supported() {
+        return;
+    }
+    let before = shared::new_executables();
+    let (_, source, args) = LOADED_PROGRAMS[0];
+    let program = build_with("unlinked-program", source, None);
+    let ran = shared::ran_command(shared::heap_checked(Command::new(&program).args(args)));
+    assert_eq!((ran.status, ran.stdout.as_str()), (0, "2 first\n"), "{}", ran.stderr);
+    let suite = build_tests("unlinked-suite", "from \"core/testing/assert\" import * as assert;\ntest \"one\" { assert.equal(1, 1); }\n");
+    let out = Command::new(&suite).env("BURI_TEST_FROM", "0").output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let want = if shared::LOADED { 0 } else { 2 };
+    assert_eq!(shared::new_executables() - before, want, "executables linked for a program and a suite");
 }
