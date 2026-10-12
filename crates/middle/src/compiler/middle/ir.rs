@@ -1823,4 +1823,60 @@ mod tests {
             other => panic!("expected a jump, got {other:?}"),
         }
     }
+
+    /// The environment variable that turns a test into its own child.
+    const CHILD: &str = "BURI_IR_VERIFY_CHILD";
+
+    /// What `verify` says about the program `bad` builds.
+    ///
+    /// A malformed program stops the process with the internal-error report,
+    /// so the test runs itself again as a child, which builds the program and
+    /// verifies it, and reads the report from there. The child must exit 70:
+    /// a child that verifies the program and returns has let it through.
+    fn rejected(test: &str, bad: impl FnOnce() -> Program) -> String {
+        if std::env::var_os(CHILD).is_some() {
+            verify(&bad());
+            return String::new();
+        }
+        let path = module_path!().split_once("::").or_ice("a test module is in a crate").1;
+        let out = std::process::Command::new(std::env::current_exe().or_ice("this test's own executable"))
+            .args([&format!("{path}::{test}"), "--exact", "--nocapture", "--test-threads=1"])
+            .env(CHILD, "1")
+            .output()
+            .or_ice("the test re-runs itself");
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert_eq!(out.status.code(), Some(70), "the verifier let the program through:\n{stderr}");
+        stderr
+    }
+
+    #[test]
+    fn an_edge_whose_arguments_do_not_match_its_destination_is_reported() {
+        let report = rejected("an_edge_whose_arguments_do_not_match_its_destination_is_reported", || {
+            let mut p = adder();
+            if let Body::Code(code) = &mut p.funcs.first_mut().or_ice("one function").body {
+                let b1 = code.block(&[Type::I64, Type::I64]);
+                code.get_mut(b1).term = Term::Unreachable;
+                let entry_param = *code.get(BlockId(0)).params.first().or_ice("two parameters");
+                code.get_mut(BlockId(0)).term = Term::Jump(Target::new(b1, vec![entry_param]));
+            }
+            p
+        });
+        assert!(report.contains("m:add: b0 passes 1 arguments to b1, which takes 2"), "{report}");
+    }
+
+    #[test]
+    fn a_block_that_continues_after_an_abort_is_reported() {
+        let report = rejected("a_block_that_continues_after_an_abort_is_reported", || {
+            let mut p = adder();
+            if let Body::Code(code) = &mut p.funcs.first_mut().or_ice("one function").body {
+                let v = code.value(Type::I64);
+                let entry = code.get_mut(BlockId(0));
+                entry.insts.insert(0, Inst::Abort { message: "boom".into() });
+                entry.insts.push(Inst::Const { dest: v, value: Const::Int { bits: Magnitude::new(0), negative: false } });
+                entry.term = Term::Unreachable;
+            }
+            p
+        });
+        assert!(report.contains("m:add: b0 continues after an abort"), "{report}");
+    }
 }
