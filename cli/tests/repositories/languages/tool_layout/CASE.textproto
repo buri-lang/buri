@@ -1,0 +1,20 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a tool's document is laid out at the margin: a row stays on its line when what follows it up to a newline fits, whether that newline is in a text or in a group that must break, and a row that does not fit breaks"
+
+run {
+  args: ["format"]
+  exit: 0
+  golden: "format.txt"
+}
+
+file {
+  path: "lib/table/table.cells"
+  golden: "table.cells"
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}

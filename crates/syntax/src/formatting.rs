@@ -81,7 +81,7 @@
 //! conditional on the answer the propagation is trying to compute.
 
 use crate::compiler::standard_library;
-use crate::diagnostics::{Diagnostic, FileId, Span};
+use crate::diagnostics::{invariant, Diagnostic, FileId, Invariant as _, Span};
 use crate::parsing::flat::{
     ArmData, BlockId, CtxBodyId, ExprId, ExprView, InitData, Kind, LambdaParamData, Location,
     PartView, PatId, PatView, StmtKind, Tree, TypeId, TypeView,
@@ -474,22 +474,17 @@ fn force(d: Doc) -> Doc {
     match d {
         Doc::Group(g) => Doc::Group(g.forced()),
         // Forcing a set of candidates rules out the one that is all on a line.
-        // With `next` promoted there may be only one candidate left, and one
-        // candidate is not an `Alt`; repeating it says the same thing — the
-        // strict measurement and the fallback land on the same document — in a
-        // shape the layout pass can still read.
-        Doc::Alt { flat: _, next, mut rest } => {
-            if rest.is_empty() {
-                Doc::Alt { flat: next.clone(), next, rest }
-            } else {
-                let second = rest.remove(0);
-                Doc::Alt { flat: next, next: Box::new(second), rest }
-            }
+        // With `next` promoted there is one candidate left, and one candidate
+        // is not an `Alt`; repeating it says the same thing — the strict
+        // measurement and the fallback land on the same document — in a shape
+        // the layout pass can still read.
+        Doc::Alt { flat: _, next, rest } => {
+            invariant(rest.is_empty(), "only a lambda is a hugged `Alt`, and it has two candidates");
+            Doc::Alt { flat: next.clone(), next, rest }
         }
         Doc::Concat(mut xs) => {
-            if let Some(last) = xs.pop() {
-                xs.push(force(last));
-            }
+            let last = xs.pop().map(force);
+            xs.extend(last);
             Doc::Concat(xs)
         }
         Doc::Nest(x) => Doc::Nest(Box::new(force(*x))),
@@ -645,12 +640,9 @@ fn fits<'a>(
             Cmd::One(d) => d,
         };
         match d {
-            Doc::Nil => {}
-            Doc::BreakParent => {
-                if strict {
-                    return false;
-                }
-            }
+            // Not a break itself: each one heads a comment or a region, and
+            // the walk meets the line break that ends it.
+            Doc::Nil | Doc::BreakParent => {}
             Doc::Text(s) => w = w.saturating_sub(s.chars().count() as isize),
             // Not measured: see `Doc::Aside`.
             Doc::Aside(_) => {}
@@ -703,11 +695,11 @@ fn indent_to(out: &mut String, ind: usize) {
 /// and the line break the construct around it also wants from stacking into
 /// two empty lines.
 fn newline(out: &mut String, pos: &mut usize, ind: usize) {
-    let fresh = out.trim_end_matches(' ').ends_with('\n');
     while out.ends_with(' ') {
         out.pop();
     }
-    if !fresh && !out.is_empty() {
+    // The first line of the output is one nothing has been written to.
+    if !out.chars().next_back().is_none_or(|c| c == '\n') {
         out.push('\n');
     }
     indent_to(out, ind);
@@ -723,9 +715,7 @@ fn forced_newline(out: &mut String, pos: &mut usize, ind: usize) {
     while out.ends_with(' ') {
         out.pop();
     }
-    if !out.is_empty() {
-        out.push('\n');
-    }
+    out.push('\n');
     indent_to(out, ind);
     *pos = ind.saturating_mul(INDENT);
 }
@@ -734,14 +724,9 @@ fn forced_newline(out: &mut String, pos: &mut usize, ind: usize) {
 /// a brace has just opened, because a comment on the first line of a block
 /// wants no gap above it.
 fn blank(out: &mut String, pos: &mut usize, ind: usize) {
-    while out.ends_with(' ') {
-        out.pop();
-    }
+    newline(out, pos, 0);
     if out.is_empty() {
         return;
-    }
-    if !out.ends_with('\n') {
-        out.push('\n');
     }
     if !out.ends_with("\n\n") && !out.ends_with("{\n") {
         out.push('\n');
@@ -873,7 +858,7 @@ fn fill_step<'a>(
     items: &'a [Doc],
     rem: usize,
 ) {
-    let Some((content, tail)) = items.split_first() else { return };
+    let (content, tail) = items.split_first().or_ice("a fill has an item, and a step passes on only a tail that does");
     let content_fits = fits(&[], &[(ind, Mode::Flat, Cmd::One(content))], local, rem, false);
     let Some(next) = tail.first() else {
         stack.push((ind, if content_fits { Mode::Flat } else { Mode::Break }, Cmd::One(content)));
@@ -1716,7 +1701,7 @@ impl<'t> Build<'t> {
         }
         match item {
             Item::Import(i) => {
-                let path = self.path_literal(i.path_span, &i.path);
+                let path = self.path_literal(i.path_span);
                 match &i.clause {
                     // A namespace import is one name, so there is nothing a
                     // width could do about it.
@@ -1729,7 +1714,7 @@ impl<'t> Build<'t> {
                 }
             }
             Item::ReExport(r) => {
-                let path = self.path_literal(r.path_span, &r.path);
+                let path = self.path_literal(r.path_span);
                 self.name_list(&format!("from {path} export"), self.tree().list(r.specs))
             }
             Item::Fn(d) => self.fn_decl(d, d.exported),
@@ -1860,19 +1845,10 @@ impl<'t> Build<'t> {
     /// re-escaping is a normalisation — `\u{41}` becomes `A` and `\t` becomes
     /// `\t` — and layout may not rewrite what an author wrote inside a literal.
     /// A string literal never spans a line break, so the slice is one line.
-    ///
-    /// The fallback re-escapes, which is correct and only loses the spelling.
-    /// It is reachable only if the span does not cover a quoted literal, which
-    /// is a parser invariant rather than something this file can prove.
-    fn path_literal(&self, at: Span, decoded: &str) -> String {
-        let raw = self
-            .src
-            .get(at.start as usize..at.end as usize)
-            .filter(|s| s.starts_with('"') && s.ends_with('"') && s.len() >= 2);
-        match raw {
-            Some(s) => s.to_string(),
-            None => quote(decoded),
-        }
+    /// The span is the literal's: an import whose path is anything else did
+    /// not parse, and is printed as written.
+    fn path_literal(&self, at: Span) -> &str {
+        self.src.get(at.start as usize..at.end as usize).or_ice("an import's path is in the file it was read from")
     }
 
     /// `<head> { a, b, c };`, filled when it does not fit the width.

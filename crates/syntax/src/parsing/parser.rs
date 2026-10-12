@@ -19,7 +19,7 @@
 //! * `pattern_primary` decides binding-versus-variant on the token *after* an
 //!   identifier, never on what the identifier means (design/grammar-rationale.md 12.7).
 
-use crate::diagnostics::{Diagnostic, FileId, Invariant, Span};
+use crate::diagnostics::{invariant, Diagnostic, FileId, Invariant, Span};
 use crate::parsing::flat::{
     ArmData, BlockData, BlockId, CtxBindData, CtxBodyData, CtxBodyId, Docs, ExprId,
     FieldPatData, InitData, Kind, List, LambdaParamData, Location, PartData, PatId, PatPayloadData, PatternKind,
@@ -766,11 +766,10 @@ impl<'a> Parser<'a> {
     /// token the parser read.
     fn bump(&mut self) -> Span {
         let span = self.span();
-        if self.pos < self.last {
-            self.pos = self.pos.saturating_add(1);
-            self.before = self.here;
-            (self.cur, self.here) = self.tokens.record(self.pos);
-        }
+        invariant(self.pos < self.last, "nothing reads past the end of the file");
+        self.pos = self.pos.saturating_add(1);
+        self.before = self.here;
+        (self.cur, self.here) = self.tokens.record(self.pos);
         span
     }
 
@@ -824,7 +823,7 @@ impl<'a> Parser<'a> {
     /// that was written. The construct is closed as though it were there, and
     /// the unterminated string stays the whole of what went wrong.
     fn after_an_unterminated_string(&self) -> bool {
-        self.pos > 0 && self.tokens.is_unterminated(self.at(self.pos.saturating_sub(1)))
+        self.pos.checked_sub(1).is_some_and(|p| self.tokens.is_unterminated(self.at(p)))
     }
 
     fn is(&self, p: Punctuation) -> bool {
@@ -1702,10 +1701,7 @@ impl<'a> Parser<'a> {
                     items.push(Item::Error(from.to(self.prev_span())));
                 }
             }
-            // Guarantee progress even if a sub-parser consumed nothing.
-            if self.pos == before {
-                self.bump();
-            }
+            invariant(self.pos != before, "a declaration, or the recovery from one, reads a token");
             // A token held for a production that never asked for it belongs to
             // the declaration it was written in and to nothing after it.
             self.early = None;
@@ -2823,9 +2819,7 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-            if self.pos == before {
-                self.bump();
-            }
+            invariant(self.pos != before, "a statement, or the recovery from one, reads a token");
             self.early = None;
         }
 
@@ -3309,9 +3303,7 @@ impl<'a> Parser<'a> {
             if !self.more_elements(Punctuation::RBrace, "a match arm", starts_pattern) {
                 break;
             }
-            if self.pos == before {
-                self.bump();
-            }
+            invariant(self.pos != before, "a match arm, or the recovery from one, reads a token");
         }
         let end = self.expect_close(Punctuation::RBrace, "`match`", open)?;
         let (as_, al) = self.tree.push_arms(since(&self.scratch.arms, base));

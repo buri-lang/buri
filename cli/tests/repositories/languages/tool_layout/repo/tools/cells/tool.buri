@@ -1,0 +1,32 @@
+//! `.cells`: rows of comma-separated cells, laid out by the toolchain.
+
+from "core/format" import { Doc };
+from "core/tool" import { Diagnostic, FormatRequest, Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
+
+/// Nothing: a file is formatted only when some rule lists it.
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    Generated { modules: [], diagnostics: [], needs: [] }
+}
+
+/// Each row on one line, or one cell to a line when it does not fit, so a line
+/// ending in a comma goes on with the next. A row ends in a newline written as
+/// text, and the last row in a group that breaks.
+export fn format<C: Allocator>(
+    ctx: C,
+    request: FormatRequest,
+): Result<Doc, [Diagnostic]> {
+    let rows = request
+        .input
+        .value
+        .replace(ctx, ",\n", ",")
+        .lines(ctx)
+        .filter(ctx, fn(l) => !l.trim().isEmpty())
+        .mapCtx(ctx, fn(c, l) => row(c, l));
+    .Ok(.Concat(rows.intersperse(ctx, .Text("\n")).push(ctx, .Group([.HardLine]))))
+}
+
+fn row<C: Allocator>(ctx: C, line: Str): Doc {
+    let cells = line.split(ctx, ",").map(ctx, fn(c) => Doc.Text(c.trim()));
+    .Group([.Indent(cells.intersperse(ctx, .Concat([.Text(","), .Line])))])
+}
