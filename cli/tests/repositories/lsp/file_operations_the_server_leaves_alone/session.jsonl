@@ -35,6 +35,12 @@
 {"jsonrpc": "2.0", "id": 9, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/cart.buri", "newUri": "file://<scratch>/lib/pricing/lib.buri"}]}}
 # And onto its testing surface's entry point, the same.
 {"jsonrpc": "2.0", "id": 20, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/cart.buri", "newUri": "file://<scratch>/lib/pricing/testing/lib.buri"}]}}
+# A platform's surface is its `platform.buri`, so an import names it by the
+# package's label.
+{"jsonrpc": "2.0", "id": 21, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/cart.buri", "newUri": "file://<scratch>/platform/kit/platform.buri"}]}}
+# In a library, `platform.buri` is a module like any other: it joins the list
+# and an import names it by its path.
+{"jsonrpc": "2.0", "id": 22, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/cart.buri", "newUri": "file://<scratch>/lib/pricing/platform.buri"}]}}
 # A rename onto a name the list already has drops the old entry and adds nothing twice.
 {"jsonrpc": "2.0", "id": 10, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/cart.buri", "newUri": "file://<scratch>/lib/shop/money.buri"}]}}
 # A rename request that names no files has nothing to answer.
