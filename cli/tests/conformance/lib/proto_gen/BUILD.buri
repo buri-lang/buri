@@ -4,6 +4,7 @@ library {
     test {
         sources: [
             "test/mapping.buri",
+            "test/scalars.buri",
             "test/codecs.buri",
             "test/origins.buri",
             "test/failures.buri",

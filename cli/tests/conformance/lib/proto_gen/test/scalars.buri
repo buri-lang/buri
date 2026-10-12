@@ -1,0 +1,268 @@
+// Every scalar kind a schema can name, singular, repeated and as a map's key:
+// the wire type, the tag, the reader and the JSON form each one is given.
+//
+// `lib/proto`'s corpus round-trips the same kinds through modules the build
+// generated; these read the generated text, which is what says *which* codec
+// each kind was handed.
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//lib/proto_gen" import { block, HEAD, lines };
+
+/// A message of one field of every scalar kind, numbered 1 to 15, each written
+/// `<label><kind> <name> = <number><options>;`.
+fn everyKind<C: Allocator>(ctx: C, message: Str, label: Str, options: Str): Str {
+    let fields = [
+        ("double", "d", "1"), ("float", "f", "2"), ("int32", "i32", "3"), ("int64", "i64", "4"),
+        ("uint32", "u32", "5"), ("uint64", "u64", "6"), ("sint32", "s32", "7"),
+        ("sint64", "s64", "8"), ("fixed32", "x32", "9"), ("fixed64", "x64", "10"),
+        ("sfixed32", "y32", "11"), ("sfixed64", "y64", "12"), ("bool", "b", "13"),
+        ("string", "s", "14"), ("bytes", "by", "15"),
+    ];
+    let body = fields
+        .mapCtx(ctx, fn(c, f) => ["  ", label, f.0, " ", f.1, " = ", f.2, options, ";\n"].join(c, ""))
+        .join(ctx, "");
+    [HEAD, "message ", message, " {\n", body, "}\n"].join(ctx, "")
+}
+
+/// The lines of `out` holding `piece`, without their indentation.
+fn holding<C: Allocator>(ctx: C, out: [Str], piece: Str): [Str] {
+    out.filter(ctx, fn(l) => l.contains(piece)).map(ctx, fn(l) => l.trim())
+}
+
+test "each scalar kind is written with its own tag and wire type, and only when it isn't its default" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let out = lines(ctx, everyKind(ctx, "M", "", " [features.field_presence = IMPLICIT]"));
+    assert.equal(block(ctx, out, "export fn writeM<C: Allocator>(ctx: C, out: [U8], value: M): [U8] {", 17), [
+        "export fn writeM<C: Allocator>(ctx: C, out: [U8], value: M): [U8] {",
+        "    let out = if (value.d == 0.0) { out } else { proto.writeF64(ctx, out.push(ctx, 9), value.d) };",
+        "    let out = if (value.f == 0.0) { out } else { proto.writeF32(ctx, out.push(ctx, 21), value.f) };",
+        "    let out = if (value.i32 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 24), value.i32) };",
+        "    let out = if (value.i64 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 32), value.i64) };",
+        "    let out = if (value.u32 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 40), value.u32) };",
+        "    let out = if (value.u64 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 48), value.u64) };",
+        "    let out = if (value.s32 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 56), bytes.zigzag(value.s32)) };",
+        "    let out = if (value.s64 == 0) { out } else { proto.writeVarint(ctx, out.push(ctx, 64), bytes.zigzag(value.s64)) };",
+        "    let out = if (value.x32 == 0) { out } else { proto.writeFixed32(ctx, out.push(ctx, 77), value.x32) };",
+        "    let out = if (value.x64 == 0) { out } else { proto.writeFixed64(ctx, out.push(ctx, 81), value.x64) };",
+        "    let out = if (value.y32 == 0) { out } else { proto.writeFixed32(ctx, out.push(ctx, 93), value.y32) };",
+        "    let out = if (value.y64 == 0) { out } else { proto.writeFixed64(ctx, out.push(ctx, 97), value.y64) };",
+        "    let out = if (value.b == false) { out } else { proto.writeVarint(ctx, out.push(ctx, 104), if (value.b) { 1 } else { 0 }) };",
+        "    let out = if (value.s == \"\") { out } else { proto.writeStr(ctx, out.push(ctx, 114), value.s) };",
+        "    if (value.by.length() == 0) { out } else { proto.writeBytes(ctx, out.push(ctx, 122), value.by) }",
+        "}",
+    ]);
+    // The size a parent writes before the message: a fixed width is a constant,
+    // and a zigzagged one is measured after the transform.
+    assert.contains(out, "    let size = if (value.d == 0.0) { 0 } else { 1 + 8 };");
+    assert.contains(out, "    let s = if (value.f == 0.0) { 0 } else { 1 + 4 };");
+    assert.contains(out, "    let s = if (value.s64 == 0) { 0 } else { 1 + proto.varintSize(bytes.zigzag(value.s64)) };");
+    assert.contains(out, "    let s = if (value.x32 == 0) { 0 } else { 1 + 4 };");
+    assert.contains(out, "    let s = if (value.y64 == 0) { 0 } else { 1 + 8 };");
+    assert.contains(out, "    let s = if (value.b == false) { 0 } else { 1 + 1 };");
+    assert.contains(out, "    let s = if (value.by.length() == 0) { 0 } else { 1 + proto.lenSize(value.by.length()) };");
+    assert.contains(out, "    M { d: 0.0, f: 0.0, i32: 0, i64: 0, u32: 0, u64: 0, s32: 0, s64: 0, x32: 0, x64: 0, y32: 0, y64: 0, b: false, s: \"\", by: list.empty<U8>() }");
+}
+
+test "each scalar kind is read by its own reader and turned into its Buri value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let out = lines(ctx, everyKind(ctx, "M", "", ""));
+    assert.equal(holding(ctx, out, "wire == proto."), [
+        "if (field == 1 && wire == proto.I64) {",
+        "} else if (field == 2 && wire == proto.I32) {",
+        "} else if (field == 3 && wire == proto.VARINT) {",
+        "} else if (field == 4 && wire == proto.VARINT) {",
+        "} else if (field == 5 && wire == proto.VARINT) {",
+        "} else if (field == 6 && wire == proto.VARINT) {",
+        "} else if (field == 7 && wire == proto.VARINT) {",
+        "} else if (field == 8 && wire == proto.VARINT) {",
+        "} else if (field == 9 && wire == proto.I32) {",
+        "} else if (field == 10 && wire == proto.I64) {",
+        "} else if (field == 11 && wire == proto.I32) {",
+        "} else if (field == 12 && wire == proto.I64) {",
+        "} else if (field == 13 && wire == proto.VARINT) {",
+        "} else if (field == 14 && wire == proto.LEN) {",
+        "} else if (field == 15 && wire == proto.LEN) {",
+    ]);
+    // A 32-bit varint is read as its low 32 bits, and a signed 32-bit kind
+    // sign-extends them.
+    assert.equal(holding(ctx, out, "let value = "), [
+        "let value = raw;",
+        "let value = raw;",
+        "let value = proto.signed32(raw);",
+        "let value = raw;",
+        "let value = raw;",
+        "let value = raw;",
+        "let value = bytes.unzigzag(raw);",
+        "let value = bytes.unzigzag(raw);",
+        "let value = raw;",
+        "let value = raw;",
+        "let value = proto.signed32(raw);",
+        "let value = raw;",
+        "let value = raw != 0;",
+        "let value = raw;",
+        "let value = raw;",
+    ]);
+    assert.equal(holding(ctx, out, "let (raw, after) = "), [
+        "let (raw, after) = proto.readF64(b, next, end, base)?;",
+        "let (raw, after) = proto.readF32(b, next, end, base)?;",
+        "let (raw, after) = proto.readVarint32(b, next, end, base)?;",
+        "let (raw, after) = proto.readVarint(b, next, end, base)?;",
+        "let (raw, after) = proto.readVarint32(b, next, end, base)?;",
+        "let (raw, after) = proto.readVarint(b, next, end, base)?;",
+        "let (raw, after) = proto.readVarint32(b, next, end, base)?;",
+        "let (raw, after) = proto.readVarint(b, next, end, base)?;",
+        "let (raw, after) = proto.readFixed32(b, next, end, base)?;",
+        "let (raw, after) = proto.readFixed64(b, next, end, base)?;",
+        "let (raw, after) = proto.readFixed32(b, next, end, base)?;",
+        "let (raw, after) = proto.readFixed64(b, next, end, base)?;",
+        "let (raw, after) = proto.readVarint(b, next, end, base)?;",
+        "let (raw, after) = proto.readStr(ctx, b, next, end, base)?;",
+        "let (raw, after) = proto.readBytes(ctx, b, next, end, base)?;",
+    ]);
+    // In JSON a 64-bit kind is a string, signed or not as the kind is.
+    assert.equal(holding(ctx, out, ".Some(v) => .Some(proto.as"), [
+        ".Some(v) => .Some(proto.asFloat(v, proto.at(ctx, path, \"d\"))?),",
+        ".Some(v) => .Some(proto.asFloat32(v, proto.at(ctx, path, \"f\"))?),",
+        ".Some(v) => .Some(proto.asInt(v, proto.at(ctx, path, \"i32\"), -2147483648, 2147483647)?),",
+        ".Some(v) => .Some(proto.asInt64(v, proto.at(ctx, path, \"i64\"))?),",
+        ".Some(v) => .Some(proto.asInt(v, proto.at(ctx, path, \"u32\"), 0, 4294967295)?),",
+        ".Some(v) => .Some(proto.asUint64(v, proto.at(ctx, path, \"u64\"))?),",
+        ".Some(v) => .Some(proto.asInt(v, proto.at(ctx, path, \"s32\"), -2147483648, 2147483647)?),",
+        ".Some(v) => .Some(proto.asInt64(v, proto.at(ctx, path, \"s64\"))?),",
+        ".Some(v) => .Some(proto.asInt(v, proto.at(ctx, path, \"x32\"), 0, 4294967295)?),",
+        ".Some(v) => .Some(proto.asUint64(v, proto.at(ctx, path, \"x64\"))?),",
+        ".Some(v) => .Some(proto.asInt(v, proto.at(ctx, path, \"y32\"), -2147483648, 2147483647)?),",
+        ".Some(v) => .Some(proto.asInt64(v, proto.at(ctx, path, \"y64\"))?),",
+        ".Some(v) => .Some(proto.asBool(v, proto.at(ctx, path, \"b\"))?),",
+        ".Some(v) => .Some(proto.asStr(v, proto.at(ctx, path, \"s\"))?),",
+        ".Some(v) => .Some(proto.asBytes(ctx, v, proto.at(ctx, path, \"by\"))?),",
+    ]);
+}
+
+test "a repeated scalar is packed by its width, and read packed or one at a time" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let out = lines(ctx, everyKind(ctx, "M", "repeated ", ""));
+    // Packed, a fixed width's length is a multiple of the count; a varint's is
+    // summed. Strings and bytes are never packed.
+    assert.equal(holding(ctx, out, "proto.lenSize("), [
+        "let size = if (value.d.length() == 0) { 0 } else { 1 + proto.lenSize(value.d.length() * 8) };",
+        "let s = if (value.f.length() == 0) { 0 } else { 1 + proto.lenSize(value.f.length() * 4) };",
+        "let s = if (value.i32.length() == 0) { 0 } else { 1 + proto.lenSize(value.i32.fold(fn(n, x) => n + proto.varintSize(x), 0)) };",
+        "let s = if (value.i64.length() == 0) { 0 } else { 1 + proto.lenSize(value.i64.fold(fn(n, x) => n + proto.varintSize(x), 0)) };",
+        "let s = if (value.u32.length() == 0) { 0 } else { 1 + proto.lenSize(value.u32.fold(fn(n, x) => n + proto.varintSize(x), 0)) };",
+        "let s = if (value.u64.length() == 0) { 0 } else { 1 + proto.lenSize(value.u64.fold(fn(n, x) => n + proto.varintSize(x), 0)) };",
+        "let s = if (value.s32.length() == 0) { 0 } else { 1 + proto.lenSize(value.s32.fold(fn(n, x) => n + proto.varintSize(bytes.zigzag(x)), 0)) };",
+        "let s = if (value.s64.length() == 0) { 0 } else { 1 + proto.lenSize(value.s64.fold(fn(n, x) => n + proto.varintSize(bytes.zigzag(x)), 0)) };",
+        "let s = if (value.x32.length() == 0) { 0 } else { 1 + proto.lenSize(value.x32.length() * 4) };",
+        "let s = if (value.x64.length() == 0) { 0 } else { 1 + proto.lenSize(value.x64.length() * 8) };",
+        "let s = if (value.y32.length() == 0) { 0 } else { 1 + proto.lenSize(value.y32.length() * 4) };",
+        "let s = if (value.y64.length() == 0) { 0 } else { 1 + proto.lenSize(value.y64.length() * 8) };",
+        "let s = if (value.b.length() == 0) { 0 } else { 1 + proto.lenSize(value.b.fold(fn(n, x) => n + 1, 0)) };",
+        "let s = value.by.fold(fn(n, x) => n + (1 + proto.lenSize(x.length())), 0);",
+    ]);
+    assert.equal(holding(ctx, out, "= proto.packed"), [
+        "let values = proto.packedF64(ctx, b, raw, after)?;",
+        "let values = proto.packedF32(ctx, b, raw, after)?;",
+        "let values = proto.packedVarints32(ctx, b, raw, after)?;",
+        "let values = proto.packedVarints(ctx, b, raw, after)?;",
+        "let values = proto.packedVarints32(ctx, b, raw, after)?;",
+        "let values = proto.packedVarints(ctx, b, raw, after)?;",
+        "let values = proto.packedVarints32(ctx, b, raw, after)?;",
+        "let values = proto.packedVarints(ctx, b, raw, after)?;",
+        "let values = proto.packedFixed32(ctx, b, raw, after)?;",
+        "let values = proto.packedFixed64(ctx, b, raw, after)?;",
+        "let values = proto.packedFixed32(ctx, b, raw, after)?;",
+        "let values = proto.packedFixed64(ctx, b, raw, after)?;",
+        "let values = proto.packedVarints(ctx, b, raw, after)?;",
+    ]);
+    // Each packable field is also read unpacked, as an older writer sends it.
+    assert.contains(out, "        } else if (field == 9 && wire == proto.I32) {");
+    assert.contains(out, "        } else if (field == 12 && wire == proto.I64) {");
+    assert.contains(out, "        } else if (field == 13 && wire == proto.VARINT) {");
+}
+
+test "an EXPANDED field and a repeated message are one whole field per element" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let source = [
+        HEAD,
+        "message M {\n",
+        "  repeated M many = 1;\n",
+        "  repeated sint64 spread = 2 [features.repeated_field_encoding = EXPANDED];\n",
+        "}\n",
+    ].join(ctx, "");
+    let out = lines(ctx, source);
+    assert.equal(holding(ctx, out, ".fold(fn(n, x)"), [
+        "let size = value.many.fold(fn(n, x) => n + (1 + proto.lenSize(sizeM(x))), 0);",
+        "let s = value.spread.fold(fn(n, x) => n + (1 + proto.varintSize(bytes.zigzag(x))), 0);",
+    ]);
+    assert.contains(
+        out,
+        "    value.spread.foldCtx(ctx, fn(c, acc: [U8], x) => proto.writeVarint(c, acc.push(c, 16), bytes.zigzag(x)), out)",
+    );
+}
+
+test "a map key of each kind is written in its own wire type, and read from JSON as its text" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let source = [
+        HEAD,
+        "message M {\n",
+        "  map<int32, double> a = 1;\n",
+        "  map<int64, float> b = 2;\n",
+        "  map<uint32, sint32> c = 3;\n",
+        "  map<uint64, sint64> d = 4;\n",
+        "  map<sint32, fixed32> e = 5;\n",
+        "  map<sint64, fixed64> f = 6;\n",
+        "  map<fixed32, sfixed32> g = 7;\n",
+        "  map<fixed64, sfixed64> h = 8;\n",
+        "  map<sfixed32, bool> i = 9;\n",
+        "  map<sfixed64, bytes> j = 10;\n",
+        "  map<bool, uint64> k = 11;\n",
+        "  map<string, M> l = 12;\n",
+        "}\n",
+    ].join(ctx, "");
+    let out = lines(ctx, source);
+    assert.equal(holding(ctx, out, "let key = "), [
+        "let key = proto.asInt(Json.Str(name), here, -2147483648, 2147483647)?;",
+        "let key = proto.asInt64(Json.Str(name), here)?;",
+        "let key = proto.asInt(Json.Str(name), here, 0, 4294967295)?;",
+        "let key = proto.asUint64(Json.Str(name), here)?;",
+        "let key = proto.asInt(Json.Str(name), here, -2147483648, 2147483647)?;",
+        "let key = proto.asInt64(Json.Str(name), here)?;",
+        "let key = proto.asInt(Json.Str(name), here, 0, 4294967295)?;",
+        "let key = proto.asUint64(Json.Str(name), here)?;",
+        "let key = proto.asInt(Json.Str(name), here, -2147483648, 2147483647)?;",
+        "let key = proto.asInt64(Json.Str(name), here)?;",
+        "let key = proto.asBoolKey(name, here)?;",
+        "let key = name;",
+    ]);
+    // Each entry is a key field 1 and a value field 2, sized before it is written.
+    assert.equal(holding(ctx, out, "proto.lenSize(1 + "), [
+        "let size = value.a.fold(fn(n, k, x) => n + (1 + proto.lenSize(1 + proto.varintSize(k) + (1 + 8))), 0);",
+        "let s = value.b.fold(fn(n, k, x) => n + (1 + proto.lenSize(1 + proto.varintSize(k) + (1 + 4))), 0);",
+        "let s = value.c.fold(fn(n, k, x) => n + (1 + proto.lenSize(1 + proto.varintSize(k) + (1 + proto.varintSize(bytes.zigzag(x))))), 0);",
+        "let s = value.d.fold(fn(n, k, x) => n + (1 + proto.lenSize(1 + proto.varintSize(k) + (1 + proto.varintSize(bytes.zigzag(x))))), 0);",
+        "let s = value.e.fold(fn(n, k, x) => n + (1 + proto.lenSize(1 + proto.varintSize(bytes.zigzag(k)) + (1 + 4))), 0);",
+        "let s = value.f.fold(fn(n, k, x) => n + (1 + proto.lenSize(1 + proto.varintSize(bytes.zigzag(k)) + (1 + 8))), 0);",
+        "let s = value.g.fold(fn(n, k, x) => n + (1 + proto.lenSize(1 + 4 + (1 + 4))), 0);",
+        "let s = value.h.fold(fn(n, k, x) => n + (1 + proto.lenSize(1 + 8 + (1 + 8))), 0);",
+        "let s = value.i.fold(fn(n, k, x) => n + (1 + proto.lenSize(1 + 4 + (1 + 1))), 0);",
+        "let s = value.j.fold(fn(n, k, x) => n + (1 + proto.lenSize(1 + 8 + (1 + proto.lenSize(x.length())))), 0);",
+        "let s = value.k.fold(fn(n, k, x) => n + (1 + proto.lenSize(1 + 1 + (1 + proto.varintSize(x)))), 0);",
+        "let s = value.l.fold(fn(n, k, x) => n + (1 + proto.lenSize(1 + proto.strSize(k) + (1 + proto.lenSize(sizeM(x))))), 0);",
+    ]);
+    // A 64-bit key is written as JSON text unsigned or signed as its kind is.
+    assert.equal(holding(ctx, out, "proto.unsignedText(c, k)").length(), 2);
+    assert.equal(holding(ctx, out, "proto.intText(c, k)").length(), 8);
+}
