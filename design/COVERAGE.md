@@ -132,10 +132,13 @@ bytes it did before.
 
 ## How counts come back
 
-`buri` sets `BURI_COVERAGE=<root>/.buri/coverage/raw` on every process it
-spawns during a coverage run. Each test process writes one new file there on
+`buri` sets `BURI_COVERAGE=<root>/.buri/coverage/raw/<pid>` on every process
+it spawns during a coverage run. Each test process writes one new file there on
 exit, one `key count` line per key it hit. Results stay on stdout untouched,
 so verdicts, output and exit codes match a plain run.
+
+Each run gets its own directory, so two runs in one checkout never mix counts.
+A run removes the directories of runs whose process is gone.
 
 Each suite's front end also hands over its **universe**: every site line and
 every decision in every user function it checked, from `Checked::bodies`, so a

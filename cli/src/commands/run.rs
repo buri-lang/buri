@@ -457,8 +457,6 @@ mod stopping {
     unsafe extern "C" {
         fn signal(sig: i32, handler: usize) -> usize;
         fn kill(pid: i32, sig: i32) -> i32;
-        #[cfg(feature = "test-hooks")]
-        fn raise(sig: i32) -> i32;
         fn setpgid(pid: i32, pgid: i32) -> i32;
         fn getpgrp() -> i32;
         fn tcgetpgrp(fd: i32) -> i32;
@@ -633,7 +631,7 @@ mod stopping {
             debug_assert!(previous != SIG_ERR, "SIGHUP, SIGINT and SIGTERM can be caught");
         }
         #[cfg(feature = "test-hooks")]
-        stand_in(&SPAWNING);
+        SPAWNING.raised();
         let child = crate::build::spawn::start(command)?;
         // Zero is not a pid this can publish: `kill(0, …)` is every process in
         // this group, which is the one thing a command that forwards a signal
@@ -643,7 +641,7 @@ mod stopping {
             hand_over(pid);
         }
         #[cfg(feature = "test-hooks")]
-        stand_in(&STARTED);
+        STARTED.raised();
         Ok(child)
     }
 
@@ -654,14 +652,6 @@ mod stopping {
     static SPAWNING: crate::hold::Point = crate::hold::Point::new("spawning");
     #[cfg(feature = "test-hooks")]
     static STARTED: crate::hold::Point = crate::hold::Point::new("started");
-
-    #[cfg(feature = "test-hooks")]
-    fn stand_in(point: &crate::hold::Point) {
-        for sig in point.held() {
-            // SAFETY: an ordinary `raise` of a signal this process catches.
-            unsafe { raise(i32::from(sig)) };
-        }
-    }
 
     /// Waits for the program to stop, however long its own shutdown takes.
     pub fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {

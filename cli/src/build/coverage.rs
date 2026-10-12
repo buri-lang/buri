@@ -27,7 +27,7 @@ pub const STD: &str = "BURI_COVERAGE_STD";
 /// Where the report is written, from the repository root.
 pub const LCOV: &str = ".buri/coverage/lcov.info";
 
-/// Where the processes write their counts, from the repository root.
+/// Where each run's directory of counts goes, from the repository root.
 const RAW: &str = ".buri/coverage/raw";
 
 /// What a JavaScript probe calls, appended to a coverage build's test bundle.
@@ -126,13 +126,31 @@ fn run() -> MutexGuard<'static, Option<Run>> {
 
 /// Starts a coverage run with an empty directory for the counts. Every
 /// process `buri` starts from here on is told where it is.
+///
+/// The directory is named by this process's id, so runs never mix counts
+/// (buri-lang/buri#302). A killed run's directory goes once its process has.
 pub fn begin(root: &Path, mcdc: bool) -> Result<(), String> {
-    let raw = root.join(RAW);
+    let runs = root.join(RAW);
+    for left in std::fs::read_dir(&runs).into_iter().flatten().flatten().filter(|e| !running(&e.file_name())) {
+        let _ = std::fs::remove_dir_all(left.path()).or_else(|_| std::fs::remove_file(left.path()));
+    }
+    let raw = runs.join(std::process::id().to_string());
     let _ = std::fs::remove_dir_all(&raw);
     std::fs::create_dir_all(&raw).map_err(|e| format!("cannot create {}: {e}", raw.display()))?;
     let std = std::env::var_os(STD).is_some_and(|v| v == "1");
     *run() = Some(Run { raw, mcdc, std, files: BTreeMap::new() });
     Ok(())
+}
+
+/// Whether a run's directory, named by its process id, belongs to a process
+/// that is still running.
+fn running(name: &std::ffi::OsStr) -> bool {
+    unsafe extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    // SAFETY: signal 0 is no signal, only the check that the process exists.
+    let pid = name.to_str().and_then(|n| n.parse::<u32>().ok()).and_then(|n| i32::try_from(n).ok());
+    pid.is_some_and(|pid| unsafe { kill(pid, 0) } == 0)
 }
 
 /// The directory a process writes its counts to, during a coverage run.
@@ -359,12 +377,21 @@ fn instance_suffix(instance: &Instance) -> String {
     }
 }
 
+/// Where a test holds `buri test --coverage` before it adds up the counts, or
+/// kills it there ([`crate::hold`]).
+#[cfg(feature = "test-hooks")]
+static MERGING: crate::hold::Point = crate::hold::Point::new("merging");
+
 /// Every count the processes wrote, added up and put against the lines and
 /// decisions the suites hold: a row per file through `out`, and [`LCOV`].
 pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
     let Run { raw, mcdc, mut files, .. } = run().take().or_ice(BEGUN);
+    #[cfg(feature = "test-hooks")]
+    MERGING.raised();
     let counts = counts(&raw);
     let _ = std::fs::remove_dir_all(&raw);
+    // And the directory of runs, once no other run is using it.
+    let _ = raw.parent().map(std::fs::remove_dir);
     let count = |key: u64| counts.get(&key).copied().unwrap_or(0);
 
     // A generic function one suite instantiated and another didn't is only the
