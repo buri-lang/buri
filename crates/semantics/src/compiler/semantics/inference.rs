@@ -205,6 +205,7 @@ fn check_const(c: &mut Checker, cid: ConstId) {
     inf.unify_at(value_span, &value.ty, &ty, "the declared type");
     let body = inf.finish(value);
     c.const_values.insert(cid, body.expr);
+    c.const_locals.insert(cid, body.locals);
 }
 
 /// A constant is substituted wherever it's used, so one whose initializer

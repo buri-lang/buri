@@ -12,7 +12,7 @@
 //! never spelled. Neither is in the answer, which is what makes the panel a
 //! list of call sites a reader can go and look at.
 
-use crate::diagnostics::Span;
+use crate::diagnostics::{Invariant as _, Span};
 use crate::json::Value;
 use std::path::Path;
 use super::convert::{self, Position};
@@ -60,7 +60,7 @@ pub fn incoming(analyzed: &Analyzed, symbol: &Symbol) -> Value {
     }
     for (id, expr) in &checked.consts {
         let mut sites = Vec::new();
-        symbols::call_names(analyzed, &[], expr, &mut |span, called| {
+        symbols::call_names(analyzed, symbols::const_locals(checked, id), expr, &mut |span, called| {
             if symbols::same(&called, symbol) {
                 sites.push(span);
             }
@@ -93,9 +93,8 @@ pub fn outgoing(analyzed: &Analyzed, symbol: &Symbol) -> Value {
             }
         }
         Symbol::Const(id) => {
-            if let Some(expr) = checked.consts.get(id) {
-                symbols::call_names(analyzed, &[], expr, &mut take);
-            }
+            let expr = checked.consts.get(id).or_ice("every constant was checked");
+            symbols::call_names(analyzed, symbols::const_locals(checked, *id), expr, &mut take);
         }
         _ => {}
     }

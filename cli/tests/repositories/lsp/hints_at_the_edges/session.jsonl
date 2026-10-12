@@ -1,0 +1,21 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Every hint in the file. A tuple struct's pattern binds names with no type
+# written. An argument starting with `!` or `-`, or one with an operator in it,
+# gets no parameter name; a name starting with `_` gets one, and so does a field
+# path whose last segment differs from the parameter. A statement that is not a
+# `let` binds nothing.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 40, "character": 0}}}}
+# A hint whose data names a file and no position comes back as it was sent.
+{"jsonrpc": "2.0", "id": 3, "method": "inlayHint/resolve", "params": {"data": {"part": 0, "uri": "file://<scratch>/lib/money/basket.buri"}, "kind": 2, "label": [{"value": "base"}, {"value": ":"}], "paddingLeft": false, "paddingRight": true, "position": {"line": 22, "character": 22}}}
+# A hint whose position no longer names anything comes back as it was sent.
+{"jsonrpc": "2.0", "id": 4, "method": "inlayHint/resolve", "params": {"data": {"part": 0, "position": {"line": 3, "character": 0}, "uri": "file://<scratch>/lib/money/basket.buri"}, "kind": 2, "label": [{"value": "base"}, {"value": ":"}], "paddingLeft": false, "paddingRight": true, "position": {"line": 22, "character": 22}}}
+# A hint whose position now names a primitive gets its tooltip and no
+# location, because a primitive is declared nowhere.
+{"jsonrpc": "2.0", "id": 5, "method": "inlayHint/resolve", "params": {"data": {"part": 1, "position": {"line": 2, "character": 13}, "uri": "file://<scratch>/lib/money/basket.buri"}, "kind": 1, "label": [{"value": ": "}, {"value": "I64"}], "paddingLeft": false, "paddingRight": false, "position": {"line": 18, "character": 19}}}
+# A parameter hint whose position names a standard library method gets its
+# tooltip and no location, because that declaration is in no file.
+{"jsonrpc": "2.0", "id": 6, "method": "inlayHint/resolve", "params": {"data": {"part": 0, "parameter": 0, "position": {"line": 20, "character": 23}, "uri": "file://<scratch>/lib/money/basket.buri"}, "kind": 2, "label": [{"value": "prefix"}, {"value": ":"}], "paddingLeft": false, "paddingRight": true, "position": {"line": 20, "character": 34}}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -15,18 +15,31 @@
 //! One resolver means no two requests can disagree about what the cursor is on.
 
 use crate::compiler::modules::ModuleData;
-use crate::compiler::semantics::resolve::Sym;
+use crate::compiler::semantics::resolve::{Checked, Sym};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{
     self, AstRef, ConstId, ContextDeclId, FnId, ModuleId, TraitId, Ty, TyConId, Tables,
 };
 use crate::formatting;
-use crate::diagnostics::{FileId, Span};
+use crate::diagnostics::{FileId, Invariant as _, Span};
 use crate::parsing::flat::{self, ExprId, ExprView, Location, TypeId, TypeView};
 use crate::parsing::lexer::TokenKind;
 use crate::parsing::tree::{self, ImportClause, Item};
 use std::path::Path;
 use super::state::Analyzed;
+
+/// Why a module's scope is always there: the checker sizes its scopes to the
+/// modules it loaded.
+pub(super) const SCOPED: &str = "the checker gives every loaded module a scope";
+
+/// Why a context's entry is always there: its id was minted by the table.
+const CONTEXT: &str = "every context id names an entry of `ctx_decls`";
+
+/// Why a variant's entry is always there: the checker numbered it from its enum.
+const VARIANT: &str = "a checked variant is numbered from its own enum";
+
+/// Why a trait method's entry is always there: the checker numbered it from its trait.
+const METHOD: &str = "a checked trait method is numbered from its own trait";
 
 /// A declaration the source is able to name.
 #[derive(Clone)]
@@ -405,9 +418,7 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
             }
         }
         Symbol::Context(id) => {
-            let Some(info) = tables.ctx_decls.get(id.index()) else {
-                return (String::new(), Vec::new());
-            };
+            let info = tables.ctx_decls.get(id.index()).or_ice(CONTEXT);
             match item_syntax(analyzed, info.ast) {
                 Some((t, Item::Context(d))) => {
                     (format!("context {}", t.name(d.name)), t.docs(d.docs))
@@ -585,12 +596,15 @@ pub fn references(analyzed: &Analyzed, symbol: &Symbol) -> Vec<Span> {
     for body in checked.bodies.values() {
         body_names(analyzed, tables, &body.locals, &body.expr, &mut take);
     }
-    // A module-level `let`'s value is checked on its own, with no body and so
-    // no locals around it.
-    for expr in checked.consts.values() {
-        body_names(analyzed, tables, &[], expr, &mut take);
+    for (id, expr) in &checked.consts {
+        body_names(analyzed, tables, const_locals(checked, id), expr, &mut take);
     }
     out
+}
+
+/// The locals a module-level `let` binds inside its value.
+pub(super) fn const_locals(checked: &Checked, id: ConstId) -> &[typed::Local] {
+    checked.const_locals.get(&id).or_ice("every constant was checked, and its locals kept with its value")
 }
 
 /// Whether two symbols are the same declaration. A local is compared by its
@@ -867,7 +881,7 @@ fn import_names(analyzed: &Analyzed, module: &ModuleData, out: &mut impl FnMut(S
         if let Some(n) = namespace {
             out(n.span, Symbol::Module(id));
         }
-        let Some(scope) = analyzed.analysis.checked.scopes.get(id.index()) else { continue };
+        let scope = analyzed.analysis.checked.scopes.get(id.index()).or_ice(SCOPED);
         for spec in specs {
             let Some(symbol) = scope.exports.get(tree.name(spec.name)).and_then(symbol_of) else {
                 continue;
@@ -893,8 +907,7 @@ fn written_type_names(
     let tree = &module.ast.tree;
     for index in 0..tree.type_nodes().len() {
         let TypeView::Named { path, .. } = tree.ty(TypeId(index as u32)) else { continue };
-        for segment in 0..path.len() {
-            let Some(at) = path.get(segment) else { continue };
+        for (segment, at) in path.iter().enumerate() {
             let span = tree.span_of(*at);
             // A generic parameter shadows everything the module can see, which
             // is why it is asked before the scopes are.
@@ -925,7 +938,7 @@ pub(super) fn qualifier_names(
     module: &ModuleData,
     out: &mut impl FnMut(Span, Symbol),
 ) {
-    let Some(scope) = analyzed.analysis.checked.scopes.get(module.id.index()) else { return };
+    let scope = analyzed.analysis.checked.scopes.get(module.id.index()).or_ice(SCOPED);
     if scope.namespaces.is_empty() {
         return;
     }
@@ -1131,13 +1144,11 @@ fn in_a_body(analyzed: &Analyzed, file: FileId, text: &str, offset: u32) -> Opti
             return Some(found);
         }
     }
-    // A module-level `let`'s value is checked on its own, with no body and so
-    // with no locals, around it.
     for (id, expr) in &checked.consts {
         if checked.tables.const_(id).span.file != file {
             continue;
         }
-        if let Some(found) = narrowest(analyzed, &[], expr, file, text, offset) {
+        if let Some(found) = narrowest(analyzed, const_locals(checked, id), expr, file, text, offset) {
             return Some(found);
         }
     }
@@ -1266,9 +1277,8 @@ fn pattern_symbols(
         }
         typed::PatKind::Variant { con, variant, fields } => {
             let info = tables.tycon(*con);
-            if let Some(v) = info.variants().get(*variant) {
-                out(v.name.clone(), Symbol::Variant { con: *con, index: *variant });
-            }
+            let v = info.variants().get(*variant).or_ice(VARIANT);
+            out(v.name.clone(), Symbol::Variant { con: *con, index: *variant });
             out(info.name.clone(), Symbol::Type(*con));
             labelled_fields(tables, *con, Some(*variant), fields.iter().map(|f| f.index), out);
         }
@@ -1369,12 +1379,8 @@ fn expression_symbols(
             }
         }
         ExprKind::CallTrait { trait_id, method, .. } => {
-            if let Some(m) = tables.trait_(*trait_id).methods.get(*method) {
-                out(
-                    m.name.clone(),
-                    Symbol::TraitMethod { trait_id: *trait_id, method: *method },
-                );
-            }
+            let m = tables.trait_(*trait_id).methods.get(*method).or_ice(METHOD);
+            out(m.name.clone(), Symbol::TraitMethod { trait_id: *trait_id, method: *method });
         }
         ExprKind::StructLit { con, fields, .. } => {
             out(tables.tycon(*con).name.clone(), Symbol::Type(*con));
@@ -1388,9 +1394,8 @@ fn expression_symbols(
             // `Color.Red` — either half may be written, and the leading-dot
             // shorthand writes only the second.
             let info = tables.tycon(*con);
-            if let Some(v) = info.variants().get(*variant) {
-                out(v.name.clone(), Symbol::Variant { con: *con, index: *variant });
-            }
+            let v = info.variants().get(*variant).or_ice(VARIANT);
+            out(v.name.clone(), Symbol::Variant { con: *con, index: *variant });
             out(info.name.clone(), Symbol::Type(*con));
             // A record variant's payload is written by label, and the label is
             // the field rather than the variant it belongs to.
@@ -1404,9 +1409,8 @@ fn expression_symbols(
             }
         }
         ExprKind::CtxCall { decl } => {
-            if let Some(info) = tables.ctx_decls.get(decl.index()) {
-                out(info.name.clone(), Symbol::Context(*decl));
-            }
+            let info = tables.ctx_decls.get(decl.index()).or_ice(CONTEXT);
+            out(info.name.clone(), Symbol::Context(*decl));
         }
         ExprKind::CtxGet { trait_id, .. } => {
             out(tables.trait_(*trait_id).name.clone(), Symbol::Trait(*trait_id));

@@ -1,0 +1,8 @@
+from "core/testing/assert" import * as assert;
+from "platform/effect/testing" import { clock };
+
+test "a clock can be moved on" {
+    let ticking = clock();
+    let _ = ticking.at(5);
+    assert.equal(1, 1);
+}

@@ -1,0 +1,39 @@
+from "//lib/stock/shelf.buri" import * as shelf;
+
+/// How much of an item is on the shelf.
+export enum Stock {
+    Out { reorder: I64 },
+    OnHand { count: I64 },
+}
+
+/// A box, by how many it holds.
+export struct Box {
+    export size: I64,
+}
+
+/// How many there are, or will be once the order comes.
+export fn count(stock: Stock): I64 {
+    match (stock) {
+        Stock.Out { reorder } => reorder,
+        Stock.OnHand { count } => count,
+    }
+}
+
+/// How many fit, where `shelf` is a box rather than the module.
+export fn fits(shelf: Box): I64 {
+    shelf.size
+}
+
+/// One shelf's worth, unless there are none.
+export fn worth(n: I64): I64 {
+    match (n) {
+        0 => 0,
+        _ => shelf.size(),
+    }
+}
+
+/// Two shelves' worth, worked out once.
+export let pair: I64 = {
+    let one = 12;
+    one * 2
+};

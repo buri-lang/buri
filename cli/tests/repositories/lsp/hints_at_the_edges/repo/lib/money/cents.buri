@@ -1,0 +1,12 @@
+//! Money, in whole cents.
+
+/// An amount of money, in whole cents.
+export struct Money {
+    /// The amount itself.
+    export cents: I64,
+}
+
+/// What `count` of something at `price` each comes to.
+export fn line(count: I64, price: I64): Money {
+    Money { cents: count * price }
+}

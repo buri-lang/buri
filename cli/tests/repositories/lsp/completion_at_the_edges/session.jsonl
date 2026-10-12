@@ -1,0 +1,36 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/draw.buri", "languageId": "buri", "version": 1, "text": "from \"//shape.buri\" import { area, Shape };\n\n/// A shape, and what it is called.\nexport fn describe(name: Str, shape: Shape): I64 {\n    area(shape)\n}\n"}}}
+# A path in a package at the repository root. Its own files are offered as
+# files, `lib.buri` among them because `//` is no path anybody types, and
+# `REPO.buri` is not offered because it is no module.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/draw.buri", "version": 2}, "contentChanges": [{"text": "from \"//\n\n/// A shape, and what it is called.\nexport fn describe(name: Str, shape: Shape): I64 {\n    area(shape)\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/draw.buri"}, "position": {"line": 0, "character": 8}}}
+# After an import clause's closing brace the cursor is past the clause, so
+# what is offered is not the module's exports.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/draw.buri", "version": 3}, "contentChanges": [{"text": "from \"//shape.buri\" import { area, Shape } a\n\n/// A shape, and what it is called.\nexport fn describe(name: Str, shape: Shape): I64 {\n    area(shape)\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/draw.buri"}, "position": {"line": 0, "character": 44}}}
+# A `/` inside a closed string is not a comment, so the name after it is
+# completed.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/draw.buri", "version": 4}, "contentChanges": [{"text": "from \"//shape.buri\" import { area, Shape };\n\n/// A shape, and what it is called.\nexport fn describe(name: Str, shape: Shape): I64 {\n    describe(\"a/b\", sha\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/draw.buri"}, "position": {"line": 4, "character": 23}}}
+# After the `..` of a spread the dot is no member access: what is offered is
+# what a value there could be.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/draw.buri", "version": 5}, "contentChanges": [{"text": "from \"//shape.buri\" import { area, Shape };\n\n/// A shape, and what it is called.\nexport fn describe(name: Str, shape: Shape): I64 {\n    area(Shape { ..\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/draw.buri"}, "position": {"line": 4, "character": 19}}}
+# A bare `.` where nothing says which enum is expected offers nothing.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/draw.buri", "version": 6}, "contentChanges": [{"text": "from \"//shape.buri\" import { area, Shape };\n\n/// A shape, and what it is called.\nexport fn describe(name: Str, shape: Shape): I64 {\n    area(.\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/draw.buri"}, "position": {"line": 4, "character": 10}}}
+# A file no target lists has no analysis. After a `.` there is nothing to
+# say about the receiver, and with nothing typed there is no word to match.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/stray.buri", "languageId": "buri", "version": 1, "text": "fn twice(count: I64): I64 {\n    count.\n}\n"}}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/stray.buri"}, "position": {"line": 1, "character": 10}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/stray.buri", "version": 2}, "contentChanges": [{"text": "fn twice(count: I64): I64 {\n    count * \n}\n"}]}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/stray.buri"}, "position": {"line": 1, "character": 12}}}
+# A test clock's members leave out the methods of the effect it supplies:
+# an effect is performed by handing it to a function, not by calling it.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/test/shape.buri", "languageId": "buri", "version": 1, "text": "from \"core/testing/assert\" import * as assert;\nfrom \"platform/effect/testing\" import { clock };\n\ntest \"a clock can be moved on\" {\n    let ticking = clock();\n    ticking.\n    assert.equal(1, 1);\n}\n"}}}
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/test/shape.buri"}, "position": {"line": 5, "character": 12}}}
+{"jsonrpc": "2.0", "id": 10, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

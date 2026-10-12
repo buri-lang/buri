@@ -21,11 +21,12 @@
 //! type, and ordinary code. A `BUILD.buri` has an eighth, which is
 //! [`super::build_files`]'s answer rather than this one's.
 
+use crate::compiler::modules::ModuleData;
 use crate::compiler::semantics::resolve::{ModuleScope, Sym};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::{self as types, ModuleId, Ty, TyConId};
 use crate::compiler::standard_library;
-use crate::diagnostics::Span;
+use crate::diagnostics::{Invariant as _, Span};
 use crate::json::Value;
 use crate::parsing::flat::{ExprId, ExprView, Tree, TypeId, TypeView};
 use crate::parsing::lexer::Keyword;
@@ -41,11 +42,8 @@ use super::symbols::{self, Symbol};
 /// what is left over.
 pub fn completion(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -> Value {
     let offset = convert::offset_of(text, position) as usize;
-    // `offset_of` clamps into `text` and onto a character boundary, so the only
-    // way this fails is a caller that did not go through it.
-    let Some(before_cursor) = text.get(..offset) else {
-        return Value::Array(Vec::new());
-    };
+    let before_cursor =
+        text.get(..offset).or_ice("`offset_of` clamps into the text and onto a character boundary");
     let line = before_cursor.rsplit('\n').next().unwrap_or(before_cursor);
     let cursor = offset as u32;
 
@@ -145,7 +143,7 @@ fn in_source(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Vec<V
         return rendered(analyzed, members, prefix, text, replacing, &uri, None);
     }
 
-    let Some((module_path, scope)) = module_scope(analyzed, path) else {
+    let Some((module, scope)) = module_scope(analyzed, path) else {
         // No analysis of this file at all: one too broken to load, or one no
         // target declares yet. The buffer itself is still a list of names.
         return lexical(text, prefix, replacing, &uri);
@@ -165,7 +163,8 @@ fn in_source(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Vec<V
 
     // A written type is the one context where a value would not typecheck, so
     // it is the one context that offers no values.
-    if in_a_type(analyzed, path, cursor) {
+    let module_path = module.path.as_str();
+    if in_a_type(module, cursor) {
         let named = scope
             .visible()
             .filter_map(|(name, sym)| Some((name.to_string(), symbols::symbol_of(sym)?)))
@@ -252,7 +251,7 @@ fn receiver_symbol(
 
 /// The run of `[A-Za-z0-9_]` ending at `at`, and where it starts.
 fn word_before(text: &str, at: u32) -> (&str, u32) {
-    let Some(before) = text.get(..at as usize) else { return ("", at) };
+    let before = text.get(..at as usize).or_ice("every offset asked about is the cursor's or a word's start before it");
     let start = before
         .char_indices()
         .rev()
@@ -281,11 +280,11 @@ fn module_id(analyzed: &Analyzed, path: &Path) -> Option<ModuleId> {
 
 /// The path and the scope of the module the file holds, if the analysis loaded
 /// one.
-fn module_scope<'a>(analyzed: &'a Analyzed, path: &Path) -> Option<(&'a str, &'a ModuleScope)> {
+fn module_scope<'a>(analyzed: &'a Analyzed, path: &Path) -> Option<(&'a ModuleData, &'a ModuleScope)> {
     let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
     let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
     let scope = analyzed.analysis.checked.scopes.get(module.id.index())?;
-    Some((module.path.as_str(), scope))
+    Some((module, scope))
 }
 
 /// Whether the cursor is inside a type the source wrote.
@@ -293,17 +292,11 @@ fn module_scope<'a>(analyzed: &'a Analyzed, path: &Path) -> Option<(&'a str, &'a
 /// Asked of the syntax rather than guessed from the character before the
 /// cursor: a `:` introduces a type in `let total: I64` and a value in
 /// `Money { cents: 4 }`, and only the parser knows which of the two it read.
-fn in_a_type(analyzed: &Analyzed, path: &Path, cursor: u32) -> bool {
-    let Some(file) = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path)) else {
-        return false;
-    };
-    let Some(module) = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file) else {
-        return false;
-    };
+fn in_a_type(module: &ModuleData, cursor: u32) -> bool {
     let tree = &module.ast.tree;
     (0..tree.type_nodes().len()).any(|index| {
         let TypeView::Named { span, .. } = tree.ty(TypeId(index as u32)) else { return false };
-        span.file == file && covers(span, cursor)
+        span.file == module.file && covers(span, cursor)
     })
 }
 
@@ -481,21 +474,20 @@ fn literal_at(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Opti
     let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
     let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
     let tree = &module.ast.tree;
-    let mut best: Option<(u32, ExprId)> = None;
+    let mut best = None;
     for index in 0..tree.nodes().len() {
-        let id = ExprId(index as u32);
-        let ExprView::StructLit { span, .. } = tree.expr(id) else { continue };
+        let ExprView::StructLit { span, head, spread, fields } = tree.expr(ExprId(index as u32)) else {
+            continue;
+        };
         if span.file != file || !covers(span, cursor) {
             continue;
         }
         let width = span.end.saturating_sub(span.start);
-        if best.is_none_or(|(w, _)| width < w) {
-            best = Some((width, id));
+        if best.is_none_or(|(w, _, _, _)| width < w) {
+            best = Some((width, head, spread, fields));
         }
     }
-    let ExprView::StructLit { head, spread, fields, .. } = tree.expr(best?.1) else {
-        return None;
-    };
+    let (_, head, spread, fields) = best?;
     // The anonymous `{ … }` has no head to read a type off, and the only
     // thing that says what it builds is the type it is being checked
     // against — which, in a literal being typed into, is the type of an
@@ -667,12 +659,11 @@ fn members_of(analyzed: &Analyzed, con: TyConId, from: Option<ModuleId>) -> Vec<
     let effectful = |trait_id: types::TraitId| tables.trait_(trait_id).is_effect;
     let names: Vec<String> = tables.method_names(con).map(str::to_string).collect();
     for name in names {
-        if let Some(id) = tables.method(con, &name) {
-            if tables.fn_info(id).impl_of.is_some_and(|(t, _)| effectful(t)) {
-                continue;
-            }
-            out.push((name, Symbol::Function(id)));
+        let id = tables.method(con, &name).or_ice("`method_names` lists the names the method table holds");
+        if tables.fn_info(id).impl_of.is_some_and(|(t, _)| effectful(t)) {
+            continue;
         }
+        out.push((name, Symbol::Function(id)));
     }
     // What the traits add. A trait method is called through the receiver like
     // an inherent one, and leaving them out hides every operator.
@@ -739,9 +730,7 @@ fn variants(analyzed: &Analyzed, con: TyConId) -> Vec<(String, Symbol)> {
 
 /// What a namespace import publishes.
 fn module_members(analyzed: &Analyzed, module: ModuleId) -> Vec<(String, Symbol)> {
-    let Some(scope) = analyzed.analysis.checked.scopes.get(module.index()) else {
-        return Vec::new();
-    };
+    let scope = analyzed.analysis.checked.scopes.get(module.index()).or_ice(symbols::SCOPED);
     scope
         .exports
         .iter()
@@ -924,11 +913,8 @@ fn module_paths(
                 out.push((module.clone(), Origin::ThisPackage));
             }
         }
+        // `collect` leaves out `REPO.buri`: a repository's declaration is not a module.
         for rel in sources.into_iter().chain(schemas) {
-            // `REPO.buri` is a repository's declaration, not a module.
-            if rel.ends_with("REPO.buri") {
-                continue;
-            }
             // A test source is a module nobody may name (`test-source-import`),
             // and a file may not import itself.
             let inside = rel.strip_prefix(&package_prefix).unwrap_or(&rel);
@@ -1010,9 +996,7 @@ fn exported_names(
     let Some(&id) = analyzed.analysis.loaded.by_path.get(module_path) else {
         return Value::Array(Vec::new());
     };
-    let Some(scope) = analyzed.analysis.checked.scopes.get(id.index()) else {
-        return Value::Array(Vec::new());
-    };
+    let scope = analyzed.analysis.checked.scopes.get(id.index()).or_ice(symbols::SCOPED);
     let mut names: Vec<&String> = scope.exports.keys().collect();
     names.sort();
     let uri = convert::uri_of(file);
