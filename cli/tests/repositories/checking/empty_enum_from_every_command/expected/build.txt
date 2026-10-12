@@ -1,20 +1,25 @@
-error: `Never` has no variants [empty-enum]
+error: `Never` can never be built: it has no variants [unconstructible-type]
  --> lib/never/lib.buri:2:1
   |
 2 | export enum Never {
   | ^^^^^^^^^^^^^^^^^^^
   |
-  = an enum with no variants has no values, so nothing could ever build one
   = fix: give `Never` a variant, or use `()` where a type needs no information
 
-    Buri has no type without values. Where a Result can't fail, return the value
-    itself rather than a Result whose error type has no values.
+    Building a Loop needs a Loop already, so give it a way to end: an Option
+    field, or a variant that doesn't hold the type. enum Wrap { W(Option<Wrap>)
+    } is fine, because .W(.None) is a value.
 
-error: `Box` has no variants [empty-enum]
+    An enum with no variants can't be built either, and nor can types that only
+    hold each other.
+
+    Where a Result can't fail, return the value itself rather than a Result
+    whose error type can't be built.
+
+error: `Box` can never be built: it has no variants [unconstructible-type]
  --> lib/never/lib.buri:6:1
   |
 6 | export enum Box<T> {
   | ^^^^^^^^^^^^^^^^^^^^
   |
-  = an enum with no variants has no values, so nothing could ever build one
   = fix: give `Box` a variant, or use `()` where a type needs no information

@@ -1,0 +1,28 @@
+error: `Node` holds 2 values, but 3 were given [payload-count]
+  --> main.buri:52:34
+   |
+52 |     assert.equal(total(.Node(1, [.Node(2, [], .Node(3, [])])), 6);
+   |                                  ^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass `Node` the following values: Node(Int, [Rose])
+error: `.Node` needs a known expected type [untyped-variant]
+  --> main.buri:52:47
+   |
+52 |     assert.equal(total(.Node(1, [.Node(2, [], .Node(3, [])])), 6);
+   |                                               ^^^^^
+   |
+   = fix: write the qualified form, as in `Option.Node(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:52:59
+   |
+52 |     assert.equal(total(.Node(1, [.Node(2, [], .Node(3, [])])), 6);
+   |                                                           ^
+   |
+  --> main.buri:52:39
+   |
+52 |     assert.equal(total(.Node(1, [.Node(2, [], .Node(3, [])])), 6);
+   |                                       ^ opened here
+   |
+   = fix: write `)` here

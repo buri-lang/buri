@@ -1,0 +1,12 @@
+error: this variant payload pattern is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:33:31
+   |
+33 |         .Nest(.Full(inner, _) => 1 + count(inner),
+   |                               ^^
+   |
+  --> main.buri:33:14
+   |
+33 |         .Nest(.Full(inner, _) => 1 + count(inner),
+   |              ^ opened here
+   |
+   = fix: write `)` here

@@ -1,0 +1,46 @@
+error: `Twice` can never be built: every variant contains another `Twice` [unconstructible-type]
+  --> cmd/generic_types_that_can_never_be_built/main.buri:21:1
+   |
+21 | enum Twice {
+   | ^^^^^^^^^^^^
+   |
+   = fix: add a variant that does not contain `Twice`, the way `.None` ends an `Option`
+
+     Building a Loop needs a Loop already, so give it a way to end: an Option
+     field, or a variant that doesn't hold the type. enum Wrap { W(Option<Wrap>)
+     } is fine, because .W(.None) is a value.
+
+     An enum with no variants can't be built either, and nor can types that only
+     hold each other.
+
+     Where a Result can't fail, return the value itself rather than a Result
+     whose error type can't be built.
+
+error: `Held` can never be built: every variant contains another `Held` [unconstructible-type]
+  --> cmd/generic_types_that_can_never_be_built/main.buri:25:1
+   |
+25 | enum Held {
+   | ^^^^^^^^^^^
+   |
+   = fix: add a variant that does not contain `Held`, the way `.None` ends an `Option`
+error: `Looped` can never be built: every variant contains another `Looped` [unconstructible-type]
+  --> cmd/generic_types_that_can_never_be_built/main.buri:29:1
+   |
+29 | enum Looped {
+   | ^^^^^^^^^^^^^
+   |
+   = fix: add a variant that does not contain `Looped`, the way `.None` ends an `Option`
+error: `Twin` can never be built: it always contains another `Twin` (through `pair`) [unconstructible-type]
+  --> cmd/generic_types_that_can_never_be_built/main.buri:33:1
+   |
+33 | struct Twin {
+   | ^^^^^^^^^^^^^
+   |
+   = fix: make `pair` an `Option`, so `.None` can end the chain
+error: `Cycle` can never be built: it always contains another `Cycle` (through `next`) [unconstructible-type]
+  --> cmd/generic_types_that_can_never_be_built/main.buri:37:1
+   |
+37 | struct Cycle<T> {
+   | ^^^^^^^^^^^^^^^^^
+   |
+   = fix: make `next` an `Option`, so `.None` can end the chain

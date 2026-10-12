@@ -1,0 +1,53 @@
+// SPEC 5.7: every type can be built. A type may hold itself where something
+// ends the chain: an `Option`, a list, or a variant of a type declared later.
+
+from "core/testing/assert" import * as assert;
+
+enum Wrap {
+    W(Option<Wrap>),
+}
+
+fn depth(w: Wrap): Int {
+    match (w) {
+        .W(.None) => 1,
+        .W(.Some(inner)) => 1 + depth(inner),
+    }
+}
+
+test "a type that holds itself only inside an Option still has values" {
+    assert.equal([depth(.W(.None)), depth(.W(.Some(.W(.None))))], [1, 2]);
+}
+
+enum Nest {
+    Nest(Later<Nest>),
+}
+
+enum Later<T> {
+    Empty,
+    Full(T, Later<T>),
+}
+
+fn count(n: Nest): Int {
+    match (n) {
+        .Nest(.Empty) => 0,
+        .Nest(.Full(inner, _)) => 1 + count(inner),
+    }
+}
+
+test "a type declared later can end the recursion" {
+    assert.equal(count(.Nest(.Full(.Nest(.Empty), .Empty))), 1);
+}
+
+enum Rose {
+    Node(Int, [Rose]),
+}
+
+fn total(r: Rose): Int {
+    match (r) {
+        .Node(n, kids) => kids.fold(fn(acc, k) => acc + total(k), n),
+    }
+}
+
+test "a type that holds itself only in a list still has values" {
+    assert.equal(total(.Node(1, [.Node(2, []), .Node(3[ ,])])), 6);
+}
