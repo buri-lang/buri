@@ -4,7 +4,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a package at the repository root: lint, gen and lint --fix name its files from the root, and gen places each file by which entry point reaches it"
+doc: "a package at the repository root: lint, gen, lint --fix and query name its files from the root, and gen places each file by which entry point reaches it"
 
 run {
   args: ["lint", "//"]
@@ -33,6 +33,12 @@ file {
 run {
   args: ["build", "//"]
   exit: 0
+}
+
+run {
+  args: ["query", "sources(//)"]
+  exit: 0
+  golden: "sources.txt"
 }
 
 edit {

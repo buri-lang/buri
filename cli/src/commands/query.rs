@@ -175,7 +175,7 @@ pub fn command_query(args: &arguments::Args) -> i32 {
             }
             all.sort();
             for a in all {
-                println!("{}/{a}", p.path);
+                println!("{}", session.workspace.file_in(t.package, &a));
             }
         }
         other => {
