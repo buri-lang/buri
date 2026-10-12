@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:84:81
+   |
+84 |     let text = ast.print(ctx, assert.some(out.modules.first()).1).text.lines(ctx;
+   |                                                                                 ^
+   |
+  --> main.buri:84:77
+   |
+84 |     let text = ast.print(ctx, assert.some(out.modules.first()).1).text.lines(ctx;
+   |                                                                             ^ opened here
+   |
+   = fix: write `)` here

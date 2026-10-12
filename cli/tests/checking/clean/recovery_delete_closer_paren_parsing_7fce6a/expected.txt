@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:14:72
+   |
+14 |     assert.equal(json.parse(ctx, "[1,]"), .Err(JsonError.Unexpected(3));
+   |                                                                        ^
+   |
+  --> main.buri:14:17
+   |
+14 |     assert.equal(json.parse(ctx, "[1,]"), .Err(JsonError.Unexpected(3));
+   |                 ^ opened here
+   |
+   = fix: write `)` here

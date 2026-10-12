@@ -1,0 +1,9 @@
+error: expected an identifier, found `,` [unexpected-token]
+  --> main.buri:30:57
+   |
+30 |     assert.equal(json.parse(ctx, "\"\\uD83D\\uDE00\""). ,Ok(Json.Str("😀")));
+   |                                                         ^
+   |
+   = expected: an identifier
+   = actual: `,`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

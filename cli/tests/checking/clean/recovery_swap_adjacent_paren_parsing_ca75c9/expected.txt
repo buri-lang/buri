@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:40:32
+   |
+40 |     assert.equal(json.parse(ctx"-" ,), .Err(JsonError.BadNumber(0)));
+   |                                ^
+   |
+   = fix: write `,` here

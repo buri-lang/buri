@@ -1,0 +1,16 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> main.buri:31:15
+   |
+31 |     let out = @ proto.emit(ctx, request);
+   |               ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here
+error: `_3` is not a tuple [not-tuple]
+  --> main.buri:35:31
+   |
+35 |     let text = ast.print(ctx, person.1).text.lines(ctx);
+   |                               ^^^^^^^^
+   |
+   = fix: index a tuple or a tuple struct; name a field otherwise

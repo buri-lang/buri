@@ -8,9 +8,9 @@ error: expected an expression, found `,` [unexpected-token]
    = actual: `,`
    = fix: write a value here
 error: this `test` body is missing its closing `}` [unclosed-delimiter]
-  --> main.buri:60:1
+  --> main.buri:91:1
    |
-60 | 
+91 | 
    | ^
    |
   --> main.buri:14:74

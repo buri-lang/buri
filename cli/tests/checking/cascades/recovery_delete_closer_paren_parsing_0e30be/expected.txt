@@ -1,0 +1,37 @@
+error: `equal` takes 2 arguments, but 1 was given [argument-count]
+  --> main.buri:51:5
+   |
+51 |     assert.equal(json.parse(ctx, "[1.5+2]", .Err(JsonError.Unexpected(4)));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
+error: `parse` takes 2 arguments, but 3 were given [argument-count]
+  --> main.buri:51:18
+   |
+51 |     assert.equal(json.parse(ctx, "[1.5+2]", .Err(JsonError.Unexpected(4)));
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass `parse` the following arguments: parse<C: Allocator>(ctx: C, text: Str)
+error: `.Err` needs a known expected type [untyped-variant]
+  --> main.buri:51:45
+   |
+51 |     assert.equal(json.parse(ctx, "[1.5+2]", .Err(JsonError.Unexpected(4)));
+   |                                             ^^^^
+   |
+   = fix: write the qualified form, as in `Option.Err(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:51:75
+   |
+51 |     assert.equal(json.parse(ctx, "[1.5+2]", .Err(JsonError.Unexpected(4)));
+   |                                                                           ^
+   |
+  --> main.buri:51:17
+   |
+51 |     assert.equal(json.parse(ctx, "[1.5+2]", .Err(JsonError.Unexpected(4)));
+   |                 ^ opened here
+   |
+   = fix: write `)` here

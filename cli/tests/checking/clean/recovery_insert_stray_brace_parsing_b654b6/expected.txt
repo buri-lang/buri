@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> main.buri:41:5
+   |
+41 |     ? assert.equal(json.parse(ctx, "-e5"), .Err(JsonError.BadNumber(0)));
+   |     ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here
