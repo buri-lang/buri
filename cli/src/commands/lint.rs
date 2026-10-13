@@ -2831,9 +2831,7 @@ impl<'m> Owned<'m> {
                 // so the constructor an unused type calls inside its own
                 // `impl` is not a use of it.
                 Item::Impl(d) => {
-                    if let Some(name) = m.ast.tree.type_head(d.self_ty) {
-                        owned.push((name, d.span));
-                    }
+                    owned.extend(m.ast.tree.type_head(d.self_ty).map(|name| (name, d.span)))
                 }
                 // Only the type the `derive` is *for*. The traits it names
                 // are uses of those traits like any other mention.

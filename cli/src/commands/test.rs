@@ -4751,7 +4751,6 @@ fn submit_group(
         }
         return Done::Progress;
     }
-    let &first = group.members.first().or_ice("a group has members");
     // One seed per *block*, because a suite's order is its own key's: a suite
     // schedules the same way batched or alone.
     let seed = |i: usize| info.keys.get(i).map(seed_of).unwrap_or_default();
@@ -4807,8 +4806,9 @@ fn submit_group(
     let members: Vec<MemberSpec> = members.into_iter().map(|(_, m)| m).collect();
     // Told before the link queues anything, so `drive` knows the first member
     // waits for it before any member's answer can arrive.
-    let m = members.first().or_ice("a member holds a selected block");
-    tell.tell(Done::Linking { slot: m.slot });
+    for m in members.iter().take(1) {
+        tell.tell(Done::Linking { slot: m.slot });
+    }
     let label = group
         .members
         .iter()
@@ -4817,7 +4817,10 @@ fn submit_group(
         .join(",");
     let job = GroupJob {
         label,
-        private: info.privates.get(first).cloned().unwrap_or_default(),
+        private: (group.members.first())
+            .and_then(|&first| info.privates.get(first))
+            .cloned()
+            .unwrap_or_default(),
         output: info.output.clone(),
         program,
         tables,
@@ -5496,8 +5499,9 @@ fn retain_tests(
     program: &mut monomorphize::Program,
     keep: impl Fn(&monomorphize::TestEntry) -> bool,
 ) {
-    if let monomorphize::ProgramRoots::Tests(tests) = &mut program.roots {
-        tests.retain(keep);
+    match &mut program.roots {
+        monomorphize::ProgramRoots::Tests(tests) => tests.retain(keep),
+        monomorphize::ProgramRoots::Main(_) => {}
     }
 }
 

@@ -1792,8 +1792,9 @@ impl Monomorphizer<'_> {
         let adapt = rest
             .iter_mut()
             .zip(spelled.iter().skip(1))
+            .filter(|(_, at)| !at.is_empty())
             .filter_map(|(argument, at)| match argument.ty.kind() {
-                TyKind::Fn(params, ret) if !at.is_empty() => Some((argument, at, params, ret)),
+                TyKind::Fn(params, ret) => Some((argument, at, params, ret)),
                 _ => None,
             });
         for (argument, at, params, ret) in adapt {
