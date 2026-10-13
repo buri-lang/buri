@@ -324,17 +324,16 @@ fn traps_here(e: &Expr, call: &TrapCall<'_>, consts: Option<&ConstMap>) -> bool 
             op: PrimOp::Div | PrimOp::Rem,
             prim,
             args,
-        } if prim.is_integer() => (Aborts::Divide, args),
-        ExprKind::CallFn { args, .. } | ExprKind::CallFunc { args, .. } => match call(e) {
-            Some(how) => (how, args),
-            None => return false,
-        },
+        } => (prim.is_integer().then_some(Aborts::Divide), args),
+        ExprKind::CallFn { args, .. } | ExprKind::CallFunc { args, .. } => (call(e), args),
         _ => return false,
     };
-    !args
-        .last()
-        .and_then(|n| constant(n, consts))
-        .is_some_and(|n| how.spared_by(n))
+    how.is_some_and(|how| {
+        !args
+            .last()
+            .and_then(|n| constant(n, consts))
+            .is_some_and(|n| how.spared_by(n))
+    })
 }
 
 /// How an operation can abort, which says the constant operands that can't.
