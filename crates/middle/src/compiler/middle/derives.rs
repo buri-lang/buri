@@ -859,10 +859,8 @@ impl Generator {
             .filter(|(_, f)| matches!(f.kind, FuncKind::Unbuilt))
             .filter_map(|(i, _)| u32::try_from(base + i).ok().map(FuncIdx))
             .collect();
-        if !unbuilt.is_empty() {
-            self.routed.retain(|_, f| !unbuilt.contains(f));
-            self.out.instances.retain(|i| !unbuilt.contains(&i.func));
-        }
+        self.routed.retain(|_, f| !unbuilt.contains(f));
+        self.out.instances.retain(|i| !unbuilt.contains(&i.func));
         let hash_ty = self.result_ty(Op::Hash);
         Built {
             funcs: self.funcs,
