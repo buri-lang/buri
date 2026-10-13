@@ -454,7 +454,7 @@ impl Cycles {
             out.dedup();
             edges.push(out);
         }
-        let mut groups = vec![0usize; edges.len()];
+        let mut member_of: Vec<(usize, usize)> = Vec::with_capacity(edges.len());
         let mut recursive = Vec::new();
         for (id, group) in super::strongly_connected(&edges).iter().enumerate() {
             // One constructor that mentions itself is a cycle; one that does
@@ -464,12 +464,12 @@ impl Cycles {
                     .first()
                     .is_some_and(|n| edges.get(*n).is_some_and(|out| out.contains(n)));
             recursive.push(cycle);
-            for &node in group {
-                *groups
-                    .get_mut(node)
-                    .or_ice("a component's members are constructors of the table") = id;
-            }
+            member_of.extend(group.iter().map(|&node| (node, id)));
         }
+        // Every constructor is in exactly one group, so in node order this is
+        // one group per constructor.
+        member_of.sort_unstable();
+        let groups = member_of.into_iter().map(|(_, id)| id).collect();
         Cycles { groups, recursive }
     }
 }
@@ -477,13 +477,12 @@ impl Cycles {
 /// The memo table, one per compilation.
 pub struct Layouts<'a> {
     tables: &'a Tables,
-    memo: Map<Ty, usize>,
     /// The memoised layouts, behind a handle. An enum's [`Repr::Enum`] carries
     /// one `Vec<u32>` per variant, so a `Layout` is O(variants) to copy and a
     /// caller that asks per instruction would be quadratic in the width of the
     /// widest enum it touches; [`Layouts::shared`] is what makes an answer
     /// O(1) to hand out.
-    table: Vec<Rc<Layout>>,
+    memo: Map<Ty, Rc<Layout>>,
     /// See [`Cycles`]. Shared, because it is the same answer for every table
     /// built over one program's `Tables` and it is not cheap to derive.
     ///
@@ -523,7 +522,6 @@ impl<'a> Layouts<'a> {
         Layouts {
             tables,
             memo: Map::default(),
-            table: Vec::new(),
             cycles,
             open: Set::default(),
             glue_keys: Map::default(),
@@ -532,8 +530,7 @@ impl<'a> Layouts<'a> {
 
     /// The layout of a type. Memoised; infallible.
     pub fn of(&mut self, ty: Ty) -> Layout {
-        let id = self.compute(&ty);
-        self.at(id).clone()
+        Layout::clone(&self.compute(&ty))
     }
 
     /// The same answer, shared rather than copied.
@@ -542,12 +539,7 @@ impl<'a> Layouts<'a> {
     /// `Layout` copies one `Vec<u32>` per variant, and an enum with a thousand
     /// variants makes a per-instruction copy a thousand allocations.
     pub fn shared(&mut self, ty: &Ty) -> Rc<Layout> {
-        let id = self.compute(ty);
-        Rc::clone(
-            self.table
-                .get(id)
-                .or_ice("every layout id was minted by compute on this table"),
-        )
+        self.compute(ty)
     }
 
     /// Whether a value of this type occupies nothing, and so is dropped from
@@ -561,8 +553,7 @@ impl<'a> Layouts<'a> {
     /// context binding one is passed — the cost is exactly the state a
     /// capability holds.
     pub fn zero_sized(&mut self, ty: &Ty) -> bool {
-        let id = self.compute(ty);
-        self.at(id).is_zero_sized()
+        self.compute(ty).is_zero_sized()
     }
 
     /// Whether a field of type `field`, inside a value of type `owner`, is
@@ -596,16 +587,9 @@ impl<'a> Layouts<'a> {
         self.cycles.boxes(owner, field)
     }
 
-    fn at(&self, id: usize) -> &Layout {
-        self.table
-            .get(id)
-            .map(Rc::as_ref)
-            .or_ice("every layout id was minted by compute on this table")
-    }
-
-    fn compute(&mut self, ty: &Ty) -> usize {
-        if let Some(&id) = self.memo.get(ty) {
-            return id;
+    fn compute(&mut self, ty: &Ty) -> Rc<Layout> {
+        if let Some(layout) = self.memo.get(ty) {
+            return Rc::clone(layout);
         }
         crate::diagnostics::invariant(
             self.open.insert(*ty),
@@ -614,10 +598,9 @@ impl<'a> Layouts<'a> {
         );
         let layout = self.build(ty);
         self.open.remove(ty);
-        let id = self.table.len();
-        self.table.push(Rc::new(layout));
-        self.memo.insert(*ty, id);
-        id
+        let layout = Rc::new(layout);
+        self.memo.insert(*ty, Rc::clone(&layout));
+        layout
     }
 
     fn build(&mut self, ty: &Ty) -> Layout {
@@ -737,8 +720,7 @@ impl<'a> Layouts<'a> {
             let (size, field_align) = if owner.is_some_and(|o| self.boxes(o, field)) {
                 (POINTER, POINTER)
             } else {
-                let id = self.compute(field);
-                let l = self.at(id);
+                let l = self.compute(field);
                 (l.size, l.align)
             };
             let at = align_up(end, field_align);
@@ -762,8 +744,7 @@ impl<'a> Layouts<'a> {
             if let Some(payload) = args.first().filter(|p| !tables.is_option_ty(p)) {
                 let payload = *payload;
                 if let Some(null_at) = self.niche(&payload) {
-                    let id = self.compute(&payload);
-                    let inner = self.at(id);
+                    let inner = self.compute(&payload);
                     return Layout {
                         size: inner.size,
                         align: inner.align,
@@ -911,8 +892,7 @@ impl<'a> Layouts<'a> {
     }
 
     fn niche_in(&mut self, owner: &Ty, fields: &[Ty]) -> Option<u32> {
-        let id = self.compute(owner);
-        let offsets = self.at(id).fields.clone();
+        let offsets = self.compute(owner).fields.clone();
         for (field, offset) in fields.iter().zip(offsets) {
             if self.boxes(owner, field) {
                 return Some(offset);
@@ -945,8 +925,7 @@ impl<'a> Layouts<'a> {
 
     /// `16 + n * stride(T)` for a `[T]` of `n` elements.
     pub fn charge_list(&mut self, element: &Ty, n: u64) -> u64 {
-        let id = self.compute(element);
-        let stride = u64::from(self.at(id).stride);
+        let stride = u64::from(self.compute(element).stride);
         u64::from(HEADER_BYTES).saturating_add(n.saturating_mul(stride))
     }
 
@@ -2439,11 +2418,11 @@ mod tests {
         );
         let mut l = Layouts::new(&t);
         let first = l.of(con(s));
-        let entries = l.table.len();
+        let entries = l.memo.len();
         let second = l.of(con(s));
         assert_eq!(first, second);
         assert_eq!(
-            l.table.len(),
+            l.memo.len(),
             entries,
             "the second ask allocated a second layout"
         );

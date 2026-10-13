@@ -783,16 +783,16 @@ impl Default for Tables {
     /// Tables holding the primitives and nothing else.
     fn default() -> Self {
         let mut t = Tables {
-            tycons: Table::default(),
-            fns: Table::default(),
-            traits: Table::default(),
-            consts: Table::default(),
-            ctx_types: Table::default(),
+            tycons: Table::new(),
+            fns: Table::new(),
+            traits: Table::new(),
+            consts: Table::new(),
+            ctx_types: Table::new(),
             impls: LayeredMap::default(),
             traits_by_con: IdMap::default(),
             methods: IdMap::default(),
             array_methods: LayeredMap::default(),
-            ctx_decls: Table::default(),
+            ctx_decls: Table::new(),
             prims: Prim::all().map(|p| Ty::con(p.con(), [])),
             member_index: IdMap::default(),
             variance: Layered::default(),
