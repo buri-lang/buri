@@ -82,8 +82,15 @@ function $ftrunc(v) {
 }
 
 function $wrapTo(v, bits, signed) {
-  const b = typeof v === "bigint" ? v : BigInt(Math.trunc(v));
-  const w = signed ? BigInt.asIntN(bits, b) : BigInt.asUintN(bits, b);
+  if (typeof v === "number") {
+    // `ToInt32` and `ToUint32` take the low 32 bits of a double's exact whole
+    // part, which is all this needs at the `number` widths (32 and under), so
+    // no `BigInt` is built. Narrower still is a shift pair or a mask on that.
+    if (bits === 32) return signed ? v | 0 : v >>> 0;
+    const s = 32 - bits;
+    return signed ? (v << s) >> s : v & (2 ** bits - 1);
+  }
+  const w = signed ? BigInt.asIntN(bits, v) : BigInt.asUintN(bits, v);
   return Number(w);
 }
 
@@ -95,18 +102,18 @@ function $wrapTo(v, bits, signed) {
 // rounded, and the low bits of a rounded value are not the low bits of the
 // answer — `U32.wrappingMultiply(0xffffffff, 0xffffffff)` is 1, its exact product
 // 18446744065119617025 rounds to an even double, and the wrap of that is 0. So
-// the arithmetic itself happens in BigInt and only the wrapped result, which
-// is inside the type's range by construction, comes back as a `number`.
+// the product is taken with `Math.imul`, which keeps exactly its low 32 bits,
+// and only that is wrapped.
 //
 // Emitted only at the `number` widths, where the intermediate can leave the
 // exact range although both operands and the answer are inside it — a product
 // at 32 bits, and nothing else. The `BigInt` widths need none of this: the
 // operation is already exact and the wrap is one `asIntN`.
 function $wrapOp(op, a, b, bits, signed) {
-  const x = BigInt(Math.trunc(a));
-  const y = BigInt(Math.trunc(b));
-  const r = op === 0 ? x + y : op === 1 ? x - y : x * y;
-  return Number(signed ? BigInt.asIntN(bits, r) : BigInt.asUintN(bits, r));
+  // Both operands and a sum or difference of them are exact doubles at these
+  // widths. A product is not, so its low 32 bits come from `Math.imul`, which
+  // is exact, and the wrap to `bits` is taken from those.
+  return $wrapTo(op === 0 ? a + b : op === 1 ? a - b : Math.imul(a, b), bits, signed);
 }
 
 // --- Rendering ---------------------------------------------------------------
