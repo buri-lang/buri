@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
-total 15151 15671 96.68%
+total 15131 15649 96.69%
 area cli/build 1678 1695 99.00%
 area cli/documentation 477 480 99.38%
 area cli/format 89 100 89.00%
@@ -18,12 +18,12 @@ area crates/diagnostics 191 194 98.45%
 area crates/docs 240 270 88.89%
 area crates/hash 18 18 100.00%
 area crates/js 1021 1060 96.32%
-area crates/llvm 605 610 99.18%
+area crates/llvm 596 600 99.33%
 area crates/middle 1884 1934 97.41%
 area crates/project 1341 1358 98.75%
 area crates/semantics 2199 2206 99.68%
 area crates/stdlib 12 12 100.00%
-area crates/stencil 1196 1220 98.03%
+area crates/stencil 1185 1208 98.10%
 area crates/syntax 1194 1196 99.83%
 264 269 cli/src/build/actions.rs
 44 44 cli/src/build/cache.rs
@@ -127,8 +127,8 @@ area crates/syntax 1194 1196 99.83%
 3 4 crates/js/src/compiler/backend/js/mod.rs
 69 72 crates/js/src/compiler/backend/js/park.rs
 52 52 crates/llvm/src/compiler/backend/llvm/attrs.rs
-488 490 crates/llvm/src/compiler/backend/llvm/emit.rs
-15 18 crates/llvm/src/compiler/backend/llvm/mod.rs
+485 486 crates/llvm/src/compiler/backend/llvm/emit.rs
+9 12 crates/llvm/src/compiler/backend/llvm/mod.rs
 50 50 crates/llvm/src/compiler/backend/llvm/repr.rs
 0 0 crates/llvm/src/compiler/backend/llvm/target.rs
 34 38 crates/middle/src/compiler/backend/intrinsic_keys.rs
@@ -192,12 +192,12 @@ area crates/syntax 1194 1196 99.83%
 0 0 crates/stencil/src/compiler/backend/stencil/abi.rs
 22 22 crates/stencil/src/compiler/backend/stencil/asm.rs
 38 40 crates/stencil/src/compiler/backend/stencil/elf.rs
-352 362 crates/stencil/src/compiler/backend/stencil/emit.rs
-88 90 crates/stencil/src/compiler/backend/stencil/glue.rs
-465 468 crates/stencil/src/compiler/backend/stencil/jit.rs
+349 358 crates/stencil/src/compiler/backend/stencil/emit.rs
+86 88 crates/stencil/src/compiler/backend/stencil/glue.rs
+463 466 crates/stencil/src/compiler/backend/stencil/jit.rs
 4 4 crates/stencil/src/compiler/backend/stencil/library.rs
 18 18 crates/stencil/src/compiler/backend/stencil/lists.rs
-44 46 crates/stencil/src/compiler/backend/stencil/mod.rs
+40 42 crates/stencil/src/compiler/backend/stencil/mod.rs
 42 44 crates/stencil/src/compiler/backend/stencil/object.rs
 12 12 crates/stencil/src/compiler/backend/stencil/region.rs
 111 114 crates/stencil/src/compiler/backend/stencil/rtcall.rs
