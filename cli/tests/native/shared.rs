@@ -716,8 +716,13 @@ export fn main(host: NativeHost): Result<(), Str> {{
 pub struct Gate {
     pub url: String,
     held: std::thread::JoinHandle<usize>,
-    asked: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// The dials the caller said were made, or [`NOT_ASKED`].
+    dials: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// How many times the gate found its accept queue empty after being asked.
+    idle: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
+
+const NOT_ASKED: usize = usize::MAX;
 
 impl Gate {
     pub fn open(width: usize) -> Gate {
@@ -728,22 +733,25 @@ impl Gate {
     /// new one.
     pub fn patient(width: usize, patience: std::time::Duration) -> Gate {
         use std::io::Write;
-        use std::sync::atomic::Ordering;
+        use std::sync::atomic::{AtomicUsize, Ordering};
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a port for the gate");
         let url = format!(
             "http://127.0.0.1:{}/gate",
             listener.local_addr().unwrap().port()
         );
         listener.set_nonblocking(true).unwrap();
-        let asked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let done = asked.clone();
+        let dials = std::sync::Arc::new(AtomicUsize::new(NOT_ASKED));
+        let idle = std::sync::Arc::new(AtomicUsize::new(0));
+        let (asked, polled) = (dials.clone(), idle.clone());
         let held = std::thread::spawn(move || {
             let mut held: Vec<std::net::TcpStream> = Vec::new();
+            let mut accepted = 0usize;
             let mut last: Option<std::time::Instant> = None;
             let mut asked_at: Option<std::time::Instant> = None;
             while held.len() < width {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        accepted += 1;
                         stream.set_nonblocking(false).unwrap();
                         stream.set_read_timeout(Some(server_deadline())).unwrap();
                         // The request's head, so the answer comes after it.
@@ -757,22 +765,28 @@ impl Gate {
                         held.push(stream);
                         last = Some(std::time::Instant::now());
                     }
-                    // Nobody is waiting to be accepted, so this is where the
+                    // Nothing is queued to be accepted, so this is where the
                     // gate may give up.
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => match last {
-                        Some(at) if at.elapsed() >= patience => break,
-                        None if done.load(Ordering::Acquire) => {
-                            if asked_at
-                                .get_or_insert_with(std::time::Instant::now)
-                                .elapsed()
-                                >= server_deadline() / 20
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        let said = asked.load(Ordering::Acquire);
+                        if said != NOT_ASKED {
+                            // Every dial has completed, so the count is
+                            // settled once each has been accepted. The
+                            // deadline only bounds a dial that never came.
+                            polled.fetch_add(1, Ordering::Release);
+                            if accepted >= said
+                                || asked_at
+                                    .get_or_insert_with(std::time::Instant::now)
+                                    .elapsed()
+                                    >= server_deadline()
                             {
                                 break;
                             }
-                            std::thread::sleep(std::time::Duration::from_millis(1));
+                        } else if last.is_some_and(|at| at.elapsed() >= patience) {
+                            break;
                         }
-                        _ => std::thread::sleep(std::time::Duration::from_millis(1)),
-                    },
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
                     Err(e) => panic!("the gate could not accept: {e}"),
                 }
             }
@@ -792,14 +806,21 @@ impl Gate {
             }
             met
         });
-        Gate { url, held, asked }
+        Gate {
+            url,
+            held,
+            dials,
+            idle,
+        }
     }
 
-    /// How many requests the gate held at once. A gate with nothing held waits
-    /// a twentieth of [`server_deadline`] after this is asked for, in case a
-    /// completed connection has yet to reach its accept queue.
-    pub fn met(self) -> usize {
-        self.asked.store(true, std::sync::atomic::Ordering::Release);
+    /// How many requests the gate held at once, given that `dials` handlers
+    /// dialled it. It waits until it has accepted that many, so a connection
+    /// the kernel has yet to queue is still counted, and one that hung up is
+    /// accepted and then not counted.
+    pub fn met(self, dials: usize) -> usize {
+        self.dials
+            .store(dials, std::sync::atomic::Ordering::Release);
         self.held.join().expect("the gate finished")
     }
 }
@@ -824,6 +845,7 @@ mod gate_tests {
     use std::time::Duration;
 
     const PATIENCE: Duration = Duration::from_secs(1);
+    const IDLE_POLLS: usize = 1;
 
     /// A handler that has dialled the gate and sent its request's head.
     fn dialled(gate: &Gate) -> TcpStream {
@@ -865,7 +887,7 @@ mod gate_tests {
         let gate = Gate::patient(WIDTH, PATIENCE);
         std::thread::sleep(PATIENCE * 2);
         let handlers: Vec<TcpStream> = (0..WIDTH).map(|_| dialled(&gate)).collect();
-        let met = gate.met();
+        let met = gate.met(WIDTH);
         let answers: Vec<String> = handlers.into_iter().map(answer).collect();
         assert_eq!(met, WIDTH, "answers: {answers:?}");
         assert!(
@@ -881,7 +903,7 @@ mod gate_tests {
     fn a_handler_waiting_alone_is_turned_away() {
         let gate = Gate::patient(2, PATIENCE);
         let alone = dialled(&gate);
-        let met = gate.met();
+        let met = gate.met(1);
         let answer = answer(alone);
         assert_eq!(met, 1);
         assert!(answer.starts_with("HTTP/1.1 503 "), "{answer}");
@@ -895,7 +917,7 @@ mod gate_tests {
         let gate = Gate::patient(2, Duration::from_secs(600));
         drop(dialled(&gate));
         let late = dialled(&gate);
-        let met = gate.met();
+        let met = gate.met(2);
         let answer = answer(late);
         assert_eq!(met, 1);
         assert!(answer.starts_with("HTTP/1.1 503 "), "{answer}");
@@ -907,26 +929,33 @@ mod gate_tests {
     fn a_gate_nobody_dialed_counts_none_at_once() {
         let started = std::time::Instant::now();
         let gate = Gate::patient(2, Duration::from_secs(600));
-        assert_eq!(gate.met(), 0);
+        assert_eq!(gate.met(0), 0);
         assert!(started.elapsed() < Duration::from_secs(60));
     }
 
     /// **A handler that is still arriving when the count is asked for is
     /// counted.** A connection the client has completed can reach the gate's
     /// accept queue a moment later on a loaded machine (buri-lang/buri#309: a
-    /// gate that was dialled twice counted none), so a gate with nothing held
-    /// gives the count a grace before it says nobody came.
+    /// gate that was dialled twice counted none). The count is asked for with
+    /// the number of dials, so the gate waits for them rather than guessing
+    /// how long the kernel takes. Here the dial is made only once the gate,
+    /// already asked, has found its accept queue empty.
     #[test]
-    fn a_handler_arriving_as_the_count_is_asked_is_counted() {
+    fn a_handler_arriving_after_the_count_is_asked_is_counted() {
         let gate = Gate::patient(1, Duration::from_secs(600));
-        let (url, ready) = (gate.url.clone(), std::sync::mpsc::channel::<TcpStream>());
+        let (url, idle) = (gate.url.clone(), gate.idle.clone());
         let dialler = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(200));
-            let _ = ready.0.send(dialled_at(&url));
+            // Bounded, so a gate that gave up shows as a refused dial.
+            let until = std::time::Instant::now() + Duration::from_secs(20);
+            while idle.load(std::sync::atomic::Ordering::Acquire) < IDLE_POLLS
+                && std::time::Instant::now() < until
+            {
+                std::thread::yield_now();
+            }
+            dialled_at(&url)
         });
-        let met = gate.met();
-        dialler.join().unwrap();
-        let answer = answer(ready.1.recv().unwrap());
+        let met = gate.met(1);
+        let answer = answer(dialler.join().unwrap());
         assert_eq!(met, 1);
         assert!(answer.starts_with("HTTP/1.1 200 "), "{answer}");
     }

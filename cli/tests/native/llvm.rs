@@ -4694,7 +4694,7 @@ fn fifty_requests_are_answered_at_once() {
     let source = crate::shared::concurrent_server(REQUESTS, Some(&gate.url));
     let binary = build_at("server-concurrent", &source, None, Profile::Release);
     let (out, replies) = crate::shared::served_many(&binary, REQUESTS);
-    let met = gate.met();
+    let met = gate.met(REQUESTS);
     assert_eq!(
         met, REQUESTS,
         "{met} of {REQUESTS} handlers were ever in flight at once, so the server \
