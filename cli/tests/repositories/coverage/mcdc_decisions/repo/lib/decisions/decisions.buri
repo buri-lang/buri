@@ -1,0 +1,24 @@
+export fn sign(n: Int): Str {
+    if (n < 0) { "negative" } else { "not negative" }
+}
+
+export fn abs(n: Int): Int {
+    if (n < 0) { 0 - n } else { n }
+}
+
+export fn name(n: Int): Str {
+    match (n) {
+        0 => "zero",
+        1 => "one",
+        _ => "many",
+    }
+}
+
+export fn plusOne(n: Option<Int>): Option<Int> {
+    let k = n?;
+    .Some(k + 1)
+}
+
+export fn orZero(n: Option<Int>): Int {
+    n.withDefault(0)
+}

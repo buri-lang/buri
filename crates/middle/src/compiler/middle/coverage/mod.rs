@@ -203,11 +203,15 @@ pub struct Decision {
     /// the `match`, the guard, the right side of `&&` or `||`, the `?`.
     pub at: u32,
     pub branches: usize,
+    /// An `if` or guard whose condition MC/DC counts as a decision of its own
+    /// ([`Tree`]), which already holds both of its outcomes.
+    pub tree: bool,
 }
 
 /// Calls `f` with every decision in `body`, lambdas' included, `builtins`'
-/// calls too. With `traps`, which says whether a call can abort, the abort
-/// points too.
+/// calls too, and the expression that makes it: a guard's decision is the
+/// guard. With `traps`, which says whether a call can abort, the abort points
+/// too.
 ///
 /// The `match` that `semantics` writes for `a < b` isn't one: its arms carry
 /// the operator's span, which an arm someone wrote can't.
@@ -215,32 +219,41 @@ pub fn decisions(
     e: &Expr,
     traps: Option<&dyn Fn(&Expr) -> bool>,
     builtins: Builtins,
-    f: &mut impl FnMut(Decision),
+    f: &mut impl FnMut(Decision, &Expr),
 ) {
     if let Some(d) = decision(e).or_else(|| builtin_call(e, builtins)) {
-        f(d);
+        f(d, e);
     }
     if let ExprKind::Match { arms, .. } = &e.kind {
         if !desugared(e) {
             for g in arms.iter().filter_map(|a| a.guard.as_ref()) {
-                f(Decision {
+                let d = Decision {
                     kind: Kind::Guard,
                     span: g.span,
                     at: g.span.start,
                     branches: 2,
-                });
+                    tree: counted_tree(g),
+                };
+                f(d, g);
             }
         }
     }
     if traps.is_some_and(|call| traps_here(e, call)) {
-        f(Decision {
+        let d = Decision {
             kind: Kind::Trap,
             span: e.span,
             at: e.span.start,
             branches: 2,
-        });
+            tree: false,
+        };
+        f(d, e);
     }
     typed::children(e, &mut |c| decisions(c, traps, builtins, f));
+}
+
+/// Whether `e`, an `if`'s condition or a guard, is an MC/DC decision.
+fn counted_tree(e: &Expr) -> bool {
+    Tree::of(e).is_some_and(|t| t.counted())
 }
 
 /// The decision a call of a branching built-in is. It's reported where its
@@ -259,16 +272,19 @@ fn builtin_call(e: &Expr, builtins: Builtins) -> Option<Decision> {
         span: e.span,
         at,
         branches: 2,
+        tree: false,
     })
 }
 
 fn decision(e: &Expr) -> Option<Decision> {
-    let (kind, at, branches) = match &e.kind {
-        ExprKind::If { .. } => (Kind::If, e.span.start, 2),
-        ExprKind::Match { arms, .. } if !desugared(e) => (Kind::Match, e.span.start, arms.len()),
-        ExprKind::And { rhs, .. } => (Kind::And, rhs.span.start, 2),
-        ExprKind::Or { rhs, .. } => (Kind::Or, rhs.span.start, 2),
-        ExprKind::Try { .. } => (Kind::Try, e.span.end.saturating_sub(1), 2),
+    let (kind, at, branches, tree) = match &e.kind {
+        ExprKind::If { cond, .. } => (Kind::If, e.span.start, 2, counted_tree(cond)),
+        ExprKind::Match { arms, .. } if !desugared(e) => {
+            (Kind::Match, e.span.start, arms.len(), false)
+        }
+        ExprKind::And { rhs, .. } => (Kind::And, rhs.span.start, 2, false),
+        ExprKind::Or { rhs, .. } => (Kind::Or, rhs.span.start, 2, false),
+        ExprKind::Try { .. } => (Kind::Try, e.span.end.saturating_sub(1), 2, false),
         _ => return None,
     };
     Some(Decision {
@@ -276,6 +292,7 @@ fn decision(e: &Expr) -> Option<Decision> {
         span: e.span,
         at,
         branches,
+        tree,
     })
 }
 
@@ -383,6 +400,19 @@ impl Tree {
     pub fn counted(&self) -> bool {
         let (t, f) = self.paths();
         t.saturating_add(f) <= MAX_PATHS
+    }
+
+    /// The span of every `&&` and `||`.
+    pub fn operators(&self, out: &mut Vec<Span>) {
+        match self {
+            Tree::Condition(_) => {}
+            Tree::And(l, r, s) | Tree::Or(l, r, s) => {
+                out.push(*s);
+                l.operators(out);
+                r.operators(out);
+            }
+            Tree::Not(x) => x.operators(out),
+        }
     }
 
     /// Every condition's span, in source order.

@@ -1,0 +1,24 @@
+from "core/testing/assert" import * as assert;
+from "//lib/decisions" import * as d;
+
+test "if with one side taken" {
+    assert.equal(d.sign(5), "not negative");
+}
+
+test "if with both sides taken" {
+    assert.equal(d.abs(-3), 3);
+    assert.equal(d.abs(3), 3);
+}
+
+test "match with an arm untaken" {
+    assert.equal(d.name(0), "zero");
+    assert.equal(d.name(1), "one");
+}
+
+test "try that never returned early" {
+    assert.equal(d.plusOne(.Some(1)), .Some(2));
+}
+
+test "built-in that saw only Some" {
+    assert.equal(d.orZero(.Some(3)), 3);
+}

@@ -113,6 +113,17 @@ impl Expect {
         self.decisions.push(Decision { line, branches });
     }
 
+    /// An MC/DC decision of one condition, `text`: shown once every outcome in
+    /// `counts` happened. An `if`, a guard, a `?` or an abort is one.
+    fn single(&mut self, line: usize, text: &str, counts: &[u64], suffix: &str) {
+        self.trees.push(Tree {
+            line,
+            whole: text.to_string(),
+            suffix: suffix.to_string(),
+            conditions: vec![(text.to_string(), counts.iter().all(|n| *n > 0))],
+        });
+    }
+
     /// Report order: by line, and in the order each line's decisions were
     /// added.
     fn sorted(mut self) -> Expect {
@@ -361,11 +372,14 @@ fn package(rng: &mut Rng, index: usize) -> Package {
         picks.len() as u64,
         picks.iter().filter(|a| **a).count() as u64,
     );
-    let expect = [false, true].map(|_| {
+    let expect = [false, true].map(|mcdc| {
         let mut e = Expect::default();
         e.line(1, n);
         e.line(2, n);
         e.numbered(2, &[yes, n - yes], "");
+        if mcdc {
+            e.single(2, "a", &[yes, n - yes], "");
+        }
         e
     });
     counted.push((format!("lib/{other}/t.buri"), expect));
@@ -632,6 +646,11 @@ fn record(
     for (id, _) in order {
         e.numbered(line, &ran.sides[id], "");
     }
+    if mcdc && node.count() == 1 {
+        let yes = ran.outcomes.iter().filter(|o| **o).count() as u64;
+        let no = ran.outcomes.len() as u64 - yes;
+        e.single(line, &node.text().0, &[yes, no], "");
+    }
     if mcdc && node.count() >= 2 {
         let mut leaves = Vec::new();
         node.leaves(&mut leaves);
@@ -761,6 +780,14 @@ fn recursion(rng: &mut Rng, f: &str) -> Shape {
             e.numbered(at + 4, &[taken, total - taken], "");
             if mcdc {
                 e.numbered(at + 4, &[total, 0], "");
+                e.single(at + 1, "n == 0", &[n, total], "");
+                e.single(
+                    at + 4,
+                    &format!("n % {m} == {r}"),
+                    &[taken, total - taken],
+                    "",
+                );
+                e.single(at + 4, &format!("n % {m}"), &[total, 0], "");
             }
         }),
     }
@@ -810,6 +837,14 @@ fn tail_recursion(rng: &mut Rng, f: &str) -> Shape {
             e.numbered(at + 4, &[taken, total - taken], "");
             if mcdc {
                 e.numbered(at + 4, &[total, 0], "");
+                e.single(at + 1, "n == 0", &[n, total], "");
+                e.single(
+                    at + 4,
+                    &format!("n % {m} == {r}"),
+                    &[taken, total - taken],
+                    "",
+                );
+                e.single(at + 4, &format!("n % {m}"), &[total, 0], "");
             }
         }),
     }
@@ -900,11 +935,32 @@ fn matching(rng: &mut Rng, f: &str) -> Shape {
             e.line(at, n);
             e.line(at + 1, n);
             e.numbered(at + 1, &taken, "");
+            if mcdc {
+                let patterns: Vec<String> = (0..literals)
+                    .map(|i| i.to_string())
+                    .chain(range.map(|_| "k".to_string()))
+                    .chain(["_".to_string()])
+                    .collect();
+                let conditions = patterns
+                    .into_iter()
+                    .zip(&taken)
+                    .map(|(p, n)| (p, *n > 0))
+                    .collect();
+                e.trees.push(Tree {
+                    line: at + 1,
+                    whole: "match n".into(),
+                    suffix: String::new(),
+                    conditions,
+                });
+            }
             for (i, count) in taken.iter().enumerate() {
                 let line = at + 2 + i;
                 e.line(line, *count);
                 if guarded == Some(i as i64) {
                     e.numbered(line, &guard, "");
+                    if mcdc {
+                        e.single(line, "flag", &guard, "");
+                    }
                 }
                 if range.is_some() && i == literals as usize {
                     e.numbered(line, &range_guard, "");
@@ -969,7 +1025,7 @@ fn tried(rng: &mut Rng, f: &str) -> Shape {
         decl,
         calls,
         aborts: Vec::new(),
-        model: Box::new(move |at, _, e| {
+        model: Box::new(move |at, mcdc, e| {
             e.line(at, checked);
             e.line(at + 1, checked);
             e.numbered(at + 1, &[negative, checked - negative], "");
@@ -978,6 +1034,11 @@ fn tried(rng: &mut Rng, f: &str) -> Shape {
             }
             e.numbered(at + 5, &[first, n - first], "");
             e.numbered(at + 6, &[both, first - both], "");
+            if mcdc {
+                e.single(at + 1, "n < 0", &[negative, checked - negative], "");
+                e.single(at + 5, &format!("{check}(a)?"), &[first, n - first], "");
+                e.single(at + 6, &format!("{check}(b)?"), &[both, first - both], "");
+            }
         }),
     }
 }
@@ -1040,9 +1101,11 @@ fn generic(rng: &mut Rng, f: &str) -> Shape {
                 e.numbered(at + 1, &[yes, n - yes], "");
             } else if at_type.is_empty() {
                 e.numbered(at + 1, &[0, 0], " (never instantiated)");
+                e.single(at + 1, "flag", &[0, 0], " (never instantiated)");
             } else {
                 for (label, counts) in &at_type {
                     e.numbered(at + 1, counts, &format!(" ({label})"));
+                    e.single(at + 1, "flag", counts, &format!(" ({label})"));
                 }
             }
         }),
@@ -1078,11 +1141,14 @@ fn lambda(rng: &mut Rng, f: &str) -> Shape {
         decl,
         calls,
         aborts: Vec::new(),
-        model: Box::new(move |at, _, e| {
+        model: Box::new(move |at, mcdc, e| {
             e.line(at, n);
             // The call's statement, and the lambda's body once an element.
             e.line(at + 1, n + elements);
             e.numbered(at + 1, &[big, elements - big], "");
+            if mcdc {
+                e.single(at + 1, &format!("x > {t}"), &[big, elements - big], "");
+            }
         }),
     }
 }
@@ -1114,10 +1180,15 @@ fn tail_call(rng: &mut Rng, f: &str) -> Shape {
         decl,
         calls,
         aborts: Vec::new(),
-        model: Box::new(move |at, _, e| {
+        model: Box::new(move |at, mcdc, e| {
             e.line(at, n);
             e.line(at + 1, n);
             e.numbered(at + 1, &[ran, n - ran], "");
+            // A tail call keeps the chain out of MC/DC: its right side's two
+            // branches are one condition.
+            if mcdc {
+                e.single(at + 1, &format!("a && {helper}(n)"), &[ran, n - ran], "");
+            }
             e.line(at + 4, ran);
             e.line(at + 5, ran);
         }),
@@ -1225,6 +1296,7 @@ fn guarded_divide(rng: &mut Rng, f: &str) -> Shape {
                     suffix: String::new(),
                     conditions,
                 });
+                e.single(at + 1, "n / d", &[ran, aborted], "");
             }
         }),
     }
@@ -1263,7 +1335,7 @@ fn divide(rng: &mut Rng, f: &str) -> Shape {
         (true, true) => Some(" (T = I64)"),
         (true, false) => None,
     };
-    trap(decl, calls, aborts, inputs.len() as u64, instance)
+    trap(decl, calls, aborts, inputs.len() as u64, instance, "a / b")
 }
 
 fn shift(rng: &mut Rng, f: &str) -> Shape {
@@ -1285,7 +1357,14 @@ fn shift(rng: &mut Rng, f: &str) -> Shape {
             )
         })
         .collect();
-    trap(decl, calls, aborts, inputs.len() as u64, Some(""))
+    trap(
+        decl,
+        calls,
+        aborts,
+        inputs.len() as u64,
+        Some(""),
+        "bits.shiftLeft(1, n)",
+    )
 }
 
 /// A one-line function that can abort, called `n` times without and once
@@ -1296,6 +1375,7 @@ fn trap(
     aborts: Vec<(String, &'static str)>,
     n: u64,
     suffix: Option<&'static str>,
+    text: &'static str,
 ) -> Shape {
     let aborted = aborts.len() as u64;
     Shape {
@@ -1307,6 +1387,7 @@ fn trap(
             e.line(at + 1, n + aborted);
             if let (true, Some(suffix)) = (mcdc, suffix) {
                 e.numbered(at + 1, &[n, aborted], suffix);
+                e.single(at + 1, text, &[n, aborted], suffix);
             }
         }),
     }
@@ -1604,6 +1685,9 @@ impl Derived {
                         suffix: String::new(),
                         conditions,
                     });
+                } else if mcdc {
+                    // And so one condition, by its right side's two branches.
+                    e.single(at + 1, "a && p == q", &[ran, n - ran], "");
                 }
             }),
         }
@@ -1788,11 +1872,22 @@ impl Derived {
         // `E` is declared on `at`, `R` seven lines below.
         for ((group, _), (label, names, counts)) in &w.decisions {
             let line = if group.ends_with(" E") { at } else { at + 7 };
-            let branches = names
+            let branches: Vec<(String, u64)> = names
                 .iter()
                 .zip(counts)
                 .map(|(name, n)| (format!("{label}: {name}"), *n))
                 .collect();
+            let conditions = names
+                .iter()
+                .zip(counts)
+                .map(|(name, n)| (name.to_string(), *n > 0))
+                .collect();
+            e.trees.push(Tree {
+                line,
+                whole: label.clone(),
+                suffix: String::new(),
+                conditions,
+            });
             e.decisions.push(Decision { line, branches });
         }
     }

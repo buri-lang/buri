@@ -4,8 +4,10 @@ BRDA:7,0,0,2
 BRDA:7,0,1,2
 BRF:2
 BRH:2
-MCF:0
-MCH:0
+MCDC:7,1,t,1,0,'flag' in 'flag'
+MCDC:7,1,f,1,0,'flag' in 'flag'
+MCF:2
+MCH:2
 DA:2,4
 DA:3,4
 DA:6,4

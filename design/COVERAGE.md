@@ -99,6 +99,16 @@ A decision whose branches all count zero was never reached and reads `-`.
   reads the call's answer, which takes the call out of tail position. A
   function that was built is judged on the built code, where a derived `==` is
   no call; one nothing built, on its checked body.
+- **Every other decision.** The report reads these off the branch counts the
+  probes above already keep, so they add no probes. An `if` or guard on one
+  condition, a `?`, an abort and a branching built-in are one condition, shown
+  once every outcome was taken. A `match` and a derived decision have a
+  condition per outcome, each shown once taken. So MC/DC is a superset of
+  branch coverage: all conditions shown implies all branches taken. Nothing is
+  counted twice: the `if` whose condition is a `Tree` (`Decision::tree`) and
+  the `&&`/`||` a `Tree` holds (`Tree::operators`) add none. A chain a tree
+  doesn't count (tail call, too many paths) is one condition by its right
+  side's two branches.
 - **Instantiations.** `monomorphize::Program::instances` names the declaration
   and type arguments of each generic instantiation. A key carries the
   instantiation's name, so each one counts apart. A generic function no suite
@@ -232,7 +242,10 @@ decisions and branches and the 30 with the most unshown conditions, and
 
 A smaller share of conditions shown, in total or in any module, fails. A module
 that's new, or that has no conditions, has nothing to fall from, though a new
-one's conditions count in the total. A larger share
+one's conditions count in the total. Conditions are every decision's, not only
+`&&`/`||` chains. The baseline was reset when `if`, `match`, `?`, aborts,
+derived code and built-ins joined it, so it's a different measure from
+before. A larger share
 anywhere is a rise: on main, CI's `stdlib-coverage` job commits the new baseline
 itself, as the compiler's coverage job does, and elsewhere it prints the commit.
 The baseline is x86_64 Linux's, so on any other host the gate prints its

@@ -1,0 +1,34 @@
+# `buri test --coverage=mcdc` counts every decision, not only `&&` and `||`
+# chains. An `if` is one condition, shown once both of its sides ran. A `match`
+# has a condition per arm, shown once the arm ran. A `?` and a branching
+# built-in such as `withDefault` are one condition each, shown once both of
+# their outcomes happened. `sign`, `plusOne` and `orZero` took one outcome
+# and `name` left its last arm untaken, so those conditions read unshown.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "--coverage=mcdc counts if, match, ? and built-in decisions as conditions"
+
+run {
+  args: ["test", "//lib/decisions", "--coverage=mcdc"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}
+
+run {
+  args: ["test", "//lib/decisions", "--coverage=mcdc", "--output=js"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}

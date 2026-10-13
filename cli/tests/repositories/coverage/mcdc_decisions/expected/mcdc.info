@@ -1,0 +1,48 @@
+TN:
+SF:lib/decisions/decisions.buri
+BRDA:2,0,0,0
+BRDA:2,0,1,1
+BRDA:6,0,0,1
+BRDA:6,0,1,1
+BRDA:10,0,0,1
+BRDA:10,0,1,1
+BRDA:10,0,2,0
+BRDA:18,0,0,1
+BRDA:18,0,1,0
+BRDA:23,0,0,1
+BRDA:23,0,1,0
+BRF:11
+BRH:7
+MCDC:2,1,t,0,0,'n < 0' in 'n < 0'
+MCDC:2,1,f,0,0,'n < 0' in 'n < 0'
+MCDC:6,1,t,1,0,'n < 0' in 'n < 0'
+MCDC:6,1,f,1,0,'n < 0' in 'n < 0'
+MCDC:10,3,t,1,0,'0' in 'match n'
+MCDC:10,3,f,1,0,'0' in 'match n'
+MCDC:10,3,t,1,1,'1' in 'match n'
+MCDC:10,3,f,1,1,'1' in 'match n'
+MCDC:10,3,t,0,2,'_' in 'match n'
+MCDC:10,3,f,0,2,'_' in 'match n'
+MCDC:18,1,t,0,0,'n?' in 'n?'
+MCDC:18,1,f,0,0,'n?' in 'n?'
+MCDC:23,1,t,0,0,'n.withDefault(0)' in 'n.withDefault(0)'
+MCDC:23,1,f,0,0,'n.withDefault(0)' in 'n.withDefault(0)'
+MCF:14
+MCH:6
+DA:1,1
+DA:2,1
+DA:5,2
+DA:6,2
+DA:9,2
+DA:10,2
+DA:11,1
+DA:12,1
+DA:13,0
+DA:17,1
+DA:18,1
+DA:19,1
+DA:22,1
+DA:23,1
+LF:14
+LH:13
+end_of_record
