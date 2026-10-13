@@ -77,20 +77,31 @@ fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
 }
 
-/// One source's two passes: what the driver said and what the file held after
-/// each. There is no second pass over a source the first pass refused.
+/// One chunk's two passes: what the driver said and what each file held after
+/// each. There is no second pass over a chunk the first pass refused.
 struct Passes {
+    files: Vec<usize>,
     first: Run,
-    once: String,
-    second: Option<(Run, String)>,
+    once: Vec<String>,
+    second: Option<(Run, Vec<String>)>,
 }
 
-/// A failed run, under the source it was over. The driver names the file for
+/// How many driver launches read the corpus in each pass. A launch costs a
+/// runtime start and the driver's own load, about as much as the parse of an
+/// ordinary source, so a launch per source spent ten times the CPU of the
+/// parsing itself. Enough launches to keep the pool's seats busy, and no more.
+const CHUNKS: usize = 16;
+
+/// A failed run, under the sources it was over. The driver names the file for
 /// a refusal, but not when the runtime itself fell over.
-fn failed(source: &Path, run: &Run) -> String {
+fn failed(sources: &[&Path], run: &Run) -> String {
     format!(
         "{} (`{}` exited {}):\n{}",
-        source.display(),
+        sources
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
         run.what,
         run.code,
         indent(&run.all())
@@ -114,10 +125,12 @@ fn failed(source: &Path, run: &Run) -> String {
 ///    a red row is a source that parsed into something else.
 ///
 /// One test rather than three because they share a driver build. The driver
-/// is built once and then run over each source on its own, both passes back
-/// to back, on the shared pool. A source's second pass waits on its first and
-/// nothing else waits on anything, and the largest sources take the driver
-/// most of a minute each — run as one manifest, the corpus took minutes.
+/// is built once and then run over sixteen chunks of the corpus on the shared
+/// pool, both passes of a chunk back to back. A chunk's second pass waits on
+/// its first and nothing else waits on anything. The corpus is dealt out
+/// largest first so no chunk holds all the big sources; one launch per source
+/// spent ten times the CPU the parsing did, and one manifest for the whole
+/// corpus leaves a single process the wall clock.
 #[test]
 fn every_conformance_source_survives_parse_and_print() {
     let suite = Scratch::copy_of("round-trip", &tests_dir().join("conformance"));
@@ -132,61 +145,82 @@ fn every_conformance_source_survives_parse_and_print() {
 
     driver.run(&["build", "//bin/roundtrip"]).ok();
     let artifact = driver.artifact("bin/roundtrip");
-    let manifests: Vec<PathBuf> = files
-        .iter()
-        .enumerate()
-        .map(|(i, p)| driver.write(&format!("manifests/{i}.txt"), &p.display().to_string()))
-        .collect();
-
     let before: Vec<String> = files.iter().map(|p| read(p)).collect();
-    // Largest first: the test lasts as long as its slowest source, so that one
-    // should not wait behind a queue of small ones.
+    // Largest first, dealt out round-robin: the test lasts as long as its
+    // slowest chunk, so the largest sources should start together rather than
+    // queue behind each other, and every chunk should hold about the same.
     let mut largest_first: Vec<usize> = (0..files.len()).collect();
     largest_first.sort_by_key(|&i| std::cmp::Reverse(before[i].len()));
-    let answered = pool::map(&largest_first, |&i| {
-        let first = drive(&driver, &artifact, &manifests[i]);
-        let once = read(&files[i]);
-        let second = (first.code == 0).then(|| {
-            let run = drive(&driver, &artifact, &manifests[i]);
-            (run, read(&files[i]))
-        });
-        (
-            i,
-            Passes {
-                first,
-                once,
-                second,
-            },
-        )
-    });
-    let mut passes: Vec<Option<Passes>> = (0..files.len()).map(|_| None).collect();
-    for (i, p) in answered {
-        passes[i] = Some(p);
+    let mut chunks: Vec<Vec<usize>> = vec![Vec::new(); CHUNKS.min(files.len())];
+    for (n, i) in largest_first.into_iter().enumerate() {
+        let k = n % chunks.len();
+        chunks[k].push(i);
     }
-    let passes: Vec<Passes> = passes
-        .into_iter()
-        .map(|p| p.expect("every source ran"))
+    let manifests: Vec<PathBuf> = chunks
+        .iter()
+        .enumerate()
+        .map(|(k, chunk)| {
+            let listing: Vec<String> = chunk
+                .iter()
+                .map(|&i| files[i].display().to_string())
+                .collect();
+            driver.write(&format!("manifests/{k}.txt"), &listing.join("\n"))
+        })
         .collect();
+    let launches = std::sync::atomic::AtomicUsize::new(0);
+    let numbers: Vec<usize> = (0..chunks.len()).collect();
+    let answered = pool::map(&numbers, |&k| {
+        let chunk = &chunks[k];
+        launches.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let first = drive(&driver, &artifact, &manifests[k]);
+        let once: Vec<String> = chunk.iter().map(|&i| read(&files[i])).collect();
+        let second = (first.code == 0).then(|| {
+            launches.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let run = drive(&driver, &artifact, &manifests[k]);
+            let twice = chunk.iter().map(|&i| read(&files[i])).collect();
+            (run, twice)
+        });
+        Passes {
+            files: chunk.clone(),
+            first,
+            once,
+            second,
+        }
+    });
+    // The cost this chunking exists to remove: a launch per source.
+    let launched = launches.into_inner();
+    assert!(
+        launched <= 2 * CHUNKS && launched * 4 <= 2 * files.len(),
+        "{launched} driver launches read {} sources; they should be read in chunks",
+        files.len()
+    );
+    let passes = answered;
 
     let refused: Vec<String> = passes
         .iter()
-        .zip(&files)
-        .filter(|(p, _)| p.first.code != 0)
-        .map(|(p, source)| failed(source, &p.first))
+        .filter(|p| p.first.code != 0)
+        .map(|p| {
+            failed(
+                &p.files
+                    .iter()
+                    .map(|&i| files[i].as_path())
+                    .collect::<Vec<_>>(),
+                &p.first,
+            )
+        })
         .collect();
     assert!(
         refused.is_empty(),
-        "`core/buri/ast`'s `parse` refused {} source(s) the compiler accepts:\n{}",
-        refused.len(),
+        "`core/buri/ast`'s `parse` refused sources the compiler accepts:\n{}",
         indent(&refused.join("\n"))
     );
 
     // A driver that read nothing, or wrote every file back unchanged, would
     // pass everything below without having proved anything.
-    let moved = before
+    let moved = passes
         .iter()
-        .zip(&passes)
-        .filter(|(a, p)| **a != p.once)
+        .flat_map(|p| p.files.iter().zip(&p.once))
+        .filter(|(&i, once)| before[i] != **once)
         .count();
     assert!(
         moved >= files.len() / 2,
@@ -194,27 +228,35 @@ fn every_conformance_source_survives_parse_and_print() {
         files.len()
     );
 
-    // Every first pass was clean, so every source had a second.
-    let seconds: Vec<&(Run, String)> = passes.iter().filter_map(|p| p.second.as_ref()).collect();
-    assert_eq!(seconds.len(), files.len());
+    // Every first pass was clean, so every chunk had a second.
+    let seconds: Vec<(&Passes, &(Run, Vec<String>))> = passes
+        .iter()
+        .filter_map(|p| p.second.as_ref().map(|s| (p, s)))
+        .collect();
+    assert_eq!(seconds.len(), passes.len());
     let reread: Vec<String> = seconds
         .iter()
-        .zip(&files)
-        .filter(|((run, _), _)| run.code != 0)
-        .map(|((run, _), source)| failed(source, run))
+        .filter(|(_, (run, _))| run.code != 0)
+        .map(|(p, (run, _))| {
+            failed(
+                &p.files
+                    .iter()
+                    .map(|&i| files[i].as_path())
+                    .collect::<Vec<_>>(),
+                run,
+            )
+        })
         .collect();
     assert!(
         reread.is_empty(),
-        "`parse` refused {} module(s) `print` wrote:\n{}",
-        reread.len(),
+        "`parse` refused module(s) `print` wrote:\n{}",
         indent(&reread.join("\n"))
     );
-    let drifted: Vec<String> = passes
+    let drifted: Vec<String> = seconds
         .iter()
-        .zip(&seconds)
-        .zip(&files)
-        .filter(|((p, (_, twice)), _)| p.once != *twice)
-        .map(|(_, source)| source.display().to_string())
+        .flat_map(|(p, (_, twice))| p.files.iter().zip(p.once.iter().zip(twice)))
+        .filter(|(_, (once, twice))| once != twice)
+        .map(|(&i, _)| files[i].display().to_string())
         .collect();
     assert!(
         drifted.is_empty(),
