@@ -1596,6 +1596,36 @@ fn a_workspace_library_renders_its_public_surface() {
     );
 }
 
+/// A private type's `derive` is as private as the type: its methods stay off
+/// the page, and the exported type's derive beside it still reaches it.
+#[test]
+fn a_derive_for_a_private_type_stays_off_the_page() {
+    let dir = std::env::temp_dir().join(format!("buri-private-derive-{}", std::process::id()));
+    let lib = dir.join("lib/shapes");
+    std::fs::create_dir_all(&lib).expect("a scratch directory");
+    std::fs::write(dir.join("REPO.buri"), "").expect("the repository");
+    std::fs::write(
+        lib.join("BUILD.buri"),
+        "library {\n    sources: [\"shapes.buri\"]\n}\n",
+    )
+    .expect("the build file");
+    std::fs::write(
+        lib.join("shapes.buri"),
+        "//! Shapes.\n\nexport struct Point {\n    x: Int,\n}\n\nstruct Hidden {\n    n: Int,\n}\n\n\
+         derive Equal for Hidden;\nderive Equal for Point;\n",
+    )
+    .expect("the library");
+    let out = ran(
+        &dir,
+        &["docs", "//lib/shapes/shapes.buri", "--format=markdown"],
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(out.status.success(), "`buri docs` failed");
+    let page = String::from_utf8_lossy(&out.stdout);
+    assert!(page.contains("Point.equal — via Equal"), "{page}");
+    assert!(!page.contains("Hidden"), "{page}");
+}
+
 /// `//!` documents the module and may only appear before the first item.
 #[test]
 fn a_module_doc_comment_must_come_first() {
