@@ -740,6 +740,7 @@ impl Gate {
         let held = std::thread::spawn(move || {
             let mut held: Vec<std::net::TcpStream> = Vec::new();
             let mut last: Option<std::time::Instant> = None;
+            let mut asked_at: Option<std::time::Instant> = None;
             while held.len() < width {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
@@ -760,7 +761,16 @@ impl Gate {
                     // gate may give up.
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => match last {
                         Some(at) if at.elapsed() >= patience => break,
-                        None if done.load(Ordering::Acquire) => break,
+                        None if done.load(Ordering::Acquire) => {
+                            if asked_at
+                                .get_or_insert_with(std::time::Instant::now)
+                                .elapsed()
+                                >= server_deadline() / 20
+                            {
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(1));
+                        }
                         _ => std::thread::sleep(std::time::Duration::from_millis(1)),
                     },
                     Err(e) => panic!("the gate could not accept: {e}"),
@@ -785,7 +795,9 @@ impl Gate {
         Gate { url, held, asked }
     }
 
-    /// How many requests the gate held at once.
+    /// How many requests the gate held at once. A gate with nothing held waits
+    /// a twentieth of [`server_deadline`] after this is asked for, in case a
+    /// completed connection has yet to reach its accept queue.
     pub fn met(self) -> usize {
         self.asked.store(true, std::sync::atomic::Ordering::Release);
         self.held.join().expect("the gate finished")
@@ -815,8 +827,11 @@ mod gate_tests {
 
     /// A handler that has dialled the gate and sent its request's head.
     fn dialled(gate: &Gate) -> TcpStream {
-        let port: u16 = gate
-            .url
+        dialled_at(&gate.url)
+    }
+
+    fn dialled_at(url: &str) -> TcpStream {
+        let port: u16 = url
             .trim_start_matches("http://127.0.0.1:")
             .trim_end_matches("/gate")
             .parse()
@@ -894,6 +909,26 @@ mod gate_tests {
         let gate = Gate::patient(2, Duration::from_secs(600));
         assert_eq!(gate.met(), 0);
         assert!(started.elapsed() < Duration::from_secs(60));
+    }
+
+    /// **A handler that is still arriving when the count is asked for is
+    /// counted.** A connection the client has completed can reach the gate's
+    /// accept queue a moment later on a loaded machine (buri-lang/buri#309: a
+    /// gate that was dialled twice counted none), so a gate with nothing held
+    /// gives the count a grace before it says nobody came.
+    #[test]
+    fn a_handler_arriving_as_the_count_is_asked_is_counted() {
+        let gate = Gate::patient(1, Duration::from_secs(600));
+        let (url, ready) = (gate.url.clone(), std::sync::mpsc::channel::<TcpStream>());
+        let dialler = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            let _ = ready.0.send(dialled_at(&url));
+        });
+        let met = gate.met();
+        dialler.join().unwrap();
+        let answer = answer(ready.1.recv().unwrap());
+        assert_eq!(met, 1);
+        assert!(answer.starts_with("HTTP/1.1 200 "), "{answer}");
     }
 }
 
