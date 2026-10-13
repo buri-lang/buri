@@ -1,8 +1,8 @@
 error: there is nothing named `one` in scope [unknown-name]
-  --> lib/money/cents.buri:13:23
+  --> lib/money/cents.buri:13:27
    |
-13 |     1 => fromInt(ctx, one),
-   |                       ^^^
+13 |         1 => fromInt(ctx, one),
+   |                           ^^^
    |
    = did you mean `n`?
    = fix: if you meant `n`, use that; if not, a name is in scope only from this module's own declarations and its imports
