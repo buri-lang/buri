@@ -1046,11 +1046,8 @@ fn drive(
                 built,
             } => {
                 let s = slot_mut(slots, slot);
-                if let Some(built) = built {
-                    let at = s
-                        .build
-                        .as_ref()
-                        .or_ice("a suite that was built was planned with a build key");
+                // A suite that was built was planned with a build key.
+                if let (Some(built), Some(at)) = (built, &s.build) {
                     remember(session, at, &s.key, &built, &answer);
                 }
                 s.explain.push_str(&explain);
@@ -1104,12 +1101,12 @@ fn drive(
             // can name it.
             Done::Abandoned {
                 slots: abandoned,
-                explain,
+                mut explain,
             } => {
-                let first = abandoned.first().or_ice("an abandoned batch has members");
-                slot_mut(slots, *first).explain.push_str(&explain);
                 for &i in &abandoned {
                     let s = slot_mut(slots, i);
+                    // The first member says why for the batch.
+                    s.explain.push_str(&std::mem::take(&mut explain));
                     s.queued = false;
                     s.awaiting_build = false;
                     solo(session, args, pre, slots, i, queue, &mut tally.shared_build);
@@ -1685,7 +1682,7 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
     }
     // A filtered native run does not even generate the tests it leaves out.
     if let Some(f) = filter {
-        tests_mut(&mut program).retain(|t| t.name.contains(f));
+        retain_tests(&mut program, |t| t.name.contains(f));
     }
     let tests: Vec<(String, String)> = program
         .roots
@@ -2415,11 +2412,7 @@ fn write_bundle(bundle: &str, run: &JsRun, driver: &str) -> Result<(), Diagnosti
     if holds {
         return Ok(());
     }
-    let _ = std::fs::create_dir_all(
-        run.path
-            .parent()
-            .or_ice("a bundle is written in a directory"),
-    );
+    let _ = run.path.parent().map(std::fs::create_dir_all);
     std::fs::write(&run.path, &source).map_err(|e| {
         let mut d = Diagnostics::new();
         d.push(
@@ -2524,10 +2517,6 @@ fn native_ready(platform: Platform, flags: &arguments::Flags) -> bool {
     // its own. `buri build` cross-links a Linux artifact from a mac
     // (ARCHITECTURE.md §9), but a suite only ever names the host's own native
     // platform ([`runs_of`]), so that is held rather than asked.
-    invariant(
-        crate::build::link::is_host_target(target),
-        "a native suite runs on this host",
-    );
     actions::native_ready(target, actions::profile_of(flags))
         && crate::build::spawn::resolve(&linker_name()).is_some()
 }
@@ -4592,17 +4581,18 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
     }
     // What a `--filter` leaves out, per suite, counted before the roots are
     // narrowed.
-    let mut skipped: Vec<Skipped> = vec![Vec::new(); info.members.len()];
+    // By member.
+    let mut skipped: std::collections::BTreeMap<usize, Skipped> = std::collections::BTreeMap::new();
     if let Some(f) = &shared.flags.filter {
         for test in program.roots.tests() {
             if !test.name.contains(f.as_str()) {
-                let left = skipped
-                    .get_mut(info.owner_of(&test.module))
-                    .or_ice("a member's tests are its own");
-                left.push((test.name.clone(), test.module.clone()));
+                skipped
+                    .entry(info.owner_of(&test.module))
+                    .or_default()
+                    .push((test.name.clone(), test.module.clone()));
             }
         }
-        tests_mut(&mut program).retain(|t| t.name.contains(f.as_str()));
+        retain_tests(&mut program, |t| t.name.contains(f.as_str()));
     }
     let selected = selected_of(&program, &info);
     let groups = groups_of(&info.dirs, &program, &selected, batch_limit());
@@ -4659,7 +4649,7 @@ struct PartJob {
     analysis: std::sync::Arc<crate::compiler::driver::Analysis>,
     tables: std::sync::Arc<crate::compiler::semantics::types::Tables>,
     module_paths: Vec<String>,
-    skipped: std::sync::Arc<Vec<Skipped>>,
+    skipped: std::sync::Arc<std::collections::BTreeMap<usize, Skipped>>,
     group: Group,
     /// The test modules of the group's members, which root its program.
     modules: Vec<String>,
@@ -4702,7 +4692,7 @@ fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -
         return abandoned();
     }
     if let Some(f) = &shared.flags.filter {
-        tests_mut(&mut program).retain(|t| t.name.contains(f.as_str()));
+        retain_tests(&mut program, |t| t.name.contains(f.as_str()));
     }
     let mine = selected_of(&program, &info);
     submit_group(
@@ -4728,7 +4718,7 @@ struct Step {
 )]
 fn submit_group(
     info: &BatchInfo,
-    skipped: &[Skipped],
+    skipped: &std::collections::BTreeMap<usize, Skipped>,
     group: &Group,
     selected: &[Selected],
     program: monomorphize::Program,
@@ -4739,7 +4729,7 @@ fn submit_group(
     tell: &Tell,
     shared: &Shared,
 ) -> Done {
-    let skipped_of = |i: usize| skipped.get(i).cloned().unwrap_or_default();
+    let skipped_of = |i: usize| skipped.get(&i).cloned().unwrap_or_default();
     let nothing = |i: usize, build| Done::Answer {
         slot: info.slot_of(i),
         answer: Ok(Ran {
@@ -5501,13 +5491,14 @@ fn selected_of(program: &monomorphize::Program, info: &BatchInfo) -> Vec<Selecte
         .collect()
 }
 
-/// A test program's roots, which are its tests.
-fn tests_mut(program: &mut monomorphize::Program) -> &mut Vec<monomorphize::TestEntry> {
-    let tests = match &mut program.roots {
-        monomorphize::ProgramRoots::Tests(tests) => Some(tests),
-        monomorphize::ProgramRoots::Main(_) => None,
-    };
-    tests.or_ice("a test program is rooted at its tests")
+/// Keeps the tests a program is rooted at that `keep` answers yes for.
+fn retain_tests(
+    program: &mut monomorphize::Program,
+    keep: impl Fn(&monomorphize::TestEntry) -> bool,
+) {
+    if let monomorphize::ProgramRoots::Tests(tests) = &mut program.roots {
+        tests.retain(keep);
+    }
 }
 
 /// One test block of a batch: the member that owns it, its title and module,
@@ -5529,8 +5520,8 @@ struct Group {
     paints_into: Option<String>,
     /// The members whose tests take a snapshot.
     painters: Vec<usize>,
-    /// The functions the members' tests reach, one row per function.
-    reaches: Vec<bool>,
+    /// The functions the members' tests reach.
+    reaches: crate::hash::Set<usize>,
 }
 
 /// The most code one batched test binary may hold, in bytes, by default.
@@ -5601,7 +5592,6 @@ fn groups_of(
     selected: &[Selected],
     limit: u64,
 ) -> Vec<Group> {
-    const FUNC: &str = "a function reached is one of the program's";
     let funcs = program.funcs.len();
     let callees: Vec<Vec<usize>> =
         crate::parallel::map(funcs, |f| crate::compiler::middle::dce::callees(program, f));
@@ -5617,12 +5607,14 @@ fn groups_of(
             .collect();
         let mut out = Vec::new();
         while let Some(f) = work.pop() {
-            match seen.get_mut(f) {
-                Some(s) if !*s => *s = true,
-                _ => continue,
+            match (seen.get_mut(f), callees.get(f)) {
+                (Some(s), Some(next)) if !*s => {
+                    *s = true;
+                    out.push(f);
+                    work.extend(next.iter().copied());
+                }
+                _ => {}
             }
-            out.push(f);
-            work.extend(callees.get(f).or_ice(FUNC).iter().copied());
         }
         out
     };
@@ -5634,38 +5626,39 @@ fn groups_of(
             .iter()
             .any(|&f| program.funcs.get(f).and_then(|f| f.intrinsic_key()) == Some(PAINT_KEY));
         let dir = paints.then(|| dir.clone());
-        let added = |held: &[bool]| -> u64 {
+        let added = |held: &crate::hash::Set<usize>| -> u64 {
             reached
                 .iter()
-                .filter(|&&f| !held.get(f).copied().unwrap_or(false))
+                .filter(|&&f| !held.contains(&f))
                 .map(|&f| bytes.get(f).copied().unwrap_or(0))
                 .fold(0u64, u64::saturating_add)
         };
-        let fits = groups.iter().position(|(group, size)| {
+        let fits = groups.iter_mut().find(|(group, size)| {
             let dir_ok = match (&dir, &group.paints_into) {
                 (Some(mine), Some(theirs)) => mine == theirs,
                 _ => true,
             };
             dir_ok && size.saturating_add(added(&group.reaches)) <= limit
         });
-        let slot = fits.unwrap_or_else(|| {
-            let empty = Group {
-                members: Vec::new(),
-                paints_into: None,
-                painters: Vec::new(),
-                reaches: vec![false; funcs],
-            };
-            groups.push((empty, 0));
-            groups.len() - 1
-        });
+        let mut fresh: Option<(Group, u64)> = None;
         {
-            let (group, size) = groups
-                .get_mut(slot)
-                .or_ice("`fits` names a group in the list");
+            let (group, size) = match fits {
+                Some((group, size)) => (group, size),
+                None => {
+                    let (group, size) = fresh.insert((
+                        Group {
+                            members: Vec::new(),
+                            paints_into: None,
+                            painters: Vec::new(),
+                            reaches: crate::hash::Set::default(),
+                        },
+                        0,
+                    ));
+                    (group, size)
+                }
+            };
             *size = size.saturating_add(added(&group.reaches));
-            for &f in &reached {
-                *group.reaches.get_mut(f).or_ice(FUNC) = true;
-            }
+            group.reaches.extend(reached.iter().copied());
             group.members.push(member);
             if paints {
                 group.painters.push(member);
@@ -5674,6 +5667,7 @@ fn groups_of(
                 group.paints_into = dir;
             }
         }
+        groups.extend(fresh);
     }
     groups.into_iter().map(|(group, _)| group).collect()
 }
