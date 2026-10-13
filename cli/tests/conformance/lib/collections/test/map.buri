@@ -1024,6 +1024,60 @@ test "a colliding key is removed without disturbing the others in its bucket" {
     assert.isTrue(less.remove(ctx, Collider { id: 99 }).equals(ctx, less));
 }
 
+// Keys 0 and 8 share a bucket and 1 has one of its own, so the map holds both
+// kinds of node side by side: a lookup, an insert or a removal that lands in
+// either has to leave the other as it was.
+test "colliding and lone keys live side by side" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = map.of(ctx, [
+        (Collider { id: 0 }, "a"),
+        (Collider { id: 8 }, "b"),
+        (Collider { id: 1 }, "c"),
+    ]);
+    assert.equal(m.length(), 3);
+    // A key that shares 0's bucket, or 1's, but is neither; and one whose
+    // bucket is empty.
+    assert.isTrue(m.get(Collider { id: 16 }).isNone());
+    assert.isTrue(m.get(Collider { id: 9 }).isNone());
+    assert.isTrue(m.get(Collider { id: 2 }).isNone());
+    // A third key joins the shared bucket; the second of 1's makes one more.
+    let more = m
+        .insert(ctx, Collider { id: 16 }, "d")
+        .insert(ctx, Collider { id: 9 }, "e");
+    assert.equal(more.length(), 5);
+    assert.equal(assert.some(more.get(Collider { id: 16 })), "d");
+    assert.equal(assert.some(more.get(Collider { id: 9 })), "e");
+    assert.equal(assert.some(more.get(Collider { id: 1 })), "c");
+    // Replacing the second key of a bucket changes no count.
+    let replaced = more.insert(ctx, Collider { id: 8 }, "B");
+    assert.equal(replaced.length(), 5);
+    assert.equal(assert.some(replaced.get(Collider { id: 8 })), "B");
+    assert.equal(replaced.entries(ctx).map(ctx, fn(e) => e.0.id).sort(ctx), [
+        0,
+        1,
+        8,
+        9,
+        16,
+    ]);
+    // Down to one key per bucket, then to nothing.
+    let fewer = replaced
+        .remove(ctx, Collider { id: 0 })
+        .remove(ctx, Collider { id: 16 })
+        .remove(ctx, Collider { id: 9 });
+    assert.equal(fewer.length(), 2);
+    assert.equal(assert.some(fewer.get(Collider { id: 8 })), "B");
+    assert.equal(assert.some(fewer.get(Collider { id: 1 })), "c");
+    let gone = fewer.remove(ctx, Collider { id: 8 }).remove(ctx, Collider { id: 1 });
+    assert.isTrue(gone.isEmpty());
+    assert.isTrue(gone.equals(ctx, map.empty<Collider, Str>()));
+    // Maps that differ in size, or only in a value, are not equal.
+    assert.isFalse(fewer.equals(ctx, replaced));
+    assert.isFalse(replaced.equals(ctx, more));
+    assert.isTrue(replaced.equals(ctx, more.insert(ctx, Collider { id: 8 }, "B")));
+}
+
 test "inserting an existing colliding key replaces rather than duplicating" {
     let ctx = context {
         Allocator: alloc(),
