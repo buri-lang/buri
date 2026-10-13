@@ -286,37 +286,61 @@ test "a key that is not its type's text, and a null value, are refused" {
 
 // --- maps large enough to be trees ----------------------------------------------
 
-/// Seventy entries over 64 keys, out of key order and six of them repeated: a
-/// map deeper than one node, which an entry message per key builds one insert
-/// at a time.
-fn spread<K, V, C: Allocator>(ctx: C, entry: fn(C, Int) => (K, V)): [(K, V)] {
-    list.range(ctx, 0, 70).mapCtx(ctx, fn(c, i) => entry(c, i * 37 % 70 % 64))
+/// Eighty entries over 72 keys from `start`, out of key order and eight of them
+/// repeated: a map several nodes wide, which an entry message per key builds
+/// one insert at a time.
+fn spread<K, V, C: Allocator>(
+    ctx: C,
+    start: Int,
+    entry: fn(C, Int) => (K, V),
+): [(K, V)] {
+    list.range(ctx, 0, 80).mapCtx(ctx, fn(c, i) => entry(c, start + i * 37 % 80 % 72))
 }
 
 /// `v` survives the wire and JSON. `changed` is `v` with one key's value
-/// replaced, which the wire reaches by a later entry for that key in `tail`,
-/// and `grown` holds one key more.
-fn large<C: Allocator>(ctx: C, v: Maps, changed: Maps, tail: Maps, grown: Maps): () {
+/// replaced, which the wire reaches by a later entry for that key in `tail`.
+/// `grown` holds one key more, and `shifted` as many keys but not the same.
+fn large<C: Allocator>(
+    ctx: C,
+    v: Maps,
+    changed: Maps,
+    tail: Maps,
+    grown: Maps,
+    shifted: Maps,
+): () {
     assert.equal(decodeMaps(ctx, encodeMaps(ctx, v)), .Ok(v));
     assert.equal(read(ctx, text(ctx, v)), .Ok(v));
     let both = encodeMaps(ctx, v).concat(ctx, encodeMaps(ctx, tail));
     assert.equal(decodeMaps(ctx, both), .Ok(changed));
     assert.notEqual(v, changed);
     assert.notEqual(v, grown);
+    assert.notEqual(v, shifted);
+    // Inside another message, where the writer sizes it first.
+    let outer = Maps { ..defaultMaps(), nested: orderedmap.of(ctx, [(1, v)]) };
+    assert.equal(decodeMaps(ctx, encodeMaps(ctx, outer)), .Ok(outer));
 }
 
 test "a map of many string keys and int values" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let m = orderedmap.of(ctx, spread(ctx, fn(c, i) => (str.fromInt(c, i), i)));
+    let m = orderedmap.of(ctx, spread(ctx, 0, fn(c, i) => (str.fromInt(c, i), i)));
     assert.equal(orderedmap.of(ctx, m.entries(ctx)), m);
+    assert.equal(orderedmap.of(ctx, list.empty<(Str, Int)>()).length(), 0);
     large(
         ctx,
         Maps { ..defaultMaps(), counts: m, totals: m },
         Maps { ..defaultMaps(), counts: m.insert(ctx, "7", -7), totals: m },
         Maps { ..defaultMaps(), counts: orderedmap.of(ctx, [("7", -7)]) },
         Maps { ..defaultMaps(), counts: m.insert(ctx, "x", 0), totals: m },
+        Maps {
+            ..defaultMaps(),
+            counts: orderedmap.of(
+                ctx,
+                spread(ctx, 1, fn(c, i) => (str.fromInt(c, i), i)),
+            ),
+            totals: m,
+        },
     );
 }
 
@@ -324,14 +348,22 @@ test "a map of many int64 keys and string values" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let m = orderedmap.of(ctx, spread(ctx, fn(c, i) => (i - 9, str.fromInt(c, i))));
+    let m = orderedmap.of(ctx, spread(ctx, 0, fn(c, i) => (i - 9, str.fromInt(c, i))));
     assert.equal(orderedmap.of(ctx, m.entries(ctx)), m);
+    assert.equal(orderedmap.of(ctx, list.empty<(Int, Str)>()).length(), 0);
     large(
         ctx,
         Maps { ..defaultMaps(), names: m },
         Maps { ..defaultMaps(), names: m.insert(ctx, 7, "seven") },
         Maps { ..defaultMaps(), names: orderedmap.of(ctx, [(7, "seven")]) },
         Maps { ..defaultMaps(), names: m.insert(ctx, 100, "") },
+        Maps {
+            ..defaultMaps(),
+            names: orderedmap.of(
+                ctx,
+                spread(ctx, 1, fn(c, i) => (i - 9, str.fromInt(c, i))),
+            ),
+        },
     );
 }
 
@@ -339,14 +371,19 @@ test "a map of many uint64 keys and bool values" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let m = orderedmap.of(ctx, spread(ctx, fn(_c, i) => (i, i % 3 == 0)));
+    let m = orderedmap.of(ctx, spread(ctx, 0, fn(_c, i) => (i, i % 3 == 0)));
     assert.equal(orderedmap.of(ctx, m.entries(ctx)), m);
+    assert.equal(orderedmap.of(ctx, list.empty<(Int, Bool)>()).length(), 0);
     large(
         ctx,
         Maps { ..defaultMaps(), flags: m },
         Maps { ..defaultMaps(), flags: m.insert(ctx, 7, true) },
         Maps { ..defaultMaps(), flags: orderedmap.of(ctx, [(7, true)]) },
         Maps { ..defaultMaps(), flags: m.insert(ctx, 100, false) },
+        Maps {
+            ..defaultMaps(),
+            flags: orderedmap.of(ctx, spread(ctx, 1, fn(_c, i) => (i, i % 3 == 0))),
+        },
     );
 }
 
@@ -354,14 +391,22 @@ test "a map of many sint32 keys and double values" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let m = orderedmap.of(ctx, spread(ctx, fn(_c, i) => (i - 30, i.toF64() / 4.0)));
+    let m = orderedmap.of(ctx, spread(ctx, 0, fn(_c, i) => (i - 30, i.toF64() / 4.0)));
     assert.equal(orderedmap.of(ctx, m.entries(ctx)), m);
+    assert.equal(orderedmap.of(ctx, list.empty<(Int, Float)>()).length(), 0);
     large(
         ctx,
         Maps { ..defaultMaps(), ratios: m },
         Maps { ..defaultMaps(), ratios: m.insert(ctx, 7, -1.5) },
         Maps { ..defaultMaps(), ratios: orderedmap.of(ctx, [(7, -1.5)]) },
         Maps { ..defaultMaps(), ratios: m.insert(ctx, 100, 0.0) },
+        Maps {
+            ..defaultMaps(),
+            ratios: orderedmap.of(
+                ctx,
+                spread(ctx, 1, fn(_c, i) => (i - 30, i.toF64() / 4.0)),
+            ),
+        },
     );
 }
 
@@ -369,14 +414,20 @@ test "a map of many fixed64 keys and bytes values" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let m = orderedmap.of(ctx, spread(ctx, fn(c, i) => (i, [i.wrapToU8()])));
+    let m = orderedmap.of(ctx, spread(ctx, 0, fn(_c, i) => (i, [i.wrapToU8()])));
+    let none = list.empty<U8>();
     assert.equal(orderedmap.of(ctx, m.entries(ctx)), m);
+    assert.equal(orderedmap.of(ctx, list.empty<(Int, [U8])>()).length(), 0);
     large(
         ctx,
         Maps { ..defaultMaps(), blobs: m },
-        Maps { ..defaultMaps(), blobs: m.insert(ctx, 7, list.empty<U8>()) },
-        Maps { ..defaultMaps(), blobs: orderedmap.of(ctx, [(7, list.empty<U8>())]) },
-        Maps { ..defaultMaps(), blobs: m.insert(ctx, 100, list.empty<U8>()) },
+        Maps { ..defaultMaps(), blobs: m.insert(ctx, 7, none) },
+        Maps { ..defaultMaps(), blobs: orderedmap.of(ctx, [(7, none)]) },
+        Maps { ..defaultMaps(), blobs: m.insert(ctx, 100, none) },
+        Maps {
+            ..defaultMaps(),
+            blobs: orderedmap.of(ctx, spread(ctx, 1, fn(_c, i) => (i, [i.wrapToU8()]))),
+        },
     );
 }
 
@@ -386,15 +437,28 @@ test "a map of many string keys and message values" {
     };
     let m = orderedmap.of(
         ctx,
-        spread(ctx, fn(c, i) => (str.fromInt(c, i), Address { ..defaultAddress(), zip: .Some(i) })),
+        spread(ctx, 0, fn(c, i) => {
+            (str.fromInt(c, i), Address { ..defaultAddress(), zip: .Some(i) })
+        }),
     );
+    let none = defaultAddress();
     assert.equal(orderedmap.of(ctx, m.entries(ctx)), m);
+    assert.equal(orderedmap.of(ctx, list.empty<(Str, Address)>()).length(), 0);
     large(
         ctx,
         Maps { ..defaultMaps(), places: m },
-        Maps { ..defaultMaps(), places: m.insert(ctx, "7", defaultAddress()) },
-        Maps { ..defaultMaps(), places: orderedmap.of(ctx, [("7", defaultAddress())]) },
-        Maps { ..defaultMaps(), places: m.insert(ctx, "x", defaultAddress()) },
+        Maps { ..defaultMaps(), places: m.insert(ctx, "7", none) },
+        Maps { ..defaultMaps(), places: orderedmap.of(ctx, [("7", none)]) },
+        Maps { ..defaultMaps(), places: m.insert(ctx, "x", none) },
+        Maps {
+            ..defaultMaps(),
+            places: orderedmap.of(
+                ctx,
+                spread(ctx, 1, fn(c, i) => {
+                    (str.fromInt(c, i), Address { ..defaultAddress(), zip: .Some(i) })
+                }),
+            ),
+        },
     );
 }
 
@@ -403,13 +467,45 @@ test "a map of many int32 keys and values of the message itself" {
         Allocator: alloc(),
     };
     let inner = Maps { ..defaultMaps(), counts: orderedmap.of(ctx, [("a", 1)]) };
-    let m = orderedmap.of(ctx, spread(ctx, fn(_c, i) => (i, inner)));
+    let m = orderedmap.of(ctx, spread(ctx, 0, fn(_c, i) => (i, inner)));
     assert.equal(orderedmap.of(ctx, m.entries(ctx)), m);
+    assert.equal(orderedmap.of(ctx, list.empty<(Int, Maps)>()).length(), 0);
     large(
         ctx,
         Maps { ..defaultMaps(), nested: m },
         Maps { ..defaultMaps(), nested: m.insert(ctx, 7, defaultMaps()) },
         Maps { ..defaultMaps(), nested: orderedmap.of(ctx, [(7, defaultMaps())]) },
         Maps { ..defaultMaps(), nested: m.insert(ctx, 100, inner) },
+        Maps {
+            ..defaultMaps(),
+            nested: orderedmap.of(ctx, spread(ctx, 1, fn(_c, i) => (i, inner))),
+        },
     );
+}
+
+test "a map of bool keys holds two entries at most" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = orderedmap.of(ctx, [
+        (true, Mood.HAPPY),
+        (false, Mood.HAPPY),
+        (true, Mood.MOOD_UNSPECIFIED),
+    ]);
+    assert.equal(m.length(), 2);
+    assert.equal(orderedmap.of(ctx, m.entries(ctx)), m);
+    assert.equal(orderedmap.of(ctx, list.empty<(Bool, Mood)>()).length(), 0);
+    let v = Maps { ..defaultMaps(), moods: m };
+    assert.equal(decodeMaps(ctx, encodeMaps(ctx, v)), .Ok(v));
+    let tail = Maps {
+        ..defaultMaps(),
+        moods: orderedmap.of(ctx, [(true, Mood.HAPPY)]),
+    };
+    let both = encodeMaps(ctx, v).concat(ctx, encodeMaps(ctx, tail));
+    let changed = Maps { ..defaultMaps(), moods: m.insert(ctx, true, Mood.HAPPY) };
+    assert.equal(decodeMaps(ctx, both), .Ok(changed));
+    assert.notEqual(v, changed);
+    assert.notEqual(v, tail);
+    let outer = Maps { ..defaultMaps(), nested: orderedmap.of(ctx, [(1, v)]) };
+    assert.equal(decodeMaps(ctx, encodeMaps(ctx, outer)), .Ok(outer));
 }
