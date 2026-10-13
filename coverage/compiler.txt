@@ -6,14 +6,14 @@ area                              branches                      lines
 cli/build                        1678/1695   99.00%       10703/11016   97.16%
 cli/documentation                  477/480   99.38%         2768/2849   97.16%
 cli/format                           94/94  100.00%           372/373   99.73%
-cli/language_server              1270/1406   90.33%         8008/8275   96.77%
+cli/language_server              1256/1318   95.30%         8040/8257   97.37%
 cli/lint                           587/600   97.83%         3065/3107   98.65%
 cli/other                          522/606   86.14%         2903/3146   92.28%
 cli/run                              58/58  100.00%           333/341   97.65%
 cli/serve+watch                      69/70   98.57%           394/413   95.40%
 cli/test                           444/522   85.06%         3228/3486   92.60%
 crates/backend                       68/68  100.00%           354/403   87.84%
-crates/diagnostics                 191/194   98.45%         1550/1635   94.80%
+crates/diagnostics                 191/194   98.45%         1551/1635   94.86%
 crates/docs                        246/246  100.00%           819/893   91.71%
 crates/hash                          18/18  100.00%           241/294   81.97%
 crates/js                        1021/1060   96.32%         5379/5626   95.61%
@@ -24,7 +24,7 @@ crates/semantics                 2201/2208   99.68%       13495/13794   97.83%
 crates/stdlib                        12/12  100.00%           125/149   83.89%
 crates/stencil                   1185/1208   98.10%         8415/8864   94.93%
 crates/syntax                    1194/1196   99.83%         6542/6703   97.60%
-total                          15156/15633   96.95%      97421/100914   96.54%
+total                          15142/15545   97.41%      97454/100896   96.59%
 
 cli/src                           branches                      lines         
 build                            1678/1695   99.00%       10703/11016   97.16%
@@ -48,7 +48,7 @@ commands/watch                       35/36   97.22%           259/273   94.87%
 compiler                           256/296   86.49%         1402/1541   90.98%
 documentation                      477/480   99.38%         2768/2849   97.16%
 hold                                   6/6  100.00%             30/36   83.33%
-language_server                  1270/1406   90.33%         8008/8275   96.77%
+language_server                  1256/1318   95.30%         8040/8257   97.37%
 main                                  7/12   58.33%             54/61   88.52%
 
 The 30 files with the most uncovered branches:
@@ -60,27 +60,27 @@ uncovered          branches           file
        16             50/66   75.76%  cli/src/compiler/driver.rs
        13           187/200   93.50%  crates/middle/src/compiler/middle/monomorphize.rs
        12           552/564   97.87%  cli/src/commands/lint.rs
-       11           153/164   93.29%  cli/src/language_server/mod.rs
        11           597/608   98.19%  crates/middle/src/compiler/middle/rc.rs
        11           237/248   95.56%  crates/project/src/languages/json/schema.rs
-       10             70/80   87.50%  cli/src/language_server/inlay_hints.rs
        10             18/28   64.29%  cli/src/language_server/sweep.rs
-        9            99/108   91.67%  cli/src/language_server/state.rs
         9           349/358   97.49%  crates/stencil/src/compiler/backend/stencil/emit.rs
         8             24/32   75.00%  cli/src/commands/init.rs
         8             34/42   80.95%  cli/src/commands/query.rs
         8             54/62   87.10%  cli/src/language_server/code_actions.rs
-        8           154/162   95.06%  cli/src/language_server/symbols.rs
         8           328/336   97.62%  crates/js/src/compiler/backend/js/generate.rs
         8           204/212   96.23%  crates/middle/src/compiler/middle/derives.rs
         7             37/44   84.09%  cli/src/commands/arguments.rs
-        7             15/22   68.18%  cli/src/language_server/call_hierarchy.rs
-        7             59/66   89.39%  cli/src/language_server/features.rs
+        7           101/108   93.52%  cli/src/language_server/state.rs
+        7           151/158   95.57%  cli/src/language_server/symbols.rs
         6           158/164   96.34%  cli/src/build/link.rs
         6             28/34   82.35%  cli/src/commands/generate.rs
-        6             68/74   91.89%  cli/src/language_server/build_files.rs
-        6             38/44   86.36%  cli/src/language_server/formatting.rs
-        6             40/46   86.96%  cli/src/language_server/syntax.rs
         5           264/269   98.14%  cli/src/build/actions.rs
         5             19/24   79.17%  cli/src/commands/mod.rs
-        5           141/146   96.58%  cli/src/language_server/completion.rs
+        5             67/72   93.06%  cli/src/language_server/inlay_hints.rs
+        5           155/160   96.88%  cli/src/language_server/mod.rs
+        5             41/46   89.13%  cli/src/language_server/syntax.rs
+        5              7/12   58.33%  cli/src/main.rs
+        5             45/50   90.00%  crates/middle/src/compiler/middle/coverage/derived.rs
+        4             34/38   89.47%  crates/middle/src/compiler/backend/intrinsic_keys.rs
+        4           104/108   96.30%  crates/middle/src/compiler/middle/monomorphize/hand_written.rs
+        3               3/6   50.00%  cli/src/commands/version.rs
