@@ -921,19 +921,22 @@ fn assemble_unit(
         index.insert(String::from(name), i);
         i
     };
+    // What each symbol `want` handed out is defined as, by its index: where,
+    // whether it is global and whether it is weak. Written onto the symbols once
+    // every one is known.
+    let mut defs: crate::hash::Map<usize, (object::Definition, bool, bool)> =
+        crate::hash::Map::default();
 
     // Every member of this unit is defined here and visible outside it: a call
     // from another unit is a relocation against this name.
     for (i, entry) in members.iter().zip(&entries) {
         let sym = jit::symbol_of(program, u32::try_from(*i).unwrap_or(0));
         let at = want(&mut symbols, &mut index, &sym);
-        let s = symbols
-            .get_mut(at)
-            .or_ice("`want` answers a symbol it holds");
-        s.defined = Some(object::Definition {
+        let def = object::Definition {
             section: 0,
             offset: *entry,
-        });
+        };
+        defs.insert(at, (def, true, false));
     }
 
     // The functions the unit generated for itself (`glue.rs`). Drop and copy
@@ -944,25 +947,19 @@ fn assemble_unit(
     // namespace per part (`glue::symbol`).
     let mut glue: Vec<(usize, u64, u64)> = Vec::new();
     for h in helper_symbols {
-        let repeat = h.shared
-            && index
-                .get(&h.name)
-                .is_some_and(|i| symbols.get(*i).is_some_and(|s| s.defined.is_some()));
+        let repeat = h.shared && index.get(&h.name).is_some_and(|i| defs.contains_key(i));
         let name = if repeat {
             format!("{}$again{}", h.name, glue.len())
         } else {
             h.name
         };
         let ix = want(&mut symbols, &mut index, &name);
-        let s = symbols
-            .get_mut(ix)
-            .or_ice("`want` answers a symbol it holds");
-        s.defined = Some(object::Definition {
+        let def = object::Definition {
             section: CODE,
             offset: h.at,
-        });
-        s.global = h.shared && !repeat;
-        s.weak = s.global;
+        };
+        let global = h.shared && !repeat;
+        defs.insert(ix, (def, global, global));
         if h.shared {
             glue.push((ix, h.at, h.end));
         }
@@ -1025,14 +1022,11 @@ fn assemble_unit(
         });
     }
     let anchor = want(&mut symbols, &mut index, POOL_ANCHOR);
-    let s = symbols
-        .get_mut(anchor)
-        .or_ice("`want` answers a symbol it holds");
-    s.defined = Some(object::Definition {
+    let def = object::Definition {
         section: POOL,
         offset: 0,
-    });
-    s.global = false;
+    };
+    defs.insert(anchor, (def, false, false));
 
     // The three sections a unit has, under whichever container's names. Only
     // the spelling differs: a Mach-O section is `segment,section` and an ELF
@@ -1067,30 +1061,20 @@ fn assemble_unit(
     } else {
         ("__bss", "__DATA")
     };
-    let mut sections = vec![
-        object::Section {
-            name: text,
-            segment: text_seg,
-            align: region::CODE_ALIGN,
-            attributes: object::CODE_ATTRIBUTES,
-            zerofill: 0,
-            group: None,
-            data: Vec::new(),
+    // Every section but the code, which goes in front once its bytes are final.
+    let mut sections = vec![object::Section {
+        name: const_,
+        segment: const_seg,
+        align: if target.is_arm64() {
+            region::POOL_ALIGN
+        } else {
+            region::POOL_ALIGN_X86_64
         },
-        object::Section {
-            name: const_,
-            segment: const_seg,
-            align: if target.is_arm64() {
-                region::POOL_ALIGN
-            } else {
-                region::POOL_ALIGN_X86_64
-            },
-            attributes: 0,
-            zerofill: 0,
-            group: None,
-            data: emitted.pool,
-        },
-    ];
+        attributes: 0,
+        zerofill: 0,
+        group: None,
+        data: emitted.pool,
+    }];
 
     if !shims.is_empty() {
         // The shims go after the bodies rather than before them, so that the
@@ -1102,13 +1086,11 @@ fn assemble_unit(
             let at = code.len() as u64;
             code.extend_from_slice(&shim.bytes);
             let ix = want(&mut symbols, &mut index, &name);
-            let s = symbols
-                .get_mut(ix)
-                .or_ice("`want` answers a symbol it holds");
-            s.defined = Some(object::Definition {
+            let def = object::Definition {
                 section: 0,
                 offset: at,
-            });
+            };
+            defs.insert(ix, (def, true, false));
             for (off, kind, target, addend) in shim.relocs {
                 let sym = want(&mut symbols, &mut index, &name_of(program, &target));
                 out.push(object::Reloc {
@@ -1132,23 +1114,36 @@ fn assemble_unit(
             data: Vec::new(),
         });
         let stack = want(&mut symbols, &mut index, asm::STACK_SYMBOL);
-        let s = symbols
-            .get_mut(stack)
-            .or_ice("`want` answers a symbol it holds");
-        s.defined = Some(object::Definition {
+        let def = object::Definition {
             section: STACK,
             offset: 0,
-        });
+        };
+        defs.insert(stack, (def, true, false));
+    }
+    for (i, s) in symbols.iter_mut().enumerate() {
+        if let Some((def, global, weak)) = defs.remove(&i) {
+            s.defined = Some(def);
+            s.global = global;
+            s.weak = weak;
+        }
     }
 
     if target.is_elf() {
-        let first = sections.len();
+        let first = sections.len().saturating_add(1);
         sections.extend(carve(&mut code, &mut symbols, &mut out, &glue, first));
     }
-    sections
-        .first_mut()
-        .or_ice("a unit has its code section")
-        .data = code;
+    sections.insert(
+        CODE,
+        object::Section {
+            name: text,
+            segment: text_seg,
+            align: region::CODE_ALIGN,
+            attributes: object::CODE_ATTRIBUTES,
+            zerofill: 0,
+            group: None,
+            data: code,
+        },
+    );
     let bytes = if target.is_elf() {
         elf::write(target, &sections, &symbols, &out)
     } else {

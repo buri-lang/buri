@@ -523,22 +523,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 /// The state of one function's emission.
 struct Function<'ctx> {
     value: FunctionValue<'ctx>,
-    blocks: Vec<BasicBlock<'ctx>>,
-    /// The LLVM block each IR block's *terminator* was emitted into.
-    ///
-    /// Not the same as `blocks[i]`: an instruction that branches — a division's
-    /// zero test, a `decref`'s null and count tests, an `exitWith` — leaves the
-    /// builder in a block it created, and the terminator lands there. A phi's
-    /// incoming edge must name the block control actually came *from*, so this
-    /// is what `fill_phis` reads. Naming `blocks[i]` instead is a "PHI node
-    /// entries do not match predecessors" that the verifier catches and that
-    /// nothing else would.
-    ends: Vec<Option<BasicBlock<'ctx>>>,
+    /// One per IR block, by `BlockId`.
+    blocks: Vec<Emitted<'ctx>>,
     /// One entry per `ValueId`.
     values: Vec<Option<BasicValueEnum<'ctx>>>,
-    /// The phi for each block parameter, so incoming edges can be added last.
-    /// `None` for a parameter held in memory, which is a buffer and no phi.
-    phis: Vec<Vec<Option<inkwell::values::PhiValue<'ctx>>>>,
     /// The block an edge's copies into its target's buffers were emitted in,
     /// by `(block, edge)`: the incoming block for the target's other phis.
     edges: Map<(usize, usize), BasicBlock<'ctx>>,
@@ -555,6 +543,33 @@ struct Function<'ctx> {
     /// A tag or a field read out of a value in registers, by the value and
     /// [`Read`]: built once, where the value is defined ([`Unit::read_once`]).
     reads: Map<(usize, Read), BasicValueEnum<'ctx>>,
+}
+
+/// One IR block's LLVM side.
+struct Emitted<'ctx> {
+    start: BasicBlock<'ctx>,
+    /// The LLVM block the IR block's *terminator* was emitted into, `start`
+    /// until then.
+    ///
+    /// Not always `start`: an instruction that branches — a division's zero
+    /// test, a `decref`'s null and count tests, an `exitWith` — leaves the
+    /// builder in a block it created, and the terminator lands there. A phi's
+    /// incoming edge must name the block control actually came *from*, so this
+    /// is what `fill_phis` reads. Naming `start` instead is a "PHI node entries
+    /// do not match predecessors" that the verifier catches and that nothing
+    /// else would.
+    end: std::cell::Cell<BasicBlock<'ctx>>,
+    /// The phi for each parameter, so incoming edges can be added last. `None`
+    /// for a parameter held in memory, which is a buffer and no phi.
+    phis: Vec<Option<inkwell::values::PhiValue<'ctx>>>,
+}
+
+impl<'ctx> Function<'ctx> {
+    fn block(&self, b: ir::BlockId) -> &Emitted<'ctx> {
+        self.blocks
+            .get(b.index())
+            .or_ice("every block has its LLVM block")
+    }
 }
 
 /// What [`Unit::read_once`] read out of a value, and the value's type.
@@ -589,16 +604,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         value: FunctionValue<'ctx>,
     ) {
         let entry = self.ctx.append_basic_block(value, "entry");
-        let blocks: Vec<BasicBlock<'ctx>> = (0..code.blocks.len())
+        let starts: Vec<BasicBlock<'ctx>> = (0..code.blocks.len())
             .map(|i| self.ctx.append_basic_block(value, &format!("b{i}")))
             .collect();
 
         let mut state = Function {
             value,
-            ends: (0..code.blocks.len()).map(|_| None).collect(),
-            blocks,
+            blocks: Vec::with_capacity(starts.len()),
             values: (0..code.values()).map(|_| None).collect(),
-            phis: Vec::new(),
             edges: Map::default(),
             sret: None,
             entry,
@@ -619,11 +632,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.builder.position_at_end(entry);
         self.bind_entry_params(&mut state, func, code);
 
-        for (i, block) in code.blocks.iter().enumerate() {
-            let mut row = Vec::new();
+        for (i, (block, &start)) in code.blocks.iter().zip(&starts).enumerate() {
+            let mut phis = Vec::new();
             if i > 0 {
-                let bb = *state.blocks.get(i).or_ice("every block has its LLVM block");
-                self.builder.position_at_end(bb);
+                self.builder.position_at_end(start);
                 for p in &block.params {
                     // A parameter held in memory is a buffer of its own, which
                     // every edge into the block copies its argument into
@@ -634,7 +646,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     if repr::in_memory(&slots) {
                         let buf = self.value_buffer(&slots);
                         self.set(&mut state, *p, buf.into());
-                        row.push(None);
+                        phis.push(None);
                         continue;
                     }
                     let ty = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(*p));
@@ -643,23 +655,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         .build_phi(ty, &format!("v{}", p.0))
                         .or_ice(BUILT);
                     self.set(&mut state, *p, phi.as_basic_value());
-                    row.push(Some(phi));
+                    phis.push(Some(phi));
                 }
             }
-            state.phis.push(row);
+            state.blocks.push(Emitted {
+                start,
+                end: std::cell::Cell::new(start),
+                phis,
+            });
         }
 
         // The entry `alloca`s go before the jump into b0, which is what makes
         // them eligible for SROA at all (§2.3).
         self.builder.position_at_end(entry);
-        let b0 = *state.blocks.first().or_ice("a body has its entry block");
+        let b0 = state.block(ir::BlockId(0)).start;
         let _ = self.builder.build_unconditional_branch(b0);
 
         let projections = projections(code);
         for i in reverse_postorder(code) {
-            let block = code.get(ir::BlockId(i as u32));
-            let bb = *state.blocks.get(i).or_ice("every block has its LLVM block");
-            self.builder.position_at_end(bb);
+            let id = ir::BlockId(i as u32);
+            let block = code.get(id);
+            self.builder.position_at_end(state.block(id).start);
             let cancelled = self.cancelled_counts(code, &block.insts, &projections);
             for (inst, cancelled) in block.insts.iter().zip(cancelled) {
                 if cancelled {
@@ -668,7 +684,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 }
                 self.inst(&mut state, code, inst);
             }
-            *state.ends.get_mut(i).or_ice("every block has its end") = Some(self.here());
+            state.block(id).end.set(self.here());
             self.terminator(&mut state, code, i, &block.term);
         }
 
@@ -691,30 +707,21 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     fn bind_entry_params(&mut self, state: &mut Function<'ctx>, func: &ir::Func, code: &ir::Code) {
-        let entry_block = code.blocks.first().or_ice("a body has its entry block");
+        let entry_block = code.get(ir::BlockId(0));
         let sig = self.machine_of(&func.sig);
+        let mut args = state.value.get_param_iter();
         if sig.sret.is_some() {
-            state.sret = state.value.get_nth_param(0).and_then(|p| p.try_into().ok());
+            state.sret = args.next().and_then(|p| p.try_into().ok());
         }
-        let mut next = sig.first();
-        let param = |next: &mut u32| {
-            let arg = state
-                .value
-                .get_nth_param(*next)
-                .or_ice("a function takes its parameters");
-            *next = next.saturating_add(1);
-            arg
-        };
         let mut bound = Vec::with_capacity(entry_block.params.len());
         for p in &entry_block.params {
-            let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*p));
+            let mut slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*p));
             // A value held in memory arrives as its address, which the caller
             // keeps alive and unchanged for the length of the call.
             if repr::in_memory(&slots) {
-                bound.push((*p, param(&mut next)));
-                continue;
+                slots = vec![repr::ADDRESS];
             }
-            let pieces: Vec<_> = slots.iter().map(|_| param(&mut next)).collect();
+            let pieces: Vec<_> = args.by_ref().take(slots.len()).collect();
             bound.push((*p, self.assemble(&slots, &pieces)));
         }
         for (p, value) in bound {
@@ -723,20 +730,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     fn fill_phis(&mut self, state: &mut Function<'ctx>, code: &ir::Code) {
-        for (i, block) in code.blocks.iter().enumerate() {
-            let end = state
-                .ends
-                .get(i)
-                .copied()
-                .flatten()
-                .or_ice("every block was emitted");
+        for (i, (block, emitted)) in code.blocks.iter().zip(&state.blocks).enumerate() {
+            let end = emitted.end.get();
             for (k, target) in block.term.targets().enumerate() {
                 let from = state.edges.get(&(i, k)).copied().unwrap_or(end);
-                let row = state
+                for (phi, arg) in state
+                    .block(target.block)
                     .phis
-                    .get(target.block.index())
-                    .or_ice("every block has its phis");
-                for (phi, arg) in row.iter().zip(target.args.iter()) {
+                    .iter()
+                    .zip(target.args.iter())
+                {
                     let Some(phi) = phi else { continue };
                     // Every one of `from`'s edges is a real predecessor of the
                     // target, so every phi in it must get an incoming value from
@@ -791,10 +794,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         match term {
             ir::Term::Jump(t) => {
                 self.edge_copies(state, code, t);
-                let bb = *state
-                    .blocks
-                    .get(t.block.index())
-                    .or_ice("a jump names a block");
+                let bb = state.block(t.block).start;
                 self.builder.build_unconditional_branch(bb).or_ice(BUILT);
             }
             ir::Term::Branch { cond, then, else_ } => {
@@ -855,10 +855,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         k: usize,
         target: &ir::Target,
     ) -> BasicBlock<'ctx> {
-        let bb = *state
-            .blocks
-            .get(target.block.index())
-            .or_ice("an edge names a block");
+        let bb = state.block(target.block).start;
         let copies = code.get(target.block).params.iter().any(|p| {
             repr::in_memory(&repr::ir_slots(
                 &mut self.reprs,
@@ -5071,9 +5068,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let mut state = Function {
             value,
             blocks: Vec::new(),
-            ends: Vec::new(),
             values: Vec::new(),
-            phis: Vec::new(),
             edges: Map::default(),
             sret: None,
             entry,
@@ -5165,11 +5160,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let sig = &full.params;
         // The thunk's own `sret`, where the result is held in memory, is the
         // callee's: the caller's buffer, written once.
-        let out = callee_sig.sret.and_then(|_| state.value.get_nth_param(0));
+        let thunk = state.value;
+        let mut args = thunk.get_param_iter();
+        let out = callee_sig.sret.and_then(|_| args.next());
         // The environment follows it.
-        let env_ptr: PointerValue<'ctx> = state
-            .value
-            .get_nth_param(u32::from(out.is_some()))
+        let env_ptr: PointerValue<'ctx> = args
+            .next()
             .and_then(|p| p.try_into().ok())
             .unwrap_or(env_ptr);
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
@@ -5219,21 +5215,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // An argument the callee only borrows, kept until after the call.
         let mut borrowed: Vec<(Ty, Place<'ctx>)> = Vec::new();
         // After the `sret` pointer and the environment.
-        let mut at = u32::from(out.is_some()).saturating_add(1);
         for (j, p) in sig.iter().enumerate().skip(usize::from(env)) {
             let slots = repr::ir_slots(&mut self.reprs, self.program, *p);
             // A value held in memory is the caller's address, passed on.
             if repr::in_memory(&slots) {
-                let arg = state
-                    .value
-                    .get_nth_param(at)
-                    .or_ice("a thunk takes its callee's arguments");
-                at = at.saturating_add(1);
-                argv.push(arg.into());
+                let arg = args.next();
+                argv.extend(arg.map(BasicMetadataValueEnum::from));
                 if let (
                     Some(&ir::Ownership::Borrow),
                     Some(ty),
-                    BasicValueEnum::PointerValue(base),
+                    Some(BasicValueEnum::PointerValue(base)),
                 ) = (own.get(j), self.type_of(*p), arg)
                 {
                     borrowed.push((
@@ -5246,16 +5237,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 }
                 continue;
             }
-            let mut taken = Vec::with_capacity(slots.len());
-            for _ in 0..slots.len() {
-                taken.push(
-                    state
-                        .value
-                        .get_nth_param(at)
-                        .or_ice("a thunk takes its callee's arguments"),
-                );
-                at = at.saturating_add(1);
-            }
+            let taken: Vec<_> = args.by_ref().take(slots.len()).collect();
             argv.extend(taken.iter().map(|v| BasicMetadataValueEnum::from(*v)));
             if own.get(j) != Some(&ir::Ownership::Borrow) {
                 continue;
