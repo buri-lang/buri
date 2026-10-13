@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15189 15437 98.39%
+total 15163 15405 98.43%
 area cli/build 1688 1705 99.00%
 area cli/documentation 477 480 99.38%
 area cli/format 94 94 100.00%
@@ -17,13 +17,13 @@ area crates/backend 68 68 100.00%
 area crates/diagnostics 191 194 98.45%
 area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
-area crates/js 1021 1060 96.32%
+area crates/js 1019 1056 96.50%
 area crates/llvm 596 600 99.33%
-area crates/middle 1869 1916 97.55%
+area crates/middle 1857 1902 97.63%
 area crates/project 1341 1358 98.75%
-area crates/semantics 2201 2208 99.68%
+area crates/semantics 2196 2202 99.73%
 area crates/stdlib 12 12 100.00%
-area crates/stencil 1189 1212 98.10%
+area crates/stencil 1182 1204 98.17%
 area crates/syntax 1194 1196 99.83%
 264 269 cli/src/build/actions.rs
 44 44 cli/src/build/cache.rs
@@ -121,24 +121,24 @@ area crates/syntax 1194 1196 99.83%
 8 8 crates/hash/src/build/sha256.rs
 8 8 crates/hash/src/hash.rs
 10 10 crates/js/src/compiler/backend/js/crossing.rs
-328 336 crates/js/src/compiler/backend/js/generate.rs
+327 334 crates/js/src/compiler/backend/js/generate.rs
 90 90 crates/js/src/compiler/backend/js/intrinsics.rs
 521 548 crates/js/src/compiler/backend/js/javascript.rs
 3 4 crates/js/src/compiler/backend/js/mod.rs
-69 72 crates/js/src/compiler/backend/js/park.rs
+68 70 crates/js/src/compiler/backend/js/park.rs
 52 52 crates/llvm/src/compiler/backend/llvm/attrs.rs
 485 486 crates/llvm/src/compiler/backend/llvm/emit.rs
 9 12 crates/llvm/src/compiler/backend/llvm/mod.rs
 50 50 crates/llvm/src/compiler/backend/llvm/repr.rs
 0 0 crates/llvm/src/compiler/backend/llvm/target.rs
-34 38 crates/middle/src/compiler/backend/intrinsic_keys.rs
+29 32 crates/middle/src/compiler/backend/intrinsic_keys.rs
 30 30 crates/middle/src/compiler/middle/chunks.rs
 18 18 crates/middle/src/compiler/middle/closures.rs
 45 50 crates/middle/src/compiler/middle/coverage/derived.rs
-138 138 crates/middle/src/compiler/middle/coverage/mod.rs
+136 136 crates/middle/src/compiler/middle/coverage/mod.rs
 23 24 crates/middle/src/compiler/middle/dce.rs
 36 36 crates/middle/src/compiler/middle/decision.rs
-201 208 crates/middle/src/compiler/middle/derives.rs
+196 202 crates/middle/src/compiler/middle/derives.rs
 6 6 crates/middle/src/compiler/middle/flags.rs
 18 18 crates/middle/src/compiler/middle/forward.rs
 28 28 crates/middle/src/compiler/middle/fuse.rs
@@ -172,7 +172,7 @@ area crates/syntax 1194 1196 99.83%
 34 34 crates/semantics/src/compiler/semantics/crossing.rs
 12 12 crates/semantics/src/compiler/semantics/decorative.rs
 100 100 crates/semantics/src/compiler/semantics/exhaustiveness.rs
-437 438 crates/semantics/src/compiler/semantics/expressions.rs
+434 434 crates/semantics/src/compiler/semantics/expressions.rs
 52 52 crates/semantics/src/compiler/semantics/icons.rs
 243 246 crates/semantics/src/compiler/semantics/inference.rs
 4 4 crates/semantics/src/compiler/semantics/intern.rs
@@ -180,7 +180,7 @@ area crates/syntax 1194 1196 99.83%
 2 2 crates/semantics/src/compiler/semantics/name.rs
 84 84 crates/semantics/src/compiler/semantics/patterns.rs
 28 28 crates/semantics/src/compiler/semantics/reactive.rs
-418 418 crates/semantics/src/compiler/semantics/resolve.rs
+416 416 crates/semantics/src/compiler/semantics/resolve.rs
 14 14 crates/semantics/src/compiler/semantics/resolve/constructible.rs
 64 64 crates/semantics/src/compiler/semantics/resolve/endless.rs
 140 140 crates/semantics/src/compiler/semantics/resolve/platforms.rs
@@ -192,7 +192,7 @@ area crates/syntax 1194 1196 99.83%
 0 0 crates/stencil/src/compiler/backend/stencil/abi.rs
 22 22 crates/stencil/src/compiler/backend/stencil/asm.rs
 38 40 crates/stencil/src/compiler/backend/stencil/elf.rs
-349 358 crates/stencil/src/compiler/backend/stencil/emit.rs
+342 350 crates/stencil/src/compiler/backend/stencil/emit.rs
 86 88 crates/stencil/src/compiler/backend/stencil/glue.rs
 465 468 crates/stencil/src/compiler/backend/stencil/jit.rs
 4 4 crates/stencil/src/compiler/backend/stencil/library.rs
