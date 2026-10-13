@@ -36,12 +36,9 @@ fn named_from(program: &Program, own_unit: bool) -> Vec<bool> {
     };
     for f in &program.funcs {
         let Body::Code(code) = &f.body else { continue };
-        for inst in code.blocks.iter().flat_map(|b| &b.insts) {
+        for inst in code.blocks().iter().flat_map(|b| &b.insts) {
             let callee = match inst {
                 Inst::Call { func, .. } | Inst::MakeClosure { func, .. } => *func,
-                Inst::DecRef {
-                    drop: Some(func), ..
-                } => *func,
                 _ => continue,
             };
             if program
@@ -64,14 +61,16 @@ fn named_from(program: &Program, own_unit: bool) -> Vec<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compiler::middle::ir::{Code, Facts, Func, Purity, Signature, Term, Type};
+    use crate::compiler::middle::ir::{
+        BlockId, Code, Facts, Func, Purity, Signature, Term, Type, TypeList, Unit,
+    };
     use crate::compiler::semantics::types::FuncIdx;
     use crate::diagnostics::Span;
 
     /// A function in `unit` that calls each of `calls`.
     fn func(unit: u32, calls: &[u32]) -> Func {
-        let mut code = Code::new();
-        let entry = code.block(&[]);
+        let mut code = Code::new(&[]);
+        let entry = BlockId::ENTRY;
         for c in calls {
             let dest = code.value(Type::I64);
             code.get_mut(entry).insts.push(Inst::Call {
@@ -106,8 +105,13 @@ mod tests {
     fn only_a_call_across_units_names_a_function() {
         let program = Program {
             funcs: vec![func(0, &[1, 2]), func(0, &[]), func(1, &[]), func(1, &[0])],
-            units: vec!["a".into(), "b".into()],
-            types: Vec::new(),
+            units: ["a", "b"]
+                .map(|name| Unit {
+                    name: name.into(),
+                    funcs: Vec::new(),
+                })
+                .into(),
+            types: TypeList::default(),
             crosses_tasks: false,
             cell_equal: Default::default(),
         };

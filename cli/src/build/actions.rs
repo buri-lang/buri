@@ -2131,15 +2131,6 @@ pub fn no_native_artifact(gap: &NativeGap, span: Span) -> Diagnostic {
 /// `FuncIdx`. Sorting the rendered lines gives a total order derived from the
 /// content, so the string moves only when a layout this unit names moves.
 fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, String)> {
-    // Grouped in one pass rather than scanned once per unit: the filter was
-    // `units * funcs`, which is the whole program re-walked for every unit.
-    let mut members: Vec<Vec<(usize, &ir::Func)>> = vec![Vec::new(); program.units.len()];
-    for (i, func) in program.funcs.iter().enumerate() {
-        members
-            .get_mut(func.unit as usize)
-            .or_ice("every function is in one of the program's units")
-            .push((i, func));
-    }
     let elsewhere = crate::compiler::backend::linkage::named_elsewhere(program);
     // A unit at a time, over the cores this machine has. Each unit's two hashes
     // are a pure function of the unit's members and of `tables`, and nothing
@@ -2152,10 +2143,15 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
         program.units.len(),
         || layout::Layouts::new(tables),
         |layouts, u| {
-            let name = program.units.get(u).cloned().unwrap_or_default();
+            let unit = program.units.get(u);
+            let name = unit.map_or_else(String::new, |unit| unit.name.clone());
             let mut text = String::new();
-            let mut types: Vec<usize> = Vec::new();
-            for &(at, func) in members.get(u).map(Vec::as_slice).unwrap_or_default() {
+            let mut types: Vec<ir::TypeId> = Vec::new();
+            let members = unit.map_or(&[][..], |unit| unit.funcs.as_slice());
+            for (at, func) in members
+                .iter()
+                .filter_map(|&at| Some((at, program.funcs.get(at)?)))
+            {
                 program.render_func_into(func, &mut text);
                 // The LLVM backend drops a function no other unit names
                 // (`backend::linkage`), so who names it is part of the object.
@@ -2166,10 +2162,7 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
             }
             types.sort_unstable();
             types.dedup();
-            let seeds = types
-                .iter()
-                .filter_map(|id| program.types.get(*id))
-                .map(|info| info.ty);
+            let seeds = types.iter().map(|id| program.types.get(*id).ty);
             let shapes = layout_closure_signature(layouts, tables, seeds);
             (
                 name,
@@ -2297,23 +2290,23 @@ fn test_entry_signature(
     Some((unit, sig))
 }
 
-/// Every aggregate type one function names, as indices into `Program::types`.
-fn collect_types(func: &ir::Func, out: &mut Vec<usize>) {
+/// Every aggregate type one function names in `Program::types`.
+fn collect_types(func: &ir::Func, out: &mut Vec<ir::TypeId>) {
     for t in func.sig.params.iter().chain([&func.sig.ret]) {
         if let ir::Type::Agg(id) = t {
-            out.push(id.index());
+            out.push(*id);
         }
     }
     let Some(code) = func.code() else { return };
-    for i in 0..code.values() {
-        if let ir::Type::Agg(id) = code.ty_of(ir::ValueId(i as u32)) {
-            out.push(id.index());
+    for v in code.value_ids() {
+        if let ir::Type::Agg(id) = code.ty_of(v) {
+            out.push(id);
         }
     }
-    for block in &code.blocks {
+    for block in code.blocks() {
         for inst in &block.insts {
             if let ir::Inst::Structural { ty, .. } = inst {
-                out.push(ty.index());
+                out.push(*ty);
             }
         }
     }

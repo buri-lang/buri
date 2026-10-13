@@ -1513,7 +1513,7 @@ impl<'a> Jit<'a> {
                     let out = if b.out.index() == next {
                         V::Fall
                     } else {
-                        V::Blk(b.out.0)
+                        V::Blk(b.out.index() as u32)
                     };
                     let key = self.arm_key("incbr/lt", "JIT_F");
                     self.emit(
@@ -1523,7 +1523,7 @@ impl<'a> Jit<'a> {
                             ("JIT_A", V::I(u64::from(st.at(b.from)))),
                             ("JIT_N", V::I(b.by)),
                             ("JIT_B", V::I(u64::from(st.at(b.bound)))),
-                            ("JIT_T", V::Blk(b.back.0)),
+                            ("JIT_T", V::Blk(b.back.index() as u32)),
                             ("JIT_F", out),
                         ],
                     );
@@ -1539,7 +1539,7 @@ impl<'a> Jit<'a> {
                 if fall {
                     self.emit("jump", &[("JIT_T", V::Fall)]);
                 } else {
-                    self.emit("jump", &[("JIT_T", V::Blk(x.block.0))]);
+                    self.emit("jump", &[("JIT_T", V::Blk(x.block.index() as u32))]);
                 }
             }
             Term::Branch { cond, then, else_ } => {
@@ -1555,8 +1555,16 @@ impl<'a> Jit<'a> {
                 if then.args.is_empty() && else_.args.is_empty() {
                     let ft = then.block.index() == next;
                     let fe = else_.block.index() == next;
-                    let tv = if ft { V::Fall } else { V::Blk(then.block.0) };
-                    let fv = if fe { V::Fall } else { V::Blk(else_.block.0) };
+                    let tv = if ft {
+                        V::Fall
+                    } else {
+                        V::Blk(then.block.index() as u32)
+                    };
+                    let fv = if fe {
+                        V::Fall
+                    } else {
+                        V::Blk(else_.block.index() as u32)
+                    };
                     let fall = if ft { "JIT_T" } else { "JIT_F" };
                     self.cond(st, *cond, plan, tv, fv, fall);
                     return;
@@ -1579,7 +1587,7 @@ impl<'a> Jit<'a> {
                 let fall = if y_is_then { "JIT_F" } else { "JIT_T" };
                 self.cond(st, *cond, plan, tv, fv, fall);
                 self.edge(prog, code, st, x);
-                self.emit("jump", &[("JIT_T", V::Blk(x.block.0))]);
+                self.emit("jump", &[("JIT_T", V::Blk(x.block.index() as u32))]);
                 st.place(lf, self.region.code_addr());
                 // `y` is the arm laid out next.
                 self.edge(prog, code, st, y);
@@ -1657,7 +1665,7 @@ impl<'a> Jit<'a> {
                     // no parameters), so the test names the block itself.
                     let mut binds: Vec<(&str, V)> = vec![
                         ("JIT_A", V::I(src as u64)),
-                        ("JIT_T", V::Blk(tgt.block.0)),
+                        ("JIT_T", V::Blk(tgt.block.index() as u32)),
                         ("JIT_F", V::Blk(lnext)),
                     ];
                     if fusedw.is_some() {
@@ -1671,7 +1679,7 @@ impl<'a> Jit<'a> {
                 match default {
                     Some(tgt) => {
                         self.edge(prog, code, st, tgt);
-                        self.emit("jump", &[("JIT_T", V::Blk(tgt.block.0))]);
+                        self.emit("jump", &[("JIT_T", V::Blk(tgt.block.index() as u32))]);
                     }
                     None => self.emit("unreachable", &[]),
                 }
@@ -1823,8 +1831,8 @@ impl<'a> Jit<'a> {
             st,
             *cond,
             &plan,
-            V::Blk(then.block.0),
-            V::Blk(else_.block.0),
+            V::Blk(then.block.index() as u32),
+            V::Blk(else_.block.index() as u32),
             "JIT_T",
         );
         true
@@ -1874,7 +1882,7 @@ impl<'a> Jit<'a> {
             binds.push((sh, V::I(*s as u64)));
             binds.push((dh, V::I(*d as u64)));
         }
-        binds.push(("JIT_T", V::Blk(t.block.0)));
+        binds.push(("JIT_T", V::Blk(t.block.index() as u32)));
         self.emit(&key, &binds);
         true
     }

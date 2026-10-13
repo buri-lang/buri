@@ -568,7 +568,7 @@ fn many_functions_answer(n: usize) -> u64 {
 fn biggest_unit(source: &str) -> usize {
     let (program, tables) = lowered(source);
     let ir = buri::compiler::middle::lower::run(&program, &tables);
-    ir.funcs_by_unit().iter().map(Vec::len).max().unwrap_or(0)
+    ir.units.iter().map(|u| u.funcs.len()).max().unwrap_or(0)
 }
 
 /// A unit larger than one part is emitted in pieces, on a thread each, and
@@ -5198,7 +5198,12 @@ fn lowered_size(source: &str, pick: impl Fn(&str) -> bool) -> usize {
         .iter()
         .filter(|f| pick(&f.symbol))
         .filter_map(|f| f.code())
-        .map(|code| code.blocks.iter().map(|b| 1 + b.insts.len()).sum::<usize>())
+        .map(|code| {
+            code.blocks()
+                .iter()
+                .map(|b| 1 + b.insts.len())
+                .sum::<usize>()
+        })
         .sum()
 }
 

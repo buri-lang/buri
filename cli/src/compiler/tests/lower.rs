@@ -4,7 +4,7 @@
 
 use crate::compiler::driver;
 use crate::compiler::middle;
-use crate::compiler::middle::ir::{self, Body, Inst, Ownership, ValueId};
+use crate::compiler::middle::ir::{self, BlockId, Body, Inst, Ownership, ValueId};
 use crate::compiler::middle::lower::*;
 use crate::compiler::middle::monomorphize::{self, Program};
 use crate::compiler::middle::rc;
@@ -177,7 +177,7 @@ fn a_counted_field_bound_and_never_read_is_not_released_then_retained() {
     let mut pairs = 0usize;
     for f in &p.funcs {
         let Some(code) = f.code() else { continue };
-        for block in &code.blocks {
+        for block in code.blocks() {
             // A maximal run of reference operations: nothing between them
             // runs, so the whole run is one moment.
             let mut released: Vec<ValueId> = Vec::new();
@@ -190,7 +190,7 @@ fn a_counted_field_bound_and_never_read_is_not_released_then_retained() {
                             "{}: v{} is released and then retained with nothing between \
                              — a free, and then a write through the freed header\n{}",
                             f.debug_name,
-                            value.0,
+                            value,
                             p.render_func(f)
                         );
                         pairs += 1;
@@ -277,7 +277,7 @@ fn a_projection_never_reads_a_base_this_block_has_already_released() {
     let mut bases = 0usize;
     for f in &p.funcs {
         let Some(code) = f.code() else { continue };
-        for block in &code.blocks {
+        for block in code.blocks() {
             let mut released: Vec<ValueId> = Vec::new();
             for inst in &block.insts {
                 match inst {
@@ -288,7 +288,7 @@ fn a_projection_never_reads_a_base_this_block_has_already_released() {
                             !released.contains(agg),
                             "{}: v{} is projected out of after this block released it\n{}",
                             f.debug_name,
-                            agg.0,
+                            agg,
                             p.render_func(f)
                         );
                         bases += 1;
@@ -359,18 +359,17 @@ fn every_join_takes_its_value_as_a_parameter() {
     for f in &p.funcs {
         let Some(code) = f.code() else { continue };
         let preds = code.preds();
-        for (i, b) in code.blocks.iter().enumerate() {
-            let n = preds.get(i).map(Vec::len).unwrap_or(0);
-            if n > 1 {
+        for (i, b) in code.iter() {
+            if preds.get(i).len() > 1 {
                 // Every predecessor supplies an argument list of exactly
                 // this block's arity — checked by `verify`, and this is
                 // the statement of *why* it matters.
-                for p in preds.get(i).map(Vec::as_slice).unwrap_or_default() {
+                for p in preds.get(i) {
                     let t = code
                         .get(*p)
                         .term
                         .targets()
-                        .find(|t| t.block.index() == i)
+                        .find(|t| t.block == i)
                         .expect("a predecessor names the block");
                     assert_eq!(t.args.len(), b.params.len());
                 }
@@ -447,7 +446,8 @@ export fn count(n: Int, acc: Int): Int {
         .expect("the function is in the program");
     let code = f.code().expect("it has a body");
     let preds = code.preds();
-    let header = preds.get(1).cloned().unwrap_or_default();
+    let (second, _) = code.iter().nth(1).expect("the function has a header block");
+    let header = preds.get(second);
     assert!(
         header.len() >= 2,
         "the header has the entry and a back edge: {header:?}"
@@ -457,7 +457,7 @@ export fn count(n: Int, acc: Int): Int {
         "one predecessor comes from later in the function: {header:?}"
     );
     // Nothing jumps to the entry.
-    assert!(preds.first().map(Vec::is_empty).unwrap_or(false), "{text}");
+    assert!(preds.get(BlockId::ENTRY).is_empty(), "{text}");
 }
 
 #[test]
@@ -488,12 +488,9 @@ fn a_lowered_program_names_one_unit_per_module() {
         "export fn id(n: Int): Int { n }",
         "  let _ = id([1, 2].length());",
     ));
-    assert!(p.units.iter().any(|u| u == "test"), "{:?}", p.units);
-    assert!(
-        p.units.iter().any(|u| u.starts_with("core_")),
-        "{:?}",
-        p.units
-    );
+    let names: Vec<&str> = p.units.iter().map(|u| u.name.as_str()).collect();
+    assert!(names.contains(&"test"), "{names:?}");
+    assert!(names.iter().any(|u| u.starts_with("core_")), "{names:?}");
     // Every function's unit is one this program declares.
     for f in &p.funcs {
         assert!((f.unit as usize) < p.units.len());
@@ -511,7 +508,7 @@ fn an_intrinsic_is_a_runtime_symbol_and_not_a_body() {
     for f in &p.funcs {
         match &f.body {
             Body::Runtime(_) => assert!(f.code().is_none()),
-            Body::Code(c) => assert!(!c.blocks.is_empty(), "{}", f.debug_name),
+            Body::Code(c) => assert!(!c.blocks().is_empty(), "{}", f.debug_name),
         }
     }
 }

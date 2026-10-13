@@ -449,8 +449,7 @@ impl Backend for Stencil {
                 Root::Tests(tests.iter().map(|t| t.func.index()).collect())
             }
         };
-        let members = lowered.funcs_by_unit();
-        let empty: Vec<usize> = Vec::new();
+        let members: Vec<&[usize]> = lowered.units.iter().map(|u| u.funcs.as_slice()).collect();
 
         // Whole-program, and therefore computed here rather than inside the
         // loop. A frame-threaded call site needs its *callee's* frame layout,
@@ -535,8 +534,8 @@ impl Backend for Stencil {
         // bytes in the same order however many cores the machine has.
         let compiled = crate::parallel::map(wanted.len(), |k| {
             let index = wanted.get(k).copied().unwrap_or(0);
-            let name = lowered.units.get(index).map_or("", String::as_str);
-            let mine = members.get(index).unwrap_or(&empty);
+            let name = lowered.units.get(index).map_or("", |u| u.name.as_str());
+            let mine = members.get(index).copied().unwrap_or_default();
             let parts = held
                 .get(k)
                 .and_then(|m| m.lock().ok().and_then(|mut g| g.take()))
@@ -732,11 +731,11 @@ fn cut(len: usize) -> Vec<(usize, usize)> {
 }
 
 /// Every wanted unit's parts, as one flat work list.
-fn part_plan(wanted: &[usize], members: &[Vec<usize>]) -> PartPlan {
+fn part_plan(wanted: &[usize], members: &[&[usize]]) -> PartPlan {
     let mut jobs: Vec<Job> = Vec::with_capacity(wanted.len());
     let mut spans: Vec<(usize, usize)> = Vec::with_capacity(wanted.len());
     for unit in wanted {
-        let len = members.get(*unit).map_or(0, Vec::len);
+        let len = members.get(*unit).map_or(0, |m| m.len());
         let first = jobs.len();
         for (part, (lo, hi)) in cut(len).into_iter().enumerate() {
             jobs.push(Job {
