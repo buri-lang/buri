@@ -44,12 +44,13 @@ jobs:
       fail-fast: false
       matrix:
         # The fan-outs, and the scopes, actors and shared values agreement
-        # asks about, and `process.start`. Not the servers: their rows hold
+        # asks about, an actor driven from inside a scope, headless timers,
+        # and `process.start`. Not the servers: their rows hold
         # them to deadlines a server twenty times slower misses, and nearly all
         # they share between threads is tokio's. Not `at_scale`'s trees: at
         # that size helgrind takes past the hour.
         include:
-          - { shard: tasks, filters: "fan_out:: at_scale::fan_outs_of_every_width started::" }
+          - { shard: tasks, filters: "fan_out:: at_scale::fan_outs_of_every_width started:: actor_scoped:: headless_timers::" }
           - { shard: agreement, filters: "agreement::" }
           - { shard: runtime }
     runs-on: blacksmith-8vcpu-ubuntu-2404
