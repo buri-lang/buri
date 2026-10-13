@@ -41,6 +41,7 @@
 
 use crate::commands::add::skills::{self, Outcome};
 use crate::commands::arguments::Args;
+use crate::diagnostics::Invariant as _;
 use std::path::{Path, PathBuf};
 
 /// One generated file: where it lands under the target directory, and the
@@ -160,10 +161,9 @@ pub fn generate(root: &Path) -> Result<Vec<(Outcome, PathBuf)>, String> {
     let mut done = Vec::new();
     for file in SCAFFOLD {
         let path = root.join(file.path);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
-        }
+        let parent = path.parent().or_ice("a scaffold file is under the root");
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
         if file.path == IGNORE_FILE && path.exists() {
             let outcome = if merge_ignore(&path, file.text)? {
                 Outcome::Updated
@@ -201,10 +201,7 @@ fn merge_ignore(path: &Path, scaffold: &str) -> Result<bool, String> {
         .lines()
         .map(|line| line.trim().to_string())
         .collect();
-    let is_entry = |line: &&str| {
-        let line = line.trim();
-        !line.is_empty() && !line.starts_with('#')
-    };
+    let is_entry = |line: &&str| !line.trim().starts_with('#');
     if scaffold
         .lines()
         .filter(is_entry)
@@ -267,9 +264,7 @@ fn resolved(path: &Path) -> PathBuf {
             return head;
         };
         tail.push(name);
-        if !head.pop() {
-            return head;
-        }
+        head.pop();
     }
 }
 

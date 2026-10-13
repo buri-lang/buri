@@ -28,6 +28,7 @@ use crate::build::regenerate::{self, Batch, Worked};
 use crate::build::session::{self, Session};
 use crate::build::workspace::{PackageId, RuleKind, TargetId, Workspace};
 use crate::commands::arguments;
+use crate::diagnostics::Invariant as _;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -131,14 +132,16 @@ fn generate_all(args: &arguments::Args) -> i32 {
         stale.push(session.workspace.file_in(package, "BUILD.buri"));
         if !check {
             let path = session.workspace.package(package).build_path.clone();
-            if std::fs::write(&path, &update.text).is_ok() {
-                println!(
-                    "updated {}",
-                    session.workspace.file_in(package, "BUILD.buri")
-                );
-                for line in &update.summary {
-                    println!("  {line}");
-                }
+            if let Err(e) = std::fs::write(&path, &update.text) {
+                eprintln!("error: cannot write {}: {e}", path.display());
+                return 2;
+            }
+            println!(
+                "updated {}",
+                session.workspace.file_in(package, "BUILD.buri")
+            );
+            for line in &update.summary {
+                println!("  {line}");
             }
         }
     }
@@ -183,16 +186,20 @@ impl Answers {
     }
 
     /// Each package's key, worked out on every core.
-    fn keys(&self, workspace: &Workspace, packages: &[PackageId]) -> Vec<Option<ActionKey>> {
+    fn keys(&self, workspace: &Workspace, packages: &[PackageId]) -> Vec<ActionKey> {
         crate::parallel::map(packages.len(), |i| {
-            let package = workspace.package(*packages.get(i)?);
+            let package = workspace.package(
+                *packages
+                    .get(i)
+                    .or_ice("a key is asked of a package in the list"),
+            );
             let (mut files, mut schemas) = (Vec::new(), Vec::new());
             regenerate::collect(&package.dir, &package.dir, &mut files, &mut schemas);
             let mut k = KeyBuilder::new(Action::Regenerate, arguments::BuildMode::Debug);
             k.input("graph", &self.graph.to_le_bytes());
             k.rule_identity(&package.label(), "gen", &files);
             k.input("schemas", schemas.join("\n").as_bytes());
-            Some(k.finish())
+            k.finish()
         })
     }
 
@@ -203,11 +210,7 @@ impl Answers {
         let records: Vec<Option<Record>> = self
             .keys(workspace, packages)
             .iter()
-            .map(|key| {
-                self.cache
-                    .get(key.as_ref()?)
-                    .and_then(|bytes| Record::decode(&bytes))
-            })
+            .map(|key| self.cache.get(key).and_then(|bytes| Record::decode(&bytes)))
             .collect();
         let generated_hold = |record: &Record| {
             record.generated.iter().all(|(path, kind, key)| {
@@ -259,7 +262,6 @@ impl Answers {
             .collect();
         let digests = self.digests(files.into_iter().collect());
         for ((_, w), key) in done.iter().zip(&keys) {
-            let Some(key) = key else { continue };
             let mut generated: BTreeSet<(String, &'static str, String)> = BTreeSet::new();
             for rule in &w.generated {
                 let path = workspace.package(rule.package).path.clone();
@@ -267,9 +269,10 @@ impl Answers {
             }
             let mut reads: BTreeMap<String, &str> = BTreeMap::new();
             for path in &w.reads {
-                if let Some(digest) = digests.get(path) {
-                    reads.insert(workspace.rel_of(path), digest);
-                }
+                let digest = digests
+                    .get(path)
+                    .or_ice("every file a package read was digested");
+                reads.insert(workspace.rel_of(path), digest);
             }
             let mut out = format!(
                 "{FORMAT}\n{}\n{}\n",

@@ -102,14 +102,15 @@ pub fn command_query(args: &arguments::Args) -> i32 {
                         .or_ice("`dep_path` returns a path that begins at `from`");
                     println!("{}", session.workspace.label(*start));
                     for (node, span) in nodes {
-                        let where_ = match span {
-                            Some(sp) if !sp.is_none() => {
-                                let f = session.map.get(sp.file);
-                                let (line, _) = f.line_col(sp.start);
-                                format!("{}:{}", f.name, line)
-                            }
-                            _ => "implicit".into(),
-                        };
+                        // A dependency is always a library, so the one edge
+                        // with no declaration, a binary's to its own library,
+                        // never lies on a path from a package's first target.
+                        let sp = span
+                            .filter(|sp| !sp.is_none())
+                            .or_ice("every edge on a path is declared in a build file");
+                        let f = session.map.get(sp.file);
+                        let (line, _) = f.line_col(sp.start);
+                        let where_ = format!("{}:{}", f.name, line);
                         println!("  -> {:<22} {where_}", session.workspace.label(*node));
                     }
                 }
