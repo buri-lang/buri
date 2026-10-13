@@ -94,7 +94,7 @@ fn the_site_builds_from_the_documentation_in_the_tree() {
         "reference/build/build-files/index.html",
         "reference/cli/index.html",
         "reference/errors/index.html",
-        "reference/errors/circular-import/index.html",
+        "reference/errors/circular-constant/index.html",
         "reference/lints/index.html",
         "reference/lints/dead-code/index.html",
         "reference/skills/buri-language/index.html",
@@ -194,7 +194,7 @@ fn the_masthead_names_the_four_sections() {
     for page in [
         "index.html",
         "language/lexical/index.html",
-        "reference/errors/circular-import/index.html",
+        "reference/errors/circular-constant/index.html",
     ] {
         let html = std::fs::read_to_string(out.join(page)).unwrap();
         let (_, rest) = html
@@ -242,7 +242,7 @@ fn the_reference_is_grouped_and_the_catalogues_are_not_in_the_sidebar() {
 
     // A code page's sidebar shows the groups, not its two hundred siblings.
     let page =
-        std::fs::read_to_string(out.join("reference/errors/circular-import/index.html")).unwrap();
+        std::fs::read_to_string(out.join("reference/errors/circular-constant/index.html")).unwrap();
     let (_, rest) = page.split_once("class=\"sidebar\"").expect("a sidebar");
     let (sidebar, _) = rest.split_once("</nav>").expect("the sidebar ends");
     assert!(
@@ -260,7 +260,7 @@ fn the_reference_is_grouped_and_the_catalogues_are_not_in_the_sidebar() {
 
     // The index page is where the whole catalogue is written down.
     let index = std::fs::read_to_string(out.join("reference/errors/index.html")).unwrap();
-    for code in ["circular-import", "unknown-name", "type-mismatch"] {
+    for code in ["circular-constant", "unknown-name", "type-mismatch"] {
         assert!(index.contains(code), "the errors index omits `{code}`");
     }
 

@@ -335,6 +335,7 @@ const PACKAGES: &[Case] = &[
     // `Checked`/`Wrapping`/`Saturating`/`Bounded` at every width including
     // 128, the bitwise and string codegen corpora, and `core/simd`.
     included("codegen/bitwise.buri"),
+    included("mutual_imports/mutual.buri"),
     included("numbers/bits.buri"),
     included("numbers/integers.buri"),
     // `core/simd` turned out to need no vector intrinsic at all: it is

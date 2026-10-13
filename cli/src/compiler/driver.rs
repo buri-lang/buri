@@ -373,7 +373,7 @@ fn said(d: &Diagnostic) -> Said {
 ///   name the type. Each binary's entries are its own entry module's.
 /// - **Loading reported nothing but parse errors.** A parse error is a fact
 ///   about one file. Everything else the loader says can depend on the order
-///   modules were reached in (`circular-import`), is said once per compilation
+///   modules were reached in, is said once per compilation
 ///   (a generator's diagnostics), or sits in a build file several targets
 ///   share.
 /// - **Every module was loaded in the role each target would load it in.** The

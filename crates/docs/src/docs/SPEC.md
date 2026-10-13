@@ -286,7 +286,7 @@ export fn flip(o: order.Order): order.Order {
 }
 ```
 
-Import declarations are terminated with `;`. Circular imports are an error.
+Import declarations are terminated with `;`. Modules may import each other.
 
 #### 4.1.1 Module paths
 

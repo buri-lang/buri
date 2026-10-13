@@ -28,8 +28,6 @@ pub struct Loader<'a> {
     cache: &'a mut crate::parsing::parser::Cache,
     modules: Vec<ModuleData>,
     by_path: HashMap<String, ModuleId>,
-    /// Modules currently being loaded, for the circular-import diagnostic.
-    stack: Vec<String>,
     /// The rules whose generators this compilation has already reported on.
     generated_rules: std::collections::BTreeSet<TargetId>,
     /// The tools whose entry points this compilation has already checked, so
@@ -68,7 +66,6 @@ impl<'a> Loader<'a> {
             cache,
             modules: Vec::new(),
             by_path: HashMap::default(),
-            stack: Vec::new(),
             generated_rules: std::collections::BTreeSet::new(),
             checked_tools: std::collections::BTreeSet::new(),
             test_sources: Vec::new(),
@@ -353,9 +350,7 @@ impl<'a> Loader<'a> {
             pkg,
             disk: None,
         });
-        self.stack.push(path.to_string());
         self.load_imports(id);
-        self.stack.pop();
         Some(id)
     }
 
@@ -729,18 +724,6 @@ impl<'a> Loader<'a> {
         if let Some(id) = self.by_path.get(path) {
             return Some(*id);
         }
-        // Circular imports are an error, at the module level exactly as at the
-        // package level.
-        if let Some(at) = self.stack.iter().position(|p| p == path) {
-            let cycle = self.stack.get(at..).unwrap_or_default().join(" -> ");
-            self.diags.push(
-                Diagnostic::templated("circular-import", span)
-                    .with_bind("cycle", cycle)
-                    .with_bind("path", path),
-            );
-            return None;
-        }
-
         MODULES_LOADED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let rel = match self.ws {
             Some(ws) => ws.rel_of(&disk),
@@ -791,9 +774,7 @@ impl<'a> Loader<'a> {
             disk: Some(disk),
         });
 
-        self.stack.push(path.to_string());
         self.load_imports(id);
-        self.stack.pop();
         Some(id)
     }
 

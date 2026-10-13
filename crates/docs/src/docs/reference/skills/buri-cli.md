@@ -158,7 +158,7 @@ the typed address. Every response is `Cache-Control: no-store`,
 
 Checks that aren't type errors: sources declared but absent, a source no rule
 names, a dependency unused or undeclared, visibility and tag violations,
-package and import cycles, and hygiene rules — an unused import, an
+package cycles, and hygiene rules — an unused import, an
 unreachable `export`, a test that asserts nothing. Each finding has a stable
 code.
 

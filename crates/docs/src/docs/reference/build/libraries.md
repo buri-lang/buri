@@ -117,7 +117,7 @@ The compiler enforces:
   The library may not import `//pkg/main.buri` at all.
 - **A path containing a `testing` segment is importable only from a test
   source.** See below.
-- **Circular imports are an error**, between modules and between packages.
+- **Modules may import each other; packages may not depend on each other in a cycle.**
 
 ## The `testing/` surface
 

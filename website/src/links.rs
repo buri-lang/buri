@@ -270,7 +270,7 @@ mod tests {
             "getting-started/installing/"
         );
         assert_eq!(
-            relative("reference/errors/circular-import", "language/lexical"),
+            relative("reference/errors/circular-constant", "language/lexical"),
             "../../../language/lexical/"
         );
         assert_eq!(relative("getting-started/installing", ""), "../../");
@@ -285,7 +285,7 @@ mod tests {
             "",
             "guides",
             "getting-started/installing",
-            "reference/errors/circular-import",
+            "reference/errors/circular-constant",
             "reference/grammar",
         ];
         for from in routes {
