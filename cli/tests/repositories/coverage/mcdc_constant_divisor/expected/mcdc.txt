@@ -1,6 +1,6 @@
 2 passed, 0 failed, 0 skipped (0.0s)
 
 mc/dc coverage     branches   conditions    decisions
-  lib/d/d.buri  1/2   50.0%  0/1    0.0%  0/1    0.0%
-  total         1/2   50.0%  0/1    0.0%  0/1    0.0%
+  lib/d/d.buri  2/4   50.0%  0/2    0.0%  0/2    0.0%
+  total         2/4   50.0%  0/2    0.0%  0/2    0.0%
 lcov: .buri/coverage/lcov.info

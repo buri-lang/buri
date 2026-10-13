@@ -327,14 +327,46 @@ fn traps_here(e: &Expr, call: &dyn Fn(&Expr) -> bool, consts: Option<&ConstMap>)
     }
 }
 
-/// Whether `e` is a literal other than zero, or a constant holding one.
+/// Whether `e` is a constant expression whose value is not zero.
 fn nonzero(e: &Expr, consts: Option<&ConstMap>) -> bool {
+    constant(e, consts).is_some_and(|v| v != 0)
+}
+
+/// The value of an integer expression built from literals, constants, `+`,
+/// `-` and `*`, or `None` when it is anything else or leaves its type's range
+/// on the way, where it would wrap.
+fn constant(e: &Expr, consts: Option<&ConstMap>) -> Option<i128> {
     match &e.kind {
-        ExprKind::Int(m, _) => m.get() != 0,
-        ExprKind::Const(c) => consts
-            .and_then(|all| all.get(c))
-            .is_some_and(|v| nonzero(v, consts)),
-        _ => false,
+        ExprKind::Int(m, negative) => {
+            let v = i128::try_from(m.get()).ok()?;
+            if *negative {
+                v.checked_neg()
+            } else {
+                Some(v)
+            }
+        }
+        ExprKind::Const(c) => constant(consts?.get(c)?, consts),
+        ExprKind::Prim { op, prim, args } if prim.is_integer() => {
+            let [a, b] = args.as_slice() else {
+                return None;
+            };
+            let (a, b) = (constant(a, consts)?, constant(b, consts)?);
+            let v = match op {
+                PrimOp::Add => a.checked_add(b),
+                PrimOp::Sub => a.checked_sub(b),
+                PrimOp::Mul => a.checked_mul(b),
+                _ => None,
+            }?;
+            let bits = prim.bits();
+            let (low, high) = if prim.is_signed() {
+                let low = i128::MIN >> (128 - bits);
+                (low, !low)
+            } else {
+                (0, 1i128.checked_shl(bits).map_or(i128::MAX, |top| top - 1))
+            };
+            (low..=high).contains(&v).then_some(v)
+        }
+        _ => None,
     }
 }
 

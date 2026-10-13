@@ -23,8 +23,12 @@ BRDA:43,0,0,1
 BRDA:43,0,1,1
 BRDA:43,1,0,1
 BRDA:43,1,1,1
-BRF:23
-BRH:19
+BRDA:52,0,0,2
+BRDA:52,0,1,1
+BRDA:52,1,0,2
+BRDA:52,1,1,1
+BRF:27
+BRH:23
 MCDC:2,1,t,0,0,'n < 0' in 'n < 0'
 MCDC:2,1,f,0,0,'n < 0' in 'n < 0'
 MCDC:6,1,t,1,0,'n < 0' in 'n < 0'
@@ -55,8 +59,12 @@ MCDC:43,3,t,1,1,'false' in 'match flag'
 MCDC:43,3,f,1,1,'false' in 'match flag'
 MCDC:43,3,t,1,2,'match (flag) { true => true, false => false, }' in 'match (flag) { true => true, false => false, }'
 MCDC:43,3,f,1,2,'match (flag) { true => true, false => false, }' in 'match (flag) { true => true, false => false, }'
-MCF:30
-MCH:20
+MCDC:52,2,t,1,0,'s == "(\""' in 's == "(\"" || c == ')''
+MCDC:52,2,f,1,0,'s == "(\""' in 's == "(\"" || c == ')''
+MCDC:52,2,t,1,1,'c == ')'' in 's == "(\"" || c == ')''
+MCDC:52,2,f,1,1,'c == ')'' in 's == "(\"" || c == ')''
+MCF:34
+MCH:24
 DA:1,1
 DA:2,1
 DA:5,2
@@ -86,6 +94,8 @@ DA:44,1
 DA:45,1
 DA:46,1
 DA:47,1
-LF:29
-LH:28
+DA:51,3
+DA:52,3
+LF:31
+LH:30
 end_of_record

@@ -47,3 +47,7 @@ export fn guardedByMatch(n: Int, flag: Bool): Str {
         _ => "other",
     }
 }
+
+export fn bracket(s: Str, c: Char): Bool {
+    if (s == "(\"" || c == ')') { true } else { false }
+}

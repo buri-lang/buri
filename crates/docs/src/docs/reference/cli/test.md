@@ -261,8 +261,9 @@ It also counts what `--coverage` leaves out:
   branch, as in `0 (T = I64)`, and `(never instantiated)` when no test reached
   one;
 - each integer `/` and `%`, and each `core/bits` shift, which went on or
-  aborted. Dividing by a nonzero literal, or by a `let` holding one, can't
-  abort, so `n / 2` counts nothing;
+  aborted. Dividing by a nonzero constant can't abort, so `n / 2` and
+  `n / (ROWS + 1)` count nothing. A constant here is a literal, a `let`
+  holding one, or `+`, `-` and `*` over those;
 - the code a `derive` stands for, on the `derive`'s line, per operation and
   type: which variant, whether the other value is the same variant, and which
   field an `Equal` or `Ordered` stopped at, as in `Equal Point, x: differs`.
