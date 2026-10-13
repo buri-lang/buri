@@ -1927,7 +1927,7 @@ impl<'a> Jit<'a> {
         // Integers and floats each number their registers from zero, so a
         // register is its number and its class.
         let mut tmp = st.scratch + 56;
-        while !pend.is_empty() {
+        while let Some(&(_, f, src)) = pend.first() {
             let ready = pend
                 .iter()
                 .position(|(k, f, _)| !pend.iter().any(|(_, g, s)| g == f && *s == RSrc::Reg(*k)));
@@ -1940,16 +1940,12 @@ impl<'a> Jit<'a> {
                     // A permutation of the register file: break it through a
                     // scratch slot, exactly as the frame half does.
                     //
-                    // The loop's own test says `pend` is not empty. `ready` is
-                    // `None` only when every entry's register is some entry's
-                    // source; the registers are distinct, so covering all of
+                    // `ready` is `None` only when every entry's register is
+                    // some entry's source; the registers are distinct, so covering all of
                     // them takes as many register sources as there are entries
                     // and no entry's source can be a slot. A slot here would
                     // mean the search above missed a move that was ready, and
                     // emitting the permutation anyway would drop it.
-                    let &(_, f, src) = pend
-                        .first()
-                        .or_ice("the loop runs while `pend` has an entry");
                     let j = match src {
                         RSrc::Reg(j) => Some(j),
                         RSrc::Slot(_) => None,
@@ -1983,7 +1979,7 @@ impl<'a> Jit<'a> {
             }
         }
         let mut tmp = st.scratch + 48;
-        while !pending.is_empty() {
+        while let Some(&(_, s, n)) = pending.first() {
             match pending
                 .iter()
                 .position(|(d, _, _)| !pending.iter().any(|(_, s, _)| s == d))
@@ -1993,11 +1989,8 @@ impl<'a> Jit<'a> {
                     self.mv(d, s, n);
                 }
                 None => {
-                    // A cycle: break it through a scratch slot. The loop's own
-                    // test says there is a first entry to break it at.
-                    let &(_, s, n) = pending
-                        .first()
-                        .or_ice("the loop runs while `pending` has an entry");
+                    // A cycle: break it through a scratch slot, at the first
+                    // entry.
                     self.mv(tmp, s, n);
                     for p in pending.iter_mut() {
                         if p.1 == s {
