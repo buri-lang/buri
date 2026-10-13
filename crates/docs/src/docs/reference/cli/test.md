@@ -285,7 +285,8 @@ MCDC:4,2,f,0,1,'b' in 'a && b'
 ```
 
 A single-condition decision names itself twice, as in `'n < 0' in 'n < 0'`, and
-a `match` arm names its pattern, as in `'.None' in 'match n'`.
+a `match` arm names its pattern, as in `'.None' in 'match n'`. A text over
+80 characters is cut short with `...`.
 
 The standard library, the platforms and reference counting stay out. The first
 two aren't your code. Reference counting is the native backends' own business,

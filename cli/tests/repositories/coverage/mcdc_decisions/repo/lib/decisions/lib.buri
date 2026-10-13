@@ -1,1 +1,1 @@
-from "//lib/decisions/decisions.buri" export { abs, name, orZero, plusOne, sign };
+from "//lib/decisions/decisions.buri" export { abs, farAbove, name, notBoth, orZero, plusOne, sign };

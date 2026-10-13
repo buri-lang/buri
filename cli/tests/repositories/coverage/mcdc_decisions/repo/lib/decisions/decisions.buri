@@ -22,3 +22,11 @@ export fn plusOne(n: Option<Int>): Option<Int> {
 export fn orZero(n: Option<Int>): Int {
     n.withDefault(0)
 }
+
+export fn notBoth(a: Bool, b: Bool): Bool {
+    if (!(a && b)) { true } else { false }
+}
+
+export fn farAbove(n: Int): Bool {
+    if (n + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 1000000000 > 0) { true } else { false }
+}

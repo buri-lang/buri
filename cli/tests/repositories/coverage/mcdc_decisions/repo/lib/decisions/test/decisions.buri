@@ -22,3 +22,13 @@ test "try that never returned early" {
 test "built-in that saw only Some" {
     assert.equal(d.orZero(.Some(3)), 3);
 }
+
+test "a negated chain" {
+    assert.equal(d.notBoth(true, true), false);
+    assert.equal(d.notBoth(false, true), true);
+}
+
+test "a condition too long to quote whole" {
+    assert.equal(d.farAbove(1), true);
+    assert.equal(d.farAbove(-9000000000), false);
+}
