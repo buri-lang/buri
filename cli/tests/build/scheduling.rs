@@ -610,3 +610,76 @@ fn many_suites_are_each_reused_or_re_run_on_their_own_key() {
         indent(&fixed.all())
     );
 }
+
+/// A runner that dies once it has asked for a test and none is left has
+/// nothing to blame: its suite runs again on its own, and passes.
+///
+/// Two runners are each handed one of two tests. The one handed the second ends
+/// with it. `buri` is then held where it tells the other there is nothing more
+/// to run, and that runner is killed there, before its input closes, with no
+/// test in hand.
+#[cfg(unix)]
+#[test]
+fn a_runner_killed_with_no_test_in_hand_is_run_again() {
+    unsafe extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    const SIGKILL: i32 = 9;
+    if let Some(gap) = ci::native_host_gap() {
+        ci::skipped("build::scheduling", &gap);
+        return;
+    }
+    let scratch = Scratch::repo("runner-killed-drained");
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n  test { sources: [\"test/a.buri\"] }\n}\n",
+    );
+    scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
+    scratch.write(
+        "lib/a/test/a.buri",
+        "from \"//lib/a\" import { one };\n\
+         from \"core/testing/assert\" import * as assert;\n\
+         \ntest \"first\" {\n  assert.equal(one(), 1);\n}\n\
+         \ntest \"second\" {\n  assert.equal(one(), 1);\n}\n",
+    );
+    let held = crate::held::Held::new("runner-killed-drained");
+    held.hold("handed", 1);
+    held.hold("handed", 2);
+    held.hold("drained", 1);
+    let mut run = held.start_with_env(
+        &scratch,
+        &["test", "//lib/a", "--jobs=2", "--color=never"],
+        &[LINKED],
+    );
+    let runners = || -> Vec<i32> {
+        let found = std::process::Command::new("pgrep")
+            .args(["-P", &run.id().to_string(), "-x", "test-library"])
+            .output()
+            .expect("pgrep runs");
+        String::from_utf8_lossy(&found.stdout)
+            .split_whitespace()
+            .filter_map(|pid| pid.parse().ok())
+            .collect()
+    };
+    let first = held.reached("handed", 1);
+    let second = held.reached("handed", 2);
+    second.go();
+    let started = std::time::Instant::now();
+    while runners().len() > 1 {
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(240),
+            "the second runner never ended:\n{}",
+            held.printed()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    first.go();
+    let draining = held.reached("drained", 1);
+    for pid in runners() {
+        // SAFETY: an ordinary `kill` of a child of the run.
+        unsafe { kill(pid, SIGKILL) };
+    }
+    draining.go();
+    assert!(run.wait().unwrap().success(), "{}", held.printed());
+    assert!(held.printed().contains("2 passed"), "{}", held.printed());
+}

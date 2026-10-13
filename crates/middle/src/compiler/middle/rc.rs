@@ -2182,9 +2182,15 @@ enum Left {
     Added(HashSet<LocalId>),
     /// The largest branch, scanned last and left in `live`.
     Kept,
-    /// Scanned and taken back out, whole, because a jump under the construct
-    /// may have taken away what was live after it.
-    Whole(HashSet<LocalId>),
+}
+
+/// What a construct's branches left live, for [`Scan::balance`].
+enum Branches {
+    /// Each branch's [`Left`].
+    Split(Vec<Left>),
+    /// Every branch scanned and taken back out, whole, because a jump under
+    /// the construct may have taken away what was live after it.
+    Whole(Vec<HashSet<LocalId>>),
 }
 
 struct Scan<'a> {
@@ -2917,13 +2923,18 @@ impl Scan<'_> {
         live: &mut Live,
         sizes: &[u32],
         scan: &mut dyn FnMut(&mut Self, usize, &mut Live),
-    ) -> Vec<Left> {
-        let whole = self.jumps_within(id);
-        let last = if whole {
-            None
-        } else {
-            (0..sizes.len()).max_by_key(|&i| sizes.get(i).copied().unwrap_or(0))
-        };
+    ) -> Branches {
+        if self.jumps_within(id) {
+            let mut wholes = Vec::with_capacity(sizes.len());
+            for i in 0..sizes.len() {
+                let mark = live.mark();
+                scan(self, i, live);
+                wholes.push(live.iter().collect());
+                live.undo(mark);
+            }
+            return Branches::Whole(wholes);
+        }
+        let last = (0..sizes.len()).max_by_key(|&i| sizes.get(i).copied().unwrap_or(0));
         let mut left: Vec<Left> = (0..sizes.len()).map(|_| Left::Kept).collect();
         for i in (0..sizes.len()).filter(|i| Some(*i) != last).chain(last) {
             if Some(i) == last {
@@ -2932,16 +2943,9 @@ impl Scan<'_> {
             }
             let mark = live.mark();
             scan(self, i, live);
-            let entry = if whole {
-                let all: HashSet<LocalId> = live.iter().collect();
-                live.undo(mark);
-                Left::Whole(all)
-            } else {
-                Left::Added(live.undo(mark))
-            };
-            *left.get_mut(i).or_ice("`left` has a row per branch") = entry;
+            *left.get_mut(i).or_ice("`left` has a row per branch") = Left::Added(live.undo(mark));
         }
-        left
+        Branches::Split(left)
     }
 
     /// Drops, at the entry of a branch, every owned local the branch does not
@@ -2958,14 +2962,17 @@ impl Scan<'_> {
         live: &mut Live,
         tick: u64,
         ids: &[NodeId],
-        left: Vec<Left>,
+        left: Branches,
         token: Option<LocalId>,
         skips: &[Option<LocalId>],
     ) {
-        if left.iter().any(|l| matches!(l, Left::Whole(_))) {
-            self.balance_whole(live, ids, &left, token, skips);
-            return;
-        }
+        let left = match left {
+            Branches::Whole(wholes) => {
+                self.balance_whole(live, ids, &wholes, token, skips);
+                return;
+            }
+            Branches::Split(left) => left,
+        };
         // What the kept branch lacks is what the others added, read before
         // they are added to it.
         let mut kept_extra: Vec<LocalId> = Vec::new();
@@ -3013,21 +3020,18 @@ impl Scan<'_> {
         &mut self,
         live: &mut Live,
         ids: &[NodeId],
-        left: &[Left],
+        left: &[HashSet<LocalId>],
         token: Option<LocalId>,
         skips: &[Option<LocalId>],
     ) {
         let mut union: HashSet<LocalId> = HashSet::default();
-        for l in left {
-            if let Left::Whole(mine) = l {
-                union.extend(mine.iter().copied());
-            }
+        for mine in left {
+            union.extend(mine.iter().copied());
         }
         if let Some(t) = token {
             union.remove(&t);
         }
-        for (i, (bid, l)) in ids.iter().zip(left).enumerate() {
-            let Left::Whole(mine) = l else { continue };
+        for (i, (bid, mine)) in ids.iter().zip(left).enumerate() {
             let extra = self.owned_extra(mine, &union, skips.get(i).copied().flatten());
             self.drop_on_entry(*bid, extra);
         }
@@ -3651,14 +3655,14 @@ impl Scan<'_> {
         //
         // Only an arm under a jump has back edges, so only a construct whose
         // branches are kept whole has a root to leave out.
-        let skips: Vec<Option<LocalId>> = left
-            .iter()
-            .zip(&arm_edges)
-            .map(|(l, edges)| match l {
-                Left::Whole(b) => kept.filter(|r| !edges.is_empty() && !b.contains(r)),
-                _ => None,
-            })
-            .collect();
+        let skips: Vec<Option<LocalId>> = match &left {
+            Branches::Whole(wholes) => wholes
+                .iter()
+                .zip(&arm_edges)
+                .map(|(b, edges)| kept.filter(|r| !edges.is_empty() && !b.contains(r)))
+                .collect(),
+            Branches::Split(_) => vec![None; arm_edges.len()],
+        };
         for (skip, edges) in skips.iter().zip(&arm_edges) {
             // Where no path falls through, `flush_at` below already writes
             // this drop at every back edge.
