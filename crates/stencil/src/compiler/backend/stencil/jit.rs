@@ -2590,14 +2590,15 @@ impl<'a> Jit<'a> {
             };
             let header = code.get(t.block);
             for p2 in &latch.params {
-                let Some(k) = t.args.iter().position(|a| a == p2) else {
+                // One argument per parameter, of its type (`ir::verify`).
+                let Some(p1) = t
+                    .args
+                    .iter()
+                    .zip(&header.params)
+                    .find_map(|(a, p1)| (a == p2).then_some(*p1))
+                else {
                     continue;
                 };
-                // One argument per parameter, of its type (`ir::verify`).
-                let p1 = *header
-                    .params
-                    .get(k)
-                    .or_ice("an edge passes one argument per parameter");
                 if ent(uses, p2.index(), 0) != 1
                     || ent(width, p2.index(), 0) != 8
                     || ent(pin, p2.index(), None).is_some()

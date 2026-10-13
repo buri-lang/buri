@@ -1404,8 +1404,10 @@ impl Jit<'_> {
 
         self.imm_to(Q_ZERO, 0);
         let counted = self.rc_counted(&ty);
-        for (i, (from, at)) in [(Q_A, Q_VALUE), (Q_B, Q_VALUE + slot)]
+        // An equality takes two values (`ir::verify`).
+        for (i, ((from, at), to)) in [(Q_A, Q_VALUE), (Q_B, Q_VALUE + slot)]
             .into_iter()
+            .zip(&callee.params)
             .enumerate()
         {
             if size > 0 {
@@ -1414,7 +1416,6 @@ impl Jit<'_> {
             if counted && facts.get(i) == Some(&ir::Ownership::Own) {
                 self.walk_rc(&mut st, &ty, at, Op::Retain, 0);
             }
-            let to = callee.params.get(i).or_ice("an equality takes two values");
             self.mv(cbase + to, at, slot);
         }
         self.emit(
@@ -1546,10 +1547,8 @@ impl Jit<'_> {
         // The arguments, and the ones the callee borrows, kept for the release
         // after the call.
         let mut borrowed: Vec<(u32, Ty)> = Vec::new();
-        for (j, (t, to)) in sig_params.iter().zip(&callee.params).enumerate().skip(skip) {
-            let from = *params
-                .get(j - skip)
-                .or_ice("a thunk has a slot per argument");
+        let args = sig_params.iter().zip(&callee.params).enumerate().skip(skip);
+        for ((j, (t, to)), &from) in args.zip(params.iter()) {
             let n = self.slot_bytes_of(prog, *t);
             self.mv(cbase + to, from, n);
             // Only a counted value has an ownership to borrow.
