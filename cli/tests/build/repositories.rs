@@ -1118,95 +1118,55 @@ fn language_server_speed() {
     );
 }
 
-/// How much slower the second half of a restore may be than the first.
+/// A restore against a repository the size a person opens a hundred tabs in,
+/// held to the work each open does rather than to how long it takes.
 ///
-/// The budget above is a constant and this is the *shape*: an open that pays
-/// for the buffers already open fails this on any machine, because both halves
-/// are measured on the same one. Three times, plus a floor so that a run whose
-/// opens are all a millisecond does not fail on jitter.
-const RESTORE_DRIFT: u32 = 3;
-
-/// The same restore, against a repository the size a person opens a hundred
-/// tabs in.
+/// Twenty-four libraries of four modules of eighty-six functions, 145 files,
+/// every one of them opened. A `didOpen` once asked every open buffer's target
+/// for its findings, and the analyses that answer are held eight at a time, so
+/// past eight targets every open ran the front end over all of them. The golden
+/// `an_open_costs_one_target_however_many_are_open` opens four targets, which
+/// fit; this opens twenty-four, which don't.
 ///
-/// `cli/tests/example` is 2.3k lines in eight targets: enough to hold the
-/// budget honest and not enough to show what an open costs when the buffer
-/// count is what an editor really restores. This one is generated from a
-/// template so its size is stated rather than measured — twenty-four libraries
-/// of four modules of eighty-six functions, 24,768 lines across 145 files — and
-/// every one of those files is opened, under the same 50 ms an editor request
-/// has. Before the findings of a target were kept per target the last open here
-/// was 58 ms and the first was 4 ms; both halves of that are what fails now.
-///
-/// The restore is measured through `best_of` like the session above is, which
-/// is what the two medians are taken over as well: the shape of a restore is a
-/// claim about opens, not about which of them the runner happened to interrupt.
-///
-/// ```text
-/// BURI_PERF=1 cargo test --release -p buri --test build repositories::language_server_open_cost
-/// ```
+/// Every library has the same shape, so an open in the last one does the same
+/// work as the same file's open in the first, however many buffers are open
+/// behind it. The `verbose` trace's counters say what that work was.
 #[test]
 fn language_server_open_cost() {
-    if std::env::var("BURI_PERF").is_err() {
-        crate::harness::ci::deferred_to(
-            "language server budget",
-            "language server budget (arm64)",
-            "BURI_PERF is unset, and a millisecond in a debug profile is a fact about the \
-             profile",
-        );
-        return;
-    }
-    let budget = language_server_budget();
-    let timings = best_of(
-        |_| budget,
-        || {
-            let scratch = generated_repository("lsp-open-scale", 24, 4, 86);
-            let mut editor = Editor::warmed(&scratch);
-            let mut timings = Vec::new();
-            for file in sources_of(&scratch.root) {
-                timings.push(editor.opened(&file));
+    let scratch = generated_repository("lsp-open-scale", 24, 4, 86);
+    let mut editor = Editor::traced(&scratch.root);
+    // Keyed by name within its library: `lib/p9/m2.buri` is `lib/p0/m2.buri`,
+    // nine libraries later.
+    let mut first = std::collections::BTreeMap::<String, (String, String)>::new();
+    let mut grew = Vec::new();
+    for file in sources_of(&scratch.root) {
+        let work = editor.opened_work(&file);
+        let name = file.rsplit('/').next().unwrap_or(&file).to_string();
+        match first.get(&name) {
+            Some((was, then)) if *then != work => {
+                grew.push(format!("  {file}: {work}\n    where {was} was: {then}"));
             }
-            editor.close();
-            timings
-        },
-    );
-
-    let over: Vec<_> = timings
-        .iter()
-        .filter(|(_, took)| *took > budget)
-        .cloned()
+            Some(_) => {}
+            None => {
+                first.insert(name, (file, work));
+            }
+        }
+    }
+    editor.close();
+    let seen: Vec<String> = first
+        .values()
+        .map(|(file, work)| format!("  {file}: {work}"))
         .collect();
-    let mut slowest = timings.clone();
-    slowest.sort_by_key(|(_, took)| std::cmp::Reverse(*took));
-    let five = listed(&slowest[..slowest.len().min(5)]);
-    let half = timings.len() / 2;
-    let first = median(&timings[..half]);
-    let last = median(&timings[half..]);
-    // Printed on a pass too: the two medians are the shape, and the five
-    // slowest are what a later recalibration reads.
-    eprintln!(
-        "language server: {} opens under a {}ms bar, {}ms then {}ms per open; the five slowest:\n{five}",
-        timings.len(),
-        budget.as_millis(),
-        first.as_millis(),
-        last.as_millis()
+    assert!(
+        seen.iter().any(|line| line.contains("analyses 1")),
+        "no open analysed anything, so the counters say nothing:\n{}",
+        seen.join("\n")
     );
     assert!(
-        over.is_empty(),
-        "these opens took longer than the {}ms an open has:\n{}\n\nthe five slowest of the run:\n{five}",
-        budget.as_millis(),
-        listed(&over),
-    );
-    let allowed = first
-        .saturating_mul(RESTORE_DRIFT)
-        .saturating_add(std::time::Duration::from_millis(10));
-    assert!(
-        last <= allowed,
-        "the restore's second half costs {}ms an open against its first half's {}ms, \
-         so an open is still paying for the buffers already open:\n{}",
-        last.as_millis(),
-        first.as_millis(),
-        five
+        grew.is_empty(),
+        "these opens did more than the same file's open in the first library, so an open \
+         is paying for the buffers already open:\n{}",
+        grew.join("\n")
     );
 }
 
@@ -1382,14 +1342,6 @@ fn monorepo_shaped(name: &str, packages: usize, functions: usize, tests: usize) 
     scratch
 }
 
-/// The middle time of a run, which is what a ratio between two halves of a
-/// restore has to be taken over: one slow open would carry a mean.
-fn median(rows: &[(String, std::time::Duration)]) -> std::time::Duration {
-    let mut times: Vec<std::time::Duration> = rows.iter().map(|(_, took)| *took).collect();
-    times.sort();
-    times.get(times.len() / 2).copied().unwrap_or_default()
-}
-
 /// One timing per line, for the message a failure prints.
 fn listed(rows: &[(String, std::time::Duration)]) -> String {
     rows.iter()
@@ -1437,7 +1389,7 @@ fn generated_repository(name: &str, packages: usize, modules: usize, functions: 
     let scratch = Scratch::empty(name);
     scratch.write(
         "REPO.buri",
-        "# Generated by repositories.rs for the language server's open budget.\n",
+        "# Generated by repositories.rs for the language server's open cost.\n",
     );
     for package in 0..packages {
         let dir = format!("lib/p{package}");
@@ -1513,6 +1465,70 @@ impl Editor {
         editor.timed("initialize", &params);
         editor.notify("initialized", "{}");
         editor
+    }
+
+    /// A server that answers one message completely before reading the next,
+    /// and reports the work each one did on a `verbose` trace.
+    fn traced(root: &Path) -> Editor {
+        let process = buri_command()
+            .arg("lsp")
+            .env("BURI_LSP_ANALYSIS", "synchronous")
+            .current_dir(root)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("the language server did not start");
+        let mut editor = Editor {
+            process,
+            dir: root.to_path_buf(),
+            root: format!("file://{}", root.display()),
+            next_id: 0,
+        };
+        let params = format!(r#"{{"rootUri":"{}","trace":"verbose"}}"#, editor.root);
+        editor.ask("initialize", &params);
+        editor.notify("initialized", "{}");
+        editor
+    }
+
+    /// One buffer opened on an [`Editor::traced`] server, and the work the
+    /// open reported, less the time it took and the bytes it wrote.
+    fn opened_work(&mut self, rel: &str) -> String {
+        let text = std::fs::read_to_string(self.dir.join(rel)).unwrap();
+        let params = format!(
+            r#"{{"textDocument":{{"uri":"{}","languageId":"buri","version":1,"text":{}}}}}"#,
+            self.uri(rel),
+            quoted(&text)
+        );
+        self.notify("textDocument/didOpen", &params);
+        // The open's trace is written before the request behind it is read.
+        self.next_id = self.next_id.saturating_add(1);
+        let id = self.next_id;
+        let uri = self.uri(rel);
+        self.write(&format!(
+            r#"{{"jsonrpc":"2.0","id":{id},"method":"textDocument/linkedEditingRange","params":{{"textDocument":{{"uri":"{uri}"}},"position":{{"line":0,"character":0}}}}}}"#
+        ));
+        let wanted = format!(r#""id":{id},"jsonrpc""#);
+        let mut work = None;
+        loop {
+            let message = self.read();
+            if message.contains(&wanted) {
+                break;
+            }
+            if message.contains(r#""message":"answered notification textDocument/didOpen""#) {
+                let verbose = message
+                    .split(r#""verbose":""#)
+                    .nth(1)
+                    .and_then(|rest| rest.split('"').next())
+                    .unwrap_or_default();
+                let counters = verbose.split_once("; ").map_or(verbose, |(_, c)| c);
+                let counters = counters
+                    .split_once(", bytes written")
+                    .map_or(counters, |(c, _)| c);
+                work = Some(counters.to_string());
+            }
+        }
+        work.unwrap_or_else(|| panic!("opening {rel} reported no work on the trace"))
     }
 
     /// A server that has already read the standard library.
