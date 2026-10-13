@@ -770,7 +770,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let ret = substitute(&info.ret, &targs, None);
         let ty = Ty::func(params, ret);
         typed::Expr::new(
-            typed::ExprKind::FnRef(typed::Callee::Decl { id: f, targs }),
+            typed::ExprKind::FnRef(typed::Callee { id: f, targs }),
             ty,
             span,
         )
@@ -1248,7 +1248,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.check_lazy_load(f, &hir_args, args, span);
         typed::Expr::new(
             typed::ExprKind::CallFn {
-                func: typed::Callee::Decl { id: f, targs },
+                func: typed::Callee { id: f, targs },
                 args: hir_args,
             },
             ret,
@@ -1807,24 +1807,20 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// `rewrite_call_args` in `middle/monomorphize.rs` is that correction,
     /// made where the instantiation is known.
     ///
-    /// A row's value is a value, so it is not itself a context; the loop is
-    /// belt and braces against a shape that cannot be written, and it stops
-    /// rather than spinning if one ever can be.
+    /// A row's value is a value, never itself a context, so one lookup
+    /// settles it. An unbound effect is diagnosed at monomorphization, where
+    /// the whole context is known; until then the receiver is the answer.
     fn implementing_ty(&self, recv: &Ty, tid: TraitId) -> Ty {
-        let mut ty = *recv;
-        for _ in 0..8 {
-            let TyKind::Ctx(id) = ty.kind() else {
-                return ty;
-            };
-            // An unbound effect is diagnosed at monomorphization, where the
-            // whole context is known; there is nothing better to say here than
-            // the receiver.
-            let Some(next) = self.c.tables.ctx_type(*id).get(tid).cloned() else {
-                return ty;
-            };
-            ty = next;
+        match recv.kind() {
+            TyKind::Ctx(id) => self
+                .c
+                .tables
+                .ctx_type(*id)
+                .get(tid)
+                .copied()
+                .unwrap_or(*recv),
+            _ => *recv,
         }
-        ty
     }
 
     /// `bound` is the trait and the position in its method list — one argument

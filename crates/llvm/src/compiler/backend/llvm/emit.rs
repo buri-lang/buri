@@ -46,7 +46,7 @@
 //!    produce. So `code` points at a generated function that takes the
 //!    environment as a pointer, loads those leaves out of it, and forwards. The
 //!    same shape covers a capture-free lambda, which `middle::closures` has
-//!    already turned into a plain `FnRef`: it still gets a thunk, because which
+//!    already turned into a plain `FuncRef`: it still gets a thunk, because which
 //!    of the two a closure value holds is a run-time fact.
 //!  * **The environment block leads with its own drop glue.** `Ty::Fn` records
 //!    what a function takes and answers and not what it captured, so a `decref`
@@ -2460,7 +2460,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// its environment as an aggregate parameter, which under VALUE-MODEL.md
     /// §5.1 is that aggregate's *leaves*, and a call site holding a closure has
     /// only a pointer. The same shape covers a capture-free lambda, which
-    /// `middle::closures` has already turned into a plain `FnRef` — it still
+    /// `middle::closures` has already turned into a plain `FuncRef` — it still
     /// gets a thunk, because the call site cannot know which of the two it is
     /// holding.
     ///
@@ -5144,7 +5144,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// With an environment, the record's leaves are loaded out of the block at
     /// [`ENV_FIELDS`] and passed first, which is exactly the aggregate
     /// parameter the lifted lambda declares. Without one, the environment is
-    /// ignored: a capture-free lambda is an ordinary `FnRef` by the time it
+    /// ignored: a capture-free lambda is an ordinary `FuncRef` by the time it
     /// reaches here (`middle::closures`), and its callee has no environment
     /// parameter at all — but it still needs a thunk, because the *call site*
     /// cannot know which of the two it is holding.

@@ -18,7 +18,7 @@
 //!
 //! # Indices must not move
 //!
-//! `Program::roots`, `Callee::Func` and `FnRef` are all `FuncIdx`, and
+//! `Program::roots`, `CallFunc` and `FuncRef` are all `FuncIdx`, and
 //! `inline.rs` states the invariant that nothing renumbers them. So a dropped
 //! function is replaced by `FuncKind::Unbuilt` **in place** rather than
 //! removed: renumbering would mean rewriting every call in the program to save
@@ -173,7 +173,7 @@ pub fn callees(program: &Program, func: usize) -> Vec<usize> {
 
 /// Every function this body can reach.
 ///
-/// A call is not the only way to name one: `FnRef` is a function used as a
+/// A call is not the only way to name one: `FuncRef` is a function used as a
 /// value, which is how a lambda-free callback and every `map(f)` reaches its
 /// callee, and dropping a function only *referenced* would be a
 /// `ReferenceError` at run time rather than a smaller artifact. `Continue`
@@ -188,8 +188,8 @@ fn references(e: &typed::Expr, chunks: Chunks, out: &mut Vec<usize>) {
         return;
     }
     match &e.kind {
-        ExprKind::CallFn { func, .. } | ExprKind::FnRef(func) => {
-            out.extend(func.func().map(|i| i.index()));
+        ExprKind::CallFunc { func, .. } | ExprKind::FuncRef(func) => {
+            out.push(func.index());
         }
         ExprKind::Continue { func: Some(f), .. } => out.push(f.index()),
         _ => {}
@@ -211,7 +211,7 @@ fn is_chunk(e: &typed::Expr) -> bool {
 mod tests {
     use super::run;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
-    use crate::compiler::semantics::typed::{Callee, Expr, ExprKind};
+    use crate::compiler::semantics::typed::{Expr, ExprKind};
     use crate::compiler::semantics::types::{FuncIdx, Ty};
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
@@ -240,8 +240,8 @@ mod tests {
 
     fn call(to: u32) -> Expr {
         Expr::new(
-            ExprKind::CallFn {
-                func: Callee::Func(FuncIdx(to)),
+            ExprKind::CallFunc {
+                func: FuncIdx(to),
                 args: Vec::new(),
             },
             Ty::UNIT,
@@ -331,11 +331,7 @@ mod tests {
     /// calls would drop it and leave a name with nothing behind it.
     #[test]
     fn a_function_referenced_as_a_value_is_reached() {
-        let body = Expr::new(
-            ExprKind::FnRef(Callee::Func(FuncIdx(1))),
-            Ty::UNIT,
-            Span::default(),
-        );
+        let body = Expr::new(ExprKind::FuncRef(FuncIdx(1)), Ty::UNIT, Span::default());
         let mut p = program(vec![
             func("main", Some(body)),
             func(

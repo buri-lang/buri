@@ -535,7 +535,9 @@ fn resolved_by_role(
         let mut reached: Vec<String> = Vec::new();
         typed::walk(&body.expr, &mut |e| {
             let called = match &e.kind {
-                typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => func.decl(),
+                typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => {
+                    Some(func.id)
+                }
                 _ => None,
             };
             let Some(f) = called else { return };

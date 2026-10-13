@@ -74,7 +74,6 @@ pub mod rc;
 pub mod tail_calls;
 
 use crate::compiler::middle::monomorphize::Program;
-use crate::compiler::semantics::typed::Callee;
 use crate::diagnostics::Invariant as _;
 
 /// What the shared half of the middle end is allowed to do.
@@ -263,15 +262,6 @@ fn strongly_connected(edges: &[Vec<usize>]) -> Components {
         }
     }
     out
-}
-
-/// The function a call or a reference names. Monomorphization resolves every
-/// callee, so each pass after it sees only [`Callee::Func`].
-pub(crate) fn resolved(callee: &Callee) -> usize {
-    callee
-        .func()
-        .or_ice("monomorphization resolved the callee")
-        .index()
 }
 
 /// The strongly connected components of a graph, each sorted, in the order

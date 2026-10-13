@@ -290,10 +290,11 @@ fn parameter_hints(analyzed: &Analyzed, text: &str, root: &typed::Expr, out: &mu
     let tables = &analyzed.analysis.checked.tables;
     typed::walk(root, &mut |e| {
         let (params, args, about): (&[ParamInfo], _, Symbol) = match &e.kind {
-            ExprKind::CallFn { func, args } => match func.decl() {
-                Some(id) => (&tables.fn_info(id).params, args, Symbol::Function(id)),
-                None => return,
-            },
+            ExprKind::CallFn { func, args } => (
+                &tables.fn_info(func.id).params,
+                args,
+                Symbol::Function(func.id),
+            ),
             ExprKind::CallTrait {
                 trait_id,
                 method,

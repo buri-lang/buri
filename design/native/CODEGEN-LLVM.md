@@ -450,7 +450,7 @@ sets both, and nothing else in the backend names a convention number.
 
 **The one real gap**, named so it is not rediscovered: an *indirect* tail call —
 a closure tail-calling itself through a value — is not eliminated on any backend,
-because `tail_callees` collects only `ExprKind::CallFn` (`tail_calls.rs`). It is
+because `tail_callees` collects only `ExprKind::CallFunc` (`tail_calls.rs`). It is
 a middle-end gap that predates this design, and the fix is a middle-end one.
 
 ## 6. Cache locality and basic-block size

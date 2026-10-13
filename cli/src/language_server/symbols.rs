@@ -48,10 +48,6 @@ const TRAIT: &str = "every trait is declared by an item named at its span";
 /// Why a local's entry is always there: the checker numbered it from its body.
 const LOCAL: &str = "a checked local is numbered from the body that binds it";
 
-/// Why a call names a declaration: monomorphization, which swaps in concrete
-/// functions, runs after everything the language server reads.
-const DECLARED: &str = "a checked call names its declaration until monomorphization";
-
 /// Why a field access names a field: the checker builds one only on a resolved
 /// struct type that has the field.
 const FIELD: &str = "a checked field access is on a struct that has the field";
@@ -1637,8 +1633,10 @@ fn expression_symbols(
         }
         ExprKind::Const(id) => out(tables.const_(*id).name.clone(), Symbol::Const(*id)),
         ExprKind::FnRef(func) | ExprKind::CallFn { func, .. } => {
-            let id = func.decl().or_ice(DECLARED);
-            out(tables.fn_info(id).name.clone(), Symbol::Function(id));
+            out(
+                tables.fn_info(func.id).name.clone(),
+                Symbol::Function(func.id),
+            );
         }
         ExprKind::CallTrait {
             trait_id, method, ..

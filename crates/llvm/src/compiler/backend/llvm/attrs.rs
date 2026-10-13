@@ -39,7 +39,7 @@
 //!    struct or enum literal allocates and is left `Pure`. So a function whose
 //!    body allocates would claim `memory(none)`.
 //!  * An `ExprKind::Intrinsic` raises purity but never `aborts`
-//!    (`rc.rs:800`), while a `CallFn` to an intrinsic *function* raises both.
+//!    (`rc.rs:800`), while a `CallFunc` to an intrinsic *function* raises both.
 //!
 //! [`Observed`] is where the backend's own conservatism lands: a function this
 //! backend emitted an allocation or a runtime call into is demoted before its

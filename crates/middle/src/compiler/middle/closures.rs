@@ -17,9 +17,9 @@
 //!
 //! # What comes out
 //!
-//! A lambda that captures nothing becomes an `FnRef`. VALUE-MODEL.md §7 says a
+//! A lambda that captures nothing becomes an `FuncRef`. VALUE-MODEL.md §7 says a
 //! function value is `{ code, env }` with a null `env` in that case, and
-//! `FnRef` is already exactly it — so the empty environment is not built, not
+//! `FuncRef` is already exactly it — so the empty environment is not built, not
 //! passed, and not a special case anywhere downstream.
 //!
 //! Everything else becomes `ExprKind::Closure { func, env }`, where `env` is
@@ -45,7 +45,7 @@
 
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::typed::{self, Callee, Expr, ExprKind, PatKind, Pattern, Stmt};
+use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
 use crate::diagnostics::Invariant as _;
 
@@ -181,10 +181,10 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
         span: e.span,
     });
 
-    // Nothing captured means nothing to carry, which is the `FnRef` a
+    // Nothing captured means nothing to carry, which is the `FuncRef` a
     // top-level function already is.
     e.kind = if captures.is_empty() {
-        ExprKind::FnRef(Callee::Func(func))
+        ExprKind::FuncRef(func)
     } else {
         ExprKind::Closure {
             func,
@@ -402,7 +402,7 @@ mod tests {
     }
 
     /// A lambda over nothing is a top-level function, and a null environment is
-    /// what `FnRef` already means (VALUE-MODEL.md §7).
+    /// what `FuncRef` already means (VALUE-MODEL.md §7).
     #[test]
     fn a_lambda_that_captures_nothing_is_a_reference() {
         let lambda = e(ExprKind::Lambda {
@@ -414,7 +414,7 @@ mod tests {
         run(&mut p);
         assert!(matches!(
             p.funcs[0].body().unwrap().kind,
-            ExprKind::FnRef(_)
+            ExprKind::FuncRef(_)
         ));
         assert_eq!(p.funcs.len(), 2);
         assert!(p.funcs[1].body().is_some());

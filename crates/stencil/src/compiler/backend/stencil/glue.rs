@@ -86,7 +86,7 @@ pub enum Helper {
     /// `args` is how many parameters the closure's *type* declares, which is
     /// what separates a leading environment parameter from a value one: a
     /// capture-free lambda still has the first, of the unit type, and a plain
-    /// `FnRef` has none at all. `boxed` says whether the `env` word holds a
+    /// `FuncRef` has none at all. `boxed` says whether the `env` word holds a
     /// block to read the record out of.
     Thunk { func: u32, args: u32, boxed: bool },
     /// `op` over one value of a type, as `fn(*mut u8)`. A copy replaces every

@@ -107,10 +107,7 @@ fn reaches(e: &typed::Expr, load: FnId, waiting: &HashSet<FnId>) -> Option<Span>
         return None;
     }
     if let ExprKind::CallFn { func, .. } = &e.kind {
-        if func
-            .decl()
-            .is_some_and(|f| f == load || waiting.contains(&f))
-        {
+        if func.id == load || waiting.contains(&func.id) {
             return Some(e.span);
         }
     }
@@ -133,7 +130,7 @@ fn walk(
     diags: &mut Diagnostics,
 ) {
     if let ExprKind::CallFn { func, args } = &e.kind {
-        if let Some(label) = func.decl().and_then(|f| builder_label(f, builders)) {
+        if let Some(label) = builder_label(func.id, builders) {
             for arg in args {
                 if let ExprKind::Lambda { body, .. } = &arg.kind {
                     if let Some(span) = reaches(body, load, waiting) {

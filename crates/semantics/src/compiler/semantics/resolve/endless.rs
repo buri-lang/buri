@@ -184,10 +184,10 @@ pub(super) fn endless_functions<'a>(
         };
         typed::walk(&body.expr, &mut |e| match &e.kind {
             typed::ExprKind::CallFn {
-                func: typed::Callee::Decl { id, targs },
+                func: typed::Callee { id, targs },
                 ..
             }
-            | typed::ExprKind::FnRef(typed::Callee::Decl { id, targs }) => {
+            | typed::ExprKind::FnRef(typed::Callee { id, targs }) => {
                 mentions(Step::Call(*id, targs), targs, 0, &mut out)
             }
             typed::ExprKind::CallTrait {

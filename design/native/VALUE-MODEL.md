@@ -447,7 +447,7 @@ already lists (`typed.rs`).
 
 A lambda that captures nothing has a null `env`, and the middle end rewrites a
 call through a known-empty closure into a direct call, so `xs.map(ctx, double)`
-costs no indirection at all. `ExprKind::FnRef` is exactly that case.
+costs no indirection at all. `ExprKind::FuncRef` is exactly that case.
 
 The environment is plain immutable data with no capability in it, because SPEC
 10.6 forbids capturing an effect-carrying value and the checker enforces it. That

@@ -14,7 +14,7 @@
 //! At the call site, whichever way the key arrives: an `ExprKind::Intrinsic`, or
 //! a call to the `FuncKind::Intrinsic` function a method resolves to. There the
 //! step is usually a lambda written at the call, which `middle::closures` left
-//! as an `ExprKind::FnRef` to the lifted function, so the step is a **direct**
+//! as an `ExprKind::FuncRef` to the lifted function, so the step is a **direct**
 //! call rather than one through the closure's thunk. The intrinsic function
 //! gets the same loop as its own body, for the one caller that cannot see a
 //! step: a function value, called through its thunk.
@@ -59,7 +59,7 @@ use crate::compiler::middle::ir::{
 };
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
-use crate::compiler::semantics::typed::{Callee, Expr, ExprKind};
+use crate::compiler::semantics::typed::{Expr, ExprKind};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
 
@@ -195,7 +195,7 @@ impl FnLower<'_> {
         let step = step_at(key)
             .and_then(|at| args.get(at))
             .and_then(|a| match &a.kind {
-                ExprKind::FnRef(Callee::Func(f)) => Some(*f),
+                ExprKind::FuncRef(f) => Some(*f),
                 _ => None,
             });
         match self.list_loop(key, &vals, &tys, step, ret) {

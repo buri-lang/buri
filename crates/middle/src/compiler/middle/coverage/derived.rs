@@ -210,8 +210,8 @@ fn precede(
         stmts.push(bind(id, value, span));
     }
     let shadowed = Expr::new(
-        ExprKind::CallFn {
-            func: typed::Callee::Func(*shadow),
+        ExprKind::CallFunc {
+            func: *shadow,
             args: values,
         },
         *ret,
@@ -635,8 +635,8 @@ impl Shadows<'_> {
         }
         let (func, ret) = self.request(op, t)?;
         Some(Expr::new(
-            ExprKind::CallFn {
-                func: typed::Callee::Func(func),
+            ExprKind::CallFunc {
+                func: func,
                 args: values,
             },
             ret,

@@ -431,7 +431,7 @@ impl<'a> Jit<'a> {
                 // How many parameters the closure's *type* declares is what
                 // separates the environment parameter from a value one: a
                 // capture-free lambda still has a leading parameter, of the
-                // unit type, and a plain `FnRef` has none at all.
+                // unit type, and a plain `FuncRef` has none at all.
                 let args = match code.ty_of(*dest) {
                     ir::Type::Agg(id) => match prog.type_info(id).ty.kind() {
                         TyKind::Fn(ps, _) => Some(ps.len()),
@@ -2190,7 +2190,7 @@ impl<'a> Jit<'a> {
             let (tag, _, _) = num_tag(prim);
             let binkey = key!["bin/", stencil_op(op), "/", tag, "/ff/f"];
             // A number operator answers `Self`, one result.
-            if self.has(&binkey) && fs.params.len() == 2 {
+            if self.has(&binkey) {
                 self.emit(
                     &binkey,
                     &[

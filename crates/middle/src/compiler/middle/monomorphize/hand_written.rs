@@ -136,8 +136,8 @@ fn match_(scrutinee: Expr, arms: Vec<typed::Arm>, ty: Ty) -> Expr {
 
 fn call(slot: usize, args: Vec<Expr>, ret: Ty) -> Expr {
     Expr::new(
-        ExprKind::CallFn {
-            func: typed::Callee::Func(FuncIdx(slot as u32)),
+        ExprKind::CallFunc {
+            func: FuncIdx(slot as u32),
             args,
         },
         ret,
@@ -193,8 +193,8 @@ impl Monomorphizer<'_> {
             ctx,
             unbounded: false,
         });
-        Some(ExprKind::CallFn {
-            func: typed::Callee::Func(FuncIdx(slot as u32)),
+        Some(ExprKind::CallFunc {
+            func: FuncIdx(slot as u32),
             args: args.to_vec(),
         })
     }
@@ -669,8 +669,8 @@ impl Monomorphizer<'_> {
                 ctx,
                 unbounded: true,
             });
-            ExprKind::CallFn {
-                func: typed::Callee::Func(FuncIdx(slot as u32)),
+            ExprKind::CallFunc {
+                func: FuncIdx(slot as u32),
                 args,
             }
         } else {

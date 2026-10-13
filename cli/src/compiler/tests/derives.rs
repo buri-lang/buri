@@ -111,14 +111,8 @@ fn sexp(p: &Program, e: &Expr) -> String {
         ExprKind::Field { base, index } | ExprKind::TupleIndex { base, index } => {
             format!("{}.{index}", sexp(p, base))
         }
-        ExprKind::CallFn { func, args } => match func.func() {
-            Some(f) => format!("{}({})", name_of(p, f), list(args)),
-            None => format!("?({})", list(args)),
-        },
-        ExprKind::FnRef(c) => match c.func() {
-            Some(f) => format!("&{}", name_of(p, f)),
-            None => "&?".into(),
-        },
+        ExprKind::CallFunc { func, args } => format!("{}({})", name_of(p, *func), list(args)),
+        ExprKind::FuncRef(f) => format!("&{}", name_of(p, *f)),
         ExprKind::Intrinsic { name, args, .. } => format!("{name}({})", list(args)),
         ExprKind::Prim { op, prim, args } => {
             format!("{op:?}<{}>({})", prim.name(), list(args))
@@ -236,11 +230,7 @@ fn calls(program: &Program, out: &Derives, op: Op) -> Vec<FuncIdx> {
         }
         let Some(body) = f.body() else { continue };
         typed::walk(body, &mut |e| {
-            if let ExprKind::CallFn {
-                func: typed::Callee::Func(g),
-                ..
-            } = &e.kind
-            {
+            if let ExprKind::CallFunc { func: g, .. } = &e.kind {
                 if out.instances.iter().any(|i| i.op == op && i.func == *g) {
                     found.push(*g);
                 }

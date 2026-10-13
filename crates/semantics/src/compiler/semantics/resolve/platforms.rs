@@ -107,9 +107,7 @@ pub fn js_structs(
                         typed::ExprKind::StructLit { con, .. }
                         | typed::ExprKind::EnumLit { con, .. } => reach.con(*con),
                         typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => {
-                            reach.fn_(func.decl().or_ice(
-                                "a checked body names declarations: monomorphization hasn't run",
-                            ));
+                            reach.fn_(func.id);
                         }
                         _ => {}
                     }

@@ -1199,7 +1199,7 @@ impl<'a> Gen<'a> {
     /// `return $str_trim(self);`. Every use then costs a real call frame for a
     /// call it is about to make anyway. Expanding at the call site removes
     /// both, and the wrapper itself falls out of the artifact once nothing
-    /// names it — except where something still does, through `FnRef`, which is
+    /// names it — except where something still does, through `FuncRef`, which is
     /// why the declaration is still emitted.
     ///
     /// Three things have to hold before an expansion may replace a call, and
@@ -2487,17 +2487,11 @@ impl<'a> Gen<'a> {
                     .unwrap_or_else(|| format!("v{}", l.0)),
             ),
             ExprKind::Const(_) => Expr::Num(0.0),
-            // Both of these name a `Program::funcs` slot, which is what
-            // `Callee::func` answers; a callee still naming a declaration
-            // means monomorphization did not run over this tree.
-            ExprKind::FnRef(f) => match f.func() {
-                Some(i) => Expr::ident(self.symbol(i.index())),
-                None => self.abort_unmonomorphized(),
-            },
-            ExprKind::CallFn { func, args } => {
-                let Some(idx) = func.func() else {
-                    return self.abort_unmonomorphized();
-                };
+            // A callee still naming a declaration means monomorphization did
+            // not run over this tree.
+            ExprKind::CallFn { .. } | ExprKind::FnRef(_) => self.abort_unmonomorphized(),
+            ExprKind::FuncRef(f) => Expr::ident(self.symbol(f.index())),
+            ExprKind::CallFunc { func: idx, args } => {
                 let args = self.exprs(args, out);
                 let parks = self.parks(idx.index());
                 let call = match self.inline_intrinsic(idx.index(), &args) {
@@ -2893,9 +2887,10 @@ impl<'a> Gen<'a> {
                 let n = crate::compiler::backend::intrinsic_keys::lazy_chunk_of(name)
                     .unwrap_or_default();
                 let symbol = match args.first().map(|a| &a.kind) {
-                    Some(ExprKind::FnRef(c)) => c
-                        .func()
-                        .and_then(|i| self.program.funcs.get(i.index()))
+                    Some(ExprKind::FuncRef(c)) => self
+                        .program
+                        .funcs
+                        .get(c.index())
                         .map(|f| f.symbol.clone())
                         .unwrap_or_default(),
                     _ => String::new(),

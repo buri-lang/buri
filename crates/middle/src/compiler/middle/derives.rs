@@ -171,7 +171,7 @@ use crate::compiler::middle::monomorphize::{
 };
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
-    self, Arm, Callee, Expr, ExprKind, FieldPat, PatKind, Pattern, PrimOp, TemplatePart,
+    self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern, PrimOp, TemplatePart,
 };
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyConId, TyKind};
 use crate::diagnostics::{Invariant as _, Span};
@@ -1141,14 +1141,7 @@ impl Generator {
     }
 
     fn call(&self, f: FuncIdx, args: Vec<Expr>, ret: Ty) -> Expr {
-        Expr::new(
-            ExprKind::CallFn {
-                func: Callee::Func(f),
-                args,
-            },
-            ret,
-            Span::NONE,
-        )
+        Expr::new(ExprKind::CallFunc { func: f, args }, ret, Span::NONE)
     }
 
     fn intrinsic(&self, name: &str, targs: Vec<Ty>, args: Vec<Expr>, ret: Ty) -> Expr {
@@ -1171,11 +1164,7 @@ impl Generator {
 
     /// A code pointer to a generated function, for the array helpers.
     fn fn_ref(&self, f: FuncIdx, params: Vec<Ty>, ret: Ty) -> Expr {
-        Expr::new(
-            ExprKind::FnRef(Callee::Func(f)),
-            Ty::func(params, ret),
-            Span::NONE,
-        )
+        Expr::new(ExprKind::FuncRef(f), Ty::func(params, ret), Span::NONE)
     }
 
     /// `x.i`, by index — a struct field or a tuple element, whichever the
@@ -3568,8 +3557,8 @@ fn decoder_body(f: &mut Func, decoder: FuncIdx, path_ty: Ty) {
         Expr::new(ExprKind::Local(value), json, Span::NONE),
         Expr::new(ExprKind::Str("$".to_string()), path_ty, Span::NONE),
     ];
-    let call = ExprKind::CallFn {
-        func: Callee::Func(decoder),
+    let call = ExprKind::CallFunc {
+        func: decoder,
         args,
     };
     let ret = f.ret;
@@ -3609,8 +3598,8 @@ fn reporter_body(f: &mut Func, key: &str, show: FuncIdx) {
     // name is the `kind` it was handed.
     let shown = |f: &Func, p: usize, str_ty: &Ty| {
         Some(Expr::new(
-            ExprKind::CallFn {
-                func: Callee::Func(show),
+            ExprKind::CallFunc {
+                func: show,
                 args: vec![local(f, p)?],
             },
             *str_ty,
@@ -3699,8 +3688,8 @@ fn rewrite_expr(
                             ),
                         );
                     }
-                    ExprKind::CallFn {
-                        func: Callee::Func(*f),
+                    ExprKind::CallFunc {
+                        func: *f,
                         args: values,
                     }
                 }),
@@ -3710,8 +3699,8 @@ fn rewrite_expr(
         ExprKind::StructuralEq { args } => {
             let d = args.first().and_then(|a| index.get(&a.ty)).copied();
             d.and_then(|d| routed.get(&(Op::Eq, d)))
-                .map(|f| ExprKind::CallFn {
-                    func: Callee::Func(*f),
+                .map(|f| ExprKind::CallFunc {
+                    func: *f,
                     args: args.clone(),
                 })
         }

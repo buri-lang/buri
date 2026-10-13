@@ -159,7 +159,7 @@ pub fn suspends(key: &str) -> bool {
 ///  * **`parking[f]`** — the locals of `f` (its parameters and its `let`s)
 ///    whose function value may park. A parameter is followed when the function
 ///    owning it is never used as a *value* ([`address_taken`]): then every
-///    argument it can receive is written at a `CallFn` or a `Continue` naming
+///    argument it can receive is written at a `CallFunc` or a `Continue` naming
 ///    it, and those are edges this pass walks. A `let` is followed when it
 ///    binds one name to one expression ([`fn_lets`]).
 ///  * **`resolved[f]`** — the locals it followed. A fn-typed local outside
@@ -232,10 +232,7 @@ impl Parking {
             return false;
         }
         match &e.kind {
-            // A callee still naming a declaration means monomorphization did
-            // not run, which the backends turn into an abort; `true` is the
-            // answer that cannot be wrong in the meantime.
-            ExprKind::FnRef(c) => c.func().is_none_or(|i| self.parks(i.index())),
+            ExprKind::FuncRef(c) => self.parks(c.index()),
             ExprKind::Closure { func, .. } => self.parks(func.index()),
             ExprKind::Lambda { body, .. } => self.body_parks(fi, body),
             ExprKind::Local(l) => {
@@ -276,10 +273,7 @@ impl Parking {
     fn body_parks(&self, fi: usize, body: &Expr) -> bool {
         let mut k = false;
         typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::CallFn { func, .. } => match func.func() {
-                Some(c) => k = k || self.parks(c.index()),
-                None => k = true,
-            },
+            ExprKind::CallFunc { func, .. } => k = k || self.parks(func.index()),
             // A jump into another function's loop is a call.
             ExprKind::Continue { func: Some(c), .. } => k = k || self.parks(c.index()),
             ExprKind::CallValue { callee, .. } => k = k || self.value_parks(fi, callee),
@@ -325,10 +319,10 @@ fn fn_lets(body: &Expr) -> Vec<(LocalId, &Expr)> {
     out
 }
 
-/// The function slots whose **address is taken**: named by an `FnRef` or a
+/// The function slots whose **address is taken**: named by an `FuncRef` or a
 /// `Closure` rather than called.
 ///
-/// One of these can be called from a position no `CallFn` names, so nothing can
+/// One of these can be called from a position no `CallFunc` names, so nothing can
 /// be proved about what its parameters hold. Every other slot receives
 /// arguments only where this pass can see them.
 fn address_taken(program: &Program) -> Vec<bool> {
@@ -337,7 +331,7 @@ fn address_taken(program: &Program) -> Vec<bool> {
         let Some(body) = f.body() else { continue };
         typed::walk(body, &mut |e| {
             let taken = match &e.kind {
-                ExprKind::FnRef(c) => c.func(),
+                ExprKind::FuncRef(c) => Some(*c),
                 ExprKind::Closure { func, .. } => Some(*func),
                 _ => None,
             };
@@ -422,25 +416,21 @@ pub fn parkability(program: &Program) -> Parking {
     }
 
     // Arguments, into the parameters they are bound to, and every node that
-    // *is* a function value — an `FnRef`, a `Closure` or a `Lambda` — with the
+    // *is* a function value — an `FuncRef`, a `Closure` or a `Lambda` — with the
     // slot it is written in. Both are read every round and neither moves.
     let mut edges: Vec<(usize, usize, &Vec<Expr>)> = Vec::new();
     let mut values: Vec<(usize, &Expr)> = Vec::new();
     for (i, f) in program.funcs.iter().enumerate() {
         let Some(body) = f.body() else { continue };
         typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::CallFn { func, args } => {
-                if let Some(c) = func.func() {
-                    edges.push((c.index(), i, args));
-                }
-            }
+            ExprKind::CallFunc { func, args } => edges.push((func.index(), i, args)),
             // A `Continue` rebinds the parameters of the function it enters, in
             // order — the dispatch index the backend prepends is not one of
             // them.
             ExprKind::Continue { func, args, .. } => {
                 edges.push((func.map_or(i, |c| c.index()), i, args));
             }
-            ExprKind::FnRef(_) | ExprKind::Closure { .. } | ExprKind::Lambda { .. } => {
+            ExprKind::FuncRef(_) | ExprKind::Closure { .. } | ExprKind::Lambda { .. } => {
                 values.push((i, e));
             }
             _ => {}
@@ -487,7 +477,7 @@ pub fn parkability(program: &Program) -> Parking {
         let mut found: Vec<&Ty> = Vec::new();
         for &(i, e) in &values {
             let parks = match &e.kind {
-                ExprKind::FnRef(c) => c.func().is_none_or(|x| w.parks(x.index())),
+                ExprKind::FuncRef(c) => w.parks(c.index()),
                 ExprKind::Closure { func, .. } => w.parks(func.index()),
                 ExprKind::Lambda { body, .. } => w.body_parks(i, body),
                 _ => false,

@@ -263,9 +263,9 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
         .iter()
         .filter_map(|(&slot, (id, _))| builtin_of(*id).map(|how| (slot, how)))
         .collect();
-    let builtins = |callee: &typed::Callee| match callee {
-        typed::Callee::Decl { id, .. } => builtin_of(*id),
-        typed::Callee::Func(f) => by_slot.get(&(f.0 as usize)).copied(),
+    let builtins = |called: coverage::Called| match called {
+        coverage::Called::Decl(id) => builtin_of(id),
+        coverage::Called::Func(f) => by_slot.get(&(f.0 as usize)).copied(),
     };
     let mut note =
         |body: &typed::Expr, instance: Instance, traps: Option<&dyn Fn(&typed::Expr) -> bool>| {
@@ -323,7 +323,7 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
     // integer type's `divide` or `remainder`.
     let checked_traps = |e: &typed::Expr| match &e.kind {
         typed::ExprKind::CallFn {
-            func: typed::Callee::Decl { id, .. },
+            func: typed::Callee { id, .. },
             ..
         } => {
             let info = tables.fn_info(*id);
@@ -363,10 +363,7 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
     }
     if mcdc {
         let mono_traps = |e: &typed::Expr| match &e.kind {
-            typed::ExprKind::CallFn {
-                func: typed::Callee::Func(f),
-                ..
-            } => program
+            typed::ExprKind::CallFunc { func: f, .. } => program
                 .funcs
                 .get(f.0 as usize)
                 .is_some_and(|f| name_of(f.span).is_none() && coverage::aborts(f)),

@@ -152,39 +152,16 @@ pub enum PrimOp {
     Ge,
 }
 
-/// Who a direct call, or a function-valued reference, names.
+/// The declaration a checked body's direct call, or function-valued
+/// reference, names, and the type arguments it is instantiated at.
 ///
-/// Before monomorphization a call names a *declaration* together with the type
-/// arguments it is instantiated at. After it, every call names one concrete
-/// function — an index into `Program::funcs`. Both used to be spelled `FnId`
-/// with a `Vec<Ty>` beside it that had to be empty afterwards, so the two index
-/// spaces were interchangeable to the compiler and the rule lived in a doc
-/// comment in another module.
+/// Monomorphization replaces each with one concrete function: a
+/// [`ExprKind::CallFn`] becomes a [`ExprKind::CallFunc`] and a
+/// [`ExprKind::FnRef`] a [`ExprKind::FuncRef`].
 #[derive(Clone, Debug)]
-pub enum Callee {
-    /// A declaration and the type arguments it is called at.
-    Decl { id: FnId, targs: Vec<Ty> },
-    /// One concrete function, after monomorphization. Carries no type
-    /// arguments, because there is nothing left to instantiate.
-    Func(FuncIdx),
-}
-
-impl Callee {
-    /// The declaration this names, before monomorphization has run.
-    pub fn decl(&self) -> Option<FnId> {
-        match self {
-            Callee::Decl { id, .. } => Some(*id),
-            Callee::Func(_) => None,
-        }
-    }
-
-    /// The concrete function this names, after monomorphization has run.
-    pub fn func(&self) -> Option<FuncIdx> {
-        match self {
-            Callee::Decl { .. } => None,
-            Callee::Func(i) => Some(*i),
-        }
-    }
+pub struct Callee {
+    pub id: FnId,
+    pub targs: Vec<Ty>,
 }
 
 #[derive(Clone, Debug)]
@@ -202,6 +179,8 @@ pub enum ExprKind {
     Const(crate::compiler::semantics::types::ConstId),
     /// A top-level function used as a value.
     FnRef(Callee),
+    /// [`ExprKind::FnRef`] after monomorphization: one concrete function.
+    FuncRef(FuncIdx),
 
     /// A call through a value of function type.
     CallValue {
@@ -214,8 +193,13 @@ pub enum ExprKind {
         func: Callee,
         args: Vec<Expr>,
     },
+    /// [`ExprKind::CallFn`] after monomorphization: one concrete function.
+    CallFunc {
+        func: FuncIdx,
+        args: Vec<Expr>,
+    },
     /// A trait or effect method whose receiver type is not yet concrete.
-    /// Monomorphization turns each of these into a `CallFn`.
+    /// Monomorphization turns each of these into a `CallFunc`.
     CallTrait {
         trait_id: TraitId,
         method: usize,
@@ -563,6 +547,7 @@ pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
             args.iter().for_each(f);
         }
         ExprKind::CallFn { args, .. }
+        | ExprKind::CallFunc { args, .. }
         | ExprKind::CallTrait { args, .. }
         | ExprKind::StructLit { fields: args, .. }
         | ExprKind::EnumLit { args, .. }
@@ -638,6 +623,7 @@ pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
         | ExprKind::Local(_)
         | ExprKind::Const(_)
         | ExprKind::FnRef(_)
+        | ExprKind::FuncRef(_)
         | ExprKind::CtxCall { .. }
         | ExprKind::Error => {}
     }
@@ -657,6 +643,7 @@ pub fn children_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
             args.iter_mut().for_each(f);
         }
         ExprKind::CallFn { args, .. }
+        | ExprKind::CallFunc { args, .. }
         | ExprKind::CallTrait { args, .. }
         | ExprKind::StructLit { fields: args, .. }
         | ExprKind::EnumLit { args, .. }
@@ -732,6 +719,7 @@ pub fn children_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
         | ExprKind::Local(_)
         | ExprKind::Const(_)
         | ExprKind::FnRef(_)
+        | ExprKind::FuncRef(_)
         | ExprKind::CtxCall { .. }
         | ExprKind::Error => {}
     }
