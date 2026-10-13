@@ -3,7 +3,7 @@
 # Branches gate, in total and per area; lines are context.
 
 area                              branches                      lines         
-cli/build                        1678/1695   99.00%       10721/11028   97.22%
+cli/build                        1678/1695   99.00%       10739/11046   97.22%
 cli/documentation                  477/480   99.38%         2768/2849   97.16%
 cli/format                          89/100   89.00%           341/350   97.43%
 cli/language_server              1270/1406   90.33%         7996/8263   96.77%
@@ -17,17 +17,17 @@ crates/diagnostics                 191/194   98.45%         1550/1633   94.92%
 crates/docs                        240/270   88.89%           793/908   87.33%
 crates/hash                          18/18  100.00%           241/294   81.97%
 crates/js                        1021/1060   96.32%         5379/5626   95.61%
-crates/llvm                        610/616   99.03%         7701/7909   97.37%
-crates/middle                    1866/1916   97.39%       14661/15117   96.98%
+crates/llvm                        605/610   99.18%         7698/7906   97.37%
+crates/middle                    1884/1934   97.41%       14807/15264   97.01%
 crates/project                   1341/1358   98.75%         6217/6378   97.48%
 crates/semantics                 2169/2176   99.68%       13424/13723   97.82%
 crates/stdlib                        12/12  100.00%           125/149   83.89%
-crates/stencil                   1195/1220   97.95%         8442/8883   95.04%
+crates/stencil                   1196/1220   98.03%         8446/8886   95.05%
 crates/syntax                    1194/1196   99.83%         6542/6703   97.60%
-total                          15107/15629   96.66%      97130/100661   96.49%
+total                          15121/15641   96.68%      97295/100826   96.50%
 
 cli/src                           branches                      lines         
-build                            1678/1695   99.00%       10721/11028   97.22%
+build                            1678/1695   99.00%       10739/11046   97.22%
 commands/add                           7/8   87.50%             65/72   90.28%
 commands/arguments                   37/44   84.09%           114/129   88.37%
 commands/build                       90/90  100.00%           449/468   95.94%
